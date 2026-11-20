@@ -383,6 +383,13 @@ const floatZero = (carrier: "float4" | "float8"): Expr =>
 export const sameZeroSign = (a: Expr, b: Expr, carrier: "float4" | "float8"): Expr =>
 	or([ne(a, floatZero(carrier)), eq(signByte(a, carrier), signByte(b, carrier))])
 
+/**
+ * Whether a float is -0: a zero whose sign byte is set. NaN, the infinities and every other value are not, so the
+ * zero's sign is all it adds to PostgreSQL's equality, which holds every NaN equal and -0 = 0.
+ */
+export const negativeZero = (x: Expr, carrier: "float4" | "float8"): Expr =>
+	and([eq(x, floatZero(carrier)), ne(signByte(x, carrier), integer(0))])
+
 /** Whether two floats are zeros of two signs, -0 and +0: equal under PostgreSQL's equality and two values. */
 export const zerosOfTwoSigns = (a: Expr, b: Expr, carrier: "float4" | "float8"): Expr =>
 	and([

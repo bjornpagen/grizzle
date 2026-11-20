@@ -13,7 +13,7 @@ import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { TextsMap } from "#compiler/core/text.ts"
-import { typedEq } from "#compiler/ir/compare.ts"
+import { factSet, typedEq } from "#compiler/ir/compare.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
@@ -1132,6 +1132,26 @@ export const distinctSelect = (
 	from: ReadonlyArray<FromItem>,
 	where: ReadonlyArray<Expr>
 ): Select => select(distinctCore(targets, from, conjunction(where)))
+
+/**
+ * A heading's columns read through `map` over `from` as a set of facts (ir/compare.ts factSet): an InputSet's, whose
+ * rows are a parameter relation's facts, a set by their identity, so -0 and +0 are two of them as the host codec holds
+ * them (codec/recordset.ts); a heading of no column is the unit relation's.
+ */
+export const factSetSelect = (
+	heading: Heading,
+	map: ColumnMap,
+	from: ReadonlyArray<FromItem>
+): Select =>
+	isNonEmpty(heading)
+		? select(
+				factSet(
+					mapNonEmpty(heading, (c) => ({ target: target(columnIn(map, c.name)), type: c.type })),
+					from,
+					undefined
+				)
+			)
+		: distinctSelect(unitTargets, from, [])
 
 /**
  * Whether a source's rows are a set: a derived table whose query is one (sql/ast.ts isSetQuery), deduplicated or a

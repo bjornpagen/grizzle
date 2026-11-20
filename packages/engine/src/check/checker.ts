@@ -328,6 +328,18 @@ interface Scope extends StageScope {
 const writtenTarget = (origin: ScopeOrigin): MemberTarget | undefined =>
 	origin.kind === "root" && origin.role.kind === "member" ? origin.role.target : undefined
 
+/**
+ * What a scope's own rows are a set of, which decides whether a merge of them takes one zero for another: a ChangeSet
+ * member root's rows are the facts it writes, a set by fact identity, -0 and +0 two facts, which the write forms at its
+ * input (write/insert/input.ts inputSet), so neither its head nor its union's arms take the canonical zero and a -0 the
+ * caller states is the -0 stored; every other scope's rows are values, a set under PostgreSQL's equality, whose merges
+ * deliver the canonical zero (check/merge.ts).
+ */
+type RowsOf = "facts" | "values"
+
+const rowsOf = (origin: ScopeOrigin): RowsOf =>
+	writtenTarget(origin) === undefined ? "values" : "facts"
+
 interface StageOut {
 	readonly node: RelNode
 	readonly order: StageOrder
@@ -1150,7 +1162,10 @@ export class Checker {
 				const input = this.stage(s.input, scope)
 				const prior = this.#unions.get(input.node)?.arms ?? [input.node]
 				const added = s.arms.map((arm) => this.rule(arm, scope))
-				return { node: this.union([...prior, ...added], here), order: unordered }
+				return {
+					node: this.union([...prior, ...added], here, rowsOf(scope.origin)),
+					order: unordered
+				}
 			}
 			case "attach": {
 				const input = this.stage(s.input, scope)
@@ -1296,7 +1311,7 @@ export class Checker {
 	/** Rule arms as one stage: the one arm's node, or their union. */
 	arms(arms: NonEmptyReadonlyArray<ResolvedRule>, scope: Scope, loc: SourceLoc): RelNode {
 		const nodes = mapNonEmpty(arms, (arm) => this.rule(arm, scope))
-		return only(nodes) ?? this.union(nodes, loc)
+		return only(nodes) ?? this.union(nodes, loc, rowsOf(scope.origin))
 	}
 
 	#inherit(node: RelNode, from: RelNode): void {
@@ -1324,7 +1339,7 @@ export class Checker {
 	 * take, an attachment or any stage over it has the columns its groups share for its heading, so as an arm it would
 	 * deliver those alone, and is refused.
 	 */
-	union(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc): RelNode {
+	union(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc, setOf: RowsOf): RelNode {
 		for (const arm of arms) {
 			const ends = deliverySpine(arm).arms?.union
 			if (ends !== undefined && ends.groups.length > 1) {
@@ -1445,12 +1460,16 @@ export class Checker {
 			}
 		}
 		/**
-		 * The arms of one heading group meet, and the union may take a row of one for an equal row of another, so each
-		 * delivers its floats' canonical zeros (canonicalArm); arms of two groups are told apart by their discriminant and
-		 * never meet.
+		 * The arms of one heading group meet, and a union of values may take a row of one for an equal row of another, so
+		 * each delivers its floats' canonical zeros (canonicalArm); a member root's arms are its facts, which its write
+		 * forms into one set by their identity, and keep theirs (RowsOf). Arms of two groups are told apart by their
+		 * discriminant and never meet.
 		 */
 		const mergedGroups = mapNonEmpty(widenedGroups, (g) => ({
-			arms: g.arms.length > 1 ? mapNonEmpty(g.arms, (a) => this.canonicalArm(a, loc)) : g.arms
+			arms:
+				g.arms.length > 1 && setOf === "values"
+					? mapNonEmpty(g.arms, (a) => this.canonicalArm(a, loc))
+					: g.arms
 		}))
 		const groupHeadings = mapNonEmpty(mergedGroups, (g) => ({
 			heading: g.arms[0].heading,
@@ -3161,7 +3180,11 @@ class RuleCheck {
 		) {
 			return source
 		}
-		return this.#narrowUnion(only(selected) ?? this.cx.union(selected, loc), bindings, loc)
+		return this.#narrowUnion(
+			only(selected) ?? this.cx.union(selected, loc, "values"),
+			bindings,
+			loc
+		)
 	}
 
 	/**
@@ -4097,7 +4120,9 @@ class RuleCheck {
 			const projection = projectionOf(out)
 			const node = this.cx.node({ kind: "ProjectSet", input, ...projection }, this.at("head"))
 			this.cx.setLiterals(node, literals)
-			this.cx.stateMerge(node, { kind: "matches", input, region: matches }, this.at("head"))
+			if (rowsOf(this.scope.origin) === "values") {
+				this.cx.stateMerge(node, { kind: "matches", input, region: matches }, this.at("head"))
+			}
 			return node
 		}
 		return this.#grouped(input, corr, plain, folded, matches)

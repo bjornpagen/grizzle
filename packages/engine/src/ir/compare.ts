@@ -1,8 +1,18 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, floatCarrierOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { Expr, TypeSchema } from "#compiler/sql/ast.ts"
-import { and, binary, or, row, sameZeroSign, zerosOfTwoSigns } from "#compiler/sql/build.ts"
+import type { Expr, FromItem, SetCore, Target, TypeSchema } from "#compiler/sql/ast.ts"
+import {
+	and,
+	binary,
+	distinctCore,
+	negativeZero,
+	or,
+	provedCore,
+	row,
+	sameZeroSign,
+	zerosOfTwoSigns
+} from "#compiler/sql/build.ts"
 
 /** The installation's names a comparison's operator resolves through: the schema of each type an extension defines. */
 export type OperatorNames = Pick<PhysicalNames, "vectorSchema">
@@ -159,4 +169,37 @@ export const factNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr => {
 		zerosOfTwoSigns(sides.left(field), sides.right(field), carrier)
 	)
 	return or([rowNe(sides, names), ...signs])
+}
+
+/** One column of a set of facts as a statement reads it: its target and its type. */
+export interface FactColumn {
+	readonly target: Target
+	readonly type: ScalarType
+}
+
+/**
+ * The rows of `columns` over `from` where `where` holds, as a set of facts: two rows are one exactly when factEq holds
+ * them one, equal and each float a zero of one sign where it is a zero, as their identity reads them
+ * (scalar/values/identity.ts canonicalText). So a caller's -0 and +0 stay two facts, where SELECT DISTINCT, under
+ * PostgreSQL's equality, keeps one of them, the one its plan meets first. Rows of no float column are SELECT DISTINCT
+ * itself; rows holding one are grouped by every column and by each float's being -0 (sql/build.ts negativeZero), which
+ * no NaN and no nonzero value is, so it splits no class of PostgreSQL's equality but a zero's.
+ */
+export const factSet = (
+	columns: NonEmptyReadonlyArray<FactColumn>,
+	from: ReadonlyArray<FromItem>,
+	where: Expr | undefined
+): SetCore => {
+	const targets = mapNonEmpty(columns, (c) => c.target)
+	const signs = columns.flatMap((c) => {
+		const carrier = floatCarrierOf(c.type)
+		return carrier === undefined ? [] : [negativeZero(c.target.expr, carrier)]
+	})
+	if (signs.length === 0) {
+		return distinctCore(targets, from, where)
+	}
+	return {
+		...provedCore("grouped", targets, from, where),
+		groupBy: [...targets.map((t) => t.expr), ...signs]
+	}
 }

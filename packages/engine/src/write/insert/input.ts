@@ -4,12 +4,13 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ParamId } from "#compiler/core/ids.ts"
+import { factSet } from "#compiler/ir/compare.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
 import { type KeyProof, keyIn } from "#compiler/ir/keys.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import { always, needing, type Needs } from "#compiler/ir/needs.ts"
 import type { Heading, RelNode } from "#compiler/ir/rel.ts"
-import { type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
+import { floatCarrierOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { needsOf } from "#compiler/logical/needs.ts"
 import {
 	arraysSource,
@@ -45,6 +46,7 @@ import {
 	distinctCore,
 	gt,
 	lit,
+	negativeZero,
 	notExists,
 	provedCore,
 	sameTypeRef,
@@ -245,9 +247,11 @@ interface InputRead {
 	readonly types: ReadonlyArray<InputColumnType>
 }
 
-/** One input read as an operand of the set operation that deduplicates it: its rows as they come. */
+/** One input read as an operand of the set operation that deduplicates it: its rows as they come, and how many columns
+ * its fields' zero signs add after them (`readOperand`). */
 interface OperandRead {
 	readonly body: OperandCore
+	readonly signs: number
 }
 
 /** How a statement reads its input as a query (readInput), each column cast into its field's type inside the read as
@@ -434,7 +438,7 @@ const inputColumns = (
  *   It is evaluated once: the check and the INSERT both reference it, so PostgreSQL materializes it once and both
  *   read the same rows.
  *
- * A carrier or a described member is read through SELECT DISTINCT, and an insert gates its arbiter INSERT with the
+ * A carrier or a described member is read as a set of facts (factSet), and an insert gates its arbiter INSERT with the
  * same-key check, unless the input's evidence proves it distinct, or unique on the primary key, which elides the
  * corresponding step. The conservative realization never supplies a proof;
  * keyUniqueByEvidence reads one from the write DAG's immediate-evidence keys, and distinctByEvidence one from the
@@ -450,19 +454,32 @@ export const readInput = (
 	at: string
 ): InputRead => {
 	const read = readTargets(w, input, options, at)
-	return { select: select(inputSet(input, read.targets, read.from)), types: read.types }
+	return { select: select(inputSet(input, read.targets, read.types, read.from)), types: read.types }
 }
 
 /** Reads an input as an operand of the set operation that deduplicates it, an exact deletion's EXCEPT: no DISTINCT and
- * no claim, its rows as they come. */
+ * no claim, its rows as they come. Where the operation compares rows as facts (`compared` "facts"), each float field's
+ * being -0 (sql/build.ts negativeZero) follows its fields, so two rows that differ only in a zero's sign are two facts
+ * to it, where its own comparison, PostgreSQL's equality, holds them one. */
 export const readOperand = (
 	w: WriteContext,
 	input: WriteInput,
 	options: ReadOptions,
+	compared: "rows" | "facts",
 	at: string
 ): OperandRead => {
-	const { from, targets } = readTargets(w, input, options, at)
-	return { body: core(targets, [from], undefined) }
+	const { from, targets, types: columnTypes } = readTargets(w, input, options, at)
+	const signs =
+		compared === "rows"
+			? []
+			: columnTypes.flatMap((t, place) => {
+					const carrier = floatCarrierOf(t.type)
+					const read = targets[place]
+					return carrier === undefined || read === undefined
+						? []
+						: [target(negativeZero(read.expr, carrier))]
+				})
+	return { body: core([...targets, ...signs], [from], undefined), signs: signs.length }
 }
 
 /** An input's columns read for `options`, each cast into its field's type as `options.into` says. */
@@ -494,15 +511,19 @@ const readTargets = (
 }
 
 /**
- * An input's read as a set: under the guarantee the input carries that no row repeats, or under DISTINCT when it carries
- * none. A relation input's facts are KeyNormalized: the host codec made them a set by identity and refused two at one
- * key, and the read takes every column of its arrays, so its rows repeat nothing (`input`). A carrier's or a described
- * member's rows are a set only when the physical analysis of the member proved them distinct (`certified`,
- * distinctByEvidence); nobody normalized them otherwise.
+ * An input's read as a set of facts: under the guarantee the input carries that no row repeats, or made one by fact
+ * identity when it carries none (ir/compare.ts factSet), so two rows that differ only in a float's zero sign are two
+ * facts, which the same-key check then refuses as two facts of one key, and a lone -0 is the fact written. A relation
+ * input's facts are KeyNormalized: the host codec made them a set by identity and refused two at one key, and the read
+ * takes every column of its arrays, so its rows repeat nothing (`input`). A carrier's or a described member's rows are
+ * a set only when the physical analysis of the member proved them distinct (`certified`, distinctByEvidence), a key
+ * under PostgreSQL's equality, at which no two rows differ only in a zero's sign either; nobody normalized them
+ * otherwise.
  */
 const inputSet = (
 	input: WriteInput,
 	targets: NonEmptyReadonlyArray<Target>,
+	columnTypes: ReadonlyArray<InputColumnType>,
 	from: FromItem
 ): SetCore => {
 	switch (input.kind) {
@@ -512,8 +533,24 @@ const inputSet = (
 		case "described":
 			return input.proof.distinct
 				? provedCore("certified", targets, [from], undefined)
-				: distinctCore(targets, [from], undefined)
+				: factsOf(targets, columnTypes, from)
 	}
+}
+
+/** The rows of an input read at `targets` over `from` as a set of facts (factSet), each column of its type in `columnTypes`, in
+ * order: a read of no field is the unit relation's, its one marker no float. */
+const factsOf = (
+	targets: NonEmptyReadonlyArray<Target>,
+	columnTypes: ReadonlyArray<InputColumnType>,
+	from: FromItem
+): SetCore => {
+	const columns = columnTypes.flatMap((t, at) => {
+		const read = targets[at]
+		return read === undefined ? [] : [{ target: read, type: t.type }]
+	})
+	return isNonEmpty(columns)
+		? factSet(columns, [from], undefined)
+		: distinctCore(targets, [from], undefined)
 }
 
 /** Reads an input under a fresh alias, uncast: the FROM item and each field as read, for a statement that only compares

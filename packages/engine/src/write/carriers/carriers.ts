@@ -7,6 +7,7 @@ import {
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { factSet } from "#compiler/ir/compare.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import { always } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
@@ -294,8 +295,9 @@ const carrierBody = (w: WriteContext, carrier: WriteCarrier): SetCore => {
  * The rows of the described node `node` as a carrier of `heading`, the node's own fields, holds them: each column cast
  * into its type, and a set, as every INSERT source is. The write's duplicate-elimination placement leaves a member's
  * root plain for its consumer to bound (program/compile.ts writeFacts), so the rows are read keyed only where the
- * member's lowering is a set and every cast keeps its value (writeKeeps); otherwise SELECT DISTINCT bounds them, since a
- * plain root may repeat a row and a cast may round two values onto one. A member of no field is bounded under its unit
+ * member's lowering is a set and every cast keeps its value (writeKeeps); otherwise they are bounded as a set of facts
+ * (ir/compare.ts factSet), since a plain root may repeat a row and a cast may round two values onto one, and a float's
+ * two zeros are two facts. A member of no field is bounded under its unit
  * marker: its rows are the unit relation's, one row of no column at most.
  */
 export const memberRows = (
@@ -312,6 +314,7 @@ export const memberRows = (
 		const type = columnType(node.heading, c.name)
 		return {
 			target: target(writeValue(w, value, { type, sqlType: undefined }, c.type, at)),
+			type: c.type,
 			keeps: writeKeeps(w, type, c.type)
 		}
 	})
@@ -319,8 +322,8 @@ export const memberRows = (
 	if (isSetQuery(lowered) && columns.every((c) => c.keeps)) {
 		return select(keyedSet(targets, [wrapped.item], undefined, "a described member's rows"))
 	}
-	if (isNonEmpty(targets)) {
-		return select(distinctCore(targets, [wrapped.item], undefined))
+	if (isNonEmpty(columns)) {
+		return select(factSet(columns, [wrapped.item], undefined))
 	}
 	const unit = w.cx.wrap(select(distinctCore(unitTargets, [wrapped.item], undefined)), [], origin)
 	return select(keyedSet([], [unit.item], undefined, "a described member's row of no column"))

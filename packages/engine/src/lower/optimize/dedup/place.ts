@@ -107,8 +107,10 @@ export const placeDeduplication = (
 	/** Each node's realization by its label, in topological order: the policy's to start with, then each decision. */
 	const realization = new Map<NodeId, Realization>()
 	const nodes = topoOrder(dag)
+	/** The roots their consumers bound: every root of a program that observes none (RootObservation). */
+	const bounded = new Set<RelNode>(env.roots === "ignored" ? dag.roots : [])
 	for (const node of nodes) {
-		realization.set(node.id, initialRealization(node))
+		realization.set(node.id, initialRealization(node, bounded.has(node)))
 	}
 	/** Unions a placement made set UNION: never relaxed again, so the worklist terminates. */
 	const pinnedUnions = new Set<RelNode>()

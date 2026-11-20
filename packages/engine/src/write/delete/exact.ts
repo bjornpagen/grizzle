@@ -169,18 +169,26 @@ const buildDelete = (
 		 * identity, the displacing key and payload comparisons and EXCEPT compare written facts. The cast
 		 * is into each column's base type with its typmod: a value outside a domain matches no stored fact. */
 		const into = { as: "compare" } as const
+		/** D EXCEPT A compares the written facts as facts, a float's -0 and +0 two of them: a deletion of one beside an
+		 * addition of the other deletes it, as the host nets two enumerated members by their identity. */
+		const facts = except.length === 0 ? "rows" : "facts"
 		const read = readOperand(
 			w,
 			input,
 			{ kind: "input", fields: compared, alias: scan, keys: inputs, into },
+			facts,
 			at
 		)
 		const body = setOp("EXCEPT", [
 			read.body,
 			...except.map(
-				(addition) => readOperand(w, addition, { kind: "except", fields: compared, into }, at).body
+				(addition) =>
+					readOperand(w, addition, { kind: "except", fields: compared, into }, facts, at).body
 			)
 		])
+		const signs = Array.from({ length: read.signs }, () =>
+			supply.column(internal("input zero sign"))
+		)
 		const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
 		const stored = (f: LawField): Expr => col(r3, w.names.column(relation.name, f.name))
 		/** Each comparison is at its fields' types: a row holding a vector is spelled column by column through the
@@ -206,7 +214,7 @@ const buildDelete = (
 			mode.kind,
 			{ r2, r3, returned },
 			{
-				leading: [cte(r1, inputs.columns, operandSelect(body))],
+				leading: [cte(r1, [...inputs.columns, ...signs], operandSelect(body))],
 				using: [cteRef(r1)],
 				where: [where]
 			},

@@ -7,8 +7,7 @@ import { inputSetPlaceholder, type NodeOf, type PlaceholderInput } from "#compil
 import {
 	arraysSource,
 	type ColumnMap,
-	distinctSelect,
-	headingTargets,
+	factSetSelect,
 	type LowerContext,
 	type Lowerers,
 	type NodeLowerer,
@@ -64,7 +63,8 @@ const rowCell = (value: Expr, column: RelationColumn): Expr => {
  * has a typmod is cast back to it. The arrays' columns are the generated names of the input's columns, recorded in the
  * statement's slots, and every read of one parameter or member slot in a statement reads the same placeholders. The
  * host codec deduplicates the input and refuses null, but the conservative baseline relies on no codec and
- * deduplicates the input itself under native equality, where 1.0 and 1.00 are one value.
+ * deduplicates the input itself as the codec does, by fact identity (context.ts factSetSelect): 1.0 and 1.00 are one
+ * value, and a float's -0 and +0 two facts, so a parameter relation is the same set of facts under every lowering.
  *
  * A write filter's membership row is the one-row VALUES of the values its caller names (LowerContext.membershipRow),
  * each cast to its column's base type and collated as the input's column would be, so the row means what an input of
@@ -141,7 +141,7 @@ const rowSource = (node: NodeOf<"InputSet">, cx: LowerContext): InputSource => {
 
 const lowerInputSet: NodeLowerer<"InputSet"> = (node, cx) => {
 	const { item, map } = inputSetSource(node, cx)
-	return distinctSelect(headingTargets(node.heading, map), [item], [])
+	return factSetSelect(node.heading, map, [item])
 }
 
 /** This kind's entry of the conservative kind table (dispatch.ts). */

@@ -64,7 +64,10 @@ export class Declined {
  * ValueIdentity is native equality, which for the one form is identity but a float's zero: 1.0 and 1.00 are one
  * Decimal, NaN = NaN, and -0 = 0, two values of one class. A value is only its value, the same under every plan:
  * wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a
- * recursion's state, a join variable's value, the merged zero is +0, so no plan picks one; min and max of floats order
+ * recursion's state, a join variable's value, the merged zero is +0, so no plan picks one. A write stores the facts it
+ * states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, -0 and +0 two
+ * of them, so a -0 a write states is stored as -0 wherever it reads the relation, and two facts at one key that differ
+ * only in a zero's sign are refused as two facts. min and max of floats order
  * -0 below 0, and a float sum or mean whose exact value is zero is -0 exactly when every value it sums is; any other
  * float that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign. A
  * collapse (DISTINCT, UNION, GROUP BY, a join variable) keeps one of natively equal values, and the IR the reference

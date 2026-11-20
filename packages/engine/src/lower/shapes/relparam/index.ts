@@ -1,5 +1,5 @@
 import {
-	distinctSelect,
+	factSetSelect,
 	headingTargets,
 	type NodeLowerer
 } from "#compiler/lower/conservative/context.ts"
@@ -31,15 +31,15 @@ import { provedCore, select } from "#compiler/sql/build.ts"
  * Each array's element type is its column's base type (a closed id's smallint code, a text column's array names the fixed
  * collation), and the columns are generated names, recorded in the statement's slots. A membership's row is the
  * one-row VALUES of the values its caller names, in those types (conservative/input-set inputSetSource). The node's
- * own boundary stays a DISTINCT only where a placement realized one, which a deduplicated input or a row never needs.
+ * own boundary stays a duplicate elimination only where a placement realized one, which a deduplicated input or a row
+ * never needs, and one by fact identity (conservative/context.ts factSetSelect), as the codec's set is.
  */
 export const inputSetLowerer =
 	(facts: ShapeFacts): NodeLowerer<"InputSet"> =>
 	(node, cx) => {
 		const { item, map } = inputSetSource(node, cx)
-		const targets = headingTargets(node.heading, map)
 		if (facts.realization(node) === "distinct" && facts.unique(node) === undefined) {
-			return distinctSelect(targets, [item], [])
+			return factSetSelect(node.heading, map, [item])
 		}
-		return select(provedCore("input", targets, [item], undefined))
+		return select(provedCore("input", headingTargets(node.heading, map), [item], undefined))
 	}

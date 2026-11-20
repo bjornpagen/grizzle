@@ -15,7 +15,9 @@ const pinnedDistinctKinds: ReadonlyArray<RelKind> = ["Recursive", "Intersect", "
  * - A union starts as set UNION, which absorbs its arms' repeats, so redundant per-arm DISTINCT is omitted.
  *   It becomes UNION ALL only when each arm is unique and the final coerced headings are pairwise
  *   disjoint by a retained literal discriminant (R17.unionAll); distinct source identities projected away
- *   never qualify.
+ *   never qualify. A root its consumer bounds, a write program's member, starts as UNION ALL: its rows are the
+ *   facts the write states, which the write's statement forms into one set by their identity
+ *   (write/insert/input.ts inputSet), where a set UNION, under PostgreSQL's equality, would keep one of -0 and +0.
  * - A Group with aggregates observes its input like any other observing consumer: its bound tuple is a key of the
  *   input (ir/rel.ts FoldInput), so the input made distinct over its heading holds one row per bound tuple.
  * - An attachment delivers its parent's rows, a law's Forbid its violation query's and an ordered result its input's,
@@ -26,11 +28,12 @@ const pinnedDistinctKinds: ReadonlyArray<RelKind> = ["Recursive", "Intersect", "
 export const isPinnedDistinct = (node: RelNode): boolean => pinnedDistinctKinds.includes(node.kind)
 
 /**
- * Where placement starts: the pinned set forms and set UNION realized `distinct`, every other node plainly, so the
- * physical analysis shows exactly where a consumer observes repeats.
+ * Where placement starts: the pinned set forms and set UNION realized `distinct`, but a union its consumer bounds
+ * (`bounded`, a root of a program that observes none), every other node plainly, so the physical analysis shows exactly
+ * where a consumer observes repeats.
  */
-export const initialRealization = (node: RelNode): Realization =>
-	isPinnedDistinct(node) || node.kind === "Union" ? "distinct" : "plain"
+export const initialRealization = (node: RelNode, bounded: boolean): Realization =>
+	isPinnedDistinct(node) || (node.kind === "Union" && !bounded) ? "distinct" : "plain"
 
 /**
  * The kinds whose conservative lowering closes their fragment with an exact duplicate elimination: a

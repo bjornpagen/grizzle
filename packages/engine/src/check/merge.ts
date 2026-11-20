@@ -37,7 +37,9 @@ import { canonicalZeroSpec } from "#compiler/scalar/compute/registry.ts"
  * it, wherever they deduplicate. Every Compute operation gives equal results of equal operands, a quotient by zero
  * included (scalar/compute/evaluate.ts quotient), so a value computed from a merged one differs between plans in a
  * zero's sign at most, which the canonical zero erases. A float that is one fact's field wherever its row is delivered
- * keeps its sign: a stored -0 a keyed read delivers is -0.
+ * keeps its sign: a stored -0 a keyed read delivers is -0. A ChangeSet member root's rows are the facts its write
+ * states, a set by fact identity, which the write forms at its input (write/insert/input.ts inputSet), so neither its
+ * head nor its union's arms are a stated merge (check/checker.ts RowsOf): its write stores the -0 its caller states.
  *
  * A float a rule delivers is one fact's field when every variable it reads is (pickFree): a variable bound by one field
  * of one match whose source fields, those bound to a variable the delivered row determines and those a constant fixes,
