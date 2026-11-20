@@ -1,9 +1,11 @@
 /**
  * Relation inputs against PostgreSQL.
  *
- * - Host fact equality is PostgreSQL's: on explored batches of generated cases over small domains that collide (numeric
- *   display scale, NaN, signed zero, uuid case, composed and decomposed text), the host's fact identity partitions every
- *   case exactly as GROUP BY, which is DISTINCT's equality, does. Each field's domain is values its type holds as they
+ * - Host fact identity is PostgreSQL's: on explored batches of generated cases over small domains that collide (numeric
+ *   display scale, NaN, uuid case, composed and decomposed text) or look alike (a float's signed zero), the host's fact
+ *   identity partitions every case exactly as GROUP BY, which is DISTINCT's equality, does, over each field's values
+ *   and, for a float, its binary image beside it, since a float's -0 is a value of its own that its equality holds equal
+ *   to +0 (scalar/values/float.ts; relation.fixtures.ts fields). Each field's domain is values its type holds as they
  *   are, which the input boundary admits (scalar/values/identity.ts parseValue): a numeric(5,2) value is constructed
  *   from hundredths at the typmod's scale, and a real is a binary32 value, a double rounded by Math.fround. A value
  *   PostgreSQL's coercion would round is refused at the boundary (numericScale, realInexact), never grouped, and is
@@ -14,7 +16,8 @@
  * The heading of the equality cases spells each field raw to PostgreSQL, the host value's own spelling and not the
  * codec's normalized text, so PostgreSQL decides the equality independently.
  *
- * Oracle: PostgreSQL itself, GROUP BY's equality over the raw spellings, and DISTINCT over the arrays the encoder sends.
+ * Oracle: PostgreSQL itself, GROUP BY's equality over the raw spellings and a float's binary image, and DISTINCT over
+ * them in the arrays the encoder sends.
  *
  * Features: "equal facts spelled apart" and "deduplicated".
  */
@@ -44,7 +47,10 @@ import { arraysEncoder } from "#test/support/arrays.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Relation inputs against PostgreSQL partitions generated cases exactly as PostgreSQL's DISTINCT equality does. */
+/**
+ * Relation inputs against PostgreSQL partitions generated cases exactly as PostgreSQL's DISTINCT equality does, a
+ * float's binary image beside it.
+ */
 export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPostgreSQLsDISTINCTEqualityDoes =
 	property.explore(array(collidingFactsGen(8), { min: 1, max: 100 }), {
 		needs: { tx: Substrate.transaction },
@@ -112,9 +118,18 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
 						)
 					}
 				}),
-		oracle: { kind: "postgresql", name: "GROUP BY's equality over the raw spellings" },
+		oracle: {
+			kind: "postgresql",
+			name: "GROUP BY's equality over the raw spellings and a float's binary image"
+		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\tfloat8: (v) => floatText(v),",
+				replacement: "\tfloat8: (v) => floatText(v === 0 ? 0 : v),",
+				why: "A double's fact identity writes -0 as +0, as its key text does, so the host merges two facts PostgreSQL's binary image tells apart; the partition property fails."
+			},
 			{
 				file: "packages/engine/src/scalar/values/uuid.ts",
 				original: "\treturn Result.ok(upper ? value.toLowerCase() : value)",
@@ -124,7 +139,10 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
 		]
 	})
 
-/** Relation inputs against PostgreSQL sends PostgreSQL a set: the encoder's arrays hold rows distinct under PostgreSQL's equality. */
+/**
+ * Relation inputs against PostgreSQL sends PostgreSQL a set: the encoder's arrays hold rows distinct under PostgreSQL's
+ * equality, a float's binary image beside it.
+ */
 export const relationInputsAgainstPostgreSQLSendsPostgreSQLASetTheEncodersArraysHoldRowsDistinctUnderPostgreSQLsEquality =
 	property.explore(collidingFactsGen(40), {
 		needs: { tx: Substrate.transaction },

@@ -30,6 +30,11 @@ const range4 = scalarOf(
 
 const uuidB = "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a12"
 
+/**
+ * The fields of a case: each one's name, type, the SQL type its raw spelling is read at, and `group`, the expressions
+ * PostgreSQL tells its values apart by, one value each: its equality's, and for a float its binary image beside it
+ * (float8send, float4send), since its equality holds -0 and +0 equal and they are two values (scalar/values/float.ts).
+ */
 export const fields: ReadonlyArray<{
 	readonly name: string
 	readonly type: ScalarType
@@ -38,8 +43,18 @@ export const fields: ReadonlyArray<{
 }> = [
 	{ name: "n", type: anyNumeric, sql: "numeric", group: "r.n" },
 	{ name: "m", type: numeric52, sql: "numeric(5,2)", group: "r.m" },
-	{ name: "d", type: plainType("float8"), sql: "float8", group: "r.d" },
-	{ name: "f", type: plainType("float4"), sql: "float8", group: "(r.f)::real" },
+	{
+		name: "d",
+		type: plainType("float8"),
+		sql: "float8",
+		group: "r.d, pg_catalog.float8send(r.d)"
+	},
+	{
+		name: "f",
+		type: plainType("float4"),
+		sql: "float8",
+		group: "(r.f)::real, pg_catalog.float4send((r.f)::real)"
+	},
 	{ name: "u", type: uuid, sql: "uuid", group: "r.u" },
 	{ name: "t", type: wildcardText, sql: "text", group: "r.t COLLATE pg_catalog.pg_c_utf8" },
 	{ name: "s", type: range4, sql: "int4range", group: "r.s" },
