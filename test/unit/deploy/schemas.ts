@@ -1,6 +1,9 @@
 import { Array as Arr } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
+import { Compute } from "#compiler/public/compute.ts"
+import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import * as api from "#compiler/public/schema.ts"
 import {
 	alternatives,
 	check,
@@ -167,4 +170,58 @@ export const shopV4: SchemaDesc = {
 		}),
 		key(on("Account", ["name"]))
 	]
+}
+
+/** The changes a set's schema's second version makes to its table alone, each leaving the roster's bits domain as it
+ * was: its CHECK's membership test, or its generated field's, reads its two flags the other way round. */
+export const setChanges = ["its CHECK", "its generated field"] as const
+export type SetChange = (typeof setChanges)[number]
+
+/**
+ * A set's schema, its first version or a second one making `version`'s change: Flag, a roster of three handles;
+ * Allowed, the flags each flag admits, closed; Tagged, rows of a flag and another, its generated `covered` whether the
+ * other is among those its flag admits; and Admitted, Tagged's CHECK that it is. Each membership test's singleton set
+ * is a literal cast to Flag's bits domain, which no column of Tagged is typed by, so only the casts name it, as qti's
+ * attribute's admission CHECK names its roster's.
+ */
+export const setsSchema = (version: "first" | SetChange) => {
+	const Flag = api.closed.ordered("Flag", ["x", "y", "z"])
+	const Allowed = api.closed.relation(
+		"Allowed",
+		{ from: closedId(Flag), to: closedId(Flag) },
+		["from", "to"],
+		[
+			{ from: "x", to: "x" },
+			{ from: "x", to: "y" },
+			{ from: "y", to: "y" },
+			{ from: "z", to: "z" }
+		]
+	)
+	const Tagged = api.relation.generated(
+		"Tagged",
+		{ id: pg.integer, flag: closedId(Flag), other: closedId(Flag) },
+		["id"],
+		(r) => ({
+			covered: generated(
+				pg.boolean,
+				version === "its generated field"
+					? Compute.subset(Compute.singleton(r.flag), Allowed.row(r.other))
+					: Compute.subset(Compute.singleton(r.other), Allowed.row(r.flag))
+			)
+		})
+	)
+	return api.schema(
+		"Sets",
+		[Flag, Allowed, Tagged],
+		[
+			api.check("Admitted", Tagged, (t) =>
+				t.eq(
+					version === "its CHECK"
+						? Compute.subset(Compute.singleton(t.flag), Allowed.row(t.other))
+						: Compute.subset(Compute.singleton(t.other), Allowed.row(t.flag)),
+					true
+				)
+			)
+		]
+	)
 }

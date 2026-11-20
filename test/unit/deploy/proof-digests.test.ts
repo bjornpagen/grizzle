@@ -19,7 +19,7 @@
  *   object's statements name is replayed before it.
  * - **Oracle:** specification: the objects a statement names read off its printed text, each name quoted as grizzle
  *   prints it (test/support/migrate/proofs.ts specifiedAfter), never off its tree.
- * - **Box, exhausted:** each object of the shop's three versions and of a set's schema (setsSchema), whose table's CHECK
+ * - **Box, exhausted:** each object of the shop's three versions and of a set's schema (schemas.ts setsSchema), whose table's CHECK
  *   and generated field each cast a singleton set's literal to the bits domain of a roster no column of the table is
  *   typed by, as qti's attribute does.
  * - **Features:** a replay of an object alone, and one that creates a type a statement casts to and no edge names.
@@ -34,15 +34,12 @@ import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import { proofDigests, replayedOver } from "#compiler/deploy/admission/proof.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
-import { Compute } from "#compiler/public/compute.ts"
-import { closedId, generated, pg } from "#compiler/public/fields.ts"
-import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName } from "#test/support/kernel/naming.ts"
 import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { specifiedAfter, specifiedReplay, specifiedTainted } from "#test/support/migrate/proofs.ts"
-import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
+import { setsSchema, shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
 /** A pair of the shop's versions: the one the proofs were recorded at (0, none) and one at or after it. */
 interface Pair {
@@ -187,47 +184,6 @@ export const proofDigestsChangeExactlyWhereAProofNoLongerCoversAnObject = proper
 	}
 )
 
-/**
- * A set's schema: Flag, a roster of three handles; Allowed, the flags each flag admits, closed; Tagged, rows of a flag
- * and another, its generated `covered` whether the other is among those its flag admits; and Admitted, Tagged's CHECK
- * that it is. Each membership test's singleton set is a literal cast to Flag's bits domain, which no column of Tagged
- * is typed by, so only the casts name it, as qti's attribute's admission CHECK names its roster's.
- */
-const setsSchema = (() => {
-	const Flag = closed.ordered("Flag", ["x", "y", "z"])
-	const Allowed = closed.relation(
-		"Allowed",
-		{ from: closedId(Flag), to: closedId(Flag) },
-		["from", "to"],
-		[
-			{ from: "x", to: "x" },
-			{ from: "x", to: "y" },
-			{ from: "y", to: "y" },
-			{ from: "z", to: "z" }
-		]
-	)
-	const Tagged = relation.generated(
-		"Tagged",
-		{ id: pg.integer, flag: closedId(Flag), other: closedId(Flag) },
-		["id"],
-		(r) => ({
-			covered: generated(
-				pg.boolean,
-				Compute.subset(Compute.singleton(r.other), Allowed.row(r.flag))
-			)
-		})
-	)
-	return schema(
-		"Sets",
-		[Flag, Allowed, Tagged],
-		[
-			check("Admitted", Tagged, (t) =>
-				t.eq(Compute.subset(Compute.singleton(t.other), Allowed.row(t.flag)), true)
-			)
-		]
-	)
-})()
-
 /** The records the replay's order is held over: the shop's three versions, then the set's schema. */
 const records: ReadonlyArray<DeploySnapshot> = [
 	...chain,
@@ -235,7 +191,7 @@ const records: ReadonlyArray<DeploySnapshot> = [
 		draftChain(
 			[
 				{
-					desc: setsSchema,
+					desc: setsSchema("first"),
 					options: { schema: atName("proof_sets"), extensions: [], codes: firstCodes },
 					declared: noDeclarations
 				}

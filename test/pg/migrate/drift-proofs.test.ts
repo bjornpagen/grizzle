@@ -17,10 +17,25 @@
  * - **Kept case:** the hand edit of an unchanged object, whose proof digest still matches, is caught.
  * - **Kills:** a full replay every time; a stored description digest that is never compared.
  * - **Features:** the first version, a version over another, nothing changed, and each hand edit.
+ *
+ * And a cast's type, which no edge names (deploy/admission/manifest.ts ReplayedObject after): a set's schema migrated,
+ * then its table alone changed, its CHECK's or its generated field's membership test, whose singleton set is a literal
+ * cast to its roster's bits domain, which no column is typed by.
+ *
+ * - **Property:** over the first version's proofs, the second's check replays exactly the specification's replay set,
+ *   the table unproven and the domain, proven, among what it is created after, and admits the database: PostgreSQL
+ *   resolves the cast, where a replay of the edges alone left the domain out and was refused (42704), S7's drift check
+ *   on qti's attribute.
+ * - **Oracle:** specification, the replay set restated by object, its objects' names read off their printed text
+ *   (test/support/migrate/proofs.ts specifiedAfter); and PostgreSQL, which builds the replay.
+ * - **Box, exhausted:** each of the two changes of the set's table (schemas.ts setChanges).
+ * - **Kill:** a replay of the edges alone.
+ * - **Features:** each change.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
+import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { applyOnSession, checkDrift } from "#adapter/migrate/apply.ts"
@@ -29,6 +44,7 @@ import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { proofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
+import { type GraphIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
 import {
 	caseGen,
 	editStatement,
@@ -50,9 +66,10 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { firstCodes } from "#test/support/compile.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftChain, fromEmpty } from "#test/support/migrate/kit.ts"
+import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { specifiedReplay } from "#test/support/migrate/proofs.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { type SetChange, setChanges, setsSchema } from "#test/unit/deploy/schemas.ts"
 
 /** The drift check replays what no proof proves, and holds every proven object to its stored description. */
 export const driftProofs = property.explore(caseGen, {
@@ -158,3 +175,87 @@ export const driftProofs = property.explore(caseGen, {
 		}
 	]
 })
+
+/** A replay over an unproven table creates the bits domain its CHECK or its generated field casts to, which no edge names. */
+export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
+	finite((source): SetChange =>
+		defined(setChanges[source.draw(int(0, setChanges.length - 1))], "a change")
+	),
+	{
+		needs: { caseSubstrate: Substrate.installing },
+		situations: setChanges satisfies ReadonlyArray<Reached<SetChange>>,
+		check:
+			({ caseSubstrate }, c: Case<SetChange>) =>
+			(change) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const substrate = yield* Substrate
+						const m = yield* openMigrator(substrate, substrate.owner)
+						return yield* Effect.scoped(
+							Effect.gen(function* () {
+								const allocated = yield* substrate.schema({ create: false, label: "sets" })
+								const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
+								const ledger = succeeded(statementsFor(schema))
+								const proofs = succeeded(proofStatements(schema))
+								const over = { schema: atName(allocated), extensions: [], codes: firstCodes }
+								const folders = draftChain(
+									Arr.map([setsSchema("first"), setsSchema(change)], (desc) => ({
+										desc,
+										options: over,
+										declared: noDeclarations
+									})),
+									fromEmpty
+								)
+								const sources = Arr.map(folders, (g) => reviewedSource(g, kept))
+								const [first, second] = Arr.map([1, 2], (n) =>
+									parsedTarget({
+										snapshot: defined(folders[n - 1], "a drafted folder").snapshot,
+										folders: sources.slice(0, n)
+									})
+								)
+								const one = defined(first, "the first version")
+								const two = defined(second, "the second version")
+								yield* applyOnSession(m, [one])
+								const before = yield* proofRowsOf(m, proofs)
+								yield* applyOnSession(m, [two])
+								yield* proofsHeld(m, proofs, before)
+								const own = yield* checkDrift(m, two.snapshot, ledger, proofs, [])
+								c.note(change)
+								assert.deepEqual(
+									own.replayed,
+									specifiedReplay(one.snapshot, two.snapshot),
+									`${change} changed, the check over the first version's proofs replays exactly what they do not prove`
+								)
+								/** Where the replay creates the first object `is` holds of. */
+								const at = (is: (ident: GraphIdent) => boolean): Option.Option<number> =>
+									Arr.findFirstIndex(own.replayed, (ident) => is(parseIdent(ident)))
+								const created = Option.all([
+									at((g) => g.kind === "domain" && Str.includes("_bits_")(g.name)),
+									at((g) => g.kind === "table" && g.name === "tagged")
+								])
+								assert.ok(
+									Option.exists(created, ([domain, table]) => domain < table),
+									`${change} changed, the replay creates the bits domain before the unproven table that casts to it: ${Arr.join(own.replayed, ", ")}`
+								)
+							})
+						)
+					}),
+					Substrate,
+					caseSubstrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "the replay set restated by object over the two versions' manifests, and PostgreSQL building it"
+		},
+		box: "each of the two changes of the set's table, its CHECK or its generated field, the bits domain as it was",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/deploy/admission/manifest.ts",
+				original: "\t\t\t\t\tafter.add(ident)\n",
+				replacement: "",
+				why: "A replay creates only what the manifest's edges say an object is created after, so the unproven table is replayed without the bits domain its cast names, and PostgreSQL refuses the replay (42704): S7's drift check on qti's attribute."
+			}
+		]
+	}
+)
