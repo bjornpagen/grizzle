@@ -10,6 +10,10 @@
  * `combine`; a member CHECK reading the index and a before, no after, `first slot`; an owner CHECK reading the count and
  * an end `empty family`; the member-to-owner foreign key the owner axis, owner-to-member the last axis, member-to-member
  * the predecessor axis.
+ *
+ * Every seat is the immutable default, which every consumer gets. The counted swap draws its seats' standing
+ * (sumCountedOf, orCountedOf): its prescription rewrites an owner's count and end in place, which an immutable owner's
+ * guard refuses, so over the default a direct writer rewrites the family whole (test/support/families/counted.ts).
  */
 import { deepEquals } from "@bjornpagen/testing/assert"
 import { Array as Arr, Data, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
@@ -33,13 +37,14 @@ import {
 	fin,
 	fold,
 	Monoid,
+	mutable,
 	on,
 	ordered,
 	relation,
 	schema,
 	select
 } from "#compiler/public/schema.ts"
-import type { AnySchema } from "#compiler/public/schema.ts"
+import type { AnyRelation, AnySchema } from "#compiler/public/schema.ts"
 import { columnIndex } from "#compiler/runtime/write/cells.ts"
 import {
 	closedLeaf,
@@ -95,6 +100,17 @@ export const Tag = closed.ordered("Tag", ["a", "b", "c", "d", "e"])
 const K = ["a", "b"] as const
 
 const int4Min = -2_147_483_648
+
+/**
+ * How a seat's Owner and Member stand: immutable, the schema's default, or declared mutable, under which a direct
+ * writer may rewrite an owner's count and ends in place, which an immutable owner's guard refuses for each field it
+ * holds fixed (physical/ddl/immutable.ts).
+ */
+export type Standing = "immutable" | "mutable"
+
+/** The rules a standing adds: `mutable` of each relation, or none for the immutable default. */
+const standingRules = (standing: Standing, relations: ReadonlyArray<AnyRelation>) =>
+	standing === "mutable" ? Arr.map(relations, (r) => mutable(r)) : []
 
 const countOrdered = (() => {
 	const Owner = relation(
@@ -358,7 +374,7 @@ const maxCode = (() => {
 	)
 })()
 
-const sumCounted = (() => {
+export const sumCountedOf = (standing: Standing) => {
 	const Owner = relation(
 		"Owner",
 		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.integer, 0) },
@@ -371,11 +387,15 @@ const sumCounted = (() => {
 	return schema(
 		"fin_fold_sum_counted",
 		[Owner, Member],
-		[family, fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end"))]
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+			...standingRules(standing, [Owner, Member])
+		]
 	)
-})()
+}
 
-const orCounted = (() => {
+export const orCountedOf = (standing: Standing) => {
 	const empty = Bits.of(Tag, [])
 	const Owner = relation(
 		"Owner",
@@ -387,9 +407,13 @@ const orCounted = (() => {
 	return schema(
 		"fin_fold_or_counted",
 		[Tag, Owner, Member],
-		[family, fold(family, Monoid.or, on(Member, "g", "x"), on(Owner, "id", "end"))]
+		[
+			family,
+			fold(family, Monoid.or, on(Member, "g", "x"), on(Owner, "id", "end")),
+			...standingRules(standing, [Owner, Member])
+		]
 	)
-})()
+}
 
 /** How a carrier's values are written, read and encoded: SQL text from the reference's value, and back. */
 export interface Carrier {
@@ -637,7 +661,7 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 	},
 	{
 		label: "sum of int4 over a counted family",
-		schema: sumCounted,
+		schema: sumCountedOf("immutable"),
 		monoid: { name: "sum", least: 0n },
 		shape: "counted",
 		carrier: int4,
@@ -649,7 +673,7 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 	},
 	{
 		label: "or of a set over a counted family",
-		schema: orCounted,
+		schema: orCountedOf("immutable"),
 		monoid: { name: "or", least: 0n },
 		shape: "counted",
 		carrier: setOf(5),
@@ -938,6 +962,33 @@ export const byMember = (s: FoldStored): FoldStored => ({
  * check the model judges fires where it would over a stored state: an immediate one at its statement, a deferred one
  * at the commit or a SET CONSTRAINTS that follows the state's writes.
  */
+/**
+ * `statements` sent on a fold's seat over the state `before`, written first, and `prefix` after it, as one case ends
+ * (installed.ts ended): what PostgreSQL did, unjudged, and the statements before `statements`, the state's writes and
+ * the prefix, whose refusal is none of theirs. judgedFold judges it against the fold's model; a case the model does not
+ * speak to, a guard's refusal, reads it alone.
+ */
+export const sentOver = (
+	fold: FoldSeat,
+	before: FoldStored,
+	statements: ReadonlyArray<FoldStatement>,
+	prefix: ReadonlyArray<string>,
+	end: End
+) =>
+	Effect.gen(function* () {
+		const sql = (s: ReadonlyArray<FoldStatement>) => Arr.map(s, (st) => foldStatementSql(fold, st))
+		const unseen = [...sql(foldWriteOf(before)), ...prefix]
+		const sent = yield* ended(
+			fold.seat,
+			FOLD_RELATIONS,
+			"empty",
+			[...unseen, ...sql(statements)],
+			end,
+			foldRead(fold)
+		)
+		return { sent, unseen }
+	})
+
 export const judgedFold = (
 	j: Judging,
 	before: FoldStored,
@@ -947,22 +998,12 @@ export const judgedFold = (
 ): Effect.Effect<FoldJudged, SqlError | TransactionRolledBack | Disagreed> =>
 	Effect.gen(function* () {
 		const { seat, spec } = j.fold
-		const sql = (s: ReadonlyArray<FoldStatement>) =>
-			Arr.map(s, (st) => foldStatementSql(j.fold, st))
 		const model = foldPredicted(spec.monoid, j.lowering, before, statements)
 		const disagree = (why: string, real: Attempted | Checked<unknown>) =>
 			new Disagreed({
 				message: `${j.label}, its ${end} end: ${why}; the model predicts ${predictedText(model)}, PostgreSQL gave ${attemptedText(real)}, over ${Formatter.format(before)}, for ${Formatter.format(statements)}`
 			})
-		const unseen = [...sql(foldWriteOf(before)), ...prefix]
-		const sent = yield* ended(
-			seat,
-			FOLD_RELATIONS,
-			"empty",
-			[...unseen, ...sql(statements)],
-			end,
-			foldRead(j.fold)
-		)
+		const { sent, unseen } = yield* sentOver(j.fold, before, statements, prefix, end)
 		if (
 			sent.kind === "refused" &&
 			sent.moment.kind === "statement" &&

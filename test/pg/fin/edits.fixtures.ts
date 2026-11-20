@@ -15,7 +15,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { FOLD_SPECS } from "#test/pg/fin/folds.ts"
+import { FOLD_SPECS, type FoldSpec, type Standing } from "#test/pg/fin/folds.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { type SpanKeyedOwner, spanOwnersGen } from "#test/support/families/generate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -30,28 +30,39 @@ const Member = relation("Member", { member: pg.integer, g: pg.integer, x: pg.int
 
 const family = counted(on(Member, "g"), fin(Owner, "n"))
 
-/** The int4 sum over a counted family, both relations mutable so a member's put and delete are planned. */
-export const Edited = schema(
-	"fin_edits",
-	[Owner, Member],
-	[
-		family,
-		fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
-		mutable(Owner),
-		mutable(Member)
-	]
+/**
+ * The int4 sum over a counted family, its owner and member under `standing`: declared mutable, or the immutable
+ * default every consumer gets, whose put and delete grizzle writes by re-placing rows (write/family/removals.ts,
+ * additions.ts) where a mutable one's it updates in place. Both are one schema type, so one workload reads either.
+ */
+const editedOf = (standing: Standing) =>
+	schema(
+		"fin_edits",
+		[Owner, Member],
+		[
+			family,
+			fold(family, Monoid.sum, on(Member, "g", "x"), on(Owner, "id", "end")),
+			...(standing === "mutable" ? [mutable(Owner), mutable(Member)] : [])
+		]
+	)
+
+/** Each standing's schema of the counted int4 sum. */
+export const EDITED: Readonly<Record<Standing, ReturnType<typeof editedOf>>> = {
+	mutable: editedOf("mutable"),
+	immutable: editedOf("immutable")
+}
+
+const counted4 = defined(
+	Arr.findFirst(FOLD_SPECS, (s) => s.label === "sum of int4 over a counted family").pipe(
+		Option.getOrUndefined
+	)
 )
 
-/** The seat's specification: the counted int4 sum's, over this schema. */
-export const SPEC = Object.freeze({
-	...defined(
-		Arr.findFirst(FOLD_SPECS, (s) => s.label === "sum of int4 over a counted family").pipe(
-			Option.getOrUndefined
-		)
-	),
-	label: "a counted int4 sum, mutable",
-	schema: Edited
-})
+/** Each standing's seat specification: the counted int4 sum's, over its schema. */
+export const SPECS: Readonly<Record<Standing, FoldSpec>> = {
+	mutable: { ...counted4, label: "a counted int4 sum, mutable", schema: EDITED.mutable },
+	immutable: { ...counted4, label: "a counted int4 sum, immutable", schema: EDITED.immutable }
+}
 
 /** An edit of owner 0's family: one member's delete, or its put to another of the five values. */
 type Edit =
@@ -60,6 +71,7 @@ type Edit =
 
 interface Sketch {
 	readonly values: Arr.NonEmptyReadonlyArray<number>
+	readonly standing: Standing
 	readonly edit: Edit
 }
 
@@ -81,7 +93,7 @@ export const sketchGen: Gen<Sketch> = (source) => {
 					at,
 					to: source.draw(element(nonEmpty(Arr.filter([0, 1, 2, 3, 4], (v) => v !== from))))
 				}
-	return { values, edit }
+	return { values, standing: source.draw(element(["mutable", "immutable"] as const)), edit }
 }
 
 export const SpanOwner = relation(
@@ -121,11 +133,12 @@ export const SpanEdited = schema(
 	]
 )
 
-/** The counted family's workload: a member's delete and a member's put, each from its call's facts. */
-const editPrograms = Object.freeze({
-	deleteMember: ChangeSet.empty(Edited).delete(Member, []),
-	putMember: ChangeSet.empty(Edited).put(Member, [])
-})
+/** The counted family's workload over `edited`: a member's delete and a member's put, each from its call's facts. */
+const editProgramsOf = (edited: ReturnType<typeof editedOf>) =>
+	Object.freeze({
+		deleteMember: ChangeSet.empty(edited).delete(Member, []),
+		putMember: ChangeSet.empty(edited).put(Member, [])
+	})
 
 /** The span-keyed owners' workload: their insert with their members, and an owner's put, each from its call's facts. */
 const spanPrograms = Object.freeze({
@@ -161,16 +174,22 @@ export type SpanFeature =
 	| "a span-keyed owner put in place beside an owner of its id over another span"
 
 export type EditFeature =
-	| `${"delete" | "put"} of ${"the last slot" | "a slot before the last"} applied as the model states`
+	| `${Standing} ${"delete" | "put"} of ${"the last slot" | "a slot before the last"} applied as the model states`
 	| "a put of the first slot refilled every slot"
 
-export const m = SPEC.monoid
+export const m = counted4.monoid
 
-/** How the module's fixture is installed: its label and the programs its login's workload holds. */
-export const editedInstall = Object.freeze({ label: "edits", programs: editPrograms })
+/** How each standing's fixture is installed: its label and the programs its login's workload holds. */
+export const editedInstalls = Object.freeze({
+	mutable: Object.freeze({ label: "edits", programs: editProgramsOf(EDITED.mutable) }),
+	immutable: Object.freeze({ label: "edits_immutable", programs: editProgramsOf(EDITED.immutable) })
+})
 
-/** Edited installed as `grizzle generate` drafts it, once per member: the template every case clones. */
-export const editedTemplate = fixtureTemplate(import.meta, Edited, editedInstall)
+/** Each standing's schema installed as `grizzle generate` drafts it, once per member: the template its cases clone. */
+export const editedTemplates = Object.freeze({
+	mutable: fixtureTemplate(import.meta, EDITED.mutable, editedInstalls.mutable),
+	immutable: fixtureTemplate(import.meta, EDITED.immutable, editedInstalls.immutable)
+})
 
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const spannedInstall = Object.freeze({ label: "span_edits", programs: spanPrograms })

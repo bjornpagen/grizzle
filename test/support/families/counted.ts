@@ -11,8 +11,18 @@
  *
  * Every change sends deletes, then updates (the moves and the refolds), then the owner's one count update with its new
  * end, then inserts, each insert's rows in the order a test draws.
+ *
+ * Which of them a direct writer may send depends on how the relations stand. Over a mutable owner and member
+ * (`mutable(Owner)`, `mutable(Member)`) it is swap-with-last as above, every update in place. Over the immutable
+ * default an owner's count and end are fields its immutability guard holds fixed (physical/ddl/immutable.ts), so the
+ * count update is refused (42501); nor can the owner be deleted and inserted again alone, since each member's copy of
+ * its count references it by a foreign key ON UPDATE CASCADE that is not deferrable. The change is the whole family
+ * rewritten (rewrittenWhole): every member deleted, the owner deleted and inserted again with the new count and end,
+ * and the kept members inserted at their slots, as grizzle writes an immutable family whole with its owner
+ * (write/family/removals.ts).
  */
-import { Array as Arr, Order } from "effect"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
+import { Array as Arr, Option, Order } from "effect"
 import {
 	type FoldFamily,
 	type FoldMonoid,
@@ -20,6 +30,7 @@ import {
 	type FoldStatement,
 	type FoldStored,
 	folded,
+	foldStoredOf,
 	type Step
 } from "#test/support/families/fold.ts"
 
@@ -142,3 +153,36 @@ export const stepPut = (
 		owner,
 		Arr.map(membersOf(stored, owner), (m) => (m.member === member ? { ...m, x } : m))
 	)
+
+/**
+ * Swap-with-last of the member at slot `at` of `owner` over an immutable owner and member (see the header): the family
+ * swapWithLast leaves, written whole. Every member of the owner deleted; the owner deleted and inserted again with the
+ * kept count and its end; the kept members, if any, inserted at their final slots with their accumulators.
+ */
+export const rewrittenWhole = (
+	m: FoldMonoid,
+	stored: FoldStored,
+	owner: number,
+	at: number
+): CountedChange => {
+	const swapped = swapWithLast(m, stored, owner, at)
+	const reference = foldStoredOf(m, swapped.after)
+	const members = nonEmpty(
+		Arr.map(membersOf(stored, owner), (r) => r.member),
+		"the owner's members, one of them removed"
+	)
+	const kept = Arr.filter(reference.rows, (r) => r.group === owner)
+	const rewritten = defined(
+		Arr.findFirst(reference.owners, (o) => o.owner === owner).pipe(Option.getOrUndefined),
+		"the owner, kept with its family"
+	)
+	return {
+		statements: [
+			{ kind: "delete", members },
+			{ kind: "drop", owner },
+			{ kind: "create", owner: rewritten },
+			...(Arr.isReadonlyArrayNonEmpty(kept) ? [{ kind: "insert" as const, rows: kept }] : [])
+		],
+		after: swapped.after
+	}
+}

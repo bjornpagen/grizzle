@@ -1,8 +1,9 @@
 /** What the properties of counted.test.ts read: its spaces, models and helpers. */
 
-import { nonEmpty } from "@bjornpagen/testing/assert"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
+import type { AnySchema } from "#compiler/public/schema.ts"
 /**
  * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19 (fin.md §4.2, §11, "Counted swap-with-last
  * with the deferred closure FK"): a counted family hides its index ‹i› and its fold's accumulators, so removing a
@@ -27,24 +28,39 @@ import { Array as Arr, Option, Record as Rec } from "effect"
  * would check it and rolled back, or ended by a real COMMIT whose rows are then cleared, as the case draws its end on
  * its tape (installed.ts endGen; folds.ts judgedFold): the box holds every case under both ends.
  */
-import { FOLD_SPECS, type FoldVerdict } from "#test/pg/fin/folds.ts"
+import {
+	FOLD_SPECS,
+	type FoldVerdict,
+	orCountedOf,
+	type Standing,
+	sumCountedOf
+} from "#test/pg/fin/folds.ts"
 import { type EndFeature, seatTemplate } from "#test/pg/fin/installed.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { type FoldStatement } from "#test/support/families/fold.ts"
 import { upTo } from "#test/support/up-to.ts"
 
-/** How a swap-with-last's statements are sent. */
-type Sending = "prescribed" | "move first" | "count first" | "closure immediate"
+/**
+ * How a swap-with-last's statements are sent: in the prescribed order, with its first update or its count moved first,
+ * prescribed with the predecessor axis immediate, or, over an immutable owner, the family rewritten whole
+ * (test/support/families/counted.ts rewrittenWhole).
+ */
+type Sending = "prescribed" | "move first" | "count first" | "closure immediate" | "rewritten whole"
 
-const SENDINGS: Arr.NonEmptyReadonlyArray<Sending> = [
-	"prescribed",
-	"move first",
-	"count first",
-	"closure immediate"
-]
+/** Each standing's sendings: every order of the swap over mutable relations; over the immutable default, the swap,
+ * which the owner's guard refuses, and the family rewritten whole. */
+const SENDINGS: Readonly<Record<Standing, Arr.NonEmptyReadonlyArray<Sending>>> = {
+	mutable: ["prescribed", "move first", "count first", "closure immediate"],
+	immutable: ["prescribed", "rewritten whole"]
+}
+
+const STANDINGS: Arr.NonEmptyReadonlyArray<Standing> = ["mutable", "immutable"]
 
 interface Sketch {
 	readonly values: Arr.NonEmptyReadonlyArray<number>
 	readonly at: number
+	readonly standing: Standing
 	readonly sending: Sending
 }
 
@@ -56,7 +72,13 @@ export const sketchGen: Gen<Sketch> = (source) => {
 			() => source.draw(element([0, 1, 2, 3, 4] as const))
 		)
 	)
-	return { values, at: source.draw(int(0, n - 1)), sending: source.draw(element(SENDINGS)) }
+	const standing = source.draw(element(STANDINGS))
+	return {
+		values,
+		at: source.draw(int(0, n - 1)),
+		standing,
+		sending: source.draw(element(SENDINGS[standing]))
+	}
 }
 
 /** A plan's statements in a sending: the prescribed order, or with its first update or its count moved first. */
@@ -74,6 +96,7 @@ export const sent = (
 	switch (sending) {
 		case "prescribed":
 		case "closure immediate":
+		case "rewritten whole":
 			return statements
 		case "move first":
 			return first("update")
@@ -84,14 +107,44 @@ export const sent = (
 
 export type Position = "the last slot" | "a slot before the last"
 
-export type CountedFeature = `${string} ${Position} ${Sending} ${FoldVerdict}` | EndFeature
+export type CountedFeature =
+	| `${string} ${Position} ${Sending} ${FoldVerdict}`
+	| `${string} immutable ${Position} ${Sending} ${FoldVerdict | "refused immutable guard"}`
+	| EndFeature
 
 export const COUNTED = Object.freeze(Arr.filter(FOLD_SPECS, (s) => s.shape === "counted"))
 
-/** Each counted fold spec's schema installed once per member (installed.ts seatTemplate), which its cases' seats clone. */
+/** A relation's fields a write changes in place, as `schema` decides them (ir/law.ts RelationInfo `inPlace`). */
+const inPlaceOf = (schema: AnySchema, relation: string): ReadonlyArray<string> =>
+	defined(
+		succeeded(
+			testArtifacts(schema, testCompile),
+			"the seat's schema compiles"
+		).derived.schema.relations.get(relation),
+		relation
+	).inPlace
+
+/** Each counted fold spec's schema with its owner and member declared mutable, its own spec's being the immutable
+ * default (folds.ts Standing). */
+const MUTABLE: Readonly<Record<string, AnySchema>> = {
+	"sum of int4 over a counted family": sumCountedOf("mutable"),
+	"or of a set over a counted family": orCountedOf("mutable")
+}
+
+/** Each counted fold spec's schema under each standing, installed once per member (installed.ts seatTemplate), which
+ * its cases' seats clone. */
 export const countedSeats = Rec.fromEntries(
-	Arr.map(
-		COUNTED,
-		(spec) => [spec.label, seatTemplate(import.meta, spec.schema, `swap ${spec.label}`)] as const
-	)
+	Arr.map(COUNTED, (spec) => {
+		const mutable = defined(MUTABLE[spec.label], `${spec.label} over mutable relations`)
+		return [
+			spec.label,
+			{
+				mutable: seatTemplate(import.meta, mutable, `swap ${spec.label}`),
+				immutable: seatTemplate(import.meta, spec.schema, `swap ${spec.label} immutable`),
+				/** Whether the owner's guard holds its count fixed, as the immutable default decides it (ir/law.ts
+				 * RelationInfo `inPlace`): the count update a swap sends is then refused. */
+				countGuarded: !Arr.contains(inPlaceOf(spec.schema, "Owner"), "n")
+			}
+		] as const
+	})
 )
