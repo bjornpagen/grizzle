@@ -12,7 +12,7 @@
  *   file lexes to statements in which every bit-string constant is X'…' of hex digits cast, with no binary B'' constant,
  *   no text cast to a bit type, no string_agg and no || beside a bit string; and its snapshot's every bit literal is
  *   the bits kind of hex digits, a set's at its bits domain's width, every bits domain is bit(n) with n its roster's
- *   codes rounded up to whole digits, every live constant the hex of its roster's live codes, and every constant's
+ *   codes rounded up to whole bytes, every live constant the hex of its roster's live codes, and every constant's
  *   literal the whole digits its cells take, its padding 0 and its row count its held cells.
  * - **decode ∘ encode = id:** over drawn strings of cells (0 to 40 cells of 1 to 9, 31 or 32 bits), the encoder's
  *   literal is the test oracle's hex of the cells' bits padded to whole digits, it decodes back to the constant, and
@@ -50,7 +50,7 @@ import type { ObjectName, PackConstant } from "#compiler/sql/ast.ts"
 import { pack } from "#compiler/sql/constants.ts"
 import { printObjectName, printStatement, readLiteralPack } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { hexOfText, installedText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, installedText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { ownedInput, owning } from "#test/support/policy.ts"
 import {
@@ -113,8 +113,8 @@ export const aDraftedMigrationsBitStringsWritesEveryBitStringOfADraftedMigration
 				)
 				const widths = new Map(
 					Arr.map(d.sizes, (size, i) => {
-						const domain = identity.bitsDomain(parsedName(rosterName(i)), wholeDigits(size))
-						return [identifierOf(domain), wholeDigits(size)] as const
+						const domain = identity.bitsDomain(parsedName(rosterName(i)), setWidth(size))
+						return [identifierOf(domain), setWidth(size)] as const
 					})
 				)
 				const setRosters = [d.setRoster, d.key[0], ...(d.fold ? [d.foldRoster] : [])]

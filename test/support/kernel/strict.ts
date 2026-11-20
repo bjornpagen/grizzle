@@ -28,7 +28,7 @@ import {
 } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setWidth } from "#test/support/closed/bit-text.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -436,15 +436,15 @@ const readCode =
 	}
 
 /**
- * bit(n)'s output text of a set over the roster: exactly n characters, the roster's codes rounded up to whole hex digits
- * (test/support/closed/bit-text.ts wholeDigits), each 0 or 1, position c code c, every 1 at a live code (a set holds no
+ * bit(n)'s output text of a set over the roster: exactly n characters, the roster's codes rounded up to whole bytes
+ * (test/support/closed/bit-text.ts setWidth), each 0 or 1, position c code c, every 1 at a live code (a set holds no
  * hole, and no padding position past the last code). Another length or character is bitsSyntax; a 1 at a hole or past
  * the last code is bitsMember.
  */
 const readBits =
 	(roster: RosterCodec) =>
 	(text: string): Result.Result<ReadonlySet<string>, StrictFault> => {
-		if (text.length !== wholeDigits(roster.size)) {
+		if (text.length !== setWidth(roster.size)) {
 			return Result.fail("bitsSyntax")
 		}
 		const handles = new Set<string>()

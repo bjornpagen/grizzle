@@ -241,7 +241,7 @@ breaking change may briefly break older application instances that are still run
   count and content digest in a comment, which `grizzle check` decodes and holds to that digest and to its function's
   name; never edit one by hand; a roster's names constant is its handles as `name[]` in code order, `""` at a hole; a
   set's `live` constant is the hex literal of its live codes. The domains are a roster's smallint domain over its
-  names constant, a set's `bit(n)` domain over `live`, n its codes rounded up to whole hex digits, and the contract
+  names constant, a set's `bit(n)` domain over `live`, n its codes rounded up to whole bytes, and the contract
   and text domains, one per distinct definition. A schema that declares functions (`fn`) gets here, after its
   domains, the installation's function owner (`__owner_<digest>`, `CREATE ROLE ... NOLOGIN`, granted to the migration
   identity `WITH INHERIT TRUE, SET TRUE`, with `USAGE` on the levels' schemas and no privilege on any table), each

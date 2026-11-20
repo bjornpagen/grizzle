@@ -5,8 +5,9 @@
  * PostgreSQL installs a constant from the hex literal the host's encoder states (ir/cells.ts literalOf), and stores a set
  * in its roster's bits domain. These are the host's second implementations, written cell by cell and position by
  * position, sharing no code with the engine's hex encoder (core/hex.ts), that a suite compares PostgreSQL's value, the
- * encoder's literal, or a set's wire text against (testing doctrine, rule 3). Each rounds a string up to whole hex digits
- * by its own arithmetic: four bits a digit, the bits past the last cell or code 0.
+ * encoder's literal, or a set's wire text against (testing doctrine, rule 3). Each rounds by its own arithmetic: a
+ * constant up to whole hex digits, four bits a digit, and a set up to whole bytes, eight bits a byte, the bits past the
+ * last cell or code 0.
  */
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, String as Str } from "effect"
@@ -18,6 +19,13 @@ const nibble = 4
 
 /** `bits` rounded up to whole hex digits: the length of every bit string grizzle writes of `bits` bits. */
 export const wholeDigits = (bits: number): number => Math.ceil(bits / nibble) * nibble
+
+/** The bits one byte holds, as the oracle counts them: PostgreSQL stores a bit string in whole bytes. */
+const octet = 8
+
+/** The width of a set over a roster of `size` codes, its bits domain's bit(n): its codes, one at least, rounded up to
+ * whole bytes, so whole hex digits too. */
+export const setWidth = (size: number): number => Math.ceil(Math.max(size, 1) / octet) * octet
 
 /**
  * The constant's cells as bit-string text: each cell's bits, most significant first, from cell 0, where an absent cell
@@ -57,14 +65,14 @@ export const installedText = (
 ): Result.Result<string, CompileBound> => Result.map(bitText(constant, limit), padded)
 
 /**
- * A set over a roster of `size` codes as its bits domain's text, bit(n) with n the codes rounded up to whole hex digits:
+ * A set over a roster of `size` codes as its bits domain's text, bit(n) with n the codes rounded up to whole bytes:
  * position c is 1 exactly when code c is a member, so a hole, which no member holds, and every position past the last
  * code are 0, and the text is n characters long whatever the members.
  */
 export const setText = (size: number, members: ReadonlyArray<number>): string => {
 	const held = new Set(members)
 	return Arr.join(
-		Array.from({ length: wholeDigits(size) }, (_, code) => (held.has(code) ? "1" : "0")),
+		Array.from({ length: setWidth(size) }, (_, code) => (held.has(code) ? "1" : "0")),
 		""
 	)
 }

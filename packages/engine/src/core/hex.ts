@@ -4,9 +4,9 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 /**
  * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, a roster's live
  * codes and a closed relation's constant. A string is whole hex digits, four bits a digit, most significant first, in
- * the digits 0-9 and A-F. Every bit string grizzle writes is a whole number of digits long: a set's width and a
- * constant's length are rounded up to whole digits, and the bits past the last code or cell, the padding, are 0, so no
- * string has a binary tail and none is ever joined from parts.
+ * the digits 0-9 and A-F. Every bit string grizzle writes is a whole number of digits long: a set's width is rounded up
+ * to whole bytes, two digits a byte, and a constant's length to whole digits, and the bits past the last code or cell,
+ * the padding, are 0, so no string has a binary tail and none is ever joined from parts.
  */
 
 /**
@@ -37,8 +37,20 @@ export const bitInputText = (hex: string): string => `${bitInputPrefix}${hex}`
 /** The whole hex digits that hold `bits` bits. */
 export const hexDigitsFor = (bits: number): number => Math.ceil(bits / hexDigitBits)
 
-/** `bits` rounded up to whole hex digits: the length of the string that holds them, its last digit padded with 0s. */
-export const wholeDigitBits = (bits: number): number => hexDigitsFor(bits) * hexDigitBits
+/**
+ * The bits one byte holds: PostgreSQL stores a bit string's bits in whole bytes (utils/varbit.h VARBITBYTES), its
+ * length rounded up to them.
+ *
+ * @formatConstant a byte: 8 bits
+ */
+const byteBits = 8
+
+/**
+ * `bits` rounded up to whole bytes: a set's width (ir/codes.ts RosterCodec). PostgreSQL stores a bit(n) in whole bytes,
+ * so the padding up to the byte costs no storage, and a roster grows into it without a wider type, which would rewrite
+ * every table that stores a set over it; a whole byte is two whole hex digits.
+ */
+export const wholeByteBits = (bits: number): number => Math.ceil(bits / byteBits) * byteBits
 
 /** The digits of a string of `bits` bits, each 0: one value from 0 to 15 per whole hex digit, which setBit fills. */
 export const zeroDigits = (bits: number): Uint8Array => new Uint8Array(hexDigitsFor(bits))

@@ -10,8 +10,8 @@
  * codes (a handle keeps its code, a removed one leaves a hole, a new or re-added one takes the next code) and predicts,
  * slot by slot, every statement a step drafts for the roster: its new names constant (and a set's live constant) in
  * Setup, its domain's CHECK dropped and added NOT VALID in Structure and validated in Validate, a set's bits domain,
- * bit(n) with n the codes rounded up to whole hex digits, re-pointed the same way when its width stands and replaced
- * by a new one of the new width when the roster grows past a whole digit, the set column converted by its cast to
+ * bit(n) with n the codes rounded up to whole bytes, re-pointed the same way when its width stands and replaced
+ * by a new one of the new width when the roster grows past a whole byte, the set column converted by its cast to
  * bit(n′), and the old functions and domain dropped in Publish. The names the
  * model predicts are minted through the naming door from its own codes. A reorder is refused before anything is
  * drafted, by D1's refusal; a regenerate drafts nothing and leaves the snapshot as it was; a change of the closed

@@ -43,7 +43,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	closed,
 	closedRelation,
@@ -311,7 +311,7 @@ const rosterCodesOf = (codes: ReadonlyArray<Coded>): RosterCodes =>
 const rosterObjects = (codes: ReadonlyArray<Coded>) => {
 	const digest = constantDigest("roster-names", namesOf(codes), everyProperty)
 	const domain = identity.rosterDomain(roster)
-	const bits = identity.bitsDomain(roster, wholeDigits(codes.length))
+	const bits = identity.bitsDomain(roster, setWidth(codes.length))
 	return {
 		names: identifierOf(identity.rosterConstant(roster, digest)),
 		live: identifierOf(identity.rosterLive(roster, digest)),
@@ -500,7 +500,7 @@ const predicted = (
 	const now = rosterObjects(after.codes)
 	const namesChanged =
 		canonicalTextOf(namesOf(before.codes)) !== canonicalTextOf(namesOf(after.codes))
-	const widened = wholeDigits(after.codes.length) > wholeDigits(before.codes.length)
+	const widened = setWidth(after.codes.length) > setWidth(before.codes.length)
 	if (namesChanged) {
 		out.push(["setup", `create function ${now.names}`], ["setup", `revoke function ${now.names}`])
 		out.push(
@@ -530,7 +530,7 @@ const predicted = (
 					["setup", `create domain ${now.bits}`],
 					[
 						"structure",
-						`convert ${table}.${setColumn} to ${now.bits} by bit(${wholeDigits(after.codes.length)})`
+						`convert ${table}.${setColumn} to ${now.bits} by bit(${setWidth(after.codes.length)})`
 					],
 					["publish.removed", `drop domain ${was.bits}`]
 				)

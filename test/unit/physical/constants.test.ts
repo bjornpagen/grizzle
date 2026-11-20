@@ -34,7 +34,7 @@
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { codebookOfStates, codecFor } from "#test/support/closed/generate.ts"
 import { owning } from "#test/support/policy.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -95,11 +95,11 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 						w.sets[at] === true || at === 0 ? 1 : 0,
 						"a bits domain exactly where a set is typed: Tags' over the first roster, Item's where drawn"
 					)
-					const width = wholeDigits(s.slots.length)
+					const width = setWidth(s.slots.length)
 					for (const d of bits) {
 						assert.ok(
 							d.base.kind === "builtin" && d.base.name === "bit" && d.base.length === width,
-							"bit(n), n every code minted rounded up to whole hex digits"
+							"bit(n), n every code minted rounded up to whole bytes"
 						)
 						const probes = [[], ...upTo(width, (code) => [code]), live, upTo(width, (i) => i)]
 						for (const members of probes) {

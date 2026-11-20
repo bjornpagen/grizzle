@@ -1076,7 +1076,7 @@ const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
  *   `<roster>__live__<digest>() RETURNS bit varying RETURN X'<hex>'::bit varying`, the set of its live codes at the
  *   width of a set over it (ir/codes.ts liveHex), and its bits domain, `CREATE DOMAIN <roster>__bits__<n> AS bit(n)
  *   CONSTRAINT check CHECK (VALUE IS NULL OR ((VALUE & L()) = VALUE) IS TRUE)`, n every code the roster has minted
- *   rounded up to whole hex digits (RosterCodec.width), which admits only the live codes' bits: a hole's bit and every
+ *   rounded up to whole bytes (RosterCodec.width), which admits only the live codes' bits: a hole's bit and every
  *   padding bit are 0 in L, so a set that sets one is refused.
  *
  * Each domain admits NULL, the printer's wrapper of every domain CHECK (sql/print.ts), so a closed read at an absent key,
@@ -1084,7 +1084,7 @@ const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
  * logic judges, and a column's NOT NULL, never the domain, refuses a NULL stored.
  *
  * A changed roster is a new names constant (and live constant), and its domains' CHECKs re-point at them, keeping their
- * names; a grown one whose width passes a whole hex digit has a bits domain of the new width.
+ * names; a grown one whose codes pass its width's last byte has a bits domain of the new width.
  */
 export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 	const sets = setRosters(b)

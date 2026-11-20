@@ -264,7 +264,7 @@ export const qualifiedType = (name: TypeName): TypeRef => namedType(name.schema,
  * domain, is typed by. It drops every refinement, so it never names a contract's, a text refinement's or a roster's
  * domain; the installer types columns by those (fieldColumnType). A closed id is its code, a smallint.
  * A set over a roster is its roster's bits domain, bit(n) with n its roster's codes, holes included, rounded up to whole
- * hex digits, under the CHECK that admits only live codes' bits: a bare bit(n) would pad or cut a set of another size silently, so no set is ever
+ * bytes, under the CHECK that admits only live codes' bits: a bare bit(n) would pad or cut a set of another size silently, so no set is ever
  * typed by it.
  */
 export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {

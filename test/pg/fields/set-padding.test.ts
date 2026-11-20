@@ -1,9 +1,9 @@
 /**
  * The set algebra over a drafted bits domain keeps every padding bit 0, on PostgreSQL 19. A set over a roster of n
- * codes is bit(m), m the codes rounded up to whole hex digits, and its domain's CHECK holds every bit past the last
+ * codes is bit(m), m the codes rounded up to whole bytes, and its domain's CHECK holds every bit past the last
  * code at 0; so every set grizzle computes must leave those bits clear, or the CHECK refuses the write with 23514.
  *
- * Each case installs a roster of 1 to 9 codes, so every padding of 0 to 3 bits is met, a closed relation C over pairs
+ * Each case installs a roster of 1 to 9 codes, so every padding of 0 to 7 bits is met, a closed relation C over pairs
  * of its codes, and a relation R holding two drawn sets a and b and a code k, whose generated columns are a ∪ b, a ∩ b,
  * a − b, the complement of a within the roster ((a ∪ the full set's literal) − a, the complement masked by the
  * roster's full set), and C.row(k), each cast to the bits domain by its column. The writes are drawn rows of R, which must all
@@ -35,7 +35,7 @@ import {
 } from "#test/pg/fields/set-padding.fixtures.ts"
 import { installed } from "#test/pg/reads/support.ts"
 import { answered, rowsOf } from "#test/support/calls.ts"
-import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -47,6 +47,7 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 			"one pad bit",
 			"two pad bits",
 			"three pad bits",
+			"four to seven pad bits",
 			"no pad bit",
 			"an empty set computed",
 			"a full set computed"
@@ -148,7 +149,7 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 								Arr.map(model, (m) => Arr.map(columns, (f) => setText(d.size, m[f]))),
 								"every stored set is the model's positional text, its padding 0"
 							)
-							c.note(padFeature(wholeDigits(d.size) - d.size))
+							c.note(padFeature(setWidth(d.size) - d.size))
 							if (
 								Arr.some(model, (m) => m.d.length === 0 || m.i.length === 0 || m.e.length === 0)
 							) {
@@ -173,7 +174,7 @@ export const theSetAlgebraOverADraftedBitsDomainComputesEverySetWithItsPaddingBi
 				original: "\t\tsetBit(digits, codeOf(codec, handle))\n\t}",
 				replacement:
 					"\t\tsetBit(digits, codeOf(codec, handle))\n\t}\n\tsetBit(digits, digits.length * 4 - 1)",
-				why: "A set's text sets its last bit, a padding bit wherever the roster's codes do not fill their last hex digit."
+				why: "A set's text sets its last bit, a padding bit wherever the roster's codes do not fill their last byte."
 			}
 		]
 	})

@@ -264,8 +264,8 @@ export const carried = {
 		]
 	},
 	/**
-	 * A set's text is bit(4), three codes rounded up to a whole hex digit, position c code c under kindCodes and the
-	 * padding position 3 always 0: a 1 there names no handle.
+	 * A set's text is bit(8), three codes rounded up to a whole byte, position c code c under kindCodes and the
+	 * padding positions 3 to 7 always 0: a 1 there names no handle.
 	 */
 	bits: {
 		type: types.kinds,
@@ -274,7 +274,7 @@ export const carried = {
 			text: `${Arr.join(
 				Arr.map(held, (b) => (b ? "1" : "0")),
 				""
-			)}0`
+			)}00000`
 		})),
 		refusedValues: [
 			[new Set(["Other"]), "bitsMember"],
@@ -283,8 +283,9 @@ export const carried = {
 		refusedTexts: [
 			["101", "bitsSyntax"],
 			["10100", "bitsSyntax"],
-			["1x00", "bitsSyntax"],
-			["1001", "bitsMember"]
+			["1001", "bitsSyntax"],
+			["1x000000", "bitsSyntax"],
+			["10000001", "bitsMember"]
 		]
 	},
 	int4range: {

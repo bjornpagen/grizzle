@@ -19,7 +19,7 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { paramText } from "#test/support/wire.ts"
 
@@ -201,7 +201,7 @@ export const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			assert.equal(
 				succeeded(codec.encode(single)),
 				paramText(bitText(new Set([k]))),
-				`the singleton of code ${k} as bit(${wholeDigits(size)}), the set Bits.of writes for its handle`
+				`the singleton of code ${k} as bit(${setWidth(size)}), the set Bits.of writes for its handle`
 			)
 			const grown = evaluated(adjoined(x, handle, "adjoin"))
 			if (!(grown instanceof Set)) {
@@ -260,7 +260,7 @@ export const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			assert.equal(
 				succeeded(codec.encode(result)),
 				paramText(bitText(model[fn])),
-				`${fn} as bit(${wholeDigits(size)})`
+				`${fn} as bit(${setWidth(size)})`
 			)
 		}
 		assert.equal(

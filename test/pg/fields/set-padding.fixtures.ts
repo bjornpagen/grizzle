@@ -46,23 +46,25 @@ const casesOf =
 const cases: Gen<Drawn> = casesOf(int(1, 9))
 
 /**
- * The cases over a roster whose bit text pads `pad` bits (wholeDigits rounds a set up to whole hexadecimal digits, four
- * bits each): of a size `pad` short of one or two digits.
+ * The cases over a roster whose bit text pads `pad` bits (setWidth rounds a set up to whole bytes, eight bits each): of
+ * a size `pad` short of one or two bytes.
  */
-const paddedBy = (pad: number): Gen<Drawn> => casesOf(map(int(1, 2), (digits) => 4 * digits - pad))
+const paddedBy = (pad: number): Gen<Drawn> => casesOf(map(int(1, 2), (bytes) => 8 * bytes - pad))
 
 /** The cases, aimed: a case whose turn aims at a padding draws a roster of a size that pads that many bits. */
 export const space = aimed(cases, [
 	["no pad bit", paddedBy(0)],
 	["one pad bit", paddedBy(1)],
 	["two pad bits", paddedBy(2)],
-	["three pad bits", paddedBy(3)]
+	["three pad bits", paddedBy(3)],
+	["four to seven pad bits", paddedBy(5)]
 ])
 
 export type Feature =
 	| "one pad bit"
 	| "two pad bits"
 	| "three pad bits"
+	| "four to seven pad bits"
 	| "no pad bit"
 	| "an empty set computed"
 	| "a full set computed"
@@ -75,7 +77,9 @@ export const padFeature = (pad: number): Feature =>
 			? "one pad bit"
 			: pad === 2
 				? "two pad bits"
-				: "three pad bits"
+				: pad === 3
+					? "three pad bits"
+					: "four to seven pad bits"
 
 /**
  * The schema a case declares, its sets over the roster S, and its full world's workload: R's rows written with the facts

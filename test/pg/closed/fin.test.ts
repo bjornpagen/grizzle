@@ -17,7 +17,7 @@
  *   the key, and elsewhere refused by the generated field's law, `{ kind: "generated", relation, field }`: an absent key
  *   reads NULL, which every domain admits, so the generated column's NOT NULL refuses it, 23502 on that column;
  * - **C.row in a generated field:** each prefix's set in RowProbe is exactly the codes Slotted's rows complete it with,
- *   the empty set for a prefix past its owner's count, as Position's bits domain stores it, whole hex digits wide;
+ *   the empty set for a prefix past its owner's count, as Position's bits domain stores it, whole bytes wide;
  * - **R07's membership read:** a query matching Item against Slotted on every key field delivers exactly the items
  *   whose key Slotted holds; that R07 read its key set, its certificate recorded, is a required feature, never an
  *   assertion of which rewrite the optimizer chose;

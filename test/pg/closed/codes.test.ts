@@ -28,7 +28,7 @@
  * 6. A role without EXECUTE on the names constant is refused with 42501, a writer at the domain's CHECK and a reader at
  *    its view's decoded column; with the installed grants both pass, and every role that writes or decodes a roster's
  *    codes holds EXECUTE on its constant.
- * 7. A set round-trips through its bit(n) column, n its codes rounded up to whole hex digits: the text the writer
+ * 7. A set round-trips through its bit(n) column, n its codes rounded up to whole bytes: the text the writer
  *    sends is X then the hex digits of the model's positional text (setText), PostgreSQL stores the positional text,
  *    and the host decodes it to the set sent. After the roster grows, the column is a domain over bit(n′), every stored
  *    set padded with 0s to it, and decodes unchanged; after a removal, VALIDATE names the column of every set that still
@@ -42,7 +42,7 @@
  * domain from a column), accepts 400, which (2) refuses, so (2) kills it.
  *
  * Features: each code's cause (below, past, a hole, the alias), a literal aligned and shifted, and patterns of no hole,
- * one and more; the VALIDATE search's named tables; the bits histories' growth past and within a hex digit, a removal
+ * one and more; the VALIDATE search's named tables; the bits histories' growth past and within a byte, a removal
  * refused until its data step, and two migrations.
  */
 import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
@@ -111,7 +111,7 @@ import {
 	ownerSessionOf
 } from "#test/pg/closed/codes.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	type RosterFeature,
 	type RosterState,
@@ -546,8 +546,8 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 	property.explore(bitsHistories, {
 		needs: { substrate: Substrate.installing },
 		situations: [
-			"a growth past a hex digit",
-			"a growth within a hex digit",
+			"a growth past a byte",
+			"a growth within a byte",
 			"a removal refused until the data step",
 			"two migrations"
 		] satisfies ReadonlyArray<Reached<BitsFeature>>,
@@ -587,7 +587,7 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 											`the wire text of ${Formatter.format(set)}`
 										)
 										yield* writer.query(
-											`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(state))}))`,
+											`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${setWidth(sizeOf(state))}))`,
 											[stored.length + i, text]
 										)
 									}
@@ -653,7 +653,7 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 										"VALIDATE names the column of the sets that still hold the removed handle"
 									)
 									yield* m.owner.query(
-										`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${wholeDigits(sizeOf(after))})`,
+										`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${setWidth(sizeOf(after))})`,
 										[
 											setText(
 												sizeOf(after),
@@ -673,20 +673,20 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 								)
 								assert.deepEqual(
 									{ kind: afterType.kind, base: afterType.base },
-									{ kind: "d", base: `bit(${wholeDigits(sizeOf(after))})` },
-									"the column is a domain over bit(n), n the roster's codes in whole hex digits"
+									{ kind: "d", base: `bit(${setWidth(sizeOf(after))})` },
+									"the column is a domain over bit(n), n the roster's codes in whole bytes"
 								)
 								const textsAfter = yield* storedTexts
 								if (step.kind === "grow") {
 									assert.deepEqual(
 										textsAfter,
-										Arr.map(textsBefore, (t) => Str.padEnd(wholeDigits(sizeOf(after)), "0")(t)),
+										Arr.map(textsBefore, (t) => Str.padEnd(setWidth(sizeOf(after)), "0")(t)),
 										"the widening pads every stored set with the new code absent"
 									)
 									k.note(
-										wholeDigits(sizeOf(after)) > wholeDigits(sizeOf(before))
-											? "a growth past a hex digit"
-											: "a growth within a hex digit"
+										setWidth(sizeOf(after)) > setWidth(sizeOf(before))
+											? "a growth past a byte"
+											: "a growth within a byte"
 									)
 								} else {
 									stored = Arr.map(stored, (set) => Arr.filter(set, (h) => h !== step.handle))
@@ -695,7 +695,7 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 										inTransaction(
 											writer,
 											writer.query(
-												`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(after))}))`,
+												`INSERT INTO ${table} (${id}, ${members}) VALUES ($1::integer, $2::text::bit(${setWidth(sizeOf(after))}))`,
 												[-1, setText(sizeOf(after), [defined(codeAt(before, step.handle))])]
 											)
 										),

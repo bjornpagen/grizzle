@@ -11,7 +11,7 @@ import { baseOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import { cast, lit, namedType, numericType, types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import type { Run, StatementRows } from "#test/support/oracle/compare.ts"
 import {
 	type ColumnCasts,
@@ -35,7 +35,7 @@ import { testTypeSchema } from "#test/support/sql.ts"
 /**
  * The PostgreSQL type a value of `type` is spelled at: its base, with its numeric typmod, a closed id as its roster's
  * installed domain, an exact value as the lowering types it (bigint for an exact integer of at most 18 digits, numeric
- * otherwise). A set is spelled at bit(n), the roster's size in the installation's codes rounded up to whole hex digits,
+ * otherwise). A set is spelled at bit(n), the roster's size in the installation's codes rounded up to whole bytes,
  * which reads back the same text its bits domain would.
  */
 const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
@@ -78,7 +78,7 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return namedType(testTypeSchema(r.domain.schema), r.domain.name, [])
 		}
 		case "bits":
-			return types.bit(wholeDigits(codecOf(plan.codes, b.roster).size))
+			return types.bit(setWidth(codecOf(plan.codes, b.roster).size))
 		case "range4":
 			return types.int4range
 		case "range8":

@@ -8,7 +8,7 @@
  * - every monoid of the closed set (ir/desc.ts monoidNames), each over every plane its admission accepts
  *   (ir/monoid.ts admits), from the plane kinds a monoid branches on: the integer types, natural apart from bigint,
  *   numeric(8, 2), money, a closed id, text, and a set over a roster of every width from one code to nine, so widths
- *   that fill whole hex digits and widths that pad the last one;
+ *   that fill a whole byte and widths that pad the last one;
  * - every family kind: a counted family folds the commutative monoids only, its accumulators hidden; an ordered family
  *   and a tree fold every monoid, concat's pair named as its law needs and the pairs of a set of even width named too,
  *   the rest hidden;

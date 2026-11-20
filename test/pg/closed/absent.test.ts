@@ -8,8 +8,8 @@
  * NULL term is refused by its column's NOT NULL. Every domain admits NULL, so no cast to a roster's, a set's, a
  * contract's or a pattern's domain refuses a read first.
  *
- * Each case draws a world: rosters Kind and Flag of one to three and one to five handles, so a set over Flag is padded
- * by three bits down to none; Pick, keyed by a kind, whose payload is a flag, an integer, a numeric(3, 1), a text, a
+ * Each case draws a world: rosters Kind and Flag of one to three and one to eight handles, so a set over Flag is padded
+ * by seven bits down to none; Pick, keyed by a kind, whose payload is a flag, an integer, a numeric(3, 1), a text, a
  * contract over an integer and a refined text, holding a drawn subset of the kinds; FlagRel, a set of (from, to) flags,
  * whose row of a flag is its completions, empty for a flag it completes nowhere; FlagW, a flag's integer weight,
  * holding a drawn subset of the flags; Allowed, a set of (kind, flag) pairs; and Slot, keyed by a kind and a flag,
@@ -76,7 +76,7 @@
  * cast before the guard holds, and a C.row read as every handle where its prefix is NULL or completed nowhere accepts a
  * row whose flags that read leaves unknown or refuses.
  *
- * The world's Flag has one to five handles, so a set over it is a whole number of hex digits (four flags) or padded,
+ * The world's Flag has one to eight handles, so a set over it is a whole byte (eight flags) or padded,
  * and a singleton meets the first and the last code; the downstream shape a diagonal closed relation once spelled, a
  * row's own flag in FlagRel.row of the flag its kind picks, is a kept case, at a kind Pick holds and at one it lacks;
  * so is the downstream count bound, a payload compared only where `C.has` holds the key, and the conditional that reads

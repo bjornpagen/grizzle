@@ -55,8 +55,8 @@ export const kindHandles = ["Manual", "Automatic", "Ünïcode"] as const
 
 /**
  * The widths of the sets the round trip sends over rosters of their own, one code to nine: a set's text is X and whole
- * hex digits, its padding 0, so the widths that fill their last digit and those that pad it are told apart, and a
- * digit holding only its last code is the digit 1.
+ * bytes of hex digits, its padding 0, so the widths that fill their last byte and those that pad it are told apart, and
+ * a digit holding only its last code is the digit 1.
  */
 export const setWidths: Arr.NonEmptyReadonlyArray<number> = Arr.range(1, 9)
 

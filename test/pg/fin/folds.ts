@@ -420,7 +420,7 @@ const hundredths: Carrier = {
 
 /**
  * A set of codes 0 to 4 as its bit mask, written as the hex literal of the bit string whose position c is code c, its
- * codes rounded up to whole hex digits (test/support/closed/bit-text.ts setText).
+ * codes rounded up to whole bytes (test/support/closed/bit-text.ts setText).
  */
 export const setOf = (size: number): Carrier => ({
 	write: (v) =>

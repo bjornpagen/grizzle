@@ -54,7 +54,7 @@ export interface SqlNames {
 /**
  * The SQL type a value of this descriptor is declared as on the wire (a recordset column or a parameter cast): the
  * base type for a contract, numeric for money, a closed id's code as smallint, a set as bit(n) with n its roster's
- * codes, holes included, rounded up to whole hex digits (ir/codes.ts RosterCodec width), and an exact value as the
+ * codes, holes included, rounded up to whole bytes (ir/codes.ts RosterCodec width), and an exact value as the
  * lowering types it (bigint for an exact integer of at most 18 digits, numeric otherwise).
  */
 export const wireSql = (descriptor: ScalarType, names: SqlNames): string => {

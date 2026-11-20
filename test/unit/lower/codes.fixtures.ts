@@ -16,7 +16,7 @@ import type { Expr } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,
 	codebookOfStates,
@@ -69,7 +69,7 @@ const reach = (c: Case<RosterFeature>, reached: Reached<RosterFeature>): void =>
 }
 
 /**
- * The model's hex digits of a set: its bit(n) text, n the codes minted rounded up to whole hex digits, 1 exactly at the
+ * The model's hex digits of a set: its bit(n) text, n the codes minted rounded up to whole bytes, 1 exactly at the
  * codes of its handles, as hex digits.
  */
 const modelBits = (state: RosterState, handles: ReadonlyArray<string>): string =>
@@ -122,6 +122,6 @@ export const lowersByCodes = (history: RosterHistory, c: Case<RosterFeature>) =>
 				value: { kind: "bits", hex: modelBits(state, set) },
 				type: baseTypeRef(names, bits)
 			},
-			`the set {${Arr.join(set, ", ")}} is bit(${wholeDigits(sizeOf(state))})'s hex literal over its codes, typed as a set's base`
+			`the set {${Arr.join(set, ", ")}} is bit(${setWidth(sizeOf(state))})'s hex literal over its codes, typed as a set's base`
 		)
 	})

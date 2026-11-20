@@ -12,7 +12,7 @@ import {
 	type InstalledTrigger,
 	unitFunctions
 } from "#test/support/catalog/verify.ts"
-import { wholeDigits } from "#test/support/closed/bit-text.ts"
+import { setWidth } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 interface Declared {
@@ -141,7 +141,7 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 									identifierOf(identity.rosterLive(roster, digest)),
 									{
 										kind: "live",
-										domain: identifierOf(identity.bitsDomain(roster, wholeDigits(r.handles.length)))
+										domain: identifierOf(identity.bitsDomain(roster, setWidth(r.handles.length)))
 									}
 								] as const
 							]

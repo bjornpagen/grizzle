@@ -60,7 +60,7 @@ import {
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,
 	type Declaration,
@@ -658,7 +658,7 @@ const dataStepOf = (sys: System, after: Model, code: number, column: string): st
 	const n = storedNames(sys)
 	return column === sys.names.column("Held", "tier")
 		? `DELETE FROM ${n.held} WHERE ${n.tier} = ${code}::smallint;`
-		: `UPDATE ${n.sets} SET ${n.members} = ${n.members} & X'${hexOfText(setText(sizeOf(after.tier), liveCodes(after.tier)))}'::bit(${wholeDigits(sizeOf(after.tier))});`
+		: `UPDATE ${n.sets} SET ${n.members} = ${n.members} & X'${hexOfText(setText(sizeOf(after.tier), liveCodes(after.tier)))}'::bit(${setWidth(sizeOf(after.tier))});`
 }
 
 /** A closed id's and a set's type over the roster's live handles: the columns' codecs' types. */
@@ -694,7 +694,7 @@ const namesConstantOf = (
 /**
  * The installation is the model's: each roster's constant holds the model's names and is renamed exactly when they
  * change; the schema holds exactly the names constants its domains read; Held's codes and Sets' sets are the model's, and decode to the
- * model's handles; Sets' column is a domain over bit(n), n its codes rounded up to whole hex digits.
+ * model's handles; Sets' column is a domain over bit(n), n its codes rounded up to whole bytes.
  */
 export const sameAsModel = (sys: System, after: Model) =>
 	Effect.gen(function* () {
@@ -768,8 +768,8 @@ export const sameAsModel = (sys: System, after: Model) =>
 			)
 			assert.deepEqual(
 				Arr.map(type, (r) => [String(r[0]), String(r[1])]),
-				[["d", `bit(${wholeDigits(sizeOf(after.tier))})`]],
-				"Sets' column is a domain over bit(n), its codes rounded up to whole hex digits"
+				[["d", `bit(${setWidth(sizeOf(after.tier))})`]],
+				"Sets' column is a domain over bit(n), its codes rounded up to whole bytes"
 			)
 		}
 	})
@@ -1035,7 +1035,7 @@ export const real = (
 			)
 			yield* sys.writer.begin
 			yield* sys.writer.query(
-				`INSERT INTO ${n.sets} (${n.setsId}, ${n.members}) VALUES ($1::integer, $2::text::bit(${wholeDigits(sizeOf(before.tier))}))`,
+				`INSERT INTO ${n.sets} (${n.setsId}, ${n.members}) VALUES ($1::integer, $2::text::bit(${setWidth(sizeOf(before.tier))}))`,
 				[sys.ids, text]
 			)
 			yield* sys.writer.commit

@@ -11,7 +11,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { bitInputText, hexText, setBit, wholeDigitBits, zeroDigits } from "#compiler/core/hex.ts"
+import { bitInputText, hexText, setBit, wholeByteBits, zeroDigits } from "#compiler/core/hex.ts"
 import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Reordered, type RosterCodes, rosterCodes } from "#compiler/ir/cells.ts"
@@ -49,9 +49,10 @@ export interface HandleOrder {
 /**
  * One roster's codes, read both ways, built only by rosterCodec. `codes` is what an installation records; `size`
  * counts every code minted, holes included, so it is one past the greatest code the roster's domain admits; `width` is
- * n of a set's bit(n), `size` rounded up to whole hex digits (core/hex.ts), one digit at least, since PostgreSQL's bit(n)
- * holds a bit at least, which an empty roster's set is all padding of, so a set's one spelling is whole digits and its
- * bits past `size`, its padding, are 0; `rank` is each live handle's code, which is the roster's order
+ * n of a set's bit(n), `size` rounded up to whole bytes (core/hex.ts wholeByteBits), one byte at least, since
+ * PostgreSQL's bit(n) holds a bit at least, which an empty roster's set is all padding of: PostgreSQL stores a bit(n) in
+ * whole bytes, so the padding costs no storage and a roster grows into it under the same width, and a set's one spelling
+ * is whole hex digits, its bits past `size`, its padding, 0; `rank` is each live handle's code, which is the roster's order
  * (HandleOrder); `names` is each code's handle in code order, a hole the empty name, which no handle is.
  */
 export interface RosterCodec extends HandleOrder {
@@ -118,7 +119,7 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
 		roster,
 		codes: Object.freeze([...codes]),
 		size: codes.length,
-		width: wholeDigitBits(Math.max(codes.length, 1)),
+		width: wholeByteBits(Math.max(codes.length, 1)),
 		rank,
 		names: Object.freeze(names)
 	})

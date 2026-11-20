@@ -30,7 +30,7 @@ import { closedBuilder, relationBuilder } from "#compiler/schema/relation.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	ALIAS_CODE,
 	codeAt,
@@ -590,32 +590,32 @@ const bitsHistoryFrom =
 		return { installed, steps }
 	}
 
-/** The handles one hex digit of a set's bit string holds: a growth of an installation of so many passes the digit. */
-const digitHandles = wholeDigits(1)
+/** The handles one byte of a set's bit string holds: a growth of an installation of so many passes the byte. */
+const byteHandles = setWidth(1)
 
-/** A history whose every state keeps a live handle: one to a digit's handles installed, then one or two migrations. */
+/** A history whose every state keeps a live handle: one to a byte's handles installed, then one or two migrations. */
 const bitsHistoryGen: Gen<BitsHistory> = (source) =>
-	source.draw(bitsHistoryFrom(installedOf(source.draw(int(1, digitHandles))), [], int(1, 2)))
+	source.draw(bitsHistoryFrom(installedOf(source.draw(int(1, byteHandles))), [], int(1, 2)))
 
-/** A history that grows past a hex digit: a digit's handles installed, a growth, then at most one more migration. */
+/** A history that grows past a byte: a byte's handles installed, a growth, then at most one more migration. */
 const pastDigitHistoryGen: Gen<BitsHistory> = bitsHistoryFrom(
-	installedOf(digitHandles),
+	installedOf(byteHandles),
 	[{ kind: "grow" }],
 	int(0, 1)
 )
 
 export type BitsFeature =
-	| "a growth past a hex digit"
-	| "a growth within a hex digit"
+	| "a growth past a byte"
+	| "a growth within a byte"
 	| "a removal refused until the data step"
 	| "two migrations"
 
 /**
- * A history as the generator draws it: while a growth past a hex digit is pending (gen.ts steered), one that grows past it,
+ * A history as the generator draws it: while a growth past a byte is pending (gen.ts steered), one that grows past it,
  * and otherwise a drawn one; a rotating case is drawn unaimed.
  */
 export const bitsHistories = steered<BitsHistory, BitsFeature>((steering) =>
-	Option.exists(steering, (pending) => pending.has("a growth past a hex digit"))
+	Option.exists(steering, (pending) => pending.has("a growth past a byte"))
 		? pastDigitHistoryGen
 		: bitsHistoryGen
 )

@@ -17,7 +17,7 @@ import { Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { capabilitiesOf } from "#compiler/scalar/registry.ts"
 import { compareValues } from "#compiler/scalar/values/identity.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { echoed, outputText, paramText } from "#test/support/wire.ts"
 
 /** The codes a roster of the box has minted, holes included. */
@@ -220,8 +220,8 @@ export const roundTrips = (
 		)
 		assert.equal(
 			text.length,
-			1 + wholeDigits(size) / 4,
-			"a set's text has a hex digit per four codes, rounded up"
+			1 + setWidth(size) / 4,
+			"a set's text has two hex digits per eight codes, rounded up"
 		)
 		const stored = storedText(held)
 		const read = setsRead.convert(outputText(stored))

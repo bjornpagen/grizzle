@@ -141,7 +141,7 @@ export const types = {
 	int8range: builtinType("int8range"),
 	daterange: builtinType("daterange"),
 	record: builtinType("record"),
-	/** bit(n): a set over a roster, one bit per code it has minted, padded to whole hex digits. */
+	/** bit(n): a set over a roster, one bit per code it has minted, padded to whole bytes. */
 	bit: (length: number): TypeRef => ({
 		kind: "builtin",
 		name: "bit",

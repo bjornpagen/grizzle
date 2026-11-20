@@ -429,7 +429,7 @@ export const namesConstantSql = (fn: ObjectName, names: ReadonlyArray<string>): 
 
 /**
  * A roster's live-code constant, the engine's CreateConstant over bit varying, its body the hex literal of `live`, a
- * set's text whole hex digits long (test/support/closed/bit-text.ts setText): position c is 1 exactly when code c is
+ * set's text whole bytes long (test/support/closed/bit-text.ts setText): position c is 1 exactly when code c is
  * live (OPEN-2 (a), measured against (b)).
  */
 export const liveConstantSql = (fn: ObjectName, live: string): string =>

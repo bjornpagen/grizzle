@@ -119,8 +119,8 @@ export const aRosterOfAnyNumberOfHandlesNoneAmongThemTypesItsClosedIdsItsSetsIts
 			},
 			{
 				file: "packages/engine/src/ir/codes.ts",
-				original: "\t\twidth: wholeDigitBits(Math.max(codes.length, 1)),",
-				replacement: "\t\twidth: wholeDigitBits(codes.length),",
+				original: "\t\twidth: wholeByteBits(Math.max(codes.length, 1)),",
+				replacement: "\t\twidth: wholeByteBits(codes.length),",
 				why: "A set over an empty roster is a bit(0), which PostgreSQL refuses (bit lengths start at 1), so the installation of a set over the empty roster could not be created."
 			}
 		]

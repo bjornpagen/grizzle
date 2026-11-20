@@ -241,10 +241,10 @@ const payloadGen =
 		p: s.draw(shortGen)
 	})
 
-/** Rosters of one to three kinds and one to five flags, each flag's completions, and Slot holding a drawn subset of the pairs. */
+/** Rosters of one to three kinds and one to eight flags, each flag's completions, and Slot holding a drawn subset of the pairs. */
 const lookupsGen: Gen<Lookups> = (s) => {
 	const kinds = s.draw(int(1, 3))
-	const flags = s.draw(int(1, 5))
+	const flags = s.draw(int(1, 8))
 	const codes = codesBelow(flags)
 	return {
 		kinds,
@@ -1206,7 +1206,7 @@ export type Feature =
 	| "a generated set stored empty"
 	| "a singleton stored at the first code"
 	| "a singleton stored at the last code"
-	| "a singleton stored over a roster of whole hex digits"
+	| "a singleton stored over a roster of whole bytes"
 	| "a singleton stored over a padded roster"
 	| "a fold steps a member its selection makes true"
 	| "a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere"
@@ -1259,7 +1259,7 @@ export const situations: NonEmptyReadonlyArray<Feature> = [
 	"a conditional stores its literal at a NULL key value",
 	"a singleton stored at the first code",
 	"a singleton stored at the last code",
-	"a singleton stored over a roster of whole hex digits",
+	"a singleton stored over a roster of whole bytes",
 	"a singleton stored over a padded roster",
 	"a fold steps a member its selection makes true",
 	"a fold steps a member its selection, one set read, makes true at the empty set of a flag completed nowhere",
@@ -1587,8 +1587,8 @@ export const absentCase = (c: AbsentCase, notes: Case<Feature>) =>
 								notes.note("a singleton stored at the last code")
 							}
 							notes.note(
-								w.flags % 4 === 0
-									? "a singleton stored over a roster of whole hex digits"
+								w.flags % 8 === 0
+									? "a singleton stored over a roster of whole bytes"
 									: "a singleton stored over a padded roster"
 							)
 						}

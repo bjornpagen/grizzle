@@ -61,7 +61,7 @@ import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { apply, kept, noFurther, openMigrator, reviewedSource } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { hexOfText, setText, wholeDigits } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	codeAt,
 	type Declaration,
@@ -1209,7 +1209,7 @@ const valueFor = (size: number, name: GeneratedName): string => {
 			return "0::bigint"
 		case "p":
 		case "s":
-			return `X'${hexOfText(setText(size, []))}'::bit(${wholeDigits(size)})`
+			return `X'${hexOfText(setText(size, []))}'::bit(${setWidth(size)})`
 		case "w":
 			return "0::integer"
 	}
@@ -1236,7 +1236,7 @@ export const real = (
 					`INSERT INTO ${tableOf(sys)} (${Arr.join(
 						Arr.map(callerFields, (f) => columnOf(sys, f)),
 						", "
-					)}) VALUES ($1::integer, $2::smallint, $3::text::bit(${wholeDigits(n)}), $4::text::bit(${wholeDigits(n)}))`,
+					)}) VALUES ($1::integer, $2::smallint, $3::text::bit(${setWidth(n)}), $4::text::bit(${setWidth(n)}))`,
 					[
 						before.nextId,
 						code(p.tier),
@@ -1279,7 +1279,7 @@ export const real = (
 	supply: (p, before) =>
 		Effect.gen(function* () {
 			const n = sizeOf(before.tier)
-			const empty = `X'${hexOfText(setText(n, []))}'::bit(${wholeDigits(n)})`
+			const empty = `X'${hexOfText(setText(n, []))}'::bit(${setWidth(n)})`
 			const statement =
 				p.statement === "insert"
 					? `INSERT INTO ${tableOf(sys)} (${Arr.join(
