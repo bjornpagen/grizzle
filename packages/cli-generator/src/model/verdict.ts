@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { JsonPointer, Sha256Hex } from "#model/brands.ts"
-import { DiagnosticScope } from "#model/diagnostic.ts"
+import { diagnosticScopes } from "#model/diagnostic.ts"
 import { Origin } from "#model/entities.ts"
 
 const Count = Schema.Natural
@@ -120,7 +120,9 @@ export const Verdict = Schema.Struct({
 		Schema.Struct({ choice: Schema.String, pointer: JsonPointer, row: Schema.String })
 	),
 	notices: Schema.Array(Entry),
-	refusals: Schema.Array(Schema.Struct({ ...Entry.fields, scope: DiagnosticScope })),
+	refusals: Schema.Array(
+		Schema.Struct({ ...Entry.fields, scope: Schema.Literals(diagnosticScopes) })
+	),
 	spec: Schema.Struct({ id: Schema.String, openapi: Schema.String, sha256: Sha256Hex }),
 	twinEquality: Schema.Struct({ checked: Schema.Boolean, equal: Schema.Boolean }),
 	verdict: Schema.Literals(["accepted", "partly-refused", "refused"])

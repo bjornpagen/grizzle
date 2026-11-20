@@ -12,7 +12,7 @@ import {
 } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
 import { CookieName, MediaType, stripUnsafeText, WireName } from "#model/brands.ts"
-import { diagnosticOf } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { Parameter } from "#model/entities.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
@@ -32,7 +32,7 @@ import type { Resolution, ResolvedReference } from "#resolve/index.ts"
 export interface ParameterSite {
 	readonly nonStandard?: AuthorConfig["nonStandard"]
 	readonly openapi: string
-	readonly operation?: typeof DiagnosticOperation.Type
+	readonly operation?: DiagnosticOperation
 	readonly pointer: string
 }
 
@@ -888,7 +888,7 @@ const toDiagnostics = (
 	const wire = stripUnsafeText(wireName)
 
 	return Effect.forEach(findings, (finding) =>
-		diagnosticOf({
+		makeDiagnostic({
 			code: finding.code,
 			document: resolution.document,
 			element: finding.element,

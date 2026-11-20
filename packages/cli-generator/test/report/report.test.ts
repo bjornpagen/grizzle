@@ -1,6 +1,7 @@
 import { Array as Arr, Effect, Exit, Option, Schema, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
-import { Diagnostic } from "#model/diagnostic.ts"
+import { isDiagnostic } from "#model/diagnostic.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
 import {
 	GenerationReport,
 	generatorExitStatus,
@@ -23,7 +24,7 @@ const make = (
 	code: string,
 	pointer: string
 ) =>
-	Schema.decodeUnknownSync(Diagnostic)({
+	Schema.decodeUnknownSync(Schema.declare(isDiagnostic))({
 		...base,
 		code,
 		pointer,

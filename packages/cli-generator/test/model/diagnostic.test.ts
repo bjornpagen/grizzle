@@ -1,7 +1,7 @@
 /**
  * The model's Diagnostic (design 8.1) and verdict file (design 8.2). A diagnostic of every scope and severity, each
- * optional field present or not, decodes, encodes back to itself in its declared key order, is what the factory builds
- * from its fields without a row, and reads as a refusal and a document refusal exactly as its severity and scope say;
+ * optional field present or not, reads as a Diagnostic (isDiagnostic), is what the factory builds from its fields
+ * without a row, its members in the model's order, and reads as a refusal and a document refusal exactly as its severity and scope say;
  * a code naming another row, a malformed code, an unknown scope, a pointer that is no RFC 6901 text and a position
  * below one are each refused. Diagnostics sort by their document's place in the set (any other last), then design
  * 3.7's pointer order, then code, whatever order they arrive in, and the sort is a fixed point. A verdict whose
@@ -69,16 +69,15 @@ export const diagnosticCodec = property.explore(diagnosticSpace, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/model/diagnostic.ts",
-			original: "\t\t\t\tOption.getOrUndefined(rowOfCode(fields.code)) === fields.row ||",
-			replacement: "\t\t\t\tOption.getOrUndefined(rowOfCode(fields.code)) !== fields.row ||",
-			why: "A diagnostic is admitted only when its code names another row than its row field, so every sound diagnostic is refused; the property fails (CATCH's evidence, mutant 327a1669df)."
+			original: '(row) => row === value["row"]',
+			replacement: '(row) => row !== value["row"]',
+			why: "A diagnostic reads as one only when its code names another row than its row field, so every sound diagnostic is refused; the property fails (CATCH's evidence, mutant 327a1669df, on the reader)."
 		},
 		{
 			file: "packages/cli-generator/src/model/diagnostic.ts",
-			original:
-				'Option.getOrUndefined(rowOfCode(fields.code)) === fields.row ||\n\t\t\t\t"code must start with its row id"',
-			replacement: '"code must start with its row id"',
-			why: "The row check always answers its message, so every diagnostic is refused; the property fails (CATCH's evidence, mutant 8ab3c2d689)."
+			original: '\tOption.exists(rowOfCode(value["code"]), (row) => row === value["row"]) &&\n',
+			replacement: "",
+			why: "isDiagnostic never checks a row against its code, so a diagnostic whose code names another row reads as one; the property fails (CATCH's evidence, mutant 8ab3c2d689, on the reader)."
 		},
 		{
 			file: "packages/cli-generator/src/model/diagnostic.ts",

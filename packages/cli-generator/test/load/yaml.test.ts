@@ -125,9 +125,9 @@ export const yamlHazard = property.explore(planted, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/model/diagnostic.ts",
-			original: "\t\t\t\tOption.getOrUndefined(rowOfCode(fields.code)) === fields.row ||",
-			replacement: "\t\t\t\tOption.getOrUndefined(rowOfCode(fields.code)) !== fields.row ||",
-			why: "A diagnostic whose code starts with its row id is refused as malformed, so no refusal can be made; the property fails (CATCH's evidence, mutant 327a1669df)."
+			original: "\t\t\trow: rowOfCode(input.code),",
+			replacement: "\t\t\trow: Option.none(),",
+			why: "The factory finds no row in any code, so every diagnostic is malformed and no refusal can be made; the property fails (CATCH's evidence, mutant 327a1669df, on makeDiagnostic)."
 		},
 		{
 			file: "packages/cli-generator/src/load/yaml.ts",

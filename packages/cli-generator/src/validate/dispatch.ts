@@ -2,7 +2,7 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Effect, Option, Schema } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
-import { diagnosticOf } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi, patchVersion, SpecLine, specSectionUrl } from "#model/spec-section.ts"
@@ -70,7 +70,7 @@ export const versionRefusal = (
 		(): SpecLine => "3.2"
 	)
 
-	return diagnosticOf({
+	return makeDiagnostic({
 		code: Option.isNone(declared) ? "DOC-02/missing-version" : "DOC-02/unsupported-version",
 		document,
 		element: "openapi",

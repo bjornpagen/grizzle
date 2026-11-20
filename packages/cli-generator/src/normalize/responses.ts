@@ -444,7 +444,7 @@ const caseOf = Effect.fnUntraced(function* caseOf(
 const toDiagnostic = (
 	resolution: Resolution,
 	finding: Finding,
-	operation: typeof DiagnosticOperation.Type
+	operation: DiagnosticOperation
 ): Effect.Effect<Diagnostic> => {
 	const rule: Rule = rules[finding.code]
 	const openapi = Option.getOrElse(declaredOpenapi(resolution.value), () => "unknown")
@@ -512,7 +512,7 @@ const entryOf = Effect.fnUntraced(function* entryOf(
 export const normalizeResponses = Effect.fnUntraced(function* normalizeResponses(
 	resolution: Resolution,
 	pointer: string,
-	operation: typeof DiagnosticOperation.Type
+	operation: DiagnosticOperation
 ): Effect.fn.Return<NormalizedResponses> {
 	const responses = { document: resolution.document, pointer }
 	// oxlint-disable-next-line unicorn/no-array-method-this-argument -- Effect.forEach(items, f), not an array method

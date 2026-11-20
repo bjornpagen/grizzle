@@ -1,7 +1,7 @@
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { Schema } from "effect"
-import { diagnosticOf } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 import { foldJson } from "#model/json-tree.ts"
 import type { JsonFold } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
@@ -57,7 +57,7 @@ export const surrogateRefusal = (
 	where: Where,
 	pointer: string
 ): Effect.Effect<Refusal, Schema.SchemaError> =>
-	diagnosticOf({
+	makeDiagnostic({
 		code: "DOC-14/invalid-encoding",
 		document: where.document,
 		element: "document",

@@ -44,7 +44,7 @@ import {
 	stripUnsafeText,
 	WireName
 } from "#model/brands.ts"
-import { Diagnostic } from "#model/diagnostic.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
 import {
 	Body,
 	EncodingRule,
@@ -503,7 +503,7 @@ const docsGen: Gen<Operation["docs"]> = (s) => {
 	}
 }
 
-const ROWS: Arr.NonEmptyReadonlyArray<string> = ["PRM-1", "ENC-3", "SCH-29"]
+const ROWS: Arr.NonEmptyReadonlyArray<RowId> = ["PRM-1", "ENC-3", "SCH-29"]
 
 /** A diagnostic of this operation or another, a refusal or a notice, at any scope. */
 const diagnosticGen =
@@ -516,7 +516,7 @@ const diagnosticGen =
 				[1, () => true]
 			])
 		)
-		return Diagnostic.make({
+		return {
 			code: `${row}/refused`,
 			document,
 			element: s.draw(textGen),
@@ -524,12 +524,12 @@ const diagnosticGen =
 			openapi: "3.1.0",
 			operation: { method: key.method, path: other ? "/elsewhere" : key.path },
 			pointer: JsonPointer.make("/paths"),
-			row: RowId.make(row),
+			row,
 			scope: s.draw(element<Diagnostic["scope"]>(["element", "field", "operation", "document"])),
 			severity: s.draw(element<Diagnostic["severity"]>(["refusal", "notice"])),
 			specSection: DocumentUri.make("https://spec.openapis.org/oas/v3.1.0"),
 			...Option.match(s.draw(option(textGen)), { onNone: () => ({}), onSome: (wire) => ({ wire }) })
-		})
+		}
 	}
 
 export const helpInputGen: Gen<HelpInput> = (s) => {

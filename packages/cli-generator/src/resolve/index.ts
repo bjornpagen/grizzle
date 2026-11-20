@@ -12,7 +12,8 @@ import {
 	String as Str
 } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
-import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
+import { isDiagnostic, makeDiagnostic } from "#model/diagnostic.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
 import { isObject, isArray, nodeAt, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { fixedMethods, queryMethod } from "#model/path-item.ts"
@@ -119,7 +120,7 @@ class ResolveRefusal extends Schema.TaggedError<
 	ResolveRefusal,
 	{ readonly brand: unique symbol }
 >()("ResolveRefusal", {
-	diagnostic: Diagnostic
+	diagnostic: Schema.declare(isDiagnostic)
 }) {}
 
 /**

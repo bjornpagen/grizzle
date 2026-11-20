@@ -15,8 +15,8 @@ import {
 	UndefinedOr
 } from "effect"
 import { HeaderName, MediaRange, stripUnsafeText } from "#model/brands.ts"
-import { Diagnostic, diagnosticOf } from "#model/diagnostic.ts"
-import type { DiagnosticOperation } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
+import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { Body, EncodingRule } from "#model/entities.ts"
 import type { DiscriminatorHint } from "#model/entities.ts"
 import { childPointer, formatPointer, isPointerWithin } from "#model/pointer.ts"
@@ -64,7 +64,7 @@ export interface BodySite {
 		readonly deepObjectScalars?: boolean
 	}
 	readonly openapi: string
-	readonly operation?: typeof DiagnosticOperation.Type
+	readonly operation?: DiagnosticOperation
 	readonly pointer: string
 }
 
@@ -2553,7 +2553,7 @@ const toDiagnostics = (
 		const bodyEntry = ctx.reference === undefined ? [] : Option.toArray(viaEntry)
 		const related = [...(moved ? [item.at] : []), ...bodyEntry, ...(item.related ?? [])]
 
-		return diagnosticOf({
+		return makeDiagnostic({
 			code: item.code,
 			document: ctx.reference === undefined ? own.document : ctx.resolution.document,
 			element: item.element,

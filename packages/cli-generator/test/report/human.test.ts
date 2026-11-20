@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { describe, expect, test } from "vitest"
-import { Diagnostic } from "#model/diagnostic.ts"
+import { isDiagnostic } from "#model/diagnostic.ts"
 import { humanLine, sanitizeField } from "#report/human.ts"
 
 const base = {
@@ -18,7 +18,7 @@ const base = {
 
 const make = (
 	fields: Partial<Readonly<Record<keyof typeof base, string>>> & { readonly operation?: object }
-) => Schema.decodeUnknownSync(Diagnostic)({ ...base, ...fields })
+) => Schema.decodeUnknownSync(Schema.declare(isDiagnostic))({ ...base, ...fields })
 
 const operation = { method: "GET", operationId: "list-charges", path: "/v1/charges" } as const
 

@@ -3,7 +3,8 @@ import { Array as Arr, Effect, Order, Schema } from "effect"
 import type { Types } from "effect"
 import { printJson } from "#emit/printer.ts"
 import { DocumentUri, JsonLiteral, JsonPointer } from "#model/brands.ts"
-import { Diagnostic, isRefusal, pointerOrder } from "#model/diagnostic.ts"
+import { isDiagnostic, isRefusal, pointerOrder } from "#model/diagnostic.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Api, Operation, SecurityScheme } from "#model/entities.ts"
 import type { NonStandardUse } from "#model/non-standard.ts"
 import { markedUses, nonStandardUses } from "#model/non-standard.ts"
@@ -70,8 +71,8 @@ export const GenerationReport = Schema.Struct({
 	inputs: Schema.Array(Schema.Struct({ document: DocumentUri, sha256: Sha256 })),
 	/** Always present, empty unless the author config switched a non-standard choice on. */
 	nonStandard: Schema.Array(NonStandardEntry),
-	notices: Schema.Array(Diagnostic),
-	refusals: Schema.Array(Diagnostic),
+	notices: Schema.Array(Schema.declare(isDiagnostic)),
+	refusals: Schema.Array(Schema.declare(isDiagnostic)),
 	renames: Schema.Array(
 		Schema.Struct({ from: Schema.String, pointer: JsonPointer, to: Schema.String })
 	),

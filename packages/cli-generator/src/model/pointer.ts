@@ -135,6 +135,17 @@ const builtPointer = Brand.nominal<JsonPointer>()
 export const rootPointer: JsonPointer = builtPointer("")
 
 /**
+ * A pointer text the generator built itself, as a JsonPointer: refused, it is a defect (the parser's own
+ * PointerSyntaxError), never a failure a caller handles. It stands where a pointer the code built is still held as text,
+ * until that text is typed where it is built.
+ */
+export const ownPointer = (text: string): Effect.Effect<JsonPointer> =>
+	Result.match(parsePointerResult(text), {
+		onFailure: (error) => Effect.die(error),
+		onSuccess: () => Effect.succeed(builtPointer(text))
+	})
+
+/**
  * The pointer to member or index `token` of the node at `pointer`.
  */
 export const childPointer = (pointer: string, token: string): string =>

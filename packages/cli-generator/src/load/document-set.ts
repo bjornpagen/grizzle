@@ -14,7 +14,7 @@ import type { Loaded } from "#load/index.ts"
 import { LoadRefusal, readMemberFile, readOperatorFile, sameFile } from "#load/read.ts"
 import type { VerifyOpened } from "#load/read.ts"
 import { DocumentUri } from "#model/brands.ts"
-import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { retrievalBase } from "#model/uri.ts"
 
@@ -96,12 +96,8 @@ const refusePair = Effect.fnUntraced(function* refusePair(
  */
 export const duplicateUri = (pair: DocumentPair) => refusePair("REF-16/duplicate-uri", pair)
 
-const encodeDiagnostic = Schema.encodeEffect(Diagnostic)
-
 const withPath = (refusal: LoadRefusal, path: string): Effect.Effect<never, LoadRefusal> =>
-	encodeDiagnostic(refusal.diagnostic).pipe(
-		Effect.orDie,
-		Effect.flatMap((encoded) => makeDiagnostic({ ...encoded, hint: path })),
+	makeDiagnostic({ ...refusal.diagnostic, hint: path }).pipe(
 		Effect.flatMap((diagnostic) =>
 			Effect.fail(
 				LoadRefusal.make(

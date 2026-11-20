@@ -17,22 +17,33 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Exit, Option, Order, Record, Schema, String as Str } from "effect"
 import {
-	Diagnostic,
-	type DiagnosticInput,
-	diagnosticOf,
+	Array as Arr,
+	Effect,
+	Exit,
+	Option,
+	Order,
+	Predicate,
+	Record,
+	Schema,
+	String as Str
+} from "effect"
+import {
+	isDiagnostic,
 	isDocumentRefusal,
 	isRefusal,
+	makeDiagnostic,
 	sortDiagnostics
 } from "#model/diagnostic.ts"
+import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
+import type { Json } from "#model/pointer.ts"
 import { Verdict } from "#model/verdict.ts"
 
 type Scope = "document" | "operation" | "element" | "field"
 
 type Severity = "refusal" | "notice"
 
-/** A fault planted in a diagnostic's encoded form, each of which the codec must refuse. */
+/** A fault planted in a diagnostic's JSON form, each of which isDiagnostic must refuse. */
 export type DiagnosticFault =
 	| "a code naming another row"
 	| "a malformed code"
@@ -150,7 +161,7 @@ const entry = <A>(key: string, value: Option.Option<A>): Option.Option<readonly 
 	Option.map(value, (present) => [key, present] as const)
 
 /** The sketch's encoded form, every optional key present or absent, its fault planted. */
-const encodedOf = (sketch: DiagnosticSketch): Schema.Json => {
+const encodedOf = (sketch: DiagnosticSketch): Json => {
 	const fault = Option.getOrUndefined(sketch.fault)
 	const row = rowOf(sketch)
 	const code = fault === "a malformed code" ? malformedCode(sketch) : `${row}/${sketch.slug}`
@@ -212,49 +223,43 @@ const inputOf = (sketch: DiagnosticSketch): DiagnosticInput => ({
 	wire: Option.getOrUndefined(sketch.wire)
 })
 
-/** What the codec, the factory and the predicates answer for one sketch. */
+/** What the reader, the factory and the predicates answer for one sketch. */
 export type CodecAnswer =
 	| Readonly<{ kind: "refused" }>
 	| Readonly<{
-			kind: "decoded"
-			encoded: Schema.Json
-			keys: ReadonlyArray<string>
-			built: Schema.Json
+			kind: "read"
+			value: Json
+			built: Json
 			builtKeys: ReadonlyArray<string>
 			refusal: boolean
 			documentRefusal: boolean
 	  }>
 
 const keysOf = (value: unknown): ReadonlyArray<string> =>
-	Option.match(Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))(value), {
-		onNone: () => [],
-		onSome: Record.keys
-	})
+	Predicate.isReadonlyObject(value) ? Record.keys(value) : []
 
-/** The codec's and factory's answer: a refusal, or the round trip, the factory's diagnostic and the predicates. */
-export const codecAnswerOf = (
-	sketch: DiagnosticSketch
-): Effect.Effect<CodecAnswer, Schema.SchemaError> =>
+/**
+ * The reader's and factory's answer: a refusal, or the value read, the factory's diagnostic from the same fields and
+ * the predicates over the value.
+ */
+export const codecAnswerOf = (sketch: DiagnosticSketch): Effect.Effect<CodecAnswer> =>
 	Effect.gen(function* () {
-		const decoded = yield* Effect.exit(Schema.decodeUnknownEffect(Diagnostic)(encodedOf(sketch)))
-		if (Exit.isFailure(decoded)) {
+		const value = encodedOf(sketch)
+		if (!isDiagnostic(value)) {
 			return { kind: "refused" }
 		}
-		const encoded = yield* Schema.encodeEffect(Diagnostic)(decoded.value)
-		const built = yield* diagnosticOf(inputOf(sketch))
-		const builtEncoded = yield* Schema.encodeEffect(Diagnostic)(built)
+		const built = yield* makeDiagnostic(inputOf(sketch))
 		return {
-			kind: "decoded",
-			encoded,
-			keys: keysOf(encoded),
-			built: builtEncoded,
-			builtKeys: keysOf(builtEncoded),
-			refusal: isRefusal(decoded.value),
-			documentRefusal: isDocumentRefusal(decoded.value)
+			kind: "read",
+			value,
+			built,
+			builtKeys: keysOf(built),
+			refusal: isRefusal(value),
+			documentRefusal: isDocumentRefusal(value)
 		}
 	})
 
-/** The order Diagnostic's encoding writes its keys in: its fields as declared, absent optional ones left out. */
+/** The order the model lists a Diagnostic's members in: its fields as declared, absent optional ones left out. */
 const declared = [
 	"code",
 	"column",
@@ -274,19 +279,20 @@ const declared = [
 	"wire"
 ] as const
 
-/** The model's answer: a faulty sketch refused; a sound one round-trips, and the factory builds the same diagnostic. */
+/**
+ * The model's answer: a faulty sketch refused; a sound one read as it is, and the factory builds the same diagnostic
+ * with its members in the model's order.
+ */
 export const expectedCodecOf = (sketch: DiagnosticSketch): CodecAnswer => {
 	if (Option.isSome(sketch.fault)) {
 		return { kind: "refused" }
 	}
-	const encoded = encodedOf(sketch)
-	const keys = Arr.filter(declared, (key) => Arr.contains(keysOf(encoded), key))
+	const value = encodedOf(sketch)
 	return {
-		kind: "decoded",
-		encoded,
-		keys,
-		built: encoded,
-		builtKeys: keys,
+		kind: "read",
+		value,
+		built: value,
+		builtKeys: Arr.filter(declared, (key) => Arr.contains(keysOf(value), key)),
 		refusal: sketch.severity === "refusal",
 		documentRefusal: sketch.severity === "refusal" && sketch.scope === "document"
 	}
@@ -435,19 +441,16 @@ const placedOf = (d: Readonly<{ document: string; pointer: string; code: string 
 })
 
 /** The diagnostics a sort case holds, in arrival order. */
-const arrivedOf = (c: SortCase): Effect.Effect<ReadonlyArray<Diagnostic>, Schema.SchemaError> =>
+const arrivedOf = (c: SortCase): Effect.Effect<ReadonlyArray<Diagnostic>> =>
 	Effect.forEach(
 		Arr.getSomes(Arr.map(c.arrival, (index) => Arr.get(c.sketches, index))),
-		(sketch) => diagnosticOf(inputOf(sketch))
+		(sketch) => makeDiagnostic(inputOf(sketch))
 	)
 
 /** What sortDiagnostics answers: its order once, and again over its own output. */
 export const sortedOf = (
 	c: SortCase
-): Effect.Effect<
-	Readonly<{ once: ReadonlyArray<Placed>; twice: ReadonlyArray<Placed> }>,
-	Schema.SchemaError
-> =>
+): Effect.Effect<Readonly<{ once: ReadonlyArray<Placed>; twice: ReadonlyArray<Placed> }>> =>
 	Effect.map(arrivedOf(c), (arrived) => {
 		const once = sortDiagnostics(c.listed, arrived)
 		return {

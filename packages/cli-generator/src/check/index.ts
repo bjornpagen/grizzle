@@ -1,8 +1,8 @@
 import { Effect } from "effect"
 import { checkGrammar } from "#check/grammar.ts"
 import { checkStructure } from "#check/structure.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
 import { sortDiagnostics } from "#model/diagnostic.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Resolution } from "#resolve/index.ts"
 
 /**

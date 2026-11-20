@@ -4,7 +4,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import { Array as Arr, Effect, FileSystem, Path, Schema } from "effect"
 import { generate } from "#generate.ts"
 import { DocumentUri } from "#model/brands.ts"
-import { Diagnostic } from "#model/diagnostic.ts"
+import { isDiagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { GenerationReport } from "#report/index.ts"
 
@@ -32,12 +32,12 @@ export const GenerationRequest = Schema.Struct({
 export const Generation = Schema.Union([
 	Schema.TaggedStruct("Generated", {
 		commandNames: GenerationReport.fields.commandNames,
-		diagnostics: Schema.Array(Diagnostic),
+		diagnostics: Schema.Array(Schema.declare(isDiagnostic)),
 		nonStandard: GenerationReport.fields.nonStandard,
 		twin: Schema.Struct({ checked: Schema.Boolean, differing: Schema.Array(Schema.String) })
 	}),
 	Schema.TaggedStruct("Refused", {
-		diagnostics: Schema.Array(Diagnostic),
+		diagnostics: Schema.Array(Schema.declare(isDiagnostic)),
 		reason: Schema.Literals(["config", "document", "strict"])
 	})
 ])

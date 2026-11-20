@@ -2,7 +2,7 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
 import type { Schema } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
-import { diagnosticOf } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { parsePointerResult } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
@@ -142,7 +142,7 @@ export const noticeFor = (
 	pointer: string,
 	schemaSide: string
 ): Effect.Effect<Diagnostic, Schema.SchemaError> =>
-	diagnosticOf({
+	makeDiagnostic({
 		code: entry.code,
 		document: where.document,
 		element: entry.element,
@@ -179,7 +179,7 @@ export const refusalFor = (
 	const { anchor, row } = refusalRows[where.line]
 	const locations = Arr.map(group.deepest, (unit) => unit.absoluteKeywordLocation)
 
-	return diagnosticOf({
+	return makeDiagnostic({
 		code: `${row}/schema-invalid`,
 		document: where.document,
 		element: "OpenAPI document",

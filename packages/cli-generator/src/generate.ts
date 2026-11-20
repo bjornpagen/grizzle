@@ -23,12 +23,13 @@ import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import {
-	Diagnostic,
+	isDiagnostic,
 	isDocumentRefusal,
 	isRefusal,
 	makeDiagnostic,
 	sortDiagnostics
 } from "#model/diagnostic.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { Api } from "#model/entities.ts"
 import type { Operation } from "#model/entities.ts"
@@ -115,7 +116,7 @@ export class GenerateRefused extends Schema.TaggedError<
 	GenerateRefused,
 	{ readonly brand: unique symbol }
 >()("GenerateRefused", {
-	diagnostics: Schema.Array(Diagnostic),
+	diagnostics: Schema.Array(Schema.declare(isDiagnostic)),
 	reason: Schema.Literals(["config", "document", "strict"])
 }) {}
 

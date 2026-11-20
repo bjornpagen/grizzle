@@ -8,8 +8,8 @@ import {
 	SafeText,
 	ServerTemplate
 } from "#model/brands.ts"
-import { Diagnostic } from "#model/diagnostic.ts"
-import { RowId, Server } from "#model/entities.ts"
+import type { Diagnostic } from "#model/diagnostic.ts"
+import { isRowId, RowId, Server } from "#model/entities.ts"
 import { isArray } from "#model/json-tree.ts"
 import { childPointer, formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
@@ -182,7 +182,7 @@ interface Site {
 const diagnose = (context: ServersContext, code: RuleCode, site: Site): Diagnostic => {
 	const rule: Rule = rules[code]
 
-	return Diagnostic.make({
+	return {
 		code,
 		document: site.document,
 		element: rule.element,
@@ -190,13 +190,13 @@ const diagnose = (context: ServersContext, code: RuleCode, site: Site): Diagnost
 		message: rule.message,
 		openapi: context.openapi,
 		pointer: JsonPointerSchema.make(site.pointer),
-		row: RowId.make(Arr.headNonEmpty(Str.split(code, "/"))),
+		row: Option.getOrThrow(Option.liftPredicate(Arr.headNonEmpty(Str.split(code, "/")), isRowId)),
 		scope: rule.scope,
 		severity: "refusal",
 		specSection: DocumentUri.make(
 			`https://spec.openapis.org/oas/v${context.openapi}.html#server-url`
 		)
-	})
+	}
 }
 
 const specSite = (context: ServersContext, pointer: string): Site => ({

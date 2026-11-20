@@ -1,8 +1,8 @@
 import { Array as Arr, Effect, Match, Schema } from "effect"
 import type { SchemaIssue } from "effect"
 import { DocumentUri, JsonPointer } from "#model/brands.ts"
-import { Diagnostic, makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
-import type { DiagnosticInput } from "#model/diagnostic.ts"
+import { isDiagnostic, makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
+import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
 import { formatPointer, nonEmptyPointerPattern } from "#model/pointer.ts"
 
 const binNamePattern = /^[a-z][a-z0-9-]*$/u
@@ -160,7 +160,7 @@ export class AuthorConfig extends Schema.Class<AuthorConfig>("AuthorConfig")({
  */
 // oxlint-disable-next-line unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown
 class AuthorConfigRefused extends Schema.TaggedError<AuthorConfigRefused>()("AuthorConfigRefused", {
-	diagnostics: Schema.Array(Diagnostic)
+	diagnostics: Schema.Array(Schema.declare(isDiagnostic))
 }) {}
 
 /**

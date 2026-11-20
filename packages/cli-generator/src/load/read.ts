@@ -1,8 +1,8 @@
 import { ByteSize, Bytes, Effect, FileSystem, Option, Schema, Stream } from "effect"
 import type { PlatformError, Scope } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
+import { isDiagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 import type { DiagnosticInput } from "#model/diagnostic.ts"
-import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 
 const messages = {
 	"DOC-14/duplicate-key": "An object repeats a key.",
@@ -27,7 +27,7 @@ export class LoadRefusal extends Schema.TaggedError<
 	LoadRefusal,
 	{ readonly brand: unique symbol }
 >()("LoadRefusal", {
-	diagnostic: Diagnostic,
+	diagnostic: Schema.declare(isDiagnostic),
 	offset: Schema.optionalKey(Schema.Natural)
 }) {}
 

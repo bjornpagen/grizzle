@@ -58,8 +58,6 @@ export interface OperationAssembly {
  */
 export type OperationsError = BodyNotReadable | ParameterNotReadable
 
-type DiagnosticOperationValue = typeof DiagnosticOperation.Type
-
 type Level = "operation" | "pathItem"
 
 interface Located {
@@ -392,7 +390,7 @@ interface Shared {
 	readonly schemes: SchemeNormalization
 }
 
-const operationInfo = (raw: RawOperation): DiagnosticOperationValue =>
+const operationInfo = (raw: RawOperation): DiagnosticOperation =>
 	raw.fields.operationId === undefined
 		? { method: raw.method, path: raw.path }
 		: { method: raw.method, operationId: raw.fields.operationId, path: raw.path }
@@ -506,7 +504,7 @@ interface BodyResult {
 const diagnose = (
 	shared: Shared,
 	code: Code,
-	site: { readonly operation: DiagnosticOperationValue; readonly pointer: string },
+	site: { readonly operation: DiagnosticOperation; readonly pointer: string },
 	related: readonly string[]
 ): Effect.Effect<Diagnostic> => {
 	const rule: Rule = rules[code]
