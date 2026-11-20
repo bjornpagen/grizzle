@@ -185,9 +185,10 @@ export const aTermsSharedSubtermsAreEvaluatedOnceItsRewriteKeepsItsValueAtEveryR
 			},
 			{
 				file: "packages/engine/src/lower/conservative/expr/share.ts",
-				original: "\t\t\t\t\t\t\tholdsFirst ? this.#cond(c, x, k, x) : this.#cond(c, k, x, x),\n",
+				original:
+					"\t\t\t\t\t\t\tholdsFirst ? this.#cond(c, x, k, x, facts) : this.#cond(c, k, x, x, facts),\n",
 				replacement:
-					"\t\t\t\t\t\t\tholdsFirst ? this.#cond(c, k, x, x) : this.#cond(c, x, k, x),\n",
+					"\t\t\t\t\t\t\tholdsFirst ? this.#cond(c, k, x, x, facts) : this.#cond(c, x, k, x, facts),\n",
 				why: "A factoring of an arm that is the other at a constant puts the constant on the wrong side: the guarded chain reads the flag `k` where Pick holds the row and the row's own flag where it holds none."
 			},
 			{

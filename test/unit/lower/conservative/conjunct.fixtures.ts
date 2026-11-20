@@ -1,14 +1,25 @@
-/** What the property of conjunct.test.ts reads: its selections an equality decides, each lowered, and its sharing. */
+/**
+ * What the properties of conjunct.test.ts read: its selections an equality decides, each lowered, its conditionals with
+ * a constant arm, its sharing, and the host's value of a term at each row.
+ */
 
 import { defined } from "@bjornpagen/testing/assert"
-import { Array as Arr } from "effect"
+import { Array as Arr, Formatter, Option } from "effect"
 import { admittedFunctionDigest } from "#compiler/core/fingerprint.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
-import { exprClosure, type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
+import {
+	exprClosure,
+	type OpId,
+	predicateTable,
+	type ScalarExpr,
+	storedColumn
+} from "#compiler/ir/expr.ts"
 import { sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
+import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { connectiveOps, definedIdOf, overloadOf } from "#compiler/scalar/compute/registry.ts"
 import { plainType } from "#compiler/scalar/native.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	baseParams,
@@ -96,13 +107,18 @@ export const holdsConditional = (e: ScalarExpr): boolean =>
 export const selectionSql = (e: ScalarExpr): string => renderSql(e, plainRender)
 
 /**
- * The two selections no conjunct form holds: one whose deciding subterm may be NULL, `R.f(kind) = 633`, a closed read
- * at a key the relation may hold no tuple at, which the sharing never splits on (#nonNullAt); and one whose held arm
- * calls a declared function, which may raise, so the split keeps its conditional (#raisesAt). Each is built as the IR
- * holds it, the subterm read twice: `s AND (b = 2 AND s OR b = 3)`, and `s AND CASE WHEN s THEN f(b) ELSE b = 3 END`,
- * whose arm where s fails is false and whose arm where it holds is the call.
+ * The three terms no connective form holds: one whose deciding subterm may be NULL, `R.f(kind) = 633`, a closed read
+ * at a key the relation may hold no tuple at, which the sharing never splits on (#nonNullAt); one whose held arm calls a
+ * declared function, which may raise, so the split keeps its conditional (#raisesAt); and a check's refusal of that
+ * predicate, `cond(R.f(kind) = 633, false, true)`, which is true where the read is NULL, as NOT of it is not. The first
+ * two are built as the IR holds them, the subterm read twice: `s AND (b = 2 AND s OR b = 3)`, and `s AND CASE WHEN s
+ * THEN f(b) ELSE b = 3 END`, whose arm where s fails is false and whose arm where it holds is the call.
  */
-export const negatives = ["a subterm that may be NULL", "a held arm that calls a function"] as const
+export const negatives = [
+	"a subterm that may be NULL",
+	"a held arm that calls a function",
+	"a refusal of a predicate that may be NULL"
+] as const
 export type Negative = (typeof negatives)[number]
 
 const int2 = plainType("int2")
@@ -123,7 +139,11 @@ const eqOver = (out: Sink, left: ScalarExpr, right: ScalarExpr): ScalarExpr =>
 	})
 
 /** A connective over its operands, as the IR holds it. */
-const connective = (out: Sink, c: "and" | "or", args: ReadonlyArray<ScalarExpr>): ScalarExpr =>
+const connective = (
+	out: Sink,
+	c: "and" | "or" | "not",
+	args: ReadonlyArray<ScalarExpr>
+): ScalarExpr =>
 	out.emit({
 		kind: "op",
 		op: connectiveOps[c],
@@ -149,7 +169,7 @@ export const negativeTerm = (negative: Negative): ScalarExpr => {
 	const kind = out.emit(storedColumn(row, "kind", int2))
 	const base = out.emit(storedColumn(row, "base", int2))
 	const subject =
-		negative === "a subterm that may be NULL"
+		negative !== "a held arm that calls a function"
 			? eqOver(
 					out,
 					out.emit({
@@ -163,6 +183,9 @@ export const negativeTerm = (negative: Negative): ScalarExpr => {
 					smallint(out, 633n)
 				)
 			: eqOver(out, kind, smallint(out, 633n))
+	if (negative === "a refusal of a predicate that may be NULL") {
+		return cond(out, subject, truth(out, false), truth(out, true))
+	}
 	if (negative === "a subterm that may be NULL") {
 		return connective(out, "and", [
 			subject,
@@ -199,3 +222,116 @@ export const sharedTerm = (e: ScalarExpr): ScalarExpr =>
 /** How many times `e`'s tree reads a closed relation, each read counted where it stands. */
 export const closedReads = (e: ScalarExpr): number =>
 	(e.kind === "closedAt" ? 1 : 0) + Arr.reduce(e.args, 0, (n, a) => n + closedReads(a))
+
+/** A boolean literal, as the IR holds it. */
+const truth = (out: Sink, value: boolean): ScalarExpr =>
+	out.emit({
+		kind: "literal",
+		value: { kind: "bool", value },
+		args: [],
+		type: bool,
+		nonNull: "literal"
+	})
+
+/** A conditional over booleans, as the IR holds it. */
+const cond = (out: Sink, c: ScalarExpr, t: ScalarExpr, f: ScalarExpr): ScalarExpr =>
+	out.emit({ kind: "cond", args: [c, t, f], type: bool, nonNull: "cond" })
+
+/** `NOT x`, as the IR holds it. */
+const negation = (out: Sink, x: ScalarExpr): ScalarExpr => connective(out, "not", [x])
+
+/**
+ * The conditionals with a constant arm, one per entry of share.ts constantArms, each over the condition `kind = 633`
+ * and the other arm `base = 3`, never NULL; and a check's refusal of a predicate never NULL, `cond(p, false, true)`
+ * over `p = NOT (kind = 633 AND base = 3 OR kind = 1 AND base = 4)` (ir/desc.ts refusalCondition), a check's predicate
+ * that negates a disjunction of key pairs, as edullm's Media type does.
+ */
+export const constantArmShapes = [
+	"cond(s, true, e)",
+	"cond(s, false, e)",
+	"cond(s, t, false)",
+	"cond(s, t, true)",
+	"a refusal of a predicate never NULL"
+] as const
+export type ConstantArmShape = (typeof constantArmShapes)[number]
+
+/** The connective each shape is: its top-level operation once shared, and whether its condition stands negated in it. */
+export const connectiveOfShape = {
+	"cond(s, true, e)": { op: "or", negated: false },
+	"cond(s, false, e)": { op: "and", negated: true },
+	"cond(s, t, false)": { op: "and", negated: false },
+	"cond(s, t, true)": { op: "or", negated: true },
+	"a refusal of a predicate never NULL": { op: "or", negated: false }
+} as const satisfies Record<
+	ConstantArmShape,
+	{ readonly op: "and" | "or"; readonly negated: boolean }
+>
+
+/** The term of `shape`, built as the IR holds it, before the sharing. */
+export const constantArmTerm = (shape: ConstantArmShape): ScalarExpr => {
+	const out = sink()
+	const row = NodeId("row")
+	const kind = out.emit(storedColumn(row, "kind", int2))
+	const base = out.emit(storedColumn(row, "base", int2))
+	const s = eqOver(out, kind, smallint(out, 633n))
+	const e = eqOver(out, base, smallint(out, 3n))
+	switch (shape) {
+		case "cond(s, true, e)":
+			return cond(out, s, truth(out, true), e)
+		case "cond(s, false, e)":
+			return cond(out, s, truth(out, false), e)
+		case "cond(s, t, false)":
+			return cond(out, s, e, truth(out, false))
+		case "cond(s, t, true)":
+			return cond(out, s, e, truth(out, true))
+		case "a refusal of a predicate never NULL": {
+			const pairs = connective(out, "or", [
+				connective(out, "and", [s, e]),
+				connective(out, "and", [
+					eqOver(out, kind, smallint(out, 1n)),
+					eqOver(out, base, smallint(out, 4n))
+				])
+			])
+			return cond(out, negation(out, pairs), truth(out, false), truth(out, true))
+		}
+	}
+}
+
+/** The operator at the top of `e`, if it is an operation: the connective a reduced conditional is. */
+const operatorOf = (e: ScalarExpr | undefined): OpId | undefined =>
+	e?.kind === "op" ? e.op : undefined
+
+/** The operator at the top of `e` and its first operand's, each undefined where it is no operation. */
+export const topOf = (
+	e: ScalarExpr
+): { readonly op: OpId | undefined; readonly first: OpId | undefined } => ({
+	op: operatorOf(e),
+	first: operatorOf(Arr.head(e.args).pipe(Option.getOrUndefined))
+})
+
+/** The rows a term's value is compared at: `kind` at 633, 1 and 7, `base` at 3 and 4, R.f(kind) 633 at kind 633 alone. */
+export const rows: ReadonlyArray<{ readonly kind: number; readonly base: number }> = Arr.flatMap(
+	[633, 1, 7],
+	(kind) => Arr.map([3, 4], (base) => ({ kind, base }))
+)
+
+/**
+ * The host's value of `e` at `row`, as text (scalar/compute/evaluate.ts): true, false, NULL, or why it has none; R.f
+ * holds 633 at kind 633 and no tuple elsewhere, so its read is NULL there.
+ */
+export const hostValue = (
+	e: ScalarExpr,
+	row: { readonly kind: number; readonly base: number }
+): string => {
+	const table = predicateTable(e)
+	const value = compiledExpr(table)(
+		{
+			value: undefined,
+			column: (ref) =>
+				ref.name === "kind" ? row.kind : ref.name === "base" ? row.base : undefined,
+			closed: () => (row.kind === 633 ? 633 : sqlNull)
+		},
+		ProgramPatterns.of(tablePatterns(table))
+	)
+	return value.ok ? (value.value === sqlNull ? "NULL" : Formatter.format(value.value)) : "no value"
+}

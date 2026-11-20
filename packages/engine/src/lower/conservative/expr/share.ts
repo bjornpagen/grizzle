@@ -50,6 +50,11 @@ import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.
  *   `lexical` is `sw(preserve)` of `sw(x) = CASE x WHEN collapse THEN … WHEN replace THEN … ELSE lexical END`.
  *   Every part of C is evaluated as it was, and `c` with it.
  *
+ * Every conditional either rewrite builds, and every one the term holds, is built in one place (#cond), which reduces a
+ * boolean conditional over a condition never NULL with an arm that is a constant to its connective (`constantArms`):
+ * a check's refusal `cond(p, false, true)` is `NOT p`, and a split whose arm where its subterm fails is false is the
+ * conjunction, so an equality stays where PostgreSQL reads an index condition.
+ *
  * Structurally equal subterms are one subterm (`Interned`), so a term its author built twice is shared as one built
  * once. The IR's meaning is unchanged: the rewrite is a term the host evaluates to the same value, and only its SQL
  * differs.
@@ -115,6 +120,34 @@ const isBoolean = (e: ScalarExpr): boolean => baseOf(e.type).carrier === "bool"
 /** The boolean a literal is, or undefined for any other expression. */
 const truthOf = (e: ScalarExpr): boolean | undefined =>
 	e.kind === "literal" && e.value.kind === "bool" ? e.value.value : undefined
+
+/**
+ * What a boolean conditional `cond(s, t, f)` over a condition `s` never NULL is where one of its arms is a constant,
+ * keyed by that arm and its value: `s`, or `NOT s`, joined to the other arm by AND or OR. The four are exact on every
+ * row: `s` is true or false there, never NULL, and each connective's value at either is the arm the conditional takes.
+ *
+ * - `cond(s, true, e)` is `s OR e`;
+ * - `cond(s, false, e)` is `NOT s AND e`;
+ * - `cond(s, t, false)` is `s AND t`;
+ * - `cond(s, t, true)` is `NOT s OR t`.
+ */
+const constantArms = {
+	holds: {
+		true: { negated: false, connective: "or" },
+		false: { negated: true, connective: "and" }
+	},
+	fails: {
+		true: { negated: true, connective: "or" },
+		false: { negated: false, connective: "and" }
+	}
+} as const satisfies {
+	readonly [Arm in "holds" | "fails"]: {
+		readonly [Value in "true" | "false"]: {
+			readonly negated: boolean
+			readonly connective: "and" | "or"
+		}
+	}
+}
 
 /**
  * One expression per structure: each expression rebuilt over its arguments' representatives, and the first of every
@@ -595,43 +628,84 @@ class Sharing {
 				)
 	}
 
-	/**
-	 * A boolean split on `subject`, never NULL where it is evaluated, whose value is `holds` where the subject holds and
-	 * `fails` where it fails: where `fails` is false and `holds` raises nothing, the conjunction `subject AND holds`, the
-	 * subject a top-level conjunct, so a selection a column's equality decides keeps the equality as PostgreSQL reads an
-	 * index condition, `c = 633 AND (...)`, never hidden in `CASE WHEN c = 633 THEN ... ELSE false END`; the subject alone
-	 * where `holds` is true; the conditional otherwise. The subject is never NULL, so the conjunction is the conditional's
-	 * value on every row, NULL included, and an operand that raises nothing is evaluated by AND as safely as by CASE.
-	 */
-	#decided(
-		subject: ScalarExpr,
-		holds: ScalarExpr,
-		fails: ScalarExpr,
-		like: ScalarExpr
-	): ScalarExpr {
-		if (truthOf(fails) !== false || truthOf(holds) === false || this.#raisesAt(holds)) {
-			return this.#cond(subject, holds, fails, like)
+	/** `NOT c`: the operand of a negation, a boolean literal flipped, or the negation built, labelled after `c`. */
+	#negated(c: ScalarExpr): ScalarExpr {
+		const truth = truthOf(c)
+		if (truth !== undefined) {
+			return this.#truth(!truth, c)
 		}
-		return truthOf(holds) === true
-			? subject
+		const [operand] = c.args
+		return c.kind === "op" && c.op === connectiveOps.not && operand !== undefined
+			? operand
 			: this.#built(
 					{
 						kind: "op",
-						op: connectiveOps.and,
-						args: [subject, holds],
-						type: like.type,
+						op: connectiveOps.not,
+						args: [c],
+						type: c.type,
 						nonNull: "strict",
 						volatility: "immutable"
 					},
-					like
+					c
 				)
 	}
 
-	/** The conditional `cond(c, t, f)`, labelled after `like`: one of equal arms, where its condition raises nothing. */
-	#cond(c: ScalarExpr, t: ScalarExpr, f: ScalarExpr, like: ScalarExpr): ScalarExpr {
-		return t === f && !this.#raisesAt(c)
-			? t
-			: this.#built({ kind: "cond", args: [c, t, f], type: like.type, nonNull: "cond" }, like)
+	/**
+	 * `a` and `b` joined by `connective`, labelled after `like`: an operand that is the connective's unit dropped, and an
+	 * operand that decides it its value, so a reduced conditional prints no `AND true`; neither operand raises.
+	 */
+	#joined(connective: "and" | "or", a: ScalarExpr, b: ScalarExpr, like: ScalarExpr): ScalarExpr {
+		const unit = connective === "and"
+		if (truthOf(a) === unit) {
+			return b
+		}
+		if (truthOf(b) === unit) {
+			return a
+		}
+		if (truthOf(a) === !unit || truthOf(b) === !unit) {
+			return this.#truth(!unit, like)
+		}
+		return this.#built(
+			{
+				kind: "op",
+				op: connectiveOps[connective],
+				args: [a, b],
+				type: like.type,
+				nonNull: "strict",
+				volatility: "immutable"
+			},
+			like
+		)
+	}
+
+	/**
+	 * The conditional `cond(c, t, f)`, labelled after `like`, built here alone: one of equal arms, where its condition
+	 * raises nothing; a boolean one an arm of which is a constant, over a condition never NULL where `facts` hold, the
+	 * connective `constantArms` reduces it to, where neither the condition nor the other arm raises; the conditional
+	 * otherwise. So a check's refusal of a predicate never NULL, `cond(p, false, true)` (ir/desc.ts refusalCondition), is
+	 * `NOT p`, and a split on a subterm whose arm where it fails is false is `subterm AND (the rest where it holds)`: a
+	 * selection an equality decides keeps the equality where PostgreSQL reads an index condition, `c = 633 AND (...)`,
+	 * never hidden in `CASE WHEN c = 633 THEN ... ELSE false END`. The condition is never NULL, so the connective is the
+	 * conditional's value on every row, NULL included; and nothing it reads raises, so AND and OR, whose operands
+	 * PostgreSQL may evaluate in any order, evaluate the other arm as safely as CASE does.
+	 */
+	#cond(c: ScalarExpr, t: ScalarExpr, f: ScalarExpr, like: ScalarExpr, facts: Facts): ScalarExpr {
+		if (t === f && !this.#raisesAt(c)) {
+			return t
+		}
+		if (isBoolean(like) && !this.#raisesAt(c) && this.#nonNullAt(c, facts)) {
+			for (const [arm, constant, other] of [
+				["holds", t, f],
+				["fails", f, t]
+			] as const) {
+				const value = truthOf(constant)
+				if (value !== undefined && !this.#raisesAt(other)) {
+					const { negated, connective } = constantArms[arm][value ? "true" : "false"]
+					return this.#joined(connective, negated ? this.#negated(c) : c, other, like)
+				}
+			}
+		}
+		return this.#built({ kind: "cond", args: [c, t, f], type: like.type, nonNull: "cond" }, like)
 	}
 
 	/**
@@ -650,7 +724,7 @@ class Sharing {
 				this.#substituted(e, new Map([[s, this.#truth(false, s)]])),
 				facts
 			)
-			return this.#decided(subject, holds, fails, e)
+			return this.#cond(subject, holds, fails, e, facts)
 		}
 		const values = this.#valuesOf(s)
 		if (values === undefined) {
@@ -698,7 +772,7 @@ class Sharing {
 			if (test === undefined) {
 				return undefined
 			}
-			chain = this.#cond(test, a.arm, chain, e)
+			chain = this.#cond(test, a.arm, chain, e, facts)
 		}
 		return chain
 	}
@@ -867,7 +941,7 @@ class Sharing {
 		const candidates: Array<() => ScalarExpr> = []
 		if (pair !== "same" && pair !== "conflict" && !(pair.a === t && pair.b === f)) {
 			candidates.push(() => {
-				const hole = this.#factored(this.#cond(c, pair.a, pair.b, pair.a), facts)
+				const hole = this.#factored(this.#cond(c, pair.a, pair.b, pair.a, facts), facts)
 				return this.#generalized(t, f, pair, hole)
 			})
 		}
@@ -887,7 +961,7 @@ class Sharing {
 					}
 					candidates.push(() => {
 						const hole = this.#factored(
-							holdsFirst ? this.#cond(c, x, k, x) : this.#cond(c, k, x, x),
+							holdsFirst ? this.#cond(c, x, k, x, facts) : this.#cond(c, k, x, x, facts),
 							facts
 						)
 						return this.#substituted(whole, new Map([[x, hole]]))
@@ -924,7 +998,8 @@ class Sharing {
 					test,
 					this.#rewrite(w.result, this.#withTruths(facts, w.condition)),
 					rebuilt,
-					e
+					e,
+					facts
 				)
 			}
 			return rebuilt
@@ -937,7 +1012,8 @@ class Sharing {
 					condition,
 					this.#rewrite(t, this.#withTruths(facts, c)),
 					this.#rewrite(f, facts),
-					e
+					e,
+					facts
 				),
 				facts
 			)
