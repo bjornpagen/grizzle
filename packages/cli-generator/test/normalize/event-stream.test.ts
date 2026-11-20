@@ -94,10 +94,23 @@ export const eventContract = property.explore(itemSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/event-stream.ts",
-			original: "(media) => ({ at: data.at, schema: media.contentSchema !== undefined })",
+			original: "(media) => ({ at: data.at, schema: Option.isSome(media.contentSchema) })",
 			replacement:
-				"(media) => ({ at: data.at, schema: false && media.contentSchema !== undefined })",
+				"(media) => ({ at: data.at, schema: false && Option.isSome(media.contentSchema) })",
 			why: "dataOf ignores a branch's `contentSchema`, so JSON data its schema checks is read as JSON no schema checks; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/normalize/event-stream.ts",
+			original: 'literal("ready")])\n\t\t\t\t\t)\n\t\t\t\t},\n\t\t\t\tfalse',
+			replacement: 'literal("ready")])\n\t\t\t\t\t)\n\t\t\t\t},\n\t\t\t\tanything',
+			why: "A bare role admits members beside it, so an `x-stream` holding a member no form names (an `extra`, or a `retryWhen` on a ready role) reads as that role instead of being refused as malformed; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/normalize/event-stream.ts",
+			original:
+				'pointer: member(object, "pointer", refine(string, isJsonPointer, "a JSON Pointer"))',
+			replacement: 'pointer: member(object, "pointer", string)',
+			why: "A retry rule's pointer is read as any text, so a `retryWhen` whose pointer is no JSON Pointer reads as a retry rule instead of a malformed `x-stream`; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/schemas.ts",

@@ -12,7 +12,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, Schema } from "effect"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { EventContract } from "#model/entities.ts"
 import { childPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
@@ -465,9 +465,11 @@ const encodeContract = Schema.encodeEffect(EventContract)
 
 /** The document resolved as the generator resolves it. */
 const resolutionOf = (schema: ItemSchema) =>
-	Effect.flatMap(Schema.decodeEffect(DocumentUri)("file:///spec/openapi.json"), (document) =>
-		resolve({ document, line: "3.2", value: documentOf(schema) })
-	)
+	resolve({
+		document: fixedDocumentUri("file:///spec/openapi.json"),
+		line: "3.2",
+		value: documentOf(schema)
+	})
 
 /**
  * Every key a contract's rows name for their data's schema that the document's schema store (normalize/schemas.ts

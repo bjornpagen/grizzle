@@ -18,12 +18,11 @@ import {
 	Order,
 	Path,
 	Record as Rec,
-	Schema,
 	String as Str
 } from "effect"
 import { Digest } from "effect/crypto"
 import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { isObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
 import {
@@ -226,18 +225,14 @@ export const packageOf = (
 		const out = path.join(directory, "out")
 		yield* fs.writeFileString(specPath, textOf(document))
 		yield* fs.writeFileString(configPath, textOf(configOf(config)))
-		const specDocument = yield* Schema.decodeEffect(DocumentUri)("file:///canon/openapi.json")
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
-			"file:///canon/author-config.json"
-		)
 		const result = yield* generate(
 			{
-				document: specDocument,
+				document: fixedDocumentUri("file:///canon/openapi.json"),
 				outDir: out,
 				source: { _tag: "File", path: specPath },
 				strict: false
 			},
-			{ document: configDocument, path: configPath }
+			{ document: fixedDocumentUri("file:///canon/author-config.json"), path: configPath }
 		).pipe(Effect.provideService(Digest.Digest, digest))
 		const kept = Arr.sort(
 			Arr.filter(result.files, (file) => file !== "generation-report.json"),

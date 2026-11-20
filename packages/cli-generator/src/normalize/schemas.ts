@@ -1,6 +1,7 @@
 import { regex } from "arkregex"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Equal,
 	Graph,
@@ -22,7 +23,7 @@ import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
 import { isSpecificationExtension } from "#model/extension.ts"
-import { isObject, isArray, stringMember } from "#model/json-tree.ts"
+import { isArray, isJson, isObject, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { evaluatePointerResult, formatPointer, parsePointerResult } from "#model/pointer.ts"
@@ -92,17 +93,15 @@ export interface SchemaNormalization extends StoredSchemas {
 /**
  * A conversion or import failure that no D-AD12 class names: a defect in that list (design 3.5).
  */
-export class SchemaImportDefect extends Schema.TaggedError<
-	SchemaImportDefect,
-	{ readonly brand: unique symbol }
->()("SchemaImportDefect", { key: Schema.String, message: Schema.String }) {}
+export class SchemaImportDefect extends Data.TaggedError("SchemaImportDefect")<{
+	readonly key: string
+	readonly message: string
+}> {}
 
 const member = (node: JsonObject, key: string): Option.Option<Json> => Record.get(node, key)
 
 const strings = (value: Json): readonly string[] =>
 	isArray(value) ? Arr.filter(value, Predicate.isString) : []
-
-const isJson = Schema.is(Schema.Json)
 
 const byString = Order.String
 
@@ -446,7 +445,11 @@ const rewriteReferences = (resolution: Resolution, node: Json, at: CanonicalKey)
 	})
 }
 
-const fromOpenApi = (line: SpecLine, node: JsonObject): JsonSchema.JsonSchema =>
+/**
+ * Effect's conversion of an OpenAPI Schema Object to draft 2020-12, as the value it answers, which `convert` reads back
+ * as JSON: its type admits members no JSON holds.
+ */
+const fromOpenApi = (line: SpecLine, node: JsonObject): unknown =>
 	line === "3.0"
 		? JsonSchema.fromSchemaOpenApi3_0(node).schema
 		: JsonSchema.fromSchemaOpenApi3_1(node).schema
@@ -461,15 +464,16 @@ const convert = (
 	}
 
 	if (!isObject(node)) {
-		return Effect.fail(SchemaImportDefect.make({ key, message: "The schema is not an object." }))
+		return Effect.fail(new SchemaImportDefect({ key, message: "The schema is not an object." }))
 	}
 
 	return Effect.try({
-		catch: (cause) => SchemaImportDefect.make({ key, message: messageOf(cause) }),
+		catch: (cause) => new SchemaImportDefect({ key, message: messageOf(cause) }),
 		try: () => fromOpenApi(line, node)
 	}).pipe(
-		Effect.filterOrFail(isJson, () =>
-			SchemaImportDefect.make({ key, message: "The conversion is not JSON." })
+		Effect.filterOrFail(
+			isJson,
+			() => new SchemaImportDefect({ key, message: "The conversion is not JSON." })
 		)
 	)
 }
@@ -1385,7 +1389,7 @@ const importCopy = Effect.fnUntraced(function* importCopy(
 	while (Option.isSome(failure)) {
 		const found = importEdit(line, definitions, failure.value)
 		if (Option.isNone(found)) {
-			return yield* SchemaImportDefect.make({ key: "", message: failure.value })
+			return yield* new SchemaImportDefect({ key: "", message: failure.value })
 		}
 
 		const edit = found.value

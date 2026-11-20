@@ -1,12 +1,28 @@
-import { Array as Arr, Option, Record as Rec, Result, Schema } from "effect"
-import type { EventContract, EventData } from "#model/entities.ts"
-import { RetryWhen, StreamEvent } from "#model/entities.ts"
+import { Array as Arr, Option, Record as Rec, Result } from "effect"
+import type { EventContract, EventData, RetryWhen, StreamEvent } from "#model/entities.ts"
+import { isJsonPointer } from "#model/pointer.ts"
+import type { Json } from "#model/pointer.ts"
 import { childKey, nodeOption, settle } from "#normalize/document-set.ts"
 import { schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { Resolution } from "#resolve/index.ts"
-import { isJsonFamily } from "#runtime-src/runtime/sequential.ts"
+import {
+	anything,
+	array,
+	boolean,
+	literal,
+	member,
+	members,
+	number,
+	optionalMember,
+	refine,
+	string,
+	struct,
+	union
+} from "#runtime/read.ts"
+import type { Members, Reader, ReadIssues } from "#runtime/read.ts"
+import { isJsonFamily } from "#runtime/sequential.ts"
 
 /**
  * Why an `itemSchema`'s event contract is refused, each at the place it names: an `x-stream` that is not one of its
@@ -19,53 +35,131 @@ export type EventStreamFinding =
 	| Readonly<{ at: CanonicalKey; code: "MED-18/stream-retry-not-json" }>
 	| Readonly<{ at: CanonicalKey; code: "MED-18/stream-event-twice" }>
 
-const Union = Schema.Struct({
-	anyOf: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-	oneOf: Schema.optionalKey(Schema.Array(Schema.Unknown))
-})
+/**
+ * A schema node read by `read` when it is an object: none where it is no object or `read` refuses one of the members it
+ * reads. The members it does not read are any.
+ */
+const objectRead =
+	<A>(read: (object: Members) => Result.Result<A, ReadIssues>) =>
+	(node: Json): Option.Option<A> =>
+		Result.getSuccess(Result.flatMap(members(node), read))
 
-const Composed = Schema.Struct({
-	allOf: Schema.optionalKey(Schema.Array(Schema.Unknown)),
-	properties: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown))
-})
+/** The lists a union schema names its branches in. */
+const readUnion = objectRead((object) =>
+	struct(
+		object,
+		{
+			anyOf: optionalMember(object, "anyOf", array(anything)),
+			oneOf: optionalMember(object, "oneOf", array(anything))
+		},
+		anything
+	)
+)
 
-const Constant = Schema.Struct({
-	const: Schema.optionalKey(Schema.Unknown),
-	enum: Schema.optionalKey(Schema.Array(Schema.Unknown))
-})
+/** The schemas a schema composes and the properties it declares. */
+const readComposed = objectRead((object) =>
+	struct(
+		object,
+		{
+			allOf: optionalMember(object, "allOf", array(anything)),
+			properties: optionalMember(object, "properties", members)
+		},
+		anything
+	)
+)
 
-const ContentMedia = Schema.Struct({
-	contentMediaType: Schema.optionalKey(Schema.String),
-	contentSchema: Schema.optionalKey(Schema.Unknown)
-})
+/** The keywords that may fix a schema to one value. */
+const readConstant = objectRead((object) =>
+	struct(
+		object,
+		{
+			const: optionalMember(object, "const", anything),
+			enum: optionalMember(object, "enum", array(anything))
+		},
+		anything
+	)
+)
 
-const Annotated = Schema.Struct({ "x-stream": Schema.optionalKey(Schema.Unknown) })
+/** The keywords that say what a string schema's content is: its media type, and the schema that checks it. */
+const readContentMedia = objectRead((object) =>
+	struct(
+		object,
+		{
+			contentMediaType: optionalMember(object, "contentMediaType", string),
+			contentSchema: optionalMember(object, "contentSchema", anything)
+		},
+		anything
+	)
+)
+
+/** A schema's `x-stream`, when it has one. */
+const readAnnotation = objectRead((object) => optionalMember(object, "x-stream", anything))
+
+/** An event's name as a schema admits it: a string. */
+const readName = (value: unknown): Option.Option<string> => Result.getSuccess(string(value))
 
 /**
  * The forms of `x-stream`: a role; a failure role with the pointer and value that say retrying is safe; or a ready role
  * with the name of the one event that follows it. Any other member refuses the form.
  */
-const StreamRole = Schema.Union([
-	Schema.Struct({ retryWhen: RetryWhen, role: Schema.Literal("error") }),
-	Schema.Struct({ next: Schema.String, role: Schema.Literal("ready") }),
-	Schema.Struct({ role: Schema.Literals(["end", "error", "ready"]) })
+type StreamRole =
+	| Readonly<{ retryWhen: typeof RetryWhen.Type; role: "error" }>
+	| Readonly<{ next: string; role: "ready" }>
+	| Readonly<{ role: "end" | "error" | "ready" }>
+
+/** A failure role's `retryWhen`: the JSON Pointer into its data and the scalar there that says retrying is safe. */
+const retryWhen: Reader<typeof RetryWhen.Type> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				equals: member(
+					object,
+					"equals",
+					union<string | number | boolean>([string, number, boolean])
+				),
+				pointer: member(object, "pointer", refine(string, isJsonPointer, "a JSON Pointer"))
+			},
+			false
+		)
+	)
+
+/** An `x-stream` read as one of its forms, each closed. */
+const streamRole: Reader<StreamRole> = union<StreamRole>([
+	(value) =>
+		Result.flatMap(members(value), (object) =>
+			struct(
+				object,
+				{
+					retryWhen: member(object, "retryWhen", retryWhen),
+					role: member(object, "role", literal("error"))
+				},
+				false
+			)
+		),
+	(value) =>
+		Result.flatMap(members(value), (object) =>
+			struct(
+				object,
+				{ next: member(object, "next", string), role: member(object, "role", literal("ready")) },
+				false
+			)
+		),
+	(value) =>
+		Result.flatMap(members(value), (object) =>
+			struct(
+				object,
+				{
+					role: member(
+						object,
+						"role",
+						union<"end" | "error" | "ready">([literal("end"), literal("error"), literal("ready")])
+					)
+				},
+				false
+			)
+		)
 ])
-
-const strict = { onExcessProperty: "error" } as const
-
-const decodeUnion = Schema.decodeUnknownOption(Union)
-
-const decodeComposed = Schema.decodeUnknownOption(Composed)
-
-const decodeConstant = Schema.decodeUnknownOption(Constant)
-
-const decodeContentMedia = Schema.decodeUnknownOption(ContentMedia)
-
-const decodeAnnotated = Schema.decodeUnknownOption(Annotated)
-
-const decodeRole = Schema.decodeUnknownOption(StreamRole, strict)
-
-const decodeName = Schema.decodeUnknownOption(Schema.String)
 
 /** Whether two events' data read alike: both text, both JSON no schema checks, or both JSON one schema checks. */
 const sameData = (left: typeof EventData.Type, right: typeof EventData.Type): boolean =>
@@ -91,7 +185,7 @@ const sameRow = (left: typeof StreamEvent.Type, right: typeof StreamEvent.Type):
 const schemaAt = (
 	resolution: Resolution,
 	at: CanonicalKey
-): Readonly<{ at: CanonicalKey; node: Option.Option<unknown> }> => {
+): Readonly<{ at: CanonicalKey; node: Option.Option<Json> }> => {
 	const settled = settle(resolution, at)
 
 	return { at: settled, node: nodeOption(resolution, settled) }
@@ -102,17 +196,16 @@ const schemaAt = (
  * schema with neither is its own one branch.
  */
 const branchesOf = (resolution: Resolution, root: CanonicalKey): ReadonlyArray<CanonicalKey> => {
-	const union = Option.flatMap(nodeOption(resolution, root), decodeUnion)
-	const listed = Option.flatMap(union, (found) =>
+	const listed = Option.flatMap(Option.flatMap(nodeOption(resolution, root), readUnion), (found) =>
 		Option.orElse(
 			Option.map(
-				Option.filter(Option.fromUndefinedOr(found.oneOf), Arr.isReadonlyArrayNonEmpty),
-				(members) => ["oneOf", members.length] as const
+				Option.filter(found.oneOf, Arr.isReadonlyArrayNonEmpty),
+				(branches) => ["oneOf", branches.length] as const
 			),
 			() =>
 				Option.map(
-					Option.filter(Option.fromUndefinedOr(found.anyOf), Arr.isReadonlyArrayNonEmpty),
-					(members) => ["anyOf", members.length] as const
+					Option.filter(found.anyOf, Arr.isReadonlyArrayNonEmpty),
+					(branches) => ["anyOf", branches.length] as const
 				)
 		)
 	)
@@ -137,16 +230,17 @@ const composedOf = (resolution: Resolution, branch: CanonicalKey): ReadonlyArray
 		}
 
 		seen.add(keyOf(at))
-		const members = Option.getOrElse(
-			Option.flatMap(Option.flatMap(nodeOption(resolution, at), decodeComposed), (composed) =>
-				Option.fromUndefinedOr(composed.allOf)
+		const composes = Option.getOrElse(
+			Option.flatMap(
+				Option.flatMap(nodeOption(resolution, at), readComposed),
+				(composed) => composed.allOf
 			),
 			(): ReadonlyArray<unknown> => []
 		)
 
 		return [
 			at,
-			...Arr.flatMap(members, (_, index) =>
+			...Arr.flatMap(composes, (_, index) =>
 				walk(settle(resolution, childKey(at, "allOf", String(index))))
 			)
 		]
@@ -165,23 +259,24 @@ const propertyOf = (
 	name: string
 ): Option.Option<ReturnType<typeof schemaAt>> =>
 	Arr.findFirst(composedOf(resolution, branch), (at) =>
-		Option.exists(
-			Option.flatMap(nodeOption(resolution, at), decodeComposed),
-			(composed) => composed.properties !== undefined && Rec.has(composed.properties, name)
+		Option.exists(Option.flatMap(nodeOption(resolution, at), readComposed), (composed) =>
+			Option.exists(composed.properties, (properties) => Rec.has(properties, name))
 		)
 	).pipe(Option.map((at) => schemaAt(resolution, childKey(at, "properties", name))))
 
 /**
  * The one string a schema admits, by `const` or a one-member `enum`.
  */
-const constantOf = (node: Option.Option<unknown>): Option.Option<string> =>
-	Option.flatMap(Option.flatMap(node, decodeConstant), (constant) =>
-		constant.const === undefined
-			? Option.flatMap(
-					Option.filter(Option.fromUndefinedOr(constant.enum), (members) => members.length === 1),
-					(members) => Option.flatMap(Arr.head(members), decodeName)
-				)
-			: decodeName(constant.const)
+const constantOf = (node: Option.Option<Json>): Option.Option<string> =>
+	Option.flatMap(Option.flatMap(node, readConstant), (constant) =>
+		Option.match(constant.const, {
+			onNone: () =>
+				Option.flatMap(
+					Option.filter(constant.enum, (values) => values.length === 1),
+					(values) => Option.flatMap(Arr.head(values), readName)
+				),
+			onSome: readName
+		})
 	)
 
 /**
@@ -193,10 +288,10 @@ const dataOf = (resolution: Resolution, branch: CanonicalKey): typeof EventData.
 	Option.match(
 		Option.flatMap(propertyOf(resolution, branch, "data"), (data) =>
 			Option.map(
-				Option.filter(Option.flatMap(data.node, decodeContentMedia), (media) =>
-					Option.exists(Option.fromUndefinedOr(media.contentMediaType), isJsonFamily)
+				Option.filter(Option.flatMap(data.node, readContentMedia), (media) =>
+					Option.exists(media.contentMediaType, isJsonFamily)
 				),
-				(media) => ({ at: data.at, schema: media.contentSchema !== undefined })
+				(media) => ({ at: data.at, schema: Option.isSome(media.contentSchema) })
 			)
 		),
 		{
@@ -207,10 +302,10 @@ const dataOf = (resolution: Resolution, branch: CanonicalKey): typeof EventData.
 	)
 
 /** The roles of `x-stream` a branch's data may be text under: every form but a failure with its retry rule. */
-type PlainRole = Exclude<typeof StreamRole.Type, { readonly retryWhen: unknown }>
+type PlainRole = Exclude<StreamRole, { readonly retryWhen: unknown }>
 
 /** The failure role with its retry rule, which only JSON data carries. */
-type RetryRole = Extract<typeof StreamRole.Type, { readonly retryWhen: unknown }>
+type RetryRole = Extract<StreamRole, { readonly retryWhen: unknown }>
 
 /** JSON event data: JSON no schema checks, or JSON its `contentSchema` checks. */
 type JsonData = Exclude<typeof EventData.Type, "text">
@@ -232,12 +327,9 @@ const readBranch = (
 	resolution: Resolution,
 	branch: CanonicalKey
 ): Result.Result<BranchReading, EventStreamFinding> => {
-	const annotation = Option.flatMap(
-		Option.flatMap(nodeOption(resolution, branch), decodeAnnotated),
-		(annotated) => Option.fromUndefinedOr(annotated["x-stream"])
-	)
+	const annotation = Option.flatten(Option.flatMap(nodeOption(resolution, branch), readAnnotation))
 	const at = childKey(branch, "x-stream")
-	const decoded = Option.map(annotation, decodeRole)
+	const decoded = Option.map(annotation, (value) => Result.getSuccess(streamRole(value)))
 	const name = constantOf(
 		Option.flatMap(propertyOf(resolution, branch, "event"), (event) => event.node)
 	)

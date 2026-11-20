@@ -11,7 +11,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
@@ -68,7 +68,7 @@ export const setSpace: Gen<SetSketch> = (source) => ({
 /** The second document of the set. */
 const memberText = "file:///spec/common.json"
 
-const memberUri = Schema.decodeEffect(DocumentUri)(memberText)
+const memberUri = fixedDocumentUri(memberText)
 
 /** The pointer of a component of `section` named `name`. */
 const componentPointer = (section: string, name: string): string => `/components/${section}/${name}`
@@ -140,20 +140,21 @@ const usesMember = (sketch: SetSketch): boolean =>
 	sketch.pet === "member" || sketch.limit === "member" || sketch.ok === "member"
 
 /** The sketch's entry document and, when anything sits there, its second document. */
-const setOf = (sketch: SetSketch) =>
-	Effect.gen(function* () {
-		const member: ResolveMember = {
-			document: yield* memberUri,
-			value: { components: componentsAt(sketch, "member") }
-		}
-		const value: Json = {
-			components: componentsAt(sketch, "entry"),
-			info: { title: "t", version: "1" },
-			openapi: sketch.line === "3.1" ? "3.1.1" : "3.2.0",
-			paths: pathsOf(sketch)
-		}
-		return { value, members: usesMember(sketch) ? [member] : [] }
-	})
+const setOf = (
+	sketch: SetSketch
+): Readonly<{ value: Json; members: ReadonlyArray<ResolveMember> }> => {
+	const member: ResolveMember = {
+		document: memberUri,
+		value: { components: componentsAt(sketch, "member") }
+	}
+	const value: Json = {
+		components: componentsAt(sketch, "entry"),
+		info: { title: "t", version: "1" },
+		openapi: sketch.line === "3.1" ? "3.1.1" : "3.2.0",
+		paths: pathsOf(sketch)
+	}
+	return { value, members: usesMember(sketch) ? [member] : [] }
+}
 
 /** The same elements written in place at every use: the inlined twin. */
 export const inlinedOf = (sketch: SetSketch): SetSketch => ({
@@ -303,11 +304,10 @@ export const expectedOf = (
 /** The set normalized: the operations' meaning, the store's keys, the documents, the diagnostics, and node reads. */
 export const readingOf = (sketch: SetSketch) =>
 	Effect.gen(function* () {
-		const { value, members } = yield* setOf(sketch)
+		const { value, members } = setOf(sketch)
 		const resolution = yield* resolvedAt(sketch.line, value, members)
 		const config = yield* authorConfigOf({})
 		const configDocument = configUri
-		const member = yield* memberUri
 		const { api, diagnostics } = yield* normalize(resolution, {
 			checkFindings: [],
 			config,
@@ -319,7 +319,6 @@ export const readingOf = (sketch: SetSketch) =>
 			each.document,
 			String(each.pointer)
 		])
-		const absentDocument = yield* Schema.decodeEffect(DocumentUri)("file:///spec/absent.json")
 		const reading: SetReading = {
 			meaning: meaningOf(model),
 			keys: Arr.sort(Rec.keys(defsOf(model)), Order.String),
@@ -334,13 +333,18 @@ export const readingOf = (sketch: SetSketch) =>
 			unread: Arr.filter(located, ([, document, pointer]) =>
 				Option.isNone(
 					nodeOption(resolution, {
-						document: document === entryText ? resolution.document : member,
+						document: document === entryText ? resolution.document : memberUri,
 						pointer
 					})
 				)
 			),
 			absent: [
-				Option.isNone(nodeOption(resolution, { document: absentDocument, pointer: "" })),
+				Option.isNone(
+					nodeOption(resolution, {
+						document: fixedDocumentUri("file:///spec/absent.json"),
+						pointer: ""
+					})
+				),
 				Option.isNone(
 					nodeOption(resolution, { document: resolution.document, pointer: "/components/missing" })
 				),
