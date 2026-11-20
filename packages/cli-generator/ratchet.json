@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 865,
+		"total": 850,
 		"files": {
 			"packages/cli-generator/src/emit/api.ts": 124,
 			"packages/cli-generator/src/emit/cli.ts": 122,
@@ -10,7 +10,6 @@
 			"packages/cli-generator/src/normalize/responses.ts": 18,
 			"packages/cli-generator/src/runtime-src/runtime/client.ts": 29,
 			"packages/cli-generator/src/runtime-src/runtime/output.ts": 85,
-			"packages/cli-generator/src/runtime-src/runtime/sequential.ts": 15,
 			"packages/cli-generator/test/check/document-set.test.ts": 3,
 			"packages/cli-generator/test/check/grammar.test.ts": 31,
 			"packages/cli-generator/test/check/path-items.test.ts": 6,
@@ -37,7 +36,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 737,
+		"total": 724,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -93,9 +92,8 @@
 			"packages/cli-generator/src/runtime-src/runtime/input.ts": 3,
 			"packages/cli-generator/src/runtime-src/runtime/output.ts": 58,
 			"packages/cli-generator/src/runtime-src/runtime/response.ts": 1,
-			"packages/cli-generator/src/runtime-src/runtime/sequential.ts": 9,
 			"packages/cli-generator/src/runtime-src/runtime/serialize.ts": 3,
-			"packages/cli-generator/src/runtime-src/runtime/sse.ts": 3,
+			"packages/cli-generator/src/runtime-src/runtime/sse.ts": 2,
 			"packages/cli-generator/src/validate/dispatch.ts": 1,
 			"packages/cli-generator/src/validate/index.ts": 2,
 			"packages/cli-generator/src/validate/locations.ts": 1,
@@ -170,7 +168,7 @@
 			"packages/cli-generator/test/runtime/presenter.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/send-servers.test.ts": 17,
 			"packages/cli-generator/test/runtime/sequential-media-parity.fixtures.ts": 2,
-			"packages/cli-generator/test/runtime/sse.fixtures.ts": 4,
+			"packages/cli-generator/test/runtime/sse.fixtures.ts": 1,
 			"packages/cli-generator/test/support/certificates.ts": 1,
 			"packages/cli-generator/test/support/cli-package.fixtures.ts": 2,
 			"packages/cli-generator/test/support/cli-package.ts": 2,

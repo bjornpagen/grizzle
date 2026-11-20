@@ -2,11 +2,12 @@
  * Sequential JSON bodies frame as their records. An NDJSON or JSON-seq body, cut into chunks anywhere (inside a record,
  * a terminator or a character), yields each record compacted (the whitespace between its tokens removed, its numbers
  * past 2^53, escapes, raw U+2028 and key order kept byte for byte), skipping blank lines, empty JSON-seq records and
- * leading whitespace, until the first record that fails: one past the bound (its UTF-8 bytes as written) as
- * recordTooLarge, one the compactor would change (an unopened close, a raw control character in a string, two values
- * apart only by whitespace) as invalidFraming, one cut short as truncated, and in JSON-seq text after a record's
- * closing LF as invalidFraming at the next index. A JSON-seq record is emitted as its LF arrives, before the body's
- * next chunk is pulled.
+ * leading whitespace, until the first record that fails: one past the bound (its bytes as written) as recordTooLarge,
+ * one whose bytes are no UTF-8 as invalidText, one the compactor would change (an unopened close, a raw control
+ * character in a string, two values apart only by whitespace) as invalidFraming, one cut short as truncated, and in
+ * JSON-seq text after a record's closing LF as invalidFraming at the next index; a byte order mark is a character, so
+ * a body that opens with one fails as invalidFraming at its first record. A JSON-seq record is emitted as its LF
+ * arrives, before the body's next chunk is pulled.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -26,7 +27,7 @@ import {
 
 /**
  * A sequential body frames as its compacted records up to its first failing one. It replaces thirty example cases
- * (sequential-json.test.ts's 24 with its malformed table, sequential-json-seq.test.ts's 6); its floor of 17 is one aimed
+ * (sequential-json.test.ts's 24 with its malformed table, sequential-json-seq.test.ts's 6); its floor of 19 is one aimed
  * witness per required situation, its rotating stream 68 drawn bodies.
  */
 export const sequentialRecords = property.explore(bodies, {
@@ -48,7 +49,10 @@ export const sequentialRecords = property.explore(bodies, {
 		"a wide character in a bounded record",
 		"a record the compactor would change",
 		"a record cut short",
-		"text after a JSON-seq record"
+		"text after a JSON-seq record",
+		"a record that is no UTF-8",
+		"an NDJSON line that is no UTF-8 ends the stream",
+		"a byte order mark"
 	] satisfies ReadonlyArray<Reached<BodyFeature>>,
 	check: (_, c: Case<BodyFeature>) => (body) =>
 		Effect.gen(function* () {
@@ -83,9 +87,9 @@ export const sequentialRecords = property.explore(bodies, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
-			original: '\t\t\t\tif (char === "\\n" || char === "\\r") {',
-			replacement: '\t\t\t\tif (char === "\\n" || char !== "\\r") {',
-			why: "Every character but CR ends an NDJSON line for the bound, so no line is ever counted past one character and an over-long record passes; the property fails (CATCH's evidence, mutant 4a46830206)."
+			original: "): boolean => bytes > maxRecordBytes",
+			replacement: "): boolean => false",
+			why: "No NDJSON line passes the bound, so a line over it is read whole; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
@@ -99,6 +103,18 @@ export const sequentialRecords = property.explore(bodies, {
 			original: "return outputsOf(records, failure)",
 			replacement: "return outputsOf(records, Option.none())",
 			why: "A JSON-seq framing failure is dropped instead of ending the stream, so the body reads as fewer records with no failure; the property fails (CATCH's evidence, mutant f562ff3bda)."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
+			original: 'return [failed(state, "invalidText")]',
+			replacement: "return []",
+			why: "An NDJSON line whose bytes are no UTF-8 is skipped as if blank, so the body reads as fewer records with no failure; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
+			original: 'return Option.some(new ResponseStreamError({ itemIndex, reason: "invalidText" }))',
+			replacement: "return Option.none()",
+			why: "A JSON-seq line whose bytes are no UTF-8 is dropped from its record, so the record reads without it and no failure ends the stream; the property fails."
 		}
 	]
 })
@@ -124,12 +140,12 @@ export const jsonSeqPaced = property.explore(paced, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/sequential.ts",
-			original: "if (endsAtLineFeed && completeAtLineFeed(state)) {",
-			replacement: "if (endsAtLineFeed && false) {",
+			original: "if (completeAtLineFeed(state)) {",
+			replacement: "if (false) {",
 			why: "A record no longer closes at the LF that completes its JSON text, so it waits for the next separator and is emitted only after the next chunk is pulled; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/json.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/json.ts",
 			original: "JSON.parse(text)",
 			replacement: 'JSON.parse("")',
 			why: "The JSON door reads no text as JSON, so no JSON-seq record closes at the LF that completes it and each waits for the next separator; the property fails."

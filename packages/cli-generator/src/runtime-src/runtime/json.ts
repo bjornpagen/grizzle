@@ -1,5 +1,5 @@
 import { Data, Result } from "effect"
-import type { Schema } from "effect"
+import type { Json } from "#runtime/utf8.ts"
 
 /**
  * Text that is not one JSON text (RFC 8259), as JSON.parse refuses it, or text whose reviver
@@ -21,9 +21,10 @@ export type JsonReviver = (
 /**
  * One JSON text's value, `unknown` until its caller narrows it with a reader of its own, or
  * `InvalidJsonText`. This module is the one door to JSON text, for the generated runtime and the
- * generator alike, and the only module the root tsconfig lets call JSON.parse and JSON.stringify
- * (Effect's globalJson diagnostics are off here alone): Effect's only other reader of JSON text is
- * Schema, which grizzle's standard never runs.
+ * generator alike, and the only module of theirs the root tsconfig lets call JSON.parse and
+ * JSON.stringify (Effect's globalJson diagnostics are off here alone); a value's compact text is
+ * grizzle-text's jsonText (`#runtime/utf8.ts`). Effect's only other reader of JSON text is Schema,
+ * which grizzle's standard never runs.
  */
 export const parseJson = (text: string): Result.Result<unknown, InvalidJsonText> =>
 	Result.try({ try: (): unknown => JSON.parse(text), catch: () => new InvalidJsonText() })
@@ -47,12 +48,7 @@ export const parseRevivedJson = (
 export const isJsonText = (text: string): boolean => Result.isSuccess(parseJson(text))
 
 /**
- * A JSON value's text, JSON.stringify's: no whitespace between its tokens.
- */
-export const jsonText = (value: Schema.Json): string => JSON.stringify(value)
-
-/**
  * A JSON value's text indented by two spaces, a member or an item a line, as a document a person
  * reads is printed (`--describe`).
  */
-export const indentedJsonText = (value: Schema.Json): string => JSON.stringify(value, undefined, 2)
+export const indentedJsonText = (value: Json): string => JSON.stringify(value, undefined, 2)

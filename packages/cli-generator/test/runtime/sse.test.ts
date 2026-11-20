@@ -6,8 +6,9 @@
  * - The parser (sseParser): framings generated from event lists, with comments, unknown fields, ignored `retry` and
  *   `id` lines, blocks with no data, fields without a colon, a byte order mark, every line end, malformed UTF-8 and a
  *   last line cut short, encoded and cut into chunks of any size. Oracles: a transcription of the WHATWG algorithm over
- *   the whole body decoded at once, with the bound's two readings; and, under the production bound, the generating
- *   events themselves.
+ *   the whole body split into lines at once, each value it reads decoded on its own, with the generator's three
+ *   readings (the bound's two, and a value that is no UTF-8 failing invalidText where WHATWG reads U+FFFD); and, under
+ *   the production bound, the generating events themselves.
  * - The event stream (eventStream): event lists under generated contracts, open or closed, stop points and outputs.
  *   Oracle: the contract's specification: each event's line, or its bytes, through the first stop event (a `ready` with
  *   a `next` is none, and only its `next` may follow it); after an `error` event the failure with the verdict its
@@ -18,7 +19,8 @@
  *
  * Features: every line end, a CRLF and a character split across chunks, multi-line data, the default type, a comment,
  * an unknown field, a field without a colon, a block with no data, the byte order mark, malformed UTF-8, an id carried
- * on, retry digits with leading zeros, a body cut inside an event, a record over the bound; a stop at ready, a stream
+ * on, retry digits with leading zeros, a body cut inside an event, a record over the bound, a value that is no UTF-8; a
+ * stop at ready, a stream
  * followed past ready, an end, failures safe and never, invalid JSON data, a lifecycle cut short, an open stream to its
  * end, raw bytes, an undeclared event type, a ready read past to its next event, an unexpected event, and data its
  * schema admits and refuses.
@@ -69,7 +71,9 @@ export const sseParser = property.explore(framing, {
 		"id carried on",
 		"retry with leading zeros",
 		"body cut inside an event",
-		"record over the bound"
+		"record over the bound",
+		"data over the bound in lines within it",
+		"a value that is no UTF-8"
 	] satisfies ReadonlyArray<Reached<ParseFeature>>,
 	check: (_, c: Case<ParseFeature>) => (framed) =>
 		Effect.sync(() => {
@@ -85,7 +89,7 @@ export const sseParser = property.explore(framing, {
 		}),
 	oracle: {
 		kind: "second-implementation",
-		name: "a transcription of WHATWG's event-stream parsing over the whole body decoded at once"
+		name: "a transcription of WHATWG's event-stream parsing over the whole body, each value read decoded on its own"
 	},
 	kept: [],
 	budget: { runs: 1000, steered: 2000 },
@@ -95,6 +99,18 @@ export const sseParser = property.explore(framing, {
 			original: "state.dataBytes += value.length + 1",
 			replacement: "{}",
 			why: "A data line's bytes are not counted toward the record bound, so a record over the bound is read whole; the property fails (CATCH's evidence, mutant 170e92bd40)."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/sse.ts",
+			original: 'onNone: () => Option.some(fail("invalidText")),',
+			replacement: "onNone: () => Option.none(),",
+			why: "A field value that is no UTF-8 is dropped instead of failing the stream, so the event reads without it; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/runtime-src/runtime/lines.ts",
+			original: "position = stop + (returned && chunk[stop + 1] === lineFeed ? 2 : 1)",
+			replacement: "position = stop + 1",
+			why: "The LF of a CRLF ends a line of its own, a blank one, which dispatches the event being read early; the property fails."
 		}
 	]
 })
@@ -123,7 +139,7 @@ export const eventStream = property.explore(controlSpace, {
 	] satisfies ReadonlyArray<Reached<ControlFeature>>,
 	check: (_, c: Case<ControlFeature>) => (control) =>
 		Effect.gen(function* () {
-			const expected = yield* expectedOf(control)
+			const expected = expectedOf(control)
 			const actual = yield* actualOf(control)
 			c.noteAll(controlFeatures(control, expected))
 			assert.deepEqual(actual, expected)

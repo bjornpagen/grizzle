@@ -229,6 +229,15 @@
 						}
 					},
 					{
+						"include": ["packages/cli-generator/src/runtime-src/runtime/json.ts"],
+						"options": {
+							"diagnosticSeverity": {
+								"globalJson": "off",
+								"globalJsonInEffect": "off"
+							}
+						}
+					},
+					{
 						"include": ["test/unit/deps/fixtures/planted-regex.ts"],
 						"options": {
 							"diagnosticSeverity": {

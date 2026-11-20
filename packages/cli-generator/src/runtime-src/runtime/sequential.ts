@@ -2,6 +2,8 @@ import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Result, Stream, String as Str } from "effect"
 import { ResponseStreamError } from "#domain/errors.ts"
 import { isJsonText } from "#runtime/json.ts"
+import { joined, type LineReader, lineReader } from "#runtime/lines.ts"
+import { utf8Text } from "#runtime/utf8.ts"
 
 /**
  * A sequential body's framing: NDJSON or JSONL lines, RFC 7464 JSON-seq records, or Server-Sent
@@ -58,20 +60,29 @@ export const sequentialCodecOf = (mediaType: string): SequentialCodec | undefine
 }
 
 /**
- * The RFC 7464 record separator that opens every JSON-seq record.
+ * The RFC 7464 record separator, U+001E, that opens every JSON-seq record: one byte in UTF-8, as
+ * the LF that ends a record is, neither ever part of a multi-byte sequence.
  */
-const recordSeparator = "\u001E"
+const recordSeparator = 0x1e
+
+const lineFeed = 0x0a
+
+/**
+ * The bytes JSON allows as whitespace between tokens, which is all that may stand outside a
+ * JSON-seq record.
+ */
+const whitespaceBytes: ReadonlySet<number> = new Set([0x20, 0x09, 0x0a, 0x0d])
+
+/**
+ * No bytes: the line an LF or a separator ends when nothing came before it.
+ */
+const noBytes = new Uint8Array(0)
 
 /**
  * A record's tail after its last LF; RFC 7464 ends every record with LF, so a record that does not
  * match was cut short.
  */
 const closedByLineFeed = regex("\n[\t\n\r ]*$", "u")
-
-/**
- * Text that holds something other than JSON whitespace.
- */
-const nonWhitespace = regex("[^\t\n\r ]", "u")
 
 /**
  * One output of a framing step: a record line to emit, or the failure that ends the stream after
@@ -138,51 +149,21 @@ const separators: ReadonlySet<string> = new Set([",", ":"])
 const firstRawStringCharacter = " "
 
 /**
- * The JSON-seq framer's state between body chunks: the open record's text, UTF-8 size and scan,
- * the index the next record takes, whether a record is open (a separator has arrived and no LF
- * has closed its record since), whether the open record can no longer close at an LF, and whether
- * the stream failed.
+ * The JSON-seq framer's state between body chunks: the open record's size in bytes received, the
+ * text of its lines an LF has ended and its scan, the bytes of its line not yet ended, the index
+ * the next record takes, whether a record is open (a separator has arrived and no LF has closed
+ * its record since), whether the open record can no longer close at an LF, and whether the stream
+ * failed.
  */
 interface SeqState {
 	bytes: number
 	failed: boolean
 	itemIndex: number
+	line: Array<Uint8Array>
 	open: boolean
 	record: string
 	scan: Scan
 	settled: boolean
-}
-
-/**
- * Compute the UTF-8 byte length of one character as string iteration yields it (RFC 3629): a
- * single code unit below U+0080 takes one byte, below U+0800 two, and any other three (a lone
- * surrogate is written as U+FFFD); a surrogate pair, a code point past U+FFFF, takes four. A
- * character compares below a one-unit string exactly when its first code unit does, and a pair's
- * first unit is past U+0800.
- */
-export const utf8Bytes = (char: string): number => {
-	if (char < "\u0080") {
-		return 1
-	}
-
-	if (char < "\u0800") {
-		return 2
-	}
-
-	return char.length === 1 ? 3 : 4
-}
-
-/**
- * Compute the UTF-8 byte length of a string without encoding it.
- */
-const utf8Length = (text: string): number => {
-	let length = 0
-
-	for (const char of text) {
-		length += utf8Bytes(char)
-	}
-
-	return length
 }
 
 /**
@@ -295,62 +276,109 @@ const compact = (record: string): Compacted => {
 }
 
 /**
- * Bound each line of decoded NDJSON text to `maxRecordBytes` UTF-8 bytes, not counting its
- * terminator, before `Stream.splitLines` buffers it. An over-long line yields the text before it
- * and then `recordTooLarge` at the index of the record being read, without waiting for the line to
- * end. Line breaks are LF, CR and CRLF, as `Stream.splitLines` splits them; a line holding only
- * spaces and tabs is blank and takes no record index.
+ * The NDJSON framer's state between body chunks: its body's lines (#runtime/lines.ts), the index
+ * the next record takes, and whether the stream failed.
  */
-const boundLines = (maxRecordBytes: number) =>
-	Stream.mapAccum(
-		() => ({ bytes: 0, content: false, failed: false, itemIndex: 0 }),
-		(state, chunk: string) => {
-			let offset = 0
+interface NdjsonState {
+	failed: boolean
+	itemIndex: number
+	readonly lines: LineReader
+}
 
-			for (const char of state.failed ? "" : chunk) {
-				if (char === "\n" || char === "\r") {
-					state.itemIndex += state.content ? 1 : 0
-					state.bytes = 0
-					state.content = false
-				} else {
-					state.bytes += utf8Bytes(char)
-					state.content ||= char !== " " && char !== "\t"
-				}
+/**
+ * The failure that ends a framer's stream at the record being read, after which the framer takes
+ * no more input.
+ */
+const failed = (
+	state: { failed: boolean; readonly itemIndex: number },
+	reason: ResponseStreamError["reason"]
+): Framed => {
+	state.failed = true
 
-				if (state.bytes > maxRecordBytes) {
-					state.failed = true
+	return Result.fail(new ResponseStreamError({ itemIndex: state.itemIndex, reason }))
+}
 
-					return [
-						state,
-						[
-							Result.succeed(Str.slice(0, offset)(chunk)),
-							Result.fail(
-								new ResponseStreamError({ itemIndex: state.itemIndex, reason: "recordTooLarge" })
-							)
-						]
-					] as const
-				}
+/**
+ * Whether an NDJSON line of `bytes` bytes, not counting its terminator, passes the bound: the one
+ * rule a line that has ended and the line still arriving are both held to.
+ */
+const overBound = (bytes: number, maxRecordBytes: number): boolean => bytes > maxRecordBytes
 
-				offset += char.length
-			}
+/**
+ * One NDJSON line's outputs: its record, compacted; nothing for a blank line, which takes no
+ * index; or the failure that ends the stream: `recordTooLarge` for a line over the bound,
+ * `invalidText` for one whose bytes are no UTF-8, `truncated` for one that ends inside a string or
+ * an open container, `invalidFraming` for one the compactor would change.
+ */
+const ndjsonLine = (
+	state: NdjsonState,
+	bytes: Uint8Array,
+	maxRecordBytes: number
+): ReadonlyArray<Framed> => {
+	if (overBound(bytes.length, maxRecordBytes)) {
+		return [failed(state, "recordTooLarge")]
+	}
 
-			return [state, state.failed ? [] : [Result.succeed(chunk)]] as const
+	const text = utf8Text(bytes)
+	if (text === undefined) {
+		return [failed(state, "invalidText")]
+	}
+
+	const compacted = compact(text)
+	if (compacted.status !== "complete") {
+		return [failed(state, compacted.status === "invalid" ? "invalidFraming" : "truncated")]
+	}
+
+	if (compacted.text === "") {
+		return []
+	}
+
+	state.itemIndex += 1
+
+	return [Result.succeed(compacted.text)]
+}
+
+/**
+ * One NDJSON chunk's outputs: each line it ends, then `recordTooLarge` as soon as the line not yet
+ * ended passes the bound, without waiting for the line to end.
+ */
+const ndjsonChunk = (
+	state: NdjsonState,
+	chunk: Uint8Array,
+	maxRecordBytes: number
+): ReadonlyArray<Framed> => {
+	const out: Array<Framed> = []
+	for (const line of state.failed ? [] : state.lines.step(chunk)) {
+		for (const framed of ndjsonLine(state, line.bytes, maxRecordBytes)) {
+			out.push(framed)
 		}
-	)
+
+		if (state.failed) {
+			return out
+		}
+	}
+
+	return !state.failed && overBound(state.lines.pending(), maxRecordBytes)
+		? [...out, failed(state, "recordTooLarge")]
+		: out
+}
 
 /**
  * Frame an NDJSON or JSONL response body (`application/x-ndjson`, `application/ndjson`,
- * `application/jsonl`) as one
- * compacted JSON text per record, without a line terminator, emitted as each line arrives.
+ * `application/jsonl`) as one compacted JSON text per record, without a line terminator, emitted
+ * as each line arrives.
  *
- * The body is decoded as UTF-8 and split by `Stream.splitLines`, so LF, CRLF and CR end a line and
- * a final line needs no terminator; blank lines are skipped. `Ndjson.decode` is not used because
- * it yields `JSON.parse` values, which lose number precision (design 5, NDJSON row). A line over
- * `maxRecordBytes` UTF-8 bytes fails with `recordTooLarge`, a line that ends inside a string or
- * an open container fails with `truncated`, and a line the compactor would change (two values
- * apart only by whitespace, a raw control character in a string, an unopened close) fails with
- * `invalidFraming`. Each failure carries the zero-based `itemIndex` of the record among the
- * non-blank lines, after every record before it has been emitted.
+ * The body is split into lines on its bytes (#runtime/lines.ts), so LF, CRLF and CR end a line
+ * and a final line needs no terminator, and each line is decoded as UTF-8 once it has ended; a
+ * line that holds only spaces and tabs is blank, skipped and takes no record index.
+ * `Ndjson.decode` is not used because it yields `JSON.parse` values, which lose number precision
+ * (design 5, NDJSON row). A line over `maxRecordBytes` bytes, not counting its terminator, fails
+ * with `recordTooLarge` as soon as its bytes pass the bound; a line whose bytes are no UTF-8 fails
+ * with `invalidText`, a byte order mark being a character of its line, never stripped; a line that
+ * ends inside a string or an open container fails with `truncated`; and a line the compactor
+ * would change (two values apart only by whitespace, a raw control character in a string, an
+ * unopened close) fails with `invalidFraming`. Each failure carries the zero-based `itemIndex` of
+ * the record among the non-blank lines, after every record before it has been emitted.
  */
 export const ndjsonRecords =
 	(maxRecordBytes: number) =>
@@ -358,28 +386,15 @@ export const ndjsonRecords =
 		body: Stream.Stream<Uint8Array, E, R>
 	): Stream.Stream<string, E | ResponseStreamError, R> =>
 		body.pipe(
-			Stream.decodeText(),
-			boundLines(maxRecordBytes),
-			Stream.mapEffect(Effect.fromResult),
-			Stream.splitLines,
-			Stream.mapAccumEffect(
-				() => 0,
-				(itemIndex, line: string) => {
-					const compacted = compact(line)
-
-					if (compacted.status !== "complete") {
-						const reason = compacted.status === "invalid" ? "invalidFraming" : "truncated"
-
-						return Effect.fail(new ResponseStreamError({ itemIndex, reason }))
-					}
-
-					return Effect.succeed(
-						compacted.text === ""
-							? ([itemIndex, []] as const)
-							: ([itemIndex + 1, [compacted.text]] as const)
-					)
+			Stream.mapAccum(
+				(): NdjsonState => ({ failed: false, itemIndex: 0, lines: lineReader() }),
+				(state, chunk: Uint8Array) => [state, ndjsonChunk(state, chunk, maxRecordBytes)] as const,
+				{
+					onHalt: (state) =>
+						state.failed ? [] : ndjsonLine(state, state.lines.rest(), maxRecordBytes)
 				}
-			)
+			),
+			Stream.mapEffect(Effect.fromResult)
 		)
 
 /**
@@ -389,6 +404,7 @@ const seqState = (): SeqState => ({
 	bytes: 0,
 	failed: false,
 	itemIndex: 0,
+	line: [],
 	open: false,
 	record: "",
 	scan: freshScan(),
@@ -397,7 +413,8 @@ const seqState = (): SeqState => ({
 
 /**
  * Close the open JSON-seq record: its compacted text goes to `records`, an empty record goes
- * nowhere, and a record that cannot close is the failure that ends the stream. The size excludes
+ * nowhere, and a record that cannot close is the failure that ends the stream: its line not yet
+ * ended is decoded first, and fails `invalidText` where its bytes are no UTF-8. The size excludes
  * the closing LF.
  */
 const closeRecord = (
@@ -405,15 +422,23 @@ const closeRecord = (
 	maxRecordBytes: number,
 	records: string[]
 ): Option.Option<ResponseStreamError> => {
-	const { bytes, itemIndex, record } = state
-	const compacted = compact(record)
+	const { bytes, itemIndex, line, record: ended } = state
+	const unended = Option.fromUndefinedOr(utf8Text(joined(line, noBytes)))
 	const failure = (reason: ResponseStreamError["reason"]) =>
 		Option.some(new ResponseStreamError({ itemIndex, reason }))
 
 	state.bytes = 0
+	state.line = []
 	state.record = ""
 	state.scan = freshScan()
 	state.settled = false
+
+	if (Option.isNone(unended)) {
+		return failure("invalidText")
+	}
+
+	const record = ended + unended.value
+	const compacted = compact(record)
 
 	if (compacted.status === "complete" && compacted.text === "") {
 		return Option.none()
@@ -487,41 +512,80 @@ const completeAtLineFeed = (state: SeqState): boolean => {
 }
 
 /**
- * Add text between separators to the open JSON-seq record line by line, closing it into `records`
- * at the LF that completes its JSON text, or check text outside a record: before the first
- * separator, or after a record closed at its LF, where only whitespace may appear. Fails as soon
- * as the record passes the bound with one byte left for its closing LF.
+ * The bytes between each `separator` byte and the next, in order, the last after the last
+ * separator: one array where `bytes` holds no separator.
+ */
+const splitAt = (bytes: Uint8Array, separator: number): Arr.NonEmptyReadonlyArray<Uint8Array> => {
+	const parts: Array<Uint8Array> = []
+	let start = 0
+	let at = bytes.indexOf(separator)
+	while (at !== -1) {
+		parts.push(bytes.subarray(start, at))
+		start = at + 1
+		at = bytes.indexOf(separator, start)
+	}
+
+	return Arr.append(parts, bytes.subarray(start))
+}
+
+/**
+ * Whether bytes hold something other than JSON whitespace.
+ */
+const holdsNonWhitespace = (bytes: Uint8Array): boolean =>
+	bytes.some((byte) => !whitespaceBytes.has(byte))
+
+/**
+ * Add bytes between separators to the open JSON-seq record line by line, each line decoded once
+ * its LF has arrived, closing the record into `records` at the LF that completes its JSON text;
+ * or check bytes outside a record (before the first separator, or after a record closed at its
+ * LF), where only whitespace may appear. A line not yet ended waits in the record for its LF, a
+ * separator or the body's end. Fails as soon as the record passes the bound with one byte left for
+ * its closing LF, and with `invalidText` at an ended line whose bytes are no UTF-8.
  */
 const appendRecord = (
 	state: SeqState,
-	part: string,
+	part: Uint8Array,
 	maxRecordBytes: number,
 	records: string[]
 ): Option.Option<ResponseStreamError> => {
-	const lines = Str.split(part, "\n")
+	const lines = splitAt(part, lineFeed)
 
 	for (const [index, line] of lines.entries()) {
 		const { itemIndex } = state
 
 		if (!state.open) {
-			return Arr.some(Arr.drop(lines, index), (rest) => nonWhitespace.test(rest))
+			return Arr.some(Arr.drop(lines, index), holdsNonWhitespace)
 				? Option.some(new ResponseStreamError({ itemIndex, reason: "invalidFraming" }))
 				: Option.none()
 		}
 
 		const endsAtLineFeed = index < lines.length - 1
-		const text = endsAtLineFeed ? `${line}\n` : line
-		const bytes = state.bytes + utf8Length(text)
+		const bytes = state.bytes + line.length + (endsAtLineFeed ? 1 : 0)
 
 		if (bytes > maxRecordBytes + 1) {
 			return Option.some(new ResponseStreamError({ itemIndex, reason: "recordTooLarge" }))
 		}
 
 		state.bytes = bytes
-		state.record += text
-		scanRecord(state, text)
 
-		if (endsAtLineFeed && completeAtLineFeed(state)) {
+		if (!endsAtLineFeed) {
+			state.line.push(line)
+
+			return Option.none()
+		}
+
+		const text = utf8Text(joined(state.line, line))
+		state.line = []
+
+		if (text === undefined) {
+			return Option.some(new ResponseStreamError({ itemIndex, reason: "invalidText" }))
+		}
+
+		const ended = `${text}\n`
+		state.record += ended
+		scanRecord(state, ended)
+
+		if (completeAtLineFeed(state)) {
 			const failure = closeRecord(state, maxRecordBytes, records)
 
 			state.open = false
@@ -549,16 +613,16 @@ const outputsOf = (
 	)
 
 /**
- * Frame one chunk of decoded JSON-seq text: every record a separator or an LF in the chunk closes,
- * then the first failure, after which the framer takes no more input.
+ * Frame one chunk of a JSON-seq body's bytes: every record a separator or an LF in the chunk
+ * closes, then the first failure, after which the framer takes no more input.
  */
 const frameChunk = (
 	state: SeqState,
-	chunk: string,
+	chunk: Uint8Array,
 	maxRecordBytes: number
 ): ReadonlyArray<Framed> => {
 	const records: string[] = []
-	const parts = state.failed ? [] : Str.split(chunk, recordSeparator)
+	const parts = state.failed ? [] : splitAt(chunk, recordSeparator)
 
 	for (const [position, part] of parts.entries()) {
 		const closes = position > 0 && state.open
@@ -584,17 +648,20 @@ const frameChunk = (
  * Frame a JSON-seq response body (RFC 7464, `application/json-seq` and `+json-seq`) as one
  * compacted JSON text per record, without a line terminator, emitted as each record closes.
  *
- * A record opens at U+001E and closes at the first LF after which its text parses as JSON, so it
- * is emitted as it arrives; an LF inside the text is whitespace and keeps the record open. A
- * record that never parses at an LF closes at the next separator or the end of the body. The body
- * may open with whitespace; any other text before the first separator, or after a record's closing
- * LF and before the next separator, fails with `invalidFraming`. An empty
- * record (separators in a row, or only whitespace) is skipped and takes no index. A record over
- * `maxRecordBytes` UTF-8 bytes, not counting its closing LF, fails with `recordTooLarge` as soon as
- * the bound is passed; a record that does not end with LF, or ends inside a string or an open
- * container, fails with `truncated`; a record the compactor would change fails with
- * `invalidFraming`. Each failure carries the zero-based `itemIndex` of the record being read,
- * after every record before it has been emitted.
+ * The body is framed on its bytes, U+001E and LF being one byte each, and each line of a record is
+ * decoded as UTF-8 once its LF, the next separator or the body's end has arrived. A record opens at
+ * U+001E and closes at the first LF after which its text parses as JSON, so it is emitted as it
+ * arrives; an LF inside the text is whitespace and keeps the record open. A record that never
+ * parses at an LF closes at the next separator or the end of the body. The body may open with
+ * whitespace; any other byte before the first separator, or after a record's closing LF and before
+ * the next separator, fails with `invalidFraming`. An empty record (separators in a row, or only
+ * whitespace) is skipped and takes no index. A record over `maxRecordBytes` bytes, not counting its
+ * closing LF, fails with `recordTooLarge` as soon as the bound is passed; a line whose bytes are no
+ * UTF-8 fails with `invalidText`, a byte order mark being a character of its record, never
+ * stripped; a record that does not end with LF, or ends inside a string or an open container,
+ * fails with `truncated`; a record the compactor would change fails with `invalidFraming`. Each
+ * failure carries the zero-based `itemIndex` of the record being read, after every record before it
+ * has been emitted.
  */
 export const jsonSeqRecords =
 	(maxRecordBytes: number) =>
@@ -602,10 +669,9 @@ export const jsonSeqRecords =
 		body: Stream.Stream<Uint8Array, E, R>
 	): Stream.Stream<string, E | ResponseStreamError, R> =>
 		body.pipe(
-			Stream.decodeText(),
 			Stream.mapAccum(
 				seqState,
-				(state, chunk: string) => [state, frameChunk(state, chunk, maxRecordBytes)] as const,
+				(state, chunk: Uint8Array) => [state, frameChunk(state, chunk, maxRecordBytes)] as const,
 				{
 					onHalt: (state) => {
 						const records: string[] = []

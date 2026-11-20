@@ -427,7 +427,8 @@
 			},
 			{
 				// The generated CLIs' runtime, which the generator writes verbatim into every package it emits: it imports nothing but
-				// its siblings, so no zone of grizzle's reaches a generated CLI.
+				// its siblings and grizzle-text's utf8, which the generator carries in beside them, so no zone of grizzle's reaches a
+				// generated CLI.
 				"name": "cli-generator-runtime",
 				"patterns": ["packages/cli-generator/src/runtime-src/**"]
 			},
@@ -1273,8 +1274,11 @@
 				]
 			},
 			{
+				// The runtime reads bytes as text through `#runtime/utf8.ts`, grizzle-text's utf8.ts, which the generator
+				// carries into every package it emits (emit/runtime.ts); the runtime gate typechecks an emitted package, so
+				// no other module of grizzle-text's reaches a generated CLI.
 				"from": "cli-generator-runtime",
-				"allow": []
+				"allow": ["grizzle-text"]
 			},
 			{
 				"from": "cli-generator-model",

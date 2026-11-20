@@ -1,5 +1,6 @@
 /** What the properties of sse.test.ts read: its spaces, models and helpers. */
 
+import { jsonText, utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import {
 	type Aimed,
 	aimed,
@@ -14,7 +15,8 @@ import {
 	oneOf,
 	option,
 	production,
-	string
+	string,
+	weighted
 } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -108,6 +110,8 @@ export type ParseFeature =
 	| "retry with leading zeros"
 	| "body cut inside an event"
 	| "record over the bound"
+	| "data over the bound in lines within it"
+	| "a value that is no UTF-8"
 
 const textPiece = (value: string): Piece => ({ kind: "text", text: value })
 
@@ -134,6 +138,18 @@ const pieces: Gen<ReadonlyArray<Piece>> = array(oneOf([map(valueText, textPiece)
 	min: 0,
 	max: 3
 })
+
+/**
+ * A `data` value's pieces: text, and now and then bytes that are no UTF-8, which fail the stream where the parser reads
+ * them, so a body still reads several events before one.
+ */
+const dataPieces: Gen<ReadonlyArray<Piece>> = array(
+	weighted<Piece>([
+		[12, map(valueText, textPiece)],
+		[1, malformed]
+	]),
+	{ min: 0, max: 3 }
+)
 
 const ending: Gen<Ending> = element(["\n", "\r", "\r\n"])
 
@@ -171,7 +187,7 @@ const noiseLine: Gen<Line> = oneOf([
 
 const sourceEvent: Gen<SourceEvent> = (source) => ({
 	type: option(valueText)(source),
-	data: [pieces(source), ...array(pieces, { min: 0, max: 2 })(source)],
+	data: [dataPieces(source), ...array(dataPieces, { min: 0, max: 2 })(source)],
 	id: option(string(characterOf(["7", "a", " ", "é"]), { min: 0, max: 3 }))(source),
 	retry: option(string(characterOf(["0", "1", "5"]), { min: 1, max: 3 }))(source)
 })
@@ -220,13 +236,47 @@ const blockPart: Gen<Part> = (source) => ({
 	]
 })
 
-export const framing: Gen<Framing> = (source) => ({
+const framingDrawn: Gen<Framing> = (source) => ({
 	mark: boolean(source),
 	parts: array(oneOf([eventPart, blockPart]), { min: 0, max: 4 })(source),
 	tail: option(oneOf([noiseLine, field("data", pieces)]))(source),
 	bound: production(productionBound, [0, 1, 2, 3, 5, 8, 13])(source),
 	chunks: [int(1, 7)(source), ...array(int(1, 7), { min: 0, max: 3 })(source)]
 })
+
+/** A `data` field line of `value`, ended by LF. */
+const dataLine = (value: string): Ended => ({
+	line: { kind: "field", name: "data", separator: "colon space", value: [textPiece(value)] },
+	ending: "\n"
+})
+
+/**
+ * Framings, aimed at an event whose data passes the bound only across its lines, each line within it: the bound a
+ * record's data lines count toward, which no single line's length checks.
+ */
+export const framing = aimed<Framing, ParseFeature>(framingDrawn, [
+	[
+		"data over the bound in lines within it",
+		(source) => ({
+			mark: false,
+			parts: [
+				{
+					kind: "event",
+					source: {
+						type: Option.none(),
+						data: [[textPiece("abc")], [textPiece("abc")]],
+						id: Option.none(),
+						retry: Option.none()
+					},
+					lines: [dataLine("abc"), dataLine("abc"), { line: { kind: "blank" }, ending: "\n" }]
+				}
+			],
+			tail: Option.none(),
+			bound: 3,
+			chunks: [int(1, 7)(source)]
+		})
+	]
+])
 
 const separatorText: Readonly<Record<Separator, string>> = {
 	bare: "",
@@ -334,48 +384,41 @@ export const parsedReading = (chunks: ReadonlyArray<Uint8Array>, bound: number):
 	}
 }
 
-/** The lines of decoded text, each ended by CR, LF or CRLF, and the text after the last line end. */
-const linesOf = (decoded: string): Readonly<{ lines: ReadonlyArray<string>; rest: string }> => {
-	const units = Str.split("")(decoded)
-	const lines: Array<string> = []
-	let start = 0
-	let index = 0
-	while (index < units.length) {
-		const unit = Arr.getUnsafe(units, index)
-		if (unit === "\r" || unit === "\n") {
-			lines.push(Str.slice(start, index)(decoded))
-			const crlf = unit === "\r" && Option.contains(Arr.get(units, index + 1), "\n")
-			index += crlf ? 2 : 1
-			start = index
-		} else {
-			index += 1
-		}
-	}
-	return { lines, rest: Str.slice(start)(decoded) }
-}
-
 /**
- * The length in bytes received of each line of a body, split as `linesOf` splits its text, and of the bytes after the
- * last line end; the leading byte order mark is not part of the first line.
+ * The lines of a body's bytes, each ended by CR, LF or CRLF, and the bytes after the last line end; the leading byte
+ * order mark is not part of the first line.
  */
-const lineLengthsOf = (
+const byteLinesOf = (
 	body: Uint8Array
-): Readonly<{ lines: ReadonlyArray<number>; rest: number }> => {
-	const lines: Array<number> = []
+): Readonly<{ lines: ReadonlyArray<Uint8Array>; rest: Uint8Array }> => {
+	const lines: Array<Uint8Array> = []
 	const marked = body[0] === 0xef && body[1] === 0xbb && body[2] === 0xbf
 	let start = marked ? 3 : 0
 	let index = start
 	while (index < body.length) {
 		const byte = body[index]
 		if (byte === 0x0d || byte === 0x0a) {
-			lines.push(index - start)
+			lines.push(body.subarray(start, index))
 			index += byte === 0x0d && body[index + 1] === 0x0a ? 2 : 1
 			start = index
 		} else {
 			index += 1
 		}
 	}
-	return { lines, rest: body.length - start }
+	return { lines, rest: body.subarray(start) }
+}
+
+/** A line's field name and value: the bytes before its first colon and after it, less one leading space. */
+const fieldOf = (
+	line: Uint8Array
+): Readonly<{ name: Option.Option<string>; value: Uint8Array }> => {
+	const colon = line.indexOf(0x3a)
+	const name = colon === -1 ? line : line.subarray(0, colon)
+	const raw = colon === -1 ? new Uint8Array(0) : line.subarray(colon + 1)
+	return {
+		name: Option.fromUndefinedOr(utf8Text(name)),
+		value: raw[0] === 0x20 ? raw.subarray(1) : raw
+	}
 }
 
 /** A `retry` value of ASCII digits, at least one, without its leading zeros. */
@@ -390,14 +433,15 @@ const retryDigits = (value: string): Option.Option<string> => {
 }
 
 /**
- * WHATWG HTML's "Parsing an event stream", transcribed over the whole body decoded at once (UTF-8 decode drops the
- * leading byte order mark and replaces malformed bytes), with the generator's two readings, each counted in bytes
- * received: a line longer than the bound and a `data: ` prefix, or data longer than the bound, fails
- * `recordTooLarge`; a body that ends inside an event fails `truncated`, where WHATWG drops the event.
+ * WHATWG HTML's "Parsing an event stream", transcribed over the whole body split into lines at once, each value the
+ * algorithm reads decoded as UTF-8 on its own (the body's leading byte order mark dropped, one that opens a value
+ * kept), with the generator's three readings, each counted in bytes received: a line longer than the bound and a
+ * `data: ` prefix, or data longer than the bound, fails `recordTooLarge`; a value read whose bytes are no UTF-8 fails
+ * `invalidText`, where WHATWG's decode reads U+FFFD in place of each malformed sequence; a body that ends inside an
+ * event fails `truncated`, where WHATWG drops the event.
  */
 export const referenceRead = (body: Uint8Array, bound: number): Reading => {
-	const { lines, rest } = linesOf(new TextDecoder().decode(body))
-	const lengths = lineLengthsOf(body)
+	const { lines, rest } = byteLinesOf(body)
 	const events: Array<Read> = []
 	const failed = (reason: string): Reading => ({
 		events,
@@ -411,12 +455,11 @@ export const referenceRead = (body: Uint8Array, bound: number): Reading => {
 		open: false,
 		dataBytes: 0
 	}
-	for (const [index, line] of lines.entries()) {
-		const length = Option.getOrElse(Arr.get(lengths.lines, index), () => 0)
-		if (length > bound + prefixBytes) {
+	for (const line of lines) {
+		if (line.length > bound + prefixBytes) {
 			return failed("recordTooLarge")
 		}
-		if (line === "") {
+		if (line.length === 0) {
 			if (buffers.data !== "") {
 				events.push({
 					type: buffers.type === "" ? "message" : buffers.type,
@@ -430,40 +473,44 @@ export const referenceRead = (body: Uint8Array, bound: number): Reading => {
 			buffers.dataBytes = 0
 			buffers.type = ""
 			buffers.open = false
-		} else if (!Str.startsWith(":")(line)) {
+		} else if (line[0] !== 0x3a) {
 			buffers.open = true
-			const colon = Str.indexOf(":")(line)
-			const name = Option.match(colon, {
-				onNone: () => line,
-				onSome: (at) => Str.slice(0, at)(line)
-			})
-			const raw = Option.match(colon, { onNone: () => "", onSome: (at) => Str.slice(at + 1)(line) })
-			const value = Str.startsWith(" ")(raw) ? Str.slice(1)(raw) : raw
-			if (name === "event") {
-				buffers.type = value
-			} else if (name === "data") {
-				buffers.data = `${buffers.data}${value}\n`
-				buffers.dataBytes += length - (line.length - value.length) + 1
+			const { name, value } = fieldOf(line)
+			const text = Option.fromUndefinedOr(utf8Text(value))
+			if (Option.contains(name, "event")) {
+				if (Option.isNone(text)) {
+					return failed("invalidText")
+				}
+				buffers.type = text.value
+			} else if (Option.contains(name, "data")) {
+				if (Option.isNone(text)) {
+					return failed("invalidText")
+				}
+				buffers.data = `${buffers.data}${text.value}\n`
+				buffers.dataBytes += value.length + 1
 				if (buffers.dataBytes - 1 > bound) {
 					return failed("recordTooLarge")
 				}
-			} else if (name === "id" && !Str.includes("\u0000")(value)) {
-				buffers.id = Option.some(value)
-			} else if (name === "retry") {
-				buffers.retry = Option.orElse(retryDigits(value), () => buffers.retry)
+			} else if (Option.contains(name, "id") && !value.includes(0x00)) {
+				if (Option.isNone(text)) {
+					return failed("invalidText")
+				}
+				buffers.id = Option.some(text.value)
+			} else if (Option.contains(name, "retry")) {
+				buffers.retry = Option.orElse(Option.flatMap(text, retryDigits), () => buffers.retry)
 			}
 		}
 	}
-	if (lengths.rest > bound + prefixBytes) {
+	if (rest.length > bound + prefixBytes) {
 		return failed("recordTooLarge")
 	}
-	const cut = buffers.open || (rest !== "" && !Str.startsWith(":")(rest))
+	const cut = buffers.open || (rest.length > 0 && rest[0] !== 0x3a)
 	return cut ? failed("truncated") : { events, failure: Option.none() }
 }
 
-/** A value's text as the parser decodes one value: UTF-8, malformed bytes replaced, a leading U+FEFF kept. */
-const decodedValue = (value: ReadonlyArray<Piece>): string =>
-	new TextDecoder("utf-8", { ignoreBOM: true }).decode(Uint8Array.from(valueBytes(value)))
+/** A value's text as the parser decodes one value: UTF-8, a leading U+FEFF kept; none where its bytes are no UTF-8. */
+const decodedValue = (value: ReadonlyArray<Piece>): Option.Option<string> =>
+	Option.fromUndefinedOr(utf8Text(Uint8Array.from(valueBytes(value))))
 
 /** The events a framing's parts were generated from, in order. */
 const sourcesOf = (framed: Framing): ReadonlyArray<SourceEvent> =>
@@ -471,25 +518,29 @@ const sourcesOf = (framed: Framing): ReadonlyArray<SourceEvent> =>
 
 /**
  * The events a framing was generated from, as a parser reads them: the type, `message` for none or an empty one; the
- * data lines joined by LF; the last id set so far; the event's own retry digits.
+ * data lines joined by LF; the last id set so far; the event's own retry digits; until an event whose data is no UTF-8,
+ * which fails `invalidText` at its index.
  */
 export const sourceReading = (framed: Framing): Reading => {
-	const sources = sourcesOf(framed)
-	const events = Arr.mapAccum(sources, Option.none<string>(), (lastId, event) => {
+	const events: Array<Read> = []
+	let lastId = Option.none<string>()
+	for (const event of sourcesOf(framed)) {
+		const data = Option.all(Arr.map(event.data, decodedValue))
+		if (Option.isNone(data)) {
+			return { events, failure: Option.some({ reason: "invalidText", itemIndex: events.length }) }
+		}
 		const id = Option.orElse(event.id, () => lastId)
-		return [
+		lastId = id
+		events.push({
+			type: Option.getOrElse(
+				Option.filter(event.type, (type) => type !== ""),
+				() => "message"
+			),
+			data: Arr.join(data.value, "\n"),
 			id,
-			{
-				type: Option.getOrElse(
-					Option.filter(event.type, (type) => type !== ""),
-					() => "message"
-				),
-				data: Arr.join(Arr.map(event.data, decodedValue), "\n"),
-				id,
-				retry: Option.flatMap(event.retry, retryDigits)
-			}
-		] as const
-	})[1]
+			retry: Option.flatMap(event.retry, retryDigits)
+		})
+	}
 	const cut = Option.exists(framed.tail, (line) => line.kind === "field")
 	return {
 		events,
@@ -559,6 +610,16 @@ export const parseFeatures = (
 		[
 			"record over the bound",
 			Option.exists(reference.failure, (failure) => failure.reason === "recordTooLarge")
+		],
+		[
+			"data over the bound in lines within it",
+			!framed.mark &&
+				Arr.every(lines, (line) => lineBytes(line).length <= framed.bound + prefixBytes) &&
+				Option.exists(reference.failure, (failure) => failure.reason === "recordTooLarge")
+		],
+		[
+			"a value that is no UTF-8",
+			Option.exists(reference.failure, (failure) => failure.reason === "invalidText")
 		]
 	]
 	return Arr.flatMap(features, ([feature, reached]) => (reached ? [feature] : []))
@@ -787,79 +848,73 @@ type Expected = Readonly<{
 		| Readonly<{ kind: "event failed"; event: string; itemIndex: number; retrySafe: boolean }>
 }>
 
-const quoted = Schema.encodeEffect(Schema.fromJsonString(Schema.String))
-
 /** A stream that wrote `written` and ended as `end` says. */
 const outcome = (written: string, end: Expected["end"]): Expected => ({ written, end })
 
 /** An event's line, as the contract states it: its data compacted or quoted, then its type. */
-const expectedLine = (control: ControlCase, event: StreamEvent) =>
-	Effect.gen(function* () {
-		const data =
-			dataOf(control, event.type) !== "text"
-				? Arr.join(event.json.tokens, "")
-				: yield* quoted(event.text)
-		return `{"data":${data},"event":${yield* quoted(event.type)}}\n`
-	})
+const expectedLine = (control: ControlCase, event: StreamEvent): string => {
+	const data =
+		dataOf(control, event.type) !== "text" ? Arr.join(event.json.tokens, "") : jsonText(event.text)
+	return `{"data":${data},"event":${jsonText(event.type)}}\n`
+}
 
 /** The contract's specification of the stream: each event written in order until a stop, a failure or the end. */
-export const expectedOf = (control: ControlCase) =>
-	Effect.gen(function* () {
-		let written = ""
-		let expected = Option.none<string>()
-		for (const [index, event] of control.events.entries()) {
-			const found =
-				Option.isSome(expected) && expected.value !== event.type
-					? Option.none<ModelRow>()
-					: rowOf(control, event.type)
-			if (Option.isNone(found)) {
-				return outcome(
-					control.output === "bytes" ? `${written}${eventText(control, event)}` : written,
-					{ kind: "stream error", reason: "unexpectedEvent", itemIndex: index }
-				)
-			}
-			const eventRow = found.value
-			if (eventRow.data === "checked" && event.json.valid && !event.json.admitted) {
-				return outcome(
-					control.output === "bytes" ? `${written}${eventText(control, event)}` : written,
-					{ kind: "stream error", reason: "invalidData", itemIndex: index }
-				)
-			}
-			expected = "next" in eventRow ? Option.some(eventRow.next) : Option.none()
-			const invalid = eventRow.data !== "text" && !event.json.valid
-			if (control.output === "lines" && invalid) {
-				return outcome(written, {
-					kind: "stream error",
-					reason: "invalidFraming",
-					itemIndex: index
-				})
-			}
-			const line =
-				control.output === "lines" ? yield* expectedLine(control, event) : eventText(control, event)
-			written = `${written}${line}`
-			if (
-				eventRow.role === "end" ||
-				(eventRow.role === "ready" && !("next" in eventRow) && control.stopAt === "ready")
-			) {
-				return outcome(written, { kind: "done" })
-			}
-			if (eventRow.role === "error") {
-				return outcome(written, {
-					kind: "event failed",
-					event: event.type,
-					itemIndex: index,
-					retrySafe: "retryWhen" in eventRow && event.json.retry === "safe"
-				})
-			}
+export const expectedOf = (control: ControlCase): Expected => {
+	let written = ""
+	let expected = Option.none<string>()
+	for (const [index, event] of control.events.entries()) {
+		const found =
+			Option.isSome(expected) && expected.value !== event.type
+				? Option.none<ModelRow>()
+				: rowOf(control, event.type)
+		if (Option.isNone(found)) {
+			return outcome(
+				control.output === "bytes" ? `${written}${eventText(control, event)}` : written,
+				{ kind: "stream error", reason: "unexpectedEvent", itemIndex: index }
+			)
 		}
-		const lifecycle = hasLifecycle(contractOf(control))
-		return outcome(
-			written,
-			lifecycle
-				? { kind: "stream error", reason: "truncated", itemIndex: control.events.length }
-				: { kind: "done" }
-		)
-	})
+		const eventRow = found.value
+		if (eventRow.data === "checked" && event.json.valid && !event.json.admitted) {
+			return outcome(
+				control.output === "bytes" ? `${written}${eventText(control, event)}` : written,
+				{ kind: "stream error", reason: "invalidData", itemIndex: index }
+			)
+		}
+		expected = "next" in eventRow ? Option.some(eventRow.next) : Option.none()
+		const invalid = eventRow.data !== "text" && !event.json.valid
+		if (control.output === "lines" && invalid) {
+			return outcome(written, {
+				kind: "stream error",
+				reason: "invalidFraming",
+				itemIndex: index
+			})
+		}
+		const line =
+			control.output === "lines" ? expectedLine(control, event) : eventText(control, event)
+		written = `${written}${line}`
+		if (
+			eventRow.role === "end" ||
+			(eventRow.role === "ready" && !("next" in eventRow) && control.stopAt === "ready")
+		) {
+			return outcome(written, { kind: "done" })
+		}
+		if (eventRow.role === "error") {
+			return outcome(written, {
+				kind: "event failed",
+				event: event.type,
+				itemIndex: index,
+				retrySafe: "retryWhen" in eventRow && event.json.retry === "safe"
+			})
+		}
+	}
+	const lifecycle = hasLifecycle(contractOf(control))
+	return outcome(
+		written,
+		lifecycle
+			? { kind: "stream error", reason: "truncated", itemIndex: control.events.length }
+			: { kind: "done" }
+	)
+}
 
 /** What the stream did: the text it wrote, then how it ended. */
 export const actualOf = (control: ControlCase) =>
@@ -883,8 +938,10 @@ export const actualOf = (control: ControlCase) =>
 				Stream.runForEach((bytes) => Effect.sync(() => written.push(bytes)))
 			)
 		)
-		const text = new TextDecoder().decode(
-			Uint8Array.from(Arr.flatMap(written, (bytes) => Arr.fromIterable(bytes)))
+		const text = yield* Effect.fromOption(
+			Option.fromUndefinedOr(
+				utf8Text(Uint8Array.from(Arr.flatMap(written, (bytes) => Arr.fromIterable(bytes))))
+			)
 		)
 		const failure = Exit.isFailure(exit) ? Cause.findErrorOption(exit.cause) : Option.none()
 		const end: Expected["end"] = Option.match(failure, {

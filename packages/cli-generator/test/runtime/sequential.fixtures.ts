@@ -105,13 +105,18 @@ const gap = (lineFeeds: boolean): Gen<string> =>
 
 /**
  * A record of a sequential body: valid JSON as tokens and the whitespace drawn between them; one the compactor would
- * change; one cut short inside an open container; or, in JSON-seq, text after a record's closing LF.
+ * change; one cut short inside an open container; in JSON-seq, text after a record's closing LF; or a record whose
+ * bytes are no UTF-8, a byte sequence no encoder writes between two texts.
  */
 export type SeqRecord =
 	| Readonly<{ kind: "valid"; tokens: Tokens; gaps: ReadonlyArray<string> }>
 	| Readonly<{ kind: "malformed"; text: string }>
 	| Readonly<{ kind: "cut"; text: string }>
 	| Readonly<{ kind: "stray"; text: string }>
+	| Readonly<{ kind: "undecodable"; before: string; bytes: ReadonlyArray<number>; after: string }>
+
+/** A record written as text: every kind but one whose bytes are no UTF-8. */
+type TextRecord = Exclude<SeqRecord, { kind: "undecodable" }>
 
 /** Records the compactor would change: an unopened close, a raw tab in a string, values apart only by whitespace. */
 const malformed: Gen<SeqRecord> = map(
@@ -143,7 +148,30 @@ const cut: Gen<SeqRecord> = map(
 	(text): SeqRecord => ({ kind: "cut", text })
 )
 
-/** A drawn body: its framing, its records in order, the bound on a record, and where its bytes are cut into chunks. */
+/**
+ * A string record whose bytes are no UTF-8: a byte no encoder writes, a sequence cut short, an encoded surrogate, or a
+ * continuation byte with nothing to continue, inside the string's text.
+ */
+const undecodable: Gen<SeqRecord> = (s) => {
+	const around = s.draw(
+		element<Readonly<{ before: string; after: string }>>([
+			{ before: '{"a":"', after: '"}' },
+			{ before: '["x', after: '"]' },
+			{ before: '"', after: 'é"' }
+		])
+	)
+	return {
+		kind: "undecodable",
+		before: around.before,
+		bytes: s.draw(element([[0xff], [0xc3], [0xe2, 0x82], [0xed, 0xa0, 0x80], [0x80]])),
+		after: around.after
+	}
+}
+
+/**
+ * A drawn body: its framing, its records in order, the bound on a record, where its bytes are cut into chunks, and
+ * whether it opens with a byte order mark.
+ */
 export type Body = Readonly<{
 	framing: "ndjson" | "jsonseq"
 	records: ReadonlyArray<SeqRecord>
@@ -151,6 +179,7 @@ export type Body = Readonly<{
 	cuts: ReadonlyArray<number>
 	noise: ReadonlyArray<number>
 	lead: boolean
+	mark: boolean
 	terminators: ReadonlyArray<"\n" | "\r\n">
 }>
 
@@ -159,6 +188,7 @@ const recordOf = (lineFeeds: boolean, strays: boolean): Gen<SeqRecord> =>
 		[12, validOf(lineFeeds, valueTokens)],
 		[1, malformed],
 		[1, cut],
+		[1, undecodable],
 		...(strays
 			? [[1, map(element(NUMBERS), (text): SeqRecord => ({ kind: "stray", text }))] as const]
 			: [])
@@ -181,6 +211,12 @@ const bodyOf =
 			lead: s.draw(
 				weighted([
 					[3, constant(false)],
+					[1, constant(true)]
+				])
+			),
+			mark: s.draw(
+				weighted([
+					[11, constant(false)],
 					[1, constant(true)]
 				])
 			),
@@ -218,7 +254,7 @@ const drawnRecords =
 	}
 
 /** The record's text as written. */
-const writtenOf = (record: SeqRecord): string => {
+const writtenOf = (record: TextRecord): string => {
 	switch (record.kind) {
 		case "valid":
 			return Arr.join(
@@ -237,6 +273,15 @@ const writtenOf = (record: SeqRecord): string => {
 
 const utf8 = (text: string): number => encoder.encode(text).length
 
+/** The record's bytes as written: its text's UTF-8, or the bytes that are no UTF-8 between its two texts. */
+const recordBytes = (record: SeqRecord): ReadonlyArray<number> =>
+	record.kind === "undecodable"
+		? [...encoder.encode(record.before), ...record.bytes, ...encoder.encode(record.after)]
+		: [...encoder.encode(writtenOf(record))]
+
+/** The UTF-8 byte order mark, which a body may open with and every framer reads as a character. */
+const byteOrderMark: ReadonlyArray<number> = [0xef, 0xbb, 0xbf]
+
 /** The blank text a body puts after a record: nothing, spaces, a tab, or (NDJSON) a blank line. */
 const noiseOf = (body: Body, at: number): string => {
 	const kind = body.records[at + 1]?.kind === "stray" ? 0 : (body.noise[at] ?? 0)
@@ -246,25 +291,38 @@ const noiseOf = (body: Body, at: number): string => {
 	return ["", " ", `${RS}${RS}`, `${RS} \n`][kind] ?? ""
 }
 
-/** The body's text: its records framed as the framing writes them, with blank text between them. */
-const textOf = (body: Body): string => {
+const textBytes = (text: string): ReadonlyArray<number> => [...encoder.encode(text)]
+
+/**
+ * The body's bytes: its records framed as the framing writes them, with blank text between them; a marked NDJSON body
+ * opens with the mark and an empty array, a marked JSON-seq body with the mark alone.
+ */
+const bytesOf = (body: Body): Uint8Array => {
 	if (body.framing === "ndjson") {
-		return `${body.lead ? " \n" : ""}${Arr.join(
-			Arr.map(
-				body.records,
-				(record, at) => `${writtenOf(record)}${body.terminators[at] ?? "\n"}${noiseOf(body, at)}`
-			),
-			""
-		)}`
+		return Uint8Array.from([
+			...(body.mark ? [...byteOrderMark, ...textBytes("[]\n")] : []),
+			...textBytes(body.lead ? " \n" : ""),
+			...Arr.flatMap(body.records, (record, at) => [
+				...recordBytes(record),
+				...textBytes(`${body.terminators[at] ?? "\n"}${noiseOf(body, at)}`)
+			])
+		])
 	}
-	return `${body.lead ? " \r\n" : ""}${Arr.join(
-		Arr.map(body.records, (record, at) =>
+	return Uint8Array.from([
+		...(body.mark ? byteOrderMark : []),
+		...textBytes(body.lead ? " \r\n" : ""),
+		...Arr.flatMap(body.records, (record, at) =>
 			record.kind === "stray"
-				? `${record.text}\n`
-				: `${RS}${writtenOf(record)}${record.kind === "cut" ? "" : (body.terminators[at] ?? "\n")}${noiseOf(body, at)}`
-		),
-		""
-	)}`
+				? textBytes(`${record.text}\n`)
+				: [
+						...textBytes(RS),
+						...recordBytes(record),
+						...textBytes(
+							`${record.kind === "cut" ? "" : (body.terminators[at] ?? "\n")}${noiseOf(body, at)}`
+						)
+					]
+		)
+	])
 }
 
 /** What framing gives: the records emitted in order, then the failure that ended the stream, if any. */
@@ -275,12 +333,17 @@ export type Framed = Readonly<{
 
 /**
  * What the specification frames a body as: each valid record compacted (its tokens with no whitespace between them),
- * in order, until the first record that fails. A record past the bound (its UTF-8 bytes as written, its terminator not
- * counted) fails as recordTooLarge, one the compactor would change as invalidFraming, one cut short as truncated;
- * text after a JSON-seq record's closing LF fails as invalidFraming at the next record's index. Blank lines, empty
- * JSON-seq records and leading whitespace take no index.
+ * in order, until the first record that fails. A record past the bound (its bytes as written, its terminator not
+ * counted) fails as recordTooLarge, one whose bytes are no UTF-8 as invalidText, one the compactor would change as
+ * invalidFraming, one cut short as truncated; text after a JSON-seq record's closing LF fails as invalidFraming at the
+ * next record's index. Blank lines, empty JSON-seq records and leading whitespace take no index. A byte order mark is
+ * a character: before an NDJSON line's value it is a value right before another, and before a JSON-seq body's first
+ * separator it is text outside a record, so a marked body fails as invalidFraming at index 0.
  */
 export const expectedOf = (body: Body): Framed => {
+	if (body.mark) {
+		return { records: [], failure: Option.some(["invalidFraming", 0] as const) }
+	}
 	const records: Array<string> = []
 	for (const [position, record] of body.records.entries()) {
 		const index = records.length
@@ -293,10 +356,12 @@ export const expectedOf = (body: Body): Framed => {
 		}
 		const carriageReturn =
 			body.framing === "jsonseq" && body.terminators[position] === "\r\n" ? 1 : 0
-		if (utf8(writtenOf(record)) + carriageReturn > body.bound) {
+		if (recordBytes(record).length + carriageReturn > body.bound) {
 			return fail("recordTooLarge")
 		}
 		switch (record.kind) {
+			case "undecodable":
+				return fail("invalidText")
 			case "malformed":
 				return fail("invalidFraming")
 			case "cut":
@@ -310,7 +375,7 @@ export const expectedOf = (body: Body): Framed => {
 
 /** The body's bytes, cut into chunks at each of `cuts` (thousandths of its length). */
 const chunksOf = (body: Body): ReadonlyArray<Uint8Array> => {
-	const bytes = encoder.encode(textOf(body))
+	const bytes = bytesOf(body)
 	const at = Arr.dedupe(
 		Arr.sort(
 			Arr.map(body.cuts, (one) => Math.floor((one * bytes.length) / 1000)),
@@ -368,10 +433,17 @@ export type BodyFeature =
 	| "a record the compactor would change"
 	| "a record cut short"
 	| "text after a JSON-seq record"
+	| "a record that is no UTF-8"
+	| "an NDJSON line that is no UTF-8 ends the stream"
+	| "a byte order mark"
 
+/** The features a body reaches; a marked body, which fails at its mark, reaches its framing and its mark alone. */
 export const bodyFeatures = (body: Body): ReadonlyArray<BodyFeature> => {
 	const when = (holds: boolean, feature: BodyFeature): ReadonlyArray<BodyFeature> =>
 		holds ? [feature] : []
+	if (body.mark) {
+		return [body.framing === "ndjson" ? "NDJSON" : "JSON-seq", "a byte order mark"]
+	}
 	const valid = Arr.flatMap(body.records, (record) => (record.kind === "valid" ? [record] : []))
 	const written = Arr.map(valid, writtenOf)
 	const compact = Arr.map(valid, (record) => Arr.join(record.tokens, ""))
@@ -411,7 +483,7 @@ export const bodyFeatures = (body: Body): ReadonlyArray<BodyFeature> => {
 			"a record exactly at the bound"
 		),
 		...when(
-			Arr.some(body.records, (record) => utf8(writtenOf(record)) === body.bound + 1),
+			Arr.some(body.records, (record) => recordBytes(record).length === body.bound + 1),
 			"a record one byte past the bound"
 		),
 		...when(
@@ -429,6 +501,15 @@ export const bodyFeatures = (body: Body): ReadonlyArray<BodyFeature> => {
 		...when(
 			Arr.some(body.records, (record) => record.kind === "stray"),
 			"text after a JSON-seq record"
+		),
+		...when(
+			Arr.some(body.records, (record) => record.kind === "undecodable"),
+			"a record that is no UTF-8"
+		),
+		...when(
+			body.framing === "ndjson" &&
+				Option.exists(expectedOf(body).failure, ([reason]) => reason === "invalidText"),
+			"an NDJSON line that is no UTF-8 ends the stream"
 		)
 	]
 }
@@ -535,6 +616,18 @@ export const bodies: Aimed<Body, BodyFeature> = aimed(bodyOf(framing, drawnRecor
 		withLast(constant<Body["framing"]>("jsonseq"), () =>
 			map(element(NUMBERS), (text): SeqRecord => ({ kind: "stray", text }))
 		)
+	],
+	["a record that is no UTF-8", withLast(framing, () => undecodable)],
+	[
+		"an NDJSON line that is no UTF-8 ends the stream",
+		map(
+			withLast(constant<Body["framing"]>("ndjson"), () => undecodable),
+			(body): Body => ({ ...body, mark: false, bound: 1024 })
+		)
+	],
+	[
+		"a byte order mark",
+		map(bodyOf(framing, someRecords), (body): Body => ({ ...body, mark: true }))
 	]
 ])
 
@@ -543,7 +636,8 @@ export type Paced = ReadonlyArray<SeqRecord>
 
 export const paced: Gen<Paced> = array(validOf(false, valueTokens), { min: 1, max: 5 })
 
-const pacedChunk = (record: SeqRecord): string => `${RS}${writtenOf(record)}\n`
+const pacedChunk = (record: SeqRecord): Uint8Array =>
+	Uint8Array.from([...textBytes(RS), ...recordBytes(record), ...textBytes("\n")])
 
 /**
  * What the specification says a paced body's framing does: each record is emitted as its LF arrives, before the next
@@ -562,7 +656,7 @@ export const pacedActual = (records: Paced) =>
 		const chunks = Arr.map(records, pacedChunk)
 		const body = Stream.paginate(0, (at: number) =>
 			Effect.as(Ref.update(log, Arr.append(`pull ${at}`)), [
-				[encoder.encode(chunks[at] ?? "")],
+				Option.toArray(Arr.get(chunks, at)),
 				at + 1 < chunks.length ? Option.some(at + 1) : Option.none()
 			] as const)
 		)

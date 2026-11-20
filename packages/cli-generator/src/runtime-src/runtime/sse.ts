@@ -1,6 +1,7 @@
 import {
 	Array as Arr,
 	Context,
+	Data,
 	Effect,
 	Option,
 	Predicate,
@@ -13,8 +14,11 @@ import {
 } from "effect"
 import { Flag } from "effect/cli"
 import { ResponseStreamError } from "#domain/errors.ts"
+import { parseJson } from "#runtime/json.ts"
+import { lineReader } from "#runtime/lines.ts"
 import { encoder } from "#runtime/redact.ts"
 import { compactJsonText } from "#runtime/sequential.ts"
+import { jsonText, utf8Text } from "#runtime/utf8.ts"
 
 /**
  * One event a `text/event-stream` body dispatched (WHATWG HTML, "Parsing an event stream"): its type, `message` when
@@ -45,10 +49,6 @@ export interface SseParser {
 	readonly halt: () => ReadonlyArray<ResponseStreamError>
 	readonly step: (chunk: Uint8Array) => ReadonlyArray<Parsed>
 }
-
-const lineFeed = 0x0a
-
-const carriageReturn = 0x0d
 
 const colon = 0x3a
 
@@ -100,51 +100,6 @@ const opensWithMark = (bytes: Uint8Array): boolean =>
 	Arr.every(byteOrderMark, (byte, index) => bytes[index] === byte)
 
 /**
- * The pieces of a line that crossed chunk ends and the piece that ends it, as one array.
- */
-const joined = (pieces: ReadonlyArray<Uint8Array>, last: Uint8Array): Uint8Array => {
-	if (pieces.length === 0) {
-		return last
-	}
-
-	const line = new Uint8Array(
-		Arr.reduce(pieces, last.length, (length, piece) => length + piece.length)
-	)
-	let offset = 0
-	for (const piece of [...pieces, last]) {
-		line.set(piece, offset)
-		offset += piece.length
-	}
-
-	return line
-}
-
-/**
- * The first `count` bytes of the pieces of a line, or fewer when the pieces hold fewer.
- */
-const leading = (pieces: ReadonlyArray<Uint8Array>, count: number): Uint8Array => {
-	const head = new Uint8Array(count)
-	let filled = 0
-	for (const piece of pieces) {
-		const taken = piece.subarray(0, count - filled)
-		head.set(taken, filled)
-		filled += taken.length
-	}
-
-	return head.subarray(0, filled)
-}
-
-/**
- * The first line end at or after `from`: the first CR or LF, or -1.
- */
-const lineEnd = (chunk: Uint8Array, from: number): number => {
-	const feed = chunk.indexOf(lineFeed, from)
-	const ret = chunk.indexOf(carriageReturn, from)
-
-	return feed === -1 || (ret !== -1 && ret < feed) ? ret : feed
-}
-
-/**
  * A `retry` value's digits without their leading zeros, one zero kept when they are all zeros, so they form a JSON
  * number.
  */
@@ -161,11 +116,13 @@ const significant = (digits: Uint8Array): Uint8Array => {
  * colon is a comment; a field's value is what follows its first colon, less one leading space, and a line with no
  * colon is a field with an empty value; `data` appends its value and an LF, `event` sets the type, `id` sets the last
  * event ID unless it holds NUL, `retry` of ASCII digits sets the reconnection time, and any other field is ignored.
- * Lines are split on bytes and each value is decoded as UTF-8 on its own, which reads what decoding the whole body
- * first reads: CR, LF and the colon are ASCII, never part of a multi-byte sequence, and a malformed sequence becomes
- * U+FFFD either way.
+ * Lines are split on bytes and each value the stream reads is decoded as UTF-8 on its own (#runtime/utf8.ts), which
+ * reads what decoding the whole body first reads, since CR, LF and the colon are ASCII, never part of a multi-byte
+ * sequence, and keeps a byte order mark that opens a value as a character of it.
  *
- * Two readings are the generator's own, where WHATWG reads without limit or drops what it cannot use. An event whose
+ * Three readings are the generator's own, where WHATWG reads without limit, drops what it cannot use or patches what
+ * it cannot decode. A value that is no UTF-8 fails `invalidText`, where WHATWG's decode reads U+FFFD in place of each
+ * malformed sequence, a text the server never sent. An event whose
  * data passes `maxRecordBytes` bytes fails `recordTooLarge` at the line that passes it, and so does a line longer than
  * the bound and a `data: ` prefix, as soon as the bytes read of it pass that, so memory stays bounded whatever the
  * chunks. A body that ends inside an event, after a field line and before the blank line that would dispatch it, or
@@ -178,10 +135,8 @@ const significant = (digits: Uint8Array): Uint8Array => {
  * which `truncated` needs. `Sse.decode` fails the stream on a `retry` field.
  */
 export const sseParser = (maxRecordBytes: number): SseParser => {
-	const decoder = new TextDecoder("utf-8", { ignoreBOM: true })
-	const pieces: Array<Uint8Array> = []
+	const reader = lineReader()
 	const state = {
-		afterCarriageReturn: false,
 		data: "",
 		dataBytes: 0,
 		failed: false,
@@ -190,12 +145,11 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 		id: Option.none<string>(),
 		index: 0,
 		open: false,
-		pending: 0,
 		retry: Option.none<string>(),
 		type: ""
 	}
 
-	const fail = (reason: "recordTooLarge" | "truncated"): ResponseStreamError => {
+	const fail = (reason: "invalidText" | "recordTooLarge" | "truncated"): ResponseStreamError => {
 		state.failed = true
 
 		return new ResponseStreamError({ itemIndex: state.index, reason })
@@ -233,23 +187,50 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 		return [event]
 	}
 
-	const field = (line: Uint8Array): void => {
+	const withText = (
+		bytes: Uint8Array,
+		apply: (text: string) => void
+	): Option.Option<ResponseStreamError> =>
+		Option.match(Option.fromUndefinedOr(utf8Text(bytes)), {
+			onNone: () => Option.some(fail("invalidText")),
+			onSome: (text) => {
+				apply(text)
+
+				return Option.none()
+			}
+		})
+
+	const field = (line: Uint8Array): Option.Option<ResponseStreamError> => {
 		state.open = true
 		const at = line.indexOf(colon)
 		const nameEnd = at === -1 ? line.length : at
 		const valueStart = at === -1 ? line.length : at + (line[at + 1] === space ? 2 : 1)
 		const value = line.subarray(valueStart)
 		if (isField(line, nameEnd, dataField)) {
-			state.data += `${decoder.decode(value)}\n`
-			state.dataBytes += value.length + 1
-			state.hasData = true
-		} else if (isField(line, nameEnd, eventField)) {
-			state.type = decoder.decode(value)
-		} else if (isField(line, nameEnd, idField) && !value.includes(nul)) {
-			state.id = Option.some(decoder.decode(value))
-		} else if (isField(line, nameEnd, retryField) && isDigits(value)) {
-			state.retry = Option.some(decoder.decode(significant(value)))
+			return withText(value, (text) => {
+				state.data += `${text}\n`
+				state.dataBytes += value.length + 1
+				state.hasData = true
+			})
 		}
+
+		if (isField(line, nameEnd, eventField)) {
+			return withText(value, (text) => {
+				state.type = text
+			})
+		}
+
+		if (isField(line, nameEnd, idField) && !value.includes(nul)) {
+			return withText(value, (text) => {
+				state.id = Option.some(text)
+			})
+		}
+
+		return isField(line, nameEnd, retryField) && isDigits(value)
+			? withText(significant(value), (digits) => {
+					state.retry = Option.some(digits)
+				})
+			: Option.none()
 	}
 
 	const readLine = (whole: Uint8Array, end: number): ReadonlyArray<Parsed> => {
@@ -262,33 +243,23 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 			return dispatch(end)
 		}
 
-		if (line[0] !== colon) {
-			field(line)
+		const refused = line[0] === colon ? Option.none() : field(line)
+		if (Option.isSome(refused)) {
+			return [refused.value]
 		}
 
 		return state.dataBytes - 1 > maxRecordBytes ? [fail("recordTooLarge")] : []
 	}
 
-	const lines = (chunk: Uint8Array, from: number): ReadonlyArray<Parsed> => {
+	const lines = (chunk: Uint8Array): ReadonlyArray<Parsed> => {
 		const out: Array<Parsed> = []
-		let position = from
-		while (!state.failed && position < chunk.length) {
-			const stop = lineEnd(chunk, position)
-			if (stop === -1) {
-				pieces.push(chunk.subarray(position))
-				state.pending += chunk.length - position
-
-				return out
+		for (const line of reader.step(chunk)) {
+			for (const parsed of readLine(line.bytes, line.end)) {
+				out.push(parsed)
 			}
 
-			const whole = joined(pieces, chunk.subarray(position, stop))
-			pieces.length = 0
-			state.pending = 0
-			const returned = chunk[stop] === carriageReturn
-			state.afterCarriageReturn = returned && stop + 1 === chunk.length
-			position = stop + (returned && chunk[stop + 1] === lineFeed ? 2 : 1)
-			for (const parsed of readLine(whole, position)) {
-				out.push(parsed)
+			if (state.failed) {
+				return out
 			}
 		}
 
@@ -297,7 +268,7 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 
 	return {
 		halt: () => {
-			const rest = unmarked(joined(pieces, new Uint8Array(0)))
+			const rest = unmarked(reader.rest())
 			const inField = rest.length > 0 && rest[0] !== colon
 
 			return !state.failed && (state.open || inField) ? [fail("truncated")] : []
@@ -307,15 +278,11 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 				return []
 			}
 
-			const crlfTail = state.afterCarriageReturn && chunk[0] === lineFeed
-			state.afterCarriageReturn &&= chunk.length === 0
-			const out = lines(chunk, crlfTail ? 1 : 0)
+			const out = lines(chunk)
 			const mark =
-				state.first && opensWithMark(leading(pieces, byteOrderMark.length))
-					? byteOrderMark.length
-					: 0
+				state.first && opensWithMark(reader.head(byteOrderMark.length)) ? byteOrderMark.length : 0
 			const failed = Arr.some(out, (parsed) => parsed._tag === "ResponseStreamError")
-			const overBound = state.pending - mark > maxRecordBytes + dataPrefixBytes
+			const overBound = reader.pending() - mark > maxRecordBytes + dataPrefixBytes
 
 			return !failed && overBound ? [...out, fail("recordTooLarge")] : out
 		}
@@ -443,17 +410,14 @@ export interface EventReading {
  * contract says the data is JSON (`compactJsonText`, which keeps its strings, numbers and key order as received);
  * whether its data says retrying is safe; and the reconnection time the stream last set, in milliseconds, as its digits.
  */
-export class EventFailed extends Schema.TaggedError<
-	EventFailed,
-	{ readonly brand: unique symbol }
->()("EventFailed", {
-	data: Schema.String,
-	event: Schema.String,
-	itemIndex: Schema.Int,
-	json: Schema.Option(Schema.String),
-	reconnect: Schema.Option(Schema.String),
-	retrySafe: Schema.Boolean
-}) {}
+export class EventFailed extends Data.TaggedError("EventFailed")<{
+	readonly data: string
+	readonly event: string
+	readonly itemIndex: number
+	readonly json: Option.Option<string>
+	readonly reconnect: Option.Option<string>
+	readonly retrySafe: boolean
+}> {}
 
 /**
  * Whether the contract names any role but `item`: such a stream ends only at a terminal event or its stop point, so a
@@ -462,9 +426,10 @@ export class EventFailed extends Schema.TaggedError<
 export const hasLifecycle = (contract: EventContract): boolean =>
 	Arr.some(Rec.values(contract.events), (row) => row.role !== "item")
 
-const decodeJson = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.Unknown))
-
-const encodeString = Schema.encodeEffect(Schema.fromJsonString(Schema.String))
+/**
+ * Event data's JSON value, `None` for data that is no JSON text.
+ */
+const jsonValueOf = (data: string): Option.Option<unknown> => Result.getSuccess(parseJson(data))
 
 /**
  * The tokens of a JSON Pointer (RFC 6901), unescaped.
@@ -498,7 +463,7 @@ const memberOf = (value: unknown, token: string): Option.Option<unknown> => {
  */
 const saysSafe = (data: string, rule: RetryWhen): boolean =>
 	Option.exists(
-		Option.flatMap(decodeJson(data), (json) =>
+		Option.flatMap(jsonValueOf(data), (json) =>
 			Arr.reduce(pointerTokens(rule.pointer), Option.some(json), (found, token) =>
 				Option.flatMap(found, (value) => memberOf(value, token))
 			)
@@ -511,11 +476,6 @@ const saysSafe = (data: string, rule: RetryWhen): boolean =>
  */
 const retrySafe = (event: SseEvent, row: EventRow): boolean =>
 	"retryWhen" in row && saysSafe(event.data, row.retryWhen)
-
-/**
- * A string as a JSON string literal.
- */
-const quoted = (text: string): Effect.Effect<string> => Effect.orDie(encodeString(text))
 
 /**
  * One event as its JSON line: `data` as its JSON text or a string, `event` unless it is the default type `message`,
@@ -532,9 +492,9 @@ const eventLine = Effect.fnUntraced(function* eventLine(
 			? yield* Effect.fromOption(compactJsonText(event.data)).pipe(
 					Effect.mapError(() => new ResponseStreamError({ itemIndex, reason: "invalidFraming" }))
 				)
-			: yield* quoted(event.data)
-	const type = event.type === "message" ? "" : `,"event":${yield* quoted(event.type)}`
-	const id = Option.isSome(event.id) ? `,"id":${yield* quoted(event.id.value)}` : ""
+			: jsonText(event.data)
+	const type = event.type === "message" ? "" : `,"event":${jsonText(event.type)}`
+	const id = Option.isSome(event.id) ? `,"id":${jsonText(event.id.value)}` : ""
 	const retry = Option.match(event.retry, {
 		onNone: () => "",
 		onSome: (digits) => `,"retry":${digits}`
@@ -636,7 +596,7 @@ const eventSteps = (
 				step,
 				{
 					_tag: "Fail",
-					failure: EventFailed.make({
+					failure: new EventFailed({
 						data: event.data,
 						event: event.type,
 						itemIndex,
@@ -658,7 +618,7 @@ const closedObjects = { onExcessProperty: "error" } as const
  */
 const admitted = (data: EventData, text: string): boolean =>
 	typeof data === "string" ||
-	Option.match(decodeJson(text), {
+	Option.match(jsonValueOf(text), {
 		onNone: () => true,
 		onSome: (value) =>
 			Result.isSuccess(
