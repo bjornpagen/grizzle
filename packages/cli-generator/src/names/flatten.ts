@@ -1,17 +1,20 @@
 import {
 	Array as Arr,
+	Data,
 	Equal,
 	Option,
 	Order,
 	Predicate,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import { defsKeyOf, defsRefPrefix } from "#model/defs-ref.ts"
 import type { MediaAlternative } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
+import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import type { FoldNote } from "#names/fold.ts"
 import { foldKebab } from "#names/fold.ts"
@@ -78,7 +81,7 @@ export interface SkippedProperty {
  */
 export interface BodyConstant {
 	readonly pointer: string
-	readonly value: Schema.Json
+	readonly value: Json
 }
 
 export interface FlattenedBody {
@@ -89,10 +92,7 @@ export interface FlattenedBody {
 }
 
 /** A `$ref` the body's `$defs` does not hold, or one that loops back into a definition being classified. */
-class UnresolvedBodyRef extends Schema.TaggedError<
-	UnresolvedBodyRef,
-	{ readonly brand: unique symbol }
->()("UnresolvedBodyRef", { ref: Schema.String }) {}
+class UnresolvedBodyRef extends Data.TaggedError("UnresolvedBodyRef")<{ readonly ref: string }> {}
 
 /**
  * How deep body fields flatten into dotted flags (docs/project.md, Interface: "Body fields flatten to depth 2 as dotted
@@ -102,31 +102,22 @@ class UnresolvedBodyRef extends Schema.TaggedError<
  */
 const maxDepth = 2
 
-interface JsonObject {
-	readonly [key: string]: Schema.Json
-}
-
-const isObject = (json: Schema.Json): json is JsonObject =>
-	Predicate.isObject(json) && !Arr.isArray(json)
-
-const isJsonArray = (json: Schema.Json): json is readonly Schema.Json[] => Arr.isArray(json)
-
 interface SchemaNode extends JsonObject {
 	readonly $ref?: string
-	readonly additionalProperties?: Schema.Json
-	readonly allOf?: readonly Schema.Json[]
-	readonly anyOf?: Schema.Json
-	readonly contentEncoding?: Schema.Json
-	readonly contentMediaType?: Schema.Json
-	readonly format?: Schema.Json
-	readonly items?: Schema.Json
-	readonly oneOf?: Schema.Json
+	readonly additionalProperties?: Json
+	readonly allOf?: readonly Json[]
+	readonly anyOf?: Json
+	readonly contentEncoding?: Json
+	readonly contentMediaType?: Json
+	readonly format?: Json
+	readonly items?: Json
+	readonly oneOf?: Json
 	readonly properties?: JsonObject
-	readonly required?: Schema.Json
+	readonly required?: Json
 	readonly type?: string | readonly string[]
 }
 
-const isTypeKeyword = (value: Schema.Json): value is string | readonly string[] =>
+const isTypeKeyword = (value: Json): value is string | readonly string[] =>
 	Predicate.isString(value) || (Arr.isArray(value) && Arr.every(value, Predicate.isString))
 
 /**
@@ -134,7 +125,7 @@ const isTypeKeyword = (value: Schema.Json): value is string | readonly string[] 
  * one visit costs the keyword count, not the subtree size. A keyword of the wrong shape makes
  * the node opaque.
  */
-const decodeNode = (json: Schema.Json): Option.Option<SchemaNode> => {
+const decodeNode = (json: Json): Option.Option<SchemaNode> => {
 	if (!isObject(json)) {
 		return Option.none()
 	}
@@ -163,7 +154,7 @@ interface Site {
  * A property schema and the site of the `properties` entry that declares it.
  */
 interface Property {
-	readonly schema: Schema.Json
+	readonly schema: Json
 	readonly site: Site
 }
 
@@ -181,7 +172,7 @@ type Classified =
 
 const opaque: Classified = { _tag: "Opaque" }
 
-type Defs = Readonly<Record<string, Schema.Json>>
+type Defs = Readonly<Record<string, Json>>
 
 const inProgress = Symbol("inProgress")
 
@@ -238,7 +229,7 @@ interface Ctx {
 	 */
 	readonly readOnlyOmitted: boolean
 	readonly memo: Map<string, Result.Result<Classified, UnresolvedBodyRef> | typeof inProgress>
-	readonly oneValues: Map<string, Result.Result<Option.Option<Schema.Json>, UnresolvedBodyRef>>
+	readonly oneValues: Map<string, Result.Result<Option.Option<Json>, UnresolvedBodyRef>>
 }
 
 /** The property parts of a multipart alternative whose rule declares a transfer encoding. */
@@ -315,7 +306,7 @@ const requiredOf = (schema: SchemaNode): ReadonlySet<string> =>
 	new Set(Arr.isArray(schema.required) ? Arr.filter(schema.required, Predicate.isString) : [])
 
 const propertiesAt = (
-	properties: Readonly<Record<string, Schema.Json>>,
+	properties: Readonly<Record<string, Json>>,
 	site: Site
 ): ReadonlyMap<string, Property> =>
 	new Map(
@@ -444,8 +435,8 @@ const shapeKeywords: ReadonlySet<string> = new Set([
  * body's `$defs`. A reference the chain cannot follow, or one back to a schema already on it (a
  * cycle), ends it, and is left to `classify`, which names it; so the chain ends.
  */
-const inPlace = (ctx: Ctx, json: Schema.Json): readonly Schema.Json[] => {
-	const chain: Schema.Json[] = [json]
+const inPlace = (ctx: Ctx, json: Json): readonly Json[] => {
+	const chain: Json[] = [json]
 	for (let node = json; ;) {
 		const ref = isObject(node) ? node["$ref"] : undefined
 		const key = Predicate.isString(ref) ? defsKeyOf(ref) : undefined
@@ -460,12 +451,11 @@ const inPlace = (ctx: Ctx, json: Schema.Json): readonly Schema.Json[] => {
 }
 
 /** Whether a node, with the targets its `$ref` chain reaches, shapes a flag (`shapeKeywords`). */
-const shapes = (ctx: Ctx, json: Schema.Json): boolean =>
+const shapes = (ctx: Ctx, json: Json): boolean =>
 	Arr.some(
 		inPlace(ctx, json),
 		(node) =>
-			!isObject(node) ||
-			Arr.some(Record.keys<string, Schema.Json>(node), (key) => shapeKeywords.has(key))
+			!isObject(node) || Arr.some(Record.keys<string, Json>(node), (key) => shapeKeywords.has(key))
 	)
 
 /**
@@ -498,7 +488,7 @@ const intersect = (members: readonly Classified[], required: ReadonlySet<string>
 
 type RefLookup =
 	| { readonly _tag: "Cached"; readonly result: Result.Result<Classified, UnresolvedBodyRef> }
-	| { readonly _tag: "Fresh"; readonly name: string; readonly target: Schema.Json }
+	| { readonly _tag: "Fresh"; readonly name: string; readonly target: Json }
 
 /**
  * The definition a `$ref` names: classified already, or fresh. A definition still being classified
@@ -509,7 +499,7 @@ const lookupRef = (ctx: Ctx, ref: string): Result.Result<RefLookup, UnresolvedBo
 	const target = name === undefined ? undefined : ctx.defs[name]
 	const seen = name === undefined ? undefined : ctx.memo.get(name)
 	if (name === undefined || target === undefined || seen === inProgress) {
-		return Result.fail(UnresolvedBodyRef.make({ ref }))
+		return Result.fail(new UnresolvedBodyRef({ ref }))
 	}
 
 	return Result.succeed(
@@ -544,7 +534,7 @@ const repeatedKind = (ctx: Ctx, kind: Scalar): Scalar =>
 
 const classify = (
 	ctx: Ctx,
-	json: Schema.Json,
+	json: Json,
 	site: Site
 ): Result.Result<Classified, UnresolvedBodyRef> => {
 	const node = decodeNode(json)
@@ -635,7 +625,7 @@ const classify = (
 }
 
 /** Whether a property schema is `readOnly: true` itself or at the end of one `$ref` (S30-31). */
-const isReadOnly = (ctx: Ctx, schema: Schema.Json): boolean => {
+const isReadOnly = (ctx: Ctx, schema: Json): boolean => {
 	if (!isObject(schema)) {
 		return false
 	}
@@ -657,8 +647,7 @@ const isReadOnly = (ctx: Ctx, schema: Schema.Json): boolean => {
 }
 
 /** A property the line does not offer as a flag: it gets no flag and no skip notice. */
-const omitted = (ctx: Ctx, schema: Schema.Json): boolean =>
-	ctx.readOnlyOmitted && isReadOnly(ctx, schema)
+const omitted = (ctx: Ctx, schema: Json): boolean => ctx.readOnlyOmitted && isReadOnly(ctx, schema)
 
 /**
  * The keywords a closed object admitting one value may carry beside its shape: annotations, which assert nothing.
@@ -692,19 +681,19 @@ const closedObjectKeywords: ReadonlySet<string> = new Set([
  */
 const oneValue = (
 	ctx: Ctx,
-	json: Schema.Json,
+	json: Json,
 	path: ReadonlySet<string>
-): Result.Result<Option.Option<Schema.Json>, UnresolvedBodyRef> => {
+): Result.Result<Option.Option<Json>, UnresolvedBodyRef> => {
 	if (!isObject(json)) {
 		return Result.succeed(Option.none())
 	}
 
-	if (Record.has<string, Schema.Json>(json, "const")) {
-		return Result.succeed(Record.get<string, Schema.Json>(json, "const"))
+	if (Record.has<string, Json>(json, "const")) {
+		return Result.succeed(Record.get<string, Json>(json, "const"))
 	}
 
 	const { $ref, enum: members } = json
-	if (members !== undefined && isJsonArray(members)) {
+	if (members !== undefined && isArray(members)) {
 		return Result.succeed(members.length === 1 ? Arr.head(members) : Option.none())
 	}
 
@@ -712,7 +701,7 @@ const oneValue = (
 		const name = defsKeyOf($ref)
 		const target = name === undefined ? undefined : ctx.defs[name]
 		if (name === undefined || target === undefined) {
-			return Result.fail(UnresolvedBodyRef.make({ ref: $ref }))
+			return Result.fail(new UnresolvedBodyRef({ ref: $ref }))
 		}
 
 		if (path.has(name)) {
@@ -732,7 +721,7 @@ const oneValue = (
 
 	const node = decodeNode(json)
 	const shaped = Arr.every(
-		Record.keys<string, Schema.Json>(json),
+		Record.keys<string, Json>(json),
 		(keyword) =>
 			closedObjectKeywords.has(keyword) ||
 			annotationKeywords.has(keyword) ||
@@ -753,7 +742,7 @@ const oneValue = (
 		return Result.succeed(Option.none())
 	}
 
-	const value: Record<string, Schema.Json> = {}
+	const value: Record<string, Json> = {}
 	for (const [key, child] of properties) {
 		const one = oneValue(ctx, child, path)
 		if (Result.isFailure(one)) {
@@ -1160,7 +1149,7 @@ export const flattenBody = (
 	const ctx = newCtx(defs, codec, alternative.encoding ?? [], alternative.refusedFields ?? [], line)
 	const root = defs[key]
 	if (root === undefined) {
-		return Result.fail(UnresolvedBodyRef.make({ ref: `${defsRefPrefix}${key}` }))
+		return Result.fail(new UnresolvedBodyRef({ ref: `${defsRefPrefix}${key}` }))
 	}
 
 	const classified = classify(ctx, root, { key, tokens: [] })

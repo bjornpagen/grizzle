@@ -11,7 +11,7 @@ import type { NonStandardUse } from "#model/non-standard.ts"
 import { markedUses, nonStandardUses } from "#model/non-standard.ts"
 import type { Json } from "#model/pointer.ts"
 import { documentLabel } from "#model/uri.ts"
-import { CommandNameSource, GroupNameSource } from "#names/plan.ts"
+import { commandNameSources, groupNameSources } from "#names/plan.ts"
 
 const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u"))))
 
@@ -22,9 +22,9 @@ const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]
  */
 export const CommandName = Schema.Struct({
 	alias: Schema.optionalKey(Schema.Int),
-	command: CommandNameSource,
+	command: Schema.Literals(commandNameSources),
 	document: DocumentUri,
-	group: GroupNameSource,
+	group: Schema.Literals(groupNameSources),
 	path: Schema.Array(Schema.String),
 	pointer: JsonPointer
 })

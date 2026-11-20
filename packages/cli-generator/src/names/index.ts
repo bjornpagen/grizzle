@@ -7,7 +7,6 @@ import {
 	Predicate,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
@@ -15,6 +14,8 @@ import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Api, NamingHint, Operation, SecurityScheme } from "#model/entities.ts"
+import { isObject, nodeAt } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 import { escapeToken } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import {
@@ -23,8 +24,8 @@ import {
 	groupModuleNames,
 	rootModuleNames
 } from "#names/domain.ts"
-import { SafeIdentifier, foldFileSegment, foldIdentifier, foldKebab } from "#names/fold.ts"
-import type { FoldNote, SafeFileSegmentValue, SafeIdentifierValue } from "#names/fold.ts"
+import { foldFileSegment, foldIdentifier, foldKebab } from "#names/fold.ts"
+import type { FoldNote, SafeFileSegment, SafeIdentifier } from "#names/fold.ts"
 import {
 	commandName,
 	credentialNames,
@@ -38,7 +39,7 @@ import {
 	rootNamespace,
 	siteOf,
 	skipHint,
-	suffixed
+	suffixedIdentifier
 } from "#names/plan.ts"
 import type {
 	Collector,
@@ -90,7 +91,7 @@ export interface NamePlan {
 	readonly certificates: readonly PlannedCertificate[]
 	readonly credentials: readonly PlannedCredential[]
 	readonly diagnostics: readonly Diagnostic[]
-	readonly domain: ReadonlyMap<string, SafeIdentifierValue>
+	readonly domain: ReadonlyMap<string, SafeIdentifier>
 	readonly groups: readonly PlannedGroup[]
 	readonly root: readonly PlannedCommand[]
 }
@@ -104,7 +105,7 @@ interface GroupNode {
 	readonly name: string
 	readonly notes: readonly FoldNote[]
 	readonly parent: string | undefined
-	readonly segment: SafeFileSegmentValue
+	readonly segment: SafeFileSegment
 	readonly tag: string
 }
 
@@ -170,11 +171,9 @@ const fixedFlagIdentifiers: ReadonlySet<string> = new Set([
 	"contentType"
 ])
 
-const decodeDefs = Schema.decodeUnknownOption(
-	Schema.Struct({ $defs: Schema.Record(Schema.String, Schema.Json) })
-)
-
-const toIdentifier = (value: string): SafeIdentifierValue => SafeIdentifier.make(value)
+/** The store document's `$defs`, `{ $defs }` as normalize writes it; none where it holds no object. */
+const defsOf = (document: Api["schemas"]["document"]): JsonObject =>
+	Option.getOrElse(Option.filter(nodeAt(document, "/$defs"), isObject), (): JsonObject => ({}))
 
 /** Every input here is a non-empty kebab name, so the fold cannot be empty. */
 const identifierOf = (name: string, casing: "camel" | "pascal") =>
@@ -990,7 +989,7 @@ const planCredentials = (
  */
 const domainNames = (
 	entries: readonly Named[],
-	domain: ReadonlyMap<string, SafeIdentifierValue>
+	domain: ReadonlyMap<string, SafeIdentifier>
 ): ReadonlySet<string> =>
 	new Set(
 		Arr.flatMap(entries, (entry) =>
@@ -1026,16 +1025,11 @@ const planFlags = (
 	const assigned = new Set<string>()
 	const blocked = (candidate: string): boolean =>
 		fixedFlagIdentifiers.has(candidate) || assigned.has(candidate)
-	const take = (
-		name: string,
-		pointer: string,
-		row: string,
-		element: string
-	): SafeIdentifierValue => {
+	const take = (name: string, pointer: string, row: string, element: string): SafeIdentifier => {
 		const base = identifierOf(name, "camel")
 		collector.folded(entry.operation, row, element, pointer, base.notes)
 
-		const identifier = blocked(base.name) ? toIdentifier(suffixed(base.name, blocked)) : base.name
+		const identifier = blocked(base.name) ? suffixedIdentifier(base.name, blocked) : base.name
 		if (identifier !== base.name) {
 			collector.report(entry.operation, `${row}/renamed`, element, "An identifier was renamed.", {
 				pointer,
@@ -1059,7 +1053,7 @@ const planFlags = (
 			wireName: positional.wireName
 		}
 	})
-	const identifiers = new Map<DraftFlag, SafeIdentifierValue>()
+	const identifiers = new Map<DraftFlag, SafeIdentifier>()
 	for (const flag of Arr.filter(draft.flags, isWholeBodyFlag)) {
 		const identifier = identifierOf(flag.name, "camel").name
 		assigned.add(identifier)
@@ -1110,7 +1104,7 @@ const planModule = (
 			...base.notes
 		])
 
-		const identifier = used(base.name) ? toIdentifier(suffixed(base.name, clash)) : base.name
+		const identifier = used(base.name) ? suffixedIdentifier(base.name, clash) : base.name
 		if (identifier !== base.name) {
 			for (const member of familyOf(identifier)) {
 				taken.add(member)
@@ -1177,7 +1171,7 @@ const makeFlagPlans = (collector: Collector): FlagPlans => {
 
 interface GroupNamespace {
 	readonly base: string
-	readonly namespace: SafeIdentifierValue
+	readonly namespace: SafeIdentifier
 }
 
 /**
@@ -1189,7 +1183,7 @@ const namespaceOf = (node: GroupNode, blocked: (candidate: string) => boolean): 
 
 	return {
 		base: base.name,
-		namespace: blocked(base.name) ? toIdentifier(suffixed(base.name, blocked)) : base.name
+		namespace: blocked(base.name) ? suffixedIdentifier(base.name, blocked) : base.name
 	}
 }
 
@@ -1280,7 +1274,7 @@ const planGroup = (
 	first: Named | undefined,
 	{ base, namespace }: GroupNamespace,
 	foreign: ReadonlySet<string>,
-	domain: ReadonlyMap<string, SafeIdentifierValue>,
+	domain: ReadonlyMap<string, SafeIdentifier>,
 	drafts: ReadonlyMap<Operation, Draft>,
 	flagPlans: FlagPlans,
 	collector: Collector
@@ -1355,10 +1349,7 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 			booleans: new Map(),
 			collector,
 			credentialFlags: credentials.flags,
-			defs: Option.match(decodeDefs(api.schemas.document), {
-				onNone: () => ({}),
-				onSome: (store) => store.$defs
-			}),
+			defs: defsOf(api.schemas.document),
 			line: api.line
 		}
 		const drafts = new Map<Operation, Draft>()

@@ -7,10 +7,11 @@
 
 import { aimed, type Aimed, constant, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Order, Record, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, Record, String as Str } from "effect"
 import { emitCli } from "#emit/cli.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
+import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
@@ -48,11 +49,11 @@ export type SecretCase = Readonly<{
 	collides: boolean
 }>
 
-const password: Schema.Json = { format: "password", type: "string" }
+const password: Json = { format: "password", type: "string" }
 
-const ref = (name: string): Schema.Json => ({ $ref: `#/components/schemas/${name}` })
+const ref = (name: string): Json => ({ $ref: `#/components/schemas/${name}` })
 
-const schemaOf = (shape: Shape): Schema.Json => {
+const schemaOf = (shape: Shape): Json => {
 	switch (shape) {
 		case "plain string":
 			return { type: "string" }
@@ -100,7 +101,7 @@ const isPasswordArray = (shape: Shape): boolean => Str.startsWith("password arra
 
 const versions: Readonly<Record<Line, string>> = { "3.0": "3.0.4", "3.1": "3.1.1", "3.2": "3.2.0" }
 
-const propertiesOf = (c: SecretCase): ReadonlyArray<readonly [string, Schema.Json]> => [
+const propertiesOf = (c: SecretCase): ReadonlyArray<readonly [string, Json]> => [
 	...Arr.map(c.properties, (p) => [p.name, schemaOf(p.shape)] as const),
 	...Arr.flatMap(
 		c.collides
@@ -114,7 +115,7 @@ const propertiesOf = (c: SecretCase): ReadonlyArray<readonly [string, Schema.Jso
 ]
 
 /** The case's document: one operation whose JSON body holds the drawn properties. */
-const documentOf = (c: SecretCase): Schema.Json => ({
+const documentOf = (c: SecretCase): Json => ({
 	components: {
 		schemas: {
 			Plain: { type: "string" },
@@ -163,8 +164,8 @@ const blanks = regex("\\s+", "gu")
 /** Runs resolve, normalize, the names plan and the CLI emitter on the case's document. */
 export const plannedOf = (c: SecretCase) =>
 	Effect.gen(function* () {
-		const document = yield* Schema.decodeEffect(DocumentUri)("file:///pw/openapi.json")
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)("file:///pw/author-config.json")
+		const document = fixedDocumentUri("file:///pw/openapi.json")
+		const configDocument = fixedDocumentUri("file:///pw/author-config.json")
 		const config = yield* decodeAuthorConfig(
 			{
 				binName: "pw",

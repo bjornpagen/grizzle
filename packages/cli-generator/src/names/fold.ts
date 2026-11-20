@@ -1,5 +1,5 @@
 import { regex } from "arkregex"
-import { Array as Arr, Option, Result, Schema, String as Str, pipe } from "effect"
+import { Array as Arr, Brand, Data, Option, Result, String as Str, pipe } from "effect"
 import { reservedIdentifiers, windowsDeviceNames } from "#names/reserved.ts"
 
 type Casing = "kebab" | "camel" | "pascal"
@@ -12,19 +12,13 @@ export type FoldNote =
 	| { readonly _tag: "ReservedSuffix"; readonly suffix: string }
 
 /** An input with no letter or digit to fold. */
-export class EmptyFold extends Schema.TaggedError<EmptyFold, { readonly brand: unique symbol }>()(
-	"EmptyFold",
-	{ input: Schema.String }
-) {}
+export class EmptyFold extends Data.TaggedError("EmptyFold")<{ readonly input: string }> {}
 
 /** A file segment the fold refuses: off the segment pattern, or a Windows device name. */
-class UnsafeFileSegment extends Schema.TaggedError<
-	UnsafeFileSegment,
-	{ readonly brand: unique symbol }
->()("UnsafeFileSegment", {
-	segment: Schema.String,
-	reason: Schema.Literals(["pattern", "device"])
-}) {}
+class UnsafeFileSegment extends Data.TaggedError("UnsafeFileSegment")<{
+	readonly segment: string
+	readonly reason: "pattern" | "device"
+}> {}
 
 const digitPrefix = "n"
 
@@ -48,30 +42,31 @@ const deviceStem = (segment: string): string =>
 const isDeviceName = (segment: string): boolean => windowsDeviceNames.has(deviceStem(segment))
 
 /**
- * A generated identifier: ASCII, matches `^[A-Za-z_$][A-Za-z0-9_$]*$` and is not reserved.
+ * A generated identifier: ASCII, matches `^[A-Za-z_$][A-Za-z0-9_$]*$` and is not reserved. Minted only here: by
+ * `isSafeIdentifier`, which every name the fold or the plan composes is read through, and unchecked by
+ * `fixedSafeIdentifier`, whose text is a literal of the generator's own source.
  */
-export const SafeIdentifier = Schema.String.pipe(
-	Schema.check(
-		Schema.makeFilter(
-			(value: string) => identifierPattern.test(value) && !reservedIdentifiers.has(value)
-		)
-	),
-	Schema.brand("SafeIdentifier")
-)
+export type SafeIdentifier = string & Brand.Brand<"SafeIdentifier">
 
-export type SafeIdentifierValue = typeof SafeIdentifier.Type
+/** Whether a name is a SafeIdentifier: identifier-shaped ASCII and no reserved word. */
+export const isSafeIdentifier = (value: string): value is SafeIdentifier =>
+	identifierPattern.test(value) && !reservedIdentifiers.has(value)
 
 /**
- * A generated file segment: `^[a-z0-9][a-z0-9-]{0,63}$`, not a Windows device name in any case.
+ * A SafeIdentifier the generator writes as a literal of its own source (`Definition`). Unchecked: the literal is the
+ * proof, the repository's own text and never a document's or a plan's.
  */
-export const SafeFileSegment = Schema.String.pipe(
-	Schema.check(
-		Schema.makeFilter((value: string) => segmentPattern.test(value) && !isDeviceName(value))
-	),
-	Schema.brand("SafeFileSegment")
-)
+export const fixedSafeIdentifier: (text: string) => SafeIdentifier = Brand.nominal<SafeIdentifier>()
 
-export type SafeFileSegmentValue = typeof SafeFileSegment.Type
+/**
+ * A generated file segment: `^[a-z0-9][a-z0-9-]{0,63}$`, not a Windows device name in any case. Minted only here, by
+ * `isSafeFileSegment`.
+ */
+export type SafeFileSegment = string & Brand.Brand<"SafeFileSegment">
+
+/** Whether a name is a SafeFileSegment: segment-shaped and no Windows device name. */
+export const isSafeFileSegment = (value: string): value is SafeFileSegment =>
+	segmentPattern.test(value) && !isDeviceName(value)
 
 export interface Folded<Name extends string> {
 	readonly name: Name
@@ -127,7 +122,7 @@ const withDigitPrefix = (
 export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {
 	const parts = words(input)
 	if (parts.length === 0) {
-		return Result.fail(EmptyFold.make({ input }))
+		return Result.fail(new EmptyFold({ input }))
 	}
 
 	const prefixed = withDigitPrefix(parts)
@@ -136,31 +131,34 @@ export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFol
 }
 
 /**
+ * A joined fold as a SafeIdentifier: a name that is none takes the suffix `_`, and is read again. A fold is
+ * identifier-shaped, its words ASCII letters and digits with a leading digit prefixed, so it is none only as a reserved
+ * word, and no reserved word ends in `_`: one suffix makes it one.
+ */
+const safeIdentifier = (name: string, notes: readonly FoldNote[]): Folded<SafeIdentifier> =>
+	isSafeIdentifier(name)
+		? { name, notes }
+		: safeIdentifier(`${name}${reservedSuffix}`, [
+				...notes,
+				{ _tag: "ReservedSuffix", suffix: reservedSuffix }
+			])
+
+/**
  * Fold to a camel or Pascal identifier. A leading digit gets the prefix `n`; a reserved word
  * gets the suffix `_`.
  */
 export const foldIdentifier = (
 	input: string,
 	casing: "camel" | "pascal"
-): Result.Result<Folded<SafeIdentifierValue>, EmptyFold> => {
+): Result.Result<Folded<SafeIdentifier>, EmptyFold> => {
 	const parts = words(input)
 	if (parts.length === 0) {
-		return Result.fail(EmptyFold.make({ input }))
+		return Result.fail(new EmptyFold({ input }))
 	}
 
 	const prefixed = withDigitPrefix(parts)
-	const joined = joinWords(prefixed.parts, casing)
-	if (!reservedIdentifiers.has(joined)) {
-		return Result.succeed({
-			name: SafeIdentifier.make(joined),
-			notes: prefixed.notes
-		})
-	}
 
-	return Result.succeed({
-		name: SafeIdentifier.make(`${joined}${reservedSuffix}`),
-		notes: [...prefixed.notes, { _tag: "ReservedSuffix", suffix: reservedSuffix }]
-	})
+	return Result.succeed(safeIdentifier(joinWords(prefixed.parts, casing), prefixed.notes))
 }
 
 /**
@@ -169,19 +167,19 @@ export const foldIdentifier = (
  */
 export const foldFileSegment = (
 	input: string
-): Result.Result<SafeFileSegmentValue, EmptyFold | UnsafeFileSegment> => {
+): Result.Result<SafeFileSegment, EmptyFold | UnsafeFileSegment> => {
 	const parts = words(input)
 	if (parts.length === 0) {
-		return Result.fail(EmptyFold.make({ input }))
+		return Result.fail(new EmptyFold({ input }))
 	}
 
 	const segment = joinWords(parts, "kebab")
 	if (isDeviceName(segment)) {
-		return Result.fail(UnsafeFileSegment.make({ reason: "device", segment }))
+		return Result.fail(new UnsafeFileSegment({ reason: "device", segment }))
 	}
 
-	if (!Schema.is(SafeFileSegment)(segment)) {
-		return Result.fail(UnsafeFileSegment.make({ reason: "pattern", segment }))
+	if (!isSafeFileSegment(segment)) {
+		return Result.fail(new UnsafeFileSegment({ reason: "pattern", segment }))
 	}
 
 	return Result.succeed(segment)

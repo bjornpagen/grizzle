@@ -65,32 +65,32 @@ export const foldLaws = property.explore(foldSpace, {
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
 			original:
-				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			replacement:
-				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length !== 0) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length !== 0) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			why: "foldKebab refuses every name with a word and folds an empty one, so every flag and command fold fails; the property fails (CATCH's evidence, mutant 077846b20e)."
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
 			original:
-				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			replacement:
-				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 1) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 1) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			why: "foldKebab refuses a name of exactly one word as empty; the property fails (CATCH's evidence, mutant 00af26c2eb)."
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
 			original:
-				"): Result.Result<Folded<SafeIdentifierValue>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"): Result.Result<Folded<SafeIdentifier>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			replacement:
-				"): Result.Result<Folded<SafeIdentifierValue>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 1) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"): Result.Result<Folded<SafeIdentifier>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 1) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			why: "foldIdentifier refuses a name of exactly one word as empty; the property fails (CATCH's evidence, mutant 6c0ab40c00)."
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
-			original: "!reservedIdentifiers.has(joined)",
-			replacement: "reservedIdentifiers.has(joined)",
-			why: "foldIdentifier suffixes every identifier but the reserved words, which it leaves bare; the property fails (CATCH's evidence, mutant 09a8a2413f)."
+			original: "\tisSafeIdentifier(name)\n\t\t? { name, notes }",
+			replacement: "\t!isSafeIdentifier(name)\n\t\t? { name, notes }",
+			why: "foldIdentifier leaves a reserved word bare and suffixes every other identifier without end; the property fails (CATCH's evidence, mutant 09a8a2413f, on the fold's reading of its joined name)."
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
@@ -106,9 +106,8 @@ export const foldLaws = property.explore(foldSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
-			original:
-				'Schema.String.pipe(\n\tSchema.check(\n\t\tSchema.makeFilter((value: string) => segmentPattern.test(value) && !isDeviceName(value))\n\t),\n\tSchema.brand("SafeFileSegment")\n)',
-			replacement: 'Schema.String.pipe(Schema.brand("SafeFileSegment"))',
+			original: "segmentPattern.test(value) && !isDeviceName(value)",
+			replacement: "true",
 			why: "SafeFileSegment checks neither pattern nor device names, so a segment over 64 characters is admitted; the property fails (CATCH's evidence, mutant 1208fb9e15)."
 		},
 		{
@@ -121,7 +120,7 @@ export const foldLaws = property.explore(foldSpace, {
 			file: "packages/cli-generator/src/names/fold.ts",
 			original: "identifierPattern.test(value) && !reservedIdentifiers.has(value)",
 			replacement: "false",
-			why: "SafeIdentifier admits nothing, so every identifier fold dies minting its brand; the property fails (CATCH's evidence, mutant 23ad1f75eb)."
+			why: "SafeIdentifier admits nothing, so every identifier fold suffixes its name without end and dies; the property fails (CATCH's evidence, mutant 23ad1f75eb)."
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
@@ -132,8 +131,8 @@ export const foldLaws = property.explore(foldSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
-			original: "!Schema.is(SafeFileSegment)(segment)",
-			replacement: "Schema.is(SafeFileSegment)(segment)",
+			original: "!isSafeFileSegment(segment)",
+			replacement: "isSafeFileSegment(segment)",
 			why: "foldFileSegment refuses every segment its brand admits and admits the rest; the property fails (CATCH's evidence, mutant f1535863a0)."
 		}
 	]

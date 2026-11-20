@@ -66,7 +66,7 @@ import { constantOf } from "#names/constant.ts"
 import type { ConstantValue } from "#names/constant.ts"
 import { isPositionalBody } from "#names/flatten.ts"
 import { foldIdentifier } from "#names/fold.ts"
-import type { SafeIdentifierValue } from "#names/fold.ts"
+import type { SafeIdentifier } from "#names/fold.ts"
 import type {
 	NamePlan,
 	PlannedCertificate,
@@ -319,7 +319,7 @@ const domainNamespace = fixedIdentifier("Domain")
  */
 const eventDataExpr = (
 	data: EventContract["events"][number]["data"],
-	domain: ReadonlyMap<string, SafeIdentifierValue>
+	domain: ReadonlyMap<string, SafeIdentifier>
 ): Effect.Effect<Expr, ApiEmitError> => {
 	if (typeof data === "string") {
 		return Effect.succeed(str(data))
@@ -366,7 +366,7 @@ const eventRowExpr = (event: EventContract["events"][number], data: Expr): Expr 
  */
 const eventContractExpr = (
 	contract: EventContract,
-	domain: ReadonlyMap<string, SafeIdentifierValue>
+	domain: ReadonlyMap<string, SafeIdentifier>
 ): Effect.Effect<Expr, ApiEmitError> =>
 	Effect.map(
 		Effect.forEach(contract.events, (event) =>
@@ -401,7 +401,7 @@ const contractExpr = (
  */
 const eventTableOf = (
 	responses: Operation["responses"],
-	domain: ReadonlyMap<string, SafeIdentifierValue>
+	domain: ReadonlyMap<string, SafeIdentifier>
 ): Effect.Effect<ReadonlyArray<readonly [string, Expr]>, ApiEmitError> =>
 	Effect.map(
 		Effect.forEach(responses, (response) =>
@@ -1892,7 +1892,7 @@ const requirementOf = (operation: Operation, schemes: ReadonlySet<string>) =>
 interface CommandContext extends ParameterContext {
 	readonly bound: ApiEmitInput["boundOrigins"]
 	readonly document: (uri: string) => string
-	readonly domain: ReadonlyMap<string, SafeIdentifierValue>
+	readonly domain: ReadonlyMap<string, SafeIdentifier>
 	readonly schemes: ReadonlySet<string>
 }
 

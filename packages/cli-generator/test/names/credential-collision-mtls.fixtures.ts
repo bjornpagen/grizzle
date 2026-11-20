@@ -16,9 +16,10 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Order, Record, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, Record, String as Str } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
+import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { reservedFlagNames } from "#names/reserved.ts"
 import { normalize } from "#normalize/index.ts"
@@ -57,7 +58,7 @@ const NAMES = [
 	"verbose"
 ] as const
 
-const schemeJson = (kind: Kind): Schema.Json => {
+const schemeJson = (kind: Kind): Json => {
 	switch (kind) {
 		case "bearer":
 			return { scheme: "bearer", type: "http" }
@@ -73,7 +74,7 @@ const schemeJson = (kind: Kind): Schema.Json => {
 /** The operation id the scheme at `index` is used by: plain words, so commands are named as written. */
 const operationOf = (index: number): string => `use${"abcdefghijklmnop"[index] ?? "z"}`
 
-const documentOf = (c: CredentialCase): Schema.Json => ({
+const documentOf = (c: CredentialCase): Json => ({
 	components: {
 		securitySchemes: Record.fromEntries(
 			Arr.map(c.schemes, (scheme) => [scheme.name, schemeJson(scheme.kind)] as const)
@@ -103,7 +104,7 @@ const documentOf = (c: CredentialCase): Schema.Json => ({
 	])
 })
 
-const configOf = (c: CredentialCase): Schema.Json => ({
+const configOf = (c: CredentialCase): Json => ({
 	binName: "mtls",
 	...Option.match(c.prefix, { onNone: () => ({}), onSome: (envPrefix) => ({ envPrefix }) }),
 	package: { name: "mtls-cli", version: "1.0.0" },
@@ -136,10 +137,8 @@ const diagnosticOrder = Order.combineAll<Answer["diagnostics"][number]>([
 
 export const actualOf = (c: CredentialCase) =>
 	Effect.gen(function* () {
-		const document = yield* Schema.decodeEffect(DocumentUri)("file:///mtls/openapi.json")
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
-			"file:///mtls/author-config.json"
-		)
+		const document = fixedDocumentUri("file:///mtls/openapi.json")
+		const configDocument = fixedDocumentUri("file:///mtls/author-config.json")
 		const config = yield* decodeAuthorConfig(configOf(c), { document: configDocument })
 		const resolution = yield* resolve({ document, line: "3.1", value: documentOf(c) })
 		const { api } = yield* normalize(resolution, { checkFindings: [], config, configDocument })

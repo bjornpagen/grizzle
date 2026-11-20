@@ -5,6 +5,7 @@
  * and a model of design 4.5's body flags written from the rules flattenBody's JSDoc states, apart from its walk.
  */
 
+import { deepEquals } from "@bjornpagen/testing/assert"
 import {
 	aimed,
 	type Aimed,
@@ -20,8 +21,10 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
-import { WireName } from "#model/brands.ts"
+import { isWireName } from "#model/brands.ts"
+import type { WireName } from "#model/brands.ts"
 import { EncodingRule } from "#model/entities.ts"
+import type { Json } from "#model/pointer.ts"
 import { flattenBody } from "#names/flatten.ts"
 import { foldKebab } from "#names/fold.ts"
 import { reservedFlagNames } from "#names/reserved.ts"
@@ -60,13 +63,13 @@ export type BodyCase = Readonly<{
 	line: Line
 	root: ReadonlyArray<Member>
 	defs: ReadonlyArray<readonly [string, Node]>
-	refused: ReadonlyArray<string>
+	refused: ReadonlyArray<WireName>
 	base64Parts: ReadonlyArray<string>
 	scalarFields: ReadonlyArray<string>
 }>
 
-const scalarJson = (node: Extract<Node, { tag: "scalar" }>): Schema.Json => {
-	const entries: ReadonlyArray<Option.Option<readonly [string, Schema.Json]>> = [
+const scalarJson = (node: Extract<Node, { tag: "scalar" }>): Json => {
+	const entries: ReadonlyArray<Option.Option<readonly [string, Json]>> = [
 		Option.some(["type", node.type]),
 		Option.map(node.format, (format) => ["format", format]),
 		Option.map(node.encoding, (encoding) => ["contentEncoding", encoding]),
@@ -78,14 +81,14 @@ const scalarJson = (node: Extract<Node, { tag: "scalar" }>): Schema.Json => {
 }
 
 /** The value a constant scalar of a type holds. */
-const constantOf = (type: ScalarType): Schema.Json =>
+const constantOf = (type: ScalarType): Json =>
 	type === "string" ? "fixed" : type === "boolean" ? true : 7
 
-const readOnlyMark = (readOnly: boolean): Readonly<Record<string, Schema.Json>> =>
+const readOnlyMark = (readOnly: boolean): Readonly<Record<string, Json>> =>
 	readOnly ? { readOnly: true } : {}
 
 /** A node's JSON Schema. */
-const jsonOf = (node: Node): Schema.Json => {
+const jsonOf = (node: Node): Json => {
 	switch (node.tag) {
 		case "scalar":
 			return scalarJson(node)
@@ -126,7 +129,7 @@ const jsonOf = (node: Node): Schema.Json => {
 	}
 }
 
-const defsOf = (c: BodyCase): Readonly<Record<string, Schema.Json>> =>
+const defsOf = (c: BodyCase): Readonly<Record<string, Json>> =>
 	Record.fromEntries([
 		["Root", jsonOf({ tag: "object", members: c.root, readOnly: false })],
 		...Arr.map(c.defs, ([key, node]) => [key, jsonOf(node)] as const)
@@ -153,7 +156,7 @@ const ruleOf = (
 
 /** What flattenBody answers for a case, notes aside. */
 export type Flattened = Readonly<{
-	constants: ReadonlyArray<Readonly<{ pointer: string; value: Schema.Json }>>
+	constants: ReadonlyArray<Readonly<{ pointer: string; value: Json }>>
 	flags: ReadonlyArray<
 		Readonly<{
 			kind: string
@@ -178,13 +181,10 @@ export const actualOf = (
 			],
 			([name, kind]) => ruleOf(name, kind)
 		)
-		const refusedFields = yield* Effect.forEach(c.refused, (name) =>
-			Schema.decodeEffect(WireName)(name)
-		)
 		return Result.mapBoth(
 			flattenBody(
 				defsOf(c),
-				{ codec: c.codec, schema: { key: "Root" }, encoding, refusedFields },
+				{ codec: c.codec, schema: { key: "Root" }, encoding, refusedFields: c.refused },
 				c.line
 			),
 			{
@@ -318,10 +318,7 @@ const classify = (ctx: Context, node: Node, at: string): Classified => {
 	}
 }
 
-const jsonEquivalence = Schema.toEquivalence(Schema.Json)
-
-const sameSchema = (left: Node, right: Node): boolean =>
-	jsonEquivalence(jsonOf(left), jsonOf(right))
+const sameSchema = (left: Node, right: Node): boolean => deepEquals(jsonOf(left), jsonOf(right))
 
 /** S30-31: on 3.0 a member whose schema, or its one `$ref`'s target, is read-only gets nothing. */
 const readOnlyOf = (ctx: Context, node: Node): boolean =>
@@ -333,7 +330,7 @@ const readOnlyOf = (ctx: Context, node: Node): boolean =>
 		: node.tag !== "allOf" && node.readOnly
 
 /** The one value a required member's schema admits: its `const`, through a reference too. */
-const oneValueOf = (ctx: Context, node: Node): Option.Option<Schema.Json> =>
+const oneValueOf = (ctx: Context, node: Node): Option.Option<Json> =>
 	node.tag === "scalar" && node.constant
 		? Option.some(constantOf(node.type))
 		: node.tag === "ref"
@@ -343,7 +340,7 @@ const oneValueOf = (ctx: Context, node: Node): Option.Option<Schema.Json> =>
 			: Option.none()
 
 type Walked = Readonly<{
-	constants: ReadonlyArray<Readonly<{ pointer: string; value: Schema.Json }>>
+	constants: ReadonlyArray<Readonly<{ pointer: string; value: Json }>>
 	flags: ReadonlyArray<
 		Readonly<{
 			kind: string
@@ -639,8 +636,8 @@ const caseGen =
 		const root = s.draw(membersGen(2, defKeys))
 		const topNames = Arr.map(root, (m) => m.name)
 		const drawnCodec = s.draw(codec)
-		const named = Arr.filter(topNames, Str.isNonEmpty)
-		const pick = (): ReadonlyArray<string> =>
+		const named = Arr.filter(topNames, isWireName)
+		const pick = (): ReadonlyArray<WireName> =>
 			Arr.isReadonlyArrayNonEmpty(named) && s.draw(int(0, 2)) === 0 ? [s.draw(element(named))] : []
 		return {
 			codec: drawnCodec,

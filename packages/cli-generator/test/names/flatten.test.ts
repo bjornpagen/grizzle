@@ -82,9 +82,9 @@ export const bodyFlags = property.explore(bodySpace, {
 			why: "A field's wire pointer loses its own name, so every field points at its parent; the property fails (CATCH's evidence, mutant e1bf74d5d7)."
 		},
 		{
-			file: "packages/cli-generator/src/names/flatten.ts",
-			original: "Predicate.isObject(json) && !Arr.isArray(json)",
-			replacement: "false",
+			file: "packages/cli-generator/src/model/json-tree.ts",
+			original: "value is JsonObject => Predicate.isObject(value)",
+			replacement: "value is JsonObject => false",
 			why: "No schema reads as an object, so a body has no field flags at all; the property fails (CATCH's evidence, mutant f1c7d054b9)."
 		},
 		{

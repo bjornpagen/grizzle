@@ -17,8 +17,9 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
 import { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
+import type { Json } from "#model/pointer.ts"
 import { foldKebab, words } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedGroup } from "#names/index.ts"
@@ -72,9 +73,9 @@ const pathOf = (op: OperationSketch): string => `/p${op.slot}`
 
 const homeOf = (op: OperationSketch): string => `/paths/${escape(pathOf(op))}/get`
 
-const origin = (pointer: string): Schema.Json => ({ document, pointer })
+const origin = (pointer: string): Json => ({ document, pointer })
 
-const hintJson = (hint: Hint, pointer: string): Schema.Json =>
+const hintJson = (hint: Hint, pointer: string): Json =>
 	Record.fromEntries([
 		["pointer", pointer],
 		...Option.match(hintGroup(hint), {
@@ -87,9 +88,9 @@ const hintJson = (hint: Hint, pointer: string): Schema.Json =>
 		})
 	])
 
-const namingJson = (op: OperationSketch): Option.Option<Schema.Json> => {
+const namingJson = (op: OperationSketch): Option.Option<Json> => {
 	const home = homeOf(op)
-	const entries: ReadonlyArray<readonly [string, Schema.Json]> = [
+	const entries: ReadonlyArray<readonly [string, Json]> = [
 		...Option.match(op.forge, {
 			onNone: () => [],
 			onSome: (hint) => [["forge", hintJson(hint, home)] as const]
@@ -130,7 +131,7 @@ const namingJson = (op: OperationSketch): Option.Option<Schema.Json> => {
 		: Option.none()
 }
 
-const operationJson = (op: OperationSketch): Schema.Json =>
+const operationJson = (op: OperationSketch): Json =>
 	Record.fromEntries([
 		["deprecated", false],
 		["docs", {}],
@@ -152,8 +153,8 @@ const operationJson = (op: OperationSketch): Schema.Json =>
 		})
 	])
 
-const overrideJson = (op: OperationSketch): Option.Option<Schema.Json> => {
-	const entries: ReadonlyArray<readonly [string, Schema.Json]> = [
+const overrideJson = (op: OperationSketch): Option.Option<Json> => {
+	const entries: ReadonlyArray<readonly [string, Json]> = [
 		...Option.match(op.configGroup, {
 			onNone: () => [],
 			onSome: (group) => [["group", group] as const]
@@ -189,7 +190,7 @@ const overrideJson = (op: OperationSketch): Option.Option<Schema.Json> => {
 		: Option.none()
 }
 
-const configJsonOf = (c: ReadonlyArray<OperationSketch>): Schema.Json => {
+const configJsonOf = (c: ReadonlyArray<OperationSketch>): Json => {
 	const keyed = Arr.flatMap(c, (op) =>
 		Option.match(overrideJson(op), {
 			onNone: () => [],
@@ -286,9 +287,7 @@ export const actualOf = (c: ReadonlyArray<OperationSketch>) =>
 			tags: Arr.map(Arr.dedupe(Arr.flatMap(c, (op) => op.tags)), (name) => ({ name }))
 		})
 		const config = yield* Schema.decodeUnknownEffect(AuthorConfig)(configJsonOf(c))
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
-			"file:///spec/author-config.json"
-		)
+		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
 		const plan = yield* planNames(api, { config, configDocument, strict: false })
 		return answerOf(plan)
 	})

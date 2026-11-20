@@ -27,7 +27,7 @@ import {
 import { emitDomainSchemas } from "#emit/domain.ts"
 import type { Json } from "#model/pointer.ts"
 import { domainIdentifiers } from "#names/domain.ts"
-import { SafeIdentifier } from "#names/fold.ts"
+import { fixedSafeIdentifier } from "#names/fold.ts"
 
 export const FORMAT_OPTIONS: FormatConfig = {
 	jsdoc: { commentLineStrategy: "multiline", lineWrappingStyle: "balance" }
@@ -418,8 +418,8 @@ export const plantedGen: Gen<Planted> = (s) => {
 				roots: [root, "Other", ...Arr.filter(base.roots, (key) => key !== root)],
 				identifiers: new Map([
 					...Arr.fromIterable(identifiers),
-					[root, SafeIdentifier.make("Shared")],
-					["Other", SafeIdentifier.make("Shared")]
+					[root, fixedSafeIdentifier("Shared")],
+					["Other", fixedSafeIdentifier("Shared")]
 				]),
 				fault: "two keys given one name",
 				reason: "identifier-mismatch"
@@ -429,7 +429,7 @@ export const plantedGen: Gen<Planted> = (s) => {
 				roots,
 				identifiers: new Map([
 					...Arr.fromIterable(identifiers),
-					[root, SafeIdentifier.make("Schema")]
+					[root, fixedSafeIdentifier("Schema")]
 				]),
 				fault: "a name Effect exports differently",
 				reason: "identifier-mismatch"

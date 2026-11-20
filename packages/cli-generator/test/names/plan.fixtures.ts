@@ -20,10 +20,11 @@ import {
 import { Array as Arr, Effect, Option, Record, Result, Schema, String as Str } from "effect"
 import { emitDomainSchemas } from "#emit/domain.ts"
 import { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
+import type { Json } from "#model/pointer.ts"
 import { fixedNamespaces, groupModuleNames, rootModuleNames } from "#names/domain.ts"
-import { foldIdentifier, SafeFileSegment, SafeIdentifier } from "#names/fold.ts"
+import { foldIdentifier, isSafeFileSegment, isSafeIdentifier } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand } from "#names/index.ts"
 import { familyOf } from "#names/plan.ts"
@@ -62,7 +63,7 @@ export type PlanCase = Readonly<{
 }>
 
 /** Body schemas: plain objects, ones folding to a tag's namespace or a name a cli module imports, a binary string. */
-const DEFS: Readonly<Record<string, Schema.Json>> = {
+const DEFS: Readonly<Record<string, Json>> = {
 	Users: { properties: { url: { type: "string" }, name: { type: "string" } }, type: "object" },
 	Imports: { properties: { file: { format: "binary", type: "string" } }, type: "object" },
 	Schema: { properties: { f0: { type: "string" } }, type: "object" },
@@ -79,12 +80,12 @@ const DEFS: Readonly<Record<string, Schema.Json>> = {
 	string: { type: "string" }
 }
 
-const origin = (pointer: string): Schema.Json => ({ document, pointer })
+const origin = (pointer: string): Json => ({ document, pointer })
 
 const operationPointer = (op: OperationSketch): string =>
 	`/paths/${escape(op.path)}/${Str.toLowerCase(op.method)}`
 
-const parameterJson = (home: string, parameter: ParameterSketch, index: number): Schema.Json => ({
+const parameterJson = (home: string, parameter: ParameterSketch, index: number): Json => ({
 	deprecated: false,
 	docs: {},
 	location: parameter.location,
@@ -105,7 +106,7 @@ const parameterJson = (home: string, parameter: ParameterSketch, index: number):
 	wireName: parameter.name
 })
 
-const operationJson = (op: OperationSketch): Schema.Json => {
+const operationJson = (op: OperationSketch): Json => {
 	const home = operationPointer(op)
 	return Record.fromEntries([
 		["deprecated", false],
@@ -161,7 +162,7 @@ const operationJson = (op: OperationSketch): Schema.Json => {
 	])
 }
 
-const apiJsonOf = (c: PlanCase): Schema.Json => ({
+const apiJsonOf = (c: PlanCase): Json => ({
 	documents: [document],
 	entry: document,
 	info: {},
@@ -190,7 +191,7 @@ const apiJsonOf = (c: PlanCase): Schema.Json => ({
 	)
 })
 
-const configJsonOf = (c: PlanCase): Schema.Json => ({
+const configJsonOf = (c: PlanCase): Json => ({
 	binName: "example",
 	package: { name: "example-cli", version: "1.0.0" },
 	naming: {
@@ -207,9 +208,7 @@ export const planOf = (c: PlanCase) =>
 	Effect.gen(function* () {
 		const api = yield* Schema.decodeUnknownEffect(Api)(apiJsonOf(c))
 		const config = yield* Schema.decodeUnknownEffect(AuthorConfig)(configJsonOf(c))
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
-			"file:///spec/author-config.json"
-		)
+		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
 		const plan = yield* planNames(api, { config, configDocument, strict: c.strict })
 		const keys = Arr.dedupe(
 			Arr.flatMap(c.operations, (op) =>
@@ -311,7 +310,7 @@ export const brokenLawsOf = (
 			...Arr.map(duplicates(names), (name) => `command name ${name} twice in one module`),
 			...Arr.map(duplicates(identifiers), (id) => `identifier ${id} twice in one module`),
 			...Arr.flatMap(identifiers, (id) => [
-				...(reservedIdentifiers.has(id) || !Schema.is(SafeIdentifier)(id)
+				...(reservedIdentifiers.has(id) || !isSafeIdentifier(id)
 					? [`identifier ${id} is no safe identifier`]
 					: []),
 				...(held(root).has(id) ? [`identifier ${id} is a name the module holds`] : []),
@@ -382,7 +381,7 @@ export const brokenLawsOf = (
 					? [`namespace ${ns} is held`]
 					: []),
 				...(Arr.contains(own, ns) ? [`namespace ${ns} is a domain name its commands import`] : []),
-				...(Schema.is(SafeFileSegment)(g.segment) &&
+				...(isSafeFileSegment(g.segment) &&
 				!Arr.contains(["root", "servers", "security"], g.segment)
 					? []
 					: [`segment ${g.segment} is not one a file may take`]),

@@ -183,9 +183,9 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
 			original:
-				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length === 0) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			replacement:
-				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length !== 0) {\n\t\treturn Result.fail(EmptyFold.make({ input }))\n\t}",
+				"export const foldKebab = (input: string): Result.Result<Folded<string>, EmptyFold> => {\n\tconst parts = words(input)\n\tif (parts.length !== 0) {\n\t\treturn Result.fail(new EmptyFold({ input }))\n\t}",
 			why: "Folding a name refuses every non-empty name, so no operation, parameter or field gets a name; the property fails (CATCH's evidence, mutant 077846b20e)."
 		},
 		{

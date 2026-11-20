@@ -76,9 +76,9 @@ export const namePlan = property.explore(planSpace, {
 		{
 			file: "packages/cli-generator/src/names/index.ts",
 			original:
-				"\t\tconst identifier = used(base.name) ? toIdentifier(suffixed(base.name, clash)) : base.name\n\t\tif (identifier !== base.name) {\n\t\t\tfor (const member of familyOf(identifier)) {",
+				"\t\tconst identifier = used(base.name) ? suffixedIdentifier(base.name, clash) : base.name\n\t\tif (identifier !== base.name) {\n\t\t\tfor (const member of familyOf(identifier)) {",
 			replacement:
-				"\t\tconst identifier = used(base.name) ? toIdentifier(suffixed(base.name, clash)) : base.name\n\t\tif (identifier === base.name) {\n\t\t\tfor (const member of familyOf(identifier)) {",
+				"\t\tconst identifier = used(base.name) ? suffixedIdentifier(base.name, clash) : base.name\n\t\tif (identifier === base.name) {\n\t\t\tfor (const member of familyOf(identifier)) {",
 			why: "A command identifier is suffixed when its fold is free and kept when it is taken, so two commands share an identifier or one is renamed for nothing; the property fails (CATCH's evidence, mutant 557cb2426e)."
 		},
 		{

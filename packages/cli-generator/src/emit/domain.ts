@@ -18,7 +18,7 @@ import { guardTemplateCurly, stringLiteral, lineWidth, keyText, numberText } fro
 import type { EmittedFile } from "#emit/package.ts"
 import { textWidth } from "#emit/printer.ts"
 import type { Json } from "#model/pointer.ts"
-import type { SafeIdentifierValue } from "#names/fold.ts"
+import type { SafeIdentifier } from "#names/fold.ts"
 import { codeGenerationCopy, importSchemas } from "#normalize/schemas.ts"
 
 /**
@@ -1880,7 +1880,7 @@ const rekeyedNode = (node: Json, identifiers: ReadonlyMap<string, string>): Opti
  */
 const rekeyedCopy = (
 	copy: ReadonlyMap<string, Json>,
-	identifiers: ReadonlyMap<string, SafeIdentifierValue>
+	identifiers: ReadonlyMap<string, SafeIdentifier>
 ): Effect.Effect<ReadonlyMap<string, Json>, DomainEmitError> =>
 	Effect.gen(function* rekey() {
 		const names = new Map<string, string>()
@@ -1952,7 +1952,7 @@ const emptyModule = "export {};\n"
 export const emitDomainSchemas = (
 	validation: ReadonlyMap<string, Json>,
 	roots: readonly string[],
-	identifiers: ReadonlyMap<string, SafeIdentifierValue>
+	identifiers: ReadonlyMap<string, SafeIdentifier>
 ): Effect.Effect<EmittedFile, DomainEmitError> =>
 	Effect.gen(function* emit() {
 		const copy = codeGenerationCopy(validation, roots)

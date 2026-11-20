@@ -2,13 +2,13 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Option,
 	Order,
 	Predicate,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
@@ -20,19 +20,16 @@ import type {
 	Parameter,
 	SecurityScheme
 } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 import { escapeToken, formatPointer, parsePointer } from "#model/pointer.ts"
+import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { constantOf } from "#names/constant.ts"
 import { flattenBody } from "#names/flatten.ts"
 import type { BodyFlag, BodyFlagKind, SkippedProperty } from "#names/flatten.ts"
-import type {
-	EmptyFold,
-	FoldNote,
-	Folded,
-	SafeFileSegmentValue,
-	SafeIdentifierValue
-} from "#names/fold.ts"
-import { foldKebab, words } from "#names/fold.ts"
+import type { EmptyFold, FoldNote, Folded, SafeFileSegment, SafeIdentifier } from "#names/fold.ts"
+import { foldKebab, isSafeIdentifier, words } from "#names/fold.ts"
 import { reservedFlagNames } from "#names/reserved.ts"
 import { envName, schemeSlug } from "#runtime-src/runtime/auth.ts"
 import type { MutualTlsScheme, SecurityScheme as RuntimeScheme } from "#runtime-src/runtime/auth.ts"
@@ -41,7 +38,7 @@ import type { MutualTlsScheme, SecurityScheme as RuntimeScheme } from "#runtime-
  * A path parameter as a positional argument; `name` is its metavar.
  */
 export interface PlannedPositional {
-	readonly identifier: SafeIdentifierValue
+	readonly identifier: SafeIdentifier
 	readonly name: string
 	readonly pointer: string
 	readonly wireName: string
@@ -100,7 +97,7 @@ export type FlagSource =
  */
 export interface PlannedFlag {
 	readonly boolean: boolean
-	readonly identifier: SafeIdentifierValue
+	readonly identifier: SafeIdentifier
 	readonly name: string
 	readonly source: FlagSource
 }
@@ -109,23 +106,17 @@ export interface PlannedFlag {
  * Where a command name came from (design 8.1 `commandNames`, D-NAME4). `tag` and `none` name groups
  * only, so a command never carries them.
  */
-export const CommandNameSource = Schema.Literals([
-	"config",
-	"operationId",
-	"route",
-	"x-fern",
-	"x-forge"
-])
+export const commandNameSources = ["config", "operationId", "route", "x-fern", "x-forge"] as const
 
-export type CommandNameSource = typeof CommandNameSource.Type
+export type CommandNameSource = (typeof commandNameSources)[number]
 
 /**
  * Where a command's group name came from (design 8.1 `commandNames`): the first tag, or `none` for
  * a root command. `operationId` and `route` name commands only, so a group never carries them.
  */
-export const GroupNameSource = Schema.Literals(["config", "none", "tag", "x-fern", "x-forge"])
+export const groupNameSources = ["config", "none", "tag", "x-fern", "x-forge"] as const
 
-export type GroupNameSource = typeof GroupNameSource.Type
+export type GroupNameSource = (typeof groupNameSources)[number]
 
 /**
  * The sources of one command's group and command name.
@@ -145,7 +136,7 @@ export interface PlannedCommand {
 	readonly alias?: number
 	readonly configKey: string
 	readonly flags: readonly PlannedFlag[]
-	readonly identifier: SafeIdentifierValue
+	readonly identifier: SafeIdentifier
 	readonly name: string
 	readonly operation: Operation
 	readonly positionals: readonly PlannedPositional[]
@@ -164,9 +155,9 @@ export const rootNamespace = "Root"
 export interface PlannedGroup {
 	readonly commands: readonly PlannedCommand[]
 	readonly name: string
-	readonly namespace: SafeIdentifierValue
+	readonly namespace: SafeIdentifier
 	readonly parent?: string
-	readonly segment: SafeFileSegmentValue
+	readonly segment: SafeFileSegment
 	readonly tag: string
 }
 
@@ -407,17 +398,9 @@ const parameterName = (
  * `#/$defs/<key>`, or the chain returns to a key it has passed, a cycle schema normalization breaks.
  * Earlier stages refuse such inputs, so this is a defect.
  */
-class UnresolvedSchemaRef extends Schema.TaggedError<
-	UnresolvedSchemaRef,
-	{ readonly brand: unique symbol }
->()("UnresolvedSchemaRef", { key: Schema.String }) {}
-
-const decodeTyped = Schema.decodeUnknownOption(
-	Schema.Struct({
-		$ref: Schema.optionalKey(Schema.String),
-		type: Schema.optionalKey(Schema.Json)
-	})
-)
+class UnresolvedSchemaRef extends Data.TaggedError("UnresolvedSchemaRef")<{
+	readonly key: string
+}> {}
 
 /**
  * Whether a stored schema is `type: "boolean"` after its `$ref` chain. Each key is settled once per
@@ -425,7 +408,7 @@ const decodeTyped = Schema.decodeUnknownOption(
  * a cycle, `UnresolvedSchemaRef`, so the chain ends.
  */
 export const isBooleanSchema = (
-	defs: Readonly<Record<string, Schema.Json>>,
+	defs: Readonly<Record<string, Json>>,
 	memo: Map<string, boolean>,
 	key: string
 ): Result.Result<boolean, UnresolvedSchemaRef> => {
@@ -446,14 +429,14 @@ export const isBooleanSchema = (
 		}
 
 		if (Arr.contains(chain, current)) {
-			return Result.fail(UnresolvedSchemaRef.make({ key: current }))
+			return Result.fail(new UnresolvedSchemaRef({ key: current }))
 		}
 
 		chain.push(current)
 
-		const node = Option.flatMap(Record.get(defs, current), decodeTyped)
+		const node = Option.filter(Record.get(defs, current), isObject)
 		if (Option.isNone(node)) {
-			return Result.fail(UnresolvedSchemaRef.make({ key: current }))
+			return Result.fail(new UnresolvedSchemaRef({ key: current }))
 		}
 
 		const { $ref: ref, type } = node.value
@@ -461,9 +444,9 @@ export const isBooleanSchema = (
 			return settle(type === "boolean")
 		}
 
-		const next = defsKeyOf(ref)
+		const next = Predicate.isString(ref) ? defsKeyOf(ref) : undefined
 		if (next === undefined) {
-			return Result.fail(UnresolvedSchemaRef.make({ key: current }))
+			return Result.fail(new UnresolvedSchemaRef({ key: current }))
 		}
 
 		current = next
@@ -581,17 +564,40 @@ export const familyOf = (identifier: string): readonly string[] => [
 	`${Str.toUpperCase(Str.slice(0, 1)(identifier))}${Str.slice(1)(identifier)}Input`
 ]
 
+/** The first `<base><n>` for `n >= 2` that `admit` admits (design D-NAME1: fold plus a numeric suffix). */
+const firstSuffixed = <Name>(
+	base: string,
+	admit: (candidate: string) => Option.Option<Name>
+): Name => {
+	for (let index = 2; ; index += 1) {
+		const admitted = admit(`${base}${index}`)
+		if (Option.isSome(admitted)) {
+			return admitted.value
+		}
+	}
+}
+
 /**
  * The first free `<base><n>` for `n >= 2` (design D-NAME1: fold plus a numeric suffix).
  */
-export const suffixed = (base: string, taken: (candidate: string) => boolean): string => {
-	let index = 2
-	while (taken(`${base}${index}`)) {
-		index += 1
-	}
+export const suffixed = (base: string, taken: (candidate: string) => boolean): string =>
+	firstSuffixed(
+		base,
+		Option.liftPredicate((candidate: string) => !taken(candidate))
+	)
 
-	return `${base}${index}`
-}
+/**
+ * The first free `<base><n>` for `n >= 2` that is a SafeIdentifier (design D-NAME1). A digit after a SafeIdentifier
+ * keeps it identifier-shaped and no reserved word ends in one, so every candidate is one, and the name is the one
+ * `suffixed` gives.
+ */
+export const suffixedIdentifier = (
+	base: SafeIdentifier,
+	taken: (candidate: string) => boolean
+): SafeIdentifier =>
+	firstSuffixed(base, (candidate) =>
+		Option.filter(Option.liftPredicate(candidate, isSafeIdentifier), (free) => !taken(free))
+	)
 
 const byName = Order.mapInput(Order.String, (flag: { readonly name: string }) => flag.name)
 
@@ -768,7 +774,7 @@ export interface DraftContext {
 	readonly booleans: Map<string, boolean>
 	readonly collector: Collector
 	readonly credentialFlags: ReadonlySet<string>
-	readonly defs: Readonly<Record<string, Schema.Json>>
+	readonly defs: Readonly<Record<string, Json>>
 	readonly line: SpecLine
 }
 
@@ -946,28 +952,18 @@ const sameFlag = (left: PlannedBodyFlag, right: PlannedBodyFlag): boolean =>
 const isWholeBody = (kind: BodyKind): boolean =>
 	kind === "body" || kind === "body-file" || kind === "part"
 
-type JsonObject = Readonly<Record<string, Schema.Json>>
-
-const isJsonObject = (json: Schema.Json): json is JsonObject => Predicate.isObject(json)
-
-const isJsonArray = (json: Schema.Json): json is readonly Schema.Json[] => Arr.isArray(json)
-
 /** A JSON object's own member `key`, never one its prototype chain answers. */
-const memberOf = (node: JsonObject, key: string): Option.Option<Schema.Json> =>
-	Record.get(node, key)
+const memberOf = (node: JsonObject, key: string): Option.Option<Json> => Record.get(node, key)
 
 /** The members a composition keyword lists; a keyword of another shape lists none. */
-const branchesOf = (
-	node: JsonObject,
-	keyword: "allOf" | "anyOf" | "oneOf"
-): readonly Schema.Json[] =>
+const branchesOf = (node: JsonObject, keyword: "allOf" | "anyOf" | "oneOf"): readonly Json[] =>
 	Option.match(memberOf(node, keyword), {
 		onNone: () => [],
-		onSome: (value) => (isJsonArray(value) ? value : [])
+		onSome: (value) => (isArray(value) ? value : [])
 	})
 
 /** The store entry a node's `$ref` names: none without a `$ref` into `#/$defs/` or past a missing key. */
-const refTarget = (defs: DraftContext["defs"], node: JsonObject): Option.Option<Schema.Json> =>
+const refTarget = (defs: DraftContext["defs"], node: JsonObject): Option.Option<Json> =>
 	Option.flatMap(memberOf(node, "$ref"), (ref) => {
 		const key = Predicate.isString(ref) ? defsKeyOf(ref) : undefined
 
@@ -980,10 +976,10 @@ const refTarget = (defs: DraftContext["defs"], node: JsonObject): Option.Option<
  */
 const dereference = (
 	defs: DraftContext["defs"],
-	json: Schema.Json,
-	passed: ReadonlySet<Schema.Json>
+	json: Json,
+	passed: ReadonlySet<Json>
 ): Option.Option<JsonObject> => {
-	if (!isJsonObject(json) || passed.has(json)) {
+	if (!isObject(json) || passed.has(json)) {
 		return Option.none()
 	}
 
@@ -1001,10 +997,10 @@ const dereference = (
  */
 const memberSchema = (
 	defs: DraftContext["defs"],
-	json: Option.Option<Schema.Json>,
+	json: Option.Option<Json>,
 	key: string,
-	seen: Set<Schema.Json>
-): Option.Option<Schema.Json> => {
+	seen: Set<Json>
+): Option.Option<Json> => {
 	const node = Option.flatMap(json, (schema) => dereference(defs, schema, new Set()))
 	if (Option.isNone(node) || seen.has(node.value)) {
 		return Option.none()
@@ -1013,7 +1009,7 @@ const memberSchema = (
 	seen.add(node.value)
 
 	const found = Option.flatMap(memberOf(node.value, "properties"), (properties) =>
-		isJsonObject(properties) ? memberOf(properties, key) : Option.none()
+		isObject(properties) ? memberOf(properties, key) : Option.none()
 	)
 	if (Option.isSome(found)) {
 		return found
@@ -1033,7 +1029,7 @@ const memberSchema = (
 const nextNodes = (
 	defs: DraftContext["defs"],
 	node: JsonObject
-): readonly Option.Option<Schema.Json>[] => [
+): readonly Option.Option<Json>[] => [
 	refTarget(defs, node),
 	...Arr.map(
 		[...branchesOf(node, "allOf"), ...branchesOf(node, "anyOf"), ...branchesOf(node, "oneOf")],
@@ -1050,10 +1046,10 @@ const nextNodes = (
  */
 const isPassword = (
 	defs: DraftContext["defs"],
-	json: Option.Option<Schema.Json>,
-	seen: Set<Schema.Json>
+	json: Option.Option<Json>,
+	seen: Set<Json>
 ): boolean => {
-	if (Option.isNone(json) || !isJsonObject(json.value) || seen.has(json.value)) {
+	if (Option.isNone(json) || !isObject(json.value) || seen.has(json.value)) {
 		return false
 	}
 
@@ -1074,10 +1070,10 @@ const isPassword = (
  */
 const hasPasswordItems = (
 	defs: DraftContext["defs"],
-	json: Option.Option<Schema.Json>,
-	seen: Set<Schema.Json>
+	json: Option.Option<Json>,
+	seen: Set<Json>
 ): boolean => {
-	if (Option.isNone(json) || !isJsonObject(json.value) || seen.has(json.value)) {
+	if (Option.isNone(json) || !isObject(json.value) || seen.has(json.value)) {
 		return false
 	}
 

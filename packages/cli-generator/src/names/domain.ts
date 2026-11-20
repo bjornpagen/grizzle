@@ -1,7 +1,7 @@
 import { Array as Arr, Order, Result } from "effect"
-import { SafeIdentifier, foldIdentifier } from "#names/fold.ts"
-import type { SafeIdentifierValue } from "#names/fold.ts"
-import { suffixed } from "#names/plan.ts"
+import { fixedSafeIdentifier, foldIdentifier } from "#names/fold.ts"
+import type { SafeIdentifier } from "#names/fold.ts"
+import { suffixedIdentifier } from "#names/plan.ts"
 
 /**
  * The names a cli module imports by name from packages, as [name, module specifier]: the one list
@@ -79,16 +79,24 @@ export const rootModuleNames: ReadonlySet<string> = new Set([
 export const groupModuleNames: ReadonlySet<string> = new Set(["group"])
 
 /**
- * `domain/schemas.ts` imports `Schema`; a cli module imports the fixed namespaces beside the
+ * The one namespace `domain/schemas.ts` imports, as [name, module path]: the runtime's reader library, whose
+ * combinators its readers are built of. The domain emitter writes the import from it and the names plan reserves it.
+ */
+export const domainNamespace = ["Read", "../runtime/read.ts"] as const
+
+/**
+ * `domain/schemas.ts` imports `domainNamespace`; a cli module imports the fixed namespaces beside the
  * domain names it reads, and `cli/root.ts` also its own names. Keywords, predefined types and
  * globals never get here: the fold suffixes them with `_`.
  */
-const reserved: ReadonlySet<string> = new Set([...fixedNamespaces, ...rootModuleNames])
+const reserved: ReadonlySet<string> = new Set([
+	domainNamespace[0],
+	...fixedNamespaces,
+	...rootModuleNames
+])
 
 /** The base of a key with no letters or digits to fold. */
-const unnamed = "Definition"
-
-const toIdentifier = (name: string): SafeIdentifierValue => SafeIdentifier.make(name)
+const unnamed = fixedSafeIdentifier("Definition")
 
 /**
  * The export name of every schema key in `domain/schemas.ts`, the one owner of those names: the
@@ -98,16 +106,14 @@ const toIdentifier = (name: string): SafeIdentifierValue => SafeIdentifier.make(
  * free numeric suffix from 2. The same keys always give the same names, whatever their input
  * order.
  */
-export const domainIdentifiers = (
-	keys: Iterable<string>
-): ReadonlyMap<string, SafeIdentifierValue> => {
+export const domainIdentifiers = (keys: Iterable<string>): ReadonlyMap<string, SafeIdentifier> => {
 	const assigned = new Set<string>()
 	const taken = (candidate: string): boolean => reserved.has(candidate) || assigned.has(candidate)
-	const identifiers = new Map<string, SafeIdentifierValue>()
+	const identifiers = new Map<string, SafeIdentifier>()
 	for (const key of Arr.sort(Arr.dedupe([...keys]), Order.String)) {
 		const folded = foldIdentifier(key, "pascal")
 		const base = Result.isSuccess(folded) ? folded.success.name : unnamed
-		const identifier = taken(base) ? toIdentifier(suffixed(base, taken)) : toIdentifier(base)
+		const identifier = taken(base) ? suffixedIdentifier(base, taken) : base
 		assigned.add(identifier)
 		identifiers.set(key, identifier)
 	}

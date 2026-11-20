@@ -5,14 +5,19 @@
 
 import { aimed, type Aimed, array, constant, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Option, Order, Result, Schema, String as Str } from "effect"
-import { domainIdentifiers, fixedNamespaces, rootModuleNames } from "#names/domain.ts"
+import { Array as Arr, Option, Order, Result, String as Str } from "effect"
+import {
+	domainIdentifiers,
+	domainNamespace,
+	fixedNamespaces,
+	rootModuleNames
+} from "#names/domain.ts"
 import {
 	foldFileSegment,
 	foldIdentifier,
 	foldKebab,
-	SafeFileSegment,
-	SafeIdentifier
+	isSafeFileSegment,
+	isSafeIdentifier
 } from "#names/fold.ts"
 import { reservedIdentifiers } from "#names/reserved.ts"
 
@@ -208,18 +213,16 @@ const lawsOf = (c: FoldCase, answer: Answer): ReadonlyArray<string> => {
 			})
 		case "camel":
 		case "pascal":
-			return Schema.is(SafeIdentifier)(answer.name)
-				? []
-				: ["an identifier that is no SafeIdentifier"]
+			return isSafeIdentifier(answer.name) ? [] : ["an identifier that is no SafeIdentifier"]
 		case "segment":
-			return Schema.is(SafeFileSegment)(answer.name) ? [] : ["a segment that is no SafeFileSegment"]
+			return isSafeFileSegment(answer.name) ? [] : ["a segment that is no SafeFileSegment"]
 	}
 }
 
 /** The brands' answers for the raw input itself: SafeIdentifier and SafeFileSegment membership. */
 const brandsOf = (c: FoldCase): readonly [identifier: boolean, segment: boolean] => [
-	Schema.is(SafeIdentifier)(inputOf(c)),
-	Schema.is(SafeFileSegment)(inputOf(c))
+	isSafeIdentifier(inputOf(c)),
+	isSafeFileSegment(inputOf(c))
 ]
 
 const identifierPattern = regex("^[A-Za-z_$][A-Za-z0-9_$]*$", "u")
@@ -418,8 +421,15 @@ const pascalOf = (key: string): Option.Option<string> => {
 	return answer.kind === "named" ? Option.some(answer.name) : Option.none()
 }
 
-/** Every name a cli module or `cli/root.ts` holds besides domain names: the emitter's own lists, read as rosters. */
-const HELD: ReadonlySet<string> = new Set([...fixedNamespaces, ...rootModuleNames])
+/**
+ * Every name the domain module, a cli module or `cli/root.ts` holds besides domain names: the emitter's own lists, read
+ * as rosters.
+ */
+const HELD: ReadonlySet<string> = new Set([
+	domainNamespace[0],
+	...fixedNamespaces,
+	...rootModuleNames
+])
 
 /** Schema keys: plain and kebab names, keys folding alike, held names, reserved words, unfoldable keys, an inline pointer. */
 const KEY_WORDS: Arr.NonEmptyReadonlyArray<string> = [
@@ -431,6 +441,7 @@ const KEY_WORDS: Arr.NonEmptyReadonlyArray<string> = [
 	"my-schema",
 	"Avatar",
 	"Schema",
+	"read",
 	"Command",
 	"Option",
 	"Multipart",

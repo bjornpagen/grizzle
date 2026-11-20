@@ -135,7 +135,7 @@ export const bodyConstants = property.explore(runs, {
 		},
 		{
 			file: "packages/cli-generator/src/names/flatten.ts",
-			original: '\tif (Record.has<string, Schema.Json>(json, "const")) {',
+			original: '\tif (Record.has<string, Json>(json, "const")) {',
 			replacement: "\tif (false) {",
 			why: "A `const` member admits no one value, so each becomes a flag of its own that no field run gives, and every body built from field flags is refused; the property fails."
 		}
