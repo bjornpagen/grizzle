@@ -37,8 +37,6 @@ describe("ComponentName", () => {
 	})
 })
 
-describe("expressionsOf", () => {})
-
 describe("pathItems", () => {
 	test("walks the entry paths in order and follows a path-item reference", () => {
 		const resolution = Effect.runSync(

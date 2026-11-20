@@ -5,8 +5,6 @@ import { documentBase, schemaBase } from "#resolve/base-uri.ts"
 
 const retrieval = "file:///spec/openapi.json#/info"
 
-describe("resolveUri", () => {})
-
 describe("retrievalBase", () => {
 	test("normalizes the retrieval URI and strips its fragment", () => {
 		expect(retrievalBase("file:///spec/./a/../openapi.json#/x")).toBe("file:///spec/openapi.json")

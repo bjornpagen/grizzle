@@ -137,8 +137,6 @@ describe("validateDocument", () => {
 	})
 })
 
-describe("declaredOpenapi", () => {})
-
 describe("versionRefusal", () => {
 	const uri = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
 	const refusalOf = (openapi?: string) =>

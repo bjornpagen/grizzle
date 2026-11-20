@@ -314,8 +314,6 @@ describe("overlapping credential forms are scrubbed as one run (recheck N1)", ()
 	})
 })
 
-describe("sanitize", () => {})
-
 describe("renderError", () => {
 	test("an ApiResponseError shows its line, request id and scrubbed body", () => {
 		const text = renderError(
