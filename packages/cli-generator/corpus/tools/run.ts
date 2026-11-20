@@ -39,7 +39,8 @@ import generatorPackage from "#package.json" with { type: "json" }
 import { makeVerdict, printVerdict } from "#report/verdict.ts"
 import type { VerdictValue } from "#report/verdict.ts"
 import { resolve } from "#resolve/index.ts"
-import { Description } from "#runtime-src/runtime/describe.ts"
+import { readDescription } from "#runtime-src/runtime/describe.ts"
+import type { Description } from "#runtime-src/runtime/describe.ts"
 import { lineOf } from "#validate/dispatch.ts"
 
 export type Entry = typeof CorpusEntry.Type
@@ -48,7 +49,7 @@ const decodeDocument = Schema.decodeUnknownEffect(DocumentUri)
 
 export const decodeCorpus = Schema.decodeUnknownEffect(Schema.fromJsonString(Corpus))
 
-const decodeDescription = Schema.decodeUnknownEffect(Schema.fromJsonString(Description))
+const decodeDescription = (text: string) => Effect.fromResult(readDescription(text))
 
 const decodeGeneration = Schema.decodeUnknownEffect(Schema.fromJsonString(Generation))
 
@@ -117,7 +118,7 @@ export class CorpusCoverageGaps extends Schema.TaggedError<
  */
 export interface Built {
 	readonly bin: string
-	readonly commands: (typeof Description.Type)["commands"]
+	readonly commands: Description["commands"]
 	readonly dir: string
 	readonly id: string
 	readonly value: Json

@@ -2,24 +2,37 @@ import {
 	Array as Arr,
 	Console,
 	Context,
+	Data,
 	Effect,
 	Option,
 	Order,
 	Record as Rec,
-	Schema
+	Result
 } from "effect"
 import type { Command } from "effect/cli"
 import { Flag, GlobalFlag } from "effect/cli"
 import { Servers } from "#runtime/base-url.ts"
+import { indentedJsonText, parseJson } from "#runtime/json.ts"
+import type { InvalidJsonText } from "#runtime/json.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
+import { anything, array, literal, member, members, string, struct, union } from "#runtime/read.ts"
+import type { ReadIssues, Reader } from "#runtime/read.ts"
 
-const Location = Schema.Literals(["body", "cookie", "header", "path", "query", "querystring"])
+/**
+ * Where a command's value goes on the wire: a parameter's location, or the request body.
+ */
+export const locations = ["body", "cookie", "header", "path", "query", "querystring"] as const
+
+/**
+ * One of the `locations`.
+ */
+export type Location = (typeof locations)[number]
 
 /**
  * The per-flag binding a generated command declares: where the value goes on the wire.
  */
-export interface ParameterBinding {
-	readonly location: typeof Location.Type
+export type ParameterBinding = {
+	readonly location: Location
 	readonly pointer: string
 	readonly wireName: string
 }
@@ -28,8 +41,8 @@ export interface ParameterBinding {
  * A constant parameter a generated command sends without a flag: where its value goes, its use
  * site, and the value as JSON text.
  */
-export interface ConstantBinding {
-	readonly location: typeof Location.Type
+export type ConstantBinding = {
+	readonly location: Location
 	readonly pointer: string
 	readonly value: string
 	readonly wireName: string
@@ -66,6 +79,46 @@ export class Binding extends Context.Service<Binding, CommandBinding>()(
 ) {}
 
 /**
+ * A bound command's flag as `--describe` lists it: its binding and its name. The document's
+ * records are type aliases, never interfaces, so each is `Schema.Json`, which `indentedJsonText`
+ * writes and an interface's missing index signature would refuse.
+ */
+export type DescribedFlag = ParameterBinding & {
+	readonly name: string
+}
+
+/**
+ * A body property refused at `field` scope, under the request media that holds it.
+ */
+export type RefusedField = {
+	readonly mediaType: string
+	readonly name: string
+}
+
+/**
+ * A bound command as `--describe` lists it, at its path from the root command.
+ */
+export type DescribedCommand = {
+	readonly constants: readonly ConstantBinding[]
+	readonly document: string
+	readonly flags: readonly DescribedFlag[]
+	readonly method: string
+	readonly path: readonly string[]
+	readonly pathTemplate: string
+	readonly pointer: string
+	readonly refusedFields: readonly RefusedField[]
+	readonly requestMedia: readonly string[]
+	readonly responses: readonly string[]
+	readonly security: readonly (readonly string[])[]
+	readonly servers: readonly string[]
+}
+
+/**
+ * The version a `--describe` document states, which only gains fields.
+ */
+const describeVersion = 1
+
+/**
  * The `--describe` document. Fields are alphabetical, and `describeVersion` only gains fields.
  * `requestMedia` and `responses` are the spec's keys as spelled, in order; `security` is the
  * effective requirement's alternatives; `servers` are the effective server URLs (the operation's or
@@ -74,49 +127,115 @@ export class Binding extends Context.Service<Binding, CommandBinding>()(
  * order; it is present on every command, empty when none is refused. `constants` are the parameters
  * the command sends as their one value without a flag, in parameter order, empty when there is none.
  */
-export const Description = Schema.Struct({
-	commands: Schema.Array(
-		Schema.Struct({
-			constants: Schema.Array(
-				Schema.Struct({
-					location: Location,
-					pointer: Schema.String,
-					value: Schema.String,
-					wireName: Schema.String
-				})
-			),
-			document: Schema.String,
-			flags: Schema.Array(
-				Schema.Struct({
-					location: Location,
-					name: Schema.String,
-					pointer: Schema.String,
-					wireName: Schema.String
-				})
-			),
-			method: Schema.String,
-			path: Schema.Array(Schema.String),
-			pathTemplate: Schema.String,
-			pointer: Schema.String,
-			refusedFields: Schema.Array(Schema.Struct({ mediaType: Schema.String, name: Schema.String })),
-			requestMedia: Schema.Array(Schema.String),
-			responses: Schema.Array(Schema.String),
-			security: Schema.Array(Schema.Array(Schema.String)),
-			servers: Schema.Array(Schema.String)
-		})
-	),
-	describeVersion: Schema.Literal(1)
-})
+export type Description = {
+	readonly commands: readonly DescribedCommand[]
+	readonly describeVersion: typeof describeVersion
+}
 
-type Entry = (typeof Description.Type)["commands"][number]
+const locationReader: Reader<Location> = union(Arr.map(locations, literal))
 
-const byName = Order.mapInput(Order.String, (flag: Entry["flags"][number]) => flag.name)
+const constantReader: Reader<ConstantBinding> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				location: member(object, "location", locationReader),
+				pointer: member(object, "pointer", string),
+				value: member(object, "value", string),
+				wireName: member(object, "wireName", string)
+			},
+			anything
+		)
+	)
+
+const flagReader: Reader<DescribedFlag> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				location: member(object, "location", locationReader),
+				name: member(object, "name", string),
+				pointer: member(object, "pointer", string),
+				wireName: member(object, "wireName", string)
+			},
+			anything
+		)
+	)
+
+const refusedFieldReader: Reader<RefusedField> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{ mediaType: member(object, "mediaType", string), name: member(object, "name", string) },
+			anything
+		)
+	)
+
+const commandReader: Reader<DescribedCommand> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				constants: member(object, "constants", array(constantReader)),
+				document: member(object, "document", string),
+				flags: member(object, "flags", array(flagReader)),
+				method: member(object, "method", string),
+				path: member(object, "path", array(string)),
+				pathTemplate: member(object, "pathTemplate", string),
+				pointer: member(object, "pointer", string),
+				refusedFields: member(object, "refusedFields", array(refusedFieldReader)),
+				requestMedia: member(object, "requestMedia", array(string)),
+				responses: member(object, "responses", array(string)),
+				security: member(object, "security", array(array(string))),
+				servers: member(object, "servers", array(string))
+			},
+			anything
+		)
+	)
+
+/**
+ * A parsed JSON value read as a `--describe` document of this runtime's version: its fields
+ * exactly, each read by its type, and a member a later version gains admitted and dropped, as
+ * `describeVersion` only gains fields.
+ */
+const descriptionReader: Reader<Description> = (value) =>
+	Result.flatMap(members(value), (object) =>
+		struct(
+			object,
+			{
+				commands: member(object, "commands", array(commandReader)),
+				describeVersion: member(object, "describeVersion", literal(describeVersion))
+			},
+			anything
+		)
+	)
+
+/**
+ * JSON text that is no `--describe` document of this runtime's: every place it breaks the
+ * document's fields or version.
+ */
+export class UnreadableDescription extends Data.TaggedError("UnreadableDescription")<{
+	readonly issues: ReadIssues
+}> {}
+
+/**
+ * A `--describe` document read back from the text a generated CLI printed, by the module that
+ * writes it, so the format has one owner: the `Description`, or why the text is none.
+ */
+export const readDescription = (
+	text: string
+): Result.Result<Description, InvalidJsonText | UnreadableDescription> =>
+	Result.flatMap(parseJson(text), (value) =>
+		Result.mapError(descriptionReader(value), (issues) => new UnreadableDescription({ issues }))
+	)
+
+const byName = Order.mapInput(Order.String, (flag: DescribedFlag) => flag.name)
 
 /**
  * The refused fields, read from the media declaration's `refused` list: the one the `--body` guard
  * reads.
  */
-const refusedFieldsOf = ({ refused, request }: MediaDeclaration): Entry["refusedFields"] =>
+const refusedFieldsOf = ({ refused, request }: MediaDeclaration): readonly RefusedField[] =>
 	refused === undefined
 		? []
 		: Arr.flatMap(request, (mediaType) =>
@@ -130,8 +249,13 @@ const entryOf = (
 	path: readonly string[],
 	binding: CommandBinding,
 	rootServers: readonly string[]
-): Entry => ({
-	constants: binding.constants ?? [],
+): DescribedCommand => ({
+	constants: Arr.map(binding.constants ?? [], (constant) => ({
+		location: constant.location,
+		pointer: constant.pointer,
+		value: constant.value,
+		wireName: constant.wireName
+	})),
 	document: binding.operation.origin.document,
 	flags: Arr.sort(
 		Arr.map(Rec.toEntries(binding.parameters), ([name, parameter]) => ({
@@ -160,7 +284,7 @@ const walk = (
 	command: Command.Command.Any,
 	path: readonly string[],
 	rootServers: readonly string[]
-): readonly Entry[] => [
+): readonly DescribedCommand[] => [
 	...Option.match(Context.getOption(command.annotations, Binding), {
 		onNone: () => [],
 		onSome: (binding) => [entryOf(path, binding, rootServers)]
@@ -178,9 +302,9 @@ const walk = (
 export const describeTree = (
 	root: Command.Command.Any,
 	rootServers: readonly string[]
-): typeof Description.Type => ({
+): Description => ({
 	commands: walk(root, [], rootServers),
-	describeVersion: 1
+	describeVersion
 })
 
 /**
@@ -196,8 +320,6 @@ const rootServerUrls = Effect.serviceOption(Servers).pipe(
 	)
 )
 
-const encodeDescription = Schema.encodeEffect(Schema.fromJsonString(Description, { space: 2 }))
-
 /**
  * `--describe`: prints the live command tree as one `Description` JSON document and stops.
  */
@@ -209,10 +331,7 @@ export const describeFlag = GlobalFlag.Action({
 	run: (_, { command }) =>
 		rootServerUrls.pipe(
 			Effect.flatMap((rootServers) =>
-				encodeDescription(describeTree(command, rootServers)).pipe(
-					Effect.orDie,
-					Effect.flatMap(Console.log)
-				)
+				Console.log(indentedJsonText(describeTree(command, rootServers)))
 			)
 		)
 })

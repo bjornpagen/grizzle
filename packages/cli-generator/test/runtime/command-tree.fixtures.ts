@@ -647,7 +647,7 @@ const rootUrls = (servers: RootServers): ReadonlyArray<string> => {
 const byFlagName = Order.mapInput(Order.String, (flag: Readonly<{ name: string }>) => flag.name)
 
 /** The document the model expects: every bound command in tree order, its effective servers and its sorted flags. */
-export const expectedDescription = (drawn: Tree): typeof Describe.Description.Type => ({
+export const expectedDescription = (drawn: Tree): Describe.Description => ({
 	commands: Arr.flatMap(walkSketch(drawn.children, []), ([path, node]) =>
 		Option.toArray(
 			Option.map(node.binding, (binding) => ({

@@ -14,7 +14,9 @@ import { WalkElement, walk } from "#corpus/tools/walk.ts"
 import type { WalkError } from "#corpus/tools/walk.ts"
 import { escapeToken } from "#model/pointer.ts"
 import type { Resolution } from "#resolve/index.ts"
-import { Description } from "#runtime-src/runtime/describe.ts"
+import { readDescription } from "#runtime-src/runtime/describe.ts"
+import type { Description, UnreadableDescription } from "#runtime-src/runtime/describe.ts"
+import type { InvalidJsonText } from "#runtime-src/runtime/json.ts"
 
 /**
  * What one coverage check reads: the resolved entry document, the built CLI's `--describe` stdout
@@ -104,7 +106,7 @@ export class CoverageMismatch extends Schema.TaggedError<
 	{ readonly brand: unique symbol }
 >()("CoverageMismatch", Coverage.fields) {}
 
-export type CoverageError = Schema.SchemaError | WalkError
+export type CoverageError = Schema.SchemaError | InvalidJsonText | UnreadableDescription | WalkError
 
 /**
  * Only the fields the join reads. The checker decodes the report itself instead of importing the
@@ -134,7 +136,7 @@ const Report = Schema.Struct({
 	)
 })
 
-const decodeDescription = Schema.decodeUnknownEffect(Schema.fromJsonString(Description))
+const decodeDescription = (text: string) => Effect.fromResult(readDescription(text))
 
 const decodeReport = Schema.decodeUnknownEffect(Schema.fromJsonString(Report))
 
@@ -287,7 +289,7 @@ const fieldName = (mediaType: string, name: string): string => `${mediaType}\u00
 /** An operation-scope refusal's name, as the report spells it: the request method token and path. */
 const operationName = (method: string, path: string): string => `${method}\u0000${path}`
 
-type Command = (typeof Description.Type)["commands"][number]
+type Command = Description["commands"][number]
 
 type Operation = Extract<WalkElement, { readonly kind: "operation" }>
 

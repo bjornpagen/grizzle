@@ -12,6 +12,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import { readDescription } from "#runtime-src/runtime/describe.ts"
 import {
 	actualBuilt,
 	decodeDescription,
@@ -106,8 +107,8 @@ export const groupSelection = property.explore(
 )
 
 /**
- * `--describe` prints exactly the model's document for the drawn tree, decoded by its own codec, with alphabetical
- * fields. It replaces 11 example cases (describe.test.ts); its budget is that count, 11 drawn trees, and up to 18 steered
+ * `--describe` prints exactly the model's document for the drawn tree, with alphabetical fields, and its own reader
+ * (readDescription) reads the printed text back as that document. It replaces 11 example cases (describe.test.ts); its budget is that count, 11 drawn trees, and up to 18 steered
  * while a situation is unreached.
  */
 export const describeDocument = property.explore(
@@ -135,8 +136,10 @@ export const describeDocument = property.explore(
 				assert.equal(lines.length, 1)
 				const text = lines[0] ?? ""
 				const decoded = yield* decodeDescription(text)
+				const readBack = yield* Effect.fromResult(readDescription(text))
 				const alphabetical = yield* fieldsAlphabetical(text)
 				assert.deepEqual(decoded, expectedDescription(drawn))
+				assert.deepEqual(readBack, expectedDescription(drawn))
 				assert.equal(alphabetical, true)
 			}),
 		oracle: {
@@ -160,10 +163,15 @@ export const describeDocument = property.explore(
 			},
 			{
 				file: "packages/cli-generator/src/runtime-src/runtime/describe.ts",
-				original:
-					"\t\t\t\tencodeDescription(describeTree(command, rootServers)).pipe(\n\t\t\t\t\tEffect.orDie,\n\t\t\t\t\tEffect.flatMap(Console.log)\n\t\t\t\t)",
+				original: "\t\t\t\tConsole.log(indentedJsonText(describeTree(command, rootServers)))",
 				replacement: "\t\t\t\tEffect.void",
 				why: "`--describe` prints nothing; the property fails (CATCH's evidence, mutant 91989cc73f)."
+			},
+			{
+				file: "packages/cli-generator/src/runtime-src/runtime/describe.ts",
+				original: 'servers: member(object, "servers", array(string))',
+				replacement: 'servers: member(object, "requestMedia", array(string))',
+				why: "The reader takes a command's request media for its servers, so a document read back names media types where its server URLs were; the property fails."
 			}
 		]
 	}

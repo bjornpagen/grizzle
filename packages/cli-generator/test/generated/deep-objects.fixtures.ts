@@ -27,7 +27,7 @@ import {
 	Schema,
 	String as Str
 } from "effect"
-import { Description } from "#runtime-src/runtime/describe.ts"
+import { readDescription } from "#runtime-src/runtime/describe.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -1101,7 +1101,7 @@ export const refusedNamesOf = (help: string): ReadonlyArray<string> =>
 		}
 	)
 
-export const decodeDescription = Schema.decodeEffect(Schema.fromJsonString(Description))
+export const decodeDescription = (text: string) => Effect.fromResult(readDescription(text))
 
 export const utf8 = (bytes: Uint8Array): string => Buffer.from(bytes).toString("utf8")
 
