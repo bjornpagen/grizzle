@@ -66,6 +66,9 @@ import {
 	numericTypmodOf,
 	type PlainType,
 	isFloat,
+	type PatternLanguage,
+	type RegexCheck,
+	type RegexRef,
 	regexRefOf,
 	rosterOf,
 	type ScalarType,
@@ -422,6 +425,67 @@ export type TextAnalysis =
 
 /** The compile's text analysis. */
 type Analyzed = Extract<TextAnalysis, { readonly kind: "analyzed" }>
+
+/**
+ * A language a mapping of a text's values gives (Typing collapseType, translatedType): its patterns, each the first
+ * source of a pattern's image the text analysis admits, and their language as the analysis proves it.
+ */
+interface DerivedLanguage {
+	readonly patterns: Patterns
+	readonly language: PatternLanguage
+}
+
+/** A mapping of a text's values whose image a derived language holds: collapse, or a character map's (CharMap). */
+type Derivation = "collapse" | CharMap
+
+/**
+ * The one place typing state attaches to a text's own language, by its enforcement (ir/scalar.ts RegexRef `check`),
+ * the value the text analysis proved of its patterns, which every type of the language holds however often a type of it
+ * is made (a schema's every compile makes its fields' types again, each reading its descriptor's language): the
+ * language of each mapping of its values (Derivation), analyzed where a typing first meets it and read from it after.
+ * The text analysis is one function (text/refinement.ts textLookup), so every typing of a collapse or an image over a
+ * text of the language reads one analysis of its derived patterns, where each typed them again, a minimal automaton
+ * each. A WeakMap holds nothing alive and is never enumerated: it is the language's state.
+ */
+const derivedLanguages = new WeakMap<RegexCheck, Map<Derivation, DerivedLanguage>>()
+
+/**
+ * The derived languages of the two texts of no own language (ir/scalar.ts TextInfo): any text, and a pattern's, each a
+ * value of this module's, so its state is too.
+ */
+const constantLanguages: {
+	readonly [T in Exclude<TextInfo, RegexRef>]: Map<Derivation, DerivedLanguage>
+} = { wildcard: new Map(), pattern: new Map() }
+
+/** The derived languages a text's language holds (derivedLanguages, constantLanguages). */
+const derivationsOf = (text: TextInfo): Map<Derivation, DerivedLanguage> => {
+	if (typeof text !== "object") {
+		return constantLanguages[text]
+	}
+	const known = derivedLanguages.get(text.check)
+	if (known !== undefined) {
+		return known
+	}
+	const made = new Map<Derivation, DerivedLanguage>()
+	derivedLanguages.set(text.check, made)
+	return made
+}
+
+/** The language `derive` makes of `text`'s by `derivation`: the one its language holds, made where it is first read. */
+const derivedLanguage = (
+	text: TextInfo,
+	derivation: Derivation,
+	derive: () => DerivedLanguage
+): DerivedLanguage => {
+	const derived = derivationsOf(text)
+	const known = derived.get(derivation)
+	if (known !== undefined) {
+		return known
+	}
+	const made = derive()
+	derived.set(derivation, made)
+	return made
+}
 
 /**
  * What a typing reads besides its description: where it stands for diagnostics, what its leaves, parameters,
@@ -2725,12 +2789,14 @@ class Typing<R extends Refs> {
 	 */
 	translatedType(text: TextInfo, map: CharMap, analysis: Analyzed, at: SourceLoc): ScalarType {
 		const bounds = textInfoBounds(text)
-		return this.textWithin(
-			this.image(text, map, analysis),
+		return this.textOfLanguage(
+			derivedLanguage(text, map, () => {
+				const patterns = this.image(text, map, analysis)
+				return { patterns, language: unwrap(analysis.lookup(patterns)) }
+			}),
 			bounds === undefined
 				? undefined
 				: imageBytes(textPatterns(text), map, bounds, analysis.patterns),
-			analysis.lookup,
 			at
 		)
 	}
@@ -2782,16 +2848,18 @@ class Typing<R extends Refs> {
 	 */
 	collapseType(text: TextInfo, analysis: Analyzed, at: SourceLoc): ScalarType {
 		const bounds = textInfoBounds(text)
-		const images = textPatterns(text).flatMap((pattern): ReadonlyArray<PatternSource> => {
-			const admitted = collapseSources(pattern, bounds?.length, analysis.patterns).find(
-				(c) => analysis.lookup([{ source: c.source, flags: c.flags }]).ok
-			)
-			return admitted === undefined ? [] : [{ source: admitted.source, flags: admitted.flags }]
-		})
-		return this.textWithin(
-			isNonEmpty(images) ? images : [wildcardPattern],
+		return this.textOfLanguage(
+			derivedLanguage(text, "collapse", () => {
+				const images = textPatterns(text).flatMap((pattern): ReadonlyArray<PatternSource> => {
+					const admitted = collapseSources(pattern, bounds?.length, analysis.patterns).find(
+						(c) => analysis.lookup([{ source: c.source, flags: c.flags }]).ok
+					)
+					return admitted === undefined ? [] : [{ source: admitted.source, flags: admitted.flags }]
+				})
+				const patterns: Patterns = isNonEmpty(images) ? images : [wildcardPattern]
+				return { patterns, language: unwrap(analysis.lookup(patterns)) }
+			}),
 			bounds?.bytes,
-			analysis.lookup,
 			at
 		)
 	}
@@ -3548,8 +3616,16 @@ class Typing<R extends Refs> {
 		analyze: TextLookup,
 		at: SourceLoc
 	): ScalarType {
-		const pattern = unwrap(analyze(patterns))
-		const language = octets === undefined ? pattern : languageWithin(pattern, octets)
+		return this.textOfLanguage({ patterns, language: unwrap(analyze(patterns)) }, octets, at)
+	}
+
+	/**
+	 * Text of a language its patterns prove (DerivedLanguage) within `octets` UTF-8 bytes, typed as textWithin types it.
+	 */
+	textOfLanguage(derived: DerivedLanguage, octets: number | undefined, at: SourceLoc): ScalarType {
+		const { patterns } = derived
+		const language =
+			octets === undefined ? derived.language : languageWithin(derived.language, octets)
 		return unwrap(
 			this.env.fieldType({ kind: "text", patterns, bytes: languageOctets(language), language }, at)
 		)
