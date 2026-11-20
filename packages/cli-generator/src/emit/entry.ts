@@ -1,18 +1,19 @@
-import { Effect, Schema } from "effect"
+import { Effect } from "effect"
 import type { EmittedFile } from "#emit/package.ts"
 import {
-	Identifier,
-	MemberName,
-	ModuleSpecifier,
-	Shebang,
 	arr,
 	arrow,
 	bool,
 	call,
-	ident,
+	fixedIdentifier,
+	fixedMemberName,
+	fixedModuleSpecifier,
+	fixedShebang,
+	fn,
 	member,
 	newExpr,
 	obj,
+	path,
 	printModule,
 	str,
 	typeKeyword,
@@ -25,48 +26,32 @@ import type { AuthorConfig } from "#model/author-config.ts"
 import type { SecurityScheme } from "#model/entities.ts"
 import { envPrefixOf } from "#names/plan.ts"
 
-const I = Schema.decodeSync(Identifier)
-
-const M = Schema.decodeSync(MemberName)
-
-const S = Schema.decodeSync(ModuleSpecifier)
-
-// `path("a.b.c")` is the member access `a.b.c`; every caller passes a fixed name.
-const path = (dotted: string): Expr => {
-	const [head = "", ...rest] = dotted.split(".")
-
-	let expr = ident(I(head))
-	for (const name of rest) {
-		expr = member(expr, M(name))
-	}
-
-	return expr
-}
-
-const fn = (callee: string, ...args: readonly Expr[]): Expr => call(path(callee), args)
-
 const named = (from: string, names: readonly string[], typeOnly = false): Import => ({
 	_tag: "Named",
-	from: S(from),
-	names: names.map((name) => I(name)),
+	from: fixedModuleSpecifier(from),
+	names: names.map((name) => fixedIdentifier(name)),
 	typeOnly
 })
 
 const namespace = (from: string, name: string): Import => ({
 	_tag: "Namespace",
-	from: S(from),
-	name: I(name),
+	from: fixedModuleSpecifier(from),
+	name: fixedIdentifier(name),
 	typeOnly: false
 })
 
-const stringParam = (name: string): Param => ({ name: I(name), type: typeKeyword("string") })
+const stringParam = (name: string): Param => ({
+	name: fixedIdentifier(name),
+	type: typeKeyword("string")
+})
 
-const piped = (head: Expr, ...steps: readonly Expr[]): Expr => call(member(head, M("pipe")), steps)
+const piped = (head: Expr, ...steps: readonly Expr[]): Expr =>
+	call(member(head, fixedMemberName("pipe")), steps)
 
 const constant = (name: string, value: Expr, exported = false): Statement => ({
 	_tag: "Const",
 	exported,
-	name: I(name),
+	name: fixedIdentifier(name),
 	value
 })
 
@@ -94,7 +79,10 @@ const mainModule = (config: AuthorConfig): Module => {
 		path("services"),
 		fn("CliOutput.layer", fn("Output.formatter", path("command")))
 	)
-	const args = fn("Stdio.Stdio.use", arrow([{ name: I("stdio") }], path("stdio.args")))
+	const args = fn(
+		"Stdio.Stdio.use",
+		arrow([{ name: fixedIdentifier("stdio") }], path("stdio.args"))
+	)
 	return {
 		imports: [
 			named("effect", ["Effect", "Layer", "Stdio"]),
@@ -105,13 +93,13 @@ const mainModule = (config: AuthorConfig): Module => {
 		statements: [
 			constant(
 				"run",
-				call(member(args, M("pipe")), [
+				call(member(args, fixedMemberName("pipe")), [
 					fn("Effect.flatMap", path("root")),
 					fn(
 						"Effect.flatMap",
 						arrow(
-							[{ name: I("command") }],
-							call(member(runRoot, M("pipe")), [fn("Effect.provide", layers)])
+							[{ name: fixedIdentifier("command") }],
+							call(member(runRoot, fixedMemberName("pipe")), [fn("Effect.provide", layers)])
 						)
 					),
 					path("Output.exitForHelp"),
@@ -142,7 +130,7 @@ const clientCertificateStatements = (): readonly Statement[] => {
 	const unreadable = arrow(
 		[
 			{
-				name: I("parts"),
+				name: fixedIdentifier("parts"),
 				type: typeReadonlyArray(typeKeyword("string"))
 			}
 		],
@@ -160,7 +148,7 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		path("Stream.mkString")
 	)
 	const regularOnly = arrow(
-		[{ name: I("info") }],
+		[{ name: fixedIdentifier("info") }],
 		piped(
 			fn("Match.value", path("info")),
 			fn("Match.when", obj([["type", str("File")]]), arrow([], whole)),
@@ -172,7 +160,7 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		fn(
 			"FileSystem.FileSystem.use",
 			arrow(
-				[{ name: I("fs") }],
+				[{ name: fixedIdentifier("fs") }],
 				piped(
 					fn("Effect.mapError", fn("fs.stat", path("path")), cannotRead),
 					fn("Effect.flatMap", regularOnly)
@@ -188,7 +176,10 @@ const clientCertificateStatements = (): readonly Statement[] => {
 				fn(
 					"Option.map",
 					path("configured.ca"),
-					arrow([{ name: I("ca") }], fn("certificateFile", path("scheme.caEnv"), path("ca")))
+					arrow(
+						[{ name: fixedIdentifier("ca") }],
+						fn("certificateFile", path("scheme.caEnv"), path("ca"))
+					)
 				)
 			)
 		],
@@ -200,18 +191,23 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		["key", path("files.key")]
 	]
 	const init = arrow(
-		[{ name: I("files") }],
+		[{ name: fixedIdentifier("files") }],
 		fn(
 			"Option.match",
 			path("files.ca"),
 			obj([
 				["onNone", arrow([], obj(pair))],
-				["onSome", arrow([{ name: I("ca") }], obj([["ca", path("ca")], ...pair]))]
+				["onSome", arrow([{ name: fixedIdentifier("ca") }], obj([["ca", path("ca")], ...pair]))]
 			])
 		)
 	)
 	const certificateInit = arrow(
-		[{ name: I("scheme"), type: typeRef(I("Auth"), [M("MutualTlsScheme")]) }],
+		[
+			{
+				name: fixedIdentifier("scheme"),
+				type: typeRef(fixedIdentifier("Auth"), [fixedMemberName("MutualTlsScheme")])
+			}
+		],
 		piped(
 			fn("Auth.clientCertificatePaths", path("scheme")),
 			fn(
@@ -221,13 +217,13 @@ const clientCertificateStatements = (): readonly Statement[] => {
 			fn(
 				"Effect.flatMap",
 				arrow(
-					[{ name: I("paths") }],
+					[{ name: fixedIdentifier("paths") }],
 					fn(
 						"Effect.transposeOption",
 						fn(
 							"Option.map",
 							path("paths"),
-							arrow([{ name: I("configured") }], fn("Effect.all", files))
+							arrow([{ name: fixedIdentifier("configured") }], fn("Effect.all", files))
 						)
 					)
 				)
@@ -236,7 +232,7 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		)
 	)
 	const perScheme = arrow(
-		[{ name: I("scheme") }],
+		[{ name: fixedIdentifier("scheme") }],
 		piped(
 			fn("Match.value", path("scheme")),
 			fn("Match.when", obj([["kind", str("mutualTLS")]]), path("certificateInit")),
@@ -252,19 +248,19 @@ const clientCertificateStatements = (): readonly Statement[] => {
 		fn(
 			"Effect.map",
 			path("certificateInits"),
-			arrow([{ name: I("all") }], fn("Option.firstSomeOf", path("all")))
+			arrow([{ name: fixedIdentifier("all") }], fn("Option.firstSomeOf", path("all")))
 		),
 		fn(
 			"Effect.flatMap",
 			arrow(
-				[{ name: I("tls") }],
+				[{ name: fixedIdentifier("tls") }],
 				fn(
 					"Effect.transposeOption",
 					fn(
 						"Option.map",
 						path("tls"),
 						arrow(
-							[{ name: I("connect") }],
+							[{ name: fixedIdentifier("connect") }],
 							fn(
 								"pathClients",
 								obj([["connect", path("connect")]]),
@@ -309,15 +305,23 @@ const clientCertificateStatements = (): readonly Statement[] => {
 const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 	const pool = (constructor: string) =>
 		arrow(
-			[{ name: I("options"), type: typeRef(I(constructor), [M("Options")]) }],
+			[
+				{
+					name: fixedIdentifier("options"),
+					type: typeRef(fixedIdentifier(constructor), [fixedMemberName("Options")])
+				}
+			],
 			fn(
 				"Effect.acquireRelease",
 				fn("Effect.sync", arrow([], newExpr(path(constructor), [path("options")]))),
-				arrow([{ name: I("pool") }], fn("Effect.promise", arrow([], fn("pool.close"))))
+				arrow(
+					[{ name: fixedIdentifier("pool") }],
+					fn("Effect.promise", arrow([], fn("pool.close")))
+				)
 			)
 		)
 	const clientOver = arrow(
-		[{ name: I("dispatcher"), type: typeName(I("Dispatcher")) }],
+		[{ name: fixedIdentifier("dispatcher"), type: typeName(fixedIdentifier("Dispatcher")) }],
 		fn(
 			"Effect.provideService",
 			path("NodeHttpClient.makeUndici"),
@@ -327,10 +331,13 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 	)
 	const pathClients = arrow(
 		[
-			{ name: I("directOptions"), type: typeRef(I("Agent"), [M("Options")]) },
 			{
-				name: I("environmentOptions"),
-				type: typeRef(I("EnvHttpProxyAgent"), [M("Options")])
+				name: fixedIdentifier("directOptions"),
+				type: typeRef(fixedIdentifier("Agent"), [fixedMemberName("Options")])
+			},
+			{
+				name: fixedIdentifier("environmentOptions"),
+				type: typeRef(fixedIdentifier("EnvHttpProxyAgent"), [fixedMemberName("Options")])
 			}
 		],
 		fn(
@@ -415,7 +422,7 @@ const binModule = (config: AuthorConfig, mutualTls: boolean): Module => {
 			namespace("./runtime/output.ts", "Output"),
 			namespace("./runtime/redact.ts", "Redact")
 		],
-		shebang: Schema.decodeSync(Shebang)("/usr/bin/env node"),
+		shebang: fixedShebang("/usr/bin/env node"),
 		statements: [
 			constant("direct", pool("Agent")),
 			constant("environment", pool("EnvHttpProxyAgent")),

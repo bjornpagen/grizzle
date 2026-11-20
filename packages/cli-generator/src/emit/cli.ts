@@ -9,9 +9,9 @@ import {
 	Predicate,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
+import type { Schema } from "effect"
 import {
 	buildsParameter,
 	encodesByKey,
@@ -27,25 +27,37 @@ import { operationHelp } from "#emit/help.ts"
 import type { HelpBodyField, HelpFlag, HelpPartOption } from "#emit/help.ts"
 import type { EmittedFile } from "#emit/package.ts"
 import {
-	Identifier,
-	MemberName,
-	ModuleSpecifier,
 	arr,
 	arrow,
 	bool,
 	call,
 	dynamicImport,
+	fixedIdentifier,
+	fixedMemberName,
+	fn,
 	ident,
+	isIdentifier,
+	isMemberName,
+	isModuleSpecifier,
 	member,
 	newExpr,
 	num,
 	obj,
+	path,
 	printModule,
 	str,
 	typeKeyword,
 	typeReadonlyArray
 } from "#emit/printer.ts"
-import type { Expr, Import, PrinterError, Statement } from "#emit/printer.ts"
+import type {
+	Expr,
+	Identifier,
+	Import,
+	MemberName,
+	ModuleSpecifier,
+	PrinterError,
+	Statement
+} from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import { stripUnsafeText } from "#model/brands.ts"
 import type { Api, MediaAlternative, Operation, Parameter } from "#model/entities.ts"
@@ -146,38 +158,22 @@ type Entry = readonly [string, Expr]
 const refuse = (reason: CliEmitError["reason"], subject: string) =>
 	new CliEmitError({ reason, subject })
 
-const identifier = (name: string) =>
-	Schema.decodeEffect(Identifier)(name).pipe(
-		Effect.mapError(() => refuse("unprintable-name", name))
-	)
+const identifier = (name: string): Effect.Effect<Identifier, CliEmitError> =>
+	isIdentifier(name) ? Effect.succeed(name) : Effect.fail(refuse("unprintable-name", name))
 
-const memberName = (name: string) =>
-	Schema.decodeEffect(MemberName)(name).pipe(
-		Effect.mapError(() => refuse("unprintable-name", name))
-	)
+const memberName = (name: string): Effect.Effect<MemberName, CliEmitError> =>
+	isMemberName(name) ? Effect.succeed(name) : Effect.fail(refuse("unprintable-name", name))
 
-const specifier = (value: string, reason: CliEmitError["reason"]) =>
-	Schema.decodeEffect(ModuleSpecifier)(value).pipe(Effect.mapError(() => refuse(reason, value)))
-
-/** A fixed binding name the emitter writes, made as the printer makes its own (`regExpName`). */
-const I = (name: string): typeof Identifier.Type => Identifier.make(name)
-
-/** A fixed member name the emitter writes. */
-const M = (name: string): typeof MemberName.Type => MemberName.make(name)
-
-/** `path("a.b.c")` is the member access `a.b.c`; every caller passes a fixed name. */
-const path = (dotted: string): Expr => {
-	const [head, ...rest] = Str.split(dotted, ".")
-
-	return Arr.reduce(rest, ident(I(head)), (expr, name) => member(expr, M(name)))
-}
-
-const fn = (dotted: string, ...args: readonly Expr[]): Expr => call(path(dotted), args)
+const specifier = (
+	value: string,
+	reason: CliEmitError["reason"]
+): Effect.Effect<ModuleSpecifier, CliEmitError> =>
+	isModuleSpecifier(value) ? Effect.succeed(value) : Effect.fail(refuse(reason, value))
 
 const pipe = (head: Expr, args: readonly Expr[]): Expr =>
-	args.length === 0 ? head : call(member(head, M("pipe")), args)
+	args.length === 0 ? head : call(member(head, fixedMemberName("pipe")), args)
 
-const flags = ident(I("flags"))
+const flags = path("flags")
 
 /**
  * Segments of the modules every package has (`api/servers.ts`, `api/security.ts`, `api/root.ts`
@@ -682,7 +678,7 @@ const positionalEntry = (
  */
 const asJsonNumber = fn(
 	"Flag.map",
-	arrow([{ name: I("text") }], newExpr(path("Input.JsonNumber"), [ident(I("text"))]))
+	arrow([{ name: fixedIdentifier("text") }], newExpr(path("Input.JsonNumber"), [path("text")]))
 )
 
 /** A body field flag's constructor and the steps before its presence wrapper. */
@@ -1143,11 +1139,11 @@ const alternativeBody = (
 						"Option.map",
 						value,
 						arrow(
-							[{ name: I("path") }],
+							[{ name: fixedIdentifier("path") }],
 							newExpr(path("Input.SecretField"), [
 								obj([
 									["flag", str(flag.name)],
-									["path", ident(I("path"))]
+									["path", path("path")]
 								])
 							])
 						)
@@ -1172,12 +1168,12 @@ const alternativeBody = (
 					"Option.map",
 					value,
 					arrow(
-						[{ name: I("path") }],
+						[{ name: fixedIdentifier("path") }],
 						newExpr(path("Input.FileField"), [
 							obj([
 								["encoding", str(encoding)],
 								["flag", str(flag.name)],
-								["path", ident(I("path"))]
+								["path", path("path")]
 							])
 						])
 					)
@@ -1231,21 +1227,21 @@ const flagValues = (flag: PlannedFlag, name: string) =>
 			return fn("Effect.succeed", list)
 		}
 
-		const source = ident(I("source"))
+		const source = path("source")
 		const file = obj([
 			["filename", fn("Multipart.partFilename", source, str(name))],
-			["stream", ident(I("bytes"))]
+			["stream", path("bytes")]
 		])
 
 		return fn(
 			"Effect.forEach",
 			list,
 			arrow(
-				[{ name: I("source") }],
+				[{ name: fixedIdentifier("source") }],
 				fn(
 					"Effect.map",
 					fn("Multipart.fileBody", str(flag.name), source),
-					arrow([{ name: I("bytes") }], file)
+					arrow([{ name: fixedIdentifier("bytes") }], file)
 				)
 			)
 		)
@@ -1456,7 +1452,7 @@ const formBody = (
 			choices.length === 0 ? [] : [fn("Effect.flatMap", fn("Serialize.chooseParts", obj(choices)))]
 
 		return {
-			args: [["body", ident(I("parts"))]],
+			args: [["body", path("parts")]],
 			domain: assertion.domain,
 			head: check ?? values,
 			parameter: "parts",
@@ -1492,13 +1488,16 @@ const positionalBody = (
 			return yield* refuse("unsupported-body", `a --part flag for ${alternative.mediaType}`)
 		}
 
-		const source = ident(I("source"))
+		const source = path("source")
 		const sources = yield* flagValue(flag.value.identifier)
 
 		return fn(
 			"Effect.forEach",
 			sources,
-			arrow([{ name: I("source") }], fn("Multipart.fileBody", str(flag.value.name), source))
+			arrow(
+				[{ name: fixedIdentifier("source") }],
+				fn("Multipart.fileBody", str(flag.value.name), source)
+			)
 		)
 	})
 
@@ -1579,7 +1578,7 @@ const bodyPlan = (
 
 		if (!choosesType && isPositionalBody(first)) {
 			return Option.some({
-				args: [["body", ident(I("parts"))]],
+				args: [["body", path("parts")]],
 				domain: [],
 				head: yield* positionalBody(command, first, context),
 				parameter: "parts",
@@ -1598,7 +1597,7 @@ const bodyPlan = (
 			const parameter = isLoaded(first) ? "loaded" : "merged"
 
 			return Option.some({
-				args: [["body", ident(I(parameter))]],
+				args: [["body", ident(fixedIdentifier(parameter))]],
 				domain: single.domain,
 				head: single.value,
 				parameter,
@@ -1626,11 +1625,11 @@ const bodyPlan = (
 			}
 		}
 
-		const selected = ident(I("selected"))
+		const selected = path("selected")
 		const options: Entry[] = [
 			["alternatives", obj(alternatives)],
 			["chosen", path("flags.contentType")],
-			["media", member(meta, M("media"))]
+			["media", member(meta, fixedMemberName("media"))]
 		]
 		if (foreign.length > 0) {
 			options.push(["foreign", obj(foreign)])
@@ -1640,8 +1639,8 @@ const bodyPlan = (
 			args: encodesByKey(body.alternatives)
 				? [["body", selected]]
 				: [
-						["body", member(selected, M("body"))],
-						["contentType", member(selected, M("contentType"))]
+						["body", member(selected, fixedMemberName("body"))],
+						["contentType", member(selected, fixedMemberName("contentType"))]
 					],
 			domain,
 			head: fn("Input.selectBody", obj(options)),
@@ -2097,12 +2096,12 @@ const commandStatement = (
 			onSome: (plan) =>
 				pipe(plan.head, [
 					...plan.steps,
-					fn("Effect.flatMap", arrow([{ name: I(plan.parameter) }], built)),
+					fn("Effect.flatMap", arrow([{ name: fixedIdentifier(plan.parameter) }], built)),
 					send,
 					...stopPoint
 				])
 		})
-		const handler = arrow(config.length === 0 ? [] : [{ name: I("flags") }], handled)
+		const handler = arrow(config.length === 0 ? [] : [{ name: fixedIdentifier("flags") }], handled)
 		const make = fn("Command.make", str(command.name), obj(config), handler)
 		/**
 		 * The run's error format is recorded after parsing and before the handler's first fallible
@@ -2362,7 +2361,9 @@ const groupFile = (
 			Effect.map(identifier(command.identifier), ident)
 		)
 		const nested = yield* Effect.forEach(children, (child) =>
-			Effect.map(identifier(cliAlias(child)), (alias) => member(ident(alias), M("group")))
+			Effect.map(identifier(cliAlias(child)), (alias) =>
+				member(ident(alias), fixedMemberName("group"))
+			)
 		)
 		const subcommands = [...commands, ...nested]
 		const all: Statement[] = [
@@ -2370,7 +2371,7 @@ const groupFile = (
 			{
 				_tag: "Const",
 				exported: true,
-				name: I("group"),
+				name: fixedIdentifier("group"),
 				value: pipe(fn("Command.make", str(headerOf(group).name)), [
 					fn("Command.withSubcommands", arr(subcommands))
 				])
@@ -2418,7 +2419,7 @@ const authorCommands = (config: AuthorConfig) =>
 		}
 
 		const from = yield* commandsModule(declared.module)
-		const names: Array<typeof Identifier.Type> = []
+		const names: Array<Identifier> = []
 		for (const name of declared.names) {
 			const folded = foldIdentifier(name, "camel")
 			if (Result.isFailure(folded)) {
@@ -2493,7 +2494,7 @@ const rootFile = (
 						{
 							_tag: "Const",
 							exported: false,
-							name: I("credentialFiles"),
+							name: fixedIdentifier("credentialFiles"),
 							value: arr(
 								Arr.map(plan.credentials, (credential) =>
 									fn("Auth.credentialFileSetting", str(credential.scheme))
@@ -2526,22 +2527,22 @@ const rootFile = (
 						{
 							_tag: "Const",
 							exported: true,
-							name: I("root"),
+							name: fixedIdentifier("root"),
 							value: arrow([], fn("Effect.succeed", header(arr(others))))
 						}
 					]
 				: [
-						{ _tag: "Const", exported: true, name: I("table"), value: arr(entries) },
+						{ _tag: "Const", exported: true, name: fixedIdentifier("table"), value: arr(entries) },
 						{
 							_tag: "Const",
 							exported: true,
-							name: I("root"),
+							name: fixedIdentifier("root"),
 							value: arrow(
-								[{ name: I("args"), type: typeReadonlyArray(typeKeyword("string")) }],
+								[{ name: fixedIdentifier("args"), type: typeReadonlyArray(typeKeyword("string")) }],
 								fn(
 									"Groups.root",
 									path("table"),
-									arrow([{ name: I("groups") }], header(subcommands)),
+									arrow([{ name: fixedIdentifier("groups") }], header(subcommands)),
 									path("args")
 								)
 							)
@@ -2554,7 +2555,7 @@ const rootFile = (
 			{
 				_tag: "Const",
 				exported: true,
-				name: I("services"),
+				name: fixedIdentifier("services"),
 				value: fn(
 					"Layer.mergeAll",
 					fn("BaseUrl.layer", path("servers"), prefix),

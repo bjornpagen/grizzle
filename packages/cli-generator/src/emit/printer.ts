@@ -2,6 +2,7 @@ import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
+	Brand,
 	Effect,
 	Formatter,
 	Match,
@@ -77,55 +78,58 @@ const reservedWords: ReadonlySet<string> = new Set([
 ])
 
 /**
- * A binding name: identifier-shaped ASCII and not a reserved word.
+ * A binding name: identifier-shaped ASCII and not a reserved word. Minted only here: by `isIdentifier`, which a name
+ * from the plan or the document is read through, and unchecked by `fixedIdentifier` and `path`, whose text is a
+ * literal of the emitter's own source.
  */
-export const Identifier = Schema.String.pipe(
-	Schema.check(
-		Schema.isPattern(identifierPattern),
-		Schema.makeFilter((value: string) => !reservedWords.has(value))
-	),
-	Schema.brand("Identifier")
-)
+export type Identifier = string & Brand.Brand<"Identifier">
 
-type IdentifierType = typeof Identifier.Type
+/** Whether a text is a binding name (`Identifier`): identifier-shaped ASCII and not a reserved word. */
+export const isIdentifier = (value: string): value is Identifier =>
+	identifierPattern.test(value) && !reservedWords.has(value)
 
 /**
- * A property name after `.`: identifier-shaped ASCII, reserved words allowed.
+ * A binding name the emitter writes as a literal of its own source (`flags`, `Serialize`). Unchecked: the literal is
+ * the proof, the repository's own text and never a document's or a plan's.
  */
-export const MemberName = Schema.String.pipe(
-	Schema.check(Schema.isPattern(identifierPattern)),
-	Schema.brand("MemberName")
-)
+export const fixedIdentifier: (text: string) => Identifier = Brand.nominal<Identifier>()
 
-type MemberNameType = typeof MemberName.Type
+/** A property name after `.`: identifier-shaped ASCII, reserved words allowed. Minted as `Identifier` is. */
+export type MemberName = string & Brand.Brand<"MemberName">
+
+/** Whether a text is a property name after `.` (`MemberName`): identifier-shaped ASCII. */
+export const isMemberName = (value: string): value is MemberName => identifierPattern.test(value)
+
+/** A property name the emitter writes as a literal of its own source. Unchecked, as `fixedIdentifier` is. */
+export const fixedMemberName: (text: string) => MemberName = Brand.nominal<MemberName>()
+
+/** A module specifier in an import statement. Minted as `Identifier` is. */
+export type ModuleSpecifier = string & Brand.Brand<"ModuleSpecifier">
+
+const moduleSpecifierPattern = regex("^[A-Za-z0-9@._/-]+$", "u")
+
+/** Whether a text is a module specifier (`ModuleSpecifier`): one or more of `A-Za-z0-9@._/-`. */
+export const isModuleSpecifier = (value: string): value is ModuleSpecifier =>
+	moduleSpecifierPattern.test(value)
+
+/** A module specifier the emitter writes as a literal of its own source. Unchecked, as `fixedIdentifier` is. */
+export const fixedModuleSpecifier: (text: string) => ModuleSpecifier =
+	Brand.nominal<ModuleSpecifier>()
 
 /**
- * A module specifier in an import statement.
+ * The interpreter line of an executable module, after `#!`: an absolute path and its arguments. Minted only by
+ * `fixedShebang`, since the emitter writes one literal line.
  */
-export const ModuleSpecifier = Schema.String.pipe(
-	Schema.check(Schema.isPattern(regex("^[A-Za-z0-9@._/-]+$", "u"))),
-	Schema.brand("ModuleSpecifier")
-)
+export type Shebang = string & Brand.Brand<"Shebang">
 
-type ModuleSpecifierType = typeof ModuleSpecifier.Type
-
-/**
- * The interpreter line of an executable module, after `#!`: an absolute path and its arguments.
- */
-export const Shebang = Schema.String.pipe(
-	Schema.check(Schema.isPattern(regex("^/[!-~]+(?: [!-~]+)*$", "u"))),
-	Schema.brand("Shebang")
-)
-
-type ShebangType = typeof Shebang.Type
-
-type JsDocTextType = typeof JsDocText.Type
+/** An interpreter line the emitter writes as a literal of its own source (`/usr/bin/env node`). Unchecked. */
+export const fixedShebang: (text: string) => Shebang = Brand.nominal<Shebang>()
 
 export type TypeExpr =
 	| {
 			readonly _tag: "TypeRef"
-			readonly head: IdentifierType
-			readonly members: readonly MemberNameType[]
+			readonly head: Identifier
+			readonly members: readonly MemberName[]
 			readonly args: readonly TypeExpr[]
 	  }
 	| {
@@ -137,7 +141,7 @@ export type TypeExpr =
 	| { readonly _tag: "TypeUnion"; readonly members: readonly TypeExpr[] }
 
 export interface Param {
-	readonly name: IdentifierType
+	readonly name: Identifier
 	readonly type?: TypeExpr
 }
 
@@ -146,8 +150,8 @@ export type Expr =
 	| { readonly _tag: "Number"; readonly value: number }
 	| { readonly _tag: "Boolean"; readonly value: boolean }
 	| { readonly _tag: "Undefined" }
-	| { readonly _tag: "Identifier"; readonly name: IdentifierType }
-	| { readonly _tag: "Member"; readonly object: Expr; readonly name: MemberNameType }
+	| { readonly _tag: "Identifier"; readonly name: Identifier }
+	| { readonly _tag: "Member"; readonly object: Expr; readonly name: MemberName }
 	| { readonly _tag: "Object"; readonly entries: readonly (readonly [string, Expr])[] }
 	| { readonly _tag: "Array"; readonly elements: readonly Expr[] }
 	| { readonly _tag: "Call"; readonly callee: Expr; readonly args: readonly Expr[] }
@@ -165,7 +169,7 @@ export type Expr =
 			readonly alternate: Expr
 	  }
 	| { readonly _tag: "Plus"; readonly left: Expr; readonly right: Expr }
-	| { readonly _tag: "DynamicImport"; readonly from: ModuleSpecifierType }
+	| { readonly _tag: "DynamicImport"; readonly from: ModuleSpecifier }
 
 export interface Field {
 	readonly key: string
@@ -177,23 +181,23 @@ export type Statement =
 	| {
 			readonly _tag: "Const"
 			readonly exported: boolean
-			readonly name: IdentifierType
+			readonly name: Identifier
 			readonly type?: TypeExpr
 			readonly value: Expr
 			readonly asConst?: boolean
-			readonly doc?: JsDocTextType
+			readonly doc?: JsDocText
 	  }
 	| {
 			readonly _tag: "Interface"
-			readonly name: IdentifierType
+			readonly name: Identifier
 			readonly fields: readonly Field[]
-			readonly doc?: JsDocTextType
+			readonly doc?: JsDocText
 	  }
 	| {
 			readonly _tag: "TypeAlias"
-			readonly name: IdentifierType
+			readonly name: Identifier
 			readonly type: TypeExpr
-			readonly doc?: JsDocTextType
+			readonly doc?: JsDocText
 	  }
 	| { readonly _tag: "Expression"; readonly value: Expr }
 
@@ -201,18 +205,18 @@ export type Import =
 	| {
 			readonly _tag: "Named"
 			readonly typeOnly: boolean
-			readonly names: readonly IdentifierType[]
-			readonly from: ModuleSpecifierType
+			readonly names: readonly Identifier[]
+			readonly from: ModuleSpecifier
 	  }
 	| {
 			readonly _tag: "Namespace"
 			readonly typeOnly: boolean
-			readonly name: IdentifierType
-			readonly from: ModuleSpecifierType
+			readonly name: Identifier
+			readonly from: ModuleSpecifier
 	  }
 
 export interface Module {
-	readonly shebang?: ShebangType
+	readonly shebang?: Shebang
 	readonly imports: readonly Import[]
 	readonly statements: readonly Statement[]
 }
@@ -248,9 +252,9 @@ export const bool = (value: boolean): Expr => ({ _tag: "Boolean", value })
 
 export const undef: Expr = { _tag: "Undefined" }
 
-export const ident = (name: IdentifierType): Expr => ({ _tag: "Identifier", name })
+export const ident = (name: Identifier): Expr => ({ _tag: "Identifier", name })
 
-export const member = (object: Expr, name: MemberNameType): Expr => ({
+export const member = (object: Expr, name: MemberName): Expr => ({
 	_tag: "Member",
 	name,
 	object
@@ -264,6 +268,21 @@ export const obj = (entries: readonly (readonly [string, Expr])[]): Expr => ({
 export const arr = (elements: readonly Expr[]): Expr => ({ _tag: "Array", elements })
 
 export const call = (callee: Expr, args: readonly Expr[]): Expr => ({ _tag: "Call", args, callee })
+
+/**
+ * `path("a.b.c")`: the member access `a.b.c`, its names literals of the emitter's own source, as fixedIdentifier and
+ * fixedMemberName take them.
+ */
+export const path = (dotted: string): Expr => {
+	const [head, ...rest] = Str.split(dotted, ".")
+
+	return Arr.reduce(rest, ident(fixedIdentifier(head)), (expr, name) =>
+		member(expr, fixedMemberName(name))
+	)
+}
+
+/** `fn("a.b", x)`: a call of the fixed path `a.b` (path) on its arguments. */
+export const fn = (dotted: string, ...args: readonly Expr[]): Expr => call(path(dotted), args)
 
 /**
  * An arrow function without a return type: `(params) => body`.
@@ -291,7 +310,7 @@ export const newExpr = (callee: Expr, args: readonly Expr[]): Expr => ({
 	callee
 })
 
-const regExpName = Identifier.make("RegExp")
+const regExpName = fixedIdentifier("RegExp")
 
 export const regExp = (source: string): Expr => newExpr(ident(regExpName), [str(source), str("u")])
 
@@ -307,27 +326,27 @@ export const plus = (left: Expr, right: Expr): Expr => ({ _tag: "Plus", left, ri
 /**
  * `import("<from>")`: a dynamic import of a module, printed with a literal specifier.
  */
-export const dynamicImport = (from: ModuleSpecifierType): Expr => ({ _tag: "DynamicImport", from })
+export const dynamicImport = (from: ModuleSpecifier): Expr => ({ _tag: "DynamicImport", from })
 
 /**
  * A generic type applied to its arguments: `head`, each member after `.`, then `<args>`.
  */
 export const typeApply = (
-	head: IdentifierType,
-	members: readonly MemberNameType[],
+	head: Identifier,
+	members: readonly MemberName[],
 	args: readonly TypeExpr[]
 ): TypeExpr => ({ _tag: "TypeRef", args, head, members })
 
 /**
  * A type named by a path: `head`, then each member after `.`.
  */
-export const typeRef = (head: IdentifierType, members: readonly MemberNameType[]): TypeExpr =>
+export const typeRef = (head: Identifier, members: readonly MemberName[]): TypeExpr =>
 	typeApply(head, members, [])
 
 /**
  * A type named by one identifier.
  */
-export const typeName = (head: IdentifierType): TypeExpr => typeApply(head, [], [])
+export const typeName = (head: Identifier): TypeExpr => typeApply(head, [], [])
 
 export const typeKeyword = (
 	keyword: Extract<TypeExpr, { readonly _tag: "TypeKeyword" }>["keyword"]
@@ -616,10 +635,10 @@ const flat = (expr: Expr): string | undefined =>
 	Match.valueTags(expr, {
 		Array: (list) =>
 			alwaysBroken(list.elements) ? undefined : flatList(Arr.map(list.elements, flat), "[", "]"),
-		Arrow: (fn) => {
-			const body = flat(fn.body)
+		Arrow: (lambda) => {
+			const body = flat(lambda.body)
 
-			return flatPair(arrowHead(fn), " ", fn.body._tag === "Object" ? `(${body})` : body)
+			return flatPair(arrowHead(lambda), " ", lambda.body._tag === "Object" ? `(${body})` : body)
 		},
 		Boolean: (literal) => String(literal.value),
 		Call: (invocation) => flatPair(flat(invocation.callee), "", flatArgs(invocation.args)),
@@ -702,8 +721,10 @@ const holdsArgument = (expr: Expr): boolean =>
 const firstLine = (expr: Expr): Option.Option<string> =>
 	Match.valueTags(expr, {
 		Array: (list) => (list.elements.length > 0 ? Option.some("[") : Option.none()),
-		Arrow: (fn) =>
-			Option.some(fn.params.length > 0 ? "(" : `${arrowHead(fn)}${headTail(fn) > 0 ? " (" : ""}`),
+		Arrow: (lambda) =>
+			Option.some(
+				lambda.params.length > 0 ? "(" : `${arrowHead(lambda)}${headTail(lambda) > 0 ? " (" : ""}`
+			),
 		Boolean: () => Option.none(),
 		Call: (invocation) => {
 			const { callee } = invocation
@@ -974,7 +995,7 @@ const render: Render = (expr, place) => {
 
 	return Match.valueTags(expr, {
 		Array: (list) => renderArray(list.elements, place.indent, render),
-		Arrow: (fn) => renderArrow(fn, place, render),
+		Arrow: (lambda) => renderArrow(lambda, place, render),
 		Boolean: leaf,
 		Call: (invocation) => {
 			const tail = invocation.args.length === 0 ? place.tail + 2 : 1
@@ -1092,10 +1113,12 @@ const check = (expr: Expr, role: Role): Issue => {
 
 	return Match.valueTags(expr, {
 		Array: (list) => firstIssue(list.elements, asValue),
-		Arrow: (fn) =>
-			fn.body._tag === "Arrow" || fn.body._tag === "Conditional" || fn.body._tag === "Plus"
-				? issue("unsupported-arrow-body", fn.body._tag)
-				: asValue(fn.body),
+		Arrow: (lambda) =>
+			lambda.body._tag === "Arrow" ||
+			lambda.body._tag === "Conditional" ||
+			lambda.body._tag === "Plus"
+				? issue("unsupported-arrow-body", lambda.body._tag)
+				: asValue(lambda.body),
 		Boolean: none,
 		Call: (invocation) =>
 			checkChain(invocation.callee).pipe(
@@ -1143,7 +1166,7 @@ const check = (expr: Expr, role: Role): Issue => {
 	})
 }
 
-const withDoc = (doc: JsDocTextType | undefined, text: string): string =>
+const withDoc = (doc: JsDocText | undefined, text: string): string =>
 	doc === undefined ? text : `${jsDoc(doc)}\n${text}`
 
 /**

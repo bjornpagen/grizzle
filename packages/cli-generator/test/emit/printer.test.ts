@@ -230,8 +230,8 @@ export const refusedConstruct = property.explore(faultyGen, {
 		{
 			file: "packages/cli-generator/src/emit/printer.ts",
 			original:
-				'fn.body._tag === "Arrow" || fn.body._tag === "Conditional" || fn.body._tag === "Plus"',
-			replacement: 'fn.body._tag === "Arrow" || fn.body._tag === "Conditional"',
+				'lambda.body._tag === "Arrow" ||\n\t\t\tlambda.body._tag === "Conditional" ||\n\t\t\tlambda.body._tag === "Plus"',
+			replacement: 'lambda.body._tag === "Arrow" ||\n\t\t\tlambda.body._tag === "Conditional"',
 			why: "An arrow whose body is a `+` is no longer refused as an arrow body needing parentheses; the property fails (CATCH's evidence, mutant 84a8b66720)."
 		}
 	]

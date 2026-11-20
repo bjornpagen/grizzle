@@ -10,17 +10,20 @@ import {
 	Schema
 } from "effect"
 import type { Types } from "effect"
-import { JsDocText } from "#emit/escape.ts"
+import { isJsDocText } from "#emit/escape.ts"
+import type { JsDocText } from "#emit/escape.ts"
 import type { EmittedFile } from "#emit/package.ts"
 import {
-	Identifier,
-	MemberName,
-	ModuleSpecifier,
 	arr,
 	arrow,
 	bool,
 	call,
+	fixedIdentifier,
+	fixedMemberName,
+	fixedModuleSpecifier,
 	ident,
+	isIdentifier,
+	isMemberName,
 	member,
 	num,
 	obj,
@@ -38,7 +41,9 @@ import {
 import type {
 	Expr,
 	Field,
+	Identifier,
 	Import,
+	MemberName,
 	Param,
 	PrinterError,
 	Statement,
@@ -225,30 +230,19 @@ export const scalarTypeOf = (defs: Defs, key: string): Result.Result<string | un
 const refuse = (reason: ApiEmitError["reason"], subject: string) =>
 	new ApiEmitError({ reason, subject })
 
-const identifier = (name: string) =>
-	Schema.decodeUnknownEffect(Identifier)(name).pipe(
-		Effect.mapError(() => refuse("unprintable-name", name))
-	)
+const identifier = (name: string): Effect.Effect<Identifier, ApiEmitError> =>
+	isIdentifier(name) ? Effect.succeed(name) : Effect.fail(refuse("unprintable-name", name))
 
-const memberName = (name: string) =>
-	Schema.decodeUnknownEffect(MemberName)(name).pipe(
-		Effect.mapError(() => refuse("unprintable-name", name))
-	)
+const memberName = (name: string): Effect.Effect<MemberName, ApiEmitError> =>
+	isMemberName(name) ? Effect.succeed(name) : Effect.fail(refuse("unprintable-name", name))
 
-const docText = (text: string) =>
-	Schema.decodeUnknownEffect(JsDocText)(text).pipe(
-		Effect.mapError(() => refuse("unprintable-name", text))
-	)
+const docText = (text: string): Effect.Effect<JsDocText, ApiEmitError> =>
+	isJsDocText(text) ? Effect.succeed(text) : Effect.fail(refuse("unprintable-name", text))
 
-const I = Schema.decodeSync(Identifier)
+const serialize = ident(fixedIdentifier("Serialize"))
 
-const M = Schema.decodeSync(MemberName)
-
-const S = Schema.decodeSync(ModuleSpecifier)
-
-const serialize = ident(I("Serialize"))
-
-const fn = (name: string, args: readonly Expr[]) => call(member(serialize, M(name)), args)
+const fn = (name: string, args: readonly Expr[]) =>
+	call(member(serialize, fixedMemberName(name)), args)
 
 const strings = (values: readonly string[]) => arr(values.map(str))
 
@@ -257,17 +251,22 @@ const optionalOf = (type: TypeExpr) => typeUnion([type, typeKeyword("undefined")
 const groupImports: readonly Import[] = [
 	{
 		_tag: "Named",
-		from: S("../runtime/auth.ts"),
-		names: [I("SecurityRequirement")],
+		from: fixedModuleSpecifier("../runtime/auth.ts"),
+		names: [fixedIdentifier("SecurityRequirement")],
 		typeOnly: true
 	},
 	{
 		_tag: "Named",
-		from: S("../runtime/negotiate.ts"),
-		names: [I("MediaDeclaration")],
+		from: fixedModuleSpecifier("../runtime/negotiate.ts"),
+		names: [fixedIdentifier("MediaDeclaration")],
 		typeOnly: true
 	},
-	{ _tag: "Namespace", from: S("../runtime/serialize.ts"), name: I("Serialize"), typeOnly: false }
+	{
+		_tag: "Namespace",
+		from: fixedModuleSpecifier("../runtime/serialize.ts"),
+		name: fixedIdentifier("Serialize"),
+		typeOnly: false
+	}
 ]
 
 /**
@@ -275,8 +274,8 @@ const groupImports: readonly Import[] = [
  */
 const eventTableImport: Import = {
 	_tag: "Named",
-	from: S("../runtime/sse.ts"),
-	names: [I("EventTable")],
+	from: fixedModuleSpecifier("../runtime/sse.ts"),
+	names: [fixedIdentifier("EventTable")],
 	typeOnly: true
 }
 
@@ -311,7 +310,7 @@ const refusedEntry = (alternatives: readonly MediaAlternative[]): Option.Option<
 }
 
 /** The domain module's namespace in an api module whose event rows check their data against its schemas. */
-const domainNamespace = I("Domain")
+const domainNamespace = fixedIdentifier("Domain")
 
 /**
  * How an event row's data reads, as the runtime's `EventData` holds it: `text` or `json`, or `{ json }` holding the
@@ -329,7 +328,7 @@ const eventDataExpr = (
 
 	return name === undefined
 		? Effect.fail(refuse("unresolved-schema", data.json))
-		: Effect.succeed(obj([["json", member(ident(domainNamespace), M(name))]]))
+		: Effect.succeed(obj([["json", member(ident(domainNamespace), fixedMemberName(name))]]))
 }
 
 /**
@@ -447,7 +446,7 @@ const checksEventData = (operation: Operation): boolean =>
 /** The import of the domain module, as `Domain`, by a module whose event rows check their data. */
 const domainImport: Import = {
 	_tag: "Namespace",
-	from: S("../domain/schemas.ts"),
+	from: fixedModuleSpecifier("../domain/schemas.ts"),
 	name: domainNamespace,
 	typeOnly: false
 }
@@ -629,7 +628,7 @@ const querystringParts = (
 			return yield* refuse("unsupported-parameter", `querystring:${parameter.wireName}`)
 		}
 
-		const json = typeRef(I("Serialize"), [M("Json")])
+		const json = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
 		const field: Field = {
 			key,
 			optional: !parameter.required,
@@ -650,7 +649,7 @@ const querystringParts = (
 			options.push(["properties", arr(properties)])
 		}
 
-		const value = member(ident(I("input")), yield* memberName(key))
+		const value = member(ident(fixedIdentifier("input")), yield* memberName(key))
 
 		return {
 			field: Option.some(field),
@@ -669,13 +668,13 @@ const contentParts = (entry: InputKey): Effect.Effect<ParameterParts, ApiEmitErr
 			return yield* refuse("unsupported-parameter", `${location}:${parameter.wireName}`)
 		}
 
-		const json = typeRef(I("Serialize"), [M("Json")])
+		const json = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
 		const field: Field = {
 			key,
 			optional: !parameter.required,
 			type: parameter.required ? json : optionalOf(json)
 		}
-		const value = member(ident(I("input")), yield* memberName(key))
+		const value = member(ident(fixedIdentifier("input")), yield* memberName(key))
 		const built = fn(writer, [
 			str(parameter.wireName),
 			str(serialization.mediaType),
@@ -734,7 +733,7 @@ const parameterParts = (
 		// Scalar switch).
 		let valueType = typeKeyword(boolean.success ? "boolean" : "string")
 		if (serialization.objectValued || serialization.nonStandardScalars !== undefined) {
-			valueType = typeRef(I("Serialize"), [M("Json")])
+			valueType = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
 		} else if (array.success) {
 			valueType = typeReadonlyArray(typeKeyword("string"))
 		}
@@ -749,7 +748,7 @@ const parameterParts = (
 				})
 		const value = Option.isSome(constant)
 			? constantExpr(constant.value)
-			: member(ident(I("input")), yield* memberName(key))
+			: member(ident(fixedIdentifier("input")), yield* memberName(key))
 		const { allowReserved, explode, style } = serialization
 		const wire = str(parameter.wireName)
 		const required = bool(parameter.required)
@@ -1502,7 +1501,7 @@ interface Encoder {
 
 const bytesEncoder: Encoder = {
 	encode: (value, contentType) => fn("body", [contentType, value]),
-	type: typeRef(I("Serialize"), [M("Body")]),
+	type: typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Body")]),
 	typed: true
 }
 
@@ -1530,7 +1529,7 @@ const mixedEncoder = (
 
 	return Option.some<Encoder>({
 		encode: (value) => fn("mixed", [value, options]),
-		type: typeRef(I("Serialize"), [M("MixedParts")]),
+		type: typeRef(fixedIdentifier("Serialize"), [fixedMemberName("MixedParts")]),
 		typed: false
 	})
 }
@@ -1574,7 +1573,7 @@ const encoderOf = (
 	alternative: MediaAlternative,
 	defs: Defs,
 	formName: string,
-	media: typeof Identifier.Type
+	media: Identifier
 ): Effect.Effect<Option.Option<Encoder>, ApiEmitError> =>
 	Effect.gen(function* encoder() {
 		const required = bool(command.operation.body?.required ?? false)
@@ -1588,14 +1587,14 @@ const encoderOf = (
 			const options = obj([
 				["properties", arr(properties)],
 				...(refusedFieldsOf(alternative).length > 0
-					? ([["refused", member(ident(media), M("refused"))]] as const)
+					? ([["refused", member(ident(media), fixedMemberName("refused"))]] as const)
 					: []),
 				["required", required]
 			])
 
 			return Option.some<Encoder>({
 				encode: (value, contentType) => fn("urlEncoded", [contentType, value, options]),
-				type: optionalOf(typeRef(I("Serialize"), [M("Json")])),
+				type: optionalOf(typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])),
 				typed: true
 			})
 		}
@@ -1654,7 +1653,9 @@ const encoderOf = (
 			keyed.push({
 				key: formKey,
 				optional: true,
-				type: optionalOf(typeApply(I("Serialize"), [M("ChosenPart")], [typeArgument]))
+				type: optionalOf(
+					typeApply(fixedIdentifier("Serialize"), [fixedMemberName("ChosenPart")], [typeArgument])
+				)
 			})
 
 			const slot = yield* memberName(formKey)
@@ -1666,7 +1667,7 @@ const encoderOf = (
 				["parts", arr(sends.map((send) => send(form)))],
 				["required", required]
 			])
-		const fields = typeRef(I("Serialize"), [M("FormFields")])
+		const fields = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("FormFields")])
 		if (keyed.length === 0) {
 			return Option.some<Encoder>({
 				encode: (value) => fn("formData", [value, options(value)]),
@@ -1690,7 +1691,7 @@ const encoderOf = (
 					name
 				}
 			],
-			encode: (value) => fn("formData", [member(value, M("fields")), options(value)]),
+			encode: (value) => fn("formData", [member(value, fixedMemberName("fields")), options(value)]),
 			type: typeName(name),
 			typed: false
 		})
@@ -1704,9 +1705,9 @@ const encoderOf = (
 const chosenParts = (
 	command: PlannedCommand,
 	defs: Defs,
-	name: typeof Identifier.Type,
+	name: Identifier,
 	formName: string,
-	media: typeof Identifier.Type
+	media: Identifier
 ) =>
 	Effect.gen(function* chosen() {
 		const declarations: Statement[] = []
@@ -1723,20 +1724,23 @@ const chosenParts = (
 			const encoder = found.value
 			const { mediaType } = alternative
 			const sent = isRange(mediaType) ? typeKeyword("string") : typeLiteral(mediaType)
-			const params: Param[] = [{ name: I("body"), type: encoder.type }]
+			const params: Param[] = [{ name: fixedIdentifier("body"), type: encoder.type }]
 			if (encoder.typed) {
-				params.push({ name: I("contentType"), type: sent })
+				params.push({ name: fixedIdentifier("contentType"), type: sent })
 			}
 
 			declarations.push(...(encoder.declarations ?? []))
 			fields.push({ key: mediaType, optional: false, type: encoder.type })
 			table.push([
 				mediaType,
-				arrow(params, encoder.encode(ident(I("body")), ident(I("contentType"))))
+				arrow(
+					params,
+					encoder.encode(ident(fixedIdentifier("body")), ident(fixedIdentifier("contentType")))
+				)
 			])
 		}
 
-		const value = member(ident(I("input")), M("body"))
+		const value = member(ident(fixedIdentifier("input")), fixedMemberName("body"))
 
 		return {
 			declarations: [...declarations, { _tag: "Interface", fields, name }],
@@ -1745,7 +1749,11 @@ const chosenParts = (
 				{
 					key: "body",
 					optional: false,
-					type: typeApply(I("Serialize"), [M("Chosen")], [typeName(name)])
+					type: typeApply(
+						fixedIdentifier("Serialize"),
+						[fixedMemberName("Chosen")],
+						[typeName(name)]
+					)
 				}
 			]
 		} satisfies BodyParts
@@ -1760,9 +1768,9 @@ const chosenParts = (
 const bodyParts = (
 	command: PlannedCommand,
 	defs: Defs,
-	bodies: typeof Identifier.Type,
+	bodies: Identifier,
 	formName: string,
-	media: typeof Identifier.Type
+	media: Identifier
 ): Effect.Effect<BodyParts, ApiEmitError> =>
 	Effect.gen(function* parts() {
 		const alternatives = command.operation.body?.alternatives ?? []
@@ -1775,8 +1783,8 @@ const bodyParts = (
 			return yield* chosenParts(command, defs, bodies, formName, media)
 		}
 
-		const input = ident(I("input"))
-		const value = member(input, M("body"))
+		const input = ident(fixedIdentifier("input"))
+		const value = member(input, fixedMemberName("body"))
 		if (alternatives.length === 1 && !isRange(first.mediaType)) {
 			const found = yield* encoderOf(command, first, defs, formName, media)
 			const encoder = Option.getOrElse(found, () => bytesEncoder)
@@ -1799,7 +1807,7 @@ const bodyParts = (
 
 		return {
 			declarations: [],
-			entry: ["body", bytesEncoder.encode(value, member(input, M("contentType")))],
+			entry: ["body", bytesEncoder.encode(value, member(input, fixedMemberName("contentType")))],
 			fields: [{ key: "body", optional: false, type: bytesEncoder.type }, contentType]
 		}
 	})
@@ -1964,9 +1972,9 @@ const commandStatements = (
 		// An operation with no input takes no argument: an empty interface and an unused parameter
 		// fail the package's own lint.
 		const builder = typedArrow(
-			fields.length === 0 ? [] : [{ name: I("input"), type: typeName(inputName) }],
+			fields.length === 0 ? [] : [{ name: fixedIdentifier("input"), type: typeName(inputName) }],
 			fn("request", [str(operation.key.method), obj(parts)]),
-			typeRef(I("Serialize"), [M("Request")])
+			typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Request")])
 		)
 		const refused = refusedEntry(operation.body?.alternatives ?? [])
 		const media = obj([
@@ -2041,14 +2049,14 @@ const commandStatements = (
 				_tag: "Const",
 				exported: false,
 				name: mediaName,
-				type: typeName(I("MediaDeclaration")),
+				type: typeName(fixedIdentifier("MediaDeclaration")),
 				value: media
 			},
 			{
 				_tag: "Const",
 				exported: false,
 				name: securityName,
-				type: typeName(I("SecurityRequirement")),
+				type: typeName(fixedIdentifier("SecurityRequirement")),
 				value: yield* requirementOf(operation, context.schemes)
 			},
 			...(eventTable.length === 0
@@ -2058,7 +2066,7 @@ const commandStatements = (
 							_tag: "Const",
 							exported: false,
 							name: eventsName,
-							type: typeName(I("EventTable")),
+							type: typeName(fixedIdentifier("EventTable")),
 							value: obj(eventTable)
 						} as const
 					]),
@@ -2270,8 +2278,8 @@ const securityFile = (api: Api, plan: NamePlan) =>
 			imports: [
 				{
 					_tag: "Named",
-					from: S("../runtime/auth.ts"),
-					names: [I("SecurityTable")],
+					from: fixedModuleSpecifier("../runtime/auth.ts"),
+					names: [fixedIdentifier("SecurityTable")],
 					typeOnly: true
 				}
 			],
@@ -2279,8 +2287,8 @@ const securityFile = (api: Api, plan: NamePlan) =>
 				{
 					_tag: "Const",
 					exported: true,
-					name: I("security"),
-					type: typeName(I("SecurityTable")),
+					name: fixedIdentifier("security"),
+					type: typeName(fixedIdentifier("SecurityTable")),
 					value: obj([["schemes", obj(schemes)]])
 				}
 			]
@@ -2294,8 +2302,8 @@ const serversFile = (api: Api, bound: ApiEmitInput["boundOrigins"]) =>
 		imports: [
 			{
 				_tag: "Named",
-				from: S("../runtime/base-url.ts"),
-				names: [I("ServersTable")],
+				from: fixedModuleSpecifier("../runtime/base-url.ts"),
+				names: [fixedIdentifier("ServersTable")],
 				typeOnly: true
 			}
 		],
@@ -2303,8 +2311,8 @@ const serversFile = (api: Api, bound: ApiEmitInput["boundOrigins"]) =>
 			{
 				_tag: "Const",
 				exported: true,
-				name: I("servers"),
-				type: typeName(I("ServersTable")),
+				name: fixedIdentifier("servers"),
+				type: typeName(fixedIdentifier("ServersTable")),
 				value: serversTable(api.servers, bound)
 			}
 		]

@@ -1,5 +1,5 @@
 import { regex } from "arkregex"
-import { Array as Arr, Option, Record, Schema, String as Str } from "effect"
+import { Array as Arr, Brand, Option, Record, String as Str } from "effect"
 
 /**
  * The column limit of every printed file.
@@ -94,17 +94,17 @@ const jsDocPattern = regex(
 
 /**
  * Generator-owned JSDoc text from a fixed template (`docs/printer.md` JSDoc). Spec prose never
- * decodes to it.
+ * reads as one. Minted only here, by `isJsDocText`.
  */
-export const JsDocText = Schema.String.pipe(
-	Schema.check(Schema.isPattern(jsDocPattern)),
-	Schema.brand("JsDocText")
-)
+export type JsDocText = string & Brand.Brand<"JsDocText">
+
+/** Whether a text is generator-owned JSDoc text (`JsDocText`): words of `jsDocPattern`'s grammar. */
+export const isJsDocText = (text: string): text is JsDocText => jsDocPattern.test(text)
 
 /**
  * Prints the JSDoc block for a top-level statement: one paragraph, filled greedily to column 100.
  */
-export const jsDoc = (text: typeof JsDocText.Type): string => {
+export const jsDoc = (text: JsDocText): string => {
 	const lines: string[] = []
 	let current = ""
 	for (const word of Str.split(text, " ")) {

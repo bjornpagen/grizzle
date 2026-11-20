@@ -1,5 +1,6 @@
 /** What the properties of printer.test.ts read: its spaces, models and helpers. */
 
+import { assert } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -31,9 +32,9 @@ import {
 	Order,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
+import type { Schema } from "effect"
 import { format } from "oxfmt"
 import type { FormatConfig } from "oxfmt"
 import {
@@ -82,7 +83,8 @@ import {
 	type Statement as TsStatement,
 	type TypeNode
 } from "typescript/ast"
-import { identifierPattern, JsDocText, lineWidth } from "#emit/escape.ts"
+import { identifierPattern, isJsDocText, lineWidth } from "#emit/escape.ts"
+import type { JsDocText } from "#emit/escape.ts"
 import {
 	arr,
 	arrow,
@@ -90,18 +92,18 @@ import {
 	call,
 	conditional,
 	dynamicImport,
+	fixedIdentifier,
+	fixedMemberName,
+	fixedModuleSpecifier,
+	fixedShebang,
 	ident,
-	Identifier,
 	member,
-	MemberName,
-	ModuleSpecifier,
 	newExpr,
 	num,
 	obj,
 	plus,
 	PrinterError,
 	regExp,
-	Shebang,
 	str,
 	textWidth,
 	typeApply,
@@ -114,13 +116,17 @@ import {
 	typeUnion,
 	undef
 } from "#emit/printer.ts"
-import type { Expr, Field, Import, Module, Param, Statement, TypeExpr } from "#emit/printer.ts"
-
-type IdentifierName = typeof Identifier.Type
-
-type MemberNameText = typeof MemberName.Type
-
-type DocText = typeof JsDocText.Type
+import type {
+	Expr,
+	Field,
+	Identifier,
+	Import,
+	MemberName,
+	Module,
+	Param,
+	Statement,
+	TypeExpr
+} from "#emit/printer.ts"
 
 type Keyword = Extract<TypeExpr, { readonly _tag: "TypeKeyword" }>["keyword"]
 
@@ -178,29 +184,25 @@ const longName: Gen<string> = (s) =>
 /** A name of at least 100 columns, which no line holding more than it fits. */
 const overlongName: Gen<string> = (s) => `operation${Str.repeat(s.draw(int(14, 16)))("Segment")}`
 
-const identifierOf = (name: string): IdentifierName => Identifier.make(name)
+const shortName: Gen<Identifier> = map(element(SHORT_NAMES), fixedIdentifier)
 
-const memberNameOf = (name: string): MemberNameText => MemberName.make(name)
-
-const shortName: Gen<IdentifierName> = map(element(SHORT_NAMES), identifierOf)
-
-const anyName: Gen<IdentifierName> = weighted([
+const anyName: Gen<Identifier> = weighted([
 	[4, shortName],
-	[1, map(longName, identifierOf)]
+	[1, map(longName, fixedIdentifier)]
 ])
 
-const capitalized: Gen<IdentifierName> = map(element(CAPITALIZED), identifierOf)
+const capitalized: Gen<Identifier> = map(element(CAPITALIZED), fixedIdentifier)
 
-const shortMemberName: Gen<MemberNameText> = map(element(MEMBER_NAMES), memberNameOf)
+const shortMemberName: Gen<MemberName> = map(element(MEMBER_NAMES), fixedMemberName)
 
-const memberName: Gen<MemberNameText> = weighted([
+const memberName: Gen<MemberName> = weighted([
 	[5, shortMemberName],
-	[1, map(longName, memberNameOf)]
+	[1, map(longName, fixedMemberName)]
 ])
 
 /** A path: an identifier and up to `most` member names after it, each drawn from `names`. */
 const pathOf =
-	(head: Gen<IdentifierName>, most: number, names: Gen<MemberNameText>): Gen<Expr> =>
+	(head: Gen<Identifier>, most: number, names: Gen<MemberName>): Gen<Expr> =>
 	(s) =>
 		Arr.reduce(s.draw(array(names, { min: 0, max: most })), ident(s.draw(head)), (object, name) =>
 			member(object, name)
@@ -371,24 +373,25 @@ const DOC_WORDS: Arr.NonEmptyReadonlyArray<string> = [
 	"Effect"
 ]
 
-const docText: Gen<DocText> = (s) =>
-	JsDocText.make(
-		Arr.join(
-			[
-				s.draw(element(["The", "A", "Builds", "Each"])),
-				...s.draw(
-					array(
-						weighted([
-							[12, element(DOC_WORDS)],
-							[1, (t) => Str.repeat(t.draw(int(1, 4)))("Supercalifragilistic")]
-						]),
-						{ min: 0, max: 40 }
-					)
+const docText: Gen<JsDocText> = (s) => {
+	const text = Arr.join(
+		[
+			s.draw(element(["The", "A", "Builds", "Each"])),
+			...s.draw(
+				array(
+					weighted([
+						[12, element(DOC_WORDS)],
+						[1, (t) => Str.repeat(t.draw(int(1, 4)))("Supercalifragilistic")]
+					]),
+					{ min: 0, max: 40 }
 				)
-			],
-			" "
-		)
+			)
+		],
+		" "
 	)
+	assert.ok(isJsDocText(text), "every word the doc text draws is JSDoc text's")
+	return text
+}
 
 const SPECIFIERS: Arr.NonEmptyReadonlyArray<string> = [
 	"effect",
@@ -401,7 +404,7 @@ const SPECIFIERS: Arr.NonEmptyReadonlyArray<string> = [
 	"../b.ts"
 ]
 
-const specifier = map(element(SPECIFIERS), (from) => ModuleSpecifier.make(from))
+const specifier = map(element(SPECIFIERS), (from) => fixedModuleSpecifier(from))
 
 const importGen: Gen<Import> = oneOf<Import>([
 	(s) => ({
@@ -502,7 +505,7 @@ const arrayGen = (depth: number): Gen<Expr> =>
 
 /** An arrow's parameter, typed by a type that never breaks, as the subset requires of arrow heads. */
 const paramGen =
-	(name: IdentifierName): Gen<Param> =>
+	(name: Identifier): Gen<Param> =>
 	(s) =>
 		Option.match(s.draw(option(narrowType(1))), {
 			onNone: (): Param => ({ name }),
@@ -578,7 +581,7 @@ const present = <K extends string, A>(key: K, value: Option.Option<A>) =>
 
 const constGen: Gen<Statement> = (s) => {
 	const short = s.draw(boolean)
-	const name = short ? s.draw(shortName) : identifierOf(s.draw(longName))
+	const name = short ? s.draw(shortName) : fixedIdentifier(s.draw(longName))
 	const type = s.draw(option(annotationType))
 	const literal = s.draw(boolean)
 	const value = s.draw(literal ? constantValue(2) : exprGen(3, "value"))
@@ -617,7 +620,7 @@ const typeAliasGen: Gen<Statement> = (s) => {
 	const short = s.draw(boolean)
 	return {
 		_tag: "TypeAlias",
-		name: short ? s.draw(shortName) : identifierOf(s.draw(longName)),
+		name: short ? s.draw(shortName) : fixedIdentifier(s.draw(longName)),
 		type: s.draw(
 			short ? oneOf([narrowType(1), smallWideType, longUnion]) : oneOf([narrowType(1), longUnion])
 		),
@@ -643,7 +646,7 @@ const SHEBANGS: Arr.NonEmptyReadonlyArray<string> = [
 const moduleGen: Gen<Module> = (s) => ({
 	imports: s.draw(array(importGen, { min: 0, max: 6 })),
 	statements: s.draw(array(statementGen, { min: 0, max: 5 })),
-	...present("shebang", s.draw(option(map(element(SHEBANGS), (line) => Shebang.make(line)))))
+	...present("shebang", s.draw(option(map(element(SHEBANGS), (line) => fixedShebang(line)))))
 })
 
 /**
@@ -738,7 +741,7 @@ const readType = (node: TypeNode): Read<TypeExpr> => {
 		return Result.gen(function* () {
 			const [head, ...members] = yield* readEntity(node.typeName)
 			const args = yield* readAll(node.typeArguments ?? [], readType)
-			return typeApply(identifierOf(head), Arr.map(members, memberNameOf), args)
+			return typeApply(fixedIdentifier(head), Arr.map(members, fixedMemberName), args)
 		})
 	}
 	if (isLiteralTypeNode(node)) {
@@ -787,7 +790,7 @@ const readParam = (node: Node): Read<Param> => {
 	if (!(isParameterDeclaration(node) && isIdentifier(node.name))) {
 		return unread("parameter", node)
 	}
-	const name = identifierOf(node.name.text)
+	const name = fixedIdentifier(node.name.text)
 	return node.type === undefined
 		? Result.succeed({ name })
 		: Result.map(readType(node.type), (type): Param => ({ name, type }))
@@ -800,7 +803,7 @@ const readCall = (node: Expression): Read<Expr> => {
 	const [only] = node.arguments
 	if (node.expression.kind === SyntaxKind.ImportKeyword) {
 		return only !== undefined && node.arguments.length === 1 && isStringLiteral(only)
-			? Result.succeed(dynamicImport(ModuleSpecifier.make(only.text)))
+			? Result.succeed(dynamicImport(fixedModuleSpecifier(only.text)))
 			: unread("dynamic import", node)
 	}
 	return Result.gen(function* () {
@@ -858,7 +861,7 @@ const readScalar = (node: Expression): Option.Option<Expr> => {
 		return Option.some(bool(node.kind === SyntaxKind.TrueKeyword))
 	}
 	if (isIdentifier(node)) {
-		return Option.some(node.text === "undefined" ? undef : ident(identifierOf(node.text)))
+		return Option.some(node.text === "undefined" ? undef : ident(fixedIdentifier(node.text)))
 	}
 	return Option.map(negated(node), num)
 }
@@ -869,7 +872,7 @@ const readExpr = (node: Expression): Read<Expr> =>
 		onSome: Result.succeed,
 		onNone: (): Read<Expr> => {
 			if (isPropertyAccessExpression(node) && isIdentifier(node.name)) {
-				const name = memberNameOf(node.name.text)
+				const name = fixedMemberName(node.name.text)
 				return Result.map(readExpr(node.expression), (object) => member(object, name))
 			}
 			if (isArrayLiteralExpression(node)) {
@@ -913,9 +916,9 @@ const isExported = (modifiers: ReadonlyArray<Node> | undefined): boolean =>
 const whitespace = regex("\\s+", "u")
 
 /** A statement's JSDoc text, its lines joined by single spaces. */
-const docOf = (node: Node): Option.Option<DocText> =>
-	Option.map(Arr.findLast(node.jsDoc ?? [], isJSDoc), (doc) =>
-		JsDocText.make(
+const docOf = (node: Node): Option.Option<JsDocText> =>
+	Option.flatMap(Arr.findLast(node.jsDoc ?? [], isJSDoc), (doc) =>
+		Option.liftPredicate(isJsDocText)(
 			Arr.join(Str.split(Str.trim(getTextOfJSDocComment(doc.comment) ?? ""), whitespace), " ")
 		)
 	)
@@ -988,7 +991,7 @@ const readConst = (node: TsStatement): Read<Statement> => {
 	) {
 		return unread("const declaration", node)
 	}
-	const name = identifierOf(declaration.name.text)
+	const name = fixedIdentifier(declaration.name.text)
 	const initializer = declaration.initializer
 	const asserted =
 		isAsExpression(initializer) &&
@@ -1016,7 +1019,7 @@ const readConst = (node: TsStatement): Read<Statement> => {
 
 const readStatement = (node: TsStatement): Read<Statement> => {
 	if (isInterfaceDeclaration(node)) {
-		const name = identifierOf(node.name.text)
+		const name = fixedIdentifier(node.name.text)
 		return isExported(node.modifiers) &&
 			node.typeParameters === undefined &&
 			node.heritageClauses === undefined
@@ -1029,7 +1032,7 @@ const readStatement = (node: TsStatement): Read<Statement> => {
 			: unread("interface", node)
 	}
 	if (isTypeAliasDeclaration(node)) {
-		const name = identifierOf(node.name.text)
+		const name = fixedIdentifier(node.name.text)
 		return isExported(node.modifiers) && node.typeParameters === undefined
 			? Result.map(readType(node.type), (type): Statement => ({
 					_tag: "TypeAlias",
@@ -1850,7 +1853,7 @@ const FAULTS: Arr.NonEmptyReadonlyArray<Gen<Planted>> = [
 		)
 	},
 	(s) => {
-		const head = ident(identifierOf(s.draw(element(["flags", "input", "a"]))))
+		const head = ident(fixedIdentifier(s.draw(element(["flags", "input", "a"]))))
 		return planted(
 			"a second call group on a lower-case head",
 			"unsupported-chain",
@@ -1916,7 +1919,7 @@ const FAULTS: Arr.NonEmptyReadonlyArray<Gen<Planted>> = [
 		)
 	},
 	(s) => {
-		const name = identifierOf(s.draw(overlongName))
+		const name = fixedIdentifier(s.draw(overlongName))
 		return planted("a const head past column 100", "unbreakable-line", Option.some(name), {
 			_tag: "Const",
 			exported: s.draw(boolean),
@@ -1934,7 +1937,7 @@ const FAULTS: Arr.NonEmptyReadonlyArray<Gen<Planted>> = [
 		})
 	},
 	(s) => {
-		const name = identifierOf(s.draw(overlongName))
+		const name = fixedIdentifier(s.draw(overlongName))
 		return planted("a type alias past column 100", "unbreakable-line", Option.some(name), {
 			_tag: "TypeAlias",
 			name,
@@ -1944,7 +1947,7 @@ const FAULTS: Arr.NonEmptyReadonlyArray<Gen<Planted>> = [
 	(s) => {
 		const name = s.draw(shortName)
 		const wide = typeApply(
-			identifierOf(s.draw(overlongName)),
+			fixedIdentifier(s.draw(overlongName)),
 			[],
 			s.draw(array(simpleType, { min: 2, max: 2 }))
 		)
