@@ -120,10 +120,51 @@ const truthOf = (e: ScalarExpr): boolean | undefined =>
  */
 class Interned {
 	readonly #byKey = new Map<string, ScalarExpr>()
-	/** Each representative's own fields but its volatility (`fieldsText`). */
+	/** Each representative's own fields but its volatility (`#fieldsText`). */
 	readonly #fieldsOf = new Map<ScalarExpr, string>()
 	readonly #numberOf = new Map<ScalarExpr, number>()
 	readonly #representative = new Map<ScalarExpr, ScalarExpr>()
+
+	/**
+	 * The canonical text of each value an expression's own field holds, by the value: a type, an operator's proof or a
+	 * literal is one frozen value the rewrite's expressions share, so its text is made once a rewrite.
+	 */
+	readonly #texts = new Map<object, string>()
+
+	/** The canonical text of one field's value, an object's made once (`#texts`). */
+	#text(value: unknown): string {
+		if (typeof value !== "object" || value === null) {
+			return canonicalTextOf(value)
+		}
+		const known = this.#texts.get(value)
+		if (known !== undefined) {
+			return known
+		}
+		const text = canonicalTextOf(value)
+		this.#texts.set(value, text)
+		return text
+	}
+
+	/**
+	 * The canonical text of an expression's own fields but its volatility: every one but its arguments, its label and the
+	 * derived ones, each by its name in code-unit order. Its volatility, which builtExpr joins from its own and its
+	 * arguments', stands beside it in its structure.
+	 */
+	#fieldsText(e: ScalarExpr): string {
+		const {
+			args: _args,
+			id: _id,
+			deps: _deps,
+			pgType: _pgType,
+			volatility: _volatility,
+			...own
+		} = e
+		const fields: ReadonlyArray<readonly [string, unknown]> = Object.entries(own)
+		return fields
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.map(([key, value]) => `${key}=${this.#text(value)}`)
+			.join(";")
+	}
 
 	/** The representative of `e`. */
 	of(e: ScalarExpr): ScalarExpr {
@@ -143,7 +184,7 @@ class Interned {
 	#made(e: ScalarExpr): ScalarExpr {
 		const args = e.args.map((a) => this.of(a))
 		const same = args.every((a, i) => a === e.args[i])
-		const fields = fieldsText(e)
+		const fields = this.#fieldsText(e)
 		const key = `${fields};volatility=${e.volatility}(${args.map((a) => this.number(a)).join(",")})`
 		const held = this.#byKey.get(key)
 		if (held !== undefined) {
@@ -183,40 +224,6 @@ class Interned {
 	sameFields(a: ScalarExpr, b: ScalarExpr): boolean {
 		return a.args.length === b.args.length && this.#fieldsOf.get(a) === this.#fieldsOf.get(b)
 	}
-}
-
-/**
- * The canonical text of each value an expression's own field holds, by the value: a type, an operator's proof or a
- * literal is one frozen value many expressions share, so its text is made once (a WeakMap holds nothing alive).
- */
-const valueTexts = new WeakMap<object, string>()
-
-/** The canonical text of one field's value, an object's made once (`valueTexts`). */
-const valueText = (value: unknown): string => {
-	if (typeof value !== "object" || value === null) {
-		return canonicalTextOf(value)
-	}
-	const known = valueTexts.get(value)
-	if (known !== undefined) {
-		return known
-	}
-	const text = canonicalTextOf(value)
-	valueTexts.set(value, text)
-	return text
-}
-
-/**
- * The canonical text of an expression's own fields but its volatility: every one but its arguments, its label and the
- * derived ones, each by its name in code-unit order. Its volatility, which builtExpr joins from its own and its
- * arguments', stands beside it in its structure (Interned).
- */
-const fieldsText = (e: ScalarExpr): string => {
-	const { args: _args, id: _id, deps: _deps, pgType: _pgType, volatility: _volatility, ...own } = e
-	const fields: ReadonlyArray<readonly [string, unknown]> = Object.entries(own)
-	return fields
-		.toSorted(([a], [b]) => compareStrings(a, b))
-		.map(([key, value]) => `${key}=${valueText(value)}`)
-		.join(";")
 }
 
 /** The rewrite of one expression in one scope (sharedExpr). */
