@@ -30,7 +30,13 @@ import { type RegexRef, type ScalarType, textInfoBounds } from "#compiler/ir/sca
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
-import type { Owned, OwnedEntry, OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
+import {
+	type Owned,
+	type OwnedEntry,
+	type OwnedLogin,
+	type OwnedRole,
+	rostersOf
+} from "#compiler/schema/own.ts"
 import {
 	type ImageableColumn,
 	keyedField,
@@ -202,7 +208,7 @@ interface NamesInput {
 		contract: DeclaredName,
 		source: ContractSource
 	) => DomainDigest
-	/** The installation's codes. */
+	/** The installation's codes, every level's rosters', which the names hold of `owned`'s rosters alone (levelCodes). */
 	readonly codes: Codebook
 	/** How the installation spells each pattern a match reads (ir/pattern.ts installedSpellings). */
 	readonly spellings: InstalledSpellings
@@ -513,8 +519,24 @@ function uninstalledFunction(fn: LibraryFn): never {
 	)
 }
 
+/**
+ * The codes the names of `owned` hold (InstallNames codes): the installation's codes `codes`, which hold every level's
+ * rosters, of the rosters `owned` declares, its level's and those below it, in the codebook's order. A level below the
+ * installation's top declares none of the rosters of the levels above it, and its names name no domain of theirs, so
+ * every roster the names hold codes for is one whose domains they name (rosterDomain, bitsDomain), and nothing that
+ * reads a level's names meets a roster above it (README "Levels").
+ */
+const levelCodes = (codes: Codebook, owned: Owned): Codebook => {
+	const declared = new Set(rostersOf(owned).map((r) => r.closed))
+	return Object.freeze({
+		rosters: new Map([...codes.rosters].filter(([roster]) => declared.has(roster))),
+		spellings: codes.spellings
+	})
+}
+
 export const installNames = (input: NamesInput): InstallNames => {
 	const { owned, levels } = input
+	const codes = levelCodes(input.codes, owned)
 	const installation = levels[0]
 	const schema = identifierOf(installation)
 	const types = installationTypes(installation)
@@ -551,7 +573,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 	/** Each roster's bits domain at its width in the codes, minted once as the names are built. */
 	const bits = new Map(
 		Array.from(
-			input.codes.rosters,
+			codes.rosters,
 			([roster, codec]) => [roster, identity.bitsDomain(roster, codec.width)] as const
 		)
 	)
@@ -597,7 +619,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(bitsNamed(roster))
 		}),
-		codes: input.codes,
+		codes,
 		spellings: input.spellings,
 		closed: (relation) =>
 			input.closed.get(relation) ?? missing(`physical: no closed relation ${relation}`),

@@ -135,8 +135,9 @@ export interface PhysicalNames {
 	/** The schema the vector extension lives in (`vector_ext` on the local cluster), the schema of its vector type. */
 	readonly vectorSchema: TypeSchema
 	/**
-	 * The installation's codes (ir/codes.ts): every code literal, set literal and bit(n) width reads them, so the
-	 * schema's artifacts are compiled for the installation that holds them.
+	 * The installation's codes (ir/codes.ts) of the rosters the schema declares, its level's and those below it, each
+	 * one whose domains the names name (physical/ddl/names.ts levelCodes): every code literal, set literal and bit(n)
+	 * width reads them, so the schema's artifacts are compiled for the installation that holds them.
 	 */
 	readonly codes: Codebook
 	/**

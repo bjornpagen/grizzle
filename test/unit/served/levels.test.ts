@@ -1,12 +1,13 @@
 /**
  * A login over any level of an installation compiles as `grizzle generate` compiles it, under the installation's
  * snapshot: every level is served (README "Levels"), and a login over a level below the top reads that level and those
- * below it alone, though the installation's codes hold every level's rosters.
+ * below it alone, though the installation's codes hold every level's rosters, whatever the levels between install.
  *
- * Over installations of three levels (levels.fixtures.ts installationOf): a generated public schema, its law level and a
- * top declaring rosters of its own, a login over each level, one role holding every relation of its levels and writing
- * each it may, compiled under the snapshot of the installation (adapter/served/compile.ts snapshotCompiled, then
- * servedEntryOf): each is served, or refused with a ServedRefusal, never a defect.
+ * Over installations of four levels (levels.fixtures.ts installationOf): a generated public schema, its law level, a
+ * level of derived relations alone that installs no table, and a top declaring rosters of its own, a login over each
+ * level, one role holding every relation of its levels and writing each it may, compiled under the snapshot of the
+ * installation (adapter/served/compile.ts snapshotCompiled, then servedEntryOf): each is served, or refused with a
+ * ServedRefusal, never a defect.
  *
  * Oracle: the specification, README "Levels": a login's compile over a level of the installation ends in a served file
  * or a refusal.
@@ -26,7 +27,7 @@ import {
 } from "#test/unit/served/levels.fixtures.ts"
 
 /**
- * A login over any level of a three-level installation is served or refused, never a defect.
+ * A login over any level of a four-level installation is served or refused, never a defect.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -39,6 +40,7 @@ export const aLoginOverAnyLevelOfAnInstallationCompilesUnderItsSnapshotServedOrR
 			situations: [
 				"a login over the installation's first level",
 				"a login over a level below a level that declares a roster",
+				"a login over a level of derived relations alone, below a level that declares a roster",
 				"a login over the installation's top",
 				"a login's compile served"
 			] satisfies ReadonlyArray<Reached<Feature>>,
@@ -47,20 +49,15 @@ export const aLoginOverAnyLevelOfAnInstallationCompilesUnderItsSnapshotServedOrR
 				([sketch, level, top]) =>
 					Effect.gen(function* () {
 						const installation = installationOf(c.draw(resolveCase(sketch)), level, top)
-						const compiled = yield* compiledOverEachLevel(installation)
-						for (const [i, outcome] of compiled.entries()) {
-							c.note(
-								i === 0
-									? "a login over the installation's first level"
-									: i === 1
-										? "a login over a level below a level that declares a roster"
-										: "a login over the installation's top"
-							)
-							if (outcome.kind === "died") {
-								return assert.fail(`a login over level ${i} died compiling:\n${outcome.cause}`)
+						for (const { at, compiled } of yield* compiledOverEachLevel(installation)) {
+							c.note(at)
+							if (compiled.kind === "died") {
+								return assert.fail(`${at} died compiling:\n${compiled.cause}`)
 							}
 							c.note(
-								outcome.kind === "served" ? "a login's compile served" : "a login's compile refused"
+								compiled.kind === "served"
+									? "a login's compile served"
+									: "a login's compile refused"
 							)
 						}
 					}),
@@ -71,10 +68,10 @@ export const aLoginOverAnyLevelOfAnInstallationCompilesUnderItsSnapshotServedOrR
 			kept: [],
 			kills: [
 				{
-					file: "packages/grizzle/src/adapter/served/refusals.ts",
-					original: "\t\t\trosters: new Set(Arr.map(rostersOf(artifacts.owned), (r) => r.closed))",
-					replacement: "\t\t\trosters: new Set(artifacts.names.codes.rosters.keys())",
-					why: "A login's installation refusals range over every roster of the installation's codes, a level above the login's among them, whose domain the login's level cannot name: the compile dies (\"grizzle: internal error\", alphatest-novus's login over its middle level)."
+					file: "packages/engine/src/physical/ddl/names.ts",
+					original: "\tconst codes = levelCodes(input.codes, owned)",
+					replacement: "\tconst codes = input.codes",
+					why: "A level's names hold the installation's codes whole, a level above the login's rosters among them, whose domains the login's level cannot name, and its installation refusals range over them: the compile dies (\"grizzle: internal error\", alphatest-novus's login over OnerosterSync, below Auth's rosters and its reconciliation's level of derived relations)."
 				}
 			]
 		}
