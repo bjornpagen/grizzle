@@ -74,7 +74,7 @@ const doors: Arr.NonEmptyReadonlyArray<Door> = [
 	{
 		name: "runWrite over runtimeEntry",
 		probe: (source, i) =>
-			`export const run${i} = runWrite(runArgs[0], runArgs[1], runtimeEntry(value(compileParsed(${artifactsOver(source)}, parsedArgs[1], parsedArgs[2], parsedArgs[3], parsedArgs[4])), entryArgs[1], entryArgs[2], entryArgs[3]), runArgs[3], runArgs[4])`
+			`export const run${i} = runWrite(runArgs[0], runArgs[1], runtimeEntry(value(compileParsed(${artifactsOver(source)}, ...parsedRest)), ...entryRest), runArgs[3], runArgs[4])`
 	}
 ]
 
@@ -140,8 +140,9 @@ const boundaryHeader: ReadonlyArray<string> = [
 	"export declare const slice: SliceArtifacts",
 	"export declare const layerSlice: Slice",
 	"export declare const benchCompiled: Compiled",
-	"export declare const parsedArgs: Parameters<typeof compileParsed>",
-	"export declare const entryArgs: Parameters<typeof runtimeEntry>",
+	"type Tail<T extends ReadonlyArray<unknown>> = T extends readonly [unknown, ...infer R] ? R : never",
+	"export declare const parsedRest: Tail<Parameters<typeof compileParsed>>",
+	"export declare const entryRest: Tail<Parameters<typeof runtimeEntry>>",
 	"export declare const runArgs: Parameters<typeof runWrite<unknown>>",
 	"export declare const parts: WriteEntryParts",
 	"export declare const value: <A>(result: { readonly ok: true; readonly value: A } | { readonly ok: false }) => A",
