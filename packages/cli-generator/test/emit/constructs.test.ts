@@ -107,6 +107,12 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 	budget: { runs: 48, steered: 58 },
 	kills: [
 		{
+			file: "packages/cli-generator/src/emit/printer.ts",
+			original: "!reservedWords.has(value)",
+			replacement: "reservedWords.has(value)",
+			why: "Only a reserved word reads as a binding name (printer.ts isIdentifier), so every command, schema and module name the emitters read through it is refused unprintable and no planted construct generates; the property fails (TESTPOLICY2's census mutant 5179ff1319, which cli-package.test.ts#binRun killed only while printer.ts checked its own literal names as it loaded)."
+		},
+		{
 			file: "packages/cli-generator/src/generate.ts",
 			original: "[...planned, ...emitted]",
 			replacement: "[...emitted]",
