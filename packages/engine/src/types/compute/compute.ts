@@ -121,8 +121,8 @@ type SpanEndpoint<E, H, ES extends SqlTag> = [ES] extends [EndpointSql]
 	: false
 
 /**
- * Whether a divisor B is proved nonzero where a quotient over S needs it: a float's never does, since IEEE 754 defines
- * its quotient by zero.
+ * Whether a divisor B is proved nonzero where a quotient over S needs it: a float's never does, since its quotient by
+ * zero is defined.
  */
 type NonzeroDivisor<S extends SqlTag, B> = [S] extends ["real" | "double precision"]
 	? true
@@ -499,7 +499,8 @@ export interface NumApi {
 	>
 	/**
 	 * Integer division truncates over the exact integers; money / money is double precision. The divisor is proved
-	 * nonzero, except a float's, whose quotient by zero IEEE 754 defines (±Infinity, or NaN over zero).
+	 * nonzero, except a float's, whose quotient by zero is the infinity of the dividend's sign, NaN over a zero or NaN
+	 * dividend, whichever zero divides.
 	 */
 	div<A extends TermBase | FirstValue, X, PA, OA, S extends NumericSql, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, S>,

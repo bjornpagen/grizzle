@@ -61,9 +61,15 @@ export type IeeeOp = "add" | "sub" | "mul" | "div" | "sqrt" | "round"
  *   (ir/scalar.ts ExactType), never the overflowing native result, so the overload's catalog result is its PostgreSQL
  *   identity only, and SQL rendering computes it over its operands widened into the exact space
  *   (lower/conservative/expr/total.ts exactForm);
- * - `ieee`: float arithmetic as IEEE 754 defines it: overflow is ±Infinity, underflow the correctly rounded
- *   subnormal or the one zero, x / ±0 is ±Infinity, 0 / 0 and the square root of a negative are NaN, computed by SQL
- *   rendering without letting PostgreSQL raise (lower/conservative/expr/total.ts ieeeForm);
+ * - `ieee`: float arithmetic as IEEE 754 defines it but for a quotient by zero: overflow is ±Infinity, underflow the
+ *   correctly rounded subnormal or the one zero, and the square root of a negative is NaN; a quotient by zero is the
+ *   infinity of the dividend's sign, NaN over a zero or NaN dividend, whichever zero divides, where IEEE 754 gives the
+ *   infinity of the two signs' XOR, so 1 / -0 is Infinity. Equal operands give equal results, as every scalar
+ *   operation's do (check/merge.ts): -0 = 0 under PostgreSQL's equality, a plan may read a divisor from either of two
+ *   equal fields or take either zero where it merges, and the quotient is one value under every plan, where IEEE 754's
+ *   would differ by an infinity's sign, which the canonical zero, erasing only a zero's sign, cannot. It is computed by
+ *   SQL rendering without letting PostgreSQL raise (lower/conservative/expr/total.ts ieeeForm), and on the host by the
+ *   same rule (evaluate.ts quotient);
  * - `requires`: defined where its preconditions hold, which the lowering proves at the node, or refuses the
  *   operation as PartialOperation.
  */

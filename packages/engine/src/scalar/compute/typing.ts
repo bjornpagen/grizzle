@@ -4360,8 +4360,8 @@ class Typing<R extends Refs> {
 	 * +, -, *, / and % over one numeric family: integers and money exactly (exact integers and exact money, bounded by
 	 * their operands' digits), integer division truncating over the exact integers, numeric as PostgreSQL computes it
 	 * within its digit bounds, floats as IEEE 754, which with money a check refuses. A divisor is proved nonzero by its
-	 * facts, except a float's, whose quotient by zero IEEE 754 defines; the caller's divisor is judged, the exact value it
-	 * is widened into keeping its facts (nativeJudged).
+	 * facts, except a float's, whose quotient by zero is defined (registry.ts Totality ieee); the caller's divisor is
+	 * judged, the exact value it is widened into keeping its facts (nativeJudged).
 	 */
 	arithmetic(
 		fn: "add" | "sub" | "mul" | "div" | "mod",
