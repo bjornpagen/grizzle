@@ -1,12 +1,16 @@
 import { Array as Arr, Formatter, pipe, Record as Rec, String as Str } from "effect"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
-import { floatLiteral } from "#compiler/ir/carriers.ts"
+import { floatLiteral, isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { closedId, Decimal, pg } from "#compiler/public/fields.ts"
 import type { AnyRoster } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { type NumericTypmod, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import {
+	integerOfDecimal,
+	type NumericTypmod,
+	normalizeNumeric
+} from "#compiler/scalar/values/decimal.ts"
 import { floatText } from "#compiler/scalar/values/float.ts"
 import type { CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
@@ -92,16 +96,47 @@ const numericKinds: ReadonlySet<TypeKind> = new Set(Rec.keys(numericTypmods))
 export const isNumericKind = (kind: TypeKind): kind is NumericKind => numericKinds.has(kind)
 
 /**
- * The value Type.cast gives a Decimal read into a numeric kind: PostgreSQL's coercion to the kind's numeric(p, s),
- * rounded half away from zero to its scale (scalar/values/decimal.ts normalizeNumeric). A cast reads only values
- * within the kind's range (typmodRange), so a value the coercion refuses is a defect of its caller.
+ * A numeric kind's host value of a Decimal its numeric(p, s) holds: the Decimal itself, but numeric(3, 0)'s bigint, an
+ * integer type's host value (ir/carriers.ts isIntegerTypmod, codec/scalar.ts carrierSpecOf).
  */
-export const castValue = (kind: NumericKind, value: Decimal): Decimal => {
+const numericHost = (kind: NumericKind, value: Decimal): Decimal | bigint => {
+	if (!isIntegerTypmod(numericTypmods[kind])) {
+		return value
+	}
+	const integer = integerOfDecimal(value)
+	if (integer === undefined) {
+		throw new RangeError(`a ${kind} value that is no integer: ${value.toString()}`)
+	}
+	return integer
+}
+
+/** A numeric kind's host value as the Decimal it is (`numericHost`'s inverse): numeric(3, 0)'s bigint as its Decimal. */
+export const numericDecimal = (value: unknown): Decimal => {
+	if (value instanceof Decimal) {
+		return value
+	}
+	if (typeof value !== "bigint") {
+		throw new TypeError(`a numeric value that is no Decimal or bigint: ${String(value)}`)
+	}
+	const made = Decimal.fromBigInt(value)
+	if (!made.ok) {
+		throw new RangeError(`an integer numeric past numeric's format: ${value}`)
+	}
+	return made.value
+}
+
+/**
+ * The value Type.cast gives a Decimal read into a numeric kind, as the kind's field holds it (`numericHost`):
+ * PostgreSQL's coercion to the kind's numeric(p, s), rounded half away from zero to its scale (scalar/values/decimal.ts
+ * normalizeNumeric). A cast reads only values within the kind's range (typmodRange), so a value the coercion refuses is
+ * a defect of its caller.
+ */
+export const castValue = (kind: NumericKind, value: Decimal): Decimal | bigint => {
 	const cast = normalizeNumeric(value, numericTypmods[kind])
 	if (!cast.ok) {
 		throw new RangeError(`a ${kind} cast of ${value.toString()} past its range (${cast.error})`)
 	}
-	return cast.value
+	return numericHost(kind, cast.value)
 }
 
 /**
@@ -148,13 +183,19 @@ const floatParse = (text: string): unknown => {
 	return Number(text)
 }
 
-const numericInfo = (kind: NumericKind, values: ReadonlyArray<string>): TypeInfo => ({
-	kind,
-	spec: { carrier: "numeric", typmod: numericTypmods[kind] },
-	values: Arr.map(values, decimal),
-	keyable: true,
-	parse: (text) => decimal(text)
-})
+/** A numeric kind's info: its spec and values its host value's (`numericHost`), numeric(3, 0)'s an integer's. */
+const numericInfo = (kind: NumericKind, values: ReadonlyArray<string>): TypeInfo => {
+	const typmod = numericTypmods[kind]
+	return {
+		kind,
+		spec: isIntegerTypmod(typmod)
+			? { carrier: "exactInteger", typmod }
+			: { carrier: "numeric", typmod },
+		values: Arr.map(values, (text) => numericHost(kind, decimal(text))),
+		keyable: true,
+		parse: (text) => numericHost(kind, decimal(text))
+	}
+}
 
 export const typeInfo: Readonly<Record<TypeKind, TypeInfo>> = {
 	int4: {
@@ -310,17 +351,15 @@ export const valueIdentity = (kind: TypeKind, value: unknown): string => {
 		case "numeric(5, 2)":
 		case "numeric(12, 4)":
 		case "numeric(3, 0)": {
-			if (!(value instanceof Decimal)) {
-				throw new TypeError(`a numeric value that is no Decimal: ${String(value)}`)
-			}
 			/**
 			 * Fact identity is decided after coercion to the column's numeric(p, s): 1.495 and 1.5 are the stored
-			 * 1.50 of a numeric(5, 2) column, so a fact holding either is the fact holding 1.50.
+			 * 1.50 of a numeric(5, 2) column, so a fact holding either is the fact holding 1.50; numeric(3, 0)'s bigint
+			 * is its integer's Decimal (`numericDecimal`).
 			 */
-			const normalized = normalizeNumeric(value, numericTypmods[kind])
+			const normalized = normalizeNumeric(numericDecimal(value), numericTypmods[kind])
 			if (!normalized.ok) {
 				throw new TypeError(
-					`a numeric value ${kind} refuses: ${value.toString()} (${normalized.error})`
+					`a numeric value ${kind} refuses: ${printValue(value)} (${normalized.error})`
 				)
 			}
 			return normalized.value.text
@@ -362,7 +401,9 @@ export const literalOfKind = (kind: TypeKind, value: unknown): TypedLiteral => {
 		case "numeric(5, 2)":
 		case "numeric(12, 4)":
 		case "numeric(3, 0)":
-			return value instanceof Decimal ? { kind: "numeric", value } : wrong()
+			return value instanceof Decimal || typeof value === "bigint"
+				? { kind: "numeric", value: numericDecimal(value) }
+				: wrong()
 		case "float8":
 			return typeof value === "number" ? floatLiteral(value) : wrong()
 	}

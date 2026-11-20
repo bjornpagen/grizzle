@@ -3,7 +3,6 @@ import { nonEmpty } from "@bjornpagen/testing/assert"
 import { array, boolean, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { keep, type Swarm, swarm as swarmOf, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Order, Record as Rec, Stream } from "effect"
-import { Decimal } from "#compiler/public/fields.ts"
 import { param, query, v } from "#compiler/public/query.ts"
 import type { Fact as RelationFact } from "#compiler/public/schema.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -27,6 +26,7 @@ import {
 import { elementAt, recordEntryOf } from "#test/support/oracle/pick.ts"
 import {
 	castValue,
+	numericDecimal,
 	fitsField,
 	isNumericKind,
 	type NumericKind,
@@ -622,11 +622,8 @@ const headValue = (t: HeadTerm, fact: Fact, params: ParamMap): unknown => {
 		case "var":
 			return fact[t.column]
 		case "cast": {
-			const value = fact[t.column]
+			const value = numericDecimal(fact[t.column])
 			const [low, high] = typmodRange(t.into)
-			if (!(value instanceof Decimal)) {
-				throw new TypeError(`a numeric value that is no Decimal: ${String(value)}`)
-			}
 			return value.compare(low) >= 0 && value.compare(high) <= 0
 				? castValue(t.into, value)
 				: castOtherwise(t.into)
