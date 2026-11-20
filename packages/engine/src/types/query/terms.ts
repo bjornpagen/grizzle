@@ -1,5 +1,5 @@
 import type { Stream } from "effect"
-import type { Column, Decoded } from "#compiler/core/decoder.ts"
+import type { Column, Decoded, FieldHost } from "#compiler/core/decoder.ts"
 import type { built, Domained, Languaged, Phantom } from "#compiler/core/phantom.ts"
 import type { AggregateName } from "#compiler/scalar/aggregate.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
@@ -90,15 +90,39 @@ export interface Producer<out T, in P = unknown, out D = T, out L = T, out O = u
 
 /**
  * A relation-valued parameter: a source whose matching rule needs the parameter bound to a set of facts, supplied as
- * an array or a Stream, of the heading of fields C.
+ * an array or a Stream, of the heading of fields C. Its facts, and the rows its parameter map's entry takes, are Row,
+ * the facts of C as ParamRow builds them, so C is held by its carriers alone (Headed<C>, the runtime heading).
+ *
+ * Row is a parameter of its own because TypeScript keeps an object literal type written inside a generic function
+ * with every type parameter of that function, and never prunes the ones it doesn't read, as it does for a type
+ * literal's or a reference's (checker.ts getObjectTypeInstantiation). A heading written in a generic helper, `<S>(r:
+ * Rule<S>) => ({ x: r.relation("x", { ... }) })`, is therefore an instantiation that holds S, which a call binds to the
+ * whole schema or level. A row over C, a mapped type over it, holds C in its mapper, and instantiating the row
+ * instantiates C again and walks the whole level. A write's every relation parameter met that row at each of its
+ * members (ParamsOf) and at each Array and Stream member signature its input is checked against: edullm's answer
+ * write, 44 relation parameters in qti-pie's postedIn over the Installed level, passed 5M instantiations at its
+ * `.once` and `clocked` (TS2589), however few of its inserts read the parameters (GRADING-SQL P4-ITEM-2, lane
+ * TYPEDEPTH). Row reads C only through the field types it reads off C by key, which hold no type parameter, so a write
+ * reads a finished row whatever helper wrote the heading.
  */
-export interface ParamSource<Name extends string, C>
+export interface ParamSource<Name extends string, C, Row = ParamRow<C>>
 	extends
-		Source<
-			FactOfFields<C>,
-			{ readonly [K in Name]: ReadonlyArray<FactOfFields<C>> | Stream.Stream<FactOfFields<C>> }
-		>,
+		Source<Row, { readonly [K in Name]: ReadonlyArray<Row> | Stream.Stream<Row> }>,
 		Headed<C> {}
+
+/**
+ * The facts a relation parameter of heading C takes (ParamSource): FactOfFields<C>'s keys and host values. Each field's
+ * host value is read off C by key into a record of its own, and the records are joined into one, so the row holds the
+ * fields' types but not C (ParamSource). Equal records are one type, so headings of equal host values give one row,
+ * and rules that read a relation parameter under them contribute one entry to a parameter map, where rows built over
+ * each heading would intersect to a union of every choice of an array or a Stream of each.
+ */
+type ParamRow<C> =
+	UnionToIntersection<
+		{ readonly [K in keyof C]-?: Record<K, FieldHost<C[K]>> }[keyof C]
+	> extends infer Fields
+		? { readonly [K in keyof Fields]: Fields[K] }
+		: never
 
 /**
  * Query building blocks: variables with origin brands, bindings, head terms and result typing.
