@@ -180,23 +180,63 @@ const anySpelling = element<Spelling>(["word", "lower", "acronym", "digits"])
 
 const join = element<Join>(["", "_", "__"])
 
+/** A check name of `segments`, each spelled and joined as it states, its text drawn; an underscore last if `trailing`. */
+const spelledName =
+	(segments: CheckName["segments"], trailing: boolean): Gen<CheckName> =>
+	(source) => {
+		const spelled = Arr.map(segments, (g) => `${g.join}${source.draw(segmentOf(g.spelling))}`)
+		return { text: `${Arr.join(spelled, "")}${trailing ? "_" : ""}`, segments, trailing }
+	}
+
 /** A check name of one to four segments, the first led by a letter, its conversion far inside 63 bytes. */
 const checkNameGen: Gen<CheckName> = (source) => {
 	const first = source.draw(letterLed)
 	const rest = source.draw(
 		array((s) => ({ spelling: s.draw(anySpelling), join: s.draw(join) }), { min: 0, max: 3 })
 	)
-	const segments = [{ spelling: first, join: "" as const }, ...rest]
-	const trailing = source.draw(boolean)
-	const spelled = Arr.map(segments, (g) => `${g.join}${source.draw(segmentOf(g.spelling))}`)
-	return { text: `${Arr.join(spelled, "")}${trailing ? "_" : ""}`, segments, trailing }
+	return source.draw(spelledName([{ spelling: first, join: "" }, ...rest], source.draw(boolean)))
 }
 
+/**
+ * The names every batch holds beside its drawn ones, each segment's text drawn: together their segments spell every
+ * spelling and join every way, and one ends in an underscore, so a batch reaches every name form whatever it draws.
+ */
+const coveringNames: Gen<Arr.NonEmptyReadonlyArray<CheckName>> = (source) => [
+	source.draw(
+		spelledName(
+			[
+				{ spelling: "word", join: "" },
+				{ spelling: "digits", join: "" }
+			],
+			false
+		)
+	),
+	source.draw(
+		spelledName(
+			[
+				{ spelling: "lower", join: "" },
+				{ spelling: "acronym", join: "_" }
+			],
+			true
+		)
+	),
+	source.draw(
+		spelledName(
+			[
+				{ spelling: "acronym", join: "" },
+				{ spelling: "word", join: "__" }
+			],
+			false
+		)
+	)
+]
+
+/** A case whose check is named by what `name` draws. */
 const caseGen =
-	(names: Arr.NonEmptyReadonlyArray<CheckName>): Gen<Case> =>
+	(name: Gen<CheckName>): Gen<Case> =>
 	(source) => ({
 		pred: source.draw(predGen(predDepth)),
-		name: source.draw(element(names)),
+		name: source.draw(name),
 		rows: source.draw(
 			array((row) => ({ a: row.draw(small), b: row.draw(small), t: row.draw(text) }), {
 				min: 4,
@@ -379,13 +419,22 @@ const literal = (s: string): string => `'${Str.replaceAll("'", "''")(s)}'`
 /** Predicates per batch, each its own relation of the batch's one schema. */
 const cases = 48
 
-/** A batch: a pool of one to twelve check names, and its cases, each check named from the pool. */
+/**
+ * A batch: a pool of three to twelve check names, the covering names among them (coveringNames), and its cases, each
+ * check named from the pool: one case of each covering name first, so every name form is a check's, then the rest
+ * named from the whole pool, which holds fewer names than the batch has cases, so two relations share a name.
+ */
 export const batch: Gen<ReadonlyArray<Case>> = (source) => {
+	const covering = source.draw(coveringNames)
 	const names: Arr.NonEmptyReadonlyArray<CheckName> = [
-		source.draw(checkNameGen),
-		...source.draw(array(checkNameGen, { min: 0, max: 11 }))
+		...covering,
+		...source.draw(array(checkNameGen, { min: 0, max: 9 }))
 	]
-	return source.draw(array(caseGen(names), { min: cases, max: cases }))
+	const rest = cases - covering.length
+	return [
+		...Arr.map(covering, (name) => source.draw(caseGen(() => name))),
+		...source.draw(array(caseGen(element(names)), { min: rest, max: rest }))
+	]
 }
 
 /**
