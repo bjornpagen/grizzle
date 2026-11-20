@@ -169,12 +169,14 @@ type MemberShapeFit<M, F, R, Keyed extends boolean> = M extends
 	: unknown
 
 /**
- * The rows an array or a Stream of R states as F: F where R holds no instant; else, where F leaves every instant
- * optional, an insertion's, F with every instant left out, which the insert stamps, since no host value is an instant;
- * and none where F states one, a put's or a delete's, whose rows name every instant from a stored one, which only a
- * query holds (write/frontend/instants.ts).
+ * The rows an array or a Stream of R states as F, the one type of a host row of R: F where R holds no instant; else,
+ * where F leaves every instant optional, an insertion's, F with every instant left out, which the insert stamps, since
+ * no host value is an instant; and none where F states one, a put's or a delete's, whose rows name every instant from a
+ * stored one, which only a query holds (write/frontend/instants.ts). Every type of rows a host holds is this one: the
+ * rows insertAll takes (InsertAllRowsOf), which factsDecoder decodes, and the facts a served workload's member takes
+ * (ArrayFacts), each checked by MemberShapeFit against this same type.
  */
-type HostRowsOf<F, R> = [InstantFieldsOf<R>] extends [never]
+export type HostRowsOf<F, R> = [InstantFieldsOf<R>] extends [never]
 	? F
 	: F extends unknown
 		? Partial<Pick<F, InstantFieldsOf<R> & keyof F>> extends Pick<F, InstantFieldsOf<R> & keyof F>
@@ -488,11 +490,14 @@ export type InsertableNameOf<S extends AnySchema> = {
 
 /**
  * The record insertAll takes over S's every top-level relation (InsertableNameOf): under each one's name its rows, an
- * array of its additions in S (AdditionIn), each with its sequences' members nested in order at its count fields, as
- * insert takes them. A caller types the rows it inserts at once by it.
+ * array of its additions in S (AdditionIn) as a host holds them (HostRowsOf), every instant left out, each with its
+ * sequences' members nested in order at its count fields, as insert takes them. A caller types the rows it inserts at
+ * once by it, and factsDecoder decodes them.
  */
 export type InsertAllRowsOf<S extends AnySchema> = {
-	readonly [K in InsertableNameOf<S>]: ReadonlyArray<AdditionIn<S, InsertedRelation<S, K>>>
+	readonly [K in InsertableNameOf<S>]: ReadonlyArray<
+		HostRowsOf<AdditionIn<S, InsertedRelation<S, K>>, InsertedRelation<S, K>>
+	>
 }
 
 /** What insert requires of the relation it writes, as one type: unknown where it writes R. */
@@ -1398,7 +1403,7 @@ type Shifted<A, Before extends ReadonlyArray<unknown>> =
 /**
  * The array member A of a ChangeSet over S as the record of its facts by op, then relation name (ArrayFacts), one
  * record for each member, as each call that adds one adds it: its relation is the one its spelling names in its level,
- * and its row the facts its op takes for that relation over that level (RowOfOp). The relation and the row are bound by
+ * and its row the facts its op takes for that relation over that level (RowOfOp) as a host holds them (HostRowsOf). The relation and the row are bound by
  * `infer`, so the record holds ArrayFacts itself, as the call wrote it, and no alias of it; the level is passed on, never
  * bound (LevelOfMember).
  */
@@ -1411,7 +1416,10 @@ type RecordOf<S, A> =
 		infer Computed
 	>
 		? RelationIn<Spelled, RelationsOf<LevelOfMember<S, Address, Spelled>>> extends infer R
-			? RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R, Computed> extends infer Row
+			? HostRowsOf<
+					RowOfOp<Op, LevelOfMember<S, Address, Spelled>, R, Computed>,
+					R
+				> extends infer Row
 				? {
 						readonly [O in Op]: {
 							readonly [N in NameOfSpelled<Spelled>]: ArrayFacts<R, Row, At>

@@ -8,8 +8,9 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * The instants program: every way a caller may write, state or compare an instant, each a statement over Decision,
  * whose at is a clock of child `child`, and Session, whose stage is a reference to it, under the directive the type-test
  * batch disarms exactly where the rule refuses it. The rule, the oracle: an instant is the database's alone, so no
- * value a caller holds is one. A host row leaves every instant out, which an insert stamps, so a put or a delete of
- * host rows names none and is refused; a query's row states one from a stored instant, a variable of an instant field
+ * value a caller holds is one. A host row leaves every instant out, which an insert stamps, so the rows insertAll's
+ * record types and factsDecoder decodes (InsertAllRowsOf) insert as they are, and a put or a delete of host rows names
+ * none and is refused; a query's row states one from a stored instant, a variable of an instant field
  * or an aggregate over one; and no parameter, relation parameter's column, literal, typed constant, cast, contract or
  * span is of its type, nor is a literal compared with one. Each statement is a cell of the box.
  */
@@ -39,6 +40,23 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		what: "an insert of host rows stating the clock",
 		statement: "ChangeSet.empty(S).insert(Decision, [{ child: 1, at: 5n, seed: 2 }])",
 		verdict: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
+	},
+	{
+		what: "an insert of the rows insertAll's record types, as factsDecoder decodes them",
+		statement:
+			'ChangeSet.empty(S).insert(Decision, Result.getOrThrow(decoder.decode("Decision", [])))',
+		verdict: admitted
+	},
+	{
+		what: "a served insert's facts, the rows insertAll's record types",
+		statement:
+			"(db: DbOf<typeof Writer, typeof adding.programs>) => db.workload.add.once({ params: {}, facts: { insert: { Decision: decided } } })",
+		verdict: admitted
+	},
+	{
+		what: "an insertAll of the record of rows it types",
+		statement: "ChangeSet.empty(S).insertAll({ Decision: decided })",
+		verdict: admitted
 	},
 	{
 		what: "a delete of host rows",
@@ -173,6 +191,10 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/instant
 const instantsHeader = `export const Decision = relation("Decision", { child: pg.integer, at: instant, seed: pg.integer }, ["child", "at"])
 export const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: instant }, ["child", "item"])
 export const S = schema("S", [Decision, Session], [contained(on(Session, "child", "stage"), on(Decision, "child", "at"))])
+export declare const decoder: FactsDecoder<typeof S>
+export declare const decided: InsertAllRowsOf<typeof S>["Decision"]
+export const Writer = role(S, "writer", { Decision, Session }, { write: ["Decision"], refresh: [] })
+export const adding = workload(Writer, { add: ChangeSet.empty(S).insert(Decision, []) })
 `
 
 /** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */

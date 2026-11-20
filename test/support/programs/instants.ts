@@ -2,7 +2,10 @@
  * The names the instants program reads (test/types/changeset/instants.ts), its prelude (test/support/prelude.ts): the
  * program imports these alone, each through this module.
  */
+export { Result } from "effect"
+export type { DbOf } from "#adapter/types/db.ts"
 export { ChangeSet } from "#compiler/public/changeset.ts"
+export type { FactsDecoder, InsertAllRowsOf } from "#compiler/public/changeset.ts"
 export {
 	Crypto,
 	Distance,
@@ -17,4 +20,5 @@ export {
 } from "#compiler/public/compute.ts"
 export { contract, instant, natural, pg, span } from "#compiler/public/fields.ts"
 export { query, v } from "#compiler/public/query.ts"
-export { contained, on, relation, schema } from "#compiler/public/schema.ts"
+export { contained, on, relation, role, schema } from "#compiler/public/schema.ts"
+export { workload } from "#compiler/public/workload.ts"
