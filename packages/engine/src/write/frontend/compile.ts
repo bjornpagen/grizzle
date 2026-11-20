@@ -878,6 +878,8 @@ const compile = (
 	options: FrontendOptions
 ): WriteFrontend => {
 	const at = SourceLoc("ChangeSet", [])
+	/** The columns of each query the ChangeSet's members import, each checked once however many members navigate it. */
+	const columns = queryColumns(checked, at)
 	const { laws, derived, codes, clock } = options
 	const views = derivedKeyConstraints(derived)
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
@@ -1318,7 +1320,7 @@ const compile = (
 					{
 						op: "insert",
 						relation: computedHeading,
-						query: navigateQuery(m.member.query, loc, queryColumns(checked, loc)),
+						query: navigateQuery(m.member.query, loc, columns),
 						loc
 					},
 					{ label: `insert ${relation.name}'s computed fields`, clock }
@@ -1523,7 +1525,7 @@ const compile = (
 					{
 						op: member.op,
 						relation: written,
-						query: navigateQuery(describedQuery, loc, queryColumns(checked, loc)),
+						query: navigateQuery(describedQuery, loc, columns),
 						loc
 					},
 					{ label: `${member.op} ${member.relation}`, clock }

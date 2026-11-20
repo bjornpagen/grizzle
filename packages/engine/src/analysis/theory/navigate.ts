@@ -10,6 +10,7 @@ import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
 import {
 	atColumn,
 	boundIn,
+	type ColumnTypes,
 	equal,
 	isBare,
 	mapBindings,
@@ -146,9 +147,15 @@ interface Flat {
  * of a derived relation of two rules over the operands' join, each then a chain of lookups by the operator it is
  * filtered at (`Navigator.#filtered`), where, read as written, PostgreSQL derived the union whole, every unit's
  * operands joined by its estimates, and anti-joined each node to it.
+ *
+ * A conjunction matches one rule of the union alone, so each bare head literal of that rule is typed at the union's
+ * column (`headAtUnion`), the type the union's checked heading states (`columns`), never the literal's own default: a
+ * union's heading has one type per column, `scope` natural where some rules fix it at 0n and others read Node.start,
+ * and the rule matched alone delivers the column at that type, as the union did.
  */
 const conjunctions = (
-	arms: NonEmptyReadonlyArray<InferredRule>
+	arms: NonEmptyReadonlyArray<InferredRule>,
+	columns: QueryColumns
 ): NonEmptyReadonlyArray<InferredRule> =>
 	flatMapNonEmpty(arms, (arm): NonEmptyReadonlyArray<InferredRule> => {
 		for (const [at, m] of arm.matches.entries()) {
@@ -160,10 +167,11 @@ const conjunctions = (
 			if (stage.kind !== "rules") {
 				continue
 			}
-			const inner = conjunctions(stage.arms)
+			const inner = conjunctions(stage.arms, columns)
 			if (inner.length === 1 && inner[0] === stage.arms[0]) {
 				continue
 			}
+			const union = columns(source.query)
 			return conjunctions(
 				mapNonEmpty(inner, (rule) => ({
 					...arm,
@@ -173,16 +181,33 @@ const conjunctions = (
 									...m,
 									source: {
 										...source,
-										query: { ...source.query, stage: { ...stage, arms: [rule] } }
+										query: {
+											...source.query,
+											stage: { ...stage, arms: [headAtUnion(rule, union)] }
+										}
 									}
 								}
 							: x
 					)
-				}))
+				})),
+				columns
 			)
 		}
 		return [arm]
 	})
+
+/** `rule` with each bare literal of its head typed at the column of the union it is a rule of (`union`): itself where none is. */
+const headAtUnion = (rule: InferredRule, union: ColumnTypes): InferredRule => {
+	const head = Object.fromEntries(
+		Object.entries(rule.head).map(([field, h]) => [
+			field,
+			h.kind === "aggregate" || h.kind === "producer" ? h : atColumn(h, field, union)
+		])
+	)
+	return Object.entries(head).every(([field, h]) => h === rule.head[field])
+		? rule
+		: { ...rule, head }
+}
 
 /** A relational filter of a rule, a negation or an existence, navigated apart (`Navigator.#filtered`). */
 type Filtered = Extract<InferredExpr, { readonly kind: "absent" | "exists" }>
@@ -616,7 +641,7 @@ class Navigator {
 					return this.#refuse("a filter of an imported query of rules binding no parameter")
 				}
 				const columns = this.#columns(source.query)
-				const navigated = mapNonEmpty(conjunctions(stage.arms), (arm) => {
+				const navigated = mapNonEmpty(conjunctions(stage.arms, this.#columns), (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
 						const head = arm.head[field]
@@ -675,7 +700,7 @@ const filtersBelow = (e: InferredExpr): boolean =>
  * reads deliver, so a rule that reads one relation beside a filter is one lookup, and a filter of a delta, which no step
  * reads by an index, leaves the rule as written, where PostgreSQL hashes the delta once per statement.
  */
-const readsOfRule = (rule: InferredRule): number | undefined => {
+const readsOfRule = (rule: InferredRule, columns: QueryColumns): number | undefined => {
 	if (rule.interiors.length > 0 || rule.attach.length > 0) {
 		return undefined
 	}
@@ -694,7 +719,9 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 		}
 		const stage = source.query.stage
 		const inner =
-			stage.kind === "rules" && stage.arms.length === 1 ? readsOfRule(stage.arms[0]) : undefined
+			stage.kind === "rules" && stage.arms.length === 1
+				? readsOfRule(stage.arms[0], columns)
+				: undefined
 		if (inner === undefined) {
 			return undefined
 		}
@@ -715,7 +742,9 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
 			source.kind !== "query" ||
 			Object.keys(source.bind).length > 0 ||
 			source.query.stage.kind !== "rules" ||
-			conjunctions(source.query.stage.arms).some((arm) => readsOfRule(arm) === undefined)
+			conjunctions(source.query.stage.arms, columns).some(
+				(arm) => readsOfRule(arm, columns) === undefined
+			)
 		) {
 			return undefined
 		}
@@ -728,9 +757,9 @@ const readsOfRule = (rule: InferredRule): number | undefined => {
  * inlined (`readsOfRule`), or it filters by a query a rule of which joins (`filtersJoin`). A rule that reads one
  * relation and filters by no join is one lookup already; one navigation reads no part of is no join it reads.
  */
-const joins = (rule: InferredRule): boolean => {
-	const reads = readsOfRule(rule)
-	return reads !== undefined && (reads > 1 || rule.where.some(filtersJoin))
+const joins = (rule: InferredRule, columns: QueryColumns): boolean => {
+	const reads = readsOfRule(rule, columns)
+	return reads !== undefined && (reads > 1 || rule.where.some((w) => filtersJoin(w, columns)))
 }
 
 /**
@@ -741,11 +770,11 @@ const joins = (rule: InferredRule): boolean => {
  * ResourceId at (package, path) under it, ResourceId bound by the dependency's ref alone, which only the dependency's
  * row holds. Navigated, each relation the query reads is a step bound by the terms and the steps before it.
  */
-const filtersJoin = (w: InferredExpr): boolean =>
+const filtersJoin = (w: InferredExpr, columns: QueryColumns): boolean =>
 	isFiltered(w) &&
 	w.source.kind === "query" &&
 	w.source.query.stage.kind === "rules" &&
-	conjunctions(w.source.query.stage.arms).some(joins)
+	conjunctions(w.source.query.stage.arms, columns).some((arm) => joins(arm, columns))
 
 /**
  * `rule` navigated where it joins (`joins`); one that does not, with the query each of its steps and imports reads
@@ -756,7 +785,7 @@ const filtersJoin = (w: InferredExpr): boolean =>
  * the unit for each row of another, the unit's rows squared.
  */
 const navigatedRule = (rule: InferredRule, loc: SourceLoc, columns: QueryColumns): InferredRule => {
-	if (joins(rule)) {
+	if (joins(rule, columns)) {
 		return navigate(rule, loc, columns)
 	}
 	const fixed = fixedTerms(rule)
@@ -901,8 +930,8 @@ export const navigateQuery = (
 		return query
 	}
 	const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
-		const split = conjunctions([rule])
-		return split.length > 1 && split.some(joins)
+		const split = conjunctions([rule], columns)
+		return split.length > 1 && split.some((conjunction) => joins(conjunction, columns))
 			? mapNonEmpty(split, (conjunction) => navigatedRule(conjunction, loc, columns))
 			: [navigatedRule(rule, loc, columns)]
 	})

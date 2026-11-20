@@ -21,6 +21,7 @@ import {
 import {
 	type LawSide,
 	type LiveEnv,
+	liveReading,
 	type QueryRule,
 	type RuleLaw,
 	violationQuery,
@@ -1091,7 +1092,7 @@ const containmentDischarge = (
 	}
 	const whole = wholeRule(
 		stated,
-		violationQuery(stated, storedSides, law.loc),
+		violationQuery(stated, liveReading(storedSides), law.loc),
 		relations,
 		facts,
 		law.loc

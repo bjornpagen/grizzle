@@ -6,13 +6,17 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { natural, pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, login, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { installationsOf, ownLogin, rostersOf } from "#compiler/schema/own.ts"
 import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
-import { owning } from "#test/support/policy.ts"
+import type { RelationName } from "#compiler/types/schema/relation.ts"
+import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
+import { checking, owning } from "#test/support/policy.ts"
+import { cs, descOf, frontendOptions } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * Where a column a rule's head fixes at a literal is read after navigation substitutes the literal for it: a selection
@@ -24,9 +28,24 @@ export const uses = [
 	"a selection by ne against a literal",
 	"a selection by eq against a column",
 	"a join to a stored relation",
-	"a check comparing it first"
+	"a check comparing it first",
+	"a union's literal compared with a natural column",
+	"a check over a union's literal",
+	"a write member's query over a union's literal"
 ] as const
 export type Use = (typeof uses)[number]
+
+/** The uses that read the union `scoped`. */
+type UnionUse = Extract<
+	Use,
+	"a union's literal compared with a natural column" | "a check over a union's literal"
+>
+
+/** The use a write member makes of the union `scoped`. */
+type WriteUse = Extract<Use, "a write member's query over a union's literal">
+
+/** The uses that read the one-rule query `fixed`. */
+type PlainUse = Exclude<Use, UnionUse | WriteUse>
 
 const label = str.bytes(64, str.regex("^.*$", "su"))
 
@@ -34,7 +53,24 @@ const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
 
 const Doc = relation("Doc", { id: pg.integer, start: pg.bigint, label }, ["id"])
 
-const Base = schema("LiteralHeads", [Item, Doc], [])
+/** A node of a document: its start, natural, as pantry's Node.start is. */
+const Node = relation("Node", { id: pg.integer, start: natural }, ["id"])
+
+const Base = schema("LiteralHeads", [Item, Doc, Node], [])
+
+/**
+ * A union whose heading types `scope` natural: one rule fixes it at the literal 0n, the other reads Node.start, as
+ * pantry's testReadingRows does with its unsplit and split readings.
+ */
+const scoped = query(Base)
+	.rule((r) => {
+		const { id } = v(Item, "item")
+		return r.match(Item, { id }).find({ id, scope: 0n })
+	})
+	.rule((r) => {
+		const { id, start } = v(Node, "node")
+		return r.match(Node, { id, start }).find({ id, scope: start })
+	})
 
 /** A query whose one rule fixes `scope` at the literal 0n and `variable` at the literal "numAttempts". */
 const fixed = query(Base).rule((r) => {
@@ -43,7 +79,7 @@ const fixed = query(Base).rule((r) => {
 })
 
 /** The derived relation over `fixed` and Doc that reads `fixed`'s literal-headed columns as `use` reads them. */
-const readOf = (use: Use) =>
+const readOf = (use: PlainUse) =>
 	derived(
 		"Read",
 		query(Base).rule((r) => {
@@ -71,12 +107,70 @@ const readOf = (use: Use) =>
 		})
 	)
 
+/** The derived relation over `scoped` and Node that reads `scoped`'s literal-headed column as `use` does. */
+const unionReadOf = (use: UnionUse) =>
+	derived(
+		"Read",
+		query(Base).rule((r) => {
+			const { id, scope } = v(scoped, "scoped")
+			const { start } = v(Node, "node")
+			const read = r.match(scoped, { id, scope }).match(Node, { id, start })
+			return (
+				use === "a check over a union's literal" ? read : read.where(r.eq(scope, start))
+			).find({
+				id,
+				start,
+				scope
+			})
+		})
+	)
+
 /**
  * The installation of the schema over Base whose derived relation reads `fixed` as `use` does, with a containment and
  * a check over it, which a writer of Item and Doc probes, so navigation inlines `fixed` into every probe: compiled, or
  * the refusal it meets.
  */
-export const installed = (use: Use): Result.Result<unknown, CompileError> => {
+export const installed = (use: Use): Result.Result<unknown, CompileError> =>
+	use === "a write member's query over a union's literal"
+		? writtenOverUnion()
+		: use === "a union's literal compared with a natural column" ||
+			  use === "a check over a union's literal"
+			? installedOverUnion(use)
+			: installedOverQuery(use)
+
+/** Where a write member's rows land: a scope and its node's start. */
+const Scoped = relation("Scoped", { id: pg.integer, start: natural }, ["id"])
+
+/** Base with Scoped, which the write member inserts into. */
+const Written = schema.extend([Base], "LiteralHeadsWritten", [Scoped], [])
+
+/**
+ * A ChangeSet whose member inserts into Scoped the rows `scoped` holds at a node of its start, its query compiled as
+ * every write member's is, navigated read by read (write/frontend/compile.ts): `scoped` split into its rules, each
+ * matched alone, so the rule fixing `scope` at 0n is read beside Node.start.
+ */
+const writtenOverUnion = (): Result.Result<unknown, CompileError> =>
+	compileChangeSet(
+		checking(Written),
+		descOf(
+			cs(Written).insert(
+				Scoped,
+				query(Written).rule((r) => {
+					const { id, scope } = v(scoped, "scoped")
+					const { start } = v(Node, "node")
+					return r
+						.match(scoped, { id, scope })
+						.match(Node, { id, start })
+						.where(r.eq(scope, start))
+						.find({ id, start })
+				})
+			)
+		),
+		frontendOptions(Written)
+	)
+
+/** The installation of a use that reads `fixed`. */
+const installedOverQuery = (use: PlainUse): Result.Result<unknown, CompileError> => {
 	const Read = readOf(use)
 	const top = schema.extend(
 		[Base],
@@ -89,9 +183,38 @@ export const installed = (use: Use): Result.Result<unknown, CompileError> => {
 				: check("Unseven", Read, (x) => x.ne(x.start, 7n))
 		]
 	)
-	const desk = login(top, "desk", [
-		role(top, "writer", { Item, Doc }, { write: ["Item", "Doc"], refresh: [] })
-	])
+	return installedAs(
+		login(top, "desk", [
+			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+		])
+	)
+}
+
+/** The installation of a use that reads `scoped`. */
+const installedOverUnion = (use: UnionUse): Result.Result<unknown, CompileError> => {
+	const Read = unionReadOf(use)
+	const top = schema.extend(
+		[Base],
+		"LiteralHeadsTop",
+		[Read],
+		[
+			contained(on(Read, "id"), on(Item, "id")),
+			use === "a check over a union's literal"
+				? check("Small", Read, (x) => x.lt(x.scope, 5n))
+				: check("Unseven", Read, (x) => x.ne(x.start, 7n))
+		]
+	)
+	return installedAs(
+		login(top, "desk", [
+			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+		])
+	)
+}
+
+/** The installation of a login's writer: compiled, or the refusal it meets. */
+const installedAs = (desk: {
+	readonly base: FixtureSchema
+}): Result.Result<unknown, CompileError> => {
 	const owned = owning(desk.base)
 	return Result.flatMap(
 		ownLogin(defined(loginDescOf(desk), "a login built by login(...)")),
@@ -106,5 +229,61 @@ export const installed = (use: Use): Result.Result<unknown, CompileError> => {
 					firstCodebook(rostersOf(owned))
 				)
 			)
+	)
+}
+
+/** A derived relation reading the union `scoped` beside Node by `scope = start`, checked by a check of its own. */
+const readerOf = <const Name extends string>(name: RelationName<Name>) =>
+	derived(
+		name,
+		query(Base).rule((r) => {
+			const { id, scope } = v(scoped, "scoped")
+			const { start } = v(Node, "node")
+			return r
+				.match(scoped, { id, scope })
+				.match(Node, { id, start })
+				.where(r.eq(scope, start))
+				.find({ id, start, scope })
+		})
+	)
+
+const Read0 = readerOf("Read0")
+const Read1 = readerOf("Read1")
+const Read2 = readerOf("Read2")
+
+/**
+ * An installation of one or of three derived relations, each reading the union `scoped` and checked, so a writer of
+ * Node probes each reader's check and navigation splits the union once for each: compiled, or the refusal it meets.
+ */
+export const installedReadingUnion = (
+	readers: "one reader" | "three readers"
+): Result.Result<unknown, CompileError> => {
+	if (readers === "one reader") {
+		const top = schema.extend(
+			[Base],
+			"LiteralHeadsOne",
+			[Read0],
+			[check("Small0", Read0, (x) => x.lt(x.scope, 5n))]
+		)
+		return installedAs(
+			login(top, "desk", [
+				role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+			])
+		)
+	}
+	const top = schema.extend(
+		[Base],
+		"LiteralHeadsThree",
+		[Read0, Read1, Read2],
+		[
+			check("Small0", Read0, (x) => x.lt(x.scope, 5n)),
+			check("Small1", Read1, (x) => x.lt(x.scope, 5n)),
+			check("Small2", Read2, (x) => x.lt(x.scope, 5n))
+		]
+	)
+	return installedAs(
+		login(top, "desk", [
+			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+		])
 	)
 }

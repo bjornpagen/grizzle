@@ -53,6 +53,7 @@ import {
 	type LawSide,
 	type LiveEnv,
 	liveArms,
+	type LiveReading,
 	type QueryRule,
 	type RuleLaw,
 	type RuleSide,
@@ -590,6 +591,8 @@ export interface NormalizeEnv extends SidesEnv {
 	readonly definition: (relation: string) => QueryDesc | undefined
 	/** The descriptor each column of a definition is delivered at (query.ts LiveEnv.columnType). */
 	readonly columnType: LiveEnv["columnType"]
+	/** How the violation queries read their relations live, each query read once (query.ts LiveReading). */
+	readonly live: LiveReading
 	/** A law's identity at the naming door (theory.ts lawIdentityOf). */
 	readonly named: (law: LawIdentity) => Identity<"law">
 	/** The containments of the schema's statements a whole rule's region reads (unit.ts RegionFacts). */
@@ -1612,7 +1615,7 @@ export class Normalizer {
 		loc: SourceLoc
 	): void {
 		const stated = lawSides(law)
-		const violation = violationQuery(stated, this.env.definition, loc)
+		const violation = violationQuery(stated, this.env.live, loc)
 		const lowering = lowered(law)
 		const whole =
 			lowering.kind === "foreignKeys"

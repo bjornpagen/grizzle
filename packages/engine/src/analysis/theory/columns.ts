@@ -20,7 +20,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
  * (analysis/derived/fields.ts fieldDescOf), a computed numeric's its bound, whatever its value, NaN, an infinity or one
  * past numeric(p, s)'s limits included. The query is checked at the first column read, and once.
  */
-export const definitionColumns = (
+const definitionColumns = (
 	checked: CheckedSchema,
 	relation: string,
 	query: InferredQuery,
@@ -28,11 +28,7 @@ export const definitionColumns = (
 ): ColumnTypes => {
 	let heading: ReadonlyMap<string, ScalarType> | undefined
 	return (column) => {
-		heading ??= new Map(
-			unwrap(checkDefinition(checked, `derived ${relation}`, query)).dag.roots[0].heading.map(
-				(c) => [c.name, c.type] as const
-			)
-		)
+		heading ??= checkedHeading(checked, relation, query)
 		const type = heading.get(column)
 		if (type === undefined) {
 			return refuse("MalformedDescription", loc, `a column ${column} of ${relation}'s definition`)
@@ -44,22 +40,45 @@ export const definitionColumns = (
 	}
 }
 
-/** The columns of each query a navigation inlines (definitionColumns), read where it meets a bare literal. */
-export type QueryColumns = (query: InferredQuery) => ColumnTypes
+/** Each column of `query`'s heading and its type, as the checker types it as the definition of `relation`: one check. */
+const checkedHeading = (
+	checked: CheckedSchema,
+	relation: string,
+	query: InferredQuery
+): ReadonlyMap<string, ScalarType> =>
+	new Map(
+		unwrap(checkDefinition(checked, `derived ${relation}`, query)).dag.roots[0].heading.map(
+			(c) => [c.name, c.type] as const
+		)
+	)
 
 /**
- * The columns of each query `checked` reads (definitionColumns), each query's checked once however often a navigation
- * meets it, an imported query named for the refusal that locates at `loc`.
+ * The columns of each query `checked` reads (definitionColumns), each query's checked once however often it is read: the
+ * relation it is first read as names it, and locates its refusal.
  */
-export const queryColumns = (checked: CheckedSchema, loc: SourceLoc): QueryColumns => {
+export const knownColumns = (
+	checked: CheckedSchema
+): ((relation: string, query: InferredQuery, loc: SourceLoc) => ColumnTypes) => {
 	const known = new WeakMap<InferredQuery, ColumnTypes>()
-	return (query) => {
+	return (relation, query, loc) => {
 		const found = known.get(query)
 		if (found !== undefined) {
 			return found
 		}
-		const columns = definitionColumns(checked, "an imported query", query, loc)
+		const columns = definitionColumns(checked, relation, query, loc)
 		known.set(query, columns)
 		return columns
 	}
+}
+
+/** The columns of each query a navigation inlines (definitionColumns), read where it meets a bare literal. */
+export type QueryColumns = (query: InferredQuery) => ColumnTypes
+
+/**
+ * The columns of each query `checked` reads (`knownColumns`), each query's checked once however often a navigation
+ * meets it, an imported query named for the refusal that locates at `loc`.
+ */
+export const queryColumns = (checked: CheckedSchema, loc: SourceLoc): QueryColumns => {
+	const known = knownColumns(checked)
+	return (query) => known("an imported query", query, loc)
 }

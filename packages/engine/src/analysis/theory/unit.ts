@@ -160,7 +160,11 @@ const hiddenUnit: Delivered = { kind: "hidden" }
 const sameDelivery = (a: Delivered, b: Delivered): boolean =>
 	a.kind === b.kind && (a.kind !== "at" || (b.kind === "at" && sameOrder(a.fields, b.fields)))
 
-/** A query as a walk leaves it: its text, and how it delivers its facts' units. */
+/**
+ * A query as a walk leaves it: its text, and how it delivers its facts' units. A walk shares every part of the text it
+ * leaves as it was, the query itself where it changes nothing, so a query the laws' violations import, read by each law
+ * live as one (query.ts liveReading), is one query in every statement the judge navigates (navigate.ts conjunctions).
+ */
 interface Walked {
 	readonly query: InferredQuery
 	readonly delivered: Delivered
@@ -352,7 +356,11 @@ const sourceUnit = (
 			if (inner === notLocal) {
 				return notLocal
 			}
-			const read = { ...source, query: inner.query, bind: passedChannels(inner.query) }
+			const bind = passedChannels(inner.query)
+			const read =
+				inner.query === source.query && Object.keys(bind).length === 0
+					? source
+					: { ...source, query: inner.query, bind }
 			const delivered = inner.delivered
 			switch (delivered.kind) {
 				case "none":
@@ -427,18 +435,19 @@ const walkedExpr = (
 		const correlated =
 			read.unit.kind === "none" ||
 			(read.unit.kind === "vars" && unit !== undefined && sameOrder(read.unit.vars, unit))
-		return correlated ? { ...e, source: read.source } : notLocal
+		return correlated ? (read.source === e.source ? e : { ...e, source: read.source }) : notLocal
 	}
-	const children = { local: true }
+	const children = { local: true, changed: false }
 	const each = mapExprChildren(e, (x) => {
 		const r = walkedExpr(x, unit, at, w)
 		if (r === notLocal) {
 			children.local = false
 			return x
 		}
+		children.changed ||= r !== x
 		return r
 	})
-	return children.local ? each : notLocal
+	return children.local ? (children.changed ? each : e) : notLocal
 }
 
 /** A rule as a walk leaves it: its text, and how it delivers its facts' units. */
@@ -478,7 +487,7 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
 			own.push(before)
 		}
 		units.push(read.unit)
-		matches.push({ ...match, source: read.source })
+		matches.push(read.source === match.source ? match : { ...match, source: read.source })
 	}
 	for (const [j, i] of own.entries()) {
 		const occurrence = defined(w.regions[i], "an occurrence this rule matches")
@@ -533,9 +542,11 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 		return notLocal
 	}
 	const { matches, where, unit } = body
+	const walkedText: InferredRule =
+		sameOrder(matches, r.matches) && sameOrder(where, r.where) ? r : { ...r, matches, where }
 	if (unit === undefined) {
 		return {
-			rule: { ...r, matches, where },
+			rule: walkedText,
 			delivered: body.hidden ? hiddenUnit : noUnit,
 			unit: undefined
 		}
@@ -548,7 +559,6 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	if (aggregates && delivered.kind !== "at") {
 		return notLocal
 	}
-	const walkedText: InferredRule = { ...r, matches, where }
 	return {
 		rule:
 			restriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,
@@ -846,7 +856,10 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 				const read = walkedRules(st.arms, at, w)
 				return read === notLocal
 					? notLocal
-					: { stage: { ...st, arms: read.rules }, delivered: read.delivered }
+					: {
+							stage: sameOrder(read.rules, st.arms) ? st : { ...st, arms: read.rules },
+							delivered: read.delivered
+						}
 			}
 			case "union": {
 				const input = stage(st.input)
@@ -857,13 +870,22 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 				const delivered = joinedDelivery(input.delivered, read.delivered)
 				return delivered === notLocal
 					? notLocal
-					: { stage: { ...st, input: input.stage, arms: read.rules }, delivered }
+					: {
+							stage:
+								input.stage === st.input && sameOrder(read.rules, st.arms)
+									? st
+									: { ...st, input: input.stage, arms: read.rules },
+							delivered
+						}
 			}
 			case "named": {
 				const input = stage(st.input)
 				return input === notLocal
 					? notLocal
-					: { stage: { ...st, input: input.stage }, delivered: input.delivered }
+					: {
+							stage: input.stage === st.input ? st : { ...st, input: input.stage },
+							delivered: input.delivered
+						}
 			}
 			case "recursive":
 				return unitLocalRecursion(st, at, w)
@@ -877,7 +899,10 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 	const read = stage(query.stage)
 	return read === notLocal
 		? notLocal
-		: { query: { ...query, stage: read.stage }, delivered: read.delivered }
+		: {
+				query: read.stage === query.stage ? query : { ...query, stage: read.stage },
+				delivered: read.delivered
+			}
 }
 
 /** A unit's holders by relation, each with its leading key fields. */

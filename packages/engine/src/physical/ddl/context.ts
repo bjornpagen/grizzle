@@ -6,6 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
+import { type QueryColumns, queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import {
@@ -272,6 +273,11 @@ export class InstallBuilder {
 	readonly owned: Owned
 	/** The checker's reading of the owned schema, read once by the installation. */
 	readonly checked: CheckedSchema
+	/**
+	 * The columns of each query the installation's judges and probes import (analysis/theory/columns.ts queryColumns),
+	 * each query checked once however many statements navigation reads it in.
+	 */
+	readonly columns: QueryColumns
 	readonly model: LawModel
 	readonly names: InstallNames
 	readonly graph = new ObligationGraph()
@@ -337,6 +343,7 @@ export class InstallBuilder {
 		this.readCommitted = input.readCommitted
 		this.library = input.library
 		this.checked = input.checked
+		this.columns = queryColumns(input.checked, SourceLoc("the installation", []))
 		this.model = input.model
 		this.names = input.names
 		this.settings = input.settings

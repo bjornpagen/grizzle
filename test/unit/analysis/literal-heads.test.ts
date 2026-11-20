@@ -23,7 +23,13 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import { installed, type Use, uses } from "#test/unit/analysis/literal-heads.fixtures.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
+import {
+	installed,
+	installedReadingUnion,
+	type Use,
+	uses
+} from "#test/unit/analysis/literal-heads.fixtures.ts"
 
 /** A column a rule's head fixes at a literal compiles wherever a navigated rule reads it. */
 export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReadsIt =
@@ -53,10 +59,87 @@ export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReads
 				},
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
+					original: "stage: { ...stage, arms: [headAtUnion(rule, union)] }",
+					replacement: "stage: { ...stage, arms: [rule] }",
+					why: "A rule navigation splits out of a union is checked alone, its literal at its own default: `scope` 0n is a bigint beside Node.start's natural, refused as two types, where the union types it natural."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/navigate.ts",
 					original:
 						"\t\t\t\twhere.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))\n",
 					replacement: "\t\t\t\twhere.push(equal(lift(head), atColumn(outer, field, columns)))\n",
 					why: "An inlined import's head literal is equated bare with the variable its match binds, which the navigation then replaces by it, so a selection reading the variable first reads a bare literal first."
+				}
+			]
+		}
+	)
+
+/** The one check of a query's heading a column type reads (analysis/theory/columns.ts checkedHeading). */
+const headingChecks = {
+	check: { file: "packages/engine/src/analysis/theory/columns.ts", name: "checkedHeading" }
+} as const
+
+/**
+ * A union's heading is checked once per installation however many statements navigation reads it in: the installation
+ * holds one QueryColumns (physical/ddl/context.ts InstallBuilder.columns), every law reads the union in its violation
+ * as one live query (analysis/theory/query.ts liveReading), and the walk that reads a violation per unit shares what it
+ * leaves as it was (analysis/theory/unit.ts Walked), so every statement the judge navigates meets the one union, and
+ * three checked derived relations reading it, each with its own judge statements that split it, check its heading as
+ * often as one does.
+ */
+export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigateIt =
+	property.exhaust(
+		finite((source) => source.draw(element(["one reader", "three readers"] as const))),
+		{
+			box: "an installation of one and of three derived relations reading a literal-headed union",
+			needs: {},
+			situations: ["one reader", "three readers"] satisfies ReadonlyArray<
+				Reached<"one reader" | "three readers">
+			>,
+			check: (_, c: Case<"one reader" | "three readers">) => (readers) =>
+				Effect.gen(function* () {
+					c.note(readers)
+					const [one, once] = yield* callCounts(
+						Effect.sync(() => installedReadingUnion("one reader")),
+						headingChecks
+					)
+					const [read, counted] = yield* callCounts(
+						Effect.sync(() => installedReadingUnion(readers)),
+						headingChecks
+					)
+					assert.ok(one.ok && read.ok, "both installations compile")
+					assert.ok(once.check > 0, "the union's heading is checked")
+					assert.ok(
+						counted.check === once.check,
+						`${readers} check the union's heading ${counted.check} times, one reader ${once.check}`
+					)
+				}),
+			oracle: {
+				kind: "specification",
+				name: "work counted: the heading checks of one installation"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/physical/ddl/context.ts",
+					original:
+						'\t\tthis.columns = queryColumns(input.checked, SourceLoc("the installation", []))\n',
+					replacement:
+						'\t\tthis.columns = (query) => queryColumns(input.checked, SourceLoc("the installation", []))(query)\n',
+					why: "Each statement navigation reads gets a QueryColumns of its own, so the union's heading is checked again for every probe that splits it: three readers check it more often than one."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/query.ts",
+					original: "\t\t\tconst found = known.get(query)\n",
+					replacement: "\t\t\tconst found = known.get({ ...query })\n",
+					why: "Each law reads its own live copy of every query its violation imports, so the judge's statements of three laws meet three unions, each one's heading checked apart."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/unit.ts",
+					original:
+						"\t\t\t\tquery: read.stage === query.stage ? query : { ...query, stage: read.stage },\n",
+					replacement: "\t\t\t\tquery: { ...query, stage: read.stage },\n",
+					why: "The walk that reads a violation per unit copies the union it leaves as it was, so each law's statement over its units meets a union of its own, its heading checked again."
 				}
 			]
 		}

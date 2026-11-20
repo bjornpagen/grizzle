@@ -50,7 +50,7 @@ export const parsedOf = (value: unknown): ParsedChangeSet => {
 
 /** The front end's options as compileWrite states them for reality over `schemaValue`: every context's fact held, and the
  * keys of its views as its artifacts know them. */
-const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => {
+export const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => {
 	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
 	return {
 		claims: { kind: "every" },

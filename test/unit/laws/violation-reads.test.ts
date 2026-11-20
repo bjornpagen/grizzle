@@ -155,8 +155,7 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original:
-					"\t\tcheckQuery(b.checked, navigateQuery(query, loc, queryColumns(b.checked, loc)), {\n",
+				original: "\t\tcheckQuery(b.checked, navigateQuery(query, loc, b.columns), {\n",
 				replacement: "\t\tcheckQuery(b.checked, query, {\n",
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
@@ -364,13 +363,15 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\treturn split.length > 1 && split.some(joins)",
-				replacement: "\t\treturn false && split.length > 1 && split.some(joins)",
+				original:
+					"\t\treturn split.length > 1 && split.some((conjunction) => joins(conjunction, columns))",
+				replacement:
+					"\t\treturn false && split.length > 1 && split.some((conjunction) => joins(conjunction, columns))",
 				why: "A rule over Either, a union of Op's and Item's rows, is read as written beside its negation of Two, which is derived whole and anti-joined to it; it fails the union's case."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\tconst inner = conjunctions(stage.arms)",
+				original: "\t\t\tconst inner = conjunctions(stage.arms, columns)",
 				replacement: "\t\t\tconst inner = stage.arms",
 				why: "Conjunctions split an import of several rules matched directly alone, so Either, one rule over the query either of two, is no union to them, and its rule is read as written beside its negation of Two; it fails the union's case."
 			}

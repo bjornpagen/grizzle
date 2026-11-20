@@ -1,7 +1,7 @@
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { ViolationBuilder } from "#compiler/analysis/theory/build.ts"
 import { type FieldClass, FieldClasses } from "#compiler/analysis/theory/classes.ts"
-import { definitionColumns } from "#compiler/analysis/theory/columns.ts"
+import { knownColumns } from "#compiler/analysis/theory/columns.ts"
 import { familyStated } from "#compiler/analysis/theory/families.ts"
 import { fillOrder } from "#compiler/analysis/theory/fill.ts"
 import { instantRoles } from "#compiler/analysis/theory/instants.ts"
@@ -19,7 +19,12 @@ import {
 	type SidesEnv,
 	type TheoryLaw
 } from "#compiler/analysis/theory/laws.ts"
-import type { LawSide, QueryRule, RuleLaw } from "#compiler/analysis/theory/query.ts"
+import {
+	type LawSide,
+	liveReading,
+	type QueryRule,
+	type RuleLaw
+} from "#compiler/analysis/theory/query.ts"
 import {
 	familyStatement,
 	ownSpelling,
@@ -489,6 +494,7 @@ class Builder {
 
 	constructor(checked: CheckedSchema) {
 		this.checked = checked
+		this.#columns = knownColumns(checked)
 		this.definitions = new Map(
 			Object.values(checked.owned.relations).flatMap((r) =>
 				r.desc.kind === "derived" ? [[r.name, r.desc.query] as const] : []
@@ -503,6 +509,12 @@ class Builder {
 		)
 	}
 
+	/** The columns of each definition the theory reads, each checked once however many laws read it (columns.ts knownColumns). */
+	readonly #columns: NormalizeEnv["columnType"]
+
+	/** How the theory's violation queries read each relation live, each definition read once however many laws read it. */
+	readonly #live = liveReading((relation) => this.definitions.get(relation))
+
 	/**
 	 * What normalizing the schema's laws reads of it: its relations, each derived relation's definition and the types its
 	 * columns are delivered at, the naming door's law identities, and the typing environment its predicates and terms
@@ -512,7 +524,8 @@ class Builder {
 		return {
 			...this.sides,
 			definition: (relation) => this.definitions.get(relation),
-			columnType: (relation, query, loc) => definitionColumns(this.checked, relation, query, loc),
+			columnType: this.#columns,
+			live: this.#live,
 			named: lawIdentityOf,
 			regionFacts: this.regionFacts
 		}

@@ -1099,38 +1099,66 @@ const sourcesThrough = (
 ): InferredExpr => mapExpr(e, { leaf: (x) => x, term: (x) => sourcesThrough(x, source), source })
 
 /**
- * The source a rule's full violation query reads the relation `relation` through: a stored or closed relation by its
- * name; a derived relation, materialized or not, as its definition, read live and imported as a query of its own
- * (`liveQuery`), never through its view, which the migration that checks the rule may not have filled.
+ * How a theory's violation queries read their relations live: the source each relation is read through, a stored or
+ * closed relation by its name, a derived relation, materialized or not, as its definition, read live and imported as a
+ * query of its own (`liveQuery`), never through its view, which the migration that checks the rule may not have filled;
+ * and each query read live, once however many laws read it (`liveReading`).
  */
-const liveSource = (relation: string, definition: LiveEnv["definition"]): InferredSource => {
-	const d = definition(relation)
-	return d === undefined
-		? { kind: "relation", name: relation }
-		: { kind: "query", query: liveQuery(d, definition), bind: {} }
+export interface LiveReading {
+	readonly relation: (relation: string) => InferredSource
+	readonly query: (query: InferredQuery) => InferredQuery
+}
+
+/**
+ * The live reading of the relations `definition` defines (`LiveReading`), each query read live once: every law over a
+ * derived relation reads the one live definition, and every query that definition imports the one live query, so the
+ * judge's statements, each a navigated violation of a law, meet one query wherever they read it, its heading checked
+ * once (analysis/theory/navigate.ts conjunctions, physical/ddl/context.ts InstallBuilder.columns), where each law read
+ * a copy of its own.
+ */
+export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
+	const known = new WeakMap<InferredQuery, InferredQuery>()
+	const reading: LiveReading = {
+		relation: (relation) => {
+			const d = definition(relation)
+			return d === undefined
+				? { kind: "relation", name: relation }
+				: { kind: "query", query: reading.query(d), bind: {} }
+		},
+		query: (query) => {
+			const found = known.get(query)
+			if (found !== undefined) {
+				return found
+			}
+			const read = liveQuery(query, reading)
+			known.set(query, read)
+			return read
+		}
+	}
+	return reading
 }
 
 /**
  * A definition read live: every derived relation it matches or negates, at any depth, a recursion's base and steps
- * among it, read as its own definition, live, imported (`liveSource`), and every query it imports read so in turn. Each
+ * among it, read as its own definition, live, imported (`LiveReading`), and every query it imports read so in turn. Each
  * stays a query of its own, so its rows are computed at a level of their own, joined to the level that reads them by
  * the columns that level binds; none stays a relation by its name, which a walk of the query (analysis/theory/unit.ts)
  * would read as a closed relation, the same at every state and in no unit.
  */
-const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): InferredQuery => {
+const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
 	const source = (s: InferredSource): InferredSource => {
 		switch (s.kind) {
 			case "relation":
-				return liveSource(s.name, definition)
+				return live.relation(s.name)
 			case "query":
 			case "step":
-				return { ...s, query: liveQuery(s.query, definition) }
+				return { ...s, query: live.query(s.query) }
 			case "call":
 			case "callField":
 				return {
 					...s,
 					args: mapRecord(s.args, (a) =>
-						a.kind === "rows" ? { ...a, query: liveQuery(a.query, definition) } : a
+						a.kind === "rows" ? { ...a, query: live.query(a.query) } : a
 					)
 				}
 			case "split":
@@ -1177,7 +1205,7 @@ const liveQuery = (query: InferredQuery, definition: LiveEnv["definition"]): Inf
 }
 
 /**
- * A side as a rule's full violation query reads it, whole: one match of the side's source (`liveSource`) binding each
+ * A side as a rule's full violation query reads it, whole: one match of the side's source (`LiveReading`) binding each
  * field the side reads, its terms', its selection's and `also`, to a variable of its own under `prefix`; its selection
  * and its terms' guards over those variables; its terms; and each bound field's variable by the field's name.
  */
@@ -1191,7 +1219,7 @@ interface WholeSide {
 
 const wholeSide = (
 	side: LawSide,
-	definition: LiveEnv["definition"],
+	live: LiveReading,
 	also: ReadonlyArray<string>,
 	prefix: string,
 	loc: SourceLoc
@@ -1207,7 +1235,7 @@ const wholeSide = (
 	const guarded = mapNonEmpty(side.terms, sideTerm)
 	return {
 		vars: fields.map((f) => ({ id: id(f), origin: { relation: side.relation, field: f }, loc })),
-		match: { source: liveSource(side.relation, definition), bindings: bound, loc },
+		match: { source: live.relation(side.relation), bindings: bound, loc },
 		where: [
 			...side.selection.conjuncts.map((c) => mapLeaves(c, leaves)),
 			...guarded.flatMap((g) => g.guard.map((x) => mapLeaves(x, leaves)))
@@ -1242,13 +1270,13 @@ const wholeField = (side: WholeSide, field: string, loc: SourceLoc): InferredExp
  */
 export const violationQuery = (
 	rule: RuleLaw<LawSide>,
-	definition: LiveEnv["definition"],
+	live: LiveReading,
 	loc: SourceLoc
 ): InferredQuery => {
 	switch (rule.kind) {
 		case "contained": {
-			const from = wholeSide(rule.from, definition, [], "s0.", loc)
-			const to = wholeSide(rule.to, definition, [], "s1.", loc)
+			const from = wholeSide(rule.from, live, [], "s0.", loc)
+			const to = wholeSide(rule.to, live, [], "s1.", loc)
 			return queryOf(
 				[
 					ruleDesc(
@@ -1273,7 +1301,7 @@ export const violationQuery = (
 			)
 		}
 		case "key": {
-			const side = wholeSide(rule.side, definition, rule.side.heading, "s0.", loc)
+			const side = wholeSide(rule.side, live, rule.side.heading, "s0.", loc)
 			const keyTerms = mapNonEmpty(side.terms, (_, i) => varRef(keyId(i)))
 			const counted = imported(
 				[
@@ -1318,7 +1346,7 @@ export const violationQuery = (
 		}
 		case "check": {
 			const heading = rule.side.heading
-			const one = wholeSide(rule.side, definition, heading, "s0.", loc)
+			const one = wholeSide(rule.side, live, heading, "s0.", loc)
 			const leaves: LeafRewrite = { var: () => undefined, field: (f) => wholeField(one, f, loc) }
 			return queryOf(
 				[
