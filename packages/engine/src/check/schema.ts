@@ -1,5 +1,5 @@
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import type { FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, LiteralDesc, SchemaRelationDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import type { ViewRead } from "#compiler/ir/keys.ts"
 import type { ClosedTheoryRelation, FieldWriting, RelationInfo } from "#compiler/ir/law.ts"
@@ -40,7 +40,19 @@ export interface ClosedRelation {
 	readonly heading: Heading
 	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
 	readonly loc: SourceLoc
+	/**
+	 * The description it is read from, a roster's or a closed relation's (ir/desc.ts AdmittedClosedRelation): one value,
+	 * shared by every schema whose levels hold the relation, which the state its reads make of it attaches to
+	 * (check/closed.ts payloadAdmissions), so each checked schema over it reads that state, never makes it again.
+	 */
+	readonly desc: ClosedRelationDesc
 }
+
+/** A closed relation's description: a roster's, or a closed relation's, its rows admitted. */
+export type ClosedRelationDesc = Extract<
+	SchemaRelationDesc,
+	{ readonly kind: "closed" | "closedRelation" }
+>
 
 /**
  * A view a query reads: a derived relation's materialized view or a role query entry's view, by its analysis

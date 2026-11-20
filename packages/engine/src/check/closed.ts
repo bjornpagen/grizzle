@@ -1,5 +1,5 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { ClosedRelation } from "#compiler/check/schema.ts"
+import type { ClosedRelation, ClosedRelationDesc } from "#compiler/check/schema.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { childLoc } from "#compiler/core/loc.ts"
 import { type ScalarType, textOf } from "#compiler/ir/scalar.ts"
@@ -8,20 +8,33 @@ import type {
 	ClosedRelations,
 	PayloadPatterns
 } from "#compiler/scalar/compute/typing.ts"
-import { admitMatch, matchValueAt } from "#compiler/scalar/regex/admit.ts"
+import { admitMatch, type MatchAdmission, matchValueAt } from "#compiler/scalar/regex/admit.ts"
 
 /**
- * What a Compute.matches pattern reading the payload field at `position` of `closed`'s rows can be: a str.pattern
- * field's distinct values, in row order, each admitted here, once for the schema (scalar/regex/admit.ts admitMatch),
- * a value no admission admits refused at the relation's rows; any other field's none, which no pattern reads.
+ * The one place check state attaches to a closed relation's description (check/schema.ts ClosedRelation `desc`): the
+ * admission of each str.pattern payload field's distinct values, by the field, made where a checked schema first reads
+ * the field. A description is immutable and one value however many schemas hold it, every level of a generate's
+ * installation and every slice of it among them, so the checked schemas over it share each pattern's one admission, its
+ * parse, its automaton and its language (scalar/regex/admit.ts admitMatch), where each checked schema admitted every
+ * pattern again. A WeakMap holds nothing alive and is never enumerated: it is the description's state.
  */
-const payloadPatterns = (
+const payloadAdmissions = new WeakMap<
+	ClosedRelationDesc,
+	Map<string, ReadonlyArray<MatchAdmission>>
+>()
+
+/** A str.pattern payload field's distinct values in row order, each admitted, once for its description. */
+const admittedPayload = (
 	closed: ClosedRelation,
-	position: number,
-	type: ScalarType
-): PayloadPatterns => {
-	if (textOf(type) !== "pattern") {
-		return { kind: "other" }
+	field: string,
+	position: number
+): ReadonlyArray<MatchAdmission> => {
+	const fields =
+		payloadAdmissions.get(closed.desc) ?? new Map<string, ReadonlyArray<MatchAdmission>>()
+	payloadAdmissions.set(closed.desc, fields)
+	const known = fields.get(field)
+	if (known !== undefined) {
+		return known
 	}
 	const sources = new Set<string>()
 	for (const row of closed.rows) {
@@ -30,17 +43,32 @@ const payloadPatterns = (
 			sources.add(value.value)
 		}
 	}
-	const at = childLoc(closed.loc, "rows")
-	return {
-		kind: "patterns",
-		admitted: Object.freeze(
-			[...sources].map((source) => {
-				const admission = admitMatch(source)
-				unwrap(matchValueAt(admission, at))
-				return admission
-			})
-		)
+	const admitted = Object.freeze([...sources].map((source) => admitMatch(source)))
+	fields.set(field, admitted)
+	return admitted
+}
+
+/**
+ * What a Compute.matches pattern reading the payload field `field` at `position` of `closed`'s rows can be: a
+ * str.pattern field's distinct values, in row order, each admitted once for the relation's description
+ * (admittedPayload), a value no admission admits refused at the relation's rows; any other field's none, which no
+ * pattern reads.
+ */
+const payloadPatterns = (
+	closed: ClosedRelation,
+	field: string,
+	position: number,
+	type: ScalarType
+): PayloadPatterns => {
+	if (textOf(type) !== "pattern") {
+		return { kind: "other" }
 	}
+	const admitted = admittedPayload(closed, field, position)
+	const at = childLoc(closed.loc, "rows")
+	for (const admission of admitted) {
+		unwrap(matchValueAt(admission, at))
+	}
+	return { kind: "patterns", admitted }
 }
 
 /**
@@ -53,7 +81,13 @@ const closedHeading = (closed: ClosedRelation): ClosedHeading => {
 	const payload = closed.heading.flatMap((c, position) =>
 		key.some((k) => k.name === c.name)
 			? []
-			: [{ name: c.name, type: c.type, patterns: payloadPatterns(closed, position, c.type) }]
+			: [
+					{
+						name: c.name,
+						type: c.type,
+						patterns: payloadPatterns(closed, c.name, position, c.type)
+					}
+				]
 	)
 	return { key: mapNonEmpty(key, (f) => ({ name: f.name, type: f.type })), payload }
 }

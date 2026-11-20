@@ -853,7 +853,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			name,
 			heading: headingColumns(heading),
 			rows: rows.map((row) => heading.map((f) => closedCell(row, f.position))),
-			loc
+			loc,
+			desc
 		}
 	}
 
