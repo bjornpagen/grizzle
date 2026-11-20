@@ -497,12 +497,16 @@ const levelRelations = (desc: SchemaDesc): Map<string, RelationDesc> => {
 }
 
 /**
- * The one base a JavaScript caller's list of bases holds: a list of one schema built by schema(...) or schema.extend; a
- * list of several is refused by the rule the types name (a level over several bases is not built yet).
+ * The one base a JavaScript caller's list of bases holds: a list of one schema built by schema(...) or schema.extend.
+ * A base that is no list, the spelling before the list, is refused by the rule the types name (schema.extend takes its
+ * bases as a list), and a list of several by theirs (a level over several bases is not built yet).
  */
 const oneBase = (bases: unknown) => {
 	if (!isList(bases)) {
-		throw malformed("schema.extend", "a list of base schemas, [base]")
+		throw builderRefusal(
+			"schema.extend",
+			"schema.extend takes its bases as a list: schema.extend([base], name, relations, statements)"
+		)
 	}
 	if (bases.length > 1) {
 		throw builderRefusal(

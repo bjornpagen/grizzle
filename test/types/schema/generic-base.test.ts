@@ -67,6 +67,13 @@ export const genericBase = boxAgreement(finite(word(genericBaseBox)), {
 		},
 		{
 			file: "packages/engine/src/schema/api.ts",
+			original: "\tbases: readonly [\n\t\tBase & LeastStated<Least>,",
+			replacement:
+				"\tbases: (Base & LeastStated<Least>) | readonly [\n\t\tBase & LeastStated<Least>,",
+			why: "schema.extend's bases admit a bare schema beside the list, the spelling before the list, which the builder refuses; the program's level over a bare base fails."
+		},
+		{
+			file: "packages/engine/src/schema/api.ts",
 			original: "\t\tBase & LeastStated<Least>,",
 			replacement: "\t\tBase,",
 			why: "The call infers no least level from a base parameter's bound and checks it over the parameter itself: every generic level's call is refused; the program fails."

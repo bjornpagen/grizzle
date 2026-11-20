@@ -220,7 +220,9 @@ const cellLines = (c: GenericBaseCell, at: number): ReadonlyArray<string> => {
  * The schema every cell reads: Root, its roster and Sitting; Graded over it, holding Gradebook, contained in Sitting;
  * Note, a relation of the levels' own; OtherSitting and OtherGradebook, relations named as Root's and Graded's and
  * other than them; and Sat, a derived relation whose definition is a query over Root. Beside them, a level over Root
- * and Graded both, refused: a level over several bases is not built yet.
+ * and Graded both, refused: a level over several bases is not built yet; a level over Root spelled with no list, the
+ * spelling before the list, refused at its call; and Viewing, a level over Graded holding Viewed, a derived relation over
+ * Graded, read by a query over Viewing, so a level over a listed base keeps every relation of it as itself.
  */
 const genericBaseHeader = (): ReadonlyArray<string> => [
 	'export const Series = closed.unordered("Series", ["a", "b"])',
@@ -240,6 +242,20 @@ const genericBaseHeader = (): ReadonlyArray<string> => [
 	")",
 	"// @ts-expect-error -- refusal: schema.extend takes one base: a level over several bases is not built yet",
 	'export const TwoBases = schema.extend([Root, Graded], "TwoBases", [], [])',
+	"// @ts-expect-error -- refusal: schema.extend takes one base: a level over several bases is not built yet",
+	'export const BareBase = schema.extend(Root, "BareBase", [], [])',
+	"export const Viewed = derived(",
+	'\t"Viewed",',
+	"\tquery(Graded).rule((r) => {",
+	'\t\tconst { number } = v(Gradebook, "g")',
+	"\t\treturn r.match(Gradebook, { number }).find({ number })",
+	"\t})",
+	")",
+	'export const Viewing = schema.extend([Graded], "Viewing", [Viewed], [])',
+	"export const readsViewed = query(Viewing).rule((r) => {",
+	'\tconst { number } = v(Viewed, "w")',
+	"\treturn r.match(Viewed, { number }).find({ number })",
+	"})",
 	""
 ]
 
