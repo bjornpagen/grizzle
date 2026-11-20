@@ -1017,8 +1017,8 @@ class Differ {
 			) {
 				continue
 			}
-			const old = this.constraintOf(arrival.before, this.prev)
-			if (canonicalEquals(old, keyOrCheckDefinition(v, this.next))) {
+			const old = this.redefinedConstraint(arrival.before, keyOrCheckDefinition(v, this.next))
+			if (old === undefined) {
 				continue
 			}
 			const key = keyBefore(v.table, constraintColumns(old))
@@ -1420,6 +1420,18 @@ class Differ {
 		return keyOrCheckDefinition(v, objects)
 	}
 
+	/** The previous definition of the constraint `before` where the target's, `now`, defines it otherwise; none where the
+	 * target holds it as it is. The one reading of a constraint kept, by its two definitions, each read through its own
+	 * installation (constraintOf), never by its two records: an inline constraint's record holds no statement, its
+	 * definition its table's CREATE TABLE's, so two records of one inline CHECK are one whatever each defines. Read by
+	 * its records, a CHECK the target defines otherwise over a column the backfill draws again was kept through the
+	 * backfill (takenByReplacement), its previous definition judging the drawn values, and the backfill refused rows the
+	 * target's admits (S7's n_1_sentinel, 23514). */
+	redefinedConstraint(before: RecordedObject, now: TableConstraint): TableConstraint | undefined {
+		const old = this.constraintOf(before, this.prev)
+		return canonicalEquals(old, now) ? undefined : old
+	}
+
 	run(): MigrationPlan {
 		for (const a of this.input.asides) {
 			this.push("setup.drop", {
@@ -1653,10 +1665,14 @@ class Differ {
 		/** Whether the backfill revalues one of `columns` of `table` in place. */
 		const revaluedAt = (table: ObjectName, columns: ReadonlyArray<string>): boolean =>
 			columns.some((c) => fateAt(table, c) === "revalued")
-		/** Whether the target holds the previous object `o` as it is. */
+		/** Whether the target holds the previous constraint `o` as it is: a constraint of its identity it does not define
+		 * otherwise (redefinedConstraint). */
 		const keptAsIs = (o: RecordedObject): boolean => {
 			const now = this.next.get(o.ident)
-			return now !== undefined && sameRecord(o, now)
+			return (
+				now !== undefined &&
+				this.redefinedConstraint(o, this.constraintOf(now, this.next)) === undefined
+			)
 		}
 		/** Each table's keys, by table key, each with its columns; and its stable ones, those the target keeps as they are
 		 * over columns this migration keeps as they are, whose values, and so whose uniqueness, stand through the
@@ -2716,8 +2732,8 @@ class Differ {
 			return
 		}
 		const was = arrival.kind === "follows" ? arrival.before : undefined
-		const old = was === undefined ? undefined : this.constraintOf(was, this.prev)
-		if (old !== undefined && canonicalEquals(old, c)) {
+		const old = was === undefined ? undefined : this.redefinedConstraint(was, c)
+		if (was !== undefined && old === undefined) {
 			return
 		}
 		const replace = old !== undefined
