@@ -15,28 +15,100 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
-import type { AnyLogin, AnySchema } from "#compiler/public/schema.ts"
+import { Logic, Xml } from "#compiler/public/compute.ts"
+import { Bits, bits, closedId, contract, natural, pg } from "#compiler/public/fields.ts"
+import {
+	type AnyLogin,
+	type AnySchema,
+	closed,
+	contained,
+	login,
+	on,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { type Owned, ownLogin, rostersOf } from "#compiler/schema/own.ts"
+import { generatedField } from "#compiler/schema/relation.ts"
+import { roleBuilder as role } from "#compiler/schema/world.ts"
 import { loginDescOf } from "#compiler/schema/world.ts"
 import type { CommentTarget } from "#compiler/sql/ast.ts"
 import { ledger, shopV1 } from "#test/pg/cli/fixture.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
-import type { relation } from "#test/support/fixtures/ir/desc.ts"
+import type { relation as descRelation } from "#test/support/fixtures/ir/desc.ts"
+import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import { aliasPairs, refusedNameWords } from "#test/unit/core/identity.dictionary.ts"
 
-/** A fixture with its login: the shop, and the ledger, whose residual law and derived relation install as extensions. */
-type Fixture = "shop" | "ledger"
+/**
+ * A fixture with its login: the shop; the ledger, whose residual law and derived relation install as extensions; and
+ * the definitions, whose objects are named by definitions over the installation's own names (`definitionsOf`).
+ */
+type Fixture = "shop" | "ledger" | "definitions"
 
 /** The fixtures, each declared under one name and installed under two. */
 const declaredUnder = "names"
 
+const handles = ["k0", "k1", "k2"] as const
+
+/**
+ * A schema each of whose objects named by its definition's digest has a definition that reads the installation's own
+ * names: a contract over another contract, one over a closed id, its roster's domain, and one calling Xml.isPattern,
+ * the installation's library function; T's CHECK that its (k, n) is a row of the closed relation Pairs, a row function
+ * of T's columns calling Pairs' constant; and T's generated set field g, the singleton of Picks' f at k2, a key Picks
+ * holds no row of, so g reads no column and is a row function of no parameter, returning the roster's bits domain.
+ * Each identity digests its definition read in no schema (physical/ddl/type-schemas.ts digestedHooks).
+ */
+const definitionsOf = (name: string) => {
+	const K = closed.ordered("K", handles)
+	const Pairs = closed.relation(
+		"Pairs",
+		{ k: closedId(K), n: natural },
+		["k"],
+		[
+			{ k: "k0", n: 0n },
+			{ k: "k1", n: 1n }
+		]
+	)
+	const Picks = closed.relation(
+		"Picks",
+		{ k: closedId(K), f: closedId(K) },
+		["k"],
+		[{ k: "k0", f: "k1" }]
+	)
+	const Inner = contract("Inner", pg.bigint, (v) => Logic.ge(v, 0n))
+	const Outer = contract("Outer", Inner, (v) => Logic.le(v, 10n))
+	const Handle = contract("Handle", closedId(K), undefined)
+	const Patterned = contract("Patterned", str.regex("^.*$", "su"), (v) =>
+		Logic.eq(Xml.isPattern(v), true)
+	)
+	const T = relation.generated(
+		"T",
+		{ id: Id, k: closedId(K), n: natural, outer: Outer, handle: Handle, pattern: Patterned },
+		["id"],
+		() => ({ g: generatedField(bits(K), Bits.singleton(Picks.at("f", "k2")), []) })
+	)
+	const s = schema(name, [K, Pairs, Picks, T], [contained(on(T, "k", "n"), on(Pairs, "k", "n"))])
+	return {
+		schema: s,
+		server: login(s, "desk", [role(s, "writer", { T }, { write: ["T"], refresh: [] })])
+	}
+}
+
 export const fixtureOf = (
 	fixture: Fixture
-): { readonly schema: AnySchema; readonly server: AnyLogin } =>
-	fixture === "shop" ? shopV1(declaredUnder, "none") : ledger(declaredUnder)
+): { readonly schema: AnySchema; readonly server: AnyLogin } => {
+	switch (fixture) {
+		case "shop":
+			return shopV1(declaredUnder, "none")
+		case "ledger":
+			return ledger(declaredUnder)
+		case "definitions":
+			return definitionsOf(declaredUnder)
+	}
+}
 
 /**
  * The schema names an installation is drawn under, none of which the declared name, a digest or another name holds as
@@ -89,6 +161,7 @@ export type InstallFeature =
 	| "two plain names"
 	| "one name a prefix of the other"
 	| "a hashed object commented"
+	| "a definition over the installation's names"
 
 /** Each temporary kind's constructor: the names a migration sets an object aside and swaps an index under. */
 export const temporaryOf: { readonly [K in TemporaryKind]: (of: string) => Identity<K> } = {
@@ -137,7 +210,7 @@ export const installationGen: Gen<
 	readonly [Fixture, readonly [(typeof schemaNames)[number], (typeof schemaNames)[number]]]
 > = (source) =>
 	[
-		source.draw(element<Fixture>(["shop", "ledger"])),
+		source.draw(element<Fixture>(["shop", "ledger", "definitions"])),
 		source.draw(element(nonEmpty(pairs, "pairs of schema names")))
 	] as const
 
@@ -171,7 +244,7 @@ export const declaredNamesGen: Gen<Drawn> = oneOf([
 ])
 
 /** A schema of the rules' relations. */
-export const schemaOf = (relations: ReadonlyArray<ReturnType<typeof relation>>) => ({
+export const schemaOf = (relations: ReadonlyArray<ReturnType<typeof descRelation>>) => ({
 	name: "Rules",
 	relations,
 	statements: [],
@@ -213,7 +286,8 @@ const snapshotOf = (fixture: Fixture): Snapshot => {
 /** Each fixture's snapshot. */
 export const snapshots: { readonly [F in Fixture]: Snapshot } = {
 	shop: snapshotOf("shop"),
-	ledger: snapshotOf("ledger")
+	ledger: snapshotOf("ledger"),
+	definitions: snapshotOf("definitions")
 }
 
 /** What a temporary meets: nothing, a standing name of its identifier, or another temporary of it. */
@@ -233,7 +307,7 @@ export const temporariesGen: Gen<{
 	readonly meets: Meets
 	readonly at: number
 }> = (source) => ({
-	snapshot: source.draw(element<Fixture>(["shop", "ledger"])),
+	snapshot: source.draw(element<Fixture>(["shop", "ledger", "definitions"])),
 	steps: source.draw(
 		array(
 			(step): Step => ({

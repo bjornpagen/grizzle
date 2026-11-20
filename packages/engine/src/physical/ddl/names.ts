@@ -1,7 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { RoleEntry } from "#compiler/analysis/schema.ts"
-import { nominal } from "#compiler/core/brand.ts"
 import { catchCompileError, Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type UninstalledType } from "#compiler/core/errors.ts"
 import type { DomainDigest } from "#compiler/core/fingerprint.ts"
@@ -29,6 +28,7 @@ import {
 import { type RegexRef, type ScalarType, textInfoBounds } from "#compiler/ir/scalar.ts"
 import type { NamedNative } from "#compiler/laws/model/model.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
+import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { closedIndexOf, type ClosedTable } from "#compiler/runtime/write/fill.ts"
 import {
 	type Owned,
@@ -47,19 +47,6 @@ import type { FunctionName, ObjectName, TypeRef, TypeSchema } from "#compiler/sq
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import { type ImagedColumns, imagedColumns } from "#compiler/sql/image.ts"
 import { type OutsideProbe, probeIdentity } from "#compiler/write/insert/unique.ts"
-
-const typeSchema = nominal<string, TypeSchema>()
-
-/** The schema of the types an installation holds, its domains: its own, by its identity. */
-export const installationTypes = (installation: Identity<"schema">): TypeSchema =>
-	typeSchema(identifierOf(installation))
-
-/** The schema of the vector extension's types, the one the installation was given for the extension. */
-export const vectorTypes = (schema: string): TypeSchema => typeSchema(schema)
-
-/** No schema: the one a definition is read under to be digested, so its digest names it in every installation
- * (physical/ddl/domains.ts paramDomainIdentity). */
-export const digestedTypes: TypeSchema = typeSchema("")
 
 export interface InstallNames extends PhysicalNames {
 	/**
@@ -202,7 +189,7 @@ interface NamesInput {
 	/** The pattern domain of a parameter's place over a pattern (physical/ddl/domains.ts paramDomainIdentity), refused
 	 * as UninstalledDomain where the installation installs none (physical/install/plan.ts ParamSource). */
 	readonly paramNamed: (place: ParamPlace, regex: RegexRef) => Identity<"paramDomain">
-	/** The digest of a contract's domain's definition over `names` (physical/ddl/domains.ts). */
+	/** The digest of a contract's domain's definition over `names`, read in no schema (physical/ddl/domains.ts). */
 	readonly define: (
 		names: PhysicalNames,
 		contract: DeclaredName,
@@ -395,6 +382,7 @@ export const roleReadNames = (
 	textDomain: names.textDomain,
 	paramDomain: names.paramDomain,
 	vectorSchema: names.vectorSchema,
+	installed: names.installed,
 	codes: names.codes,
 	spellings: names.spellings,
 	closed: names.closed,
@@ -587,6 +575,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		levels,
 		levelOf,
 		vectorSchema: vectorTypes(input.vectorSchema),
+		installed: new Set(levels.map(identifierOf)),
 		refusal: { kind: "qualified", schema, name: identifierOf(identity.refusal()) },
 		declaredFunction: (name) => {
 			const fn = owned.functions[name] ?? missing(`physical: no declared function ${name}`)

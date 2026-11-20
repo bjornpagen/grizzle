@@ -63,13 +63,8 @@ import {
 	textDomainIdentity
 } from "#compiler/physical/ddl/domains.ts"
 import { libraryIdentity } from "#compiler/physical/ddl/library.ts"
-import {
-	installationTypes,
-	namedRole,
-	roleReadNames,
-	vectorTypes,
-	worldNames
-} from "#compiler/physical/ddl/names.ts"
+import { namedRole, roleReadNames, worldNames } from "#compiler/physical/ddl/names.ts"
+import { installationTypes, vectorTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { keyTermText } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
@@ -221,6 +216,7 @@ export const productionNames = (
 			types
 		}),
 		vectorSchema: vectorTypes(vectorSchema),
+		installed: new Set([schema]),
 		codes,
 		library: (fn) => ({ kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }),
 		closed: (relation) => {

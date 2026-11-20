@@ -91,9 +91,9 @@ export const contractDomainsByDefinitionW6Q10ShareOneDomainExactlyWhenTheirDefin
 			{
 				file: "packages/engine/src/physical/ddl/domains.ts",
 				original:
-					"\tdefinitionDigest(\n\t\tcontractDefinition(names, { name: contract, base: source.base, check: source.check })\n\t)",
+					"\tdefinitionDigest(\n\t\tinNoSchema(\n\t\t\tnames.installed,\n\t\t\tcontractDefinition(names, { name: contract, base: source.base, check: source.check })\n\t\t)\n\t)",
 				replacement:
-					"\tdomainDigest(\n\t\t{\n\t\t\tcontract,\n\t\t\tdefinition: definitionDigest(\n\t\t\t\tcontractDefinition(names, { name: contract, base: source.base, check: source.check })\n\t\t\t)\n\t\t},\n\t\teveryProperty\n\t)",
+					"\tdomainDigest(\n\t\t{\n\t\t\tcontract,\n\t\t\tdefinition: definitionDigest(\n\t\t\t\tinNoSchema(\n\t\t\t\t\tnames.installed,\n\t\t\t\t\tcontractDefinition(names, { name: contract, base: source.base, check: source.check })\n\t\t\t\t)\n\t\t\t)\n\t\t},\n\t\teveryProperty\n\t)",
 				why: "A contract's domain is named by its contract as well as its definition, so two contracts of one definition never share one."
 			}
 		]

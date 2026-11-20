@@ -6,7 +6,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import type { FieldDesc, FunctionTypeDesc, HeadingDesc } from "#compiler/ir/desc.ts"
 import { baseTypeRef, type RowAttribute, type RowType, rowTypeOf } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { installationTypes } from "#compiler/physical/ddl/names.ts"
+import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 import {

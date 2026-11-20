@@ -13,7 +13,6 @@ import {
 	compareIdentities,
 	type DeclaredName,
 	type Identity,
-	identifierOf,
 	identity
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
@@ -328,7 +327,6 @@ export class InstallBuilder {
 	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
 	readonly #columns = new Map<string, number>()
 	/** The identifiers of the levels' schemas, where every table of the installation is. */
-	readonly #levelSchemas: ReadonlySet<string>
 
 	constructor(input: {
 		readonly owned: Owned
@@ -350,7 +348,6 @@ export class InstallBuilder {
 		this.natives = input.model.natives
 		this.#lawColumns = lawColumnFields(input.model.natives)
 		this.#fieldImages = fieldImages(input.model.natives)
-		this.#levelSchemas = new Set(input.names.levels.map(identifierOf))
 		this.#languages = new Map(
 			[...input.names.spellings.table].map(([language, spelling]) => [matchAre(spelling), language])
 		)
@@ -445,7 +442,7 @@ export class InstallBuilder {
 		for (const statement of ddl) {
 			this.#countColumns(statement)
 			const table = evaluatedTable(statement)
-			if (table !== undefined && this.#levelSchemas.has(table.schema)) {
+			if (table !== undefined && this.names.installed.has(table.schema)) {
 				const known = this.#evaluatedOn.get(table.name)
 				if (known === undefined) {
 					this.#evaluatedOn.set(table.name, [statement])
@@ -467,7 +464,7 @@ export class InstallBuilder {
 	#withRowFunctions(statement: SqlStatement, reasons: ReadonlyArray<PhysicalReason>): SqlStatement {
 		if (
 			(statement.kind !== "createTable" && statement.kind !== "alterTable") ||
-			!this.#levelSchemas.has(statement.table.schema)
+			!this.names.installed.has(statement.table.schema)
 		) {
 			return statement
 		}
@@ -476,6 +473,7 @@ export class InstallBuilder {
 		this.#columnTypes.set(table, columns)
 		const scope: RowScope = {
 			schema: this.schema,
+			installed: this.names.installed,
 			readsConstant: (fn) => fn.schema === this.schema && this.#readsData(fn.name),
 			columnType: (column) =>
 				columns.get(column) ?? missing(`physical: no column ${column} of ${table}`),

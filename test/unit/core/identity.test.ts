@@ -4,6 +4,10 @@
  * - one schema installed under two schema names installs alike: every name that depends on the installation is
  *   `<schema>__<name>` or hashed, so the two install scripts are one script once the installation is abstracted
  *   (test/pg/migrate/support.ts installationAbstraction), whatever the two names, one a prefix of the other included;
+ *   and every object named by its definition's digest is named alike, its definition read in no schema
+ *   (physical/ddl/type-schemas.ts digestedHooks), where the definitions fixture's contracts over a contract, over a closed id
+ *   and calling Xml.isPattern, its CHECK's row function calling a closed relation's constant and its generated set
+ *   field's row function of no parameter each read the installation's schema;
  * - a COMMENT names a hashed object only, and says what its identity is: a readable name spells its identity itself;
  * - two declared names of one namespace that convert alike are one name, refused as IdentifierCollision, and a name the
  *   rule refuses (a leading `_`, a conversion past maxIdentifierBytes) is refused as MalformedDescription;
@@ -18,7 +22,8 @@
  * classification of the dictionary (test/support/kernel/dict.ts) the schema's namespaces must agree with; and the
  * census's contract over forged twins, which share an identifier and differ in identity.
  *
- * Features: two plain schema names and one a prefix of the other, a hashed object commented; relations alike, fields
+ * Features: two plain schema names and one a prefix of the other, a hashed object commented, a definition over the
+ * installation's names; relations alike, fields
  * alike, a refused relation name, a refused field name; an admission and a digest collision; a temporary admitted,
  * minted again, meeting a standing name, meeting another temporary.
  */
@@ -63,12 +68,13 @@ import {
 /** The naming door installs one schema under two schema names alike, and comments exactly its hashed objects. */
 export const theNamingDoorInstallsOneSchemaUnderTwoSchemaNamesAlikeAndCommentsExactlyItsHashedObjects =
 	property.exhaust(finite(installationGen), {
-		box: "the shop and the ledger, each under every pair of four schema names",
+		box: "the shop, the ledger and the definitions, each under every pair of four schema names",
 		needs: {},
 		situations: [
 			"two plain names",
 			"one name a prefix of the other",
-			"a hashed object commented"
+			"a hashed object commented",
+			"a definition over the installation's names"
 		] satisfies ReadonlyArray<Reached<InstallFeature>>,
 		check:
 			(_, c: Case<InstallFeature>) =>
@@ -79,6 +85,9 @@ export const theNamingDoorInstallsOneSchemaUnderTwoSchemaNamesAlikeAndCommentsEx
 							? "one name a prefix of the other"
 							: "two plain names"
 					)
+					if (fixture === "definitions") {
+						c.note("a definition over the installation's names")
+					}
 					const { schema, server } = fixtureOf(fixture)
 					const owned = owning(schema)
 					const [x, y] = [
@@ -124,6 +133,20 @@ export const theNamingDoorInstallsOneSchemaUnderTwoSchemaNamesAlikeAndCommentsEx
 				replacement:
 					"export const displayOf = (identity: Identity<IdentityKind>): string => identity.canonical",
 				why: "a hashed object's COMMENT holds its identity's canonical text, not its display; the comment property fails."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/type-schemas.ts",
+				original:
+					"\tfunctionRef: (f) => (installed.has(f.schema) ? { ...f, schema: digestedTypes } : f),\n",
+				replacement: "\tfunctionRef: (f) => f,\n",
+				why: "An identity digests its definition's calls of the installation's functions by their schema, so a row function calling a closed relation's constant and a contract calling Xml.isPattern are named apart under two schema names: a fresh install of a migrated history names its row functions apart from the history's, as test/pg/migrate/fixtures met for Payroll's levy_line."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/type-schemas.ts",
+				original:
+					'\t\tt.kind === "named" && installed.has(t.schema) ? { ...t, schema: digestedTypes } : t\n',
+				replacement: "\t\tt\n",
+				why: "An identity digests its definition's types of the installation's domains by their schema, so a contract over another contract or over a closed id, and a row function returning a roster's bits domain, are named apart under two schema names."
 			}
 		]
 	})

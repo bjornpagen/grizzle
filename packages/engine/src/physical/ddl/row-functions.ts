@@ -33,6 +33,7 @@ import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity } from "#compiler/core/identity.ts"
+import { digestedHooks } from "#compiler/physical/ddl/type-schemas.ts"
 import type {
 	ColumnGeneration,
 	CreateConstant,
@@ -43,7 +44,7 @@ import type {
 	TypeRef
 } from "#compiler/sql/ast.ts"
 import { and, or, param, qualifiedCall, types } from "#compiler/sql/build.ts"
-import { identityHooks, ownColumns, transformExpr } from "#compiler/sql/transform.ts"
+import { identityHooks, ownColumns, Transform, transformExpr } from "#compiler/sql/transform.ts"
 
 /**
  * The most bytes the literals of a table's CHECK or stored generation hold together and stay inline: one past it, the
@@ -86,6 +87,9 @@ export const inlineLiteralMaxBytes = 21
 export interface RowScope {
 	/** The schema every constant of the installation is created in, the row function's. */
 	readonly schema: string
+	/** The installation's schemas (ir/physical.ts PhysicalNames installed), which the row function's identity reads its
+	 * definition apart from (type-schemas.ts digestedHooks). */
+	readonly installed: ReadonlySet<string>
 	/** Whether a call of `fn` reads an installed constant: a closed relation's, a roster's or a dictionary's. */
 	readonly readsConstant: (fn: QualifiedFunctionRef) => boolean
 	/** The type of the table's column `column`. */
@@ -156,15 +160,25 @@ const hoists = (scope: RowScope, expr: Expr): boolean => {
 	)
 }
 
+/** A row function's definition: its parameters, the columns it reads, its result type and its body. */
+interface RowDefinition {
+	readonly params: ReadonlyArray<FunctionParam>
+	readonly returns: TypeRef
+	readonly body: Expr
+}
+
 /**
- * A row function's body as its identity digests it: each pattern it matches, the ARE of the spelling the installation
- * holds of the pattern's language, as that language, so a pattern spelled otherwise in one language names the same
- * function, as it is the same law (ir/pattern.ts PatternValue); every other node as it is. The language stands in a
- * call of no schema, a node no body holds, so no text the body compares by `~` reads as it.
+ * A row function's definition as its identity digests it: read in no schema (type-schemas.ts digestedHooks), so one
+ * expression names one function in every installation, whatever its schemas are named, its constants' calls and its
+ * domains' casts among it; and each pattern it matches, the ARE of the spelling the installation holds of the pattern's
+ * language, as that language, so a pattern spelled otherwise in one language names the same function, as it is the same
+ * law (ir/pattern.ts PatternValue); every other node as it is. The language, a key of 64 hex digits (ir/scalar.ts
+ * languageKey), stands in a call of no schema, which no call of the body is: a function the installation installs is
+ * named by an identifier of at most 63 bytes, so no text the body compares by `~` reads as it.
  */
-const identified = (scope: RowScope, body: Expr): Expr =>
-	transformExpr(body, {
-		...identityHooks,
+const identified = (scope: RowScope, definition: RowDefinition): RowDefinition => {
+	const t = new Transform({
+		...digestedHooks(scope.installed),
 		expr: (e) => {
 			const language = matchedLanguage(scope, e)
 			return language === undefined || e.kind !== "binary"
@@ -172,6 +186,12 @@ const identified = (scope: RowScope, body: Expr): Expr =>
 				: { ...e, right: qualifiedCall("", language, []) }
 		}
 	})
+	return {
+		params: definition.params.map((p) => t.functionParam(p)),
+		returns: t.type(definition.returns),
+		body: t.expr(definition.body)
+	}
+}
 
 /**
  * `expr`, an expression of a table's row returning `returns`, as the CHECK or the generation states it: `expr` itself
@@ -274,9 +294,9 @@ const called = (
 			return at === undefined || e.kind !== "column" ? e : param(at, scope.columnType(e.column))
 		}
 	})
-	const definition = { params, returns, body }
+	const definition: RowDefinition = { params, returns, body }
 	const named = identity.rowFunction(
-		constantDigest("row-function", { ...definition, body: identified(scope, body) }, everyProperty)
+		constantDigest("row-function", identified(scope, definition), everyProperty)
 	)
 	install({
 		named,

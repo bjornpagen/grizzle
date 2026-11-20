@@ -40,11 +40,8 @@ import {
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
-import {
-	type ContractSource,
-	digestedTypes,
-	type InstallNames
-} from "#compiler/physical/ddl/names.ts"
+import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
+import { digestedHooks, digestedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import {
@@ -58,6 +55,7 @@ import {
 	type TypeSchema
 } from "#compiler/sql/ast.ts"
 import { and } from "#compiler/sql/build.ts"
+import { Transform } from "#compiler/sql/transform.ts"
 import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 
@@ -759,15 +757,36 @@ export interface OutsideContracts {
 	readonly params: ReadonlyArray<OutsideContract>
 }
 
-/** The digest of a contract's domain's definition over `names`: what InstallNames names the domain by. */
+/**
+ * The digest of a contract's domain's definition over `names`, read in no schema (type-schemas.ts digestedHooks): what
+ * InstallNames names the domain by. A definition over another domain, a contract's or a roster's, or calling a function
+ * of the installation's library names the installation's schema, so the one contract would name its domain apart in
+ * two installations of two names.
+ */
 export const contractDigest = (
 	names: PhysicalNames,
 	contract: DeclaredName,
 	source: ContractSource
 ): DomainDigest =>
 	definitionDigest(
-		contractDefinition(names, { name: contract, base: source.base, check: source.check })
+		inNoSchema(
+			names.installed,
+			contractDefinition(names, { name: contract, base: source.base, check: source.check })
+		)
 	)
+
+/** `definition` read in no schema of `installed`'s (type-schemas.ts digestedHooks): its base and its CHECK. */
+const inNoSchema = (
+	installed: ReadonlySet<string>,
+	definition: DomainDefinition
+): DomainDefinition => {
+	const t = new Transform(digestedHooks(installed))
+	return {
+		base: t.type(definition.base),
+		collation: definition.collation,
+		check: definition.check === undefined ? undefined : t.expr(definition.check)
+	}
+}
 
 type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
