@@ -147,11 +147,29 @@ const docTreeOf = () => {
 	)
 }
 
-/** The stored tree's installation as its first migration reaches it: that migration's snapshot and folder. */
+/**
+ * The stored tree's installation as its first migration reaches it: that migration's snapshot and folder, and the one
+ * law column of its table a writer fills, the parent's count its family copies (‹n›), every other one generated.
+ */
 export interface DocTree {
 	readonly snapshot: DeploySnapshot
 	readonly folder: FolderTexts
+	readonly copy: string
 }
+
+/** The law columns of `snapshot`'s installation that PostgreSQL does not generate, by their names. */
+const filledLawColumns = (snapshot: DeploySnapshot): ReadonlyArray<string> =>
+	Arr.flatMap(snapshot.manifest.objects, (o) =>
+		o.kind === "lawColumn"
+			? Arr.flatMap(o.ddl, (statement) =>
+					statement.kind === "alterTable"
+						? Arr.flatMap(statement.actions, (a) =>
+								a.kind === "addColumn" && a.column.generated === undefined ? [a.column.name] : []
+							)
+						: []
+				)
+			: []
+	)
 
 /** The stored tree drafted from nothing, as `grizzle generate` drafts a first migration, and its folder as written. */
 export const docTree = (): DocTree => {
@@ -166,8 +184,11 @@ export const docTree = (): DocTree => {
 		}),
 		"the stored tree drafts from nothing"
 	)
+	const [copy, ...more] = filledLawColumns(g.snapshot)
+	assert.ok(more.length === 0, "the stored tree's one filled law column, its parent's count")
 	return {
 		snapshot: g.snapshot,
+		copy: defined(copy, "the stored tree's copy of its parent's count"),
 		folder: {
 			name: g.folder.name,
 			metaText: g.folder.metaText,
@@ -178,8 +199,8 @@ export const docTree = (): DocTree => {
 
 /**
  * The stored tree's rows as a direct writer inserts them at SERIALIZABLE, every drawn value stated as its laws fix it:
- * a root its own parent at slot 0, the parent's kind (a root's own 0), and the count fold over each node's children:
- * `before` its slot, `after` one more, `total` its count.
+ * a root its own parent at slot 0, the parent's kind (a root's own 0), the count fold over each node's children:
+ * `before` its slot, `after` one more, `total` its count, and ‹n›, the parent's count (a root's own).
  */
 export const storedInsert = (tree: DocTree, c: TreeCase): string => {
 	const fields = [
@@ -209,13 +230,17 @@ export const storedInsert = (tree: DocTree, c: TreeCase): string => {
 					`${row.parentKind}::"pg_catalog"."int4"`,
 					int8Literal(String(row.at)),
 					int8Literal(String(row.at + 1)),
-					int8Literal(String(row.children))
+					int8Literal(String(row.children)),
+					int8Literal(String(row.copy))
 				],
 				", "
 			)
 		)
 	)
-	return `INSERT INTO ${nodeTable(tree.snapshot)} (${Arr.join(Arr.map(fields, column), ", ")}) VALUES ${Arr.join(
+	return `INSERT INTO ${nodeTable(tree.snapshot)} (${Arr.join(
+		[...Arr.map(fields, column), q(tree.copy)],
+		", "
+	)}) VALUES ${Arr.join(
 		Arr.map(rows, (row) => `(${row})`),
 		", "
 	)}`
