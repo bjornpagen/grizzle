@@ -323,7 +323,7 @@ export const schemaOf = (s: Sketch, restating: ReadonlyArray<SideDesc>): SchemaD
 		...Arr.map(s.targets, (_, i) => mutable(`U${i}`)),
 		...Arr.map(s.probes, (_, j) => mutable(`V${j}`))
 	],
-	extends: undefined
+	bases: []
 })
 
 export const installationOf = (desc: SchemaDesc): Installation => {

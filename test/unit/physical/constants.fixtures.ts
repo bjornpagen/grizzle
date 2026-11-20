@@ -108,7 +108,7 @@ export const schemaOf = (w: World): SchemaDesc => {
 			grade
 		],
 		statements: [],
-		extends: undefined
+		bases: []
 	})
 }
 

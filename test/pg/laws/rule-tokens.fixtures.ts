@@ -61,7 +61,7 @@ const Idref = derived(
 const longest = 3
 
 const tokensSchema = schema.extend(
-	Base,
+	[Base],
 	"rule_tokens_1",
 	[Idref],
 	[

@@ -61,7 +61,7 @@ const Weekly = derived.materialized(
 	})
 )
 
-const Reports = schema.extend(Edu, "Edu_1", [Weekly], [])
+const Reports = schema.extend([Edu], "Edu_1", [Weekly], [])
 
 const app = role(Reports, "app", wholeEntriesOf(Reports), { refresh: ["Weekly"] })
 

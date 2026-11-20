@@ -456,7 +456,7 @@ export const deferredShape = (name: string) => {
 		})
 	)
 	const base = schema.extend(
-		below,
+		[below],
 		`${name}_1`,
 		[Kind1],
 		[contained(on(Held, "v"), on(Kind1, "v"))]
@@ -743,7 +743,7 @@ export const publishedShape = (name: string) => {
 		})
 	)
 	const base = schema.extend(
-		below,
+		[below],
 		`${name}_1`,
 		[DE, Kind1],
 		[key(on(DE, "v")), contained(on(PubCopy, "v"), on(Kind1, "v"))]

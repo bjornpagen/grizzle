@@ -93,7 +93,7 @@ const orderingOf = (shape: Shape, name: string) => {
 	)
 	const strict = strictOf(shape)
 	const Ordered = schema.extend(
-		Base,
+		[Base],
 		`${name}_1`,
 		[AfterStart, BeforeEnd],
 		[

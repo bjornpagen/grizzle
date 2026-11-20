@@ -59,7 +59,7 @@ const schema: SchemaDesc = {
 		counted(on("Member", ["owner"]), fin("Owner", "n")),
 		fold(fin("Owner", "n"), "count", on("Member", ["owner"]), on("Owner", ["id", "size"]))
 	],
-	extends: undefined
+	bases: []
 }
 
 /** The drawn columns of the member, by what each draws. */

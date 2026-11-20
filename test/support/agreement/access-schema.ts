@@ -78,7 +78,7 @@ const AccountTasks = derived(
 		return r.match(Task, { id, account }).find({ id, account })
 	})
 )
-export const Reports = schema.extend(Work, "Reports", [TaskTally, AccountNames, AccountTasks], [])
+export const Reports = schema.extend([Work], "Reports", [TaskTally, AccountNames, AccountTasks], [])
 
 /** A program over the extension matching its live derived relation, which a full role of the extension runs. */
 export const accountTasks = query(Reports).rule((r) => {

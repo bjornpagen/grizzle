@@ -198,7 +198,7 @@ export const derivedRelationKeysStateExactlyTheMinimalSetsOfHeadColumnsAJoinsKey
 								Result.map(
 									checkedIn(
 										runtimeSchema.extend(
-											j.base.schema,
+											[j.base.schema],
 											"Level5",
 											[runtimeDerived("D", j.definition, [])],
 											[],
@@ -285,7 +285,7 @@ export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFields
 				return yield* Effect.sync(() => {
 					const minimal = productMinimal(p)
 					const view = runtimeDerived("D", p.definition, [])
-					const level = runtimeSchema.extend(p.base.schema, "Level1", [view], [], [])
+					const level = runtimeSchema.extend([p.base.schema], "Level1", [view], [], [])
 					const above = aboveOf(p, minimal, view, level)
 					const analysis = succeeded(
 						Result.map(
@@ -293,7 +293,7 @@ export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFields
 								above === undefined
 									? level
 									: runtimeSchema.extend(
-											level,
+											[level],
 											"Level6",
 											[runtimeDerived("E", above.definition, [])],
 											[],
@@ -372,7 +372,7 @@ export const derivedRelationKeysRefuseADefinitionNoViewCanStoreOrIndexWithItsTyp
 					const { base, definition } = storableOf(c)
 					const analyzed = Result.map(
 						checkedIn(
-							runtimeSchema.extend(base, "Level2", [runtimeDerived("D", definition, [])], [], [])
+							runtimeSchema.extend([base], "Level2", [runtimeDerived("D", definition, [])], [], [])
 						),
 						derivedAnalysis
 					)
@@ -464,7 +464,7 @@ export const derivedRelationKeysStateEachNameAViewsHeadGivesItsKeysVariableAsAKe
 						}),
 						[]
 					)
-					const level = runtimeSchema.extend(keyedBase, "Level3", [view], [], [])
+					const level = runtimeSchema.extend([keyedBase], "Level3", [view], [], [])
 					const above = runtimeDerived(
 						"E",
 						queryOver(level).rule((r: RuleValue) => {
@@ -476,7 +476,7 @@ export const derivedRelationKeysStateEachNameAViewsHeadGivesItsKeysVariableAsAKe
 					)
 					const analysis = succeeded(
 						Result.map(
-							checkedIn(runtimeSchema.extend(level, "Level4", [above], [], [])),
+							checkedIn(runtimeSchema.extend([level], "Level4", [above], [], [])),
 							derivedAnalysis
 						)
 					)

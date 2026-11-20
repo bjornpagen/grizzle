@@ -238,7 +238,7 @@ export const versionFor = (c: FunctionCase, v: VersionSketch) => (name: string) 
 		return { schema: s, logins: [login(s, "desk", [writer])] }
 	}
 	const base = schema(name, [relation("B", { id: Id }, ["id"])], [])
-	const s = schema.extend(base, `${name}_fn`, [N, ...functions], [])
+	const s = schema.extend([base], `${name}_fn`, [N, ...functions], [])
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	return { schema: s, logins: [login(s, "desk", [writer])] }
 }

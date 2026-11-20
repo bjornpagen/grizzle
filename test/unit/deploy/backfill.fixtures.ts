@@ -1126,7 +1126,7 @@ const unreshaped: Desc.SchemaDesc = {
 		])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 }
 
 const indexFields: { readonly [F in FamilyForm]: Readonly<Record<string, Desc.FixtureField>> } = {
@@ -1216,7 +1216,7 @@ const reshapedSchema = (
 			)
 		],
 		statements: [familyStatement(form, slots), ...folded.statements],
-		extends: undefined
+		bases: []
 	}
 }
 
@@ -1599,7 +1599,7 @@ const placedBeforeIn = (level: boolean) => {
 		)
 	]
 	return level
-		? schema.extend(placedBase, "Placed", [Session, Attempt, Value], laws)
+		? schema.extend([placedBase], "Placed", [Session, Attempt, Value], laws)
 		: schema("Backfill", [Session, Attempt, Value], laws)
 }
 
@@ -1630,7 +1630,7 @@ const placedAfterIn = (level: boolean) => {
 		contained(on(Value, "child", "item", "n", "at"), on(Attempt, "child", "item", "n", "at"))
 	]
 	return level
-		? schema.extend(placedBase, "Placed", [Session, Attempt, Value], laws)
+		? schema.extend([placedBase], "Placed", [Session, Attempt, Value], laws)
 		: schema("Backfill", [Session, Attempt, Value], laws)
 }
 

@@ -112,13 +112,13 @@ const refusalProbes = (last: number): ReadonlyArray<RefusalProbe> => [
 		label: "undeclared",
 		why: "a statement names a relation no level of the schema declares",
 		line: (ns) =>
-			`export const ${ns}undeclared = schema.extend(${ns}S, "Undeclared", {}, [contained(on(${ns}Stray, "parent"), on(${ns}R${last}, "id"))])`
+			`export const ${ns}undeclared = schema.extend([${ns}S], "Undeclared", {}, [contained(on(${ns}Stray, "parent"), on(${ns}R${last}, "id"))])`
 	},
 	{
 		label: "aliased",
 		why: "a schema holds each relation under its own name",
 		line: (ns) =>
-			`export const ${ns}aliased = schema.extend(${ns}S, "Aliased", { Strays: ${ns}Stray }, [])`
+			`export const ${ns}aliased = schema.extend([${ns}S], "Aliased", { Strays: ${ns}Stray }, [])`
 	},
 	{
 		label: "stray-entry",

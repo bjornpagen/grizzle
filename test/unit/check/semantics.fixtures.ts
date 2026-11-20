@@ -71,7 +71,7 @@ export const Tagged: SchemaDesc = {
 		relation("Tag", { item: f.integer, label: f.integer }, ["item", "label"])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 }
 
 /** Tagged as the reference reads its Base nodes. */

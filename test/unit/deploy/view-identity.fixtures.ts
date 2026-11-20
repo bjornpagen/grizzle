@@ -76,7 +76,7 @@ export const schemaOf = (change: Change, version: "first" | "second") => {
 		})
 	const Ones = derived.materialized("Ones", selected(changed("Ones") ? 3 : 1))
 	const Twos = derived.materialized("Twos", selected(changed("Twos") ? 4 : 2))
-	const Level1 = schema.extend(Base, "view_identity_1", [Ones, Twos], [])
+	const Level1 = schema.extend([Base], "view_identity_1", [Ones, Twos], [])
 	const Fives = derived.materialized(
 		"Fives",
 		query(Level1).rule((r) => {
@@ -84,7 +84,7 @@ export const schemaOf = (change: Change, version: "first" | "second") => {
 			return r.match(Ones, { doc, at, b: changed("Fives") ? 6 : 5 }).find({ doc, at })
 		})
 	)
-	return schema.extend(Level1, "view_identity_2", [Fives], [])
+	return schema.extend([Level1], "view_identity_2", [Fives], [])
 }
 
 /** The view a materialized view's name names, by the identifier its derived relation's record gives it. */

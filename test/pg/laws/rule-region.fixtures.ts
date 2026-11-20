@@ -45,7 +45,7 @@ const regionSchema = (judged: Judged) => {
 					return r.match(T, { package: unit, g }).find({ package: unit, g })
 				})
 			)
-			return schema.extend(Base, "ProbedRegion_1", [Stated], [key(on(Stated, "package"))])
+			return schema.extend([Base], "ProbedRegion_1", [Stated], [key(on(Stated, "package"))])
 		}
 		case "whole": {
 			const Base = schema("WholeRegion", [T], [])
@@ -57,7 +57,7 @@ const regionSchema = (judged: Judged) => {
 				})
 			)
 			return schema.extend(
-				Base,
+				[Base],
 				"WholeRegion_1",
 				[Stated],
 				[check("Natural_g", Stated, (s) => s.ge(s.g, 0))]

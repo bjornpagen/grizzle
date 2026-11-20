@@ -468,7 +468,7 @@ const layered = (layers: Arr.NonEmptyReadonlyArray<Layer>): SchemaDesc => {
 	const [root, ...above] = layers
 	const levelOf = (layer: Layer, at: number, extending: SchemaDesc | undefined): SchemaDesc => ({
 		name: `Level${at}`,
-		extends: extending,
+		bases: extending === undefined ? [] : [extending],
 		relations: layer.relations,
 		statements: [...r0Key(layer.relations), ...layer.statements]
 	})

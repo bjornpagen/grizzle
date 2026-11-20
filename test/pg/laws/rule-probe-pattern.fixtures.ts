@@ -27,7 +27,7 @@ const Open = derived(
 )
 
 const RuleProbePattern = schema.extend(
-	Base,
+	[Base],
 	"RuleProbePatternRule",
 	[Open],
 	[contained(on(Item, "tag"), on(Open, "tag"))]

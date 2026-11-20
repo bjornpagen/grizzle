@@ -557,7 +557,7 @@ type Holding = (desc: unknown) => {
 const withoutStatements = (level: SrcSchemaDesc): SrcSchemaDesc => ({
 	...level,
 	statements: [],
-	extends: level.extends === undefined ? undefined : withoutStatements(level.extends)
+	bases: level.bases[0] === undefined ? [] : [withoutStatements(level.bases[0])]
 })
 
 /**
@@ -569,7 +569,7 @@ const ownedAtItsLevel = (
 	bare: SrcSchemaDesc,
 	desc: unknown
 ): Result.Result<Owned, CompileError> => {
-	const below = bare.extends === undefined ? undefined : ownedAtItsLevel(bare.extends, desc)
+	const below = bare.bases[0] === undefined ? undefined : ownedAtItsLevel(bare.bases[0], desc)
 	return below?.ok === true
 		? below
 		: Result.flatMap(parseSchemaInput({ ...bare, statements: [desc] }), ownInput)

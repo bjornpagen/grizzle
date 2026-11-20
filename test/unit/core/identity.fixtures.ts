@@ -175,7 +175,7 @@ export const schemaOf = (relations: ReadonlyArray<ReturnType<typeof relation>>) 
 	name: "Rules",
 	relations,
 	statements: [],
-	extends: undefined
+	bases: [] as const
 })
 
 /** A drawn census: up to five fields of one relation's sequences, one forged twin or none, and the twin's place. */

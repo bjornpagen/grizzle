@@ -140,7 +140,7 @@ export const ledgerSchema: SchemaDesc = {
 		closed.ordered("Kind", ["Automatic", "Manual"])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 }
 
 export const uuidOf = (n: number): Uuid =>

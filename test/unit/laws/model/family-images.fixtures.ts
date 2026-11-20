@@ -78,7 +78,7 @@ export const imageSchema = (c: ImageCase): SchemaDesc => {
 				: [contained(on("Entry", ["path", "title"]), on("Doc", ["path", "title"]))]),
 			...(c.owner === "mutable" ? [mutable("Doc")] : [])
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

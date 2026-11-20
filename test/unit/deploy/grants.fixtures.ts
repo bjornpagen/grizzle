@@ -132,7 +132,7 @@ const built = (
 				return r.match(A, { id, note }).find({ id, note })
 			})
 		)
-		const base = schema.extend(root, "Worlds_1", [Listing], [])
+		const base = schema.extend([root], "Worlds_1", [Listing], [])
 		const listing = base.relations.Listing
 		const reader =
 			v.reads === "A"
@@ -167,7 +167,7 @@ const built = (
 			return r.match(A, { id, note }).find({ id, note })
 		})
 	)
-	const base = schema.extend(root, "Worlds_1", [Listing], [])
+	const base = schema.extend([root], "Worlds_1", [Listing], [])
 	const listing = base.relations.Listing
 	const reader = v.reads === "A" ? role(base, "reader", { A }) : role(base, "reader", { A, B })
 	const writer =

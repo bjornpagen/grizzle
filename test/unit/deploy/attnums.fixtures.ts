@@ -87,7 +87,7 @@ const descOf = (m: Model): SchemaDesc => ({
 		)
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** A step's declarations: the dropped field's drop, or the renamed field's rename. */

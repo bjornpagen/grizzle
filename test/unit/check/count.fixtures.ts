@@ -229,7 +229,7 @@ export const observedOf = (c: CountCase): Observed =>
 						return q.match(Item, { id, kind }).find({ kind, n: q.count() })
 					})
 				)
-				const Read = schema.extend(Counts, "Read", [Tallied], [])
+				const Read = schema.extend([Counts], "Read", [Tallied], [])
 				const checked = checking(Read)
 				if (r.kind === "derived") {
 					const tallied = defined(

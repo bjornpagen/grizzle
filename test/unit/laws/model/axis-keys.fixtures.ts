@@ -135,7 +135,7 @@ export const docSchema = (t: TextType): SchemaDesc => {
 				on("Doc", ["id", "text"])
 			)
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

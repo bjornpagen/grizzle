@@ -312,7 +312,7 @@ const Indexed: SchemaDesc = {
 		contained(on("Deposit", ["line"]), on("Line", ["id"])),
 		key(onWhere("Deposit", ["line"], eq(fieldRef("remainder"), literal(true))))
 	],
-	extends: undefined
+	bases: []
 }
 
 /**

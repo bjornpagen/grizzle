@@ -32,7 +32,7 @@ const Listed = derived.materialized(
 	})
 )
 
-export const Refined = schema.extend(Stored, "Refined", [Listed], [])
+export const Refined = schema.extend([Stored], "Refined", [Listed], [])
 
 type Source = "a derived relation's column" | "a declared parameter"
 

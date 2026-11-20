@@ -186,7 +186,12 @@ const inlineSplit = check("Inline_split", Inline, (s) =>
 	s.eq(s.lexical, Text.concat(s.lead, Text.concat(s.target, Text.concat(s.params, s.trail))))
 )
 
-const splitSchema = schema.extend(Base, "concat_split_1", [Spelled], [referenceSplit, inlineSplit])
+const splitSchema = schema.extend(
+	[Base],
+	"concat_split_1",
+	[Spelled],
+	[referenceSplit, inlineSplit]
+)
 
 export const splitTemplate = migratedTemplate({
 	declaredIn: import.meta,

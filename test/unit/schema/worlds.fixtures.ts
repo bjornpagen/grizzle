@@ -62,7 +62,7 @@ const Counts = derived.materialized(
 	})
 )
 
-export const Reports = schema.extend(Blog, "Reports", [Counts], [])
+export const Reports = schema.extend([Blog], "Reports", [Counts], [])
 
 const Stray = relation("Stray", { id: Id }, ["id"])
 

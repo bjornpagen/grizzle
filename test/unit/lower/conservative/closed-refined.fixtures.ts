@@ -35,7 +35,7 @@ const patterned = installationOf(
 			relation("Word", { id: f.uuid, word: f.regex("^[a-z]+$", "u") }, ["id"])
 		],
 		statements: [],
-		extends: undefined
+		bases: []
 	}),
 	{ kind: "declared" }
 ).names.textDomain

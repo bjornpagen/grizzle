@@ -1195,7 +1195,7 @@ export const schemaAndSchemaExtendRecordsEachRelationOfItsListUnderTheNameItCarr
 					}
 					assert.deepEqual(desc.statements, expanded)
 					matchesObject(W, { name: "Work", relations: byName, statements })
-					assert.equal("extends" in W ? W.extends : "no base member", undefined)
+					assert.deepEqual("bases" in W ? W.bases : "no bases member", [])
 				}),
 			oracle: {
 				kind: "specification",
@@ -1329,7 +1329,7 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 										case "a read of its own level":
 											record["OwnLevel"] = materializedDerived(
 												"OwnLevel",
-												idsOf(schema.extend(current, "Probe", [first.value], [], []), [
+												idsOf(schema.extend([current], "Probe", [first.value], [], []), [
 													first.value
 												]),
 												[]
@@ -1348,15 +1348,32 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 										case "a definition that is no query":
 											admitDerived("Bad", {}, "materialized", [])
 											break
+										case "two bases":
 										case "none":
 											break
 									}
 								}
-								current = schema.extend(current, `Level${chain.length}`, Rec.values(record), [], [])
+								current = schema.extend(
+									k === s.levels.length - 1 && s.defect === "two bases"
+										? [current, base]
+										: [current],
+									`Level${chain.length}`,
+									Rec.values(record),
+									[],
+									[]
+								)
 								chain.push(current)
 								appendAll(below, declared)
 							}
 							return { current, chain, expected }
+						}
+						if (s.defect === "two bases") {
+							const error = throwsRefused(tower, "Refused")
+							assert.equal(
+								error.reason._tag === "Refused" ? error.reason.refusal : error.reason._tag,
+								"schema.extend takes one base: a level over several bases is not built yet"
+							)
+							return
 						}
 						if (s.defect !== "none") {
 							return void throwsRefused(tower, "MalformedDescription")
@@ -1365,9 +1382,9 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 						for (const [k, value] of chain.entries()) {
 							const desc = defined(schemaDescOf(value))
 							assert.equal(desc.name, k === 0 ? "Edu" : `Level${k}`)
-							assert.equal(
-								"extends" in value ? value.extends : "no base member",
-								k === 0 ? undefined : chain[k - 1]
+							assert.deepEqual(
+								"bases" in value ? value.bases : "no bases member",
+								k === 0 ? [] : [chain[k - 1]]
 							)
 							if (k > 0) {
 								matchesObject(
@@ -1394,6 +1411,12 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 			},
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/schema/schema.ts",
+					original: "\tif (bases.length > 1) {",
+					replacement: "\tif (bases.length > 2) {",
+					why: "schema.extend admits a list of two bases and builds a level over the first alone, the second dropped; the two-bases defect's refusal fails."
+				},
 				{
 					file: "packages/engine/src/query/build/scope.ts",
 					original: "running = undefined",

@@ -136,7 +136,7 @@ export const aRelationsRowsFitOneHeapTupleTheLawModelAdmitsARelationWhoseRowReac
 								)
 							],
 							statements: [],
-							extends: undefined
+							bases: [] as const
 						}
 						if (bytes <= heapTupleMaxBytes) {
 							modelOf(desc)

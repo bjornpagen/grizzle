@@ -167,7 +167,7 @@ export const derivedRelationsOnPostgreSQL19ARefinedTextLiteralColumnHasItsPatter
 								})
 							})
 							const Literals = runtimeDerived("Literals", literals, [])
-							const Ext = schema.extend(C, "Ext", [Literals], [])
+							const Ext = schema.extend([C], "Ext", [Literals], [])
 							const viewer = role(Ext, "viewer", { Literals })
 							const refresher = role(
 								Ext,

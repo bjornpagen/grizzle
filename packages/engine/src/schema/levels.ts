@@ -1,5 +1,5 @@
 import { sameContent } from "#compiler/core/canonical.ts"
-import type { RelationDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import { levelChain, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { type CanonicalStatement, canonicalStatementOf } from "#compiler/schema/own.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 
@@ -86,6 +86,12 @@ export const levelContent = (
 	})
 }
 
+/** The content of the level `desc` extends, none for a root (contentOfDesc). */
+const contentBelow = (desc: SchemaDesc): SchemaContent | undefined => {
+	const [base] = desc.bases
+	return base === undefined ? undefined : contentOfDesc(base)
+}
+
 /**
  * The content of a schema description no builder made, read where it enters (program/schema.ts parseSchemaInput): each
  * level's relations and its statements' canonical texts read from their descriptions, which a built schema's relations
@@ -95,7 +101,7 @@ export const contentOfDesc = (desc: SchemaDesc): SchemaContent =>
 	levelContent(
 		desc.relations.map((r) => ({ name: r.name, desc: r })),
 		desc.statements.map(canonicalStatementOf),
-		desc.extends === undefined ? undefined : contentOfDesc(desc.extends),
+		contentBelow(desc),
 		[]
 	)
 
@@ -157,7 +163,7 @@ export const isLevelOf = (lower: SchemaContent, higher: SchemaContent): boolean 
  */
 export const levelRelations = (desc: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 	const out = new Map<string, RelationDesc>()
-	for (let at: SchemaDesc | undefined = desc; at !== undefined; at = at.extends) {
+	for (const at of levelChain(desc).toReversed()) {
 		for (const r of at.relations) {
 			if (!out.has(r.name)) {
 				out.set(r.name, r)

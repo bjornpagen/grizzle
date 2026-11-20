@@ -608,7 +608,7 @@ export const subjectOf = (
 		onNone: () => declared,
 		onSome: (level) =>
 			schema.extend(
-				declared,
+				[declared],
 				"LawsAbove",
 				Rec.values(Rec.fromEntries(order(level.relations))),
 				order(level.statements)

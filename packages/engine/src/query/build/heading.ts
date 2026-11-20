@@ -3,8 +3,8 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	declaredRoster,
 	type FieldDesc,
+	levelChain,
 	type RelationDesc,
-	type SchemaDesc,
 	type SchemaRelationDesc
 } from "#compiler/ir/desc.ts"
 import { Roster, type RosterHandles } from "#compiler/ir/scalar.ts"
@@ -105,11 +105,7 @@ export const schemaInfo = (over: Level): SchemaInfo => {
 	if (over.kind === "fragment") {
 		declared(over.content.relations.values())
 	} else {
-		for (
-			let at: SchemaDesc | undefined = over.kind === "schema" ? over.desc : over.desc.base;
-			at !== undefined;
-			at = at.extends
-		) {
+		for (const at of levelChain(over.kind === "schema" ? over.desc : over.desc.base).toReversed()) {
 			declared(at.relations)
 		}
 	}

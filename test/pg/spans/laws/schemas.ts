@@ -38,7 +38,7 @@ export const visits = (options: {
 			relation("Visit", { id: f.integer, site: f.integer, during, billable: f.boolean }, ["id"])
 		],
 		statements: [visitsCoverage, ...mutables(options.mutable, ["Shift", "Visit"])],
-		extends: undefined
+		bases: []
 	}
 }
 

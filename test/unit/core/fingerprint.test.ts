@@ -3,12 +3,12 @@
  * covering every part the contract names.
  *
  * - Parts: a schema level's fingerprint changes with its content and with a "loc" member that holds no SourceLoc, and
- *   not with its SourceLocs moved; stripping every SourceLoc leaves it as it was; and a level over the level below it
- *   fingerprints as the level alone, the level below's text standing for its content.
+ *   not with its SourceLocs moved; stripping every SourceLoc leaves it as it was; and a level over a base is the text
+ *   of the level encoded whole, the base's text standing for its content among its bases.
  * - Domains: two different one-line domains digest one value apart, and an empty domain or one of two lines is refused.
  *
  * Oracle: the fingerprint's contract as a specification: which change of the parts it names must move the digest, and
- * which must not; the level alone as the differential for the level over the one below.
+ * which must not; the level encoded whole as the differential for the level over its base.
  *
  * Features: each change of the parts (content, a non-SourceLoc loc, SourceLocs moved); two domains, an empty domain, a
  * domain of two lines.
@@ -18,7 +18,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Record } from "effect"
-import { everyProperty } from "#compiler/core/canonical.ts"
+import { encode, everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { digest, schemaLevel } from "#compiler/core/fingerprint.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import {
@@ -53,7 +53,7 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 						? { ...p, content: { ...Record.fromEntries(entries), loc: "Paris" } }
 						: p
 				const after = changed(before, change, there, entries)
-				const schema = (q: Parts) => succeeded(schemaLevel(q.content, undefined)).fingerprint
+				const schema = (q: Parts) => succeeded(schemaLevel(q.content, [])).fingerprint
 				const schemaParts: ReadonlySet<Change> = new Set(["content", "a non-SourceLoc loc"])
 				assert.equal(
 					schema(after) !== schema(before),
@@ -61,11 +61,14 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 					"the schema fingerprint"
 				)
 				assert.equal(schema({ ...before, content: stripped(before.content) }), schema(before))
-				const above = { ...Record.fromEntries(entries), loc: there, extends: before.content }
-				assert.deepEqual(
-					succeeded(schemaLevel(above, succeeded(schemaLevel(before.content, undefined)))),
-					succeeded(schemaLevel(above, undefined)),
-					"a level over the level below it, as it is alone"
+				const above = { ...Record.fromEntries(entries), loc: there, bases: [before.content] }
+				const written: string = succeeded(
+					schemaLevel(above, [succeeded(schemaLevel(before.content, []))])
+				).text
+				assert.equal(
+					written,
+					succeeded(encode(above, withoutSourceLocs)),
+					"a level over its base, its base written from the base's text, as it is encoded whole"
 				)
 				c.note(change)
 			}),
@@ -80,16 +83,19 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 		},
 		{
 			file: "packages/engine/src/core/fingerprint.ts",
-			original: "\t\t\t? encode(level, withoutSourceLocs)",
-			replacement: "\t\t\t? encode(level, { omit: () => false })",
-			why: "a level alone encoded with every property, its SourceLocs kept in the text; the parts property fails."
+			original:
+				'\t\tencodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),',
+			replacement:
+				'\t\tencodeOver(level, { omit: () => false }, new Map([["bases", arrayText(bases.map((b) => b.text))]])),',
+			why: "a level encoded with every property, its SourceLocs kept in the text; the parts property fails."
 		},
 		{
 			file: "packages/engine/src/core/fingerprint.ts",
-			original: '\t\t\t: encodeOver(level, withoutSourceLocs, new Map([["extends", below.text]])),',
+			original:
+				'\t\tencodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),',
 			replacement:
-				'\t\t\t: encodeOver(level, withoutSourceLocs, new Map([["extends", below.fingerprint]])),',
-			why: "a level over another written with the level below's fingerprint in place of its text; the parts property's level-below differential fails."
+				'\t\tencodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.fingerprint))]])),',
+			why: "a level over a base written with the base's fingerprint in place of its text; the parts property's base differential fails."
 		}
 	]
 })

@@ -86,7 +86,7 @@ used(K${i})
 `
 	),
 	""
-)}export const E = schema.extend(B, "E", [${listedOf(shape)}], [${lawsOf(shape)}])
+)}export const E = schema.extend([B], "E", [${listedOf(shape)}], [${lawsOf(shape)}])
 ${
 	shape.read
 		? Arr.join(

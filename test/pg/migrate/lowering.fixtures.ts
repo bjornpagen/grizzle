@@ -152,8 +152,8 @@ const withUseDerived = (name: string, version: Version) => {
 				: selected
 	)
 	return version.shape === "none"
-		? schema.extend(Base, `${name}_1`, [D], [])
-		: schema.extend(Base, `${name}_1`, [D], [contained(on(Use, "doc"), on(D, "node"))])
+		? schema.extend([Base], `${name}_1`, [D], [])
+		: schema.extend([Base], `${name}_1`, [D], [contained(on(Use, "doc"), on(D, "node"))])
 }
 
 /** The version `version` under `name`, with Use contained in Doc, D a selection no law reads. */
@@ -166,7 +166,7 @@ const withUseStored = (name: string, version: Version) => {
 			return r.match(Doc, { node, kind: version.kind }).find({ node })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, [D], [])
+	return schema.extend([Base], `${name}_1`, [D], [])
 }
 
 /** The version `version` under `name`, with Usage contained in D or in nothing. */
@@ -194,8 +194,8 @@ const withUsageDerived = (name: string, version: Version) => {
 				: selected
 	)
 	return version.shape === "none"
-		? schema.extend(Base, `${name}_1`, [D], [])
-		: schema.extend(Base, `${name}_1`, [D], [contained(on(Usage, "doc"), on(D, "node"))])
+		? schema.extend([Base], `${name}_1`, [D], [])
+		: schema.extend([Base], `${name}_1`, [D], [contained(on(Usage, "doc"), on(D, "node"))])
 }
 
 /** The version `version` under `name`, with Usage contained in Doc, D a selection no law reads. */
@@ -208,7 +208,7 @@ const withUsageStored = (name: string, version: Version) => {
 			return r.match(Doc, { node, kind: version.kind }).find({ node })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, [D], [])
+	return schema.extend([Base], `${name}_1`, [D], [])
 }
 
 /** The version `version` under `name`, its source relation named `use`. */

@@ -87,7 +87,7 @@ const Placed = derived(
 	})
 )
 const confinedSchema = schema.extend(
-	Base,
+	[Base],
 	"rule_confined_1",
 	[Placed],
 	[contained(on(Placed, "pkg", "kind", "at"), on(Gap, "pkg", "kind", "at"))]

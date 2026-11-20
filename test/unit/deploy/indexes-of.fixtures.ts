@@ -58,7 +58,7 @@ export const schemaOf = (c: Case): AnySchema => {
 		const root = schema("Root", [B, R], lawsOf(c))
 		return c.derived
 			? schema.extend(
-					root,
+					[root],
 					"Upper",
 					[
 						derived.materialized(
@@ -73,10 +73,10 @@ export const schemaOf = (c: Case): AnySchema => {
 				)
 			: root
 	}
-	const mid = schema.extend(schema("Root", [B], []), "Mid", [R], lawsOf(c))
+	const mid = schema.extend([schema("Root", [B], [])], "Mid", [R], lawsOf(c))
 	return c.derived
 		? schema.extend(
-				mid,
+				[mid],
 				"Upper",
 				[
 					derived.materialized(

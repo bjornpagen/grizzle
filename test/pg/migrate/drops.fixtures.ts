@@ -414,7 +414,7 @@ const schemaOf = (name: string, v: Version): SchemaDesc => {
 				)
 			)
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

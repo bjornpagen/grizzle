@@ -653,7 +653,7 @@ const familyInstalled = (shape: Shape): FamilyInstalled => {
 				? ordered(on("Member", ["g", "at"]), fin("Owner", "n"))
 				: counted(on("Member", ["g"]), fin("Owner", "n"))
 		],
-		extends: undefined
+		bases: []
 	}
 	const model = lawNamesOf(desc).model
 	const installation = nativeInstallation(model)

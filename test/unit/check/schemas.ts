@@ -50,5 +50,5 @@ export const Lab: SchemaDesc = {
 		relation("Wide", { id: f.uuid, price: f.numeric(12, 4) }, ["id"])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 }

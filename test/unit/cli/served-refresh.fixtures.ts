@@ -66,7 +66,7 @@ const Calls = derived.materialized(
 	})
 )
 
-const totals = schema.extend(base, `${schemaName}_1`, [Spend, Calls], [])
+const totals = schema.extend([base], `${schemaName}_1`, [Spend, Calls], [])
 
 const Usage = derived.materialized(
 	"Usage",
@@ -80,7 +80,7 @@ const Usage = derived.materialized(
 	})
 )
 
-const top = schema.extend(totals, `${schemaName}_2`, [Usage], [])
+const top = schema.extend([totals], `${schemaName}_2`, [Usage], [])
 
 /** A materialized relation of the schema, with its declared name. */
 interface Materialized {

@@ -1,5 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
+	appendNonEmpty,
 	concatNonEmpty,
 	headNonEmpty,
 	isNonEmpty,
@@ -1695,8 +1696,26 @@ export type SchemaDesc<L = Located> = L & {
 	 * could declare one.
 	 */
 	readonly functions?: NonEmptyReadonlyArray<FunctionDesc<L>>
-	/** schema.extend: the level this one builds on, under its own name. */
-	readonly extends: SchemaDesc<L> | undefined
+	/**
+	 * schema.extend: the levels this one builds on, under its own name, none for a root. A list, a level over several
+	 * bases its one representation, of at most one base until such a level is built (SchemaBases): schema.extend refuses
+	 * a second, as the decoder does.
+	 */
+	readonly bases: SchemaBases<SchemaDesc<L>>
+}
+
+/** A level's bases, of a level D: none for a root, or the one level it extends. */
+export type SchemaBases<D> = readonly [] | readonly [D]
+
+/**
+ * A description's levels, root first and `desc` last, each level once: each level's bases before it (SchemaBases), the
+ * one order every reader of a schema's levels reads them in.
+ */
+export const levelChain = <D extends { readonly bases: SchemaBases<D> }>(
+	desc: D
+): NonEmptyReadonlyArray<D> => {
+	const [base] = desc.bases
+	return base === undefined ? [desc] : appendNonEmpty(levelChain(base), desc)
 }
 
 /**
@@ -1719,7 +1738,7 @@ export type UnadmittedSchemaDesc = Located & {
 	readonly relations: ReadonlyArray<RelationDesc>
 	readonly statements: ReadonlyArray<StatementDesc>
 	readonly functions?: NonEmptyReadonlyArray<FunctionDesc>
-	readonly extends: UnadmittedSchemaDesc | undefined
+	readonly bases: SchemaBases<UnadmittedSchemaDesc>
 }
 
 /**
@@ -3072,13 +3091,13 @@ const schemaDescShape: S.Shape<SchemaDesc> = S.ref("a schema description", () =>
 
 /** The decoder schemaDescShape refers to (S.ref). */
 const schemaDescBody: S.Shape<SchemaDesc> = S.located(
-	S.structStated(
+	S.structWith(
 		{
 			name,
 			relations: S.uniqueArray(schemaRelationShape, (r) => r.name, "relation names"),
-			statements: S.array(statementDescShape)
+			statements: S.array(statementDescShape),
+			bases: S.atMostOne(schemaDescShape)
 		},
-		{ extends: schemaDescShape },
 		{ ...loc, functions: functionsShape }
 	)
 )
@@ -3090,13 +3109,13 @@ const unadmittedSchemaShape: S.Shape<UnadmittedSchemaDesc> = S.ref(
 
 /** The decoder unadmittedSchemaShape refers to (S.ref). */
 const unadmittedSchemaBody: S.Shape<UnadmittedSchemaDesc> = S.located(
-	S.structStated(
+	S.structWith(
 		{
 			name,
 			relations: S.uniqueArray(relationDescShape, (r) => r.name, "relation names"),
-			statements: S.array(statementDescShape)
+			statements: S.array(statementDescShape),
+			bases: S.atMostOne(unadmittedSchemaShape)
 		},
-		{ extends: unadmittedSchemaShape },
 		{ ...loc, functions: functionsShape }
 	)
 )
@@ -3460,7 +3479,7 @@ export const schemaLevelDesc = (level: {
 	readonly relations: ReadonlyArray<SchemaRelationDesc>
 	readonly statements: ReadonlyArray<StatementDesc>
 	readonly functions: ReadonlyArray<FunctionDesc>
-	readonly extends: SchemaDesc | undefined
+	readonly bases: SchemaBases<SchemaDesc>
 	readonly loc: SourceLoc
 }): SchemaDesc =>
 	builtNode({
@@ -3468,7 +3487,7 @@ export const schemaLevelDesc = (level: {
 		relations: Object.freeze(level.relations),
 		statements: Object.freeze(level.statements),
 		...(isNonEmpty(level.functions) ? { functions: Object.freeze(level.functions) } : {}),
-		extends: level.extends,
+		bases: Object.freeze(level.bases),
 		loc: level.loc
 	})
 

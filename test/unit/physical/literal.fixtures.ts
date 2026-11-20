@@ -285,7 +285,7 @@ export const schemaOf = (d: Draft): SchemaDesc => {
 					]
 				: [])
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

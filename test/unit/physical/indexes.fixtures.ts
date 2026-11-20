@@ -56,7 +56,7 @@ const Indexed: SchemaDesc = {
 		relation("Deposit", { line: f.uuid, account: f.uuid }, ["account", "line"])
 	],
 	statements: [contained(on("Deposit", ["line"]), on("Line", ["id"]))],
-	extends: undefined
+	bases: []
 }
 
 /** The columns a drawn B-tree request keys, per relation, each under its type's default operator class: a B-tree

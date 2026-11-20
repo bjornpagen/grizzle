@@ -97,7 +97,7 @@ const schemaOf = (a: Assignment): SchemaDesc => {
 			mutable("Parent"),
 			...Arr.map(arms, (x) => mutable(x.arm))
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

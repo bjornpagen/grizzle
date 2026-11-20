@@ -622,7 +622,7 @@ export const compiled = (relations: Relations, laws: ReadonlyArray<Law>): Compil
 			...Arr.flatMap(laws, (law) => reading.statements(law)),
 			...Arr.map(names, (name) => mutable(name))
 		],
-		extends: undefined
+		bases: []
 	}
 	const lawNames = lawNamesOf(desc)
 	const lawOf = (statement: AuthoredStatementDesc): LawId => lawNames.lawOfDesc(statement)

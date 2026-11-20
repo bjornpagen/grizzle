@@ -113,11 +113,11 @@ export const schemaOf = (names: Names): SchemaDesc => {
 			relation(entry, { id: f.uuid, holder: f.uuid }, ["id"])
 		],
 		statements: [contained(on(entry, ["holder"]), on(holder, ["id"])), mutable(holder)],
-		extends: undefined
+		bases: []
 	})
 	return decodedSchema({
 		name: "Counts",
-		extends: base,
+		bases: [base],
 		relations: [
 			{
 				kind: "derived",

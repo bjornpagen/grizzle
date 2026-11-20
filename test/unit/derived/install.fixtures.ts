@@ -7,12 +7,12 @@ import { decodedQuery, f, relation, type SchemaDesc } from "#test/support/fixtur
 
 const Org = relation("Org", { id: f.uuid }, ["id"])
 
-const Base: SchemaDesc = { name: "Base", relations: [Org], statements: [], extends: undefined }
+const Base: SchemaDesc = { name: "Base", relations: [Org], statements: [], bases: [] }
 
 /** A level over Base holding a derived relation over Org whose head binds Org's id under two names. */
 export const pairs = (a: string, b: string): SchemaDesc => ({
 	name: "Upper",
-	extends: Base,
+	bases: [Base],
 	relations: [
 		{
 			kind: "derived",

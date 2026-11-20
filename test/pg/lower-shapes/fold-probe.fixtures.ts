@@ -50,7 +50,7 @@ const SupportCount = derived(
 	})
 )
 
-const Views = schema.extend(Stored, "FoldProbe_1", [SupportCount], [])
+const Views = schema.extend([Stored], "FoldProbe_1", [SupportCount], [])
 
 /** The order a read matches its relations in. */
 type MatchOrder = "pair first" | "counts first"

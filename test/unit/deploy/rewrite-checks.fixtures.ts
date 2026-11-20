@@ -148,7 +148,7 @@ const schemaOf = (change: Change, version: "first" | "second") => {
 	})
 	const Totals = derived("Totals", totals)
 	return schema.extend(
-		Base,
+		[Base],
 		"rewrite_checks_1",
 		[
 			Gs,

@@ -50,7 +50,7 @@ export const accumulatedOf = (type: FieldDesc, start: LiteralDesc): FieldDecl<ob
 export const schemaOf = (
 	relations: SchemaDesc["relations"],
 	statements: SchemaDesc["statements"]
-): SchemaDesc => ({ name: "T", relations, statements, extends: undefined })
+): SchemaDesc => ({ name: "T", relations, statements, bases: [] })
 
 /** A theory as the unit tests read it: with its laws' violation queries, by which the reference evaluator reads each
  * law's meaning. */

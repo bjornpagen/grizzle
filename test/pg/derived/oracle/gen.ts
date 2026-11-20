@@ -1006,7 +1006,7 @@ export const buildSchema = (sketch: CaseSketch, options: BuildOptions): GenSchem
 		})
 		appendAll(derivedRelations, declared)
 		current = schema.extend(
-			current,
+			[current],
 			`${options.name}_${li + 1}`,
 			Rec.values(Rec.fromEntries(Arr.map(declared, (d) => [d.name, d.value]))),
 			[],

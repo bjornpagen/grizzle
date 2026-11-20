@@ -85,7 +85,7 @@ const schemaOf = (shape: Shape) => {
 				return key(on(D, "doc", "b"))
 		}
 	})()
-	return schema.extend(Base, "judge_sources_1", [D], [law])
+	return schema.extend([Base], "judge_sources_1", [D], [law])
 }
 
 /** The tables of the schema, by their names as installed. */

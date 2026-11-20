@@ -129,7 +129,7 @@ const extendedOf = (
 	name: string,
 	relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>,
 	statements: ReadonlyArray<Statement>
-) => schema.extend(built.schema, name, Rec.values(relations), statements, [])
+) => schema.extend([built.schema], name, Rec.values(relations), statements, [])
 
 /** The level `level` over the case's schema `s`, built over its values `built` (see the header). */
 export const lawsOf = (s: ProgramSchema, built: BuiltSchema, level: LawLevel): Laws => {

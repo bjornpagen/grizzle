@@ -292,7 +292,7 @@ const schemaOf = (name: string, c: LiteralCase) => {
 			return r.match(Doc, { node, kind: c.selected }).where(r.not(Extra, { node })).find({ node })
 		})
 	)
-	return schema.extend(Base, `${name}_1`, [D], [contained(on(Use, "doc"), on(D, "node"))])
+	return schema.extend([Base], `${name}_1`, [D], [contained(on(Use, "doc"), on(D, "node"))])
 }
 
 /** A write's outcome: committed, or refused with the SQLSTATE PostgreSQL refused it with. */

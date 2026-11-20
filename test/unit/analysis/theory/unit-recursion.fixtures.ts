@@ -118,7 +118,7 @@ export const walkSchemaOf = (c: WalkCase) => {
 				.find({ doc: l.doc, from: l.start, toDoc: l.toDoc, to: l.toStart })
 		})
 	)
-	const Edges = schema.extend(B, "UnitWalkEdges", [Within, Across], [])
+	const Edges = schema.extend([B], "UnitWalkEdges", [Within, Across], [])
 	const row = { doc: pg.integer, node: pg.integer }
 	type Walk = SelfSource<typeof row>
 	const stepOf = (r: Rule<typeof Edges>, self: Walk) => {
@@ -175,7 +175,7 @@ export const walkSchemaOf = (c: WalkCase) => {
 			: c.law === "check"
 				? check("Positive", Reached, (x) => x.ge(x.node, 0))
 				: key(on(Reached, "doc"))
-	return schema.extend(Edges, "UnitWalkTop", [Reached], [law])
+	return schema.extend([Edges], "UnitWalkTop", [Reached], [law])
 }
 
 /** How a case's compile ended: compiled, or refused for a reason named by its tag (and refusal). */

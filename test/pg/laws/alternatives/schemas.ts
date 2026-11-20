@@ -39,5 +39,5 @@ export const ledger = (options: { readonly mutable: boolean }): SchemaDesc => ({
 	name: "Ledger",
 	relations: [Stage, Run, Payment, Voiding],
 	statements: [runStage, ...(options.mutable ? Arr.map(ledgerRelations, mutable) : [])],
-	extends: undefined
+	bases: []
 })

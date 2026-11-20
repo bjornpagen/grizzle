@@ -28,5 +28,5 @@ export const schemaOf = (
 	name,
 	relations,
 	statements,
-	extends: undefined
+	bases: []
 })

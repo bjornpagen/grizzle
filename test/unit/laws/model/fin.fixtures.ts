@@ -166,7 +166,7 @@ export const schemaOf = (s: Shape): SchemaDesc => {
 		name: "Families",
 		relations: [relation("Owner", ownerFields, keys(s)), relation("Member", memberFields, ["id"])],
 		statements,
-		extends: undefined
+		bases: []
 	}
 }
 
@@ -496,7 +496,7 @@ const disjointSchema = (d: Disjoint): SchemaDesc => {
 				? [fold(fin(o.name, "n"), "sum", on("M", [`g${o.name}`, "x"]), on(o.name, ["id", "total"]))]
 				: [])
 		]),
-		extends: undefined
+		bases: []
 	}
 }
 

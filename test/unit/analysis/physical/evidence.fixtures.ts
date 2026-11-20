@@ -26,7 +26,7 @@ const Crm: SchemaDesc = {
 		key(on("Person", ["email"])),
 		contained(on("Purchase", ["person"]), on("Person", ["id"]))
 	],
-	extends: undefined
+	bases: []
 }
 
 export const crm = ownedFixture(Crm)

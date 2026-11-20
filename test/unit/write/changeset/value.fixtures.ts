@@ -88,7 +88,7 @@ import {
 /** The relation an extension of Work adds, so Work is a level of the extension and not the other way round. */
 const Extra = relation("Extra", { id: Id }, ["id"])
 
-const Ext = schema.extend(Work, "Ext", [Extra], [])
+const Ext = schema.extend([Work], "Ext", [Extra], [])
 
 type LevelName = "Work" | "Ext" | "Ledger"
 

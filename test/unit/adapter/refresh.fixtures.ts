@@ -189,7 +189,7 @@ export const built = (c: TargetsCase) => {
 				declared.push({ name: `D${n}`, n, level: index + 1, position, value })
 			}
 		}
-		base = schema.extend(base, `Level${index + 1}`, Rec.values(record), [])
+		base = schema.extend([base], `Level${index + 1}`, Rec.values(record), [])
 	}
 	const refreshed = Arr.filter(declared, (_, i) => c.refresh[i] === true)
 	const refresher = admitRole(
@@ -364,7 +364,7 @@ export const B = derived.materialized("B", Weekly)
 
 export const A = derived.materialized("A", Totals)
 
-const Level1 = schema.extend(Edu, "Level1", [B, A], [])
+const Level1 = schema.extend([Edu], "Level1", [B, A], [])
 
 const Busy = query(Level1).rule((r) => {
 	const { student, week } = v(B, "b")
@@ -373,7 +373,7 @@ const Busy = query(Level1).rule((r) => {
 
 export const C = derived.materialized("C", Busy)
 
-const Reports = schema.extend(Level1, "Reports", [C], [])
+const Reports = schema.extend([Level1], "Reports", [C], [])
 
 export const Refresher = role(Reports, "refresher", Reports.relations, { refresh: ["A", "B", "C"] })
 

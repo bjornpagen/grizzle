@@ -211,7 +211,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 							}),
 							[]
 						)
-						return schema.extend(root, "Above", [Ids], [], [])
+						return schema.extend([root], "Above", [Ids], [], [])
 					}
 					if (s.extended) {
 						c.note("an extension")
@@ -234,7 +234,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 							)
 						),
 						statements: Arr.reverse([...d.statements]),
-						extends: d.extends === undefined ? undefined : reversed(d.extends)
+						bases: d.bases[0] === undefined ? [] : [reversed(d.bases[0])]
 					})
 					const written = succeeded(ownValue(declare("written")))
 					const rewritten = succeeded(ownValue(reversed(builtDescOf(declare("rewritten")))))
@@ -306,7 +306,7 @@ export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeani
 								return Result.flatMap(
 									catchCompileError(() =>
 										schema.extend(
-											Work,
+											[Work],
 											"Above",
 											[s.agree ? Task : relation("Task", { id: Id }, ["id"], [])],
 											[],
@@ -618,7 +618,7 @@ export const statementsOverADerivedRelationOwnsAKeyCheckContainmentEitherWayAndM
 						? [onBuilder(Task, ["id"]), onBuilder(TaskIds, ["id"])]
 						: [onBuilder(TaskIds, ["id"]), onBuilder(Task, ["id"])]
 					const extended = (statement: Statement) =>
-						ownValue(schema.extend(Work, "Above", [TaskIds], [statement], []))
+						ownValue(schema.extend([Work], "Above", [TaskIds], [statement], []))
 					switch (law.kind) {
 						case "check":
 							verdict(
@@ -794,7 +794,11 @@ export const scopeAndStructureRefusesADescriptionNamingWhatNoLevelDeclaresOrBrea
 									]
 								})
 							case "an extension under its base's name":
-								return ownValue({ ...d, name: defined(d.extends, "Reports' base").name })
+								return ownValue({ ...d, name: defined(d.bases[0], "Reports' base").name })
+							case "an extension over two bases": {
+								const base = defined(d.bases[0], "Reports' base")
+								return ownValue({ ...d, bases: [base, base] })
+							}
 							case "a value that is no description":
 								return ownValue(s.description)
 						}
@@ -814,6 +818,13 @@ export const scopeAndStructureRefusesADescriptionNamingWhatNoLevelDeclaresOrBrea
 				}),
 			oracle: { kind: "specification", name: "each structural rule's documented reason" },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original: "\t\t\tif (length > 1) {",
+					replacement: "\t\t\tif (length > 2) {",
+					why: "A description over two bases is decoded as one over its first, the second dropped, and owned; the two-bases structure's refusal fails."
+				}
+			]
 		}
 	)

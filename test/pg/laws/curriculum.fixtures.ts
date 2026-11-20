@@ -125,7 +125,7 @@ const soleTextSpan = 2n
 const curriculumLevels = (name: string, homed: boolean) => {
 	const Content = schema(name, [Package, Node], [])
 	const Registry = schema.extend(
-		Content,
+		[Content],
 		`${name}_registry`,
 		[Course, Assessment, PackageCourse, PackageAssessment],
 		[
@@ -199,7 +199,7 @@ const curriculumLevels = (name: string, homed: boolean) => {
 			})
 	)
 	return schema.extend(
-		Registry,
+		[Registry],
 		`${name}_curriculum`,
 		[Claim, Home],
 		[
@@ -244,7 +244,7 @@ const homeLevels = (name: string, homed: boolean) => {
 			})
 	)
 	return schema.extend(
-		Stored,
+		[Stored],
 		`${name}_homes`,
 		[Home],
 		[

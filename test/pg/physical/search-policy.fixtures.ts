@@ -39,7 +39,7 @@ export const searchAt = (name: string) => {
 			return r.match(Embedding, { doc, value }).find({ doc, value })
 		})
 	)
-	return schema.extend(core, `${name}_1`, [Vectors], [])
+	return schema.extend([core], `${name}_1`, [Vectors], [])
 }
 
 type SearchSchema = ReturnType<typeof searchAt>

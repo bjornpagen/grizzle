@@ -188,6 +188,6 @@ export const levelRefusedAt = (s: Shape): string | undefined => {
 
 /** The upper level over Lo stating `statement`, owned. */
 export const ownedUp = (statement: Statement) => {
-	const Up: AnySchema = schema.extend(Lo, "Up", [C, U, UM], [statement])
+	const Up: AnySchema = schema.extend([Lo], "Up", [C, U, UM], [statement])
 	return own(defined(schemaDescOf(Up), "Up's description"))
 }

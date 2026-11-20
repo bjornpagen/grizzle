@@ -75,7 +75,7 @@ const levelsAt = (name: string) => {
 			on(heldItems, "id")
 		)
 	} as const
-	const upper = schema.extend(lower, levelNameAt(name, 1), Rec.values(upperOwn), Rec.values(laws))
+	const upper = schema.extend([lower], levelNameAt(name, 1), Rec.values(upperOwn), Rec.values(laws))
 	const authorWrites = writableNamesOf(lower)
 	const learnerWrites = ["Sitting", "Approved"] as const
 	const author = role(lower, "author", wholeEntriesOf(lower), { write: authorWrites })

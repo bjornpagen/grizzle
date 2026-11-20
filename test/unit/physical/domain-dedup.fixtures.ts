@@ -87,7 +87,7 @@ export const installationOf = (p: Pair): Installation => {
 				])
 			],
 			statements: [],
-			extends: undefined
+			bases: []
 		})
 	)
 	const app = succeeded(fullRoleDesc(owned.desc, "app", loc))

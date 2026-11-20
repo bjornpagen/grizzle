@@ -93,7 +93,7 @@ ${Arr.join(
 )}
 ])
 ${Arr.join(Arr.map(read, derivedSource), "")}
-export const Top = schema.extend(Base, "LoginScaleQueries", [${Arr.join(
+export const Top = schema.extend([Base], "LoginScaleQueries", [${Arr.join(
 			Arr.map(read, (m) => `D${m}`),
 			", "
 		)}], [${Arr.join(

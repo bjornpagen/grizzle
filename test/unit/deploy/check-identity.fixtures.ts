@@ -161,7 +161,7 @@ const schemaOf = (shape: Shape, version: "first" | "second") => {
 	)
 	const bound = changed("bound") ? 1 : 0
 	return schema.extend(
-		Base,
+		[Base],
 		"check_identity_1",
 		[D1, D2, D3],
 		[

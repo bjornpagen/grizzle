@@ -46,7 +46,7 @@ export const shopV1: SchemaDesc = {
 	name: "Shop",
 	relations: [Kind, Account, Task, automatic(Cents), ManualTask],
 	statements: [contained(on("Task", ["account"]), on("Account", ["id"]))],
-	extends: undefined
+	bases: []
 }
 
 /** Version 2: the alternatives over existing tables (each arm's containment into its parent and each handle's reverse
@@ -71,7 +71,7 @@ export const shopV2: SchemaDesc = {
 		check("WeightNonNegative", "Task", ge(field("weight"), literal(0))),
 		mutable("Task")
 	],
-	extends: undefined
+	bases: []
 }
 
 /** Version 3: the field removed, `mutable` removed, and a handle added. */
@@ -83,7 +83,7 @@ export const shopV3: SchemaDesc = {
 		alternatives(Task, "kind", Kind, { Automatic: automatic(Cents), Manual: ManualTask }),
 		key(on("Account", ["name"]))
 	],
-	extends: undefined
+	bases: []
 }
 
 /** What shopV3 declares against shopV2, the one drop it makes: Task.weight (`--drop Task.weight`). */
@@ -122,7 +122,7 @@ export const books1: SchemaDesc = {
 		relation("Note", { id: f.uuid, body: f.wildcard }, ["id"])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 }
 
 export const books2: SchemaDesc = {
@@ -135,7 +135,7 @@ export const books2: SchemaDesc = {
 		relation("Remark", { id: f.uuid, body: f.wildcard }, ["id"])
 	],
 	statements: [key(on("Entry", ["book"]))],
-	extends: undefined
+	bases: []
 }
 
 /** What books2 declares against books1, its two renames: Note to Remark, and Entry's memo to remark. */

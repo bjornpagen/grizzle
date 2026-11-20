@@ -129,7 +129,7 @@ ${Arr.join(
 			", "
 		)}], [])
 export const Q = relation("Q", { id: natural, package: Name }, ["package", "id"])
-export const E = schema.extend(S, "E", [Q], [])
+export const E = schema.extend([S], "E", [Q], [])
 export const Writer = role(E, "writer", wholeEntriesOf(E), { write: writableNamesOf(E) })
 ${factsOf(shape)}export const written = ChangeSet.empty(S)
 	.delete(P, query(S).rule((q) => {

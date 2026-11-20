@@ -3,7 +3,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { boxAgreement } from "#test/types/batch/agreement.ts"
 /**
  * A level over a base parameter (test/types/schema/generic-base.ts): `<B extends SchemaOver<typeof Root>>(base: B) =>
- * schema.extend(base, ...)`, and its weakest bound, AnySchema, compile wherever the level's content keeps the rules
+ * schema.extend([base], ...)`, and its weakest bound, AnySchema, compile wherever the level's content keeps the rules
  * over the bound's least level, the one level the call knows (metis's G3: every level a builder over its base, refused
  * at the call by checks that could not read a type parameter); the same rules over the base itself refuse the level
  * its instantiation builds, wherever it is taken as a schema; and a level over a built base is refused at its call by
@@ -60,8 +60,15 @@ export const genericBase = boxAgreement(finite(word(genericBaseBox)), {
 		},
 		{
 			file: "packages/engine/src/schema/api.ts",
-			original: "\tbase: Base & LeastStated<Least>,",
-			replacement: "\tbase: Base,",
+			original:
+				'\t\t...ReadonlyArray<\n\t\t\tRefusal<"schema.extend takes one base: a level over several bases is not built yet">\n\t\t>',
+			replacement: "\t\t...ReadonlyArray<AnySchema>",
+			why: "schema.extend's list of bases admits a second base, a level over several, which the builder refuses; the program's level over two bases fails."
+		},
+		{
+			file: "packages/engine/src/schema/api.ts",
+			original: "\t\tBase & LeastStated<Least>,",
+			replacement: "\t\tBase,",
 			why: "The call infers no least level from a base parameter's bound and checks it over the parameter itself: every generic level's call is refused; the program fails."
 		}
 	]

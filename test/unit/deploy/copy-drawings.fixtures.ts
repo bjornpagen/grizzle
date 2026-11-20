@@ -151,7 +151,7 @@ const schemaOf = (c: DrawingsCase, withCopies: boolean): DeploySubject => {
 				)
 			],
 			statements,
-			extends: undefined
+			bases: []
 		}
 	}
 	const statements: Array<AuthoredStatementDesc> = [
@@ -178,7 +178,7 @@ const schemaOf = (c: DrawingsCase, withCopies: boolean): DeploySubject => {
 			)
 		],
 		statements,
-		extends: undefined
+		bases: []
 	}
 }
 

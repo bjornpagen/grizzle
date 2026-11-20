@@ -6,6 +6,7 @@ import {
 } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import {
+	arrayText,
 	canonicalFormat,
 	type EncodeOptions,
 	encode,
@@ -150,7 +151,7 @@ declare const levelTextBrand: unique symbol
 
 /**
  * The canonical text of one level of a schema description, without its SourceLocs, minted only by schemaLevel: what the
- * level's fingerprint hashes, and what the text of the level above holds as its `extends` member.
+ * level's fingerprint hashes, and what the text of each level above it holds among its `bases`.
  */
 export type LevelText = WellFormedText & { readonly [levelTextBrand]: true }
 
@@ -163,20 +164,18 @@ export interface SchemaLevel {
 }
 
 /**
- * A schema level's canonical text and fingerprint, over the level `below` it, none for the root. The fingerprint is
- * SHA-256 over the domain-separated canonical text of `{ content: level }`, without the SourceLocs its descs carry under
- * "loc" (ir/desc.ts), which are presentation, excluded from semantic identity. A level above the root holds the level
- * below under `extends`, whose text the level below's fingerprint hashed, so that member is written from that text
- * (core/canonical.ts encodeOver) and the level below is never encoded again.
+ * A schema level's canonical text and fingerprint, over the levels `bases` it extends, in its own order, none for the
+ * root. The fingerprint is SHA-256 over the domain-separated canonical text of `{ content: level }`, without the
+ * SourceLocs its descs carry under "loc" (ir/desc.ts), which are presentation, excluded from semantic identity. A level
+ * holds its bases under `bases`, each base's text the one its own fingerprint hashed, so that member is written from
+ * those texts (core/canonical.ts encodeOver, arrayText) and no base is ever encoded again.
  */
 export const schemaLevel = (
 	level: unknown,
-	below: SchemaLevel | undefined
+	bases: ReadonlyArray<SchemaLevel>
 ): Result.Result<SchemaLevel, CompileError> =>
 	Result.flatMap(
-		below === undefined
-			? encode(level, withoutSourceLocs)
-			: encodeOver(level, withoutSourceLocs, new Map([["extends", below.text]])),
+		encodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),
 		(text) =>
 			Result.map(
 				encodeOver({ content: level }, withoutSourceLocs, new Map([["content", text]])),

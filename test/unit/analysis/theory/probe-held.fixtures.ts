@@ -79,7 +79,7 @@ const schemaOf = (shape: Shape) => {
 			return both.find({ x: shape.aDelivered ? a : k1 })
 		})
 	)
-	return schema.extend(Base, "probe_held_1", [D], [contained(on(D, "x"), on(G, "x"))])
+	return schema.extend([Base], "probe_held_1", [D], [contained(on(D, "x"), on(G, "x"))])
 }
 
 /** Whether two terms are the same term, by structural equality (exact). */

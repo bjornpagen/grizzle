@@ -96,7 +96,7 @@ export const TaskIds = materializedDerived(
 	[]
 )
 
-export const Reports = schema.extend(Work, "Reports", [TaskIds], [], [])
+export const Reports = schema.extend([Work], "Reports", [TaskIds], [], [])
 
 export const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
 
@@ -114,7 +114,7 @@ export const builtDescOf = (s: unknown): SchemaDesc =>
 
 /** The base a schema.extend Description extends. */
 export const baseOf = (d: SchemaDesc): SchemaDesc =>
-	defined(d.extends, `${d.name} extends a schema`)
+	defined(d.bases[0], `${d.name} extends a schema`)
 
 /** The Description of a query the query builder built, to splice into a description. */
 export const definition = (q: unknown): QueryDesc =>
@@ -384,6 +384,7 @@ export type Structure =
 	| "a definition reading its own level"
 	| "a parameterized definition"
 	| "an extension under its base's name"
+	| "an extension over two bases"
 	| "a value that is no description"
 
 export const structures: Arr.NonEmptyReadonlyArray<Structure> = [
@@ -406,6 +407,7 @@ export const structures: Arr.NonEmptyReadonlyArray<Structure> = [
 	"a definition reading its own level",
 	"a parameterized definition",
 	"an extension under its base's name",
+	"an extension over two bases",
 	"a value that is no description"
 ]
 
@@ -443,6 +445,7 @@ export const answers: {
 	"a definition reading its own level": "MalformedDescription",
 	"a parameterized definition": "MalformedDescription",
 	"an extension under its base's name": "IdentifierCollision",
+	"an extension over two bases": "MalformedDescription",
 	"a value that is no description": "MalformedDescription"
 }
 

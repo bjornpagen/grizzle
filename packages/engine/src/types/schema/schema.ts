@@ -56,11 +56,11 @@ import type {
  * `statements` reads each statement back whole (StatementsFromNames), the very type the call wrote.
  *
  * The schema this one extends (never for a root schema) is a phantom, so the levels below a schema are part of its
- * type. It is the type-level image of SchemaDesc.extends; an extension's runtime value also holds its base, and a root
- * schema's holds undefined. The fragments its list holds (Fragments, never for none) are a phantom too, each a level of
- * the schema (LevelsOf). An extension's statements are its base's, then its own, exactly the tuple its calls wrote; the
- * statements of the fragments its levels list, its base's then its own, each fragment's held by name as the fragment
- * holds them, are apart from them (`listed`), and StatementsOf reads both.
+ * type. It is the type-level image of SchemaDesc.bases; an extension's runtime value also holds its base, `bases:
+ * [base]`, and a root schema's holds none, `bases: []`. The fragments its list holds (Fragments, never for none) are a
+ * phantom too, each a level of the schema (LevelsOf). An extension's statements are its base's, then its own, exactly
+ * the tuple its calls wrote; the statements of the fragments its levels list, its base's then its own, each fragment's
+ * held by name as the fragment holds them, are apart from them (`listed`), and StatementsOf reads both.
  *
  * `Below` is the statements of the levels below it, its base's as the base holds them (StatementsBelow), and
  * `SpelledOver` the record its own statements are spelled over and read back by: its own record, but for a level
@@ -399,7 +399,7 @@ declare const refused: unique symbol
 
 /**
  * A schema of which L is a level: the bound of a base parameter, for a level built over whatever schema of L it is
- * given, `<Base extends SchemaOver<typeof Policy>>(base: Base) => schema.extend(base, "Analysis", relations,
+ * given, `<Base extends SchemaOver<typeof Policy>>(base: Base) => schema.extend([base], "Analysis", relations,
  * statements)`. It holds L's relations under their names, and states L as its least level, the level a call of
  * schema.extend over the parameter reads its checks over (Extended). AnySchema is the weakest bound, whose relations'
  * names no call knows.
@@ -455,7 +455,7 @@ export type Extension<
 >
 
 /**
- * What schema.extend(base, name, relations, statements) builds: the level over Base (Extension). Its call checks its
+ * What schema.extend([base], name, relations, statements) builds: the level over Base (Extension). Its call checks its
  * list and its statements over the base's least level (LeastOf): the base itself where it is a built schema, so every
  * check is the base's at the call; where it is a base parameter, its bound's level, the one level the call knows, and
  * the same checks over the base itself wait for the parameter's instantiation, where the base is known

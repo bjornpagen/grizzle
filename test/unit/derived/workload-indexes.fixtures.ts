@@ -38,7 +38,7 @@ const automaticBudgetOfBusy = query(W.Work).rule((r) => {
 
 const BusyBudget = derived.materialized("AccountBudget", automaticBudgetOfBusy)
 
-export const Redefined = schema.extend(W.Work, "Reports", [BusyBudget], [])
+export const Redefined = schema.extend([W.Work], "Reports", [BusyBudget], [])
 
 /** The view's columns: its key, its count, a natural, and its computed numeric, each with a parameter type it compares to. */
 const viewColumns = { account: Id, tasks: natural, budget: pg.numeric(38, 0) } as const

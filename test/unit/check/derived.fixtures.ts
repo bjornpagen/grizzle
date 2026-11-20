@@ -54,7 +54,7 @@ const rootSchema = (relations: SchemaDesc["relations"]): SchemaDesc => ({
 	name: "Generated",
 	relations,
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** R with its key `id`, then `fields` in their order. */
@@ -100,7 +100,7 @@ const relationPath = (desc: SchemaDesc): ReadonlyArray<string | number> => {
 		if (Option.isSome(found)) {
 			return found.value.loc.path
 		}
-		level = defined(level.extends, `${relationName} is declared at some level`)
+		level = defined(level.bases[0], `${relationName} is declared at some level`)
 	}
 }
 
@@ -535,7 +535,7 @@ export const levelSchema = (c: LevelCase): SchemaDesc => {
 	const base = rootSchema([rosterQ, ...at(0)])
 	return c.reader === 0 && c.closed === 0
 		? base
-		: { ...base, name: "Upper", relations: at(1), extends: base }
+		: { ...base, name: "Upper", relations: at(1), bases: [base] }
 }
 
 /** A closed read of a closed relation declared above the reading field's level is refused at that field. */

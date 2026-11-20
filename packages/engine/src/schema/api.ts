@@ -359,20 +359,22 @@ const rootSchema = <
 > => schemaBuilder<Name, Relations, Statements>(name, relations, statements, extra)
 
 /**
- * schema.extend(base, name, relations, statements): a level of its own name over `base`, with relations, derived
+ * schema.extend([base], name, relations, statements): a level of its own name over `base`, with relations, derived
  * relations over the base among them, a list as the root's are, and statements. A name is declared once across the
  * level and every level below it (DeclaredOnce over the base's relations): a relation the base declares, listed again
  * as the base declares it, is the base's. Its relations install in a PostgreSQL schema of its own, beside the base's,
  * in one installation with every level below it. A derived definition must be a query over the base or a lower level.
  * Query is invariant in its schema, so a query over this level, which would read its own relations, is no query over
- * any level below it. Its statements are the base's, then its own, held by name over the base's relations and its
- * own. A relation or statement typed `any` is refused (DeclaredOnce, StatementsWithin).
+ * any level below it. Its statements are the base's, then its own, held by name over the base's relations and its own.
+ * A relation or statement typed `any` is refused (DeclaredOnce, StatementsWithin).
+ *
+ * Its bases are a list, of one base until a level over several is built: a second is refused (Refusal).
  *
  * The base may be a parameter, for a level built over whatever schema it is given, bounded by the least level it reads,
- * `<Base extends SchemaOver<typeof Policy>>(base: Base) => schema.extend(base, ...)`, or by AnySchema: the call checks
- * its list, its derived relations and its statements over that least level (Least, read off the bound's `least`
- * member, LeastStated), and the same checks over the base itself wait for the parameter's instantiation, which
- * refuses the level there (Extended).
+ * `<Base extends SchemaOver<typeof Policy>>(base: Base) => schema.extend([base], ...)`, or by AnySchema: the call
+ * checks its list, its derived relations and its statements over that least level (Least, read off the bound's `least`
+ * member, LeastStated), and the same checks over the base itself wait for the parameter's instantiation, which refuses
+ * the level there (Extended).
  */
 const extend = <
 	Base extends AnySchema,
@@ -383,7 +385,12 @@ const extend = <
 	const Statements extends ReadonlyArray<Statement>,
 	Least extends AnySchema = never
 >(
-	base: Base & LeastStated<Least>,
+	bases: readonly [
+		Base & LeastStated<Least>,
+		...ReadonlyArray<
+			Refusal<"schema.extend takes one base: a level over several bases is not built yet">
+		>
+	],
 	name: Name,
 	relations: Relations & DeclaredOnce<Relations, LeastOf<Base, Least>["relations"]>,
 	statements: Statements &
@@ -392,7 +399,7 @@ const extend = <
 	...extra: ReadonlyArray<never>
 ): Extended<Base, Least, Name, Relations, Statements> =>
 	schemaBuilder.extend<Base, Name, Relations, Statements, LeastRecord<Base, Least, Relations>>(
-		base,
+		bases,
 		name,
 		relations,
 		statements,

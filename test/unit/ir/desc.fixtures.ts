@@ -524,7 +524,7 @@ const base: SchemaDesc = {
 	name: "Work",
 	relations: relations.slice(0, 5),
 	statements: statements.slice(0, 4),
-	extends: undefined
+	bases: []
 }
 
 /** The schema: every relation of the samples. */
@@ -532,7 +532,7 @@ const schema: SchemaDesc = {
 	name: "Work",
 	relations: relations.slice(5),
 	statements: statements.slice(4),
-	extends: base
+	bases: [base]
 }
 
 /** The tasks whose window holds the parameter now: a member query reading the parameter the ChangeSet binds. */

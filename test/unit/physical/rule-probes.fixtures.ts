@@ -54,7 +54,7 @@ const schemaOf = (shape: Shape) => {
 		return (shape.joined ? held.match(U, { k }) : held).find({ k })
 	})
 	const D = derived("D", shape.arms === 1 ? first : shape.arms === 2 ? second : third)
-	return schema.extend(Base, "rule_probes_1", [D], [contained(on(S, "k"), on(D, "k"))])
+	return schema.extend([Base], "rule_probes_1", [D], [contained(on(S, "k"), on(D, "k"))])
 }
 
 /** A guarded block of the judge: whether it reads a delta of removed rows, the one a DELETE or an UPDATE fills, and its

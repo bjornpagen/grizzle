@@ -87,7 +87,7 @@ const schemaOf = (shape: Shape, unread: "pay" | "paid" | "none") => {
 				return key(on(D, "doc", "b"))
 		}
 	})()
-	return schema.extend(Base, "law_reads_1", [D], [law])
+	return schema.extend([Base], "law_reads_1", [D], [law])
 }
 
 /** What the second version declares of `pay`: its drop, or its rename to `paid`. */

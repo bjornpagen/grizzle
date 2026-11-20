@@ -53,7 +53,7 @@ export const WorkDesc: SchemaDesc = decodedSchema({
 		taskKinds,
 		mutable("TaskNote")
 	],
-	extends: undefined
+	bases: []
 })
 
 /**
@@ -63,7 +63,7 @@ export const WorkDesc: SchemaDesc = decodedSchema({
  */
 export const ReportsDesc: SchemaDesc = decodedSchema({
 	name: "Reports",
-	extends: WorkDesc,
+	bases: [WorkDesc],
 	relations: [
 		{
 			kind: "derived",
@@ -133,7 +133,7 @@ export const PlansDesc: SchemaDesc = decodedSchema({
 	name: "Plans",
 	relations: [Tier, TierBudget, Subscription],
 	statements: [contained(on("Subscription", ["tier"]), on("Tier", ["id"]))],
-	extends: undefined
+	bases: []
 })
 
 /** The fixture schemas owned, their law models compiled and their catalogs built, with this module. */

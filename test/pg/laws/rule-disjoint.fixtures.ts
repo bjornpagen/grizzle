@@ -45,7 +45,7 @@ const Disjoint = (() => {
 		})
 	)
 	return schema.extend(
-		Base,
+		[Base],
 		"Disjoint_1",
 		[Joined],
 		[

@@ -66,7 +66,7 @@ export const searchSchema = (dimensions: number): SchemaDesc => ({
 		relation("P", { id: f.uuid }, ["id"])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** The dimensions a case's vectors have: a few, and either side of HNSW's bound, which the eligibility check reads. */

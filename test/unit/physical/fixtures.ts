@@ -188,5 +188,5 @@ export const Ledger: SchemaDesc = {
 		},
 		key(onWhere("Entry", ["account"], eq(field("remainder"), lit(true))))
 	],
-	extends: undefined
+	bases: []
 }

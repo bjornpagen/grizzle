@@ -156,7 +156,7 @@ const Classification = derived(
 	})
 )
 
-const Typed = schema.extend(Stored, "ReadOnce_1", [Head, Status, Classification], [])
+const Typed = schema.extend([Stored], "ReadOnce_1", [Head, Status, Classification], [])
 
 /** Each head no deletion version took away, as the ledger's Current. */
 const Current = derived(
@@ -188,7 +188,7 @@ const ItemSet = derived(
 	})
 )
 
-const Ledger = schema.extend(Typed, "ReadOnce_2", [Current, ItemSet], [])
+const Ledger = schema.extend([Typed], "ReadOnce_2", [Current, ItemSet], [])
 
 /** Each term a current package states, with the package: Current ⋈ Classification. */
 const stated = query(Ledger).rule((r) => {

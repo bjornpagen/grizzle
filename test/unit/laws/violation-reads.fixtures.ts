@@ -81,7 +81,7 @@ export const schemaOf = (c: Case): AnySchema => {
 	})
 	const J = derived("J", definition)
 	const V = derived.materialized("V", definition)
-	const Mid = schema.extend(Base, "Mid", [J, V], [])
+	const Mid = schema.extend([Base], "Mid", [J, V], [])
 	const JJ = derived(
 		"JJ",
 		query(Mid).rule((r) => {
@@ -115,7 +115,7 @@ export const schemaOf = (c: Case): AnySchema => {
 	switch (c.source) {
 		case "selected":
 			return schema.extend(
-				Mid,
+				[Mid],
 				"Upper",
 				[M],
 				[
@@ -130,13 +130,13 @@ export const schemaOf = (c: Case): AnySchema => {
 				]
 			)
 		case "joined":
-			return schema.extend(Mid, "Upper", [M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
+			return schema.extend([Mid], "Upper", [M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
 		case "view":
-			return schema.extend(Mid, "Upper", [M], [contained(on(V, "k", "b"), on(M, "k", "b"))])
+			return schema.extend([Mid], "Upper", [M], [contained(on(V, "k", "b"), on(M, "k", "b"))])
 		case "nested":
-			return schema.extend(Mid, "Upper", [JJ, M], [contained(on(JJ, "k", "b"), on(M, "k", "b"))])
+			return schema.extend([Mid], "Upper", [JJ, M], [contained(on(JJ, "k", "b"), on(M, "k", "b"))])
 		case "nested view":
-			return schema.extend(Mid, "Upper", [VV, M], [contained(on(VV, "k", "b"), on(M, "k", "b"))])
+			return schema.extend([Mid], "Upper", [VV, M], [contained(on(VV, "k", "b"), on(M, "k", "b"))])
 	}
 }
 
@@ -257,7 +257,7 @@ const versionsOver = <K extends ReadonlyArray<"id" | "k" | "a">>(
 	)
 	return [
 		schema("Base", [A, B, T], []),
-		schema.extend(Base, "Upper", [J, M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
+		schema.extend([Base], "Upper", [J, M], [contained(on(J, "k", "b"), on(M, "k", "b"))])
 	]
 }
 
@@ -524,9 +524,14 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 	)
 	switch (c.law) {
 		case "key":
-			return schema.extend(Base, "UnitBox_1", [Known], [key(on(Known, "doc", "kind", "base"))])
+			return schema.extend([Base], "UnitBox_1", [Known], [key(on(Known, "doc", "kind", "base"))])
 		case "check":
-			return schema.extend(Base, "UnitBox_1", [Known], [check("C", Known, (k) => k.ne(k.base, 9))])
+			return schema.extend(
+				[Base],
+				"UnitBox_1",
+				[Known],
+				[check("C", Known, (k) => k.ne(k.base, 9))]
+			)
 		case "contained":
 		case "union contained": {
 			const ops = query(Base).rule((r) => {
@@ -582,7 +587,7 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 			)
 			return c.law === "contained"
 				? schema.extend(
-						Base,
+						[Base],
 						"UnitBox_1",
 						[Known, Two],
 						[
@@ -597,7 +602,7 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 						]
 					)
 				: schema.extend(
-						Base,
+						[Base],
 						"UnitBox_1",
 						[Two, Either],
 						[contained(on(Either, "doc", "at"), target)]

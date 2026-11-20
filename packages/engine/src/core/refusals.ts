@@ -147,6 +147,7 @@ export const refusals = [
 	"read-back names are distinct: this ChangeSet already has a read-back of this name",
 	"relational negation is a rule-level filter, alone or in a top-level conjunction",
 	'say whose id this is: contract("ClerkUserId", uuid)',
+	"schema.extend takes one base: a level over several bases is not built yet",
 	"take's k is a positive integer of at most 2147483647, int4's, or a parameter's nonempty name",
 	"the ChangeSets' schemas are not levels of one another",
 	"the arm's field is the parent's head field that holds its discriminator",

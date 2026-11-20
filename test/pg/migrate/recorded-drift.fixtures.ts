@@ -99,7 +99,7 @@ export const versionOf = (name: string) => {
 			return r.match(Fact, { k, note }).where(r.eq(note, "a\tb")).find({ k })
 		})
 	)
-	const s = schema.extend(Base, `${name}_1`, [Tabbed], [contained(on(Tabbed, "k"), on(T, "k"))])
+	const s = schema.extend([Base], `${name}_1`, [Tabbed], [contained(on(Tabbed, "k"), on(T, "k"))])
 	const writer = role(s, "writer", wholeEntriesOf(s), { write: writableNamesOf(s) })
 	return { schema: s, logins: [login(s, "desk", [writer])] }
 }

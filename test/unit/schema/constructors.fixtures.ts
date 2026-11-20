@@ -1020,10 +1020,12 @@ export type LevelDefect =
 	| "a read of its own level"
 	| "a parameter"
 	| "a definition that is no query"
+	| "two bases"
 
 export const levelDefects: Arr.NonEmptyReadonlyArray<LevelDefect> = [
 	"none",
 	"a read of its own level",
 	"a parameter",
-	"a definition that is no query"
+	"a definition that is no query",
+	"two bases"
 ]

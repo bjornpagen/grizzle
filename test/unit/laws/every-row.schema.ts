@@ -64,10 +64,10 @@ export const boxSchemaOf = (c: Shape) => {
 	)
 	switch (c.law) {
 		case "contained":
-			return schema.extend(Base, "every_row_1", [D], [contained(on(D, "x"), on(G, "x"))])
+			return schema.extend([Base], "every_row_1", [D], [contained(on(D, "x"), on(G, "x"))])
 		case "check":
-			return schema.extend(Base, "every_row_1", [D], [check("C", D, (d) => d.ne(d.x, 3))])
+			return schema.extend([Base], "every_row_1", [D], [check("C", D, (d) => d.ne(d.x, 3))])
 		case "key":
-			return schema.extend(Base, "every_row_1", [D], [key(on(D, "x"))])
+			return schema.extend([Base], "every_row_1", [D], [key(on(D, "x"))])
 	}
 }

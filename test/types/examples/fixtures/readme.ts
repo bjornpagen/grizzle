@@ -176,7 +176,7 @@ export const Subscription = relation(
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
 export const Billing = schema.extend(
-	Blog,
+	[Blog],
 	"Billing",
 	[Plan, PlanLimits, Subscription],
 	[
@@ -511,7 +511,7 @@ export const ModelSpend = derived.materialized(
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
 	})
 )
-export const Reporting = schema.extend(Usage, "Reporting", [ModelSpend], [])
+export const Reporting = schema.extend([Usage], "Reporting", [ModelSpend], [])
 
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
@@ -836,7 +836,7 @@ export const Place = relation(
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
 export const Waitlist = schema.extend(
-	BoxOffice,
+	[BoxOffice],
 	"Waitlist",
 	[Place],
 	[
@@ -894,7 +894,7 @@ export const TypedHref = derived(
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
 export const ContentPackage = schema.extend(
-	Content,
+	[Content],
 	"ContentPackage",
 	[TypedHref],
 	[
@@ -1320,7 +1320,7 @@ export const Sitting = relation("Sitting", { child: ClerkUser, item: ItemIdentif
 	"item"
 ])
 export const Ledger = schema.extend(
-	Qti,
+	[Qti],
 	"Ledger",
 	[Sitting],
 	[contained(on(Sitting, "item"), on(Item, "id"))]
@@ -1426,7 +1426,7 @@ export const Answer = relation(
 	["learner", "step"]
 )
 export const Exam = schema.extend(
-	Bank,
+	[Bank],
 	"Exam",
 	[Published, Answer],
 	[

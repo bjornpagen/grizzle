@@ -5,17 +5,18 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The generic-base programs: a level schema.extend builds over a base parameter, `<Base extends Bound>(base: Base) =>
- * schema.extend(base, ...)`, its bound the least level it reads, `SchemaOver<typeof Root>`, or the weakest, AnySchema,
- * over every content a level may hold against what its base holds, instantiated over each base a bound admits: Root
- * itself, and Graded, a level over Root holding one relation more. Beside each, the same level over the same base
- * built directly, the call every check reads its base at. Each cell is printed into one program the type batch checks.
+ * schema.extend([base], ...)`, its bound the least level it reads, `SchemaOver<typeof Root>`, or the weakest,
+ * AnySchema, over every content a level may hold against what its base holds, instantiated over each base a bound
+ * admits: Root itself, and Graded, a level over Root holding one relation more. Beside each, the same level over the
+ * same base built directly, the call every check reads its base at. Each cell is printed into one program the type
+ * batch checks.
  *
  * The oracle is the rules the engine holds every level to, computed here apart from the types (`definitionVerdict`,
  * `levelVerdict`): a name is declared once across a level and every level below it, a statement names only relations
- * some level declares, and a derived definition is a query over a level below. A generic level's call knows its
- * base's least level alone, so it is refused there by a rule that level breaks, and every rule the base itself breaks
- * refuses the level its instantiation builds, wherever that level is taken as a schema; a level over a built schema is
- * refused at its call by every rule.
+ * some level declares, and a derived definition is a query over a level below. A generic level's call knows its base's
+ * least level alone, so it is refused there by a rule that level breaks, and every rule the base itself breaks refuses
+ * the level its instantiation builds, wherever that level is taken as a schema; a level over a built schema is refused
+ * at its call by every rule.
  */
 
 /** A base parameter's bound: the least level the level reads, Root, or AnySchema, which knows no relation's name. */
@@ -194,14 +195,14 @@ const cellLines = (c: GenericBaseCell, at: number): ReadonlyArray<string> => {
 			: []
 	const generic = [
 		...directive(definition, "the generic level's call"),
-		`export const of${at} = <B extends ${bound}>(base: B) => schema.extend(base, "Level${at}", [${list}], [${statements}])`
+		`export const of${at} = <B extends ${bound}>(base: B) => schema.extend([base], "Level${at}", [${list}], [${statements}])`
 	]
 	const instantiated =
 		definition.kind === "admitted"
 			? [
 					`export const level${at} = of${at}(${c.base})`,
 					...directive(level, "the instantiated level taken as a base"),
-					`export const above${at} = schema.extend(level${at}, "Above${at}", [], [])`
+					`export const above${at} = schema.extend([level${at}], "Above${at}", [], [])`
 				]
 			: []
 	return [
@@ -210,7 +211,7 @@ const cellLines = (c: GenericBaseCell, at: number): ReadonlyArray<string> => {
 		...generic,
 		...instantiated,
 		...directive(level, "the level over the built base"),
-		`export const built${at} = schema.extend(${c.base}, "Built${at}", [${list}], [${statements}])`,
+		`export const built${at} = schema.extend([${c.base}], "Built${at}", [${list}], [${statements}])`,
 		""
 	]
 }
@@ -218,14 +219,15 @@ const cellLines = (c: GenericBaseCell, at: number): ReadonlyArray<string> => {
 /**
  * The schema every cell reads: Root, its roster and Sitting; Graded over it, holding Gradebook, contained in Sitting;
  * Note, a relation of the levels' own; OtherSitting and OtherGradebook, relations named as Root's and Graded's and
- * other than them; and Sat, a derived relation whose definition is a query over Root.
+ * other than them; and Sat, a derived relation whose definition is a query over Root. Beside them, a level over Root
+ * and Graded both, refused: a level over several bases is not built yet.
  */
 const genericBaseHeader = (): ReadonlyArray<string> => [
 	'export const Series = closed.unordered("Series", ["a", "b"])',
 	'export const Sitting = relation("Sitting", { number: natural, series: closedId(Series) }, ["number"])',
 	'export const Root = schema("Root", [Series, Sitting], [])',
 	'export const Gradebook = relation("Gradebook", { number: natural }, ["number"])',
-	'export const Graded = schema.extend(Root, "Graded", [Gradebook], [contained(on(Gradebook, "number"), on(Sitting, "number"))])',
+	'export const Graded = schema.extend([Root], "Graded", [Gradebook], [contained(on(Gradebook, "number"), on(Sitting, "number"))])',
 	'export const Note = relation("Note", { number: natural }, ["number"])',
 	'export const OtherSitting = relation("Sitting", { number: natural }, ["number"])',
 	'export const OtherGradebook = relation("Gradebook", { number: natural, note: natural }, ["number"])',
@@ -236,6 +238,8 @@ const genericBaseHeader = (): ReadonlyArray<string> => [
 	"\t\treturn r.match(Sitting, { number }).find({ number })",
 	"\t})",
 	")",
+	"// @ts-expect-error -- refusal: schema.extend takes one base: a level over several bases is not built yet",
+	'export const TwoBases = schema.extend([Root, Graded], "TwoBases", [], [])',
 	""
 ]
 

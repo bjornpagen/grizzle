@@ -18,6 +18,7 @@ import {
 	declaredAlike,
 	identifierOf,
 	isList,
+	levelChain,
 	ownBuilt,
 	type Owned,
 	type OwnedLogin,
@@ -123,19 +124,21 @@ export interface ResolvedConfig {
 }
 
 /** The root of a description's levels, the one schema(...) built. */
-const rootOf = (desc: SchemaDesc): SchemaDesc =>
-	desc.extends === undefined ? desc : rootOf(desc.extends)
+const rootOf = (desc: SchemaDesc): SchemaDesc => levelChain(desc)[0]
 
 /** Each level of a built schema, its declared name and its content, the schema itself first: a schema's content records
  * the level below it as its description does (schema/levels.ts SchemaContent). */
 const levelsOf = (
 	built: Pick<BuiltSchema, "desc" | "content">
-): ReadonlyArray<{ readonly name: string; readonly content: SchemaContent }> => [
-	{ name: built.desc.name, content: built.content },
-	...(built.desc.extends === undefined || built.content.below === undefined
-		? []
-		: levelsOf({ desc: built.desc.extends, content: built.content.below }))
-]
+): ReadonlyArray<{ readonly name: string; readonly content: SchemaContent }> => {
+	const [base] = built.desc.bases
+	return [
+		{ name: built.desc.name, content: built.content },
+		...(base === undefined || built.content.below === undefined
+			? []
+			: levelsOf({ desc: base, content: built.content.below }))
+	]
+}
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === "object" && v !== null && !Arr.isArray(v)

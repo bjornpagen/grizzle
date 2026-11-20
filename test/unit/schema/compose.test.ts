@@ -188,7 +188,7 @@ export const composingRelationsIntoASchemaRefusesTwoDeclarationsOfOneNameDifferi
 								below =
 									below === undefined
 										? schema(name, list, statements, [])
-										: schema.extend(below, name, list, statements, [])
+										: schema.extend([below], name, list, statements, [])
 							}
 							return below
 						})

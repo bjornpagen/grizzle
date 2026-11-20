@@ -99,7 +99,7 @@ const Named = derived(
  * (name, package, ...) does.
  */
 const NetWrite = schema.extend(
-	Base,
+	[Base],
 	"NetWrite_1",
 	[Media, Named],
 	[

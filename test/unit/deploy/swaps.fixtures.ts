@@ -69,7 +69,7 @@ const desc = (c: SwapCase, version: Successor): SchemaDesc => {
 			key(on("Task", [first, second])),
 			key(on("Task", [third]))
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

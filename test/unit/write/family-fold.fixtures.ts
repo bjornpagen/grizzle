@@ -277,7 +277,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 				on("Owner", ["id", ...Arr.map(planeNames, (p) => `end${p}`)])
 			)
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

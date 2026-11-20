@@ -257,7 +257,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 				on("Owner", ["id", ...Arr.map(planeNames, (p) => `end${p}`)])
 			)
 		],
-		extends: undefined
+		bases: []
 	}
 }
 
@@ -443,7 +443,7 @@ export const hiddenFolds = (folds: ReadonlyArray<Hidden>): SchemaDesc => ({
 			)
 		)
 	],
-	extends: undefined
+	bases: []
 })
 
 /** A family's hidden folds in order, and the one a second schema removes. */

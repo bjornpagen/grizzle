@@ -53,9 +53,9 @@ const levels = (desc: SchemaDesc): Declared => {
 		)
 	}
 	const base: Declared =
-		desc.extends === undefined
+		desc.bases[0] === undefined
 			? { relations: [], mutable: new Set(), headers: [] }
-			: levels(desc.extends)
+			: levels(desc.bases[0])
 	const known = new Set(Arr.map(desc.relations, (r) => r.name))
 	return {
 		relations: [...Arr.filter(base.relations, (r) => !known.has(r.name)), ...desc.relations],

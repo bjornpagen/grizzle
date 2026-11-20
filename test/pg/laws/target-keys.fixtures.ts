@@ -486,7 +486,7 @@ export const schemaOf = (s: Sketch): SchemaDesc => ({
 		),
 		...probeOf(s)
 	],
-	extends: undefined
+	bases: []
 })
 
 export const RELATIONS = nonEmpty(["Tgt", "Src"])

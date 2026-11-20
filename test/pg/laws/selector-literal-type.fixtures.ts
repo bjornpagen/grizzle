@@ -138,7 +138,7 @@ const KeyedAtOther = derived("KeyedAtOther", keyedAt("1.25"))
 const KeyedAtOtherExact = derived("KeyedAtOtherExact", keyedAt("1.30"))
 
 const SelectorLiteral = schema.extend(
-	Selected,
+	[Selected],
 	"selector_literal_rules",
 	[AtOther, AtOtherExact, KeyedAtOther, KeyedAtOtherExact],
 	[

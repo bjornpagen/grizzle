@@ -80,7 +80,7 @@ const gradingSchema = (name: string) => {
 			return r.match(Line, { session, pos, txt }).find({ session, pos, txt })
 		})
 	)
-	const level = schema.extend(base, `${name}_g`, [Open, Program, grade], [])
+	const level = schema.extend([base], `${name}_g`, [Open, Program, grade], [])
 	return { level, Open, Program }
 }
 

@@ -109,7 +109,7 @@ export const aChangeMembersApplyAnswersTheEmptyAStreamParameterAndABaseLevelChan
 								 */
 								const sibling = schema(done.schema, Rec.values(W.Work.relations), [])
 								const extension = schema.extend(
-									s0,
+									[s0],
 									"Extended",
 									[relation("Extra", { id: Id }, ["id"])],
 									[]

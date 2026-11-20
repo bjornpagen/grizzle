@@ -313,7 +313,7 @@ export const schemaOfCopies = (
 		? base
 		: {
 				name: "T_1",
-				extends: decodedSchema(base),
+				bases: [decodedSchema(base)],
 				relations: Arr.map(copies, (named) => viewOf(view, named)),
 				statements: Arr.flatMap(copies, (named) =>
 					Arr.map(

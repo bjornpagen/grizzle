@@ -285,7 +285,7 @@ const descOf = (d: Declaration): SchemaDesc => ({
 		closedRelation("Weight", { k: f.closedId("Q"), w: f.integer }, ["k"], weightRows[d.rows])
 	],
 	statements: [pairLaw],
-	extends: undefined
+	bases: []
 })
 
 const roster = parsedName("R")

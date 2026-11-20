@@ -172,7 +172,7 @@ const TypedName = derived(
  * twice when it was a self-join of the side.
  */
 const Mid = schema.extend(
-	Base,
+	[Base],
 	"CheckCost_1",
 	[Declared, CardName, TypedName],
 	[key(on(Declared, "pkg", "path", "kind", "w"))]
@@ -201,7 +201,7 @@ const Fit = derived(
  * 193 s over zero violations.
  */
 const Checked = schema.extend(
-	Mid,
+	[Mid],
 	"CheckCost_2",
 	[Fit],
 	[check("Fit", Fit, (f) => f.or(f.ne(f.attr, 1), f.eq(f.base, 1)))]

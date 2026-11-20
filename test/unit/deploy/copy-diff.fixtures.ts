@@ -266,7 +266,7 @@ const schemaOf = (v: Version): DeploySubject => {
 				)
 			],
 			statements,
-			extends: undefined
+			bases: []
 		}
 	}
 	const statements: Array<AuthoredStatementDesc> = [
@@ -309,7 +309,7 @@ const schemaOf = (v: Version): DeploySubject => {
 			)
 		],
 		statements,
-		extends: undefined
+		bases: []
 	}
 }
 

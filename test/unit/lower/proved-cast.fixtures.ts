@@ -85,7 +85,12 @@ const schemaOf = (c: ProvedCastCase) => {
 					}
 				})
 			)
-			return schema.extend(base, "Images", [Image], [contained(on(Named, "t"), on(Image, "image"))])
+			return schema.extend(
+				[base],
+				"Images",
+				[Image],
+				[contained(on(Named, "t"), on(Image, "image"))]
+			)
 		}
 		case "generated cast":
 			return schema(

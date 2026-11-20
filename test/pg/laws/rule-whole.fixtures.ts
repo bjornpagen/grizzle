@@ -293,7 +293,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 		check("Marked", Marks, (m) => m.or(m.ne(m.mark, 1), m.eq(m.kind, 0)))
 	] as const
 	if (probed) {
-		return schema.extend(Base, `${name}_1`, [Typed, Parents, KindOne, Marks], spj)
+		return schema.extend([Base], `${name}_1`, [Typed, Parents, KindOne, Marks], spj)
 	}
 	const Fanout = derived(
 		"Fanout",
@@ -350,7 +350,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 				.find({ ...at, parent })
 		})
 	)
-	const Leaves = schema.extend(Base, `${name}_0`, [LeafChild], [])
+	const Leaves = schema.extend([Base], `${name}_0`, [LeafChild], [])
 	const Barren = derived(
 		"Barren",
 		query(Leaves).rule((r) => {
@@ -363,7 +363,7 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 		})
 	)
 	return schema.extend(
-		Leaves,
+		[Leaves],
 		`${name}_1`,
 		[Typed, Parents, KindOne, Fanout, Reach, Barren, Marks],
 		[

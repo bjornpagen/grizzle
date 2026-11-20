@@ -612,7 +612,7 @@ const DailySpend = derived.materialized("DailySpend", dailySpendDefinition)
  */
 const billingOf = (root: string): string => `${root}_1`
 
-export const Billing = schema.extend(Platform, billingOf("Platform"), [DailySpend], [])
+export const Billing = schema.extend([Platform], billingOf("Platform"), [DailySpend], [])
 
 /**
  * The platform and its Billing extension rebuilt under another name, as a test installs them, Billing under the
@@ -622,7 +622,7 @@ export const Billing = schema.extend(Platform, billingOf("Platform"), [DailySpen
  */
 export const platformAt = (name: string) => {
 	const base = platformOf(name)
-	const extended = schema.extend(base, billingOf(name), [DailySpend], [])
+	const extended = schema.extend([base], billingOf(name), [DailySpend], [])
 	const billing = role(extended, "billing", wholeEntriesOf(extended), {
 		write: writableNamesOf(extended),
 		refresh: ["DailySpend"]

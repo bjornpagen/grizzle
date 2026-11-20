@@ -67,7 +67,7 @@ const schemaOf = (selected: boolean): SchemaDesc => {
 				on("Owner", ["id", "joined"])
 			)
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

@@ -191,7 +191,7 @@ export const ledger = (name: string) => {
 			.find({ customer, payments: r.count(), cents: r.sum(cents) })
 	})
 	const CustomerSpend = derived.materialized("CustomerSpend", spend)
-	const s = schema.extend(base, `${name}_1`, [CustomerSpend], [])
+	const s = schema.extend([base], `${name}_1`, [CustomerSpend], [])
 	const reader = role(s, "reader", wholeEntriesOf(s))
 	const writer = role(s, "writer", wholeEntriesOf(s), {
 		write: writableNamesOf(s)

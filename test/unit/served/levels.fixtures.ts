@@ -75,8 +75,8 @@ export const installationOf = (c: ProgramCase, level: LawLevel, own: Top): Insta
 	const Seen = materializedDerived("TopSeen", facts, [])
 	const base = drawn.built.schema
 	const laws = drawn.laws.schema
-	const views = schema.extend(laws, "ViewsLevel", [Read], [], [])
-	const top = schema.extend(views, "TopLevel", [Shade, Lamp, Seen], [], [])
+	const views = schema.extend([laws], "ViewsLevel", [Read], [], [])
+	const top = schema.extend([views], "TopLevel", [Shade, Lamp, Seen], [], [])
 	return {
 		logins: [
 			{

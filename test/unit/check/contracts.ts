@@ -78,7 +78,7 @@ export const contractSchema = (c: ContractCase): SchemaDesc => ({
 	name: "Contracts",
 	relations: [relation("R0", c.schemaQty ? { id: f.uuid, n: qtyDesc } : { id: f.uuid }, ["id"])],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** The query: R0's ids, each row with one column per declaration, the literal 1 of its base cast into it. */

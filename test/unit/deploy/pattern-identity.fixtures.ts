@@ -158,20 +158,22 @@ const schemaOver = (pattern: PatternValue, keyed: string): SchemaDesc => ({
 	name: "Judged",
 	relations: [{ kind: "derived", name: "D", level: 1, storage: "live", query: matching(pattern) }],
 	statements: [key(on("D", ["id"]))],
-	extends: {
-		name: "Spelled",
-		relations: [
-			relation("T", { id: f.integer, t: f.regex("^.{0,16}$", "su"), [keyed]: f.integer }, ["id"]),
-			relation("S", { u: f.integer }, ["u"])
-		],
-		statements: [
-			check("Shaped", "T", matches(pattern)),
-			check("Guarded", "T", guarded(pattern)),
-			key(onWhere("T", [keyed], matches(pattern))),
-			contained(onWhere("T", [keyed], matches(pattern)), on("S", ["u"]))
-		],
-		extends: undefined
-	}
+	bases: [
+		{
+			name: "Spelled",
+			relations: [
+				relation("T", { id: f.integer, t: f.regex("^.{0,16}$", "su"), [keyed]: f.integer }, ["id"]),
+				relation("S", { u: f.integer }, ["u"])
+			],
+			statements: [
+				check("Shaped", "T", matches(pattern)),
+				check("Guarded", "T", guarded(pattern)),
+				key(onWhere("T", [keyed], matches(pattern))),
+				contained(onWhere("T", [keyed], matches(pattern)), on("S", ["u"]))
+			],
+			bases: []
+		}
+	]
 })
 
 /** The case's schema over `pattern`, its keyed selection and containment reading T's field u. */

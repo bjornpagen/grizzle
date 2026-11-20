@@ -109,7 +109,7 @@ export const shapes = (name: string) => {
 		})
 	)
 	return schema.extend(
-		Base,
+		[Base],
 		`${name}_1`,
 		[TypedHref, TitledObject, HeldSetter, Unmatched],
 		[

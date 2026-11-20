@@ -91,13 +91,13 @@ const schemaOf = (shape: Shape) => {
 	)
 	return shape.crossing
 		? schema.extend(
-				Base,
+				[Base],
 				"rule_requests_1",
 				[D, E],
 				[contained(on(D, "package", "x"), on(S, "package", "x")), contained(on(E, "g"), on(Q, "g"))]
 			)
 		: schema.extend(
-				Base,
+				[Base],
 				"rule_requests_1",
 				[D],
 				[contained(on(D, "package", "x"), on(S, "package", "x"))]

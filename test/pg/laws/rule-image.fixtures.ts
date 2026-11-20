@@ -72,7 +72,7 @@ const ObjectIdentifier = derived(
 	})
 )
 const imageSchema = schema.extend(
-	Base,
+	[Base],
 	"rule_image_1",
 	[ObjectIdentifier],
 	[contained(on(ItemSession, "package", "item"), on(ObjectIdentifier, "package", "identifier"))]

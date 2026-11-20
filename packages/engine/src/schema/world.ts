@@ -22,6 +22,7 @@ import {
 	type FieldDesc,
 	heldRelation,
 	type LoginDesc,
+	levelChain,
 	type QueryDesc,
 	type RelationDesc,
 	type RoleDesc,
@@ -670,7 +671,7 @@ export const writableNamesOf = <Base extends AnySchema>(
  */
 const orderedMembersOf = (schema: SchemaDesc): ReadonlySet<string> => {
 	const members = new Set<string>()
-	for (let level: SchemaDesc | undefined = schema; level !== undefined; level = level.extends) {
+	for (const level of levelChain(schema)) {
 		for (const statement of level.statements) {
 			if (statement.kind === "family" && statement.order === "ordered") {
 				members.add(statement.member.relation)

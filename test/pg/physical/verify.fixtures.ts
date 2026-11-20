@@ -66,7 +66,7 @@ const driftBase = (name: string) => {
 			return r.match(Doc, { id, org }).find({ org, docs: r.count() })
 		})
 	)
-	return schema.extend(base, `${name}_1`, [DocCount], [])
+	return schema.extend([base], `${name}_1`, [DocCount], [])
 }
 
 /**

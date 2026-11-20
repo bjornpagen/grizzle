@@ -224,7 +224,7 @@ const foldWorld = (name: string) => {
 		})
 	)
 	const rule = contained(on(Tag, "at"), on(Folded, "at"))
-	const level = schema.extend(S, `${name}_folded`, [Folded], [rule])
+	const level = schema.extend([S], `${name}_folded`, [Folded], [rule])
 	const programs = {
 		write: ChangeSet.empty(level).insert(Attr, []).insert(Tag, []),
 		lowered: query(level).rule((r) => {

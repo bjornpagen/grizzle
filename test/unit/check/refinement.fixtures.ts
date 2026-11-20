@@ -516,7 +516,7 @@ export const closedSchema = (c: ClosedCase): SchemaDesc => ({
 		)
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 export type ConstantFeature = "a refined cell" | "an unrefined cell" | "no row"

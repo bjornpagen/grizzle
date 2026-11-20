@@ -80,7 +80,7 @@ const retiredShape = (name: string): Shape => {
 		})
 	)
 	const top = schema.extend(
-		below,
+		[below],
 		`${name}_1`,
 		[Live],
 		[check("Below", Live, (l) => l.lt(l.n, bound))]
@@ -114,7 +114,7 @@ const plainShape =
 			})
 		)
 		const top = schema.extend(
-			below,
+			[below],
 			`${name}_1`,
 			[Live],
 			[variant === "pair" ? key(on(Live, "n")) : check("Below", Live, (l) => l.lt(l.n, bound))]

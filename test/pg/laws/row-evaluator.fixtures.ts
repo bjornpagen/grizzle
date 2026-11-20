@@ -304,7 +304,7 @@ const builtOf = (ec: EvalCase) => {
 		selected: selectBuilder(Gen, holding(ec.selection)),
 		pickSelected: selectBuilder(c.Pick, holding(ec.closedSelection)),
 		declared: schema.extend(
-			level,
+			[level],
 			"RowEvaluatorDerived",
 			[D0, D1, D2],
 			Arr.map(rules, (j) => j.inD)

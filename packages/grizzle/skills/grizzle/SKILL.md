@@ -54,7 +54,7 @@ export default defineConfig({
 
 - Every key is required, and nothing else is configurable: an unknown key is refused.
 - Always `export default defineConfig({ ... })`. A plain object is refused.
-- `schemas` lists each installation once, by its top level: `schema.extend(Qti, "Ledger", ...)` listed as `[Ledger]`
+- `schemas` lists each installation once, by its top level: `schema.extend([Qti], "Ledger", ...)` listed as `[Ledger]`
   installs `Qti` and `Ledger` together, each level in its own PostgreSQL schema, under one migrations directory named
   by the root, `migrations/qti/`. Listing `Qti` beside `Ledger`, or two schemas over one root, is refused.
 - Every role is in exactly one login. A login may be over any level of a listed installation (`login(Qti, ...)` beside
@@ -62,13 +62,15 @@ export default defineConfig({
   version of it), and two logins or roles of one installation whose names convert alike. A login missing from `logins`
   is not installed, nor are its roles: their PostgreSQL roles don't exist, so a Db's first call through them is refused
   at stage `acquire`.
-- A schema's relations are a list: `schema("App", [Item, Note], [...])`, `schema.extend(Qti, "Ledger", [Sitting],
+- A schema's relations are a list: `schema("App", [Item, Note], [...])`, `schema.extend([Qti], "Ledger", [Sitting],
   [...])`. Join a library's relations to the app's by concatenating lists, `[...own, ...library.relations]`, never by
   spreading records, which drops one of two relations of a name. A name is one relation across every level: a relation
   listed twice or an identical copy is one declaration, two that differ are `DuplicateIdentity` naming both, and so is
   a law built over a relation of a declared name other than the one declared.
+- A level's bases are a list, of one base: `schema.extend([base], ...)`. A level over several bases is not built yet,
+  and a second base is refused, `Refusal<"schema.extend takes one base: a level over several bases is not built yet">`.
 - A package's level over whatever base its installation hands it is a function of that base, bounded by the least
-  level it reads: `<Base extends SchemaOver<typeof Qti>>(base: Base) => schema.extend(base, "Ledger", ...)`, or
+  level it reads: `<Base extends SchemaOver<typeof Qti>>(base: Base) => schema.extend([base], "Ledger", ...)`, or
   `AnySchema`, which knows no relation's name and admits no derived relation. The call checks the level over the bound;
   the same checks over the base wait for the call with it, whose result, refused, carries `Refusal<"...">` and is
   refused wherever it is taken as a schema.

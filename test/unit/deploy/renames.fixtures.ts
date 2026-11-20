@@ -419,7 +419,7 @@ const descOf = (dimension: Exclude<Dimension, "login">, held: ReadonlyArray<Name
 				name: "Renames",
 				relations: Arr.map(held, (n) => relation(upper(n), { id: f.uuid }, ["id"])),
 				statements: [],
-				extends: undefined
+				bases: []
 			}
 		case "field":
 			return {
@@ -432,14 +432,14 @@ const descOf = (dimension: Exclude<Dimension, "login">, held: ReadonlyArray<Name
 					)
 				],
 				statements: [],
-				extends: undefined
+				bases: []
 			}
 		case "handle":
 			return {
 				name: "Renames",
 				relations: [closed.ordered("R", held)],
 				statements: [],
-				extends: undefined
+				bases: []
 			}
 	}
 }
@@ -810,7 +810,7 @@ export const respelledDesc = (respelling: Respelling, at: keyof Spelling): Schem
 			relation(name, { id: f.uuid, [fixed]: f.closedId(kind) }, ["id"])
 		],
 		statements: [key(onWhere(name, ["id"], eq(field(fixed), literal("Low"))))],
-		extends: undefined
+		bases: []
 	}
 }
 
@@ -846,5 +846,5 @@ export const goneDesc = (gone: Gone, held: boolean): SchemaDesc => ({
 		)
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })

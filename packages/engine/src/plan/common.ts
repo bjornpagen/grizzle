@@ -188,8 +188,8 @@ export {
 	type SchemaInput
 } from "#compiler/program/schema.ts"
 export { type SchemaContent, sameLevel } from "#compiler/schema/levels.ts"
+export { levelChain } from "#compiler/ir/desc.ts"
 export {
-	levelChain,
 	own,
 	ownBuilt,
 	ownBuiltLogin,

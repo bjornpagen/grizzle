@@ -111,7 +111,7 @@ ${Arr.join(
 		)}], [])
 ${sourceDefinitions(shape.kind)}${
 			shape.kind === "derived"
-				? `export const E = schema.extend(S, "E", [${Arr.join(
+				? `export const E = schema.extend([S], "E", [${Arr.join(
 						Arr.map(indices(sources), (j) => `D${j}`),
 						", "
 					)}], [])\n`

@@ -100,7 +100,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 			relation("B", bFields, bKey)
 		],
 		statements: [...keyStatements, contained(sourceSide, targetSide)],
-		extends: undefined
+		bases: []
 	}
 }
 

@@ -446,7 +446,7 @@ export const descriptorSchemaOf = (c: DescriptorCase) => {
 			)
 		})
 	})
-	return schema.extend(Base, "Derived", [runtimeDerived("D", definition, [])], [])
+	return schema.extend([Base], "Derived", [runtimeDerived("D", definition, [])], [])
 }
 
 /** What a descriptor case reached: each aggregate and column kind, or a schema the compiler refuses, which installs
@@ -464,7 +464,7 @@ const ownedTasks = query(W.Work).rule((r) => {
 const OwnedTasks = derived.materialized("OwnedTasks", ownedTasks)
 
 /** Account's name lies outside the referenced key, which makes Task.account -> Account.id deferred. */
-const Written = schema.extend(W.Work, "Written", [OwnedTasks], [])
+const Written = schema.extend([W.Work], "Written", [OwnedTasks], [])
 
 /**
  * Written installed once per member with the worked example's facts and OwnedTasks refreshed over them, where the

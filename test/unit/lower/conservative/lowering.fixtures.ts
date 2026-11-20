@@ -55,7 +55,7 @@ const centsDomain = installationOf(
 			relation("Ledger", { id: f.uuid, cents: f.contract("Cents", f.bigint, undefined) }, ["id"])
 		],
 		statements: [],
-		extends: undefined
+		bases: []
 	}),
 	{ kind: "declared" }
 ).names.contractDomain

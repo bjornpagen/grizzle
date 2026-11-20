@@ -92,7 +92,7 @@ used(K${i})
 `
 	),
 	""
-)}export const E = schema.extend(B, "E", [${Arr.join(
+)}export const E = schema.extend([B], "E", [${Arr.join(
 			Arr.map(indices(shape.derived), (i) => `D${i}`),
 			", "
 		)}], [${lawsOf(shape)}])

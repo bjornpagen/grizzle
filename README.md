@@ -325,7 +325,7 @@ export const Subscription = relation(
 
 /** The blog, billed: an organization posts once it subscribes, within its plan's seats. */
 export const Billing = schema.extend(
-	Blog,
+	[Blog],
 	"Billing",
 	[Plan, PlanLimits, Subscription],
 	[
@@ -1238,7 +1238,7 @@ export const ModelSpend = derived.materialized(
 			.find({ workspace, model, calls: r.count(), spend: r.sum(cost) })
 	})
 )
-export const Reporting = schema.extend(Usage, "Reporting", [ModelSpend], [])
+export const Reporting = schema.extend([Usage], "Reporting", [ModelSpend], [])
 
 export const Analyst = role(Reporting, "analyst", wholeEntriesOf(Reporting), {
 	refresh: ["ModelSpend"]
@@ -2286,7 +2286,7 @@ export const Place = relation(
 const waiting = select(Place, (p) => p.eq(p.called, false))
 
 export const Waitlist = schema.extend(
-	BoxOffice,
+	[BoxOffice],
 	"Waitlist",
 	[Place],
 	[
@@ -2377,7 +2377,7 @@ export const TypedHref = derived(
 const items = select(TypedHref, (t) => t.eq(t.type, "item"))
 
 export const ContentPackage = schema.extend(
-	Content,
+	[Content],
 	"ContentPackage",
 	[TypedHref],
 	[
@@ -3868,9 +3868,11 @@ export const file = ChangeSet.empty(Words)
 
 ## Levels
 
-A schema builds on another under its own name: `schema.extend(base, name, relations, statements)` is a level over
+A schema builds on another under its own name: `schema.extend([base], name, relations, statements)` is a level over
 `base`, with every relation and rule of it and of the levels below it, and relations and rules of its own. Each level is
-declared once, by its own name, which no level below it takes, and there is no other way to extend a schema.
+declared once, by its own name, which no level below it takes, and there is no other way to extend a schema. Its bases
+are a list, its description's `bases`, of one base: a level over several bases is not built yet, and a second base is
+refused, `Refusal<"schema.extend takes one base: a level over several bases is not built yet">`.
 
 ```ts
 /** The QTI content model, maintained on its own: an item is its QTI identifier. */
@@ -3883,7 +3885,7 @@ export const Sitting = relation("Sitting", { child: ClerkUser, item: ItemIdentif
 	"item"
 ])
 export const Ledger = schema.extend(
-	Qti,
+	[Qti],
 	"Ledger",
 	[Sitting],
 	[contained(on(Sitting, "item"), on(Item, "id"))]
@@ -3949,7 +3951,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   own.
 - **A level over whatever base it is given.** A package's level over the base its installation hands it is a function
   of that base, bounded by the least level it reads: `export const ledgerOf = <Base extends SchemaOver<typeof Qti>>(base:
-  Base) => schema.extend(base, "Ledger", [Sitting], [contained(on(Sitting, "item"), on(Item, "id"))])`. The call checks
+  Base) => schema.extend([base], "Ledger", [Sitting], [contained(on(Sitting, "item"), on(Item, "id"))])`. The call checks
   the level over that least level, the one level it knows: its relations' names against `Qti`'s, its statements'
   relations among `Qti`'s and its own, and each derived relation's definition a query over a level of `Qti`. `AnySchema`
   is the weakest bound, which knows no relation's name and admits no derived relation. The same checks over the base
@@ -4954,7 +4956,7 @@ export const Answer = relation(
 	["learner", "step"]
 )
 export const Exam = schema.extend(
-	Bank,
+	[Bank],
 	"Exam",
 	[Published, Answer],
 	[

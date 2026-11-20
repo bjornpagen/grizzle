@@ -11,6 +11,7 @@ import {
 	exprChildren,
 	type FieldDesc,
 	type LiteralDesc,
+	levelChain,
 	type MatchDesc,
 	type QueryDesc,
 	type QueryStageDesc,
@@ -131,7 +132,7 @@ const unnamed = (stage: QueryStageDesc): QueryStageDesc =>
 /** The relations of a schema through every level it extends, by name. */
 const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 	const out = new Map<string, RelationDesc>()
-	for (let level: SchemaDesc | undefined = schema; level !== undefined; level = level.extends) {
+	for (const level of levelChain(schema).toReversed()) {
 		for (const relation of level.relations) {
 			if (!out.has(relation.name)) {
 				out.set(relation.name, relation)
@@ -147,7 +148,7 @@ const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
  */
 const keyFieldsOf = (schema: SchemaDesc, relation: OrdinaryDesc): ReadonlySet<string> => {
 	const out = new Set<string>(relation.primaryKey)
-	for (let level: SchemaDesc | undefined = schema; level !== undefined; level = level.extends) {
+	for (const level of levelChain(schema)) {
 		const declared = level.statements.flatMap((s) =>
 			s.kind === "key" && s.side.relation === relation.name
 				? (candidateKeyFields(s.side) ?? [])

@@ -109,7 +109,7 @@ export const spanLawsRefusesAContainmentPairingMoreThanOneSpanFieldWhateverElseI
 								relation("Other", { id: f.uuid, ...declared }, ["id"])
 							],
 							statements: [contained(on("Two", fields), on("Other", fields))],
-							extends: undefined
+							bases: []
 						}
 						if (spans > 1) {
 							c.note("several span fields")
@@ -173,7 +173,7 @@ export const fieldCompatibilityClassesAdmitAPairingOfTwoFieldsExactlyWhenTheirId
 								relation("B", { id: f.uuid, y: b.desc }, ["id"])
 							],
 							statements: [contained(on("A", ["x"]), on("B", ["y"]))],
-							extends: undefined
+							bases: []
 						})
 						if (identityOf(a.desc) !== identityOf(b.desc)) {
 							c.note("another identity")

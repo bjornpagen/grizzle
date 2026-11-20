@@ -162,7 +162,7 @@ const first = (name: string): SchemaDesc => ({
 		s
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** The second version under `d`. */
@@ -199,7 +199,7 @@ const second = (name: string, d: Delta): SchemaDesc => ({
 		...(d.added && d.checked ? [check("CNonNegative", "R", ge(field("c"), literal(0)))] : []),
 		...(d.referenced ? [key(on("S", ["x"])), contained(on("R", ["e"]), on("S", ["x"]))] : [])
 	],
-	extends: undefined
+	bases: []
 })
 
 /** The drops the second version declares: gone, when it drops it. */

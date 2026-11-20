@@ -180,7 +180,7 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 					})
 				})
 				const analyzed = Result.map(
-					checkedIn(runtimeSchema.extend(L, "Level1", [runtimeDerived("T", q, [])], [], [])),
+					checkedIn(runtimeSchema.extend([L], "Level1", [runtimeDerived("T", q, [])], [], [])),
 					derivedAnalysis
 				)
 				const owned = checking(L).owned

@@ -14,6 +14,7 @@ import {
 	type SchemaDesc,
 	type SchemaRelationDesc,
 	type StatementDesc,
+	levelChain,
 	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
 import { fragmentName, fragmentReach } from "#compiler/schema/fragment.ts"
@@ -22,6 +23,7 @@ import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
+	builderRefusal,
 	frozenTuple,
 	malformed,
 	ownedDesc,
@@ -154,12 +156,13 @@ const declaresFunction = (
 	return true
 }
 
-/** Every function `desc` and the levels below it declare, by name. */
+/** Every function `desc` and the levels below it declare, by name, a higher level's declaration of a name its own. */
 const levelFunctions = (desc: SchemaDesc): Map<string, FunctionDesc> => {
-	const out =
-		desc.extends === undefined ? new Map<string, FunctionDesc>() : levelFunctions(desc.extends)
-	for (const fn of desc.functions ?? []) {
-		out.set(fn.name, fn)
+	const out = new Map<string, FunctionDesc>()
+	for (const level of levelChain(desc)) {
+		for (const fn of level.functions ?? []) {
+			out.set(fn.name, fn)
+		}
 	}
 	return out
 }
@@ -423,7 +426,7 @@ export const admitSchema = (
 		relations: descs,
 		statements: stmts.map((s) => s.desc),
 		functions: [...functions.values()],
-		extends: undefined,
+		bases: [],
 		loc: builderLoc(label, [schemaName])
 	})
 	return {
@@ -470,41 +473,63 @@ const rootSchema = <
 			relations: levelRecord<Relations>(admitted.names),
 			statements: frozenTuple(read),
 			listed: listedStatements(relations),
-			extends: undefined
+			bases: []
 		},
 		desc: admitted.desc,
 		content: admitted.content
 	})
 }
 
-/** Every relation of `desc` and the levels below it, by name, with the derived level of each derived relation. */
+/**
+ * Every relation of `desc` and the levels below it, by name, the lowest level's declaration of a name, with the derived
+ * level of each derived relation.
+ */
 const levelRelations = (desc: SchemaDesc): Map<string, RelationDesc> => {
-	const out =
-		desc.extends === undefined ? new Map<string, RelationDesc>() : levelRelations(desc.extends)
-	for (const r of desc.relations) {
-		if (!out.has(r.name)) {
-			out.set(r.name, r)
+	const out = new Map<string, RelationDesc>()
+	for (const level of levelChain(desc)) {
+		for (const r of level.relations) {
+			if (!out.has(r.name)) {
+				out.set(r.name, r)
+			}
 		}
 	}
 	return out
 }
 
+/**
+ * The one base a JavaScript caller's list of bases holds: a list of one schema built by schema(...) or schema.extend; a
+ * list of several is refused by the rule the types name (a level over several bases is not built yet).
+ */
+const oneBase = (bases: unknown) => {
+	if (!isList(bases)) {
+		throw malformed("schema.extend", "a list of base schemas, [base]")
+	}
+	if (bases.length > 1) {
+		throw builderRefusal(
+			"schema.extend",
+			"schema.extend takes one base: a level over several bases is not built yet"
+		)
+	}
+	const baseEntry = ownedEntry(bases[0], "schema")
+	if (baseEntry === undefined) {
+		throw malformed("schema.extend", "[base], a base schema built by schema(...) or schema.extend")
+	}
+	return baseEntry
+}
+
 const admitExtend = (
-	base: unknown,
+	bases: unknown,
 	name: unknown,
 	relations: unknown,
 	statements: unknown,
 	extra: ReadonlyArray<unknown>
 ): AdmittedLevel => {
-	const baseEntry = ownedEntry(base, "schema")
-	if (baseEntry === undefined) {
-		throw malformed("schema.extend", "a base schema built by schema(...) or schema.extend")
-	}
+	const baseEntry = oneBase(bases)
 	const baseDesc = baseEntry.desc
 	const label = `schema.extend ${baseDesc.name} ${typeof name === "string" ? name : "?"}`
 	const levelName = requireName(name, label, "a schema name")
 	if (extra.length > 0) {
-		throw malformed(label, "schema.extend(base, name, relations, statements): four arguments")
+		throw malformed(label, "schema.extend([base], name, relations, statements): four arguments")
 	}
 	const values = relationValues(
 		relations,
@@ -593,7 +618,7 @@ const admitExtend = (
 		relations: descs,
 		statements: stmts.map((s) => s.desc),
 		functions: [...functions.values()],
-		extends: baseDesc,
+		bases: [baseDesc],
 		loc: builderLoc(label, [levelName])
 	})
 	/** A derived relation's description is the level's own, as the level holds it; any other its value's. */
@@ -614,10 +639,10 @@ const admitExtend = (
 }
 
 /**
- * A level named `name` over `base`: relations, derived relations among them, and statements; the value holds the
- * base's relations, then each relation of its own list the base does not declare (record.ts levelRecordOver), and the
- * base's statements before its own, its own read back whole as the root's are over the record SpelledOver they are
- * spelled over (types/schema/schema.ts Extension), and the base it extends.
+ * A level named `name` over its one base, `[base]`: relations, derived relations among them, and statements; the value
+ * holds the base's relations, then each relation of its own list the base does not declare (record.ts levelRecordOver),
+ * and the base's statements before its own, its own read back whole as the root's are over the record SpelledOver they
+ * are spelled over (types/schema/schema.ts Extension), and its bases, `[base]`.
  */
 const extend = <
 	Base extends AnySchema,
@@ -628,13 +653,14 @@ const extend = <
 	const Statements extends ReadonlyArray<Statement>,
 	SpelledOver
 >(
-	base: Base,
+	bases: readonly [Base, ...ReadonlyArray<unknown>],
 	name: Name,
 	relations: Relations,
 	statements: Statements & StatementsReadBack<Statements, SpelledOver>,
 	extra: ReadonlyArray<unknown>
 ): Extension<Base, Name, Relations, Statements, SpelledOver> => {
-	const admitted = admitExtend(base, name, relations, statements, extra)
+	const admitted = admitExtend(bases, name, relations, statements, extra)
+	const [base] = bases
 	const below: Base["statements"] = base.statements
 	const added: StatementsReadBack<Statements, SpelledOver> = statements
 	const all: readonly [...Base["statements"], ...StatementsReadBack<Statements, SpelledOver>] = [
@@ -654,7 +680,7 @@ const extend = <
 			relations: levelRecordOver<Base["relations"], Relations>(base.relations, admitted.names),
 			statements: all,
 			listed,
-			extends: base
+			bases: [base]
 		},
 		desc: admitted.desc,
 		content: admitted.content
@@ -775,15 +801,15 @@ export const fragmentBuilder = <
  * schema and schema.extend.
  *
  * `schema(name, relations, statements)` records a list of relations and closed relations, held by name, and the
- * statements, which the type captures as a tuple. `schema.extend(base, name, relations, statements)` is a level of its
- * own over `base`: relations, derived relations among them, and statements, under its own name, which places its
- * relations in a PostgreSQL schema of their own; its Description records the base under `extends`. A level and every
+ * statements, which the type captures as a tuple. `schema.extend([base], name, relations, statements)` is a level of
+ * its own over `base`: relations, derived relations among them, and statements, under its own name, which places its
+ * relations in a PostgreSQL schema of their own; its Description records the base under `bases`. A level and every
  * level below it are one installation (schema/own.ts).
  *
  * A derived relation is declared only in an extension, and its definition reads only the levels below it: every
- * relation it names must be a relation of the base or a lower level, never one of its own level, so a dependency
- * cycle cannot be written. Its derived level is one more than the highest derived level it reads, 1 over
- * base relations only (ir/desc.ts RelationDesc).
+ * relation it names must be a relation of the base or a lower level, never one of its own level, so a dependency cycle
+ * cannot be written. Its derived level is one more than the highest derived level it reads, 1 over base relations only
+ * (ir/desc.ts RelationDesc).
  *
  * A level's list may hold fragments (fragment(...)): each declares its relations at its place in the list, in its own
  * order, and writes its statements after the level's own, and is one of the schema's levels. A statement of the schema
@@ -791,10 +817,10 @@ export const fragmentBuilder = <
  * (FragmentRefused) unless it is one of the fragment's own.
  *
  * Relations are a list, not a record keyed by name: each relation carries its own name, and a record's key, which
- * repeated it, let a JavaScript spread of two records drop one of two declarations of a name before any builder saw
- * it. A list of two libraries' relations is their concatenation, which drops nothing, and the build holds every name
- * to one meaning: within the level, against every level below, and for every relation a statement was built over.
- * Two declarations of one name whose Descriptions agree are one declaration; with conflicting Descriptions the name is
+ * repeated it, let a JavaScript spread of two records drop one of two declarations of a name before any builder saw it.
+ * A list of two libraries' relations is their concatenation, which drops nothing, and the build holds every name to one
+ * meaning: within the level, against every level below, and for every relation a statement was built over. Two
+ * declarations of one name whose Descriptions agree are one declaration; with conflicting Descriptions the name is
  * claimed twice, which is DuplicateIdentity, at the later declaration with the earlier's location. Every other check of
  * the schema as a whole is ownership's (own.ts).
  *

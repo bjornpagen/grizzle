@@ -160,7 +160,7 @@ const ruleQuery = (name: string) => {
 			"id"
 		)
 	const First = schema.extend(
-		Base,
+		[Base],
 		`${name}_1`,
 		[J2, J3, Semi, Self, Lonely, Unpaired, Unlisted, Quiet],
 		[
@@ -196,7 +196,7 @@ const ruleQuery = (name: string) => {
 		})
 	)
 	return schema.extend(
-		First,
+		[First],
 		`${name}_2`,
 		[Unused],
 		[contained(on(Unused, "id"), marked("unused")), contained(marked("unused"), on(Unused, "id"))]

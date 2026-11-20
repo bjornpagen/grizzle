@@ -287,7 +287,7 @@ export const spanSchemaDesc = (schema: SpanSchema): SchemaDesc => {
 		name: spanSchemaName,
 		relations: Arr.map(spanRelationNames, (name) => relationDesc(schema.relations[name])),
 		statements: [],
-		extends: undefined
+		bases: []
 	}
 }
 

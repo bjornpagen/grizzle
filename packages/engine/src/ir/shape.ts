@@ -788,6 +788,26 @@ const noItems: readonly [] = Object.freeze([] as const)
 
 export const empty = <A>(item: Shape<A>): Shape<readonly []> => sized(item, 0, () => noItems)
 
+/**
+ * An array of at most one item, built into its tuple: an empty array, or one item; a count above one is refused before
+ * any item is decoded.
+ */
+export const atMostOne = <A>(item: Shape<A>): Shape<readonly [] | readonly [A]> => {
+	const inner = arrayOf(item)
+	const expected = `an array of at most one ${item.expected}`
+	return plain({
+		expected,
+		parse: function* (value, path) {
+			const length = readAt(path, () => (Array.isArray(value) ? value.length : 0))
+			if (length > 1) {
+				return refuse(path, `${expected}, not ${length}`)
+			}
+			const [a] = yield* inner.parse(value, path)
+			return a === undefined ? noItems : Object.freeze([a] as const)
+		}
+	})
+}
+
 export const single = <A>(item: Shape<A>): Shape<readonly [A]> =>
 	sized(item, 1, ([a]) => (a === undefined ? undefined : Object.freeze([a] as const)))
 

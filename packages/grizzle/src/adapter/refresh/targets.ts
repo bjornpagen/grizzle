@@ -6,6 +6,7 @@ import {
 	CompileError,
 	derivedDraftOf,
 	descText,
+	levelChain,
 	malformedDescription,
 	type ObjectName,
 	ownedKind,
@@ -64,11 +65,7 @@ interface Declared {
 
 /** Every derived relation of `desc` and the levels below it, by name, with its level and declared position. */
 const declaredDerived = (desc: SchemaDesc): ReadonlyMap<string, Declared> => {
-	const levels: Array<SchemaDesc> = []
-	for (let level: SchemaDesc | undefined = desc; level !== undefined; level = level.extends) {
-		levels.unshift(level)
-	}
-	const relations = Arr.flatMap(levels, (level, index) =>
+	const relations = Arr.flatMap(levelChain(desc), (level, index) =>
 		Arr.map(level.relations, (relation, position) => ({ relation, level: index, position }))
 	)
 	const out = new Map<string, Declared>()

@@ -224,7 +224,7 @@ const keptLines = (c: NameCase, index: number): ReadonlyArray<string> => {
 		case "literal":
 		case "forwarded":
 			return [
-				`export const L${index} = schema.extend(Root, "L${index}", [Tag, c${index}], [tagged])`,
+				`export const L${index} = schema.extend([Root], "L${index}", [Tag, c${index}], [tagged])`,
 				`export const kept${index}: InsertAllRowsOf<typeof L${index}>["Tag"] = [{ id: tagId, item: tagId }]`
 			]
 		case "string":

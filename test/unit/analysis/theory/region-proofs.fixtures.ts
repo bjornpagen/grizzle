@@ -405,7 +405,7 @@ const judgedOver = (base: SchemaDesc, D: AuthoredRelationDesc): SchemaDesc => ({
 	statements: [
 		{ kind: "check", name: "Judged", relation: "D", predicate: ne(field("value"), literal(1n)) }
 	],
-	extends: base
+	bases: [base]
 })
 
 /** The node box's D: its shape's one rule. */
@@ -528,7 +528,7 @@ export const nodeTheoryOf = (box: NodeBox): TestTheory => {
 					: [tagged(true), tagged(false)]),
 			contained(on("K", ["doc", "kind"]), on("T", ["doc", "kind"]))
 		],
-		extends: undefined
+		bases: []
 	}
 	return theoryOf(judgedOver(base, nodeRuleOf(box.shape)))
 }
@@ -821,7 +821,7 @@ export const chainTheory: TestTheory = theoryOf(
 				contained(on("F", ["doc", "a"]), on("E", ["doc", "a"])),
 				contained(on("E", ["doc", "b"]), on("N", ["doc", "b"]))
 			],
-			extends: undefined
+			bases: []
 		},
 		derivedOf(
 			[

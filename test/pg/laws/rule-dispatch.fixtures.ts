@@ -115,7 +115,7 @@ const Documented = derived(
  * Part's of olds, each probed over its delta alone.
  */
 const Dispatch = schema.extend(
-	Base,
+	[Base],
 	"Dispatch_1",
 	[Documented],
 	[contained(on(Note, "package", "doc"), on(Documented, "package", "doc"))]

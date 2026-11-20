@@ -95,5 +95,5 @@ export const Queue: SchemaDesc = decodedSchema({
 		key(on("Leased", ["resource", "seat"])),
 		contained(on("Leased", ["resource", "seat"]), on("Seat", ["resource", "seat"]))
 	],
-	extends: undefined
+	bases: []
 })

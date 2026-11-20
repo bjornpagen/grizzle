@@ -251,16 +251,16 @@ export const levelNameAt = (allocated: string, depth: number): string =>
 
 /** A description with every level declared under its allocated name (levelNameAt). */
 export const allocatedDesc = (desc: EngineSchemaDesc, allocated: string): EngineSchemaDesc => {
-	const below = desc.extends === undefined ? undefined : allocatedDesc(desc.extends, allocated)
+	const below = desc.bases[0] === undefined ? undefined : allocatedDesc(desc.bases[0], allocated)
 	const depth = below === undefined ? 0 : depthOf(below) + 1
 	return below === undefined
 		? { ...desc, name: levelNameAt(allocated, depth) }
-		: { ...desc, name: levelNameAt(allocated, depth), extends: below }
+		: { ...desc, name: levelNameAt(allocated, depth), bases: [below] }
 }
 
 /** The depth of a description's top level, its root's 0. */
 const depthOf = (desc: EngineSchemaDesc): number =>
-	desc.extends === undefined ? 0 : depthOf(desc.extends) + 1
+	desc.bases[0] === undefined ? 0 : depthOf(desc.bases[0]) + 1
 
 /**
  * The PostgreSQL schemas of `levels` allocated under `installation`, the root's first: the root's is the allocation,

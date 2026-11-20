@@ -98,7 +98,7 @@ const bindingSchema = (judged: Judged) => {
 		})
 	)
 	return schema.extend(
-		Base,
+		[Base],
 		`${name}_1`,
 		[Resolved, Placed],
 		[

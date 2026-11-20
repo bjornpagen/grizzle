@@ -420,7 +420,7 @@ const descOf = (m: Model): SchemaDesc => ({
 		])
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** Whether a step moves a field's values to other meanings: to a roster other than the one they continue on, or to or

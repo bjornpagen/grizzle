@@ -26,9 +26,9 @@ const D3 = derived("D3", copied)
  * it, a level above, each a relation an evaluator over the schema may read, of which a case reads at most D1.
  */
 export const schemasOfCopies = [
-	{ copies: 1, schema: schema.extend(Base, "Upper", [D1], []) },
-	{ copies: 2, schema: schema.extend(Base, "Upper", [D1, D2], []) },
-	{ copies: 3, schema: schema.extend(Base, "Upper", [D1, D2, D3], []) }
+	{ copies: 1, schema: schema.extend([Base], "Upper", [D1], []) },
+	{ copies: 2, schema: schema.extend([Base], "Upper", [D1, D2], []) },
+	{ copies: 3, schema: schema.extend([Base], "Upper", [D1, D2, D3], []) }
 ] as const
 
 /** What a case evaluates: rows of R, of D1, or of both, each through its relation alone or beside a selection of it. */

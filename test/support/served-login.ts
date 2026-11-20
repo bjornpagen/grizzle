@@ -172,7 +172,7 @@ const descriptorOf = (drawn: DrawnSchema, at: FieldAt): unknown =>
 
 /** A schema's description and every level below it, top first. */
 const levelsOf = (desc: SchemaDesc | undefined): ReadonlyArray<SchemaDesc> =>
-	desc === undefined ? [] : [desc, ...levelsOf(desc.extends)]
+	desc === undefined ? [] : [desc, ...levelsOf(desc.bases[0])]
 
 /** A field of the drawn schema's stored relations, and the declaration it has. */
 interface DeclaredField {

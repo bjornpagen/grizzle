@@ -54,7 +54,7 @@ import { rawContract } from "#test/unit/schema/support.ts"
 /** Every statement of a schema description, at every level. */
 export const levelStatements = (desc: SchemaDesc): ReadonlyArray<StatementDesc> => [
 	...desc.statements,
-	...(desc.extends === undefined ? [] : levelStatements(desc.extends))
+	...(desc.bases[0] === undefined ? [] : levelStatements(desc.bases[0]))
 ]
 
 type Alternatives = Extract<StatementDesc, { readonly kind: "alternatives" }>
@@ -297,7 +297,7 @@ const Kept = derived(
 /** The level above Rules that derives Kept and states one rule over it, a check or a key. */
 const ruleSchema = (statement: RuleStatement): AnySchema =>
 	schema.extend(
-		RuleBase,
+		[RuleBase],
 		"RulesTop",
 		[Kept],
 		[
@@ -340,7 +340,7 @@ export const subjectOf = (
 						],
 						[]
 					)
-	return { base, subject: c.extended ? schema.extend(base, "Above", [], []) : base }
+	return { base, subject: c.extended ? schema.extend([base], "Above", [], []) : base }
 }
 
 /**

@@ -72,7 +72,7 @@ export const blogOf = (commentKey: CommentKey): SchemaDesc => ({
 		relation("Comment", { id: f.integer, post: f.integer, author: f.integer }, commentKey)
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** Blog as the reference reads its Base nodes: each relation's columns in declared order, Comment keyed by `commentKey`. */

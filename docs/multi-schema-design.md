@@ -8,7 +8,8 @@ containment of plain fields into a declared key, a rule over a query or a row ch
 `LevelRefused` (Decision 3); an `above` law is `refused.laws[0]` of a refusal whose `refused.kind` is `above`
 (Decision 4); and `DbLayer.make` takes a login's served file (Decision 7). Since then a schema's relations are a list,
 a role may write by an `insert` list (open question 6), and consumers take grizzle as a git submodule, not vendored
-tarballs.
+tarballs. Since 2026-11-20 a level's bases are a list, `schema.extend([base], name, relations, statements)`, its
+description's `bases`; the calls below keep the spelling of their day.
 
 EduLLM's requirements for the grizzle session's MULTISCHEMA lane, read against main at 3cc8fbda. Each decision stands
 alone: what is decided, the options, a worked example, and a recommendation. Nothing here is built.

@@ -224,7 +224,7 @@ export const schemaDescOf = (s: DrawnSchema): SchemaDesc => ({
 		})
 	],
 	statements: [],
-	extends: undefined
+	bases: []
 })
 
 /** A kind's value a typed literal states: one per family, admitted by every kind of its family. */

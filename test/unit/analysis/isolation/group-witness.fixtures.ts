@@ -88,7 +88,7 @@ const schemaOf = (drawn: Drawn) => {
 			})
 		)
 		return schema.extend(
-			Base,
+			[Base],
 			"GroupWitness_1",
 			[Rows],
 			[
@@ -108,7 +108,7 @@ const schemaOf = (drawn: Drawn) => {
 				})
 			)
 			return schema.extend(
-				Base,
+				[Base],
 				"GroupWitness_1",
 				[Folded],
 				[
@@ -127,7 +127,7 @@ const schemaOf = (drawn: Drawn) => {
 				})
 			)
 			return schema.extend(
-				Base,
+				[Base],
 				"GroupWitness_1",
 				[Folded],
 				[
@@ -146,7 +146,7 @@ const schemaOf = (drawn: Drawn) => {
 				})
 			)
 			return schema.extend(
-				Base,
+				[Base],
 				"GroupWitness_1",
 				[Folded],
 				[
@@ -165,7 +165,7 @@ const schemaOf = (drawn: Drawn) => {
 				})
 			)
 			return schema.extend(
-				Base,
+				[Base],
 				"GroupWitness_1",
 				[Folded],
 				[

@@ -105,7 +105,7 @@ const schemaOf = (
 	name: string,
 	relations: ReadonlyArray<AuthoredRelationDesc>,
 	statements: ReadonlyArray<AuthoredStatementDesc>
-): SchemaDesc => ({ name, relations, statements, extends: undefined })
+): SchemaDesc => ({ name, relations, statements, bases: [] })
 
 /** An alternatives law over a roster of `size` handles, keyed by `keyWidth` fields: handle i armed by arm relation
  * `armOf(i)`, or unarmed where it gives none; every relation mutable when `mutableAll`. */

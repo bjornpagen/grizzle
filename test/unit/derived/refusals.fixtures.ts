@@ -293,10 +293,10 @@ export const unwritableGen: Gen<UnwritableSketch> = (source) => ({
 
 /** The levels of a schema Description, the root first. */
 const levelsOf = (desc: LocatedSchemaDesc): Arr.NonEmptyReadonlyArray<LocatedSchemaDesc> =>
-	desc.extends === undefined ? [desc] : Arr.append(levelsOf(desc.extends), desc)
+	desc.bases[0] === undefined ? [desc] : Arr.append(levelsOf(desc.bases[0]), desc)
 
 /** A level of a Description as a mutation rewrites it: its relations, any a description may write down. */
-type Level = Omit<LocatedSchemaDesc, "relations" | "extends"> & {
+type Level = Omit<LocatedSchemaDesc, "relations" | "bases"> & {
 	readonly relations: ReadonlyArray<unknown>
 }
 
@@ -304,8 +304,8 @@ type Level = Omit<LocatedSchemaDesc, "relations" | "extends"> & {
 const chained = (levels: Arr.NonEmptyReadonlyArray<Level>): unknown =>
 	Arr.reduce(
 		Arr.tailNonEmpty(levels),
-		{ ...Arr.headNonEmpty(levels), extends: undefined },
-		(below: unknown, level) => ({ ...level, extends: below })
+		{ ...Arr.headNonEmpty(levels), bases: [] },
+		(below: unknown, level) => ({ ...level, bases: [below] })
 	)
 
 /** A stage with its first arm, the first rules arm its input chain reaches, rewritten by `f`. */

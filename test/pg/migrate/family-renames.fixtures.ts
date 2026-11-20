@@ -365,7 +365,7 @@ const versionOf = (
 			name,
 			relations: [kinds, weights, ...plain.relations, spare],
 			statements: plain.statements,
-			extends: undefined
+			bases: []
 		}
 	}
 	const family =
@@ -376,7 +376,7 @@ const versionOf = (
 		name,
 		relations: [kinds, weights, ...family.relations, spare],
 		statements: family.statements,
-		extends: undefined
+		bases: []
 	}
 }
 

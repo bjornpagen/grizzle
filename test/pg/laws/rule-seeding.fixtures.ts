@@ -97,7 +97,7 @@ const titles = (name: string) => {
 			})
 	)
 	return schema.extend(
-		Base,
+		[Base],
 		`${name}_1`,
 		[Listed, Matched],
 		[contained(on(Listed, "k"), on(Matched, "k"))]
@@ -118,7 +118,7 @@ const viewed = (name: string) => {
 			return r.match(L1, { id: x1, up: k }).match(L2, { id: x2, up: x1 }).find({ k, x2 })
 		})
 	)
-	const Mid = schema.extend(Base, `${name}_1`, [Path], [])
+	const Mid = schema.extend([Base], `${name}_1`, [Path], [])
 	const Listed = derived(
 		"Listed",
 		query(Mid).rule((r) => {
@@ -142,7 +142,7 @@ const viewed = (name: string) => {
 			})
 	)
 	return schema.extend(
-		Mid,
+		[Mid],
 		`${name}_2`,
 		[Listed, Matched],
 		[contained(on(Listed, "k"), on(Matched, "k"))]
@@ -201,7 +201,7 @@ const deep = (name: string) => {
 			})
 	)
 	return schema.extend(
-		Base,
+		[Base],
 		`${name}_1`,
 		[Marked, Reached],
 		[contained(on(Marked, "k"), on(Reached, "k"))]
@@ -233,7 +233,7 @@ const keyed = (name: string) => {
 				return r.match(L3, { up: x2, v: w }).match(path, { k, x2 }).find({ k, w })
 			})
 	)
-	return schema.extend(Base, `${name}_1`, [Valued], [key(on(Valued, "k"))])
+	return schema.extend([Base], `${name}_1`, [Valued], [key(on(Valued, "k"))])
 }
 
 /**
@@ -264,7 +264,7 @@ const tagged = (name: string) => {
 				return r.match(L3, { up: x2, v: w }).match(path, { k, x2 }).find({ k, tag: 2, w })
 			})
 	)
-	return schema.extend(Base, `${name}_1`, [Tagged], [key(on(Tagged, "k", "tag"))])
+	return schema.extend([Base], `${name}_1`, [Tagged], [key(on(Tagged, "k", "tag"))])
 }
 
 /**
@@ -285,7 +285,7 @@ const standing = (name: string) => {
 				.find({ x })
 		})
 	)
-	const Mid = schema.extend(Base, `${name}_1`, [Standing], [])
+	const Mid = schema.extend([Base], `${name}_1`, [Standing], [])
 	const Unheld = derived(
 		"Unheld",
 		query(Mid).rule((r) => {
@@ -296,7 +296,7 @@ const standing = (name: string) => {
 				.find({ k, w })
 		})
 	)
-	return schema.extend(Mid, `${name}_2`, [Unheld], [key(on(Unheld, "k"))])
+	return schema.extend([Mid], `${name}_2`, [Unheld], [key(on(Unheld, "k"))])
 }
 
 /**
@@ -316,7 +316,7 @@ const lifted = (name: string) => {
 				.find({ x })
 		})
 	)
-	const Mid = schema.extend(Base, `${name}_1`, [Standing], [])
+	const Mid = schema.extend([Base], `${name}_1`, [Standing], [])
 	const Pathed = derived(
 		"Pathed",
 		query(Mid).rule((r) => {
@@ -335,7 +335,7 @@ const lifted = (name: string) => {
 		})
 	)
 	return schema.extend(
-		Mid,
+		[Mid],
 		`${name}_2`,
 		[Pathed, Unheld],
 		[contained(on(Pathed, "k"), on(Unheld, "k"))]
@@ -360,7 +360,7 @@ const budget = (name: string) => {
 				.find({ x: x1 })
 		})
 	)
-	const Low = schema.extend(Base, `${name}_1`, [Paceless], [])
+	const Low = schema.extend([Base], `${name}_1`, [Paceless], [])
 	const RatePaced = derived(
 		"RatePaced",
 		query(Low).rule((r) => {
@@ -371,7 +371,7 @@ const budget = (name: string) => {
 				.find({ x: x1 })
 		})
 	)
-	const Mid = schema.extend(Low, `${name}_2`, [RatePaced], [])
+	const Mid = schema.extend([Low], `${name}_2`, [RatePaced], [])
 	const Limited = derived(
 		"Limited",
 		query(Mid).rule((r) => {
@@ -383,7 +383,7 @@ const budget = (name: string) => {
 		})
 	)
 	return schema.extend(
-		Mid,
+		[Mid],
 		`${name}_3`,
 		[Limited],
 		[check("Budgeted", Limited, (l) => l.eq(l.w, 1))]

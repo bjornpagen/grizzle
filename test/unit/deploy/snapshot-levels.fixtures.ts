@@ -101,7 +101,7 @@ export const schemaOf = (c: Case): AnySchema => {
 			return schema("Root", [Kind, R], [selectedKey(c.literal)])
 		case "level":
 			return schema.extend(
-				schema("Root", [Kind, B], []),
+				[schema("Root", [Kind, B], [])],
 				"Upper",
 				[R],
 				[contained(on(R, "other"), on(B, "id")), selectedKey(c.literal)]
@@ -155,7 +155,7 @@ export const leveledSchemas = (
 	return {
 		root,
 		level: schema.extend(
-			root,
+			[root],
 			"Upper",
 			[A],
 			[contained(on(A, "z"), on(Z, "id")), ...(c.key === "level" ? [key(on(A, "c"))] : [])]

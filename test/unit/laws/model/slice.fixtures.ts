@@ -516,7 +516,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 			...upTo(c.roots, (i) => relation(rootName(i), rootFields(c, i), ["id"]))
 		],
 		statements: rootStatements(c),
-		extends: undefined
+		bases: []
 	}
 	const top: SchemaDesc = {
 		name: "SliceTop",
@@ -534,7 +534,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 				contained(on(topName(u.from), ["r"]), on(derivedName(u.to), ["id"]))
 			)
 		],
-		extends: root
+		bases: [root]
 	}
 	return Arr.isReadonlyArrayNonEmpty(c.chained)
 		? {
@@ -543,7 +543,7 @@ const schemaOf = (c: SliceCase): SchemaDesc => {
 					derivedOf(c, chainedName(i), chainedLevel(c, i), chainedDefinition(c, i))
 				),
 				statements: [],
-				extends: top
+				bases: [top]
 			}
 		: top
 }

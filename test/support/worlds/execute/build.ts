@@ -499,7 +499,7 @@ export const buildBase = (
 			)
 			derivedValues[d.name] = value
 			base = yield* attempt(`derived ${d.name}`, () =>
-				schema.extend(level, `${name}_${depth + 1}`, [value], [])
+				schema.extend([level], `${name}_${depth + 1}`, [value], [])
 			)
 		}
 		return { base, relations, closed: rosters, derived: derivedValues, contexts, laws }

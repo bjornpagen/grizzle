@@ -16,7 +16,7 @@ import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
-import { candidateKeyFields, descText, type FieldDesc } from "#compiler/ir/desc.ts"
+import { candidateKeyFields, descText, type FieldDesc, levelChain } from "#compiler/ir/desc.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import { ProgramPatterns } from "#compiler/scalar/regex/patterns.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
@@ -338,10 +338,7 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 	const schemaLocation = formatLoc(desc.loc)
 
 	/** schema.extend: the base's relations and statements come first, under the one schema. */
-	const levels: Array<SchemaDesc> = []
-	for (let d: SchemaDesc | undefined = desc; d !== undefined; d = d.extends) {
-		levels.unshift(d)
-	}
+	const levels: ReadonlyArray<SchemaDesc> = levelChain(desc)
 	/** An identical repeat, at one level or across levels, is one declaration. */
 	const relations: Array<Located<RelationDesc>> = []
 	const statements: Array<Located<StatementDesc>> = []

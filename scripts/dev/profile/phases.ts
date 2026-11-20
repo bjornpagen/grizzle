@@ -167,7 +167,7 @@ const writeChangeSets = (f: Fixture): ReadonlyArray<readonly [string, unknown]> 
 		throw new Error(`no schema description for ${f.label}`)
 	}
 	const sets: Array<readonly [string, unknown]> = [...(f.changeSets ?? [])]
-	const relations = [...(desc.extends?.relations ?? []), ...desc.relations]
+	const relations = [...(desc.bases[0]?.relations ?? []), ...desc.relations]
 	for (const r of relations) {
 		if (r.kind !== "relation") {
 			continue

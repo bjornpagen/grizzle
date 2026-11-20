@@ -214,17 +214,17 @@ const factVersion = (name: string, rule: Rule, join: J2Join) => {
 	)
 	switch (rule) {
 		case "none":
-			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [])
+			return schema.extend([Base], `${name}_1`, [J2, Unpaired], [])
 		case "every":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[contained(on(J2, "a", "b"), on(T, "a", "b"))]
 			)
 		case "selected":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[
@@ -240,7 +240,7 @@ const factVersion = (name: string, rule: Rule, join: J2Join) => {
 			)
 		case "negated":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[contained(on(Unpaired, "a", "b"), on(T, "a", "b"))]
@@ -277,17 +277,17 @@ const generatedVersion = (name: string, rule: Rule) => {
 	)
 	switch (rule) {
 		case "none":
-			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [])
+			return schema.extend([Base], `${name}_1`, [J2, Unpaired], [])
 		case "every":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[contained(on(J2, "a", "b"), on(T, "a", "b"))]
 			)
 		case "selected":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[
@@ -303,7 +303,7 @@ const generatedVersion = (name: string, rule: Rule) => {
 			)
 		case "negated":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[contained(on(Unpaired, "a", "b"), on(T, "a", "b"))]
@@ -340,17 +340,17 @@ const movedVersion = (name: string, rule: Rule) => {
 	)
 	switch (rule) {
 		case "none":
-			return schema.extend(Base, `${name}_1`, [J2, Unpaired], [])
+			return schema.extend([Base], `${name}_1`, [J2, Unpaired], [])
 		case "every":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[contained(on(J2, "a", "b"), on(T, "a", "b"))]
 			)
 		case "selected":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[
@@ -366,7 +366,7 @@ const movedVersion = (name: string, rule: Rule) => {
 			)
 		case "negated":
 			return schema.extend(
-				Base,
+				[Base],
 				`${name}_1`,
 				[J2, Unpaired],
 				[contained(on(Unpaired, "a", "b"), on(T, "a", "b"))]

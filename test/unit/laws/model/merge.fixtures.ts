@@ -119,7 +119,7 @@ const schemaOf = (axis: AxisKind): SchemaDesc => {
 			)
 		],
 		statements: [ordered(on("Member", ["owner", "at"]), fin("Owner", "n")), ...copies],
-		extends: undefined
+		bases: []
 	}
 }
 

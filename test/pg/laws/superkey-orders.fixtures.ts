@@ -320,7 +320,7 @@ const schemaWith = (sources: number, statements: SchemaDesc["statements"]): Sche
 		)
 	],
 	statements,
-	extends: undefined
+	bases: []
 })
 
 /** The schema of a case: T with its declared keys, and each reference's source, with the reference's containment. */

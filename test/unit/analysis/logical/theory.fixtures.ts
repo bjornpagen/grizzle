@@ -463,7 +463,7 @@ export const rt = theoryUnder(
 		name: "Org",
 		relations: [Report],
 		statements: [check("NotOwnManager", "Report", ne(field("employee"), field("manager")))],
-		extends: undefined
+		bases: []
 	},
 	noImmediate
 )
@@ -486,7 +486,7 @@ export const kt = theoryUnder(
 		name: "K",
 		relations: [Label, Account],
 		statements: [key(on("Account", ["name"]))],
-		extends: undefined
+		bases: []
 	},
 	noImmediate
 )

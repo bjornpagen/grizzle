@@ -8,7 +8,9 @@ import {
 	decodeUnadmittedSchema,
 	type RelationDesc,
 	recordAdmitted,
+	type SchemaBases,
 	type SchemaDesc,
+	levelChain,
 	schemaLevelDesc,
 	type UnadmittedSchemaDesc
 } from "#compiler/ir/desc.ts"
@@ -28,12 +30,12 @@ type ClosedRelationOf = Extract<RelationDesc, { readonly kind: "closedRelation" 
  * Every roster of every level of a schema, by name, its order and handles: the lowest level's declaration of a name.
  */
 const rostersOf = (desc: UnadmittedSchemaDesc): ReadonlyMap<string, RosterHandles> => {
-	const below = new Map<string, RosterHandles>(
-		desc.extends === undefined ? [] : rostersOf(desc.extends)
-	)
-	for (const r of desc.relations) {
-		if (r.kind === "closed" && !below.has(r.name)) {
-			below.set(r.name, declaredRoster(r))
+	const below = new Map<string, RosterHandles>()
+	for (const level of levelChain(desc)) {
+		for (const r of level.relations) {
+			if (r.kind === "closed" && !below.has(r.name)) {
+				below.set(r.name, declaredRoster(r))
+			}
 		}
 	}
 	return below
@@ -100,9 +102,18 @@ const admittedLevels = (desc: UnadmittedSchemaDesc, env: ScalarEnv): SchemaDesc 
 		relations: desc.relations.map((r) => (r.kind === "closedRelation" ? admitted(r, env) : r)),
 		statements: desc.statements,
 		functions: desc.functions ?? [],
-		extends: desc.extends === undefined ? undefined : admittedLevels(desc.extends, env),
+		bases: admittedBases(desc.bases, env),
 		loc: desc.loc
 	})
+
+/** A decoded level's bases, each admitted (admittedLevels): none for a root, or its one base. */
+const admittedBases = (
+	bases: SchemaBases<UnadmittedSchemaDesc>,
+	env: ScalarEnv
+): SchemaBases<SchemaDesc> => {
+	const [base] = bases
+	return base === undefined ? [] : [admittedLevels(base, env)]
+}
 
 /**
  * A schema description from outside the builders, decoded and admitted: the one door from `unknown` to a SchemaDesc

@@ -270,7 +270,7 @@ export const schemaDesc = (schema: GenSchema): SchemaDesc => {
 	for (const c of schema.containments) {
 		statements.push(contained(on(c.from.relation, c.from.fields), on(c.to.relation, c.to.fields)))
 	}
-	return { name: schema.name, relations: [...closed, ...relations], statements, extends: undefined }
+	return { name: schema.name, relations: [...closed, ...relations], statements, bases: [] }
 }
 
 /**

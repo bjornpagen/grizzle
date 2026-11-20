@@ -145,8 +145,8 @@ export const levelsFor = (n: number) => {
 	const base = schema("Base", [Item, merged, split], [])
 	const levels = {
 		base,
-		upper: schema.extend(base, "Upper", [Mark], []),
-		aside: schema.extend(base, "Aside", [Note], [])
+		upper: schema.extend([base], "Upper", [Mark], []),
+		aside: schema.extend([base], "Aside", [Note], [])
 	}
 	/** A rows argument: Item's lines, every item's or the one item 1, by a query(S) call of its own. */
 	const argument = (a: RowsArgument) => {

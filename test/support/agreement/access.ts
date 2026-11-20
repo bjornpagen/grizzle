@@ -562,7 +562,7 @@ const overVerdictOf = (spec: AccessSpec, first: AnyRole, builder: SchemaTaker): 
 			case "login":
 				return schemaTaking.login(base, "over", [role(level, "taken", { Account })], [])
 			case "schema.extend":
-				return schemaTaking.extend(base, "Over", [], [], [])
+				return schemaTaking.extend([base], "Over", [], [], [])
 			case "wholeEntriesOf":
 				return schemaTaking.wholeEntriesOf(base)
 			case "writableNamesOf":
@@ -765,7 +765,7 @@ const overLines = (
 			case "login":
 				return `login(${base}, "b${i}", [role(${spec.level}, "c${i}", { Account })])`
 			case "schema.extend":
-				return `schema.extend(${base}, "Over", [], [])`
+				return `schema.extend([${base}], "Over", [], [])`
 			case "wholeEntriesOf":
 				return `wholeEntriesOf(${base})`
 			case "writableNamesOf":

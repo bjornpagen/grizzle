@@ -65,7 +65,7 @@ export const versionOf = (name: string, k: Knobs) => {
 			return r.match(Doc, { id, words }).find({ id, words })
 		})
 	)
-	const ext = schema.extend(base, `${name}_1`, [Busy], [])
+	const ext = schema.extend([base], `${name}_1`, [Busy], [])
 	const mine = () => {
 		switch (k.mine) {
 			case "owned":

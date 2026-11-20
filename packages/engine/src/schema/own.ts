@@ -1,4 +1,4 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	lastNonEmpty,
@@ -70,6 +70,7 @@ import {
 	type RoleEntryDesc,
 	type RoleWritingKey,
 	type RosterDesc,
+	levelChain,
 	rosterOrderOf,
 	type SchemaDesc,
 	type SchemaRelationDesc,
@@ -1197,10 +1198,16 @@ type LevelFingerprints = (
  * generate` and `grizzle check` record and verify.
  */
 const hashedLevels: LevelFingerprints = (levels) => {
-	let below: SchemaLevel | undefined
+	const hashed = new Map<SchemaDesc, SchemaLevel>()
 	return mapNonEmpty(levels, (level) => {
-		below = unwrap(schemaLevel(level, below))
-		return { level, fingerprint: below.fingerprint }
+		const at = unwrap(
+			schemaLevel(
+				level,
+				level.bases.map((b) => defined(hashed.get(b), "a level's bases come before it"))
+			)
+		)
+		hashed.set(level, at)
+		return { level, fingerprint: at.fingerprint }
 	})
 }
 
@@ -1229,10 +1236,6 @@ const recordedLevels =
 /** The PostgreSQL schemas an owned schema's levels install in under their declared names, root first. */
 export const installationsOf = (owned: Owned): NonEmptyReadonlyArray<Identity<"schema">> =>
 	mapNonEmpty(owned.levels, (l) => l.installation)
-
-/** A description's levels, root first and `desc` last. */
-export const levelChain = (desc: SchemaDesc): NonEmptyReadonlyArray<SchemaDesc> =>
-	desc.extends === undefined ? [desc] : appendNonEmpty(levelChain(desc.extends), desc)
 
 /** The candidate keys and row checks the statements state over one relation, in statement order. */
 interface RelationLaws {
@@ -2511,7 +2514,7 @@ class Owner {
 				relations,
 				statements,
 				functions: canonicalFunctions(schema),
-				extends: below,
+				bases: below === undefined ? [] : [below],
 				loc: schema.loc
 			})
 		}

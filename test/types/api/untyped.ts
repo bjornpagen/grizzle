@@ -89,7 +89,12 @@ const shapes: { readonly [B in BuilderName]: Shape } = {
 	"schema.extend": {
 		callee: "schema.extend",
 		captured: [levelRelations, levelStatements],
-		params: (name, spell) => ["Root", jsonText(name), spell(levelRelations), spell(levelStatements)]
+		params: (name, spell) => [
+			"[Root]",
+			jsonText(name),
+			spell(levelRelations),
+			spell(levelStatements)
+		]
 	},
 	role: {
 		callee: "role",
@@ -161,7 +166,7 @@ const boxCases: ReadonlyArray<UntypedCase> = Arr.flatMap(builderNames, (builder)
 const keptCase: UntypedCase = {
 	builder: "schema.extend",
 	said: "the statement list typed any[] by Object.values over a union of law records",
-	params: (name) => ["Root", jsonText(name), spelledOf(levelRelations, "typed"), "lawValues"],
+	params: (name) => ["[Root]", jsonText(name), spelledOf(levelRelations, "typed"), "lawValues"],
 	holdingAny: [levelStatements.param]
 }
 
@@ -234,7 +239,7 @@ export const Labels = derived.materialized(
 		return r.match(Kid, { parent, label }).find({ parent, label })
 	})
 )
-export const Up = schema.extend(Root, "Up", [Labels], [])
+export const Up = schema.extend([Root], "Up", [Labels], [])
 export const member = role(Root, "member", { Parent })
 export const ids = query(Root).rule((r) => {
 	const { id } = v(Parent, "parent")

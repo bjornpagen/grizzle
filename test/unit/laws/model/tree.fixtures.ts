@@ -140,7 +140,7 @@ const schemaOf = (s: Shape): SchemaDesc => {
 				)
 			)
 		],
-		extends: undefined
+		bases: []
 	}
 }
 

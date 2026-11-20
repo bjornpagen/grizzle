@@ -298,7 +298,7 @@ const crm = ownedFixture({
 	name: "Crm",
 	relations: [Person],
 	statements: [key(on("Person", ["email"]))],
-	extends: undefined
+	bases: []
 } satisfies SchemaDesc)
 
 export const scanColumns = ["id", "email", "city"] as const

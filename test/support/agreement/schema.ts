@@ -167,7 +167,7 @@ export const OwnerCounts = derived.materialized(
 	})
 )
 
-export const Rollup = schema.extend(Agree, "Rollup", [ItemTones, OwnerCounts], [])
+export const Rollup = schema.extend([Agree], "Rollup", [ItemTones, OwnerCounts], [])
 
 /** Rollup's entries a full role holds whole: Agree's and the derived relations. */
 const rollupEntries = Object.freeze({ ...agreeEntries, ItemTones, OwnerCounts })
@@ -195,7 +195,7 @@ export const Owned = query(Agree).rule((r) => {
  * extension of Agree, whose levels are itself and Agree; and Apart, which holds Agree's Cell and its rosters but is no
  * level of Agree, nor Agree of it, so a query over one reads relations the other holds and is still over no level of it.
  */
-export const AgreeAbove = schema.extend(Agree, "AgreeAbove", [], [])
+export const AgreeAbove = schema.extend([Agree], "AgreeAbove", [], [])
 export const Apart = schema("Apart", [Tone, Shade, Cell], [])
 
 /**

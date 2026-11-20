@@ -354,5 +354,5 @@ export const PayrollDesc: SchemaDesc = decodedSchema({
 	name: "Payroll",
 	relations: payrollRelations,
 	statements: payrollStatements,
-	extends: undefined
+	bases: []
 })
