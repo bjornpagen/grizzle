@@ -1,145 +1,128 @@
-import { Array as Arr, Effect, Exit, Option, Schema, String as Str } from "effect"
-import { describe, expect, test } from "vitest"
-import { fixedDocumentUri } from "#model/brands.ts"
-import { isDiagnostic } from "#model/diagnostic.ts"
-import type { Diagnostic } from "#model/diagnostic.ts"
+/**
+ * The generation report and the generator's exit status (report/index.ts, design 8.1): a run's report, printed and read
+ * back, is the report design 8.1 makes of the run, its servers, inputs and their digests in the order given, its
+ * version and renames, and its refusals and notices split by severity, each in the order given, its top-level keys
+ * printed sorted; and a run exits 1 when another run holds the lock, on a document refusal and on any refusal under
+ * --strict, and 0 otherwise.
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Order, Result } from "effect"
+import { Digest } from "effect/crypto"
+import { generatorExitStatus, makeGenerationReport, printGenerationReport } from "#report/index.ts"
+import { type InvalidJsonText, parseJson } from "#runtime/json.ts"
 import {
-	GenerationReport,
-	generatorExitStatus,
-	makeGenerationReport,
-	printGenerationReport
-} from "#report/index.ts"
-import type { GenerationReportInput } from "#report/index.ts"
+	expectedReport,
+	reportEntry,
+	expectedStatus,
+	inputOf,
+	type OutcomeFeature,
+	outcomeFeature,
+	outcomeOf,
+	outcomeSpace,
+	type RunFeature,
+	runFeatures,
+	runSpace,
+	topLevelKeys
+} from "#test/report/report.fixtures.ts"
+import { digestService } from "#test/support/digest.ts"
 
-/** The run's entry document, which the report names every document against. */
-const entry = fixedDocumentUri("file:///spec.json")
-
-const base = {
-	document: "file:///spec.json",
-	element: "Parameter style deepObject",
-	message: "deepObject value has nested objects",
-	openapi: "3.0.3",
-	specSection: "https://spec.openapis.org/oas/v3.0.4.html#style-values"
-} as const
-
-const make = (
-	severity: "notice" | "refusal",
-	scope: "document" | "element" | "operation",
-	code: string,
-	pointer: string
-) =>
-	Schema.decodeUnknownSync(Schema.declare(isDiagnostic))({
-		...base,
-		code,
-		pointer,
-		row: code.split("/")[0],
-		scope,
-		severity
-	})
-
-const documentRefusal = make("refusal", "document", "DOC-1/unsupported-version", "")
-
-const operationRefusal = make("refusal", "operation", "PRM-27/compound-nested", "/paths/~1x/get")
-
-const notice = make("notice", "element", "PRM-19/ignored-header", "/paths/~1x/get/p/1")
-
-const inputs = Schema.decodeUnknownSync(GenerationReport.fields.inputs)([
-	{ document: "file:///spec.json", sha256: "a".repeat(64) },
-	{ document: "file:///other.json", sha256: "b".repeat(64) }
-])
-
-const renames = Schema.decodeUnknownSync(GenerationReport.fields.renames)([
-	{ from: "list", pointer: "/paths/~1x/get", to: "list-2" }
-])
-
-const input = (diagnostics: readonly Diagnostic[]): GenerationReportInput => ({
-	acceptedServers: ["https://api.example.com"],
-	diagnostics,
-	inputs,
-	renames,
-	version: "0.1.0"
-})
-
-const print = (diagnostics: readonly Diagnostic[]) =>
-	Effect.runSync(printGenerationReport(makeGenerationReport(input(diagnostics)), entry))
-
-describe("generation report bytes", () => {
-	const text = print([operationRefusal, notice])
-
-	const parsed: unknown = JSON.parse(text)
-
-	test("keys are sorted at the top level of the printed text", () => {
-		const keys = Arr.flatMap(Str.split("\n")(text), (line) =>
-			Str.startsWith('  "')(line) ? Option.toArray(Arr.get(Str.split('"')(line), 1)) : []
-		)
-
-		expect(keys).toEqual([
-			"acceptedServers",
-			"commandNames",
-			"generator",
-			"inputs",
-			"nonStandard",
-			"notices",
-			"refusals",
-			"renames",
-			"skipped"
-		])
-	})
-
-	test("records servers, input digests in given order, version and renames, each document by its label", () => {
-		expect(parsed).toMatchObject({
-			acceptedServers: ["https://api.example.com"],
-			generator: { version: "0.1.0" },
-			inputs: [
-				{ document: "spec.json", sha256: Str.repeat(64)("a") },
-				{ document: "other.json", sha256: Str.repeat(64)("b") }
-			],
-			renames
-		})
-	})
-
-	test("lists refusals and notices in full, split by severity, in the order given", () => {
-		expect(parsed).toMatchObject({
-			notices: [{ code: "PRM-19/ignored-header", document: "spec.json" }],
-			refusals: [{ code: "PRM-27/compound-nested", document: "spec.json", message: base.message }]
-		})
-	})
-
-	test("a bad digest fails with a schema error", () => {
-		const bad = {
-			...makeGenerationReport(input([])),
-			inputs: inputs.map((entry) => ({ ...entry, sha256: "xyz" }))
+/** A run's report, printed and read back, is the one design 8.1 makes of the run. */
+export const reportBytes = property.explore(runSpace, {
+	needs: { digest: digestService },
+	situations: [
+		"a refusal",
+		"a notice",
+		"refusals and notices interleaved",
+		"two inputs",
+		"a rename",
+		"no server"
+	] satisfies ReadonlyArray<Reached<RunFeature>>,
+	check: (resources, k: Case<RunFeature>) => (run) =>
+		Effect.gen(function* () {
+			k.noteAll(runFeatures(run))
+			const digest = yield* resources.digest
+			const { input, diagnostics } = yield* Effect.provideService(
+				inputOf(run),
+				Digest.Digest,
+				digest
+			)
+			const text = printGenerationReport(makeGenerationReport(input), reportEntry)
+			const keys = topLevelKeys(text)
+			assert.deepEqual(keys, Arr.sort(keys, Order.String))
+			assert.deepEqual<Result.Result<unknown, InvalidJsonText>>(
+				parseJson(text),
+				Result.succeed(expectedReport(input, diagnostics))
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 8.1's report of the run: diagnostics split by severity in the order given, every other field as given"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/cli-generator/src/report/index.ts",
+			original: "refusals: Arr.filter(input.diagnostics, isRefusal),",
+			replacement: "refusals: input.diagnostics,",
+			why: "A notice is listed among the refusals; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/report/index.ts",
+			original: "notices: Arr.filter(input.diagnostics, (diagnostic) => !isRefusal(diagnostic)),",
+			replacement: "notices: Arr.filter(input.diagnostics, isRefusal),",
+			why: "The refusals are listed as the notices and the notices are lost; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/report/index.ts",
+			original: "inputs: input.inputs,",
+			replacement: "inputs: Arr.reverse(input.inputs),",
+			why: "The inputs are recorded out of document order, so a digest stands beside another document; the property fails."
 		}
-
-		expect(Exit.isFailure(Effect.runSyncExit(printGenerationReport(bad, entry)))).toBe(true)
-	})
+	]
 })
 
-describe("generatorExitStatus", () => {
-	test("output written with no refusals exits 0", () => {
-		expect(generatorExitStatus({ _tag: "Written", diagnostics: [notice], strict: false })).toBe(0)
-		expect(generatorExitStatus({ _tag: "Written", diagnostics: [notice], strict: true })).toBe(0)
-	})
-
-	test("a partly refused run exits 0 without --strict", () => {
-		expect(
-			generatorExitStatus({ _tag: "Written", diagnostics: [operationRefusal], strict: false })
-		).toBe(0)
-	})
-
-	test("a document refusal exits 1", () => {
-		expect(
-			generatorExitStatus({
-				_tag: "Written",
-				diagnostics: [notice, documentRefusal],
-				strict: false
-			})
-		).toBe(1)
-	})
-
-	test("any refusal exits 1 under --strict", () => {
-		expect(
-			generatorExitStatus({ _tag: "Written", diagnostics: [operationRefusal], strict: true })
-		).toBe(1)
-	})
+/** A run's exit status is the one design 8.1 gives its outcome, over every outcome. */
+export const exitStatus = property.exhaust(outcomeSpace, {
+	box: "a held lock, and output written with or without --strict, with or without a notice, with refusals at any set of scopes",
+	needs: {},
+	situations: [
+		"a held lock",
+		"a run with no refusal",
+		"a document refusal",
+		"a partly refused run",
+		"a partly refused run under --strict"
+	] satisfies ReadonlyArray<Reached<OutcomeFeature>>,
+	check: (_, k: Case<OutcomeFeature>) => (sketch) =>
+		Effect.gen(function* () {
+			k.note(outcomeFeature(sketch))
+			const outcome = yield* outcomeOf(sketch)
+			assert.equal(generatorExitStatus(outcome), expectedStatus(sketch))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 8.1: 1 on a held lock, a document refusal, or any refusal under --strict; else 0"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/cli-generator/src/report/index.ts",
+			original: 'if (outcome._tag === "LockHeld") {',
+			replacement: 'if (outcome._tag !== "LockHeld") {',
+			why: "A held lock exits by the refusals of a run that wrote nothing, and every written run exits 1; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/report/index.ts",
+			original: 'Arr.some(refusals, (diagnostic) => diagnostic.scope === "document")',
+			replacement: 'Arr.some(refusals, (diagnostic) => diagnostic.scope === "operation")',
+			why: "A document refusal exits 0 without --strict, and an operation refusal exits 1; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/report/index.ts",
+			original: "return outcome.strict && refusals.length > 0 ? 1 : 0",
+			replacement: "return refusals.length > 0 ? 1 : 0",
+			why: "A partly refused run exits 1 without --strict; the property fails."
+		}
+	]
 })

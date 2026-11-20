@@ -300,10 +300,7 @@ const generateCommand = Command.make(
 
 			yield* printDiagnostics(result.diagnostics)
 			if (Option.isSome(flags.report)) {
-				const report = yield* printGenerationReport(result.report, spec.document).pipe(
-					Effect.catch(setupFailed("the generation report cannot be printed"))
-				)
-				yield* write("stdout", report)
+				yield* write("stdout", printGenerationReport(result.report, spec.document))
 			}
 
 			const status = generatorExitStatus({

@@ -7,6 +7,7 @@
  * 8.1's `commandNames`, in design 8.3's command order, beside the report's refusals and its author-supplied schemes.
  */
 
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -17,7 +18,6 @@ import {
 	subset,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, FileSystem, Option, Path, Record } from "effect"
 import { generate } from "#generate.ts"
 import { fixedDocumentUri } from "#model/brands.ts"

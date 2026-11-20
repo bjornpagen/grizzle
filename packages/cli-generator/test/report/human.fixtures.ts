@@ -5,6 +5,7 @@
  * read from the sketch, never from the pointer.
  */
 
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -19,7 +20,6 @@ import {
 	type Size,
 	string
 } from "@bjornpagen/testing/gen"
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { DiagnosticInput } from "#model/diagnostic.ts"
 import { formatPointer } from "#model/pointer.ts"

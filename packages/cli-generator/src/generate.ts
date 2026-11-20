@@ -44,7 +44,7 @@ import {
 	printGenerationReport,
 	skippedEntries
 } from "#report/index.ts"
-import type { GenerationReportValue } from "#report/index.ts"
+import type { CommandName, GenerationReport } from "#report/index.ts"
 import { resolve } from "#resolve/index.ts"
 import type { Resolution, ResolveMember } from "#resolve/index.ts"
 import { lineOf, versionRefusal } from "#validate/dispatch.ts"
@@ -105,7 +105,7 @@ export interface GenerateResult {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly files: readonly string[]
 	readonly notices: readonly WriteNotice[]
-	readonly report: GenerationReportValue
+	readonly report: GenerationReport
 }
 
 /** Why nothing was written: the author config cannot be used, the document is refused, or `--strict` met a refusal. */
@@ -384,8 +384,6 @@ const refusedBy = (refusals: readonly CliRefusal[], operation: Operation): boole
 		sameKey(operation, refusal.operation.method, refusal.operation.path)
 	)
 
-type CommandName = GenerationReportValue["commandNames"][number]
-
 const commandName = ({ command, path }: CommandAt): CommandName => {
 	const name: Types.Mutable<CommandName> = {
 		command: command.sources.command,
@@ -405,7 +403,7 @@ const commandName = ({ command, path }: CommandAt): CommandName => {
 const commandNames = (
 	order: readonly CommandAt[],
 	refusals: readonly CliRefusal[]
-): GenerationReportValue["commandNames"] =>
+): GenerationReport["commandNames"] =>
 	Arr.flatMap(order, (entry) =>
 		refusedBy(refusals, entry.command.operation) ? [] : [commandName(entry)]
 	)
@@ -662,7 +660,7 @@ const generation = (
 			...apiFiles,
 			...cli.files,
 			...scaffold,
-			{ content: yield* printGenerationReport(report, document), path: reportPath }
+			{ content: printGenerationReport(report, document), path: reportPath }
 		]
 		const made: Generation = { diagnostics, files, report }
 

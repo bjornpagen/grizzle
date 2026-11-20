@@ -1,47 +1,42 @@
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Order, Predicate, Record, Schema } from "effect"
-import type { Types } from "effect"
+import { Array as Arr, Order, Predicate, Record } from "effect"
 import { printJson } from "#emit/printer.ts"
-import { DocumentUri, JsonLiteral, JsonPointer } from "#model/brands.ts"
-import { isDiagnostic, isRefusal, pointerOrder } from "#model/diagnostic.ts"
+import type { DocumentUri } from "#model/brands.ts"
+import { isRefusal, pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
+import type { Sha256Hex } from "#model/digest.ts"
 import type { Api, Operation, SecurityScheme } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
-import type { NonStandardUse } from "#model/non-standard.ts"
+import type { NonStandardChoice, NonStandardUse } from "#model/non-standard.ts"
 import { markedUses, nonStandardUses } from "#model/non-standard.ts"
-import type { Json } from "#model/pointer.ts"
+import type { Json, JsonPointer } from "#model/pointer.ts"
 import { documentLabel } from "#model/uri.ts"
-import { commandNameSources, groupNameSources } from "#names/plan.ts"
-
-const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u"))))
+import type { CommandNameSource, GroupNameSource } from "#names/plan.ts"
 
 /**
  * One emitted command (design 8.1 `commandNames`): its visible path (group names, then the
  * command), the operation's use site, the source of each name, and for an alias command its index
  * in the author-config `aliases` or else in `x-forge-aliases`.
  */
-export const CommandName = Schema.Struct({
-	alias: Schema.optionalKey(Schema.Int),
-	command: Schema.Literals(commandNameSources),
-	document: DocumentUri,
-	group: Schema.Literals(groupNameSources),
-	path: Schema.Array(Schema.String),
-	pointer: JsonPointer
-})
+export type CommandName = {
+	readonly alias?: number
+	readonly command: CommandNameSource
+	readonly document: DocumentUri
+	readonly group: GroupNameSource
+	readonly path: ReadonlyArray<string>
+	readonly pointer: JsonPointer
+}
 
 /**
  * One element the author config made non-standard (design 8.1 `nonStandard`, 6.1): the choice and
  * the config key that made it, the element's use site, and the row it departs from.
  */
-const NonStandardEntry = Schema.Struct({
-	choice: Schema.Literals(["deepObjectBrackets", "deepObjectScalars"]),
-	configKey: Schema.Literals(["nonStandard.deepObjectBrackets", "nonStandard.deepObjectScalars"]),
-	document: DocumentUri,
-	pointer: JsonPointer,
-	row: Schema.Literal("PRM-27")
-})
-
-type NonStandardEntryValue = typeof NonStandardEntry.Type
+type NonStandardEntry = {
+	readonly choice: NonStandardChoice
+	readonly configKey: `nonStandard.${NonStandardChoice}`
+	readonly document: DocumentUri
+	readonly pointer: JsonPointer
+	readonly row: "PRM-27"
+}
 
 /**
  * One operation the author config skipped (`naming.operations[<id>].skip`, or `naming.byPointer`
@@ -49,58 +44,55 @@ type NonStandardEntryValue = typeof NonStandardEntry.Type
  * command and coverage counts it and its subtree as accounted for. `operationId` is absent for an
  * operation keyed by pointer.
  */
-const SkippedOperation = Schema.Struct({
-	document: DocumentUri,
-	operationId: Schema.optionalKey(Schema.String),
-	pointer: JsonPointer,
-	reason: Schema.Literal("config-skip")
-})
-
-type SkippedOperationValue = typeof SkippedOperation.Type
+type SkippedOperation = {
+	readonly document: DocumentUri
+	readonly operationId?: string
+	readonly pointer: JsonPointer
+	readonly reason: "config-skip"
+}
 
 /**
  * `generation-report.json` (design 8.1, 3.7): what one run refused, noticed, renamed and accepted,
- * and the digests of its inputs. There is no timestamp, so equal inputs give equal bytes. Fields
- * are alphabetical; the order that matters is carried by arrays.
+ * and the digests of its inputs, each a digest the generator computed (Sha256Hex). There is no
+ * timestamp, so equal inputs give equal bytes. Fields are alphabetical; the order that matters is
+ * carried by arrays. It is JSON as it stands, so printing it cannot fail.
  */
-export const GenerationReport = Schema.Struct({
-	acceptedServers: Schema.Array(Schema.String),
+export type GenerationReport = {
+	readonly acceptedServers: ReadonlyArray<string>
 	/** Present only when the author config added a scheme (D-OQ3 (b)): the scheme and the key that added it. */
-	authorSuppliedSchemes: Schema.optionalKey(
-		Schema.Array(Schema.Struct({ key: Schema.String, name: Schema.String }))
-	),
-	commandNames: Schema.Array(CommandName),
-	generator: Schema.Struct({ version: Schema.String }),
-	inputs: Schema.Array(Schema.Struct({ document: DocumentUri, sha256: Sha256 })),
+	readonly authorSuppliedSchemes?: ReadonlyArray<{ readonly key: string; readonly name: string }>
+	readonly commandNames: ReadonlyArray<CommandName>
+	readonly generator: { readonly version: string }
+	readonly inputs: ReadonlyArray<{ readonly document: DocumentUri; readonly sha256: Sha256Hex }>
 	/** Always present, empty unless the author config switched a non-standard choice on. */
-	nonStandard: Schema.Array(NonStandardEntry),
-	notices: Schema.Array(Schema.declare(isDiagnostic)),
-	refusals: Schema.Array(Schema.declare(isDiagnostic)),
-	renames: Schema.Array(
-		Schema.Struct({ from: Schema.String, pointer: JsonPointer, to: Schema.String })
-	),
+	readonly nonStandard: ReadonlyArray<NonStandardEntry>
+	readonly notices: ReadonlyArray<Diagnostic>
+	readonly refusals: ReadonlyArray<Diagnostic>
+	readonly renames: ReadonlyArray<{
+		readonly from: string
+		readonly pointer: JsonPointer
+		readonly to: string
+	}>
 	/** Always present, empty unless the author config skipped an operation. */
-	skipped: Schema.Array(SkippedOperation)
-})
-
-export type GenerationReportValue = typeof GenerationReport.Type
+	readonly skipped: ReadonlyArray<SkippedOperation>
+}
 
 /**
  * What one run knows. `diagnostics` arrive already in diagnostic order (design 3.7), `inputs` in
  * document order and `commandNames` in command order; the report keeps each order.
  */
 export interface GenerationReportInput {
-	readonly acceptedServers: GenerationReportValue["acceptedServers"]
+	readonly acceptedServers: GenerationReport["acceptedServers"]
 	/** The emitted commands in command order; absent, the run emitted none. */
-	readonly commandNames?: GenerationReportValue["commandNames"]
+	readonly commandNames?: GenerationReport["commandNames"]
 	readonly diagnostics: readonly Diagnostic[]
-	readonly inputs: GenerationReportValue["inputs"]
+	readonly inputs: GenerationReport["inputs"]
 	/** The non-standard elements in diagnostic order; absent, none. */
-	readonly nonStandard?: GenerationReportValue["nonStandard"]
-	readonly renames: GenerationReportValue["renames"]
+	readonly nonStandard?: GenerationReport["nonStandard"]
+	readonly renames: GenerationReport["renames"]
 	readonly schemes?: readonly SecurityScheme[]
 	/** The author-skipped operations in diagnostic order; absent, none. */
-	readonly skipped?: GenerationReportValue["skipped"]
+	readonly skipped?: GenerationReport["skipped"]
 	readonly version: string
 }
 
@@ -132,7 +124,7 @@ const useSiteOrder = (documents: readonly string[]): Order.Order<UseSite> =>
 		Order.mapInput(pointerOrder, (entry: UseSite) => entry.pointer)
 	)
 
-const entryAt = ({ choice, origin }: NonStandardUse): NonStandardEntryValue => ({
+const entryAt = ({ choice, origin }: NonStandardUse): NonStandardEntry => ({
 	choice,
 	configKey: `nonStandard.${choice}`,
 	document: origin.document,
@@ -151,7 +143,7 @@ const entryAt = ({ choice, origin }: NonStandardUse): NonStandardEntryValue => (
 export const nonStandardEntries = (
 	api: Api,
 	documents: readonly string[]
-): GenerationReportValue["nonStandard"] => {
+): GenerationReport["nonStandard"] => {
 	const marked = Arr.flatMap(api.operations, (operation) => [
 		...Arr.flatMap(operation.parameters, ({ serialization }) => nonStandardUses(serialization)),
 		...Arr.flatMap(operation.body?.alternatives ?? [], (alternative) =>
@@ -163,7 +155,7 @@ export const nonStandardEntries = (
 		Arr.map(marked, entryAt),
 		Order.combine(
 			useSiteOrder(documents),
-			Order.mapInput(Order.String, (entry: NonStandardEntryValue) => entry.choice)
+			Order.mapInput(Order.String, (entry: NonStandardEntry) => entry.choice)
 		)
 	)
 }
@@ -175,33 +167,27 @@ export const nonStandardEntries = (
 export const skippedEntries = (
 	operations: readonly Operation[],
 	documents: readonly string[]
-): GenerationReportValue["skipped"] =>
+): GenerationReport["skipped"] =>
 	Arr.sort(
-		Arr.map(operations, ({ operationId, origin }) => {
-			const entry: Types.Mutable<SkippedOperationValue> = {
-				document: origin.document,
-				pointer: origin.pointer,
-				reason: "config-skip"
-			}
-			if (operationId !== undefined) {
-				entry.operationId = operationId
-			}
-
-			return entry
-		}),
+		Arr.map(operations, ({ operationId, origin }): SkippedOperation => ({
+			document: origin.document,
+			...(operationId === undefined ? {} : { operationId }),
+			pointer: origin.pointer,
+			reason: "config-skip"
+		})),
 		useSiteOrder(documents)
 	)
 
 /**
  * Splits the diagnostics by severity into the report value, keeping their order.
  */
-export const makeGenerationReport = (input: GenerationReportInput): GenerationReportValue => {
+export const makeGenerationReport = (input: GenerationReportInput): GenerationReport => {
 	const added = Arr.map(
 		Arr.filter(input.schemes ?? [], (scheme) => scheme.source === "author-supplied"),
 		(scheme) => ({ key: `security.add.schemes.${scheme.name}`, name: scheme.name })
 	)
 
-	const report: GenerationReportValue = {
+	const report: GenerationReport = {
 		acceptedServers: input.acceptedServers,
 		commandNames: input.commandNames ?? [],
 		generator: { version: input.version },
@@ -234,18 +220,11 @@ const labelled = (value: Json, entry: string): Json =>
 			: value
 
 /**
- * Prints the report file: the value is encoded through `GenerationReport`, so a bad digest fails
- * here, its documents labelled against the run's entry document (`labelled`), then written in the
- * `docs/printer.md` JSON layout with sorted keys and a final newline.
+ * Prints the report file, its documents labelled against the run's entry document (`labelled`), in
+ * the `docs/printer.md` JSON layout, with sorted keys and a final newline.
  */
-export const printGenerationReport = (
-	report: GenerationReportValue,
-	entry: DocumentUri
-): Effect.Effect<string, Schema.SchemaError> =>
-	Schema.encodeEffect(GenerationReport)(report).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(JsonLiteral)),
-		Effect.map((json) => printJson(labelled(json, entry)))
-	)
+export const printGenerationReport = (report: GenerationReport, entry: DocumentUri): string =>
+	printJson(labelled(report, entry))
 
 /**
  * Design 8.1: 0 when output was written, 1 on a document refusal, on any refusal under `--strict`,
