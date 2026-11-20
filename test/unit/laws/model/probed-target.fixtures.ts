@@ -92,8 +92,10 @@ import { generatedOn, lawColumnsOf } from "#test/unit/laws/model/natives.ts"
  * kind by a literal, from a source that holds no kind, that no probe reads; two such targets fixing kind to two values
  * over one set of terms; one that also selects b = 0; a probe out of another selection; K over a selection or over every row, its terms holding the
  * fixed field; a probed target beside an unprobed one; a target's own UNIQUE K implies through the field its selection
- * fixes; a generated UNIQUE refusing a pair, reported as K over a selection; and constant columns that cost the schema
- * no more objects.
+ * fixes; a generated UNIQUE refusing a pair, reported as K over a selection; constant columns that cost the schema no
+ * more objects; and the case the count of reverse probes decides (`chained`): one target three sources reference beside
+ * two probes out of K's selection, over a and over (a, b), which one B-tree serves where the target's own columns,
+ * guarded by its selection of their own, serve neither and its superkey, guarded as K's selection guards a, both.
  */
 
 /** A term of a fixed target, a field of T beside the fixed `kind`. */
@@ -216,13 +218,35 @@ export const sketchGen: Gen<Sketch> = (source) => {
 	const k = source.draw(element(KEYS))
 	const first = source.draw(targetGen(k))
 	const more = source.draw(array(targetGen(k), { min: 0, max: 2 }))
-	const targets: Arr.NonEmptyReadonlyArray<Target> = [first, ...more]
-	return {
-		selected: source.draw(boolean),
-		key: k,
-		targets,
-		probes: source.draw(array(probeGen(targets), { min: 0, max: 3 }))
-	}
+	const drawn: Arr.NonEmptyReadonlyArray<Target> = [first, ...more]
+	const selected = source.draw(boolean)
+	const probes = source.draw(array(probeGen(drawn), { min: 0, max: 3 }))
+	/**
+	 * Drawn last, so every earlier case draws as it did: the first target again from one or two sources of their own,
+	 * one target several sources reference, each by its own constant where they take its superkey; or the case the
+	 * count of reverse probes decides (`chained`), at the first target's value.
+	 */
+	const again = source.draw(element([0, 1, 2, "chained"] as const))
+	return again === "chained"
+		? {
+				selected: true,
+				key: ["kind", "a"],
+				targets: Arr.makeBy(3, () => ({
+					value: first.value,
+					guarded: false,
+					terms: ["a", "b"] as const
+				})),
+				probes: [
+					{ at: { kind: "key" }, terms: ["a"] },
+					{ at: { kind: "key" }, terms: ["a", "b"] }
+				]
+			}
+		: {
+				selected,
+				key: k,
+				targets: [...drawn, ...Array.from({ length: again }, () => first)],
+				probes
+			}
 }
 
 /** K's selection: c = 1, or every row. */
@@ -692,6 +716,7 @@ export type Feature =
 	| "a target's own UNIQUE, K implying it through the field its selection fixes"
 	| "a generated UNIQUE refusing a pair, reported as K over a selection"
 	| "constant columns that cost the schema no more objects"
+	| "one target three sources reference beside a chain of probes out of K's selection its superkey serves"
 
 export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a target a probe reads at its own columns, leading the probe",
@@ -708,7 +733,8 @@ export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"a probed target beside an unprobed one",
 	"a target's own UNIQUE, K implying it through the field its selection fixes",
 	"a generated UNIQUE refusing a pair, reported as K over a selection",
-	"constant columns that cost the schema no more objects"
+	"constant columns that cost the schema no more objects",
+	"one target three sources reference beside a chain of probes out of K's selection its superkey serves"
 ]
 
 /** What a case holds, from the sketch alone. */
@@ -761,6 +787,37 @@ export const featuresOf = (s: Sketch): ReadonlyArray<Feature> => {
 			: []),
 		...(own.length > 0 && s.key.includes("kind")
 			? ["a target's own UNIQUE, K implying it through the field its selection fixes" as const]
+			: []),
+		...(chained(s)
+			? [
+					"one target three sources reference beside a chain of probes out of K's selection its superkey serves" as const
+				]
 			: [])
 	]
+}
+
+/**
+ * Whether a case is the one the reference choice's count of reverse probes decides (laws/model/plan.ts probeIndexes):
+ * K over a selection, led by kind, so its UNIQUE serves no probe of a; one unguarded target over (a, b) that three sources
+ * reference, so its superkey costs three constants and its own columns a guard of its own and their UNIQUE; and two
+ * probes out of K's selection over a and over (a, b), which one B-tree serves where the target's own columns serve
+ * neither, the superkey both. Its own columns cost the schema one object fewer than its superkey, the chain's one B-tree
+ * counted once; counted once a probe, the superkey ties them and is taken.
+ */
+const chained = (s: Sketch): boolean => {
+	const [first, ...rest] = s.targets
+	return (
+		s.selected &&
+		s.key[0] === "kind" &&
+		rest.length === 2 &&
+		!first.guarded &&
+		setText(first.terms) === "a,b" &&
+		first.terms[0] === "a" &&
+		Arr.every(
+			rest,
+			(t) => sameNarrow(t, first) && Arr.join(t.terms, ",") === Arr.join(first.terms, ",")
+		) &&
+		Arr.some(s.probes, (p) => p.at.kind === "key" && Arr.join(p.terms, ",") === "a") &&
+		Arr.some(s.probes, (p) => p.at.kind === "key" && Arr.join(p.terms, ",") === "a,b")
+	)
 }
