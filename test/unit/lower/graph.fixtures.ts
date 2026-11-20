@@ -147,7 +147,8 @@ export type Spelling = "where" | "constant"
 
 /**
  * The recursion read by the consumer alone, delivered as a root as well, read by another node too (a second root
- * ordering it), or imported twice with only the first import filtered.
+ * ordering it), or imported twice with only the first import filtered, the two imports one node (check/checker.ts
+ * importedKey).
  */
 export type Sharing = "sole reader" | "also a root" | "read by another node" | "imported twice"
 

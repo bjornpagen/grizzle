@@ -7,7 +7,8 @@
  *   fixed end), never the advanced endpoint or a computed counter; and every generated recursion is positive linear.
  * - A predicate moves into a recursion's seed exactly when it reads only a carried column and the recursion has no
  *   other reader: exhausted over the Network example (each recursion, column, spelling of the predicate and sharing),
- *   where a recursion also delivered as a root, read by another node, or a second import left unfiltered never moves;
+ *   where a recursion also delivered as a root, read by another node, or imported twice, its two imports one node the
+ *   consumer reads at both (check/checker.ts importedKey), never moves;
  *   the pass leaves a query it moves nothing in as it was, and is idempotent.
  * - Two conjuncts on a carried column alike but for one part, a literal, a parameter, an operator, a closed relation's
  *   field or a closed read's key, are two predicates: over a reach between closed ids, each is moved into the seed, the
@@ -153,7 +154,8 @@ export const provedRootPushdownGraphSeedPushdownMovesAPredicateOnACarriedColumnO
 				"kept where",
 				"kept constant",
 				"also a root kept",
-				"read by another node kept"
+				"read by another node kept",
+				"imported twice kept"
 			] satisfies ReadonlyArray<Reached<PushFeature>>,
 			check:
 				(_, c: Case<PushFeature>) =>
@@ -161,12 +163,11 @@ export const provedRootPushdownGraphSeedPushdownMovesAPredicateOnACarriedColumnO
 					Effect.sync(() => {
 						const checked = logical(pushQuery(column, spelling, sharing === "imported twice"))
 						const q = shared(checked, sharing)
-						/** Each import is its own recursion; only the one the consumer alone filters, on its carried origin, moves. */
-						const moves =
-							column === "Reach.origin" &&
-							(sharing === "sole reader" || sharing === "imported twice")
-								? 1
-								: 0
+						/**
+						 * Only a recursion the consumer alone reads, filtered on its carried origin, moves. Two imports of
+						 * one closed query are one node (check/checker.ts importedKey), which the consumer reads twice.
+						 */
+						const moves = column === "Reach.origin" && sharing === "sole reader" ? 1 : 0
 						const ctx = context()
 						const once = succeeded(graphPass.run(q, ctx))
 						const rules = Arr.map(ctx.certificates.all(), (x) => x.rule)
