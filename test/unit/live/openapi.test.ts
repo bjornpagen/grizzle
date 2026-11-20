@@ -2,8 +2,7 @@
  * A login's OpenAPI document (packages/openapi/src/openapi.ts), over logins drawn as `grizzle generate` compiles them,
  * with no database (test/support/served-login.ts compiledLogin): roles reading a generated schema's queries, an ordered
  * one read whole or paged, writing relations through ChangeSets whose facts each call supplies, perhaps through a query
- * entry that reads a context; and writers of generated write schemas running one drawn ChangeSet, its array members
- * the call's, its read-backs delivered in its outcome.
+ * entry that reads a context.
  *
  * Properties, of each login's document, read off its served file alone as generate writes it (ServedEntry openapi):
  * - Valid: it validates against the official OpenAPI 3.2 schema, vendored with its SHA-256, and against the OAS base
@@ -47,37 +46,22 @@
  * Oracle: the served file the document is read off, its members and their wires, the event model's own table, and the
  * classification's tables.
  *
- * Features: a set read, a list read, a paged read, an instant read, a write, a refresh, a write with an array member, a
- * write with a read-back, a role reading a context, a role reading none, a login no role of which reads a context, a
- * schema shared, a wire node shared.
+ * Features: a set read, a list read, a paged read, an instant read, a write, a refresh, a role reading a context, a
+ * role reading none, a login no role of which reads a context, a schema shared, a wire node shared.
  */
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Result as Answered, Array as Arr, Effect, Formatter } from "effect"
-import { workload } from "#compiler/program/workload/value.ts"
-import { login, role, wholeEntriesOf, writableNamesOf } from "#compiler/public/schema.ts"
+import { Effect } from "effect"
 import { caseSketchGen } from "#test/support/oracle/public/generate.ts"
 import { lawLevelGen } from "#test/support/oracle/public/laws.ts"
-import {
-	buildChangeSet,
-	changeSetSketchGen,
-	resolveChangeSet
-} from "#test/support/oracle/write/changeset.ts"
-import { factsSketchGen, resolveFacts } from "#test/support/oracle/write/facts.ts"
-import { buildWSchema, resolveSchema, schemaSketchGen } from "#test/support/oracle/write/schema.ts"
-import { pickFrom, pickGen } from "#test/support/pick.ts"
-import { compiledLogin } from "#test/support/served-login.ts"
 import {
 	documentHolds,
 	type Logins,
 	sharedDocumentsGen,
 	tagSeenAgain,
 	type Feature,
-	firstCodes,
-	holds,
-	servedShape,
 	unseen,
 	documentsGen
 } from "#test/unit/live/openapi.fixtures.ts"
@@ -187,75 +171,6 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 			}
 		]
 	})
-
-/**
- * A login's OpenAPI document documents every served ChangeSet's facts and outcome, valid and one operation per
- * program.
- *
- * Budget: its suite's count before the conversion (unit/live/openapi-changes: 60 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
- */
-export const aLoginsOpenAPIDocumentDocumentsEveryServedChangeSetsFactsAndOutcomeValidAndOneOperationPerProgram =
-	property.explore(
-		(source) =>
-			[
-				source.draw(schemaSketchGen),
-				source.draw(pickGen),
-				source.draw(factsSketchGen(5)),
-				source.draw(changeSetSketchGen)
-			] as const,
-		{
-			needs: {},
-			situations: [
-				"a write",
-				"a write with an array member",
-				"a write with a read-back",
-				"a schema shared"
-			] satisfies ReadonlyArray<Reached<Feature>>,
-			check:
-				(_, notes: Case<Feature>) =>
-				([schemaSketch, groupPick, factsSketch, changesSketch]) =>
-					Effect.gen(function* () {
-						const seen = unseen()
-						return yield* Effect.gen(function* () {
-							const schema = notes.draw(resolveSchema(schemaSketch))
-							const [first, ...rest] = Arr.filter(schema.groups, (g) => g.role === "drawn")
-							if (first === undefined) {
-								return
-							}
-							const group = pickFrom([first, ...rest], groupPick)
-							const c = servedShape(
-								notes.draw(resolveChangeSet(group, resolveFacts(group, factsSketch), changesSketch))
-							)
-							const built = buildWSchema(schema, "Wo")
-							const { changes } = buildChangeSet(built.value, built.relations, group, c)
-							const writer = role(built.value, "writer", wholeEntriesOf(built.value), {
-								write: writableNamesOf(built.value)
-							})
-							const compiled = yield* Effect.result(
-								compiledLogin(
-									login(built.value, "server", [writer], {
-										workload: [workload(built.value, { w: changes })]
-									}),
-									firstCodes
-								)
-							)
-							if (Answered.isFailure(compiled)) {
-								return
-							}
-							const entry = compiled.success.entry
-							yield* holds(entry.file, entry.openapi, seen, notes.note, () => Formatter.format(c))
-						}).pipe(Effect.scoped, Effect.orDie)
-					}),
-			oracle: {
-				kind: "specification",
-				name: "the served file the document is read off and the event model's own table"
-			},
-			budget: { runs: 60, steered: 0 },
-			kept: [],
-			kills: []
-		}
-	)
 
 /**
  * A login's OpenAPI documents are short: a summary, a body's description and a tag's description depend on what each

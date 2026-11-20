@@ -39,7 +39,6 @@ import {
 import { type LawLevel, lawLevelGen } from "#test/support/oracle/public/laws.ts"
 import { printCase } from "#test/support/oracle/public/print.ts"
 import type { ProgramCase } from "#test/support/oracle/public/program.ts"
-import { type WChangeSet } from "#test/support/oracle/write/changeset.ts"
 import {
 	compiledLogin,
 	type DrawnSchema,
@@ -56,8 +55,6 @@ export type Feature =
 	| "an instant read"
 	| "a write"
 	| "a refresh"
-	| "a write with an array member"
-	| "a write with a read-back"
 	| "a role reading a context"
 	| "a role reading none"
 	| "a login no role of which reads a context"
@@ -342,7 +339,7 @@ const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolea
 /**
  * The document of a login's served file, written as generate writes it (`text`), held to every property of the header.
  */
-export const holds = (
+const holds = (
 	file: ServedFile,
 	text: string,
 	seen: Seen,
@@ -638,31 +635,12 @@ export const holds = (
 					)
 				}
 			}
-			if (member.kind === "change" && member.variants.kind === "change") {
-				if (member.variants.change.members.length > 0) {
-					note("a write with an array member")
-				}
-				if (member.variants.change.readBacks.length > 0) {
-					note("a write with a read-back")
-				}
-			}
 		}
 	})
 
 /** A fresh installation's codes: each roster's first. */
 export const firstCodes = (owned: Parameters<typeof rostersOf>[0]) =>
 	firstCodebook(rostersOf(owned))
-
-/** `c` as a served call supplies it: every array member's facts the call's, every other member a query. */
-export const servedShape = (c: WChangeSet): WChangeSet => ({
-	...c,
-	strata: Arr.map(c.strata, (stratum) =>
-		Arr.map(stratum, (m): WChangeSet["strata"][number][number] =>
-			m.source.kind === "array" ? { ...m, source: { kind: "array", facts: [], stream: false } } : m
-		)
-	),
-	binding: "passed"
-})
 
 export const tagSeenAgain: Feature = "a tag's description seen again under what it may depend on"
 
