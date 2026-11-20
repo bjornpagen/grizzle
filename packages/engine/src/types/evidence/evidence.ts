@@ -593,16 +593,29 @@ type NamedValues<St, K> = St extends Fixed<K & string, infer V> ? Named<V> : nev
  * arms (UnionArm). Arms of different headings, whose rows are of several heading groups, are evidence unknown: so is a
  * union whose earlier arms are, read by each record of H1 (HeadingsApart).
  *
- * A further arm costs what it adds, never what the arms before it cost again: it reads the union's values, met with its
- * own (Alike), and adds its arm to the union's (ArmsAfter), and the union's keys, which every arm at once decides, are
- * read where they are read (UnionEvidenceOf), so a union of n arms reads its arms once, where a union read its every
- * earlier arm again at each arm, every pair of them for its separators.
+ * A further arm costs what it adds, never what the arms before it cost again: it adds its values to the arms' values
+ * (ValuesAfter) and its arm to the union's arms (ArmsAfter), each a flat union or a cell over the arms before it, and
+ * the union's keys and the fields its arms fix alike, which every arm at once decides, are read where they are read
+ * (UnionEvidenceOf), so a union of n arms reads its arms once, where a union read its every earlier arm again at each
+ * arm, every pair of them for its separators, and where the fields fixed alike were met one arm at a time, each meeting
+ * a type over the one before it, so a read of the last walked every arm (TS2589 at 96 arms).
  */
 export type UnionEvidence<Ev1, Ev2, H1, H2> =
 	HeadingsApart<Ev1, H1, H2> extends true
 		? Evidence.Unknown
-		: UnionOf<Alike<ValuesOf<Ev1>, ValuesOf<Ev2>>, keyof H2 & string, ArmsAfter<Ev1, Ev2>>
+		: UnionEvidenceOf<
+				FirstValuesOf<Ev1>,
+				ValuesAfter<Ev1, Ev2>,
+				keyof H2 & string,
+				ArmsAfter<Ev1, Ev2>
+			>
 type ValuesOf<Ev> = Ev extends { readonly values: infer V } ? V : object
+/** The values the first arm of Ev1, an arm or a union, fixes its fields to: a union's own first, read by key. */
+type FirstValuesOf<Ev1> = "arms" extends keyof Ev1 ? Ev1["first" & keyof Ev1] : ValuesOf<Ev1>
+/** Every arm's values, the arms of Ev1, an arm or a union, and the arm Ev2: a union of the arms' records. */
+type ValuesAfter<Ev1, Ev2> =
+	| ("arms" extends keyof Ev1 ? Ev1["armValues" & keyof Ev1] : ValuesOf<Ev1>)
+	| ValuesOf<Ev2>
 /**
  * Whether some record of H1 and some record of H2 have different keys: a union's records all have its heading's,
  * keyof H1, so a union is read by its heading once, and any other H1 by each of its records.
@@ -636,9 +649,12 @@ type ArmWith<V, K> = UnionArm<V, K>
 /**
  * A union's arms, the last added first, each a cell of its own that reads its arm and the arms before it by key: a walk
  * of them reads each cell once, as a walk that binds the arms after its first one by `infer` would not, instantiating
- * them all again at each step.
+ * them all again at each step. A cell is an object type of its own alias, as the union's evidence is (UnionEvidenceOf),
+ * never an interface named alone as an alias's body: the checker defers the type arguments of such a reference until
+ * it is first read, so a union's arms, first arm and values would be read there through every union before it at once,
+ * one cell deeper for each arm (TS2589 at 96 arms), where each is read as its rule adds its arm.
  */
-interface ArmCons<out A, out Rest> {
+type ArmCons<A, Rest> = {
 	readonly more: true
 	readonly arm: A
 	readonly rest: Rest
@@ -646,35 +662,46 @@ interface ArmCons<out A, out Rest> {
 interface NoArms {
 	readonly more: false
 }
-type ConsOf<A, Rest> = ArmCons<A, Rest>
 /** The arms of a union of Ev1, an arm or a union, with the arm Ev2. */
 type ArmsAfter<Ev1, Ev2> = "arms" extends keyof Ev1
-	? ConsOf<ArmOf<Ev2>, Ev1["arms" & keyof Ev1]>
-	: ConsOf<ArmOf<Ev2>, ConsOf<ArmOf<Ev1>, NoArms>>
-
-/** A union of its arms' alike values A and heading fields F: its keys, read where they are read, and its card. */
-type UnionOf<A, F extends string, Arms> = UnionEvidenceOf<A, F, Arms> & ValuesPart<A>
+	? ArmCons<ArmOf<Ev2>, Ev1["arms" & keyof Ev1]>
+	: ArmCons<ArmOf<Ev2>, ArmCons<ArmOf<Ev1>, NoArms>>
 
 /**
  * The union's keys: its whole heading; the fields its arms do not all fix alike, since a union is a set whose rows agree
- * on the rest, the empty key where every field is; and the keys told apart. And its arms, which a further arm reads.
- * The keys are a member, decided where a reader reads them, every arm at once, never at each arm a further rule adds.
+ * on the rest, the empty key where every field is; and the keys told apart. And its arms, its first arm's values and
+ * every arm's (Alike), which a further arm reads by key. The keys are a member, decided where a reader reads them, every
+ * arm at once, never at each arm a further rule adds.
  */
-interface UnionEvidenceOf<A, F extends string, Arms> {
-	readonly keys: UnionKeys<KeyOver<Exclude<F, keyof A>> | KeysBeside<Arms, Kept<Arms>>, F>
-	readonly card: [Exclude<F, keyof A>] extends [never] ? "atMostOne" : "many"
+type UnionEvidenceOf<First, V, F extends string, Arms> = {
+	readonly keys: UnionKeys<
+		KeyOver<Exclude<F, keyof Alike<First, V>>> | KeysBeside<Arms, Kept<Arms>>,
+		F
+	>
+	readonly card: [Exclude<F, keyof Alike<First, V>>] extends [never] ? "atMostOne" : "many"
 	readonly arms: Arms
+	readonly first: First
+	readonly armValues: V
 }
 type UnionKeys<Keys, F extends string> = [Keys] extends [never]
 	? readonly [KeyOver<F>]
 	: readonly [KeyOver<F>, ...ReadonlyArray<Keys>]
 
-/** The fields both fix to one value, a name they share, with every name they share. */
-type Alike<V1, V2> = {
+/**
+ * The fields every arm fixes to one value, a name they all share, with every name they share: the first arm's names,
+ * First, each held at its field by every arm's values, V the union of the arms' records, read once over every arm.
+ */
+type Alike<First, V> = {
 	readonly [
-		K in keyof V1 & keyof V2 as [Extract<V1[K], V2[K]>] extends [never] ? never : K
-	]: Extract<V1[K], V2[K]>
+		K in keyof First & keyof V as [HeldByEvery<First[K], V, K>] extends [never] ? never : K
+	]: HeldByEvery<First[K], V, K>
 }
+/** The names among X every arm of V fixes its field K to. */
+type HeldByEvery<X, V, K extends PropertyKey> = X extends unknown
+	? false extends (V extends unknown ? ([X] extends [V[K & keyof V]] ? true : false) : never)
+		? never
+		: X
+	: never
 type SameValue<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
 /** The one literal an arm's values fix field K to: none where they fix it to no literal or to two, which no row holds. */

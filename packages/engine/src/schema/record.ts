@@ -29,6 +29,7 @@ import type {
 	Minted,
 	Refusal as TypeRefusal,
 	Term,
+	UnionArmsOf,
 	UnionHeading
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
@@ -265,14 +266,15 @@ const unionCarrier = (key: string, x: Carrier, y: Carrier): Carrier => {
 }
 
 /**
- * The heading of a union of two arms' headings (see the header): a's keys in order, each united with b's carrier where
- * b delivers it too, then the keys b alone delivers.
+ * The heading of a union of two sides' headings (see the header): a's keys in order, each united with b's carrier where
+ * b delivers it too, then the keys b alone delivers. Its type is the union heading of the arms each side unites
+ * (UnionArmsOf), so a union of a union and an arm is typed by the arms, never by the union heading before it.
  */
 export const carrierUnion = <A extends Carriers, B extends Carriers>(
 	a: A,
 	b: B
-): UnionHeading<A, B> =>
-	assembled<UnionHeading<A, B>>([
+): UnionHeading<UnionArmsOf<A> | UnionArmsOf<B>> =>
+	assembled<UnionHeading<UnionArmsOf<A> | UnionArmsOf<B>>>([
 		...Object.entries(a).map(([key, x]) => {
 			const y = b[key]
 			return [key, y === undefined ? x : unionCarrier(key, x, y)] as const

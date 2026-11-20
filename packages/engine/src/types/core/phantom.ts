@@ -478,34 +478,41 @@ export type ColumnFacts<X> = X extends
 export type LanguageOf<X> = X extends Languaged<infer L> ? L : never
 
 /**
- * The heading of a union of two arms' headings A and B: each key of either arm, carried by the union of the arms'
- * columns that have it, of the domain, SQL type and language the arms that deliver it by a term state, a JavaScript
- * value taking theirs (Retyped), as the checker retypes a bare head literal by its position; a key only JavaScript
- * values deliver keeps their defaults. A JavaScript value outside the typed arms' language widens the key's language
- * to its default's, as the checker's common type widens a refined text to text. A key's facts are its column type's
- * (ColumnFacts): what the contract of the type its typed arms meet at declares, a JavaScript value's arm included.
+ * The heading of a union of arms, C the union of the arms' records of carriers: each key of any arm, carried by the
+ * union of the arms' columns that have it, of the domain, SQL type and language the arms that deliver it by a term
+ * state, a JavaScript value taking theirs (Retyped), as the checker retypes a bare head literal by its position; a key
+ * only JavaScript values deliver keeps their defaults. A JavaScript value outside the typed arms' language widens the
+ * key's language to its default's, as the checker's common type widens a refined text to text. A key's facts are its
+ * column type's (ColumnFacts): what the contract of the type its typed arms meet at declares, a JavaScript value's arm
+ * included.
+ *
+ * C holds every arm's own record, never the heading of a union before it: a union of n arms reads each arm's carrier
+ * once at each key, in one mapped type, so no read of a key walks the arms it was built from one union at a time. A
+ * further arm joins the arms a union holds (UnionArmsOf), so a chain of rules keeps C flat.
  */
-export type UnionHeading<A, B> = {
-	readonly [K in keyof A | keyof B]: ConstantsAt<A, B, K> &
-		([TypedAt<A, K> | TypedAt<B, K>] extends [never]
-			? Carrier<
-					CarriedAt<A, K> | CarriedAt<B, K>,
-					SqlAt<A, K> | SqlAt<B, K>,
-					StatedAt<A, K> | StatedAt<B, K>,
-					FactsAt<A, K> | FactsAt<B, K>,
-					LanguageAt<A, K> | LanguageAt<B, K>
-				>
+export type UnionHeading<C> = {
+	readonly [K in KeyOfAnyArm<C>]: ConstantsAt<C, K> &
+		([TypedAt<C, K>] extends [never]
+			? Carrier<CarriedAt<C, K>, SqlAt<C, K>, StatedAt<C, K>, FactsAt<C, K>, LanguageAt<C, K>>
 			: Carrier<
-					CarriedAt<A, K> | CarriedAt<B, K>,
-					TypedSqlAt<A, K> | TypedSqlAt<B, K>,
-					TypedAt<A, K> | TypedAt<B, K>,
-					DeclaredOf<TypedAt<A, K> | TypedAt<B, K>>,
-					| TypedLanguageAt<A, K>
-					| TypedLanguageAt<B, K>
-					| WidenedLanguageAt<A, K, TypedLanguageAt<A, K> | TypedLanguageAt<B, K>>
-					| WidenedLanguageAt<B, K, TypedLanguageAt<A, K> | TypedLanguageAt<B, K>>
+					CarriedAt<C, K>,
+					TypedSqlAt<C, K>,
+					TypedAt<C, K>,
+					DeclaredOf<TypedAt<C, K>>,
+					TypedLanguageAt<C, K> | WidenedLanguageAt<C, K, TypedLanguageAt<C, K>>
 				>)
 }
+
+/**
+ * The arms' records of carriers a heading H unites: a union heading's own arms, read off its type argument (the checker
+ * infers C from an instantiation of UnionHeading by its alias, never by reading H's keys), and any other heading as the
+ * one arm it is. A union heading met where its alias is gone reads as one arm, whose carriers are the arms' united
+ * carriers, which a further union reads exactly as it reads the arms.
+ */
+export type UnionArmsOf<H> = H extends UnionHeading<infer C> ? (unknown extends C ? H : C) : H
+
+/** A key of any arm of the union C, each arm's own. */
+type KeyOfAnyArm<C> = C extends unknown ? keyof C : never
 
 /**
  * What a union carrier states when every arm holds a constant at its key: the constants' values, which tell the arms
@@ -514,12 +521,18 @@ export type UnionHeading<A, B> = {
 interface Constants<out V> {
 	readonly [constants]?: V | undefined
 }
-type ConstantsAt<A, B, K> = [ConstantValuesAt<A, K>] extends [never]
+/** The constants of the arms C at K, where every arm holds one there; unknown, no constant, otherwise. */
+type ConstantsAt<C, K> = true extends (
+	C extends unknown ? ([ConstantValuesAt<C, K>] extends [never] ? true : false) : never
+)
 	? unknown
-	: [ConstantValuesAt<B, K>] extends [never]
-		? unknown
-		: Constants<ConstantValuesAt<A, K> | ConstantValuesAt<B, K>>
-type ConstantValuesAt<X, K> = K extends keyof X ? ConstantValuesOf<X[K]> : never
+	: Constants<ConstantValuesAt<C, K>>
+/** The constants each arm of C holds at K, an arm that holds none, or lacks K, adding none. */
+type ConstantValuesAt<X, K> = X extends unknown
+	? K extends keyof X
+		? ConstantValuesOf<X[K]>
+		: never
+	: never
 /**
  * The values a carrier holds as a constant in every arm: a JavaScript value's, a typed constant's, a union's whose arms
  * all hold one; never for any other carrier.
@@ -534,35 +547,43 @@ export type ConstantValuesOf<X> =
 					? never
 					: Exclude<V, undefined>
 				: never
-type CarriedAt<X, K> = K extends keyof X ? FieldHost<X[K]> : never
-type SqlAt<X, K> = K extends keyof X ? StatedSql<X[K]> : never
-type StatedAt<X, K> = K extends keyof X ? StatedDomain<X[K]> : never
-type FactsAt<X, K> = K extends keyof X ? ColumnFacts<X[K]> : never
-type LanguageAt<X, K> = K extends keyof X ? LanguageOf<X[K]> : never
-type TypedAt<X, K> = K extends keyof X
-	? IsRetyped<X[K]> extends true
-		? never
-		: StatedDomain<X[K]>
+type CarriedAt<X, K> = X extends unknown ? (K extends keyof X ? FieldHost<X[K]> : never) : never
+type SqlAt<X, K> = X extends unknown ? (K extends keyof X ? StatedSql<X[K]> : never) : never
+type StatedAt<X, K> = X extends unknown ? (K extends keyof X ? StatedDomain<X[K]> : never) : never
+type FactsAt<X, K> = X extends unknown ? (K extends keyof X ? ColumnFacts<X[K]> : never) : never
+type LanguageAt<X, K> = X extends unknown ? (K extends keyof X ? LanguageOf<X[K]> : never) : never
+type TypedAt<X, K> = X extends unknown
+	? K extends keyof X
+		? IsRetyped<X[K]> extends true
+			? never
+			: StatedDomain<X[K]>
+		: never
 	: never
-type TypedSqlAt<X, K> = K extends keyof X
-	? IsRetyped<X[K]> extends true
-		? never
-		: StatedSql<X[K]>
+type TypedSqlAt<X, K> = X extends unknown
+	? K extends keyof X
+		? IsRetyped<X[K]> extends true
+			? never
+			: StatedSql<X[K]>
+		: never
 	: never
-type TypedLanguageAt<X, K> = K extends keyof X
-	? IsRetyped<X[K]> extends true
-		? never
-		: LanguageOf<X[K]>
+type TypedLanguageAt<X, K> = X extends unknown
+	? K extends keyof X
+		? IsRetyped<X[K]> extends true
+			? never
+			: LanguageOf<X[K]>
+		: never
 	: never
 /**
  * A JavaScript value's arm at a key typed arms of language L deliver: nothing when its value is of L, the type the
  * checker gives it, else its default's language, which the key's common type then holds.
  */
-type WidenedLanguageAt<X, K, L> = K extends keyof X
-	? IsRetyped<X[K]> extends true
-		? [FieldHost<X[K]>] extends [BaseOf<L>]
-			? never
-			: LanguageOf<X[K]>
+type WidenedLanguageAt<X, K, L> = X extends unknown
+	? K extends keyof X
+		? IsRetyped<X[K]> extends true
+			? [FieldHost<X[K]>] extends [BaseOf<L>]
+				? never
+				: LanguageOf<X[K]>
+			: never
 		: never
 	: never
 

@@ -1257,11 +1257,18 @@ type ChangeSetPut = <
 >
 
 /**
- * The parameters two parts of a program need together: one map of them, and unknown where neither names one, as an
- * empty ChangeSet's and a bound one's are, so every ChangeSet that needs none has one parameter type and a choice of
- * two of them is one program.
+ * The parameters two parts of a program need together, A those of the program so far and B a part's own: one map of
+ * them, and unknown where neither names one, as an empty ChangeSet's and a bound one's are, so every ChangeSet that
+ * needs none has one parameter type and a choice of two of them is one program.
+ *
+ * The map is the intersection of the parts' maps, which the checker keeps flat, one map per member however many came
+ * before it, and reads where it is read (ParamsOf, ParamArg). A part that names none adds unknown, the identity of
+ * intersection, so A is unknown or a map that names some, and the test reads B's keys alone. A map rebuilt over the one
+ * before it at each member, a mapped type of a mapped type, was read through every member before it at each of its
+ * keys: a relation parameter's rows, an array or a Stream, met that way once per member, were a union of every choice
+ * of one or the other for each (TS2590 at 25 members, metis's assign; TS2589 at 50).
  */
-type JointParams<A, B> = [keyof (A & B)] extends [never] ? unknown : Simplify<A & B>
+type JointParams<A, B> = A & ([keyof B] extends [never] ? unknown : B)
 
 /** The op a ChangeSet's array member is added by, which a call's facts key it under first: insertAll's are inserts. */
 type ArrayOp = "insert" | "put" | "delete" | "retire"

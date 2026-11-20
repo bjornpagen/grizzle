@@ -28,6 +28,7 @@ import type {
 	Simplify,
 	Source,
 	SqlOfCarrier,
+	UnionArmsOf,
 	UnionHeading,
 	UnionToIntersection,
 	Unordered
@@ -548,9 +549,9 @@ export interface Query<
 		S,
 		Head | Head2,
 		UnionEvidence<Ev, Ev2, Head, Head2>,
-		Simplify<P & P2>,
+		P & P2,
 		IHead | IHead2,
-		UnionHeading<Hc, Hc2>,
+		UnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,
 		Cx | Cx2,
 		readonly [...Arms, ArmOf<Head2, Hc2>]
 	>
@@ -889,13 +890,18 @@ export interface BoundSource<S, Head, SP, Hc, Cx, Ev, Rd> extends Built, Headed<
  *   holds a constant; every two arms of different headings hold different constants at one of them, whatever
  *   combination of fields tells them apart. Constants are compared by value (Apart), and a constant whose value the
  *   types do not carry is taken to differ from every other.
+ *
+ * Every two arms before New met when the later of them joined, so New is judged beside each of them, once: a union of
+ * n arms judges n pairs as its last arm joins, never every pair again. Only the discriminant reads every arm, since a
+ * further arm can only narrow it: where New leaves it fewer fields than the arms before it had, every two arms are
+ * judged apart again at the fields left (UnionRefusal).
  */
 type ArmsMeet<Arms extends UnionArms, Head, New extends AnyArm> =
 	GroupedArm<Arms, Head> extends true
 		? Refusal<"an arm over a union of several headings: only a query's result delivers each heading group">
 		: true extends SharesAttachedHeading<Arms[number], New>
 			? Refusal<"an attachment on an arm of a union whose heading several arms share">
-			: UnionRefusal<CarriersOfArm<Arms[number]> | New["carriers"]>
+			: UnionRefusal<CarriersOfArm<Arms[number]>, New["carriers"]>
 /** Whether a query of arms Arms and records Head is one stage over a union of several headings. */
 type GroupedArm<Arms extends UnionArms, Head> = Arms extends readonly [AnyArm]
 	? Heterogeneous<Head>
@@ -909,12 +915,24 @@ type SharesAttachedHeading<A, New extends AnyArm> = A extends AnyArm
 			: true
 		: false
 	: never
-type UnionRefusal<All> =
-	true extends Mismatched<All, All>
+/**
+ * Whether the carriers New of a further arm join the carriers Old of the arms before it (ArmsMeet): New meets each of
+ * them at every field they share, and at the union's discriminant New is apart from each arm of another heading, and so
+ * is every two arms of Old where New narrowed the discriminant Old had.
+ */
+type UnionRefusal<Old, New> =
+	true extends Mismatched<New, Old>
 		? Refusal<"a union's arms deliver each field at one type">
-		: true extends Indistinct<All, All, DiscriminantOf<All, keyof All>>
+		: true extends IndistinctBeside<Old, New, DiscriminantOf<Old | New, keyof (Old | New)>>
 			? Refusal<"arms of different headings share a field that holds a different constant in each">
 			: unknown
+/**
+ * Whether two arms of Old and New hold the same constants at every field of the discriminant D: New and an arm of Old,
+ * and two arms of Old only where D is narrower than the discriminant of Old alone, at which they were judged apart.
+ */
+type IndistinctBeside<Old, New, D> =
+	| Indistinct<New, Old, D>
+	| ([DiscriminantOf<Old, keyof Old>] extends [D] ? false : Indistinct<Old, Old, D>)
 /** Whether some two arms, X and Y among All, deliver a field they share at types that do not meet. */
 type Mismatched<X, All> = X extends unknown
 	? All extends unknown
@@ -1160,16 +1178,23 @@ export type ImmediateHeadOf<Q> = Q extends { readonly immediate: RowDecoder<infe
  * whole, every relation of the schema with them, once for each program it tests. A value without the phantom's key is
  * never indexed by it, as ContextsOf says: an array member's facts would be read as its phantom, and a fact's field
  * named `params` as its parameters. A term, which holds no schema, is read by ParamsOfTerm.
+ *
+ * A program carries its map as the intersection of its parts' maps, one for each rule or member, which the checker
+ * keeps flat (types/changeset/changeset.ts JointParams); the map is one record here, where it is read, once.
  */
 export type ParamsOf<X> = X extends unknown
 	? string extends keyof X
 		? unknown
 		: typeof phantom extends keyof X
-			? UnionToIntersection<
-					ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
+			? OneMap<
+					UnionToIntersection<
+						ParamsContribution<PhantomParams<NonNullable<X[typeof phantom & keyof X]>>>
+					>
 				>
 			: unknown
 	: never
+/** A map of parameters, an intersection of maps, as one record: none, unknown, where it needs none. */
+type OneMap<P> = unknown extends P ? P : Simplify<P>
 
 /**
  * The parameters each shape of a program's phantom B states, each its own: the map its `needs` member needs, else the map

@@ -11,6 +11,10 @@
  * - `incrementsDoNotGrow`: the second increment is at most the first, sampled at 2h, 4h and 6h, so every size it reads
  *   is even. The contract "grows no faster than linearly": an affine size, a size with floor effects (⌈n / 2⌉ objects
  *   for n items paired up, which over even sizes is affine), and a size that saturates.
+ * - `incrementsAtMostDouble`: the second increment is at most twice the first. The contract "grows no faster than
+ *   quadratically": a size an² + bn + c with a, b ≥ 0, a fixed part per item and per pair of items, increments by
+ *   3an² + bn and then 5an² + bn, which is at most twice the first; a size with a term in n³ increments by 7 and then 19
+ *   times it, more than twice.
  *
  * Neither form holds a size that changes shape above some size of its dimension, an object that appears only past a
  * threshold, whose step lands in one increment alone: a suite that measures such a size states it in its header.
@@ -45,4 +49,13 @@ export const affine = (f: Measure, n: number, what: string): void => {
 export const incrementsDoNotGrow = (f: Measure, half: number, what: string): void => {
 	const { before, after, text } = incrementsOf(f, 2 * half)
 	assert.ok(after <= before, `${what} grows faster than linearly: ${text}`)
+}
+
+/**
+ * That `f`, `what` names it, grows no faster than quadratically: its increment from 2n to 3n is at most twice its
+ * increment from n to 2n.
+ */
+export const incrementsAtMostDouble = (f: Measure, n: number, what: string): void => {
+	const { before, after, text } = incrementsOf(f, n)
+	assert.ok(after <= 2 * before, `${what} grows faster than quadratically: ${text}`)
 }
