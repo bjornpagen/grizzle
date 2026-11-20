@@ -63,11 +63,24 @@ export class WellFormedWriter {
 }
 
 /**
- * The JSON text of a string, a number or a boolean, JSON.stringify's: well-formed, since JSON.stringify writes a lone
- * surrogate as its \u escape (ECMA-262 QuoteJSONString, well-formed JSON.stringify), and every other text it writes as
- * it is. Unchecked: JSON.stringify is the proof.
+ * A JSON value (RFC 8259): what JSON text spells, and nothing it cannot. An object member that may be absent is
+ * optional, never `undefined`, so a value of this type has exactly one text.
  */
-export const jsonText = (value: string | number | boolean): WellFormedText => {
+export type Json =
+	| null
+	| boolean
+	| number
+	| string
+	| ReadonlyArray<Json>
+	| { readonly [member: string]: Json }
+
+/**
+ * The JSON text of a value, JSON.stringify's, compact, each object's members in the value's own order: the one door
+ * every JSON text grizzle and its packages write from a value of their own goes through. Well-formed, since
+ * JSON.stringify writes a lone surrogate as its \u escape (ECMA-262 QuoteJSONString, well-formed JSON.stringify), and
+ * every other text it writes as it is. Unchecked: JSON.stringify is the proof.
+ */
+export const jsonText = (value: Json): WellFormedText => {
 	const text = JSON.stringify(value)
 	proved(text)
 	return text

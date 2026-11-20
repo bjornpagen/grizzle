@@ -63,9 +63,6 @@ import {
 } from "#compiler/live/wire.ts"
 import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
 
-/** The text of a wire value: the one door to JSON.stringify for the wire's JSON, which holds null. */
-export const wireText = (json: WireJson): string => JSON.stringify(json)
-
 /** An own member of a value the server holds, which its shape says it has: a defect where it has none. */
 const ownMember = (value: unknown, name: string): unknown => {
 	if (typeof value !== "object" || value === null || !Object.hasOwn(value, name)) {

@@ -8,7 +8,7 @@
 export { defect } from "@bjornpagen/grizzle-text/base/invariant"
 export { isList, isPlainRecord } from "#compiler/core/record.ts"
 export { trusted, trustedJson } from "#compiler/core/trusted.ts"
-export { encodeInput, slotDecoders, wireText } from "#compiler/live/codec.ts"
+export { encodeInput, slotDecoders } from "#compiler/live/codec.ts"
 export {
 	type CallError,
 	type CallErrorKind,

@@ -33,8 +33,8 @@ import { applyCallError, readCallError, sourceCallError } from "#adapter/live/ca
 import { LeaderFailed } from "#adapter/live/leader.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
-import { trustedJson } from "#compiler/core/trusted.ts"
-import { slotDecoders, slotEncoders, wireText } from "#compiler/live/codec.ts"
+import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
+import { slotDecoders, slotEncoders } from "#compiler/live/codec.ts"
 import type { CallError, CredentialReason, UnavailableCause } from "#compiler/live/events.ts"
 import type { MemberWire, RoleWitness, WireOptions } from "#compiler/live/shape.ts"
 import type { WireJson, WireScalar } from "#compiler/live/wire.ts"
@@ -668,7 +668,7 @@ const errorOptions: WireOptions = {
 /** A call error as a client decodes it off the wire the server encodes it on (live/codec.ts slotEncoders, slotDecoders). */
 export const decodedOff = (error: CallError): CallError =>
 	slotDecoders(errorWire, noWitness, errorOptions).error(
-		trustedJson<WireJson>(wireText(slotEncoders(errorWire, noWitness, errorOptions).error(error)))
+		trustedJson<WireJson>(jsonText(slotEncoders(errorWire, noWitness, errorOptions).error(error)))
 	)
 
 /** The features of a case: the reason its error reads as, `failed`, a driver's refusal, and its path. */

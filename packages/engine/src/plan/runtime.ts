@@ -124,8 +124,7 @@ export {
 	type ParsedInput,
 	parseInput,
 	slotDecoders,
-	slotEncoders,
-	wireText
+	slotEncoders
 } from "#compiler/live/codec.ts"
 export { memberWire, type ServedWire, type WireDigest } from "#compiler/live/member.ts"
 export type { MemberShape, MemberWire, WireFault, WireOptions } from "#compiler/live/shape.ts"

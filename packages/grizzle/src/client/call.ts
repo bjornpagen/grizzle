@@ -1,3 +1,4 @@
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as HttpBody from "effect/http/HttpBody"
@@ -36,7 +37,6 @@ import {
 	type WriteEvent,
 	type WriteState,
 	wireHeader,
-	wireText,
 	writeOpening
 } from "#compiler/plan/client.ts"
 
@@ -244,7 +244,7 @@ const exchange = (
 	const request = HttpClientRequest.post(member.route, {
 		accept: "text/event-stream",
 		headers: { [wireHeader]: member.digest, ...bearer },
-		body: HttpBody.text(wireText(body), "application/json")
+		body: HttpBody.text(jsonText(body), "application/json")
 	})
 	return request.pipe(
 		HttpClient.execute,

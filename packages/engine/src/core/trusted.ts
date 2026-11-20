@@ -13,8 +13,8 @@ export const trusted = <T>(value: unknown): T => value as T
 /** JSON text through the door: parsed once, then trusted. */
 export const trustedJson = <T>(text: string): T => trusted<T>(JSON.parse(text))
 
-/** The JSON text of a value grizzle writes: the one door to JSON.stringify outside the engine's own encoders. */
-export const jsonText = (value: Json): string => JSON.stringify(value)
+/** The JSON text of a value grizzle writes: grizzle-text's one door to JSON.stringify (utf8.ts jsonText). */
+export { jsonText } from "@bjornpagen/grizzle-text/utf8"
 
 /** The JSON text of a file written for a person to read or edit: indented by tabs, one value per line. */
 export const jsonDocument = (value: Json): string => JSON.stringify(value, null, "\t")

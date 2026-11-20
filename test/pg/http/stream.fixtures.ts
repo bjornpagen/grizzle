@@ -1,5 +1,6 @@
 /** What the properties of stream.test.ts read: its spaces, models and helpers. */
 
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { timerMaxMs, timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { constant, element, type Gen, int, oneOf, shuffled } from "@bjornpagen/testing/gen"
@@ -9,7 +10,6 @@ import type { LoadedMember } from "#adapter/served/load.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
-import { wireText } from "#compiler/plan/runtime.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -235,7 +235,7 @@ export const bodyOf = (call: Call): Json => {
 /** A frame as an event stream carries it: its name, and its data's JSON text. */
 const carried = (frame: SseEvent): StreamEvent => ({
 	event: frame.event,
-	data: wireText(frame.data)
+	data: jsonText(frame.data)
 })
 
 /** The in-process answer of a member's calls to `body`, each event framed as the member's wire spells it. */
