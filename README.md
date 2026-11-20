@@ -3719,6 +3719,9 @@ export const file = ChangeSet.empty(Words)
   query's call of it is `MalformedDescription` (from JavaScript, and a type error where its types say so): a query's
   sources and terms hold fields, and no field holds a composite or an array of them, so a query could neither read such
   a column nor build such an argument.
+- **Where a call is matched.** A call's rows arguments may each be built by a `query(S)` of their own, over one level
+  of a schema or over several: the call is matched where the highest of them may be, in a rule over that level or one
+  above it, and rows arguments over two levels neither of which is a level of the other are `MalformedDescription`.
 - **What may call one.** A call is a query's term alone: a check, a contract's predicate and a generated field are
   evaluated on the host too, and PostgreSQL alone evaluates a declared function, so a call there is a type error
   (`Refused`), and refused from JavaScript when the schema is owned. A term calls an immutable or stable function; a

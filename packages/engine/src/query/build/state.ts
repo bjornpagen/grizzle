@@ -1,3 +1,4 @@
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { codeColumn, type DecoderForm, decoderOf, type RowDecoder } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -23,7 +24,7 @@ import {
 } from "#compiler/query/build/scope.ts"
 import { untyped } from "#compiler/scalar/compute/term.ts"
 import { describeField, type ScalarEnv } from "#compiler/scalar/registry.ts"
-import type { Level } from "#compiler/schema/level.ts"
+import { highestLevel, type Level } from "#compiler/schema/level.ts"
 import {
 	fieldDescOf as fieldDesc,
 	type HeadingTyping,
@@ -242,7 +243,9 @@ export const sourceValue = <C extends Carriers>(
 /**
  * The rows of a declared function's call as a source (query/build/call.ts): `desc`, its heading and its carriers the
  * function's result heading's, matched where its rows arguments may be, each a query or a bound query (`rows`): over the
- * one level they are written over, or anywhere where it takes none. Rows arguments over two levels are refused.
+ * highest of the levels they are written over (schema/level.ts highestLevel), every one a level of it, however many
+ * query(S) built them over one S; or anywhere where it takes none. Rows arguments over levels none of which holds every
+ * other are refused.
  */
 export const callSourceValue = <C extends Carriers>(
 	desc: OpenSource,
@@ -250,22 +253,32 @@ export const callSourceValue = <C extends Carriers>(
 	carriers: C,
 	rows: ReadonlyArray<SourceInfo>,
 	label: string
-): Built & Headed<C> => {
-	const levels = [
-		...new Set(rows.flatMap((r) => (r.scope.kind === "written" ? [r.scope.over] : [])))
-	]
-	const [over, ...more] = levels
-	if (more.length > 0) {
-		throw malformed(label, "rows arguments over one level of the schema")
-	}
-	return registerSource(Object.freeze({ ...builtMark, heading: carriers }), {
+): Built & Headed<C> =>
+	registerSource(Object.freeze({ ...builtMark, heading: carriers }), {
 		desc,
 		heading: sourceHeading,
 		carriers,
 		origin: noOrigin,
-		scope: over === undefined ? anywhere : { kind: "written", over },
+		scope: callScope(
+			rows.flatMap((r) => (r.scope.kind === "written" ? [r.scope.over] : [])),
+			label
+		),
 		label
 	})
+
+/** Where a call whose rows arguments are written over `levels` may be matched: over the highest, or anywhere for none. */
+const callScope = (levels: ReadonlyArray<Level>, label: string): SourceScope => {
+	if (!isNonEmpty(levels)) {
+		return anywhere
+	}
+	const over = highestLevel(levels)
+	if (over === undefined) {
+		throw malformed(
+			label,
+			"rows arguments over levels of one schema, each a level of the highest of them"
+		)
+	}
+	return { kind: "written", over }
 }
 
 /** A descriptor's carrier: its column and SQL type, as the registry admitted it. */

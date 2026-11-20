@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { heldRelation, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { isLevelOf, type SchemaContent, sameLevel, sameRoleLevel } from "#compiler/schema/levels.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"
@@ -62,6 +63,16 @@ export const isLevelOver = (lower: Level, higher: Level): boolean => {
 		case "schema":
 			return higher.whole !== undefined && isLevelOf(lower.content, higher.whole)
 	}
+}
+
+/** The highest of `levels`, the one every other is a level of (`isLevelOver`), or none where there is none: what a
+ * ChangeSet combined by `union` or `sequence` is over (write/changeset/value.ts), and where a call of rows is matched
+ * (query/build/state.ts callSourceValue). Levels are compared by content alone, never by the object that holds one, so
+ * queries built by several query(S) calls over one S are over one level. The first pass moves to each level the held
+ * one is a level of, so it ends on the highest where there is one; the second holds every level to it. */
+export const highestLevel = <L extends Level>(levels: NonEmptyReadonlyArray<L>): L | undefined => {
+	const top = levels.reduce((held, level) => (isLevelOver(held, level) ? level : held))
+	return levels.every((level) => isLevelOver(level, top)) ? top : undefined
 }
 
 /** The level of a built value: a schema built by schema(...) or schema.extend(...), a fragment built by fragment(...),

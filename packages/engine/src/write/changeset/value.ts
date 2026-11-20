@@ -44,7 +44,7 @@ import { headValueOf } from "#compiler/query/build/terms.ts"
 import { isDecoded } from "#compiler/runtime/write/decoded.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
-import { isLevelOver, type Level } from "#compiler/schema/level.ts"
+import { highestLevel, isLevelOver, type Level } from "#compiler/schema/level.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import { malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
@@ -58,7 +58,7 @@ import type {
 } from "#compiler/types/changeset/changeset.ts"
 import type { ParamMap, ParamValue, Simplify } from "#compiler/types/core/phantom.ts"
 import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/query.ts"
-import { type BuiltOver, builtOverOf, higherOver } from "#compiler/write/changeset/levels.ts"
+import { type BuiltOver, builtOverOf } from "#compiler/write/changeset/levels.ts"
 import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
 
 /** What any member does: a write member's op, or a retirement's (ChangeSet.retire), which an array or a Stream holds. */
@@ -1314,16 +1314,18 @@ interface ReadsMember<R> {
 	readonly reads: RowDecoder<R>
 }
 
-/** The higher of two states' levels. */
+/** The higher of two states' levels (schema/level.ts highestLevel): `ChangeSet.union` and `sequence` are over the higher
+ * of their arguments' schemas, and schemas of which neither is a level of the other do not combine. The relations a
+ * ChangeSet may write are the ordinary relations of every level (`WritableOf`). */
 const higher = (label: string, a: BuiltOver, b: BuiltOver): BuiltOver => {
-	const which = higherOver(a, b)
-	if (which === "neither") {
+	const top = highestLevel([a, b])
+	if (top === undefined) {
 		throw malformed(
 			label,
 			"ChangeSets over levels of one schema; neither schema is a level of the other"
 		)
 	}
-	return which === "a" ? a : b
+	return top
 }
 
 /** ChangeSet.empty(S). */
