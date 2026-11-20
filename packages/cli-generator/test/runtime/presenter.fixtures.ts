@@ -22,13 +22,13 @@ import {
 	Layer,
 	Option,
 	Runtime,
-	Sink,
 	Stdio,
 	String as Str
 } from "effect"
 import { CliError, CliOutput, Command, Flag } from "effect/cli"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { runCredentialsLayer } from "#runtime-src/runtime/redact.ts"
+import { appendingTo } from "#test/support/stdio.ts"
 
 /** A value a person typed that the CLI refuses: it must never reach any stream. */
 const CANARY = "CANARY-SECRET-123"
@@ -130,9 +130,6 @@ export const presentedOf = (presentation: Presentation) =>
 		Effect.gen(function* () {
 			const out: Array<string> = []
 			const err: Array<string> = []
-			const decoder = new TextDecoder()
-			const text = (chunk: string | Uint8Array) =>
-				typeof chunk === "string" ? chunk : decoder.decode(chunk)
 			const pushTo =
 				(into: Array<string>) =>
 				(...parts: ReadonlyArray<unknown>) => {
@@ -142,24 +139,7 @@ export const presentedOf = (presentation: Presentation) =>
 				error: pushTo(err),
 				log: pushTo(out)
 			})
-			const stdio = Stdio.layerTest({
-				stderr: () =>
-					Sink.forEachArray((chunks: ReadonlyArray<string | Uint8Array>) =>
-						Effect.sync(() => {
-							for (const chunk of chunks) {
-								err.push(text(chunk))
-							}
-						})
-					),
-				stdout: () =>
-					Sink.forEachArray((chunks: ReadonlyArray<string | Uint8Array>) =>
-						Effect.sync(() => {
-							for (const chunk of chunks) {
-								out.push(text(chunk))
-							}
-						})
-					)
-			})
+			const stdio = Stdio.layerTest({ stderr: appendingTo(err), stdout: appendingTo(out) })
 			const context = yield* Layer.build(
 				Layer.mergeAll(
 					stdio,
