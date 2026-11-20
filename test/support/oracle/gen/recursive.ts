@@ -6,6 +6,7 @@ import { DagBuilder } from "#compiler/ir/builder.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import {
 	type DefinedOp,
+	nativeEqualityKey,
 	OpId,
 	type ScalarExpr,
 	type TypedLiteral,
@@ -260,15 +261,23 @@ export const graphSketchGen: Gen<GraphSketch> = (source) => ({
 })
 
 /**
- * The value of vertex i: the i-th value class of the type, from the rotating offset. An index past the domain wraps;
+ * The values a vertex id takes, its type's value classes one per key, as V's primary key holds them (ir/expr.ts
+ * nativeEqualityKey), so two vertices are two keys: a float's -0, a value of its own that `=` holds equal to 0
+ * (scalar/values/float.ts), is no vertex beside 0, whose row V's key would refuse (23505).
+ */
+const vertexClasses = (type: ScalarType): ReadonlyArray<TypedLiteral> =>
+	Arr.dedupeWith(valueClasses(type, false), (a, b) => nativeEqualityKey(a) === nativeEqualityKey(b))
+
+/**
+ * The value of vertex i: the i-th vertex class of the type, from the rotating offset. An index past the domain wraps;
  * an index at or past n names a value outside the graph (a root that is no vertex).
  */
 const vertexValue = (graph: Pick<GenGraph, "vertexType" | "offset">, i: number): TypedLiteral => {
-	const classes = valueClasses(graph.vertexType, false)
+	const classes = vertexClasses(graph.vertexType)
 	return elementAt(classes, (i + graph.offset) % classes.length, "a vertex type's classes")
 }
 
-const domainSize = (type: ScalarType): number => valueClasses(type, false).length
+const domainSize = (type: ScalarType): number => vertexClasses(type).length
 
 const uniquePairs = (pairs: ReadonlyArray<EdgePair>): Array<EdgePair> => {
 	const out: Array<EdgePair> = []
