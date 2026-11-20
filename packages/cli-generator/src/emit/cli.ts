@@ -2010,9 +2010,7 @@ const annotationsOf = (command: PlannedCommand, meta: Expr, context: CommandCont
 			"Command.annotate",
 			path("Describe.Binding"),
 			obj([
-				...(Arr.isReadonlyArrayNonEmpty(constantsOf(command, context))
-					? ([["constants", describeConstants(command, context)]] as const)
-					: []),
+				["constants", describeConstants(command, context)],
 				["operation", meta],
 				["parameters", describeParameters(command)]
 			])

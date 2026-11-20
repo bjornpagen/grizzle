@@ -1,10 +1,9 @@
 {
 	"typecheck": {
-		"total": 773,
+		"total": 640,
 		"files": {
-			"packages/cli-generator/src/emit/api.ts": 124,
-			"packages/cli-generator/src/emit/cli.ts": 122,
-			"packages/cli-generator/src/emit/entry.ts": 7,
+			"packages/cli-generator/src/emit/api.ts": 118,
+			"packages/cli-generator/src/emit/entry.ts": 2,
 			"packages/cli-generator/src/model/author-config.ts": 11,
 			"packages/cli-generator/src/names/reserved.ts": 1,
 			"packages/cli-generator/src/normalize/responses.ts": 18,
@@ -35,7 +34,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 690,
+		"total": 531,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -48,12 +47,9 @@
 			"packages/cli-generator/src/check/grammar.ts": 1,
 			"packages/cli-generator/src/check/structure.ts": 1,
 			"packages/cli-generator/src/emit/api.ts": 116,
-			"packages/cli-generator/src/emit/cli.ts": 154,
 			"packages/cli-generator/src/emit/domain.ts": 2,
-			"packages/cli-generator/src/emit/entry.ts": 5,
-			"packages/cli-generator/src/emit/escape.ts": 1,
+			"packages/cli-generator/src/emit/entry.ts": 3,
 			"packages/cli-generator/src/emit/package.ts": 1,
-			"packages/cli-generator/src/emit/printer.ts": 1,
 			"packages/cli-generator/src/generate.ts": 1,
 			"packages/cli-generator/src/load/document-set.ts": 1,
 			"packages/cli-generator/src/load/index.ts": 1,
@@ -107,7 +103,6 @@
 			"packages/cli-generator/test/emit/constructs.fixtures.ts": 1,
 			"packages/cli-generator/test/emit/emitted-package.fixtures.ts": 1,
 			"packages/cli-generator/test/emit/field-flags.fixtures.ts": 2,
-			"packages/cli-generator/test/emit/printer.fixtures.ts": 1,
 			"packages/cli-generator/test/emit/refusals.fixtures.ts": 1,
 			"packages/cli-generator/test/generated/body-alternatives.fixtures.ts": 1,
 			"packages/cli-generator/test/generated/body-constants.fixtures.ts": 1,
