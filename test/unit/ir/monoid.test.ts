@@ -110,8 +110,8 @@ export const theClosedMonoidsAdmitExactlyTheCarriersWhoseIdentityAndCombineTheir
 		kills: [
 			{
 				file: "packages/engine/src/ir/monoid.ts",
-				original: '\t\tcase "money":\n\t\t\treturn true\n\t\tcase "numeric":',
-				replacement: '\t\tcase "money":\n\t\tcase "numeric":\n\t\t\treturn true',
+				original: '\t\tcase "money":\n\t\t\treturn { kind: "money"',
+				replacement: '\t\tcase "money":\n\t\tcase "numeric":\n\t\t\treturn { kind: "money"',
 				why: "max admits a numeric, which has no least value to start from; `admits` disagrees with the validators."
 			}
 		]

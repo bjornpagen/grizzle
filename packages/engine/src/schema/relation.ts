@@ -714,14 +714,23 @@ export const generatedRelation = <
 	})
 }
 
-/** A roster: nonempty, distinct, each handle at most the bytes a name holds, as its names constant stores it. */
-const handleList = (value: unknown, label: string): NonEmptyReadonlyArray<string> => {
-	const handles = requireNames(
-		value,
-		label,
-		"a nonempty roster of distinct handles",
-		"a roster lists each handle once"
-	)
+/**
+ * A roster: distinct handles, each at most the bytes a name holds, as its names constant stores it, or none: an empty
+ * roster, a closed id over which is the empty type, its domain admitting no value.
+ */
+const handleList = (value: unknown, label: string): ReadonlyArray<string> => {
+	if (!isList(value)) {
+		throw malformed(label, "a roster of distinct handles: a list of names")
+	}
+	const handles =
+		value.length === 0
+			? []
+			: requireNames(
+					value,
+					label,
+					"a roster of distinct handles",
+					"a roster lists each handle once"
+				)
 	for (const h of handles) {
 		if (utf8Length(h) > handleMaxBytes) {
 			throw malformed(
@@ -772,11 +781,11 @@ export const admitRoster = (
  */
 export const closedBuilder = <
 	const Name extends string,
-	const Handles extends NonEmptyReadonlyArray<string>,
+	const Handles extends ReadonlyArray<string>,
 	const Order extends RosterOrder
 >(
 	name: Name,
-	handles: Handles & NonEmptyReadonlyArray<Handles[number]>,
+	handles: Handles,
 	order: Order,
 	extra: ReadonlyArray<unknown>
 ): Roster<Name, readonly [...Handles], Order> => {

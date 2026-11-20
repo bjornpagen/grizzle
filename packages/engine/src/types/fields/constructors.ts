@@ -1,4 +1,3 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Brand } from "effect"
 import type { Columned } from "#compiler/core/decoder.ts"
 import type { mintedRefusal } from "#compiler/scalar/minted.ts"
@@ -151,15 +150,15 @@ export type SpanConstructor = <E extends SpanEndpointLike>(
 ) => SpanField<Infer<E>, DomainOf<E>>
 
 /**
- * A closed reference: its column is the roster's handles, the roster's non-empty tuple of literals, or the subset
- * `subset` states of them (SubsetHandles), its host type and language that subset's handles. A subset lists each handle
- * once, and `except` leaves at least one.
+ * A closed reference: its column is the roster's handles, the roster's tuple of literals, or the subset `subset` states
+ * of them (SubsetHandles), its host type and language that subset's handles, none over an empty roster, whose closed id
+ * is the empty type. A subset lists each handle once, and `except` leaves at least one.
  */
 export type ClosedIdConstructor = <
 	C extends AnyRoster,
 	const Subset extends ClosedSubset<C> | undefined = undefined
 >(
-	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> },
+	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> },
 	subset?: Subset & SubsetStated<C, Subset>
 ) => ClosedIdField<C, SubsetHandles<C, Subset>>
 
@@ -181,7 +180,7 @@ type SubsetStated<C, Subset> = Subset extends { readonly only: infer H }
 
 /** A set over a roster: its column reads a bit string into the set of handles its 1 bits' codes name. */
 export type BitsConstructor = <C extends AnyRoster>(
-	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
+	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> }
 ) => BitsField<C>
 
 /** drawn(natural): a natural grizzle draws, a family's index or count or a tree's start or end. */

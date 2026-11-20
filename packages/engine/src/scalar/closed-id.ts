@@ -20,7 +20,7 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 
 /**
  * The name, order and handles of a roster as the caller's value holds them, the handles in its order (ir/scalar.ts
- * handlesInOrder): never empty.
+ * handlesInOrder), none for an empty roster.
  */
 interface ClosedRoster extends RosterHandles {
 	readonly closed: string
@@ -55,7 +55,7 @@ const readRoster = (closed: unknown): Result.Result<ClosedRoster, CompileError> 
 		return Result.err(
 			malformedDescription(
 				captureLoc("closedId", []),
-				"a closed relation with a nonempty roster of handles"
+				"a closed relation with a roster of handles, a list"
 			)
 		)
 	}
@@ -77,16 +77,7 @@ const readRoster = (closed: unknown): Result.Result<ClosedRoster, CompileError> 
 		}
 		seen.add(handle)
 	}
-	const [first, ...rest] = seen
-	if (first === undefined) {
-		return Result.err(
-			malformedDescription(
-				captureLoc("closedId", []),
-				"a closed relation with a nonempty roster of handles"
-			)
-		)
-	}
-	const admitted: NonEmptyReadonlyArray<string> = [first, ...rest]
+	const admitted: ReadonlyArray<string> = [...seen]
 	return Result.ok(
 		Object.freeze({
 			closed: name,

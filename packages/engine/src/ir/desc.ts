@@ -1521,12 +1521,12 @@ export type RelationDesc<L = Located> = L &
 		| {
 				readonly kind: "closed"
 				readonly name: string
-				readonly handles: NonEmptyReadonlyArray<string>
+				readonly handles: ReadonlyArray<string>
 		  }
 		| {
 				readonly kind: "closed"
 				readonly name: string
-				readonly handles: NonEmptyReadonlyArray<string>
+				readonly handles: ReadonlyArray<string>
 				readonly order: "unordered"
 		  }
 		| {

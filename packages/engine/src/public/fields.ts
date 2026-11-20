@@ -1,4 +1,3 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Brand } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
@@ -232,7 +231,7 @@ export const closedId: ClosedIdConstructor = <
 	C extends AnyRoster,
 	const Subset extends ClosedSubset<C> | undefined = undefined
 >(
-	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> },
+	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> },
 	subset: Subset | undefined,
 	...extra: ReadonlyArray<never>
 ): ClosedIdField<C, SubsetHandles<C, Subset>> => {
@@ -241,15 +240,17 @@ export const closedId: ClosedIdConstructor = <
 	/** Whether the closed id holds `handle`: every handle where it holds no subset, else its subset's (readSubset). */
 	const holds = (handle: HandleOf<C>): handle is SubsetHandles<C, Subset> =>
 		only === undefined || only.has(handle)
-	const [first, ...rest] = roster.handles.filter(holds)
-	if (first === undefined) {
-		throw defect("a closed id's subset holds some handle (scalar/closed-id.ts readSubset)")
-	}
 	return defineField(
 		{},
 		carrierSql.code,
 		parts.desc,
-		{ roster, column: codeColumn<SubsetHandles<C, Subset>>(parts.roster.closed, [first, ...rest]) },
+		{
+			roster,
+			column: codeColumn<SubsetHandles<C, Subset>>(
+				parts.roster.closed,
+				roster.handles.filter(holds)
+			)
+		},
 		parts.loc,
 		parts.env
 	)
@@ -257,7 +258,7 @@ export const closedId: ClosedIdConstructor = <
 
 /** A set over the roster the admission core admitted, its column a bit string read as the set of its codes' handles. */
 export const bits: BitsConstructor = <C extends AnyRoster>(
-	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
+	roster: C & { readonly handles: ReadonlyArray<HandleOf<C>> }
 ): BitsField<C> => {
 	const parts = closedIdOf(roster, [])
 	return defineField(

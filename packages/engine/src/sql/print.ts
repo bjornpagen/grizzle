@@ -528,6 +528,8 @@ export const spellingOf = (value: LiteralValue): LiteralSpelling => {
 			return { kind: "quoted", text: value.value }
 		case "bits":
 			return { kind: "bare", text: hexConstant(value.hex) }
+		case "null":
+			return { kind: "bare", text: "NULL" }
 	}
 }
 

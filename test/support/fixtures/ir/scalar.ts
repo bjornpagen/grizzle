@@ -43,7 +43,7 @@ export { plainType } from "#compiler/scalar/native.ts"
  */
 export const scalarOf = (
 	desc: FieldDesc,
-	rosters: Readonly<Record<string, NonEmptyReadonlyArray<string>>>
+	rosters: Readonly<Record<string, ReadonlyArray<string>>>
 ): DeclaredType => {
 	const env: ScalarEnv = {
 		kind: "builder",

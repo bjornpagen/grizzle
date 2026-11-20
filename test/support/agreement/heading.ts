@@ -53,8 +53,9 @@ const union = (types: Arr.NonEmptyReadonlyArray<string>): string =>
 	types.length === 1 ? types[0] : `(${Arr.join(Arr.dedupe(types), " | ")})`
 
 /** A roster's handles as the union of their literals. */
-const handles = (values: Arr.NonEmptyReadonlyArray<unknown>): string =>
-	union(Arr.map(values, literalType))
+/** The host type of a column delivering `values`: their literal types' union, never where it delivers none. */
+const handles = (values: ReadonlyArray<unknown>): string =>
+	Arr.isReadonlyArrayNonEmpty(values) ? union(Arr.map(values, literalType)) : "never"
 
 /** The host values of a carrier, before a contract brands them. */
 const carrierHost = (descriptor: ScalarType): string => {

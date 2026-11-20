@@ -663,6 +663,8 @@ class StatementAuditor {
 					this.report("literal", `${value.hex.length} hex digits typed bit(${type.length})`)
 				}
 				return
+			case "null":
+				return
 		}
 	}
 

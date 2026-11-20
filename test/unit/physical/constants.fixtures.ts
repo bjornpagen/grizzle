@@ -350,6 +350,7 @@ const literalValue = (literal: LiteralValue): HostValue => {
 		case "decimal":
 		case "float":
 		case "floatSpecial":
+		case "null":
 			throw new Error(`a ${literal.kind} literal, which no roster or set domain's CHECK holds`)
 	}
 }

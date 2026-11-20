@@ -49,7 +49,7 @@ interface ConvertColumn<out A> extends Phantom<{ readonly host: A }> {
 interface CodeColumn<out A> {
 	readonly kind: "code"
 	readonly roster: string
-	readonly handles: NonEmptyReadonlyArray<A>
+	readonly handles: ReadonlyArray<A>
 }
 
 /**
@@ -119,7 +119,7 @@ export const convertColumn = <A>(conversion: CellConversion): Column<A> =>
 	Object.freeze({ ...builtMark, kind: "convert", conversion })
 
 /** A closed id's column over roster `roster`, which may deliver `handles`. */
-export const codeColumn = <A>(roster: string, handles: NonEmptyReadonlyArray<A>): Column<A> =>
+export const codeColumn = <A>(roster: string, handles: ReadonlyArray<A>): Column<A> =>
 	Object.freeze({ kind: "code", roster, handles })
 
 /** A set's column over roster `roster`, whose values are A. */
@@ -152,7 +152,7 @@ export const brandColumn = <A, B>(base: Column<A>, brand: (value: A) => B): Colu
 		case "code":
 			return codeColumn(
 				base.roster,
-				mapNonEmpty(base.handles, (handle) => brand(handle))
+				base.handles.map((handle) => brand(handle))
 			)
 		case "bits":
 			throw defect("no contract is over a set over a roster")

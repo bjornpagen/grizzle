@@ -77,8 +77,8 @@ export const schemas = agreement(schemaCases, {
 		},
 		{
 			file: "packages/engine/src/ir/monoid.ts",
-			original: '\t\tcase "code":\n\t\t\treturn base.caps.includes("minMax")',
-			replacement: '\t\tcase "code":\n\t\t\treturn true',
+			original: '\t\t\treturn base.caps.includes("minMax") && first !== undefined',
+			replacement: "\t\t\treturn first !== undefined",
 			why: "max admits a closed id of an unordered roster (ir/monoid.ts bounded), which has no least value and no order, so the engine admits the planted fold where the types refuse it; the unorderedMax probe fails."
 		},
 		{

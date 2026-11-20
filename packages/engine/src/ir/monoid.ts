@@ -200,41 +200,6 @@ const summable = (t: ScalarType): boolean => {
 	}
 }
 
-/**
- * The carriers max admits: those with min and max and a least value, which its identity is: the integer types,
- * natural, money, and a closed id of an ordered roster, whose least value is its first handle; an unordered roster's
- * closed id has no min or max (scalar/native.ts unorderedCodeCapabilities), since no handle comes before another.
- */
-const bounded = (t: ScalarType): boolean => {
-	const base = baseOf(t)
-	switch (base.carrier) {
-		case "code":
-			return base.caps.includes("minMax")
-		case "int2":
-		case "int4":
-		case "int8":
-		case "money":
-			return true
-		case "numeric":
-		case "float4":
-		case "float8":
-		case "bool":
-		case "uuid":
-		case "date":
-		case "text":
-		case "bytes":
-		case "bits":
-		case "range4":
-		case "range8":
-		case "rangeDate":
-		case "vector":
-		case "tsvector":
-		case "exactInteger":
-		case "exactMoney":
-			return false
-	}
-}
-
 const isSet = (t: ScalarType): boolean => baseOf(t).carrier === "bits"
 
 /** The carriers concat admits: text, refined or not; an accumulator's start, the empty text, is of its language. */
@@ -284,10 +249,12 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 }
 
 /**
- * The least value of a carrier max admits: natural's 0, an integer type's minimum, an ordered roster's closed id's first
- * handle, which holds its least code.
+ * The least value of a type, which max's identity is, where it has one: natural's 0, an integer type's minimum, money's,
+ * and an ordered roster's closed id's first handle, which holds its least code. None for every other: an unordered
+ * roster's closed id has no min or max (scalar/native.ts unorderedCodeCapabilities), since no handle comes before
+ * another, and an empty roster's has no value at all.
  */
-const leastOf = (t: ScalarType): TypedLiteral => {
+const leastOf = (t: ScalarType): TypedLiteral | undefined => {
 	if (isNatural(t)) {
 		return zeroInteger
 	}
@@ -297,8 +264,12 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "int4":
 		case "int8":
 			return { kind: "int", value: integerRanges[base.carrier][0] }
-		case "code":
-			return { kind: "handle", handle: base.roster.handles[0] }
+		case "code": {
+			const [first] = base.roster.handles
+			return base.caps.includes("minMax") && first !== undefined
+				? { kind: "handle", handle: first }
+				: undefined
+		}
 		case "money":
 			return { kind: "money", value: parsed(MoneyText.parse(`${int8Min}`), "money's least") }
 		case "numeric":
@@ -317,9 +288,12 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
-			throw defect(`max admits ${base.carrier}`)
+			return undefined
 	}
 }
+
+/** The carriers max admits: those with a least value (leastOf), which its identity is. */
+const bounded = (t: ScalarType): boolean => leastOf(t) !== undefined
 
 /** A monoid of `planes`, its commutativity theirs. */
 const monoid = (spec: Omit<MonoidSpec, "commutative">): MonoidSpec =>
@@ -370,7 +344,7 @@ const max = monoid({
 	planes: [{ fn: "greatest", delta: "step" }],
 	step: "value",
 	admits: bounded,
-	identity: (carrier) => [leastOf(carrier)]
+	identity: (carrier) => [defined(leastOf(carrier), `max admits ${baseOf(carrier).carrier}`)]
 })
 
 /**

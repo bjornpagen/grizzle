@@ -359,14 +359,14 @@ export const closedIdCaseGen = (source: Source) => {
 
 /**
  * The forgeries of a closed relation closedId refuses: each breaks one rule of what a closed relation is (kind
- * "closed", a nonempty storable name, a roster order, a nonempty roster of distinct nonempty storable string handles),
+ * "closed", a nonempty storable name, a roster order, a roster of distinct nonempty storable string handles, none
+ * among them),
  * or is no closed relation at all.
  */
 export type ClosedRule =
 	| "not closed"
 	| "no roster order"
 	| "empty name"
-	| "no handle"
 	| "repeated handle"
 	| "empty handle"
 	| "NUL in a handle"
@@ -394,12 +394,6 @@ export const forgeries: Arr.NonEmptyReadonlyArray<
 		from: "wild",
 		weight: 1,
 		sites: (live) => at({ ...live, name: "" }, "name")
-	},
-	{
-		rule: "no handle",
-		from: "wild",
-		weight: 1,
-		sites: (live) => at({ ...live, handles: [] }, "handles")
 	},
 	{
 		rule: "repeated handle",

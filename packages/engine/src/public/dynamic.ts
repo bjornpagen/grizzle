@@ -62,14 +62,14 @@ export const relation: typeof ordinaryRelation & { readonly generated: typeof ge
 /** closed.ordered(name, handles): a roster of a name known only at run time, its handles in declared order. */
 const orderedRoster = (
 	name: string,
-	handles: NonEmptyReadonlyArray<string>,
+	handles: ReadonlyArray<string>,
 	...extra: ReadonlyArray<never>
 ): AnyRoster => closedBuilder(name, handles, "ordered", extra)
 
 /** closed.unordered(name, handles): a roster of a name known only at run time whose order means nothing. */
 const unorderedRoster = (
 	name: string,
-	handles: NonEmptyReadonlyArray<string>,
+	handles: ReadonlyArray<string>,
 	...extra: ReadonlyArray<never>
 ): AnyRoster => closedBuilder(name, handles, "unordered", extra)
 

@@ -42,9 +42,9 @@ export const names = boxAgreement(finite(word(namesBox)), {
 		{
 			file: "packages/engine/src/public/dynamic.ts",
 			original:
-				"const orderedRoster = (\n\tname: string,\n\thandles: NonEmptyReadonlyArray<string>,\n\t...extra: ReadonlyArray<never>\n): AnyRoster =>",
+				"const orderedRoster = (\n\tname: string,\n\thandles: ReadonlyArray<string>,\n\t...extra: ReadonlyArray<never>\n): AnyRoster =>",
 			replacement:
-				'const orderedRoster = <const N extends string>(\n\tname: N,\n\thandles: NonEmptyReadonlyArray<string>,\n\t...extra: ReadonlyArray<never>\n): ReturnType<typeof closedBuilder<N, NonEmptyReadonlyArray<string>, "ordered">> =>',
+				'const orderedRoster = <const N extends string>(\n\tname: N,\n\thandles: ReadonlyArray<string>,\n\t...extra: ReadonlyArray<never>\n): ReturnType<typeof closedBuilder<N, ReadonlyArray<string>, "ordered">> =>',
 			why: "The dynamic door's closed.ordered types its value by the name it is handed, so a schema's types key on a literal it was handed and the cell's lost line, which reads the value's name as string, fails; the program fails."
 		}
 	]

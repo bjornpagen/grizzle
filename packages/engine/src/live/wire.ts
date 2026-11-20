@@ -14,7 +14,6 @@
  * The module is runtime-free and browser-safe: it imports the value core and core leaves alone.
  */
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 import { RegexBuilder, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
@@ -149,8 +148,8 @@ interface WireExtras {
 	readonly date: unknown
 	readonly text: unknown
 	readonly bytes: unknown
-	readonly code: { readonly handles: NonEmptyReadonlyArray<string> }
-	readonly bits: { readonly handles: NonEmptyReadonlyArray<string> }
+	readonly code: { readonly handles: ReadonlyArray<string> }
+	readonly bits: { readonly handles: ReadonlyArray<string> }
 	readonly range4: { readonly width: WireWidth }
 	readonly range8: { readonly width: WireWidth }
 	readonly rangeDate: { readonly width: WireWidth }

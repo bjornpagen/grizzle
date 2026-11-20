@@ -253,14 +253,14 @@ export interface AnyRoster {
 	readonly kind: "closed"
 	readonly name: string
 	readonly order: RosterOrder
-	readonly handles: NonEmptyReadonlyArray<string>
+	readonly handles: ReadonlyArray<string>
 	readonly fact: RowDecoder<unknown>
 	readonly heading: unknown
 }
 
 export interface Roster<
 	Name extends string,
-	Handles extends NonEmptyReadonlyArray<string>,
+	Handles extends ReadonlyArray<string>,
 	Order extends RosterOrder
 >
 	extends AnyRoster, Delivering<RosterFactOf<Handles[number]>> {

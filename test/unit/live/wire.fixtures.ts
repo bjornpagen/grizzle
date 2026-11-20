@@ -1,6 +1,6 @@
 /** What the properties of wire.test.ts read: its spaces, models and helpers. */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -233,7 +233,7 @@ const valueOf =
 			case "bytes":
 				return new Uint8Array(source.draw(bytes({ min: 0, max: 12 })))
 			case "code":
-				return source.draw(element(spec.handles))
+				return source.draw(element(nonEmpty(spec.handles, "a drawn closed id's roster's handles")))
 			case "bits": {
 				const chosen = source.draw(subset(spec.handles, { min: 0, max: spec.handles.length }))
 				return new Set(Arr.filter(spec.handles, (handle) => chosen.includes(handle)))

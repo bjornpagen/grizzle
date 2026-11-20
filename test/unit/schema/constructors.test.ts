@@ -303,12 +303,7 @@ export const closedRecordsARostersHandlesInDeclaredOrderTypesEachHandleAsACodeOf
 					const { handles, target } = s
 					c.note(s.defect)
 					if (s.defect !== "none") {
-						const roster =
-							s.defect === "a repeated handle"
-								? [...handles, target]
-								: s.defect === "an empty roster"
-									? []
-									: handles
+						const roster = s.defect === "a repeated handle" ? [...handles, target] : handles
 						throwsRefused(
 							() =>
 								admitRoster(s.name, roster, "ordered", s.defect === "a third argument" ? [{}] : []),

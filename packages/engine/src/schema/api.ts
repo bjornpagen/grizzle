@@ -267,14 +267,12 @@ type ClosedFieldsCheck<Fields> = [
  * closed.ordered(name, handles): a roster whose order means something, the handles it introduces, each once, in
  * declared order, which is their codes' order and comparison order: a closed id of it compares, ranges, orders and
  * folds by it, and a declaration that puts two handles out of their codes' order is refused (RosterReordered). Its
- * `handle(member)` is the typed constant of a member.
+ * `handle(member)` is the typed constant of a member. A roster of no handle is the empty domain: a closed id of it is
+ * the empty type, which no value is, so a relation with a field of it holds no fact.
  */
-const orderedRoster = <
-	const Name extends string,
-	const Handles extends readonly [string, ...string[]]
->(
+const orderedRoster = <const Name extends string, const Handles extends ReadonlyArray<string>>(
 	name: RelationName<Name>,
-	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
+	handles: Handles & DistinctHandles<Handles>,
 	...extra: ReadonlyArray<never>
 ): Roster<Name, readonly [...Handles], "ordered"> =>
 	closedBuilder<Name, Handles, "ordered">(name, handles, "ordered", extra)
@@ -285,12 +283,9 @@ const orderedRoster = <
  * refuses (types/compute/scalar.ts OrderedOperand), and its codes are history alone, so a declaration may list its handles in
  * any order. Its `handle(member)` is the typed constant of a member.
  */
-const unorderedRoster = <
-	const Name extends string,
-	const Handles extends readonly [string, ...string[]]
->(
+const unorderedRoster = <const Name extends string, const Handles extends ReadonlyArray<string>>(
 	name: RelationName<Name>,
-	handles: Handles & NonEmptyReadonlyArray<Handles[number]> & DistinctHandles<Handles>,
+	handles: Handles & DistinctHandles<Handles>,
 	...extra: ReadonlyArray<never>
 ): Roster<Name, readonly [...Handles], "unordered"> =>
 	closedBuilder<Name, Handles, "unordered">(name, handles, "unordered", extra)

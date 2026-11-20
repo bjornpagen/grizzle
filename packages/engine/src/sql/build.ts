@@ -270,6 +270,12 @@ export const lit = {
 		kind: "literal",
 		value: { kind: "bits", hex },
 		type
+	}),
+	/** NULL of `type`: NULL::type, which every domain admits. */
+	null: (type: TypeRef): Expr => ({
+		kind: "literal",
+		value: { kind: "null" },
+		type
 	})
 } as const
 

@@ -1,9 +1,5 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
-import {
-	mapNonEmpty,
-	type NonEmptyReadonlyArray,
-	sortNonEmpty
-} from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { type TextBounds, textBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { nominal } from "#compiler/core/brand.ts"
@@ -434,13 +430,13 @@ const rosterTags = { ordered: "roster", unordered: "unorderedroster" } as const 
  */
 export const handlesInOrder = (
 	order: RosterOrder,
-	handles: NonEmptyReadonlyArray<string>
-): NonEmptyReadonlyArray<string> => {
+	handles: ReadonlyArray<string>
+): ReadonlyArray<string> => {
 	switch (order) {
 		case "ordered":
 			return handles
 		case "unordered":
-			return sortNonEmpty(handles, compareStrings)
+			return handles.toSorted(compareStrings)
 	}
 }
 
@@ -462,15 +458,11 @@ export const handlesInOrder = (
 export class Roster implements Canonicalizable {
 	readonly closed: DeclaredName
 	readonly order: RosterOrder
-	readonly handles: NonEmptyReadonlyArray<string>
+	readonly handles: ReadonlyArray<string>
 	readonly digest: RosterDigest
 
 	/** The roster of `closed` of `order` over `handles`, its digest taken here (core/fingerprint.ts rosterDigest). */
-	static of(
-		closed: DeclaredName,
-		order: RosterOrder,
-		handles: NonEmptyReadonlyArray<string>
-	): Roster {
+	static of(closed: DeclaredName, order: RosterOrder, handles: ReadonlyArray<string>): Roster {
 		const held = handlesInOrder(order, handles)
 		return new Roster(closed, order, held, rosterDigest(held))
 	}
@@ -483,7 +475,7 @@ export class Roster implements Canonicalizable {
 	constructor(
 		closed: DeclaredName,
 		order: RosterOrder,
-		handles: NonEmptyReadonlyArray<string>,
+		handles: ReadonlyArray<string>,
 		digest: RosterDigest
 	) {
 		const held = handlesInOrder(order, handles)
@@ -502,7 +494,7 @@ export class Roster implements Canonicalizable {
 /** What a roster's declaration states beside its name: its order and its handles, which a Roster holds in that order. */
 export interface RosterHandles {
 	readonly order: RosterOrder
-	readonly handles: NonEmptyReadonlyArray<string>
+	readonly handles: ReadonlyArray<string>
 }
 
 /** The integer carriers. */

@@ -278,7 +278,10 @@ which orders nothing.
 `Status` is a relation too. `closed.ordered("Status", ["Draft", "Published"])` is a roster: a closed relation of one field,
 `id`, whose rows the schema fixes. It stands among `Blog`'s relations, a query matches it like any table, and
 `closedId(Status)` refers into it. Each handle has a code, 0 … n − 1 in declared order. The API reads and writes names,
-and the table stores codes under a domain that admits only live handles.
+and the table stores codes under a domain that admits only live handles. A roster may list no handle,
+`closed.ordered("Graders", [])`, a registry of nothing: a closed id of it is the empty type, `never`, and its domain admits
+no value, so a write of a relation with such a field is refused and a read of it, or of the roster, delivers no row; a
+set over it holds only the empty set, and a fold's `max` over its closed ids, which has no least value, is refused.
 
 A closed id may hold some of its roster's handles: `closedId(Status, { only: ["Draft"] })` holds the handles it lists, and
 `closedId(Status, { except: ["Draft"] })` every handle but those. Each list names live handles, each once, and `except`

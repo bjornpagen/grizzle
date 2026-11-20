@@ -280,7 +280,6 @@ const schemaFaults = [
 	"repeatedSideTerm",
 	"emptySide",
 	"undeclaredSideTerm",
-	"emptyRoster",
 	"repeatedHandle",
 	"foreignHandle",
 	"sidesDiffer",
@@ -488,7 +487,6 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		{ tag: "MalformedDescription" },
 		"a side's terms are fields of its source"
 	),
-	emptyRoster: structural({ tag: "MalformedDescription" }, "a roster holds at least one handle"),
 	repeatedHandle: named("a roster lists each handle once"),
 	foreignHandle: structural({ tag: "MalformedDescription" }, "a handle is a member of its roster"),
 	sidesDiffer: named("the sides' field types differ"),
@@ -3103,12 +3101,13 @@ const sideProbe = (d: Drawing, base: Base): Probe => {
 	}
 }
 
-/** A roster of drawn handles, or one planted fault. */
+/** A roster of drawn handles, none among them, the empty domain both admit, or one planted fault. */
 const rosterProbe = (d: Drawing): Probe => {
 	const handles = d.some(["a", "b", "c"] as const)
-	const fault = d.from<SchemaFault | undefined>([undefined, "emptyRoster", "repeatedHandle"])
+	const shape = d.from(["drawn", "empty", "repeated"] as const)
+	const fault: SchemaFault | undefined = shape === "repeated" ? "repeatedHandle" : undefined
 	const written: ReadonlyArray<string> =
-		fault === "emptyRoster" ? [] : fault === "repeatedHandle" ? [...handles, handles[0]] : handles
+		shape === "empty" ? [] : shape === "repeated" ? [...handles, handles[0]] : handles
 	return {
 		construct: "rosterProbe",
 		refused: fault,

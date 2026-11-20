@@ -49,8 +49,9 @@ export interface HandleOrder {
 /**
  * One roster's codes, read both ways, built only by rosterCodec. `codes` is what an installation records; `size`
  * counts every code minted, holes included, so it is one past the greatest code the roster's domain admits; `width` is
- * n of a set's bit(n), `size` rounded up to whole hex digits (core/hex.ts), so a set's one spelling is whole digits and
- * its bits past `size`, its padding, are 0; `rank` is each live handle's code, which is the roster's order
+ * n of a set's bit(n), `size` rounded up to whole hex digits (core/hex.ts), one digit at least, since PostgreSQL's bit(n)
+ * holds a bit at least, which an empty roster's set is all padding of, so a set's one spelling is whole digits and its
+ * bits past `size`, its padding, are 0; `rank` is each live handle's code, which is the roster's order
  * (HandleOrder); `names` is each code's handle in code order, a hole the empty name, which no handle is.
  */
 export interface RosterCodec extends HandleOrder {
@@ -117,7 +118,7 @@ export const rosterCodec = (roster: DeclaredName, codes: RosterCodes): RosterCod
 		roster,
 		codes: Object.freeze([...codes]),
 		size: codes.length,
-		width: wholeDigitBits(codes.length),
+		width: wholeDigitBits(Math.max(codes.length, 1)),
 		rank,
 		names: Object.freeze(names)
 	})

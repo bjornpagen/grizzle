@@ -1,6 +1,6 @@
 /** What the properties of decode.test.ts read: the schema decoded, its rows, the faults a case plants, and its space. */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -190,7 +190,7 @@ const idOf = (n: number): string => `00000000-0000-4000-8000-${Str.padStart(12, 
 
 const shortGen = string(characterOf(["a", "b", "é"]), { min: 0, max: 4 })
 const wordGen = string(characterOf(["a", "z"]), { min: 1, max: 3 })
-const toneGen = element(Tone.handles)
+const toneGen = element(nonEmpty(Tone.handles, "Tone's handles"))
 
 /** A row of Flat keyed by its nth id, every field inside its type and domain. */
 const flatGen =

@@ -48,7 +48,7 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 		case "bytes":
 			return lit.text("\\x", cx.baseTypeRef(base))
 		case "code":
-			return lowerLiteral(cx.names, { kind: "handle", handle: base.roster.handles[0] }, base)
+			return lit.null(cx.baseTypeRef(base))
 		case "bits":
 			return lowerLiteral(cx.names, { kind: "handles", handles: [] }, base)
 		case "range4":

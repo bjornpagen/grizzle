@@ -230,12 +230,12 @@ export const mistypedValue = (type: PayloadType): unknown => {
 	}
 }
 
-export type RosterDefect = "none" | "a repeated handle" | "an empty roster" | "a third argument"
+/** A roster's declaration's defect, none among them; a roster of no handle is no defect, the empty domain (empty-roster). */
+export type RosterDefect = "none" | "a repeated handle" | "a third argument"
 
 export const rosterDefects: Arr.NonEmptyReadonlyArray<RosterDefect> = [
 	"none",
 	"a repeated handle",
-	"an empty roster",
 	"a third argument"
 ]
 

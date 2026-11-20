@@ -158,7 +158,7 @@ const envRoster = (env: ScalarEnv, name: string): Roster =>
 	defined(env.roster(parsedName(name)), name)
 
 /** The roster the registry resolves `t`'s closedId by: its own, or none. */
-const rostersOf = (t: ScalarType): Readonly<Record<string, Arr.NonEmptyReadonlyArray<string>>> => {
+const rostersOf = (t: ScalarType): Readonly<Record<string, ReadonlyArray<string>>> => {
 	const roster = rosterOf(t)
 	return roster === undefined ? {} : { [roster.closed]: roster.handles }
 }
