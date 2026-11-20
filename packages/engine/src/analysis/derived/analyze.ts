@@ -14,6 +14,7 @@ import {
 import { inheritedKeys } from "#compiler/analysis/logical/derived.ts"
 import { type AdmittedQuery, checkDefinition } from "#compiler/check/index.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, derivedRefused, ruleRefused } from "#compiler/core/errors.ts"
 import {
@@ -200,7 +201,7 @@ export const analyzedDefinition = (
 	relation: string,
 	at: SourceLoc
 ): Result.Result<AnalyzedDefinition, CompileError> => {
-	const checkedResult = checkDefinition(schema, label, query)
+	const checkedResult = checkDefinition(schema, label, query, new CheckSession())
 	if (!checkedResult.ok) {
 		return checkedResult
 	}

@@ -3,6 +3,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import { checkedRoleOver, type CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, within } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
@@ -283,16 +284,18 @@ const analyzedQuery = (
 	label: string,
 	clock: ClockBinding
 ): Result.Result<AnalyzedQuery, CompileError> =>
-	Result.flatMap(checkQuery(read, query, { read: reading, label, clock }), (checked) =>
-		Result.flatMap(allenNormalDag(checked.dag), (allen) =>
-			Result.flatMap(keyJoinNormalDag(allen), (dag) =>
-				Result.map(analyzeLogical(dag, checkerEvidence), (analysis): AnalyzedQuery => ({
-					dag,
-					analysis,
-					params: checked.params
-				}))
+	Result.flatMap(
+		checkQuery(read, query, { read: reading, label, clock, session: new CheckSession() }),
+		(checked) =>
+			Result.flatMap(allenNormalDag(checked.dag), (allen) =>
+				Result.flatMap(keyJoinNormalDag(allen), (dag) =>
+					Result.map(analyzeLogical(dag, checkerEvidence), (analysis): AnalyzedQuery => ({
+						dag,
+						analysis,
+						params: checked.params
+					}))
+				)
 			)
-		)
 	)
 
 /**

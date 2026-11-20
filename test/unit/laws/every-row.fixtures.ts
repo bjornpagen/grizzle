@@ -5,6 +5,7 @@ import { element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { everyRowProbes } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import type { InferredMatch, InferredQuery } from "#compiler/ir/desc.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
@@ -108,7 +109,8 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 			checkQuery(artifacts.laws.checked, overEveryRow(probe), {
 				read: "region",
 				clock: noClock,
-				label: "the check over every row"
+				label: "the check over every row",
+				session: new CheckSession()
 			})
 		)
 		const root = defined(checked.dag.roots[0], "the probe's root")

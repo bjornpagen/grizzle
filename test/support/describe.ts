@@ -1,5 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { fromJson } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -96,7 +97,8 @@ export const queryFromDescription = (
 				checkQuery(checked, desc, {
 					read: "rows",
 					clock: noClock,
-					label: "query"
+					label: "query",
+					session: new CheckSession()
 				})
 			),
 			() => queryFromDesc(desc, schema)

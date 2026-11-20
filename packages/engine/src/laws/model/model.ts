@@ -1234,7 +1234,7 @@ class Specializer {
 		const merged =
 			roots.length === 0
 				? { dag: this.theory.dag, expr: (e: ScalarExpr) => e }
-				: mergeDags(this.theory.dag, ext.b.build(roots))
+				: mergeDags(this.theory.dag, ext.b.build(roots), () => undefined)
 
 		/** Native objects, merged by identity (`nativeIdentity`): each first seen with its law list, which every later plan
 		 * of the same object extends, so the object holds every law it discharges once all plans are read. Each ordinary

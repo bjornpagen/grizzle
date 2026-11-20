@@ -1,13 +1,14 @@
-/**
- * The descriptor each column of a query is delivered at, as the checker types it: what a bare literal standing for a
- * column takes, a rule's head term or a binding of the column, wherever a rule of the query is inlined into another and
- * a substitution may put the literal where a term stands (analysis/theory/leaves.ts atColumn).
- */
 import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { refuse } from "#compiler/analysis/theory/build.ts"
 import type { ColumnTypes } from "#compiler/analysis/theory/leaves.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
+/**
+ * The descriptor each column of a query is delivered at, as the checker types it: what a bare literal standing for a
+ * column takes, a rule's head term or a binding of the column, wherever a rule of the query is inlined into another and
+ * a substitution may put the literal where a term stands (analysis/theory/leaves.ts atColumn).
+ */
+import { CheckSession } from "#compiler/check/session.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
@@ -47,9 +48,9 @@ const checkedHeading = (
 	query: InferredQuery
 ): ReadonlyMap<string, ScalarType> =>
 	new Map(
-		unwrap(checkDefinition(checked, `derived ${relation}`, query)).dag.roots[0].heading.map(
-			(c) => [c.name, c.type] as const
-		)
+		unwrap(
+			checkDefinition(checked, `derived ${relation}`, query, new CheckSession())
+		).dag.roots[0].heading.map((c) => [c.name, c.type] as const)
 	)
 
 /**

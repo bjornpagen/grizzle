@@ -1,5 +1,6 @@
-import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { CheckSession } from "#compiler/check/session.ts"
 import { allocatedKinds, ExprId, NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
@@ -26,6 +27,7 @@ import {
 	edgesOf,
 	exprsOf,
 	type Heading,
+	inputsOf,
 	keptRefs,
 	type LiveRefs,
 	mapNode,
@@ -59,11 +61,44 @@ import { binaryCoercion } from "#compiler/scalar/compute/registry.ts"
  * structural fields, dependencies and effects are computed as a builder's are. */
 export class QueryMerger {
 	#dag: LabelledDag = emptyDag
+	/** The checks of the queries it merges, which key each closed import they built (check/session.ts). */
+	readonly #session: CheckSession
+	/**
+	 * Each closed import of the queries merged so far, by the key the checker built it under (check/checker.ts
+	 * importedKey): the members, read-backs and fills of one ChangeSet read one namespace of parameters, so two closed
+	 * imports of one key, a call's rows argument or a bound query several members read, read the same rows, and the
+	 * write DAG holds one node for them, analyzed and lowered once, where each query's copy multiplied the DAG by its
+	 * readers.
+	 */
+	readonly #imports = new Map<string, RelNode>()
 
-	/** Merges `query` past the queries added before it, answering its root in the merged DAG. */
+	constructor(session: CheckSession) {
+		this.#session = session
+	}
+
+	/** Merges `query` past the queries added before it, answering its root in the merged DAG: each of its closed imports
+	 * the merged DAG already holds is that node. */
 	add(query: LogicalQuery): RelNode {
-		const merged = mergeDags(this.#dag, query.dag)
+		const kept = (node: RelNode): RelNode | undefined => {
+			const key = this.#session.closedKey(node)
+			return key === undefined ? undefined : this.#imports.get(key)
+		}
+		const merged = mergeDags(this.#dag, query.dag, kept)
 		this.#dag = merged.dag
+		/** The query's nodes the merge renamed, those below a kept one aside, each closed import among them recorded. */
+		const seen = new Set<RelNode>()
+		const queue = [...query.dag.roots]
+		for (const node of queue) {
+			if (seen.has(node) || kept(node) !== undefined) {
+				continue
+			}
+			seen.add(node)
+			const key = this.#session.closedKey(node)
+			if (key !== undefined) {
+				this.#imports.set(key, merged.node(node))
+			}
+			appendAll(queue, inputsOf(node))
+		}
 		return merged.node(query.dag.roots[0])
 	}
 

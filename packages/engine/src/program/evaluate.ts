@@ -38,6 +38,7 @@ import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { once } from "#compiler/core/lazy.ts"
@@ -244,7 +245,12 @@ const relationReadingOf = (
 	if (derived?.desc.kind !== "derived") {
 		return undefined
 	}
-	const admitted = checkDefinition(model.checked, `derived ${name}`, derived.desc.query)
+	const admitted = checkDefinition(
+		model.checked,
+		`derived ${name}`,
+		derived.desc.query,
+		new CheckSession()
+	)
 	if (!admitted.ok) {
 		throw defect(`the definition of ${name}, which the compiled schema checked`)
 	}

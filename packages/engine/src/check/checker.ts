@@ -51,8 +51,9 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
+import type { CheckSession } from "#compiler/check/session.ts"
 import { allenMaskMax } from "#compiler/core/allen.ts"
-import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
+import { canonicalEquals, canonicalTextOf, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
@@ -64,7 +65,7 @@ import {
 	readingOf,
 	statedReading
 } from "#compiler/ir/clock.ts"
-import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
+import { deliverySpine, relNode, topoOrder } from "#compiler/ir/dag.ts"
 import {
 	bindTerms,
 	descText,
@@ -195,6 +196,8 @@ export interface CheckOptions {
 	/** The program parameters its served member binds to the database's clock (workload clocked), each a reading of the
 	 * clock's range (ir/clock.ts ParamReading); none for a query no member clocks. */
 	readonly clock: ClockBinding
+	/** What the checks of its compile share (check/session.ts). */
+	readonly session: CheckSession
 }
 
 /** A ChangeSet member described by a query: its head takes the types of the relation it is written into. */
@@ -207,6 +210,34 @@ interface ParentColumn {
 	readonly parent: string
 	readonly name: string
 	readonly type: ScalarType
+}
+
+/**
+ * The key two imports share exactly when they read the same rows (Checker `#imported`): the imported query, by its
+ * identity, which one resolution of the compile's Descriptions gives every import of it in every query it checks
+ * (check/session.ts CheckSession), and each bound value, a parameter by its name, the one parameter of that name its
+ * query, or its ChangeSet, whose members' and read-backs' parameters are one namespace, declares, a constant by its
+ * canonical text; none for an import bound to an outer value, whose rows are its reader's, built at each import.
+ */
+const importedKey = (
+	session: CheckSession,
+	query: ResolvedQuery,
+	values: ReadonlyMap<string, BindValue>
+): string | undefined => {
+	const parts = [`q${session.place(query)}`]
+	for (const [param, value] of [...values].toSorted(([a], [b]) => compareStrings(a, b))) {
+		switch (value.kind) {
+			case "param":
+				parts.push(`${param}=p:${value.cell.name}`)
+				break
+			case "literal":
+				parts.push(`${param}=l:${canonicalTextOf([value.value, value.stated])}`)
+				break
+			case "column":
+				return undefined
+		}
+	}
+	return parts.join(" ")
 }
 
 interface ParentScope {
@@ -910,6 +941,13 @@ export class Checker {
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
 	/** Contracts the query declares itself, for DuplicateIdentity. */
 	readonly #contracts = new Map<string, { text: string; loc: SourceLoc }>()
+	/**
+	 * The query's closed imports, each built once by its key (`importedKey`): every import of one query whose bind map
+	 * binds each of its parameters to a parameter or a constant reads the same rows wherever it stands, so it is one node,
+	 * every reader of it a reader of that node, where a node built at every import expanded the Description's sharing
+	 * into a tree (a bound query read at many places, a call's rows argument at every read of the call's fields).
+	 */
+	readonly #imported = new Map<string, RelNode>()
 	/** The admitted patterns the query's compile reads (scalar/regex/patterns.ts), each parsed once per query. */
 	readonly patterns = new CompilePatterns()
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
@@ -1130,7 +1168,20 @@ export class Checker {
 		const out = this.stage(desc.stage, this.ownScope(role))
 		const order = rootOrder(out.order, role)
 		const root = order === undefined ? out.node : this.#orderedResult(out.node, order)
-		return unwrap(completeStated(this.b.build([root]), this.b, this.#stated, this.#merges))
+		const completed: LogicalQuery["dag"] = unwrap(
+			completeStated(this.b.build([root]), this.b, this.#stated, this.#merges)
+		)
+		/** The completion builds each node again under its label, so each closed import is keyed as it stands there. */
+		const keys = new Map([...this.#imported].map(([key, node]) => [node.id, key] as const))
+		if (keys.size > 0) {
+			for (const node of topoOrder(completed)) {
+				const key = keys.get(node.id)
+				if (key !== undefined) {
+					this.options.session.closed(node, key)
+				}
+			}
+		}
+		return completed
 	}
 
 	/** A root's delivered rows: its rows under the order stated, which order.ts completes. */
@@ -2308,6 +2359,25 @@ export class Checker {
 		for (const [param, term] of entries(src.bind)) {
 			values.set(param, bind(term, param, childLoc(childLoc(loc, "bind"), param)))
 		}
+		const key = importedKey(this.options.session, src.query, values)
+		if (key === undefined) {
+			return this.#importAt(src, values, loc)
+		}
+		const known = this.#imported.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const node = this.#importAt(src, values, loc)
+		this.#imported.set(key, node)
+		return node
+	}
+
+	/** The query `src` imports, its parameters bound to `values`, each of which it must read. */
+	#importAt(
+		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "query">,
+		values: ReadonlyMap<string, BindValue>,
+		loc: SourceLoc
+	): RelNode {
 		const resolver: ParamResolver = { kind: "bound", values, used: new Set(), loc }
 		const inner: Scope = {
 			kind: "scope",

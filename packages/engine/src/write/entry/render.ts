@@ -1,6 +1,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedEntry, CheckedSchema } from "#compiler/analysis/schema.ts"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { CompileError, prose } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -97,7 +98,8 @@ export const renderMembership = (
 	const query = checkQuery(options.schema, filter.query, {
 		read: "membership",
 		label: `write ${entry.entry}`,
-		clock: noClock
+		clock: noClock,
+		session: new CheckSession()
 	})
 	if (!query.ok) {
 		return query

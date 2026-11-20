@@ -15,7 +15,7 @@ import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { editedBy } from "#compiler/analysis/theory/refill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
-import { checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
+import { CheckSession, checkFill, checkMember, checkReadBack } from "#compiler/check/index.ts"
 import type { MemberColumn, MemberRelation } from "#compiler/check/schema.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { CompileError, type ProseTag, prose, ruleRefused } from "#compiler/core/errors.ts"
@@ -885,8 +885,10 @@ const compile = (
 	/** The base every written relation is an ordinary relation of: reality's own, or the role's base. */
 	const base = checked.definitions()
 
-	/** 1. Check the members and read-backs, merging their queries into one DAG in that order. */
-	const merger = new QueryMerger()
+	/** 1. Check the members and read-backs, merging their queries into one DAG in that order, every check one session's
+	 * (check/session.ts), so every closed import of one key, in any of them, is one node of the DAG. */
+	const session = new CheckSession()
+	const merger = new QueryMerger(session)
 	const params = new Map<string, ParamDecl>()
 	/** Each ordinary relation of the base the ChangeSet writes, as a member writes it (`writtenOf`), built where the
 	 * compile first reads it, so a compile reads of the base only the relations its ChangeSet writes. */
@@ -1323,7 +1325,7 @@ const compile = (
 						query: navigateQuery(m.member.query, loc, columns),
 						loc
 					},
-					{ label: `insert ${relation.name}'s computed fields`, clock }
+					{ label: `insert ${relation.name}'s computed fields`, clock, session }
 				)
 			)
 			for (const p of query.params) {
@@ -1528,7 +1530,7 @@ const compile = (
 						query: navigateQuery(describedQuery, loc, columns),
 						loc
 					},
-					{ label: `${member.op} ${member.relation}`, clock }
+					{ label: `${member.op} ${member.relation}`, clock, session }
 				)
 			)
 			refuseQueriedOwnerAppend(member, relation, query, members)
@@ -1648,7 +1650,7 @@ const compile = (
 		}
 	}
 	const readBacks = desc.reads.map((r) => {
-		const query = unwrap(checkReadBack(checked, r, { label: `read ${r.name}`, clock }))
+		const query = unwrap(checkReadBack(checked, r, { label: `read ${r.name}`, clock, session }))
 		for (const p of query.params) {
 			merge(params, p, childLoc(at, "reads", r.name))
 		}
@@ -1670,7 +1672,7 @@ const compile = (
 				checkFill(
 					base,
 					{ op, relation, query: fillQuery(entry, input, loc), loc },
-					{ label: `${op} ${entry.entry}`, clock }
+					{ label: `${op} ${entry.entry}`, clock, session }
 				)
 			)
 		)

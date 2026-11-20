@@ -1,6 +1,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
 import { type AdmittedQuery, checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { catchCompileError, catchRefusal } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -215,7 +216,8 @@ export const compileQuery = (
 	const checkedQuery = checkQuery(read, source.desc, {
 		read: options.read,
 		label: "query",
-		clock: options.clock
+		clock: options.clock,
+		session: new CheckSession()
 	})
 	if (!checkedQuery.ok) {
 		return checkedQuery

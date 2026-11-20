@@ -36,6 +36,7 @@ import {
 	spelledSlots
 } from "#compiler/analysis/theory/spelling.ts"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import {
@@ -776,7 +777,8 @@ export const ruleViolation = (
 		checkQuery(checked, violation, {
 			read: "rows",
 			label: `rule ${law.named.display}`,
-			clock: noClock
+			clock: noClock,
+			session: new CheckSession()
 		}),
 		(admitted) => ({
 			dag: admitted.dag,

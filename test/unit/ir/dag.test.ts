@@ -228,7 +228,9 @@ export const traversalsOfGeneratedDAGsHandleAChainOfAnyDepthPastWhatTheCallStack
 				assert.equal(cells.length, depth + 1)
 				assert.equal(succeeded(dagDigest(finished.dag, "dag")), succeeded(dagDigest(built, "dag")))
 				assert.equal(
-					topoOrder(mergeDags(mergeDags(emptyDag, built).dag, built).dag).length,
+					topoOrder(
+						mergeDags(mergeDags(emptyDag, built, () => undefined).dag, built, () => undefined).dag
+					).length,
 					2 * (depth + 1)
 				)
 			}),

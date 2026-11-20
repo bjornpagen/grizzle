@@ -650,10 +650,28 @@ interface Renamed {
  * The extension's nodes and expressions under fresh labels past `tops`, which advance past each one given: a fold over
  * the extension that renames every allocated label, and every name a renamed node or expression holds (a column
  * reference's node, a SelfRef's Recursive, a premise's node) with it. Each renamed node is built by the one constructor.
+ * A node `kept` gives a stand-in for is that stand-in, a node of the base kept as it is, and every name of it the
+ * stand-in's: a closed sub-query the base already holds (write/frontend/dag.ts QueryMerger), whose own nodes nothing
+ * outside it names.
  */
-const renamedPast = (tops: Record<AllocatedKind, number>, extension: ValidDag): Renamed => {
-	const fresh = <A extends string>(kind: AllocatedKind, make: (s: string) => A) => {
-		const seen = new Map<string, A>()
+const renamedPast = (
+	tops: Record<AllocatedKind, number>,
+	extension: ValidDag,
+	kept: (node: RelNode) => RelNode | undefined
+): Renamed => {
+	const standIns = new Map<string, NodeId>()
+	for (const node of topoOrder(extension)) {
+		const standIn = kept(node)
+		if (standIn !== undefined) {
+			standIns.set(node.id, standIn.id)
+		}
+	}
+	const fresh = <A extends string>(
+		kind: AllocatedKind,
+		make: (s: string) => A,
+		seeds: ReadonlyMap<string, A>
+	) => {
+		const seen = new Map<string, A>(seeds)
 		return (id: A): A => {
 			const known = seen.get(id)
 			if (known !== undefined) {
@@ -665,11 +683,11 @@ const renamedPast = (tops: Record<AllocatedKind, number>, extension: ValidDag): 
 			return next
 		}
 	}
-	const nodeName = fresh("node", NodeId)
-	const exprName = fresh("expr", ExprId)
-	const varName = fresh("var", VarId)
-	const occurrence = fresh("occurrence", OccurrenceId)
-	const scope = fresh("scope", ScopeId)
+	const nodeName = fresh("node", NodeId, standIns)
+	const exprName = fresh("expr", ExprId, new Map<string, ExprId>())
+	const varName = fresh("var", VarId, new Map<string, VarId>())
+	const occurrence = fresh("occurrence", OccurrenceId, new Map<string, OccurrenceId>())
+	const scope = fresh("scope", ScopeId, new Map<string, ScopeId>())
 	/** A region's variable and every reference to it are one object, so each is renamed once, to one object. */
 	const decls = new Map<VarDecl, VarDecl>()
 	const decl = (d: VarDecl): VarDecl => {
@@ -690,6 +708,10 @@ const renamedPast = (tops: Record<AllocatedKind, number>, extension: ValidDag): 
 		return builtExpr(renamed, exprName(e.id))
 	})
 	const nodes = new Fold<RelNode, RelNode>(function* (node) {
+		const standIn = kept(node)
+		if (standIn !== undefined) {
+			return standIn
+		}
 		const spec = yield* mapNode<LiveRefs, SpecRefs>(node, {
 			expr: (e) => exprs.of(e),
 			var: decl,
@@ -719,12 +741,18 @@ interface MergedDag {
 
 /**
  * The base DAG with the extension's nodes and expressions added under fresh labels past the base's tops (renamedPast),
- * so the two share none, its roots after the base's. The base's nodes are kept as they are. The merge of two valid
- * DAGs is valid. `node` and `expr` read the counterpart of any node or expression of the extension.
+ * so the two share none, its roots after the base's, but each extension node `kept` stands a node of the base in for,
+ * which is that node. The base's nodes are kept as they are. The merge of two valid DAGs is valid, so long as each
+ * stand-in reads the rows of the node it stands in for and names nothing of the extension. `node` and `expr` read the
+ * counterpart of any node or expression of the extension.
  */
-export const mergeDags = (base: LabelledDag, extension: ValidDag): MergedDag => {
+export const mergeDags = (
+	base: LabelledDag,
+	extension: ValidDag,
+	kept: (node: RelNode) => RelNode | undefined
+): MergedDag => {
 	const tops = { ...base.tops }
-	const renamed = renamedPast(tops, extension)
+	const renamed = renamedPast(tops, extension, kept)
 	return {
 		dag: labelledDag([...base.roots, ...renamed.roots], { ...tops }),
 		node: renamed.node,
@@ -749,7 +777,7 @@ export class LabelSupply {
 	 * the Forbid over `violation`, the query's counterpart there, labelled past them.
 	 */
 	forbid(query: ValidDag, violation: RelNode, law: LawId): RelNode {
-		const root = renamedPast(this.#tops, query).node(violation)
+		const root = renamedPast(this.#tops, query, () => undefined).node(violation)
 		this.#tops.node += 1
 		return relNode(NodeId(`${allocatedKinds.node}${this.#tops.node}`), {
 			kind: "Forbid",

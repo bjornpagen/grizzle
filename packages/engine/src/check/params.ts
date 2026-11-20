@@ -1,4 +1,5 @@
 import { fail } from "#compiler/check/fail.ts"
+import type { CheckSession } from "#compiler/check/session.ts"
 import { ParamId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings, mapInput } from "#compiler/core/order.ts"
@@ -240,12 +241,17 @@ const importedNamespace = (): ParamSpelling<Resolved["param"]> => {
  * parameter reference carries its cell, and the table holds the query's own.
  */
 export const resolveQuery = (
-	q: QueryDesc<Located, Inferred>
+	q: QueryDesc<Located, Inferred>,
+	session: CheckSession
 ): { readonly query: ResolvedQuery; readonly params: ParamTable } => {
 	const own = new Map<string, ParamCell>()
-	const query = mapQueryParams<{ readonly cell: ParamCell }, InferredFieldDesc, ParamTyping>(q, {
-		param: (name) => ({ cell: cellIn(own, name, () => new ParamCell(name, untyped)) }),
-		imported: importedNamespace
-	})
+	const query = mapQueryParams<{ readonly cell: ParamCell }, InferredFieldDesc, ParamTyping>(
+		q,
+		{
+			param: (name) => ({ cell: cellIn(own, name, () => new ParamCell(name, untyped)) }),
+			imported: importedNamespace
+		},
+		session.resolved
+	)
 	return { query, params: new ParamTable([...own.values()]) }
 }

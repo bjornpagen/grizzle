@@ -1975,9 +1975,17 @@ type SpelledAs<T, D extends InferredFieldDesc> = ParamsAs<Spelled["param"], T, D
 
 class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	readonly #spelling: ParamSpelling<P>
+	/**
+	 * Each imported query the walk has reached, walked: a Description shares an imported query by reference wherever it
+	 * imports it (a bound query read at many places, a call's rows argument), and each is its own namespace, whose
+	 * parameters only its bind map binds, so one walk of it serves every import of it, where a walk at every import
+	 * expanded the Description's sharing into a tree.
+	 */
+	readonly #imported: ImportedWalks<P, T, D>
 
-	constructor(spelling: ParamSpelling<P>) {
+	constructor(spelling: ParamSpelling<P>, imported: ImportedWalks<P, T, D>) {
 		this.#spelling = spelling
+		this.#imported = imported
 	}
 
 	query(q: QueryDesc<Located, SpelledAs<T, D>>): QueryDesc<Located, ParamsAs<P, T, D>> {
@@ -2046,6 +2054,17 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 			: this.expr(b)
 	}
 
+	/** An imported query, walked once in a namespace of its own (`#imported`). */
+	#importedQuery(q: QueryDesc<Located, SpelledAs<T, D>>): QueryDesc<Located, ParamsAs<P, T, D>> {
+		const known = this.#imported.get(q)
+		if (known !== undefined) {
+			return known
+		}
+		const walked = new ParamWalk<P, T, D>(this.#spelling.imported(), this.#imported).query(q)
+		this.#imported.set(q, walked)
+		return walked
+	}
+
 	/** An imported query is its own namespace; only its bind map is read in this one. */
 	source(s: SourceDesc<Located, SpelledAs<T, D>>): SourceDesc<Located, ParamsAs<P, T, D>> {
 		switch (s.kind) {
@@ -2053,7 +2072,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 			case "step":
 				return {
 					...s,
-					query: new ParamWalk<P, T, D>(this.#spelling.imported()).query(s.query),
+					query: this.#importedQuery(s.query),
 					bind: Object.fromEntries(Object.entries(s.bind).map(([k, b]) => [k, this.bound(b)]))
 				}
 			case "param":
@@ -2068,7 +2087,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 						a.kind === "rows"
 							? {
 									kind: "rows",
-									query: new ParamWalk<P, T, D>(this.#spelling.imported()).query(a.query),
+									query: this.#importedQuery(a.query),
 									bind: mapRecord(a.bind, (b) => this.bound(b))
 								}
 							: this.expr(a)
@@ -2115,8 +2134,22 @@ export const mapQueryParams = <
 	T = FieldDesc
 >(
 	q: QueryDesc<Located, SpelledAs<T, D>>,
-	spelling: ParamSpelling<P>
-): QueryDesc<Located, ParamsAs<P, T, D>> => new ParamWalk<P, T, D>(spelling).query(q)
+	spelling: ParamSpelling<P>,
+	imported: ImportedWalks<P, T, D>
+): QueryDesc<Located, ParamsAs<P, T, D>> => new ParamWalk<P, T, D>(spelling, imported).query(q)
+
+/**
+ * Each imported query a walk over parameters has walked, by the imported query (ParamWalk `#imported`): one walk's own,
+ * or, where the walk's spelling of an imported query depends on that query alone, every walk's of that spelling
+ * (check/params.ts resolveQuery).
+ */
+export interface ImportedWalks<P extends object, T, D extends InferredFieldDesc> {
+	get(q: QueryDesc<Located, SpelledAs<T, D>>): QueryDesc<Located, ParamsAs<P, T, D>> | undefined
+	set(
+		q: QueryDesc<Located, SpelledAs<T, D>>,
+		walked: QueryDesc<Located, ParamsAs<P, T, D>>
+	): unknown
+}
 
 /** A namespace spelled as it is: an imported query's, for a walk that reads only its importer's. */
 const spelledAsIs: ParamSpelling<Spelled["param"]> = {
@@ -2134,13 +2167,17 @@ export const queryParamNames = <D extends InferredFieldDesc = FieldDesc, T = Fie
 	q: QueryDesc<Located, SpelledAs<T, D>>
 ): ReadonlySet<string> => {
 	const names = new Set<string>()
-	mapQueryParams(q, {
-		param: (name) => {
-			names.add(name)
-			return { name }
+	mapQueryParams(
+		q,
+		{
+			param: (name) => {
+				names.add(name)
+				return { name }
+			},
+			imported: () => spelledAsIs
 		},
-		imported: () => spelledAsIs
-	})
+		new Map()
+	)
 	return names
 }
 
@@ -2154,10 +2191,14 @@ export const renameQueryParams = (q: QueryDesc, rename: ReadonlyMap<string, stri
 	rename.size === 0
 		? q
 		: deepFreeze(
-				mapQueryParams(q, {
-					param: (name) => ({ name: rename.get(name) ?? name }),
-					imported: () => spelledAsIs
-				})
+				mapQueryParams(
+					q,
+					{
+						param: (name) => ({ name: rename.get(name) ?? name }),
+						imported: () => spelledAsIs
+					},
+					new Map()
+				)
 			)
 
 /** A declared name: a nonempty string of storable text (core/text.ts), as every builder takes one. */

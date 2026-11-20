@@ -7,6 +7,7 @@ import {
 	checkQuery,
 	checkReadBack
 } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { decodeDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
@@ -86,7 +87,8 @@ export const checkAuthored = (
 export const checkOptions = (label: string): CheckOptions => ({
 	read: "rows",
 	clock: noClock,
-	label
+	label,
+	session: new CheckSession()
 })
 
 /**

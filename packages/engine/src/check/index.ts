@@ -6,6 +6,7 @@ import { fail, rootLoc } from "#compiler/check/fail.ts"
 import { checkMemberHeading } from "#compiler/check/member.ts"
 import { resolveQuery } from "#compiler/check/params.ts"
 import type { MemberRelation, SchemaReading } from "#compiler/check/schema.ts"
+import type { CheckSession } from "#compiler/check/session.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -15,6 +16,7 @@ import type { InferredQuery, ReadBackDesc, WriteOp } from "#compiler/ir/desc.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 
 export type { CheckOptions } from "#compiler/check/checker.ts"
+export { CheckSession } from "#compiler/check/session.ts"
 
 declare const admittedQueryBrand: unique symbol
 
@@ -62,7 +64,7 @@ const run = (
 	loc: SourceLoc,
 	role: RootRole
 ): AdmittedQuery => {
-	const resolved = resolveQuery(desc)
+	const resolved = resolveQuery(desc, options.session)
 	const dag = new Checker(schema, options, resolved.params, schema.closedReads).root(
 		resolved.query,
 		loc,
@@ -108,9 +110,10 @@ export const checkQuery = (
 export const checkDefinition = (
 	base: SchemaReading,
 	label: string,
-	query: InferredQuery
+	query: InferredQuery,
+	session: CheckSession
 ): Result.Result<AdmittedQuery, CompileError> => {
-	const options: CheckOptions = { read: "rows", label, clock: noClock }
+	const options: CheckOptions = { read: "rows", label, clock: noClock, session }
 	return Result.flatMap(validateQueryStructure(query, { read: "rows" }), (q) =>
 		catchRefusal(() => run(base, q, options, rootLoc(label), { kind: "definition" }))
 	)

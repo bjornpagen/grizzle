@@ -22,6 +22,7 @@ import {
 	type WholeRule
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
+import { CheckSession } from "#compiler/check/session.ts"
 import { canonicalEquals, canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
@@ -221,7 +222,8 @@ const judgedStatement = (
 		checkQuery(b.checked, navigateQuery(query, loc, columns), {
 			read: "region",
 			label,
-			clock: noClock
+			clock: noClock,
+			session: new CheckSession()
 		})
 	)
 	const requests = requestsOf(b, rule, checked.dag.roots[0])
