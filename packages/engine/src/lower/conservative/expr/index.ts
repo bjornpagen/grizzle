@@ -8,6 +8,7 @@ import { codecOf, codeOf, handlesHex, type RosterCodec } from "#compiler/ir/code
 import { datePartSlices } from "#compiler/ir/date.ts"
 import {
 	describeOp,
+	type ExprOf,
 	type ScalarExpr,
 	spanLiteralText,
 	type TypedLiteral
@@ -32,11 +33,20 @@ import { lowerSearchOp } from "#compiler/lower/conservative/search/index.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
-import { binaryCoercion, isDateParse } from "#compiler/scalar/compute/registry.ts"
+import { binaryCoercion, isDateParse, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
-import { cast, lit, positionalValue, qualifiedCall, slotParam, types } from "#compiler/sql/build.ts"
+import {
+	call,
+	cast,
+	eq,
+	lit,
+	positionalValue,
+	qualifiedCall,
+	slotParam,
+	types
+} from "#compiler/sql/build.ts"
 import { type ClosedRead, closedRead as closedReadOf } from "#compiler/sql/constants.ts"
 import { dateOfText } from "#compiler/sql/lexical.ts"
 import { printExpr } from "#compiler/sql/print.ts"
@@ -220,6 +230,10 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 			}
 		}
 		case "op": {
+			const member = membershipOf(expr)
+			if (member !== undefined) {
+				return memberTest(site, member, lower)
+			}
 			const args =
 				"patterns" in expr
 					? matchOperands(expr, {
@@ -267,6 +281,62 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 			return declaredCall(site, expr, expr.args.map(lower))
 	}
 }
+
+/** A membership test's operands: the code it asks for and the set it asks of. */
+interface Membership {
+	readonly code: ScalarExpr
+	readonly set: ScalarExpr
+}
+
+/**
+ * A membership test, `Compute.subset(Compute.singleton(c), s)`: the subset test whose first operand is the empty set
+ * with one code's bit set, which is what Compute.singleton types (scalar/compute/typing.ts singleton). Its code and
+ * its set; none for any other node.
+ */
+const membershipOf = (expr: ExprOf<"op">): Membership | undefined => {
+	const [singleton, set] = expr.args
+	if (
+		nativeOp(expr.op)?.fn !== "subset" ||
+		set === undefined ||
+		singleton?.kind !== "op" ||
+		nativeOp(singleton.op)?.fn !== "adjoin"
+	) {
+		return undefined
+	}
+	const [empty, code] = singleton.args
+	return empty?.kind === "literal" &&
+		empty.value.kind === "handles" &&
+		empty.value.handles.length === 0 &&
+		code !== undefined
+		? { code, set }
+		: undefined
+}
+
+/**
+ * A membership test as the one bit it reads, never a set built and compared (a singleton's set_bit, a complement, an
+ * AND and a bit_count).
+ *
+ * - Over a closed relation's row of a prefix, C.row(k…), it is the relation's key set's bit at the completed key,
+ *   C.has(k…, c) (sql/constants.ts closedRead), which is bit c of the row. c is a code of the row's roster, or a slot
+ *   code that the read guards below its owner's count, so the completed key's cell is the row's c-th; a prefix the
+ *   relation completes nowhere, and a slot code past its owner's count, read absent, so false.
+ * - Over any other set, it is `get_bit(s, c::integer) = 1`: bit c from the left is code c's. c is a live code of the
+ *   set's roster, below its width, so get_bit never reads past the string.
+ *
+ * Either is NULL where the code or the set is NULL, as the subset test of a singleton is. A row the site folds to its
+ * value is read as any other set is.
+ */
+const memberTest = (
+	site: ScalarSite,
+	{ code, set }: Membership,
+	lower: (a: ScalarExpr) => Expr
+): Expr =>
+	set.kind === "closedRow" && site.whole(set) === undefined
+		? closedRead(site, set, [...set.args.map(lower), lower(code)], { kind: "has" })
+		: eq(
+				call("get_bit", [lower(set), cast(lower(code), types.integer)]),
+				lit.int(1n, types.integer)
+			)
 
 /**
  * A conditional chain of equalities of one subject to literals (share.ts equalityChain) as one simple CASE over the

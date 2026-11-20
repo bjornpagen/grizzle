@@ -151,7 +151,16 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 					since: "2026-11-19"
 				}
 			],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/lower/conservative/expr/index.ts",
+					original:
+						'\t\t? closedRead(site, set, [...set.args.map(lower), lower(code)], { kind: "has" })\n',
+					replacement:
+						'\t\t? closedRead(site, set, [lower(code), ...set.args.map(lower)], { kind: "has" })\n',
+					why: "A membership in a closed row reads the key set at the code before the row's prefix, another key's bit; the kept FlagRel case, x → {x} and y → {x, y}, accepts kind a's flag y, which FlagRel.row(x) does not hold."
+				}
+			]
 		}
 	)
 

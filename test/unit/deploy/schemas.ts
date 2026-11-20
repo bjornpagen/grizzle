@@ -180,9 +180,10 @@ export type SetChange = (typeof setChanges)[number]
 /**
  * A set's schema, its first version or a second one making `version`'s change: Flag, a roster of three handles; Tagged,
  * rows of a flag and another, its generated `covered` whether the other's singleton is within the flag's; and Admitted,
- * Tagged's CHECK that the flag's singleton is within the other's. Each membership test's singleton set is a literal
- * cast to Flag's bits domain, which no column of Tagged is typed by, so only the casts name it; the test reads no
- * constant and holds two bytes of literal data, so it stays in Tagged's own statement (physical/ddl/row-functions.ts).
+ * Tagged's CHECK that the flag's singleton is within the other's. Each is a membership test, which reads one bit of the
+ * other singleton (lower/conservative/expr memberTest), a literal cast to Flag's bits domain, which no column of Tagged
+ * is typed by, so only the casts name it; the test reads no constant and holds two bytes of literal data, so it stays
+ * in Tagged's own statement (physical/ddl/row-functions.ts).
  */
 export const setsSchema = (version: "first" | SetChange) => {
 	const Flag = api.closed.ordered("Flag", ["x", "y", "z"])

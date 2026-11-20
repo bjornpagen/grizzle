@@ -357,6 +357,7 @@ export const builtinFunctions = {
 	substring: { reach: "row" },
 	bit_count: { reach: "row" },
 	set_bit: { reach: "row" },
+	get_bit: { reach: "row" },
 	bit_or: { reach: "rows" },
 	string_agg: { reach: "rows" },
 	generate_subscripts: { reach: "row" },
