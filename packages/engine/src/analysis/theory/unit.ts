@@ -902,12 +902,17 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 	if (read === notLocal) {
 		return notLocal
 	}
-	if (read.stage === query.stage) {
-		return { query, delivered: read.delivered }
+	return {
+		query: read.stage === query.stage ? query : copied(query, read.stage, w),
+		delivered: read.delivered
 	}
-	const copy: InferredQuery = { ...query, stage: read.stage }
+}
+
+/** A copy of `query` at the stage a walk leaves it (`walked`), recorded as walked from `query` (Walk `definitions`). */
+const copied = (query: InferredQuery, stage: InferredStage, w: Walk): InferredQuery => {
+	const copy: InferredQuery = { ...query, stage }
 	w.definitions.set(copy, query)
-	return { query: copy, delivered: read.delivered }
+	return copy
 }
 
 /** A unit's holders by relation, each with its leading key fields. */

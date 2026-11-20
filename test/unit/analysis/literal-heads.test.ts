@@ -143,3 +143,50 @@ export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigate
 			]
 		}
 	)
+
+/** The one copy of a query a walk makes (analysis/theory/unit.ts copied). */
+const walkCopies = {
+	copy: { file: "packages/engine/src/analysis/theory/unit.ts", name: "copied" }
+} as const
+
+/**
+ * A whole rule's walk copies only the queries it changes: over checked readers of a union of stored relations, each
+ * law's walk per unit copies its violation, whose outermost rule it reads per unit, and nothing the violation imports,
+ * neither the reader's live definition nor the union, which it leaves as they were (analysis/theory/unit.ts Walked), so
+ * an installation of one reader makes one copy and of three readers three, where a walk that copied all it read made a
+ * copy of every query below each violation, and of each again in every walk that decides a unit.
+ */
+export const aWholeRulesWalkCopiesOnlyTheQueriesItChanges = property.exhaust(
+	finite((source) => source.draw(element(["one reader", "three readers"] as const))),
+	{
+		box: "an installation of one and of three checked derived relations reading a union of stored relations",
+		needs: {},
+		situations: ["one reader", "three readers"] satisfies ReadonlyArray<
+			Reached<"one reader" | "three readers">
+		>,
+		check: (_, c: Case<"one reader" | "three readers">) => (readers) =>
+			Effect.gen(function* () {
+				c.note(readers)
+				const [read, counted] = yield* callCounts(
+					Effect.sync(() => installedReadingUnion(readers)),
+					walkCopies
+				)
+				assert.ok(read.ok, "the installation compiles")
+				const laws = readers === "one reader" ? 1 : 3
+				assert.ok(
+					counted.copy === laws,
+					`${readers} make ${counted.copy} copies of a query in their walks, one per law, ${laws}, expected`
+				)
+			}),
+		oracle: { kind: "specification", name: "work counted: the queries a whole rule's walks copy" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tquery: read.stage === query.stage ? query : copied(query, read.stage, w),\n",
+				replacement: "\t\tquery: copied(query, read.stage, w),\n",
+				why: "The walk copies every query it reads, changed or not: the reader's live definition and the union below each violation, in each law's walk per unit and in every walk that decides its unit, more copies than laws."
+			}
+		]
+	}
+)
