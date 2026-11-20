@@ -1,5 +1,5 @@
 /**
- * Row order through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §11, "Row order"): a single INSERT whose rows
+ * Row order through grizzle's lowering, on PostgreSQL 19 (fin.md §11, "Row order"): a single INSERT whose rows
  * arrive successor before predecessor passes the family's immediate predecessor axis, since a foreign key is checked at
  * the end of its statement, not per row; and the same rows split so a successor's statement ends before its
  * predecessor's begins are refused at that statement when the family is ordered (its predecessor axis immediate), and
@@ -35,9 +35,9 @@ import { run, settledOf } from "#test/support/families/mutate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Row order through grizzle's lowering on PostgreSQL 19rc2 pass the immediate predecessor axis on one insert of a family's rows in every order, successor first included, and check it at each statement of a cut write when ordered.
+ * Row order through grizzle's lowering on PostgreSQL 19 pass the immediate predecessor axis on one insert of a family's rows in every order, successor first included, and check it at each statement of a cut write when ordered.
  */
-export const rowOrderThroughGrizzlesLoweringOnPostgreSQL19rc2PassTheImmediatePredecessorAxisOnOneInsertOfAFamilysRowsInEveryOrderSuccessorFirstIncludedAndCheckItAtEachStatementOfACutWriteWhenOrdered =
+export const rowOrderThroughGrizzlesLoweringOnPostgreSQL19PassTheImmediatePredecessorAxisOnOneInsertOfAFamilysRowsInEveryOrderSuccessorFirstIncludedAndCheckItAtEachStatementOfACutWriteWhenOrdered =
 	property.exhaust(finite(sketchGen), {
 		needs: Substrate.oneOf(orderTemplates, Substrate.seat),
 		situations: [

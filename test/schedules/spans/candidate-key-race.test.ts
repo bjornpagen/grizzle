@@ -7,7 +7,7 @@
  * every key under its snapshot, so a refusal at a key can only come from an occupant that snapshot did not see: the
  * attempt fails as a TransientFailure, and the retry finds the committed fact equal, a repeat, or another at the key,
  * that key's law. An insert of complete facts at SERIALIZABLE arbitrates every object (ON CONFLICT DO NOTHING, no
- * target: write/insert/protocol.ts arbitrationOf), so PostgreSQL 19rc2 refuses an occupant its snapshot cannot see with
+ * target: write/insert/protocol.ts arbitrationOf), so PostgreSQL 19 refuses an occupant its snapshot cannot see with
  * 40001 (nodeModifyTable.c ExecCheckTIDVisible), a SerializationFailure, and never with a 23P01 or 23505.
  *
  * An exclusion constraint inserts the row's entry before it checks, so a second writer of an overlapping fact waits on

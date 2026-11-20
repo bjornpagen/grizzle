@@ -1,5 +1,5 @@
 /**
- * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19rc2,
+ * A family over stored rows across a migration that renames it or changes what fills it, on PostgreSQL 19,
  * generated.
  *
  * A history: relations with rows stored at their first version, a roster's kinds among them, a tree's keyed by its
@@ -65,7 +65,7 @@ import {
 } from "#test/pg/migrate/family-renames.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2 a declared rename of a family's relations, the owner's fields, a roster and its handles, swaps and chains among them, renames every law column, drawn field, constraint and index in place: no table rewritten, no row updated, nothing built or validated again. */
+/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a declared rename of a family's relations, the owner's fields, a roster and its handles, swaps and chains among them, renames every law column, drawn field, constraint and index in place: no table rewritten, no row updated, nothing built or validated again. */
 export const declaredRenames = property.explore(renameCaseGen, {
 	needs: { substrate: Substrate.installing },
 	situations: [
@@ -113,7 +113,7 @@ export const declaredRenames = property.explore(renameCaseGen, {
 	]
 })
 
-/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, trees included, is drawn again, and an ordered family's group change keeps every stored index or is refused naming its law, unless the index is declared dropped: the migration commits with every law validated. */
+/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, trees included, is drawn again, and an ordered family's group change keeps every stored index or is refused naming its law, unless the index is declared dropped: the migration commits with every law validated. */
 export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 	needs: { substrate: Substrate.installing },
 	situations: [
@@ -173,7 +173,7 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 	]
 })
 
-/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19rc2 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves, and builds again no constraint the target holds as it is that no state of the backfill can break. */
+/** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a fold's step, an axis copy's target or a counted family's group changed over stored rows, or a fold added, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves, and builds again no constraint the target holds as it is that no state of the backfill can break. */
 export const redrawWrites = property.explore(redrawCaseGen, {
 	needs: { substrate: Substrate.installing },
 	situations: [

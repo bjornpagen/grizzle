@@ -1,5 +1,5 @@
 /**
- * Ordered rewrites through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.5, §11, "Ordered rewrites" and "The
+ * Ordered rewrites through grizzle's lowering, on PostgreSQL 19 (fin.md §4.5, §11, "Ordered rewrites" and "The
  * shrink order"): a member's removal, an insertion at a slot, a swap and an append are each a rewrite of the family's
  * suffix, sent as the planner sends it, deletes, then the owner's one count update, then inserts, and each commits to
  * the families it states. Sent in the wrong order, a shrink is refused: its count update lowers the count while rows
@@ -41,9 +41,9 @@ import { storedOf } from "#test/support/families/theorem.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Ordered rewrites and the shrink order through grizzle's lowering on PostgreSQL 19rc2 commit every suffix rewrite sent deletes, count, inserts, and refuse a shrink whose count comes first at that count by the bound.
+ * Ordered rewrites and the shrink order through grizzle's lowering on PostgreSQL 19 commit every suffix rewrite sent deletes, count, inserts, and refuse a shrink whose count comes first at that count by the bound.
  */
-export const orderedRewritesAndTheShrinkOrderThroughGrizzlesLoweringOnPostgreSQL19rc2CommitEverySuffixRewriteSentDeletesCountInsertsAndRefuseAShrinkWhoseCountComesFirstAtThatCountByTheBound =
+export const orderedRewritesAndTheShrinkOrderThroughGrizzlesLoweringOnPostgreSQL19CommitEverySuffixRewriteSentDeletesCountInsertsAndRefuseAShrinkWhoseCountComesFirstAtThatCountByTheBound =
 	property.exhaust(finite(rewriteGen), {
 		needs: { ordered: Substrate.seat(rewritesTemplate) },
 		situations: [

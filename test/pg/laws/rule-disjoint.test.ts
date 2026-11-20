@@ -2,7 +2,7 @@
  * A unit-local rule over a query is judged whole over the units a transaction wrote (physical/ddl/rules.ts addRules,
  * analysis/theory/unit.ts), and its judge reads those units' rows alone, by the unit-led indexes it asks
  * (physical/ddl/rules.ts requestsOf): so transactions that write disjoint units, each keeping every rule, never depend
- * on one another, and SERIALIZABLE commits every one of them, however their statements interleave. On PostgreSQL 19rc2,
+ * on one another, and SERIALIZABLE commits every one of them, however their statements interleave. On PostgreSQL 19,
  * over Disjoint (rule-disjoint.fixtures.ts): T, U and S keyed by their unit first, a containment of T ⋈ U into S and a
  * check over the join, both whole.
  *

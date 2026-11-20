@@ -3,7 +3,7 @@
  * exactly (laws/model/plan.ts containmentDischarge): its referencing columns are its source's fields, each NOT NULL as
  * every column of a relation is, so MATCH SIMPLE checks every source row, and its referenced columns are its target's
  * fields under the UNIQUE of a declared key or of a superkey that key implies, so the rows it finds at a source row's
- * values are exactly the target's facts the law asks for. On PostgreSQL 19rc2, over PlainNative
+ * values are exactly the target's facts the law asks for. On PostgreSQL 19, over PlainNative
  * (plain-native.fixtures.ts): C contained in B at its primary key, in G at its declared key (g, j), in F at a superkey
  * and in E at its every field, every relation immutable and keyed by its unit g first, so each containment joins
  * within one unit, the shape 59de77629 judged whole where its target holds a field it does not reference.

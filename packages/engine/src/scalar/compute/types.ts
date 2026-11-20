@@ -36,7 +36,7 @@ import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/sca
  * The integer digits of a money amount, |amount| < 10^moneyDigits: a bigint count of minor units, less its fraction.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the integer digits of every money amount
  * @derivation a count below 10^int8Digits minor units, 10^moneyFractionDigits to the unit

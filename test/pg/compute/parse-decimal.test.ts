@@ -1,6 +1,6 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 /**
- * Compute.parseDecimal on PostgreSQL 19rc2: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
+ * Compute.parseDecimal on PostgreSQL 19: over drawn pairs of decimal texts (test/support/lexical.ts decimalTextGen),
  * each part's count of digits at an edge the parse turns on (256 integer and 255 fraction digits, the widest
  * numeric(p, s) form's, and the form's own 16,384 bytes, numeric's 16,383 fraction digits among them), leading and
  * trailing zeros, signs, bare fractions, trailing points and zeros, the second of a pair the first's value spelled

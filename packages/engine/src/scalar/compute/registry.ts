@@ -801,28 +801,28 @@ const textCollapse: FixedOverload = frozen({
  *
  * @derivation lower folds by its call's collation: "out_string = str_tolower(VARDATA_ANY(in_string),
  *   VARSIZE_ANY_EXHDR(in_string), PG_GET_COLLATION());" then "result = cstring_to_text(out_string);"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/oracle_compat.c#L55-L58). The collation
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/oracle_compat.c#L55-L58). The collation
  *   "C" is "{ oid => '950', oid_symbol => 'C_COLLATION_OID'" with "collname => 'C'"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_collation.dat#L18-L21), whose locale
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_collation.dat#L18-L21), whose locale
  *   is "if (collid == C_COLLATION_OID) return &c_locale;"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/pg_locale.c#L1207-L1208), which states
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/pg_locale.c#L1207-L1208), which states
  *   ".ctype_is_c = true,"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/pg_locale.c#L115). So str_tolower
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/pg_locale.c#L115). So str_tolower
  *   takes "if (mylocale->ctype_is_c)", "result = asc_tolower(buff, nbytes);"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/formatting.c#L1645-L1647), whatever the
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/formatting.c#L1645-L1647), whatever the
  *   database's encoding, and asc_tolower is "result = pnstrdup(buff, nbytes);" then "for (char *p = result; *p; p++)
  *   *p = pg_ascii_tolower((unsigned char) *p);"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/formatting.c#L1889-L1892), whose fold
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/formatting.c#L1889-L1892), whose fold
  *   is "if (ch >= 'A' && ch <= 'Z') ch += 'a' - 'A';"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/port.h#L191-L192). A UTF-8 text's verification
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/port.h#L191-L192). A UTF-8 text's verification
  *   stops at a NUL, "if (*s == '\0') break;"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/common/wchar.c#L1758-L1759), so the loop reads every
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/common/wchar.c#L1758-L1759), so the loop reads every
  *   byte. Its two allocations are linear in the operand's len bytes: pnstrdup's "out = palloc(len + 1);"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/mmgr/mcxt.c#L1934) and
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/mmgr/mcxt.c#L1934) and
  *   cstring_to_text_with_len's "palloc(len + VARHDRSZ)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/varlena.c#L198), each within
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/varlena.c#L198), each within
  *   MaxAllocSize, since a text's bytes and its header are.
- * @verified 2026-11-18
+ * @verified 2026-11-20
  */
 const textLowerAscii: FixedOverload = frozen({
 	fn: "lowerAscii",

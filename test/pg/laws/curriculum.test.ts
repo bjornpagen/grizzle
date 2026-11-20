@@ -1,6 +1,6 @@
 /**
  * The curriculum level a downstream application installs over its content (pantry's QtiCurriculum, live in production
- * QTI since its M1 and M2 migrations), on PostgreSQL 19rc2: the law shapes production relies on, each a generated case
+ * QTI since its M1 and M2 migrations), on PostgreSQL 19: the law shapes production relies on, each a generated case
  * of the two properties below (curriculum.fixtures.ts states the level).
  *
  * - **curriculumHistories**: a case registers some homes, then makes one to four calls through a served Db, each its own

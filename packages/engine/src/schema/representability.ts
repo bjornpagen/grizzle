@@ -13,13 +13,13 @@ import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
  * BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bits
  * @scope one byte of a datum, as a bit string's length and a type's width count it
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/pg_config_manual.h#L111
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/pg_config_manual.h#L111
  * @quote #define BITS_PER_BYTE 8
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const bitsPerByte = 8
 
@@ -30,7 +30,7 @@ export const bitsPerByte = 8
  * index a closed relation's constant is read at, where a negative one would borrow from the digit above it.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit codes
  * @scope the codes of one roster, its live handles' and its holes, each the smallint a closed-id column stores
  * @derivation smallint's non-negative values, 0 to its greatest: one code each
@@ -45,112 +45,112 @@ export const rosterMaxCodes = int2Max + 1
 export const typlens = {
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one smallint datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${62}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L62
 	 * @quote typname => 'int2', typlen => '2', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	int2: 2,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one integer datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${74}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L74
 	 * @quote typname => 'int4', typlen => '4', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	int4: 4,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one bigint datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${57}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L57
 	 * @quote typname => 'int8', typlen => '8', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	int8: 8,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one real datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${220}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L220
 	 * @quote typname => 'float4', typlen => '4', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	float4: 4,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one double precision datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${225}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L225
 	 * @quote typname => 'float8', typlen => '8', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	float8: 8,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one money datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${239}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L239
 	 * @quote typname => 'money', typlen => '8', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	money: 8,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one boolean datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${36}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L36
 	 * @quote typname => 'bool', typlen => '1', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	bool: 1,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one oid datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${89}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L89
 	 * @quote typname => 'oid', typlen => '4', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	oid: 4,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one uuid datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${409}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L409
 	 * @quote typname => 'uuid', typlen => '16', typbyval => 'f'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	uuid: 16,
 	/**
 	 * @limitKind published
-	 * @owner PostgreSQL 19rc2
+	 * @owner PostgreSQL 19.0
 	 * @unit bytes
 	 * @scope one date datum, in a heap tuple and in an index entry
 	 * @constraint compile-time constant
-	 * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/catalog/pg_type.dat#L${288}
+	 * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_type.dat#L288
 	 * @quote typname => 'date', typlen => '4', typbyval => 't'
-	 * @verified 2026-11-14
+	 * @verified 2026-11-20
 	 */
 	date: 4
 } as const
@@ -160,14 +160,14 @@ export const typlens = {
  * on, the alignment of int64 and double. An entry measured at the greatest alignment is at least its size at any.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the alignment of a heap or index tuple, its header, its attributes and its line pointer's share of a page
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/meson.build#L1877-L1878
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/meson.build#L1877-L1878
  * @quote we intentionally do not consider any types wider than 64 bits, as allowing MAXIMUM_ALIGNOF to exceed 8 would
  *   be too much of a penalty for disk and memory space
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const maxAlign = 8
 
@@ -178,13 +178,13 @@ export const alignUp = (n: number, a: number): number => Math.ceil(n / a) * a
  * A tuple identifier, ItemPointerData.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the heap tuple identifier an index tuple and a B-tree pivot carry
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/storage/itemptr.h#L30-L31
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/storage/itemptr.h#L30-L31
  * @quote The struct is designed to be six bytes long (it contains three int16 fields)
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const itemPointerBytes = 6
 
@@ -192,13 +192,13 @@ const itemPointerBytes = 6
  * An index tuple's header, IndexTupleData: its heap tuple identifier and its two-byte t_info.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the header of every B-tree and GiST index tuple
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/itup.h#L35-L51
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/itup.h#L35-L51
  * @quote typedef struct IndexTupleData { ItemPointerData t_tid; unsigned short t_info; } IndexTupleData;
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const indexTupleHeader = 8
 
@@ -206,14 +206,14 @@ const indexTupleHeader = 8
  * A B-tree page's special space, BTPageOpaqueData: two block numbers, a level, flags and a cycle id.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the special space of every B-tree page
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/nbtree.h#L63-L70
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/nbtree.h#L63-L70
  * @quote typedef struct BTPageOpaqueData { BlockNumber btpo_prev; BlockNumber btpo_next; uint32 btpo_level; uint16
  *   btpo_flags; BTCycleId btpo_cycleid; } BTPageOpaqueData;
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const btreeOpaqueBytes = 16
 
@@ -221,14 +221,14 @@ const btreeOpaqueBytes = 16
  * A GiST page's special space, GISTPageOpaqueData: an LSN, a block number, flags and the page id.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the special space of every GiST page
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/gist.h#L80-L86
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/gist.h#L80-L86
  * @quote typedef struct GISTPageOpaqueData { PageGistNSN nsn; BlockNumber rightlink; uint16 flags; uint16
  *   gist_page_id; } GISTPageOpaqueData;
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const gistOpaqueBytes = 16
 
@@ -238,12 +238,12 @@ const gistOpaqueBytes = 16
  * hold, so the bound is the one every installation's roster keeps within: its most codes.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one set over a roster, its bit(n) datum
  * @derivation VARBITTOTALLEN(n), "#define VARBITTOTALLEN(BITLEN) (((BITLEN) + BITS_PER_BYTE-1)/BITS_PER_BYTE +
  *   VARHDRSZ + VARBITHDRSZ)" with VARBITHDRSZ sizeof(int32)
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/varbit.h), at n the most codes a roster
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/varbit.h), at n the most codes a roster
  *   numbers
  * @from {@link varlenaHeaderBytes}, {@link typlens.int4}, {@link rosterMaxCodes}, {@link bitsPerByte}
  */
@@ -253,12 +253,12 @@ const bitsBytes = varlenaHeaderBytes + typlens.int4 + Math.ceil(rosterMaxCodes /
  * A range's header, sizeof(RangeType): its varlena header and its range type's OID, which its bounds follow.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the header of one range datum
  * @derivation sizeof(RangeType), "typedef struct { int32 vl_len_; Oid rangetypid; /* Following the OID are zero to two
  *   bound values, then a flags byte *\/ } RangeType;"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/rangetypes.h#L25-L30), which
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/rangetypes.h#L25-L30), which
  *   range_serialize counts first: VARHDRSZ and an oid
  * @from {@link varlenaHeaderBytes}, {@link typlens.oid}
  */
@@ -268,13 +268,13 @@ const rangeHeaderBytes = varlenaHeaderBytes + typlens.oid
  * A range's flags byte, after its bounds.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the flags of one range datum
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/rangetypes.c#L2072-L2073
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/rangetypes.c#L2072-L2073
  * @quote /* Add space for flag byte *\/ msize += sizeof(char);
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const rangeFlagBytes = 1
 
@@ -282,11 +282,11 @@ const rangeFlagBytes = 1
  * A numeric's header, NUMERIC_HDRSZ: its varlena header, its sign and display scale, and its weight.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the long header of one numeric datum, the longest it takes
  * @derivation "#define NUMERIC_HDRSZ (VARHDRSZ + sizeof(uint16) + sizeof(int16))"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L178): VARHDRSZ and two
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L178): VARHDRSZ and two
  *   16-bit fields, each a smallint's width
  * @from {@link varlenaHeaderBytes}, {@link typlens.int2}
  */
@@ -296,11 +296,11 @@ const numericHeaderBytes = varlenaHeaderBytes + typlens.int2 * 2
  * A numeric's NBASE digit, NumericDigit, an int16.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one NBASE digit of a numeric datum
  * @derivation "typedef int16 NumericDigit;"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L103), a smallint's width
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L103), a smallint's width
  * @from {@link typlens.int2}
  */
 const numericDigitBytes = typlens.int2
@@ -327,12 +327,12 @@ const alignDown = (n: number, a: number): number => Math.floor(n / a) * a
  * The most bytes one B-tree entry takes: BTMaxItemSize, a third of a page, its pivot's heap tuple identifier left.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one B-tree index entry, a key's index's among them
  * @derivation nbtree.h's BTMaxItemSize: MAXALIGN_DOWN((BLCKSZ - MAXALIGN(SizeOfPageHeaderData + 3*sizeof(ItemIdData))
  *   - MAXALIGN(sizeof(BTPageOpaqueData))) / 3) - MAXALIGN(sizeof(ItemPointerData))
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/nbtree.h#L165-L169), three entries to a
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/nbtree.h#L165-L169), three entries to a
  *   page
  * @from {@link blockSize}, {@link maxAlign}, {@link pageHeaderBytes}, {@link itemIdBytes}, {@link btreeOpaqueBytes},
  *   {@link itemPointerBytes}
@@ -350,11 +350,11 @@ export const btreeMaxItemSize =
  * The most bytes one GiST entry takes: an empty page, GiSTPageSize, less its one line pointer.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one GiST index entry, a span key's among them
  * @derivation gist_private.h's GiSTPageSize, BLCKSZ - SizeOfPageHeaderData - MAXALIGN(sizeof(GISTPageOpaqueData))
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/gist_private.h#L474-L475), less the
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/gist_private.h#L474-L475), less the
  *   entry's one ItemIdData, as gistfitpage counts it
  * @from {@link blockSize}, {@link maxAlign}, {@link pageHeaderBytes}, {@link gistOpaqueBytes}, {@link itemIdBytes}
  */
@@ -365,13 +365,13 @@ export const gistMaxItemSize =
  * The most columns one index holds, INDEX_MAX_KEYS: a key's index has one per field.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit columns
  * @scope one index: a key's, a span key's GiST constraint, an access path's
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/pg_config_manual.h#L79
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/pg_config_manual.h#L79
  * @quote #define INDEX_MAX_KEYS 32
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const indexMaxKeys = 32
 
@@ -380,11 +380,11 @@ export const indexMaxKeys = 32
  * own count, which follows the header exactly when the tuple holds a null.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the null bitmap of one index tuple that holds a null
  * @derivation "typedef struct IndexAttributeBitMapData { uint8 bits[(INDEX_MAX_KEYS + 8 - 1) / 8]; }"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/itup.h#L55-L58, verified 2026-11-14): a
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/itup.h#L55-L58, verified 2026-11-20): a
  *   byte per eight of INDEX_MAX_KEYS bits, C's integer division
  * @from {@link indexMaxKeys}, {@link bitsPerByte}
  */
@@ -632,13 +632,13 @@ export const imagedText = (desc: InferredFieldDesc): boolean =>
  * The digits of an MD5 digest in hexadecimal, md5(text)'s length.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit characters
  * @scope the text md5(text) returns
  * @constraint compile-time constant
  * @source https://www.postgresql.org/docs/19/functions-string.html
  * @quote Computes the MD5 hash of the argument, with the result written in hexadecimal.
- * @verified 2026-11-18
+ * @verified 2026-11-20
  */
 const md5Digits = 32
 

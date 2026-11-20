@@ -36,13 +36,13 @@ import { nativeOp } from "#compiler/scalar/compute/registry.ts"
  * The most columns one extended statistics object covers, STATS_MAX_DIMENSIONS.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit columns
  * @scope one extended statistics object: a request's and an access path's
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/statistics/statistics.h#L19
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/statistics/statistics.h#L19
  * @quote #define STATS_MAX_DIMENSIONS 8 /* max number of attributes *\/
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const statisticsMaxColumns = 8
 

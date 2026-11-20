@@ -105,11 +105,11 @@ import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.
  * decode clipped, and two that share their first NAMEDATALEN - 1 bytes would decode alike.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one roster handle in UTF-8, as its roster's names constant holds it in a name
  * @derivation NAMEDATALEN less its terminating zero, as namein clips a name: "len = pg_mbcliplen(s, len, NAMEDATALEN -
- *   1);" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/name.c, verified 2026-11-14)
+ *   1);" (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/name.c, verified 2026-11-20)
  * @from {@link namedatalen}
  */
 export const handleMaxBytes = namedatalen - 1

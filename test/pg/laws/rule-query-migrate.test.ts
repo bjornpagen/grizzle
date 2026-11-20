@@ -1,5 +1,5 @@
 /**
- * Rules over queries through grizzle's migrations, on PostgreSQL 19rc2: a migration that adds a rule over a query, or
+ * Rules over queries through grizzle's migrations, on PostgreSQL 19: a migration that adds a rule over a query, or
  * changes one or a definition it reads, runs its violation query over the stored rows and fails exactly where a row
  * breaks it, the rule it installs holds at every COMMIT after, through a declared rename of a table its query reads,
  * and the migrated catalog is a fresh install's of the second version, through a field the rule reads dropped and added
@@ -68,11 +68,11 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Rules over queries through migrations on PostgreSQL 19rc2 fail a migration adding or changing a rule over a query exactly where the stored rows break it, leave a fresh install's catalog where it applies, and hold the rule it installs at every COMMIT after.
+ * Rules over queries through migrations on PostgreSQL 19 fail a migration adding or changing a rule over a query exactly where the stored rows break it, leave a fresh install's catalog where it applies, and hold the rule it installs at every COMMIT after.
  *
  * Its pre-conversion budget: runs 24, coverage cases 60 (test/pg/laws/rule-query-migrate.test.ts at d8eed1786).
  */
-export const rulesOverQueriesThroughMigrationsOnPostgreSQL19rc2FailAMigrationAddingOrChangingARuleOverAQueryExactlyWhereTheStoredRowsBreakItLeaveAFreshInstallsCatalogWhereItAppliesAndHoldTheRuleItInstallsAtEveryCOMMITAfter =
+export const rulesOverQueriesThroughMigrationsOnPostgreSQL19FailAMigrationAddingOrChangingARuleOverAQueryExactlyWhereTheStoredRowsBreakItLeaveAFreshInstallsCatalogWhereItAppliesAndHoldTheRuleItInstallsAtEveryCOMMITAfter =
 	property.explore(aimed(caseGen, constructed), {
 		needs: { substrate: Substrate.installing },
 		situations: [

@@ -6,9 +6,9 @@
  * reads its precheck's key probe as a read it states no fact of (write/insert/protocol.ts buildInsert). Its precheck
  * refuses a row outside the entry that the snapshot holds at a key the call states, on the key's law; a row committed
  * after the snapshot fails the call with 40001 before PostgreSQL judges it by any policy (nodeModifyTable.c
- * ExecOnConflictSelect and ExecCheckTIDVisible, PostgreSQL 19rc2, which judge the row's visibility first), a
+ * ExecOnConflictSelect and ExecCheckTIDVisible, PostgreSQL 19, which judge the row's visibility first), a
  * SerializationFailure, and the retry's precheck refuses an outside row on the key's law. At READ COMMITTED,
- * PostgreSQL 19rc2 would judge an outside row by the role's SELECT policy before any WHERE and raise 42501, which is why
+ * PostgreSQL 19 would judge an outside row by the role's SELECT policy before any WHERE and raise 42501, which is why
  * the certificate's level is part of the contract.
  *
  * Seat(id, team, holder) is keyed by id. The role `holder` inserts MySeat, the seats of the session's subject, and Gate,

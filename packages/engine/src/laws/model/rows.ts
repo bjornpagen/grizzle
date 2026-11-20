@@ -8,14 +8,14 @@ import { datumBound, isFixedWidth } from "#compiler/schema/representability.ts"
  * its row, whatever the value's size, so the least a varlena column can cost a row.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the in-line pointer of one variable-length value stored out of line
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/storage.sgml#L436-L437
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/storage.sgml#L436-L437
  * @quote the total size of an on-disk TOAST pointer datum is therefore 18 bytes regardless of the actual size of the
  *   represented value
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const toastPointerBytes = 18
 

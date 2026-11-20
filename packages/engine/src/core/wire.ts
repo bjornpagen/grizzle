@@ -11,12 +11,12 @@ import { maxAllocSize } from "#compiler/core/errors.ts"
  * refused on the host as InputTooLarge before its flight is sent (the shell's wire/batch.ts).
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2's frontend/backend protocol
+ * @owner PostgreSQL 19.0's frontend/backend protocol
  * @unit bytes
  * @scope one message from client to server, as its Int32 length counts it, itself included
  * @derivation a protocol constant, PQ_LARGE_MESSAGE_LIMIT, which libpq.h defines as one less than MaxAllocSize:
  *   "#define PQ_LARGE_MESSAGE_LIMIT (MaxAllocSize - 1)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/libpq/libpq.h#L34, verified 2026-11-14)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/libpq/libpq.h#L34, verified 2026-11-20)
  * @from {@link maxAllocSize}
  */
 export const messageMaxBytes = maxAllocSize - 1

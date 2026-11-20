@@ -44,7 +44,7 @@ post-beta swarm's fixes for the next release.
 - **A READ COMMITTED insert through a query entry would meet 42501 (RC2BEHAVE, 2026-11-14):** no role that inserts
   through a query entry is certified READ COMMITTED today, because the certifier reads its precheck's key probe as a
   read it states no fact of (program/isolation/extract.ts). If the certifier learns key probes and admits it, an
-  occupant outside the entry committed between the precheck and the INSERT meets PostgreSQL 19rc2's SELECT-policy
+  occupant outside the entry committed between the precheck and the INSERT meets PostgreSQL 19.0's SELECT-policy
   check on the conflicting row, which runs before any WHERE (nodeModifyTable.c ExecOnConflictSelect), so the insert
   raises 42501. The answer then: read a 42501 at such an insert statement, by statement and SQLSTATE as UniqueAbort
   reads 23505, as a TransientFailure `HiddenOccupant { relation }` whose retry's precheck refuses on the key's law,
@@ -494,12 +494,11 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   already guarantees one value per spelling, and it must add one spelling per value (float specials, -0, numeric
   trailing zeros, date and span forms). Think it through and fix it once live works; the oracle is byte equality with
   today's encode over every carrier.
-- **PostgreSQL:** repin to 19 GA on 2026-11-19 (pin.env, rebuild, re-init, delete the 19rc2 build); the relcache
-  patch is rebased and kept until a release includes it, and so are the btree_gist backport of b82d69abf6 and the
-  PL/pgSQL line lookup, each dropped once its release includes it. Tell qti-pie first: its database lives in the cluster. When
-  the patch next changes, restate its header's "Its output matches stock 19rc1's except for that last line" from a run
-  on the stock release it is rebased onto: the RC2 rebase left that RC1 observation as it was, since any edit changes
-  the patch's SHA-256 in pin.env and so rebuilds every build.
+- **PostgreSQL 19rc2 leaves the machine** once no clone pinned before the 19.0 repin runs a database job: its prefix
+  ~/.local/opt/postgresql/19rc2 and 19rc2.build, and ~/Documents/postgres, the git source its patched pins were built
+  from. den's (5443), effect-openapi-cli-generator's (5444) and learning_commons's (5445) clusters run it until each
+  repository takes a grizzle at or after the repin and moves its cluster as grizzle's moved (`toolchain-pg init --force`
+  from a 19.0 checkout, or `stop` then `init --adopt` for a kept one).
 - **Named clusters each size themselves as if alone (PRIVATECLUSTER, c30406e6; main's decision 2026-11-14: no change):**
   every cluster TOOLCHAIN_PG_CLUSTER names takes pg.config.ts's sizing, the one machine-derived formula. On cassowary a cluster
   is max_connections 4359, shared_buffers 304,064 blocks, max_pred_locks_per_transaction 30, 66 replication slots and
@@ -689,7 +688,7 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   removing a month without debits whole, its charges with it, and refusing one with debits at commit on grantDebits.
   That is a contract change (README, and test/pg/write/whole's required feature "the delete without the other
   relation's refused"), and neither qti-pie nor edullm needs it.
-- **UPSTREAM:** an audit of every upstream/ and scripts/pg/patches patch to maintainer quality (the owner's order,
+- **UPSTREAM:** an audit of every upstream/ patch to maintainer quality (the owner's order,
   2026-11-10).
 - **The test-diet queue's files no cull lane took:** test/pg/adapter/flight and the smoke and check scripts.
 - **QSET, canonical query IR sets:** the draft is ~/.cache/grizzle-release/QSET/draft (admission.ts's canonical walk,
@@ -770,15 +769,17 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
 - upstream/generated-domain-check-partition-routing: since 7c87284940 (in 18.0, 17.5, 16.9, 15.13 and 14.18) an
   INSERT routed through a partitioned table fails with 42804 when a CHECK, an index expression or predicate, or a
   row security WITH CHECK reads a domain-typed stored generated column. A pgsql-bugs report with an unbuilt diff. It
-  blocks partitioning edullm's 9 tables whose laws read such columns (MULTICORE); once the pin carries a fix, they
-  can be partitioned.
-- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup. The pin carries the
-  fix as scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch.
+  blocks partitioning edullm's 9 tables whose laws read such columns (MULTICORE); once a release grizzle pins carries
+  a fix, they can be partitioned.
+- upstream/plpgsql-lineno-rescan: PL/pgSQL rescans the source on every location-to-line lookup. No release carries
+  the fix, and grizzle's pin, the unpatched release, pays it (README, PostgreSQL known issues).
 - upstream/btree-gist-multibyte-penalty: btree_gist's fix for multibyte text keys (b82d69abf6) is on master only. The
   folder holds the owner's unfiled text_utf8 placement test for master, and b82d69abf6 back-patched with that test for
-  REL_19_STABLE. The pin carries the change as scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch.
+  REL_19_STABLE. 19.0 shipped without it, and grizzle's pin, the unpatched release, pays it (README, PostgreSQL known
+  issues).
 - upstream/gist-costestimate-column-position: a pgsql-hackers reply to BUG #15408, for PostgreSQL 20.
-- upstream/relcache-planned-check-and-generation: the relcache patch the pin carries.
+- upstream/relcache-planned-check-and-generation: CHECK and generation expressions planned once per relcache entry.
+  No release carries it, and grizzle's pin, the unpatched release, pays it (README, PostgreSQL known issues).
 - upstream/fallow-unused-class-member-union-property: fallow credits no class member called through a property of a
   union-typed value, so .fallowrc.json keeps use and relationUse. File at fallow-rs/fallow, then drop the entries once
   repro.sh reports Cell.never alone.

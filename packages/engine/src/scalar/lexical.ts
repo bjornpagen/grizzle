@@ -46,12 +46,12 @@ export const decimalDigitsOf = (p: number): number => Math.floor((p - 1) * Math.
  * DBL_DIG: the significant digits a double precision keeps cast to numeric.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2 float8_numeric over C's DBL_DIG
+ * @owner PostgreSQL 19.0 float8_numeric over C's DBL_DIG
  * @unit decimal digits
  * @scope the significant digits of a double precision cast to numeric
  * @derivation floor((p - 1) * log10(2)), C's DBL_DIG for binary64, the precision float8_numeric prints with:
  *   "snprintf(buf, sizeof(buf), "%.*g", DBL_DIG, val);"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L4563)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L4563)
  * @from {@link binary64Precision}
  */
 export const binary64DecimalDigits = decimalDigitsOf(binary64Precision)

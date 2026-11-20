@@ -1,7 +1,7 @@
 import { assert, defined, nonEmpty, unorderedEqual } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 /**
- * Closed ids as codes on PostgreSQL 19rc2: a roster's smallint domain, its names constant, the decoded column of a role
+ * Closed ids as codes on PostgreSQL 19: a roster's smallint domain, its names constant, the decoded column of a role
  * view, and a set's bit string, each judged against A8's model of the roster's history (test/support/closed/generate.ts),
  * a list of code slots replayed command by command that shares no code with the engine's codebook.
  *

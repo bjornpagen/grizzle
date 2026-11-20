@@ -1,6 +1,6 @@
 import { assert, deepEquals, defined } from "@bjornpagen/testing/assert"
 /**
- * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19rc2 (fin.md §11, "Plan audits",
+ * The reads of families and trees through grizzle's installed indexes, on PostgreSQL 19 (fin.md §11, "Plan audits",
  * trees.md §3, §5): the export, every subtree's descendants and every family's members are an index or range scan of
  * the index grizzle installs for them, with no sort, no sequential scan and no recursion, and return exactly the rows
  * the parent links say they should.

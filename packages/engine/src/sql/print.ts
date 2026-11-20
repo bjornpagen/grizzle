@@ -107,31 +107,31 @@ import { statementParams } from "#compiler/sql/transform.ts"
  * 1664 entries" (src/backend/parser/parse_node.c free_parsestate).
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit entries
  * @scope one target list of one query level
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/htup_details.h#L34
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/htup_details.h#L34
  * @quote #define MaxTupleAttributeNumber 1664
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const selectMaxEntries = 1_664
 
 /**
  * The most placeholders one statement binds: a Bind message counts its parameter values in an unsigned 16-bit field,
  * `numParams = pq_getmsgint(input_message, 2);`
- * (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/tcop/postgres.c#L1734), and the count must be the
+ * (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/tcop/postgres.c#L1734), and the count must be the
  * statement's highest `$n` ("bind message supplies %d parameters, but prepared statement \"%s\" requires %d"), so a
  * statement of more is refused as ResourceBound (statementParams) when it is printed.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's frontend/backend protocol
+ * @owner PostgreSQL 19.0's frontend/backend protocol
  * @unit placeholders
  * @scope one statement
  * @constraint protocol constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/limits.sgml#L115-L116
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/limits.sgml#L115-L116
  * @quote <entry>query parameters</entry> <entry>65,535</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const statementMaxParams = 2 ** 16 - 1
 

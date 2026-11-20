@@ -1,5 +1,5 @@
 /**
- * A retirable unit as `grizzle migrate` installs it on PostgreSQL 19rc2, written as a direct writer and its two
+ * A retirable unit as `grizzle migrate` installs it on PostgreSQL 19, written as a direct writer and its two
  * functions (physical/ddl/retire.ts) would write it: Root, the header, with its retirement field; Step and Claim, its
  * bodies, grouped by root; and Claim's step contained in Step, carrying the group.
  *
@@ -37,11 +37,11 @@ import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A retirable unit installed on PostgreSQL 19rc2 admits rows only into open groups, holds only open groups, and retires a group whole, keeping its header for good.
+ * A retirable unit installed on PostgreSQL 19 admits rows only into open groups, holds only open groups, and retires a group whole, keeping its header for good.
  *
  * Its pre-conversion budget: runs 150, coverage cases 300 (test/pg/laws/retirable.test.ts at d8eed1786).
  */
-export const aRetirableUnitInstalledOnPostgreSQL19rc2AdmitsRowsOnlyIntoOpenGroupsHoldsOnlyOpenGroupsAndRetiresAGroupWholeKeepingItsHeaderForGood =
+export const aRetirableUnitInstalledOnPostgreSQL19AdmitsRowsOnlyIntoOpenGroupsHoldsOnlyOpenGroupsAndRetiresAGroupWholeKeepingItsHeaderForGood =
 	property.explore(runGen, {
 		needs: { seated: Substrate.seat(unitsTemplate) },
 		situations: [

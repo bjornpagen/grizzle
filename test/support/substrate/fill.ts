@@ -35,7 +35,7 @@ export class VolumeFillRefused extends Data.TaggedError("VolumeFillRefused")<{
 
 /**
  * The enabled INITIALLY DEFERRED triggers of the table $1 names that an INSERT fires (tgtype's TRIGGER_TYPE_INSERT bit,
- * 1 << 2, REL_19_RC2 src/include/catalog/pg_trigger.h), each by the constraint it implements where it implements one (a
+ * 1 << 2, REL_19_0 src/include/catalog/pg_trigger.h), each by the constraint it implements where it implements one (a
  * foreign key's or a unique check's trigger, named by PostgreSQL after an OID), else by its own name, and the OID of the
  * table a foreign key's check references, or none. A fill only inserts, so a deferred trigger of another event, as the
  * referenced side of a deferred foreign key holds for UPDATE and DELETE, never judges its rows.

@@ -1,5 +1,5 @@
 /**
- * Counted put and delete through grizzle's own apply, on PostgreSQL 19rc2 (rows-first §2, §3): a counted family's
+ * Counted put and delete through grizzle's own apply, on PostgreSQL 19 (rows-first §2, §3): a counted family's
  * members are rows, and grizzle draws every edit to them in SQL. A member put that changes its step value refills the
  * fold from its slot, and a member delete swaps the last member into the freed slot and refills from there, each one
  * suffix rewrite in the write's own statements.
@@ -62,9 +62,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * Counted put and delete through grizzle's apply on PostgreSQL 19rc2 leave exactly the state the families model and the reference fold state after each member's put of a new step value and each member's delete.
+ * Counted put and delete through grizzle's apply on PostgreSQL 19 leave exactly the state the families model and the reference fold state after each member's put of a new step value and each member's delete.
  */
-export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19rc2LeaveExactlyTheStateTheFamiliesModelAndTheReferenceFoldStateAfterEachMembersPutOfANewStepValueAndEachMembersDelete =
+export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTheStateTheFamiliesModelAndTheReferenceFoldStateAfterEachMembersPutOfANewStepValueAndEachMembersDelete =
 	property.exhaust(finite(sketchGen), {
 		needs: { fixture: Substrate.seat(editedTemplate) },
 		situations: [
@@ -166,11 +166,11 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19rc2LeaveExactl
 	})
 
 /**
- * Counted put and delete through grizzle's apply on PostgreSQL 19rc2 put a span-keyed owner in place, leaving every owner's label, count and fold end and every member as the families model states them.
+ * Counted put and delete through grizzle's apply on PostgreSQL 19 put a span-keyed owner in place, leaving every owner's label, count and fold end and every member as the families model states them.
  *
  * Its pre-conversion budget: runs 24, coverage cases 40 (test/pg/fin/edits.test.ts at fd71eef13).
  */
-export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19rc2PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem =
+export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem =
 	property.explore(spanSketchGen, {
 		needs: { fixture: Substrate.seat(spannedTemplate) },
 		situations: [
@@ -271,7 +271,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19rc2PutASpanKey
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/fin/edits.test.ts#countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19rc2PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem:-:1.0.0.0.0.0.1.0.0.0.0.3.0"
+					"test/pg/fin/edits.test.ts#countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19PutASpanKeyedOwnerInPlaceLeavingEveryOwnersLabelCountAndFoldEndAndEveryMemberAsTheFamiliesModelStatesThem:-:1.0.0.0.0.0.1.0.0.0.0.3.0"
 				),
 				reason:
 					"an owner of one member put in place: its count and end, its member's, differ from the starts its put's slot carries them at, which no comparison of the put reads",

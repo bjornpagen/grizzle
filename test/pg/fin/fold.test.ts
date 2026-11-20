@@ -1,5 +1,5 @@
 /**
- * Folds through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.3, §11 "Identities", w4-w7 §2.3): one family per
+ * Folds through grizzle's lowering, on PostgreSQL 19 (fin.md §4.3, §11 "Identities", w4-w7 §2.3): one family per
  * (monoid, carrier) folded by grizzle's `fold` (folds.ts), every family of at most four members over a five-value
  * domain written by a direct SQL writer, the owner, with the accumulators the reference fold computes and with each
  * single junk accumulator, and PostgreSQL's verdict judged three ways.
@@ -72,7 +72,7 @@ import {
 } from "#test/pg/fin/fold.fixtures.ts"
 
 /**
- * Folds through grizzle's lowering on PostgreSQL 19rc2 commit the reference fold of every family of at most four members
+ * Folds through grizzle's lowering on PostgreSQL 19 commit the reference fold of every family of at most four members
  * over five values, and refuse every single junk accumulator by the native that owns its axis: one property for each
  * fold spec, each case on the worker's seat of its spec's schema.
  */
@@ -146,7 +146,7 @@ export const foldsThroughGrizzlesLoweringCommitTheReferenceFoldAndRefuseEverySin
 	)
 
 /**
- * Folds through grizzle's lowering on PostgreSQL 19rc2 admit a tree's root exactly one state of its fold's
+ * Folds through grizzle's lowering on PostgreSQL 19 admit a tree's root exactly one state of its fold's
  * accumulators, and refuse every other, in every forest of at most four rows.
  */
 export const foldsThroughGrizzlesLoweringAdmitATreesRootExactlyOneStateOfItsFoldsAccumulatorsInEveryForestOfAtMostFourRows =

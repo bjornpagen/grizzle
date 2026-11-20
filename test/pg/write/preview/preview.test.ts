@@ -1,5 +1,5 @@
 /**
- * insertPreview (engine program/preview.ts) against PostgreSQL 19rc2: the rows a preview gives are the rows the same
+ * insertPreview (engine program/preview.ts) against PostgreSQL 19: the rows a preview gives are the rows the same
  * `ChangeSet.empty(S).insertAll(rows)` stores as the first write of an installation holding no row, every field of
  * every writable relation as a host value, each row's generated fields as rowEvaluator computes them of the preview's
  * row; and each refusal a preview gives is the write's, by the same law, with the same witness.

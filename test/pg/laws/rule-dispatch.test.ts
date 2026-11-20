@@ -5,7 +5,7 @@
  * holds a row, a side of olds among them, and the judge stands up only the deltas of the blocks it runs. A learner's
  * write so runs the rules over the learner's relations alone, never every content rule's violation query over empty
  * deltas, each planned in the session and run, as edullm's qti.__judge did on every learner COMMIT, ~190 ms steady and
- * 2 to 2.9 s the first in a session (lanes ISOLATION and JUDGESIZE at 29e98c43d). On PostgreSQL 19rc2, over Dispatch
+ * 2 to 2.9 s the first in a session (lanes ISOLATION and JUDGESIZE at 29e98c43d). On PostgreSQL 19, over Dispatch
  * (rule-dispatch.fixtures.ts): a package's documents and parts and a learner's visits and answers, each a unit under a
  * whole containment, and a learner's mutable notes under a probed containment into the documents that have a part.
  *

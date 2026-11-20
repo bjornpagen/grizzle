@@ -12,13 +12,13 @@ import { entry } from "#text/regex/table.ts"
  * DFA, which its regex executor recycles past the same count.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex executor (rege_dfa.c newdfa)
+ * @owner PostgreSQL 19.0's regex executor (rege_dfa.c newdfa)
  * @unit DFA states per NFA state
  * @scope each pattern's matcher, over every text one process matches against it
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/regex/rege_dfa.c#L613
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/regex/rege_dfa.c#L613
  * @quote size_t nss = cnfa->nstates * 2;
- * @verified 2026-11-18
+ * @verified 2026-11-20
  */
 const keptStatesPerNfaState = 2
 

@@ -99,11 +99,11 @@ import { printObjectName, textArrayLiteral } from "#compiler/sql/print.ts"
  * It is a whole number of bytes, so a constant within it is within it padded to whole hex digits too.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bits
  * @scope one bit varying value: a closed side's constant, as its function returns it
  * @derivation varbit.h's VARBITMAXLEN, "#define VARBITMAXLEN (INT_MAX - BITS_PER_BYTE + 1)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/varbit.h#L83, verified 2026-11-14),
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/varbit.h#L83, verified 2026-11-20),
  *   INT_MAX being the greatest integer
  * @from {@link int4Max}, {@link bitsPerByte}
  */
@@ -116,12 +116,12 @@ export const constantMaxBits = int4Max - bitsPerByte + 1
  * is "integer out of range". A payload space of more codes is refused when its constant is planned.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit codes
  * @scope the payload space of one closed relation or side: the codes 1 + c its cells hold, each read as an integer
  * @derivation bittoint4 reads a cell's bits as uint32 and returns it as int32, refusing more than 32 bits: "if
  *   (VARBITLEN(arg) > sizeof(result) * BITS_PER_BYTE)" and "PG_RETURN_INT32(result)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-14);
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/varbit.c#L1593, verified 2026-11-20);
  *   the greatest cell, 1 + (codes - 1), is at most the greatest integer
  * @from {@link int4Max}
  */

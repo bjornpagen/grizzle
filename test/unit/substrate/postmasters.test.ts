@@ -1,5 +1,5 @@
 /**
- * The postmasters build.sh refuses to exchange the shared prefix under (packages/pg/src/installation.ts postmastersOf,
+ * The postmasters build.sh refuses to exchange the shared prefix under (packages/pg/src/postmasters.ts postmastersOf,
  * through foreign-postmasters.ts): every process running the bin/postgres of a tree it is given, found from the
  * processes themselves wherever their data directories lie.
  *
@@ -74,7 +74,7 @@ export const thePostmastersRunningATreesBuildAreEveryProcessRunningTheTreesBinPo
 		kept: [],
 		kills: [
 			{
-				file: "packages/pg/src/installation.ts",
+				file: "packages/pg/src/postmasters.ts",
 				original:
 					'\t\tconst pids = yield* Effect.mapError(\n\t\t\tfs.readDirectory("/proc"),\n\t\t\t(cause) => new Unreadable({ path: "/proc", cause })',
 				replacement: `\t\tconst stateRoot = \`\${process.env["HOME"]}/.local/var/grizzle\`\n\t\tconst states = yield* Effect.orElseSucceed(fs.readDirectory(stateRoot), () => [])\n\t\tconst pids = yield* Effect.forEach(states, (state) =>\n\t\t\tEffect.orElseSucceed(\n\t\t\t\tEffect.map(\n\t\t\t\t\tfs.readFileString(\`\${stateRoot}/\${state}/data/postmaster.pid\`),\n\t\t\t\t\t(text) => text.split("\\n")[0] ?? ""\n\t\t\t\t),\n\t\t\t\t() => ""\n\t\t\t)`,

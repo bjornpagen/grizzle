@@ -1,7 +1,7 @@
 /**
  * A rule's probe of a text of no byte bound reads its rows as a point lookup: the index the engine creates for it holds
  * the text's image, md5(text), in its place, and the probe states the images' equality beside the
- * texts' (sql/image.ts). On PostgreSQL 19rc2, over a few packages of a hundred documents and more, each
+ * texts' (sql/image.ts). On PostgreSQL 19, over a few packages of a hundred documents and more, each
  * holding one identifier, analyzed, the ledger's containment of item sessions in an item's identifier, a value of
  * no byte bound, probes Attribute by (package, name, kind, value) and ItemSession by (package, item), the rows that
  * share a lookup's bounded columns a package's identifiers; and a reader's read through its query entry, a security

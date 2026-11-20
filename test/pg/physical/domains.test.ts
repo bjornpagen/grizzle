@@ -1,5 +1,5 @@
 /**
- * Shared domains on PostgreSQL 19rc2: a contract's domain is named by the digest of its physical definition,
+ * Shared domains on PostgreSQL 19: a contract's domain is named by the digest of its physical definition,
  * so two contracts of one definition share one domain and two of different definitions never do, and each column the
  * shared domain types still enforces its contract, its violation refused with 23514 on that domain.
  *
@@ -31,11 +31,11 @@ import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Shared domains on PostgreSQL 19rc2 type two contracts' columns by one domain exactly when their definitions are equal, each column enforcing its contract.
+ * Shared domains on PostgreSQL 19 type two contracts' columns by one domain exactly when their definitions are equal, each column enforcing its contract.
  *
  * Its pre-conversion budget: runs 8, coverage cases 16 (test/pg/physical/domains.test.ts at d8eed1786).
  */
-export const sharedDomainsOnPostgreSQL19rc2TypeTwoContractsColumnsByOneDomainExactlyWhenTheirDefinitionsAreEqualEachColumnEnforcingItsContract =
+export const sharedDomainsOnPostgreSQL19TypeTwoContractsColumnsByOneDomainExactlyWhenTheirDefinitionsAreEqualEachColumnEnforcingItsContract =
 	property.explore(pairGen, {
 		needs: { substrate: Substrate.installing },
 		situations: [

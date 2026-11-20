@@ -35,7 +35,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * A float's -0 and +0 are one key and two facts, on PostgreSQL 19rc2: a write of a fact at a stored fact's key whose zero has the other sign writes another fact, by every put target, insert and deletion.
+ * A float's -0 and +0 are one key and two facts, on PostgreSQL 19: a write of a fact at a stored fact's key whose zero has the other sign writes another fact, by every put target, insert and deletion.
  */
 export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhoseZeroHasTheOtherSignWritesAnotherFactByEveryPutTargetInsertAndDeletion =
 	property.exhaust(finite(sketchGen), {
@@ -178,7 +178,7 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 	})
 
 /**
- * Two facts at -0 and +0 of a float key are one key, on PostgreSQL 19rc2: a put of both in one stratum is refused on the key before any SQL, as two facts of one key are.
+ * Two facts at -0 and +0 of a float key are one key, on PostgreSQL 19: a put of both in one stratum is refused on the key before any SQL, as two facts of one key are.
  */
 export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefusedOnTheKey =
 	property.exhaust(finite(keysGen), {
@@ -243,7 +243,7 @@ export const twoFactsAtMinusZeroAndPlusZeroOfAFloatKeyAreOneKeyAPutOfBothIsRefus
 	})
 
 /**
- * A float key's -0 and +0 are one key to an attachment, on PostgreSQL 19rc2 under every plan shape: a parent at either zero has the children at both zeros, each delivering its own zero.
+ * A float key's -0 and +0 are one key to an attachment, on PostgreSQL 19 under every plan shape: a parent at either zero has the children at both zeros, each delivering its own zero.
  */
 export const aFloatKeysZerosAreOneKeyToAnAttachmentAParentAtEitherZeroHasTheChildrenAtBothZerosUnderEveryPlanShape =
 	property.exhaust(finite(planShapeGen), {

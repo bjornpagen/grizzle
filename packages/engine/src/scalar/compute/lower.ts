@@ -132,11 +132,11 @@ import { numericMaxIntegerDigits, numericMaxPrecision } from "#compiler/scalar/v
  * The internal limit on a calculation's result scale, NUMERIC_MAX_RESULT_SCALE.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the scale of an intermediate numeric result, which exp_var's input bound is three times
  * @derivation numeric.h: "#define NUMERIC_MAX_RESULT_SCALE (NUMERIC_MAX_PRECISION * 2)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L46)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/numeric.h#L46)
  * @from {@link numericMaxPrecision}
  */
 const numericMaxResultScale = numericMaxPrecision * 2
@@ -147,11 +147,11 @@ const numericMaxResultScale = numericMaxPrecision * 2
  * "value overflows numeric format".
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit a natural logarithm
  * @scope y · ln x of a power with an exponent that is no integer
  * @derivation exp_var's overflow test, three times the result scale: "if (fabs(val) >= NUMERIC_MAX_RESULT_SCALE * 3)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L10503)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L10503)
  * @from {@link numericMaxResultScale}
  */
 const powerExpLimit = numericMaxResultScale * 3
@@ -1183,7 +1183,7 @@ const powerRangePremises = (
  * integer, a point interval at an integer, is power_var_int's, which raises 22003 once its estimate of the result's
  * decimal weight passes (NUMERIC_WEIGHT_MAX + 1) · DEC_DIGITS, numericMaxIntegerDigits:
  * "if (f > (NUMERIC_WEIGHT_MAX + 1) * DEC_DIGITS)"
- * (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L11074), or once a product's
+ * (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L11074), or once a product's
  * NBASE weight passes NUMERIC_WEIGHT_MAX (numeric.c#L11205-L11206). Its weight (powerWeight), an integer there, is held
  * below numericMaxIntegerDigits, so the result is at most 10^(numericMaxIntegerDigits - 1): a whole digit inside both
  * tests, whatever the estimate's rounding. Any other exponent is power_var's, exp(y · ln x), its weight held below

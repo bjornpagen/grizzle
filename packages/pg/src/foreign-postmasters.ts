@@ -1,10 +1,10 @@
 import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import { Console, Effect } from "effect"
-import { postmastersOf } from "#pg/installation.ts"
+import { postmastersOf } from "#pg/postmasters.ts"
 
 /**
- * Prints every postmaster that runs the bin/postgres of a tree its arguments name (installation.ts postmastersOf), one
+ * Prints every postmaster that runs the bin/postgres of a tree its arguments name (postmasters.ts postmastersOf), one
  * line each: its port, its data directory, its process and its executable as the kernel names it. build.sh refuses the
  * exchange while one runs, unless --force is given. Its arguments are the trees; none is refused.
  */

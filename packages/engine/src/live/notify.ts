@@ -24,13 +24,13 @@ import { wellFormed } from "#compiler/core/text.ts"
  * SLRU page of the notification queue.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the part of one notification queue page no channel name and no payload may take
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/commands/async.c#L194-L202
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/commands/async.c#L194-L202
  * @quote #define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const notifyPayloadMargin = 128
 
@@ -39,14 +39,14 @@ const notifyPayloadMargin = 128
  * this many bytes or more with 22023, which fails the statement that sent it, and with it the write.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one NOTIFY payload in the server encoding, its terminating zero excluded: sent only while shorter
  * @derivation async.c's "#define NOTIFY_PAYLOAD_MAX_LENGTH (BLCKSZ - NAMEDATALEN - 128)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/commands/async.c#L202) and Async_Notify's "if
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/commands/async.c#L202) and Async_Notify's "if
  *   (payload_len >= NOTIFY_PAYLOAD_MAX_LENGTH) ereport(ERROR, (errcode(ERRCODE_INVALID_PARAMETER_VALUE),
  *   errmsg("payload string too long")))"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/commands/async.c#L924-L927, verified 2026-11-14)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/commands/async.c#L924-L927, verified 2026-11-20)
  * @from {@link blockSize}, {@link namedatalen}, {@link notifyPayloadMargin}
  */
 const notifyPayloadMaxBytes = blockSize - namedatalen - notifyPayloadMargin

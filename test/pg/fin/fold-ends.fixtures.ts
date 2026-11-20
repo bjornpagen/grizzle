@@ -64,7 +64,7 @@ import type { SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * Every fold's end and running values after every write grizzle's apply makes of a family, on PostgreSQL 19rc2: what
+ * Every fold's end and running values after every write grizzle's apply makes of a family, on PostgreSQL 19: what
  * PostgreSQL holds after each write, applied as a served member with its call's facts, is exactly what the host model
  * of the README's family semantics states (test/support/families/ends.ts), and every lawful write is accepted.
  *

@@ -1,7 +1,7 @@
 /**
  * A whole rule's statement reads its relations within the units a transaction wrote through whatever index PostgreSQL
  * takes: every created B-tree all of whose keys a lookup of one unit binds holds that unit's fields
- * (physical/indexes/engine.ts confined). On PostgreSQL 19rc2, over nodes of tens of documents of tens of packages,
+ * (physical/indexes/engine.ts confined). On PostgreSQL 19, over nodes of tens of documents of tens of packages,
  * analyzed or not, a whole rule's lookup of one node by its key, kind and governor beside a probed rule's index of
  * (pkg, kind, at), smaller than the node's key's and estimated at one row as it is, which without the node's document
  * reads every document of the package at that place (rule-confined.fixtures.ts).

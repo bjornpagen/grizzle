@@ -23,11 +23,11 @@ import { member, openServedDb } from "#test/support/served-db.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A family's owner written through a role's query entry on PostgreSQL 19rc2 inserts and puts the north stores each entry sees as the model of the entry over the family states, leaving every count, stock and Item as the family holds them.
+ * A family's owner written through a role's query entry on PostgreSQL 19 inserts and puts the north stores each entry sees as the model of the entry over the family states, leaving every count, stock and Item as the family holds them.
  *
  * Its pre-conversion budget: runs 32, coverage cases 120 (test/pg/write/entry-owner/entry-owner.test.ts at d8eed1786).
  */
-export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19rc2InsertsAndPutsTheNorthStoresEachEntrySeesAsTheModelOfTheEntryOverTheFamilyStatesLeavingEveryCountStockAndItemAsTheFamilyHoldsThem =
+export const aFamilysOwnerWrittenThroughARolesQueryEntryOnPostgreSQL19InsertsAndPutsTheNorthStoresEachEntrySeesAsTheModelOfTheEntryOverTheFamilyStatesLeavingEveryCountStockAndItemAsTheFamilyHoldsThem =
 	property.explore(caseGen, {
 		needs: { shop: Substrate.seat(shopTemplate) },
 		situations: [

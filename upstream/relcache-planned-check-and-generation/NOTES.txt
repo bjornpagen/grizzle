@@ -12,8 +12,9 @@ owner files it by hand.
    - Found through grizzle. A closed relation is installed as an IMMUTABLE function returning a bitmap, and every
      table CHECK and generated field that reads one paid for the constant on every statement (README, "PostgreSQL
      known issues").
-   - grizzle carries it as scripts/pg/patches/19rc2-relcache-planned-check-and-generation.patch, applied to every
-     build. This folder is the same change on master, for upstream. The pin patch is unchanged by this folder.
+   - grizzle carried it as scripts/pg/patches/19rc2-relcache-planned-check-and-generation.patch, applied to every
+     build until its repin to 19.0, since which it builds the official release with no patch (the owner, 2026-11-20).
+     This folder is the same change on master, for upstream, and now its one copy.
    - Known upstream in part (CHECKLIST.txt A): Korry Douglas and Noah Misch proposed caching the stringToNode() form
      of ccbin in 2013. That thread stalled on a memory-management defect and on whether the executor may share the
      cached tree. The email cites it and says how this patch answers both.

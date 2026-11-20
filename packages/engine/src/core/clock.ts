@@ -14,13 +14,13 @@ export const isClockUnit = (value: unknown): value is ClockUnit =>
  * own epoch: the earliest the database's clock can read.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit microseconds since 2000-01-01 00:00:00 UTC
  * @scope a reading of the database's clock
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/datatype/timestamp.h#L256
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/datatype/timestamp.h#L256
  * @quote #define MIN_TIMESTAMP	INT64CONST(-211813488000000000)
- * @verified 2026-11-19
+ * @verified 2026-11-20
  */
 const minTimestamp = -211_813_488_000_000_000n
 
@@ -29,13 +29,13 @@ const minTimestamp = -211_813_488_000_000_000n
  * 2000-01-01: every reading of the database's clock is before it.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit microseconds since 2000-01-01 00:00:00 UTC
  * @scope a reading of the database's clock
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/datatype/timestamp.h#L258
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/datatype/timestamp.h#L258
  * @quote #define END_TIMESTAMP	INT64CONST(9223371331200000000)
- * @verified 2026-11-19
+ * @verified 2026-11-20
  */
 const endTimestamp = 9_223_371_331_200_000_000n
 
@@ -44,11 +44,11 @@ const endTimestamp = 9_223_371_331_200_000_000n
  * of 86400 seconds.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit microseconds
  * @scope a reading of the database's clock
  * @derivation (POSTGRES_EPOCH_JDATE - UNIX_EPOCH_JDATE) * SECS_PER_DAY * USECS_PER_SEC = (2451545 - 2440588) * 86400 *
- *   10^6 (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/datatype/timestamp.h#L234-L235)
+ *   10^6 (https://github.com/postgres/postgres/blob/REL_19_0/src/include/datatype/timestamp.h#L234-L235)
  */
 const postgresEpochMicros = 946_684_800_000_000n
 

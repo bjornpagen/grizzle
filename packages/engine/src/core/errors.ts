@@ -48,13 +48,13 @@ import type { Refused } from "#compiler/core/refusals.ts"
  * PostgreSQL's MaxAllocSize, the largest chunk its allocator hands out, which bounds the messages a backend reads.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one allocation of a backend
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L40
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/memutils.h#L40
  * @quote #define MaxAllocSize ((Size) 0x3fffffff)
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const maxAllocSize = 0x3fff_ffff
 
@@ -63,13 +63,13 @@ export const maxAllocSize = 0x3fff_ffff
  * every platform PostgreSQL 19 builds on.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one pg_wchar, an unsigned int of the platform's C ABI, 32 bits on every platform PostgreSQL builds on
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/mb/pg_wchar.h#L28
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/mb/pg_wchar.h#L28
  * @quote typedef unsigned int pg_wchar;
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const pgWcharBytes = 4
 
@@ -80,11 +80,11 @@ const pgWcharBytes = 4
  * check or generated column that matches a longer text fails its write.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the subject text of one match by ~
  * @derivation RE_execute allocates "data = palloc_array(pg_wchar, dat_len + 1);" over its subject's dat_len bytes for
- *   ~ (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/regexp.c#L332, verified 2026-11-14),
+ *   ~ (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/regexp.c#L332, verified 2026-11-20),
  *   and palloc refuses a size past MaxAllocSize, so the length plus one is at most MaxAllocSize / sizeof(pg_wchar),
  *   rounded down
  * @from {@link maxAllocSize}, {@link pgWcharBytes}

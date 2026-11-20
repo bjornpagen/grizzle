@@ -1334,7 +1334,7 @@ export const directBranches = (
 				/**
 				 * How ON CONFLICT resolves a conflict with a stored fact, which row security shows the role or hides from it.
 				 * DO SELECT and DO UPDATE judge the stored row by the role's policy before the writer's predicate
-				 * (nodeModifyTable.c ExecOnConflictSelect and ExecOnConflictUpdate, PostgreSQL 19rc2), so a hidden row is
+				 * (nodeModifyTable.c ExecOnConflictSelect and ExecOnConflictUpdate, PostgreSQL 19), so a hidden row is
 				 * refused whatever the predicate says of it, and the predicate runs only on a row the role sees.
 				 */
 				const resolved = (): Arr.NonEmptyReadonlyArray<Branch> => {

@@ -4,7 +4,7 @@ import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 /**
- * A table's attribute numbers on PostgreSQL 19rc2, around the bound: PostgreSQL never reuses a dropped
+ * A table's attribute numbers on PostgreSQL 19, around the bound: PostgreSQL never reuses a dropped
  * column's attribute number, and refuses a table past 1600 of them, live and dropped together, with 54011 (heap.c,
  * MaxHeapAttributeNumber). grizzle's snapshot records each table's attribute numbers ever used, so its draft refuses an
  * ADD COLUMN past that limit, naming the relation and saying to recreate it, exactly where PostgreSQL would refuse the
@@ -45,7 +45,7 @@ import {
 import { refusalOf } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A table's attribute numbers through grizzle's migrations on PostgreSQL 19rc2 a table migrated near 1600 attribute numbers holds them, and grizzle's draft refuses exactly the additions PostgreSQL refuses. */
+/** A table's attribute numbers through grizzle's migrations on PostgreSQL 19 a table migrated near 1600 attribute numbers holds them, and grizzle's draft refuses exactly the additions PostgreSQL refuses. */
 export const attnums = property.exhaust(finite(int(1, slack + past)), {
 	needs: { substrate: Substrate.installing },
 	situations: [

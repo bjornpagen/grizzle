@@ -8,13 +8,13 @@ import { type CharSet, domain, intersection, isEmpty, size, union } from "#text/
  * expression is too complex" when a new batch is needed and the space is spent (regc_nfa.c newstate, allocarc).
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA states
  * @scope the states REG_MAX_COMPILE_SPACE is the space of, for one regex's compilation
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L463-L466
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L463-L466
  * @quote (500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const regexSpaceStates = 500_000
 
@@ -22,13 +22,13 @@ export const regexSpaceStates = 500_000
  * REG_MAX_COMPILE_SPACE's arcs for each of its states.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA arcs per state
  * @scope the arcs REG_MAX_COMPILE_SPACE is the space of, for each of its states
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L463-L466
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L463-L466
  * @quote (500000 * (sizeof(struct state) + 4 * sizeof(struct arc)))
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const regexSpaceArcsPerState = 4
 
@@ -36,13 +36,13 @@ const regexSpaceArcsPerState = 4
  * The arcs of an NFA's first arc batch, FIRSTABSIZE, the fewest any of its batches holds.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA arcs
  * @scope the first arc batch of one NFA, each later batch doubling it
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L327
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L327
  * @quote #define FIRSTABSIZE 64
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const regexFirstArcBatch = 64
 
@@ -50,13 +50,13 @@ const regexFirstArcBatch = 64
  * The arcs of an NFA's largest arc batch, MAXABSIZE.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA arcs
  * @scope one arc batch of one NFA
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L328
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L328
  * @quote #define MAXABSIZE 1024
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const regexMaxArcBatch = 1_024
 
@@ -66,7 +66,7 @@ const regexMaxArcBatch = 1_024
  * refused as ResourceBound (regexCompileSpace, arcs).
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA arcs
  * @scope the arcs of one pattern's NFAs that PostgreSQL holds at once while compiling it
  * @derivation the arcs' share of REG_MAX_COMPILE_SPACE, four for each of its states, less what batches cost beyond the
@@ -75,7 +75,7 @@ const regexMaxArcBatch = 1_024
  *   raw one lives) hold at most their live entries and one batch each beyond them; a batch's header, its chain link
  *   and its count, is no larger than one entry, and a batch holds at least its first batch's entries, so the headers
  *   cost at most one entry for each of those; newstate and allocarc refuse a new batch only once "nfa->v->spaceused >=
- *   REG_MAX_COMPILE_SPACE" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/regex/regc_nfa.c#L165,
+ *   REG_MAX_COMPILE_SPACE" (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/regex/regc_nfa.c#L165,
  *   #L389), so the states within their share and the arcs within theirs keep the space below it, verified 2026-11-14
  * @from {@link regexSpaceStates}, {@link regexSpaceArcsPerState}, {@link regexFirstArcBatch}, {@link regexMaxArcBatch}
  */

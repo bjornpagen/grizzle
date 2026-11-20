@@ -70,9 +70,9 @@ import { servedGenerated } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Levels of one installation on PostgreSQL 19rc2 install each level's tables in its own schema, the containment across them over one domain, and grant each role exactly the tables it writes.
+ * Levels of one installation on PostgreSQL 19 install each level's tables in its own schema, the containment across them over one domain, and grant each role exactly the tables it writes.
  */
-export const levelsOfOneInstallationOnPostgreSQL19rc2InstallEachLevelsTablesInItsOwnSchemaTheContainmentAcrossThemOverOneDomainAndGrantEachRoleExactlyTheTablesItWrites =
+export const levelsOfOneInstallationOnPostgreSQL19InstallEachLevelsTablesInItsOwnSchemaTheContainmentAcrossThemOverOneDomainAndGrantEachRoleExactlyTheTablesItWrites =
 	property.exhaust(finite(catalogFactGen), {
 		needs: { levels: Substrate.seat(levelsTemplate) },
 		situations: [
@@ -145,11 +145,11 @@ export const levelsOfOneInstallationOnPostgreSQL19rc2InstallEachLevelsTablesInIt
 	})
 
 /**
- * Levels of one installation on PostgreSQL 19rc2 serve a login over each level, commit each transaction exactly when it keeps the containment, and refuse a lower write a higher law forbids by that law named above.
+ * Levels of one installation on PostgreSQL 19 serve a login over each level, commit each transaction exactly when it keeps the containment, and refuse a lower write a higher law forbids by that law named above.
  *
  * Its pre-conversion budget: runs 40, coverage cases 60 (test/pg/levels/levels.test.ts at d8eed1786).
  */
-export const levelsOfOneInstallationOnPostgreSQL19rc2ServeALoginOverEachLevelCommitEachTransactionExactlyWhenItKeepsTheContainmentAndRefuseALowerWriteAHigherLawForbidsByThatLawNamedAbove =
+export const levelsOfOneInstallationOnPostgreSQL19ServeALoginOverEachLevelCommitEachTransactionExactlyWhenItKeepsTheContainmentAndRefuseALowerWriteAHigherLawForbidsByThatLawNamedAbove =
 	property.explore(historyGen, {
 		needs: { levels: Substrate.seat(levelsTemplate) },
 		situations: [

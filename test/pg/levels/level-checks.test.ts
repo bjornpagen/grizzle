@@ -1,5 +1,5 @@
 /**
- * A level's row check over a relation of the level below it, on PostgreSQL 19rc2.
+ * A level's row check over a relation of the level below it, on PostgreSQL 19.
  *
  * Each case draws a base level `Base` holding Attribute (an integer key, an unbounded text `value` and an integer `n`),
  * its own row checks over Attribute, and a level `Media` over it whose list states row checks over Attribute too, each a
@@ -103,11 +103,11 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A level's row check over a lower relation on PostgreSQL 19rc2 stores exactly the rows every check holds on, and each login names the checks a row breaks as its level states them.
+ * A level's row check over a lower relation on PostgreSQL 19 stores exactly the rows every check holds on, and each login names the checks a row breaks as its level states them.
  *
  * Its pre-conversion budget: runs 8, coverage cases 24 (test/pg/levels/level-checks.test.ts at d8eed1786).
  */
-export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2StoresExactlyTheRowsEveryCheckHoldsOnAndEachLoginNamesTheChecksARowBreaksAsItsLevelStatesThem =
+export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRowsEveryCheckHoldsOnAndEachLoginNamesTheChecksARowBreaksAsItsLevelStatesThem =
 	property.explore(steered(steeredLogins), {
 		needs: { substrate: Substrate.installing },
 		situations: [
@@ -333,11 +333,11 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2StoresExactlyTheR
 	})
 
 /**
- * A level's row check over a lower relation on PostgreSQL 19rc2 validates a level's checks against the stored rows when a migration adds them, drops them when one removes them, and leaves the lower level as it is without them.
+ * A level's row check over a lower relation on PostgreSQL 19 validates a level's checks against the stored rows when a migration adds them, drops them when one removes them, and leaves the lower level as it is without them.
  *
  * Its pre-conversion budget: runs 6, coverage cases 12 (test/pg/levels/level-checks.test.ts at d8eed1786).
  */
-export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19rc2ValidatesALevelsChecksAgainstTheStoredRowsWhenAMigrationAddsThemDropsThemWhenOneRemovesThemAndLeavesTheLowerLevelAsItIsWithoutThem =
+export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19ValidatesALevelsChecksAgainstTheStoredRowsWhenAMigrationAddsThemDropsThemWhenOneRemovesThemAndLeavesTheLowerLevelAsItIsWithoutThem =
 	property.explore(migrationCase, {
 		needs: { substrate: Substrate.installing },
 		situations: [

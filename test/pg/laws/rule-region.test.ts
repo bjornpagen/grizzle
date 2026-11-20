@@ -2,7 +2,7 @@
  * A rule's judge reads its region as the set of bindings a transaction's writes give it, never as the bag of rows it
  * wrote: a step of a chain runs once per row of the occurrences before it (ir/rel.ts Step), so every occurrence before a
  * step is made distinct (analysis/physical/consumers.ts), and a whole rule's region of unit keys is a step of its own
- * (analysis/theory/unit.ts regionOf), made distinct before the rule's step reads it. On PostgreSQL 19rc2, over
+ * (analysis/theory/unit.ts regionOf), made distinct before the rule's step reads it. On PostgreSQL 19, over
  * ProbedRegion and WholeRegion (rule-region.fixtures.ts): T keyed by its unit, Stated, a derived relation of each unit's
  * g, and a rule over Stated, a key by the unit, probed, or a check, judged whole.
  *

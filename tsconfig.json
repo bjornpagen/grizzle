@@ -190,7 +190,6 @@
 							"scripts/dev/profile/read.ts",
 							"scripts/gen/allen/main.ts",
 							"packages/pg/src/foreign-postmasters.ts",
-							"packages/pg/src/pin-verdict.ts",
 							"test/pg/cli/config.child.ts"
 						],
 						"options": {

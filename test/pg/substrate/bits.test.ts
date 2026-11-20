@@ -1,5 +1,5 @@
 /**
- * The bit algebra of fin.md §16 on PostgreSQL 19rc2, differentially: PostgreSQL's `bit(n)` operators (`&`, `|`, `#`,
+ * The bit algebra of fin.md §16 on PostgreSQL 19, differentially: PostgreSQL's `bit(n)` operators (`&`, `|`, `#`,
  * `~`, `bit_count`, `substring`), the set laws written with them (subset, disjointness, at least one, at most one), and
  * the saturating two-plane fold, against the host bitsets (packages/engine/src/codec/bits.ts) where the host has the
  * operation, and a naive reference, a `Set<number>` of positions.
@@ -46,11 +46,11 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The bit algebra of fin.md §16 on PostgreSQL 19rc2 compute every bit(n) operator, law and twos fold as the host bitsets and the reference set do.
+ * The bit algebra of fin.md §16 on PostgreSQL 19 compute every bit(n) operator, law and twos fold as the host bitsets and the reference set do.
  *
  * Its pre-conversion budget: runs 400, coverage cases 2000 (test/pg/substrate/bits.test.ts at d8eed1786).
  */
-export const theBitAlgebraOfFinMd16OnPostgreSQL19rc2ComputeEveryBitNOperatorLawAndTwosFoldAsTheHostBitsetsAndTheReferenceSetDo =
+export const theBitAlgebraOfFinMd16OnPostgreSQL19ComputeEveryBitNOperatorLawAndTwosFoldAsTheHostBitsetsAndTheReferenceSetDo =
 	property.explore(caseGen, {
 		needs: { tx: Substrate.transaction },
 		situations: [

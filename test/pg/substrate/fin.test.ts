@@ -1,5 +1,5 @@
 /**
- * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19rc2 inside a stated box: the lowering's DDL written by hand
+ * The fin lemmas of fin.md §5.2, proved against PostgreSQL 19 inside a stated box: the lowering's DDL written by hand
  * (test/pg/substrate/fin.ts), every state and every single mutation the box holds sent to PostgreSQL, and PostgreSQL's
  * verdict judged by two oracles.
  *

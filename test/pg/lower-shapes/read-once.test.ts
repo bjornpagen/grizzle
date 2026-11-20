@@ -1,6 +1,6 @@
 /**
  * A workload's read derives each derived relation once per statement (lower/optimize/cte-policy rule 5b, lower/shapes
- * attach and region), whatever PostgreSQL estimates. On PostgreSQL 19rc2, over a ledger shaped as edullm's QTI ledger
+ * attach and region), whatever PostgreSQL estimates. On PostgreSQL 19, over a ledger shaped as edullm's QTI ledger
  * (read-once.fixtures.ts): every XML element of every package one row of one table, the typed LOM views over the
  * manifests (a package's head, its status, its classification terms, each term a join of eight elements), the current
  * packages and every item of each under each term, and edullm's `sets`, each term a current package states with how

@@ -2,7 +2,7 @@
 
 import { array, type Gen, int } from "@bjornpagen/testing/gen"
 import type { PgMember } from "@bjornpagen/testing/pg"
-import { Array as Arr, Predicate, String as Str } from "effect"
+import { String as Str } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -135,10 +135,6 @@ for name in "$@"; do
 	printf '%s=%s\n' "$name" "\${!name}"
 done
 `
-
-/** A value of the pin as the shell spells it: text as it is, a port in decimal, the patches joined by spaces. */
-export const shellSpelling = (value: string | number | ReadonlyArray<string>): string =>
-	Predicate.isString(value) ? value : Predicate.isNumber(value) ? `${value}` : Arr.join(value, " ")
 
 /** The grizzle command line's entry point, through the consumer's link to grizzle. */
 export const grizzleCli = (consumer: SubmoduleConsumer): string =>

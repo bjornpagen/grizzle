@@ -1,5 +1,5 @@
 /**
- * Coverage's lowering (fin.md §7, "Tested on 19rc1, not assumed") against PostgreSQL 19rc2: a span target keyed
+ * Coverage's lowering (fin.md §7, "Tested on 19rc1, not assumed") against PostgreSQL 19: a span target keyed
  * `UNIQUE (k, r WITHOUT OVERLAPS)` and a source whose `FOREIGN KEY (k, PERIOD r)` requires the union of its key's
  * target spans to cover each of its own, both spans STORED generated columns `CASE WHEN φ THEN int4range(lo, hi) END`,
  * so a row outside φ projects NULL.
@@ -40,9 +40,9 @@ import { attempt, qualified } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Coverage's temporal lowering of fin.md §7 on PostgreSQL 19rc2 refuse in a WITHOUT OVERLAPS key exactly the rows that overlap an earlier row of their key or hold an empty span, never comparing a NULL span.
+ * Coverage's temporal lowering of fin.md §7 on PostgreSQL 19 refuse in a WITHOUT OVERLAPS key exactly the rows that overlap an earlier row of their key or hold an empty span, never comparing a NULL span.
  */
-export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2RefuseInAWITHOUTOVERLAPSKeyExactlyTheRowsThatOverlapAnEarlierRowOfTheirKeyOrHoldAnEmptySpanNeverComparingANULLSpan =
+export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19RefuseInAWITHOUTOVERLAPSKeyExactlyTheRowsThatOverlapAnEarlierRowOfTheirKeyOrHoldAnEmptySpanNeverComparingANULLSpan =
 	property.exhaust(finite(keyGen), {
 		needs: { immediate: Substrate.seat(coverageTemplates.immediate) },
 		situations: [
@@ -113,9 +113,9 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2RefuseInAWITHOUTO
 	})
 
 /**
- * Coverage's temporal lowering of fin.md §7 on PostgreSQL 19rc2 admit a source span exactly when its key's target spans cover it, immediately or at commit, refusing an empty span and skipping a NULL one.
+ * Coverage's temporal lowering of fin.md §7 on PostgreSQL 19 admit a source span exactly when its key's target spans cover it, immediately or at commit, refusing an empty span and skipping a NULL one.
  */
-export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2AdmitASourceSpanExactlyWhenItsKeysTargetSpansCoverItImmediatelyOrAtCommitRefusingAnEmptySpanAndSkippingANULLOne =
+export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19AdmitASourceSpanExactlyWhenItsKeysTargetSpansCoverItImmediatelyOrAtCommitRefusingAnEmptySpanAndSkippingANULLOne =
 	property.exhaust(finite(coverGen), {
 		needs: {
 			immediate: Substrate.seat(coverageTemplates.immediate),
@@ -201,9 +201,9 @@ export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2AdmitASourceSpanE
 	})
 
 /**
- * Coverage's temporal lowering of fin.md §7 on PostgreSQL 19rc2 commit a change of a referenced target row exactly when the source stays covered and the key stays free of overlaps and empty spans.
+ * Coverage's temporal lowering of fin.md §7 on PostgreSQL 19 commit a change of a referenced target row exactly when the source stays covered and the key stays free of overlaps and empty spans.
  */
-export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19rc2CommitAChangeOfAReferencedTargetRowExactlyWhenTheSourceStaysCoveredAndTheKeyStaysFreeOfOverlapsAndEmptySpans =
+export const coveragesTemporalLoweringOfFinMd7OnPostgreSQL19CommitAChangeOfAReferencedTargetRowExactlyWhenTheSourceStaysCoveredAndTheKeyStaysFreeOfOverlapsAndEmptySpans =
 	property.exhaust(finite(changeGen), {
 		needs: {
 			immediate: Substrate.seat(coverageTemplates.immediate),

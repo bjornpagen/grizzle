@@ -1,5 +1,5 @@
 /**
- * Compute.floatBits, a float's identity image (scalar/compute/registry.ts floatBitsOf), on PostgreSQL 19rc2 in the
+ * Compute.floatBits, a float's identity image (scalar/compute/registry.ts floatBitsOf), on PostgreSQL 19 in the
  * ledger's shape (float-bits.fixtures.ts): a multiple's bag keyed by its variable and its value's image, written beside
  * the value and held to `Compute.floatBits(value)` by a check, with a count; and a tally whose image is a generated
  * column under a key, referencing the bag over (variable, image).

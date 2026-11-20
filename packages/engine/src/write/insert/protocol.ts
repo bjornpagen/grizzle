@@ -217,7 +217,7 @@ const verdictClass = {
  *   visibility (ExecCheckTupleVisible), so at READ COMMITTED it returns a row committed after the statement's snapshot,
  *   on the first try. At SERIALIZABLE a met row the transaction snapshot cannot see raises 40001, and SSI sees the met
  *   row as read: the unique pre-check fetches the conflicting tuple again under the query's snapshot before it returns
- *   the conflict (execIndexing.c check_exclusion_or_unique_constraint, PostgreSQL 19rc1 :923-926 and 19rc2 :928-932),
+ *   the conflict (execIndexing.c check_exclusion_or_unique_constraint, REL_19_0 :928-932),
  *   so the statement reads the met row no second time. Every other unique object is probed under the statement's
  *   snapshot (unique.ts buildProbe). It is every insert's form at a scalar arbiter key but `every`'s;
  * - `every`: complete facts at SERIALIZABLE into a relation every native object of which is a unique object, ON CONFLICT
@@ -299,7 +299,7 @@ const arbitrationOf = (
  * certified READ COMMITTED. The precheck refuses, on its key's
  * law, a fact outside the entry at a requested key that the transaction's snapshot holds; one committed after the
  * snapshot fails the call with 40001 before PostgreSQL judges the stored row by any policy (nodeModifyTable.c
- * ExecOnConflictSelect, PostgreSQL 19rc2: the row's visibility, then the SELECT policy, then the WHERE), a
+ * ExecOnConflictSelect, PostgreSQL 19: the row's visibility, then the SELECT policy, then the WHERE), a
  * SerializationFailure whose retry's precheck refuses the fact on the key's law. The variant is chosen by relation and
  * member shape alone (`shapeOf`), the
  * payload being every field the facts state beside the key (input.ts inputStated): the caller's, and a nested owner's
@@ -356,7 +356,7 @@ const arbitrationOf = (
  * Under a transaction snapshot every stored row an insert meets is read under that snapshot, so SSI sees an exact
  * repeat, which inserts nothing, as a read of the stored fact: `every`'s met rows by their met read, and `returned`'s by
  * PostgreSQL's own read of the conflicting tuple under the query's snapshot (execIndexing.c
- * check_exclusion_or_unique_constraint, 19rc1 :923-926, 19rc2 :928-932). An insert after a concurrent deletion of an
+ * check_exclusion_or_unique_constraint, REL_19_0 :928-932). An insert after a concurrent deletion of an
  * occupant the snapshot held is a write into what the deletion read.
  * A transaction that would commit in no serial order with a concurrent one fails with 40001, a TransientFailure.
  *
@@ -695,7 +695,7 @@ export const buildInsert = (
 		 * The verdict rows at `returned` (Arbitration): each row r2 returned beside its request, inserted where OLD is all
 		 * NULL, else classed against the request. A met row is read no second time: at SERIALIZABLE PostgreSQL records
 		 * the read of the conflicting tuple under the query's snapshot itself (execIndexing.c
-		 * check_exclusion_or_unique_constraint, 19rc1 :923-926, 19rc2 :928-932), and no met row is one this statement
+		 * check_exclusion_or_unique_constraint, REL_19_0 :928-932), and no met row is one this statement
 		 * wrote, since its one INSERT proposes each arbiter key once (the input read DISTINCT or proved distinct, and the
 		 * same-key pair's gate). Then the withheld stored facts and the same-key pair.
 		 */

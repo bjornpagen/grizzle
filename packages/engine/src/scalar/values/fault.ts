@@ -18,13 +18,13 @@ import {
  * A varlena's header, VARHDRSZ, which translate's result allocation counts beside its characters.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the header of one variable-length datum, uncompressed and in line: a numeric, a text, a range, a vector
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/c.h#L787
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/c.h#L787
  * @quote #define VARHDRSZ ((int32) sizeof(int32))
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const varlenaHeaderBytes = 4
 
@@ -35,13 +35,13 @@ export const varlenaHeaderBytes = 4
  * before any SQL.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one bytes value, one bytea, as bytearecv reads it from a binary parameter
  * @derivation bytearecv allocates "result = (bytea *) palloc(nbytes + VARHDRSZ);" for a value of nbytes bytes
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/bytea.c#L365, verified 2026-11-14),
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/bytea.c#L365, verified 2026-11-20),
  *   and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L42), so nbytes is at most
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/memutils.h#L42), so nbytes is at most
  *   MaxAllocSize - VARHDRSZ
  * @from {@link maxAllocSize}, {@link varlenaHeaderBytes}
  */
@@ -51,13 +51,13 @@ export const bytesMaxLength = maxAllocSize - varlenaHeaderBytes
  * The greatest precision a numeric typmod declares.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the precision p of numeric(p, s): a field's, a cast's, a parameter's or a typed literal's
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L35
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/numeric.h#L35
  * @quote #define NUMERIC_MAX_PRECISION 1000
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const numericMaxPrecision = 1000
 
@@ -65,13 +65,13 @@ export const numericMaxPrecision = 1000
  * The least scale a numeric typmod declares: a negative scale rounds to a power of ten.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the scale s of numeric(p, s)
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L37
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/numeric.h#L37
  * @quote #define NUMERIC_MIN_SCALE (-1000)
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const numericMinScale = -1000
 
@@ -79,13 +79,13 @@ export const numericMinScale = -1000
  * The greatest scale a numeric typmod declares.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the scale s of numeric(p, s)
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L38
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/numeric.h#L38
  * @quote #define NUMERIC_MAX_SCALE 1000
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const numericMaxScale = 1000
 
@@ -94,13 +94,13 @@ export const numericMaxScale = 1000
  * 22003 "value overflows numeric format", so a numeric expression whose bound passes it is ResourceBound.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the integer digits of every numeric value, a computed one's bound included
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L399
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L399
  * @quote up to 131072 digits before the decimal point; up to 16383 digits after the decimal point
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const numericMaxIntegerDigits = 131072
 
@@ -109,13 +109,13 @@ export const numericMaxIntegerDigits = 131072
  * (numeric.c mul_var's caller) and a value's text is refused.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the fraction digits of every numeric value, a computed one's bound included
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L399
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L399
  * @quote up to 131072 digits before the decimal point; up to 16383 digits after the decimal point
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const numericMaxFractionDigits = 16383
 

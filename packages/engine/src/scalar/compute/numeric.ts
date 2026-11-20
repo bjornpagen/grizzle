@@ -9,11 +9,11 @@ import { numericMaxPrecision } from "#compiler/scalar/values/fault.ts"
  * NUMERIC_MAX_DISPLAY_SCALE: select_div_scale and its kin take a result scale no larger.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the result scale of numeric division, avg, sqrt and power
  * @derivation numeric.h defines it as the greatest precision: "#define NUMERIC_MAX_DISPLAY_SCALE
- *   NUMERIC_MAX_PRECISION" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L43)
+ *   NUMERIC_MAX_PRECISION" (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/numeric.h#L43)
  * @from {@link numericMaxPrecision}
  */
 export const numericMaxDisplayScale = numericMaxPrecision
@@ -23,13 +23,13 @@ export const numericMaxDisplayScale = numericMaxPrecision
  * a square root's and a power's result scale is chosen to give that many.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the significant digits select_div_scale and its kin choose a result scale for
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/numeric.h#L53
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/numeric.h#L53
  * @quote #define NUMERIC_MIN_SIG_DIGITS 16
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const numericMinSigDigits = 16
 
@@ -39,13 +39,13 @@ const numericMinSigDigits = 16
  * reproduces.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope one NBASE digit of a numeric value, the unit of its weight
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L99
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L99
  * @quote #define DEC_DIGITS 4 /* decimal digits per NBASE digit *\/
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const decDigits = 4
 

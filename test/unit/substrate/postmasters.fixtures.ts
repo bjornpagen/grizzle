@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Effect, FileSystem } from "effect"
 import { ChildProcess } from "effect/process"
-import { postmastersOf } from "#pg/installation.ts"
+import { postmastersOf } from "#pg/postmasters.ts"
 
 /** The binary a case's process runs: its tree's, its tree's replaced after the process started, or another tree's. */
 const binaries = ["the tree's", "the tree's, replaced", "another tree's"] as const

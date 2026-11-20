@@ -1,5 +1,5 @@
 /**
- * The fin lemmas through grizzle's own lowering, per direction, on PostgreSQL 19rc2 (fin.md §5.2, §11): an ordered and
+ * The fin lemmas through grizzle's own lowering, per direction, on PostgreSQL 19 (fin.md §5.2, §11): an ordered and
  * a counted family declared with grizzle's formers and installed by their first migration, written by a direct SQL
  * writer, the owner, and judged by the families model (test/support/families), PostgreSQL the judge of the law.
  *

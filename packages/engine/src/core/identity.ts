@@ -16,13 +16,13 @@ import { wellFormed } from "#compiler/core/text.ts"
  * roster's handle in its names constant are held in.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope a name value, its terminating zero included: an identifier, a roster's handle
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/pg_config_manual.h#L39
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/pg_config_manual.h#L39
  * @quote #define NAMEDATALEN 64
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const namedatalen = 64
 
@@ -31,12 +31,12 @@ export const namedatalen = 64
  * one name.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one identifier: an object's, a column's, a role's or a temporary table's name
  * @derivation NAMEDATALEN less its terminating zero: "The system uses no more than NAMEDATALEN-1 bytes of an
  *   identifier; longer names can be written in commands, but they will be truncated."
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/syntax.sgml#L133-L135)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/syntax.sgml#L133-L135)
  * @from {@link namedatalen}
  */
 export const maxIdentifierBytes = namedatalen - 1

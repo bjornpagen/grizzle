@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
-# Builds the pinned PostgreSQL with the pin's source patches and pgvector natively, and installs the build at
-# $GRIZZLE_PG_PREFIX. A prefix that already holds the current pin is kept unless --force is given.
+# Builds the pinned PostgreSQL release and pgvector natively, and installs the build at $GRIZZLE_PG_PREFIX. A prefix
+# that already holds the pinned release is kept unless --force is given.
 #
-# The source is the git repository source.sh keeps at $GRIZZLE_PG_SRC, the pinned release and one commit for each of
-# the pin's patches, and the build is made in $GRIZZLE_PG_BUILD beside the prefix, which source.sh makes anew, so
-# nothing is built in the source. The prefix holds a complete build, or the build it held before, and never anything in
-# between. Every input is fetched first. PostgreSQL's regression suites must pass, and the source must still be the
-# pin's, before the build is installed into a staging tree beside the prefix, on the same file system; pgvector is
-# checked out and built into that tree and the stamp is written last. Only then does one rename exchange the tree with
-# the prefix. A failure before the exchange leaves the prefix as it was, and the staging tree, which holds the previous
-# build after the exchange, is removed on every exit.
+# The source is the one source.sh extracts at $GRIZZLE_PG_SRC from the release's verified tarball, and the build is made
+# in $GRIZZLE_PG_BUILD beside the prefix, which source.sh makes anew, so nothing is built in the source. The prefix
+# holds a complete build, or the build it held before, and never anything in between. Every input is fetched first.
+# PostgreSQL's regression suites must pass before the build is installed into a staging tree beside the prefix, on the
+# same file system; pgvector is checked out and built into that tree and the stamp is written last. Only then does one
+# rename exchange the tree with the prefix. A failure before the exchange leaves the prefix as it was, and the staging
+# tree, which holds the previous build after the exchange, is removed on every exit.
 #
-# Two refusals keep a build from damaging the prefix. A checkout older than the prefix's build, one whose pin is of the
-# same release and lacks a patch the build carries, is refused before anything changes, --force or not: building it
-# would drop that patch under every cluster. And unless --force is given, the exchange is refused while any postmaster
-# runs from the prefix, since it would replace that postmaster's binaries under it: before anything changes, and again
-# just before the exchange, since a cluster may start while the build runs. Stop each cluster first (`pnpm pg stop`).
+# Unless --force is given, the exchange is refused while any postmaster runs from the prefix, since it would replace
+# that postmaster's binaries under it: before anything changes, and again just before the exchange, since a cluster may
+# start while the build runs. Stop each cluster first (`pnpm pg stop`).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/pin.env"
@@ -30,20 +27,14 @@ pg_node() {
 	(cd "$repo_root" && node "packages/pg/src/$module" "$@")
 }
 
-# The stamp of the build at the prefix $1, written last: the file named stamp_stem and the release's commit, which holds
-# the patch set the build was made with. The installation's is read through packages/pg/src/pin-verdict.ts, so a
-# changed set rebuilds and an older one of the same release is refused.
-stamp_stem=.grizzle-build-
-core_stamp() { echo "$1/$stamp_stem$PG_PIN_COMMIT"; }
+# The stamp of the build at the prefix $1, written last: the file named for the SHA-256 of the release's tarball it was
+# built from, which holds the tarball's address. A prefix holds the pin's build exactly when it holds the pin's stamp.
+core_stamp() { echo "$1/.grizzle-build-$PG_PIN_SHA256"; }
 
 force=0
 [[ "${1:-}" == "--force" ]] && force=1
 
-# The pin's verdict over the build the prefix holds (packages/pg/src/installation.ts verdict), keyed on the release's commit
-# and never on how many patches either holds, since a repin drops the patches its release includes: build, built, or a
-# failing exit for a pin older than the prefix's build, which names the patches it lacks.
-verdict="$(pg_node pin-verdict.ts "$GRIZZLE_PG_PREFIX" "$stamp_stem" "$PG_PIN_COMMIT" "$PG_PIN_PATCHES")"
-if [[ $force -eq 0 && "$verdict" == built ]]; then
+if [[ $force -eq 0 && -e "$(core_stamp "$GRIZZLE_PG_PREFIX")" ]]; then
 	echo "PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION already built at $GRIZZLE_PG_PREFIX"
 	exit 0
 fi
@@ -105,18 +96,12 @@ git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$PGVECTOR_PIN
 
 meson compile -C "$GRIZZLE_PG_BUILD"
 meson test -C "$GRIZZLE_PG_BUILD" -q --print-errorlogs --suite setup --suite regress
-# An edit made in the source while it was built would be installed as the pin's build.
-if [[ -n "$(git -C "$GRIZZLE_PG_SRC" status --porcelain --untracked-files=all)" ||
-	"$(git -C "$GRIZZLE_PG_SRC" rev-parse HEAD)" != "$(git -C "$GRIZZLE_PG_SRC" rev-parse refs/tags/pinned)" ]]; then
-	echo "$GRIZZLE_PG_SRC changed while it was built, so the build is not the pin's; nothing was installed" >&2
-	exit 1
-fi
 meson install -C "$GRIZZLE_PG_BUILD" --quiet --destdir "$stage_root"
 
 make -C "$vector_src" "${pgxs[@]}"
 make -C "$vector_src" "${pgxs[@]}" install
 
-printf '%s' "$PG_PIN_PATCHES" > "$(core_stamp "$staged")"
+printf '%s\n' "$PG_PIN_TARBALL" > "$(core_stamp "$staged")"
 echo "Built PostgreSQL $PG_PIN_VERSION and pgvector $PGVECTOR_PIN_VERSION in $staged"
 
 refuse_foreign_postmasters

@@ -3,16 +3,14 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
  * The SET list of every UPDATE grizzle emits, an ON CONFLICT DO UPDATE's and a MERGE's UPDATE among them: it assigns at
  * least one column some stored generated column of its table reads, wherever the UPDATE may assign such a column.
  *
- * PostgreSQL 18 and 19 (nodeModifyTable.c ExecComputeStoredGenerated, ExecInitGenerated; 18.6, 19rc1, 19rc2 and master
- * alike, 17 not) build an UPDATE's generation expressions on its first row and keep them in ri_GeneratedExprsU, which is
+ * PostgreSQL 19 (nodeModifyTable.c ExecComputeStoredGenerated, ExecInitGenerated; 19rc1, 19.0 and master alike)
+ * builds an UPDATE's generation expressions on its first row and keep them in ri_GeneratedExprsU, which is
  * how the later rows find them built. When no stored generated column reads a column the UPDATE assigns,
  * ExecInitGenerated pfrees the array it built ("didn't need it after all") and leaves ri_GeneratedExprsU NULL, so every
- * row builds it again: build_column_default's stringToNode of every stored generated column's expression
- * (RelationGetGenerationExpr's cached tree under grizzle's 19rc2 patch) and pull_varattnos of it, in the query's
- * memory, ExecutorState, which nothing frees before the statement ends. On stock 19rc1, production's engine,
- * qti.attribute's 104 generation expressions at its C18 fill are 83 KB of trees, so that fill over 865,000 rows grew
- * ExecutorState to 72 GB in 17 minutes; under the patch each row still walks every tree and keeps a bitmap per
- * expression. An UPDATE that assigns a column a stored generated column reads leaves the array in place after its first
+ * row builds it again: build_column_default's stringToNode of every stored generated column's expression and
+ * pull_varattnos of it, in the query's memory, ExecutorState, which nothing frees before the statement ends. On 19rc1,
+ * production's engine, whose ExecInitGenerated 19.0 keeps, qti.attribute's 104 generation expressions at its C18 fill
+ * are 83 KB of trees, so that fill over 865,000 rows grew ExecutorState to 72 GB in 17 minutes. An UPDATE that assigns a column a stored generated column reads leaves the array in place after its first
  * row: memory flat in the rows, the generation expressions built once (test/pg/migrate/generated-fill-memory.test.ts;
  * upstream/generated-update-rebuild).
  *

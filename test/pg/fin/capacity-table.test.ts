@@ -1,5 +1,5 @@
 /**
- * fin.md §6's capacity table through grizzle's lowering, on PostgreSQL 19rc2: every use of the deleted `capacity` is
+ * fin.md §6's capacity table through grizzle's lowering, on PostgreSQL 19: every use of the deleted `capacity` is
  * a native law, and a state the old capacity refused is refused natively, by PostgreSQL, with the SQLSTATE of the
  * native its row names, reporting that row's law.
  *
@@ -34,7 +34,7 @@ import {
 } from "#test/pg/fin/capacity-table.fixtures.ts"
 
 /**
- * fin.md §6's capacity table through grizzle's lowering on PostgreSQL 19rc2: commit each row's states its law admits
+ * fin.md §6's capacity table through grizzle's lowering on PostgreSQL 19: commit each row's states its law admits
  * and refuse every other natively, with the row's SQLSTATE and law, each case on the worker's seat of its row's schema.
  */
 export const finMdsCapacityTableThroughGrizzlesLoweringCommitEachRowsStatesItsLawAdmitsAndRefuseEveryOtherNatively =

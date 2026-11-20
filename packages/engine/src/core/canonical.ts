@@ -37,13 +37,13 @@ export const maxStringLength = 2 ** 29 - 24
  * int is 32 bits on every platform it builds on.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit an integer value
  * @scope every integer value: a column, a parameter, a literal, an endpoint, a span width
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L380
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L380
  * @quote <entry>-2147483648 to +2147483647</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const int4Max = 2147483647
 

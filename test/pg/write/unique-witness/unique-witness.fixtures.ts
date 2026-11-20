@@ -32,7 +32,7 @@ import { type StateRow, tableState } from "#test/support/substrate/state.ts"
 
 /**
  * A multi-row insert that meets a unique object of a family's member is refused by that object's law and witnessed by
- * the key of a stated row that meets it, on PostgreSQL 19rc2 (README "Errors and outcomes", Witness: a key "that a row
+ * the key of a stated row that meets it, on PostgreSQL 19 (README "Errors and outcomes", Witness: a key "that a row
  * you stated breaks, by two rows you submitted or by a stored row inside or outside your role's view, is grizzle's own
  * finding, witnessed by that row's values at the key's fields"; `unreported` only "for a foreign key, and where no row
  * you stated breaks the rule"). A key over a selected side holds apart only the rows its selection holds (README

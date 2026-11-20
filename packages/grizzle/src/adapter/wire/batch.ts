@@ -719,7 +719,7 @@ type Abandoning =
 /**
  * The silence an abandoned flight's next round may meet without its server counting as unreachable. `excused`: a whole
  * round of it, since the round's CancelRequest may reach the backend while it reads a command, the statement it is to
- * stop not read yet among them, and stop nothing (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546,
+ * stop not read yet among them, and stop nothing (REL_19_0 src/backend/tcop/postgres.c 3536-3546,
  * `if (!DoingCommandRead)`, and 4813-4823, which drops a cancel that arrived while it was idle); the backend then reads
  * the statement and runs it, answering nothing until the next round. `spent`: none, since the statement has had a whole
  * round, one connect timeout, the caller's own bound on the server's answer, to reach the backend, so this round's

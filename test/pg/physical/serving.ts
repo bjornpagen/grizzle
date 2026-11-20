@@ -1475,10 +1475,10 @@ const residueFeature = (residue: Residue): ServingFeature => {
  *   own index alone reads is a misjudgment no upstream note covers, and a problem.
  *
  * No residue excuses a sweep of the request's own index. A GiST index led by text whose characters share leading bytes,
- * as the two-ideograph keys of the generated workloads' text fields do (serving.test.ts), is held to the same bound:
- * grizzle's PostgreSQL carries master's b82d69abf6 (scripts/pg/patches/19rc2-btree-gist-multibyte-penalty.patch), so
- * btree_gist prices a text key by the bytes past the common prefix of its subtree's bounds and places it precisely
- * (README, PostgreSQL known issues).
+ * as the two-ideograph keys of the generated workloads' text fields do (serving.test.ts), is held to the same bound,
+ * though PostgreSQL 19's btree_gist prices a UTF8 text key by the character after the common prefix of its subtree's
+ * bounds, so such keys price alike and the index is imprecise (README, PostgreSQL known issues): master's b82d69abf6,
+ * which prices it by the bytes past that prefix, is in no 19 release, and grizzle builds the release unpatched.
  *
  * The judgment judges a settled load (Settled, loadAtVolume): every page of every table all-visible. An Index Only Scan
  * is charged a heap page for each page its visibility map does not prove all-visible, and then a primary key's

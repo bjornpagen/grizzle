@@ -1,7 +1,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 /**
- * The generated law races of a family (raceSuite), on PostgreSQL 19rc2: every interleaving of a drawn race over a
+ * The generated law races of a family (raceSuite), on PostgreSQL 19: every interleaving of a drawn race over a
  * schema of the family's box, from a drawn lawful state, is a history the history oracle passes
  * (test/support/history/interleave.ts lawExploration). No law is broken in the committed state, every planted writer
  * below SERIALIZABLE meets its refusal and commits nothing, every abort has a concurrent cause, and some serial order

@@ -39,7 +39,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { wideOctets } from "#test/support/wide-text.ts"
 
 /**
- * Compound keys of byte-bounded text under writes and reads, on PostgreSQL 19rc2, with their arity, their order and
+ * Compound keys of byte-bounded text under writes and reads, on PostgreSQL 19, with their arity, their order and
  * their texts' byte bounds drawn per case, up to and past PostgreSQL's B-tree item limit (nbtree.h BTMaxItemSize, 2,704
  * bytes on an 8 KiB page, schema/representability.ts btreeMaxItemSize).
  *

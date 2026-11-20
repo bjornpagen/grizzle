@@ -1,5 +1,5 @@
 /**
- * A containment into a fixed target, through grizzle's lowering on PostgreSQL 19rc2: a document row states its node's
+ * A containment into a fixed target, through grizzle's lowering on PostgreSQL 19: a document row states its node's
  * context, the node being of kind `document`, its own document and at depth 0, as `contained(on(Document, "node"),
  * on(select(Node, (n) => n.and(n.eq(n.kind, "document"), n.eq(n.document, n.id), n.eq(n.depth, 0n))), "id"))`. The
  * target's selection fixes kind and depth to values and document to its term id, beyond its term. Its superkey would
@@ -35,9 +35,9 @@ import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A containment into a target fixed by values and by its own term on PostgreSQL 19rc2 commit exactly the states whose every document row's node is of kind document, its own document and at depth 0, refusing the rest by the document's foreign key.
+ * A containment into a target fixed by values and by its own term on PostgreSQL 19 commit exactly the states whose every document row's node is of kind document, its own document and at depth 0, refusing the rest by the document's foreign key.
  */
-export const aContainmentIntoATargetFixedByValuesAndByItsOwnTermOnPostgreSQL19rc2CommitExactlyTheStatesWhoseEveryDocumentRowsNodeIsOfKindDocumentItsOwnDocumentAndAtDepth0RefusingTheRestByTheDocumentsForeignKey =
+export const aContainmentIntoATargetFixedByValuesAndByItsOwnTermOnPostgreSQL19CommitExactlyTheStatesWhoseEveryDocumentRowsNodeIsOfKindDocumentItsOwnDocumentAndAtDepth0RefusingTheRestByTheDocumentsForeignKey =
 	property.exhaust(finite(sketchGen), {
 		needs: { seated: Substrate.seat(fixedTargetTemplate) },
 		situations: [

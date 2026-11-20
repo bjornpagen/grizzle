@@ -1,5 +1,5 @@
 /**
- * A rule over a query whose probes read a pattern-typed field holds on PostgreSQL 19rc2. The set judge's probe over its
+ * A rule over a query whose probes read a pattern-typed field holds on PostgreSQL 19. The set judge's probe over its
  * region (physical/ddl/rules.ts) reads the field from the session's delta of its table, a column of the pattern's base
  * type, which no domain names, beside the stored column of the pattern's structural domain, which the installation
  * creates (lower/conservative/types.ts RegionLowering); no probe reads a served parameter's own pattern domain, which no
@@ -42,9 +42,9 @@ import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A rule over a query whose probes read a pattern-typed field, on PostgreSQL 19rc2 commits exactly the writes that leave every Item's tag Open's, refusing the rest by 23503, its probes casting each tag to its column's own type.
+ * A rule over a query whose probes read a pattern-typed field, on PostgreSQL 19 commits exactly the writes that leave every Item's tag Open's, refusing the rest by 23503, its probes casting each tag to its column's own type.
  */
-export const aRuleOverAQueryWhoseProbesReadAPatternTypedFieldOnPostgreSQL19rc2CommitsExactlyTheWritesThatLeaveEveryItemsTagOpensRefusingTheRestBy23503ItsProbesCastingEachTagToItsColumnsOwnType =
+export const aRuleOverAQueryWhoseProbesReadAPatternTypedFieldOnPostgreSQL19CommitsExactlyTheWritesThatLeaveEveryItemsTagOpensRefusingTheRestBy23503ItsProbesCastingEachTagToItsColumnsOwnType =
 	property.exhaust(finite(sketchGen), {
 		needs: { seated: Substrate.seat(ruleProbePatternTemplate) },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,

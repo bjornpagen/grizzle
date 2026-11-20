@@ -21,13 +21,13 @@ import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
  * it as REG_ECOLORS, "too many colors" (regc_color.c).
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit colors
  * @scope the greatest color number of one regex's color map
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L165
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L165
  * @quote #define MAX_COLOR 32767 /* max color (must fit in 'color' datatype) *\/
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const regexMaxColor = 32_767
 
@@ -37,11 +37,11 @@ const regexMaxColor = 32_767
  * domain or match is compiled, since PostgreSQL refuses it as "too many colors" at the first value it checks.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit colors
  * @scope one str.regex or Compute.matches pattern's colors
  * @derivation colors are numbered from 0 to MAX_COLOR, and newcolor refuses another: "if (cm->max == MAX_COLOR)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/regex/regc_color.c#L212, verified 2026-11-14).
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/regex/regc_color.c#L212, verified 2026-11-20).
  *   While one set is parsed, newsub opens a subcolor for each color the set splits, "sco = newcolor(cm); /* must
  *   create subcolor *\/" (regc_color.c#L401), and okcolors frees the parents the set emptied only once the set is
  *   done, so the colors live at once are at most twice the pattern's; the four pseudocolors specialcolors allocates
@@ -55,13 +55,13 @@ const regexMaxColors = (regexMaxColor + 1) / 2
  * The states of an NFA's first state batch, FIRSTSBSIZE, the fewest any of its batches holds.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA states
  * @scope the first state batch of one NFA, each later batch doubling it
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L353
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L353
  * @quote #define FIRSTSBSIZE 32
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const regexFirstStateBatch = 32
 
@@ -69,13 +69,13 @@ const regexFirstStateBatch = 32
  * The states of an NFA's largest state batch, MAXSBSIZE.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA states
  * @scope one state batch of one NFA
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L354
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L354
  * @quote #define MAXSBSIZE 1024
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const regexMaxStateBatch = 1_024
 
@@ -84,7 +84,7 @@ const regexMaxStateBatch = 1_024
  * PostgreSQL's parser builds from its ARE. A pattern of more is refused as ResourceBound (regexCompileSpace, states).
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit NFA states
  * @scope the states of one pattern's NFAs that PostgreSQL holds at once while compiling it
  * @derivation the states' share of REG_MAX_COMPILE_SPACE, less what batches cost beyond the states they hold: a batch
@@ -93,7 +93,7 @@ const regexMaxStateBatch = 1_024
  *   hold at most their live entries and one batch each beyond them; a batch's header, its chain link and its count, is
  *   no larger than one entry, and a batch holds at least its first batch's entries, so the headers cost at most one
  *   entry for each of those; newstate and allocarc refuse a new batch only once "nfa->v->spaceused >=
- *   REG_MAX_COMPILE_SPACE" (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/regex/regc_nfa.c#L165,
+ *   REG_MAX_COMPILE_SPACE" (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/regex/regc_nfa.c#L165,
  *   #L389), so the states within their share and the arcs within theirs keep the space below it, verified 2026-11-14
  * @from {@link regexSpaceStates}, {@link regexFirstStateBatch}, {@link regexMaxStateBatch}
  */

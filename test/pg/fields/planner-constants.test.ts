@@ -6,7 +6,7 @@
  * (upstream/generated-column-collation-before-planning). The planner reduces more than a subterm that reads no row: a CASE
  * whose condition folds is the arm it selects, and an AND or OR an operand of which folds to its deciding value is that
  * value, so `GREATEST(CASE WHEN 0 <> 0 THEN t ELSE '' END, '')` is its `GREATEST('', '')` (PANTRY13-CLOSED's red of the
- * row-evaluator property, seed 275374157). On PostgreSQL 19rc2, over Planned (planner-constants.fixtures.ts): R keyed
+ * row-evaluator property, seed 275374157). On PostgreSQL 19, over Planned (planner-constants.fixtures.ts): R keyed
  * by its id, writing a text t and an integer n, with a generated text of a drawn text term and a generated boolean of a
  * drawn predicate.
  *

@@ -1,5 +1,5 @@
 /**
- * Roster migrations on PostgreSQL 19rc2, run as programs of a commands machine against a model of the roster's history.
+ * Roster migrations on PostgreSQL 19, run as programs of a commands machine against a model of the roster's history.
  *
  * The model is A8's roster machine (test/support/closed/generate.ts rosterMachine: grow, remove, re-add, and a reorder
  * it refuses), a list of code slots replayed command by command that shares no code with the engine's codebook,
@@ -64,7 +64,7 @@ import { migrated, noObservation } from "#test/support/installed.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
-/** Roster migrations on PostgreSQL 19rc2 every migration of a roster's history leaves the installation the model's, and VALIDATE and the closed-only law refuse exactly what the model refuses. */
+/** Roster migrations on PostgreSQL 19 every migration of a roster's history leaves the installation the model's, and VALIDATE and the closed-only law refuse exactly what the model refuses. */
 export const rosterMigrations = property.explore(steered(runGen), {
 	needs: { caseSubstrate: Substrate.installing },
 	situations: [

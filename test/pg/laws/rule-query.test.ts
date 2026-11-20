@@ -1,5 +1,5 @@
 /**
- * Rules over queries on PostgreSQL 19rc2: a rule whose side reads a derived relation holds at every COMMIT, judged on
+ * Rules over queries on PostgreSQL 19: a rule whose side reads a derived relation holds at every COMMIT, judged on
  * its definition, live, whoever writes and however writes interleave.
  *
  * The schema joins two and three relations, selects, projects and negates: J2 = R ⋈ S on k, J3 = J2 ⋈ U on (a, b), the
@@ -112,11 +112,11 @@ import type { RawSession } from "#test/support/substrate/session.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Rules over queries on PostgreSQL 19rc2 commit exactly the histories whose every state keeps every rule over a query, refusing the rest by the broken rule's name, at COMMIT or at the first statement past SET CONSTRAINTS ALL IMMEDIATE that breaks one, and commit no broken state under concurrent writers or a login's own pg_temp tables.
+ * Rules over queries on PostgreSQL 19 commit exactly the histories whose every state keeps every rule over a query, refusing the rest by the broken rule's name, at COMMIT or at the first statement past SET CONSTRAINTS ALL IMMEDIATE that breaks one, and commit no broken state under concurrent writers or a login's own pg_temp tables.
  *
  * Its pre-conversion budget: runs 120, coverage cases 200 (test/pg/laws/rule-query.test.ts at d8eed1786).
  */
-export const rulesOverQueriesOnPostgreSQL19rc2CommitExactlyTheHistoriesWhoseEveryStateKeepsEveryRuleOverAQueryRefusingTheRestByTheBrokenRulesNameAtCOMMITOrAtTheFirstStatementPastSETCONSTRAINTSALLIMMEDIATEThatBreaksOneAndCommitNoBrokenStateUnderConcurrentWritersOrALoginsOwnPgTempTables =
+export const rulesOverQueriesOnPostgreSQL19CommitExactlyTheHistoriesWhoseEveryStateKeepsEveryRuleOverAQueryRefusingTheRestByTheBrokenRulesNameAtCOMMITOrAtTheFirstStatementPastSETCONSTRAINTSALLIMMEDIATEThatBreaksOneAndCommitNoBrokenStateUnderConcurrentWritersOrALoginsOwnPgTempTables =
 	property.explore(aimed(caseGen, aims), {
 		needs: { judged: Substrate.seat(judgedTemplate) },
 		situations: [

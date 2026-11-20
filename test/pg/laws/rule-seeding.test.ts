@@ -2,7 +2,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 /**
- * The seeding of a rule over a query's probes on PostgreSQL 19rc2: each probe of the set judge (physical/ddl/rules.ts
+ * The seeding of a rule over a query's probes on PostgreSQL 19: each probe of the set judge (physical/ddl/rules.ts
  * addRules) is the rule's violation restricted to the rows the transaction wrote, its region, and those its chain
  * reaches from them, so it judges exactly what the rule's whole check judges, and reads only the rows of the touched
  * row's key.

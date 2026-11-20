@@ -1,5 +1,5 @@
 /**
- * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19rc2: the migration's pack, the table CHECK a
+ * The law of erasure's templates (fin.md §17), proved against PostgreSQL 19: the migration's pack, the table CHECK a
  * closed law is, over its digit columns, the roster domains that keep each digit in range, function application with absence as
  * NULL, a domain re-pointed at a new constant and VALIDATEd, the RESTRICT drop of the old constant, and every write
  * after a domain's constraint changes judged by the new one, in a session that checked it before. Every template is the

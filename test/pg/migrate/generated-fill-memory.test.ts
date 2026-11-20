@@ -7,9 +7,9 @@ import { assert } from "@bjornpagen/testing/assert"
  *
  * PostgreSQL builds an UPDATE's generation expressions on its first row and finds them built on the next, unless no
  * stored generated column reads an assigned column: then it frees them and builds them again for every row
- * (nodeModifyTable.c ExecInitGenerated), in the query's memory, which nothing frees until the statement ends. On stock
- * 19rc1 that is each expression's tree parsed again, 83 KB a row over qti.attribute; under the 19rc2 patch the tree is
- * the relcache's and each row keeps a bitmap per expression. So the backfill assigns Member's anchor to itself
+ * (nodeModifyTable.c ExecInitGenerated), in the query's memory, which nothing frees until the statement ends: each
+ * expression's tree parsed again, 83 KB a row over qti.attribute on 19rc1, whose ExecInitGenerated 19.0 keeps. So the
+ * backfill assigns Member's anchor to itself
  * (sql/generation.ts), `cheap`, whose one reader is the cheapest to compute again.
  *
  * Property: the ExecutorState of the fold's backfill UPDATE of Member, read by a statement-level trigger as the UPDATE

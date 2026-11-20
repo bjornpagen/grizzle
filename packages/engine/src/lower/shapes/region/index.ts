@@ -34,13 +34,13 @@ import { identityHooks, inertVisitor, transformExpr, visitSelect } from "#compil
  * eight" (https://www.postgresql.org/docs/19/runtime-config-query.html).
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's planner
+ * @owner PostgreSQL 19.0's planner
  * @unit FROM items
  * @scope one join problem the planner flattens, under the session default no grizzle session changes
  * @constraint configurable default
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/misc/guc_parameters.dat#L1538-L1546
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/misc/guc_parameters.dat#L1538-L1546
  * @quote { name => 'join_collapse_limit', type => 'int', context => 'PGC_USERSET', [...] boot_val => '8',
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const collapseLimit = 8
 

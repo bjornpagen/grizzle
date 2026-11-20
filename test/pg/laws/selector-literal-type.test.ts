@@ -1,5 +1,5 @@
 /**
- * A containment into a side selected by `field = literal`, through grizzle's lowering on PostgreSQL 19rc2, where the
+ * A containment into a side selected by `field = literal`, through grizzle's lowering on PostgreSQL 19, where the
  * literal is bare, typed at the field's own type, or typed at another: `select(B, (b) => b.eq(b.x,
  * Compute.literal(pg.numeric(10, 2), "1.25")))` over a numeric(5, 1) field x compares at numeric(10, 2), as a query
  * compares it, so no x equals it. A bare literal adopts the field's type, rounded as PostgreSQL's coercion stores it
@@ -40,9 +40,9 @@ import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A containment into a side a literal selects, bare, at its field's type or at another, on PostgreSQL 19rc2 commit exactly the states whose every source row's B row holds an x the literal equals as the selection compares them, refusing the rest by 23503.
+ * A containment into a side a literal selects, bare, at its field's type or at another, on PostgreSQL 19 commit exactly the states whose every source row's B row holds an x the literal equals as the selection compares them, refusing the rest by 23503.
  */
-export const aContainmentIntoASideALiteralSelectsBareAtItsFieldsTypeOrAtAnotherOnPostgreSQL19rc2CommitExactlyTheStatesWhoseEverySourceRowsBRowHoldsAnXTheLiteralEqualsAsTheSelectionComparesThemRefusingTheRestBy23503 =
+export const aContainmentIntoASideALiteralSelectsBareAtItsFieldsTypeOrAtAnotherOnPostgreSQL19CommitExactlyTheStatesWhoseEverySourceRowsBRowHoldsAnXTheLiteralEqualsAsTheSelectionComparesThemRefusingTheRestBy23503 =
 	property.exhaust(finite(sketchGen), {
 		needs: { seated: Substrate.seat(selectorLiteralTemplate) },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,

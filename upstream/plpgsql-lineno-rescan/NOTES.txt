@@ -32,10 +32,11 @@ Status: ready to file, NOT filed. Nothing has been sent to any list or posted an
    - If master moves before filing, rebase and re-run the checks in EVIDENCE.txt 5. The dedicated checkout is ready
      (item 5).
 
-3. Grizzle carries it as a pin patch: scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch, in PG_PIN_PATCHES
-   since 2026-11-14, by the owner's decision, ahead of acceptance (issue #5 §11.6 had waited for a release to take it).
-   - It is this commit's code hunks; its test is appended to 19rc2's plpgsql_misc, which lacks master's preceding test
-     of unterminated constructs.
+3. Grizzle carried it as a pin patch, scripts/pg/patches/19rc2-plpgsql-lineno-binary-search.patch, in PG_PIN_PATCHES
+   from 2026-11-14, by the owner's decision, ahead of acceptance (issue #5 §11.6 had waited for a release to take it):
+   this commit's code hunks, its test appended to 19rc2's plpgsql_misc, which lacks master's preceding test of
+   unterminated constructs. Since its repin to 19.0 grizzle builds the official release with no patch (the owner,
+   2026-11-20), so this folder is the change's one copy.
 
 4. Files.
    - v1-0001-...patch       The fix and its regression test, one commit on master b6178c942e (2026-11-03).

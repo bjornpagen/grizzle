@@ -2,7 +2,7 @@
  * A text's tokens, r.tokens (ir/rel.ts CallFunction `tokens`, lower/conservative/call), a source a derived relation's
  * definition matches, and the rules over that relation, judged whole: a unit-local rule over a relation of tokens of
  * stored rows reads those rows' tokens alone (analysis/theory/unit.ts, a token split a source of no unit of its own). On
- * PostgreSQL 19rc2, over pantry in small (rule-tokens.fixtures.ts): each document's attributes, an IDREFS one listed,
+ * PostgreSQL 19, over pantry in small (rule-tokens.fixtures.ts): each document's attributes, an IDREFS one listed,
  * its tokens the derived relation Idref, and each document's targets; every token a target of its document (Idref
  * target), no token of an attribute twice (Distinct tokens), and three tokens at most (Short list).
  *

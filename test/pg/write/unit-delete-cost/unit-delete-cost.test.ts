@@ -1,7 +1,7 @@
 /**
  * A unit delete meets each row it deletes once whatever index PostgreSQL takes: the statement reads every
  * doomed row with its tid in one snapshot and deletes each at that tid (write/family/keyset.ts RowKeyset), never through
- * an index over its key. On PostgreSQL 19rc2, a package of ten documents deleted whole beside tens of stored packages,
+ * an index over its key. On PostgreSQL 19, a package of ten documents deleted whole beside tens of stored packages,
  * analyzed or not, where the workload's range over (pkg, path) then kind asks Node for an index shallower than its
  * key's that PostgreSQL estimates at a row as it does the key (unit-delete-cost.fixtures.ts).
  */

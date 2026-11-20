@@ -573,7 +573,7 @@ export interface Session {
 	/**
 	 * One CancelRequest for the statement the backend is running, within the connection's connect timeout: it never
 	 * waits on the statement it cancels. The server ignores one that reaches the backend while it reads a command
-	 * (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546), a statement not read yet among them, so it stops nothing
+	 * (REL_19_0 src/backend/tcop/postgres.c 3536-3546), a statement not read yet among them, so it stops nothing
 	 * then.
 	 */
 	readonly cancel: Effect.Effect<void>

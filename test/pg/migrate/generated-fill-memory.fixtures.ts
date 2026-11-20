@@ -21,8 +21,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Member's stored generated fields over `x`, beside the one over `cheap`: qti.attribute holds 104 at its C18 fill, each
- * a tree PostgreSQL 19rc1 parses again for every row the fill writes, under the 19rc2 patch a bitmap it allocates again
- * for every row.
+ * a tree PostgreSQL 19 parses again for every row the fill writes.
  *
  * @formatConstant the generated fields over `x` of Member, a table of many generation expressions
  */

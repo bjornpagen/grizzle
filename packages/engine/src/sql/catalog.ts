@@ -797,7 +797,7 @@ export const replicationRightBlock = (role: string, grant: ReplicationGrant): Do
  * GRANTs on one schema or two on the database do; an insert with 23505, as two CREATE EXTENSION IF NOT EXISTS of one
  * extension do on pg_extension_name_index. Behind the lock a second installation waits for the first to commit, then
  * reads the row the first wrote, because each such statement refreshes its catalog caches after the wait before it
- * reads the row (PostgreSQL 19rc2): ALTER DEFAULT PRIVILEGES opens pg_default_acl, a lock its own close released
+ * reads the row (PostgreSQL 19): ALTER DEFAULT PRIVILEGES opens pg_default_acl, a lock its own close released
  * (src/backend/catalog/aclchk.c 1150, 1384; src/backend/access/common/relation.c 215-216), so the open takes it anew and
  * accepts the pending invalidations (src/backend/storage/lmgr/lmgr.c 134-138) before its syscache read (aclchk.c 1223);
  * a GRANT or REVOKE on a schema or the database reads its row by SearchSysCacheLocked1 (aclchk.c 2140), which accepts

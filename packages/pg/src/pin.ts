@@ -10,7 +10,6 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import { patchesOf } from "#pg/installation.ts"
 
 import { regex } from "arkregex"
 
@@ -101,19 +100,21 @@ const assignments = (text: string): Effect.Effect<Readonly<Record<string, string
 	})
 
 /**
- * Every assignment of pin.env, typed: the release's tag, commit and version; its source patches, in order, each
- * `<file>=<its SHA-256>`; pgvector's tag and version; and the source, the installation and the build tree beside it. A
- * missing one fails the parse.
+ * Every assignment of pin.env, typed: the release's version, its tarball's address and SHA-256, and the tag and commit
+ * the tarball is made from; pgvector's tag and version; and the installation and, beside it, the tarball, the source
+ * and the build tree. A missing one fails the parse.
  */
 const pinConfig = Config.all({
+	PG_PIN_VERSION: Config.String("PG_PIN_VERSION"),
+	PG_PIN_TARBALL: Config.String("PG_PIN_TARBALL"),
+	PG_PIN_SHA256: Config.String("PG_PIN_SHA256"),
 	PG_PIN_TAG: Config.String("PG_PIN_TAG"),
 	PG_PIN_COMMIT: Config.String("PG_PIN_COMMIT"),
-	PG_PIN_VERSION: Config.String("PG_PIN_VERSION"),
-	PG_PIN_PATCHES: Config.map(Config.String("PG_PIN_PATCHES"), patchesOf),
 	PGVECTOR_PIN_TAG: Config.String("PGVECTOR_PIN_TAG"),
 	PGVECTOR_PIN_VERSION: Config.String("PGVECTOR_PIN_VERSION"),
-	GRIZZLE_PG_SRC: Config.String("GRIZZLE_PG_SRC"),
 	GRIZZLE_PG_PREFIX: Config.String("GRIZZLE_PG_PREFIX"),
+	GRIZZLE_PG_TARBALL: Config.String("GRIZZLE_PG_TARBALL"),
+	GRIZZLE_PG_SRC: Config.String("GRIZZLE_PG_SRC"),
 	GRIZZLE_PG_BUILD: Config.String("GRIZZLE_PG_BUILD")
 })
 

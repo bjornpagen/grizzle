@@ -88,7 +88,7 @@ const standingInstallations = ["qti_pie", "the dev database"] as const
  * The largest database a network worker's files work in, measured: each worker's shared database, which file after
  * file reuses, as autovacuum leaves its catalogs between their schemas. A member's shared_buffers holds this for each
  * worker it serves, every page its share of a run reads at once, and not more: outside recovery PostgreSQL scans every
- * shared buffer at each commit that drops or truncates a relation (REL_19_RC2 bufmgr.c DropRelationsAllBuffers, whose
+ * shared buffer at each commit that drops or truncates a relation (REL_19_0 bufmgr.c DropRelationsAllBuffers, whose
  * cached-size path smgrnblocks_cached takes only in recovery, smgr.c#L854), and a test drops its schemas in every
  * release. On a throwaway cluster on cassowary on 2026-11-14, one client's CREATE SCHEMA, three tables and DROP SCHEMA
  * CASCADE took 5.3 ms at 128 MB of shared buffers, 9.4 ms at 4 GB, 19.1 ms at 16 GB and 74.9 ms at a quarter of the

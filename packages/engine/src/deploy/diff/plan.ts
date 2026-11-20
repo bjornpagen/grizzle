@@ -198,7 +198,7 @@ export type RetypeReason = "values" | "roster"
 /**
  * A field converted at the reviewer's value, set aside: a field whose type changes to one that holds other values, for
  * its `reason` (RetypeReason). No ALTER COLUMN ... TYPE ... USING converts it in place, since a USING expression reads
- * the row alone, its subqueries refused (PostgreSQL 19rc2, src/backend/parser/parse_utilcmd.c 3678 transforms it as
+ * the row alone, its subqueries refused (PostgreSQL 19, src/backend/parser/parse_utilcmd.c 3678 transforms it as
  * EXPR_KIND_ALTER_COL_TRANSFORM, which transformSubLink refuses at src/backend/parser/parse_expr.c 1850-1851, "cannot
  * use subquery in transform expression"), and a re-pointed reference's value lies in its target's row, which a
  * placeholder column of the same migration may only now be filling. So its table's one alteration adds the column
@@ -214,7 +214,7 @@ export interface SetAside {
 
 /**
  * The passes one ALTER TABLE runs its subcommands in, in order, each pass's subcommands in the order the statement lists
- * them (PostgreSQL 19rc2, src/backend/commands/tablecmds.c: AlterTablePass at 153-169, run in order by
+ * them (PostgreSQL 19, src/backend/commands/tablecmds.c: AlterTablePass at 153-169, run in order by
  * ATRewriteCatalogs at 5359-5410, a CommandCounterIncrement after each subcommand at 5752, so each sees the ones before
  * it): the drops, the type conversions, the added columns, the re-expressed generations, the re-added indexes and
  * constraints of the converted columns, the constraints as first examined, the columns' attributes, the keys, the

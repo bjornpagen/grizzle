@@ -1,5 +1,5 @@
 /**
- * `alternatives` through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §7, w4-w7 §2.5): `alternatives(Item, "kind",
+ * `alternatives` through grizzle's lowering, on PostgreSQL 19 (fin.md §7, w4-w7 §2.5): `alternatives(Item, "kind",
  * Kind, arms)` is its own statement, expanded with no head into plain containments: per arm relation, its key into the
  * parent selected by the handles it is the arm of (the forward), and per armed handle, the parent selected by it into
  * its arm (the reverse, deferred on the parent ↔ arm cycle). Each is refused natively, by a foreign key, never by a law
@@ -38,9 +38,9 @@ import { attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Alternatives through grizzle's lowering on PostgreSQL 19rc2 commit exactly the states whose every arm row has its armed parent and every armed parent its arm, refusing each arm's forward and reverse natively.
+ * Alternatives through grizzle's lowering on PostgreSQL 19 commit exactly the states whose every arm row has its armed parent and every armed parent its arm, refusing each arm's forward and reverse natively.
  */
-export const alternativesThroughGrizzlesLoweringOnPostgreSQL19rc2CommitExactlyTheStatesWhoseEveryArmRowHasItsArmedParentAndEveryArmedParentItsArmRefusingEachArmsForwardAndReverseNatively =
+export const alternativesThroughGrizzlesLoweringOnPostgreSQL19CommitExactlyTheStatesWhoseEveryArmRowHasItsArmedParentAndEveryArmedParentItsArmRefusingEachArmsForwardAndReverseNatively =
 	property.exhaust(finite(sketchGen), {
 		needs: { seated: Substrate.seat(alternativesTemplate) },
 		situations: [

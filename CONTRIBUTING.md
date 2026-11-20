@@ -62,28 +62,24 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
 - **Dependencies** are plain: no patch, no vendored fork. The runtime's one driver is node-postgres (`pg`) in pipeline
   mode, a peer dependency of the shell that the application passes in as each connection's `driver`, and
   `pnpm install --frozen-lockfile` installs everything.
-- **`pnpm pg:build`** builds the pinned PostgreSQL, 19rc2, from source. The pin is in `scripts/pg/pin.env`, which every
-  script reads: the release's tag and commit, and the pin's three source patches (`scripts/pg/patches/`, each
-  checksummed in pin.env, applied without fuzz and in order): the relcache-planned CHECK and generation expressions,
-  master's btree_gist multibyte-penalty fix (b82d69abf6) backported, and PL/pgSQL's binary-search line lookup. The build
-  takes its source from `pnpm pg:source`, runs PostgreSQL's own regression suites, and builds pgvector at its pinned
-  tag. The installation goes under `~/.local/opt/postgresql/<version>/`, and every build product beside it: the build
-  directory `<version>.build/`, and a staging tree in which the build is installed and which one rename puts in the
-  installation's place only once it is complete, so a failed build leaves the previous installation as it was. An
-  installation that already holds the pin is kept unless `--force` is given. A checkout older than the installation is
-  refused before anything changes, `--force` or not: one whose pin is of the installation's release and lacks a patch
-  the installation carries, a patch being its file and its SHA-256. A pin of another release is a repin, and builds.
-  While any postmaster runs from the installation, found by its executable wherever its data directory is, the rename
-  is refused unless `--force` is given, since it would replace that postmaster's binaries under it: before the build,
-  and again just before the rename. Stop the cluster first (`pnpm pg stop`), and start it after (`pnpm pg start`).
-- **`pnpm pg:source`** puts the pin's source in `~/Documents/postgres`, the one PostgreSQL source tree, and the build
-  directory beside the installation, made anew and configured to install there. `pnpm pg:build` runs it first. The
-  source is a git repository on the branch `grizzle`: the release, fetched alone from PostgreSQL's repository and
-  verified by its commit, tagged `upstream`, then one commit for each of the pin's patches, in pin.env's order and
-  applied without fuzz, the last tagged `pinned`. Nothing is ever built in it. Commits that already hold the pin's
-  patches are kept as they are. It refuses, and leaves the tree as it is, when making it again would lose work: a change
-  not committed, a stash, a branch or tag of its own, or a commit on `grizzle` that is not one of the pin's patches.
-  After a repin the repository holds the new release alone.
+- **`pnpm pg:build`** builds the pinned PostgreSQL, the official 19.0 release, unpatched, as hosted providers build it.
+  grizzle carries no patch to PostgreSQL (the owner, 2026-11-20): a cost or defect of PostgreSQL's own is a README known
+  issue that grizzle's representation answers, and a fix for PostgreSQL goes upstream (`upstream/`). The pin is in
+  `scripts/pg/pin.env`, which every script reads: the release's version, its tarball's address and the SHA-256
+  postgresql.org publishes beside it, and the tag and commit the tarball is made from. The build takes its source from
+  `pnpm pg:source`, runs PostgreSQL's own regression suites, and builds pgvector at its pinned tag. The installation
+  goes under `~/.local/opt/postgresql/<version>/`, and every build product beside it: the tarball `<version>.tar.bz2`,
+  the source `<version>.src/`, the build directory `<version>.build/`, and a staging tree in which the build is
+  installed and which one rename puts in the installation's place only once it is complete, so a failed build leaves
+  the previous installation as it was. An installation that already holds the pin, its stamp
+  `.grizzle-build-<the tarball's SHA-256>`, is kept unless `--force` is given. While any postmaster runs from the
+  installation, found by its executable wherever its data directory is, the rename is refused unless `--force` is
+  given, since it would replace that postmaster's binaries under it: before the build, and again just before the
+  rename. Stop the cluster first (`pnpm pg stop`), and start it after (`pnpm pg start`).
+- **`pnpm pg:source`** puts the pin's source beside the installation, extracted from the release's tarball, and the
+  build directory beside it, configured to install there, each made anew. `pnpm pg:build` runs it first. The tarball is
+  fetched once, kept as `<version>.tar.bz2` only once its SHA-256 is the pin's, and verified again before every
+  extraction, so no other source is ever built. Nothing is ever built in the source.
 - **`pg.config.ts`** states the one local cluster, which the testing library makes and runs (`@bjornpagen/testing/pg`,
   the toolchain's README "one local cluster maker"): made and started the first time a test, a benchmark or a command
   reaches it, under its port's lock, and taken as it is when it runs. Its state is `~/.local/var/toolchain-pg/5442/`:
@@ -118,8 +114,8 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   verify-full as `grizzle_dev`; `admin`, as the bootstrap superuser over the socket; `env`; `reset`, which drops test
   databases and roles; `destroy`; and `init --force` or `--adopt`, which make it again or size it to this machine.
   `TOOLCHAIN_PG_CLUSTER=<port>` names a cluster of the same spec of your own, for every command and test.
-- **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the pin's verdict over the
-  installed build, the postmasters that run from it) and the pin as a typed value, a workspace member so a consumer's
+- **`packages/pg`** (`@bjornpagen/grizzle-pg`) is the TypeScript `pnpm pg:build` runs (the postmasters that run from
+  the installed build) and the pin as a typed value, a workspace member so a consumer's
   install, never one inside its submodule, gives it its dependencies; its `grizzle-pg` bin runs `build` and `source`.
   test/pg/package/consumer.test.ts imports the pin and runs a migrate through a consumer's links in each install
   layout.
@@ -128,37 +124,6 @@ Every TCP connection to the cluster, the tests' included, is verify-full TLS. Th
 over the local socket, by peer authentication: `pnpm pg admin` and the tests' superuser sessions
 (`test/support/substrate/substrate.ts`). Nothing keeps a PID file: child processes are owned by an `AbortSignal`,
 `await using` or a `DisposableStack`.
-
-### PostgreSQL patches
-
-A patch to PostgreSQL is written in `~/Documents/postgres` and carried into grizzle as a file under
-`scripts/pg/patches/`, named for the version and its topic (`19rc2-<topic>.patch`). Each patch is one commit, and its
-message, a title sentence and then what the patch changes and why, is the patch's description:
-
-```sh
-pnpm pg:source                         # in grizzle: the pin's source and a configured build directory
-cd ~/Documents/postgres                # edit on the branch grizzle, above the tag pinned
-build=~/.local/opt/postgresql/19rc2.build
-meson compile -C $build
-meson test -C $build -q --print-errorlogs --suite setup --suite regress
-git commit -a                          # as yourself: one commit, the patch
-patch=~/Documents/grizzle/scripts/pg/patches/19rc2-<topic>.patch
-git format-patch --zero-commit --no-signature --stdout -1 > $patch
-sha256sum $patch
-```
-
-Then append `19rc2-<topic>.patch=<its SHA-256>` to `PG_PIN_PATCHES` in pin.env, run `pnpm pg:build`, which finds the
-commit already holding the new patch and keeps it, and commit pin.env and the patch file. The build directory is for
-compiling and testing only: `meson install` from it would write into the running installation, which only
-`pnpm pg:build` replaces. To change the last patch, amend its commit and write it out again; to change an earlier one,
-commit a fixup (`git commit --fixup=<commit>`, then `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash upstream`) and
-write out it and every patch after it again, each with `git format-patch ... -1 <commit>`, and update their SHA-256s.
-The installation still carries the patches' previous content, which the rewritten pin lacks, so `pnpm pg:build`
-refuses it as older than the installation: remove the installation's stamp, `.grizzle-build-<commit>` in
-`~/.local/opt/postgresql/<version>/`, to build it, and every cluster script refuses to run until the build is in place. A
-repin moves the patches with it: `git fetch --depth 1 origin tag <new tag>` and `git rebase --onto <new tag> upstream`,
-where a patch the release already includes comes out empty and is dropped; then each patch is written out again under
-the new version's name, and pin.env takes the new tag, commit, version and patches.
 
 ## How changes land
 
@@ -209,7 +174,7 @@ case spawns run under the hardened flags (`test/support/process.ts` `hardenedNod
 `--no-global-search-paths` and `--unhandled-rejections=strict`. V8's JIT and code generation from strings stay on: never `--jitless`,
 `--disallow-code-generation-from-strings`, `--frozen-intrinsics` or `--no-addons`. Every case runs beside every other,
 and all of them share one cluster's SSI state. PostgreSQL keeps a finished SERIALIZABLE transaction until every
-transaction that overlapped it ends, in a pool of ten per backend the cluster admits (REL_19_RC2 predicate.c:
+transaction that overlapped it ends, in a pool of ten per backend the cluster admits (REL_19_0 predicate.c:
 `max_serializable_xacts = (MaxBackends + max_prepared_xacts) * 10`), and once the pool is full it summarizes the
 oldest, which every case's transactions then pay for. So one SERIALIZABLE transaction kept open while the cluster
 commits that many, seconds at one worker per core, makes every case slower and its conflicts coarser. No case holds one

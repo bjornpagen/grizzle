@@ -30,14 +30,14 @@ import { faultError } from "#compiler/scalar/values/fault.ts"
  * cash.c replaces with 2 (physical/ddl/roles.ts, admission verifying it).
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2 cash.c, lc_monetary C.UTF-8
+ * @owner PostgreSQL 19.0 cash.c, lc_monetary C.UTF-8
  * @unit decimal digits
  * @scope the fraction digits of every money value, its input, its output and its casts to and from numeric
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/cash.c#L210-L221
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/cash.c#L210-L221
  * @quote frac_digits will be CHAR_MAX in some locales, notably C. [...] fpoint = lconvert->frac_digits; if (fpoint < 0
  *   || fpoint > 10) fpoint = 2;
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const moneyFractionDigits = 2
 
@@ -46,11 +46,11 @@ export const moneyFractionDigits = 2
  * else.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit a decimal exponent
  * @scope the exponent of a numeric text a caller writes, `1e5` and `1E-5`
  * @derivation PG_INT32_MAX / 2 in C integer division, numeric.c set_var_from_str
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L6927, "if (exponent >
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L6927, "if (exponent >
  *   PG_INT32_MAX / 2)")
  * @from {@link int4Max}
  */

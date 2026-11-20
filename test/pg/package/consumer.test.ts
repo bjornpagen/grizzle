@@ -50,8 +50,7 @@ import {
 	notesTemplate,
 	roundsGen,
 	pinProgram,
-	shellPin,
-	shellSpelling
+	shellPin
 } from "#test/pg/package/consumer.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
@@ -232,8 +231,9 @@ export const thePackagesPinAndCommandLineThroughASubmoduleConsumersInstallAConsu
 							}
 						)
 					)
+					const values: Readonly<Record<string, string>> = pin
 					assert.deepEqual(
-						Record.map(pin, shellSpelling),
+						values,
 						shellValues,
 						"the pin the project imports is pin.env as the shell sources it"
 					)

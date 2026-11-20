@@ -1,6 +1,6 @@
 /**
  * A ChangeSet editing a counted family's members in one stratum and nesting an ordered family's members under new owners
- * in another, or in the same one, on PostgreSQL 19rc2: each stratum's family statements carry its own family edits only
+ * in another, or in the same one, on PostgreSQL 19: each stratum's family statements carry its own family edits only
  * (write/frontend/compile.ts and write/program/compile.ts, the edits of their stratum), so every edit takes effect once,
  * in its stratum, whichever stratum comes first.
  *
@@ -43,11 +43,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * Family edits and a nested insert in two strata, on PostgreSQL 19rc2 take effect once each, in their own stratum, whichever comes first.
+ * Family edits and a nested insert in two strata, on PostgreSQL 19 take effect once each, in their own stratum, whichever comes first.
  *
  * Its pre-conversion budget: runs 32, coverage cases 48 (test/pg/write/strata-families/strata-families.test.ts at d8eed1786).
  */
-export const familyEditsAndANestedInsertInTwoStrataOnPostgreSQL19rc2TakeEffectOnceEachInTheirOwnStratumWhicheverComesFirst =
+export const familyEditsAndANestedInsertInTwoStrataOnPostgreSQL19TakeEffectOnceEachInTheirOwnStratumWhicheverComesFirst =
 	property.explore(caseGen, {
 		needs: { strata: Substrate.seat(strataTemplate) },
 		situations: [

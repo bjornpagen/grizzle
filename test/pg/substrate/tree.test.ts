@@ -1,5 +1,5 @@
 /**
- * trees.md's theorem, proved against PostgreSQL 19rc2 inside stated boxes: the tree relation's DDL written by hand
+ * trees.md's theorem, proved against PostgreSQL 19 inside stated boxes: the tree relation's DDL written by hand
  * (test/pg/substrate/tree.ts), every state, mutation and write a box holds sent to PostgreSQL as a transaction of its
  * own, and PostgreSQL's verdict judged by two oracles.
  *

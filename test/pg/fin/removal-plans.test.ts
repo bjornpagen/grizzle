@@ -26,9 +26,9 @@ import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * A family write's removals read their stored tables by index on PostgreSQL 19rc2 plan every keyset arm, the keyset's join and the write with no sequential scan of a family table, at every drawn size.
+ * A family write's removals read their stored tables by index on PostgreSQL 19 plan every keyset arm, the keyset's join and the write with no sequential scan of a family table, at every drawn size.
  */
-export const aFamilyWritesRemovalsReadTheirStoredTablesByIndexOnPostgreSQL19rc2PlanEveryKeysetArmTheKeysetsJoinAndTheWriteWithNoSequentialScanOfAFamilyTableAtEveryDrawnSize =
+export const aFamilyWritesRemovalsReadTheirStoredTablesByIndexOnPostgreSQL19PlanEveryKeysetArmTheKeysetsJoinAndTheWriteWithNoSequentialScanOfAFamilyTableAtEveryDrawnSize =
 	property.exhaust(finite(sketchGen), {
 		needs: { fixture: Substrate.seat(removalsTemplate) },
 		situations: Arr.map(SHAPES, readByIndex) satisfies ReadonlyArray<Reached<Feature>>,

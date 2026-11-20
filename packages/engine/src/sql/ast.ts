@@ -1945,7 +1945,7 @@ export interface GrantColumns {
  * PostgreSQL adds per-schema default ACLs to the global ones and cannot revoke a global default per schema, so the
  * built-in PUBLIC EXECUTE on functions and PUBLIC USAGE on types are reset only by the global form, without
  * IN SCHEMA (future objects receive nothing implicitly): a global entry replaces the hard-wired default and a schema's
- * is added on (PostgreSQL 19rc2 src/backend/catalog/aclchk.c 1152-1161, and get_user_default_acl's aclmerge of the two
+ * is added on (PostgreSQL 19 src/backend/catalog/aclchk.c 1152-1161, and get_user_default_acl's aclmerge of the two
  * at 4304-4318). The global form writes the owner's one pg_default_acl row of the kind, which every installation of
  * the same owner in the database writes, so every ALTER DEFAULT PRIVILEGES prints after the database lock (sql/print.ts
  * databaseWide).
@@ -2041,7 +2041,7 @@ export type PlStatement =
 			 * obliges, one statement, so FOUND is read only right after the probe that set it (sql/build.ts whenFound). The
 			 * PERFORM around the query is the printer's spelling, so any query stands in it, its WITH and its set operations
 			 * included, and every walk of the statement meets the query itself. PostgreSQL plans a PERFORM for every
-			 * row of its query (PostgreSQL 19rc2, src/pl/plpgsql/src/pl_exec.c exec_run_select at 5929-5935, no
+			 * row of its query (PostgreSQL 19, src/pl/plpgsql/src/pl_exec.c exec_run_select at 5929-5935, no
 			 * CURSOR_OPT_FAST_PLAN; src/backend/optimizer/plan/planner.c at 485-488, tuple_fraction 0) and an EXISTS
 			 * sublink for its first (src/backend/optimizer/plan/subselect.c make_subplan at 215-216, "just like a LIMIT
 			 * 1"), the plan of a query that returns rows. A probe whose row refuses, a law's violation, returns none

@@ -1,5 +1,5 @@
 /**
- * Generated fields on PostgreSQL 19rc2: STORED generated columns, run as programs of a commands machine whose model
+ * Generated fields on PostgreSQL 19: STORED generated columns, run as programs of a commands machine whose model
  * predicts every verdict (testing doctrine, rule 11).
  *
  * The relation R holds a caller's key, a closed id `tier` over the roster Tier and two sets over it, a and b, and up to
@@ -88,8 +88,8 @@ import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftCodes, fromEmpty, fromSnapshot, noDeclarations } from "#test/support/migrate/kit.ts"
 import { ownerSession, Substrate, worldSession } from "#test/support/substrate/substrate.ts"
 
-/** Generated fields on PostgreSQL 19rc2 every generated column holds what the host evaluator computes from its row, PostgreSQL refuses a writer's value for one and an absent key, and a changed expression migrates in place. */
-export const generatedFieldsOnPostgreSQL19rc2EveryGeneratedColumnHoldsWhatTheHostEvaluatorComputesFromItsRowPostgreSQLRefusesAWritersValueForOneAndAnAbsentKeyAndAChangedExpressionMigratesInPlace =
+/** Generated fields on PostgreSQL 19 every generated column holds what the host evaluator computes from its row, PostgreSQL refuses a writer's value for one and an absent key, and a changed expression migrates in place. */
+export const generatedFieldsOnPostgreSQL19EveryGeneratedColumnHoldsWhatTheHostEvaluatorComputesFromItsRowPostgreSQLRefusesAWritersValueForOneAndAnAbsentKeyAndAChangedExpressionMigratesInPlace =
 	property.explore(aimed(runGen, runAims), {
 		needs: { substrate2: Substrate.installing },
 		situations: [

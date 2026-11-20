@@ -1,6 +1,6 @@
 /**
  * A text's equation with a concatenation of any number of parts (scalar/compute/typing.ts concatEquation) on
- * PostgreSQL 19rc2, decided by the parts' lengths, the first part as the text's prefix, each middle part at the sum of
+ * PostgreSQL 19, decided by the parts' lengths, the first part as the text's prefix, each middle part at the sum of
  * the lengths before it and the last as its suffix, with no text built.
  *
  * - **expressions**: equations of two to five parts drawn as concatenation trees of any bracketing, over text columns,

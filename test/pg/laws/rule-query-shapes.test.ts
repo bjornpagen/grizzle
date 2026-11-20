@@ -1,5 +1,5 @@
 /**
- * The downstream shapes of rules over queries on PostgreSQL 19rc2, kept beside the search of rule-query.test.ts: each
+ * The downstream shapes of rules over queries on PostgreSQL 19, kept beside the search of rule-query.test.ts: each
  * exhausted over a box of states, every state written whole by a served ChangeSet of grizzle's into empty tables.
  *
  * - **A join as a rule's side**, a typed href: ResourceHref ⋈ ResourceTyped on node is TypedHref, a live derived
@@ -43,9 +43,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * Downstream's rules over queries on PostgreSQL 19rc2 accept exactly the states of each downstream shape that keep its rules, refusing the rest naming a rule they break.
+ * Downstream's rules over queries on PostgreSQL 19 accept exactly the states of each downstream shape that keep its rules, refusing the rest naming a rule they break.
  */
-export const downstreamsRulesOverQueriesOnPostgreSQL19rc2AcceptExactlyTheStatesOfEachDownstreamShapeThatKeepItsRulesRefusingTheRestNamingARuleTheyBreak =
+export const downstreamsRulesOverQueriesOnPostgreSQL19AcceptExactlyTheStatesOfEachDownstreamShapeThatKeepItsRulesRefusingTheRestNamingARuleTheyBreak =
 	property.exhaust(finite(sketchGen), {
 		needs: { shaped: Substrate.seat(shapesTemplate) },
 		situations: nonEmpty([

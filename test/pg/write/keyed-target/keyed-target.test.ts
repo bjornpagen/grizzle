@@ -28,9 +28,9 @@ import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
 /**
- * A write statement reads the relations it writes only through a key it binds, on PostgreSQL 19rc2 plan no statement of a unit's replace or delete or of its ledger's rewrite with a sequential scan of a relation it modifies.
+ * A write statement reads the relations it writes only through a key it binds, on PostgreSQL 19 plan no statement of a unit's replace or delete or of its ledger's rewrite with a sequential scan of a relation it modifies.
  */
-export const aWriteStatementReadsTheRelationsItWritesOnlyThroughAKeyItBindsOnPostgreSQL19rc2PlanNoStatementOfAUnitsReplaceOrDeleteOrOfItsLedgersRewriteWithASequentialScanOfARelationItModifies =
+export const aWriteStatementReadsTheRelationsItWritesOnlyThroughAKeyItBindsOnPostgreSQL19PlanNoStatementOfAUnitsReplaceOrDeleteOrOfItsLedgersRewriteWithASequentialScanOfARelationItModifies =
 	property.exhaust(finite(sketchGen), {
 		needs: { fixture: Substrate.seat(worldTemplate) },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,

@@ -1,5 +1,5 @@
 /**
- * Compute.sha256 over a text on PostgreSQL 19rc2, against SHA-256 itself: the digest of the text's UTF-8 as 64
+ * Compute.sha256 over a text on PostgreSQL 19, against SHA-256 itself: the digest of the text's UTF-8 as 64
  * lowercase hex digits, `encode(<textDigest>(x), 'hex')`, the installation's library function
  * (physical/ddl/library.ts textDigest, `sha256(convert_to(x, 'UTF8'))`), in a STORED generated column and a row check
  * of an installed schema (text-digest.fixtures.ts), and the host evaluator's value of the generated field.

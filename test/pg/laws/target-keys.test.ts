@@ -1,5 +1,5 @@
 /**
- * Which containment targets hold a key, through grizzle's lowering on PostgreSQL 19rc2: a search over a relation
+ * Which containment targets hold a key, through grizzle's lowering on PostgreSQL 19: a search over a relation
  * Tgt(id, a, b, c, flag, depth) keyed by id and by at most one drawn key, over Tgt or a drawn selection of it, and a
  * containment from Src(sid, p, q, r) into a drawn selection of Tgt on a drawn list of its terms id, a and b, each
  * selection one condition per field at most, a field equal to a value, to another field, or other than a value.
@@ -54,11 +54,11 @@ import { attemptChecked, momentText, refusalText } from "#test/support/substrate
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * Which containment targets hold a key on PostgreSQL 19rc2 admit a target exactly when it holds a key, and refuse no state its key and its containment admit.
+ * Which containment targets hold a key on PostgreSQL 19 admit a target exactly when it holds a key, and refuse no state its key and its containment admit.
  *
  * Its pre-conversion budget: runs 96, coverage cases 32 (test/pg/laws/target-keys.test.ts at d8eed1786).
  */
-export const whichContainmentTargetsHoldAKeyOnPostgreSQL19rc2AdmitATargetExactlyWhenItHoldsAKeyAndRefuseNoStateItsKeyAndItsContainmentAdmit =
+export const whichContainmentTargetsHoldAKeyOnPostgreSQL19AdmitATargetExactlyWhenItHoldsAKeyAndRefuseNoStateItsKeyAndItsContainmentAdmit =
 	property.explore(aimed(sketchGen, targetAims), {
 		needs: { substrate: Substrate.installing },
 		situations: [

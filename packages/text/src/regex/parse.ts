@@ -25,13 +25,13 @@ import * as Ir from "#text/regex/ir.ts"
  * repeated occurrences of a BRE or ERE interval expression; [...] Value: 255"), so every platform's build has it.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's regex compiler
+ * @owner PostgreSQL 19.0's regex compiler
  * @unit repetitions
  * @scope each bound of a counted repetition in one str.regex pattern
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/regex/regguts.h#L95
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/regex/regguts.h#L95
  * @quote #define _POSIX2_RE_DUP_MAX 255
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const regexMaxRepeat = 255
 

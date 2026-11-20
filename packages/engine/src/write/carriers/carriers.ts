@@ -55,13 +55,13 @@ import {
  * held and dropped counts too, which a migration cannot see: PostgreSQL refuses such an ADD COLUMN itself.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit columns
  * @scope one table, view or materialized view, its dropped columns included
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/htup_details.h#L48
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/htup_details.h#L48
  * @quote #define MaxHeapAttributeNumber 1600
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const tableMaxColumns = 1_600
 

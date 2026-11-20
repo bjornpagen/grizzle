@@ -1,7 +1,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 /**
  * A single statement's shapes write, judge and capture as its whole statement does, and an empty part fires nothing
- * (runtime/write/parted.ts), on PostgreSQL 19rc2: a call sends the parts its inputs may give rows, and the rows it
+ * (runtime/write/parted.ts), on PostgreSQL 19: a call sends the parts its inputs may give rows, and the rows it
  * stores, its outcome, the judge's verdict at COMMIT and the rows its captures hold are the whole statement's, while
  * a part it leaves out fires no capture, so its session stands up no delta of it and the judge reads none.
  *

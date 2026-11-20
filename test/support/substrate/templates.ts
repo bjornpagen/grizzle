@@ -33,7 +33,7 @@ const vectorSchemaGrant = "GRANT USAGE, CREATE ON SCHEMA vector_ext TO CURRENT_U
  * database defaults, PUBLIC's default privileges on it stated (databaseDefaultGrant), which the toolchain replays on
  * every clone (a clone copies no pg_db_role_setting row, and its ACL is replayed as the template's), and the owner's on
  * vector_ext stated (vectorSchemaGrant), which a clone copies as a catalog row. Its content is what makes it: the
- * PostgreSQL build the pin names and its patches, pgvector's version, the settings and the stated privileges; its build
+ * PostgreSQL release the pin builds, by its tarball's SHA-256, pgvector's version, the settings and the stated privileges; its build
  * sets the database's from the owner's own database and vector_ext's from a session in it that the build closes, so no
  * session is left in it.
  */
@@ -41,7 +41,7 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 	declaredIn: import.meta,
 	name: "grizzle base",
 	content: {
-		postgres: { tag: pin.PG_PIN_TAG, commit: pin.PG_PIN_COMMIT, patches: pin.PG_PIN_PATCHES },
+		postgres: { version: pin.PG_PIN_VERSION, tarball: pin.PG_PIN_SHA256 },
 		vector: pin.PGVECTOR_PIN_VERSION,
 		settings: Arr.map(testDatabaseSettings, ([name, value]) => [name, value]),
 		acl: databaseDefaultGrant,

@@ -88,7 +88,7 @@ import type { ServedLive, ServedSession } from "#compiler/plan/serve.ts"
  *    live program reads is not held; one that asks a reply is answered by the next round.
  *
  * Confirming a keepalive's position never passes a commit no leader fanned out, in this process or another that resumes
- * the slot, by PostgreSQL 19rc2's walsender (src/backend/replication/walsender.c at the pinned 5ce1e45):
+ * the slot, by PostgreSQL 19's walsender (src/backend/replication/walsender.c at REL_19_0 5c839a2a):
  * (a) a keepalive's position is the `writePtr` it is given, else `sentPtr` (WalSndKeepalive, :4477), and the one
  *     `writePtr` given is a transaction's skipped as empty under synchronous replication (:1804), which carries nothing
  *     to deliver;

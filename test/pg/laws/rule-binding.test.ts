@@ -2,7 +2,7 @@
  * A rule's judge reads every relation a join it reads holds by the columns the rows before it bound, a derived
  * relation's definition included, under a negation or not (analysis/theory/navigate.ts navigateQuery, which
  * physical/ddl/rules.ts judgedStatement runs on every query the judge reads): never a join under its correlation alone,
- * which PostgreSQL may read as a product it filters afterwards. On PostgreSQL 19rc2, over ProbedBinding and WholeBinding
+ * which PostgreSQL may read as a product it filters afterwards. On PostgreSQL 19, over ProbedBinding and WholeBinding
  * (rule-binding.fixtures.ts), qti's nodes, dependencies and resource ids and two of its rules' shapes: "Dependency
  * target", a containment of Ref into the derived join of Ref, its node and the resource its ref names, and "Document
  * lang"'s join within a document, a containment of the derived join of Named and its node into Node; probed, the

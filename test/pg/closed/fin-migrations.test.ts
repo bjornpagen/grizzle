@@ -1,5 +1,5 @@
 /**
- * Dependent-sum keys through grizzle's migrations on PostgreSQL 19rc2, generated: a change to a dependent space is a
+ * Dependent-sum keys through grizzle's migrations on PostgreSQL 19, generated: a change to a dependent space is a
  * constant replacement, and the codes its slots are stay stable under declared renames.
  *
  * A case draws a history of versions of a slotted closed relation Last, keyed by (version, parent, at) with `at` a slot
@@ -34,7 +34,7 @@ import {
 } from "#test/pg/closed/fin-migrations.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** Dependent keys through grizzle's migrations on PostgreSQL 19rc2 a changed count replaces its counts' and its rows' constants, a kept constant keeps its body, a rename or a grown slot roster replaces none of it, and every probe is admitted exactly into Last's rows. */
+/** Dependent keys through grizzle's migrations on PostgreSQL 19 a changed count replaces its counts' and its rows' constants, a kept constant keeps its body, a rename or a grown slot roster replaces none of it, and every probe is admitted exactly into Last's rows. */
 export const finMigrations = property.explore(
 	aimed(historyGen, [["a position renamed", renamedHistoryGen]]),
 	{

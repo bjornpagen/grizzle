@@ -3,7 +3,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, family, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 /**
- * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §4.2, §11, "Counted swap-with-last
+ * Counted swap-with-last through grizzle's lowering, on PostgreSQL 19 (fin.md §4.2, §11, "Counted swap-with-last
  * with the deferred closure FK"): a counted family hides its index ‹i› and its fold's accumulators, so removing a
  * member moves the last member into the freed slot, refolds the hidden accumulators from that slot on, and lowers the
  * count with the new end (test/support/families/counted.ts swapWithLast). Between the delete and the move the freed
@@ -51,7 +51,7 @@ import {
 } from "#test/pg/fin/counted.fixtures.ts"
 
 /**
- * Counted swap-with-last through grizzle's lowering on PostgreSQL 19rc2: remove every member of every counted family of
+ * Counted swap-with-last through grizzle's lowering on PostgreSQL 19: remove every member of every counted family of
  * at most four by swap-with-last under the deferred predecessor axis, and refuse every misorder, one property for each
  * counted fold spec, each case on the worker's seat of its spec's schema.
  */

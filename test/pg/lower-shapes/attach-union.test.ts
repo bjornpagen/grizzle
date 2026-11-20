@@ -1,6 +1,6 @@
 /**
  * An attachment over a union of rules is read per parent key, inside each arm (lower/optimize/cte-policy probedByKey,
- * attachmentRead `perKey`). On PostgreSQL 19rc2, over documents of packages as edullm's QTI ledger stores them
+ * attachmentRead `perKey`). On PostgreSQL 19, over documents of packages as edullm's QTI ledger stores them
  * (attach-union.fixtures.ts): each document's files, the media files it references or names as image candidates,
  * edullm's `files` attachment of its item reads, a union of two rules each joining one relation's range by the
  * document's key to the package's media. Before, no stored relation's range bound a union, so the policy derived it

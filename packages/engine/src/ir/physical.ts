@@ -54,7 +54,7 @@ const rangeExactDigits = (min: bigint, max: bigint): number =>
  * The most decimal digits every integer of which is a bigint: an exact integer that many digits long travels as one.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the exact integers SQL computes in bigint rather than numeric
  * @derivation the greatest d with 10^d - 1 within bigint's range on both sides

@@ -92,7 +92,7 @@ export const testIdleTimeout = hangLimit
  * @scope one pg_terminate_backend a test's support code calls on the local cluster to wait for a terminated backend to
  *   exit
  * @derivation a termination's wait is one wait inside a test, which the hang limit bounds, and the value fits the C
- *   int pg_terminate_backend reads its timeout into (REL_19_RC2 src/backend/storage/ipc/signalfuncs.c: "int timeout;
+ *   int pg_terminate_backend reads its timeout into (REL_19_0 src/backend/storage/ipc/signalfuncs.c: "int timeout;
  *   /* milliseconds *\/")
  * @from {@link hangLimit}
  */
@@ -108,9 +108,9 @@ export const testExitWait = hangLimit
  * @unit milliseconds
  * @scope one step of a test's wait on another backend's state, on the local cluster
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/storage/ipc/signalfuncs.c
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/backend/storage/ipc/signalfuncs.c
  * @quote Wait in steps of waittime milliseconds until this function exits or timeout. [...] int64 waittime = 100;
- * @verified 2026-11-15
+ * @verified 2026-11-20
  */
 export const backendWaitStep = 100
 
@@ -160,7 +160,7 @@ const orphanExitSlack = 1000
  * @scope one backend of a client a test killed mid-statement, from the kill until the test sees it gone from
  *   pg_stat_activity
  * @derivation a backend polls its client once each interval while its statement runs (the timer start_xact_command
- *   arms and each poll re-arms, REL_19_RC2 src/backend/tcop/postgres.c#L2818 and #L3453), so its first poll after the
+ *   arms and each poll re-arms, REL_19_0 src/backend/tcop/postgres.c#L2818 and #L3453), so its first poll after the
  *   kill comes at most one interval later; the slack takes in its exit and the test's step to see it
  * @from the server's client_connection_check_interval, {@link orphanExitSlack}
  */

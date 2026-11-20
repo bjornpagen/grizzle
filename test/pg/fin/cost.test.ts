@@ -1,5 +1,5 @@
 /**
- * The work of rewriting a family or a tree on PostgreSQL 19rc2 grows linearly with its size: the cost law of every
+ * The work of rewriting a family or a tree on PostgreSQL 19 grows linearly with its size: the cost law of every
  * foreign key's reverse probe (laws/model/plan.ts Reversed).
  *
  * Deleting a referenced row runs its foreign keys' RI probes, one per row (ri_triggers.c, RI_FKey_noaction_del), each
@@ -55,11 +55,11 @@ import { SHAPES } from "#test/support/families/theorem.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The cost of rewriting families and trees on PostgreSQL 19rc2 a family's whole delete and suffix rewrite, and a tree's whole delete, read buffers linear in its size.
+ * The cost of rewriting families and trees on PostgreSQL 19 a family's whole delete and suffix rewrite, and a tree's whole delete, read buffers linear in its size.
  *
  * Its pre-conversion budget: runs 2, no coverage cases, so the runner's 200 steered (test/pg/fin/cost.test.ts at d8eed1786).
  */
-export const theCostOfRewritingFamiliesAndTreesOnPostgreSQL19rc2AFamilysWholeDeleteAndSuffixRewriteAndATreesWholeDeleteReadBuffersLinearInItsSize =
+export const theCostOfRewritingFamiliesAndTreesOnPostgreSQL19AFamilysWholeDeleteAndSuffixRewriteAndATreesWholeDeleteReadBuffersLinearInItsSize =
 	property.explore(costGen, {
 		needs: {
 			ordered: Substrate.seat(costFamilies.ordered),

@@ -43,12 +43,12 @@ export const binary64MinExponent = -1022
  * FLT_DIG: the significant digits a real keeps cast to numeric.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2 float4_numeric over C's FLT_DIG
+ * @owner PostgreSQL 19.0 float4_numeric over C's FLT_DIG
  * @unit decimal digits
  * @scope the significant digits of a real cast to numeric
  * @derivation floor((p - 1) * log10(2)), C's FLT_DIG for binary32, the precision float4_numeric prints with:
  *   "snprintf(buf, sizeof(buf), "%.*g", FLT_DIG, val);"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/numeric.c#L4662)
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/numeric.c#L4662)
  * @from {@link binary32Precision}
  */
 const binary32DecimalDigits = decimalDigitsOf(binary32Precision)

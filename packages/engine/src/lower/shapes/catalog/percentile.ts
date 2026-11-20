@@ -43,13 +43,13 @@ import { binary64DecimalDigits, binary64Precision } from "#compiler/scalar/lexic
  * The largest block number of a relation: its pages are numbered from 0 to it.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's storage manager
+ * @owner PostgreSQL 19.0's storage manager
  * @unit pages, as their block numbers count them from 0
  * @scope one relation's main fork
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/storage/block.h#L35
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/storage/block.h#L35
  * @quote #define MaxBlockNumber ((BlockNumber) 0xFFFFFFFE)
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const maxBlockNumber = 0xffff_fffe
 
@@ -57,13 +57,13 @@ const maxBlockNumber = 0xffff_fffe
  * The largest page PostgreSQL can be built with, so a bound on rows per page at it bounds every build's.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2's build
+ * @owner PostgreSQL 19.0's build
  * @unit bytes
  * @scope one heap page, under the largest block size configure admits
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/configure.ac#L257
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/configure.ac#L257
  * @quote 32) BLCKSZ=32768;;
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 const largestBlockSize = 32_768
 
@@ -73,7 +73,7 @@ const largestBlockSize = 32_768
  * MaxHeapTuplesPerPage computes with the header aligned, src/include/access/htup_details.h).
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2's heap storage
+ * @owner PostgreSQL 19.0's heap storage
  * @unit rows
  * @scope one stored relation, at any block size
  * @derivation (maxBlockNumber + 1) pages times floor((largestBlockSize - pageHeaderBytes) / (heapTupleHeaderBytes +

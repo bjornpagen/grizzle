@@ -22,7 +22,7 @@
  * Oracle: the serial reference, timing drawn from the case (every order of the race's moves). Features: the insert
  * waited, and the insert refused. Only an interleaving reaches the kept race's abort: Leave's insert lists no in-flight
  * abort, and the Leave in flight, which commits while the insert waits at the span key, fails the insert with 40001
- * (PostgreSQL 19rc2 at SERIALIZABLE), a SerializationFailure the caller runs again; alone, the insert finds the stored
+ * (PostgreSQL 19 at SERIALIZABLE), a SerializationFailure the caller runs again; alone, the insert finds the stored
  * Leave instead.
  */
 

@@ -326,8 +326,8 @@ const dropOrder: { readonly [K in Dropped]: number } = {
 /** SET CONSTRAINTS ALL IMMEDIATE, before Structure's first data step (holdsDataSteps): an UPDATE of rows the
  * migration's own transaction wrote (a table rewritten by a generated column's ADD COLUMN or a conversion, or updated
  * by an earlier UPDATE) queues the check of every deferrable foreign key over them until the commit, since
- * PostgreSQL fires a referencing row's check whatever its keys when its own transaction wrote the row (PostgreSQL
- * 19rc2, src/backend/utils/adt/ri_triggers.c RI_FKey_fk_upd_check_required at 1524, slot_is_current_xact_tuple at
+ * PostgreSQL fires a referencing row's check whatever its keys when its own transaction wrote the row (REL_19_0
+ * src/backend/utils/adt/ri_triggers.c RI_FKey_fk_upd_check_required at 1524, slot_is_current_xact_tuple at
  * 1596-1597), and refuses to alter a table with a check pending (src/backend/commands/tablecmds.c CheckTableNotInUse at
  * 4462, AfterTriggerPendingOnRel at 4476, 55006 at 4478), as a fill's DROP COLUMN, the backfill's DROP DEFAULT and
  * every constraint added after them do. Under it each check runs at the end of its UPDATE. It holds for the rest of the
@@ -3960,7 +3960,7 @@ const fieldChangesOf = (
  * place or set aside, which it then reads through the conversion (asideSubcommand); where its previous generation
  * reads a field converted or rewritten, which PostgreSQL converts or drops only once no generated column reads it
  * (0A000, 2BP01), before Structure's alteration could set another expression; and where it is re-expressed on a table
- * `convertsInPlace`, since PostgreSQL 19rc2 fails one ALTER TABLE that both converts a NOT NULL column and sets an
+ * `convertsInPlace`, since PostgreSQL 19 fails one ALTER TABLE that both converts a NOT NULL column and sets an
  * expression (XX000, "cache lookup failed for constraint").
  */
 const rewrittenOver = (

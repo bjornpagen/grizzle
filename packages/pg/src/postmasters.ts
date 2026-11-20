@@ -2,7 +2,6 @@ import {
 	Array as Arr,
 	Data,
 	Effect,
-	Equivalence,
 	FileSystem,
 	Formatter,
 	Option,
@@ -12,67 +11,7 @@ import {
 
 import { regex } from "arkregex"
 
-/**
- * A build of a pinned PostgreSQL release: the release's commit (pin.env's PG_PIN_COMMIT) and the source patches applied
- * to it, in order, each `<file>=<its SHA-256>` as PG_PIN_PATCHES lists it, so a patch is its file and its content, and
- * one rewritten under its old name is another patch. A checkout's pin.env names the build it makes; the stamp build.sh
- * writes last into a build's tree (scripts/pg/build.sh core_stamp) records the build that tree holds.
- */
-export interface Build {
-	readonly commit: string
-	readonly patches: ReadonlyArray<string>
-}
-
-/** A patch list as the shell splits PG_PIN_PATCHES and a stamp's text: its words, each a patch. */
-export const patchesOf = (text: string): ReadonlyArray<string> =>
-	Arr.filter(Str.split(text, regex("\\s+")), Str.isNonEmpty)
-
-/**
- * What build.sh does with a checkout's pin, given the build the installation holds: `build` the pin when the
- * installation holds no build of the pin's release, or one whose every patch the pin applies too (another release is a
- * repin, which drops the patches its release includes); leave it, `built`, when the installation holds the pin itself,
- * the same patches in the same order; and refuse a pin `older` than the installation, one of the same release that
- * lacks patches its build carries, `lacking`, in the installation's order, which building would drop.
- */
-export type Verdict =
-	| { readonly kind: "build" }
-	| { readonly kind: "built" }
-	| { readonly kind: "older"; readonly lacking: Arr.NonEmptyReadonlyArray<string> }
-
-const samePatches = Arr.makeEquivalence(Equivalence.String)
-
-/**
- * The verdict on building `pin` over the installation's build, `installed`, none when the installation holds no build:
- * keyed on the release's commit, never on how many patches either holds, so a repin that drops patches builds and a
- * checkout of the same release that lacks one of the installation's patches is refused.
- */
-export const verdict = (installed: Option.Option<Build>, pin: Build): Verdict =>
-	Option.match(
-		Option.filter(installed, (build) => build.commit === pin.commit),
-		{
-			onNone: (): Verdict => ({ kind: "build" }),
-			onSome: (build): Verdict => {
-				const lacking = Arr.difference(build.patches, pin.patches)
-				return Arr.isReadonlyArrayNonEmpty(lacking)
-					? { kind: "older", lacking }
-					: samePatches(build.patches, pin.patches)
-						? { kind: "built" }
-						: { kind: "build" }
-			}
-		}
-	)
-
-/** An installation holds the stamps of several builds, which no tree build.sh puts in place does. */
-class StampsSeveral extends Data.TaggedError("StampsSeveral")<{
-	readonly installation: string
-	readonly stamps: ReadonlyArray<string>
-}> {
-	override get message(): string {
-		return `${this.installation} holds the stamps of several builds, ${Arr.join(this.stamps, ", ")}, where build.sh writes one`
-	}
-}
-
-/** A file the decision reads cannot be read, for a reason other than its absence. */
+/** A file the search reads cannot be read, for a reason other than its absence. */
 class Unreadable extends Data.TaggedError("Unreadable")<{
 	readonly path: string
 	readonly cause: PlatformError.PlatformError
@@ -92,39 +31,6 @@ const unlessAbsent = <A>(
 		Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
 		Effect.mapError((cause) => new Unreadable({ path, cause }))
 	)
-
-/**
- * The build the installation at `installation` holds, read from its stamp, the one file of its top directory whose name
- * starts with `stem` (scripts/pg/build.sh core_stamp), the release's commit after it and the patches its text: none when
- * there is no installation or no stamp in it, a build that never finished. Several stamps are refused.
- */
-export const installedBuild = (
-	installation: string,
-	stem: string
-): Effect.Effect<Option.Option<Build>, StampsSeveral | Unreadable, FileSystem.FileSystem> =>
-	Effect.gen(function* () {
-		const fs = yield* FileSystem.FileSystem
-		const names = yield* unlessAbsent(installation, fs.readDirectory(installation))
-		const stamps = Arr.filter(
-			Option.getOrElse(names, (): ReadonlyArray<string> => []),
-			Str.startsWith(stem)
-		)
-		if (stamps.length > 1) {
-			return yield* new StampsSeveral({ installation, stamps })
-		}
-		return yield* Effect.transposeOption(
-			Option.map(Arr.head(stamps), (name) => {
-				const path = `${installation}/${name}`
-				return Effect.mapBoth(fs.readFileString(path), {
-					onFailure: (cause) => new Unreadable({ path, cause }),
-					onSuccess: (text): Build => ({
-						commit: Str.slice(stem.length)(name),
-						patches: patchesOf(text)
-					})
-				})
-			})
-		)
-	})
 
 /**
  * A postmaster running a build some tree holds: its process; its data directory and port as its lock file,

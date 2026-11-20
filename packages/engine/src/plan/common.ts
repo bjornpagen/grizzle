@@ -4,13 +4,13 @@
  * no role grizzle admits can change, so Db.open and grizzle migrate refuse a server whose setting is below it.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit kilobytes
  * @scope max_stack_depth, as pg_settings reports it, of the server grizzle's patterns are compiled on
  * @constraint configurable default
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/config.sgml#L2328
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/config.sgml#L2328
  * @quote The default setting is two megabytes (<literal>2MB</literal>)
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export { quoteIdent } from "#compiler/core/text.ts"
 export const maxStackDepth = 2_048

@@ -133,13 +133,13 @@ import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
  * so a row whose fixed-width columns, its generated cells and selected terms among them, can pass it cannot be stored.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one heap tuple, its header and alignment padding included: one row of a stored relation's table
  * @derivation htup_details.h's MaxHeapTupleSize, "#define MaxHeapTupleSize (BLCKSZ - MAXALIGN(SizeOfPageHeaderData +
  *   sizeof(ItemIdData)))"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/access/htup_details.h#L755, verified
- *   2026-11-14): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/access/htup_details.h#L755, verified
+ *   2026-11-20): a page less its header and the one line pointer that points at the tuple, rounded up to the greatest
  *   alignment, since a heap page has no special space
  * @from {@link blockSize}, {@link maxAlign}, {@link pageHeaderBytes}, {@link itemIdBytes}
  */

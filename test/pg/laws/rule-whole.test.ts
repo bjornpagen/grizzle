@@ -2,7 +2,7 @@
  * A unit-local rule over a query is judged whole (analysis/theory/unit.ts, physical/ddl/rules.ts addRules): every
  * relation it reads immutable and leading its key with one unit key, which every rule of its violation query joins on,
  * the judge reads its violation query, the one the migration that adds it runs, over the units a transaction wrote. On
- * PostgreSQL 19rc2, over a whole judge and its probed twin of each unit shape (rule-whole.fixtures.ts): nodes and
+ * PostgreSQL 19, over a whole judge and its probed twin of each unit shape (rule-whole.fixtures.ts): nodes and
  * expressions keyed by their document's place first, one, two or three fields of it, declared in the key's order or
  * reversed, under a containment of a join into a table, a check over a join, a key over a projection of it, two
  * containments between selected sides of the stored relations, whole in the whole judge and native foreign keys in

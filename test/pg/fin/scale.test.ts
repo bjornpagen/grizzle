@@ -1,5 +1,5 @@
 /**
- * Long families and large imports through grizzle's lowering, on PostgreSQL 19rc2 (fin.md §11, "Scale", §15): what a
+ * Long families and large imports through grizzle's lowering, on PostgreSQL 19 (fin.md §11, "Scale", §15): what a
  * bound that bites only at scale must still satisfy, the sizes drawn afresh each run (doctrine rule 10) rather than
  * fixed small.
  *
@@ -47,11 +47,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
- * Long families and large imports through grizzle's lowering on PostgreSQL 19rc2 grow and shrink a long family by its cascade and suffix rewrite, and import many families and a large tree with the deferred queue linear in its deferred checks.
+ * Long families and large imports through grizzle's lowering on PostgreSQL 19 grow and shrink a long family by its cascade and suffix rewrite, and import many families and a large tree with the deferred queue linear in its deferred checks.
  *
  * Its pre-conversion budget: runs 2, no coverage cases, so the runner's 200 steered (test/pg/fin/scale.test.ts at d8eed1786).
  */
-export const longFamiliesAndLargeImportsThroughGrizzlesLoweringOnPostgreSQL19rc2GrowAndShrinkALongFamilyByItsCascadeAndSuffixRewriteAndImportManyFamiliesAndALargeTreeWithTheDeferredQueueLinearInItsDeferredChecks =
+export const longFamiliesAndLargeImportsThroughGrizzlesLoweringOnPostgreSQL19GrowAndShrinkALongFamilyByItsCascadeAndSuffixRewriteAndImportManyFamiliesAndALargeTreeWithTheDeferredQueueLinearInItsDeferredChecks =
 	property.explore(scaleGen, {
 		needs: { ...Substrate.oneOf(scaleFamilies, Substrate.seat), tree: Substrate.seat(scaleTree) },
 		situations: [],

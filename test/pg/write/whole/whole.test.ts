@@ -65,11 +65,11 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 
 /**
- * Deleting a group whole and replacing it, on PostgreSQL 19rc2 every ChangeSet stores the model's rows and answers its outcome, counts and refusals.
+ * Deleting a group whole and replacing it, on PostgreSQL 19 every ChangeSet stores the model's rows and answers its outcome, counts and refusals.
  *
  * Its pre-conversion budget: runs 24, coverage cases 96 (test/pg/write/whole/whole.test.ts at d8eed1786).
  */
-export const deletingAGroupWholeAndReplacingItOnPostgreSQL19rc2EveryChangeSetStoresTheModelsRowsAndAnswersItsOutcomeCountsAndRefusals =
+export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStoresTheModelsRowsAndAnswersItsOutcomeCountsAndRefusals =
 	property.explore(programGen, {
 		needs: { whole: Substrate.seat(wholeTemplate) },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,

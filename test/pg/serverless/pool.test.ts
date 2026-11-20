@@ -17,7 +17,7 @@
  *   its end or cut: after a drawn number of the scheduler's turns, once its own connection asks for its password, once
  *   it holds its session, or while its statement waits on a lock the case holds, once pg_stat_activity shows its
  *   backend waiting on that lock: a CancelRequest that reaches a backend still reading its statement is ignored
- *   (REL_19_RC2 src/backend/tcop/postgres.c 3536-3546), so a cut as the statement is sent cuts no statement that waits.
+ *   (REL_19_0 src/backend/tcop/postgres.c 3536-3546), so a cut as the statement is sent cuts no statement that waits.
  *   Every cut point is reached by what the case observes, never by the clock. Once every lease has settled and pg has answered every connection, the pool is at
  *   its baseline (nothing leased, no client checked out of pg's Pool, nothing queued, no lease left asking, every
  *   permit free: free, attempting and leased permits are the maximum in all, and none attempting), every kept

@@ -194,14 +194,14 @@ import { Money } from "#compiler/scalar/values/money.ts"
  * sequence PostgreSQL reads, which translate allocates for each byte of its operand.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope one character of a UTF-8 database, the maxmblen pg_wchar_table holds for PG_UTF8
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/src/common/wchar.c#L1872
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/common/wchar.c#L1872
  * @quote [PG_UTF8] = {pg_utf2wchar_with_len, pg_wchar2utf_with_len, pg_utf_mblen, pg_utf_dsplen, pg_utf8_verifychar,
  *   pg_utf8_verifystr, 4},
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const utf8EncodingMaxBytes = 4
 
@@ -212,15 +212,15 @@ export const utf8EncodingMaxBytes = 4
  * check or generated column that translates a longer text fails its write.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit bytes
  * @scope the operand of one translate(text, text, text) call
  * @derivation translate refuses "if (unlikely(pg_mul_s32_overflow(pg_database_encoding_max_length(), m, &bytelen)) ||
  *   unlikely(pg_add_s32_overflow(bytelen, VARHDRSZ, &bytelen)) || unlikely(!AllocSizeIsValid(bytelen)))" over its
  *   operand's m bytes
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/backend/utils/adt/oracle_compat.c#L854-L864, verified
- *   2026-11-14), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)"
- *   (https://github.com/postgres/postgres/blob/REL_19_RC2/src/include/utils/memutils.h#L42), so m is at most
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/oracle_compat.c#L854-L864, verified
+ *   2026-11-20), and "#define AllocSizeIsValid(size) ((Size) (size) <= MaxAllocSize)"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/memutils.h#L42), so m is at most
  *   (MaxAllocSize - VARHDRSZ) / maxmblen, rounded down
  * @from {@link maxAllocSize}, {@link utf8EncodingMaxBytes}, {@link varlenaHeaderBytes}
  */

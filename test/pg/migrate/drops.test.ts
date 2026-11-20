@@ -2,7 +2,7 @@
  * Every column step a draft runs on a table it keeps is one PostgreSQL accepts, in an order of what reads what: a
  * migration whose second version drops generated fields with the fields they read, converts, sets aside or turns
  * generated fields a generated field reads, re-expresses generated fields, and drops the CHECKs, law columns and
- * foreign keys over dropped fields, applies over stored rows on PostgreSQL 19rc2.
+ * foreign keys over dropped fields, applies over stored rows on PostgreSQL 19.
  *
  * A case draws a first version: R, keyed by id, with one to four integer fields its caller writes and up to three
  * fields PostgreSQL generates from them, the least or the greatest of one or more, all declared in a shuffled order;
@@ -76,7 +76,7 @@ export const drops = property.explore(aimed(caseGen, aims), {
 				'\t\t\t\t\tgenerationColumns(was.generated).some(changed("converted", "rewritten")) ||\n\t\t\t\t\t(change.kind === "reexpressed" && convertsInPlace))\n',
 			replacement:
 				'\t\t\t\t\tgenerationColumns(was.generated).some(changed("converted", "rewritten")))\n',
-			why: "A generated field re-expressed on a table that converts another field in place sets its expression in the ALTER TABLE of the conversion, which PostgreSQL 19rc2 fails (XX000)."
+			why: "A generated field re-expressed on a table that converts another field in place sets its expression in the ALTER TABLE of the conversion, which PostgreSQL 19 fails (XX000)."
 		},
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",

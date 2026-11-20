@@ -15,13 +15,13 @@ import type { NumericTypmod } from "#compiler/ir/scalar.ts"
  * The least smallint.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit a smallint value
  * @scope every smallint value: a column, a parameter, a literal, an endpoint
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L374
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L374
  * @quote <entry>-32768 to +32767</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const int2Min = -32768
 
@@ -29,13 +29,13 @@ export const int2Min = -32768
  * The greatest smallint.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit a smallint value
  * @scope every smallint value: a column, a parameter, a literal, an endpoint
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L374
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L374
  * @quote <entry>-32768 to +32767</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const int2Max = 32767
 
@@ -43,13 +43,13 @@ export const int2Max = 32767
  * The least integer.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit an integer value
  * @scope every integer value: a column, a parameter, a literal, an endpoint, a span width
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L380
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L380
  * @quote <entry>-2147483648 to +2147483647</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const int4Min = -2147483648
 
@@ -57,13 +57,13 @@ export const int4Min = -2147483648
  * The least bigint, and money's least count of minor units.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit a bigint value
  * @scope every bigint value and every money count of minor units, a row count included
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L386
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L386
  * @quote <entry>-9223372036854775808 to +9223372036854775807</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const int8Min = -9223372036854775808n
 
@@ -71,13 +71,13 @@ export const int8Min = -9223372036854775808n
  * The greatest bigint, and money's greatest count of minor units.
  *
  * @limitKind published
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit a bigint value
  * @scope every bigint value and every money count of minor units, a row count included
  * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_RC2/doc/src/sgml/datatype.sgml#L386
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/doc/src/sgml/datatype.sgml#L386
  * @quote <entry>-9223372036854775808 to +9223372036854775807</entry>
- * @verified 2026-11-14
+ * @verified 2026-11-20
  */
 export const int8Max = 9223372036854775807n
 
@@ -89,7 +89,7 @@ const rangeDigits = (min: bigint, max: bigint): number =>
  * The integer digits of a smallint, |x| < 10^int2Digits.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the integer digits of every smallint value
  * @derivation the decimal length of smallint's greatest magnitude, -int2Min
@@ -101,7 +101,7 @@ const int2Digits = rangeDigits(BigInt(int2Min), BigInt(int2Max))
  * The integer digits of an integer, |x| < 10^int4Digits.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the integer digits of every integer value
  * @derivation the decimal length of integer's greatest magnitude, -int4Min
@@ -114,7 +114,7 @@ export const int4Digits = rangeDigits(BigInt(int4Min), BigInt(int4Max))
  * count of rows, which PostgreSQL counts in a bigint.
  *
  * @limitKind derived
- * @owner PostgreSQL 19rc2
+ * @owner PostgreSQL 19.0
  * @unit decimal digits
  * @scope the integer digits of every bigint value, money count and row count
  * @derivation the decimal length of bigint's greatest magnitude, -int8Min

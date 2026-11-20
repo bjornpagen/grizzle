@@ -1,5 +1,5 @@
 /**
- * The host's evaluation of a row, rowEvaluator (program/evaluate.ts), against PostgreSQL 19rc2: what PostgreSQL computes
+ * The host's evaluation of a row, rowEvaluator (program/evaluate.ts), against PostgreSQL 19: what PostgreSQL computes
  * of a row of a relation, stored, derived or closed, its generated field's value, each row check's verdict and whether
  * a selection keeps it, the host computes alike, and a row PostgreSQL's domains refuse the host refuses at a field they
  * refuse.
