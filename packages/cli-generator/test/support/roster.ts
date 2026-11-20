@@ -5,7 +5,9 @@
  * list grows as each directory is converted, until it names every test module and Vitest's configs go.
  */
 export const propertyModules: ReadonlyArray<string> = [
+	"test/check/document-set.test.ts",
 	"test/check/grammar.test.ts",
+	"test/corpus/walk.test.ts",
 	"test/emit/constructs.test.ts",
 	"test/emit/domain-module.test.ts",
 	"test/emit/emitted-package.test.ts",
@@ -67,6 +69,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/normalize/security.test.ts",
 	"test/normalize/servers.test.ts",
 	"test/report/command-names.test.ts",
+	"test/resolve/base-uri.test.ts",
 	"test/resolve/document-set.test.ts",
 	"test/runtime/body-fields.test.ts",
 	"test/runtime/client-retry-after.test.ts",

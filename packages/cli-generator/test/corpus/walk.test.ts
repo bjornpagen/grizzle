@@ -1,265 +1,79 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { walk } from "#corpus/tools/walk.ts"
-import type { WalkElement } from "#corpus/tools/walk.ts"
-import { DocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * The corpus walker's outline (corpus/tools/walk.ts, design 8.3): over drawn 3.1 documents, every operation, parameter,
+ * request media type, response key, security alternative and server is listed at the use site it is reached by, never
+ * at the target of a `$ref` it passes through, sorted by pointer; each operation records the path-level parameters it
+ * does not override by name and location, the security and servers it inherits from the levels above it, and whether
+ * it is on the default server; and nothing of a webhook or a callback is listed.
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	documentSpace,
+	expectedOf,
+	type Feature,
+	featuresOf,
+	walkedOf
+} from "#test/corpus/walk.fixtures.ts"
 
-const entry = Schema.decodeUnknownSync(DocumentUri)("file:///spec/openapi.json")
-
-const walked = (value: Json): readonly WalkElement[] =>
-	Effect.runSync(
-		resolve({ document: entry, line: "3.1", value }).pipe(
-			Effect.orDie,
-			Effect.flatMap((resolution) => walk(resolution))
-		)
-	)
-
-// Each element as `kind pointer detail`, in the walker's order (sorted by pointer).
-const lines = (value: Json): readonly string[] =>
-	walked(value).map((element) => {
-		if (element.kind === "operation") {
-			return `operation ${element.pointer} ${element.method} ${element.path}`
+/** A drawn document's outline is the one its sketch states. */
+export const outlineWalk = property.explore(documentSpace, {
+	needs: {},
+	situations: [
+		"a referenced parameter",
+		"a referenced request body",
+		"a referenced response",
+		"a referenced path item",
+		"a path-level parameter an operation overrides",
+		"a header overridden in another case",
+		"a path-level parameter an operation inherits",
+		"an operation with its own security",
+		"an operation with empty security",
+		"an operation inheriting the root security",
+		"an operation with its own servers",
+		"an operation inheriting path item servers",
+		"an operation inheriting the root servers",
+		"an operation on the default server",
+		"the same name in two locations",
+		"a webhook or a callback"
+	] satisfies ReadonlyArray<Reached<Feature>>,
+	check: (_, k: Case<Feature>) => (sketch) =>
+		Effect.gen(function* () {
+			k.noteAll(featuresOf(sketch))
+			const walked = yield* walkedOf(sketch)
+			assert.deepEqual(walked, expectedOf(sketch))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 8.3's outline of the sketch the document is drawn from: each element at its use site, sorted by pointer"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/resolve/index.ts",
+			original: '"pathItem",\n\t"requestBody",\n\t"response",',
+			replacement: '"pathItem",\n\t"response",',
+			why: "A request body is no kind a reference stands for, so a referenced body's media types are never reached; the property fails (TESTPOLICY2's census, mutant 1d0c253431)."
+		},
+		{
+			file: "packages/generator/corpus/tools/walk.ts",
+			original: "servers: itemServers ?? rootServers",
+			replacement: "servers: itemServers",
+			why: "An operation of a path item with no servers inherits none of the root's; the property fails."
+		},
+		{
+			file: "packages/generator/corpus/tools/walk.ts",
+			original: "? Str.toLowerCase(left.name) === Str.toLowerCase(right.name)",
+			replacement: "? left.name === right.name",
+			why: "A header an operation names in another case is taken for another parameter, so the path item's is inherited beside it; the property fails."
+		},
+		{
+			file: "packages/generator/corpus/tools/walk.ts",
+			original:
+				'defaultServer: above.servers === undefined && Option.isNone(memberOf(node, "servers"))',
+			replacement: 'defaultServer: Option.isNone(memberOf(node, "servers"))',
+			why: "An operation with no servers of its own is on the default server though a level above it declares servers; the property fails."
 		}
-
-		if (element.kind === "parameter") {
-			return `parameter ${element.pointer} ${element.in}:${element.name}`
-		}
-
-		if (element.kind === "requestMedia") {
-			return `requestMedia ${element.pointer} ${element.mediaType}`
-		}
-
-		if (element.kind === "response") {
-			return `response ${element.pointer} ${element.key}`
-		}
-
-		if (element.kind === "securityAlternative") {
-			return `securityAlternative ${element.pointer} ${element.schemes.join(",")}`
-		}
-
-		return `server ${element.pointer} ${element.url}`
-	})
-
-const base = { info: { title: "t", version: "1" }, openapi: "3.1.1" } as const
-
-const ok = { "200": { description: "ok" } } as const
-
-describe("outline walk", () => {
-	test("a small spec yields the exact element list", () => {
-		const value: Json = {
-			...base,
-			components: { securitySchemes: { key: { in: "header", name: "x-key", type: "apiKey" } } },
-			paths: {
-				"/users/{id}": {
-					get: {
-						parameters: [
-							{ in: "path", name: "id", required: true, schema: { type: "string" } },
-							{ in: "query", name: "q", schema: { type: "string" } }
-						],
-						responses: { "200": { description: "ok" }, default: { description: "err" } }
-					},
-					post: {
-						requestBody: {
-							content: { "application/json": {}, "text/plain": {} }
-						},
-						responses: ok,
-						security: [{ key: [] }, {}]
-					},
-					servers: [{ url: "https://path.example" }]
-				}
-			},
-			security: [{ key: [] }],
-			servers: [{ url: "https://api.example" }]
-		}
-
-		expect(lines(value)).toEqual([
-			"operation /paths/~1users~1{id}/get get /users/{id}",
-			"parameter /paths/~1users~1{id}/get/parameters/0 path:id",
-			"parameter /paths/~1users~1{id}/get/parameters/1 query:q",
-			"response /paths/~1users~1{id}/get/responses/200 200",
-			"response /paths/~1users~1{id}/get/responses/default default",
-			"operation /paths/~1users~1{id}/post post /users/{id}",
-			"requestMedia /paths/~1users~1{id}/post/requestBody/content/application~1json application/json",
-			"requestMedia /paths/~1users~1{id}/post/requestBody/content/text~1plain text/plain",
-			"response /paths/~1users~1{id}/post/responses/200 200",
-			"securityAlternative /paths/~1users~1{id}/post/security/0 key",
-			"securityAlternative /paths/~1users~1{id}/post/security/1 ",
-			"server /paths/~1users~1{id}/servers/0 https://path.example",
-			"securityAlternative /security/0 key",
-			"server /servers/0 https://api.example"
-		])
-	})
-
-	test("a $ref'd parameter is listed at its use site, not at its target", () => {
-		const value: Json = {
-			...base,
-			components: { parameters: { Limit: { in: "query", name: "limit" } } },
-			paths: {
-				"/a": {
-					get: {
-						parameters: [{ $ref: "#/components/parameters/Limit" }],
-						responses: ok
-					}
-				}
-			}
-		}
-
-		expect(lines(value)).toEqual([
-			"operation /paths/~1a/get get /a",
-			"parameter /paths/~1a/get/parameters/0 query:limit",
-			"response /paths/~1a/get/responses/200 200"
-		])
-	})
-
-	test("a $ref'd request body and response are listed at their use sites", () => {
-		const value: Json = {
-			...base,
-			components: {
-				requestBodies: { Body: { content: { "application/json": {} } } },
-				responses: { Fine: { description: "ok" } }
-			},
-			paths: {
-				"/a": {
-					put: {
-						requestBody: { $ref: "#/components/requestBodies/Body" },
-						responses: { "204": { $ref: "#/components/responses/Fine" } }
-					}
-				}
-			}
-		}
-
-		expect(lines(value)).toEqual([
-			"operation /paths/~1a/put put /a",
-			"requestMedia /paths/~1a/put/requestBody/content/application~1json application/json",
-			"response /paths/~1a/put/responses/204 204"
-		])
-	})
-
-	test("a $ref'd path item lists its operations under the use-site path", () => {
-		const value: Json = {
-			...base,
-			components: {
-				pathItems: {
-					Shared: { get: { parameters: [{ in: "header", name: "x-id" }], responses: ok } }
-				}
-			},
-			paths: { "/b": { $ref: "#/components/pathItems/Shared" } }
-		}
-
-		expect(lines(value)).toEqual([
-			"operation /paths/~1b/get get /b",
-			"parameter /paths/~1b/get/parameters/0 header:x-id",
-			"response /paths/~1b/get/responses/200 200"
-		])
-	})
-
-	test("path-level parameters are listed once at the path item, never per operation", () => {
-		const value: Json = {
-			...base,
-			paths: {
-				"/c": {
-					delete: { responses: ok },
-					get: { responses: ok },
-					parameters: [{ in: "query", name: "shared" }]
-				}
-			}
-		}
-
-		expect(lines(value)).toEqual([
-			"operation /paths/~1c/delete delete /c",
-			"response /paths/~1c/delete/responses/200 200",
-			"operation /paths/~1c/get get /c",
-			"response /paths/~1c/get/responses/200 200",
-			"parameter /paths/~1c/parameters/0 query:shared"
-		])
-	})
-
-	test("same name in different locations are distinct parameters", () => {
-		const value: Json = {
-			...base,
-			paths: {
-				"/d": {
-					get: {
-						parameters: [
-							{ in: "query", name: "id" },
-							{ in: "header", name: "id" }
-						],
-						responses: ok
-					}
-				}
-			}
-		}
-
-		expect(
-			walked(value).flatMap((e) => (e.kind === "parameter" ? [`${e.in}:${e.name}`] : []))
-		).toEqual(["query:id", "header:id"])
-	})
-
-	test("a spec with no operations yields only its servers and security", () => {
-		expect(lines({ ...base, paths: {}, servers: [{ url: "/" }] })).toEqual(["server /servers/0 /"])
-	})
-
-	test("each operation records the path-item and root elements it inherits", () => {
-		const value: Json = {
-			...base,
-			components: { securitySchemes: { key: { in: "header", name: "x-key", type: "apiKey" } } },
-			paths: {
-				"/f": {
-					delete: { responses: ok, security: [], servers: [{ url: "https://own.example" }] },
-					get: { parameters: [{ in: "header", name: "x-id" }], responses: ok },
-					parameters: [
-						{ in: "query", name: "q" },
-						{ in: "header", name: "X-Id" }
-					],
-					post: { parameters: [{ in: "query", name: "Q" }], responses: ok }
-				},
-				"/g": { get: { responses: ok }, servers: [{ url: "https://path.example" }] }
-			},
-			security: [{ key: [] }, {}],
-			servers: [{ url: "https://api.example" }]
-		}
-
-		expect(
-			walked(value).flatMap((element) =>
-				element.kind === "operation"
-					? [`${element.pointer} ${element.inherits.join(" ")} default:${element.defaultServer}`]
-					: []
-			)
-		).toEqual([
-			"/paths/~1f/delete /paths/~1f/parameters/0 /paths/~1f/parameters/1 default:false",
-			"/paths/~1f/get /paths/~1f/parameters/0 /security/0 /security/1 /servers/0 default:false",
-			"/paths/~1f/post /paths/~1f/parameters/0 /paths/~1f/parameters/1 /security/0 /security/1 /servers/0 default:false",
-			"/paths/~1g/get /paths/~1g/servers/0 /security/0 /security/1 default:false"
-		])
-	})
-
-	test("an operation with no servers at any level takes the default server", () => {
-		expect(
-			walked({ ...base, paths: { "/h": { get: { responses: ok } } } }).flatMap((element) =>
-				element.kind === "operation" ? [element.defaultServer] : []
-			)
-		).toEqual([true])
-	})
-
-	test("webhooks and callbacks are not request elements", () => {
-		const value: Json = {
-			...base,
-			paths: {
-				"/e": {
-					post: {
-						callbacks: { cb: { "{$request.body#/url}": { post: { responses: ok } } } },
-						responses: ok
-					}
-				}
-			},
-			webhooks: { hook: { post: { responses: ok } } }
-		}
-
-		expect(lines(value)).toEqual([
-			"operation /paths/~1e/post post /e",
-			"response /paths/~1e/post/responses/200 200"
-		])
-	})
+	]
 })

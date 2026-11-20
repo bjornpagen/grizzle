@@ -1,77 +1,97 @@
-import { Effect, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { checkSpecText } from "#check/index.ts"
-import { DocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
-import { resolve } from "#resolve/index.ts"
+/**
+ * The spec-text checks across a document set (check/structure.ts, check/grammar.ts): an element a `$ref` reaches in a
+ * second document of the set is read there, so an operation's parameter held in the second document is found to repeat
+ * another by name and location, and a discriminator's branch held there is found not to require the discriminator's
+ * property, each exactly as when the entry document holds it.
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	type BranchFeature,
+	branchFeatures,
+	branchFindings,
+	branchSpace,
+	expectedBranchFindings,
+	expectedParameterFindings,
+	type ParameterFeature,
+	parameterFeatures,
+	parameterFindings,
+	parameterSpace
+} from "#test/check/document-set.fixtures.ts"
 
-const uri = (value: string) => Schema.decodeUnknownSync(DocumentUri)(value)
-
-const entry = uri("file:///spec/openapi.json")
-
-const common = uri("file:///spec/common.json")
-
-const responses: Json = { "200": { description: "ok" } }
-
-const codes = (members: Record<string, Json>, fragment: Json): readonly string[] =>
-	Effect.runSync(
-		resolve({
-			document: entry,
-			line: "3.1",
-			members: [{ document: common, value: fragment }],
-			value: { info: { title: "t", version: "1" }, openapi: "3.1.2", paths: {}, ...members }
-		}).pipe(Effect.flatMap(checkSpecText))
-	).map((diagnostic) => `${diagnostic.code} ${diagnostic.pointer}`)
-
-const cat = (required: readonly string[]): Json => ({
-	components: {
-		schemas: {
-			Cat: { properties: { kind: { type: "string" } }, required, type: "object" }
+/** A referenced parameter repeats an operation's own by name and location, whichever document of the set holds it. */
+export const parametersAcrossDocuments = property.exhaust(parameterSpace, {
+	box: "a referenced parameter held by the entry or the second document; each query or header parameter named limit or Limit beside each",
+	needs: {},
+	situations: [
+		"a parameter of the second document",
+		"a parameter of the entry document",
+		"a repeated parameter",
+		"a header repeated in another case",
+		"two distinct parameters"
+	] satisfies ReadonlyArray<Reached<ParameterFeature>>,
+	check: (_, k: Case<ParameterFeature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(parameterFeatures(c))
+			const found = yield* parameterFindings(c)
+			assert.deepEqual(found, expectedParameterFindings(c))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "OpenAPI 3.1.1 section 4.8.12: parameters unique by name and location, a header's name case-insensitive"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/check/path-items.ts",
+			original: "resolution.documents.get(target.document)",
+			replacement: "resolution.documents.get(resolution.document)",
+			why: "A reference's target is read in the entry document whatever document it names, so a parameter held by the second document is read as nothing and its repeat is not found; the property fails."
+		},
+		{
+			file: "packages/generator/src/check/structure.ts",
+			original: "[...fixed, ...additional]",
+			replacement: "[...additional]",
+			why: "No path item's fixed operations are read, so no operation's parameters are checked and no repeat is found; the property fails (TESTPOLICY2's census, mutant 5c6f6c1ce8)."
 		}
-	}
+	]
 })
 
-const pets = (fragment: Json): readonly string[] =>
-	codes(
+/** A discriminator's branch must require its property, whichever document of the set holds the branch. */
+export const branchesAcrossDocuments = property.exhaust(branchSpace, {
+	box: "a branch held by the entry or the second document, requiring nothing, the discriminator's property, or its other property",
+	needs: {},
+	situations: [
+		"a branch of the second document",
+		"a branch of the entry document",
+		"a branch requiring the property",
+		"a branch not requiring the property"
+	] satisfies ReadonlyArray<Reached<BranchFeature>>,
+	check: (_, k: Case<BranchFeature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(branchFeatures(c))
+			const found = yield* branchFindings(c)
+			assert.deepEqual(found, expectedBranchFindings(c))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "OpenAPI 3.1.1 section 4.8.25: every branch of a discriminator requires its property"
+	},
+	kept: [],
+	kills: [
 		{
-			components: {
-				schemas: {
-					Pet: {
-						discriminator: { propertyName: "kind" },
-						oneOf: [{ $ref: "common.json#/components/schemas/Cat" }]
-					}
-				}
-			}
+			file: "packages/generator/src/check/path-items.ts",
+			original: "resolution.documents.get(target.document)",
+			replacement: "resolution.documents.get(resolution.document)",
+			why: "A reference's target is read in the entry document whatever document it names, so a branch held by the second document is read as nothing; the property fails."
 		},
-		fragment
-	)
-
-describe("spec-text checks across the document set", () => {
-	test("a parameter from a second document is read there, so a repeat of it is found", () => {
-		const found = codes(
-			{
-				paths: {
-					"/a": {
-						get: {
-							parameters: [
-								{ in: "query", name: "limit", schema: { type: "integer" } },
-								{ $ref: "common.json#/components/parameters/Limit" }
-							],
-							responses
-						}
-					}
-				}
-			},
-			{ components: { parameters: { Limit: { in: "query", name: "limit", schema: {} } } } }
-		)
-
-		expect(found).toEqual(["PTH-28/duplicate-parameter /paths/~1a/get/parameters/1"])
-	})
-
-	test("a discriminator branch from a second document is read there", () => {
-		const propertyName = "/components/schemas/Pet/discriminator/propertyName"
-
-		expect(pets(cat(["kind"]))).toEqual([])
-		expect(pets(cat([]))).toEqual([`DSC-09/property-not-required ${propertyName}`])
-	})
+		{
+			file: "packages/generator/src/check/grammar.ts",
+			original: 'name === undefined || required || resolution.line === "3.2"',
+			replacement: 'name === undefined || resolution.line === "3.2"',
+			why: "Every branch is found not to require the discriminator's property, the branches that require it among them; the property fails."
+		}
+	]
 })
