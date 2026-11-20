@@ -106,5 +106,6 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/validate/locations.test.ts",
 	"test/validate/validate.test.ts",
 	"test/write/check.test.ts",
-	"test/write/lock.test.ts"
+	"test/write/lock.test.ts",
+	"test/write/manifest.test.ts"
 ]

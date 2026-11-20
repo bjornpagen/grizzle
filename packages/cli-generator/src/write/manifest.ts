@@ -1,7 +1,11 @@
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Order, Schema } from "effect"
+import { Array as Arr, Data, Effect, Option, Order, Record, Result } from "effect"
 import { printJson } from "#emit/printer.ts"
-import { JsonLiteral } from "#model/brands.ts"
+import { isSha256Hex } from "#model/digest.ts"
+import type { Sha256Hex } from "#model/digest.ts"
+import { isArray, isJson, isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import type { Json } from "#model/pointer.ts"
+import { parseJson } from "#runtime/json.ts"
 
 /**
  * The manifest file the writer commits last in the output directory (design 3.6, Write).
@@ -9,40 +13,66 @@ import { JsonLiteral } from "#model/brands.ts"
 export const manifestFileName = ".openapi-cli-manifest.json"
 
 /**
- * Why a manifest could not be printed or read: `malformed` (not the manifest shape),
- * `duplicate-path` or `unprintable` (a value `printJson` cannot take). `subject` names the path
- * involved, or the manifest file when no path is.
+ * Why a previous manifest could not be read: `malformed` (not one JSON text of the manifest
+ * shape) or `duplicate-path`. `subject` names the path involved, or the manifest file when no
+ * path is.
  */
-class ManifestError extends Schema.TaggedError<ManifestError, { readonly brand: unique symbol }>()(
-	"ManifestError",
-	{
-		reason: Schema.Literals(["duplicate-path", "malformed", "unprintable"]),
-		subject: Schema.String
-	}
-) {}
-
-const ManifestEntrySchema = Schema.Struct({
-	path: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-	sha256: Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u")))),
-	size: Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)))
-})
-
-const ManifestFile = Schema.Struct({ files: Schema.Array(ManifestEntrySchema) })
+class ManifestError extends Data.TaggedError("ManifestError")<{
+	readonly reason: "duplicate-path" | "malformed"
+	readonly subject: string
+}> {}
 
 /**
  * One generated file: its path relative to the output directory, the sha256 of its bytes and
  * their count. The count bounds what a later run reads to judge the file: a file of another size
  * is not the one written, and is never read.
  */
-export type ManifestEntry = (typeof ManifestEntrySchema)["Type"]
-
-const strict = { onExcessProperty: "error" } as const
-
-const decodeFile = Schema.decodeUnknownEffect(Schema.fromJsonString(ManifestFile))
-
-const encodeJson = Schema.decodeUnknownEffect(JsonLiteral)
+export interface ManifestEntry {
+	readonly path: string
+	readonly sha256: Sha256Hex
+	readonly size: number
+}
 
 const byPath = Order.mapInput(Order.String, (entry: ManifestEntry) => entry.path)
+
+/**
+ * Whether every member of an object is one of `names`: an unknown member refuses the object, and a missing one is
+ * refused by the reader of its value.
+ */
+const holdsOnly = (object: JsonObject, names: ReadonlyArray<string>): boolean =>
+	Arr.every(Record.keys(object), (name) => Arr.contains(names, name))
+
+const entryMembers: ReadonlyArray<string> = ["path", "sha256", "size"]
+
+/**
+ * A manifest entry read from a JSON value: an object of exactly `path`, a non-empty string,
+ * `sha256`, 64 lowercase hex digits, and `size`, a whole number of bytes.
+ */
+const entryOf = (value: Json): Option.Option<ManifestEntry> => {
+	if (!isObject(value) || !holdsOnly(value, entryMembers)) {
+		return Option.none()
+	}
+
+	const { path, sha256, size } = value
+
+	return typeof path === "string" &&
+		path !== "" &&
+		typeof sha256 === "string" &&
+		isSha256Hex(sha256) &&
+		typeof size === "number" &&
+		Number.isSafeInteger(size) &&
+		size >= 0
+		? Option.some({ path, sha256, size })
+		: Option.none()
+}
+
+/** A manifest's entries read from a JSON value: an object of exactly `files`, a list of entries. */
+const entriesOf = (value: Json): Option.Option<readonly ManifestEntry[]> =>
+	isObject(value) && holdsOnly(value, ["files"])
+		? Option.flatMap(Option.filter(Record.get(value, "files"), isArray), (files) =>
+				Option.all(Arr.map(files, entryOf))
+			)
+		: Option.none()
 
 /** The first path two neighbours of a sorted list share. */
 const duplicatePath = (sorted: readonly ManifestEntry[]): Option.Option<string> =>
@@ -54,47 +84,41 @@ const duplicatePath = (sorted: readonly ManifestEntry[]): Option.Option<string> 
 		([, entry]) => entry.path
 	)
 
-const sortedUnique = (
-	entries: readonly ManifestEntry[]
-): Effect.Effect<readonly ManifestEntry[], ManifestError> => {
-	const sorted = Arr.sort(entries, byPath)
-
-	return Option.match(duplicatePath(sorted), {
-		onNone: () => Effect.succeed(sorted),
-		onSome: (subject) => Effect.fail(ManifestError.make({ reason: "duplicate-path", subject }))
-	})
-}
-
 /**
  * Prints the manifest in the `docs/printer.md` JSON layout: `{"files": [...]}` with entries sorted
- * by path (code-unit order), whatever the input order. A repeated path or a sha256 that is not 64
- * lowercase hex digits fails.
+ * by path (code-unit order), whatever the input order. The writer's own entries come in, each path
+ * one the plan admitted once, so nothing here is refused.
  */
-export const printManifest = (
-	entries: readonly ManifestEntry[]
-): Effect.Effect<string, ManifestError> =>
-	Schema.decodeEffect(Schema.Array(ManifestEntrySchema))(entries).pipe(
-		Effect.mapError(() => ManifestError.make({ reason: "malformed", subject: manifestFileName })),
-		Effect.flatMap(sortedUnique),
-		Effect.flatMap((sorted) =>
-			encodeJson({ files: sorted }).pipe(
-				Effect.mapError(() =>
-					ManifestError.make({ reason: "unprintable", subject: manifestFileName })
-				)
-			)
-		),
-		Effect.map(printJson)
-	)
+export const printManifest = (entries: readonly ManifestEntry[]): string =>
+	printJson({
+		files: Arr.map(Arr.sort(entries, byPath), (entry) => ({
+			path: entry.path,
+			sha256: entry.sha256,
+			size: entry.size
+		}))
+	})
 
 /**
  * Reads a previous manifest's text into entries sorted by path. Anything but `{"files": [{path,
- * sha256}]}` (an unknown member, an empty path, a bad sha256, a repeated path) fails. A path that
- * leaves the output directory still decodes: the writer refuses it, not the codec.
+ * sha256, size}]}` (an unknown member, an empty path, a bad sha256, a size that is no whole
+ * number of bytes, a repeated path) fails. A path that leaves the output directory still reads:
+ * the writer refuses it, not the reader.
  */
 export const decodeManifest = (
 	text: string
 ): Effect.Effect<readonly ManifestEntry[], ManifestError> =>
-	decodeFile(text, strict).pipe(
-		Effect.mapError(() => ManifestError.make({ reason: "malformed", subject: manifestFileName })),
-		Effect.flatMap((file) => sortedUnique(file.files))
+	Option.match(
+		Option.flatMap(Option.filter(Result.getSuccess(parseJson(text)), isJson), entriesOf),
+		{
+			onNone: () =>
+				Effect.fail(new ManifestError({ reason: "malformed", subject: manifestFileName })),
+			onSome: (entries) => {
+				const sorted = Arr.sort(entries, byPath)
+
+				return Option.match(duplicatePath(sorted), {
+					onNone: () => Effect.succeed(sorted),
+					onSome: (subject) => Effect.fail(new ManifestError({ reason: "duplicate-path", subject }))
+				})
+			}
+		}
 	)

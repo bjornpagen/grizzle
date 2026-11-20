@@ -439,7 +439,7 @@ const planned = (
 	files: readonly GeneratedFile[]
 ): Effect.Effect<
 	{ readonly sorted: readonly GeneratedFile[]; readonly manifest: string },
-	WriteRefused,
+	never,
 	Digest.Digest
 > =>
 	Effect.gen(function* plan() {
@@ -454,9 +454,7 @@ const planned = (
 				Effect.map((sha256) => ({ path: file.path, sha256, size: bytes.length }))
 			)
 		})
-		const manifest = yield* printManifest(entries).pipe(
-			Effect.mapError(() => new WriteRefused({ reason: "unsafe-path", subject: manifestFileName }))
-		)
+		const manifest = printManifest(entries)
 		return { sorted, manifest }
 	})
 
