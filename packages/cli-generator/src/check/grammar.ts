@@ -1,14 +1,5 @@
 import { regex } from "arkregex"
-import {
-	Array as Arr,
-	Effect,
-	Option,
-	Predicate,
-	Record,
-	Result,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, Option, Predicate, Record, Result, String as Str } from "effect"
 import {
 	entriesOf,
 	expressionsOf,
@@ -20,7 +11,7 @@ import {
 	site
 } from "#check/path-items.ts"
 import type { Operation, PathItem, Place } from "#check/path-items.ts"
-import { HeaderName, MediaRange } from "#model/brands.ts"
+import { isHeaderName, isMediaRange } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { isObject, isArray, nodeAt, stringMember } from "#model/json-tree.ts"
@@ -298,10 +289,6 @@ const whenSome = <A>(
  */
 const isTrue = (node: JsonObject, name: string): boolean =>
 	Option.exists(Record.get(node, name), (value) => value === true)
-
-const isToken = Schema.is(HeaderName)
-
-const isMediaRange = Schema.is(MediaRange)
 
 const compilesWithU = (source: string): boolean =>
 	Result.isSuccess(Result.try(() => regex.as(source, "u")))
@@ -650,7 +637,7 @@ const media: Media = {
 		]),
 	headers: (resolution, search, headers, pointer, code) =>
 		Arr.flatMap(entriesOf(headers), ([name, header]) => [
-			...(isToken(name) ? [] : [at(code, childPointer(pointer, name))]),
+			...(isHeaderName(name) ? [] : [at(code, childPointer(pointer, name))]),
 			...headerFieldFindings(resolution, Option.some(header), childPointer(pointer, name)),
 			...media.header(resolution, search, Option.some(header), childPointer(pointer, name))
 		]),
@@ -702,7 +689,7 @@ const parameterFindings = (
 	whenSome(ownObject(node), (parameter) => {
 		const name = stringMember(parameter, "name")
 		const badName =
-			stringMember(parameter, "in") === "header" && name !== undefined && !isToken(name)
+			stringMember(parameter, "in") === "header" && name !== undefined && !isHeaderName(name)
 				? [at("PRM-20/invalid-header-name", childPointer(pointer, "name"))]
 				: []
 
