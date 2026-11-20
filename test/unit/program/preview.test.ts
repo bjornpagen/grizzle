@@ -6,14 +6,16 @@
  * The answers are the served write's: each case draws a preview case of test/pg/write/preview (a schema of families,
  * trees, ordered and counted families, folds and copies beside the palette's closed ids, a counted family and a
  * sequence, an instance and a fault aimed at each refusal), beside it the stamps a schema may hold (a clock and a
- * reference it stamps, or with them a reference no one clock stamps, whose insert no compile admits, each call stating
- * no row of a clock), and one to three
+ * reference it stamps and a place, or with them a reference no one clock stamps, whose insert no compile admits), and
+ * one to three
  * calls, each the case's facts with a drawn set of relations stated and every other empty. Each call's preview is held
  * to the binding of the same rows by the served write of insertAll over every top-level relation an insert compiles of,
  * compiled whole, projected and loaded as an application runs it (preview.fixtures.ts servedWrite), read as a preview
  * reads a write (previewThrough): its rows, every writable relation's as a set, and its refusals, InputRefused,
- * KeyConflict, GeneratedNull and OwnerAbsent, each exactly. A call stating rows of the relation no clock stamps is
- * refused as Uncompiled by the very refusal the whole write's compile meets.
+ * KeyConflict, GeneratedNull and OwnerAbsent, each exactly; and each row of a relation whose key holds a field the
+ * database stamps, a clock or a place, is a fact the call states, each its own row, two in one place's group
+ * included, its stamped field unknown. A call stating rows of the relation no clock stamps is refused as Uncompiled by
+ * the very refusal the whole write's compile meets.
  *
  * The work is the preview's own, counted, never timed (kernel/calls.ts callCounts): what compiling and binding an insert
  * compiles of each relation it reads (`relationWork`: the relations a ChangeSet names, a relation's unique objects and
@@ -47,6 +49,7 @@ import {
 	type PreviewCostFeature,
 	servedRelations,
 	servedWrite,
+	stampedRelations,
 	transport
 } from "#test/unit/program/preview.fixtures.ts"
 
@@ -75,6 +78,8 @@ export const eachCallsPreviewIsTheServedWritesBindingOfItsRowsRefusalsIncludedAn
 			"a call writing a family it states only a member of",
 			"a call reusing a compiled insert",
 			"a reference its insert stamps beside its clock's",
+			"a row whose key the database stamps",
+			"two rows whose key's stated fields are one",
 			"an insert that does not compile, refused",
 			"rows given",
 			"a refusal"
@@ -115,6 +120,24 @@ export const eachCallsPreviewIsTheServedWritesBindingOfItsRowsRefusalsIncludedAn
 					}
 					assert.deepEqual(got, comparable(served(call)), `the served write's binding: ${at}`)
 					c.note("rows" in got ? "rows given" : "a refusal")
+					for (const relation of stampedRelations) {
+						const stated = call[relation] ?? []
+						if (!("rows" in got) || stated.length === 0) {
+							continue
+						}
+						assert.deepEqual(
+							got.rows[relation],
+							Arr.sort(
+								Arr.map(stated, (row) => Formatter.format(row)),
+								Order.String
+							),
+							`each row whose key the database stamps is a fact the call states, its stamped field unknown: ${relation} of ${at}`
+						)
+						c.note("a row whose key the database stamps")
+						if (relation === "Turn" && k.seats > 1) {
+							c.note("two rows whose key's stated fields are one")
+						}
+					}
 					c.noteAll(
 						written.length === 1
 							? ["a call stating one relation"]
@@ -144,6 +167,18 @@ export const eachCallsPreviewIsTheServedWritesBindingOfItsRowsRefusalsIncludedAn
 				original: "\t\tfor (const relation of writesOf(model.owned, written)) {",
 				replacement: "\t\tfor (const relation of [...written]) {",
 				why: "A call compiles the insert of the relations it states alone, not their families' owners and members: a call stating a counted member and not its owner compiles an insert the stratum's appends to an owner it does not insert refuses, or binds the member past a family the whole write fills, and the preview leaves the served write's answer."
+			},
+			{
+				file: "packages/engine/src/runtime/write/bind.ts",
+				original: "\t\tif (!stamps) {",
+				replacement: "\t\tif (stamps || !stamps) {",
+				why: "A row whose key holds a field the database stamps is told apart by that key, its stamped field read as if the host held it: binding a clock's or a place's rows dies on a defect, where each row is a fact the call states."
+			},
+			{
+				file: "packages/engine/src/write/insert/unique.ts",
+				original: '\t\tcase "place":\n\t\t\treturn false',
+				replacement: '\t\tcase "place":\n\t\t\treturn true',
+				why: "A key over a place is checked on the host, which holds no row's place: binding any insert of a place's relation dies on a defect reading the place, where the statement stamps it."
 			},
 			{
 				file: "packages/engine/src/program/preview.ts",

@@ -1,8 +1,8 @@
 /**
  * What the properties of preview.test.ts read: a case's schema, the preview case of test/pg/write/preview (a drawn
  * schema of families beside the palette, an instance of it and the fault its call states) beside the stamps a schema
- * may hold, a clock and a reference it stamps, or a reference no one clock stamps, each call stating no row of a clock;
- * the calls a case makes, each the
+ * may hold, a clock, a reference it stamps and a place, or with them a reference no one clock stamps; the calls a case
+ * makes, each the
  * case's facts with a drawn set of relations stated and every other empty; and the served write every call's preview is
  * held to, insertAll over every top-level relation an insert compiles of.
  */
@@ -20,7 +20,7 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import { type PreviewWrite, previewWriteOf } from "#compiler/program/preview.ts"
 import { builtLawModel, parseBuiltSchema, schemaArtifacts } from "#compiler/program/schema.ts"
 import { compileParsed } from "#compiler/program/workload/change.ts"
-import { instant, pg } from "#compiler/public/fields.ts"
+import { instant, pg, place } from "#compiler/public/fields.ts"
 import { type AnySchema, contained, on, relation, schema } from "#compiler/public/schema.ts"
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
@@ -40,15 +40,18 @@ export type PreviewCostFeature =
 	| "a call writing a family it states only a member of"
 	| "a call reusing a compiled insert"
 	| "a reference its insert stamps beside its clock's"
+	| "a row whose key the database stamps"
+	| "two rows whose key's stated fields are one"
 	| "an insert that does not compile, refused"
 	| "rows given"
 	| "a refusal"
 
 /**
- * The stamps a case's schema holds beside its families and palette: none; a clock, Shift's at at each crew, and a
- * reference Badge's at carries to it, which a Badge's insert stamps from Shift's clock beside an insert of Shift; or
- * beside that clock another, Watch's, and Stray, whose at both carry, so no one clock stamps it and no insert of Stray
- * compiles (write/frontend/instants.ts `unstampable`).
+ * The stamps a case's schema holds beside its families and palette: none; a clock, Shift's at at each crew, a reference
+ * Badge's at carries to it, which a Badge's insert stamps from Shift's clock beside an insert of Shift, and a place,
+ * Turn's n in each crew; or beside them another clock, Watch's, and Stray, whose at both carry, so no one clock stamps
+ * it and no insert of Stray compiles (write/frontend/instants.ts `unstampable`). Shift's, Watch's and Turn's keys each
+ * hold the field the database stamps.
  */
 export type Stamps = "none" | "stamped" | "unstampable"
 
@@ -57,6 +60,7 @@ export interface PreviewCostCase {
 	readonly preview: PreviewCase
 	readonly stamps: Stamps
 	readonly crews: ReadonlyArray<number>
+	readonly seats: number
 	readonly calls: ReadonlyArray<ReadonlyArray<string>>
 }
 
@@ -67,6 +71,7 @@ const stampsOf = (stamps: Stamps) => {
 		"at"
 	])
 	const Badge = relation("Badge", { id: pg.integer, crew: pg.integer, at: instant }, ["id"])
+	const Turn = relation("Turn", { crew: pg.integer, n: place, seat: pg.integer }, ["crew", "n"])
 	const Watch = relation("Watch", { crew: pg.integer, at: instant }, ["crew", "at"])
 	const Stray = relation("Stray", { id: pg.integer, crew: pg.integer, at: instant }, ["id"])
 	switch (stamps) {
@@ -74,12 +79,12 @@ const stampsOf = (stamps: Stamps) => {
 			return { relations: [], statements: [] }
 		case "stamped":
 			return {
-				relations: [Shift, Badge],
+				relations: [Shift, Badge, Turn],
 				statements: [contained(on(Badge, "crew", "at"), on(Shift, "crew", "at"))]
 			}
 		case "unstampable":
 			return {
-				relations: [Shift, Badge, Watch, Stray],
+				relations: [Shift, Badge, Turn, Watch, Stray],
 				statements: [
 					contained(on(Badge, "crew", "at"), on(Shift, "crew", "at")),
 					contained(on(Stray, "crew", "at"), on(Shift, "crew", "at")),
@@ -89,22 +94,32 @@ const stampsOf = (stamps: Stamps) => {
 	}
 }
 
+/** The relations whose key holds a field the database stamps, a clock's or a place's, and the facts a case states of
+ * them. */
+export const stampedRelations = ["Shift", "Turn", "Watch"] as const
+
 /**
- * The stamps' facts of `stamps` as insertAll takes them: a Badge and, where no clock stamps it, a Stray at each crew,
- * and no row of a clock, so each call that states a reference states no row of the clock its insert stamps it beside.
+ * The stamps' facts of `stamps` as insertAll takes them: at each crew a shift and a watch, each at the clock it stamps,
+ * a badge, a turn at each of its seats, at the place it stamps, and, where no clock stamps it, a stray.
  */
 const stampFacts = (
 	stamps: Stamps,
-	crews: ReadonlyArray<number>
+	crews: ReadonlyArray<number>,
+	seats: number
 ): Readonly<Record<string, ReadonlyArray<unknown>>> => {
 	const badges = Arr.map(crews, (crew, id) => ({ id, crew }))
+	const common = {
+		Shift: Arr.map(crews, (crew) => ({ crew, note: crew * 10 })),
+		Badge: badges,
+		Turn: Arr.flatMap(crews, (crew) => Array.from({ length: seats }, (_, seat) => ({ crew, seat })))
+	}
 	switch (stamps) {
 		case "none":
 			return {}
 		case "stamped":
-			return { Shift: [], Badge: badges }
+			return common
 		case "unstampable":
-			return { Shift: [], Badge: badges, Watch: [], Stray: badges }
+			return { ...common, Watch: Arr.map(crews, (crew) => ({ crew })), Stray: badges }
 	}
 }
 
@@ -121,7 +136,7 @@ export const caseSchema = (k: PreviewCostCase, name: string) => {
 			[...input.relations, ...stamps.relations],
 			[...input.statements, ...stamps.statements]
 		),
-		facts: { ...input.facts, ...stampFacts(k.stamps, k.crews) }
+		facts: { ...input.facts, ...stampFacts(k.stamps, k.crews, k.seats) }
 	}
 }
 
@@ -144,11 +159,15 @@ export const previewCostCaseGen: Gen<PreviewCostCase> = (source) => {
 	const preview = source.draw(previewCaseGen.space)
 	const stamps = source.draw(element(["none", "stamped", "unstampable"] as const))
 	const crews = Array.from({ length: source.draw(int(1, 3)) }, (_, i) => i + 1)
-	const relations = Rec.keys({ ...previewInput(preview).facts, ...stampFacts(stamps, crews) })
+	const seats = source.draw(int(1, 2))
+	const relations = Rec.keys({
+		...previewInput(preview).facts,
+		...stampFacts(stamps, crews, seats)
+	})
 	const calls = Array.from({ length: source.draw(int(1, 3)) }, () =>
 		source.draw(map(subset(relations, { min: 1, max: relations.length }), (s) => [...s]))
 	)
-	return { preview, stamps, crews, calls }
+	return { preview, stamps, crews, seats, calls }
 }
 
 /** The law model of a case's schema, which every reader of the schema value reads. */

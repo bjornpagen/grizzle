@@ -1,5 +1,9 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
@@ -28,6 +32,7 @@ import {
 	type MessageBound,
 	type WriteSlot
 } from "#compiler/ir/products.ts"
+import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { runsLargeForm } from "#compiler/runtime/lower/take.ts"
 import type {
@@ -62,6 +67,7 @@ import {
 } from "#compiler/runtime/write/flight.ts"
 import { type Fact, type FillContext, groupReader } from "#compiler/runtime/write/keys.ts"
 import {
+	type LaidColumn,
 	type LaidLayout,
 	type NestedLayoutData,
 	type NestedRow,
@@ -97,7 +103,8 @@ import {
 	type FilledColumn,
 	hostJudgement,
 	type JudgedRow,
-	type StatedRows
+	type StatedRows,
+	type WitnessField
 } from "#compiler/runtime/write/witness.ts"
 import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
@@ -311,6 +318,34 @@ const nestedAt = (
 		binding.nested.find((n) => n.stratum === stratum)?.layouts.get(relation),
 		`the nested layout of ${relation}, a relation a nested write of stratum ${stratum} fills`
 	)
+
+/**
+ * How `inserted` tells the rows of one relation apart: `held`, by its primary key, every column of which the host fills;
+ * or `stamped`, where the database stamps a field of its key, a clock or a place (ir/instant.ts), which no write knows
+ * before its statement runs, by the fields the ChangeSet states of each row, so each fact it states is its own row, as
+ * its insert sends it, its stamped field unknown until the write.
+ */
+type InsertedKey =
+	| { readonly kind: "held"; readonly columns: NonEmptyReadonlyArray<LaidColumn> }
+	| {
+			readonly kind: "stamped"
+			readonly stated: NonEmptyReadonlyArray<{ readonly key: ColumnKey; readonly type: ScalarType }>
+	  }
+
+/** Whether a field of a writing the witness reads is stamped by the database as its statement runs: a clock or a place. */
+const isStamped = (writing: WitnessField["writing"]["kind"]): boolean => {
+	switch (writing) {
+		case "instant":
+		case "place":
+			return true
+		case "caller":
+		case "drawn":
+		case "accumulated":
+		case "retirement":
+		case "generated":
+			return false
+	}
+}
 
 /**
  * An application's rows bound on the host (`hostRows`), with what its statements' binding reads of them
@@ -627,15 +662,47 @@ const hostRows = (
 			freshlyCounted.value.nested.get(stratum)?.get(relation) ?? normalNestedRows(stratum, relation)
 	}
 	/**
-	 * The reader of a row's primary key texts in `relation`, which its rows are a set by, as a nested row's key is
-	 * (NestedRow `key`), from its cells and the texts the write holds of them (cells.ts textAt): each key column's
-	 * position and spec worked out once for the relation.
+	 * How `inserted` tells the rows of `relation` apart (InsertedKey), worked out once for the relation from the fields
+	 * its witness reads it by (witness.ts WitnessField): by its primary key where the host fills every field of it; where
+	 * the database stamps one, a clock or a place (ir/instant.ts), by the fields the ChangeSet states of it.
+	 */
+	const insertedKey = (relation: StoredRelationName): InsertedKey => {
+		const judged = judgedOf(relation)
+		const fields = defined(
+			prepared.witness.tables.get(relation),
+			`the witness table of ${relation}, a relation the write inserts`
+		).fields
+		const fieldOf = (name: string): WitnessField =>
+			defined(
+				fields.find((f) => f.name === name),
+				`the field ${relation}.${name}, which the write inserts`
+			)
+		const stamps = judged.primary.some((name) => isStamped(fieldOf(name).writing.kind))
+		if (!stamps) {
+			return { kind: "held", columns: judged.layout.key }
+		}
+		const stated = judged.stated.map((name) => ({
+			key: columnKeyOf(name),
+			type: fieldOf(name).type
+		}))
+		if (!isNonEmpty(stated)) {
+			throw defect(
+				`a field ${relation} states besides its key's stamped one, its clock's child or its place's group`
+			)
+		}
+		return { kind: "stamped", stated }
+	}
+	/**
+	 * The reader of a row's key texts in `relation` (`insertedKey`), which its rows are a set by, as a nested row's key is
+	 * (NestedRow `key`), from its cells and the texts the write holds of them (cells.ts textAt): each column's position and
+	 * spec worked out once for the relation.
 	 */
 	const keyReader = (
 		relation: StoredRelationName
 	): ((values: Cells, texts: Texts) => MemberKey) => {
 		const columns = prepared.columns(relation)
-		const key = mapNonEmpty(judgedOf(relation).layout.key, (c) => ({
+		const read = insertedKey(relation)
+		const key = mapNonEmpty(read.kind === "held" ? read.columns : read.stated, (c) => ({
 			at: columns.at(c.key),
 			spec: carrierSpecOf(c.type, codes)
 		}))

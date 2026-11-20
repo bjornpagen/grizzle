@@ -147,10 +147,22 @@ export interface Probed {
  * Whether the host holds a fact's value at a field, which its same-key checks compare (normalize.ts): every field but a
  * generated one, whose value PostgreSQL computes from the row as it stores it, so that only a statement compares it, at
  * the field's generation expression over the requested fact (statement.ts requestedValue), and the value it compares is
- * the one PostgreSQL stores; and an instant, which no host row holds and its statement stamps (write/insert/stamp.ts).
+ * the one PostgreSQL stores; and an instant or a place, which no host row holds and its statement stamps
+ * (write/insert/stamp.ts), so two facts a key over one holds apart meet only as the statement stamps them.
  */
-export const hostHeld = (field: Pick<LawField, "writing">): boolean =>
-	field.writing.kind !== "generated" && field.writing.kind !== "instant"
+export const hostHeld = (field: Pick<LawField, "writing">): boolean => {
+	switch (field.writing.kind) {
+		case "caller":
+		case "drawn":
+		case "accumulated":
+		case "retirement":
+			return true
+		case "generated":
+		case "instant":
+		case "place":
+			return false
+	}
+}
 
 /** Whether a unique object's guards select the rows it holds apart. */
 const predicated = (u: UniqueObject): boolean => u.kind === "guarded"
