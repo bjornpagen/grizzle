@@ -11,7 +11,7 @@ import {
 	weighted,
 	type Steered
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import type { MigrationPlace } from "#adapter/migrate/errors.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import {
@@ -335,7 +335,7 @@ interface MigrationCase {
 	readonly probes: Arr.NonEmptyReadonlyArray<Row>
 }
 
-export const migrationCase: Gen<MigrationCase> = (source) => {
+const migrationCase: Gen<MigrationCase> = (source) => {
 	const family = source.draw(familyGen)
 	const alphabet = alphabetOf(family)
 	const pred = drawnGen(predGen(alphabet, predDepth))
@@ -353,6 +353,39 @@ export type MigrationFeature =
 	| "a migration applied over stored rows"
 	| "a probe refused"
 	| "a probe stored"
+
+/**
+ * A migration case whose every stored row Media's checks hold: its seeds, the drawn ones or, where it draws none, its
+ * first probe, and Media's checks the band of n they lie in, at least the least seed's and at most the greatest's,
+ * under the first drawn check's initial. A drawn case meets this too rarely: each drawn check refuses a share of the
+ * rows, so a case with seeds and no stored row breaking a check, the migration applied over stored rows, is the
+ * product of every check's share over every seed.
+ */
+const heldBySeeds = (k: MigrationCase): MigrationCase => {
+	const seeds: Arr.NonEmptyReadonlyArray<Row> = Arr.isReadonlyArrayNonEmpty(k.seeds)
+		? k.seeds
+		: [Arr.headNonEmpty(k.probes)]
+	const ns = Arr.map(seeds, (r) => r.n)
+	const { initial } = Arr.headNonEmpty(k.level)
+	return {
+		...k,
+		seeds,
+		level: [
+			{ initial, pred: { kind: "compare", op: "ge", n: Arr.min(ns, Order.Number) } },
+			{ initial, pred: { kind: "compare", op: "le", n: Arr.max(ns, Order.Number) } }
+		]
+	}
+}
+
+/**
+ * The cases a witness checks: drawn ones (migrationCase), or, while the migration applied over stored rows is pending
+ * (Pending `names`), in half of them the drawn one with its stored rows held by every check (heldBySeeds). Unsteered
+ * (the rotating stream), a plain draw.
+ */
+export const steeredMigration: Steered<MigrationCase, MigrationFeature>["under"] = (steering) =>
+	Option.exists(steering, (pending) => pending.names("a migration applied over stored rows"))
+		? oneOf([migrationCase, map(migrationCase, heldBySeeds)])
+		: migrationCase
 
 /** The first key a migration case's probes take, past every seed's. */
 export const probeKeys = 1000

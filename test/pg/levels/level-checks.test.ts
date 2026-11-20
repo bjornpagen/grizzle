@@ -67,13 +67,13 @@ import {
 	levelRecord,
 	levelsAt,
 	type LoginsFeature,
-	migrationCase,
 	type MigrationFeature,
 	named,
 	probeKeys,
 	readsMatch,
 	type Row,
-	steeredLogins
+	steeredLogins,
+	steeredMigration
 } from "#test/pg/levels/level-checks.fixtures.ts"
 import {
 	openMigrator,
@@ -338,7 +338,7 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRows
  * Its pre-conversion budget: runs 6, coverage cases 12 (test/pg/levels/level-checks.test.ts at d8eed1786).
  */
 export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19ValidatesALevelsChecksAgainstTheStoredRowsWhenAMigrationAddsThemDropsThemWhenOneRemovesThemAndLeavesTheLowerLevelAsItIsWithoutThem =
-	property.explore(migrationCase, {
+	property.explore(steered(steeredMigration), {
 		needs: { substrate: Substrate.installing },
 		situations: [
 			"a migration refused by a stored row",
