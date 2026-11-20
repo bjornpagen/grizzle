@@ -1,5 +1,7 @@
 /** What error-rendering.test.ts's property reads: drawn errors, the run's record and scrubbed values, and how they render. */
 
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { defined } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
 	aimed,
@@ -273,7 +275,6 @@ export const renderedOf = (failing: Failing) =>
 	Effect.scoped(
 		Effect.gen(function* () {
 			const err: Array<string> = []
-			const decoder = new TextDecoder()
 			const record = yield* Ref.make<Output.RunRecordState>({
 				...Option.match(failing.rendering.format, {
 					onNone: () => ({}),
@@ -291,7 +292,11 @@ export const renderedOf = (failing: Failing) =>
 							Sink.forEachArray((chunks: ReadonlyArray<string | Uint8Array>) =>
 								Effect.sync(() => {
 									for (const chunk of chunks) {
-										err.push(typeof chunk === "string" ? chunk : decoder.decode(chunk))
+										err.push(
+											typeof chunk === "string"
+												? chunk
+												: defined(utf8Text(chunk), "the final catch writes stderr in UTF-8")
+										)
 									}
 								})
 							)

@@ -1,6 +1,6 @@
 {
 	"typecheck": {
-		"total": 640,
+		"total": 568,
 		"files": {
 			"packages/cli-generator/src/emit/api.ts": 118,
 			"packages/cli-generator/src/emit/entry.ts": 2,
@@ -22,7 +22,6 @@
 			"packages/cli-generator/test/resolve/document-set.test.ts": 5,
 			"packages/cli-generator/test/runtime/input-file-part.test.ts": 1,
 			"packages/cli-generator/test/runtime/output-dry-run.test.ts": 64,
-			"packages/cli-generator/test/runtime/output-error-json.test.ts": 72,
 			"packages/cli-generator/test/runtime/output-idle.test.ts": 16,
 			"packages/cli-generator/test/runtime/presenter.test.ts": 1,
 			"packages/cli-generator/test/runtime/send-servers.test.ts": 24,
@@ -34,7 +33,7 @@
 		}
 	},
 	"oxlint": {
-		"total": 531,
+		"total": 502,
 		"files": {
 			"packages/cli-generator/corpus/tools/coverage.ts": 1,
 			"packages/cli-generator/corpus/tools/exercise.ts": 1,
@@ -148,12 +147,10 @@
 			"packages/cli-generator/test/runtime/body-fields.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/command-tree.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/credentials.fixtures.ts": 1,
-			"packages/cli-generator/test/runtime/error-rendering.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/input-file-part.test.ts": 1,
 			"packages/cli-generator/test/runtime/input-refusal.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/multipart.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/output-dry-run.test.ts": 42,
-			"packages/cli-generator/test/runtime/output-error-json.test.ts": 28,
 			"packages/cli-generator/test/runtime/output-idle.test.ts": 8,
 			"packages/cli-generator/test/runtime/output-sequential.fixtures.ts": 1,
 			"packages/cli-generator/test/runtime/output-sink.fixtures.ts": 1,

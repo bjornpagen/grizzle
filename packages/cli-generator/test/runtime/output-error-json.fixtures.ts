@@ -151,7 +151,7 @@ const actionOf = (step: Step) =>
 				path: Serialize.path("/users", []),
 				query: []
 			}).pipe(Effect.flatMap(Output.send(metaOf(step.sent.method), Option.none())))
-		: Effect.fail(UsageError.make({ message: "invalid body" }))
+		: Effect.fail(new UsageError({ message: "invalid body" }))
 
 /**
  * The CLI, as the generator emits one: a root registering `--error-format` with one command, `act`, whose run records the
