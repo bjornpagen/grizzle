@@ -299,5 +299,12 @@ export const aStatementsParseMessageIsRefusedBeforeAnyByteOfItsFlightIsWrittenEx
 		},
 		budget: { runs: 160, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/xsd.ts",
+				original: ", []",
+				replacement: "",
+				why: "Operator mutant 93aa56e87b at packages/text/src/regex/xsd.ts:89 in <module>: `, []` becomes ``; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

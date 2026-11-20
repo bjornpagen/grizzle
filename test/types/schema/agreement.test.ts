@@ -102,5 +102,12 @@ export const keptFaults = boxAgreement(schemaKeptBox, {
 	program: (faults, entry) => schemaProgram(Arr.map(faults, keptFaultCase), entry),
 	oracle: { kind: "second-implementation", name: "the engine's description of the kept base" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/engine/src/laws/model/plan.ts",
+			original: `return \`\${c.draws.kind} \${c.draws.family.owner}.\${c.draws.family.count}\${\n\t\t\t\tc.draws.kind === "before" || c.draws.kind === "after"\n\t\t\t\t\t? \` \${c.draws.fold} \${c.draws.plane}\`\n\t\t\t\t\t: ""\n\t\t\t}\`\n\t\tcase "indexPred":\n\t\t\treturn \`indexPred \${c.named.owner}.\${c.named.count}\``,
+			replacement: `return \`indexPred \${c.named.owner}.\${c.named.count}\`   case "indexPred":    return \`\${c.draws.kind} \${c.draws.family.owner}.\${c.draws.family.count}\${     c.draws.kind === "before" || c.draws.kind === "after"      ? \` \${c.draws.fold} \${c.draws.plane}\`      : ""    }\``,
+			why: `Operator mutant 8ff921a20b at packages/engine/src/laws/model/plan.ts:3196 in lawColumnText: \`return \`\${c.draws.kind} \${c.draws.family.owner}.\${c.draws.family.count}\${     c.draws.kind === "before" || c.draws.kind === "after"      ? \` \${c.draws.fold} \${c.draws.plane}\`      : ""    }\`   case "indexPred":    return \`indexPred \${c.named.owner}.\${c.named.count}\`\` becomes \`return \`indexPred \${c.named.owner}.\${c.named.count}\`   case "indexPred":    return \`\${c.draws.kind} \${c.draws.family.owner}.\${c.draws.family.count}\${     c.draws.kind === "before" || c.draws.kind === "after"      ? \` \${c.draws.fold} \${c.draws.plane}\`      : ""    }\`\`; the property fails (the census, lane TESTPOLICY2).`
+		}
+	]
 })

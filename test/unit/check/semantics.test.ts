@@ -83,7 +83,14 @@ export const theCheckersParameterMemberAndBoundRulesGiveEveryGeneratedReadsCheck
 			name: "the generated program's parameters and the descriptors it declares them with"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: `\t\t...(expr.id === key ? [] : [\`the table key equal to the expression's id \${expr.id}\`]),`,
+				replacement: `\t\t...(expr.id !== key ? [] : [\`the table key equal to the expression's id \${expr.id}\`]),`,
+				why: "Operator mutant 73cc341a78 at packages/engine/src/ir/expr.ts:1200 in entryProblems: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** The checker's parameter, member and bound rules type each query's own parameters by the declarations their uses share, never an import's own, join a variable's fields within one family, and refuse what those rules refuse. Its budget is its suite's before it was a property (test/unit/check/semantics.test.ts at 4ca3036a): 300 runs and 600 steered cases. */

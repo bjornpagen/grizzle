@@ -60,5 +60,12 @@ export const door = agreement(doorCases, {
 	program: doorProgram,
 	oracle: { kind: "specification", name: "conformance of a value drawn of the actual's type" },
 	kept: [],
-	kills: []
+	kills: [
+		{
+			file: "packages/text/src/regex/ir.ts",
+			original: "table.set(node, compute(node, of))",
+			replacement: "{}",
+			why: "Operator mutant 9b37c8e915 at packages/text/src/regex/ir.ts:305 in folded: `table.set(node, compute(node, of))` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+		}
+	]
 })
