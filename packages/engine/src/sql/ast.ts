@@ -2149,10 +2149,12 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>) ON COMMIT DELETE ROWS: a table of the session's own
-			 * temporary schema, owned by the role the function runs as, its definer, whose rows each COMMIT deletes, after
-			 * the deferred triggers have fired (xact.c CommitTransaction): a rule judge's delta or sentinel
-			 * (physical/ddl/rules.ts judged). A table of no column is the sentinel's.
+			 * CREATE TEMPORARY TABLE pg_temp.<name> (<columns>) ON COMMIT PRESERVE ROWS: a table of the session's own
+			 * temporary schema, owned by the role the function runs as, its definer, whose rows the judge deletes once it
+			 * has read them, so no COMMIT truncates it (tablecmds.c PreCommit_on_commit_actions truncates every ON COMMIT
+			 * DELETE ROWS table of a session at each COMMIT of a transaction that touched any temporary relation, each
+			 * truncation an ACCESS EXCLUSIVE lock and an invalidation every backend reads): a rule judge's delta or
+			 * sentinel (physical/ddl/rules.ts judged). A table of no column is the sentinel's.
 			 */
 			readonly kind: "createSessionTable"
 			readonly name: string

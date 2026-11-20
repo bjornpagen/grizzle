@@ -2484,7 +2484,9 @@ definition too.
 - **What PostgreSQL gets.** A rule that reads only tables is a constraint, as above. A rule that reads a query is
   judged once per transaction, over the rows it wrote: a unit-local rule over the units of those rows, any other over
   the rows themselves. On each table the query reads, an AFTER statement trigger for
-  each write that can break it copies the statement's rows into a temporary table of the session: for a containment,
+  each write that can break it copies the statement's rows into a temporary table of the session, `ON COMMIT PRESERVE
+  ROWS`, which the judge empties once it has read it, so no COMMIT truncates one (PostgreSQL truncates every `ON COMMIT
+  DELETE ROWS` table of a session at each COMMIT that touched a temporary table, a lock and invalidations each): for a containment,
   a write that adds rows to its source or takes rows from its target, and so also a delete from a table its source
   negates and an insert into one its target negates. The rows a transaction adds are kept as its net write: a delete,
   or an update of a column a rule reads, of a row it added cancels the row there, so the judge reads each added row as

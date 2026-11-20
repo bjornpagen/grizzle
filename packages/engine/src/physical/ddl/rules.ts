@@ -564,7 +564,8 @@ const arming = (sentinel: string): PlStatement => ({
 
 /**
  * Marks `delta` in the transaction's written set, the sentinel row's (`writtenColumn`), where the delta holds a row:
- * every row a delta holds is the transaction's, since COMMIT deletes them and a rolled-back write's go with it, so the
+ * every row a delta holds is the transaction's, since the judge deletes every row of each delta it reads (`partBody`)
+ * and a rolled-back write's go with it, so the
  * set names exactly the deltas the transaction wrote a row into, each once, which the judge reads in place of every
  * delta the session holds (`addRules`).
  *
@@ -1011,10 +1012,42 @@ const partBody = (
 				kind: "if",
 				branches: [{ condition: anyRowed(j.reads), body: j.body }],
 				else: []
-			}))
+			})),
+			...part.deltas.map(emptied)
 		]
 	}
 }
+
+/**
+ * The rows of `delta` deleted once its part has read them, where the transaction's written set names it, which a capture
+ * that wrote a row there marked (`marked`), so the delta stands: the delta holds the rows of one run of the judge alone,
+ * and no COMMIT truncates it (`addRules`).
+ *
+ *   IF __written @> '{<delta>}' THEN DELETE FROM pg_temp.<delta> AS r1; END IF
+ */
+const emptied = (delta: SessionDelta): PlStatement => ({
+	kind: "if",
+	branches: [
+		{
+			condition: wrote(delta.name),
+			body: [
+				{
+					kind: "modify",
+					statement: {
+						kind: "delete",
+						with: undefined,
+						table: sessionTable(delta.name),
+						alias: "r1",
+						using: [],
+						where: undefined,
+						returning: []
+					}
+				}
+			]
+		}
+	],
+	else: []
+})
 
 /**
  * Rules over queries in the installation, held by the set judge: each table a rule over a query reads captures the rows
@@ -1041,8 +1074,13 @@ const partBody = (
  *   the relation's heading, typed by its base type, an UPDATE's only where it changed the row's image, its key or a
  *   column the side reads: into the side of olds, delta.removed, the rows as the statement found them; into the side of
  *   news, the transaction's net write, each image the statement put counted 1 and each it removed counted -1. Each delta
- *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT DELETE ROWS, so it lives as
- *   long as the session and holds one transaction's rows. Its columns name no domain: a session's table typed by one
+ *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT PRESERVE ROWS, so it lives
+ *   as long as the session, and holds one transaction's rows: the judge deletes every row of each delta it reads, once
+ *   its part has read them, and a rolled-back write's go with it. No COMMIT truncates a delta or the sentinel:
+ *   PostgreSQL truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a transaction that touched a
+ *   temporary relation (tablecmds.c PreCommit_on_commit_actions), whether it wrote the table or not, each truncation an
+ *   ACCESS EXCLUSIVE lock, a rebuild of its indexes and its TOAST table's, and invalidations every backend reads, so a
+ *   session that held a delta of each of 18 sides paid 18 truncations at every judged COMMIT. Its columns name no domain: a session's table typed by one
  *   would block DROP DOMAIN and ALTER DOMAIN ... ADD CONSTRAINT in every other session while it lives.
  * - Arming: a capture that writes the rows a statement put, or those it found into the side of olds, first inserts the
  *   one row of the session's sentinel, a table of pg_temp created with it, whose DEFERRABLE INITIALLY DEFERRED
@@ -1066,9 +1104,11 @@ const partBody = (
  *   PostgreSQL plans for a first row a holding rule never returns: SQLSTATE 23503 for a containment, 23505 for a key and
  *   23514 for a check, naming the rule's trigger name as its constraint and
  *   the rule's table, with no DETAIL, since the writer may not see the rows. Over deltas that hold no row a rule's region
- *   is empty, so a transaction runs exactly the rules over the relations it wrote. The deltas keep their rows until
- *   COMMIT deletes them: a probe that reads a row again after SET CONSTRAINTS ALL IMMEDIATE judges it on the state as it
- *   stands, which is sound.
+ *   is empty, so a transaction runs exactly the rules over the relations it wrote. Each part deletes every row of each
+ *   delta the written set names once its rules have read them (`emptied`), so a judge that runs again after SET
+ *   CONSTRAINTS ALL IMMEDIATE reads the rows the statements since its last run wrote: each statement's rows are judged
+ *   once, on the state as it stood when they were, and a later statement that breaks a rule through them writes rows of
+ *   its own the rule's other side reads, which that run judges.
  *
  * The side of news is the transaction's net write so that a probe of the facts a row adds never reads that row from its
  * table, where without statistics PostgreSQL prices a read at the key's index the same as one at an index of a strict

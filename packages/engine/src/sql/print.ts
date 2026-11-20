@@ -1706,7 +1706,7 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			return out.line(";")
 		case "createSessionTable":
 			return out.line(
-				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT DELETE ROWS;`
+				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT PRESERVE ROWS;`
 			)
 		case "createSessionTrigger":
 			return out.line(
