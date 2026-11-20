@@ -73,6 +73,7 @@ import {
 	isTypeAliasDeclaration,
 	isTypeOperatorNode,
 	isTypeReferenceNode,
+	isTypeQueryNode,
 	isUnionTypeNode,
 	isVariableStatement,
 	type Node,
@@ -110,6 +111,7 @@ import {
 	typeKeyword,
 	typeLiteral,
 	typeName,
+	typeQuery,
 	typeReadonlyArray,
 	typeRef,
 	typeUnion,
@@ -336,6 +338,22 @@ const narrowType = (depth: number): Gen<TypeExpr> => {
 			])
 }
 
+/**
+ * `typeof name`, a type query, which the formatter keeps whole on its line however wide, alone or as the element of a
+ * readonly array, where it is parenthesized.
+ */
+const queryType: Gen<TypeExpr> = weighted([
+	[3, map(anyName, typeQuery)],
+	[1, (s) => typeReadonlyArray(typeQuery(s.draw(anyName)))]
+])
+
+/**
+ * A reference whose one argument is a type query (`Read.TypeOf<typeof Pet>`), which the formatter breaks inside its
+ * `<>` past column 100: the domain module's alias of each reader's type.
+ */
+const queriedType: Gen<TypeExpr> = (s) =>
+	typeApply(s.draw(anyName), s.draw(array(memberName, { min: 0, max: 1 })), [s.draw(queryType)])
+
 /** A type the formatter would break if it were long, kept under forty columns so it never is. */
 const smallWideType: Gen<TypeExpr> = oneOf([
 	(s) => typeUnion(s.draw(array(simpleType, { min: 2, max: 3 }))),
@@ -344,11 +362,15 @@ const smallWideType: Gen<TypeExpr> = oneOf([
 	(s) => typeUnion([typeUnion(s.draw(array(simpleType, { min: 2, max: 2 }))), s.draw(simpleType)])
 ])
 
-/** A constant's annotation, as the emitters write them: a keyword, a literal or a type named by a path, never generic. */
+/**
+ * A constant's annotation, as the emitters write them: a keyword, a literal, a type named by a path or a type query,
+ * never generic.
+ */
 const annotationType: Gen<TypeExpr> = oneOf([
 	keywordType,
 	literalType,
-	(s) => typeRef(s.draw(anyName), s.draw(array(memberName, { min: 0, max: 1 })))
+	(s) => typeRef(s.draw(anyName), s.draw(array(memberName, { min: 0, max: 1 }))),
+	queryType
 ])
 
 /** A union of members that never break, as long as its members make it. */
@@ -604,8 +626,8 @@ const fieldGen =
 		optional: s.draw(boolean),
 		type: s.draw(
 			textWidth(key) <= 14
-				? oneOf([narrowType(1), smallWideType, longUnion])
-				: oneOf([narrowType(1), longUnion])
+				? oneOf([narrowType(1), smallWideType, longUnion, queryType])
+				: oneOf([narrowType(1), longUnion, queryType])
 		)
 	})
 
@@ -622,7 +644,9 @@ const typeAliasGen: Gen<Statement> = (s) => {
 		_tag: "TypeAlias",
 		name: short ? s.draw(shortName) : fixedIdentifier(s.draw(longName)),
 		type: s.draw(
-			short ? oneOf([narrowType(1), smallWideType, longUnion]) : oneOf([narrowType(1), longUnion])
+			short
+				? oneOf([narrowType(1), smallWideType, longUnion, queryType, queriedType])
+				: oneOf([narrowType(1), longUnion, queryType, queriedType])
 		),
 		...present("doc", s.draw(option(docText)))
 	}
@@ -747,6 +771,9 @@ const readType = (node: TypeNode): Read<TypeExpr> => {
 	if (isLiteralTypeNode(node)) {
 		return readLiteralType(node.literal)
 	}
+	if (isTypeQueryNode(node) && isIdentifier(node.exprName) && node.typeArguments === undefined) {
+		return Result.succeed(typeQuery(fixedIdentifier(node.exprName.text)))
+	}
 	if (
 		isTypeOperatorNode(node) &&
 		node.operator === SyntaxKind.ReadonlyKeyword &&
@@ -754,7 +781,8 @@ const readType = (node: TypeNode): Read<TypeExpr> => {
 	) {
 		const itemType = node.type.elementType
 		return Result.map(
-			isParenthesizedTypeNode(itemType) && isUnionTypeNode(itemType.type)
+			isParenthesizedTypeNode(itemType) &&
+				(isUnionTypeNode(itemType.type) || isTypeQueryNode(itemType.type))
 				? readType(itemType.type)
 				: readType(itemType),
 			typeReadonlyArray
@@ -1105,6 +1133,7 @@ const canonicalType = (type: TypeExpr): TypeExpr =>
 	Match.valueTags(type, {
 		TypeKeyword: (keyword): TypeExpr => keyword,
 		TypeLiteral: (literal): TypeExpr => literal,
+		TypeQuery: (query): TypeExpr => query,
 		TypeReadonlyArray: (list) => typeReadonlyArray(canonicalType(list.element)),
 		TypeRef: (reference) =>
 			typeApply(reference.head, reference.members, Arr.map(reference.args, canonicalType)),
@@ -1452,6 +1481,8 @@ export type Feature =
 	| "a top-level call"
 	| "arguments broken as a function composition"
 	| "a long import of one name"
+	| "a type query"
+	| "a type argument broken"
 
 const RESERVED_KEYS: ReadonlyArray<string> = ["default", "class", "constructor"]
 
@@ -1597,6 +1628,11 @@ export const textFeatures = (text: string): ReadonlyArray<Feature> => {
 			"a long union broken"
 		),
 		...when(
+			Arr.some(lines, (line) => Str.startsWith("export type ")(line) && Str.endsWith("<")(line)) ||
+				Arr.some(lines, (line) => line === "  >;"),
+			"a type argument broken"
+		),
+		...when(
 			Arr.some(lines, (line) => aliasHead.test(line)),
 			"a type alias below its name"
 		),
@@ -1642,6 +1678,7 @@ export const treeFeatures = (file: SourceFile): ReadonlyArray<Feature> => {
 			Arr.some(nodes, (node) => isObjectLiteralExpression(node) && spans(node)),
 			"an object broken"
 		),
+		...when(Arr.some(nodes, isTypeQueryNode), "a type query"),
 		...when(
 			Arr.some(nodes, (node) => isStringLiteral(node) && isKeyOf(node)),
 			"a quoted key"

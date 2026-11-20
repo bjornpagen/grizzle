@@ -137,6 +137,7 @@ export type TypeExpr =
 			readonly keyword: "boolean" | "never" | "null" | "number" | "string" | "undefined" | "unknown"
 	  }
 	| { readonly _tag: "TypeLiteral"; readonly value: boolean | number | string }
+	| { readonly _tag: "TypeQuery"; readonly name: Identifier }
 	| { readonly _tag: "TypeReadonlyArray"; readonly element: TypeExpr }
 	| { readonly _tag: "TypeUnion"; readonly members: readonly TypeExpr[] }
 
@@ -353,6 +354,11 @@ export const typeLiteral = (value: boolean | number | string): TypeExpr => ({
 	value
 })
 
+/**
+ * `typeof name`: the type of a value binding, so a type the code infers (a reader's) is named once, by its value.
+ */
+export const typeQuery = (name: Identifier): TypeExpr => ({ _tag: "TypeQuery", name })
+
 export const typeReadonlyArray = (element: TypeExpr): TypeExpr => ({
 	_tag: "TypeReadonlyArray",
 	element
@@ -495,8 +501,9 @@ const typeText = (type: TypeExpr): string =>
 	Match.valueTags(type, {
 		TypeKeyword: (keyword) => keyword.keyword,
 		TypeLiteral: (literal) => literalTypeText(literal.value),
+		TypeQuery: (query) => `typeof ${query.name}`,
 		TypeReadonlyArray: (array) =>
-			array.element._tag === "TypeUnion"
+			array.element._tag === "TypeUnion" || array.element._tag === "TypeQuery"
 				? `readonly (${typeText(array.element)})[]`
 				: `readonly ${typeText(array.element)}[]`,
 		TypeRef: (reference) => {
@@ -1166,6 +1173,13 @@ const withDoc = (doc: JsDocText | undefined, text: string): string =>
 	doc === undefined ? text : `${jsDoc(doc)}\n${text}`
 
 /**
+ * A type query, alone or as a readonly array's element: as a type argument, the formatter breaks the argument list
+ * around it past column 100, where a reference stays whole (measured with oxfmt).
+ */
+const holdsQuery = (type: TypeExpr): boolean =>
+	type._tag === "TypeQuery" || (type._tag === "TypeReadonlyArray" && holdsQuery(type.element))
+
+/**
  * A line past column 100 is allowed when `vp fmt` keeps it there: its only wide parts are
  * identifiers, which cannot break. A type with several union members or type arguments is one
  * `vp fmt` breaks across lines. The printer breaks a union that is a field's or alias's whole type
@@ -1175,8 +1189,11 @@ const breaksWhenWide = (type: TypeExpr): boolean =>
 	Match.valueTags(type, {
 		TypeKeyword: () => false,
 		TypeLiteral: () => false,
+		TypeQuery: () => false,
 		TypeReadonlyArray: (array) => breaksWhenWide(array.element),
-		TypeRef: (reference) => reference.args.length > 1 || Arr.some(reference.args, breaksWhenWide),
+		TypeRef: (reference) =>
+			reference.args.length > 1 ||
+			Arr.some(reference.args, (arg) => holdsQuery(arg) || breaksWhenWide(arg)),
 		TypeUnion: (union) =>
 			isHuggedUnion(union)
 				? Arr.some(union.members, breaksWhenWide)
@@ -1316,20 +1333,63 @@ const printExpression = (statement: Extract<Statement, { readonly _tag: "Express
 }
 
 /**
- * A type alias: past column 100 a union breaks, and any other type moves to its own line, as
- * `vp fmt` does, a union the formatter hugs (`isHuggedUnion`) among them: it moves whole, however
- * long its line is then (measured with oxfmt).
+ * A reference whose one type argument holds a type query (`Read.TypeOf<typeof Pet>`, `holdsQuery`): the reference up
+ * to its `<`, and the argument.
+ */
+const queriedReference = (type: TypeExpr): Option.Option<readonly [string, string]> => {
+	if (type._tag !== "TypeRef") {
+		return Option.none()
+	}
+
+	const [query, ...rest] = type.args
+
+	return query !== undefined && holdsQuery(query) && rest.length === 0
+		? Option.some([`${Arr.join([type.head, ...type.members], ".")}<`, typeText(query)] as const)
+		: Option.none()
+}
+
+/**
+ * A type alias of a queried reference past column 100, as the formatter lays it out (measured with oxfmt): its query
+ * breaks onto a line of its own inside the `<>` when the head and the reference's `<` fit, and the reference moves
+ * below the head otherwise, its query broken the same way when the moved line is wide too.
+ */
+const queriedAlias = (head: string, open: string, query: string): string => {
+	const inPlace = `${head} ${open}`
+	const moved = `  ${open}${query}>;`
+	if (textWidth(inPlace) <= lineWidth) {
+		return `${inPlace}\n  ${query}\n>;`
+	}
+
+	return textWidth(moved) <= lineWidth
+		? `${head}\n${moved}`
+		: `${head}\n  ${open}\n    ${query}\n  >;`
+}
+
+/**
+ * A type alias: past column 100 a union breaks, a queried reference breaks inside its `<>` (`queriedAlias`), and any
+ * other type moves to its own line, as `vp fmt` does, a union the formatter hugs (`isHuggedUnion`) among them: it
+ * moves whole, however long its line is then (measured with oxfmt).
  */
 const printTypeAlias = (alias: Extract<Statement, { readonly _tag: "TypeAlias" }>) => {
 	const head = `export type ${alias.name} =`
 	const line = `${head} ${typeText(alias.type)};`
 	const moved = `${head}\n  ${typeText(alias.type)};`
-	const layout = isLongUnion(line, alias.type)
+	const wide = textWidth(line) > lineWidth
+	const layout: Layout = isLongUnion(line, alias.type)
 		? brokenUnion(head, alias.type, 0, alias.name)
-		: {
-				failure: unbreakable(line, alias.type, alias.name),
-				text: textWidth(line) > lineWidth ? moved : line
-			}
+		: Option.match(
+				Option.filter(queriedReference(alias.type), () => wide),
+				{
+					onNone: () => ({
+						failure: unbreakable(line, alias.type, alias.name),
+						text: wide ? moved : line
+					}),
+					onSome: ([open, query]) => ({
+						failure: Option.none(),
+						text: queriedAlias(head, open, query)
+					})
+				}
+			)
 
 	return succeedUnless(layout.failure, () => withDoc(alias.doc, layout.text))
 }

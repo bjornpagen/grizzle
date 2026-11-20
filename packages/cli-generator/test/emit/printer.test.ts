@@ -89,7 +89,9 @@ export const printedModule = property.explore(moduleSpace, {
 		"an optional field",
 		"a top-level call",
 		"arguments broken as a function composition",
-		"a long import of one name"
+		"a long import of one name",
+		"a type query",
+		"a type argument broken"
 	] satisfies ReadonlyArray<Reached<Feature>>,
 	check: (_resources, k: Case<Feature>) => (module) =>
 		Effect.gen(function* () {
@@ -129,6 +131,28 @@ export const printedModule = property.explore(moduleSpace, {
 	},
 	kept: [
 		{
+			token: ReplayToken("test/emit/printer.test.ts#printedModule:-:0.1.6.0.2.7.3.0.3.0.0.0.0.0.0"),
+			reason:
+				"a type alias of a 72-column name typed `_tmp<typeof a>`, its line past column 100 while the head and `_tmp<` fit: the formatter breaks the type query inside the `<>` beside the head (the witness of queriedAlias's in-place break, found by FIX01 under its kill)",
+			since: "2026-11-20"
+		},
+		{
+			token: ReplayToken(
+				"test/emit/printer.test.ts#printedModule:-:0.1.4.0.0.1.6.0.7.0.1.3.0.0.2.0.0.2.3.0.0.0.0.0.0.0"
+			),
+			reason:
+				"an interface field of 106 columns typed `null | null | a<boolean>`: the formatter keeps a union of one reference beside `null`, however many times `null` appears, on its line, where the printer broke it (found by FIX01's rotating stream, red on eocg main)",
+			since: "2026-11-20"
+		},
+		{
+			token: ReplayToken(
+				"test/emit/printer.test.ts#printedModule:-:0.1.6.0.0.0.1.2.0.0.2.3.4.0.5.0.0.0.0.0"
+			),
+			reason:
+				"a type alias of 105 columns typed `null | a<boolean>`: the formatter moves a union it hugs below the alias's `=` past column 100, where the printer kept it on its line (found by FIX01's rotating stream, red on eocg main)",
+			since: "2026-11-20"
+		},
+		{
 			token: ReplayToken(
 				"packages/cli-generator/test/emit/printer.test.ts#printedModule:-:0.1.0.1.0.1.0.0.0.4.1.6.0.7.b.7.5.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 			),
@@ -155,6 +179,12 @@ export const printedModule = property.explore(moduleSpace, {
 	],
 	budget: { runs: 300, steered: 1500 },
 	kills: [
+		{
+			file: "packages/cli-generator/src/emit/printer.ts",
+			original: "\tif (textWidth(inPlace) <= lineWidth) {",
+			replacement: "\tif (false) {",
+			why: "A queried reference past column 100 always moves below its alias's `=`, where the formatter breaks its type query inside the `<>` beside the head while the head and the `<` fit; the property fails."
+		},
 		{
 			file: "packages/cli-generator/src/emit/printer.ts",
 			original:
@@ -223,7 +253,14 @@ export const refusedConstruct = property.explore(faultyGen, {
 				)
 			}),
 	oracle: { kind: "specification", name: "each planted construct's refusal reason" },
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken("test/emit/printer.test.ts#refusedConstruct:-:0.0.0.3.2.0.0.0.0.0.0.0.0"),
+			reason:
+				"an exported constant holding an arrow whose body is the plus of two empty strings, the witness of the `+` arrow body's refusal, which the property's floor stream stopped drawing when the printer fixtures' type spaces grew (found by FIX01 under that kill)",
+			since: "2026-11-20"
+		}
+	],
 	budget: { runs: 300, steered: 600 },
 	kills: [
 		{
