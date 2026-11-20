@@ -1,8 +1,5 @@
-import { Array as Arr, Effect, Option, Order, Record, Schema, String as Str } from "effect"
-import { JsonPointer } from "#model/brands.ts"
-import { isPointerWithin } from "#model/pointer.ts"
-
-type Pointer = typeof JsonPointer.Type
+import { Array as Arr, Data, Effect, Option, Order, Record, String as Str } from "effect"
+import { isJsonPointer, isPointerWithin, type JsonPointer } from "#model/pointer.ts"
 
 /**
  * The part of one validator error the diagnostic layer reads.
@@ -19,18 +16,15 @@ export interface ErrorUnit {
 export interface ErrorGroup {
 	readonly context: readonly ErrorUnit[]
 	readonly deepest: readonly ErrorUnit[]
-	readonly pointer: Pointer
+	readonly pointer: JsonPointer
 }
 
 /**
  * An `instanceLocation` is not `#` followed by a percent-encoded JSON Pointer.
  */
-export class InvalidInstanceLocation extends Schema.TaggedError<
-	InvalidInstanceLocation,
-	{ readonly brand: unique symbol }
->()("InvalidInstanceLocation", { location: Schema.String }) {}
-
-const decodePointer = Schema.decodeUnknownEffect(JsonPointer)
+export class InvalidInstanceLocation extends Data.TaggedError("InvalidInstanceLocation")<{
+	readonly location: string
+}> {}
 
 /**
  * The fragment of an `instanceLocation`: after its `#`, or after the `#*` with which the library
@@ -46,19 +40,19 @@ const fragmentOf = (instanceLocation: string): string =>
  */
 const decodeLocation = (
 	instanceLocation: string
-): Effect.Effect<Pointer, InvalidInstanceLocation> => {
-	const invalid = () => InvalidInstanceLocation.make({ location: instanceLocation })
+): Effect.Effect<JsonPointer, InvalidInstanceLocation> => {
+	const invalid = () => new InvalidInstanceLocation({ location: instanceLocation })
 
 	return Str.startsWith("#")(instanceLocation)
 		? Effect.try({
 				catch: invalid,
 				try: () => decodeURIComponent(fragmentOf(instanceLocation))
-			}).pipe(Effect.flatMap(decodePointer), Effect.mapError(invalid))
+			}).pipe(Effect.filterOrFail(isJsonPointer, invalid))
 		: Effect.fail(invalid())
 }
 
 interface Located {
-	readonly pointer: Pointer
+	readonly pointer: JsonPointer
 	readonly unit: ErrorUnit
 }
 

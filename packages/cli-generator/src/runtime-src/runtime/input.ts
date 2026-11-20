@@ -2,6 +2,7 @@ import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Context,
+	Data,
 	Effect,
 	FileSystem,
 	Formatter,
@@ -115,18 +116,12 @@ const notAFile = (): UsageError =>
 /**
  * A body past the `maxLength` its schema declares stopped there.
  */
-class OverLimit extends Schema.TaggedError<OverLimit, { readonly brand: unique symbol }>()(
-	"OverLimit",
-	{}
-) {}
+class OverLimit extends Data.TaggedError("OverLimit") {}
 
 /**
  * A read whose source failed; the cause stays out of the message.
  */
-export class ReadFailed extends Schema.TaggedError<ReadFailed, { readonly brand: unique symbol }>()(
-	"ReadFailed",
-	{}
-) {}
+export class ReadFailed extends Data.TaggedError("ReadFailed") {}
 
 /**
  * `source` bounded to `limit` bytes: a source failure becomes `ReadFailed`, and the chunk that
@@ -137,9 +132,9 @@ const bounded = (
 	limit: number
 ): Stream.Stream<Uint8Array, OverLimit | ReadFailed> =>
 	source.pipe(
-		Stream.mapError((): OverLimit | ReadFailed => ReadFailed.make({})),
+		Stream.mapError((): OverLimit | ReadFailed => new ReadFailed()),
 		Stream.limitBytes(limit, (): Stream.Stream<Uint8Array, OverLimit | ReadFailed> =>
-			Stream.fail(OverLimit.make({}))
+			Stream.fail(new OverLimit())
 		)
 	)
 
@@ -150,7 +145,7 @@ const bounded = (
 export const readAll = (
 	source: Stream.Stream<Uint8Array, unknown>
 ): Effect.Effect<Uint8Array, ReadFailed> =>
-	Stream.mkUint8Array(source.pipe(Stream.mapError(() => ReadFailed.make({}))))
+	Stream.mkUint8Array(source.pipe(Stream.mapError(() => new ReadFailed())))
 
 /**
  * Decodes `bytes` as UTF-8, failing with `invalid` when they are not.

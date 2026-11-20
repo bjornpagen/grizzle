@@ -5,7 +5,8 @@
  * (m3-pwmh: a `format: password` part is a file part, and its path may be the secret itself).
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { assert, assertNot } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
@@ -109,7 +110,8 @@ export const filePart = property.explore(fileSpace, {
 				)
 			)
 			const printedOut = latin1(Buffer.concat(stdout))
-			const printedErr = new TextDecoder().decode(Buffer.concat(stderr))
+			const printedErr = utf8Text(Buffer.concat(stderr))
+			assertNot(printedErr, undefined, "stderr is UTF-8")
 			const expected = readingModel(run, STDIN)
 			switch (expected.kind) {
 				case "read":
@@ -118,7 +120,7 @@ export const filePart = property.explore(fileSpace, {
 						expected.bytes
 					)
 					assert.ok(Exit.isSuccess(exit), "a run of readable parts reads them")
-					assert.equal(printedErr, "")
+					assert.equal<string>(printedErr, "")
 					break
 				case "refused": {
 					assert.ok(Exit.isFailure(exit), "a refused part fails the run")
