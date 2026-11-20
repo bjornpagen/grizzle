@@ -1,7 +1,6 @@
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
-import { stripUnsafeText } from "#model/brands.ts"
-import { HeaderName, MediaRange } from "#model/brands.ts"
+import { isHeaderName, isMediaRange, stripUnsafeText } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { ResponseCase } from "#model/entities.ts"
@@ -26,10 +25,6 @@ export interface NormalizedResponses {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly responses: readonly ResponseCase[]
 }
-
-const isHeaderName = Schema.is(HeaderName)
-
-const isMediaRange = Schema.is(MediaRange)
 
 interface Rule {
 	readonly anchor: string
