@@ -595,6 +595,38 @@ class Sharing {
 				)
 	}
 
+	/**
+	 * A boolean split on `subject`, never NULL where it is evaluated, whose value is `holds` where the subject holds and
+	 * `fails` where it fails: where `fails` is false and `holds` raises nothing, the conjunction `subject AND holds`, the
+	 * subject a top-level conjunct, so a selection a column's equality decides keeps the equality as PostgreSQL reads an
+	 * index condition, `c = 633 AND (...)`, never hidden in `CASE WHEN c = 633 THEN ... ELSE false END`; the subject alone
+	 * where `holds` is true; the conditional otherwise. The subject is never NULL, so the conjunction is the conditional's
+	 * value on every row, NULL included, and an operand that raises nothing is evaluated by AND as safely as by CASE.
+	 */
+	#decided(
+		subject: ScalarExpr,
+		holds: ScalarExpr,
+		fails: ScalarExpr,
+		like: ScalarExpr
+	): ScalarExpr {
+		if (truthOf(fails) !== false || truthOf(holds) === false || this.#raisesAt(holds)) {
+			return this.#cond(subject, holds, fails, like)
+		}
+		return truthOf(holds) === true
+			? subject
+			: this.#built(
+					{
+						kind: "op",
+						op: connectiveOps.and,
+						args: [subject, holds],
+						type: like.type,
+						nonNull: "strict",
+						volatility: "immutable"
+					},
+					like
+				)
+	}
+
 	/** The conditional `cond(c, t, f)`, labelled after `like`: one of equal arms, where its condition raises nothing. */
 	#cond(c: ScalarExpr, t: ScalarExpr, f: ScalarExpr, like: ScalarExpr): ScalarExpr {
 		return t === f && !this.#raisesAt(c)
@@ -618,7 +650,7 @@ class Sharing {
 				this.#substituted(e, new Map([[s, this.#truth(false, s)]])),
 				facts
 			)
-			return this.#cond(subject, holds, fails, e)
+			return this.#decided(subject, holds, fails, e)
 		}
 		const values = this.#valuesOf(s)
 		if (values === undefined) {

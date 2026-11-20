@@ -1,7 +1,7 @@
 /** What the property of zero-quotient.test.ts reads: its dividends, its terms of each float carrier and its SQL. */
 
 import { assert } from "@bjornpagen/testing/assert"
-import { array, element, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
+import { array, element, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -55,19 +55,19 @@ const specials = [
 	-1.401298464324817e-45
 ] as const
 
-/** A dividend: one of the specials, or a fraction of sevenths, either sign. */
-const dividendGen: Gen<number> = oneOf<number>([
-	element(specials),
-	map(int(-7000, 7000), (n) => n / 7)
-])
+/** A drawn dividend: a fraction of sevenths, either sign. */
+const fractionGen: Gen<number> = map(int(-7000, 7000), (n) => n / 7)
 
-/** A batch: its carrier, and four to twenty-four dividends, each held in that carrier (Math.fround for a real). */
+/**
+ * A batch: its carrier, and its dividends, every special and zero to twenty drawn fractions, each held in that carrier
+ * (Math.fround for a real), so every class the rule turns on is in every batch.
+ */
 export const batchGen: Gen<{
 	readonly carrier: FloatCarrier
 	readonly dividends: ReadonlyArray<number>
 }> = (source) => {
 	const carrier = source.draw(element(["float8", "float4"] as const))
-	const drawn = source.draw(array(dividendGen, { min: 4, max: 24 }))
+	const drawn = [...specials, ...source.draw(array(fractionGen, { min: 0, max: 20 }))]
 	return { carrier, dividends: carrier === "float4" ? Arr.map(drawn, Math.fround) : drawn }
 }
 
