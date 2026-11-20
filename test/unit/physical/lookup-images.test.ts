@@ -233,8 +233,9 @@ export const aLookupsEntryHoldsTheTextsItBindsByEqualityByItsMd5WhereItCouldOutg
 			},
 			{
 				file: "packages/engine/src/physical/indexes/engine.ts",
-				original: '\t\troles[at] === "equality" &&',
-				replacement: "\t\ttrue &&",
+				original:
+					'\t\tif (roles[at] !== "equality" || (k.column.kind !== "field" && k.column.kind !== "law")) {',
+				replacement: '\t\tif (k.column.kind !== "field" && k.column.kind !== "law") {',
 				why: "A text a lookup reads in its order or matches a prefix of held by its image, which keeps no order: a page or a range read through the index reads its entries in md5's order."
 			},
 			{

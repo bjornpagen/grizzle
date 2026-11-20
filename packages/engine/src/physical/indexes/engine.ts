@@ -168,7 +168,9 @@ const keyRoles = (request: IndexRequest, keys: number): ReadonlyArray<EntryRole>
  * HNSW request's every key as it is: a hash index's entry is a hash code already, and neither other method's request
  * binds a text an image would hold. Which of its bound columns a created index holds by their images its own entry
  * decides (`createIndex`, schema/representability.ts entryImages), so requests that share columns share an index and a
- * key's index, holding them as themselves where its entry fits, serves its lookups as before.
+ * key's index, holding them as themselves where its entry fits, serves its lookups as before. A write target binds a
+ * numeric its relation's key holds by its image by that image's column (BuiltTarget `keyImage`), whose equality the
+ * write's probe states, so the key's own index serves it: no lookup holds a numeric by an image of its own.
  */
 const requestKeys = (
 	request: IndexRequest,
@@ -179,13 +181,17 @@ const requestKeys = (
 		return keys
 	}
 	const roles = keyRoles(request, keys.length)
-	return keys.map((k, at) =>
-		roles[at] === "equality" &&
-		(k.column.kind === "field" || k.column.kind === "law") &&
-		target.imaged(k.column)
-			? { ...k, column: { kind: "bound", of: k.column } }
-			: k
-	)
+	return keys.map((k, at) => {
+		if (roles[at] !== "equality" || (k.column.kind !== "field" && k.column.kind !== "law")) {
+			return k
+		}
+		const keyImage = request.use === "write target" ? target.keyImage(k.column) : undefined
+		return keyImage !== undefined
+			? { ...k, column: keyImage }
+			: target.imaged(k.column)
+				? { ...k, column: { kind: "bound", of: k.column } }
+				: k
+	})
 }
 
 /**
