@@ -193,6 +193,12 @@ export type MediaRange = string & Brand.Brand<"MediaRange">
 export const isMediaRange = (text: string): text is MediaRange => mediaRangePattern.test(text)
 
 /**
+ * A MediaRange the code writes as a literal, such as a part's default content type in the encoding table, unchecked:
+ * the literal is the proof. Text from anywhere else goes through isMediaRange.
+ */
+export const fixedMediaRange: (literal: string) => MediaRange = Brand.nominal<MediaRange>()
+
+/**
  * An OpenAPI 3.2.1 path template: absolute, with balanced non-empty expressions, no dot segments and no empty segment
  * except the last.
  */
