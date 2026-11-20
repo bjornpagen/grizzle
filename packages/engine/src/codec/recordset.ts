@@ -1,6 +1,5 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * A relation input's encoding, a hot path: every execution that binds a relation input normalizes it and writes each
  * of its facts here, so the per-fact work is native loops with no closure or Option per element.
@@ -16,8 +15,9 @@ import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CodecFault, EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { sortInPlace } from "#compiler/core/order.ts"
+import { compareStrings, sortInPlace } from "#compiler/core/order.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
@@ -30,11 +30,10 @@ import type {
 import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes, DigestBook } from "#compiler/scalar/values/bytes.ts"
 import {
+	type AdmittedFact,
 	admitted,
 	againAt,
-	compareFactIdentities,
 	digestFact,
-	type FactIdentity,
 	type HeadingField,
 	type HeadingPlan,
 	headingPlan,
@@ -118,7 +117,7 @@ export interface RelationNormalizer {
 	/** The heading as its facts are read (scalar/values/identity.ts HeadingPlan), planned once with the normalizer. */
 	readonly plan: HeadingPlan
 	/** The heading's field names in the order an admitted fact's identity holds their texts (scalar/values/identity.ts
-	 * FactIdentity): field-name order. */
+	 * AdmittedFact): field-name order. */
 	readonly fields: ReadonlyArray<string>
 	readonly read: (facts: Iterable<unknown>) => Result.Result<ReadRelation, EncodingFailure>
 	/**
@@ -143,12 +142,12 @@ export interface RelationNormalizer {
 	readonly place: (refusal: RowRefusal) => EncodingFailure
 	/** The bytes a read fact's binary arrays take with it alone: what a statement that carries it alone carries. */
 	readonly alone: (read: ReadFact) => number
-	/** A fact read alone admitted, as `admit` admits an input of it alone: its one normal fact, with its identity, each
-	 * field's canonical text in `fields`' order, the one text the write works out of each of its values. */
+	/** A fact read alone admitted, as `admit` admits an input of it alone: its one normal fact, with its identity and
+	 * each field's canonical text in `fields`' order, the one text the write works out of each of its values. */
 	readonly admitOne: (
 		read: ReadFact,
 		book: DigestBook
-	) => Result.Result<IdentifiedFact, EncodingFailure>
+	) => Result.Result<AdmittedFact, EncodingFailure>
 }
 
 /** A fact's refusal as its normalizer reads it: the codec's fault, and the field it is at, none for the fact as a whole. */
@@ -302,7 +301,7 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  * - it refuses any null member and any null field (nullValue);
  * - it deduplicates complete facts by fact identity (values/identity.ts factIdentity: numeric 1.0 = 1.00, NaN = NaN,
  *   -0 = +0, uuid case), so the input is a set without a DISTINCT;
- * - it encodes canonically: facts in the canonical order of their identities (compareFactIdentities), every column's
+ * - it encodes canonically: facts in the canonical order of their identities (their keys' order), every column's
  *   array in that order, every element the quoted canonical text of its value (scalar.ts, `arrayElement`), so equal
  *   inputs give byte-identical parameters whatever their order, and NaN, the infinities and money's numeric text reach
  *   the element type's input function exactly.
@@ -313,16 +312,12 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  * adapter/reader/params.ts), and then normalized exactly like an array. A caller's retry replays the Stream.
  *
  * The one mint of normal facts: the facts of `byIdentity`, each admitted by factIdentity over one heading and frozen,
- * keyed by its fact identity, which a TupleMap holds once each, so the facts are distinct by construction, put in the
- * canonical order of their identities here (compareFactIdentities), and frozen.
+ * keyed by its fact identity, a key (core/text.ts TextsKey) a Map holds once each, so the facts are distinct by
+ * construction, put in the canonical order of their identities here, the keys' own order as strings, and frozen.
  */
-export const normalFacts = (
-	byIdentity: ReadonlyTupleMap<FactIdentity, { readonly fact: Fact }>
-): NormalFacts => {
-	const entries = Array.from(byIdentity, ([identity, { fact }]): IdentifiedFact =>
-		Object.freeze({ identity, fact })
-	)
-	sortInPlace(entries, (a, b) => compareFactIdentities(a.identity, b.identity))
+export const normalFacts = (byIdentity: ReadonlyMap<TextsKey, IdentifiedFact>): NormalFacts => {
+	const entries = Array.from(byIdentity.values())
+	sortInPlace(entries, (a, b) => compareStrings(a.identity, b.identity))
 	return mintNormal(
 		Object.freeze({
 			facts: Object.freeze(entries.map((e) => e.fact)),
@@ -396,11 +391,12 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		if (bytesAt.length === 0) {
 			return { reads, together: 0, widest: 0 }
 		}
-		const distinct = new TupleMap<ReadonlyArray<string>, ReadFact>()
+		const distinct = new Map<TextsKey, ReadFact>()
 		let widest = 0
 		for (const one of reads) {
-			if (!distinct.has(one.parts)) {
-				distinct.set(one.parts, one)
+			const parts = textsKey(one.parts)
+			if (!distinct.has(parts)) {
+				distinct.set(parts, one)
 			}
 			widest = Math.max(widest, alone(one))
 		}
@@ -442,7 +438,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 	const digested = (
 		one: ReadFact,
 		book: DigestBook
-	): Result.Result<IdentifiedFact, EncodingFailure> => {
+	): Result.Result<AdmittedFact, EncodingFailure> => {
 		const admittedFact = digestFact(s.plan, one)
 		for (const at of bytesAt) {
 			const field = defined(s.plan.entries[at], "a bytes field of the heading").name
@@ -456,15 +452,15 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		relation: ReadRelation,
 		book: DigestBook
 	): Result.Result<AdmittedRelation, EncodingFailure> => {
-		const byIdentity = new TupleMap<FactIdentity, { readonly fact: Fact }>()
+		const byIdentity = new Map<TextsKey, IdentifiedFact>()
 		for (const one of relation.reads) {
 			const admittedFact = digested(one, book)
 			if (!admittedFact.ok) {
 				return admittedFact
 			}
-			const { identity, fact } = admittedFact.value
-			if (!byIdentity.has(identity)) {
-				byIdentity.set(identity, { fact })
+			const entry = admittedFact.value
+			if (!byIdentity.has(entry.identity)) {
+				byIdentity.set(entry.identity, entry)
 			}
 		}
 		const normal = normalFacts(byIdentity)

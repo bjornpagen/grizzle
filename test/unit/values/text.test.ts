@@ -7,7 +7,9 @@
  * - Code point order: compareCodePoints orders as the UTF-8 bytes of the texts do, PostgreSQL's C collation. Oracle: a
  *   second implementation, TextEncoder's bytes compared one by one.
  * - Tuple orders: a tuple of texts orders as its texts' spellings do, each after its length and a colon, and as a JSON
- *   array by code unit and by code point. Oracle: a second implementation, the tuples spelled and compared.
+ *   array by code unit and by code point; and its key (core/text.ts textsKey), compared as a string, orders as its JSON
+ *   array by code point, and is another tuple's key exactly when the tuples are one. Oracle: a second implementation,
+ *   the tuples spelled and compared.
  *
  * Features: live text, a non-string and each plant at each position; equal tuples, a prefix, a difference past the
  * first text, of two lengths, and at an escaped unit.
@@ -23,6 +25,7 @@ import {
 	compareQuotedTuples,
 	compareTextTuples,
 	isValidText,
+	textsKey,
 	validateText
 } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
@@ -139,7 +142,8 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 			"one tuple the other's prefix",
 			"differing first past the first text",
 			"texts of two lengths where they differ",
-			"an escaped unit where they differ"
+			"an escaped unit where they differ",
+			"a unit past the surrogates against an astral scalar where they differ"
 		] satisfies ReadonlyArray<Reached<TupleFeature>>,
 		check:
 			(_, c: Case<TupleFeature>) =>
@@ -168,6 +172,14 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 						) {
 							c.note("an escaped unit where they differ")
 						}
+						if (
+							Arr.contains(
+								codePointFeatures(x, y),
+								"a unit past the surrogates against an astral scalar"
+							)
+						) {
+							c.note("a unit past the surrogates against an astral scalar where they differ")
+						}
 					}
 					assert.equal(
 						signOf(compareTextTuples(a, b)),
@@ -184,6 +196,18 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 						compareCodePoints(jsonText(a), jsonText(b)),
 						"code point order is the JSON array's"
 					)
+					const keyA = textsKey(a)
+					const keyB = textsKey(b)
+					assert.equal(
+						signOf(compareStrings(keyA, keyB)),
+						compareCodePoints(jsonText(a), jsonText(b)),
+						"a tuple's key, compared as a string, orders as its JSON array by code point"
+					)
+					assert.equal(
+						keyA === keyB,
+						jsonText(a) === jsonText(b),
+						"two tuples have one key exactly when they are one"
+					)
 				}),
 		oracle: {
 			kind: "second-implementation",
@@ -196,6 +220,12 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 				original: "\t\t\treturn y === undefined ? 1 : -1",
 				replacement: "\t\t\treturn -1",
 				why: "compareTextTuples orders a tuple before its own prefix; the tuple orders property fails."
+			},
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\t\t\treturn mintTextsKey(inCodePointOrder(json, at))",
+				replacement: "\t\t\treturn mintTextsKey(json)",
+				why: "A key is its JSON text as it is, ordered by code unit: a scalar past U+FFFF, spelled by a surrogate pair, orders below a unit from U+E000, where code point order puts it above."
 			}
 		]
 	})

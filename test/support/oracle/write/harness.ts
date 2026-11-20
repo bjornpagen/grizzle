@@ -11,7 +11,7 @@ import { ParamRejected } from "#adapter/errors/failures.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { WriteStepResult } from "#compiler/runtime/write/steps.ts"
-import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
+import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import type { ArtifactStatement, WriteArtifact } from "#compiler/write/program/artifact.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
@@ -19,7 +19,12 @@ import type { AmbientFeature } from "#test/support/ambient.ts"
 import { conservativeChange } from "#test/support/conservative.ts"
 import { messageOf } from "#test/support/message.ts"
 import type { AppliedOutcome, Fact, OracleState } from "#test/support/oracle/addwins.ts"
-import { type FactSet, factSetOf, identitySetOf } from "#test/support/oracle/delta.ts"
+import {
+	type FactsByTexts,
+	factSetOf,
+	type FactTexts,
+	identitySetOf
+} from "#test/support/oracle/delta.ts"
 import { CurrentRestorage } from "#test/support/oracle/gen/restorage.ts"
 import {
 	complementOf,
@@ -247,7 +252,7 @@ export type WriteOracleFeature =
 	| "an addition a later stratum removes"
 	| "a deletion meeting nowhere unordered beside an addition"
 
-const identityOf = (group: WGroup, relation: string, fact: unknown): FactIdentity => {
+const identityOf = (group: WGroup, relation: string, fact: unknown): FactTexts => {
 	const r = relationIn(group, relation)
 	const admitted = factIdentity(
 		Arr.map(r.columns, (c) => ({ name: c.name, spec: typeInfo[c.kind].spec })),
@@ -259,16 +264,14 @@ const identityOf = (group: WGroup, relation: string, fact: unknown): FactIdentit
 			`${relation}: a fact is inadmissible, ${fault}${field === undefined ? "" : ` at ${field}`}`
 		)
 	}
-	return admitted.value.identity
+	return admitted.value.texts
 }
 
 const printSet = (facts: Iterable<Fact>): string =>
 	`[${Arr.join(Arr.map([...facts], printFact), ", ")}]`
 
-const sameIdentities = (
-	a: ReadonlyTupleSet<FactIdentity>,
-	b: ReadonlyTupleSet<FactIdentity>
-): boolean => a.size === b.size && Arr.every([...a], (x) => b.has(x))
+const sameIdentities = (a: ReadonlyTupleSet<FactTexts>, b: ReadonlyTupleSet<FactTexts>): boolean =>
+	a.size === b.size && Arr.every([...a], (x) => b.has(x))
 
 const printOutcome = (o: Result.Result<WriteOutcome, unknown>): string => {
 	if (Result.isFailure(o)) {
@@ -372,7 +375,7 @@ const addedThenRemoved = (outcome: AppliedOutcome): boolean =>
 		)
 	)
 
-const expectedReadFacts = (want: AppliedOutcome, read: WChangeSet["reads"][number]): FactSet =>
+const expectedReadFacts = (want: AppliedOutcome, read: WChangeSet["reads"][number]): FactsByTexts =>
 	read.source === "state"
 		? (want.state.relations.get(read.relation) ?? factSetOf([]))
 		: (want.delta.get(read.relation)?.[read.source] ?? factSetOf([]))

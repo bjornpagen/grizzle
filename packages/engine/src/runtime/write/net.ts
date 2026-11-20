@@ -1,13 +1,13 @@
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import * as Order from "#compiler/core/order.ts"
+import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import { addInto, type Side, type Weighted, weightOf, type ZSet } from "#compiler/core/zset.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { digestOf } from "#compiler/scalar/values/bytes.ts"
-import { admittedText, type FactIdentity } from "#compiler/scalar/values/identity.ts"
+import { admittedText } from "#compiler/scalar/values/identity.ts"
 
 /** Strings by code point. */
 const codePointOrder = (a: string, b: string) => {
@@ -35,7 +35,7 @@ const tags = {
 
 /** A change to one relation as a Z-set (core/zset.ts): its facts by identity, each with the tag of the change it
  * stands by. */
-export type RelationChange = ZSet<FactIdentity, Tag>
+export type RelationChange = ZSet<TextsKey, Tag>
 
 interface Counts {
 	readonly added: bigint
@@ -45,7 +45,7 @@ interface Counts {
 
 /** One returned row of a stratum's statements: a fact it made present or absent, and why. */
 export interface ChangeRow {
-	readonly identity: FactIdentity
+	readonly identity: TextsKey
 	readonly tag: Tag
 }
 
@@ -54,10 +54,10 @@ export interface ChangeRow {
  * that side once, under its tag of highest rank (`tags`). A fact the rows both remove and add, identical in every field,
  * is in S and S' alike (or in neither), so its weights sum to 0 and it is in neither side: the fact set is unchanged
  * for it, as psql leaves it after the DELETE and the INSERT. */
-export const stratumChange = (rows: Iterable<ChangeRow>): TupleMap<FactIdentity, Weighted<Tag>> => {
+export const stratumChange = (rows: Iterable<ChangeRow>): Map<TextsKey, Weighted<Tag>> => {
 	const sides = {
-		added: new TupleMap<FactIdentity, Weighted<Tag>>(),
-		removed: new TupleMap<FactIdentity, Weighted<Tag>>()
+		added: new Map<TextsKey, Weighted<Tag>>(),
+		removed: new Map<TextsKey, Weighted<Tag>>()
 	}
 	for (const row of rows) {
 		const { side, rank } = tags[row.tag]
@@ -70,7 +70,7 @@ export const stratumChange = (rows: Iterable<ChangeRow>): TupleMap<FactIdentity,
 }
 
 /** No stratum's change: the empty Z-set, which a relation no stratum changed holds. */
-const noChange: RelationChange = new TupleMap()
+const noChange: RelationChange = new Map()
 
 /** One relation's change over the strata that changed it, in stratum order: each stratum's change (`stratumChange`)
  * summed into the sum of those before it (core/zset.ts addInto). */
@@ -155,20 +155,18 @@ export const outcomeCounts = (
 
 /**
  * The identity function of a heading's facts as a write statement's rows convert them: each field's canonical text in
- * field-name order, as factIdentity gives it (`identity.ts`), a bytes field's the digest the statement returned of it
+ * field-name order, keyed (core/text.ts TextsKey), as factIdentity gives it (`identity.ts`), a bytes field's the digest
+ * the statement returned of it
  * (codec/row.ts tupleConverter), which is its canonical text. The rows are PostgreSQL's output, converted by the
  * fields' own codecs under the installation's codes, so nothing is admitted again. Only returned digests meet here, so
  * two facts of one identity whose bytes differ would be a SHA-256 collision between rows PostgreSQL wrote.
  */
-export const relationIdentity = (
-	heading: Heading,
-	codes: Codebook
-): ((fact: Fact) => FactIdentity) => {
+export const relationIdentity = (heading: Heading, codes: Codebook): ((fact: Fact) => TextsKey) => {
 	const fields = heading
 		.map((column) => ({ name: column.name, spec: carrierSpecOf(column.type, codes) }))
 		.toSorted(Order.mapInput(codePointOrder, (field: { readonly name: string }) => field.name))
 	return (fact) =>
-		Object.freeze(
+		textsKey(
 			fields.map((field) =>
 				field.spec.carrier === "bytes"
 					? digestOf(fact[field.name])

@@ -19,7 +19,6 @@ import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type {
 	EnumeratedInput,
@@ -38,7 +37,7 @@ import {
 	type OracleSchema,
 	oracleState
 } from "#test/support/oracle/addwins.ts"
-import { identityOrder } from "#test/support/oracle/delta.ts"
+import { type FactTexts, identityOrder } from "#test/support/oracle/delta.ts"
 import { codesOf, compiled, cs, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Pair(k, v, c): primary key k, candidate key c. */
@@ -295,7 +294,7 @@ const sameOutcome = (a: AddWinsOutcome, b: AddWinsOutcome): void => {
 				[...o.state.relations],
 				([r, s]) => [r, Arr.sort([...s.keys()], identityOrder)] as const
 			),
-			Order.mapInput(Order.String, ([r]: readonly [string, ReadonlyArray<FactIdentity>]) => r)
+			Order.mapInput(Order.String, ([r]: readonly [string, ReadonlyArray<FactTexts>]) => r)
 		)
 	assert.deepEqual(facts(a), facts(b))
 }

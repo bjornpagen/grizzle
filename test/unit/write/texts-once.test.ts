@@ -180,7 +180,7 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/nesting.ts",
-				original: "\t\t\ttexts[field.at] = identity[place]\n",
+				original: "\t\t\ttexts[field.at] = admittedTexts[place]\n",
 				replacement: "",
 				why: "A nested level's admitted fact is laid out without its admission's texts, so every nested row works each of its values' texts out again."
 			},
@@ -193,9 +193,9 @@ export const aWriteWorksOutEachNestedAndFreshValuesCanonicalTextOnceAtItsAdmissi
 			{
 				file: "packages/engine/src/runtime/write/normalize.ts",
 				original:
-					"\t\treturn (row) => at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec)))",
+					"\t\t\ttextsKey(at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec))))",
 				replacement:
-					"\t\treturn (row) => at.map((c) => keyText(c.spec, textAt(row.values, [], c.at, c.spec)))",
+					"\t\t\ttextsKey(at.map((c) => keyText(c.spec, textAt(row.values, [], c.at, c.spec))))",
 				why: "The same-key checks work a nested row's key texts out again from its values, beside the texts its write holds."
 			},
 			{

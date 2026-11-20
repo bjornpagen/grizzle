@@ -19,7 +19,6 @@
  * Features: "equal facts spelled apart" and "deduplicated".
  */
 
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -28,9 +27,10 @@ import { exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
+import type { TextsKey } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
-import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
+import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import {
 	collidingFactsGen,
 	columns,
@@ -84,7 +84,7 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
 						pg.set(key, [...(pg.get(key) ?? []), String(group)])
 					}
 					for (const [k, facts] of cases.entries()) {
-						const groups = new TupleMap<FactIdentity, Array<number>>()
+						const groups = new Map<TextsKey, Array<number>>()
 						for (const [ord, fact] of facts.entries()) {
 							const { identity } = succeeded(factIdentity(heading, fact))
 							groups.set(identity, [...(groups.get(identity) ?? []), ord])
@@ -165,8 +165,9 @@ export const relationInputsAgainstPostgreSQLSendsPostgreSQLASetTheEncodersArrays
 			},
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\t\t\t\tbyIdentity.set(identity, { fact })",
-				replacement: "\t\t\t\tbyIdentity.set([...identity, String(byIdentity.size)], { fact })",
+				original: "\t\t\t\tbyIdentity.set(entry.identity, entry)",
+				replacement:
+					"\t\t\t\tbyIdentity.set(textsKey([entry.identity, String(byIdentity.size)]), entry)",
 				why: "The normalizer keeps every fact, so the arrays hold one value twice; the DISTINCT property fails."
 			}
 		]

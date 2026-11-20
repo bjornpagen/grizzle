@@ -4,23 +4,35 @@ import {
 	TupleMap,
 	TupleSet
 } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { Order } from "effect"
-import { compareFactIdentities, type FactIdentity } from "#compiler/scalar/values/identity.ts"
+import { compareQuotedTuples } from "#compiler/core/text.ts"
 
 export type Fact = { readonly [field: string]: unknown }
 
-/** Identity to fact, keyed structurally by each fact's identity texts (scalar/values/identity.ts FactIdentity). */
-export type FactSet = ReadonlyTupleMap<FactIdentity, Fact>
+/**
+ * A fact's identity as the oracle holds it: each field's canonical text in field-name order, the list itself
+ * (scalar/values/identity.ts factIdentity's `texts`), where the write keys it as one string (core/text.ts TextsKey).
+ */
+export type FactTexts = ReadonlyArray<string>
 
-/** Fact identities in their canonical order (scalar/values/identity.ts compareFactIdentities). */
-export const identityOrder: Order.Order<FactIdentity> = (a, b) => {
-	const order = compareFactIdentities(a, b)
+/** Identity to fact, keyed structurally by each fact's identity texts (`FactTexts`). */
+export type FactsByTexts = ReadonlyTupleMap<FactTexts, Fact>
+
+const quotedOrder = compareQuotedTuples(compareCodePoints)
+
+/**
+ * Fact identities in their canonical order, the code point order of their JSON texts read field by field (core/text.ts
+ * compareQuotedTuples), which the write's keys' own order is (core/text.ts TextsKey).
+ */
+export const identityOrder: Order.Order<FactTexts> = (a, b) => {
+	const order = quotedOrder(a, b)
 	return order < 0 ? -1 : order > 0 ? 1 : 0
 }
 
 /** The fact set of `entries`, each identity once, the last fact of an identity kept. */
-export const factSetOf = (entries: Iterable<readonly [FactIdentity, Fact]>): FactSet => {
-	const set = new TupleMap<FactIdentity, Fact>()
+export const factSetOf = (entries: Iterable<readonly [FactTexts, Fact]>): FactsByTexts => {
+	const set = new TupleMap<FactTexts, Fact>()
 	for (const [identity, fact] of entries) {
 		set.set(identity, fact)
 	}
@@ -28,10 +40,8 @@ export const factSetOf = (entries: Iterable<readonly [FactIdentity, Fact]>): Fac
 }
 
 /** The set of `identities`, each once. */
-export const identitySetOf = (
-	identities: Iterable<FactIdentity>
-): ReadonlyTupleSet<FactIdentity> => {
-	const set = new TupleSet<FactIdentity>()
+export const identitySetOf = (identities: Iterable<FactTexts>): ReadonlyTupleSet<FactTexts> => {
+	const set = new TupleSet<FactTexts>()
 	for (const identity of identities) {
 		set.add(identity)
 	}
@@ -39,12 +49,12 @@ export const identitySetOf = (
 }
 
 export interface RelationDelta {
-	readonly added: FactSet
-	readonly removed: FactSet
+	readonly added: FactsByTexts
+	readonly removed: FactsByTexts
 }
 
-const minus = (a: FactSet, b: FactSet): FactSet => {
-	const out = new TupleMap<FactIdentity, Fact>()
+const minus = (a: FactsByTexts, b: FactsByTexts): FactsByTexts => {
+	const out = new TupleMap<FactTexts, Fact>()
 	for (const [identity, fact] of a) {
 		if (!b.has(identity)) {
 			out.set(identity, fact)
@@ -82,17 +92,17 @@ const minus = (a: FactSet, b: FactSet): FactSet => {
  *
  * The definition: added = final minus initial, removed = initial minus final.
  */
-export const stateDelta = (before: FactSet, after: FactSet): RelationDelta => ({
+export const stateDelta = (before: FactsByTexts, after: FactsByTexts): RelationDelta => ({
 	added: minus(after, before),
 	removed: minus(before, after)
 })
 
 /** Sequential netting over per-stratum changes (read so that it equals the `stateDelta` definition). */
 export const netStrata = (steps: ReadonlyArray<RelationDelta>): RelationDelta => {
-	const added = new TupleMap<FactIdentity, Fact>()
-	const removed = new TupleMap<FactIdentity, Fact>()
+	const added = new TupleMap<FactTexts, Fact>()
+	const removed = new TupleMap<FactTexts, Fact>()
 	/** A removal cancels a pending addition of the same fact, or is pending itself. */
-	const remove = (identity: FactIdentity, fact: Fact): void => {
+	const remove = (identity: FactTexts, fact: Fact): void => {
 		if (added.has(identity)) {
 			added.delete(identity)
 		} else {
@@ -100,7 +110,7 @@ export const netStrata = (steps: ReadonlyArray<RelationDelta>): RelationDelta =>
 		}
 	}
 	/** An addition cancels a pending removal of the same fact, or is pending itself. */
-	const add = (identity: FactIdentity, fact: Fact): void => {
+	const add = (identity: FactTexts, fact: Fact): void => {
 		if (removed.has(identity)) {
 			removed.delete(identity)
 		} else {
@@ -123,9 +133,9 @@ export const netStrata = (steps: ReadonlyArray<RelationDelta>): RelationDelta =>
  * they were given.
  */
 interface Requested {
-	readonly insert: ReadonlyTupleSet<FactIdentity>
-	readonly put: ReadonlyTupleSet<FactIdentity>
-	readonly delete: ReadonlyTupleSet<FactIdentity>
+	readonly insert: ReadonlyTupleSet<FactTexts>
+	readonly put: ReadonlyTupleSet<FactTexts>
+	readonly delete: ReadonlyTupleSet<FactTexts>
 }
 
 export interface Counts {
@@ -140,23 +150,23 @@ export interface AttributedChange {
 	 * The facts the stratum made present, under put when a put member requested them (a fact both an insert and a put
 	 * of the stratum requested counts once, under put), under insert otherwise.
 	 */
-	readonly added: ReadonlyTupleMap<FactIdentity, "insert" | "put">
+	readonly added: ReadonlyTupleMap<FactTexts, "insert" | "put">
 	/**
 	 * The facts the stratum made absent, under delete when a delete member of the stratum requested them; an occupant
 	 * that only a put displaced is "displaced" and never counted.
 	 */
-	readonly removed: ReadonlyTupleMap<FactIdentity, "delete" | "displaced">
+	readonly removed: ReadonlyTupleMap<FactTexts, "delete" | "displaced">
 }
 
 /** The count rules for one add-wins transition from `before` to `after`. */
 export const attributeStratum = (
-	before: FactSet,
-	after: FactSet,
+	before: FactsByTexts,
+	after: FactsByTexts,
 	requested: Requested
 ): AttributedChange => {
 	const delta = stateDelta(before, after)
-	const added = new TupleMap<FactIdentity, "insert" | "put">()
-	const removed = new TupleMap<FactIdentity, "delete" | "displaced">()
+	const added = new TupleMap<FactTexts, "insert" | "put">()
+	const removed = new TupleMap<FactTexts, "delete" | "displaced">()
 	for (const identity of delta.added.keys()) {
 		if (requested.put.has(identity)) {
 			added.set(identity, "put")
@@ -177,10 +187,10 @@ export const attributeStratum = (
  * a removal cancels a pending addition, and each surviving change counts under its tag.
  */
 export const netCounts = (steps: ReadonlyArray<AttributedChange>): Counts => {
-	const added = new TupleMap<FactIdentity, "insert" | "put">()
-	const removed = new TupleMap<FactIdentity, "delete" | "displaced">()
+	const added = new TupleMap<FactTexts, "insert" | "put">()
+	const removed = new TupleMap<FactTexts, "delete" | "displaced">()
 	/** A removal cancels a pending addition of the same fact, or is pending itself under its tag. */
-	const remove = (identity: FactIdentity, tag: "delete" | "displaced"): void => {
+	const remove = (identity: FactTexts, tag: "delete" | "displaced"): void => {
 		if (added.has(identity)) {
 			added.delete(identity)
 		} else {
@@ -188,7 +198,7 @@ export const netCounts = (steps: ReadonlyArray<AttributedChange>): Counts => {
 		}
 	}
 	/** An addition cancels a pending removal of the same fact, or is pending itself under its tag. */
-	const add = (identity: FactIdentity, tag: "insert" | "put"): void => {
+	const add = (identity: FactTexts, tag: "insert" | "put"): void => {
 		if (removed.has(identity)) {
 			removed.delete(identity)
 		} else {

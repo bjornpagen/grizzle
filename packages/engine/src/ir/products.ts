@@ -12,6 +12,7 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
+import type { TextsKey } from "#compiler/core/text.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Int8Type } from "#compiler/ir/clock.ts"
@@ -32,10 +33,10 @@ export type Encoder = (value: unknown) => Result.Result<ParamText, EncodingFailu
 
 /**
  * An admitted fact (scalar/values/identity.ts) with its identity, factIdentity's over the input's heading: each field's
- * canonical text in field-name order (FactIdentity).
+ * canonical text in field-name order, keyed (core/text.ts TextsKey), the key's order the canonical order of facts.
  */
 export interface IdentifiedFact {
-	readonly identity: ReadonlyArray<string>
+	readonly identity: TextsKey
 	readonly fact: { readonly [field: string]: unknown }
 }
 

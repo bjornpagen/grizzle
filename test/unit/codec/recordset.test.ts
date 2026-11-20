@@ -1,5 +1,4 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { assert, defined } from "@bjornpagen/testing/assert"
 /**
  * Relation inputs: the host codec owns the set property and the null ban, deduplicating by fact identity after native
@@ -33,9 +32,9 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
-import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { arraysEncoder, readArrayLiteral } from "#test/support/arrays.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { paramText, textOfParam } from "#test/support/wire.ts"
 import {
 	boundCases,
@@ -234,8 +233,7 @@ export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByt
 		kills: [
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original:
-					"\tsortInPlace(entries, (a, b) => compareFactIdentities(a.identity, b.identity))\n",
+				original: "\tsortInPlace(entries, (a, b) => compareStrings(a.identity, b.identity))\n",
 				replacement: "",
 				why: "A set is encoded in the order given, not its canonical order; the canonical encoding property fails."
 			},
@@ -267,13 +265,7 @@ export const relationNormalizationWritesEachArrayOfFactsNormalizedOnTheHostAsThe
 				return yield* Effect.sync(() => {
 					c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 					const normal = succeeded(normalizedBy(normalize, facts))
-					const byIdentity = new TupleMap<
-						FactIdentity,
-						{ readonly fact: { readonly [field: string]: unknown } }
-					>()
-					for (const e of normal.entries) {
-						byIdentity.set(e.identity, { fact: e.fact })
-					}
+					const byIdentity = new Map(Arr.map(normal.entries, (e) => [e.identity, e] as const))
 					const marked = normalFacts(byIdentity)
 					for (const { encode, write } of statements) {
 						const arrays = succeeded(encode(facts)).arrays
@@ -547,3 +539,45 @@ export const theArraysOfEveryFieldTypeCarryEachValuesCanonicalTextWhichArrayInRe
 			}
 		]
 	})
+
+/** The calls a fact identity's key is counted by (core/text.ts textsKey). */
+const keySites = Object.freeze({
+	keys: { file: "packages/engine/src/core/text.ts", name: "textsKey" }
+})
+
+/**
+ * A relation input's normalization keys each fact once and sorts the keys as they are: over sets of up to twenty
+ * readings of distinct ids, normalizing them (read, then admitted: kept apart by identity and put in canonical order)
+ * calls textsKey once for each fact, read off V8's call counts (kernel/calls.ts callCounts), so its sort and its
+ * deduplication compare and hash each identity's key as it was made, quoting no text again.
+ */
+export const relationNormalizationKeysEachFactOnceAndSortsTheKeysAsTheyAre = property.explore(
+	orderedSets,
+	{
+		needs: {},
+		budget: { runs: 12, steered: 0 },
+		situations: [],
+		check: () => (set) =>
+			Effect.gen(function* () {
+				const [readings] = set
+				const normalize = relationNormalizer(readingHeading)
+				const [normal, counts] = yield* callCounts(
+					Effect.sync(() => succeeded(normalizedBy(normalize, readings))),
+					keySites
+				)
+				assert.equal(normal.count, readings.length, "readings of distinct ids, each kept")
+				assert.equal(counts.keys, readings.length, "each fact keyed once")
+			}),
+		oracle: { kind: "specification", name: "one key per fact, made once" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/codec/recordset.ts",
+				original: "\tsortInPlace(entries, (a, b) => compareStrings(a.identity, b.identity))",
+				replacement:
+					"\tsortInPlace(entries, (a, b) => compareStrings(textsKey([a.identity]), textsKey([b.identity])))",
+				why: "The sort keys each fact again at every comparison, so a set of n facts is keyed about n log n times past its n."
+			}
+		]
+	}
+)

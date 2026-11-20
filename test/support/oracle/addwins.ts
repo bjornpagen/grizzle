@@ -6,7 +6,6 @@ import type { LawId } from "#compiler/core/ids.ts"
 import {
 	admittedText,
 	type CarrierSpec,
-	type FactIdentity,
 	factIdentity,
 	type HeadingField
 } from "#compiler/scalar/values/identity.ts"
@@ -16,7 +15,8 @@ import {
 	attributeStratum,
 	type Counts,
 	type Fact,
-	type FactSet,
+	type FactsByTexts,
+	type FactTexts,
 	factSetOf,
 	identityOrder,
 	identitySetOf,
@@ -27,7 +27,7 @@ import {
 } from "#test/support/oracle/delta.ts"
 import { elementAt, entryOf } from "#test/support/oracle/pick.ts"
 
-export type { Fact, FactSet }
+export type { Fact, FactsByTexts }
 
 interface OracleKey {
 	/** The key law's identity, as the outcome reports it. */
@@ -59,7 +59,7 @@ export interface OracleSchema {
 
 export interface OracleState {
 	/** Relation name to its facts, identity to admitted fact. */
-	readonly relations: ReadonlyMap<string, FactSet>
+	readonly relations: ReadonlyMap<string, FactsByTexts>
 }
 
 const relationOf = (schema: OracleSchema, name: string): OracleRelation => {
@@ -107,10 +107,10 @@ const admit = (relation: OracleRelation, heading: ReadonlyArray<HeadingField>, f
 }
 
 /** The identities of a relation's facts in their canonical order, for deterministic iteration. */
-const sortedEntries = (facts: FactSet): ReadonlyArray<readonly [FactIdentity, Fact]> =>
+const sortedEntries = (facts: FactsByTexts): ReadonlyArray<readonly [FactTexts, Fact]> =>
 	Arr.sort(
 		facts,
-		Order.mapInput(identityOrder, ([identity]: readonly [FactIdentity, Fact]) => identity)
+		Order.mapInput(identityOrder, ([identity]: readonly [FactTexts, Fact]) => identity)
 	)
 
 export const factsOf = (state: OracleState, relation: string): ReadonlyArray<Fact> =>
@@ -136,14 +136,13 @@ const selectedBy = (relation: OracleRelation, key: OracleProjectedKey, fact: Fac
 const keyViolations = (schema: OracleSchema, state: OracleState): ReadonlyArray<KeyViolation> =>
 	Arr.flatMap(schema.relations, (relation) => {
 		const all = sortedEntries(state.relations.get(relation.name) ?? factSetOf([]))
-		const keyed: ReadonlyArray<readonly [OracleKey, ReadonlyArray<readonly [FactIdentity, Fact]>]> =
-			[
-				...Arr.map(allKeys(relation), (key) => [key, all] as const),
-				...Arr.map(
-					relation.projectedKeys,
-					(key) => [key, Arr.filter(all, ([, fact]) => selectedBy(relation, key, fact))] as const
-				)
-			]
+		const keyed: ReadonlyArray<readonly [OracleKey, ReadonlyArray<readonly [FactTexts, Fact]>]> = [
+			...Arr.map(allKeys(relation), (key) => [key, all] as const),
+			...Arr.map(
+				relation.projectedKeys,
+				(key) => [key, Arr.filter(all, ([, fact]) => selectedBy(relation, key, fact))] as const
+			)
+		]
 		return Arr.flatMap(keyed, ([key, facts]) => duplicateKeys(relation, key, facts))
 	})
 
@@ -154,7 +153,7 @@ const keyViolations = (schema: OracleSchema, state: OracleState): ReadonlyArray<
 const duplicateKeys = (
 	relation: OracleRelation,
 	key: OracleKey,
-	facts: ReadonlyArray<readonly [FactIdentity, Fact]>
+	facts: ReadonlyArray<readonly [FactTexts, Fact]>
 ): ReadonlyArray<KeyViolation> => {
 	const seen = new Map<string, number>()
 	const first = new Map<string, Fact>()
@@ -195,15 +194,15 @@ export const oracleState = (
 	schema: OracleSchema,
 	facts: Readonly<Record<string, ReadonlyArray<Fact>>>
 ): OracleState => {
-	const relations = new Map<string, FactSet>()
+	const relations = new Map<string, FactsByTexts>()
 	for (const relation of schema.relations) {
-		const set = new TupleMap<FactIdentity, Fact>()
+		const set = new TupleMap<FactTexts, Fact>()
 		for (const fact of facts[relation.name] ?? []) {
 			const admitted = admit(relation, relation.heading, fact)
-			if (set.has(admitted.identity)) {
+			if (set.has(admitted.texts)) {
 				throw new Error(`initial state lists a fact of ${relation.name} twice`)
 			}
-			set.set(admitted.identity, admitted.fact)
+			set.set(admitted.texts, admitted.fact)
 		}
 		relations.set(relation.name, set)
 	}
@@ -314,10 +313,10 @@ export type AddWinsOutcome = AppliedOutcome | RejectedOutcome
 
 /** One stratum's transition of one relation, before key checking. */
 interface RelationStep {
-	readonly after: TupleMap<FactIdentity, Fact>
-	readonly insert: ReadonlyArray<FactIdentity>
-	readonly put: ReadonlyArray<FactIdentity>
-	readonly delete: ReadonlyArray<FactIdentity>
+	readonly after: TupleMap<FactTexts, Fact>
+	readonly insert: ReadonlyArray<FactTexts>
+	readonly put: ReadonlyArray<FactTexts>
+	readonly delete: ReadonlyArray<FactTexts>
 }
 
 /**
@@ -428,9 +427,9 @@ const transition = (
 	before: OracleState,
 	stratum: ReadonlyArray<OracleMember>
 ): RelationStep => {
-	const inserts = new TupleMap<FactIdentity, Fact>()
-	const puts = new TupleMap<FactIdentity, Fact>()
-	const deletes = new TupleMap<FactIdentity, Fact>()
+	const inserts = new TupleMap<FactTexts, Fact>()
+	const puts = new TupleMap<FactTexts, Fact>()
+	const deletes = new TupleMap<FactTexts, Fact>()
 	for (const member of stratum) {
 		if (member.relation !== relation.name) {
 			continue
@@ -439,7 +438,7 @@ const transition = (
 		for (const fact of facts) {
 			const admitted = admit(relation, relation.heading, fact)
 			const target = member.op === "insert" ? inserts : member.op === "put" ? puts : deletes
-			target.set(admitted.identity, admitted.fact)
+			target.set(admitted.texts, admitted.fact)
 		}
 	}
 	const current = before.relations.get(relation.name) ?? factSetOf([])
@@ -451,7 +450,7 @@ const transition = (
 		putKeys.has(keyIdentity(relation, relation.primaryKey.fields, f))
 	)
 	const removals = identitySetOf([...deletes.keys(), ...Arr.map(displaced, ([id]) => id)])
-	const after = new TupleMap<FactIdentity, Fact>()
+	const after = new TupleMap<FactTexts, Fact>()
 	for (const [id, fact] of current) {
 		if (!removals.has(id)) {
 			after.set(id, fact)

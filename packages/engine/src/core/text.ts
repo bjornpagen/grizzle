@@ -2,6 +2,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import { nominal } from "#compiler/core/brand.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 
 /**
@@ -156,6 +157,49 @@ export const compareQuotedTuples = (units: (a: string, b: string) => number) => 
 		}
 		return a.length < b.length ? 1 : 0
 	}
+}
+
+declare const textsKeyBrand: unique symbol
+
+/**
+ * A list of well-formed texts as one string, its key: its JSON array of string literals (JSON.stringify), every code
+ * unit at or past U+D800 moved so the string's own order, JavaScript's by UTF-16 code unit, is the JSON text's code
+ * point order (`inCodePointOrder`). Two lists have one key exactly when they are one list, element by element, since
+ * the JSON text spells each list once and the move is one-to-one; and two keys are in the order compareQuotedTuples
+ * gives their lists by code point. So a key is the list's identity and its place in that order at once: a Map keys
+ * the lists by it, hashing each once, and a sort compares the keys as strings, with no text quoted again per
+ * comparison. Minted by `textsKey` alone.
+ */
+export type TextsKey = string & { readonly [textsKeyBrand]: true }
+
+const mintTextsKey = nominal<string, TextsKey>()
+
+/**
+ * `json` with every code unit from `from` on that is at or past U+D800 moved, the rest as they are: a surrogate up by
+ * U+2000, to U+F800 and past, and a unit from U+E000 down by U+0800, so every surrogate, which spells a code point past
+ * U+FFFF with its pair, is past every unit that spells one below it, and each class keeps its own order. UTF-16 code
+ * unit order then agrees with code point order on any two well-formed texts.
+ */
+const inCodePointOrder = (json: string, from: number): string => {
+	const moved: Array<string> = [json.slice(0, from)]
+	for (let at = from; at < json.length; at += 1) {
+		const unit = json.charCodeAt(at)
+		moved.push(
+			String.fromCharCode(unit < 0xd800 ? unit : unit <= 0xdfff ? unit + 0x2000 : unit - 0x800)
+		)
+	}
+	return moved.join("")
+}
+
+/** The key of a list of well-formed texts (`TextsKey`): its JSON text, moved into code point order where it must be. */
+export const textsKey = (texts: ReadonlyArray<string>): TextsKey => {
+	const json = JSON.stringify(texts)
+	for (let at = 0; at < json.length; at += 1) {
+		if (json.charCodeAt(at) >= 0xd800) {
+			return mintTextsKey(inCodePointOrder(json, at))
+		}
+	}
+	return mintTextsKey(json)
 }
 
 /** Whether a text spells a natural number in decimal with no leading zero ("0" itself included). */

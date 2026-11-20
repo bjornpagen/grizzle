@@ -20,14 +20,15 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { workload } from "#compiler/program/workload/value.ts"
-import { type FactIdentity, factIdentity } from "#compiler/scalar/values/identity.ts"
+import { factIdentity } from "#compiler/scalar/values/identity.ts"
 import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { paramsOver } from "#test/support/compile.ts"
 import { type Installed, installMigrated as install } from "#test/support/install-migrate.ts"
 import { namesOf, reportedLawId } from "#test/support/kernel/naming.ts"
-import type { Fact, FactSet } from "#test/support/oracle/addwins.ts"
+import type { Fact, FactsByTexts } from "#test/support/oracle/addwins.ts"
+import type { FactTexts } from "#test/support/oracle/delta.ts"
 import { factStatements } from "#test/support/oracle/install/load.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { type Perturbation, perturbedContext } from "#test/support/oracle/perturb.ts"
@@ -306,13 +307,13 @@ export const resetGroup = (
 
 export interface GroupState {
 	/** Relation to its facts, identity to fact. */
-	readonly relations: ReadonlyMap<string, FactSet>
+	readonly relations: ReadonlyMap<string, FactsByTexts>
 }
 
 /** A relation's stored rows as facts by identity; a row that is no admissible fact, or a repeated fact, is a defect. */
-const storedFacts = (r: WRelation, rows: ReadonlyArray<ReadonlyArray<unknown>>): FactSet => {
+const storedFacts = (r: WRelation, rows: ReadonlyArray<ReadonlyArray<unknown>>): FactsByTexts => {
 	const heading = Arr.map(r.columns, (c) => ({ name: c.name, spec: typeInfo[c.kind].spec }))
-	const facts = new TupleMap<FactIdentity, Fact>()
+	const facts = new TupleMap<FactTexts, Fact>()
 	for (const row of rows) {
 		const fact = Rec.fromEntries(
 			Arr.map(r.columns, (c, i) => [c.name, typeInfo[c.kind].parse(String(row[i]))] as const)
@@ -321,10 +322,10 @@ const storedFacts = (r: WRelation, rows: ReadonlyArray<ReadonlyArray<unknown>>):
 		if (!admitted.ok) {
 			throw new Error(`${r.name}: a stored row is no admissible fact (${admitted.error.fault})`)
 		}
-		if (facts.has(admitted.value.identity)) {
+		if (facts.has(admitted.value.texts)) {
 			throw new Error(`${r.name}: a stored fact appears twice`)
 		}
-		facts.set(admitted.value.identity, admitted.value.fact)
+		facts.set(admitted.value.texts, admitted.value.fact)
 	}
 	return facts
 }
@@ -336,7 +337,7 @@ export const readGroup = (
 ): Effect.Effect<GroupState, SqlError, Substrate> =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
-		const relations = new Map<string, FactSet>()
+		const relations = new Map<string, FactsByTexts>()
 		for (const r of group.relations) {
 			const columns = Arr.join(
 				Arr.map(r.columns, (c) => `${t.laws.column(r.name, c.name)}::text`),

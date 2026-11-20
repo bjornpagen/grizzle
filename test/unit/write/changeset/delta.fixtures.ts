@@ -15,9 +15,14 @@ import { Array as Arr, Option, Order, String as Str } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { relationIdentity } from "#compiler/runtime/write/net.ts"
-import { type FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { Work } from "#test/support/fixtures/api/work.ts"
-import { type Fact, type FactSet, factSetOf, identityOrder } from "#test/support/oracle/delta.ts"
+import {
+	type Fact,
+	type FactsByTexts,
+	factSetOf,
+	type FactTexts,
+	identityOrder
+} from "#test/support/oracle/delta.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { codesOf, compiled, cs } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -93,33 +98,33 @@ export const sequences: Gen<{
 /** The universe's facts a step returns removed and added back identical: those it holds before and after. */
 export const restoredOf = (
 	st: Step,
-	before: FactSet,
-	after: FactSet
-): ReadonlyArray<FactIdentity> =>
+	before: FactsByTexts,
+	after: FactsByTexts
+): ReadonlyArray<FactTexts> =>
 	Arr.filter([...before.keys()], (id) => after.has(id) && tagsOf(st.restored, id))
 
 /** The model's facts of `ids`, each identified by its one text `[id]`. */
-export const setOf = (ids: ReadonlyArray<string>): FactSet =>
+export const setOf = (ids: ReadonlyArray<string>): FactsByTexts =>
 	factSetOf(Arr.map(ids, (id) => [[id], fact(id)] as const))
 
 /** The model's id of an identity, which the model writes as the one text `[id]`. */
-const modelId = (identity: FactIdentity): string => defined(identity[0], "a model fact's one text")
+const modelId = (identity: FactTexts): string => defined(identity[0], "a model fact's one text")
 
 /** A fact set's or a change's identities, in canonical order. */
-export const identitiesOf = (keys: Iterable<FactIdentity>): ReadonlyArray<FactIdentity> =>
+export const identitiesOf = (keys: Iterable<FactTexts>): ReadonlyArray<FactTexts> =>
 	Arr.sort(keys, identityOrder)
 
 /** A change's entries, by identity in canonical order. */
 export const entriesOf = <V>(
-	entries: Iterable<readonly [FactIdentity, V]>
-): ReadonlyArray<readonly [FactIdentity, V]> =>
+	entries: Iterable<readonly [FactTexts, V]>
+): ReadonlyArray<readonly [FactTexts, V]> =>
 	Arr.sort(
 		entries,
-		Order.mapInput(identityOrder, ([identity]: readonly [FactIdentity, V]) => identity)
+		Order.mapInput(identityOrder, ([identity]: readonly [FactTexts, V]) => identity)
 	)
 
 /** What a step says of a fact of the universe: one entry per fact, by position. */
-export const tagsOf = <T>(tags: ReadonlyArray<T>, identity: FactIdentity): T => {
+export const tagsOf = <T>(tags: ReadonlyArray<T>, identity: FactTexts): T => {
 	const id = modelId(identity)
 	return defined(
 		Option.getOrUndefined(

@@ -2,6 +2,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
+import type { TextsKey } from "#compiler/core/text.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -22,7 +23,6 @@ import {
 	writeRows
 } from "#compiler/runtime/write/steps.ts"
 import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
-import type { FactIdentity } from "#compiler/scalar/values/identity.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
 import type { KeyHost, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { FamilyPart } from "#compiler/write/family/written.ts"
@@ -37,7 +37,7 @@ interface WriteChanges {
  * value (net.ts relationIdentity). */
 export interface WrittenOutcome {
 	readonly relation: StoredRelationName
-	readonly identity: (fact: Fact) => FactIdentity
+	readonly identity: (fact: Fact) => TextsKey
 }
 
 /** A relation the ChangeSet writes, by name, with its heading, every field's name and type. */
@@ -147,9 +147,9 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 const stepIdentity = (
 	returned: FamilyPart["rows"],
 	result: WriteStepResult,
-	identity: (fact: Fact) => FactIdentity,
+	identity: (fact: Fact) => TextsKey,
 	codes: Codebook
-): ((fact: Fact) => FactIdentity) =>
+): ((fact: Fact) => TextsKey) =>
 	returned === "counts" && result.kind === "update"
 		? relationIdentity(result.columns.slice(0, result.fields.length), codes)
 		: identity

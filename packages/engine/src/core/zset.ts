@@ -1,5 +1,3 @@
-import type { ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-
 /**
  * A change to a set as a signed multiset, a Z-set: each key weighs the times the change makes it present less the
  * times it makes it absent, and a key of weight 0 is not in it. Changes compose by addition (`addInto`): a key one
@@ -28,17 +26,17 @@ export interface Weighted<V> {
 }
 
 /** A Z-set over keys K: each key in it with its weight and value. */
-export type ZSet<K extends ReadonlyArray<unknown>, V> = ReadonlyTupleMap<K, Weighted<V>>
+export type ZSet<K, V> = ReadonlyMap<K, Weighted<V>>
 
 /**
  * Adds `change` into `net`, which it changes and returns: each key weighs the sum of its weights in the two, and a key
  * whose weights sum to 0 is dropped. A key that stands keeps the value of the change whose weight stands on its sum's
  * side, `change`'s where both do.
  */
-export const addInto = <K extends ReadonlyArray<unknown>, V>(
-	net: TupleMap<K, Weighted<V>>,
+export const addInto = <K, V>(
+	net: Map<K, Weighted<V>>,
 	change: ZSet<K, V>
-): TupleMap<K, Weighted<V>> => {
+): Map<K, Weighted<V>> => {
 	for (const [key, next] of change) {
 		const held = net.get(key)
 		if (held === undefined) {

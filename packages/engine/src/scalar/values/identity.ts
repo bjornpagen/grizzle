@@ -4,7 +4,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { compareQuotedTuples, validateText } from "#compiler/core/text.ts"
+import { type TextsKey, textsKey, validateText } from "#compiler/core/text.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codeOf, type HandleOrder, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
@@ -693,25 +693,18 @@ interface FactFault {
 }
 
 /**
- * A fact's identity: each field's canonical text, in field-name order, so two facts of one heading are one fact exactly
- * when their identities are equal element by element, which a TupleMap keys by (core/tuple-map.ts). No text is joined
- * into another, so an identity costs its fields' own texts and no more.
+ * An admitted fact: its values, and its identity, each field's canonical text in field-name order, as the list itself
+ * (`texts`) and as its key (core/text.ts TextsKey), one string, the same exactly for the same fact of its heading, whose
+ * own order is the canonical order of facts: the code point order of the JSON text of the texts, the order normal
+ * facts are in (codec/recordset.ts). Every canonical text is well-formed.
  */
-export type FactIdentity = ReadonlyArray<string>
-
-/**
- * The canonical order of fact identities of one heading: the code point order of the JSON text of their
- * [field, canonicalText] pairs in field-name order, the order normal facts are in (codec/recordset.ts), read field by
- * field without spelling the JSON (core/text.ts compareQuotedTuples). Every canonical text is well-formed.
- */
-export const compareFactIdentities: (a: FactIdentity, b: FactIdentity) => number =
-	compareQuotedTuples(compareCodePoints)
-
-interface AdmittedFact {
+export interface AdmittedFact {
 	/** The admitted values, by field name, frozen. */
 	readonly fact: { readonly [field: string]: unknown }
-	/** The fact's identity, frozen: equal element by element exactly for the same fact. */
-	readonly identity: FactIdentity
+	/** Each field's canonical text, in field-name order, a bytes field's its digest. */
+	readonly texts: ReadonlyArray<string>
+	/** The fact's identity, its texts' key. */
+	readonly identity: TextsKey
 }
 
 const fieldOrder = (a: HeadingField, b: HeadingField): number => compareCodePoints(a.name, b.name)
@@ -1000,30 +993,31 @@ const admittedRead = (value: unknown, name: string): AdmittedBytes => {
 
 /**
  * A read fact admitted whole: each bytes value admitted with its digest (values/bytes.ts AdmittedBytes), which is its
- * part of the fact's identity (FactIdentity), every other part the read's.
+ * text in the fact's identity (AdmittedFact), every other text the read's part.
  */
 export const digestFact = (plan: HeadingPlan, read: ReadFact): AdmittedFact => {
 	/** A prototype-less object, so assigning "__proto__" defines an ordinary property. */
 	const kept: Record<string, unknown> = {}
 	Reflect.setPrototypeOf(kept, null)
-	const identity: Array<string> = []
+	let digested: Array<string> | undefined
 	for (const [at, field] of plan.entries.entries()) {
 		const value = read.values[at]
 		if (field.spec.carrier !== "bytes") {
 			kept[field.name] = value
-			identity.push(defined(read.parts[at], "a read fact's part of each field"))
 			continue
 		}
 		const bytes = admittedRead(value, field.name)
 		kept[field.name] = bytes
-		identity.push(bytes.digest)
+		digested ??= [...read.parts]
+		digested[at] = bytes.digest
 	}
-	return { fact: Object.freeze(kept), identity: Object.freeze(identity) }
+	const texts = digested ?? read.parts
+	return { fact: Object.freeze(kept), texts, identity: textsKey(texts) }
 }
 
 /**
  * Admits a fact against its heading (`readFact`, `digestFact`). The identity is each field's canonical text in
- * field-name order (FactIdentity).
+ * field-name order, keyed (`AdmittedFact`).
  */
 export const factIdentity = (
 	heading: ReadonlyArray<HeadingField>,

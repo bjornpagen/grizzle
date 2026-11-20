@@ -119,6 +119,7 @@ export type TupleFeature =
 	| "differing first past the first text"
 	| "texts of two lengths where they differ"
 	| "an escaped unit where they differ"
+	| "a unit past the surrogates against an astral scalar where they differ"
 
 export const kinds = ["nul", "lone high", "lone low", "reversed pair"] as const
 

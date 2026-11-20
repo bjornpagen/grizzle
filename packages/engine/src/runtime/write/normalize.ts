@@ -1,7 +1,7 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import type { ReadonlyTupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
@@ -14,14 +14,15 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
-import { sortInPlace } from "#compiler/core/order.ts"
-import { compareTextTuples } from "#compiler/core/text.ts"
+import { compareStrings, sortInPlace } from "#compiler/core/order.ts"
+import { compareTextTuples, type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { columnKeyOf, type GeneratedLaw, type SpanType } from "#compiler/ir/law.ts"
 import type {
+	IdentifiedFact,
 	KeyedFacts,
 	KeyNormalized,
 	LiteralBound,
@@ -55,15 +56,11 @@ import {
 	keyText,
 	type Carrier,
 	type CarrierHost,
-	type CarrierSpec,
-	compareFactIdentities,
-	type FactIdentity
+	type CarrierSpec
 } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type { KeyHost, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import type { SingleAct, SlotFacts } from "#compiler/write/frontend/compile.ts"
-
-type Fact = { readonly [field: string]: unknown }
 
 /** A slot's normal facts (ir/products.ts NormalFacts): the distinct admitted facts, in canonical order of their
  * identities, which every placeholder of the slot encodes without normalizing them again. */
@@ -114,9 +111,9 @@ export const refilledSlot = (
 	slot: NormalizedSlot,
 	facts: (fact: { readonly [field: string]: unknown }) => { readonly [field: string]: unknown }
 ): NormalizedSlot => {
-	const refilled = new TupleMap<FactIdentity, { readonly fact: Fact }>()
+	const refilled = new Map<TextsKey, IdentifiedFact>()
 	for (const e of slot.entries) {
-		refilled.set(e.identity, { fact: Object.freeze(facts(e.fact)) })
+		refilled.set(e.identity, { identity: e.identity, fact: Object.freeze(facts(e.fact)) })
 	}
 	const normal = normalFacts(refilled)
 	return Object.freeze({
@@ -253,33 +250,27 @@ export const memberSlots = (groups: ReadonlyArray<GroupData>): ReadonlyArray<str
 	...new Set(groups.flatMap((g) => g.inputs.flatMap((i) => i.members)))
 ]
 
-/** An admitted fact as the same-key checks judge it: its identity, the codec's (codec/recordset.ts), each field's
- * canonical text in field-name order, and its host values by field name. */
-interface FactEntry {
-	readonly identity: FactIdentity
-	readonly fact: Fact
-}
-
 /**
- * How the same-key checks read one kind of entry: their canonical order, the order they are judged in; the key texts of
- * an entry's fields, in the fields' order, which a key compares (identity.ts keyText: a float's -0 and +0 one key, as
- * PostgreSQL's equality holds them); and an entry's value of a field, which a span's overlap
- * and a refusal's witness read; each reader built once for its fields and read per entry. An admitted fact is read by
+ * How the same-key checks read one kind of entry: their canonical order, the order they are judged in; the key of an
+ * entry's fields, their key texts in the fields' order (identity.ts keyText: a float's -0 and +0 one key, as
+ * PostgreSQL's equality holds them) keyed as one string (core/text.ts textsKey), which a Map holds a key's entries by,
+ * hashing it once; and an entry's value of a field, which a span's overlap and a refusal's witness read; each reader
+ * built once for its fields and read per entry. An admitted fact is read by
  * its fields' names (`factReading`), a nested row at its cells' positions, its texts the ones its write holds
  * (`rowReading`), so no nested row is read through a record of its fields.
  */
 interface EntryReading<E> {
 	readonly order: (a: E, b: E) => number
-	readonly texts: (fields: ReadonlyArray<KeySpec>) => (entry: E) => ReadonlyArray<string>
+	readonly key: (fields: ReadonlyArray<KeySpec>) => (entry: E) => TextsKey
 	readonly value: (field: string) => (entry: E) => unknown
 }
 
 /** An admitted fact's reading (`EntryReading`): in its identities' canonical order, each field read by its name, its
  * key text worked out from its value, which the fact's carriers already admitted (identity.ts keyText). */
-const factReading: EntryReading<FactEntry> = {
-	order: (a, b) => compareFactIdentities(a.identity, b.identity),
-	texts: (fields) => (entry) =>
-		fields.map(({ field, spec }) => keyText(spec, admittedText(spec, entry.fact[field]))),
+const factReading: EntryReading<IdentifiedFact> = {
+	order: (a, b) => compareStrings(a.identity, b.identity),
+	key: (fields) => (entry) =>
+		textsKey(fields.map(({ field, spec }) => keyText(spec, admittedText(spec, entry.fact[field])))),
 	value: (field) => (entry) => entry.fact[field]
 }
 
@@ -288,9 +279,10 @@ const factReading: EntryReading<FactEntry> = {
  * keyText). */
 const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
 	order: (a, b) => compareTextTuples(a.identity, b.identity),
-	texts: (fields) => {
+	key: (fields) => {
 		const at = fields.map(({ field, spec }) => ({ at: columns.at(columnKeyOf(field)), spec }))
-		return (row) => at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec)))
+		return (row) =>
+			textsKey(at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec))))
 	},
 	value: (field) => {
 		const at = columns.at(columnKeyOf(field))
@@ -314,7 +306,7 @@ const admit = (
 	facts: Iterable<unknown>,
 	book: DigestBook,
 	transport: Transport
-): Result.Result<ReadonlyArray<FactEntry>, EncodingFailure | MessageBound> => {
+): Result.Result<ReadonlyArray<IdentifiedFact>, EncodingFailure | MessageBound> => {
 	const kept = keptReads(facts, normalize.plan)
 	const read = kept === undefined ? normalize.read(facts) : normalize.kept(kept)
 	if (!read.ok) {
@@ -339,8 +331,8 @@ const admit = (
 
 /** Each admitted entry of `entries` into `set`, the first of each identity kept. */
 const collect = (
-	set: TupleMap<FactIdentity, FactEntry>,
-	entries: ReadonlyArray<FactEntry>
+	set: Map<TextsKey, IdentifiedFact>,
+	entries: ReadonlyArray<IdentifiedFact>
 ): void => {
 	for (const e of entries) {
 		if (!set.has(e.identity)) {
@@ -617,10 +609,10 @@ const keyConflictIn = <E>(
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
-		const keyTexts = reading.texts(fields)
-		const seen = new TupleMap<ReadonlyArray<string>, E>()
+		const keyOf = reading.key(fields)
+		const seen = new Map<TextsKey, E>()
 		for (const e of entries) {
-			const k = keyTexts(e)
+			const k = keyOf(e)
 			const prior = seen.get(k)
 			if (prior !== undefined && reading.order(prior, e) !== 0) {
 				return conflictOf(facts, reading.value, e, fields, key)
@@ -660,10 +652,10 @@ const keyShared = <E>(
 	entries: ReadonlyArray<E>
 ): boolean => {
 	for (const { fields } of facts.host.keys) {
-		const keyTexts = reading.texts(fields)
-		const seen = new TupleMap<ReadonlyArray<string>, E>()
+		const keyOf = reading.key(fields)
+		const seen = new Map<TextsKey, E>()
 		for (const e of entries) {
-			const k = keyTexts(e)
+			const k = keyOf(e)
 			const prior = seen.get(k)
 			if (prior === undefined) {
 				seen.set(k, e)
@@ -687,15 +679,12 @@ const firstConflict = <E>(
 	}
 	for (const check of facts.host.spans) {
 		const { span, witness } = check
-		const keyTexts = reading.texts(check.equal)
+		const keyOf = reading.key(check.equal)
 		const spanValue = reading.value(span.field)
-		const groups = new TupleMap<
-			ReadonlyArray<string>,
-			Array<{ readonly entry: E; readonly span: HostSpan }>
-		>()
+		const groups = new Map<TextsKey, Array<{ readonly entry: E; readonly span: HostSpan }>>()
 		for (const e of additions) {
 			const value = admitted(span.spec, spanValue(e))
-			const k = keyTexts(e)
+			const k = keyOf(e)
 			const group = groups.get(k) ?? []
 			group.push({ entry: e, span: value })
 			groups.set(k, group)
@@ -724,7 +713,7 @@ const firstConflict = <E>(
 /** One slot group's admitted facts, by how its inputs write them: a deletion's of rows (`delete`) apart from a unit
  * delete's, whose facts name units (`units`), and a retirement's, whose facts name groups (`retire`). */
 type GroupSets = Readonly<
-	Record<"insert" | "put" | "delete" | "units" | "retire", TupleMap<FactIdentity, FactEntry>>
+	Record<"insert" | "put" | "delete" | "units" | "retire", Map<TextsKey, IdentifiedFact>>
 >
 
 /** The set a single input's facts join: its operation's, a unit delete's its own (frontend/compile.ts SingleAct). */
@@ -831,11 +820,11 @@ export const normalizeChangeSet = (
 	const admittedGroups: Array<AdmittedGroup> = []
 	for (const { stratum, facts, inputs: enumerated } of groups) {
 		const sets: GroupSets = {
-			insert: new TupleMap(),
-			put: new TupleMap(),
-			delete: new TupleMap(),
-			units: new TupleMap(),
-			retire: new TupleMap()
+			insert: new Map(),
+			put: new Map(),
+			delete: new Map(),
+			units: new Map(),
+			retire: new Map()
 		}
 		const slotOf = new Map<keyof GroupSets, SlotData>()
 		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every
@@ -888,7 +877,7 @@ export const normalizeChangeSet = (
 						}
 						/** A slot that carries fields beyond its facts' holds each at its start (frontend/compile.ts
 						 * EnumeratedInput "single"), its identity its facts'. */
-						const started = admittedFacts.value.map((e): FactEntry =>
+						const started = admittedFacts.value.map((e): IdentifiedFact =>
 							input.starts.length === 0
 								? e
 								: {

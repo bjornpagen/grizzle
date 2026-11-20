@@ -575,12 +575,12 @@ const hostNodes = (
 		if (!admitted.ok) {
 			return admitted
 		}
-		const { fact, identity } = admitted.value
+		const { fact, texts: admittedTexts } = admitted.value
 		const values = emptyCells()
 		const texts: Texts = []
 		for (const [place, field] of level.fields.entries()) {
 			values[field.at] = fact[field.name]
-			texts[field.at] = identity[place]
+			texts[field.at] = admittedTexts[place]
 		}
 		built.set(
 			addition,
