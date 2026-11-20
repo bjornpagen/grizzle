@@ -253,14 +253,7 @@ export const aLoginsOpenAPIDocumentDocumentsEveryServedChangeSetsFactsAndOutcome
 			},
 			budget: { runs: 60, steered: 0 },
 			kept: [],
-			kills: [
-				{
-					file: "packages/engine/src/core/canonical.ts",
-					original: '\t\t\t\tthis.#read(top.value[i], "")',
-					replacement: "\t\t\t\t{}",
-					why: 'Operator mutant (statement) at packages/engine/src/core/canonical.ts:1350 in <module>: `this.#read(top.value[i], "")` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6).'
-				}
-			]
+			kills: []
 		}
 	)
 

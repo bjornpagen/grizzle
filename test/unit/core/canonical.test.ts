@@ -217,6 +217,12 @@ export const theCanonicalTextRoundTripsTheJSONFormAndTheTextBigintsTaggedValuesA
 				original: "\t\t\treturn value.slice(1)",
 				replacement: "\t\t\treturn value",
 				why: "a doubled tilde read back doubled; the round trip property fails."
+			},
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: '\t\t\t\tthis.#read(top.value[i], "")',
+				replacement: "\t\t\t\t{}",
+				why: "An array's items are never read back, so decode and fromJson restore every array empty; the round trip property fails."
 			}
 		]
 	})
