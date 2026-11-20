@@ -5,18 +5,34 @@ import type { FieldBase, StoredOnlySql, WritingTag } from "#compiler/types/field
 
 /**
  * The heading of the rows a declared function takes as an argument or returns (schema/function.ts rows): its fields,
- * in the order the record writes them, which is the order of its row type's attributes.
+ * in the order the record writes them, which is the order of its row type's attributes, each a value of a field, rows
+ * of another heading or one row of one.
  */
 export interface Rows<out Fields> extends Built {
 	readonly kind: "rows"
 	readonly fields: Fields
 }
 
-/** Any heading of rows. */
-export type AnyRows = Rows<Readonly<Record<string, FieldBase>>>
+/**
+ * One row of a heading (schema/function.ts row), a value of its row type, a composite: an argument, a result or a
+ * heading's field that is a row and not an array or a set of rows.
+ */
+export interface Row<out Heading> extends Built {
+	readonly kind: "row"
+	readonly heading: Heading
+}
 
-/** What a declared function takes as an argument or gives as its result: a value of a field, or rows of a heading. */
-export type FunctionType = FieldBase | AnyRows
+/** Any heading of rows. */
+export type AnyRows = Rows<Readonly<Record<string, FunctionType>>>
+
+/** Any row of a heading. */
+export type AnyRow = Row<AnyRows>
+
+/**
+ * What a declared function takes as an argument or gives as its result, and what a heading's field holds: a value of
+ * a field, rows of a heading, or one row of a heading.
+ */
+export type FunctionType = FieldBase | AnyRows | AnyRow
 
 /**
  * A declared function's body (schema/function.ts fn.body): the application's PL/pgSQL or SQL text, written as a template
@@ -68,16 +84,18 @@ type SignatureRefused<F> = F extends
 type SignatureRefusal =
 	Refusal<"a declared function takes and returns values of a base type, a closed id, a contract or a refined text over one: no serial, money, bytes, set, span or vector">
 
-/** Each field of a heading a signature takes, the others refused at their keys. */
-export type HeadingCheck<Fields> = {
-	readonly [K in keyof Fields]: SignatureRefused<Fields[K]> extends true
+/**
+ * A signature's type, or a heading's field: rows or a row of a heading, already checked where rows() built it, or a
+ * value of a field it takes.
+ */
+export type SignatureCheck<T> = T extends Rows<unknown> | Row<unknown>
+	? unknown
+	: SignatureRefused<T> extends true
 		? SignatureRefusal
 		: unknown
-}
 
-/** A signature's type: rows of a heading, already checked where rows() built it, or a value of a field it takes. */
-export type SignatureCheck<T> =
-	T extends Rows<unknown> ? unknown : SignatureRefused<T> extends true ? SignatureRefusal : unknown
+/** Each field of a heading a signature takes, the others refused at their keys. */
+export type HeadingCheck<Fields> = { readonly [K in keyof Fields]: SignatureCheck<Fields[K]> }
 
 /** Each argument a signature takes, the others refused at their keys. */
 export type ArgsCheck<Args> = { readonly [K in keyof Args]: SignatureCheck<Args[K]> }

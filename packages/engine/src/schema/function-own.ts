@@ -59,9 +59,14 @@ const signatureType = (t: FieldDesc): boolean => {
 	}
 }
 
-/** The fields an argument or a result's type reads: its value's type, or each field of its heading. */
+/** The fields an argument or a result's type reads: its value's type, or each field's of its heading, a heading a
+ * field holds rows or a row of among them. */
 const typesOf = (t: FunctionTypeDesc): ReadonlyArray<FieldDesc> =>
-	t.kind === "value" ? [t.type] : t.heading.map((f) => f.type)
+	t.kind === "value" ? [t.type] : t.heading.flatMap((f) => typesOf(f.type))
+
+/** The headings a type names: the heading it is rows or a row of, then each heading a field of that one names. */
+const headingsOf = (t: FunctionTypeDesc): ReadonlyArray<HeadingDesc> =>
+	t.kind === "value" ? [] : [t.heading, ...t.heading.flatMap((f) => headingsOf(f.type))]
 
 /** The refusal of a signature over a type no declared function takes (signatureType), as the types name it. */
 const signatureRefused = (loc: SourceLoc): CompileError =>
@@ -137,15 +142,17 @@ const callsHeld = (
 	return Result.ok(functions)
 }
 
-/** The headings a declared function's signature takes rows of or returns, each once a use. */
+/** The headings a declared function's signature names, each once a use: those its arguments and its result are rows
+ * or a row of, and every heading a field of one of them names. */
 const signatureHeadings = (fn: FunctionDesc): ReadonlyArray<HeadingDesc> =>
-	[...fn.args.map((a) => a.type), fn.returns].flatMap((t) => (t.kind === "rows" ? [t.heading] : []))
+	[...fn.args.map((a) => a.type), fn.returns].flatMap(headingsOf)
 
 /**
- * Each function's body held to the row types its level holds for it: every heading it names is one its own arguments
- * or result take rows of or return, or a callee's, each of its own level (callsHeld), whose row types the installation
- * creates before the function. A heading no signature of the function's reach takes may stand in no schema of its
- * level, or stand there for another function alone and go with it, so naming one is refused.
+ * Each function's body held to the row types its level holds for it: every heading it names is one its own signature
+ * names (signatureHeadings), a heading a field of its arguments' or its result's holds among them, or a callee's
+ * signature does, each of its own level (callsHeld), whose row types the installation creates before the function. A
+ * heading no signature of the function's reach names may stand in no schema of its level, or stand there for another
+ * function alone and go with it, so naming one is refused.
  */
 const bodiesHeld = (
 	functions: Readonly<Record<string, OwnedFunction>>
@@ -164,7 +171,7 @@ const bodiesHeld = (
 				return Result.err(
 					malformedDescription(
 						fn.desc.loc,
-						`the row types function ${fn.name}'s body names as those of the headings its arguments, its result or its callees' take or return; it names the row type of fields ${rowType.map((f) => f.name).join(", ")}, which none of them does`
+						`the row types function ${fn.name}'s body names as those of the headings its own signature or its callees' names; it names the row type of fields ${rowType.map((f) => f.name).join(", ")}, which none of them does`
 					)
 				)
 			}

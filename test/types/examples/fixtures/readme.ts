@@ -48,6 +48,7 @@ import {
 	retirable,
 	retirement,
 	role,
+	row,
 	rows,
 	schema,
 	select,
@@ -1170,7 +1171,21 @@ END
 `
 })
 
-export const Lexicon = schema("Lexicon", [folded, doubled], [])
+/** A titled list of weighted words: a heading whose field holds rows of another. */
+const Titled = rows({ title: Word, words: Weighted })
+const Summary = rows({ title: Word, count: natural })
+
+/** A titled list's title and its count of words: one row of a heading, from one row of another. */
+export const summary = fn("summary", {
+	calls: [],
+	args: { doc: row(Titled) },
+	returns: row(Summary),
+	volatility: "immutable",
+	language: "sql",
+	body: fn.body`SELECT ROW((doc).title, cardinality((doc).words))::${Summary}`
+})
+
+export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
 
 /** "Calling a function": a call of rows over a bound query, read once per document, and a call term. */
 /** A document, by its slug. */

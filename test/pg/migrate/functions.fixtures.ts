@@ -1,7 +1,6 @@
 /** What the property of functions.test.ts reads: its space, the schemas a case installs, and the facts it reads back. */
 
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
@@ -22,6 +21,7 @@ import {
 import {
 	bodyParts,
 	bodyText,
+	contentKey,
 	type Declarations,
 	declarationsGen,
 	drawnFunctions,
@@ -36,7 +36,8 @@ import {
 	spelled,
 	spellings,
 	templateOf,
-	type TypeSketch
+	type TypeSketch,
+	type ValueType
 } from "#test/support/declared-functions.ts"
 import { Id } from "#test/support/ids.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
@@ -97,6 +98,11 @@ export type FunctionFeature =
 	| "an argument of rows"
 	| "a result of rows"
 	| "a result of a value"
+	| "an argument of one row"
+	| "a PL/pgSQL result of one row"
+	| "a heading field of rows"
+	| "a heading field of one row"
+	| "a call passing a nested composite"
 	| "a helper call"
 	| "a call of a drawn function with a composite"
 	| "a body naming a callee's row type alone"
@@ -131,7 +137,7 @@ const added: FunctionSketch = {
 }
 
 /** The second version of a case: its first, changed as its change says, on its first function or heading; a removed
- * function's callers call it no longer. */
+ * function's callers call it no longer, nor name a heading only its signature named. */
 export const secondOf = (c: FunctionCase): VersionSketch => {
 	const [first, ...rest] = c.first.functions
 	const headings = c.first.headings
@@ -162,16 +168,25 @@ export const secondOf = (c: FunctionCase): VersionSketch => {
 			const [h, ...more] = headings
 			return {
 				...c.first,
-				headings: [{ fields: [...h.fields, ["extra", "boolean"]] }, ...more]
+				headings: [
+					{ fields: [...h.fields, ["extra", { kind: "value", type: "boolean" }] as const] },
+					...more
+				]
 			}
 		}
-		case "a function removed":
+		case "a function removed": {
+			const callers = Arr.map(rest, (f) => ({
+				...f,
+				callees: Arr.filter(f.callees, (callee) => callee !== first?.name)
+			}))
+			const after = { headings, functions: callers }
 			return declares(
-				Arr.map(rest, (f) => ({
+				Arr.map(callers, (f) => ({
 					...f,
-					callees: Arr.filter(f.callees, (callee) => callee !== first?.name)
+					names: Arr.filter(f.names, (h) => reachOf(after, f).includes(h))
 				}))
 			)
+		}
 		case "a function added":
 			return declares(
 				Arr.some(c.first.functions, (f) => f.name === added.name)
@@ -231,11 +246,10 @@ export const versionFor = (c: FunctionCase, v: VersionSketch) => (name: string) 
 const drawnOf = (v: VersionSketch): ReadonlyArray<FunctionSketch> =>
 	v.kind === "none" ? [] : v.functions
 
-/** A type of a version as a key: a value by the base type PostgreSQL holds it as, rows by its heading's content. */
+/** A type of a version as a key: a value by the base type PostgreSQL holds it as, rows or a row by its heading's
+ * content. */
 const typeKey = (v: Declarations, t: TypeSketch): string =>
-	t.kind === "value"
-		? spelled[t.type]
-		: `rows of (${headingKey(defined(v.headings[t.heading], `heading ${t.heading}`))})`
+	t.kind === "value" ? spelled[t.type] : `${t.kind} of (${contentKey(v, t.heading)})`
 
 /**
  * What PostgreSQL holds of a declared function of a version, as keys: its signature, the argument types and the
@@ -260,9 +274,7 @@ const heldOf = (v: VersionSketch): ReadonlyMap<string, Held> => {
 				Arr.map(f.args, (a) => `${a.name} ${typeKey(v, a.type)}`),
 				", "
 			)}) ${typeKey(v, f.returns)}`
-			const body = bodyText(bodyParts(v, f), (h) =>
-				headingKey(defined(v.headings[h], `heading ${h}`))
-			)
+			const body = bodyText(bodyParts(v, f), (h) => contentKey(v, h))
 			return [
 				installedName(f.name),
 				{ signature, definition: `${f.volatility} ${f.language} ${body}` }
@@ -353,6 +365,11 @@ export const touched = (fates: ReadonlyMap<string, Fate>): ReadonlyArray<readonl
 /** The installed names of the functions a version declares. */
 export const declaredNames = (v: VersionSketch): ReadonlySet<string> => new Set(heldOf(v).keys())
 
+/** Whether a type is rows or a row of a heading with a field of rows or of a row. */
+const nested = (v: Declarations, t: TypeSketch): boolean =>
+	t.kind !== "value" &&
+	Arr.some(v.headings[t.heading]?.fields ?? [], ([, field]) => field.kind !== "value")
+
 /** Whether a function's body names a heading its own signature takes no rows of and returns none of: a callee's alone. */
 const namesACalleesAlone = (v: Declarations, f: FunctionSketch): boolean => {
 	const own = reachOf(v, { ...f, callees: [] })
@@ -374,6 +391,10 @@ export const reached = (c: FunctionCase): ReadonlyArray<FunctionFeature> => {
 	const naming = (v: Declarations, f: FunctionSketch): boolean =>
 		Arr.some(bodyParts(v, f), (p) => typeof p !== "string")
 	const fates = [...fatesOf(c).values()]
+	const installedHeadings = Arr.flatMap(
+		Arr.dedupe(Arr.flatMap(c.first.functions, (f) => reachOf(c.first, f))),
+		(h) => Option.toArray(Arr.get(c.first.headings, h))
+	)
 	const features: ReadonlyArray<FunctionFeature> = [
 		`a change: ${c.change}`,
 		`a plant: ${c.plant}`,
@@ -390,12 +411,34 @@ export const reached = (c: FunctionCase): ReadonlyArray<FunctionFeature> => {
 			: []),
 		...(Arr.some(all, (f) => f.returns.kind === "rows") ? (["a result of rows"] as const) : []),
 		...(Arr.some(all, (f) => f.returns.kind === "value") ? (["a result of a value"] as const) : []),
+		...(Arr.some(all, (f) => Arr.some(f.args, (a) => a.type.kind === "row"))
+			? (["an argument of one row"] as const)
+			: []),
+		...(Arr.some(all, (f) => f.returns.kind === "row" && f.language === "plpgsql")
+			? (["a PL/pgSQL result of one row"] as const)
+			: []),
+		...(Arr.some(installedHeadings, (h) => Arr.some(h.fields, ([, t]) => t.kind === "rows"))
+			? (["a heading field of rows"] as const)
+			: []),
+		...(Arr.some(installedHeadings, (h) => Arr.some(h.fields, ([, t]) => t.kind === "row"))
+			? (["a heading field of one row"] as const)
+			: []),
+		...(Arr.some(c.first.functions, (f) =>
+			Arr.some(f.callees, (callee) =>
+				Arr.some(
+					c.first.functions,
+					(g) => g.name === callee && Arr.some(g.args, (a) => nested(c.first, a.type))
+				)
+			)
+		)
+			? (["a call passing a nested composite"] as const)
+			: []),
 		...(Arr.some(all, (f) => f.callsHelper) ? (["a helper call"] as const) : []),
 		...(Arr.some(c.first.functions, (f) =>
 			Arr.some(f.callees, (callee) =>
 				Arr.some(
 					c.first.functions,
-					(g) => g.name === callee && Arr.some(g.args, (a) => a.type.kind === "rows")
+					(g) => g.name === callee && Arr.some(g.args, (a) => a.type.kind !== "value")
 				)
 			)
 		)
@@ -440,6 +483,11 @@ export const features: NonEmptyReadonlyArray<FunctionFeature> = [
 	"an argument of rows",
 	"a result of rows",
 	"a result of a value",
+	"an argument of one row",
+	"a PL/pgSQL result of one row",
+	"a heading field of rows",
+	"a heading field of one row",
+	"a call passing a nested composite",
 	"a helper call",
 	"a call of a drawn function with a composite",
 	"a body naming a callee's row type alone",
@@ -455,34 +503,90 @@ const byName = Order.mapInput(Str.Order, (pair: readonly [string, string]) => pa
 
 /**
  * Each declared function of a version by its installed name, with the SHA-256 of the body it declares, each heading it
- * names spelled as `rowType` names the row type PostgreSQL holds of the heading's content, in name order.
+ * names spelled as `rowType` names the row type PostgreSQL holds of the heading's content, a heading a field of it holds
+ * keyed by that one's own row type's name, in name order.
  */
 export const declaredBodies = (
 	v: VersionSketch,
 	rowType: (content: string) => string
-): ReadonlyArray<readonly [string, string]> =>
-	v.kind === "none"
-		? []
-		: Arr.sort(
-				Arr.map(
-					[
-						...Arr.map(
-							v.functions,
-							(f) =>
-								[
-									f.name,
-									bodyText(bodyParts(v, f), (h) =>
-										quoteIdent(rowType(headingKey(defined(v.headings[h], `heading ${h}`))))
-									)
-								] as const
-						),
-						[helperName, helperSource] as const,
-						[peekName, peekBody] as const
-					],
-					([name, body]) => [installedName(name), sha256Hex(wellFormed(body))] as const
+): ReadonlyArray<readonly [string, string]> => {
+	if (v.kind === "none") {
+		return []
+	}
+	const named = (at: number): string => rowType(headingKey(v, at, named))
+	return Arr.sort(
+		Arr.map(
+			[
+				...Arr.map(
+					v.functions,
+					(f) => [f.name, bodyText(bodyParts(v, f), (h) => quoteIdent(named(h)))] as const
 				),
-				byName
-			)
+				[helperName, helperSource] as const,
+				[peekName, peekBody] as const
+			],
+			([name, body]) => [installedName(name), sha256Hex(wellFormed(body))] as const
+		),
+		byName
+	)
+}
+
+/** Each value type's base type as a signature holds it, its typmod dropped as PostgreSQL drops it from an argument's
+ * and a result's type. */
+const signatureSpelled = (t: ValueType): string => (t === "numeric" ? "numeric" : spelled[t])
+
+/**
+ * Each declared function of a version by its installed name, with its signature as PostgreSQL holds it: whether it
+ * returns a set, its result's type and its arguments' types, a row type by the name `rowType` finds of its heading's
+ * content (declaredBodies), an argument of rows an array of it; in name order.
+ */
+export const declaredSignatures = (
+	v: VersionSketch,
+	rowType: (content: string) => string
+): ReadonlyArray<string> => {
+	if (v.kind === "none") {
+		return []
+	}
+	const named = (at: number): string => rowType(headingKey(v, at, named))
+	const typeText = (t: TypeSketch): string => {
+		switch (t.kind) {
+			case "value":
+				return signatureSpelled(t.type)
+			case "rows":
+				return `${named(t.heading)}[]`
+			case "row":
+				return named(t.heading)
+		}
+	}
+	return Arr.sort(
+		[
+			...Arr.map(v.functions, (f) =>
+				Arr.join(
+					[
+						installedName(f.name),
+						f.returns.kind === "rows" ? "set of" : "one",
+						f.returns.kind === "rows" ? named(f.returns.heading) : typeText(f.returns),
+						Arr.join(
+							Arr.map(f.args, (a) => typeText(a.type)),
+							", "
+						)
+					],
+					" | "
+				)
+			),
+			`${installedName(helperName)} | one | integer | `,
+			`${installedName(peekName)} | one | integer | `
+		],
+		Str.Order
+	)
+}
+
+/** The functions of `schemaName` but grizzle's own, each as `declaredSignatures` writes one, each type as format_type
+ * prints it, a row type of the schema by its name alone. */
+export const installedSignatures = (owner: RawSession, schemaName: string) =>
+	owner.values(
+		"SELECT p.proname::text || ' | ' || CASE WHEN p.proretset THEN 'set of' ELSE 'one' END || ' | ' || regexp_replace(pg_catalog.format_type(p.prorettype, NULL), '^.*\\.', '') || ' | ' || coalesce((SELECT string_agg(regexp_replace(pg_catalog.format_type(a.t, NULL), '^.*\\.', ''), ', ' ORDER BY a.i) FROM unnest(p.proargtypes::oid[]) WITH ORDINALITY AS a(t, i)), '') FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.proname NOT LIKE '\\_\\_%' ORDER BY 1",
+		[schemaName]
+	)
 
 /** Installed functions' names and digests, in name order. */
 export const heldBodies = (
@@ -494,10 +598,11 @@ export const heldBodies = (
 	)
 
 /** The installed row types of `schemaName`, each by its name and its attributes' names and types, as a heading's
- * content is keyed (headingKey). */
+ * content is keyed (headingKey): a type format_type qualifies by its schema, another row type of the schema, by its
+ * name alone. */
 export const rowTypeContents = (owner: RawSession, schemaName: string) =>
 	owner.values(
-		"SELECT t.typname::text, string_agg(a.attname || ' ' || pg_catalog.format_type(a.atttypid, a.atttypmod), ', ' ORDER BY a.attnum) FROM pg_catalog.pg_type AS t JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace JOIN pg_catalog.pg_class AS c ON c.oid = t.typrelid JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped WHERE n.nspname = $1::text AND c.relkind = 'c' GROUP BY t.typname ORDER BY 1",
+		"SELECT t.typname::text, string_agg(a.attname || ' ' || regexp_replace(pg_catalog.format_type(a.atttypid, a.atttypmod), '^.*\\.', ''), ', ' ORDER BY a.attnum) FROM pg_catalog.pg_type AS t JOIN pg_catalog.pg_namespace AS n ON n.oid = t.typnamespace JOIN pg_catalog.pg_class AS c ON c.oid = t.typrelid JOIN pg_catalog.pg_attribute AS a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped WHERE n.nspname = $1::text AND c.relkind = 'c' GROUP BY t.typname ORDER BY 1",
 		[schemaName]
 	)
 

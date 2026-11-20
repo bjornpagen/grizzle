@@ -2,11 +2,13 @@
  * Declared functions as schema objects, on PostgreSQL 19: a schema that declares functions migrates, drifts and grants
  * as its snapshot says, through a second version that changes them, and its functions read no table.
  *
- * - **Property:** a case draws a first version of one to three functions over one or two headings, each argument a
- *   value of a drawn type or rows of a heading, each result a value or rows, each body PL/pgSQL or SQL spelled with
+ * - **Property:** a case draws a first version of one to three functions over one to three headings, each heading's
+ *   field a value, rows of a heading before it or one row of one, each argument and result a value of a drawn type,
+ *   rows of a heading or one row of it, each body PL/pgSQL or SQL spelled with
  *   spaces, tabs, a dollar-quote tag inside it or a trailing dollar sign (test/support/declared-functions.ts), some
  *   calling the helper, a declared function, by its unqualified name, and some calling drawn functions declared before
- *   them, each argument of rows an array of a row of NULLs cast to its row type by the name `fn.body` gives it, some
+ *   them, each argument of one row a row of NULLs cast to its row type by the name `fn.body` gives it, of rows an array
+ *   of one such row, a field of a row or of rows built alike, some
  *   naming besides the row types of their own signature's or a callee's headings, a PL/pgSQL body in a variable it
  *   declares, an SQL one in a cast; beside the helper, declared before or after its callers, and `peek`, a PL/pgSQL
  *   function that counts N's rows; declared at the root or at an extension over it. Its second version changes a body,
@@ -27,8 +29,9 @@
  *   heading by its content, whose change between the versions is each function's fate, against the reviewed DDL.
  * - **Features:** each change, plant and fate, each body spelling and language, each volatility, a body of each
  *   language naming a row type, one naming a callee's alone and one naming a changed heading it takes no rows of,
- *   arguments and results of rows, a helper call, a call of a drawn function with a composite, an SQL caller declared
- *   before its callee, functions at an extension, a row type two functions share, and the refused table read.
+ *   arguments and results of rows and of one row, a heading's field of rows and of one row, a helper call, a call of a
+ *   drawn function with a composite and one passing a nested composite, an SQL caller declared before its callee,
+ *   functions at an extension, a row type two functions share, and the refused table read.
  */
 
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -44,12 +47,14 @@ import {
 	caseGen,
 	declaredBodies,
 	declaredNames,
+	declaredSignatures,
 	fatesIn,
 	fatesOf,
 	features,
 	type FunctionFeature,
 	heldBodies,
 	installedFunctions,
+	installedSignatures,
 	ownerTablePrivileges,
 	peekCall,
 	plantOf,
@@ -110,6 +115,12 @@ export const declaredFunctions = property.explore(caseGen, {
 							heldBodies(installed),
 							declaredBodies(second, rowTypeNamed(contents)),
 							"every declared function's source, as PostgreSQL stores it, digests to its declared body, each heading it names the name of the row type PostgreSQL holds of its attributes"
+						)
+						const signatures = yield* installedSignatures(m.owner, schemaName)
+						assert.deepEqual<ReadonlyArray<string>>(
+							Arr.map(signatures, rowText),
+							declaredSignatures(second, rowTypeNamed(contents)),
+							"every declared function's signature, as PostgreSQL holds it, is its declared one: whether it returns a set, its result's type and each argument's, a heading's row type the one PostgreSQL holds of the heading's attributes, the attributes of a field of rows an array of the row type its heading holds"
 						)
 						assert.deepEqual(
 							touched(fatesIn(Arr.get(m.folders, 1), schemaName, declaredNames(c.first))),
@@ -212,6 +223,35 @@ export const declaredFunctions = property.explore(caseGen, {
 			original: `\t\t\t(text, next) => \`\${text}\${typeOnSearchPath(rowType(next.rowType))}\${next.text}\`,\n`,
 			replacement: `\t\t\t(text, next) => \`\${text}\${identifierOf(b.settings.levels[0])}.\${typeOnSearchPath(rowType(next.rowType))}\${next.text}\`,\n`,
 			why: "A body's named row type wrong: qualified by the root level's schema, where an extension's function's row type does not stand, and the source PostgreSQL stores is not the body's."
+		},
+		{
+			file: "packages/engine/src/ir/physical.ts",
+			original:
+				'\t\t\t\t\t\ttype: defined(arrayOf(f.type.rowType.type), "the array of a row type"),\n',
+			replacement: "\t\t\t\t\t\ttype: f.type.rowType.type,\n",
+			why: "A heading's field of rows flattened to one row: its attribute is its heading's row type, not an array of it, so the array of rows a body builds for it is refused where it is cast, and the row type PostgreSQL holds is not the heading's."
+		},
+		{
+			file: "packages/engine/src/ir/physical.ts",
+			original:
+				"\t\t\t\treturn [{ name: f.name, type: f.type.rowType.type, collation: undefined }]\n",
+			replacement: "\t\t\t\treturn f.type.rowType.attributes\n",
+			why: "A heading's field of one row flattened into it: the held heading's attributes stand in the holding row type in its place, so the row a body builds for it is refused where it is cast, and the row type PostgreSQL holds is not the heading's."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/functions.ts",
+			original:
+				'\t\t\treturned.kind === "rows" ? { setOf: rowType(returned.heading) } : argType(returned)\n',
+			replacement:
+				'\t\t\treturned.kind !== "value" ? { setOf: rowType(returned.heading) } : argType(returned)\n',
+			why: "A result of one row installed as a set of rows, so a PL/pgSQL body that returns its row is refused as it is created (RETURN cannot have a parameter in function returning set)."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/functions.ts",
+			original: '\t\t\t\tcase "row":\n\t\t\t\t\treturn rowType(t.heading)\n',
+			replacement:
+				'\t\t\t\tcase "row":\n\t\t\t\t\treturn defined(arrayOf(rowType(t.heading)), "the array of a row type")\n',
+			why: "An argument of one row wrapped in an array of one, so a body's call passing the row finds no function of its signature (42883)."
 		},
 		{
 			file: "packages/engine/src/physical/ddl/functions.ts",

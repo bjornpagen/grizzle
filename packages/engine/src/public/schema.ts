@@ -32,6 +32,7 @@ export {
 	relation,
 	retirable,
 	role,
+	row,
 	rows,
 	schema,
 	select,
@@ -58,10 +59,12 @@ export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/sc
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {
 	AnyFunction,
+	AnyRow,
 	AnyRows,
 	DeclaredFunction,
 	FunctionBody,
 	FunctionType,
+	Row,
 	Rows
 } from "#compiler/types/schema/function.ts"
 export type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"

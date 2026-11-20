@@ -28,23 +28,25 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { valueTypeOf } from "#compiler/schema/relation.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type {
 	AnyFunction,
 	AnyRows,
 	DeclaredFunction,
 	FunctionBody,
+	FunctionType,
+	Row,
 	Rows
 } from "#compiler/types/schema/function.ts"
 
 /**
- * The builders of a declared function (fn) and of the heading whose rows a function takes or returns (rows).
+ * The builders of a declared function (fn), of the heading whose rows a function takes or returns (rows), and of one
+ * row of a heading (row).
  *
  * A declared function is the application's own PostgreSQL function, a schema object its level lists beside its
  * relations: its name, its typed arguments, its result, its volatility, and its body, PL/pgSQL or SQL text the
- * application owns, carried byte for byte. Its argument and result types are field descriptors, a value of one, or
- * rows of a heading of them. The builders read the descriptors once, into the function's Description
- * (ir/desc.ts FunctionDesc), and ownership judges which types a signature admits (schema/own.ts).
+ * application owns, carried byte for byte. Its argument and result types, and a heading's fields, are each a value of a
+ * field descriptor, rows of a heading, or one row of a heading. The builders read them once, into the function's
+ * Description (ir/desc.ts FunctionDesc), and ownership judges which types a signature admits (schema/own.ts).
  */
 
 /** The field descriptors of a heading or a signature, each a value type no writing of its own declares. */
@@ -53,14 +55,30 @@ const valueDesc = (value: unknown, label: string): FieldDesc =>
 		malformed(label, "a value type, which no field of a writing of its own is")
 	).desc
 
-/** A heading's fields in declared order, at least one, each a value type. */
+/**
+ * What an argument, the result or a heading's field is: rows of a heading rows() built, one row of a heading row()
+ * built, or a value of a field.
+ */
+const functionTypeOf = (value: unknown, label: string): FunctionTypeDesc => {
+	const heading = ownedEntry(value, "rows")
+	if (heading !== undefined) {
+		return { kind: "rows", heading: heading.desc }
+	}
+	const row = ownedEntry(value, "row")
+	if (row !== undefined) {
+		return { kind: "row", heading: row.desc }
+	}
+	return { kind: "value", type: valueDesc(value, label) }
+}
+
+/** A heading's fields in declared order, at least one, each a value type, rows of a heading or one row of one. */
 const headingOf = (fields: unknown, label: string): HeadingDesc => {
 	if (!isPlainRecord(fields)) {
-		throw malformed(label, "a record of field descriptors")
+		throw malformed(label, "a record of field descriptors, headings and rows of headings")
 	}
-	const heading = Object.entries(fields).map(([name, value]): NamedDesc<FieldDesc> => ({
+	const heading = Object.entries(fields).map(([name, value]): NamedDesc<FunctionTypeDesc> => ({
 		name: requireName(name, label, "a field name"),
-		type: valueDesc(value, `${label} field ${name}`)
+		type: functionTypeOf(value, `${label} field ${name}`)
 	}))
 	if (!isNonEmpty(heading)) {
 		throw malformed(label, "a heading of at least one field")
@@ -70,9 +88,10 @@ const headingOf = (fields: unknown, label: string): HeadingDesc => {
 
 /**
  * rows(fields): the heading of the rows a declared function takes as an argument or returns, its fields in the order
- * the record writes them, which is its row type's attribute order. Its Description is the heading itself.
+ * the record writes them, which is its row type's attribute order, each a value, rows of another heading (an array of
+ * its row type) or one row of one (a value of its row type). Its Description is the heading itself.
  */
-export const rowsBuilder = <const Fields extends Readonly<Record<string, FieldBase>>>(
+export const rowsBuilder = <const Fields extends Readonly<Record<string, FunctionType>>>(
 	fields: Fields,
 	extra: ReadonlyArray<unknown>
 ): Rows<Fields> => {
@@ -84,6 +103,29 @@ export const rowsBuilder = <const Fields extends Readonly<Record<string, FieldBa
 		kind: "rows",
 		value: { ...builtMark, kind: "rows", fields: frozenCopy(fields) },
 		desc: heading,
+		content: undefined
+	})
+}
+
+/**
+ * row(heading): one row of a heading rows() built, a value of its row type: an argument, a result or a heading's field
+ * that is a composite, not an array or a set of rows. Its Description is the heading's.
+ */
+export const rowBuilder = <const Heading extends AnyRows>(
+	heading: Heading,
+	extra: ReadonlyArray<unknown>
+): Row<Heading> => {
+	if (extra.length > 0) {
+		throw malformed("row", "row(heading): one argument")
+	}
+	const built = ownedEntry(heading, "rows")
+	if (built === undefined) {
+		throw malformed("row", "row(heading): a heading built by rows(...)")
+	}
+	return ownValue({
+		kind: "row",
+		value: { ...builtMark, kind: "row", heading },
+		desc: built.desc,
 		content: undefined
 	})
 }
@@ -130,14 +172,6 @@ export const bodyBuilder = (
 /** The Description of a declared function a builder made, or undefined for any other value. */
 export const functionDescOf = (value: unknown): FunctionDesc | undefined =>
 	ownedDesc(value, "function")
-
-/** What an argument or the result of a declared function is: rows of a heading rows() built, or a value of a field. */
-const functionTypeOf = (value: unknown, label: string): FunctionTypeDesc => {
-	const heading = ownedEntry(value, "rows")
-	return heading === undefined
-		? { kind: "value", type: valueDesc(value, label) }
-		: { kind: "rows", heading: heading.desc }
-}
 
 /** The members a declared function's definition states, and no other. */
 const definitionKeys = ["calls", "args", "returns", "volatility", "language", "body"] as const
@@ -218,8 +252,8 @@ const admitFunction = (
  */
 export const fnBuilder = <
 	const Name extends string,
-	const Args extends Readonly<Record<string, FieldBase | AnyRows>>,
-	const Returns extends FieldBase | AnyRows,
+	const Args extends Readonly<Record<string, FunctionType>>,
+	const Returns extends FunctionType,
 	const V extends FunctionVolatility
 >(
 	name: Name,

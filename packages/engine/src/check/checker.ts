@@ -60,9 +60,11 @@ import {
 	bindTerms,
 	descText,
 	type FieldDesc,
+	functionTypeLabel,
 	type LiteralDesc,
 	type OrderDesc,
-	type VarDesc
+	type VarDesc,
+	valueHeading
 } from "#compiler/ir/desc.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 
@@ -1850,14 +1852,22 @@ export class Checker {
 		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
 		const fn = this.#declaredFunction(src.function, loc)
-		if (fn.desc.returns.kind !== "rows") {
+		const returns = fn.desc.returns
+		if (returns.kind !== "rows") {
 			return fail(
 				"MalformedDescription",
 				loc,
-				`a declared function that returns rows as a source; ${fn.name} returns a value, a term`
+				`a declared function that returns rows as a source; ${fn.name} returns ${functionTypeLabel(returns)}`
 			)
 		}
-		const returned = fn.desc.returns.heading
+		const returned = valueHeading(returns.heading)
+		if (returned === undefined) {
+			return fail(
+				"MalformedDescription",
+				loc,
+				`a declared function whose rows a query reads, of values alone; a field of ${fn.name}'s rows holds rows or a row, which another function's body reads`
+			)
+		}
 		this.#callArguments(fn, Object.keys(src.args), loc)
 		const args = fn.desc.args.map((declared): CallArg<LiveRefs> => {
 			const at = childLoc(childLoc(loc, "args"), declared.name)
@@ -1877,8 +1887,17 @@ export class Checker {
 			if (arg.kind !== "rows") {
 				return fail("MalformedDescription", at, `rows for argument ${declared.name}, not a value`)
 			}
+			const heading =
+				declared.type.kind === "rows" ? valueHeading(declared.type.heading) : undefined
+			if (heading === undefined) {
+				return fail(
+					"MalformedDescription",
+					at,
+					`an argument a query passes, a value or rows of values alone; ${fn.name} takes ${functionTypeLabel(declared.type)} at ${declared.name}, of a heading a query builds no rows of, which another function's body passes`
+				)
+			}
 			const rows = this.#importSource(arg, at, bind)
-			const columns = mapNonEmpty(declared.type.heading, (f) => {
+			const columns = mapNonEmpty(heading, (f) => {
 				const type = this.fieldType(f.type, childLoc(at, f.name))
 				const delivered = columnOf(rows.heading, f.name)
 				if (delivered === undefined || !compatible(delivered.type, type)) {

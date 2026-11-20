@@ -62,7 +62,11 @@ const lowerDeclared = (
 		}
 		/** The argument's query is lowered inside its ARRAY subquery, a sublink of the call's FROM item. */
 		const rows = cx.inSublink().source(a.rows, env)
-		const row = rowTypeOf(cx.names, fn.types, a.columns)
+		const row = rowTypeOf(
+			cx.names,
+			fn.types,
+			mapNonEmpty(a.columns, (c) => ({ name: c.name, type: { kind: "value", type: c.type } }))
+		)
 		const element = cast(
 			{ kind: "row", items: mapNonEmpty(a.columns, (c) => columnIn(rows.map, c.name)) },
 			row.type

@@ -1,6 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
-import { bodyBuilder, fnBuilder, rowsBuilder } from "#compiler/schema/function.ts"
+import { bodyBuilder, fnBuilder, rowBuilder, rowsBuilder } from "#compiler/schema/function.ts"
 import {
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
@@ -52,7 +52,9 @@ import type {
 	ArgsCheck,
 	DeclaredFunction,
 	FunctionBody,
+	FunctionType,
 	HeadingCheck,
+	Row as RowOf,
 	Rows as RowsOf,
 	SignatureCheck
 } from "#compiler/types/schema/function.ts"
@@ -400,12 +402,22 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
 /**
  * rows(fields): the heading of the rows a declared function takes as an argument or returns: its fields, at least one,
  * in the order the record writes them, which is its row type's attribute order. Each is a value of a base type, a
- * contract or a refined text over one (HeadingCheck).
+ * contract or a refined text over one (HeadingCheck), rows of another heading, an array of its row type, or one row of
+ * one, row(heading), a value of its row type.
  */
-export const rows = <const Fields extends Readonly<Record<string, FieldBase>>>(
+export const rows = <const Fields extends Readonly<Record<string, FunctionType>>>(
 	fields: Fields & HeadingCheck<Fields> & MembersTyped<Fields>,
 	...extra: ReadonlyArray<never>
 ): RowsOf<Fields> => rowsBuilder<Fields>(fields, extra)
+
+/**
+ * row(heading): one row of a heading, a value of its row type, a composite: as an argument, a result or a heading's
+ * field, where the heading itself is rows, an array of it or a set of it.
+ */
+export const row = <const Heading extends AnyRows>(
+	heading: Heading,
+	...extra: ReadonlyArray<never>
+): RowOf<Heading> => rowBuilder<Heading>(heading, extra)
 
 /**
  * fn(name, { calls, args, returns, volatility, language, body }): a declared function, the application's own PostgreSQL
@@ -418,8 +430,8 @@ export const rows = <const Fields extends Readonly<Record<string, FieldBase>>>(
  */
 const declaredFunction = <
 	const Name extends string,
-	const Args extends Readonly<Record<string, FieldBase | AnyRows>>,
-	const Returns extends FieldBase | AnyRows,
+	const Args extends Readonly<Record<string, FunctionType>>,
+	const Returns extends FunctionType,
 	const V extends FunctionVolatility
 >(
 	name: Name & DeclaredName<Name>,

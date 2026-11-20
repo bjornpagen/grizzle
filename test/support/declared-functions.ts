@@ -21,7 +21,9 @@ import {
 	type AnyFunction,
 	type AnyRows,
 	type FunctionBody,
+	type FunctionType,
 	fn,
+	row,
 	rows
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -79,15 +81,17 @@ export type FunctionName = (typeof functionNames)[number]
 const argNames = ["program", "variables", "draw", "seed"] as const
 const fieldNames = ["start", "kind", "weight", "label", "place"] as const
 
-/** A heading of a case: its fields in order, each a name and a value type. */
+/** A heading of a case: its fields in order, each a name and a type, a field of rows or of a row holding a heading
+ * drawn before it. */
 export interface HeadingSketch {
-	readonly fields: NonEmptyReadonlyArray<readonly [string, ValueType]>
+	readonly fields: NonEmptyReadonlyArray<readonly [string, TypeSketch]>
 }
 
-/** What a function takes or returns: a value, or rows of the case's heading at `heading`. */
+/** What a function takes or returns, or a heading's field holds: a value, rows of the case's heading at `heading`, or
+ * one row of it. */
 export type TypeSketch =
 	| { readonly kind: "value"; readonly type: ValueType }
-	| { readonly kind: "rows"; readonly heading: number }
+	| { readonly kind: "rows" | "row"; readonly heading: number }
 
 /** How a body's text is spelled around its statements: each spelling is one a migration file must carry exactly. */
 export const spellings = ["plain", "tabbed", "dollar quotes", "trailing dollar"] as const
@@ -118,44 +122,79 @@ export interface Declarations {
 	readonly functions: ReadonlyArray<FunctionSketch>
 }
 
-const headingGen: Gen<HeadingSketch> = (source) => {
-	const names = source.draw(array(element(fieldNames), { min: 1, max: 3 }))
-	const distinct = Arr.dedupe(names)
-	return {
-		fields: mapNonEmpty(
-			nonEmpty(distinct, "a heading's fields"),
-			(name) => [name, source.draw(element(valueTypes))] as const
-		)
-	}
-}
-
 const valueGen: Gen<TypeSketch> = (source) => ({
 	kind: "value",
 	type: source.draw(element(valueTypes))
 })
 
+/** A type over the first `headings` headings of a case: a value where there is none. */
 const typeGen = (headings: number): Gen<TypeSketch> =>
-	oneOf<TypeSketch>([
-		valueGen,
-		(source) => ({ kind: "rows", heading: source.draw(int(0, headings - 1)) })
-	])
+	headings === 0
+		? valueGen
+		: oneOf<TypeSketch>([
+				valueGen,
+				(source) => ({
+					kind: source.draw(element(["rows", "row"] as const)),
+					heading: source.draw(int(0, headings - 1))
+				})
+			])
 
-/** Whether a function's result is rows of a heading one of its arguments takes rows of: the body returns them. */
+/** The heading at `at` of a case: each field a value, or rows or a row of a heading before it. */
+const headingGen =
+	(at: number): Gen<HeadingSketch> =>
+	(source) => {
+		const names = source.draw(array(element(fieldNames), { min: 1, max: 3 }))
+		const distinct = Arr.dedupe(names)
+		return {
+			fields: mapNonEmpty(
+				nonEmpty(distinct, "a heading's fields"),
+				(name) => [name, source.draw(typeGen(at))] as const
+			)
+		}
+	}
+
+/** A case's headings: one to three, each over the ones before it. */
+const headingsGen: Gen<NonEmptyReadonlyArray<HeadingSketch>> = (source) => {
+	const count = source.draw(int(1, 3))
+	return nonEmpty(
+		Array.from({ length: count }, (_, at) => source.draw(headingGen(at))),
+		"a case's headings"
+	)
+}
+
+/** The heading of a version at `at`. */
+const headingAt = (v: Pick<Declarations, "headings">, at: number): HeadingSketch =>
+	defined(v.headings[at], `heading ${at}`)
+
+/** The headings a type names: the heading it is rows or a row of, then each heading a field of that one names. */
+const namedByType = (v: Pick<Declarations, "headings">, t: TypeSketch): ReadonlyArray<number> =>
+	t.kind === "value"
+		? []
+		: [t.heading, ...Arr.flatMap(headingAt(v, t.heading).fields, ([, f]) => namedByType(v, f))]
+
+/** The argument whose value a function's result of rows or of a row is, of the same kind and heading: the body returns
+ * it. */
 const returnsAnArgument = (args: FunctionSketch["args"], returns: TypeSketch): string | undefined =>
-	returns.kind === "rows"
-		? Option.getOrUndefined(
+	returns.kind === "value"
+		? undefined
+		: Option.getOrUndefined(
 				Option.map(
-					Arr.findFirst(args, (a) => a.type.kind === "rows" && a.type.heading === returns.heading),
+					Arr.findFirst(
+						args,
+						(a) => a.type.kind === returns.kind && a.type.heading === returns.heading
+					),
 					(a) => a.name
 				)
 			)
-		: undefined
 
-/** The headings a signature takes rows of or returns. */
-const signatureHeadings = (f: Pick<FunctionSketch, "args" | "returns">): ReadonlyArray<number> =>
+/** The headings a signature names: those its arguments and result are rows or a row of, and those their fields name. */
+const signatureHeadings = (
+	v: Pick<Declarations, "headings">,
+	f: Pick<FunctionSketch, "args" | "returns">
+): ReadonlyArray<number> =>
 	Arr.dedupe(
 		Arr.flatMap([...Arr.map(f.args, (a) => a.type), f.returns], (t: TypeSketch) =>
-			t.kind === "rows" ? [t.heading] : []
+			namedByType(v, t)
 		)
 	)
 
@@ -166,11 +205,11 @@ const functionNamed = (v: Declarations, name: FunctionName): FunctionSketch =>
 		`the function ${name}`
 	)
 
-/** The headings a function's body may name: those its own signature or a callee's takes rows of or returns. */
+/** The headings a function's body may name: those its own signature or a callee's names. */
 export const reachOf = (v: Declarations, f: FunctionSketch): ReadonlyArray<number> =>
 	Arr.dedupe([
-		...signatureHeadings(f),
-		...Arr.flatMap(f.callees, (callee) => signatureHeadings(functionNamed(v, callee)))
+		...signatureHeadings(v, f),
+		...Arr.flatMap(f.callees, (callee) => signatureHeadings(v, functionNamed(v, callee)))
 	])
 
 /**
@@ -179,7 +218,7 @@ export const reachOf = (v: Declarations, f: FunctionSketch): ReadonlyArray<numbe
  */
 const functionGen =
 	(
-		headings: number,
+		headings: NonEmptyReadonlyArray<HeadingSketch>,
 		name: FunctionName,
 		earlier: ReadonlyArray<FunctionSketch>,
 		anyHeading: boolean
@@ -190,15 +229,15 @@ const functionGen =
 				array(
 					(s): FunctionSketch["args"][number] => ({
 						name: s.draw(element(argNames)),
-						type: s.draw(typeGen(headings))
+						type: s.draw(typeGen(headings.length))
 					}),
 					{ min: 0, max: 3 }
 				)
 			),
 			(a, b) => a.name === b.name
 		)
-		const returns = source.draw(typeGen(headings))
-		const sqlAdmitted = returns.kind === "value" || returnsAnArgument(args, returns) !== undefined
+		const returns = source.draw(typeGen(headings.length))
+		const sqlAdmitted = returns.kind !== "rows" || returnsAnArgument(args, returns) !== undefined
 		const callees = source.draw(
 			subset(
 				Arr.map(earlier, (f) => f.name),
@@ -206,10 +245,12 @@ const functionGen =
 			)
 		)
 		const signature = { args, returns }
+		const v = { headings }
 		const reach = Arr.dedupe([
-			...signatureHeadings(signature),
+			...signatureHeadings(v, signature),
 			...Arr.flatMap(callees, (callee) =>
 				signatureHeadings(
+					v,
 					defined(
 						Arr.findFirst(earlier, (f) => f.name === callee).pipe(Option.getOrUndefined),
 						`the callee ${callee}`
@@ -217,7 +258,7 @@ const functionGen =
 				)
 			)
 		])
-		const nameable = anyHeading ? Array.from({ length: headings }, (_, i) => i) : reach
+		const nameable = anyHeading ? Array.from({ length: headings.length }, (_, i) => i) : reach
 		return {
 			name,
 			args,
@@ -239,15 +280,12 @@ const functionGen =
 export const declarationsGen =
 	(anyHeading: boolean): Gen<Declarations> =>
 	(source) => {
-		const headings = nonEmpty(
-			source.draw(array(headingGen, { min: 1, max: 2 })),
-			"a case's headings"
-		)
+		const headings = source.draw(headingsGen)
 		const names = Arr.dedupe(source.draw(array(element(functionNames), { min: 1, max: 3 })))
 		const none: ReadonlyArray<FunctionSketch> = []
 		const functions = Arr.reduce(names, none, (earlier, name) => [
 			...earlier,
-			source.draw(functionGen(headings.length, name, earlier, anyHeading))
+			source.draw(functionGen(headings, name, earlier, anyHeading))
 		])
 		return { headings, functions }
 	}
@@ -258,20 +296,26 @@ export type Part = string | { readonly heading: number }
 /** The helper every body that calls one calls: a declared PL/pgSQL function of no argument returning 1. */
 export const helperName = "helper"
 
-/** The composite of NULLs a body passes for a callee's argument of `t`: a NULL of a value's type, or an array of one
- * row of NULLs, cast to its heading's row type by its name. */
-const argumentParts = (v: Declarations, t: TypeSketch): ReadonlyArray<Part> => {
+/**
+ * The composite of NULLs a body passes for a value of `t`: a NULL of a value's type; one row of a heading, each field's
+ * own composite of NULLs, cast to its row type by its name; or an array of one such row.
+ */
+const valueParts = (v: Declarations, t: TypeSketch): ReadonlyArray<Part> => {
 	switch (t.kind) {
 		case "value":
 			return [`NULL::${spelled[t.type]}`]
-		case "rows": {
-			const heading = defined(v.headings[t.heading], `heading ${t.heading}`)
-			const fields = Arr.join(
-				Arr.map(heading.fields, ([, type]) => `NULL::${spelled[type]}`),
-				", "
-			)
-			return [`ARRAY[ROW(${fields})::`, { heading: t.heading }, "]"]
-		}
+		case "row":
+			return [
+				"ROW(",
+				...Arr.flatMap(headingAt(v, t.heading).fields, ([, f], i) => [
+					...(i === 0 ? [] : [", "]),
+					...valueParts(v, f)
+				]),
+				")::",
+				{ heading: t.heading }
+			]
+		case "rows":
+			return ["ARRAY[", ...valueParts(v, { kind: "row", heading: t.heading }), "]"]
 	}
 }
 
@@ -281,7 +325,7 @@ export const installedName = (name: string): string => conversionOf(parsedName(n
 /** A call of `callee` with a composite of NULLs for each of its arguments. */
 const callParts = (v: Declarations, callee: FunctionSketch): ReadonlyArray<Part> => [
 	`${quoteIdent(installedName(callee.name))}(`,
-	...Arr.flatMap(callee.args, (a, i) => [...(i === 0 ? [] : [", "]), ...argumentParts(v, a.type)]),
+	...Arr.flatMap(callee.args, (a, i) => [...(i === 0 ? [] : [", "]), ...valueParts(v, a.type)]),
 	")"
 ]
 
@@ -309,7 +353,8 @@ const spelledParts = (
 /**
  * The body of a function of a version, valid for its signature: PL/pgSQL declares a variable of each heading it names
  * and performs the helper and each callee, SQL tests a NULL of each heading it names and a call of each in its WHERE;
- * it returns NULL, no row, or the rows of an argument of its result's heading.
+ * it returns NULL for a value; no row, or the rows of an argument of its result's heading, for rows; and for one row
+ * the argument of that row, or a row of NULLs built of its row type's name.
  */
 export const bodyParts = (v: Declarations, f: FunctionSketch): ReadonlyArray<Part> => {
 	const passed = returnsAnArgument(f.args, f.returns)
@@ -321,18 +366,30 @@ export const bodyParts = (v: Declarations, f: FunctionSketch): ReadonlyArray<Par
 				{ heading: h },
 				";"
 			])
-			const result =
-				f.returns.kind === "value"
-					? "RETURN NULL;"
-					: passed === undefined
-						? "RETURN;"
-						: `RETURN QUERY SELECT * FROM unnest(${quoteIdent(passed)});`
+			const result: ReadonlyArray<Part> = (() => {
+				switch (f.returns.kind) {
+					case "value":
+						return ["RETURN NULL;"]
+					case "rows":
+						return [
+							passed === undefined
+								? "RETURN;"
+								: `RETURN QUERY SELECT * FROM unnest(${quoteIdent(passed)});`
+						]
+					case "row":
+						return [
+							"RETURN ",
+							...(passed === undefined ? valueParts(v, f.returns) : [quoteIdent(passed)]),
+							";"
+						]
+				}
+			})()
 			const lines: ReadonlyArray<ReadonlyArray<Part>> = [
 				...(declared.length === 0 ? [] : [["DECLARE"], ...declared]),
 				["BEGIN"],
 				...(f.callsHelper ? [[`PERFORM ${helperName}();`]] : []),
 				...Arr.map(callees, (call) => ["PERFORM ", ...call, ";"]),
-				[result],
+				result,
 				["END"]
 			]
 			return spelledParts(f.spelling, lines, "--")
@@ -347,14 +404,22 @@ export const bodyParts = (v: Declarations, f: FunctionSketch): ReadonlyArray<Par
 				guards.length === 0
 					? []
 					: [" WHERE ", ...Arr.flatMap(guards, (g, i) => [...(i === 0 ? [] : [" AND "]), ...g])]
-			const result: ReadonlyArray<Part> =
-				f.returns.kind === "value"
-					? [`SELECT NULL::${spelled[f.returns.type]}`, ...where]
-					: [
-							`SELECT * FROM unnest(${quoteIdent(defined(passed, "the argument an SQL body returns"))})`,
-							...where
+			const selected: ReadonlyArray<Part> = (() => {
+				switch (f.returns.kind) {
+					case "value":
+						return [`SELECT NULL::${spelled[f.returns.type]}`]
+					case "rows":
+						return [
+							`SELECT * FROM unnest(${quoteIdent(defined(passed, "the argument an SQL body returns"))})`
 						]
-			return spelledParts(f.spelling, [result], "--")
+					case "row":
+						return [
+							"SELECT ",
+							...(passed === undefined ? valueParts(v, f.returns) : [quoteIdent(passed)])
+						]
+				}
+			})()
+			return spelledParts(f.spelling, [[...selected, ...where]], "--")
 		}
 	}
 }
@@ -366,12 +431,32 @@ export const bodyText = (parts: ReadonlyArray<Part>, heading: (at: number) => st
 		""
 	)
 
-/** A heading's content as a key: its fields' names and the types PostgreSQL holds them as, in order. */
-export const headingKey = (h: HeadingSketch): string =>
+/**
+ * A heading's content as a key: its fields' names and the types PostgreSQL holds them as, in order, a field of rows or
+ * of a row by `named`'s rendering of the heading it holds.
+ */
+export const headingKey = (
+	v: Pick<Declarations, "headings">,
+	at: number,
+	named: (at: number) => string
+): string =>
 	Arr.join(
-		Arr.map(h.fields, ([name, type]) => `${name} ${spelled[type]}`),
+		Arr.map(headingAt(v, at).fields, ([name, t]) => {
+			switch (t.kind) {
+				case "value":
+					return `${name} ${spelled[t.type]}`
+				case "rows":
+					return `${name} ${named(t.heading)}[]`
+				case "row":
+					return `${name} ${named(t.heading)}`
+			}
+		}),
 		", "
 	)
+
+/** A heading's content as a key that names each heading it holds by its own content, in parentheses. */
+export const contentKey = (v: Pick<Declarations, "headings">, at: number): string =>
+	headingKey(v, at, (inner) => `(${contentKey(v, inner)})`)
 
 /** A body's parts as the template fn.body builds: its texts between the headings it names, each heading's rows(). */
 export const templateOf = (
@@ -391,9 +476,17 @@ export const templateOf = (
 	return bodyBuilder(Object.assign([...texts], { raw: [...texts] }), named)
 }
 
-/** The field or rows a sketch's type is, over the version's headings. */
-const typeOf = (t: TypeSketch, headings: ReadonlyArray<AnyRows>): FieldBase | AnyRows =>
-	t.kind === "value" ? fieldOf[t.type] : defined(headings[t.heading], `heading ${t.heading}`)
+/** The field, rows or row a sketch's type is, over the version's headings. */
+const typeOf = (t: TypeSketch, headings: ReadonlyArray<AnyRows>): FunctionType => {
+	switch (t.kind) {
+		case "value":
+			return fieldOf[t.type]
+		case "rows":
+			return defined(headings[t.heading], `heading ${t.heading}`)
+		case "row":
+			return row(defined(headings[t.heading], `heading ${t.heading}`))
+	}
+}
 
 /** The helper's body. */
 const helperBody = "\nBEGIN\n  RETURN 1;\nEND\n"
@@ -417,9 +510,11 @@ export const drawnFunctions = (
 	v: Declarations,
 	helper: AnyFunction
 ): ReadonlyArray<AnyFunction> => {
-	const headings = Arr.map(v.headings, (h) =>
-		rows(Rec.fromEntries(Arr.map(h.fields, ([name, t]) => [name, fieldOf[t]] as const)))
-	)
+	const none: ReadonlyArray<AnyRows> = []
+	const headings = Arr.reduce(v.headings, none, (built, h) => [
+		...built,
+		rows(Rec.fromEntries(Arr.map(h.fields, ([name, t]) => [name, typeOf(t, built)] as const)))
+	])
 	const built = new Map<string, AnyFunction>()
 	for (const f of v.functions) {
 		built.set(

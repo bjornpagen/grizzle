@@ -59,7 +59,7 @@ import type { FragmentContent, FragmentDesc } from "#compiler/schema/schema.ts"
 import type { ExpansionDesc, SelectedDesc } from "#compiler/schema/statements.ts"
 import type { RoleLevel, WorldDraft } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
-import type { AnyFunction, AnyRows, FunctionBody } from "#compiler/types/schema/function.ts"
+import type { AnyFunction, AnyRow, AnyRows, FunctionBody } from "#compiler/types/schema/function.ts"
 import type { AnyClosedRelation, AnyRelation, AnyRoster } from "#compiler/types/schema/relation.ts"
 import type { AnyFragment, AnySchema } from "#compiler/types/schema/schema.ts"
 import type {
@@ -290,6 +290,11 @@ interface OwnedKinds {
 	}
 	readonly rows: {
 		readonly value: AnyRows
+		readonly desc: HeadingDesc
+		readonly content: undefined
+	}
+	readonly row: {
+		readonly value: AnyRow
 		readonly desc: HeadingDesc
 		readonly content: undefined
 	}

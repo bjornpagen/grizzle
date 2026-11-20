@@ -1539,18 +1539,51 @@ export interface NamedDesc<T> {
 	readonly type: T
 }
 
-/** The heading of the rows a declared function takes or returns (schema/function.ts rows): its fields in declared order,
- * at least one, which installs as a row type. */
-export type HeadingDesc = NonEmptyReadonlyArray<NamedDesc<FieldDesc>>
+/**
+ * The heading of the rows a declared function takes or returns (schema/function.ts rows): its fields in declared order,
+ * at least one, each of a type a signature takes, which installs as a row type, its attributes in that order.
+ */
+export type HeadingDesc = NonEmptyReadonlyArray<NamedDesc<FunctionTypeDesc>>
 
 /**
- * What a declared function takes as an argument or gives as its result: one value of a field's type, or rows of a
- * heading, its fields in declared order, which installs as a row type, an argument as an array of it and a result as a
- * set of it.
+ * What a declared function takes as an argument, gives as its result or holds in a field of a heading: one value of a
+ * field's type; rows of a heading, which installs as a row type, an array of it as an argument or a field and a set of
+ * it as a result; or one row of a heading (schema/function.ts row), a value of its row type, a composite.
  */
 export type FunctionTypeDesc =
 	| { readonly kind: "value"; readonly type: FieldDesc }
 	| { readonly kind: "rows"; readonly heading: HeadingDesc }
+	| { readonly kind: "row"; readonly heading: HeadingDesc }
+
+/** What a function type is, as a refusal names it: a value, rows, or one row. */
+export const functionTypeLabel = (t: FunctionTypeDesc): string => {
+	switch (t.kind) {
+		case "value":
+			return "a value"
+		case "rows":
+			return "rows"
+		case "row":
+			return "one row"
+	}
+}
+
+/**
+ * A heading as a query reads or builds its rows: each field a value of a field's type, or undefined for a heading with
+ * a field of rows or of a row of another, which no relation's field holds, so a query neither reads a set of its rows
+ * nor builds an array of them, and only a function's body passes one.
+ */
+export const valueHeading = (
+	heading: HeadingDesc
+): NonEmptyReadonlyArray<NamedDesc<FieldDesc>> | undefined => {
+	const fields: Array<NamedDesc<FieldDesc>> = []
+	for (const f of heading) {
+		if (f.type.kind !== "value") {
+			return undefined
+		}
+		fields.push({ name: f.name, type: f.type.type })
+	}
+	return isNonEmpty(fields) ? fields : undefined
+}
 
 /**
  * A declared function's body (schema/function.ts fn.body): the application's text, and between its runs the row types
@@ -2868,18 +2901,21 @@ const schemaRelationShape: S.Shape<SchemaRelationDesc> = S.plain({
 	}
 })
 
-const functionFieldShape: S.Shape<NamedDesc<FieldDesc>> = S.struct({ name, type: fieldDescShape })
-
-const headingShape: S.Shape<HeadingDesc> = S.nonEmptyUniqueArray(
-	functionFieldShape,
-	(f) => f.name,
-	"heading field names"
+const functionTypeShape: S.Shape<FunctionTypeDesc> = S.ref("a function's type", () =>
+	S.tagged("kind", {
+		value: S.struct({ type: fieldDescShape }),
+		rows: S.struct({ heading: headingShape }),
+		row: S.struct({ heading: headingShape })
+	})
 )
 
-const functionTypeShape: S.Shape<FunctionTypeDesc> = S.tagged("kind", {
-	value: S.struct({ type: fieldDescShape }),
-	rows: S.struct({ heading: headingShape })
-})
+const headingShape: S.Shape<HeadingDesc> = S.ref("a heading", () =>
+	S.nonEmptyUniqueArray(
+		S.struct({ name, type: functionTypeShape }),
+		(f) => f.name,
+		"heading field names"
+	)
+)
 
 /** A run of a declared function's body: storable text. */
 const bodyTextShape = S.refine(S.string, isValidText, "a body of storable text")

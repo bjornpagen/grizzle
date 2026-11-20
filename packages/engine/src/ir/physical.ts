@@ -1,7 +1,8 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { flatMapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import { malformedDescription } from "#compiler/core/errors.ts"
-import { rowTypeDigest } from "#compiler/core/fingerprint.ts"
+import { type RowTypeDigest, rowTypeDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredName,
 	type Identity,
@@ -30,7 +31,7 @@ import type {
 	TypeRef,
 	TypeSchema
 } from "#compiler/sql/ast.ts"
-import { cUtf8Collation, namedType, numericType, types } from "#compiler/sql/build.ts"
+import { arrayOf, cUtf8Collation, namedType, numericType, types } from "#compiler/sql/build.ts"
 import type { ClosedConstant } from "#compiler/sql/constants.ts"
 import type { ImagedColumns } from "#compiler/sql/image.ts"
 
@@ -172,26 +173,65 @@ export interface PhysicalNames {
 }
 
 /**
- * The row type of a heading a declared function takes rows of or returns, in its function's schema `schema`: its
- * attributes, each field's base type, text collated as every grizzle column is (lawColumnType), and its type, named by
- * their digest (core/identity.ts identity.rowType), which the installation creates (physical/ddl/functions.ts) and a
- * call's rows argument casts each element to.
+ * The row type of a heading in its schema (rowTypeOf): its attributes, the digest of its definition, which names it,
+ * and its type.
+ */
+export interface RowType {
+	readonly attributes: NonEmptyReadonlyArray<ColumnDefinition>
+	readonly definition: RowTypeDigest
+	readonly named: Identity<"rowType">
+	readonly type: TypeRef
+}
+
+/** An attribute of a row type: a value of a scalar, or rows of another row type (an array of it) or one row of one. */
+export type RowAttribute =
+	| { readonly kind: "value"; readonly type: ScalarType }
+	| { readonly kind: "rows" | "row"; readonly rowType: RowType }
+
+/**
+ * The row type of a heading a declared function's signature names, in its function's schema `schema`: its attributes,
+ * a value's its field's base type, text collated as every grizzle column is (lawColumnType), rows of another heading's
+ * an array of that one's row type and one row's that row type itself, both of the same schema, which the installation
+ * creates first; and its type, named by the digest of its definition (core/identity.ts identity.rowType), each value
+ * attribute as it stands and each other by the definition of the row type it holds, so equal headings share it at any
+ * level, and a heading of values alone has the name it had before a heading could hold another. The installation
+ * creates it (physical/ddl/functions.ts), and a call's rows argument casts each element to it.
  */
 export const rowTypeOf = (
 	names: PhysicalNames,
 	schema: TypeSchema,
-	heading: NonEmptyReadonlyArray<{ readonly name: string; readonly type: ScalarType }>
-): {
-	readonly attributes: NonEmptyReadonlyArray<ColumnDefinition>
-	readonly named: Identity<"rowType">
-	readonly type: TypeRef
-} => {
-	const attributes = mapNonEmpty(heading, (f) => {
-		const column = lawColumnType(names, f.type)
-		return { name: f.name, type: column.type, collation: column.collation }
+	heading: NonEmptyReadonlyArray<{ readonly name: string; readonly type: RowAttribute }>
+): RowType => {
+	const valueColumn = (name: string, type: ScalarType): ColumnDefinition => {
+		const column = lawColumnType(names, type)
+		return { name, type: column.type, collation: column.collation }
+	}
+	const attributes = flatMapNonEmpty(heading, (f): NonEmptyReadonlyArray<ColumnDefinition> => {
+		switch (f.type.kind) {
+			case "value":
+				return [valueColumn(f.name, f.type.type)]
+			case "rows":
+				return [
+					{
+						name: f.name,
+						type: defined(arrayOf(f.type.rowType.type), "the array of a row type"),
+						collation: undefined
+					}
+				]
+			case "row":
+				return [{ name: f.name, type: f.type.rowType.type, collation: undefined }]
+		}
 	})
-	const named = identity.rowType(rowTypeDigest(attributes, withoutSourceLocs))
-	return { attributes, named, type: namedType(schema, identifierOf(named), []) }
+	const definition = rowTypeDigest(
+		heading.map((f) =>
+			f.type.kind === "value"
+				? valueColumn(f.name, f.type.type)
+				: { name: f.name, [f.type.kind]: f.type.rowType.definition }
+		),
+		withoutSourceLocs
+	)
+	const named = identity.rowType(definition)
+	return { attributes, definition, named, type: namedType(schema, identifierOf(named), []) }
 }
 
 /** A name the owned schema cannot supply is a defect of the caller's input, refused as MalformedDescription.

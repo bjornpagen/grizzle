@@ -3403,14 +3403,32 @@ END
 `
 })
 
-export const Lexicon = schema("Lexicon", [folded, doubled], [])
+/** A titled list of weighted words: a heading whose field holds rows of another. */
+const Titled = rows({ title: Word, words: Weighted })
+const Summary = rows({ title: Word, count: natural })
+
+/** A titled list's title and its count of words: one row of a heading, from one row of another. */
+export const summary = fn("summary", {
+	calls: [],
+	args: { doc: row(Titled) },
+	returns: row(Summary),
+	volatility: "immutable",
+	language: "sql",
+	body: fn.body`SELECT ROW((doc).title, cardinality((doc).words))::${Summary}`
+})
+
+export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
 ```
 
-- **Arguments and results** are a value of a field's type, or `rows(heading)`: an argument of rows is an array of the
-  heading's row type, and a result of rows is a set of them, `RETURNS SETOF`. A heading's fields are in the order its
-  record writes them, its row type's attribute order. A type is a base type, a closed id, a contract or a refined text
-  over one: a serial, money, bytes, a set, a span or a vector is a type error, and from JavaScript `Refused` when the
-  schema is owned. PostgreSQL holds a function to its declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a
+- **Arguments and results** are a value of a field's type, `rows(heading)` or `row(heading)`: an argument of rows is
+  an array of the heading's row type, a result of rows is a set of them, `RETURNS SETOF`, and one row, as an argument
+  or a result, is a value of the row type itself, a composite. A heading's fields are in the order its record writes
+  them, its row type's attribute order, and each is a value, rows of another heading (an array of that one's row
+  type) or one row of one, so a heading holds another as one composite or as many: `Titled` above holds its words,
+  and its row type installs after `Weighted`'s. A value's type is a base type, a closed id, a contract or a refined
+  text over one: a serial, money, bytes, a set, a span or a vector is a type error, and from JavaScript `Refused` when
+  the schema is owned. A heading holds no NULL, so no row is no arm of a type: a function of one row returns its row,
+  and a body with none to return raises. PostgreSQL holds a function to its declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a
   column whose type is not the row type's), so each is its field's base type, `natural` a bigint, `Word` a text and a
   closed id its code, a smallint: a contract, a pattern or a roster is checked where a statement reads the function's
   value, cast to its field's domain, never by the signature. A call passes a closed id of the argument's own roster
@@ -3492,6 +3510,12 @@ export const shiftedLines = query(Docs).rule((r) => {
   its field's declared type, so a contract or a pattern refuses a value of the function's that breaks it, where the
   query reads it. grizzle holds no NULL: a function that returns NULL, as a value or in a field of a row, fails the
   query with SQLSTATE `22004`.
+- **What a query calls.** A query calls a function whose arguments are values and rows of headings of values, and
+  that returns a value or rows of such a heading. A function that takes or returns one row, or rows of a heading with
+  a field of rows or of a row, is called by another function's body alone, and a query's call of it is
+  `MalformedDescription` (from JavaScript, and a type error where its types say so): a query's sources and terms hold
+  fields, and no field holds a composite or an array of them, so a query could neither read such a column nor build
+  such an argument.
 - **What may call one.** A call is a query's term alone: a check, a contract's predicate and a generated field are
   evaluated on the host too, and PostgreSQL alone evaluates a declared function, so a call there is a type error
   (`Refused`), and refused from JavaScript when the schema is owned. A term calls an immutable or stable function; a

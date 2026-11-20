@@ -4,7 +4,7 @@ import type { FunctionVolatility } from "#compiler/core/function.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { FieldDesc, FunctionTypeDesc, HeadingDesc } from "#compiler/ir/desc.ts"
-import { baseTypeRef, rowTypeOf } from "#compiler/ir/physical.ts"
+import { baseTypeRef, type RowAttribute, type RowType, rowTypeOf } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { installationTypes } from "#compiler/physical/ddl/names.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
@@ -29,10 +29,12 @@ import { typeOnSearchPath } from "#compiler/sql/print.ts"
  *   a member of its owner, and USAGE on every level's schema, where its functions call each other and name their row
  *   types: it holds no privilege on any table or view, so a declared function, which runs as its owner, reads no
  *   relation, and a body that reads one fails as it runs, 42501 permission denied, wherever it is called.
- * - Each heading a function takes rows of or returns (rows()), once per level that declares a function over it: CREATE
- *   TYPE <level>.<row type> AS (<attributes>), named by its definition's digest (identity.rowType), each attribute its
- *   field's base type, text collated as every grizzle column is (ir/physical.ts lawColumnType), and USAGE revoked from
- *   PUBLIC. A function's argument of rows is an array of it and its result of rows a set of it.
+ * - Each heading a function's signature names (rows()), and each heading a field of one names, once per level that
+ *   declares a function over it: CREATE TYPE <level>.<row type> AS (<attributes>), named by its definition's digest
+ *   (identity.rowType), each value attribute its field's base type, text collated as every grizzle column is
+ *   (ir/physical.ts lawColumnType), a field of rows an array of its heading's row type and a field of one row (row())
+ *   that row type, each created before the row types that hold it; USAGE revoked from PUBLIC. A function's argument of
+ *   rows is an array of it, its result of rows a set of it, and an argument or a result of one row the row type itself.
  * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>) RETURNS <type> | SETOF <row type> LANGUAGE
  *   <language> <volatility> SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for
  *   byte but for each heading it names, which is its row type's name alone, the one the pinned search_path resolves
@@ -59,10 +61,10 @@ const volatilityClause: { readonly [V in FunctionVolatility]: DeclaredVolatility
 	volatile: "VOLATILE"
 }
 
-/** A row type of one level, its object and the type its name is, once per definition. */
-interface RowType {
+/** A row type of one level, its object and the row type, once per definition. */
+interface InstalledRowType {
 	readonly node: Node<"setup">
-	readonly type: TypeRef
+	readonly rowType: RowType
 }
 
 /** The type a value of `desc` is as an argument or a result: its base type, never a domain. */
@@ -136,26 +138,37 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 	const ownerIdentity = identity.functionOwner(b.settings.levels[0])
 	const owner = addOwner(b, ownerIdentity)
 	const ownerRole = identifierOf(ownerIdentity)
-	const rowTypes = new Map<string, RowType>()
+	const rowTypes = new Map<string, InstalledRowType>()
 	for (const fn of functions) {
 		const level = defined(b.settings.levels[fn.level], `the schema of level ${fn.level}`)
 		const levelNode = defined(b.levelNodes[fn.level], `the schema object of level ${fn.level}`)
 		const types = installationTypes(level)
-		const used: Array<Node<"setup">> = []
-		const rowType = (heading: HeadingDesc): TypeRef => {
-			const { attributes, named, type } = rowTypeOf(
+		/** What a heading's field holds as an attribute, each row type it holds created first, among `held`. */
+		const attributeOf = (t: FunctionTypeDesc, held: Array<Node<"setup">>): RowAttribute => {
+			switch (t.kind) {
+				case "value":
+					return { kind: "value", type: b.checked.fieldType(t.type, fn.desc.loc) }
+				case "rows":
+				case "row": {
+					const inner = rowTypeIn(t.heading)
+					held.push(inner.node)
+					return { kind: t.kind, rowType: inner.rowType }
+				}
+			}
+		}
+		/** The row type of `heading` at this level, created once, after every row type a field of it holds. */
+		const rowTypeIn = (heading: HeadingDesc): InstalledRowType => {
+			const held: Array<Node<"setup">> = []
+			const rowType = rowTypeOf(
 				b.names,
 				types,
-				mapNonEmpty(heading, (f) => ({
-					name: f.name,
-					type: b.checked.fieldType(f.type, fn.desc.loc)
-				}))
+				mapNonEmpty(heading, (f) => ({ name: f.name, type: attributeOf(f.type, held) }))
 			)
+			const { attributes, named } = rowType
 			const key = `${identifierOf(level)}.${identifierOf(named)}`
 			const known = rowTypes.get(key)
 			if (known !== undefined) {
-				used.push(known.node)
-				return known.type
+				return known
 			}
 			const name = { schema: identifierOf(level), name: b.name(named) }
 			const node = b.add(
@@ -174,24 +187,36 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 					reasons: [why(fn)],
 					phase: "setup"
 				},
-				[levelNode]
+				[levelNode, ...held]
 			)
-			rowTypes.set(key, { node, type })
-			used.push(node)
-			return type
+			const made = { node, rowType }
+			rowTypes.set(key, made)
+			return made
 		}
-		const argType = (t: FunctionTypeDesc): TypeRef =>
-			t.kind === "value"
-				? valueType(b, t.type, fn)
-				: defined(arrayOf(rowType(t.heading)), "the array of a row type")
+		const used: Array<Node<"setup">> = []
+		/** The type of the row type of `heading`, which the function's object depends on. */
+		const rowType = (heading: HeadingDesc): TypeRef => {
+			const made = rowTypeIn(heading)
+			used.push(made.node)
+			return made.rowType.type
+		}
+		const argType = (t: FunctionTypeDesc): TypeRef => {
+			switch (t.kind) {
+				case "value":
+					return valueType(b, t.type, fn)
+				case "rows":
+					return defined(arrayOf(rowType(t.heading)), "the array of a row type")
+				case "row":
+					return rowType(t.heading)
+			}
+		}
 		const params: ReadonlyArray<FunctionParam> = fn.desc.args.map((a) => ({
 			name: a.name,
 			type: argType(a.type)
 		}))
+		const returned = fn.desc.returns
 		const returns: CreateDeclaredFunction["returns"] =
-			fn.desc.returns.kind === "value"
-				? valueType(b, fn.desc.returns.type, fn)
-				: { setOf: rowType(fn.desc.returns.heading) }
+			returned.kind === "rows" ? { setOf: rowType(returned.heading) } : argType(returned)
 		const body = fn.desc.body.named.reduce(
 			(text, next) => `${text}${typeOnSearchPath(rowType(next.rowType))}${next.text}`,
 			fn.desc.body.text

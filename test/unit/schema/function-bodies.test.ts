@@ -5,13 +5,15 @@
  * at the function, since its row type may stand in no schema of the level, or stand there for another function alone
  * and go with it.
  *
- * - **Property:** a case draws one or two headings and one to three functions, each calling functions drawn before it,
+ * - **Property:** a case draws one to three headings, each field a value or rows or a row of a heading before it, and
+ *   one to three functions, each calling functions drawn before it,
  *   whose bodies name headings of the whole case beside the ones their calls' arguments build; the schema is owned.
  *   It owns exactly where every function's every named heading is the content of one in its reach, and is refused
  *   otherwise with MalformedDescription at a function whose body names one beyond its reach.
  * - **Oracle:** the rule restated over the sketch: a function's reach is its own signature's headings and its
- *   callees', compared by content, as two headings of the same fields are one.
- * - **Features:** a body naming a heading of its own signature, of a callee's alone, and of none; owned and refused.
+ *   callees', and every heading a field of one holds, compared by content, as two headings of the same fields are one.
+ * - **Features:** a body naming a heading of its own signature, of a callee's alone, one a field of its reach holds,
+ *   and one of none; owned and refused.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -35,7 +37,8 @@ export const aDeclaredFunctionsBodyNamesOnlyHeadingsItsOwnSignatureOrACalleesTak
 			"refused",
 			"a body naming its own signature's heading",
 			"a body naming a callee's heading alone",
-			"a body naming a heading beyond its reach"
+			"a body naming a heading beyond its reach",
+			"a body naming a heading a field of its reach holds"
 		] satisfies ReadonlyArray<Reached<BodySituation>>,
 		budget: { runs: 200, steered: 200 },
 		check: (_, c: Case<BodySituation>) => (v) =>
@@ -75,6 +78,13 @@ export const aDeclaredFunctionsBodyNamesOnlyHeadingsItsOwnSignatureOrACalleesTak
 				original: "\treturn Result.flatMap(callsHeld(out), bodiesHeld)\n",
 				replacement: "\treturn callsHeld(out)\n",
 				why: "A body naming a heading no signature of its reach takes owns, and installs naming a row type its level may not hold."
+			},
+			{
+				file: "packages/engine/src/schema/function-own.ts",
+				original:
+					'\tt.kind === "value" ? [] : [t.heading, ...t.heading.flatMap((f) => headingsOf(f.type))]\n',
+				replacement: '\tt.kind === "value" ? [] : [t.heading]\n',
+				why: "A body naming a heading a field of its signature's holds rows or a row of is refused, though the installation creates that heading's row type first."
 			},
 			{
 				file: "packages/engine/src/schema/function-own.ts",

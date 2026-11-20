@@ -1,6 +1,11 @@
 import type { Built } from "#compiler/core/phantom.ts"
 import { isPlainRecord } from "#compiler/core/record.ts"
-import type { FunctionDesc, FunctionTypeDesc } from "#compiler/ir/desc.ts"
+import {
+	type FunctionDesc,
+	type FunctionTypeDesc,
+	functionTypeLabel,
+	valueHeading
+} from "#compiler/ir/desc.ts"
 import type { OpenCallArg, OpenExpr, OpenSource } from "#compiler/ir/open.ts"
 import { tokensHeading } from "#compiler/ir/rel.ts"
 import { tokenPattern } from "#compiler/ir/scalar.ts"
@@ -114,7 +119,7 @@ export const callTerm = <
 	if (desc.returns.kind !== "value") {
 		throw malformed(
 			label,
-			`a function that returns a value; ${desc.name} returns rows, which Compute.rowsOf calls`
+			`a function that returns a value; ${desc.name} returns ${functionTypeLabel(desc.returns)}`
 		)
 	}
 	if (desc.volatility === "volatile") {
@@ -128,7 +133,7 @@ export const callTerm = <
 		if (type.kind !== "value") {
 			throw malformed(
 				label,
-				`a function of value arguments; ${desc.name} takes rows at ${name}, which Compute.rowsOf calls`
+				`a function of value arguments; ${desc.name} takes ${functionTypeLabel(type)} at ${name}`
 			)
 		}
 		exprs[name] = valueArgument(value, `${label} ${name}`)
@@ -154,11 +159,18 @@ export const callRows = <
 ): CallSource<FactOfFields<Fields>, CallParams<A>, Fields, CallReads<A>> => {
 	const label = "Compute.rowsOf"
 	const desc = declaredOf(f, label)
-	const returned = desc.returns
-	if (returned.kind !== "rows") {
+	const returns = desc.returns
+	if (returns.kind !== "rows") {
 		throw malformed(
 			label,
-			`a function that returns rows; ${desc.name} returns a value, which Compute.call calls`
+			`a function that returns rows; ${desc.name} returns ${functionTypeLabel(returns)}`
+		)
+	}
+	const returned = valueHeading(returns.heading)
+	if (returned === undefined) {
+		throw malformed(
+			label,
+			`a function whose rows hold values alone; a field of ${desc.name}'s rows holds rows or a row, which only another function's body reads`
 		)
 	}
 	const rows: Array<SourceInfo> = []
@@ -166,20 +178,22 @@ export const callRows = <
 	for (const [name, type, value] of namedArgs(desc, args, label)) {
 		if (type.kind === "value") {
 			described[name] = valueArgument(value, `${label} ${name}`)
-		} else {
+		} else if (type.kind === "rows" && valueHeading(type.heading) !== undefined) {
 			const rowsArg = rowsArgument(value, `${label} ${name}`)
 			rows.push(rowsArg.info)
 			described[name] = { kind: "rows", query: rowsArg.imported.query, bind: rowsArg.imported.bind }
+		} else {
+			throw malformed(
+				`${label} ${name}`,
+				`an argument a query passes, a value or rows of values alone; ${desc.name} takes ${functionTypeLabel(type)} at ${name}, which only another function's body passes`
+			)
 		}
 	}
 	const fields = f.returns.fields
 	return callSourceValue(
 		{ kind: "call", function: desc.name, args: described },
 		heading(
-			returned.heading.map((field) => [
-				field.name,
-				fieldTyping(fields[field.name], field.type, bareEnv)
-			]),
+			returned.map((field) => [field.name, fieldTyping(fields[field.name], field.type, bareEnv)]),
 			[]
 		),
 		fields,

@@ -23,16 +23,17 @@ import { int4Digits, int8Max, int8Min, isIntegerTypmod } from "#compiler/ir/carr
 import { integerDigits, integerRanges } from "#compiler/ir/carriers.ts"
 import type { ParamReading } from "#compiler/ir/clock.ts"
 import { dayNumber, firstCalendarDate, lastCalendarDate } from "#compiler/ir/date.ts"
-import type {
-	CompareOp,
-	ExprDesc,
-	FieldDesc,
-	FunctionDesc,
-	GuardDesc,
-	LiteralDesc,
-	Located,
-	Refs,
-	Spelled
+import {
+	type CompareOp,
+	type ExprDesc,
+	type FieldDesc,
+	type FunctionDesc,
+	functionTypeLabel,
+	type GuardDesc,
+	type LiteralDesc,
+	type Located,
+	type Refs,
+	type Spelled
 } from "#compiler/ir/desc.ts"
 import {
 	type ExprSpec,
@@ -3066,7 +3067,7 @@ class Typing<R extends Refs> {
 			return stop(
 				"MalformedDescription",
 				here,
-				`a declared function that returns a value as a term; ${fn.name} returns rows, which a match reads as a source`
+				`a declared function that returns a value as a term; ${fn.name} returns ${functionTypeLabel(returns)}`
 			)
 		}
 		if (fn.desc.volatility === "volatile") {
@@ -3093,7 +3094,7 @@ class Typing<R extends Refs> {
 				return stop(
 					"MalformedDescription",
 					where,
-					`a function of value arguments as a term; ${fn.name} takes rows at ${a.name}, which a match reads as a source`
+					`a function of value arguments as a term; ${fn.name} takes ${functionTypeLabel(a.type)} at ${a.name}`
 				)
 			}
 			const type = unwrap(this.env.fieldType(a.type.type, where))

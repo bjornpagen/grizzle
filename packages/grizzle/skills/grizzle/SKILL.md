@@ -233,9 +233,11 @@ breaking change may briefly break older application instances that are still run
   and text domains, one per distinct definition. A schema that declares functions (`fn`) gets here, after its
   domains, the installation's function owner (`__owner_<digest>`, `CREATE ROLE ... NOLOGIN`, granted to the migration
   identity `WITH INHERIT TRUE, SET TRUE`, with `USAGE` on the levels' schemas and no privilege on any table), each
-  heading's row type (`CREATE TYPE <level>.__rows_<digest> AS (...)`), and each function, callees first:
+  heading's row type (`CREATE TYPE <level>.__rows_<digest> AS (...)`, after the row types its fields hold, a field of
+  rows an array of one and a field of `row(...)` the row type itself), and each function, callees first:
   `CREATE OR REPLACE FUNCTION ... SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>`, its body
-  the application's text byte for byte, `EXECUTE` revoked from PUBLIC, then handed to the owner (`GRANT CREATE ON
+  the application's `` fn.body`...` `` text byte for byte but for each `${heading}` it names, which is that row type's
+  name, `"__rows_<digest>"`, `EXECUTE` revoked from PUBLIC, then handed to the owner (`GRANT CREATE ON
   SCHEMA`, `ALTER FUNCTION ... OWNER TO`, `REVOKE CREATE`). A changed body or volatility is that same `CREATE OR
   REPLACE`; a changed signature or result drops the function first. Never edit a body here: change the schema's `fn`,
   since the drift check holds every installed body to the SHA-256 `manifest.json` records.
