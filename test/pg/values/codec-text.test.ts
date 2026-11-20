@@ -7,15 +7,19 @@
  * drawn(natural), the retirement field, and a closed relation's slot. Each batch is stored under two installations'
  * codes, a fresh one's and one migrated twice, whose rosters' codes have holes.
  *
- * - One text per value: two values of the batch have one text exactly when PostgreSQL's equality of the type holds them
- *   equal, a set's whatever order the caller's Set holds its handles in, its GROUP BY at the value's wire type, so numeric 1.0 and 1.00, NaN and NaN, -0 and +0 are one class each,
- *   a text's under pg_c_utf8, and a closed id's and a set's by their codes, under either installation's.
+ * - One text per value: two values of the batch have one text exactly when PostgreSQL holds them one value, a set's
+ *   whatever order the caller's Set holds its handles in: its equality of the type, its GROUP BY at the value's wire
+ *   type, so numeric 1.0 and 1.00 are one class and NaN and NaN another, a text's under pg_c_utf8, and a closed id's and
+ *   a set's by their codes, under either installation's; but a float's -0 and +0, which its equality holds equal, are
+ *   two values, as grizzle keeps a zero's sign end to end (scalar/values/float.ts), and its binary image tells them
+ *   apart (codec-text.fixtures.ts identifiedBy).
  * - Read back: PostgreSQL's input function of the type reads each value's text as the value, for every carrier but a
  *   closed id and a set, which PostgreSQL stores as an installation's codes: there the installation's names of the
  *   stored code spell the text, a closed id's handle and a set's handles in declared order, under either installation.
  *
- * Oracle: PostgreSQL itself: each type's equality (GROUP BY) and input function (CAST from text), pgvector's among them,
- * and each installation's codes as PostgreSQL stores them, read back through its names.
+ * Oracle: PostgreSQL itself: each type's equality (GROUP BY), a float's binary image (float8send) beside it, and input
+ * function (CAST from text), pgvector's among them, and each installation's codes as PostgreSQL stores them, read back
+ * through its names.
  *
  * Features: "texts <carrier>", a carrier's case's; "reads <kind>", a field's case's.
  */
@@ -40,14 +44,15 @@ import { succeeded } from "#test/support/assert.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * A value's text is one per value under PostgreSQL's equality, and PostgreSQL reads it back as the value, or, for a
+ * A value's text is one per value as PostgreSQL holds its values, and PostgreSQL reads it back as the value, or, for a
  * closed id and a set, an installation's names spell it from the codes it stores, in a fresh installation and a migrated
  * one alike, whatever kind of field codecText reads it through. Its budget is the codec round trip's per situation
  * (scalar.test.ts roundTripRuns), its runs and steered cases that many times its situations, each a carrier or a kind
  * of field the steered phase reaches.
  */
-export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEveryInstallation =
-	property.explore(textBatchGen, {
+export const aValuesTextIsOnePerValueAndReadsBackInEveryInstallation = property.explore(
+	textBatchGen,
+	{
 		needs: { tx: Substrate.transaction },
 		situations: textSituations satisfies ReadonlyArray<Reached<TextFeature>>,
 		budget: {
@@ -85,7 +90,7 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 						assert.deepEqual(
 							textClasses(texts),
 							classes,
-							`${batch.label}: two values have one text exactly when PostgreSQL holds them equal`
+							`${batch.label}: two values have one text exactly when PostgreSQL holds them one value`
 						)
 						const type = carrier.type
 						if (type.carrier === "code" || type.carrier === "bits") {
@@ -108,10 +113,17 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 				}),
 		oracle: {
 			kind: "postgresql",
-			name: "each type's equality, GROUP BY at its wire type, its input function, CAST from text, and an installation's codes read back through its names"
+			name: "each type's equality, GROUP BY at its wire type, a float's binary image beside it, its input function, CAST from text, and an installation's codes read back through its names"
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/codec/scalar.ts",
+				original: "\t\treturn scalarCodec(type, emptyCodebook).encode",
+				replacement:
+					'\t\treturn (value: unknown) => Result.map(scalarCodec(type, emptyCodebook).encode(value), (t) => (t === "-0" ? "0" : t))',
+				why: "A value's text is its key text, a float's -0 written 0 as a key compares it (scalar/values/identity.ts keyText), where its identity text keeps the zero's sign: -0 and +0, two values whose binary images PostgreSQL tells apart, share a text, and PostgreSQL reads that text as +0; the property fails over a float."
+			},
 			{
 				file: "packages/engine/src/codec/scalar.ts",
 				original: "\t\treturn (value) => admitSubsetHandle(value, live, only)",
@@ -145,4 +157,5 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 				why: "An accumulated field is read from its accumulated(type, start) value, not from its declared type, the one its column is stored and read with: the value is no descriptor a builder registered, so it is refused, every other kind still read as its declared type; the property fails over an accumulated field."
 			}
 		]
-	})
+	}
+)

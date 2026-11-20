@@ -13,7 +13,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { int8Max } from "#compiler/ir/carriers.ts"
 import { type Codebook, declaredOrder, firstCodebook } from "#compiler/ir/codes.ts"
-import { type Carrier, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { TextedField } from "#compiler/program/text.ts"
 import {
 	accumulated,
@@ -321,11 +321,24 @@ const recordsetOf = (codes: Codebook, type: ScalarType, values: ReadonlyArray<un
 	jsonText(Arr.map(values, (v, ord) => ({ ord, v: wireText(codes, type, v) })))
 
 /**
- * PostgreSQL's classes of a batch under its type's equality, stored under an installation's codes: the positions of its
- * values sent through jsonb_to_recordset at their wire type (codec/support.ts wireSql), grouped by their rank under ORDER
- * BY of the value, a text under pg_c_utf8, whose peers are the values its B-tree equality holds equal: the type's
- * default operator class, which an extension's type such as pgvector's has off the search path, where `=` is not found.
- * Each group is in order, the groups by their first position.
+ * The expressions PostgreSQL tells a batch's values apart by: its order's (order.fixtures.ts orderedBy), and after it,
+ * for a float, its binary image (float4send, float8send), since its equality holds -0 and +0 equal and they are two
+ * values (scalar/values/float.ts), whose binary images differ as those of no other two values its equality holds equal.
+ */
+const identifiedBy = (type: ScalarType, expr: string): string => {
+	const { carrier } = baseOf(type)
+	const ordered = orderedBy(type, expr)
+	return carrier === "float4" || carrier === "float8"
+		? `${ordered}, ${carrier}send(${expr})`
+		: ordered
+}
+
+/**
+ * PostgreSQL's classes of a batch's values, stored under an installation's codes, each class one value: the positions of
+ * its values sent through jsonb_to_recordset at their wire type (codec/support.ts wireSql), grouped by their rank under
+ * ORDER BY of the value, a text under pg_c_utf8, whose peers are the values its B-tree equality holds equal: the type's
+ * default operator class, which an extension's type such as pgvector's has off the search path, where `=` is not found;
+ * a float's two zeros apart (`identifiedBy`). Each group is in order, the groups by their first position.
  */
 export const postgresClasses = (
 	db: CaseSession,
@@ -335,7 +348,7 @@ export const postgresClasses = (
 ) =>
 	Effect.map(
 		db.values(
-			`SELECT string_agg(c.ord::text, ',' ORDER BY c.ord) FROM (SELECT r.ord, dense_rank() OVER (ORDER BY ${orderedBy(type, "r.v")}) AS k FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v ${wireSql(type, names)})) AS c GROUP BY c.k ORDER BY min(c.ord)`,
+			`SELECT string_agg(c.ord::text, ',' ORDER BY c.ord) FROM (SELECT r.ord, dense_rank() OVER (ORDER BY ${identifiedBy(type, "r.v")}) AS k FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v ${wireSql(type, names)})) AS c GROUP BY c.k ORDER BY min(c.ord)`,
 			[recordsetOf(names.codes, type, values)]
 		),
 		(rows): ReadonlyArray<ReadonlyArray<number>> =>
@@ -344,8 +357,8 @@ export const postgresClasses = (
 
 /**
  * The positions of a batch whose text PostgreSQL's input function of the type does not read as the value: each value
- * at its wire type, and its text read at that type, ranked together under ORDER BY of the value (`postgresClasses`), a
- * position whose two rank apart, NaN being equal to NaN there.
+ * at its wire type, and its text read at that type, ranked together as `postgresClasses` ranks a batch, a position
+ * whose two rank apart, NaN being equal to NaN there and a float's -0 read as +0 apart from it.
  */
 export const postgresUnread = (
 	db: CaseSession,
@@ -356,7 +369,7 @@ export const postgresUnread = (
 	const wire = wireSql(type, names)
 	return Effect.map(
 		db.values(
-			`WITH r AS (SELECT * FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v ${wire}, t text)), both_sides AS (SELECT r.ord, r.v AS x FROM r UNION ALL SELECT r.ord, CAST(r.t AS ${wire}) FROM r), ranked AS (SELECT b.ord, dense_rank() OVER (ORDER BY ${orderedBy(type, "b.x")}) AS k FROM both_sides AS b) SELECT ranked.ord::text FROM ranked GROUP BY ranked.ord HAVING min(ranked.k) <> max(ranked.k) ORDER BY ranked.ord`,
+			`WITH r AS (SELECT * FROM jsonb_to_recordset($1::text::jsonb) AS r(ord int4, v ${wire}, t text)), both_sides AS (SELECT r.ord, r.v AS x FROM r UNION ALL SELECT r.ord, CAST(r.t AS ${wire}) FROM r), ranked AS (SELECT b.ord, dense_rank() OVER (ORDER BY ${identifiedBy(type, "b.x")}) AS k FROM both_sides AS b) SELECT ranked.ord::text FROM ranked GROUP BY ranked.ord HAVING min(ranked.k) <> max(ranked.k) ORDER BY ranked.ord`,
 			[
 				jsonText(
 					Arr.map(texted, ({ value, text }, ord) => ({
