@@ -187,6 +187,19 @@ const closedClassifier = (installation: Installation): ((name: string) => Instal
 	})
 }
 
+/** Each row function of an installation as the verifier judges it (verify.ts rowFunction): its parameters' names, in
+ * order, and the tables whose CHECKs and generated columns call it. */
+const rowClassifier = (
+	installation: Installation
+): ((s: Extract<SqlStatement, { readonly kind: "createConstant" }>) => InstalledFunction) => {
+	const callers = tableCallers(installation.manifest)
+	return (s) => ({
+		kind: "rowFunction",
+		params: Arr.map(s.params, (p) => p.name),
+		tables: Arr.sort(callers.get(s.name.name) ?? [], Order.String)
+	})
+}
+
 /** Whether a constant's statement creates a names constant (it returns name[]) or a live-codes constant (a hex literal
  * of bit varying; a closed relation's constant is a pack): a roster's, which no closed relation owns. */
 const rosterConstant = (s: Extract<SqlStatement, { readonly kind: "createConstant" }>): boolean =>
@@ -199,14 +212,17 @@ export const closedConstantsOf = (
 	installation: Installation
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
 	const judged = closedClassifier(installation)
+	const row = rowClassifier(installation)
 	return Arr.flatMap(installation.manifest.objects, (o) =>
 		o.kind === "constant"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> =>
 					s.kind === "packConstant"
 						? [[s.function.name, judged(s.function.name)]]
-						: s.kind === "createConstant" && !rosterConstant(s)
-							? [[s.name.name, judged(s.name.name)]]
-							: []
+						: s.kind === "createConstant" && s.language === "plpgsql"
+							? [[s.name.name, row(s)]]
+							: s.kind === "createConstant" && !rosterConstant(s)
+								? [[s.name.name, judged(s.name.name)]]
+								: []
 				)
 			: []
 	)
@@ -249,6 +265,7 @@ const constantsOf = (
 	installation: Installation
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
 	const closedConstant = closedClassifier(installation)
+	const row = rowClassifier(installation)
 	const domains = Arr.flatMap(installation.manifest.objects, (o) =>
 		o.kind === "domain"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
@@ -273,6 +290,9 @@ const constantsOf = (
 						return []
 					}
 					const name = s.name.name
+					if (s.language === "plpgsql") {
+						return [[name, row(s)]]
+					}
 					if (s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) {
 						return [[name, { kind: "names", domain: checking(name) }]]
 					}

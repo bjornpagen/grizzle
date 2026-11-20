@@ -106,11 +106,10 @@ const patternedSchema = (length: number, generated: boolean) => {
 	)
 }
 
+/** A case's schema. */
+export const rowSchemaOf = (c: RowCase) =>
+	c.kind === "contained" ? containedSchema(c.rows) : patternedSchema(c.length, c.generated)
+
 /** A case's installation. */
 export const installationOf = (c: RowCase): Installation =>
-	succeeded(
-		c.kind === "contained"
-			? compiled(containedSchema(c.rows))
-			: compiled(patternedSchema(c.length, c.generated)),
-		"the installation compiles"
-	)
+	succeeded(compiled(rowSchemaOf(c)), "the installation compiles")

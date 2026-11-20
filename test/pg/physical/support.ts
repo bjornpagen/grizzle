@@ -249,19 +249,35 @@ export const worldsGrants = (
 		)
 	/**
 	 * A closed constant's executors: every world role on a declared closed relation's own constant, which its closed
-	 * reads call, and the writer on one a CHECK or generated column of a table it writes calls.
+	 * reads call, and the writer on one a CHECK or generated column of a table it writes calls, as on every row function,
+	 * which only a table's CHECKs and generated columns call.
 	 */
 	const closedExecutors = Arr.flatMap(
 		closedConstantsOf(installation),
-		([name, fn]): ReadonlyArray<ProjectedGrant> =>
-			fn.kind === "closedConstant"
-				? on(
+		([name, fn]): ReadonlyArray<ProjectedGrant> => {
+			switch (fn.kind) {
+				case "closedConstant":
+					return on(
 						"function",
 						name,
 						fn.declared ? [writer.role, reader] : fn.tables.length > 0 ? [writer.role] : [],
 						["EXECUTE"]
 					)
-				: []
+				case "rowFunction":
+					return on("function", name, fn.tables.length > 0 ? [writer.role] : [], ["EXECUTE"])
+				case "world":
+				case "declared":
+				case "refusal":
+				case "snapshotGuard":
+				case "isolationGuard":
+				case "rule":
+				case "hold":
+				case "retire":
+				case "names":
+				case "live":
+					return []
+			}
+		}
 	)
 	/**
 	 * The domains a full role reads: every domain of the schema but a text domain whose every use is a closed
@@ -312,6 +328,7 @@ export const worldsGrants = (
 				case "hold":
 				case "retire":
 				case "closedConstant":
+				case "rowFunction":
 				case "declared":
 					return []
 			}

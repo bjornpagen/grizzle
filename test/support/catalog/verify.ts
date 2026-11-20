@@ -39,6 +39,15 @@ export type InstalledFunction =
 			readonly declared: boolean
 			readonly tables: ReadonlyArray<string>
 	  }
+	| {
+			/**
+			 * A table's row function (physical/ddl/row-functions.ts): a PL/pgSQL function of the columns `params` names, in
+			 * order, which the CHECKs and generated columns of `tables` call on each row they write.
+			 */
+			readonly kind: "rowFunction"
+			readonly params: ReadonlyArray<string>
+			readonly tables: ReadonlyArray<string>
+	  }
 
 /** The two functions each retirable unit installs, by the declared names of their headers: its hold and its retirement
  * (physical/ddl/retire.ts addUnitFunctions), each named by its identity. */
@@ -214,6 +223,14 @@ export type ErasureProblem =
 			/** A constant installed otherwise than as one: a function of arguments, VOLATILE or STABLE, SECURITY DEFINER,
 			 * with a SET clause (which keeps PostgreSQL from inlining it), or not owned by the owner. */
 			readonly kind: "constantShape"
+			readonly function: string
+			readonly reason: string
+	  }
+	| {
+			/** A row function installed otherwise than as one: not of PL/pgSQL, of other arguments than the columns it
+			 * reads, VOLATILE or STABLE, SECURITY DEFINER, of another SET clause than the closed search_path, or not owned
+			 * by the owner. */
+			readonly kind: "rowFunctionShape"
 			readonly function: string
 			readonly reason: string
 	  }
@@ -757,7 +774,45 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 				...grantProblems(j, held, allowed.function, allowed.none),
 				...constantExecutorProblems(j, f, expected)
 			]
+		case "rowFunction":
+			return [
+				...rowFunctionShapeProblems(j, f, expected.params),
+				...grantProblems(j, held, allowed.function, allowed.none),
+				...constantExecutorProblems(j, f, expected)
+			]
 	}
+}
+
+/**
+ * A row function is a PL/pgSQL function of the columns its CREATE names, in order, IMMUTABLE, owned by the owner, not
+ * SECURITY DEFINER, and of exactly one SET clause, the closed search_path its body's operators resolve under, so each
+ * backend plans it once and no writer's path changes what it computes (physical/ddl/row-functions.ts).
+ */
+const rowFunctionShapeProblems = (
+	j: Judging,
+	f: Fn,
+	params: ReadonlyArray<string>
+): ReadonlyArray<ErasureProblem> => {
+	const shape = (holds: boolean, reason: string) =>
+		unless(holds, { kind: "rowFunctionShape", function: f.name, reason })
+	const named = Arr.map(
+		f.args === "" ? [] : Str.split(f.args, ", "),
+		(arg) => Str.split(arg, " ")[0]
+	)
+	return [
+		...shape(f.owner === j.owner, `owned by ${f.owner}`),
+		...shape(
+			named.length === params.length && Arr.every(named, (name, i) => name === params[i]),
+			`of arguments (${f.args}), not (${Arr.join(params, ", ")})`
+		),
+		...shape(f.volatility === "i", `of volatility ${f.volatility}`),
+		...shape(!f.securityDefiner, "SECURITY DEFINER"),
+		...shape(
+			f.config.length === 1 && f.config[0] === fixedSearchPath,
+			`with SET ${Arr.join(f.config, ", ")}`
+		),
+		...shape(Str.includes(" LANGUAGE plpgsql")(f.definition), "of a language other than PL/pgSQL")
+	]
 }
 
 /**
@@ -861,7 +916,10 @@ const executorsOf = (j: Judging, name: string): ReadonlySet<string> =>
 const constantExecutorProblems = (
 	j: Judging,
 	f: Fn,
-	expected: Extract<InstalledFunction, { readonly kind: "names" | "live" | "closedConstant" }>
+	expected: Extract<
+		InstalledFunction,
+		{ readonly kind: "names" | "live" | "closedConstant" | "rowFunction" }
+	>
 ): ReadonlyArray<ErasureProblem> => {
 	const required = new Set<string>(viewCallers(j, f.name))
 	switch (expected.kind) {
@@ -880,6 +938,11 @@ const constantExecutorProblems = (
 					required.add(r)
 				}
 			}
+			for (const r of tableWriters(j, expected.tables)) {
+				required.add(r)
+			}
+			break
+		case "rowFunction":
 			for (const r of tableWriters(j, expected.tables)) {
 				required.add(r)
 			}
