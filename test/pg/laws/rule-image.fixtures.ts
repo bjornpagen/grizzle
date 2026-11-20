@@ -4,7 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
 import { parsePlan, type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -394,22 +394,31 @@ export const runImaged = (
 		/**
 		 * A session of package 1 whose item is document 4's identifier with its last character changed holds no
 		 * identifier of its package: the model refuses it, and so must the judge, whose probe finds no row by the image of
-		 * a text no stored identifier is (23503, a containment's).
+		 * a text no stored identifier is (23503, a containment's). Its insert and the judgment are one exchange, which the
+		 * case's transaction runs under one savepoint of its own and rolls back to when PostgreSQL refuses a statement of
+		 * it (substrate.ts undoneAlone), so the refused session leaves the transaction as it was. A savepoint the case set
+		 * itself would be released with the statement savepoint it was set under, and a rollback to it fail (3B001).
 		 */
 		const near = `(SELECT overlay(${a("value")} placing (CASE WHEN right(${a("value")}, 1) = 'a' THEN 'b' ELSE 'a' END) from char_length(${a("value")})) FROM ${attribute} WHERE ${a("package")} = ${pkg("1")} AND ${a("path")} = ${path("4")} AND ${a("name")} = 0)`
-		yield* connection.query("SAVEPOINT near", [])
-		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
-		yield* connection.query(
-			`INSERT INTO ${session} (${s("id")}, ${s("package")}, ${s("item")}) VALUES (${stored.sessions + stored.stored * stored.packages}, ${pkg("1")}, ${near})`,
-			[]
+		const [deferred, inserted, judged] = yield* connection.exchange([
+			{ sql: "SET CONSTRAINTS ALL DEFERRED", params: [] },
+			{
+				sql: `INSERT INTO ${session} (${s("id")}, ${s("package")}, ${s("item")}) VALUES (${stored.sessions + stored.stored * stored.packages}, ${pkg("1")}, ${near})`,
+				params: []
+			},
+			{ sql: "SET CONSTRAINTS ALL IMMEDIATE", params: [] }
+		])
+		assert.ok(
+			Result.isSuccess(deferred) && inserted !== undefined && Result.isSuccess(inserted),
+			`${Formatter.format(stored)}: a session one byte off a stored identifier is inserted, its judgment deferred`
 		)
-		const missed = yield* Effect.flip(connection.query("SET CONSTRAINTS ALL IMMEDIATE", []))
 		assert.equal(
-			pgErrorFields(missed)?.code,
+			judged !== undefined && Result.isFailure(judged)
+				? pgErrorFields(judged.failure)?.code
+				: undefined,
 			"23503",
 			`${Formatter.format(stored)}: a session one byte off a stored identifier is refused by the containment`
 		)
-		yield* connection.query("ROLLBACK TO SAVEPOINT near", [])
 		c.note("a session one byte off its identifier refused")
 		if (Arr.some(stored.lengths, (n) => n > loneTextBytes)) {
 			c.note("a value past a B-tree entry")

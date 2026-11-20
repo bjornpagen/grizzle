@@ -1,12 +1,15 @@
 /** What the properties of rule-probe-pattern.test.ts read: its spaces, models and helpers. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Formatter } from "effect"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import { contained, derived, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
-import { seatTemplate } from "#test/pg/fin/installed.ts"
+import { type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { testArtifacts, testCompile } from "#test/support/compile.ts"
 
 const Tag = str.regex("^[a-z]{1,4}$")
 
@@ -16,22 +19,33 @@ const Closed = relation("Closed", { tag: Tag }, ["tag"])
 
 const Item = relation("Item", { id: pg.integer, tag: Tag }, ["id"])
 
-const Base = schema("RuleProbePattern", [Allowed, Closed, Item], [])
+/** How Item stands: immutable, the schema's default, whose immutability guard refuses an UPDATE that changes a fixed
+ * field of its row (physical/ddl/immutable.ts), or declared mutable, whose update of a tag the rule's probe reads. */
+export type Standing = "immutable" | "mutable"
 
-const Open = derived(
-	"Open",
-	query(Base).rule((r) => {
-		const { tag } = v(Allowed, "allowed")
-		return r.match(Allowed, { tag }).where(r.not(Closed, { tag })).find({ tag })
-	})
-)
+const STANDINGS: Arr.NonEmptyReadonlyArray<Standing> = ["immutable", "mutable"]
 
-const RuleProbePattern = schema.extend(
-	[Base],
-	"RuleProbePatternRule",
-	[Open],
-	[contained(on(Item, "tag"), on(Open, "tag"))]
-)
+/** The schema with Item as `standing` says: Allowed, Closed and Item, Open over them, every Item's tag one of Open's. */
+const ruleProbePattern = (standing: Standing) => {
+	const Base = schema(
+		"RuleProbePattern",
+		[Allowed, Closed, Item],
+		standing === "mutable" ? [mutable(Item)] : []
+	)
+	const Open = derived(
+		"Open",
+		query(Base).rule((r) => {
+			const { tag } = v(Allowed, "allowed")
+			return r.match(Allowed, { tag }).where(r.not(Closed, { tag })).find({ tag })
+		})
+	)
+	return schema.extend(
+		[Base],
+		"RuleProbePatternRule",
+		[Open],
+		[contained(on(Item, "tag"), on(Open, "tag"))]
+	)
+}
 
 export const RELATIONS: Arr.NonEmptyReadonlyArray<string> = ["Allowed", "Closed", "Item"]
 
@@ -54,6 +68,7 @@ type Write =
 	| { readonly kind: "insert closed"; readonly tag: TagValue }
 
 interface Sketch {
+	readonly standing: Standing
 	readonly state: State
 	readonly write: Write
 }
@@ -86,6 +101,7 @@ const WRITES: Arr.NonEmptyReadonlyArray<Write> = Arr.flatMap(
 )
 
 export const sketchGen: Gen<Sketch> = (source) => ({
+	standing: source.draw(element(STANDINGS)),
 	state: source.draw(element(STATES)),
 	write: source.draw(element(WRITES))
 })
@@ -113,7 +129,10 @@ export const after = (s: State, w: Write): State & { readonly inserted: TagValue
 export const keeps = (s: State & { readonly inserted: TagValue | undefined }): boolean =>
 	(s.item === undefined || open(s, s.item)) && (s.inserted === undefined || open(s, s.inserted))
 
-export type Feature = `committed ${Write["kind"]}` | `refused ${Write["kind"]}`
+export type Feature =
+	| `committed ${Write["kind"]}`
+	| `refused ${Write["kind"]}`
+	| "an update of an immutable Item refused by its guard"
 
 export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"committed insert item",
@@ -123,8 +142,37 @@ export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"committed delete allowed",
 	"refused delete allowed",
 	"committed insert closed",
-	"refused insert closed"
+	"refused insert closed",
+	"an update of an immutable Item refused by its guard"
 ]
+
+/** Item's fields a write changes in place under each standing, as the schema decides them (ir/law.ts RelationInfo
+ * `inPlace`): the fields its immutability guard leaves free, every other field outside its key held fixed. */
+const inPlaceOf = (standing: Standing): ReadonlyArray<string> =>
+	defined(
+		succeeded(
+			testArtifacts(ruleProbePattern(standing), testCompile),
+			"the rule's schema compiles"
+		).derived.schema.relations.get("Item"),
+		"Item"
+	).inPlace
+
+const IN_PLACE: Readonly<Record<Standing, ReadonlyArray<string>>> = {
+	immutable: inPlaceOf("immutable"),
+	mutable: inPlaceOf("mutable")
+}
+
+/**
+ * Whether a write's UPDATE changes a field of a stored Item its standing holds fixed, which its immutability guard
+ * refuses (42501) before any rule judges the state: an update of Item 1 to another tag where Item's `tag` is not among
+ * the fields its standing changes in place (`IN_PLACE`). An update to the tag it holds changes no field, and one of an
+ * absent Item no row.
+ */
+export const guarded = (s: Sketch): boolean =>
+	s.write.kind === "update item" &&
+	s.state.item !== undefined &&
+	s.state.item !== s.write.tag &&
+	!Arr.contains(IN_PLACE[s.standing], "tag")
 
 export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
@@ -132,9 +180,9 @@ export const literalOf = (s: Sketch): string => Formatter.format(s)
 
 export const text = (tag: TagValue) => `'${tag}'`
 
-/** RuleProbePattern installed once per member (fin/installed.ts seatTemplate), which each case's seat holds. */
-export const ruleProbePatternTemplate = seatTemplate(
-	import.meta,
-	RuleProbePattern,
-	"rule_probe_pattern"
-)
+/** The schema under each standing installed once per member (fin/installed.ts seatTemplate), which each case's seat
+ * holds. */
+export const ruleProbePatternTemplates: Readonly<Record<Standing, SeatTemplate>> = {
+	immutable: seatTemplate(import.meta, ruleProbePattern("immutable"), "rule_probe_pattern"),
+	mutable: seatTemplate(import.meta, ruleProbePattern("mutable"), "rule_probe_pattern_mutable")
+}
