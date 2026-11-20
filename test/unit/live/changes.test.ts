@@ -273,7 +273,7 @@ export const theLiveLeaderKeysNoNativeMapByATransactionsKeyV8HashesByItsLength =
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				original: "\treturn mintTextsId({ texts, digest: digest >> 1, belowSurrogates })",
 				replacement:
 					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
 				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as a transaction's Map of keys by their text did: a transaction of values past the hashed length keys a native Map by each key, one chain."

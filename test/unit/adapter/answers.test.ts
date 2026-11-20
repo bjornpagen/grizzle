@@ -356,7 +356,7 @@ export const aReadsRowsKeyNoNativeMapByATextV8HashesByItsLength = property.explo
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				original: "\treturn mintTextsId({ texts, digest: digest >> 1, belowSurrogates })",
 				replacement:
 					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
 				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as the reader's trie of a row's texts did: rows of texts past the hashed length key a native Map by each, one chain."

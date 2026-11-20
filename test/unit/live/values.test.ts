@@ -403,7 +403,7 @@ export const theLiveModelsValuesKeysCompareByValueAndRowsByWhatTheyDeliver = pro
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\thas(key: TextsId): boolean {\n\t\treturn this.#found(key) !== undefined\n\t}",
+				original: "\thas(key: TextsId): boolean {\n\t\treturn this.#held(key) !== undefined\n\t}",
 				replacement: "\thas(key: TextsId): boolean { return true }",
 				why: "A map of forms holds every form: two keys of two classes are one; the property fails."
 			},
@@ -509,7 +509,7 @@ export const aLiveSetKeysNoNativeMapByAKeyV8HashesByItsLength = property.explore
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				original: "\treturn mintTextsId({ texts, digest: digest >> 1, belowSurrogates })",
 				replacement:
 					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
 				why: "A TextsMap keys its buckets by an identity's texts joined, a native Map of strings, as the value's trie of key values did: a family of keys past the hashed length keys a native Map by each, one chain."

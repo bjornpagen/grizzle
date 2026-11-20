@@ -75,7 +75,7 @@ export const aWritesDecodeAndBindingKeyNoNativeMapByATextV8HashesByItsLength = p
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\treturn mintTextsId({ texts, digest: digest | 0, belowSurrogates })",
+				original: "\treturn mintTextsId({ texts, digest: digest >> 1, belowSurrogates })",
 				replacement:
 					'\treturn mintTextsId({ texts, digest: texts.join("\\u0000"), belowSurrogates })',
 				why: "A TextsMap keys its buckets by the identity's texts joined, a native Map of strings, as TextsKey keyed every set of facts before IDKEY: a fact's texts past the hashed length key it, so a family of them is one chain."

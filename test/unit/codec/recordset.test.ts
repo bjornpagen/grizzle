@@ -266,8 +266,9 @@ export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByt
 		kills: [
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\tsortInPlace(entries, (a, b) => compareTextsIds(a.identity, b.identity))\n",
-				replacement: "",
+				original:
+					"\tconst entries = inIdentityOrder(Array.from(byIdentity.values()), (e) => e.identity)",
+				replacement: "\tconst entries = Array.from(byIdentity.values())",
 				why: "A set is encoded in the order given, not its canonical order; the canonical encoding property fails."
 			},
 			{
@@ -656,10 +657,11 @@ export const relationNormalizationKeysEachFactOnceAndSortsTheKeysAsTheyAre = pro
 		kills: [
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\tsortInPlace(entries, (a, b) => compareTextsIds(a.identity, b.identity))",
+				original:
+					"\tconst entries = inIdentityOrder(Array.from(byIdentity.values()), (e) => e.identity)",
 				replacement:
-					"\tsortInPlace(entries, (a, b) => compareTextsIds(textsId(a.identity.texts), textsId(b.identity.texts)))",
-				why: "The sort keys each fact again at every comparison, so a set of n facts is keyed about n log n times past its n."
+					"\tconst entries = inIdentityOrder(Array.from(byIdentity.values()), (e) => textsId(e.identity.texts))",
+				why: "The sort keys each fact again, so a set of n facts is keyed 2n times past its n."
 			}
 		]
 	}

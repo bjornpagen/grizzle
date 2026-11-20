@@ -15,8 +15,7 @@ import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CodecFault, EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { sortInPlace } from "#compiler/core/order.ts"
-import { compareTextsIds, TextsMap, textsId } from "#compiler/core/text.ts"
+import { inIdentityOrder, TextsMap, textsId } from "#compiler/core/text.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
@@ -314,11 +313,10 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  *
  * The one mint of normal facts: the facts of `byIdentity`, each admitted by factIdentity over one heading and frozen,
  * keyed by its fact identity (core/text.ts TextsId), which a TextsMap holds once each, so the facts are distinct by
- * construction, put in the canonical order of their identities here (compareTextsIds), and frozen.
+ * construction, put in the canonical order of their identities here (core/text.ts inIdentityOrder), and frozen.
  */
 export const normalFacts = (byIdentity: TextsMap<IdentifiedFact>): NormalFacts => {
-	const entries = Array.from(byIdentity.values())
-	sortInPlace(entries, (a, b) => compareTextsIds(a.identity, b.identity))
+	const entries = inIdentityOrder(Array.from(byIdentity.values()), (e) => e.identity)
 	return mintNormal(
 		Object.freeze({
 			facts: Object.freeze(entries.map((e) => e.fact)),

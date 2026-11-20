@@ -13,6 +13,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import type { TextsId } from "#compiler/core/text.ts"
 import { longestHashedText } from "#test/support/kernel/long-keys.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -106,6 +107,15 @@ export const tuple: Gen<ReadonlyArray<string>> = array(spelledText, {
 	min: 0,
 	max: 3
 })
+
+/** An entry of a set a sort puts in its identities' order: a tuple and its identity (core/text.ts TextsId). */
+export interface IdentifiedTuple {
+	readonly tuple: ReadonlyArray<string>
+	readonly id: TextsId
+}
+
+/** An entry's identity, the one reader a sort through columns calls (core/text.ts inIdentityOrder): its calls counted. */
+export const identityOfTuple = (entry: IdentifiedTuple): TextsId => entry.id
 
 /** Whether JSON.stringify escapes a code unit: a quote, a backslash or a control. */
 export const escaped = (unit: number): boolean => unit === 0x22 || unit === 0x5c || unit < 0x20

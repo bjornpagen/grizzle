@@ -1,9 +1,10 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
+import { inOrder } from "#compiler/core/order.ts"
 
 /**
  * Storable text: what PostgreSQL text can hold, and the orders of texts that spell lists of them, under the fixed
@@ -136,9 +137,11 @@ declare const textsIdBrand: unique symbol
 
 /**
  * A list of well-formed texts as an identity, its texts never joined into one string, so a list of any length has one:
- * the texts themselves; their digest, FNV-1a over the list's count and every text's length and units; and whether
- * every unit of them is below U+D800, where UTF-16 code unit order, JavaScript's own order of strings, is code point
- * order, both worked out in one pass. Two lists are one identity exactly when they hold the same texts, and two
+ * the texts themselves; their digest, FNV-1a over the list's count and every text's length and units, its 32 bits but
+ * the lowest, which FNV-1a mixes least (it is the parity of the units' lowest bits), so the digest is one of V8's small
+ * integers, 31 bits under pointer compression, which an object holds in its own field and a native Map keys by without
+ * boxing it as a heap number; and whether every unit of them is below U+D800, where UTF-16 code unit order,
+ * JavaScript's own order of strings, is code point order, both worked out in one pass. Two lists are one identity exactly when they hold the same texts, and two
  * identities are in their lists' code point order element by element, a list before every list it begins
  * (`compareTextsIds`). A map of identities (`TextsMap`) hashes a list by its digest, once, and reads its texts only
  * where two digests are one. Minted by `textsId` alone.
@@ -171,7 +174,7 @@ export const textsId = (texts: ReadonlyArray<string>): TextsId => {
 			belowSurrogates &&= code < 0xd800
 		}
 	}
-	return mintTextsId({ texts, digest: digest | 0, belowSurrogates })
+	return mintTextsId({ texts, digest: digest >> 1, belowSurrogates })
 }
 
 /** Two lists of strings in their strings' order, element by element by `text`, a list before every list it begins. */
@@ -210,215 +213,242 @@ export const compareTextsIds = (a: TextsId, b: TextsId): -1 | 0 | 1 =>
 		? compareUnitLists(a.texts, b.texts)
 		: compareTextLists(a.texts, b.texts)
 
-/** Whether two identities of one digest are one: the same texts in order. */
-const sameTextsId = (a: TextsId, b: TextsId): boolean =>
-	a === b ||
-	(a.texts.length === b.texts.length && a.texts.every((text, at) => text === b.texts[at]))
+/**
+ * `entries` in the order of their identities (`compareTextsIds`), as a stable sort leaves them: `entries` themselves
+ * where they already stand in it, which one pass over their identities finds, as normal facts do when they are
+ * normalized again; otherwise sorted through columns, the texts at each position of every identity, one array a
+ * position, so a comparison reads its two texts from one array each, where reading an identity's list through its
+ * entry and its identity object is a chain of loads from memory far apart, which over a set of hundreds of thousands is
+ * most of a sort's cost. JavaScript's own order of their texts where every unit of every identity is below U+D800, code
+ * point order otherwise, decided once for the set; a list that ends at a position orders before one that goes on.
+ * Each entry's identity is read once.
+ */
+export const inIdentityOrder = <E>(
+	entries: ReadonlyArray<E>,
+	identityOf: (entry: E) => TextsId
+): ReadonlyArray<E> => {
+	const identities = entries.map(identityOf)
+	if (inOrder(identities, compareTextsIds)) {
+		return entries
+	}
+	const arity = identities.reduce((most, id) => Math.max(most, id.texts.length), 0)
+	const columns = Array.from({ length: arity }, (_, at) => identities.map((id) => id.texts[at]))
+	const text = identities.every((id) => id.belowSurrogates) ? byUnits : compareCodePoints
+	/** Two entries by their places, their identities' texts read off the columns, position by position. */
+	const byColumns = (i: number, j: number): number => {
+		for (const column of columns) {
+			const x = column[i]
+			const y = column[j]
+			if (x !== y) {
+				return x === undefined ? -1 : y === undefined ? 1 : text(x, y) < 0 ? -1 : 1
+			}
+		}
+		return 0
+	}
+	const places = Array.from({ length: entries.length }, (_, at) => at)
+	places.sort(byColumns)
+	return places.map((at) => defined(entries[at], "an entry at its place"))
+}
 
-/** One entry of a TextsMap: its key as it was first set, its value, and its place in the map's order. */
-interface TextsEntry<V> {
-	readonly key: TextsId
-	value: V
-	at: number
+/** Whether two identities of one digest are one: the same texts in order. */
+const sameTextsId = (a: TextsId, b: TextsId): boolean => {
+	if (a === b) {
+		return true
+	}
+	const x = a.texts
+	const y = b.texts
+	if (x.length !== y.length) {
+		return false
+	}
+	for (let at = 0; at < x.length; at += 1) {
+		if (x[at] !== y[at]) {
+			return false
+		}
+	}
+	return true
 }
 
 /**
- * A node of a digest's ordered bucket (`TextsBucket`): an entry, the entries before and after its key in the order of
- * identities (compareTextsIds), and its subtree's height, an AVL tree's: every node's subtrees differ in height by at
- * most one, so a tree of k entries is at most 1.4405·log₂(k + 2) high, and a lookup compares its key with at most that
- * many entries' (Adelson-Velsky and Landis, 1962; Knuth, TAOCP 3, §6.2.3).
+ * A node of a digest's ordered bucket (`TextsBucket`): a key, the keys before and after it in the order of identities
+ * (compareTextsIds), and its subtree's height, an AVL tree's: every node's subtrees differ in height by at most one, so
+ * a tree of k keys is at most 1.4405·log₂(k + 2) high, and a lookup compares its key with at most that many keys
+ * (Adelson-Velsky and Landis, 1962; Knuth, TAOCP 3, §6.2.3).
  */
-interface BucketNode<V> {
-	readonly entry: TextsEntry<V>
-	readonly before: BucketNode<V> | undefined
-	readonly after: BucketNode<V> | undefined
+interface BucketNode {
+	readonly key: TextsId
+	readonly before: BucketNode | undefined
+	readonly after: BucketNode | undefined
 	readonly height: number
 }
 
 /** A subtree's height, none's 0. */
-const heightOf = <V>(node: BucketNode<V> | undefined): number =>
-	node === undefined ? 0 : node.height
+const heightOf = (node: BucketNode | undefined): number => (node === undefined ? 0 : node.height)
 
-/** A node of `entry` over two subtrees, its height theirs and one. */
-const nodeOf = <V>(
-	entry: TextsEntry<V>,
-	before: BucketNode<V> | undefined,
-	after: BucketNode<V> | undefined
-): BucketNode<V> => ({
-	entry,
-	before,
-	after,
-	height: Math.max(heightOf(before), heightOf(after)) + 1
-})
+/** A node of `key` over two subtrees, its height theirs and one. */
+const nodeOf = (
+	key: TextsId,
+	before: BucketNode | undefined,
+	after: BucketNode | undefined
+): BucketNode => ({ key, before, after, height: Math.max(heightOf(before), heightOf(after)) + 1 })
 
-/** A node of `entry` over two subtrees whose heights differ by at most two, rotated to differ by at most one. */
-const balanced = <V>(
-	entry: TextsEntry<V>,
-	before: BucketNode<V> | undefined,
-	after: BucketNode<V> | undefined
-): BucketNode<V> => {
+/** A node of `key` over two subtrees whose heights differ by at most two, rotated to differ by at most one. */
+const balanced = (
+	key: TextsId,
+	before: BucketNode | undefined,
+	after: BucketNode | undefined
+): BucketNode => {
 	if (before !== undefined && heightOf(before) > heightOf(after) + 1) {
 		const inner = before.after
 		return inner !== undefined && heightOf(inner) > heightOf(before.before)
 			? nodeOf(
-					inner.entry,
-					nodeOf(before.entry, before.before, inner.before),
-					nodeOf(entry, inner.after, after)
+					inner.key,
+					nodeOf(before.key, before.before, inner.before),
+					nodeOf(key, inner.after, after)
 				)
-			: nodeOf(before.entry, before.before, nodeOf(entry, before.after, after))
+			: nodeOf(before.key, before.before, nodeOf(key, before.after, after))
 	}
 	if (after !== undefined && heightOf(after) > heightOf(before) + 1) {
 		const inner = after.before
 		return inner !== undefined && heightOf(inner) > heightOf(after.after)
 			? nodeOf(
-					inner.entry,
-					nodeOf(entry, before, inner.before),
-					nodeOf(after.entry, inner.after, after.after)
+					inner.key,
+					nodeOf(key, before, inner.before),
+					nodeOf(after.key, inner.after, after.after)
 				)
-			: nodeOf(after.entry, nodeOf(entry, before, after.before), after.after)
+			: nodeOf(after.key, nodeOf(key, before, after.before), after.after)
 	}
-	return nodeOf(entry, before, after)
+	return nodeOf(key, before, after)
 }
 
-/** The entry of `key` in a tree, found by comparing its key with one entry's per level. */
-const foundIn = <V>(node: BucketNode<V> | undefined, key: TextsId): TextsEntry<V> | undefined => {
+/** The key a tree holds of `key`'s list, found by comparing `key` with one key per level. */
+const foundIn = (node: BucketNode | undefined, key: TextsId): TextsId | undefined => {
 	for (let at = node; at !== undefined;) {
-		const order = compareTextsIds(key, at.entry.key)
+		const order = compareTextsIds(key, at.key)
 		if (order === 0) {
-			return at.entry
+			return at.key
 		}
 		at = order < 0 ? at.before : at.after
 	}
 	return undefined
 }
 
-/** A tree with `entry`, whose key it holds none of, added in its key's place. */
-const insertedIn = <V>(node: BucketNode<V> | undefined, entry: TextsEntry<V>): BucketNode<V> => {
+/** A tree with `key`, whose list it holds no key of, added in its place. */
+const insertedIn = (node: BucketNode | undefined, key: TextsId): BucketNode => {
 	if (node === undefined) {
-		return nodeOf(entry, undefined, undefined)
+		return nodeOf(key, undefined, undefined)
 	}
-	return compareTextsIds(entry.key, node.entry.key) < 0
-		? balanced(node.entry, insertedIn(node.before, entry), node.after)
-		: balanced(node.entry, node.before, insertedIn(node.after, entry))
+	return compareTextsIds(key, node.key) < 0
+		? balanced(node.key, insertedIn(node.before, key), node.after)
+		: balanced(node.key, node.before, insertedIn(node.after, key))
 }
 
-/** A tree's first entry and the tree without it. */
-const firstOf = <V>(
-	node: BucketNode<V>
-): { readonly entry: TextsEntry<V>; readonly rest: BucketNode<V> | undefined } => {
+/** A tree's first key and the tree without it. */
+const firstOf = (
+	node: BucketNode
+): { readonly key: TextsId; readonly rest: BucketNode | undefined } => {
 	if (node.before === undefined) {
-		return { entry: node.entry, rest: node.after }
+		return { key: node.key, rest: node.after }
 	}
 	const first = firstOf(node.before)
-	return { entry: first.entry, rest: balanced(node.entry, first.rest, node.after) }
+	return { key: first.key, rest: balanced(node.key, first.rest, node.after) }
 }
 
-/** A tree without the entry of `key`, which it holds. */
-const removedFrom = <V>(
-	node: BucketNode<V> | undefined,
-	key: TextsId
-): BucketNode<V> | undefined => {
+/** A tree without its key of `key`'s list, which it holds. */
+const removedFrom = (node: BucketNode | undefined, key: TextsId): BucketNode | undefined => {
 	if (node === undefined) {
 		return undefined
 	}
-	const order = compareTextsIds(key, node.entry.key)
+	const order = compareTextsIds(key, node.key)
 	if (order < 0) {
-		return balanced(node.entry, removedFrom(node.before, key), node.after)
+		return balanced(node.key, removedFrom(node.before, key), node.after)
 	}
 	if (order > 0) {
-		return balanced(node.entry, node.before, removedFrom(node.after, key))
+		return balanced(node.key, node.before, removedFrom(node.after, key))
 	}
 	if (node.after === undefined) {
 		return node.before
 	}
 	const next = firstOf(node.after)
-	return balanced(next.entry, node.before, next.rest)
+	return balanced(next.key, node.before, next.rest)
 }
 
 /**
- * The entries of one digest in a TextsMap: its one entry, which a lookup of that digest compares texts for texts; or,
- * once a second list meets it, an AVL tree of them in the order of identities (`BucketNode`), so a lookup there
- * compares its key with at most the tree's height of entries, at most 1.4405·log₂(k + 2) of the k lists that share the
- * digest, whatever lists were made to meet under FNV-1a's public start, which the engine cannot seed since it draws no
+ * The keys of one digest in a TextsMap: its one key, which a lookup of that digest compares texts for texts; or, once
+ * a second list meets it, an AVL tree of them in the order of identities (`BucketNode`), so a lookup there compares
+ * its key with at most the tree's height of keys, at most 1.4405·log₂(k + 2) of the k lists that share the digest,
+ * whatever lists were made to meet under FNV-1a's public start, which the engine cannot seed since it draws no
  * randomness, and however long their texts: every comparison is exact, none leans on a hash of the texts. No native
  * Map of texts would do: V8 hashes a string longer than 16,383 units by its length alone (src/objects/string.h
  * kMaxHashCalcLength), so a Map of distinct texts of one such length is one chain, each lookup comparing its key with
  * every text of the chain.
  */
-type TextsBucket<V> =
-	| { readonly kind: "one"; readonly entry: TextsEntry<V> }
-	| { readonly kind: "tree"; readonly root: BucketNode<V> }
+type TextsBucket = TextsId | BucketNode
+
+/** The key a bucket holds of `key`'s list, none where it holds no such list. */
+const heldIn = (bucket: TextsBucket, key: TextsId): TextsId | undefined =>
+	"texts" in bucket ? (sameTextsId(bucket, key) ? bucket : undefined) : foundIn(bucket, key)
 
 /**
  * A map keyed by identities (`TextsId`), exactly: two keys are one where their lists are one, whatever objects hold
- * them. A key is found by its digest, one native lookup of a number, then within its digest's bucket (`TextsBucket`),
- * compared texts for texts with the one entry there or, once two lists share a digest, with at most the height of the
- * AVL tree the bucket becomes, never their texts joined, and no two lists are ever one entry for sharing a digest: a
- * lookup costs the digest, made once where its identity is, one native lookup and at most 1.4405·log₂(k + 2) exact
- * comparisons where k lists share its digest. Iteration is in insertion order, each key as it was first set, an entry
- * set again keeping its place, as a Map's does. It holds what its readers read of a Map and no more; a Z-set's change
- * (core/zset.ts) is one.
+ * them. A key is found by its digest, one native lookup of a small integer, then within its digest's bucket
+ * (`TextsBucket`), compared texts for texts with the one key there or, once two lists share a digest, with at most the
+ * height of the AVL tree the bucket becomes, never their texts joined, and no two lists are ever one entry for sharing
+ * a digest; the key found, the key of its list as first set, holds its value in a native Map by that object's own
+ * identity. A lookup costs the digest, made once where its identity is, two native lookups and at most
+ * 1.4405·log₂(k + 2) exact comparisons where k lists share its digest; an entry is two slots of native Maps, no object
+ * of its own. Iteration is the native Map's, in insertion order, each key as it was first set, an entry set again
+ * keeping its place. It holds what its readers read of a Map and no more; a Z-set's change (core/zset.ts) is one.
  */
 export class TextsMap<V> {
-	readonly #buckets = new Map<number, TextsBucket<V>>()
-	/** The entries in insertion order, a deleted one's place empty until the order is compacted. */
-	#order: Array<TextsEntry<V> | undefined> = []
-	#size = 0
+	/** Each digest's bucket of keys, as first set. */
+	readonly #buckets = new Map<number, TextsBucket>()
+	/** Each value, by its list's key as first set. */
+	readonly #values = new Map<TextsId, V>()
 
-	#found(key: TextsId): TextsEntry<V> | undefined {
-		const held = this.#buckets.get(key.digest)
-		if (held === undefined) {
-			return undefined
+	/** The key the map holds of `key`'s list, none where it holds no such list. */
+	#held(key: TextsId): TextsId | undefined {
+		const bucket = this.#buckets.get(key.digest)
+		return bucket === undefined ? undefined : heldIn(bucket, key)
+	}
+
+	/** The key the map holds of `key`'s list: the one it holds, or `key` itself, added to its digest's bucket. */
+	#keyOf(key: TextsId): TextsId {
+		const bucket = this.#buckets.get(key.digest)
+		const held = bucket === undefined ? undefined : heldIn(bucket, key)
+		if (held !== undefined) {
+			return held
 		}
-		switch (held.kind) {
-			case "one":
-				return sameTextsId(held.entry.key, key) ? held.entry : undefined
-			case "tree":
-				return foundIn(held.root, key)
-		}
+		this.#buckets.set(
+			key.digest,
+			bucket === undefined
+				? key
+				: insertedIn("texts" in bucket ? nodeOf(bucket, undefined, undefined) : bucket, key)
+		)
+		return key
 	}
 
 	get size(): number {
-		return this.#size
+		return this.#values.size
 	}
 
 	get(key: TextsId): V | undefined {
-		return this.#found(key)?.value
+		const held = this.#held(key)
+		return held === undefined ? undefined : this.#values.get(held)
 	}
 
 	has(key: TextsId): boolean {
-		return this.#found(key) !== undefined
+		return this.#held(key) !== undefined
 	}
 
 	set(key: TextsId, value: V): this {
-		const found = this.#found(key)
-		if (found !== undefined) {
-			found.value = value
-			return this
-		}
-		const entry: TextsEntry<V> = { key, value, at: this.#order.length }
-		this.#order.push(entry)
-		this.#size += 1
-		const held = this.#buckets.get(key.digest)
-		this.#buckets.set(
-			key.digest,
-			held === undefined
-				? { kind: "one", entry }
-				: {
-						kind: "tree",
-						root: insertedIn(
-							held.kind === "one" ? nodeOf(held.entry, undefined, undefined) : held.root,
-							entry
-						)
-					}
-		)
+		this.#values.set(this.#keyOf(key), value)
 		return this
 	}
 
 	getOrInsertComputed(key: TextsId, compute: (key: TextsId) => V): V {
-		const found = this.#found(key)
-		if (found !== undefined) {
-			return found.value
+		const held = this.#held(key)
+		if (held !== undefined) {
+			return this.#values.getOrInsertComputed(held, compute)
 		}
 		const value = compute(key)
 		this.set(key, value)
@@ -426,48 +456,26 @@ export class TextsMap<V> {
 	}
 
 	delete(key: TextsId): boolean {
-		const found = this.#found(key)
-		if (found === undefined) {
+		const bucket = this.#buckets.get(key.digest)
+		const held = bucket === undefined ? undefined : heldIn(bucket, key)
+		if (bucket === undefined || held === undefined) {
 			return false
 		}
-		const held = this.#buckets.get(key.digest)
-		const rest = held?.kind === "tree" ? removedFrom(held.root, key) : undefined
+		const rest = "texts" in bucket ? undefined : removedFrom(bucket, held)
 		if (rest === undefined) {
 			this.#buckets.delete(key.digest)
 		} else {
-			this.#buckets.set(key.digest, { kind: "tree", root: rest })
+			this.#buckets.set(key.digest, rest)
 		}
-		this.#order[found.at] = undefined
-		this.#size -= 1
-		if (this.#size * 2 < this.#order.length) {
-			this.#order = this.#order.filter((entry) => entry !== undefined)
-			for (const [at, entry] of this.#order.entries()) {
-				if (entry !== undefined) {
-					entry.at = at
-				}
-			}
-		}
-		return true
+		return this.#values.delete(held)
 	}
 
-	*entries(): MapIterator<[TextsId, V]> {
-		for (const entry of this.#order) {
-			if (entry !== undefined) {
-				yield [entry.key, entry.value]
-			}
-		}
-	}
-
-	*values(): MapIterator<V> {
-		for (const entry of this.#order) {
-			if (entry !== undefined) {
-				yield entry.value
-			}
-		}
+	values(): MapIterator<V> {
+		return this.#values.values()
 	}
 
 	[Symbol.iterator](): MapIterator<[TextsId, V]> {
-		return this.entries()
+		return this.#values.entries()
 	}
 }
 

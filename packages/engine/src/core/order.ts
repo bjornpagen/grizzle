@@ -53,7 +53,7 @@ export const flip =
 		compare(b, a)
 
 /** Whether `items` already stand in `compare`'s order: no item after one it comes before. */
-const inOrder = <A>(items: ReadonlyArray<A>, compare: Comparator<A>): boolean => {
+export const inOrder = <A>(items: ReadonlyArray<A>, compare: Comparator<A>): boolean => {
 	for (let i = 1; i < items.length; i += 1) {
 		const previous = items[i - 1]
 		const item = items[i]
