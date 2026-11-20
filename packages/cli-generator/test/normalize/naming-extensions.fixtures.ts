@@ -10,9 +10,10 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { pointerOrder } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
-import { documentAt, lineGen, normalizedAt, pointerOrder } from "#test/support/normalizing.ts"
+import { documentAt, lineGen, normalizedAt } from "#test/support/normalizing.ts"
 
 /** A group as written: a dotted string of segments, an array of strings, or a value of another shape. */
 type GroupValue =

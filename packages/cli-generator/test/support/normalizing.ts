@@ -1,6 +1,5 @@
 import { constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Order, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Schema, String as Str } from "effect"
 import { AuthorConfig } from "#model/author-config.ts"
 import { DocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
@@ -76,18 +75,3 @@ export const nonBoolean: Gen<Json> = oneOf([
 	constant<Json>({ value: true }),
 	constant<Json>([true])
 ])
-
-/** A JSON Pointer token that is an array index. */
-const arrayIndex = regex("^(?:0|[1-9][0-9]*)$", "u")
-
-/** Pointers in document order (design 3.7): token by token, array indices numerically, every other token as a string. */
-export const pointerOrder: Order.Order<string> = Order.mapInput(
-	Order.Array(
-		Order.make<string>((left, right) =>
-			arrayIndex.test(left) && arrayIndex.test(right)
-				? Order.Number(Number(left), Number(right))
-				: Order.String(left, right)
-		)
-	),
-	(pointer: string) => Arr.drop(Str.split(pointer, "/"), 1)
-)

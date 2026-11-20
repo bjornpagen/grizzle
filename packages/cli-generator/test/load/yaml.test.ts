@@ -137,8 +137,8 @@ export const yamlHazard = property.explore(planted, {
 		},
 		{
 			file: "packages/cli-generator/src/load/yaml.ts",
-			original: "} else if (Predicate.isNumber(value) && !isFinite(value)) {",
-			replacement: "} else if (false && Predicate.isNumber(value) && !isFinite(value)) {",
+			original: "} else if (Predicate.isNumber(value) && !Number.isFinite(value)) {",
+			replacement: "} else if (false && Predicate.isNumber(value) && !Number.isFinite(value)) {",
 			why: "A non-finite number loads as a JSON value JSON cannot hold instead of being refused; the property fails."
 		},
 		{

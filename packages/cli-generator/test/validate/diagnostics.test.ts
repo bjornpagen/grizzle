@@ -69,31 +69,31 @@ export const plantedDiagnosis = property.exhaust(plantedSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/validate/index.ts",
+			file: "packages/cli-generator/src/validate/index.ts",
 			original: "Arr.filter(matched, ({ entry }) => Option.isNone(entry)),",
 			replacement: "matched,",
 			why: "Every error group is a refusal, a known disagreement too, so each notice comes with a refusal at its pointer; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/disagreements.ts",
+			file: "packages/cli-generator/src/validate/disagreements.ts",
 			original: '"3.0": { anchor: "schema-0", row: "VAL-02" },',
 			replacement: '"3.0": { anchor: "schema-0", row: "VAL-03" },',
 			why: "A 3.0 document is refused under the 3.1 line's row; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/index.ts",
+			file: "packages/cli-generator/src/validate/index.ts",
 			original: "const rewriteNotices = Arr.isReadonlyArrayNonEmpty(rewritten.occurrences)",
 			replacement: "const rewriteNotices = Arr.isReadonlyArrayEmpty(rewritten.occurrences)",
 			why: "The rewritten dialect ids give no SCH-01 notice, so the 3.1 text's id passes unsaid; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/disagreements.ts",
+			file: "packages/cli-generator/src/validate/disagreements.ts",
 			original: "match.instance(tokens) &&",
 			replacement: "true &&",
 			why: "A disagreement matches by its keyword alone, wherever the instance sits, so 3.1's unknown Parameter Object member reads as PRM-35's allowReserved and is a notice where it is a refusal; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/index.ts",
+			file: "packages/cli-generator/src/validate/index.ts",
 			original: "const result = yield* validateCopy(rewritten.copy)",
 			replacement: "const result = yield* validateCopy(validatorCopy(document))",
 			why: "The schema validates the document as written, not its rewritten copy, so the 3.1 text's dialect id is refused beside its SCH-01 notice; the property fails."
@@ -126,20 +126,20 @@ export const loneSurrogateNames = property.exhaust(namedSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/validate/surrogates.ts",
+			file: "packages/cli-generator/src/validate/surrogates.ts",
 			original:
 				"...(loneSurrogate.test(key) ? [pointerOf([...tokens, key])] : []),\n\t\t\t...folded",
 			replacement: "...folded",
 			why: "No property name is a surrogate site, so a lone surrogate reaches the validator, which cannot percent-encode it, and no DOC-14 refusal is made; the property fails (TESTPOLICY2's census, mutant 30c9af81c7)."
 		},
 		{
-			file: "packages/generator/src/validate/surrogates.ts",
+			file: "packages/cli-generator/src/validate/surrogates.ts",
 			original: "loneSurrogate.test(codePoint) ?",
 			replacement: "false ?",
 			why: "A lone surrogate stands in the pointer as itself, unescaped, so the refusal's pointer is no Unicode text; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/surrogates.ts",
+			file: "packages/cli-generator/src/validate/surrogates.ts",
 			original:
 				"Str.toUpperCase(Option.getOrElse(Str.codePointAt(0)(codePoint), () => 0).toString(16))",
 			replacement: "Option.getOrElse(Str.codePointAt(0)(codePoint), () => 0).toString(16)",
@@ -173,19 +173,19 @@ export const dialectRewrite = property.exhaust(dialectedSpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/validate/dialect.ts",
+			file: "packages/cli-generator/src/validate/dialect.ts",
 			original: 'const occurrences = line === "3.1" ? foldJson(document, sites, []) : []',
 			replacement: "const occurrences = foldJson(document, sites, [])",
 			why: "The rewrite counts the text's dialect id on 3.0 and 3.2 too, lines whose text has no such id; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/dialect.ts",
+			file: "packages/cli-generator/src/validate/dialect.ts",
 			original: '(tokens.length === 0 && key === "jsonSchemaDialect")',
 			replacement: 'key === "jsonSchemaDialect"',
 			why: "A jsonSchemaDialect member below the root is rewritten and counted as if it were the document's own; the property fails."
 		},
 		{
-			file: "packages/generator/src/validate/dialect.ts",
+			file: "packages/cli-generator/src/validate/dialect.ts",
 			original: 'rewriting(line === "3.1")',
 			replacement: "rewriting(true)",
 			why: "The copy of a 3.0 or 3.2 document holds the dated 3.1 id where its input holds the text's; the property fails."
@@ -212,7 +212,7 @@ export const fixedMethodKeys = property.exhaust(methodKeySpace, {
 	kept: [],
 	kills: [
 		{
-			file: "packages/generator/src/validate/index.ts",
+			file: "packages/cli-generator/src/validate/index.ts",
 			original: "const groups = Arr.filter(errorGroups, (group) => !isFixedMethodKey(group))",
 			replacement: "const groups = errorGroups",
 			why: "The 3.2 schema's bar on an uppercase fixed method key is a refusal of its own, so the structure check's PTH-24 refusal comes with a second; the property fails."

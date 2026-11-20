@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Predicate, Record, Schema } from "effect"
+import { Array as Arr, Data, Effect, Option, Predicate, Record } from "effect"
 import { isAlias, isScalar, isSeq, LineCounter, parseAllDocuments } from "yaml"
 import type {
 	Alias,
@@ -28,12 +28,7 @@ interface Failure {
 /**
  * The one throwing seam: `yaml`'s parser, which can throw on pathological input (design 13.1 R7).
  */
-class YamlParserFault extends Schema.TaggedError<
-	YamlParserFault,
-	{ readonly brand: unique symbol }
->()("YamlParserFault", {
-	cause: Schema.Defect()
-}) {}
+class YamlParserFault extends Data.TaggedError("YamlParserFault")<{ readonly cause: unknown }> {}
 
 const jsonTags: ReadonlySet<string> = new Set(
 	Arr.map(
@@ -42,11 +37,11 @@ const jsonTags: ReadonlySet<string> = new Set(
 	)
 )
 
-const isJsonScalar = Schema.is(Schema.Union([Schema.String, Schema.Boolean, Schema.Null]))
-
-const isFinite = Schema.is(Schema.Finite)
-
-const isString = Schema.is(Schema.String)
+/** A scalar JSON holds as it is: a string, a boolean or null; a number is JSON's only when it is finite. */
+const isJsonScalar = Predicate.or(
+	Predicate.isString,
+	Predicate.or(Predicate.isBoolean, Predicate.isNull)
+)
 
 interface Walk {
 	readonly active: Set<object>
@@ -70,7 +65,7 @@ const scalarOf = (walk: Walk, node: Scalar.Parsed): Json => {
 
 	if (!hasJsonTag(node.tag)) {
 		fail(walk, "DOC-14/yaml-non-json-tag", node)
-	} else if (Predicate.isNumber(value) && !isFinite(value)) {
+	} else if (Predicate.isNumber(value) && !Number.isFinite(value)) {
 		fail(walk, "DOC-14/yaml-non-finite", node)
 	} else if (Predicate.isNumber(value) || isJsonScalar(value)) {
 		return value
@@ -82,7 +77,7 @@ const scalarOf = (walk: Walk, node: Scalar.Parsed): Json => {
 }
 
 const keyOf = (walk: Walk, key: ParsedNode | null): string => {
-	if (isScalar(key) && isString(key.value)) {
+	if (isScalar(key) && Predicate.isString(key.value)) {
 		return key.value
 	}
 
@@ -258,7 +253,7 @@ export const parseStrictYaml = (
 	const lineCounter = new LineCounter()
 
 	return Effect.try({
-		catch: (cause) => YamlParserFault.make({ cause }),
+		catch: (cause) => new YamlParserFault({ cause }),
 		try: () =>
 			parseAllDocuments(text, {
 				lineCounter,

@@ -12,6 +12,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
+import { pointerOrder } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import {
@@ -20,7 +21,6 @@ import {
 	entryText,
 	lineGen,
 	normalizedAt,
-	pointerOrder,
 	token
 } from "#test/support/normalizing.ts"
 
