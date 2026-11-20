@@ -4,7 +4,13 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
-import { findNodes, parsePlan, planNodes, rowsTouched } from "#bench/harness/explain.ts"
+import {
+	findNodes,
+	type PlanNode,
+	parsePlan,
+	planNodes,
+	rowsTouched
+} from "#bench/harness/explain.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { violationCheck } from "#compiler/deploy/render/sql.ts"
@@ -337,13 +343,31 @@ const plannedStatements = (text: string): ReadonlyArray<string> =>
 	})
 
 /**
+ * The rows a plan's sequential rescans of small tables touch: each Seq Scan PostgreSQL runs once per row of a node
+ * above it (more than one loop) whose own estimated cost, a whole table's read, is at most `probeCost`, what an index
+ * probe of one row costs it at least, the index's leaf page and the table's page, each a random page (costsize.c
+ * cost_index over genericcostestimate, twice random_page_cost): PostgreSQL rescans a table by a sequential scan per row
+ * only where reading all of it costs no more than that probe, a table of a page or two, and such a rescan touches the
+ * table's rows once per outer row, which its plan's work holds beside the rows it reads. A sequential rescan of any
+ * larger table, which no estimate makes cheaper than a probe, adds nothing here, so a plan that reads a large table
+ * again for each row of another still passes the bound only where its rows read do.
+ */
+const smallTableRescans = (plan: PlanNode, probeCost: number): number =>
+	Arr.reduce(Arr.fromIterable(planNodes(plan)), 0, (sum, n) =>
+		n.nodeType === "Seq Scan" && n.actualLoops > 1 && n.totalCost <= probeCost
+			? sum + (n.actualRows + n.rowsRemovedByFilter) * n.actualLoops
+			: sum
+	)
+
+/**
  * One case in its one transaction, which the case's end rolls back: the elements of `c` loaded with the triggers off,
  * a declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed; then the rule's
  * check, as the migration that adds the rule runs it (deploy/render/sql.ts violationCheck), each statement it plans
  * explained with ANALYZE, and the block run. The rules' checks are each planned and run so. Every plan reads each table
  * by one node, so it derives no relation twice, and handles each row it reads a bounded number of times: its rows
  * touched (bench/harness/explain.ts rowsTouched, every row each node handled over all its loops, a join's examined
- * pairs among them) at most its nodes times the rows of the two tables, since a filter, a projection, a deduplication,
+ * pairs among them) at most its nodes times the rows of the tables and the rows its sequential rescans of tables no
+ * larger than an index probe touch (`smallTableRescans`), since a filter, a projection, a deduplication,
  * a hash, a sort and a merge pass each row of their input once, and an anti join over sets passes each outer row once
  * and meets each inner row once in its hash or merge. A plan that reads a set again for each row of another, a nested
  * loop over a materialized set, handles the product of the two, past the bound once the outer holds more rows than the
@@ -389,6 +413,11 @@ export const runCheck = (
 			[]
 		)
 		const rows = Number(defined(counted[0]?.[0], "the tables' count"))
+		const costs = yield* connection.queryValues(
+			"SELECT pg_catalog.current_setting('random_page_cost')::pg_catalog.float8",
+			[]
+		)
+		const probeCost = 2 * Number(defined(costs[0]?.[0], "random_page_cost"))
 		const installation = installed.installation
 		const checks = lawChecks(installation)
 		assert.equal(checks.rules.length, 4, "the schema's four rules")
@@ -426,9 +455,10 @@ export const runCheck = (
 				const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
 				const nodes = Arr.fromIterable(planNodes(plan)).length
 				const touched = rowsTouched(plan)
+				const rescans = smallTableRescans(plan, probeCost)
 				assert.ok(
-					touched <= nodes * rows,
-					`${Formatter.format(c)}: the check touches ${touched} rows, past its ${nodes} nodes times the ${rows} rows it reads, ${Formatter.format(Arr.map(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType))}`
+					touched <= nodes * rows + rescans,
+					`${Formatter.format(c)}: the check touches ${touched} rows, past its ${nodes} nodes times the ${rows} rows it reads and the ${rescans} its rescans of tables no larger than an index probe read, ${Formatter.format(Arr.map(Arr.fromIterable(planNodes(plan)), (n) => n.nodeType))}`
 				)
 				const scans = Arr.flatMap(
 					findNodes(plan, (n) => Option.isSome(n.relation) && n.nodeType !== "Bitmap Index Scan"),
