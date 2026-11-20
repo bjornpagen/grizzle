@@ -1417,7 +1417,7 @@ const withheldNotice = (headers: readonly Credential[], certificate: boolean): s
  * and never the value.
  */
 const invalidIdleTimeout = (source: string): UsageError =>
-	UsageError.make({
+	new UsageError({
 		flag: source,
 		message: `${source} must be a whole number of seconds, 1 or more`
 	})
@@ -1497,7 +1497,7 @@ const bodyOf = (
 	}
 
 	const body = response.stream.pipe(
-		Stream.mapError(() => ResponseStreamError.make({ reason: "truncated" }))
+		Stream.mapError(() => new ResponseStreamError({ reason: "truncated" }))
 	)
 
 	return Option.match(idleSeconds, {
@@ -1545,7 +1545,7 @@ const streamEventError = (
 	failed: EventFailed,
 	scrubbed: readonly ScrubEntry[]
 ): StreamEventError =>
-	StreamEventError.make({
+	new StreamEventError({
 		data: scrubbedAndSanitized(failed.data, scrubbed),
 		dataJson: Option.flatMap(failed.json, (text) => jsonData(text, scrubbed)),
 		event: failed.event,

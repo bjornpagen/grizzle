@@ -84,7 +84,7 @@ export const stdinClaimLayer: Layer.Layer<StdinClaim> = Layer.effect(
 					Effect.flatMap((first) =>
 						Option.isSome(first)
 							? Effect.fail(
-									UsageError.make({
+									new UsageError({
 										flag,
 										message: `--${flag}: standard input is already read by --${first.value}`
 									})
@@ -97,7 +97,7 @@ export const stdinClaimLayer: Layer.Layer<StdinClaim> = Layer.effect(
 )
 
 const usage = (flag: string, cause: string): UsageError =>
-	UsageError.make({ flag, message: `--${flag}: ${cause}` })
+	new UsageError({ flag, message: `--${flag}: ${cause}` })
 
 const cannotReadIn = (flag: string): UsageError => usage(flag, "cannot read the file or stdin")
 
@@ -715,7 +715,7 @@ export const numericArgument = (name: string, kind: NumericKind) =>
 	Argument.String(name).pipe(
 		Argument.withMetavar(kind),
 		Argument.mapEffect(
-			numericText(kind, (cause) => UsageError.make({ message: `<${name}>: ${cause}` }))
+			numericText(kind, (cause) => new UsageError({ message: `<${name}>: ${cause}` }))
 		)
 	)
 
@@ -848,7 +848,7 @@ export const jsonFlag = (name: string) =>
 export const jsonArgument = (name: string) =>
 	Argument.String(name).pipe(
 		Argument.mapEffect(
-			parsedJson(() => asCliError(UsageError.make({ message: `<${name}>: is not valid JSON` })))
+			parsedJson(() => asCliError(new UsageError({ message: `<${name}>: is not valid JSON` })))
 		)
 	)
 
@@ -1415,7 +1415,7 @@ export const selectBody = <A extends Choosers<A>>(options: {
 		)
 
 		if (Option.isSome(misplaced)) {
-			return yield* UsageError.make({
+			return yield* new UsageError({
 				flag: misplaced.value,
 				message: `--${misplaced.value}: does not apply to --content-type ${key}`
 			})

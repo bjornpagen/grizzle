@@ -121,7 +121,7 @@ export const toApiResponseError = (
 	const withMediaType = mediaType === undefined ? base : { ...base, mediaType }
 	const withRequestId = requestId === undefined ? withMediaType : { ...withMediaType, requestId }
 
-	return ApiResponseError.make(
+	return new ApiResponseError(
 		Option.match(retryAfterSeconds, {
 			onNone: () => withRequestId,
 			onSome: (seconds) => ({ ...withRequestId, retryAfterSeconds: seconds })
@@ -254,7 +254,7 @@ export const mapClientError = (
 	return Effect.suspend(() =>
 		reason._tag === "TransportError"
 			? Effect.fail(
-					TransportError.make({
+					new TransportError({
 						reason: transportReason(reason.cause ?? reason.description),
 						url: UrlParams.redactUrl(reason.request.url)
 					})

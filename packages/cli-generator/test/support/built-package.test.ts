@@ -81,8 +81,8 @@ export const builtExits = property.explore(invocation, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/runtime-src/domain/errors.ts",
-			original: "\treadonly [Runtime.errorExitCode] = 2",
-			replacement: "\treadonly [Runtime.errorExitCode] = 70",
+			original: "\toverride readonly [Runtime.errorExitCode] = 2",
+			replacement: "\toverride readonly [Runtime.errorExitCode] = 70",
 			why: "A usage error exits 70, the code of an internal error, where the contract documents 2; the property fails."
 		},
 		{

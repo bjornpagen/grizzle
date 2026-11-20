@@ -71,7 +71,7 @@ const escapeQuoted = (value: string, isName: boolean): string =>
 		Str.replaceAll('"', "%22")
 	)
 
-const refuse = (message: string) => UsageError.make({ message })
+const refuse = (message: string) => new UsageError({ message })
 
 const splitsHeader = (value: string): boolean =>
 	Str.includes("\r")(value) || Str.includes("\n")(value) || Str.includes("\u0000")(value)
@@ -296,7 +296,7 @@ export const positionalParts = (
 	}))
 
 const partUsage = (flag: string, cause: string) =>
-	UsageError.make({ flag, message: `--${flag}: ${cause}` })
+	new UsageError({ flag, message: `--${flag}: ${cause}` })
 
 /**
  * A file part's path, checked before any request as `--body-file`'s is: it exists, is a regular

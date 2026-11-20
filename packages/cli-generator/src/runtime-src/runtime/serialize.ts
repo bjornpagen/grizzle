@@ -83,7 +83,7 @@ type Refusal = Effect.Effect<never, UsageError>
 /**
  * Messages name the parameter and the rule, never the value.
  */
-const refuse = (message: string): Refusal => Effect.fail(UsageError.make({ message }))
+const refuse = (message: string): Refusal => Effect.fail(new UsageError({ message }))
 
 const scalarText = (name: string, value: Scalar): Effect.Effect<string | undefined, UsageError> => {
 	if (value instanceof JsonNumber) {
@@ -1419,7 +1419,7 @@ const positionalParts = (fields: FormFields, name: string, nesting: PositionalFo
 
 		const ruled = nesting.item === undefined ? nesting.positions.length : Number.POSITIVE_INFINITY
 		if (values.length > ruled) {
-			return yield* UsageError.make({
+			return yield* new UsageError({
 				flag: nesting.flag,
 				message: `--${nesting.flag}: this part takes at most ${String(ruled)} file${ruled === 1 ? "" : "s"}`
 			})
@@ -1709,7 +1709,7 @@ export const assertFormData =
 
 			const { flag, slot } = named.value
 
-			return yield* UsageError.make({
+			return yield* new UsageError({
 				flag,
 				message: seen.sent.has(slot)
 					? `--${flag}: does not match the request body schema`
@@ -1825,7 +1825,7 @@ const partFlag = "part"
 const partCount = (count: number) => `${count} part${count === 1 ? "" : "s"}`
 
 const partCountError = (bound: string) =>
-	UsageError.make({ flag: partFlag, message: `--${partFlag}: this body takes ${bound}` })
+	new UsageError({ flag: partFlag, message: `--${partFlag}: this body takes ${bound}` })
 
 /**
  * The positional body's evaluation. With no item rule a part beyond the position rules has no rule
@@ -2141,7 +2141,7 @@ const carries = (field: string, pairName: string): boolean =>
  */
 const refuseField = (field: string, mediaType: string): Refusal =>
 	Effect.fail(
-		UsageError.make({
+		new UsageError({
 			flag: "--body",
 			message: `property ${field} is refused for ${mediaType} and cannot be set through --body or --body-file`
 		})

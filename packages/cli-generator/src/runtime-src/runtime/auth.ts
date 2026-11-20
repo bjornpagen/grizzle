@@ -218,7 +218,7 @@ export const credentialFileSetting = (scheme: string): FileSetting => {
 }
 
 const usage = (scheme: string, message: string): UsageError =>
-	UsageError.make({ flag: `${schemeSlug(scheme)}-file`, message })
+	new UsageError({ flag: `${schemeSlug(scheme)}-file`, message })
 
 const credentialFromSource = (
 	scheme: string,
@@ -297,7 +297,7 @@ const certificateOf = (
 	clientCertificatePaths(definition).pipe(
 		Effect.mapBoth({
 			onFailure: () =>
-				UsageError.make({
+				new UsageError({
 					message: `cannot read ${definition.certEnv} or ${definition.keyEnv} for ${scheme}`
 				}),
 			onSuccess: Option.map((paths) => ({ definition, scheme, value: Redacted.make(paths.cert) }))
@@ -604,7 +604,7 @@ export const evaluate = (
 			}
 		}
 
-		return yield* CredentialMissing.make({
+		return yield* new CredentialMissing({
 			alternatives: Arr.map(requirement, (alternative) =>
 				describeAlternative(envPrefix, table, alternative)
 			),

@@ -198,7 +198,7 @@ export const sseParser = (maxRecordBytes: number): SseParser => {
 	const fail = (reason: "recordTooLarge" | "truncated"): ResponseStreamError => {
 		state.failed = true
 
-		return ResponseStreamError.make({ itemIndex: state.index, reason })
+		return new ResponseStreamError({ itemIndex: state.index, reason })
 	}
 
 	const unmarked = (line: Uint8Array): Uint8Array => {
@@ -530,7 +530,7 @@ const eventLine = Effect.fnUntraced(function* eventLine(
 	const text =
 		data !== "text"
 			? yield* Effect.fromOption(compactJsonText(event.data)).pipe(
-					Effect.mapError(() => ResponseStreamError.make({ itemIndex, reason: "invalidFraming" }))
+					Effect.mapError(() => new ResponseStreamError({ itemIndex, reason: "invalidFraming" }))
 				)
 			: yield* quoted(event.data)
 	const type = event.type === "message" ? "" : `,"event":${yield* quoted(event.type)}`
@@ -606,7 +606,7 @@ const eventSteps = (
 		reading.ended = true
 		const failure: Step = {
 			_tag: "Fail",
-			failure: ResponseStreamError.make({ itemIndex, reason: "unexpectedEvent" })
+			failure: new ResponseStreamError({ itemIndex, reason: "unexpectedEvent" })
 		}
 
 		return settings.output === "bytes" ? [{ _tag: "Bytes", bytes: received }, failure] : [failure]
@@ -617,7 +617,7 @@ const eventSteps = (
 		reading.ended = true
 		const failure: Step = {
 			_tag: "Fail",
-			failure: ResponseStreamError.make({ itemIndex, reason: "invalidData" })
+			failure: new ResponseStreamError({ itemIndex, reason: "invalidData" })
 		}
 
 		return settings.output === "bytes" ? [{ _tag: "Bytes", bytes: received }, failure] : [failure]
@@ -710,7 +710,7 @@ const haltSteps = (reading: Reading, settings: EventReading): ReadonlyArray<Step
 	const cut = reading.parser.halt()
 	const failures =
 		cut.length === 0 && hasLifecycle(settings.contract)
-			? [ResponseStreamError.make({ itemIndex: reading.index, reason: "truncated" })]
+			? [new ResponseStreamError({ itemIndex: reading.index, reason: "truncated" })]
 			: cut
 
 	return Arr.map(failures, (failure): Step => ({ _tag: "Fail", failure }))

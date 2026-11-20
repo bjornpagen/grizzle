@@ -235,7 +235,7 @@ const failureOf = (
 	switch (raised.kind) {
 		case "ApiResponseError":
 			return Effect.fail(
-				ApiResponseError.make({
+				new ApiResponseError({
 					body: textOf(raised.body),
 					matched: raised.matched,
 					operation: raised.operation,
@@ -252,17 +252,17 @@ const failureOf = (
 			)
 		case "TransportError":
 			return Effect.fail(
-				TransportError.make({
+				new TransportError({
 					reason: raised.reason,
 					url: "https://api.example.com/users?api_key=REDACTED"
 				})
 			)
 		case "CredentialMissing":
 			return Effect.fail(
-				CredentialMissing.make({ alternatives: raised.alternatives, operation: raised.operation })
+				new CredentialMissing({ alternatives: raised.alternatives, operation: raised.operation })
 			)
 		case "UsageError":
-			return Effect.fail(UsageError.make({ message: textOf(raised.message) }))
+			return Effect.fail(new UsageError({ message: textOf(raised.message) }))
 		case "defect":
 			return Effect.die(new Error(textOf(raised.message)))
 	}

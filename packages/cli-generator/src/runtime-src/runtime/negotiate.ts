@@ -76,7 +76,7 @@ const matchDeclared = (declared: readonly string[], concrete: Concrete): Option.
 	)
 
 const refuse = (flag: string, reason: string) =>
-	Effect.fail(UsageError.make({ flag, message: `${flag} ${reason}` }))
+	Effect.fail(new UsageError({ flag, message: `${flag} ${reason}` }))
 
 const named = (value: string): string => Str.toLowerCase(Str.trim(value))
 

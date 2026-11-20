@@ -1,25 +1,17 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
-import { Runtime, Schema } from "effect"
+import { Array as Arr, Data, type Option, Runtime } from "effect"
 import { CliError } from "effect/cli"
-
-/**
- * An OpenAPI response key (a status code 100-599, a range 1XX-5XX, or `default`), or `undeclared`.
- */
-const MatchedResponse = Schema.String.pipe(
-	Schema.check(Schema.isPattern(/^(?:[1-5]\d\d|[1-5]XX|default|undeclared)$/u))
-)
 
 /**
  * Flag or `--body` validation, mutually exclusive inputs, a refused header or cookie value,
  * binary output to a terminal.
  */
-export class UsageError extends Schema.TaggedError<UsageError>()("UsageError", {
-	flag: Schema.optionalKey(Schema.String),
-	message: Schema.String
-}) {
-	readonly [Runtime.errorExitCode] = 2
+export class UsageError extends Data.TaggedError("UsageError")<{
+	readonly flag?: string
+	readonly message: string
+}> {
+	override readonly [Runtime.errorExitCode] = 2
 
-	get [CliError.userMessage](): string {
+	override get [CliError.userMessage](): string {
 		return this.message
 	}
 }
@@ -27,38 +19,37 @@ export class UsageError extends Schema.TaggedError<UsageError>()("UsageError", {
 /**
  * No security alternative of the operation is satisfiable.
  */
-export class CredentialMissing extends Schema.TaggedError<CredentialMissing>()(
-	"CredentialMissing",
-	{
-		alternatives: Schema.Array(Schema.String),
-		operation: Schema.String
-	}
-) {
-	readonly [Runtime.errorExitCode] = 3
+export class CredentialMissing extends Data.TaggedError("CredentialMissing")<{
+	readonly alternatives: ReadonlyArray<string>
+	readonly operation: string
+}> {
+	override readonly [Runtime.errorExitCode] = 3
 
-	get [CliError.userMessage](): string {
-		return `${this.operation} needs a credential: ${this.alternatives.join(" or ")}`
+	override get [CliError.userMessage](): string {
+		return `${this.operation} needs a credential: ${Arr.join(this.alternatives, " or ")}`
 	}
 }
 
 /**
- * The final status was not 2xx. Exits 3 for 401 and 403, otherwise 1. `body` is the response body, read whole and
- * scrubbed of the run's recorded values; `requestId` is the declared request-id header's value, scrubbed and sanitized.
+ * The final status was not 2xx. Exits 3 for 401 and 403, otherwise 1. `matched` is the OpenAPI response key the status
+ * matched (a status code 100-599, a range 1XX-5XX, or `default`), or `undeclared`; `body` is the response body, read
+ * whole and scrubbed of the run's recorded values; `requestId` is the declared request-id header's value, scrubbed and
+ * sanitized.
  */
-export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("ApiResponseError", {
-	body: Schema.String,
-	matched: MatchedResponse,
-	mediaType: Schema.optionalKey(Schema.String),
-	operation: Schema.String,
-	requestId: Schema.optionalKey(Schema.String),
-	retryAfterSeconds: Schema.optionalKey(Schema.Int),
-	status: Schema.Int
-}) {
-	get [Runtime.errorExitCode](): number {
+export class ApiResponseError extends Data.TaggedError("ApiResponseError")<{
+	readonly body: string
+	readonly matched: string
+	readonly mediaType?: string
+	readonly operation: string
+	readonly requestId?: string
+	readonly retryAfterSeconds?: number
+	readonly status: number
+}> {
+	override get [Runtime.errorExitCode](): number {
 		return this.status === 401 || this.status === 403 ? 3 : 1
 	}
 
-	get [CliError.userMessage](): string {
+	override get [CliError.userMessage](): string {
 		return `${this.operation} returned ${this.status} (matched ${this.matched})`
 	}
 }
@@ -69,17 +60,14 @@ export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("Ap
  * text, scrubbed, when the event's contract says its data is JSON, which `--error-format json` prints as a JSON value;
  * `retrySafe` is the event's own word that the request took no effect, so running the command again is safe.
  */
-export class StreamEventError extends Schema.TaggedError<
-	StreamEventError,
-	{ readonly brand: unique symbol }
->()("StreamEventError", {
-	data: Schema.String,
-	dataJson: Schema.Option(Schema.String),
-	event: Schema.String,
-	itemIndex: Schema.Int,
-	operation: Schema.String,
-	retrySafe: Schema.Boolean
-}) {
+export class StreamEventError extends Data.TaggedError("StreamEventError")<{
+	readonly data: string
+	readonly dataJson: Option.Option<string>
+	readonly event: string
+	readonly itemIndex: number
+	readonly operation: string
+	readonly retrySafe: boolean
+}> {
 	override readonly [Runtime.errorExitCode] = 1
 
 	override get [CliError.userMessage](): string {
@@ -90,13 +78,13 @@ export class StreamEventError extends Schema.TaggedError<
 /**
  * A connect, DNS, TLS, timeout or abort failure. The URL arrives already redacted.
  */
-export class TransportError extends Schema.TaggedError<TransportError>()("TransportError", {
-	reason: Schema.Literals(["connect", "dns", "tls", "timeout", "aborted"]),
-	url: Schema.String
-}) {
-	readonly [Runtime.errorExitCode] = 4
+export class TransportError extends Data.TaggedError("TransportError")<{
+	readonly reason: "connect" | "dns" | "tls" | "timeout" | "aborted"
+	readonly url: string
+}> {
+	override readonly [Runtime.errorExitCode] = 4
 
-	get [CliError.userMessage](): string {
+	override get [CliError.userMessage](): string {
 		return `request to ${this.url} failed: ${this.reason}`
 	}
 }
@@ -104,46 +92,43 @@ export class TransportError extends Schema.TaggedError<TransportError>()("Transp
 /**
  * The runtime redirect loop refused a hop. Origins only, never a full `Location`.
  */
-export class RedirectRefused extends Schema.TaggedError<RedirectRefused>()("RedirectRefused", {
-	from: Schema.String,
-	reason: Schema.Literals([
-		"crossOriginBody",
-		"downgrade",
-		"loop",
-		"scheme",
-		"userinfo",
-		"unreplayableBody"
-	]),
-	to: Schema.String
-}) {
-	readonly [Runtime.errorExitCode] = 4
+export class RedirectRefused extends Data.TaggedError("RedirectRefused")<{
+	readonly from: string
+	readonly reason:
+		| "crossOriginBody"
+		| "downgrade"
+		| "loop"
+		| "scheme"
+		| "userinfo"
+		| "unreplayableBody"
+	readonly to: string
+}> {
+	override readonly [Runtime.errorExitCode] = 4
 
-	get [CliError.userMessage](): string {
+	override get [CliError.userMessage](): string {
 		return `redirect from ${this.from} to ${this.to} refused: ${this.reason}`
 	}
 }
 
 /**
- * Sequential decoding failed, a response body stream went idle, or an event stream sent an event its contract does not
- * admit (`unexpectedEvent`) or data its event's schema refuses (`invalidData`).
+ * Sequential decoding failed, a response body stream went idle, a record's or an event field's bytes are no UTF-8
+ * (`invalidText`), or an event stream sent an event its contract does not admit (`unexpectedEvent`) or data its event's
+ * schema refuses (`invalidData`).
  */
-export class ResponseStreamError extends Schema.TaggedError<ResponseStreamError>()(
-	"ResponseStreamError",
-	{
-		itemIndex: Schema.optionalKey(Schema.Int),
-		reason: Schema.Literals([
-			"truncated",
-			"recordTooLarge",
-			"invalidFraming",
-			"idleTimeout",
-			"unexpectedEvent",
-			"invalidData"
-		])
-	}
-) {
-	readonly [Runtime.errorExitCode] = 5
+export class ResponseStreamError extends Data.TaggedError("ResponseStreamError")<{
+	readonly itemIndex?: number
+	readonly reason:
+		| "truncated"
+		| "recordTooLarge"
+		| "invalidFraming"
+		| "idleTimeout"
+		| "invalidText"
+		| "unexpectedEvent"
+		| "invalidData"
+}> {
+	override readonly [Runtime.errorExitCode] = 5
 
-	get [CliError.userMessage](): string {
+	override get [CliError.userMessage](): string {
 		return this.itemIndex === undefined
 			? `response stream failed: ${this.reason}`
 			: `response stream failed at item ${this.itemIndex}: ${this.reason}`
@@ -153,13 +138,13 @@ export class ResponseStreamError extends Schema.TaggedError<ResponseStreamError>
 /**
  * `--output` found an existing path or could not write.
  */
-export class OutputError extends Schema.TaggedError<OutputError>()("OutputError", {
-	path: Schema.String,
-	reason: Schema.Literals(["exists", "write"])
-}) {
-	readonly [Runtime.errorExitCode] = 5
+export class OutputError extends Data.TaggedError("OutputError")<{
+	readonly path: string
+	readonly reason: "exists" | "write"
+}> {
+	override readonly [Runtime.errorExitCode] = 5
 
-	get [CliError.userMessage](): string {
+	override get [CliError.userMessage](): string {
 		return `cannot write ${this.path}: ${this.reason}`
 	}
 }

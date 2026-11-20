@@ -82,7 +82,7 @@ export interface SelectionInput {
 }
 
 const usage = (flag: string, cause: string): UsageError =>
-	UsageError.make({ flag, message: `${flag}: ${cause}` })
+	new UsageError({ flag, message: `${flag}: ${cause}` })
 
 /**
  * The characters that end an authority: the path, query and fragment delimiters.
