@@ -1,17 +1,16 @@
 import { codePointAt, codePointUnits } from "@bjornpagen/grizzle-text/text"
+import { regexSpaceStates } from "#text/regex/ir.ts"
 import { configurationsOf, type Nfa } from "#text/regex/nfa.ts"
 import { SearchSubsets, type Subset, subsetKey } from "#text/regex/subset.ts"
 import { entry } from "#text/regex/table.ts"
 
 /**
- * The most DFA states a matcher keeps for each configuration its NFA's states take (nfa.ts configurationsOf), the
- * states of the chain of copies PostgreSQL's NFA holds. A text that reaches a state the matcher has not met, once it
- * keeps that many, starts the matcher's table over from its initial state, so a matcher holds at most twice its
- * configurations, and at most one state for each code point it read since its table last started over, however many
- * texts it reads and whatever they spell: a value the host matches is an application's, which may reach as many states
- * of a pattern's search language as it has code points, and the states a pattern's language holds can number
- * exponentially many in its NFA's. It is PostgreSQL's own sizing of the cache of its lazy DFA, which its regex executor
- * recycles past the same count.
+ * The most DFA states a matcher keeps for each state of the NFA its cache is sized by (sizedStates). A text that reaches
+ * a state the matcher has not met, once it keeps that many, starts the matcher's table over from its initial state, so
+ * a matcher holds at most twice those states, however many texts it reads and whatever they spell: a value the host
+ * matches is an application's, which may reach as many states of a pattern's search language as it has code points,
+ * and the states a pattern's language holds can number exponentially many in its NFA's. It is PostgreSQL's own sizing
+ * of the cache of its lazy DFA, which its regex executor recycles past the same count.
  *
  * @limitKind published
  * @owner PostgreSQL 19.0's regex executor (rege_dfa.c newdfa)
@@ -23,6 +22,19 @@ import { entry } from "#text/regex/table.ts"
  * @verified 2026-11-20
  */
 const keptStatesPerNfaState = 2
+
+/**
+ * The NFA states a matcher's cache is sized by: those of the NFA PostgreSQL would build of the pattern, the chain of
+ * copies (nfa.ts configurationsOf), where it lies within PostgreSQL's compile space (ir.ts regexSpaceStates), as every
+ * pattern grizzle admits does, so the host keeps as many states as PostgreSQL's executor would; and the automaton's
+ * own states past it, where PostgreSQL builds no NFA and a chain of copies would be the product of the counts, so a
+ * matcher of `((a{255}){255}){255}` keeps its few states' worth however long the text, and never one state for each
+ * code point it read.
+ */
+const sizedStates = (nfa: Nfa): number => {
+	const copies = configurationsOf(nfa)
+	return copies <= regexSpaceStates ? copies : nfa.edges.length
+}
 
 /**
  * A state of a matcher's DFA: its subset, whether a text that ends there is a member, and its target on each atom, the
@@ -66,7 +78,7 @@ export class Matcher {
 	private constructor(nfa: Nfa) {
 		this.nfa = nfa
 		this.#subsets = new SearchSubsets(nfa)
-		this.#capacity = keptStatesPerNfaState * configurationsOf(nfa)
+		this.#capacity = keptStatesPerNfaState * sizedStates(nfa)
 		const { segments, atomOf } = this.#subsets.alphabet
 		this.#segmentLows = Int32Array.from(segments, ([lo]) => lo)
 		this.#segmentHighs = Int32Array.from(segments, ([, hi]) => hi)
@@ -86,6 +98,14 @@ export class Matcher {
 	 */
 	get spent(): number {
 		return this.#spent
+	}
+
+	/**
+	 * What the matcher holds now: the DFA states it keeps and the configurations their subsets and the transitions built
+	 * since its table last started over number, each bounded by the pattern whatever the texts it read (sizedStates).
+	 */
+	get held(): { readonly states: number; readonly configurations: number } {
+		return { states: this.#states.length, configurations: this.#subsets.configurations }
 	}
 
 	/**

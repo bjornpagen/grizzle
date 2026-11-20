@@ -3,7 +3,10 @@
  * repetition is one copy of its body and a counter, so the automaton of an XML Schema pattern holds at most a state for
  * each code point of the pattern and two more, whatever its counts, and a matcher's work over a text is at most its
  * initial subset's and two subsets' for each code point, each at most the automaton's states, where every counter is
- * fixed by the text read, as an anchored pattern of one way through makes it.
+ * fixed by the text read, as an anchored pattern of one way through makes it. What a matcher holds is the pattern's,
+ * whatever the text: at most two DFA states for each state of the NFA PostgreSQL would build, the chain of copies,
+ * within its compile space, and of the automaton's own past it (match.ts sizedStates), so `((a{255}){255}){255}` over
+ * 125,000 code points holds 6 states, where it held a state for each code point, 600 bytes a code point.
  *
  * Over the patterns edullm's CULL lane measured (Appendix F's own, counts nested and past 255), each read with texts of
  * runs of its code point at its counts' edges and past them: `a{256}`, `[0-9]{0,300}`, `(a{255}){255}`,
@@ -14,8 +17,9 @@
  * and membership as the counts multiply.
  */
 
+import { regexSpaceStates } from "@bjornpagen/grizzle-text/regex/ir"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, configurationsOf } from "@bjornpagen/grizzle-text/regex/nfa"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { assert } from "@bjornpagen/testing/assert"
@@ -25,7 +29,11 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { succeeded } from "#test/support/assert.ts"
 
-type CountingFeature = "a text the pattern holds" | "a text it does not hold" | "a count past 255"
+type CountingFeature =
+	| "a text the pattern holds"
+	| "a text it does not hold"
+	| "a count past 255"
+	| "copies past PostgreSQL's compile space"
 
 /** A measured pattern, the code point its runs repeat, and the run lengths it holds: from `least` to `most`. */
 interface Counted {
@@ -72,7 +80,8 @@ export const aCountedRepetitionCostsTheAutomatonNoStateForItsCountsAndAMatcherNo
 			situations: [
 				"a text the pattern holds",
 				"a text it does not hold",
-				"a count past 255"
+				"a count past 255",
+				"copies past PostgreSQL's compile space"
 			] satisfies ReadonlyArray<Reached<CountingFeature>>,
 			check:
 				(_, k: Case<CountingFeature>) =>
@@ -96,6 +105,20 @@ export const aCountedRepetitionCostsTheAutomatonNoStateForItsCountsAndAMatcherNo
 							matcher.spent <= (2 * run + 1) * states,
 							`${label}: charged ${matcher.spent}, past ${2 * run + 1} subsets of at most ${states} states`
 						)
+						const copies = configurationsOf(nfa)
+						const sized = copies <= regexSpaceStates ? copies : states
+						if (copies > regexSpaceStates) {
+							k.note("copies past PostgreSQL's compile space")
+						}
+						const kept = matcher.held
+						assert.ok(
+							kept.states <= 2 * sized,
+							`${label}: ${kept.states} DFA states held, past twice the ${sized} states the cache is sized by`
+						)
+						assert.ok(
+							kept.configurations <= (2 * sized + 1) * states,
+							`${label}: ${kept.configurations} configurations held, past ${states} for each state held and one more`
+						)
 					}),
 			oracle: {
 				kind: "specification",
@@ -104,6 +127,12 @@ export const aCountedRepetitionCostsTheAutomatonNoStateForItsCountsAndAMatcherNo
 			box: "the six measured patterns, each over runs at its counts' edges within 125,001 code points",
 			kept: [],
 			kills: [
+				{
+					file: "packages/text/src/regex/match.ts",
+					original: "\treturn copies <= regexSpaceStates ? copies : nfa.edges.length\n",
+					replacement: "\treturn copies\n",
+					why: "The cache sized by the chain of copies whatever its size: `((a{255}){255}){255}` holds a DFA state for each code point it read, 125,001 over a run of 125,000, past twice its 7 states."
+				},
 				{
 					file: "packages/text/src/regex/nfa.ts",
 					original: "\t\t\t\tconst consuming = this.#ir.matchesEmpty(node.body)\n",
