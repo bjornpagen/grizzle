@@ -30,8 +30,10 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
  *
  * The stage says where the apply stopped and so what the database holds:
  *
- * - Before any statement of any folder ran: `connect`, `owner`, `input`, `busy`, `ledger`, `edited`, `order`,
- *   `marker` and `decision`. Nothing was written; the ledger and the catalog are as they were. `edited` is an applied
+ * - Before any statement of any folder ran: `connect`, `stack` (the server's max_stack_depth below the default the
+ *   pattern limits were measured at), `wal` (the server's wal_level minimal, which no live source decodes at),
+ *   `owner`, `input`, `busy`, `ledger`, `edited`, `order`, `marker` and `decision`. Nothing was written; the ledger and
+ *   the catalog are as they were. `edited` is an applied
  *   file whose text is no longer the one its ledger row's digest records, or one deleted from or added to an applied
  *   folder: the database ran another text than the repository holds, so the repository must be restored.
  * - In a file: `statement` (one of its statements failed), `record` (its ledger row could not be written) or
@@ -43,14 +45,17 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
  * - `grizzle roles` and `grizzle uninstall`: `uninstall`, the installation's roles or schemas could not be read, or
  *   the transaction that drops them was refused and rolled back whole, as PostgreSQL refuses DROP ROLE while anything of
  *   another database depends on a role (2BP01, its DETAIL naming the database). Nothing was dropped.
- * - After every folder applied: `drift`, the drift check of the catalog against the target snapshot
+ * - After every folder applied: `replication`, a live source's decoder login left with no replication right, which the
+ *   migration identity could not give it, before any drift check ran; `drift`, the drift check of the catalog against
+ *   the target snapshot
  *   (adapter/admission/drift.ts; edits are allowed, drift is not), with every mismatch; or `unchecked`, a drift check
  *   that reached no verdict, because the snapshot did not render, the ledger or the catalog could not be read, or the
  *   replay that builds the snapshot beside the schema was refused. The check changed nothing: it rolled back.
  */
 export type MigrateStage =
 	| "connect"
-	| "server"
+	| "stack"
+	| "wal"
 	| "owner"
 	| "input"
 	| "busy"
@@ -62,6 +67,7 @@ export type MigrateStage =
 	| "statement"
 	| "record"
 	| "commit"
+	| "replication"
 	| "drift"
 	| "unchecked"
 	| "uninstall"
@@ -75,7 +81,8 @@ export type MigrateOutcome = "nothingRan" | "resumes" | "drifted" | "noVerdict"
 /** The outcome of each stage. */
 export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	connect: "nothingRan",
-	server: "nothingRan",
+	stack: "nothingRan",
+	wal: "nothingRan",
 	owner: "nothingRan",
 	input: "nothingRan",
 	busy: "nothingRan",
@@ -87,6 +94,7 @@ export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	statement: "resumes",
 	record: "resumes",
 	commit: "resumes",
+	replication: "noVerdict",
 	drift: "drifted",
 	unchecked: "noVerdict",
 	uninstall: "nothingRan"
@@ -879,15 +887,15 @@ export type MigrateReason =
 const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	ConnectRefused: "connect",
 	SurveyFailed: "owner",
-	StackTooShallow: "server",
+	StackTooShallow: "stack",
 	RoleUnread: "owner",
 	OwnerUnread: "owner",
 	OwnedByAnother: "owner",
 	InputRefused: "input",
 	LockUnread: "busy",
 	ApplyBusy: "busy",
-	WalLevelMinimal: "server",
-	DecoderUnreplicated: "drift",
+	WalLevelMinimal: "wal",
+	DecoderUnreplicated: "replication",
 	LedgerUncompiled: "ledger",
 	LedgerUnread: "ledger",
 	LedgerDamaged: "ledger",

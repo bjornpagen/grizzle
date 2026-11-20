@@ -521,7 +521,8 @@ Applied files, which only `migrate` can check against the ledger:
 | Stage | Fix |
 | --- | --- |
 | connect | check the configuration's connection: its host, port, database, role, password and CA |
-| server | have a superuser raise the server's max_stack_depth to at least 2MB, its default |
+| stack | have a superuser raise the server's max_stack_depth to at least 2MB, its default |
+| wal | have a superuser set the server's wal_level to replica, its default, or logical, and restart it |
 | owner | connect as the role that owns the schema |
 | input | run grizzle check and fix what it reports |
 | busy | wait for the other grizzle migrate to finish, then run it again |
@@ -533,6 +534,7 @@ Applied files, which only `migrate` can check against the ledger:
 | statement | fix the failing file (an applied file stays as it is), then run grizzle migrate again |
 | record | run grizzle migrate again: the failed file rolled back with its ledger row |
 | commit | run grizzle migrate again: the ledger tells whether the file committed |
+| replication | have a superuser give the decoder login the REPLICATION attribute, or on Amazon RDS a membership in rds_replication, then run grizzle migrate again |
 | drift | undo the change made outside a migration, or reach the snapshot with a new migration (grizzle generate <config> --custom --name <name>) |
 | unchecked | the check changed nothing: run grizzle drift again, and report it with this output if it is refused the same way |
 | uninstall | nothing was dropped: revoke or drop what the DETAIL names in the database it names, a grant to a role of the installation made outside it, then run grizzle uninstall again |
