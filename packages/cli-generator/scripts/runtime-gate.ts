@@ -1,4 +1,5 @@
-import { restrictedImports, restrictedProperties } from "@bjornpagen/devtools/preset"
+import { toolchain } from "@bjornpagen/devtools/config"
+import { standard } from "@bjornpagen/devtools/preset"
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
@@ -83,10 +84,47 @@ const SharedPropertyBans = Schema.TupleWithRest(Schema.Tuple([Schema.Literal("er
 	BannedProperty
 ])
 
+/**
+ * The preset's top-level rules over a repository of the core alone that states no list, no library and no name of its
+ * own, which hold every file to the shared bans alone: the preset builds them into every block of every configuration
+ * and exports them no other way.
+ */
+const bareRules = standard(
+	toolchain({
+		rejected: { rules: {}, diagnostics: {} },
+		exceptions: [],
+		effectFree: [],
+		packs: {},
+		bannedPackages: []
+	})
+).lintConfig({
+	ignorePatterns: [],
+	restrictedImports: { paths: [], patterns: [] },
+	restrictedGlobals: [],
+	restrictedProperties: [],
+	restrictions: [],
+	unassignedImports: [],
+	environment: { library: [], readers: [] },
+	ceremony: [],
+	plugin: {
+		"bearer-owners": { owners: [] },
+		"brands-sole-mint": { mints: [] },
+		"import-doors": { doors: [] },
+		"no-case-list": { searches: [], generators: [], mints: [], cases: [], dictionaries: [] },
+		"no-dynamic-imports": { allowed: [] },
+		"no-raw-sql": { sources: [], writers: [] },
+		"no-spread-argument": { tuples: [] },
+		"single-permit-owners": { owners: [] }
+	},
+	ownPlugins: [],
+	tests: { library: "none" },
+	overrides: []
+}).rules
+
 /** The emitted package's lint: oxlint's own categories off, and the shared bans alone, as oxlint's JSON configuration. */
 const emittedLint = Effect.all([
-	Schema.decodeUnknownEffect(SharedImportBans)(restrictedImports({ paths: [], patterns: [] })),
-	Schema.decodeUnknownEffect(SharedPropertyBans)(restrictedProperties([]))
+	Schema.decodeUnknownEffect(SharedImportBans)(bareRules?.["eslint/no-restricted-imports"]),
+	Schema.decodeUnknownEffect(SharedPropertyBans)(bareRules?.["eslint/no-restricted-properties"])
 ]).pipe(
 	Effect.mapBoth({
 		onSuccess: ([[level, { paths }], properties]) =>

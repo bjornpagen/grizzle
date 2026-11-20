@@ -123,5 +123,6 @@ export default toolchain({
 		experiments
 	],
 	effectFree: ["packages/engine", "packages/openapi", "packages/text"],
-	packs: { grizzle: true }
+	packs: { grizzle: true },
+	bannedPackages: []
 })

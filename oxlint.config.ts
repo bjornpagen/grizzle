@@ -1,4 +1,4 @@
-import { restrictedImports, standard } from "@bjornpagen/devtools/preset"
+import { type Restriction, standard } from "@bjornpagen/devtools/preset"
 import {
 	CASE_LISTS,
 	CLOCK_RULES,
@@ -115,7 +115,7 @@ const NO_RANDOMNESS = "The engine draws no randomness: one input compiles to one
 /** The engine's I/O ban. */
 const NO_IO = "The engine does no I/O: the shell does."
 
-/** The engine's environment ban: its own list of globals replaces the preset's environment globals on its files. */
+/** The engine's environment ban, on the globals beside the preset's environment bans. */
 const NO_ENVIRONMENT = "The engine reads no environment: what it needs is an argument."
 
 /**
@@ -147,11 +147,8 @@ const ENGINE_GLOBALS = [
 	{ name: "navigator", message: NO_ENVIRONMENT }
 ] as const
 
-const ZOD = {
-	name: "zod",
-	message:
-		"Zod is banned. Admit a foreign value with a narrowing reader of its own that fails closed with a typed error; JSON grizzle trusts goes through #compiler/core/trusted.ts."
-} as const
+/** The engine's globals and the decoder's, which every module of the engine's packages is refused but utf8.ts. */
+const ENGINE_AND_DECODER = [...ENGINE_GLOBALS, TEXT_DECODER] as const
 
 /** Effect Schema's modules, as the effect barrel exports them. */
 const SCHEMA_MODULES = [
@@ -198,13 +195,13 @@ const PLATFORM_SDKS = {
 } as const
 
 /**
- * The library's imports, which every file is held to but the tiers' (test, bench, scripts, the cluster's package) and
- * the engine's, whose blocks state their own: no Zod, no Effect Schema at run time and no platform's SDK. The preset's
- * environment block holds the shell's src to these and its environment imports together, so no block of grizzle's
- * restates them there.
+ * The library's imports, which every file is held to but the tiers' (test, bench, scripts, the cluster's package), the
+ * README's application and the engine's, whose restrictions state their own: no Effect Schema at run time and no
+ * platform's SDK (zod is the preset's, banned everywhere). The preset holds the shell's src to these and its
+ * environment imports together.
  */
 const LIBRARY_IMPORTS = {
-	paths: [ZOD, SCHEMA_IMPORTS.path],
+	paths: [SCHEMA_IMPORTS.path],
 	patterns: [PLATFORM_SDKS, SCHEMA_IMPORTS.pattern]
 } as const
 
@@ -235,39 +232,92 @@ const FIELD_READINGS = [
 const engineImports = (
 	hashing: "hashing" | "no Node module",
 	readings: ReadonlyArray<(typeof FIELD_READINGS)[number]>
-) =>
-	restrictedImports({
-		paths: [
-			...readings,
-			{
-				name: "zod",
-				message:
-					"Zod is banned. The engine admits a description through its own decoder (ir/shape.ts), which refuses a malformed one with MalformedDescription."
-			},
-			{
-				name: "effect",
-				allowTypeImports: true,
-				message:
-					"The engine loads no Effect at run time: use its native forms (T | undefined for absence, #compiler/core/result.ts) and import Effect's types with `import type`."
-			},
-			SCHEMA_IMPORTS.path
-		],
-		patterns: [
-			SCHEMA_IMPORTS.pattern,
-			{
-				group: ["effect/*", "@effect/*"],
-				allowTypeImports: true,
-				message: "The engine loads no Effect at run time: import Effect's types with `import type`."
-			},
-			{
-				group: hashing === "hashing" ? ["node:*", "!node:crypto"] : ["node:*"],
-				message:
-					"The engine loads no Node module but node:crypto, which core/sha256.ts and core/seal.ts alone import, so every module a browser loads, which never reaches them (.fallowrc.json's browser zones), loads none."
-			},
-			{ group: ["pg", "pg/*"], message: NO_IO },
-			PLATFORM_SDKS
-		]
-	})
+): Restriction["restrictedImports"] => ({
+	paths: [
+		...readings,
+		{
+			name: "effect",
+			allowTypeImports: true,
+			message:
+				"The engine loads no Effect at run time: use its native forms (T | undefined for absence, #compiler/core/result.ts) and import Effect's types with `import type`."
+		},
+		SCHEMA_IMPORTS.path
+	],
+	patterns: [
+		SCHEMA_IMPORTS.pattern,
+		{
+			group: ["effect/*", "@effect/*"],
+			allowTypeImports: true,
+			message: "The engine loads no Effect at run time: import Effect's types with `import type`."
+		},
+		{
+			group: hashing === "hashing" ? ["node:*", "!node:crypto"] : ["node:*"],
+			message:
+				"The engine loads no Node module but node:crypto, which core/sha256.ts and core/seal.ts alone import, so every module a browser loads, which never reaches them (.fallowrc.json's browser zones), loads none."
+		},
+		{ group: ["pg", "pg/*"], message: NO_IO },
+		PLATFORM_SDKS
+	]
+})
+
+/**
+ * grizzle's lists, each on the files it holds, in order: a file several name takes the last one's whole, beside the
+ * preset's shared bans and the environment and Effect-free bans of its place. Every file is held to the library's
+ * imports and the one decoder of bytes into text; the tiers drop the platform's SDKs, which a test or a bench wires as
+ * a caller does, and the README's application drops Effect Schema too; the engine and the packages it shares its bans
+ * with (grizzle-openapi, which reads it, and grizzle-text, dependency-free and browser-safe) take the engine's imports
+ * and globals, no Effect at run time, no Node module, no clock, randomness or I/O; utf8.ts builds the decoder every
+ * other module is refused; the hashing modules import node:crypto; and the public readings of a field import none of a
+ * descriptor's other readings.
+ */
+const RESTRICTIONS: ReadonlyArray<Restriction> = [
+	{
+		paths: ["./"],
+		restrictedImports: LIBRARY_IMPORTS,
+		restrictedGlobals: [TEXT_DECODER],
+		restrictedProperties: []
+	},
+	{
+		paths: ["test/", "bench/", "scripts/", "packages/pg/"],
+		restrictedImports: { paths: [SCHEMA_IMPORTS.path], patterns: [SCHEMA_IMPORTS.pattern] },
+		restrictedGlobals: [TEXT_DECODER],
+		restrictedProperties: []
+	},
+	{
+		/** The README's application decodes a foreign HTTP body with Effect Schema: the app's choice, which the README shows. */
+		paths: ["test/types/examples/fixtures/readme.ts"],
+		restrictedImports: { paths: [], patterns: [] },
+		restrictedGlobals: [TEXT_DECODER],
+		restrictedProperties: []
+	},
+	{
+		paths: ["packages/engine/", "packages/openapi/", "packages/text/"],
+		restrictedImports: engineImports("no Node module", []),
+		restrictedGlobals: ENGINE_AND_DECODER,
+		restrictedProperties: []
+	},
+	{
+		/** The one decoder of bytes into text: it builds the TextDecoder every other module is refused. */
+		paths: ["packages/text/src/utf8.ts"],
+		restrictedImports: engineImports("no Node module", []),
+		restrictedGlobals: ENGINE_GLOBALS,
+		restrictedProperties: []
+	},
+	{
+		/** The engine's hashing modules: SHA-256 and AES-256-GCM over node:crypto, which no browser zone reaches. */
+		paths: ["packages/engine/src/core/sha256.ts", "packages/engine/src/core/seal.ts"],
+		restrictedImports: engineImports("hashing", []),
+		restrictedGlobals: ENGINE_AND_DECODER,
+		restrictedProperties: []
+	},
+	{
+		/** The engine's public readings of a field and the programs they read: each describes a field as its declared type. */
+		paths: ["packages/engine/src/public/", "packages/engine/src/program/"],
+		restrictedImports: engineImports("no Node module", FIELD_READINGS),
+		restrictedGlobals: ENGINE_AND_DECODER,
+		restrictedProperties: []
+	}
+]
 
 /** The markers of the naming rule's production identifiers, which a test or a bench names through the naming door. */
 const NAME_MARKERS = [
@@ -302,9 +352,10 @@ export default defineConfig(
 			"vendor/**",
 			"packages/cli-generator/test/fixtures/**"
 		],
-		restrictedImports: LIBRARY_IMPORTS,
-		restrictedGlobals: [TEXT_DECODER],
+		restrictedImports: { paths: [], patterns: [] },
+		restrictedGlobals: [],
 		restrictedProperties: [],
+		restrictions: RESTRICTIONS,
 		unassignedImports: [],
 		environment: {
 			library: ["packages/engine/src", "packages/grizzle/src", "packages/openapi/src"],
@@ -523,53 +574,14 @@ export default defineConfig(
 				})
 			},
 			{
-				/** The engine, and grizzle-openapi, which reads it: no Effect at run time, no Node module, no clock, randomness or I/O. */
-				files: ["packages/engine/**", "packages/openapi/**"],
-				rules: active({
-					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
-					"eslint/no-restricted-imports": engineImports("no Node module", []),
-					/** `import type { T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
-					"typescript/no-import-type-side-effects": "error"
-				})
+				/** The engine, grizzle-openapi and grizzle-text, which load no Effect at run time: `import type { T } from "effect"` passes allowTypeImports, but type stripping leaves `import {} from "effect"`, which loads Effect at run time. */
+				files: ["packages/engine/**", "packages/openapi/**", "packages/text/**"],
+				rules: active({ "typescript/no-import-type-side-effects": "error" })
 			},
 			{
-				/** grizzle-text, dependency-free and browser-safe: the engine's bans, no Effect, no Node module, no I/O. */
-				files: ["packages/text/**"],
-				rules: active({
-					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS, TEXT_DECODER],
-					"eslint/no-restricted-imports": engineImports("no Node module", []),
-					"typescript/no-import-type-side-effects": "error"
-				})
-			},
-			{
-				/**
-				 * The one decoder of bytes into text: it builds the TextDecoder every other module is refused, and reads a
-				 * fatal decoder's refusal of malformed bytes, a thrown TypeError, the platform's one signal of it.
-				 */
+				/** The one decoder of bytes into text reads a fatal decoder's refusal of malformed bytes, a thrown TypeError, the platform's one signal of it. */
 				files: ["packages/text/src/utf8.ts"],
-				rules: active({
-					"eslint/no-restricted-globals": ["error", ...ENGINE_GLOBALS],
-					"devtools/no-try": "off"
-				})
-			},
-			{
-				/** The engine's hashing modules: SHA-256 and AES-256-GCM over node:crypto, which no browser zone reaches. */
-				files: ["packages/engine/src/core/sha256.ts", "packages/engine/src/core/seal.ts"],
-				rules: active({ "eslint/no-restricted-imports": engineImports("hashing", []) })
-			},
-			{
-				/** The engine's public readings of a field and the programs they read: each describes a field as its declared type. */
-				files: ["packages/engine/src/public/**", "packages/engine/src/program/**"],
-				rules: active({
-					"eslint/no-restricted-imports": engineImports("no Node module", FIELD_READINGS)
-				})
-			},
-			{
-				files: ["packages/grizzle/src/adapter/live/call-error.ts"],
-				rules: active({
-					/** os.constants.errno names this platform's system errors, the codes a socket's failure is read by: a vocabulary of the platform, never a reading of the machine's state, which the environment's ban on every value of node:os would refuse. */
-					"eslint/no-restricted-imports": restrictedImports(LIBRARY_IMPORTS)
-				})
+				rules: active({ "devtools/no-try": "off" })
 			},
 			{
 				files: ["packages/engine/src/query/build/scope.ts"],
@@ -601,32 +613,6 @@ export default defineConfig(
 						"error",
 						HOOK_FREE_NAME,
 						{ properties: true, classFields: true, onlyDeclarations: true }
-					]
-				})
-			},
-			{
-				files: ["test/**", "bench/**", "scripts/**", "packages/pg/**"],
-				rules: active({
-					"eslint/no-restricted-imports": restrictedImports({
-						paths: [SCHEMA_IMPORTS.path],
-						patterns: [SCHEMA_IMPORTS.pattern]
-					})
-				})
-			},
-			{
-				files: ["test/types/examples/fixtures/readme.ts"],
-				rules: active({
-					/** The README's application decodes a foreign HTTP body with Effect Schema: the app's choice, which the README shows. */
-					"eslint/no-restricted-imports": restrictedImports({ paths: [], patterns: [] })
-				})
-			},
-			{
-				files: ["packages/experiments/**"],
-				rules: active({
-					/** An experiment is a package of its own until its verdict deletes it, so a `#` subpath import resolves against its own package.json, whose targets cannot leave it: it reaches the root's test support by a relative path. Every other import grizzle bans stays banned. */
-					"eslint/no-restricted-imports": [
-						"error",
-						{ paths: [...LIBRARY_IMPORTS.paths], patterns: [...LIBRARY_IMPORTS.patterns] }
 					]
 				})
 			},
