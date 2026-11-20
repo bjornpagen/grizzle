@@ -1,6 +1,6 @@
 import { Array as Arr } from "effect"
 import type { FenceStep } from "#adapter/wire/batch.ts"
-import { type Driven, drive, type Timing } from "#test/support/flight/drive.ts"
+import { type Driven, drive, type Interruption, type Timing } from "#test/support/flight/drive.ts"
 import {
 	beginRefusal,
 	callAnswers,
@@ -11,7 +11,6 @@ import {
 	fatalStates,
 	fenceRefusal,
 	flightPrologue,
-	type Interruption,
 	type Observation,
 	observed,
 	type Planned,
@@ -150,7 +149,7 @@ export const observationsOf = (
 		return undefined
 	}
 	const session = run.session
-	const interruption = { at: driven.interruptedAt }
+	const interruption = driven.interruption
 	const answers = callAnswers(c.call, session.flights())
 	return {
 		model: expected(c, answers.delivered, answers.made, interruption, answers.endSent),

@@ -11,7 +11,7 @@ import { type BatchStatement, type Flight, preparedStatement } from "#adapter/wi
 import { prepared } from "#compiler/core/prepared.ts"
 import type { EmittedText } from "#compiler/sql/ast.ts"
 import { type CaseSpace, caseGen } from "#test/support/flight/cases.ts"
-import type { Timing } from "#test/support/flight/drive.ts"
+import type { Interruption, Timing } from "#test/support/flight/drive.ts"
 import {
 	callAnswers,
 	type FlightCase,
@@ -19,7 +19,6 @@ import {
 	type Framed,
 	framedOf,
 	framingOf,
-	type Interruption,
 	interruptionPoint,
 	layoutOf,
 	type Observation,

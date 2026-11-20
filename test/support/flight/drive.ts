@@ -1,4 +1,4 @@
-import { Clock, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
+import { Array as Arr, Clock, Effect, Exit, Fiber, Scheduler, Scope } from "effect"
 import { TestClock } from "effect/testing"
 import type { ScriptedSession } from "#test/support/flight/scripted.ts"
 
@@ -7,14 +7,37 @@ export interface Timing {
 	readonly interruptAfter: number | undefined
 }
 
+/**
+ * Where a run's interruption came, as the driver decided it: none, or once `at` answers had been delivered, when the
+ * client had sent the server `sent` queries over every flight and the server had made `made` answers, every one it
+ * could: each query's up to a statement that waits for a CancelRequest (scripted.ts). A server check holds a real
+ * session there and finds the real pair as the scripted one stood (test/pg/adapter/flight.test.ts).
+ */
+export type Interruption =
+	| { readonly at: undefined }
+	| { readonly at: number; readonly sent: number; readonly made: number }
+
 export type Driven<A, E> =
 	| { readonly kind: "blocked" }
 	| {
 			readonly kind: "ran"
 			readonly exit: Exit.Exit<A, E>
-			/** The answers delivered when the interruption came; undefined when none came. */
-			readonly interruptedAt: number | undefined
+			readonly interruption: Interruption
 	  }
+
+/** Where the session stands when the driver interrupts its call: its deliveries, the queries sent and the answers made. */
+const standing = (session: ScriptedSession): Interruption => {
+	const flights = session.flights()
+	return {
+		at: session.deliveries(),
+		sent: Arr.reduce(flights, 0, (n, flight) => n + flight.pipeline.length),
+		made: Arr.reduce(
+			flights,
+			0,
+			(n, flight) => n + Arr.filter(flight.made, (answer) => answer !== undefined).length
+		)
+	}
+}
 
 /**
  * Deterministic simulation of one call over a scripted session (scripted.ts): timing is an input of the test, never
@@ -33,8 +56,8 @@ export type Driven<A, E> =
  *    the round the abandoned flight waits in. An interrupted call that waits through more silent rounds than abandon
  *    severs at (the excused one, then the one that severs) is a defect: abandon never ended.
  *
- * The driver reports the exit, and how many answers had been delivered when the interruption came (none when the call
- * completed first, or none was asked for).
+ * The driver reports the exit, and where the interruption came (Interruption: none when the call completed first, or
+ * none was asked for).
  */
 export const drive = <A, E>(
 	session: ScriptedSession,
@@ -76,12 +99,12 @@ export const drive = <A, E>(
 		while (!done() && session.deliverable() && beforeInterrupt()) {
 			deliver()
 		}
-		let interruptedAt: number | undefined
+		let interruption: Interruption = { at: undefined }
 		if (!done()) {
 			if (limit === undefined) {
 				return { kind: "blocked" }
 			}
-			interruptedAt = session.deliveries()
+			interruption = standing(session)
 			Effect.runFork(Fiber.interrupt(fiber), { scheduler })
 			settle()
 			/**
@@ -108,7 +131,7 @@ export const drive = <A, E>(
 		if (exit === undefined) {
 			throw new Error("the call did not complete")
 		}
-		return { kind: "ran", exit, interruptedAt }
+		return { kind: "ran", exit, interruption }
 	} finally {
 		step(Scope.close(scope, Exit.void))
 	}

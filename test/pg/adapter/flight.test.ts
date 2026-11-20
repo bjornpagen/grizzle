@@ -17,6 +17,7 @@ import {
 } from "#test/pg/adapter/flight.fixtures.ts"
 import { until } from "#test/pg/adapter/support.ts"
 import { caseGen } from "#test/support/flight/cases.ts"
+import type { Interruption } from "#test/support/flight/drive.ts"
 import {
 	callAnswers,
 	callOf,
@@ -32,7 +33,7 @@ import { observationsOf, plannedBySql, runScripted } from "#test/support/flight/
 import { runAlone } from "#test/support/pg.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, Substrate } from "#test/support/substrate/substrate.ts"
-import { backendCount, tappedSession } from "#test/support/wire-tap.ts"
+import { backendCount, queriesSent, tappedSession } from "#test/support/wire-tap.ts"
 
 /**
  * The scripted session against PostgreSQL observes what the server observes for every flight and interruption point the server can be made to show.
@@ -67,11 +68,18 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 						)
 						const table = `${schema}."t"`
 						/**
-						 * The case on a real session, interrupted after `k` answers unless k is undefined.
+						 * The case on a real session, held and interrupted where the scripted run was (drive.ts Interruption): its
+						 * gate holds once the run's delivered answers have reached the client, and the interruption comes once the
+						 * server is quiescent, waiting in a hold's sleep, or reading from the client with every query the client
+						 * sent answered, which it always comes to, so the wait ends whatever the product sent. There the real pair
+						 * must stand as the scripted one did: the client sent the queries the scripted client had, over every
+						 * flight, and the server answered those the scripted server had made. A count the client never sends
+						 * (layoutOf's, both flights of an alongside call, where its end waits for a first flight the gate holds) is
+						 * a red, never a wait.
 						 *
 						 * No CancelRequest's connection outlives the call.
 						 */
-						const onServer = (c: FlightCase, k: number | undefined) =>
+						const onServer = (c: FlightCase, interruption: Interruption) =>
 							Effect.scoped(
 								Effect.gen(function* () {
 									const sqlOf = sqlOver(schema, c)
@@ -89,29 +97,49 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 									)
 									const pid = Number(backend.rows[0]?.[0])
 									const mark = tapped.mark()
-									if (k !== undefined) {
-										tapped.gate.hold(k, { kind: "type", type: "Z" })
+									if (interruption.at !== undefined) {
+										tapped.gate.hold(interruption.at, { kind: "type", type: "Z" })
 									}
 									const fiber = yield* Effect.forkChild(callOf(session, c.call, sqlOf, prologue))
-									if (k !== undefined) {
+									if (interruption.at !== undefined) {
 										const held = yield* Effect.raceFirst(
 											Effect.as(tapped.gate.holding, true),
 											Effect.as(Fiber.await(fiber), false)
 										)
 										if (held) {
-											const queries = layoutOf(c.call).length
-											yield* until(
-												Effect.gen(function* () {
-													if (backendCount(tapped.since(mark), "Z") >= queries) {
-														return true
-													}
-													const rows = yield* s.admin.queryValues(
-														"SELECT coalesce(wait_event::text, '') FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4",
-														[pid]
+											/**
+											 * Whether the server is quiescent: in a hold's sleep, or reading from the client with every query
+											 * the client sent answered. Its wait is read before the traffic, so every query the client had
+											 * sent by then is in the window its answers are counted against.
+											 */
+											const quiescent = Effect.gen(function* () {
+												const rows = yield* s.admin.queryValues(
+													"SELECT coalesce(wait_event::text, '') FROM pg_catalog.pg_stat_activity WHERE pid = $1::int4",
+													[pid]
+												)
+												const waiting = rows[0]?.[0]
+												const window = tapped.since(mark)
+												return (
+													waiting === "PgSleep" ||
+													(waiting === "ClientRead" &&
+														backendCount(window, "Z") === queriesSent(window))
+												)
+											})
+											yield* until(quiescent)
+											const window = tapped.since(mark)
+											const standing = {
+												sent: queriesSent(window),
+												made: backendCount(window, "Z")
+											}
+											const scripted = { sent: interruption.sent, made: interruption.made }
+											const difference = exact(scripted, standing)
+											if (Option.isSome(difference)) {
+												return yield* Effect.die(
+													new Error(
+														`the server stands unlike the scripted session after ${interruption.at} answers of the call's ${layoutOf(c.call).length} queries: ${difference.value}\nserver ${Formatter.format(standing)}, scripted ${Formatter.format(scripted)}`
 													)
-													return rows[0]?.[0] === "PgSleep"
-												})
-											)
+												)
+											}
 											/**
 											 * The fork starts at once, so the call has taken the interruption when it returns: a call that
 											 * cancels has retired its session, and the gate holds until its CancelRequest has reached the
@@ -171,7 +199,7 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 								if (k !== undefined && (at === undefined || at < k)) {
 									return { blocked: false, at }
 								}
-								const serverRows = yield* onServer(c, k)
+								const serverRows = yield* onServer(c, observations.interruption)
 								const server = asSet(serverRows)
 								const difference = exact(scripted, server)
 								if (Option.isSome(difference)) {
@@ -221,5 +249,14 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 		},
 		budget: { runs: 25, steered: 200 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "test/pg/adapter/flight.test.ts",
+				original:
+					"\t\t\t\t\t\t\t\t\t\t\tconst scripted = { sent: interruption.sent, made: interruption.made }",
+				replacement:
+					"\t\t\t\t\t\t\t\t\t\t\tconst scripted = { sent: layoutOf(c.call).length, made: interruption.made }",
+				why: "The server check expects every query of the call's layout sent at the interruption, an alongside call's end among them, where runAlongside sends its end in a second flight only once the client has read the first, which the gate holds: the count the wait for the server hung on before (bafa0de1c), now a red at the server's standing."
+			}
+		]
 	})

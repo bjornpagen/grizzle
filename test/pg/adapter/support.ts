@@ -1,4 +1,5 @@
-import { Array as Arr, Effect, Redacted, type Scope } from "effect"
+import { liveSleep } from "@bjornpagen/testing/live"
+import { Array as Arr, Duration, Effect, Redacted, type Scope } from "effect"
 import type { CredentialError } from "#adapter/errors/failures.ts"
 import type { BatchRefused } from "#adapter/errors/failures.ts"
 import type { ConnectionPool, PoolBounds, Transport } from "#adapter/types/layer.ts"
@@ -181,9 +182,28 @@ export const backendPidOf = (
 	)
 
 /**
- * Polls `check` until it holds, yielding between polls and never reading a clock: the verdict waits on the fact, and
- * a wait that never ends is the test runner's hung test, never a verdict of the suite. A comment at each call names
- * the fact.
+ * The pause between two looks of until: the shortest wait a timer takes, so a look that finds its fact not yet true
+ * hands the main thread back to the event loop for one timer tick before the next, where until looked again at once. A
+ * look is a query of the server's state (pg_stat_activity, pg_locks) or a read of a tap's counters, and the fact it
+ * waits for comes within a server round trip of what causes it, so the pause delays a wait by a tick at most; without
+ * it a wait spun its process at full speed, a look per round trip of the admin's session (test/pg/adapter/flight at
+ * bafa0de1c, waiting for an answer the client had not asked for: about 121,000 looks in 100 s, 60 s of CPU).
+ *
+ * @limitKind published
+ * @owner Node 26.13.1's timers
+ * @unit milliseconds
+ * @scope each pause between two looks of one wait of until, in each test process
+ * @constraint hard quota
+ * @source https://nodejs.org/docs/v26.13.1/api/timers.html#settimeoutcallback-delay-args
+ * @quote When delay is larger than 2147483647 or less than 1 or NaN, the delay will be set to 1.
+ * @verified 2026-11-20
+ */
+const lookPauseMillis = 1
+
+/**
+ * Looks at `check` until it holds, pausing a timer's tick between looks (lookPauseMillis) on the live clock, whatever
+ * clock the test runs under: the verdict waits on the fact, never on the time, and a wait that never ends is the test
+ * runner's hung test, never a verdict of the suite. A comment at each call names the fact.
  */
 export const until = <E, R>(check: Effect.Effect<boolean, E, R>): Effect.Effect<void, E, R> =>
 	Effect.gen(function* () {
@@ -191,7 +211,7 @@ export const until = <E, R>(check: Effect.Effect<boolean, E, R>): Effect.Effect<
 			if (yield* check) {
 				return
 			}
-			yield* Effect.yieldNow
+			yield* liveSleep(Duration.millis(lookPauseMillis))
 		}
 	})
 

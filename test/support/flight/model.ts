@@ -22,6 +22,7 @@ import {
 	writeFrame
 } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import type { Interruption } from "#test/support/flight/drive.ts"
 import { textsOfParams } from "#test/support/wire.ts"
 
 import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
@@ -545,12 +546,6 @@ export interface Observation {
 	readonly committed: ReadonlyArray<string>
 	readonly retired: boolean
 	readonly cancelled: boolean
-}
-
-/** How an interrupted run went, from the driver (drive.ts) or the server check. */
-export interface Interruption {
-	/** The answers delivered when the interruption came; undefined when none came. */
-	readonly at: number | undefined
 }
 
 interface Judged {

@@ -109,6 +109,13 @@ export interface WireWindow {
 export const backendCount = (window: WireWindow, type: string): number =>
 	Arr.filter(window.backend, (message) => message.type === type).length
 
+/**
+ * The queries the client sent in the window, each of which the server answers with one ReadyForQuery: a statement's
+ * Sync, which ends its extended query, and a transaction control's simple Query (adapter/wire/session.ts WireQuery).
+ */
+export const queriesSent = (window: WireWindow): number =>
+	Arr.filter(window.frontend, (message) => message.type === "S" || message.type === "Q").length
+
 const windowOf = (events: ReadonlyArray<WireEvent>): WireWindow => {
 	let roundTrips = 0
 	let readSinceWrite = true
