@@ -110,7 +110,7 @@ export type Artifact =
 	| "fingerprint"
 
 /**
- * The limit of PostgreSQL's regex compiler a pattern's ARE passes (scalar/regex/space.ts pastCompileSpace), with the
+ * The limit of PostgreSQL's regex compiler a pattern's ARE passes (ir/pattern-space.ts pastCompileSpace), with the
  * facts it states, each bound a constant:
  * - `anchorLoop`: an unbounded repetition of a body that can match zero-width through an anchor, which PostgreSQL
  *   breaks by cloning states exponentially and which is too large to rewrite as a loop of consuming matches;

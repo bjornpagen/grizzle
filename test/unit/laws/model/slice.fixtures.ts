@@ -60,6 +60,7 @@ import {
 	relation,
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
+import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 /**
@@ -625,7 +626,7 @@ const queryOver = (
 		})
 	}
 	const [head, ...rest] = matches
-	const refinedMatch: GuardDesc = { kind: "matches", pattern: refinedPattern }
+	const refinedMatch: GuardDesc = { kind: "matches", pattern: spelled(refinedPattern) }
 	const text: ExprDesc = { kind: "var", var: "text" }
 	return decodedQuery({
 		kind: "rules",

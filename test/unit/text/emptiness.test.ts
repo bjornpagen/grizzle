@@ -122,11 +122,10 @@ export const aPatternNoTextMatchesIsNeverInTheIRRefusedByAnalyzeTextAndMatchedBy
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/scalar/regex/admit.ts",
-					original:
-						'\treturn admitted.ok\n\t\t? { kind: "admitted", source }\n\t\t: { kind: "refused", source, refusal: admitted.error }',
+					file: "packages/engine/src/ir/pattern.ts",
+					original: "\tResult.map(admitIr(spelling, matchFlags), (ir) =>\n",
 					replacement:
-						'\treturn admitted.ok && admitted.value.kind !== "never"\n\t\t? { kind: "admitted", source }\n\t\t: { kind: "refused", source, refusal: { kind: "compileSpace", measure: { kind: "anchorLoop" } } }',
+						'\tResult.map(Result.flatMap(admitIr(spelling, matchFlags), (ir) => ir.kind === "never" ? Result.err({ kind: "compileSpace", measure: { kind: "anchorLoop" } }) : Result.ok(ir)), (ir) =>\n',
 					why: "A Compute.matches pattern of the empty language is refused again, as no text matching it; the property fails."
 				},
 				{

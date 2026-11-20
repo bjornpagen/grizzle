@@ -93,10 +93,10 @@ export const regexMembershipCompilesTheLargestPatternTheLimitsAdmitAlongADrawnSh
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\tfor (let s = 0; s < arcs.length && copies <= cap; s++) {",
 				replacement: "\tfor (let s = 0; copies <= cap; s++) {",
-				why: "Operator mutant (conjunct) at packages/engine/src/scalar/regex/space.ts:461 in emptyCopies: `s < arcs.length && copies <= cap` becomes `copies <= cap`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (conjunct) at packages/engine/src/ir/pattern-space.ts:461 in emptyCopies: `s < arcs.length && copies <= cap` becomes `copies <= cap`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]
 	})
@@ -158,19 +158,19 @@ export const regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns = 
 		],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\t\t\t\tcopies += entry(kept, arc.to) === 1 ? weight : 0",
 				replacement: "\t\t\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/scalar/regex/space.ts:474 in emptyCopies: `copies += entry(kept, arc.to) === 1 ? weight : 0` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				why: "Operator mutant (statement) at packages/engine/src/ir/pattern-space.ts:474 in emptyCopies: `copies += entry(kept, arc.to) === 1 ? weight : 0` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\t\t\t\t\tif (piece.min > 1) {",
 				replacement: "\t\t\t\t\tif (piece.min > 2) {",
 				why: "An unbounded piece of minimum two whose second copy rawNfa leaves out of its NFA (CATCH mutant fb4323a1e8, grizzle 0baff5d6), so the compile space admits a pattern PostgreSQL refuses as too complex: the old search's kept (?:(?:a)?){2,}(?:(?:.{1,50}|^)){255}b."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original:
 					'\t\t\t\t\tarc.anchor === "start" ? entry(forward, from) === 1 : entry(backward, arc.to) === 1',
 				replacement:

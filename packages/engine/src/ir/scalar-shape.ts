@@ -35,6 +35,12 @@ import {
 	type TableExprOf
 } from "#compiler/ir/expr.ts"
 import {
+	admitSpelling,
+	diagnosticText,
+	matchFlags,
+	type PatternValue
+} from "#compiler/ir/pattern.ts"
+import {
 	type Exact,
 	type Fact,
 	type FactSource,
@@ -183,6 +189,36 @@ const regexCheckShape: S.Shape<RegexCheck> = S.tagged("kind", {
 })
 
 const regexKeyShape = S.branded(RegexKey, S.nonEmptyString)
+
+const statedPatternValue = S.struct({ pattern: S.nonEmptyString, spelling: S.string })
+
+/**
+ * A pattern value (ir/pattern.ts PatternValue), admitted again from its spelling (admitSpelling) and its language's
+ * key computed again, never taken as stated: a spelling the admission refuses, or a key that is not its spelling's, is
+ * refused here, so every pattern value a decode yields is admitted.
+ */
+export const patternValueShape: S.Shape<PatternValue> = S.plain({
+	expected: "a pattern value: its spelling, admitted, and its spelling's language key",
+	parse: function* (value, path) {
+		const stated = yield* statedPatternValue.parse(value, path)
+		const admitted = admitSpelling(stated.spelling)
+		if (!admitted.ok) {
+			const refusal = admitted.error
+			return S.refuse(
+				path,
+				refusal.kind === "diagnostic"
+					? `a pattern value spelled in grizzle's pattern grammar: ${diagnosticText(refusal.diagnostic, stated.spelling, matchFlags)}`
+					: `a pattern value inside PostgreSQL's regex compile space: /${stated.spelling}/${matchFlags} passes its ${refusal.measure.kind} limit`
+			)
+		}
+		return admitted.value.pattern === stated.pattern
+			? admitted.value
+			: S.refuse(
+					path,
+					`a pattern value whose key is its spelling's language key, ${admitted.value.pattern}`
+				)
+	}
+})
 
 /** A text's patterns (ir/scalar.ts Patterns): at least one, each its source and flags. */
 export const patternsShape: S.Shape<Patterns> = S.nonEmptyArray(
@@ -528,7 +564,8 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 			(payload) => VectorText.parse(payload),
 			"a vector of binary32 components (canonical tag v)"
 		)
-	})
+	}),
+	pattern: S.struct({ value: patternValueShape })
 })
 
 const exprIdShape = S.branded(ExprId, S.nonEmptyString)
@@ -678,7 +715,7 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 			S.struct({
 				...common(S.array(exprIdShape), strict),
 				op: opIdShape,
-				patterns: S.nonEmptyArray(S.string)
+				patterns: S.nonEmptyArray(patternValueShape)
 			}),
 			(e): CaseFields<TableExprOf<"op">> => ({
 				...e,

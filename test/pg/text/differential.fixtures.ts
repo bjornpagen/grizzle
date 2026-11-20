@@ -466,7 +466,7 @@ const agreeOn = (
 	})
 
 /**
- * The limits of PostgreSQL's regex compiler grizzle holds a pattern to (scalar/regex/space.ts) must keep every
+ * The limits of PostgreSQL's regex compiler grizzle holds a pattern to (ir/pattern-space.ts) must keep every
  * admitted pattern inside what PostgreSQL 19 compiles: it refuses none of them as too complex or for too many
  * colors. How long a compile takes is no part of the property, since the machine's load sets it; a compile that
  * never ends is a hang, which the case's deadline reports.

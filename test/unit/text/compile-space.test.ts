@@ -1,5 +1,5 @@
 /**
- * PostgreSQL's regex compile limits, as grizzle measures a pattern against them (scalar/regex/space.ts): its colors,
+ * PostgreSQL's regex compile limits, as grizzle measures a pattern against them (ir/pattern-space.ts): its colors,
  * the raw NFA PostgreSQL's parser builds from its ARE, the states and arcs held at once, its longest path, and the
  * anchors PostgreSQL must move. That PostgreSQL compiles what the limits admit is test/pg/text/differential.test.ts's.
  *
@@ -22,8 +22,8 @@ import type { Reached as ReachedOf } from "@bjornpagen/testing/features"
 import { oneOf } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
+import { regexMaxHeldStates, colorsOf, rawNfa, rawSize } from "#compiler/ir/pattern-space.ts"
 import { admitPattern } from "#compiler/scalar/regex/admit.ts"
-import { regexMaxHeldStates, colorsOf, rawNfa, rawSize } from "#compiler/scalar/regex/space.ts"
 import { refused } from "#test/support/assert.ts"
 import { accepts } from "#test/support/fixtures/ir/scalar.ts"
 import {
@@ -112,13 +112,13 @@ export const theRawNFAPostgreSQLsParserBuildsHoldsTheStatesAndArcsItsFoldCountsN
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\tframe: { states: 4, arcs: 6, path: 2 }",
 				replacement: "\tframe: { states: 4, arcs: 4, path: 2 }",
 				why: "The fold counts newnfa's frame as four arcs, not six; the raw NFA property fails."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\t\t\tprinted.push(intervals)",
 				replacement: "\t\t\tprinted.push(intervals.map(([lo, hi]): Interval => [lo, hi - 1]))",
 				why: "The colors leave each printed set's last code point out of it; the raw NFA property's colors fail, and so does the limits property."
@@ -182,7 +182,7 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\tif (anchors > regexMaxAnchors) {",
 				replacement: "\tif (anchors >= regexMaxAnchors) {",
 				why: "A pattern with exactly as many moving anchors as the anchors limit allows is refused; the limits property fails."
@@ -195,7 +195,7 @@ export const postgreSQLsRegexCompileLimitsRefuseAPatternAsResourceBoundWithTheLi
 				why: "A loop through an assertion the rewrite leaves is not refused as anchorLoop, so the arcs measure refuses it instead; the limits property fails."
 			},
 			{
-				file: "packages/engine/src/scalar/regex/space.ts",
+				file: "packages/engine/src/ir/pattern-space.ts",
 				original: "\t\t\tprinted.push(intervals)",
 				replacement: "\t\t\tprinted.push(intervals.map(([lo, hi]): Interval => [lo, hi - 1]))",
 				why: "The colors leave each printed set's last code point out of it; the raw NFA property's colors fail, and so does the limits property."

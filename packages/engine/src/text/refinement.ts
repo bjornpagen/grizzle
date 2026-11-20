@@ -7,18 +7,13 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { utf8Width } from "@bjornpagen/grizzle-text/regex/charset"
 import { type TextBounds, textBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import {
-	type CanonicalDfa,
-	type DfaLimits,
 	dfaKey,
 	intersectionDfa,
 	isUniversal,
 	longest,
-	membersWithin,
-	minimalDfa
+	membersWithin
 } from "@bjornpagen/grizzle-text/regex/dfa"
-import { canonicalText, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
-import { regexDfaMaxStates, regexDfaMaxWork } from "@bjornpagen/grizzle-text/regex/limits"
-import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { RegexFlags } from "@bjornpagen/grizzle-text/regex/parse"
 import { toAre } from "@bjornpagen/grizzle-text/regex/print"
@@ -26,6 +21,7 @@ import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
+import { dfaLimits, type Known, languageOf, ownKey } from "#compiler/ir/pattern.ts"
 import {
 	finiteCheck,
 	languageKey,
@@ -44,15 +40,6 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { structuralBounds } from "#compiler/text/bounds.ts"
 
 /**
- * The host's bounds on a pattern's subset construction (regexDfaMaxStates, regexDfaMaxWork): past
- * either, the analysis knows the language by its structure alone.
- */
-const dfaLimits: DfaLimits = Object.freeze({
-	maxStates: regexDfaMaxStates,
-	maxWork: regexDfaMaxWork
-})
-
-/**
  * How PostgreSQL enforces the refinement: no check for a tautology over admitted text, else its language's enforcement
  * (ir/scalar.ts PatternCheck), with the bounds it proves on every member.
  */
@@ -60,14 +47,6 @@ type TextCheck = { readonly kind: "tautology" } | PatternCheck
 
 /** The check of patterns every admitted text matches: none, one frozen value for every such conjunction. */
 const tautology: TextCheck = Object.freeze({ kind: "tautology" })
-
-/**
- * A non-empty language as the analysis knows it: by its canonical automaton when the DFA bounds reach one, and
- * otherwise by its normalized IR alone, a conjunction's by its members' IRs.
- */
-export type Known =
-	| { readonly kind: "automaton"; readonly dfa: CanonicalDfa }
-	| { readonly kind: "structure" }
 
 /**
  * One pattern of a text's conjunction as the analysis knows it alone: its source and flags as declared, its normalized
@@ -180,17 +159,7 @@ const choose = (testing: ReadonlyArray<Testing>, known: Known): TextCheck => {
 	}
 }
 
-/** A pattern's own canonical key: its minimal DFA's canonical text, or its normalized IR above the DFA bound. */
-const patternKey = (pattern: PatternAnalysis): string => {
-	switch (pattern.known.kind) {
-		case "automaton":
-			return `dfa:${dfaKey(pattern.known.dfa)}`
-		case "structure":
-			return `ir:${canonicalText(pattern.ir)}`
-	}
-}
-
-/** A member of a conjunction that tests something, with its own key (patternKey). */
+/** A member of a conjunction that tests something, with its own key (ir/pattern.ts ownKey). */
 interface Testing {
 	readonly pattern: PatternAnalysis
 	readonly key: string
@@ -211,13 +180,13 @@ const keyOf = (testing: ReadonlyArray<Testing>, known: Known): string => {
 
 /**
  * The members of a conjunction that test anything, in declared order: each but those the analysis proves every admitted
- * text matches, which add no test to the conjunction, and each of one language once (patternKey), which tests what its
+ * text matches, which add no test to the conjunction, and each of one language once (ir/pattern.ts ownKey), which tests what its
  * first does. They are what the conjunction's check reads and what its key names above the DFA bound.
  */
 const testingOf = (members: ReadonlyArray<PatternAnalysis>): ReadonlyArray<Testing> => {
 	const seen = new Set<string>()
 	return members.flatMap((pattern): ReadonlyArray<Testing> => {
-		const key = patternKey(pattern)
+		const key = ownKey(pattern.ir, pattern.known)
 		const tests =
 			!(pattern.known.kind === "automaton" && isUniversal(pattern.known.dfa)) && !seen.has(key)
 		seen.add(key)
@@ -226,25 +195,10 @@ const testingOf = (members: ReadonlyArray<PatternAnalysis>): ReadonlyArray<Testi
 }
 
 /**
- * The language of a pattern's IR as the analysis knows it, from its NFA: what analyzePattern classifies an admitted
- * pattern by. Its canonical automaton where the DFA bounds reach one, which has no state exactly for the empty language,
- * the IR never (ir.ts), and otherwise its structure, which the IR of a language with a member alone can pass.
- */
-export const languageOf = (nfa: Nfa): Known => {
-	const outcome = minimalDfa(nfa, dfaLimits)
-	switch (outcome.kind) {
-		case "bounded":
-			return { kind: "structure" }
-		case "minimal":
-			return { kind: "automaton", dfa: outcome.dfa }
-	}
-}
-
-/**
  * One pattern analyzed alone: admitted as every pattern grizzle hands PostgreSQL is admitted (scalar/regex/admit.ts
  * admitPattern), its grammar with source-located diagnostics and PostgreSQL's regex compile space, a pattern past one of
  * its measures refused as ResourceBound; else its IR, its ARE (scalar/regex/print.ts) and its language as the host's
- * bounds let the analysis know it (languageOf). The empty language is one as any other here; a conjunction of it,
+ * bounds let the analysis know it (ir/pattern.ts languageOf). The empty language is one as any other here; a conjunction of it,
  * alone or beside others, is refused as every conjunction no text matches is (analyzeText). `loc` places a refusal; diagnostics point one level deeper, at the pattern offset of the
  * construct (`... .pattern[3]`).
  */

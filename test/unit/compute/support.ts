@@ -625,6 +625,8 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 				value: { kind: "text", value: literal.value[canonicalTag]().payload },
 				type
 			}
+		case "pattern":
+			throw new Error("a pattern literal renders through its match (matchOperands), as its ARE")
 	}
 }
 
@@ -637,13 +639,14 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
  */
 export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 	const go = (e: ScalarExpr): Expr => {
-		const args = Arr.map(e.args, go)
+		/** Each operand's SQL, rendered where a case reads it: a match's pattern only through matchOperands. */
+		const args = (): ReadonlyArray<Expr> => Arr.map(e.args, go)
 		const arg = (i: number): Expr => {
-			const a = args[i]
+			const a = e.args[i]
 			if (a === undefined) {
 				throw new Error(`no operand ${i} of ${e.kind}`)
 			}
-			return a
+			return go(a)
 		}
 		switch (e.kind) {
 			case "literal":
@@ -655,7 +658,7 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 			case "param":
 				return { kind: "param", slot: positionalValue(1), type: typeRef(e.type, options) }
 			case "cast": {
-				const ieee = ieeeForm(e, args)
+				const ieee = ieeeForm(e, args())
 				if (ieee?.kind === "guarded") {
 					if (ieee.sql === undefined) {
 						throw new Error(`no IEEE 754 rounding into ${baseOf(e.type).carrier}`)
@@ -686,11 +689,11 @@ export const sqlOf = (root: ScalarExpr, options: RenderOptions): Expr => {
 									)
 								}
 							})
-						: args,
+						: args(),
 					options.library
 				)
 				if (rendered === undefined) {
-					throw new Error(`no form of ${describeOp(e.op)} over ${args.length} operand(s)`)
+					throw new Error(`no form of ${describeOp(e.op)} over ${e.args.length} operand(s)`)
 				}
 				return rendered
 			}

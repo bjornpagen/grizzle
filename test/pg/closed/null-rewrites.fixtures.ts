@@ -347,7 +347,10 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
 		case "endsWith":
 			return Compute.eq(Compute.endsWith(operand(p.a), operand(p.b)), true)
 		case "matches":
-			return Compute.matches(operand(p.subject), operand(p.pattern))
+			return Compute.matches(
+				operand(p.subject),
+				p.pattern.kind === "literal" ? Compute.pattern(p.pattern.text) : operand(p.pattern)
+			)
 		case "between":
 			return Compute.between(operand(p.a), operand(p.low), operand(p.high))
 		case "in":

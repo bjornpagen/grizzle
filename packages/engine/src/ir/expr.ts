@@ -1,4 +1,5 @@
 import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { type NonEmptyReadonlyArray, sortNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
@@ -35,6 +36,7 @@ import {
 } from "#compiler/ir/date.ts"
 import { type DecimalValue, decimalPayload } from "#compiler/ir/decimal.ts"
 import { drive, Fold } from "#compiler/ir/fold.ts"
+import type { PatternValue } from "#compiler/ir/pattern.ts"
 import type { NativeProof, OperationProof } from "#compiler/ir/proof.ts"
 import {
 	baseOf,
@@ -217,26 +219,33 @@ type ExprKind = (typeof exprKinds)[number]
 declare const patternTableBrand: unique symbol
 
 /**
- * Every value a Compute.matches pattern operand can take, each its source in grizzle's pattern grammar under the flags
- * "u", admitted when the node was typed (scalar/regex/admit.ts admitMatch): at least one, each once, in code point
- * order, so one set of patterns has one table. The host's automaton reads a source; only a lowering into SQL translates
- * one into the PostgreSQL ARE `~` reads (scalar/regex/admit.ts matchAre). patternTableOf alone mints one.
+ * Every value a Compute.matches pattern operand can take, each its pattern value (ir/pattern.ts PatternValue), its
+ * spelling admitted when the node was typed (scalar/regex/admit.ts admitMatch): at least one, each spelling once, by
+ * its language's key and then its spelling in code point order, so one set of patterns has one table and its identity
+ * is its languages. The host's automaton reads a spelling; only a lowering into SQL translates one into the PostgreSQL
+ * ARE `~` reads (scalar/regex/admit.ts matchAre). patternTableOf alone mints one.
  */
-export type PatternTable = NonEmptyReadonlyArray<string> & {
+export type PatternTable = NonEmptyReadonlyArray<PatternValue> & {
 	readonly [patternTableBrand]: true
 }
 
-const mintPatternTable = nominal<NonEmptyReadonlyArray<string>, PatternTable>()
+const mintPatternTable = nominal<NonEmptyReadonlyArray<PatternValue>, PatternTable>()
+
+/** Pattern values by their language's key, then their spelling, each in code point order. */
+const byLanguage: Comparator<PatternValue> = thenBy(
+	mapInput(compareCodePoints, (p: PatternValue) => p.pattern),
+	mapInput(compareCodePoints, (p: PatternValue) => p.spelling)
+)
 
 /**
- * The one table of the patterns `sources` holds, in whatever order and with whatever repeats they arrive: each source
- * once, in code point order (grizzle-text text.ts compareCodePoints).
+ * The one table of the patterns `values` holds, in whatever order and with whatever repeats they arrive: each spelling
+ * once, by language and spelling (byLanguage).
  */
-export const patternTableOf = (sources: NonEmptyReadonlyArray<string>): PatternTable => {
-	const [head, ...tail] = sources
-	const others = new Set(tail)
-	others.delete(head)
-	return mintPatternTable(Object.freeze(sortNonEmpty([head, ...others], compareCodePoints)))
+export const patternTableOf = (values: NonEmptyReadonlyArray<PatternValue>): PatternTable => {
+	const [head, ...tail] = values
+	const others = new Map(tail.map((p) => [p.spelling, p] as const))
+	others.delete(head.spelling)
+	return mintPatternTable(Object.freeze(sortNonEmpty([head, ...others.values()], byLanguage)))
 }
 
 /** How a parameter's placeholder is cast: compare binds the base type; write and emit cast to the domain. */
@@ -253,7 +262,9 @@ export interface ColumnRef {
  * A typed literal ("every literal is a typed literal"). The kind fixes the host representation and the
  * expression's type fixes the native type, and the two agree (literalProblem). Decimal, Money and Vector values are
  * held parsed and spell their canonical tags from their parts: the owned Decimal and Money travel here unchanged, and a
- * Vector as the frozen snapshot of its components (Vector.canonical).
+ * Vector as the frozen snapshot of its components (Vector.canonical). A Compute.matches pattern is its pattern value
+ * (ir/pattern.ts PatternValue), a text whose identity is its language and whose spelling the lowering reads, and it
+ * stands only where a match reads its pattern.
  */
 export type TypedLiteral =
 	| { readonly kind: "int"; readonly value: bigint }
@@ -280,6 +291,7 @@ export type TypedLiteral =
 	  }
 	| { readonly kind: "span"; readonly start: bigint; readonly end: bigint }
 	| { readonly kind: "vector"; readonly value: VectorText }
+	| { readonly kind: "pattern"; readonly value: PatternValue }
 
 /**
  * A literal as an identity of the naming door takes it (core/identity.ts): its canonical text as its part, a boolean or
@@ -311,6 +323,10 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "span":
 		case "vector":
 			return { part, stem: value.kind, display: part }
+		case "pattern":
+			throw defect(
+				"a pattern literal names nothing: it stands only where a match reads its pattern"
+			)
 	}
 }
 
@@ -905,6 +921,7 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 		case "handles":
 		case "span":
 		case "vector":
+		case "pattern":
 			return undefined
 	}
 }
@@ -1016,6 +1033,13 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				? undefined
 				: `a vector literal whose native norm lies in the cosine domain [${cosineNormMin}, ${cosineNormMax}]`
 		}
+		case "pattern":
+			if (carrier !== "text") {
+				return `a pattern literal is not a ${carrier} value`
+			}
+			return isStorableText(literal.value.spelling)
+				? undefined
+				: "a pattern's spelling is well-formed UTF-16 without NUL"
 	}
 }
 

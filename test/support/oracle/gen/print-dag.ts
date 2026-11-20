@@ -50,6 +50,8 @@ export const printLiteral = (literal: TypedLiteral, type: ScalarType): string =>
 			return `[${bigintText(literal.start)},${bigintText(literal.end)})::${label}`
 		case "vector":
 			return `${literal.value[canonicalTag]().payload}::${label}`
+		case "pattern":
+			return `${Formatter.format(literal.value.spelling)}::pattern`
 	}
 }
 

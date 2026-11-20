@@ -144,6 +144,8 @@ const valueExpr = (
 			return lit.text(`[${literal.start},${literal.end})`, type)
 		case "vector":
 			return lit.text(literal.value[canonicalTag]().payload, type)
+		case "pattern":
+			throw new Error("a fact holds no pattern literal: only a match reads one")
 	}
 }
 
