@@ -136,6 +136,7 @@ export const rulesOverQueriesOnPostgreSQL19CommitExactlyTheHistoriesWhoseEverySt
 			"committed past SET CONSTRAINTS ALL IMMEDIATE",
 			"a write rolled back to a savepoint",
 			"a note no rule reads updated",
+			"an update of an immutable row refused by its guard",
 			"clusters with none omitting a row",
 			"clusters with one omitting a row",
 			"clusters with several omitting a row",
@@ -308,13 +309,28 @@ export const rulesOverQueriesOnPostgreSQL19CommitExactlyTheHistoriesWhoseEverySt
 									continue
 								}
 								const expected = expectedOf(t)
+								/** Where and by what the transaction must be refused. */
+								const refusedText = (e: Exclude<typeof expected, { readonly kind: "committed" }>) =>
+									e.kind === "guarded"
+										? `at statement ${String(e.index)} by ${insufficientPrivilege}, its relation's immutability guard`
+										: `${momentText(e.moment)} by ${Arr.join(e.breaks, ", ")}`
 								const verdict = yield* attempt(u.seat.session, t.statements)
 								if (verdict.kind === "committed") {
 									if (expected.kind !== "committed") {
 										return yield* new Disagreed({
-											message: `committed where it must be refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}: ${Formatter.format(t.statements)}`
+											message: `committed where it must be refused ${refusedText(expected)}: ${Formatter.format(t.statements)}`
 										})
 									}
+								} else if (expected.kind === "guarded") {
+									if (
+										verdict.fields.code !== insufficientPrivilege ||
+										!sameMoment(verdict.moment, { kind: "statement", index: expected.index })
+									) {
+										return yield* new Disagreed({
+											message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)}, where it must be refused ${refusedText(expected)}: ${Formatter.format(t.statements)}`
+										})
+									}
+									c.note("an update of an immutable row refused by its guard")
 								} else {
 									const rule = u.refusedRule(verdict.fields)
 									if (
@@ -326,7 +342,7 @@ export const rulesOverQueriesOnPostgreSQL19CommitExactlyTheHistoriesWhoseEverySt
 										!sameMoment(verdict.moment, expected.moment)
 									) {
 										return yield* new Disagreed({
-											message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (rule ${rule ?? "none"}), where it must be ${expected.kind === "committed" ? "committed" : `refused ${momentText(expected.moment)} by ${Arr.join(expected.breaks, ", ")}`}: ${Formatter.format(t.statements)}`
+											message: `refused ${momentText(verdict.moment)} by ${refusalText(verdict.fields)} (rule ${rule ?? "none"}), where it must be ${expected.kind === "committed" ? "committed" : `refused ${refusedText(expected)}`}: ${Formatter.format(t.statements)}`
 										})
 									}
 									c.note(`refused by ${rule}`)
@@ -339,10 +355,10 @@ export const rulesOverQueriesOnPostgreSQL19CommitExactlyTheHistoriesWhoseEverySt
 								}
 								if (expected.kind === "committed") {
 									committed(t.after)
-								} else if (expected.moment.kind === "commit") {
+								} else if (expected.kind === "refused" && expected.moment.kind === "commit") {
 									refusalNotes(tx.ops, t, expected.breaks, needed)
 								}
-								if (t.immediate.length > 0) {
+								if (t.immediate.length > 0 && expected.kind !== "guarded") {
 									c.note(
 										expected.kind === "refused" && expected.moment.kind === "statement"
 											? "refused at a statement past SET CONSTRAINTS ALL IMMEDIATE"

@@ -24,6 +24,7 @@ import {
 	contained,
 	derived,
 	key,
+	mutable,
 	on,
 	relation,
 	schema,
@@ -33,7 +34,9 @@ import type { ColumnDefinition, PlStatement } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
+import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { servedFixture } from "#test/support/served-db.ts"
@@ -60,6 +63,14 @@ const V = relation("V", { id: pg.integer }, ["id"])
 
 const N = relation("N", { form: pg.integer, id: pg.integer }, ["form", "id"])
 
+/**
+ * The fields of `relation` a write changes in place, as the schema decides them (ir/law.ts RelationInfo `inPlace`):
+ * every one outside the key of a mutable relation, and none of an immutable one here, whose immutability guard holds
+ * every other field fixed against every UPDATE (physical/ddl/immutable.ts).
+ */
+const inPlaceFields = (relation: Rel): ReadonlyArray<string> =>
+	defined(inPlaceOf.get(relation), `the relation ${relation}`)
+
 /** The negations whose rows N marks, each under a code of its own. */
 export const forms = ["unpaired", "unlisted", "quiet", "unused"] as const
 
@@ -68,11 +79,13 @@ type Form = (typeof forms)[number]
 const formCode: Readonly<Record<Form, number>> = { unpaired: 1, unlisted: 2, quiet: 3, unused: 4 }
 
 /**
- * The schema under `name`: R, S, U, T, W, V and N stored; J2, J3, Semi, Lonely, Self, Unpaired, Unlisted and Quiet
- * derived over them, live, and Unused over J2 on a level above, with a rule over each.
+ * The schema under `name`: R, S, U, T, W, V and N stored, W mutable, whose k and note a writer changes in place, and
+ * every other immutable, whose immutability guard refuses an UPDATE that changes its row (physical/ddl/immutable.ts);
+ * J2, J3, Semi, Lonely, Self, Unpaired, Unlisted and Quiet derived over them, live, and Unused over J2 on a level above,
+ * with a rule over each.
  */
 const ruleQuery = (name: string) => {
-	const Base = schema(name, [R, S, U, T, W, V, N], [])
+	const Base = schema(name, [R, S, U, T, W, V, N], [mutable(W)])
 	const J2 = derived(
 		"J2",
 		query(Base).rule((r) => {
@@ -659,6 +672,7 @@ export type Feature =
 	| "committed past SET CONSTRAINTS ALL IMMEDIATE"
 	| "a write rolled back to a savepoint"
 	| "a note no rule reads updated"
+	| "an update of an immutable row refused by its guard"
 	| "clusters with none omitting a row"
 	| "clusters with one omitting a row"
 	| "clusters with several omitting a row"
@@ -677,7 +691,9 @@ export type Feature =
  *   and its W row moved to k 1, which a J3 fact holds, and every mark synced, so the first R row is a marked row of
  *   Unpaired whose k an S row holds; then its pairing;
  * - a row brought back to Unpaired: one cluster, its b below 2 so its J3 fact keeps the check, then the unpairing of
- *   its k.
+ *   its k;
+ * - refused by check3: one cluster whose J3 fact's a and b are both 2, which NoTwoTwo refuses, every other rule kept by
+ *   the cluster's own rows: an update of R, S or U, which an immutable relation's guard refuses, no longer reaches it.
  */
 const constructed: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<ReadonlyArray<Transaction>>]> =
 	[
@@ -717,6 +733,15 @@ const constructed: Arr.NonEmptyReadonlyArray<readonly [Feature, Gen<ReadonlyArra
 					]
 				},
 				{ writer: s.draw(element(["sql", "grizzle"] as const)), ops: [{ kind: "unpair", pick: 0 }] }
+			]
+		],
+		[
+			"refused by check3",
+			(s) => [
+				{
+					writer: s.draw(element(["sql", "grizzle"] as const)),
+					ops: [{ kind: "cluster", k: s.draw(int(0, 1)), a: 2, b: 2 }]
+				}
 			]
 		]
 	]
@@ -771,6 +796,8 @@ export interface Resolved {
 	}>
 	readonly rolledBack: boolean
 	readonly renoted: boolean
+	/** The index of its first UPDATE its relation's immutability guard refuses (`updated`), none where it holds none. */
+	readonly guarded: Option.Option<number>
 	readonly clusters: ReadonlyArray<ReadonlyArray<Cluster>>
 }
 
@@ -784,8 +811,9 @@ export class Keys {
 
 /**
  * The verdict a direct SQL transaction must have: committed where no statement judged at its end and not the state it
- * leaves breaks a rule; else refused at the first statement past SET CONSTRAINTS ALL IMMEDIATE that leaves a broken
- * state, or at COMMIT, by a rule that state breaks.
+ * leaves breaks a rule; else refused at its first refused statement, an UPDATE its relation's immutability guard
+ * refuses (`guarded`, 42501, whatever any rule finds) or one past SET CONSTRAINTS ALL IMMEDIATE that leaves a broken
+ * state, by a rule that state breaks, or at COMMIT, by a rule the state it leaves breaks.
  */
 type Expected =
 	| { readonly kind: "committed" }
@@ -794,9 +822,14 @@ type Expected =
 			readonly moment: Moment
 			readonly breaks: Arr.NonEmptyReadonlyArray<Rule>
 	  }
+	| { readonly kind: "guarded"; readonly index: number }
 
 export const expectedOf = (t: Resolved): Expected => {
+	const guarded = Option.getOrElse(t.guarded, () => t.statements.length)
 	for (const check of t.immediate) {
+		if (check.index >= guarded) {
+			break
+		}
 		if (Arr.isReadonlyArrayNonEmpty(check.breaks)) {
 			return {
 				kind: "refused",
@@ -804,6 +837,9 @@ export const expectedOf = (t: Resolved): Expected => {
 				breaks: check.breaks
 			}
 		}
+	}
+	if (Option.isSome(t.guarded)) {
+		return { kind: "guarded", index: t.guarded.value }
 	}
 	const breaks = broken(t.after)
 	return Arr.isReadonlyArrayNonEmpty(breaks)
@@ -842,6 +878,18 @@ export const resolve = (
 		if (immediate.length > 0 || sql === immediateSql) {
 			immediate.push({ index: statements.length - 1, breaks: broken(now()) })
 		}
+	}
+	let guarded: Option.Option<number> = Option.none()
+	/**
+	 * An UPDATE of `relation`'s `field` from `from` to `to`, emitted: refused by the relation's immutability guard where
+	 * it changes a field the relation's rows hold fixed, any field outside the ones the schema changes in place
+	 * (`inPlaceFields`), the first such statement recorded.
+	 */
+	const updated = (relation: Rel, field: string, from: number, to: number, sql: string): void => {
+		if (Option.isNone(guarded) && from !== to && !inPlaceFields(relation).includes(field)) {
+			guarded = Option.some(statements.length)
+		}
+		emit(sql)
 	}
 	/** Every relation as `state` holds it. */
 	const restore = (state: State): void => {
@@ -997,25 +1045,43 @@ export const resolve = (
 					case "R": {
 						const r = defined(R.get(at), "a picked row")
 						R.set(at, op.second ? { ...r, a: v } : { ...r, k: v })
-						emit(`UPDATE ${table("R")} SET ${op.second ? "a" : "k"} = ${v} WHERE id = ${at}`)
+						updated(
+							"R",
+							op.second ? "a" : "k",
+							op.second ? r.a : r.k,
+							v,
+							`UPDATE ${table("R")} SET ${op.second ? "a" : "k"} = ${v} WHERE id = ${at}`
+						)
 						break
 					}
 					case "S": {
 						const r = defined(S.get(at), "a picked row")
 						S.set(at, op.second ? { ...r, b: v } : { ...r, k: v })
-						emit(`UPDATE ${table("S")} SET ${op.second ? "b" : "k"} = ${v} WHERE id = ${at}`)
+						updated(
+							"S",
+							op.second ? "b" : "k",
+							op.second ? r.b : r.k,
+							v,
+							`UPDATE ${table("S")} SET ${op.second ? "b" : "k"} = ${v} WHERE id = ${at}`
+						)
 						break
 					}
 					case "U": {
 						const r = defined(U.get(at), "a picked row")
 						U.set(at, op.second ? { ...r, b: v } : { ...r, a: v })
-						emit(`UPDATE ${table("U")} SET ${op.second ? "b" : "a"} = ${v} WHERE id = ${at}`)
+						updated(
+							"U",
+							op.second ? "b" : "a",
+							op.second ? r.b : r.a,
+							v,
+							`UPDATE ${table("U")} SET ${op.second ? "b" : "a"} = ${v} WHERE id = ${at}`
+						)
 						break
 					}
 					case "W": {
 						const w = defined(Wr.get(at), "a picked row")
 						Wr.set(at, { ...w, k: v })
-						emit(`UPDATE ${table("W")} SET k = ${v} WHERE id = ${at}`)
+						updated("W", "k", w.k, v, `UPDATE ${table("W")} SET k = ${v} WHERE id = ${at}`)
 						break
 					}
 				}
@@ -1032,7 +1098,13 @@ export const resolve = (
 				for (const [id, w] of Wr) {
 					if (w.k === fact.k) {
 						Wr.set(id, { ...w, k: to.value.k })
-						emit(`UPDATE ${table("W")} SET k = ${to.value.k} WHERE id = ${id}`)
+						updated(
+							"W",
+							"k",
+							w.k,
+							to.value.k,
+							`UPDATE ${table("W")} SET k = ${to.value.k} WHERE id = ${id}`
+						)
 					}
 				}
 				break
@@ -1203,7 +1275,13 @@ export const resolve = (
 					const [id, w] = found.value
 					renoted = renoted || w.note !== op.value
 					Wr.set(id, { ...w, note: op.value })
-					emit(`UPDATE ${table("W")} SET note = ${op.value} WHERE id = ${id}`)
+					updated(
+						"W",
+						"note",
+						w.note,
+						op.value,
+						`UPDATE ${table("W")} SET note = ${op.value} WHERE id = ${id}`
+					)
 				}
 				break
 			}
@@ -1268,6 +1346,7 @@ export const resolve = (
 		immediate,
 		rolledBack,
 		renoted,
+		guarded,
 		clusters
 	}
 }
@@ -1442,6 +1521,17 @@ const sessionDeltas = (
 
 /** The schema rule-query's cases run on, as declared. */
 const declared = ruleQuery("RuleQuery")
+
+/** Each stored relation's fields a write changes in place, as the declared schema decides them (`inPlaceFields`). */
+const inPlaceOf: ReadonlyMap<string, ReadonlyArray<string>> = new Map(
+	Arr.map(
+		[
+			...succeeded(testArtifacts(declared, testCompile), "rule-query's schema compiles").derived
+				.schema.relations
+		],
+		([name, info]) => [name, info.inPlace] as const
+	)
+)
 
 /** The schema installed through its first migration once per member (install-migrate.ts installedTemplate). */
 export const judgedTemplate = installedTemplate({
