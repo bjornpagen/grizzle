@@ -1,8 +1,8 @@
-import { ByteSize, Bytes, Effect, FileSystem, Option, Schema, Stream } from "effect"
+import { ByteSize, Bytes, Data, Effect, FileSystem, Option, Stream } from "effect"
 import type { PlatformError, Scope } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
-import { isDiagnostic, makeDiagnostic } from "#model/diagnostic.ts"
-import type { DiagnosticInput } from "#model/diagnostic.ts"
+import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 
 const messages = {
 	"DOC-14/duplicate-key": "An object repeats a key.",
@@ -23,13 +23,10 @@ export type LoadCode = keyof typeof messages
 /**
  * The loader refused its input. `offset` is a byte offset into the input when one is known.
  */
-export class LoadRefusal extends Schema.TaggedError<
-	LoadRefusal,
-	{ readonly brand: unique symbol }
->()("LoadRefusal", {
-	diagnostic: Schema.declare(isDiagnostic),
-	offset: Schema.optionalKey(Schema.Natural)
-}) {}
+export class LoadRefusal extends Data.TaggedError("LoadRefusal")<{
+	readonly diagnostic: Diagnostic
+	readonly offset?: number
+}> {}
 
 /**
  * Where in the input a refusal points: 1-based line and column, 0-based byte offset.
@@ -83,12 +80,12 @@ export const refuse = (
 	return Option.match(site.position, {
 		onNone: () =>
 			makeDiagnostic(fields).pipe(
-				Effect.flatMap((diagnostic) => Effect.fail(LoadRefusal.make({ diagnostic })))
+				Effect.flatMap((diagnostic) => Effect.fail(new LoadRefusal({ diagnostic })))
 			),
 		onSome: (position) =>
 			makeDiagnostic({ ...fields, column: position.column, line: position.line }).pipe(
 				Effect.flatMap((diagnostic) =>
-					Effect.fail(LoadRefusal.make({ diagnostic, offset: position.offset }))
+					Effect.fail(new LoadRefusal({ diagnostic, offset: position.offset }))
 				)
 			)
 	})

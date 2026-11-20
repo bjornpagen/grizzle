@@ -20,7 +20,7 @@ import {
 import { jsonTextOf, type Json } from "@superstarter/json"
 import { Array as Arr, Effect, FileSystem, Option, Path, Record } from "effect"
 import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { CommandNameSource, GroupNameSource } from "#names/plan.ts"
 
@@ -137,9 +137,9 @@ const WORDS: Readonly<Record<Slot, Words>> = {
 	}
 }
 
-const document = DocumentUri.make("file:///names/openapi.json")
+const document = fixedDocumentUri("file:///names/openapi.json")
 
-const configDocument = DocumentUri.make("file:///names/author-config.json")
+const configDocument = fixedDocumentUri("file:///names/author-config.json")
 
 const pointerOf = (op: OperationCase): string => {
 	const words = WORDS[op.slot]

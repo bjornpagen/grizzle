@@ -1,21 +1,12 @@
-import {
-	Array as Arr,
-	Effect,
-	FileSystem,
-	Option,
-	Order,
-	Path,
-	Schema,
-	String as Str
-} from "effect"
+import { Array as Arr, Effect, FileSystem, Option, Order, Path, String as Str } from "effect"
 import type { Digest } from "effect/crypto"
 import { loadBytes } from "#load/index.ts"
 import type { Loaded } from "#load/index.ts"
 import { LoadRefusal, readMemberFile, readOperatorFile, sameFile } from "#load/read.ts"
 import type { VerifyOpened } from "#load/read.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { type DocumentUri, isDocumentUri } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
-import { sha256Hex } from "#model/digest.ts"
+import { type Sha256Hex, sha256Hex } from "#model/digest.ts"
 import { retrievalBase } from "#model/uri.ts"
 
 /**
@@ -32,7 +23,7 @@ export interface SetMember extends Loaded {
 	/**
 	 * The sha256 of the exact bytes parsed, computed once at load.
 	 */
-	readonly sha256: string
+	readonly sha256: Sha256Hex
 }
 
 /**
@@ -48,10 +39,6 @@ const messages = {
 	"REF-16/relative-uri": "A document's retrieval URI is not an absolute URI.",
 	"REF-16/unreadable-root": "The reference root or one of its entries cannot be read."
 } as const
-
-const decodeUri = Schema.decodeUnknownOption(DocumentUri)
-
-const isDocumentUri = Schema.is(DocumentUri)
 
 /**
  * Splits `<uri>=<path>` at the first `=`. A value with no `=` yields a pair with an empty path,
@@ -88,7 +75,7 @@ const refusePair = Effect.fnUntraced(function* refusePair(
 		specSection: "https://spec.openapis.org/oas/v3.2.1.html#establishing-the-base-uri"
 	})
 
-	return yield* LoadRefusal.make({ diagnostic })
+	return yield* new LoadRefusal({ diagnostic })
 })
 
 /**
@@ -100,7 +87,7 @@ const withPath = (refusal: LoadRefusal, path: string): Effect.Effect<never, Load
 	makeDiagnostic({ ...refusal.diagnostic, hint: path }).pipe(
 		Effect.flatMap((diagnostic) =>
 			Effect.fail(
-				LoadRefusal.make(
+				new LoadRefusal(
 					refusal.offset === undefined ? { diagnostic } : { diagnostic, offset: refusal.offset }
 				)
 			)
@@ -176,7 +163,7 @@ const loadPair = Effect.fnUntraced(function* loadPair(
 	pair: DocumentPair,
 	read: ReadPair
 ): Effect.fn.Return<void, LoadRefusal, FileSystem.FileSystem | Path.Path | Digest.Digest> {
-	const uri = decodeUri(pair.uri)
+	const uri = Option.liftPredicate(pair.uri, isDocumentUri)
 
 	if (Option.isNone(uri)) {
 		return yield* refusePair("REF-16/relative-uri", pair)

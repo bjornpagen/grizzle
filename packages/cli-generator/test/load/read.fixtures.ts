@@ -32,18 +32,17 @@ import {
 	Path,
 	Record,
 	Ref,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"
 import { ChildProcess } from "effect/process"
 import { loadFile, type Loaded, loadStream, type LoadOptions } from "#load/index.ts"
 import { type LoadCode, LoadRefusal, readMemberFile, refuse, wholeInput } from "#load/read.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import { finished } from "#test/support/process.ts"
 
-const document = DocumentUri.make("file:///spec.json")
+const document = fixedDocumentUri("file:///spec.json")
 
 const options: LoadOptions = { document }
 
@@ -732,7 +731,7 @@ export const askedFeatures = (asked: Asked): ReadonlyArray<AskedFeature> => [
 /** The fields a refusal holds, as the specification states them: its code, document scope, pointer, and its place. */
 export const refusalFields = (refusal: LoadRefusal) => ({
 	tag: refusal._tag,
-	instance: Schema.is(LoadRefusal)(refusal),
+	instance: refusal instanceof LoadRefusal,
 	code: refusal.diagnostic.code,
 	scope: refusal.diagnostic.scope,
 	pointer: String(refusal.diagnostic.pointer),

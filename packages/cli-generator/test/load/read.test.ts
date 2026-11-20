@@ -170,8 +170,8 @@ export const refusalKept = property.explore(askedRefusals, {
 		},
 		{
 			file: "packages/cli-generator/src/load/read.ts",
-			original: "Effect.fail(LoadRefusal.make({ diagnostic, offset: position.offset }))",
-			replacement: "Effect.fail(LoadRefusal.make({ diagnostic }))",
+			original: "Effect.fail(new LoadRefusal({ diagnostic, offset: position.offset }))",
+			replacement: "Effect.fail(new LoadRefusal({ diagnostic }))",
 			why: "A placed refusal loses its byte offset; the property fails."
 		}
 	]
