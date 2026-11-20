@@ -5,10 +5,11 @@
  * Each entry is a composition as an author writes it over the Lab fixture, checked by the real checker, and rewritten by
  * the catalog (R26 to R31, R41, R42): its ordinals, neighbours and as-of probes into windows, its running sums, extrema,
  * means and conditional counts into framed and filtered windows, its shares into partition aggregates, and its
- * percentiles and mode into ordered-set aggregates. Over drawn lab facts (factsGen: small domains, so ties on a group's
- * day and score, groups of one row and empty relations come up), the reference evaluates the composition and the
- * rewritten DAG, and the two deliver one keyed set of rows, statement by statement (rewrite/support.ts agrees). The
- * PostgreSQL agreement of the two lowerings is test/pg/catalog/agreement.test.ts; this is the judge independent of both.
+ * percentiles and mode into ordered-set aggregates. Over drawn lab facts (factsGen: small domains, both zeros among the
+ * scores, so ties on a group's day and score, groups of one row and empty relations come up), the reference evaluates
+ * the composition and the rewritten DAG, and the two deliver one keyed set of rows, statement by statement
+ * (rewrite/support.ts agrees). The PostgreSQL agreement of the two lowerings is test/pg/catalog/agreement.test.ts; this
+ * is the judge independent of both.
  *
  * Every entry must be judged on some case, never only declined: a composition whose rewrite meets a form the reference
  * cannot state (an aggregate over an empty frame, an ordered-set aggregate over no row, which are NULLs) is unjudged on

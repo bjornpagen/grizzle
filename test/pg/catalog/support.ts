@@ -1,6 +1,6 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined } from "@bjornpagen/testing/assert"
-import { array, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
+import { array, boolean, constant, type Gen, int, map, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -167,18 +167,20 @@ const rowsOf = (
 	])
 
 /**
- * Drawn lab facts: five students, days 1 to 12, small domains of dyadic scores and integer amounts, so ties come up;
- * points over five groups with dyadic coordinates, many sharing an x, the score a match reads them at.
+ * A sitting's score: a dyadic from -2 to 10 in quarters, or one in five draws a zero of either sign, -0 a value of its
+ * own, so a group's ties, a percentile's selection and an ordinal's order meet both zeros.
+ */
+const scoreGen: Gen<number> = weighted([
+	[4, map(int(-8, 40), (q) => q / 4)],
+	[1, map(boolean, (negative) => (negative ? -0 : 0))]
+])
+
+/**
+ * Drawn lab facts: five students, days 1 to 12, small domains of dyadic scores (scoreGen) and integer amounts, so ties
+ * come up; points over five groups with dyadic coordinates, many sharing an x, the score a match reads them at.
  */
 export const factsGen: Gen<Facts> = (source) => ({
-	sittings: source.draw(
-		rowsOf(
-			14,
-			int(1, 5),
-			int(1, 12),
-			map(int(-8, 40), (q) => q / 4)
-		)
-	),
+	sittings: source.draw(rowsOf(14, int(1, 5), int(1, 12), scoreGen)),
 	prices: source.draw(rowsOf(10, int(1, 5), int(1, 12), int(0, 300))),
 	points: source.draw(
 		rowsOf(

@@ -16,7 +16,7 @@ import {
 	steered,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Option, Order } from "effect"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { Direction } from "#compiler/core/order.ts"
 import type { CertificateRule } from "#compiler/ir/certificate.ts"
@@ -337,12 +337,59 @@ const mayDeliverNone = (entry: Entry): boolean => {
 	}
 }
 
-/** What a case of the catalog search reached: each entry kind, each rule the rewrite applied, none, and a delivered row. */
+/**
+ * What a case of the catalog search reached: each entry kind, each rule the rewrite applied, none, a delivered row, and
+ * R29 and R30 each applied to a percentile selecting -0 (selectsNegativeZero).
+ */
 export type AgreementFeature =
 	| `entry ${Entry["kind"]}`
 	| `applied ${CertificateRule}`
 	| "applied none"
 	| "delivers rows"
+	| "R29 selecting -0"
+	| "R30 selecting -0"
+
+/**
+ * The ordinals, from 1, a percentile entry selects in a group of n scores: ceil(p · n), at least the first, for each of
+ * a discrete one's fractions; 1 + (n − 1)p for a continuous one's, where it is a whole ordinal, the value there its
+ * answer; none for any other entry.
+ */
+const selectedOrdinals = (entry: Entry, n: number): ReadonlyArray<number> => {
+	switch (entry.kind) {
+		case "discrete percentile":
+			return Arr.map(entry.fractions, (p) => Math.max(1, Math.ceil(p * n)))
+		case "continuous percentile": {
+			const at = 1 + (n - 1) * entry.p
+			return Number.isInteger(at) ? [at] : []
+		}
+		case "ordinal":
+		case "running":
+		case "bound neighbor":
+		case "attached neighbor":
+		case "as-of":
+		case "grouped share":
+		case "keyed share":
+		case "mode":
+			return []
+	}
+}
+
+/**
+ * Whether a percentile entry selects -0 in a student's sittings that hold no +0: PERCENTILE_DISC and PERCENTILE_CONT at a
+ * whole ordinal deliver the value there itself, so a native form that took no canonical zero delivers -0 where the
+ * composition, whose head merges, delivers +0.
+ */
+export const selectsNegativeZero = (entry: Entry, facts: Facts): boolean =>
+	Arr.some(Arr.dedupe(Arr.map(facts.sittings, ([, student]) => student)), (student) => {
+		const scores = Arr.sort(
+			Arr.flatMap(facts.sittings, ([, s, , score]) => (s === student ? [score] : [])),
+			Order.Number
+		)
+		return (
+			!Arr.some(scores, (x) => Object.is(x, 0)) &&
+			Arr.some(selectedOrdinals(entry, scores.length), (k) => Object.is(scores[k - 1], -0))
+		)
+	})
 
 /** The entry kinds, each a feature the search must reach. */
 export const entryKinds: Arr.NonEmptyReadonlyArray<Entry["kind"]> = [

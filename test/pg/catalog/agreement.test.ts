@@ -8,10 +8,10 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  *   restriction, attachment and path, a share's total and restriction, a percentile's fractions and stage, a
  *   continuous percentile's fraction, the mode), checked and lowered twice, composed (the conservative lowering of the
  *   checked DAG) and native (the catalog's rewrite, its targets lowered by native.ts), agrees over drawn lab facts
- *   (support.ts factsGen: small domains, so ties, groups of one row and empty relations come up) as raw text sets, the
- *   native run repeating no row; the rewrite applies exactly the rules the catalog's specification admits for the
- *   shape (rulesOf), so a dropped condition shows as a wrong answer; and every native target is an overload PostgreSQL
- *   has. The compositions of the hand-written suites this search replaced are the aims of the entry kinds they reach
+ *   (support.ts factsGen: small domains, both zeros among the scores, so ties, groups of one row and empty relations
+ *   come up) as raw text sets, the native run repeating no row; the rewrite applies exactly the rules the catalog's
+ *   specification admits for the shape (rulesOf), so a dropped condition shows as a wrong answer; and every native
+ *   target is an overload PostgreSQL has. The compositions of the hand-written suites this search replaced are the aims of the entry kinds they reach
  *   (agreement.fixtures.ts keptAims).
  * - Percentile fractions: R29 admits exactly the dyadic fractions in (0, 1] whose native form agrees with the
  *   composition, and the native form, forced at any fraction, disagrees exactly where a model of both forms' positions
@@ -20,7 +20,9 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * Oracle: the composition's conservative lowering, and the catalog's specification of each shape's rules; the model of
  * both percentile forms for the fractions.
  *
- * Features: each entry kind, each rule applied and none, a delivered row; each fraction class.
+ * Features: each entry kind, each rule applied and none, a delivered row, R29 and R30 each selecting a -0 that is the
+ * only zero of its group, whose canonical zero the native form must take as the composition's merged head does; each
+ * fraction class.
  */
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
@@ -41,7 +43,8 @@ import {
 	lowerNative,
 	nativeTargets,
 	optionsOf,
-	rulesOf
+	rulesOf,
+	selectsNegativeZero
 } from "#test/pg/catalog/agreement.fixtures.ts"
 import * as Q from "#test/pg/catalog/queries.ts"
 import {
@@ -82,7 +85,9 @@ export const everyCompositionOfTheCatalogAgreesWithItsNativeRewriteWhichAppliesE
 			"applied R41",
 			"applied R42",
 			"applied none",
-			"delivers rows"
+			"delivers rows",
+			"R29 selecting -0",
+			"R30 selecting -0"
 		],
 		check:
 			({ tx }, c: Case<AgreementFeature>) =>
@@ -124,6 +129,14 @@ export const everyCompositionOfTheCatalogAgreesWithItsNativeRewriteWhichAppliesE
 							if (Arr.some(outcome.right.run.statements, (st) => st.rows.length > 0)) {
 								c.note("delivers rows")
 							}
+							if (selectsNegativeZero(entry, facts)) {
+								if (Arr.contains(applied, "R29")) {
+									c.note("R29 selecting -0")
+								}
+								if (Arr.contains(applied, "R30")) {
+									c.note("R30 selecting -0")
+								}
+							}
 						}),
 						OracleSeat,
 						OracleSeat.rolledBack(held)
@@ -136,7 +149,22 @@ export const everyCompositionOfTheCatalogAgreesWithItsNativeRewriteWhichAppliesE
 		show: Formatter.format,
 		budget: { runs: 10 * agreementRuns, steered: 10 * agreementRuns },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/catalog/percentile.ts",
+				original:
+					"\t\t\t\texpr: canonicalZeroOver(cx.ed, colExpr(cx.ed, osa, column, type), read.canonical)\n",
+				replacement: "\t\t\t\texpr: colExpr(cx.ed, osa, column, type)\n",
+				why: "R29's PERCENTILE_DISC delivers the zero it selects as it is: a student's scores whose selected value is -0 deliver -0 natively, where the composition's merged head delivers +0."
+			},
+			{
+				file: "packages/engine/src/lower/shapes/catalog/percentile.ts",
+				original:
+					"\t\t\texpr: canonicalZeroOver(cx.ed, colExpr(cx.ed, out, outName, type), read.canonical)\n",
+				replacement: "\t\t\texpr: colExpr(cx.ed, out, outName, type)\n",
+				why: "R30's PERCENTILE_CONT at a whole position returns the value there as it is, -0 for a group whose value there is -0, where the composition's merged head delivers +0."
+			}
+		]
 	})
 
 /**
