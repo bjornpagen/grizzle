@@ -115,25 +115,47 @@ const serverSaid = (e: ServerError): string =>
 	`SQLSTATE ${e.sqlstate}${e.constraint === undefined ? "" : ` (constraint ${e.constraint})`}: ${e.message}`
 
 /**
+ * The server processes PostgreSQL counts in its backends beside the ones its settings name, the autovacuum launcher and
+ * the slot sync worker, each a backend that can lock (postinit.c InitializeMaxBackends adds them to MaxBackends).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0
+ * @unit server processes
+ * @scope the backends PostgreSQL adds to max_connections, autovacuum_worker_slots, max_worker_processes and
+ *   max_wal_senders in MaxBackends, which sizes the shared lock table (lock.c NLOCKENTS)
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/storage/proc.h#L520
+ * @quote #define NUM_SPECIAL_WORKER_PROCS	2
+ * @verified 2026-11-20
+ */
+const specialWorkerProcesses = 2
+
+/**
  * The server's lock table as its settings size it, read in the migration's session once the refused transaction rolled
- * back: about max_locks_per_transaction × (max_connections + max_prepared_transactions) locks, which every
- * transaction of the server shares; or the read's own failure, when that session could not answer it.
+ * back: max_locks_per_transaction × (MaxBackends + max_prepared_transactions) locks, MaxBackends being max_connections,
+ * autovacuum_worker_slots, max_worker_processes, max_wal_senders and the special workers (specialWorkerProcesses), which
+ * every transaction of the server shares and PostgreSQL 19 sizes exactly, with no margin past it (lock.c NLOCKENTS,
+ * postinit.c InitializeMaxBackends, both at REL_19_0); or the read's own failure, when that session could not answer
+ * it.
  */
 export type ServerLockTable =
 	| {
 			readonly kind: "read"
 			readonly maxLocksPerTransaction: string
 			readonly maxConnections: string
+			readonly autovacuumWorkerSlots: string
+			readonly maxWorkerProcesses: string
+			readonly maxWalSenders: string
 			readonly maxPreparedTransactions: string
 	  }
 	| { readonly kind: "unread"; readonly failure: ReadFailure }
 
 /** The lock table's size, as a refusal states it. */
 const lockTableText = (table: ServerLockTable): string => {
-	const formula = "max_locks_per_transaction × (max_connections + max_prepared_transactions)"
+	const formula = `max_locks_per_transaction × (max_connections + autovacuum_worker_slots + max_worker_processes + max_wal_senders + ${specialWorkerProcesses} + max_prepared_transactions)`
 	switch (table.kind) {
 		case "read":
-			return `${formula} = ${table.maxLocksPerTransaction} × (${table.maxConnections} + ${table.maxPreparedTransactions}) locks`
+			return `${formula} = ${table.maxLocksPerTransaction} × (${table.maxConnections} + ${table.autovacuumWorkerSlots} + ${table.maxWorkerProcesses} + ${table.maxWalSenders} + ${specialWorkerProcesses} + ${table.maxPreparedTransactions}) locks`
 		case "unread":
 			return `${formula} locks (its settings could not be read: ${failureText(table.failure)})`
 	}
@@ -142,9 +164,9 @@ const lockTableText = (table: ServerLockTable): string => {
 /**
  * A statement of a migration's transaction, a file's or the drift check's replay, the server refused for want of shared
  * memory (SQLSTATE 53200, its report kept): a transaction holds one lock per object it creates or alters until it ends,
- * and the server's lock table, `table`, is shared by every transaction at once, so a migration that creates more
- * objects than it holds stops, and rolls back whole. The fix is the server's setting, max_locks_per_transaction, which
- * takes a restart; the migration's one transaction stays whole.
+ * and the server's lock table, `table`, is shared by every transaction at once and holds exactly what its settings size,
+ * so a migration that creates more objects than it holds stops, and rolls back whole. The fix is the server's setting,
+ * max_locks_per_transaction, which takes a restart; the migration's one transaction stays whole.
  */
 export class LockTableExhausted extends Data.TaggedError("LockTableExhausted")<{
 	readonly error: ServerError

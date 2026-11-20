@@ -1,7 +1,7 @@
 /**
  * A statement of a migration's transaction the server refuses for want of shared memory (SQLSTATE 53200), which a
  * transaction that creates more objects than the server's lock table holds meets, is refused as the lock table
- * exhausted (LockTableExhausted): the refusal keeps the server's report and states the three settings that size the
+ * exhausted (LockTableExhausted): the refusal keeps the server's report and states the six settings that size the
  * table, max_locks_per_transaction among them, read in the migration's session once the transaction rolled back.
  *
  * The shared cluster's lock table is no thing a test may fill (it serves every session at once), so a session stands
@@ -70,12 +70,12 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 					const substrate = yield* Substrate
 					const owner = substrate.owner.role
 					const settings = yield* substrate.admin.queryValues(
-						"SELECT current_setting('max_locks_per_transaction'), current_setting('max_connections'), current_setting('max_prepared_transactions')",
+						"SELECT current_setting('max_locks_per_transaction'), current_setting('max_connections'), current_setting('autovacuum_worker_slots'), current_setting('max_worker_processes'), current_setting('max_wal_senders'), current_setting('max_prepared_transactions')",
 						[]
 					)
-					const [locks, connections, prepared] = trusted<readonly [string, string, string]>(
-						defined(settings[0], "the server's settings")
-					)
+					const [locks, connections, autovacuum, workers, senders, prepared] = trusted<
+						readonly [string, string, string, string, string, string]
+					>(defined(settings[0], "the server's settings"))
 					return yield* Effect.scoped(
 						Effect.gen(function* () {
 							const allocated = yield* substrate.schema({ create: false, label: "locks" })
@@ -181,6 +181,9 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 									kind: "read",
 									maxLocksPerTransaction: locks,
 									maxConnections: connections,
+									autovacuumWorkerSlots: autovacuum,
+									maxWorkerProcesses: workers,
+									maxWalSenders: senders,
 									maxPreparedTransactions: prepared
 								},
 								"the settings are the server's, read after the rollback"

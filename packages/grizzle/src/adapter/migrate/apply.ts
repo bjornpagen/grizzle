@@ -300,20 +300,31 @@ const lockTableRead: CatalogQuery<Extract<ServerLockTable, { readonly kind: "rea
 			[
 				settingColumn("max_locks_per_transaction"),
 				settingColumn("max_connections"),
+				settingColumn("autovacuum_worker_slots"),
+				settingColumn("max_worker_processes"),
+				settingColumn("max_wal_senders"),
 				settingColumn("max_prepared_transactions")
 			],
 			[],
 			undefined
 		)
 	),
-	what: "three settings",
-	row: ([locks, connections, prepared]) =>
-		locks === undefined || connections === undefined || prepared === undefined
+	what: "six settings",
+	row: ([locks, connections, autovacuum, workers, senders, prepared]) =>
+		locks === undefined ||
+		connections === undefined ||
+		autovacuum === undefined ||
+		workers === undefined ||
+		senders === undefined ||
+		prepared === undefined
 			? undefined
 			: {
 					kind: "read",
 					maxLocksPerTransaction: locks,
 					maxConnections: connections,
+					autovacuumWorkerSlots: autovacuum,
+					maxWorkerProcesses: workers,
+					maxWalSenders: senders,
 					maxPreparedTransactions: prepared
 				}
 }

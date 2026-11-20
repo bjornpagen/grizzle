@@ -4713,13 +4713,18 @@ export const Work = schema(
 ## Deploying
 
 Size the server's lock table before a large schema's first `grizzle migrate`. A migration runs in one transaction,
-which holds one lock per object it creates or alters until it commits, and PostgreSQL's lock table holds about
-`max_locks_per_transaction × (max_connections + max_prepared_transactions)` locks, shared by every transaction at once.
-Set `max_locks_per_transaction` (it takes a restart) so that product is above the number of objects the migration
-creates. Qti's first install holds about 15,100 locks (15,900 with the Ledger over it), 2.4 times a default server's
-64 × 100. On such a server `grizzle migrate` stops with SQLSTATE 53200, rolled back whole: the refusal keeps
-PostgreSQL's message, names `max_locks_per_transaction`, and states the three settings it read from the server. The
-drift check, which rebuilds the snapshot beside the schema in one transaction, needs the same.
+which holds one lock per object it creates or alters until it commits, and PostgreSQL 19's lock table holds exactly
+`max_locks_per_transaction × (max_connections + autovacuum_worker_slots + max_worker_processes + max_wal_senders + 2 +
+max_prepared_transactions)` locks, the 2 its autovacuum launcher and slot sync worker, shared by every transaction at
+once: 19 sizes it at startup with no margin past it, where 18 let a transaction run past (PostgreSQL commit 79534f906,
+which doubled the default to keep the capacity). Set `max_locks_per_transaction` (it takes a restart) so that product
+is above the number of objects the migration creates and the locks every other session holds meanwhile. Qti's first
+install holds about 15,100 locks (15,900 with the Ledger over it): a server at PostgreSQL 19's defaults holds 128 ×
+(100 + 16 + 8 + 10 + 2) = 17,408, which leaves about 1,500 for every other session while it runs, and one that keeps 18's
+default of 64 holds 8,704, about half what Qti needs. On a server too small `grizzle migrate` stops with SQLSTATE 53200,
+rolled back whole: the refusal keeps PostgreSQL's message, names `max_locks_per_transaction`, and states the six
+settings it read from the server. The drift check, which rebuilds the snapshot beside the schema in one transaction,
+needs the same.
 
 Build each `DbLayer` once per process, in module scope. Building it reads the login's served file once and rebuilds what
 runs each of its programs: the parameters' codecs, the rows' readers, the refusal classifier and the prologue, under
