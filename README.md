@@ -1790,7 +1790,7 @@ schema.
 
 | Field                                              | PostgreSQL                                                          | TypeScript                                                             |
 | -------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| `contract("ClerkUserId", uuid)`                    | uuid, behind the contract's domain; a bare `uuid` column is refused | `Uuid & Brand<"ClerkUserId">`; `Uuid.parse` reads a string            |
+| `contract("ClerkUserId", uuid)`                    | uuid, behind the contract's domain; a bare `uuid` column is refused | `Uuid & Brand.Brand<"ClerkUserId">`; `Uuid.parse` reads a string      |
 | `sha256`                                           | text, behind a domain that checks 64 lowercase hex digits           | `string`, a SHA-256 digest's hex spelling                              |
 | `pg.smallint`, `pg.integer`                        | smallint, integer                                                   | `number`                                                               |
 | `pg.bigint`                                        | bigint                                                              | `bigint`                                                               |
@@ -1808,7 +1808,7 @@ schema.
 | `closedId(X)`, for `X = closed.ordered("X", [...])` or `closed.unordered("X", [...])` | smallint, behind the roster's domain | the union of its names |
 | `closedId(X, { only: [...] })`, `closedId(X, { except: [...] })` | smallint, behind the roster's domain and a CHECK of the subset's codes | the union of the subset's names |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
-| `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type, branded with the name                                   |
+| `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type and Effect's `Brand.Brand<name>`                         |
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
 | `pg.vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
 | `bytes`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
@@ -1826,6 +1826,14 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
 
 - **Contracts.** `Cents(500n)` brands a value without checking it; the database checks it on every write. A fourth
   argument, `{ proves: [...] }`, declares facts the check implies ([Queries](#queries)).
+- **A contract's brand is Effect's.** Its values are its base's type and `Brand.Brand<name>` of `effect/Brand`, which the
+  engine imports as a type alone, so `Schema.brand(name)` over a schema of the base's type is the same type: a value an
+  Effect Schema decodes is written into the contract's field, and a value read from the field or minted by the contract
+  is the schema's, with no cast. So a domain's vocabulary module, a browser's included, declares its schemas and loads
+  no compiler. Each schema is over its base's own type: a uuid's is `Uuid`,
+  `${string}-${string}-${string}-${string}-${string}`, which `Schema.TemplateLiteral` spells and `Schema.String` does
+  not; a `Decimal`'s or a `Money`'s, whose constructor is private, is `Schema.declare` of `instanceof`, the class
+  imported from `@bjornpagen/grizzle/client`, which loads no Node module and no compiler.
 - **`natural`** is the builtin contract over `pg.bigint`, unbranded: a count, the type of every `r.count()`, and the one
   type a rule's `pred` reads ([Rules](#rules)). Every schema holds it, since every query over it may count, so its
   domain is installed whether or not a field is natural. A count meets a natural field, parameter or literal and is

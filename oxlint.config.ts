@@ -20,8 +20,8 @@ const { active, lintConfig } = standard(toolchain)
  * the scalar namespace's plain descriptors and the ScalarTypes the test fixtures export; the world model's invalid kinds;
  * the registry's native operations and its operations over two sets; the integer carriers; the declared names the naming
  * door refuses and its alias pairs; and each type-tier box (test/types): the source's own roster of cells a box agreement
- * or a cost gate exhausts (every setting a config reader admits, every kind of a builder, every directive the README
- * states, every probe of a scale program, every dimension a cost gate measures).
+ * or a cost gate exhausts (every setting a config reader admits, every kind of a builder, every kind of base a contract
+ * is over, every directive the README states, every probe of a scale program, every dimension a cost gate measures).
  */
 const DICTIONARY_MINTS = [
 	"test/types/schema/closed-subset.dictionary.ts",
@@ -30,6 +30,7 @@ const DICTIONARY_MINTS = [
 	"test/pg/scalar/registry.dictionary.ts",
 	"test/pg/oracle/mutants/invalid.dictionary.ts",
 	"test/types/api/config.dictionary.ts",
+	"test/types/api/contract-brand.dictionary.ts",
 	"test/types/api/decoder.dictionary.ts",
 	"test/types/api/fields.dictionary.ts",
 	"test/types/api/handle.dictionary.ts",
