@@ -1006,7 +1006,7 @@ const headersOf = Effect.fnUntraced(function* headersOf(
 			continue
 		}
 
-		const typed = yield* partHeader(resolution, at, name, at)
+		const typed = partHeader(resolution, at, name, at)
 		if (PartHeaderOutcome.$is("Unsupported")(typed)) {
 			findings.push(
 				dropping(
@@ -2129,9 +2129,9 @@ const scalarCoverOf = (
 	ctx: Context,
 	input: RuleInput,
 	serialization: PlainSerialization | undefined
-): Effect.Effect<ScalarCover> =>
+): ScalarCover =>
 	serialization?.style !== "deepObject" || input.schema === undefined
-		? Effect.succeed("strict")
+		? "strict"
 		: scalarCover(ctx.resolution, input.schema, ctx.site.nonStandard)
 
 /**
@@ -2142,23 +2142,19 @@ const styleRefusalOf = (
 	ctx: Context,
 	input: RuleInput,
 	serialization: PlainSerialization | undefined
-): Effect.Effect<Option.Option<Finding>> =>
+): Option.Option<Finding> =>
 	serialization === undefined
-		? Effect.succeedNone
-		: formStyleRefusal(ctx.resolution, input.schema, serialization).pipe(
-				Effect.map(
-					Option.map((found) =>
-						dropping({
-							anchor: found.anchor,
-							at: input.actual,
-							code: found.code,
-							element: "Encoding style under form-urlencoded",
-							...(found.hint === undefined ? {} : { hint: found.hint }),
-							message: found.message,
-							severity: "refusal"
-						})
-					)
-				)
+		? Option.none()
+		: Option.map(formStyleRefusal(ctx.resolution, input.schema, serialization), (found) =>
+				dropping({
+					anchor: found.anchor,
+					at: input.actual,
+					code: found.code,
+					element: "Encoding style under form-urlencoded",
+					...(found.hint === undefined ? {} : { hint: found.hint }),
+					message: found.message,
+					severity: "refusal"
+				})
 			)
 
 /**
@@ -2248,9 +2244,9 @@ const formRule = Effect.fnUntraced(function* formRule(
 	 * Under the scalar switch the branch walk decides a deepObject entry the strict object test
 	 * would refuse; the style table refuses nothing else for deepObject (design 6.1 Scalar switch).
 	 */
-	const cover = yield* scalarCoverOf(ctx, input, typing.serialization)
+	const cover = scalarCoverOf(ctx, input, typing.serialization)
 	const inapplicable =
-		cover === "strict" ? yield* styleRefusalOf(ctx, input, typing.serialization) : Option.none()
+		cover === "strict" ? styleRefusalOf(ctx, input, typing.serialization) : Option.none()
 	if (Option.isSome(inapplicable)) {
 		return { findings: [...typing.findings, inapplicable.value], rule: undefined }
 	}

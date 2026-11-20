@@ -115,9 +115,15 @@ export const parameterRules = property.explore(parameterSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/brands.ts",
-			original: "Schema.String.pipe(Schema.check(Schema.isPattern(regExp)))",
-			replacement: "Schema.String",
-			why: "A brand built on a pattern checks none, so a content key that is no concrete media type and a name with control characters pass; the property fails (CATCH's evidence, mutant 679dac1427)."
+			original: "text is MediaType => mediaTypePattern.test(text)",
+			replacement: "text is MediaType => true",
+			why: "MediaType checks no pattern, so a content key that is no concrete media type passes where PRM-15 refuses it; the property fails (CATCH's evidence, mutant 679dac1427, on the predicate)."
+		},
+		{
+			file: "packages/cli-generator/src/model/brands.ts",
+			original: "text is WireName => wireNamePattern.test(text)",
+			replacement: "text is WireName => true",
+			why: "WireName checks no pattern, so a name with control characters passes where PRM-02 refuses it; the property fails (CATCH's evidence, mutant 679dac1427, on the predicate)."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/parameters.ts",
