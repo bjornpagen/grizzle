@@ -37,7 +37,8 @@ export const privateCluster: Effect.Effect<PgMember, never, Scope.Scope | Platfo
 				family: { kind: "one" },
 				connections: pgCluster.sizing.connections,
 				replication: { kind: "default" },
-				sharedBuffers: { kind: "default" }
+				sharedBuffers: { kind: "default" },
+				locks: { kind: "default" }
 			}
 		})
 		const inHome = <A, E, R>(effect: Effect.Effect<A, E, R>) =>

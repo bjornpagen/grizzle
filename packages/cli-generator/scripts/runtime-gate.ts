@@ -95,7 +95,8 @@ const bareRules = standard(
 		exceptions: [],
 		effectFree: [],
 		packs: {},
-		bannedPackages: []
+		bannedPackages: [],
+		land: { lock: "~/.cache/grizzle-release/pushlock/lock", branch: "main" }
 	})
 ).lintConfig({
 	ignorePatterns: [],

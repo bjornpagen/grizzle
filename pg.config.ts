@@ -139,6 +139,7 @@ export default localCluster({
 		family: { kind: "spread", workersPerMember },
 		connections: { perWorker: connectionsPerWorker, outside: unleasedConnections },
 		replication: { kind: "perWorker", perWorker: 1, outside: standingInstallations.length },
-		sharedBuffers: { kind: "perWorker", bytes: workerDatabaseBytes }
+		sharedBuffers: { kind: "perWorker", bytes: workerDatabaseBytes },
+		locks: { kind: "default" }
 	}
 })
