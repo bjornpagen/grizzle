@@ -7,6 +7,7 @@
  * admitted and, where the catalogue can refuse it, refused, every Refusal the Compute catalogue names and every
  * inference the program asserts; the kept cases, a box of their own, reach by construction what a drawn case may miss.
  */
+import { ReplayToken } from "@bjornpagen/testing/property"
 import {
 	computeAimed,
 	computeKeptRequired,
@@ -36,8 +37,23 @@ export const compute = agreement(computeAimed, {
 		kind: "second-implementation",
 		name: "the engine's construction and compilation of each case"
 	},
-	kept: [],
+	kept: [
+		{
+			token: ReplayToken(
+				"test/types/compute/compute.test.ts#compute:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.1.3.0.0.0.0"
+			),
+			reason:
+				"a cast of Cell's id into its own type, Compute.cast(cell.id, Cell.fields.id), the id the tests' Id contract over uuid since 74d2ff677: the program names the contract's host type through Cell.fields.id, where the case died drawing it, no field of Cell named as the Id contract's (NEGZERO2's replay at main)",
+			since: "2026-11-20"
+		}
+	],
 	kills: [
+		{
+			file: "test/support/agreement/compute.ts",
+			original: '\t[idName]: "id",\n',
+			replacement: "",
+			why: "The Id contract is no contract of a field of Cell, so a case that reads Cell's id dies drawing its program, no host type to name it by: the kept cast of the id fails."
+		},
 		{
 			file: "packages/engine/src/types/compute/scalar.ts",
 			original:

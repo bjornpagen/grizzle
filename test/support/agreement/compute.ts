@@ -38,7 +38,7 @@ import {
 	testArtifacts,
 	testCompile
 } from "#test/support/compile.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idName } from "#test/support/ids.ts"
 import { messageOf } from "#test/support/message.ts"
 import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
 import {
@@ -2677,8 +2677,12 @@ type Imported =
 	| "Rostered"
 	| "Unordered"
 
-/** The field of Cell each contract is the type of, through which the program names the contract's host type. */
+/**
+ * The field of Cell each contract is the type of, through which the program names the contract's host type: its id's
+ * the tests' Id over uuid, the one uuid a case reads, and each of the catalogue's.
+ */
 const contractFields: Readonly<Record<string, FieldName>> = {
+	[idName]: "id",
 	Cents: "cents",
 	EpochDay: "epoch",
 	Rate: "rate",
