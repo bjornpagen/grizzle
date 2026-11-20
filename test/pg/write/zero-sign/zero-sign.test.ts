@@ -299,11 +299,9 @@ export const aFloatKeysZerosAreOneKeyToAnAttachmentAParentAtEitherZeroHasTheChil
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/reader/execution.ts",
-				original:
-					"\t\t\tchild: Arr.map(parentKey, (c, at) => ({ at, cell: scalarReader(c.type, codes).keyText }))",
-				replacement:
-					"\t\t\tchild: Arr.map(parentKey, (c, at) => ({ at, cell: scalarReader(c.type, codes).cellText }))",
-				why: "A child is keyed by its parent key's identity text, so the children PostgreSQL matched to a parent at -0 are filed under 0 and the parent gets none."
+				original: "\t\t\t\tcell: scalarReader(c.type, codes).keyText\n\t\t\t})),",
+				replacement: "\t\t\t\tcell: scalarReader(c.type, codes).cellText\n\t\t\t})),",
+				why: "A parent is keyed by its own key's identity text, so the parent at -0 looks its children up under -0, where the attachment's join key, a merge of equal zeros, files them under 0 as every merge takes +0, and it gets none."
 			}
 		]
 	})
