@@ -1,9 +1,9 @@
 import { findPackageJSON } from "node:module"
-import { Effect, FileSystem, Record, Schema } from "effect"
+import { Data, Effect, FileSystem, Record, Schema } from "effect"
 import type { Path } from "effect"
 import { printJson, printPackageJson } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { JsonLiteral } from "#model/brands.ts"
+import type { Json } from "#model/pointer.ts"
 import generatorManifest from "#package.json" with { type: "json" }
 
 export interface EmittedFile {
@@ -14,10 +14,9 @@ export interface EmittedFile {
 /**
  * The package holds a value the printer refuses.
  */
-export class PackageEmitError extends Schema.TaggedError<
-	PackageEmitError,
-	{ readonly brand: unique symbol }
->()("PackageEmitError", { reason: Schema.Literal("unprintable-package") }) {}
+export class PackageEmitError extends Data.TaggedError("PackageEmitError")<{
+	readonly reason: "unprintable-package"
+}> {}
 
 /**
  * What a generated package pins, by field: the packages its runtime and its CLI import, and the packages it is checked
@@ -72,8 +71,6 @@ const compilerOptions = {
 	types: ["node"]
 } as const
 
-const decodeJson = Schema.decodeUnknownEffect(JsonLiteral)
-
 /**
  * The build's compiler options: JavaScript into `dist/`, and no declaration files. A generated
  * package is a command, not a library: its manifest exports nothing and its `imports` read types
@@ -88,7 +85,7 @@ const buildOptions = {
 	rootDir: "."
 } as const
 
-const unprintable = () => PackageEmitError.make({ reason: "unprintable-package" })
+const unprintable = () => new PackageEmitError({ reason: "unprintable-package" })
 
 /**
  * Emits `package.json`, `tsconfig.json` and `tsconfig.build.json` (design 4.2, 4.3; X12), sorted by
@@ -100,10 +97,12 @@ export const emitPackageFiles = (
 	config: AuthorConfig
 ): Effect.Effect<readonly EmittedFile[], PackageEmitError, FileSystem.FileSystem | Path.Path> =>
 	Effect.gen(function* emit() {
-		const manifest = yield* decodeJson({
+		const dependencies = yield* pinsOf(PINNED.dependencies)
+		const devDependencies = yield* pinsOf(PINNED.devDependencies)
+		const manifest: Json = {
 			bin: { [config.binName]: "dist/src/bin.js" },
-			dependencies: yield* pinsOf(PINNED.dependencies),
-			devDependencies: yield* pinsOf(PINNED.devDependencies),
+			dependencies,
+			devDependencies,
 			engines: { node: generatorManifest.engines.node },
 			files: ["dist", "README.md"],
 			name: config.package.name,
@@ -114,18 +113,18 @@ export const emitPackageFiles = (
 			type: "module",
 			imports: { "#*.ts": { types: "./src/*.ts", default: "./dist/src/*.js" } },
 			version: config.package.version
-		}).pipe(Effect.mapError(unprintable))
-		const tsconfig = yield* decodeJson({
+		}
+		const tsconfig: Json = {
 			compilerOptions,
 			exclude: ["node_modules", "dist"],
 			include: ["src"]
-		}).pipe(Effect.mapError(unprintable))
-		const tsconfigBuild = yield* decodeJson({
+		}
+		const tsconfigBuild: Json = {
 			compilerOptions: buildOptions,
 			exclude: ["node_modules", "dist"],
 			extends: "./tsconfig.json",
 			include: ["src/**/*.ts"]
-		}).pipe(Effect.mapError(unprintable))
+		}
 		const packageJson = yield* printPackageJson(manifest).pipe(Effect.mapError(unprintable))
 
 		return [

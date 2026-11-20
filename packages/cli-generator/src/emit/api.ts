@@ -11,7 +11,6 @@ import {
 	String as Str,
 	pipe
 } from "effect"
-import type { Schema } from "effect"
 import { isJsDocText } from "#emit/escape.ts"
 import type { JsDocText } from "#emit/escape.ts"
 import type { EmittedFile } from "#emit/package.ts"
@@ -62,7 +61,10 @@ import type {
 	SecurityScheme,
 	Server
 } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
+import type { Json } from "#model/pointer.ts"
 import { documentLabel } from "#model/uri.ts"
 import { constantOf } from "#names/constant.ts"
 import type { ConstantValue } from "#names/constant.ts"
@@ -117,7 +119,7 @@ export interface InputKey {
 	readonly parameter: Parameter
 }
 
-type Defs = Readonly<Record<string, Schema.Json>>
+type Defs = Readonly<Record<string, Json>>
 
 const fixedInputKeys: readonly string[] = ["body", "contentType"]
 
@@ -145,16 +147,14 @@ export const inputKeys = (operation: Operation): readonly InputKey[] => {
 	})
 }
 
-type JsonNode = Readonly<Record<string, Schema.Json>>
-
 const refPrefix = "#/$defs/"
 
 const scalarTypes: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
 
-const own = (record: JsonNode, key: string): Schema.Json | undefined =>
+const own = (record: JsonObject, key: string): Json | undefined =>
 	Record.has(record, key) ? record[key] : undefined
 
-const isNode = (json: Schema.Json | undefined): json is JsonNode => Predicate.isObject(json)
+const isNode = (json: Json | undefined): json is JsonObject => json !== undefined && isObject(json)
 
 /**
  * The node a schema reaches after its `$ref` chain through the store, or the key that does not
@@ -162,10 +162,10 @@ const isNode = (json: Schema.Json | undefined): json is JsonNode => Predicate.is
  */
 const settle = (
 	defs: Defs,
-	start: Schema.Json | undefined,
+	start: Json | undefined,
 	subject: string
-): Result.Result<JsonNode, string> => {
-	const passed = new Set<JsonNode>()
+): Result.Result<JsonObject, string> => {
+	const passed = new Set<JsonObject>()
 	let current = start
 	let key = subject
 	while (isNode(current) && !passed.has(current)) {
@@ -188,7 +188,7 @@ const settle = (
 }
 
 /** A settled node's own `type` when it is one of the scalar types. */
-const scalarOf = (node: JsonNode): string | undefined => {
+const scalarOf = (node: JsonObject): string | undefined => {
 	const type = own(node, "type")
 
 	return Predicate.isString(type) && scalarTypes.has(type) ? type : undefined
@@ -514,7 +514,7 @@ const queryStyles: ReadonlySet<string> = new Set([
 ])
 
 interface ObjectSchemas {
-	readonly properties: ReadonlyMap<string, Schema.Json>
+	readonly properties: ReadonlyMap<string, Json>
 	readonly required: ReadonlySet<string>
 }
 
@@ -523,10 +523,10 @@ interface ObjectSchemas {
  * its own, then its members', in document order, each node read once. A member that does not
  * resolve has none.
  */
-const allOfNodes = (defs: Defs, key: string): readonly JsonNode[] => {
-	const nodes: JsonNode[] = []
-	const seen = new Set<JsonNode>()
-	const pending: (Schema.Json | undefined)[] = [own(defs, key)]
+const allOfNodes = (defs: Defs, key: string): readonly JsonObject[] => {
+	const nodes: JsonObject[] = []
+	const seen = new Set<JsonObject>()
+	const pending: (Json | undefined)[] = [own(defs, key)]
 	while (pending.length > 0) {
 		const node = settle(defs, pending.pop(), key)
 		if (Result.isFailure(node) || seen.has(node.success)) {
@@ -537,7 +537,7 @@ const allOfNodes = (defs: Defs, key: string): readonly JsonNode[] => {
 		nodes.push(node.success)
 
 		const members = own(node.success, "allOf")
-		const listed = Arr.isArray<Schema.Json | undefined>(members) ? Arr.filter(members, isNode) : []
+		const listed = members !== undefined && isArray(members) ? Arr.filter(members, isNode) : []
 		for (const next of Arr.reverse(listed)) {
 			pending.push(next)
 		}
@@ -547,7 +547,7 @@ const allOfNodes = (defs: Defs, key: string): readonly JsonNode[] => {
 }
 
 /** The `allOf` nodes of a body alternative's schema (`allOfNodes`); none when it has no schema. */
-const bodyNodes = (defs: Defs, alternative: MediaAlternative): readonly JsonNode[] =>
+const bodyNodes = (defs: Defs, alternative: MediaAlternative): readonly JsonObject[] =>
 	alternative.schema === undefined ? [] : allOfNodes(defs, alternative.schema.key)
 
 /**
@@ -555,8 +555,8 @@ const bodyNodes = (defs: Defs, alternative: MediaAlternative): readonly JsonNode
  * querystring) from its `allOf` nodes: its own, then those of its `allOf` members, in document
  * order.
  */
-const objectSchemas = (nodes: readonly JsonNode[]): ObjectSchemas => {
-	const properties = new Map<string, Schema.Json>()
+const objectSchemas = (nodes: readonly JsonObject[]): ObjectSchemas => {
+	const properties = new Map<string, Json>()
 	const required = new Set<string>()
 	for (const node of nodes) {
 		const declared = own(node, "properties")
@@ -1365,7 +1365,7 @@ const positionRule = (rule: EncodingRule, index: number): Result.Result<Position
  * The part count bounds of a positional body's array schema, from its `allOf` nodes: the tightest
  * `minItems` and `maxItems`, and `items: false`, which admits no part beyond `prefixItems`.
  */
-const partBounds = (nodes: readonly JsonNode[]): Pick<MixedPlan, "maxParts" | "minParts"> => {
+const partBounds = (nodes: readonly JsonObject[]): Pick<MixedPlan, "maxParts" | "minParts"> => {
 	const maxima = Arr.flatMap(nodes, ({ items, maxItems, prefixItems }) => [
 		...(Predicate.isNumber(maxItems) ? [maxItems] : []),
 		...(items === false ? [Arr.isArray(prefixItems) ? prefixItems.length : 0] : [])
@@ -1466,7 +1466,7 @@ const formEncoding = (
  */
 const formProperties = (
 	alternative: Pick<MediaAlternative, "encoding" | "mediaType">,
-	nodes: readonly JsonNode[]
+	nodes: readonly JsonObject[]
 ): Effect.Effect<Expr, ApiEmitError> =>
 	Effect.map(
 		Effect.forEach(objectSchemas(nodes).properties.keys(), (name) =>
@@ -2368,7 +2368,7 @@ const serversFile = (api: Api, bound: ApiEmitInput["boundOrigins"]) =>
  * The schemas of the generator's own schema store, its document's `$defs` object; none when the
  * document holds no such object.
  */
-const storeDefs = (document: Schema.Json): Defs => {
+const storeDefs = (document: Json): Defs => {
 	const defs = isNode(document) ? own(document, "$defs") : undefined
 
 	return isNode(defs) ? defs : {}

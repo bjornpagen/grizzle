@@ -1,18 +1,10 @@
 import { element, type Gen, oneOf, shuffled } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Effect,
-	FileSystem,
-	JsonPointer,
-	Option,
-	Path,
-	Predicate,
-	Record,
-	Schema,
-	Stream
-} from "effect"
+import { Array as Arr, Effect, FileSystem, JsonPointer, Option, Path, Record, Stream } from "effect"
 import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
+import { isObject } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import type { Json } from "#model/pointer.ts"
 import { configGen, configOf, documentGen, documentOf, textOf } from "#test/support/openapi-gen.ts"
 import type { ConfigSketch, DocumentSketch } from "#test/support/openapi-gen.ts"
 
@@ -28,14 +20,14 @@ export type Family =
 type Plant = Readonly<{
 	path: string
 	method: string
-	operation: Schema.Json
+	operation: Json
 	family: Family
 	reason: "unsupported-parameter" | "unsupported-body"
 }>
 
 const ok = { "200": { description: "ok" } } as const
 
-const pathParameter = (name: string, schema: Schema.Json) => ({
+const pathParameter = (name: string, schema: Json) => ({
 	in: "path",
 	name,
 	required: true,
@@ -43,7 +35,7 @@ const pathParameter = (name: string, schema: Schema.Json) => ({
 })
 
 /** The alternatives an event-stream body may sit beside, which never make it sendable. */
-const EVENT_STREAM_COMPANIONS: Arr.NonEmptyReadonlyArray<readonly [string, Schema.Json]> = [
+const EVENT_STREAM_COMPANIONS: Arr.NonEmptyReadonlyArray<readonly [string, Json]> = [
 	["application/x-ndjson", { schema: { type: "object" } }],
 	["text/plain", { schema: { type: "string" } }]
 ]
@@ -134,7 +126,7 @@ const plantGen: Gen<Plant> = oneOf<Plant>([
 			operationId: "planted",
 			requestBody: {
 				required: true,
-				content: Record.fromEntries<readonly [string, Schema.Json]>([
+				content: Record.fromEntries<readonly [string, Json]>([
 					["text/event-stream", { schema: { type: "string" } }],
 					...s.draw(shuffled(EVENT_STREAM_COMPANIONS, { min: 1, max: 2 }))
 				])
@@ -154,21 +146,18 @@ export const caseGen: Gen<RefusalCase> = (s) => {
 	return { document, config: s.draw(configGen(document)), plant: s.draw(plantGen) }
 }
 
-const isObject = (value: Schema.Json): value is Schema.JsonObject =>
-	Predicate.isObject(value) && !Arr.isArray(value)
-
 /** The document with the planted operation at its own path. */
-const plantedDocument = (drawnCase: RefusalCase): Schema.JsonObject => {
+const plantedDocument = (drawnCase: RefusalCase): JsonObject => {
 	const document = documentOf(drawnCase.document)
 	const paths = Option.getOrElse(
-		Option.filter(Record.get<string, Schema.Json>(document, "paths"), isObject),
-		(): Schema.JsonObject => ({})
+		Option.filter(Record.get<string, Json>(document, "paths"), isObject),
+		(): JsonObject => ({})
 	)
-	const planted: Schema.JsonObject = { [drawnCase.plant.method]: drawnCase.plant.operation }
-	return Record.set<string, Schema.Json, string, Schema.Json>(
+	const planted: JsonObject = { [drawnCase.plant.method]: drawnCase.plant.operation }
+	return Record.set<string, Json, string, Json>(
 		document,
 		"paths",
-		Record.set<string, Schema.Json, string, Schema.Json>(paths, drawnCase.plant.path, planted)
+		Record.set<string, Json, string, Json>(paths, drawnCase.plant.path, planted)
 	)
 }
 
@@ -191,7 +180,7 @@ export const generated = (dir: string, drawnCase: RefusalCase, strict: boolean) 
 		const exit = yield* Effect.exit(
 			generate(
 				{
-					document: DocumentUri.make("file:///refusal/openapi.json"),
+					document: fixedDocumentUri("file:///refusal/openapi.json"),
 					outDir,
 					source: {
 						_tag: "Stream",
@@ -199,7 +188,7 @@ export const generated = (dir: string, drawnCase: RefusalCase, strict: boolean) 
 					},
 					strict
 				},
-				{ document: DocumentUri.make("file:///refusal/author-config.json"), path: configPath }
+				{ document: fixedDocumentUri("file:///refusal/author-config.json"), path: configPath }
 			)
 		)
 		return { exit, written: yield* fs.exists(outDir) }
