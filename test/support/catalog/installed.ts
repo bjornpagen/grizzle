@@ -24,6 +24,7 @@ import {
 	type ErasureExpectation,
 	type ErasureProblem,
 	type InstalledFunction,
+	type StatedShape,
 	type InstalledTrigger,
 	unitFunctions,
 	verifyErasure
@@ -187,46 +188,112 @@ const closedClassifier = (installation: Installation): ((name: string) => Instal
 	})
 }
 
-/** Each row function of an installation as the verifier judges it (verify.ts rowFunction): its parameters' names, in
- * order, and the tables whose CHECKs and generated columns call it. */
-const rowClassifier = (
-	installation: Installation
-): ((s: Extract<SqlStatement, { readonly kind: "createConstant" }>) => InstalledFunction) => {
-	const callers = tableCallers(installation.manifest)
-	return (s) => ({
-		kind: "rowFunction",
-		params: Arr.map(s.params, (p) => p.name),
-		tables: Arr.sort(callers.get(s.name.name) ?? [], Order.String)
-	})
-}
+/** The kinds of constant the installer names a function of (physical/ddl/context.ts addConstant), each recorded with
+ * the identity it named the function by (Installation identities). */
+type ConstantKind =
+	| "closedConstant"
+	| "rosterConstant"
+	| "rosterLive"
+	| "libraryFunction"
+	| "rowFunction"
 
-/** Whether a constant's statement creates a names constant (it returns name[]) or a live-codes constant (a hex literal
- * of bit varying; a closed relation's constant is a pack): a roster's, which no closed relation owns. */
-const rosterConstant = (s: Extract<SqlStatement, { readonly kind: "createConstant" }>): boolean =>
-	(s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) ||
-	(s.body.kind === "literal" && s.body.value.kind === "bits")
+const constantKinds: ReadonlySet<string> = new Set<ConstantKind>([
+	"closedConstant",
+	"rosterConstant",
+	"rosterLive",
+	"libraryFunction",
+	"rowFunction"
+])
 
-/** Every closed constant an installation's manifest creates, a pack or a dictionary, as `closedClassifier` judges it:
- * what a description-built expectation (catalog/declared.ts), which names no constant, holds of them. */
-export const closedConstantsOf = (
-	installation: Installation
+const isConstantKind = (kind: string): kind is ConstantKind => constantKinds.has(kind)
+
+/** The kind the installer recorded each function of a constant object as, by the identifier it named it by: what the
+ * verifier judges it by, never its language or its shape. */
+const recordedKinds = (installation: Installation): ReadonlyMap<string, ConstantKind> =>
+	new Map(
+		Arr.flatMap(installation.identities, (named) =>
+			isConstantKind(named.kind) ? [[named.identifier, named.kind] as const] : []
+		)
+	)
+
+/** What a CREATE of a row function or a library function states of its shape (verify.ts StatedShape). */
+const statedShape = (
+	s: Extract<SqlStatement, { readonly kind: "createConstant" }>
+): StatedShape => ({
+	language: s.language,
+	params: Arr.map(s.params, (p) => p.name),
+	strict: "strict" in s && s.strict,
+	config: s.language === "plpgsql" ? [closedSearchPathConfig] : []
+})
+
+/** The closed search_path as pg_proc.proconfig spells a row function's SET clause. */
+const closedSearchPathConfig = "search_path=pg_catalog, pg_temp"
+
+/**
+ * Each function an installation's constant objects create, as the kind the installer recorded it (`recordedKinds`): a
+ * closed relation's constant (`closedClassifier`), a roster's names constant or live-codes constant, read by the
+ * domain whose CHECK calls it (`domainOf`), or a row function or a library function of the shape its CREATE states,
+ * with the tables whose CHECKs and generated columns call it. `rosters` says whether a roster's constants are listed,
+ * which a description-built expectation (catalog/declared.ts) states otherwise. A constant the installer recorded no
+ * kind of is grizzle's defect.
+ */
+const installedConstants = (
+	installation: Installation,
+	rosters: (
+		name: string,
+		kind: "rosterConstant" | "rosterLive"
+	) => ReadonlyArray<readonly [string, InstalledFunction]>
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
-	const judged = closedClassifier(installation)
-	const row = rowClassifier(installation)
+	const kinds = recordedKinds(installation)
+	const closed = closedClassifier(installation)
+	const callers = tableCallers(installation.manifest)
+	const kindOf = (name: string): ConstantKind =>
+		Option.getOrThrowWith(
+			Option.fromUndefinedOr(kinds.get(name)),
+			() =>
+				new Error(`the installation names its constant ${name} by no identity of a constant's kind`)
+		)
 	return Arr.flatMap(installation.manifest.objects, (o) =>
 		o.kind === "constant"
-			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> =>
-					s.kind === "packConstant"
-						? [[s.function.name, judged(s.function.name)]]
-						: s.kind === "createConstant" && s.language === "plpgsql"
-							? [[s.name.name, row(s)]]
-							: s.kind === "createConstant" && !rosterConstant(s)
-								? [[s.name.name, judged(s.name.name)]]
-								: []
-				)
+			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> => {
+					if (s.kind === "packConstant") {
+						return [[s.function.name, closed(s.function.name)]]
+					}
+					if (s.kind !== "createConstant") {
+						return []
+					}
+					const name = s.name.name
+					const kind = kindOf(name)
+					switch (kind) {
+						case "closedConstant":
+							return [[name, closed(name)]]
+						case "rosterConstant":
+						case "rosterLive":
+							return rosters(name, kind)
+						case "rowFunction":
+						case "libraryFunction":
+							return [
+								[
+									name,
+									{
+										kind,
+										shape: statedShape(s),
+										tables: Arr.sort(callers.get(name) ?? [], Order.String)
+									}
+								]
+							]
+					}
+				})
 			: []
 	)
 }
+
+/** Every closed constant, row function and library function an installation's manifest creates, as the installer
+ * recorded it (`installedConstants`): what a description-built expectation (catalog/declared.ts), which names no
+ * constant, holds of them; a roster's constants it states itself. */
+export const closedConstantsOf = (
+	installation: Installation
+): ReadonlyArray<readonly [string, InstalledFunction]> => installedConstants(installation, () => [])
 
 /** The law functions an installation's manifest creates, each a rule's capture on a table its rules read, which a
  * containment judged whole installs as a rule over a query does (laws/model/plan.ts containmentDischarge). */
@@ -256,16 +323,13 @@ export const lawTriggersOf = (
 	)
 
 /**
- * The constants the installation's constant objects create, each as what it is: a names constant (it returns name[])
- * and a live-codes constant (it returns bit varying as one hex literal), each with the domain whose CHECK calls it among
- * the installation's domains; every other, a pack or a dictionary, a closed constant (`closedClassifier`). The
- * installation holds each constant's body, which its snapshot records by its header alone.
+ * The constants the installation's constant objects create, each as the installer recorded it (`installedConstants`):
+ * a names constant and a live-codes constant each with the domain whose CHECK calls it among the installation's
+ * domains. The installation holds each constant's body, which its snapshot records by its header alone.
  */
 const constantsOf = (
 	installation: Installation
 ): ReadonlyArray<readonly [string, InstalledFunction]> => {
-	const closedConstant = closedClassifier(installation)
-	const row = rowClassifier(installation)
 	const domains = Arr.flatMap(installation.manifest.objects, (o) =>
 		o.kind === "domain"
 			? Arr.flatMap(o.ddl, (s): ReadonlyArray<CreateDomain> =>
@@ -280,28 +344,9 @@ const constantsOf = (
 			),
 			() => new Error(`the manifest's constant ${fn} is read by no domain's CHECK`)
 		).name.name
-	return Arr.flatMap(installation.manifest.objects, (o) =>
-		o.kind === "constant"
-			? Arr.flatMap(o.ddl, (s): ReadonlyArray<readonly [string, InstalledFunction]> => {
-					if (s.kind === "packConstant") {
-						return [[s.function.name, closedConstant(s.function.name)]]
-					}
-					if (s.kind !== "createConstant") {
-						return []
-					}
-					const name = s.name.name
-					if (s.language === "plpgsql") {
-						return [[name, row(s)]]
-					}
-					if (s.returns.kind === "builtin" && s.returns.name === "name" && s.returns.array) {
-						return [[name, { kind: "names", domain: checking(name) }]]
-					}
-					return s.body.kind === "literal" && s.body.value.kind === "bits"
-						? [[name, { kind: "live", domain: checking(name) }]]
-						: [[name, closedConstant(name)]]
-				})
-			: []
-	)
+	return installedConstants(installation, (name, kind) => [
+		[name, { kind: kind === "rosterConstant" ? "names" : "live", domain: checking(name) }]
+	])
 }
 
 /**

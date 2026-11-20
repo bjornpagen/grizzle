@@ -41,13 +41,28 @@ export type InstalledFunction =
 	  }
 	| {
 			/**
-			 * A table's row function (physical/ddl/row-functions.ts): a PL/pgSQL function of the columns `params` names, in
-			 * order, which the CHECKs and generated columns of `tables` call on each row they write.
+			 * A table's row function (physical/ddl/row-functions.ts), a PL/pgSQL function of the columns it reads, or a
+			 * function of grizzle's library (physical/ddl/library.ts), an SQL function of its parameters, STRICT where its
+			 * host term is: either of the shape its CREATE states, which the CHECKs and generated columns of `tables` call
+			 * on each row they write.
 			 */
-			readonly kind: "rowFunction"
-			readonly params: ReadonlyArray<string>
+			readonly kind: "rowFunction" | "libraryFunction"
+			readonly shape: StatedShape
 			readonly tables: ReadonlyArray<string>
 	  }
+
+/**
+ * What a function's CREATE states of its shape, which the catalog holds of it exactly: its language, its parameters'
+ * names in order, whether it is STRICT, and its SET clauses as pg_proc.proconfig spells them, a PL/pgSQL row
+ * function's the closed search_path, an SQL function's none; every such function IMMUTABLE, owned by the owner and not
+ * SECURITY DEFINER.
+ */
+export interface StatedShape {
+	readonly language: "sql" | "plpgsql"
+	readonly params: ReadonlyArray<string>
+	readonly strict: boolean
+	readonly config: ReadonlyArray<string>
+}
 
 /** The two functions each retirable unit installs, by the declared names of their headers: its hold and its retirement
  * (physical/ddl/retire.ts addUnitFunctions), each named by its identity. */
@@ -227,10 +242,10 @@ export type ErasureProblem =
 			readonly reason: string
 	  }
 	| {
-			/** A row function installed otherwise than as one: not of PL/pgSQL, of other arguments than the columns it
-			 * reads, VOLATILE or STABLE, SECURITY DEFINER, of another SET clause than the closed search_path, or not owned
-			 * by the owner. */
-			readonly kind: "rowFunctionShape"
+			/** A row function or a library function installed otherwise than its CREATE states (StatedShape): of another
+			 * language, arguments, strictness or SET clause, VOLATILE or STABLE, SECURITY DEFINER, or not owned by the
+			 * owner. */
+			readonly kind: "statedShape"
 			readonly function: string
 			readonly reason: string
 	  }
@@ -775,8 +790,9 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 				...constantExecutorProblems(j, f, expected)
 			]
 		case "rowFunction":
+		case "libraryFunction":
 			return [
-				...rowFunctionShapeProblems(j, f, expected.params),
+				...statedShapeProblems(j, f, expected.shape),
 				...grantProblems(j, held, allowed.function, allowed.none),
 				...constantExecutorProblems(j, f, expected)
 			]
@@ -784,34 +800,37 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 }
 
 /**
- * A row function is a PL/pgSQL function of the columns its CREATE names, in order, IMMUTABLE, owned by the owner, not
- * SECURITY DEFINER, and of exactly one SET clause, the closed search_path its body's operators resolve under, so each
- * backend plans it once and no writer's path changes what it computes (physical/ddl/row-functions.ts).
+ * A row function or a library function holds the shape its CREATE states (StatedShape): its language, its arguments
+ * exactly its parameters in order, STRICT exactly where stated, its SET clauses exactly the stated ones, IMMUTABLE,
+ * owned by the owner and not SECURITY DEFINER.
  */
-const rowFunctionShapeProblems = (
+const statedShapeProblems = (
 	j: Judging,
 	f: Fn,
-	params: ReadonlyArray<string>
+	stated: StatedShape
 ): ReadonlyArray<ErasureProblem> => {
 	const shape = (holds: boolean, reason: string) =>
-		unless(holds, { kind: "rowFunctionShape", function: f.name, reason })
+		unless(holds, { kind: "statedShape", function: f.name, reason })
 	const named = Arr.map(
 		f.args === "" ? [] : Str.split(f.args, ", "),
 		(arg) => Str.split(arg, " ")[0]
 	)
 	return [
 		...shape(f.owner === j.owner, `owned by ${f.owner}`),
+		...shape(f.language === stated.language, `of language ${f.language}, not ${stated.language}`),
 		...shape(
-			named.length === params.length && Arr.every(named, (name, i) => name === params[i]),
-			`of arguments (${f.args}), not (${Arr.join(params, ", ")})`
+			named.length === stated.params.length &&
+				Arr.every(named, (name, i) => name === stated.params[i]),
+			`of arguments (${f.args}), not (${Arr.join(stated.params, ", ")})`
 		),
+		...shape(f.strict === stated.strict, f.strict ? "STRICT" : "not STRICT"),
 		...shape(f.volatility === "i", `of volatility ${f.volatility}`),
 		...shape(!f.securityDefiner, "SECURITY DEFINER"),
 		...shape(
-			f.config.length === 1 && f.config[0] === fixedSearchPath,
-			`with SET ${Arr.join(f.config, ", ")}`
-		),
-		...shape(Str.includes(" LANGUAGE plpgsql")(f.definition), "of a language other than PL/pgSQL")
+			f.config.length === stated.config.length &&
+				Arr.every(f.config, (c, i) => c === stated.config[i]),
+			`with SET ${Arr.join(f.config, ", ")}, not ${Arr.join(stated.config, ", ")}`
+		)
 	]
 }
 
@@ -918,7 +937,7 @@ const constantExecutorProblems = (
 	f: Fn,
 	expected: Extract<
 		InstalledFunction,
-		{ readonly kind: "names" | "live" | "closedConstant" | "rowFunction" }
+		{ readonly kind: "names" | "live" | "closedConstant" | "rowFunction" | "libraryFunction" }
 	>
 ): ReadonlyArray<ErasureProblem> => {
 	const required = new Set<string>(viewCallers(j, f.name))
@@ -943,6 +962,7 @@ const constantExecutorProblems = (
 			}
 			break
 		case "rowFunction":
+		case "libraryFunction":
 			for (const r of tableWriters(j, expected.tables)) {
 				required.add(r)
 			}

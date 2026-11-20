@@ -176,6 +176,10 @@ interface CatalogFunction {
 	readonly owner: string
 	readonly securityDefiner: boolean
 	readonly volatility: Volatility
+	/** pg_language.lanname of its body. */
+	readonly language: string
+	/** pg_proc.proisstrict: STRICT, NULL wherever an argument is NULL. */
+	readonly strict: boolean
 	readonly config: ReadonlyArray<string>
 	readonly grants: ReadonlyArray<CatalogGrant>
 	/** pg_get_functiondef's CREATE OR REPLACE statement. */
@@ -409,7 +413,9 @@ const queries = {
 	functions: `SELECT COALESCE(json_agg(json_build_object(
 		'name', p.proname::text, 'schema', n.nspname::text, 'args', pg_catalog.pg_get_function_identity_arguments(p.oid),
 		'owner', pg_catalog.pg_get_userbyid(p.proowner)::text, 'securityDefiner', p.prosecdef,
-		'volatility', p.provolatile::text, 'config', COALESCE(to_json(p.proconfig), '[]'::json),
+		'volatility', p.provolatile::text,
+		'language', (SELECT l.lanname::text FROM pg_catalog.pg_language l WHERE l.oid = p.prolang), 'strict', p.proisstrict,
+		'config', COALESCE(to_json(p.proconfig), '[]'::json),
 		'grants', ${grants("p.proacl", "f", "p.proowner")}, 'definition', pg_catalog.pg_get_functiondef(p.oid),
 		'calls', ${callsOf("'pg_catalog.pg_proc'::regclass", "p.oid")}
 	) ORDER BY p.proname), '[]'::json)::text
