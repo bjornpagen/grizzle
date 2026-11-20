@@ -297,7 +297,15 @@ export const queryEntryTotalityAdmitsEveryDefinitionAProgramAdmitsAsAQueryEntryA
 			name: "the program's lowering of the same definition"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/parse.ts",
+				original:
+					'\t\tif (this.#is("?", 0)) {\n\t\t\tthis.#pos += 1\n\t\t\treturn { min: 0, max: 1 }',
+				replacement: '\t\tif (this.#is("?", 0)) {\n\t\t\t{}\n\t\t\treturn { min: 0, max: 1 }',
+				why: "Operator mutant 881b240abf at packages/text/src/regex/parse.ts:383 in <module>: `this.#pos += 1` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Login admission refuses each login at its first role breaking a login rule, by that rule, and admits the rest. Its budget is its suite's before it was a property (test/unit/schema/worlds.test.ts at 4ca3036a): 100 runs and 200 steered cases. */

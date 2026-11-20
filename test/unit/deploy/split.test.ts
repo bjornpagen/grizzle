@@ -209,5 +209,12 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 				since: "2026-11-08"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/deploy/render/markers.ts",
+				original: 'b.kind === "word" && a.upper === b.upper',
+				replacement: 'b.kind === "word"',
+				why: 'Operator mutant db15f59d86 at packages/engine/src/deploy/render/markers.ts:226 in sameToken: `b.kind === "word" && a.upper === b.upper` becomes `b.kind === "word"`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

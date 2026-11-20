@@ -231,7 +231,14 @@ export const scalarTypeOfAFieldDescToItsScalarTypeReadsEveryDescriptorKindAndAgr
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original: "\tif (oriented === undefined) {",
+				replacement: "\tif (oriented !== undefined) {",
+				why: "Operator mutant c4861198b7 at packages/engine/src/scalar/compute/typing.ts:1013 in literalComparison: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**

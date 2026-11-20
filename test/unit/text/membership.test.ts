@@ -398,7 +398,15 @@ export const languageEquivalentSpellingsShareOneCanonicalKeyGivesAFiniteLanguage
 			name: "a finite language's members, which its pattern's construction gives"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/types.ts",
+				original:
+					"a === undefined || b === undefined ? a === b : compatible(a.endpoint, b.endpoint)",
+				replacement: "false",
+				why: "Operator mutant 8ab20ec726 at packages/engine/src/scalar/compute/types.ts:231 in sameEndpoint: `a === undefined || b === undefined ? a === b : compatible(a.endpoint, b.endpoint)` becomes `false`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**

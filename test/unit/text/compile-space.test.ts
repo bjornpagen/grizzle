@@ -228,5 +228,14 @@ export const theRFC3986URIReferenceGrammarAsOnePatternIsAdmittedAndAcceptsExactl
 				}),
 		oracle: { kind: "second-implementation", name: "ECMAScript's own RegExp test" },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/nfa.ts",
+				original:
+					'this.edge(from, { kind: "start", to: to.id })\n\t\t\t\treturn\n\t\t\tcase "end":\n\t\t\t\tthis.edge(from, { kind: "end", to: to.id })\n\t\t\t\treturn',
+				replacement:
+					'this.edge(from, { kind: "end", to: to.id })     return    case "end":     this.edge(from, { kind: "start", to: to.id })     return',
+				why: 'Operator mutant 7ce1806494 at packages/text/src/regex/nfa.ts:147 in <module>: `this.edge(from, { kind: "start", to: to.id })     return    case "end":     this.edge(from, { kind: "end", to: to.id })     return` becomes `this.edge(from, { kind: "end", to: to.id })     return    case "end":     this.edge(from, { kind: "start", to: to.id })     return`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})

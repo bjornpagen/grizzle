@@ -524,7 +524,14 @@ export const closedRecordsAClosedRelationsRowsOnePerKeyOfItsRosterAgainstItsFiel
 				name: "one row per key of the roster, against the drawn fields, each named defect refused"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/registry.ts",
+					original: '\tif (base.carrier === "bytes") {',
+					replacement: '\tif (base.carrier !== "bytes") {',
+					why: "Operator mutant 1b031d5ecd at packages/engine/src/scalar/registry.ts:761 in contractOver: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -856,7 +863,14 @@ export const statementsContainedAndMirrorsRelateTwoSidesBuiltByOnOfOneWidth = pr
 				}),
 		oracle: { kind: "specification", name: "two sides built by on, of one width" },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/pattern-space.ts",
+				original: "\t\t\tseen[state] = 1",
+				replacement: "\t\t\tseen[state] = 0",
+				why: "Operator mutant 3998e849f9 at packages/engine/src/ir/pattern-space.ts:747 in visit: `1` becomes `0`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	}
 )
 
@@ -919,7 +933,14 @@ export const statementsCheckRecordsTheRowPredicateOverItsOwnRowLiteralsAdoptingT
 				name: "the row predicate over its own row, literals of the field's type"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/core/errors.ts",
+					original: '\treturn reason._tag === "IdentifierCollision"',
+					replacement: '\treturn reason._tag !== "IdentifierCollision"',
+					why: "Operator mutant dc39ca55e1 at packages/engine/src/core/errors.ts:1143 in compileErrorMessage: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -1083,7 +1104,14 @@ export const alternativesIsOneStatementOfItsArmedHandlesInRosterOrderExpandingTo
 				name: "each arm's containment and each handle's reverse, in roster order"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/ir/shape.ts",
+					original: "\t\t\tsymbols: Object.getOwnPropertySymbols(value).length > 0",
+					replacement: "\t\t\tsymbols: Object.getOwnPropertySymbols(value).length <= 0",
+					why: "Operator mutant 288f9b9210 at packages/engine/src/ir/shape.ts:411 in readObject: `>` becomes `<=`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -1370,6 +1398,13 @@ export const schemaAndSchemaExtendExtendsUnderItsOwnNameAndComputesDerivedLevels
 				name: "the levels computed from what each definition reads"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/query/build/scope.ts",
+					original: "running = undefined",
+					replacement: "{}",
+					why: "Operator mutant 6c7100f9f4 at packages/engine/src/query/build/scope.ts:127 in startBuild: `running = undefined` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)

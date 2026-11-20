@@ -146,7 +146,14 @@ export const readingAPrintedAREBackRecognizesTheLanguageOfThePatternItWasPrinted
 			name: "the printed ARE parsed again recognizes the pattern's language"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: "flat.push(item)",
+				replacement: "{}",
+				why: "Operator mutant 0ff7887c3d at packages/text/src/regex/ir.ts:238 in push: `flat.push(item)` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Reading a printed ARE back admits a pattern exactly when it admits the ARE it prints as, read back. Its budget is its suite's before it was a property (test/unit/text/lowering.test.ts at 4ca3036a): 500 runs and 500 steered cases. */

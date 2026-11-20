@@ -69,7 +69,16 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesPlainRealiza
 			name: "the fragment evaluator: what each node's plain SQL delivers"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/analysis/physical/fds.ts",
+				original:
+					"\t\t\tif (narrower !== undefined && !lessDemanding(proof.context, narrower.context)) {",
+				replacement:
+					"\t\t\tif (narrower === undefined && !lessDemanding(proof.context, narrower.context)) {",
+				why: "Operator mutant fa08c4e02c at packages/engine/src/analysis/physical/fds.ts:692 in <module>: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**

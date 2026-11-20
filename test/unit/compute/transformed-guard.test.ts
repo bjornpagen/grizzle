@@ -104,7 +104,14 @@ export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTran
 			name: "language inclusion of the guard's pattern and the transform's image of every text, as README states it, in the operation's form"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/evaluate.ts",
+				original: "!typed.ok",
+				replacement: "typed.ok",
+				why: "Operator mutant d2966aee28 at packages/engine/src/scalar/compute/evaluate.ts:1325 in admitLiteral: `!typed.ok` becomes `typed.ok`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** A transformed text's byte bound admits a cast into a bounded text exactly when the bound its operations prove and their language fit it. Its budget is its suite's before it was a property (test/unit/compute/transformed-guard.test.ts at 4ca3036a): 400 runs and 800 steered cases. */

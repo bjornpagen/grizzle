@@ -241,5 +241,12 @@ export const theLogicalAnalysisIsIdempotentAnnotatingTwiceStatesWhatAnnotatingOn
 	idempotentOn(provingCases, {
 		situations: ["delivered one"],
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/partition.ts",
+				original: "openedAs[block] = openedIn.length",
+				replacement: "{}",
+				why: "Operator mutant 7cb605f240 at packages/text/src/regex/partition.ts:86 in partitionOf: `openedAs[block] = openedIn.length` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

@@ -545,7 +545,14 @@ export const closedRelationsRefusesAHandleLongerThanANames63BytesTheMostARosters
 					}),
 			oracle: { kind: "specification", name: "NAMEDATALEN - 1, 63 bytes, restated" },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/query/build/rule.ts",
+					original: "\t\t\tif (prior !== undefined && prior !== ref.scope) {",
+					replacement: "\t\t\tif (prior === undefined && prior !== ref.scope) {",
+					why: "Operator mutant 02fcc4cf7e at packages/engine/src/query/build/rule.ts:294 in finishRule: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 

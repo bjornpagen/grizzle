@@ -198,5 +198,14 @@ export const indexIdentityIsOneIdentityExactlyForTheValuesComparisonFindsEqualAn
 		},
 		box: "every sampled type, and every ordered pair of every type's sampled values",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/ir/pattern-space.ts",
+				original:
+					'\t\t\t\t\tadd(from, { kind: "empty", to: entry(states, i) })\n\t\t\t\t}\n\t\t\t\tbreak\n\t\t\t}\n\t\t\tcase "atom": {',
+				replacement:
+					'\t\t\t\t\tadd(from, { kind: "empty", to: entry(states, i) })\n\t\t\t\t}\n\t\t\t\t{}\n\t\t\t}\n\t\t\tcase "atom": {',
+				why: "Operator mutant 63c7e45777 at packages/engine/src/ir/pattern-space.ts:559 in rawNfa: `break` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})

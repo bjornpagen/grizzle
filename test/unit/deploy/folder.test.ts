@@ -362,6 +362,14 @@ export const metaJsonGeneratedReadsBackExactlyWhatItWritesByteForByteItsDeclarat
 				name: "readMeta ∘ writeMeta = id, byte for byte, each fault refused"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/registry.ts",
+					original:
+						'(typeof value === "object" || typeof value === "function") && value !== null && owned.has(value)',
+					replacement: "false",
+					why: 'Operator mutant 54e278d231 at packages/engine/src/scalar/registry.ts:260 in isOwnedDescriptor: `(typeof value === "object" || typeof value === "function") && value !== null && owned.has(value)` becomes `false`; the property fails (the census, lane TESTPOLICY2).'
+				}
+			]
 		}
 	)

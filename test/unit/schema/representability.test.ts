@@ -174,7 +174,16 @@ export const patternByteBoundsBoundsAPatternsKeyByAtLeastItsLongestMatchInUTF8By
 			name: "the pattern's longest match in UTF-8 bytes, computed from the pattern as drawn"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/base/nonempty.ts",
+				original:
+					"export const isNonEmpty = <A>(xs: ReadonlyArray<A>): xs is NonEmptyReadonlyArray<A> => xs.length > 0",
+				replacement:
+					"export const isNonEmpty = <A>(xs: ReadonlyArray<A>): xs is NonEmptyReadonlyArray<A> => xs.length <= 0",
+				why: "Operator mutant 6d7f81bf34 at packages/text/src/base/nonempty.ts:4 in isNonEmpty: `>` becomes `<=`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Length bounds reads a charLength bound, four bytes a code point, and an octetLength bound, exact bytes, from a contract predicate. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
@@ -260,7 +269,14 @@ export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengt
 				name: "charLength at four bytes a code point, octetLength exact"
 			},
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/text/src/regex/are.ts",
+					original: "\t\t\tout.push([lo, hi])",
+					replacement: "\t\t\tout.push([hi])",
+					why: "Operator mutant 9acfeb612b at packages/text/src/regex/are.ts:21 in printableIntervals: `[lo, ` becomes `[`; the property fails (the census, lane TESTPOLICY2)."
+				}
+			]
 		}
 	)
 
@@ -305,7 +321,14 @@ export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGriz
 			name: "PostgreSQL's datum sizes and alignments, restated"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original: '\t\t\t: r === "numeric"',
+				replacement: '\t\t\t: r !== "numeric"',
+				why: "Operator mutant 8e1e18ac38 at packages/engine/src/scalar/compute/typing.ts:2160 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** B-tree entries (nbtree.h BTMaxItemSize) refuses a key with an unbounded field or a worst-case entry above the item limit, and admits every other. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
@@ -601,7 +624,14 @@ export const giSTEntriesForSpanKeysGistCGistSplitBoundsAGiSTEntryByBtreeGistsTwo
 				since: "2026-10-29"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/nfa.ts",
+				original: "this.#copy(task.node, task.chain, task.to, tasks)",
+				replacement: "{}",
+				why: "Operator mutant a7546f2f39 at packages/text/src/regex/nfa.ts:129 in <module>: `this.#copy(task.node, task.chain, task.to, tasks)` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** A vector field is a key field like any other: every vector has one form, so its equality is identity admits a key holding a vector where its B-tree entry fits, and refuses one beside a span, which btree_gist cannot index. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 100 runs and 100 steered cases. */

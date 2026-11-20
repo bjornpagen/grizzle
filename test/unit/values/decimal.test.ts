@@ -308,7 +308,16 @@ export const decimalIdentityAndOrderOrdersAsCmpNumericsAndEqualityTextAndPartsAg
 			name: "cmp_numerics modelled: kinds ranked -Infinity, finite, Infinity, NaN; finite values by cross-multiplied signed coefficients"
 		},
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original:
+					'\t\tfor (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {\n\t\t\tif (top.kind === "array") {\n\t\t\t\tthis.#item(top)',
+				replacement:
+					'\t\tfor (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {\n\t\t\tif (top.kind !== "array") {\n\t\t\t\tthis.#item(top)',
+				why: "Operator mutant 87f78705d1 at packages/engine/src/core/canonical.ts:755 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /** Decimal in the canonical serializer writes every value as a payload of the IR's decimal grammar (ir/decimal.ts). Its budget is its suite's before it was a property (test/unit/values/decimal.test.ts at 4ca3036a): 1000 runs and 200 steered cases. */

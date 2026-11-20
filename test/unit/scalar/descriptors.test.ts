@@ -370,7 +370,15 @@ export const typmodValidationAdmitsAPositiveSpanWidthOfTheEndpointsBaseTypeAndRe
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/subset.ts",
+				original:
+					'subset.kind === "done" ||\n\t\t\tclosure(\n\t\t\t\tthis.nfa,\n\t\t\t\tsubset.states,\n\t\t\t\t{ atStart: subset.initial, atEnd: true },\n\t\t\t\tthis.#mark,\n\t\t\t\tthis.#stamp++\n\t\t\t).includes(this.nfa.accept)',
+				replacement: 'subset.kind === "done"',
+				why: 'Operator mutant 5e0a3b3402 at packages/text/src/regex/subset.ts:175 in <module>: `subset.kind === "done" ||    closure(     this.nfa,     subset.states,     { atStart: subset.initial, atEnd: true },     this.#mark,     this.#stamp++    ).includes(this.nfa.accept)` becomes `subset.kind === "done"`; the property fails (the census, lane TESTPOLICY2).'
+			}
+		]
 	})
 
 /**
@@ -412,7 +420,14 @@ export const spanEndpointEligibilityAdmitsIntegerBigintAndContractsOverThemAsInt
 		},
 		budget: { runs: 1000, steered: 0 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/text/src/regex/ir.ts",
+				original: "!table.has(node)",
+				replacement: "table.has(node)",
+				why: "Operator mutant a7c2d982a7 at packages/text/src/regex/ir.ts:304 in folded: `!table.has(node)` becomes `table.has(node)`; the property fails (the census, lane TESTPOLICY2)."
+			}
+		]
 	})
 
 /**
