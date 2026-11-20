@@ -641,7 +641,11 @@ const flat = (expr: Expr): string | undefined =>
 		Arrow: (lambda) => {
 			const body = flat(lambda.body)
 
-			return flatPair(arrowHead(lambda), " ", lambda.body._tag === "Object" ? `(${body})` : body)
+			return flatPair(
+				arrowHead(lambda),
+				" ",
+				body !== undefined && lambda.body._tag === "Object" ? `(${body})` : body
+			)
 		},
 		Boolean: (literal) => String(literal.value),
 		Call: (invocation) => flatPair(flat(invocation.callee), "", flatArgs(invocation.args)),
