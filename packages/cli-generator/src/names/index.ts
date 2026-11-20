@@ -241,8 +241,8 @@ const matchOverrides = (
 	}
 
 	const schemes = new Set(Arr.map(api.securitySchemes, (scheme) => scheme.name))
-	for (const name of Record.keys(config.security ?? {})) {
-		if (name !== "add" && !schemes.has(name)) {
+	for (const name of Record.keys(config.security?.credentials ?? {})) {
+		if (!schemes.has(name)) {
 			collector.unmatched(`/security/${escapeToken(name)}`, "No security scheme has this name.")
 		}
 	}

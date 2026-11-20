@@ -99,7 +99,7 @@ export const expectedOf = (sketch: HeaderSketch): HeaderMarks => ({
 export const actualOf = (sketch: HeaderSketch) =>
 	Effect.gen(function* () {
 		const resolution = yield* resolvedAt(sketch.line, documentOf(sketch), [])
-		const document = yield* entryUri
+		const document = entryUri
 		return yield* headerMarks(resolution, {
 			document,
 			pointer: `/components/headers/Header${sketch.hops}`

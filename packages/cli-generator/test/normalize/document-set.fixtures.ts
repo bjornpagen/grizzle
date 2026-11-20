@@ -306,7 +306,7 @@ export const readingOf = (sketch: SetSketch) =>
 		const { value, members } = yield* setOf(sketch)
 		const resolution = yield* resolvedAt(sketch.line, value, members)
 		const config = yield* authorConfigOf({})
-		const configDocument = yield* configUri
+		const configDocument = configUri
 		const member = yield* memberUri
 		const { api, diagnostics } = yield* normalize(resolution, {
 			checkFindings: [],

@@ -5,9 +5,9 @@
 
 import { dictionary, word } from "@bjornpagen/testing/dictionary"
 import { boolean, finite, type FiniteSpace, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Order, Record, Schema } from "effect"
-import { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { Array as Arr, Effect, Order, Record } from "effect"
+import { decodeAuthorConfig } from "#model/author-config.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
@@ -92,15 +92,16 @@ interface Planned {
 
 export const plannedOf = (chain: ChainCase) =>
 	Effect.gen(function* planned() {
-		const document = yield* Schema.decodeEffect(DocumentUri)("file:///spec/openapi.json")
-		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
-			"file:///spec/author-config.json"
+		const document = fixedDocumentUri("file:///spec/openapi.json")
+		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
+		const config = yield* decodeAuthorConfig(
+			{
+				binName: "chains",
+				envPrefix: "CHAINS",
+				package: { name: "chains-cli", version: "0.1.0" }
+			},
+			{ document: configDocument }
 		)
-		const config = yield* Schema.decodeEffect(AuthorConfig)({
-			binName: "chains",
-			envPrefix: "CHAINS",
-			package: { name: "chains-cli", version: "0.1.0" }
-		})
 		const resolution = yield* resolve({ document, line: "3.1", value: documentOf(chain) })
 		const normalized = yield* normalize(resolution, { checkFindings: [], config, configDocument })
 		const plan = yield* planNames(normalized.api, { config, configDocument, strict: false })

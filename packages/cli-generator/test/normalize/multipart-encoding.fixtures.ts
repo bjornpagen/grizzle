@@ -1668,7 +1668,7 @@ export const keywordExpected = (
 /** The refusals diagnoseDocument gives the document. */
 export const keywordActual = (sketch: KeywordSketch, digest: typeof Digest.Digest.Service) =>
 	Effect.gen(function* () {
-		const document = yield* entryUri
+		const document = entryUri
 		const diagnosis = yield* diagnoseDocument(keywordDocument(sketch), document).pipe(
 			Effect.provideService(Digest.Digest, digest)
 		)

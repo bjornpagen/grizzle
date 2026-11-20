@@ -835,8 +835,8 @@ export const actualOf = (sketch: ServersSketch) =>
 		const config = yield* authorConfigOf(configMembers(sketch))
 		const context = {
 			config,
-			configDocument: yield* configUri,
-			document: yield* entryUri,
+			configDocument: configUri,
+			document: entryUri,
 			openapi: openapiOf[sketch.line]
 		}
 		const result = effectiveServers(

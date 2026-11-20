@@ -17,11 +17,12 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Exit, Option, Order, Record, Schema, String as Str } from "effect"
-import { AuthorConfig, decodeAuthorConfig } from "#model/author-config.ts"
+import { Array as Arr, Effect, Exit, Option, Order, Predicate, Record, String as Str } from "effect"
+import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfigContext } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
+import type { Json } from "#model/pointer.ts"
 
 /** The rule a refusal names after `CFG-1/` (design 4.8). */
 type Rule =
@@ -42,7 +43,7 @@ type Planted = Readonly<{ at: ReadonlyArray<string>; rule: Rule; secret: Option.
 /** One top-level member of a config, absent when a fault removes it, and the faults planted in it. */
 type Member = Readonly<{
 	key: string
-	value: Option.Option<Schema.Json>
+	value: Option.Option<Json>
 	planted: ReadonlyArray<Planted>
 }>
 
@@ -50,7 +51,7 @@ type Member = Readonly<{
 export type ConfigCase = Readonly<{
 	root:
 		| Readonly<{ kind: "object"; members: ReadonlyArray<Member> }>
-		| Readonly<{ kind: "other"; value: Schema.Json }>
+		| Readonly<{ kind: "other"; value: Json }>
 	foldedTitle: Option.Option<string>
 }>
 
@@ -97,13 +98,13 @@ const plantSecret = (at: ReadonlyArray<string>, rule: Rule, secret: string): Pla
 	secret: Option.some(secret)
 })
 
-const valid = (key: string, value: Schema.Json): Member => ({
+const valid = (key: string, value: Json): Member => ({
 	key,
 	value: Option.some(value),
 	planted: []
 })
 
-const faulty = (key: string, value: Schema.Json, planted: Planted): Member => ({
+const faulty = (key: string, value: Json, planted: Planted): Member => ({
 	key,
 	value: Option.some(value),
 	planted: [planted]
@@ -165,7 +166,7 @@ const badFlag = element(["", "Foo", "foo bar", "--foo", "foo-", "1foo", "foo..ba
 const badFieldKey = element(["foo_bar", "", "/a~2b", "a/b~"])
 
 /** An alias entry the config admits: a dotted or array group with a method, a group alone, or a method alone. */
-const aliasGen: Gen<Schema.Json> = oneOf<Schema.Json>([
+const aliasGen: Gen<Json> = oneOf<Json>([
 	(s) => ({
 		group: s.draw(element(["zones", "zones.settings", "a.b.c"])),
 		method: s.draw(element(["pause", "halt"]))
@@ -178,7 +179,7 @@ const entryOf = <A>(key: string, value: Option.Option<A>): Option.Option<readonl
 	Option.map(value, (present) => [key, present] as const)
 
 /** One operation override, every member optional and valid. */
-const overrideGen: Gen<Schema.Json> = (s) =>
+const overrideGen: Gen<Json> = (s) =>
 	Record.fromEntries(
 		Arr.getSomes([
 			entryOf("aliases", s.draw(option(array(aliasGen, { min: 0, max: 2 })))),
@@ -216,12 +217,12 @@ type NamingFault = "field pointer" | "field flag" | "alias"
 
 /** A naming fault planted in an override: the override, and the refusals at the override's tokens `at`. */
 type PlantedOverride = Readonly<{
-	override: Schema.Json
+	override: Json
 	planted: (at: ReadonlyArray<string>) => Planted
 }>
 
 /** An alias fault: the entry, where below `aliases/<index>` its refusal points, and its rule. */
-type AliasFault = readonly [entry: Schema.Json, tail: ReadonlyArray<string>, rule: Rule]
+type AliasFault = readonly [entry: Json, tail: ReadonlyArray<string>, rule: Rule]
 
 const aliasFault = element<AliasFault>([
 	[{}, [], "invalid-value"],
@@ -274,7 +275,7 @@ const namingGen =
 		const planted = Option.map(fault, (kind) => s.draw(plantedOverrideGen(kind)))
 		const other = container.name === "operations" ? "byPointer" : "operations"
 		const otherKey = container.name === "operations" ? "/paths/~1other/get" : "other"
-		const value: Schema.Json = {
+		const value: Json = {
 			[container.name]: {
 				[container.key]: Option.match(planted, {
 					onNone: () => s.draw(overrideGen),
@@ -573,7 +574,7 @@ const titleGen: Gen<Option.Option<string>> = option(element(["example-api", "pet
 const titled: Gen<Option.Option<string>> = map(element(["example-api", "pets"]), Option.some)
 
 const nonObject: Gen<ConfigCase> = (s) => ({
-	root: { kind: "other", value: s.draw(element<Schema.Json>([[], null, "config", 3])) },
+	root: { kind: "other", value: s.draw(element<Json>([[], null, "config", 3])) },
 	foldedTitle: s.draw(titleGen)
 })
 
@@ -618,7 +619,7 @@ export const configSpace: Aimed<ConfigCase, Feature> = aimed(
 )
 
 /** The config JSON a case holds. */
-const inputOf = (c: ConfigCase): Schema.Json =>
+const inputOf = (c: ConfigCase): Json =>
 	c.root.kind === "other"
 		? c.root.value
 		: Record.fromEntries(
@@ -656,7 +657,7 @@ const plantedOrder: Order.Order<Planted> = Order.combine(
 	Order.mapInput(Order.String, (p: Planted) => p.rule)
 )
 
-const document = DocumentUri.make("file:///work/author.json")
+const document = fixedDocumentUri("file:///work/author.json")
 
 const contextOf = (c: ConfigCase): AuthorConfigContext =>
 	Option.match(c.foldedTitle, {
@@ -676,9 +677,9 @@ type Refusal = Readonly<{
 	echoes: ReadonlyArray<string>
 }>
 
-/** What the decoder answers: the config re-encoded, or its refusals in the order it reports them. */
+/** What the decoder answers: the config it read, or its refusals in the order it reports them. */
 export type Answer =
-	| Readonly<{ kind: "decoded"; encoded: Schema.Json }>
+	| Readonly<{ kind: "decoded"; config: unknown }>
 	| Readonly<{ kind: "refused"; refusals: ReadonlyArray<Refusal> }>
 
 /** The planted values long enough that a message or hint holding one can only have echoed it. */
@@ -688,10 +689,33 @@ const secretsOf = (c: ConfigCase): ReadonlyArray<string> =>
 		(secret) => Str.trim(secret).length >= 4
 	)
 
+/** `security` as the config reads it (AuthorSecurity): its `add` apart from its credentials, every other key. */
+const securityRead = (security: unknown): unknown =>
+	Predicate.isObject(security)
+		? {
+				...Option.match(Record.get(security, "add"), {
+					onNone: () => ({}),
+					onSome: (add) => ({ add })
+				}),
+				credentials: Record.remove(security, "add")
+			}
+		: security
+
+/** A config object with its `security`, when it has one, as the config reads it. */
+const withSecurityRead = (config: Readonly<Record<string, unknown>>): unknown =>
+	Option.match(Record.get(config, "security"), {
+		onNone: () => config,
+		onSome: (security) => ({ ...config, security: securityRead(security) })
+	})
+
+/** The config a case with no fault reads to: its JSON, but its `security` as the config reads it. */
+const readOf = (input: Json): unknown =>
+	Predicate.isObject(input) ? withSecurityRead(input) : input
+
 /**
- * What the decoder must answer: the config itself; or each planted refusal once, in design 3.7's order, a document
- * refusal of row CFG-1 in the config's document, hinting the folded title exactly for a missing bin name under a
- * context that knows one, echoing no planted value.
+ * What the decoder must answer: the config itself, its `security` read apart from `add`; or each planted refusal once,
+ * in design 3.7's order, a document refusal of row CFG-1 in the config's document, hinting the folded title exactly
+ * for a missing bin name under a context that knows one, echoing no planted value.
  */
 export const expectedOf = (c: ConfigCase): Answer => {
 	const planted = plantedOf(c)
@@ -712,7 +736,7 @@ export const expectedOf = (c: ConfigCase): Answer => {
 					echoes: []
 				}))
 			}
-		: { kind: "decoded", encoded: inputOf(c) }
+		: { kind: "decoded", config: readOf(inputOf(c)) }
 }
 
 const hintOf = (c: ConfigCase, hint: string | undefined): Refusal["hint"] =>
@@ -740,12 +764,11 @@ const refusalOf =
 	})
 
 /** What the decoder answered for a case, read as the model states it. */
-export const actualOf = (c: ConfigCase): Effect.Effect<Answer, Schema.SchemaError> =>
+export const actualOf = (c: ConfigCase): Effect.Effect<Answer> =>
 	Effect.gen(function* () {
 		const exit = yield* Effect.exit(decodeAuthorConfig(inputOf(c), contextOf(c)))
 		if (Exit.isSuccess(exit)) {
-			const encoded = yield* Schema.encodeEffect(AuthorConfig)(exit.value)
-			return { kind: "decoded", encoded }
+			return { kind: "decoded", config: exit.value }
 		}
 		return {
 			kind: "refused",

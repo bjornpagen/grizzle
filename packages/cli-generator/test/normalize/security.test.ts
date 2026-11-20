@@ -85,8 +85,8 @@ export const securityRules = property.explore(securitySpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/author-config.ts",
-			original: '\t\t\t\t\tSchema.check(Schema.makeFilter((name: string) => name !== "add"))',
-			replacement: '\t\t\t\t\tSchema.check(Schema.makeFilter((name: string) => name === "add"))',
+			original: 'mapOf(Str.isNonEmpty, "unknown-key", credentialVariable)',
+			replacement: 'mapOf((name) => name === "add", "unknown-key", credentialVariable)',
 			why: "The author config's `security` refuses every scheme's environment name and admits only `add`, so a config naming a scheme's variable is refused; the property fails (CATCH's evidence, mutant 7195dc3ec1)."
 		},
 		{

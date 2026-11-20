@@ -509,11 +509,7 @@ export const credentialNames = (
 		})
 	}
 
-	const configured = own(config.security, scheme.name)
-	const definition = runtimeScheme(
-		scheme,
-		configured !== undefined && "env" in configured ? configured.env : undefined
-	)
+	const definition = runtimeScheme(scheme, own(config.security?.credentials, scheme.name)?.env)
 	if (definition === undefined) {
 		return Option.none()
 	}

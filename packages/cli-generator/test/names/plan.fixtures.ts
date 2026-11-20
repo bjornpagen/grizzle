@@ -19,8 +19,8 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record, Result, Schema, String as Str } from "effect"
 import { emitDomainSchemas } from "#emit/domain.ts"
-import { AuthorConfig } from "#model/author-config.ts"
-import { fixedDocumentUri } from "#model/brands.ts"
+import { decodeAuthorConfig } from "#model/author-config.ts"
+import { DocumentUri } from "#model/brands.ts"
 import { Api } from "#model/entities.ts"
 import type { Json } from "#model/pointer.ts"
 import { fixedNamespaces, groupModuleNames, rootModuleNames } from "#names/domain.ts"
@@ -207,8 +207,10 @@ const configJsonOf = (c: PlanCase): Json => ({
 export const planOf = (c: PlanCase) =>
 	Effect.gen(function* () {
 		const api = yield* Schema.decodeUnknownEffect(Api)(apiJsonOf(c))
-		const config = yield* Schema.decodeUnknownEffect(AuthorConfig)(configJsonOf(c))
-		const configDocument = fixedDocumentUri("file:///spec/author-config.json")
+		const configDocument = yield* Schema.decodeEffect(DocumentUri)(
+			"file:///spec/author-config.json"
+		)
+		const config = yield* decodeAuthorConfig(configJsonOf(c), { document: configDocument })
 		const plan = yield* planNames(api, { config, configDocument, strict: c.strict })
 		const keys = Arr.dedupe(
 			Arr.flatMap(c.operations, (op) =>

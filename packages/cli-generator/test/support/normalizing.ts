@@ -1,7 +1,7 @@
 import { constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Schema, String as Str } from "effect"
-import { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { Array as Arr, Effect, String as Str } from "effect"
+import { decodeAuthorConfig } from "#model/author-config.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalize } from "#normalize/index.ts"
@@ -13,11 +13,11 @@ export const entryText = "file:///spec/openapi.json"
 /** The URI of the author config's document, which a config diagnostic names. */
 export const configText = "file:///spec/author.json"
 
-/** The entry document's URI, decoded. */
-export const entryUri = Schema.decodeEffect(DocumentUri)(entryText)
+/** The entry document's URI. */
+export const entryUri = fixedDocumentUri(entryText)
 
-/** The author config document's URI, decoded. */
-export const configUri = Schema.decodeEffect(DocumentUri)(configText)
+/** The author config document's URI. */
+export const configUri = fixedDocumentUri(configText)
 
 /** The `openapi` value a drawn document of each line declares. */
 export const openapiOf: Readonly<Record<SpecLine, string>> = {
@@ -35,11 +35,14 @@ export const lineGen: Gen<SpecLine> = oneOf([
 
 /** An author config with nothing but its names, and with `extra` beside them. */
 export const authorConfigOf = (extra: Readonly<Record<string, Json>>) =>
-	Schema.decodeEffect(AuthorConfig)({
-		binName: "example",
-		package: { name: "example-cli", version: "1.0.0" },
-		...extra
-	})
+	decodeAuthorConfig(
+		{
+			binName: "example",
+			package: { name: "example-cli", version: "1.0.0" },
+			...extra
+		},
+		{ document: configUri }
+	)
 
 /** The document of `line` holding `members` beside its info and its declared version. */
 export const documentAt = (line: SpecLine, members: Readonly<Record<string, Json>>): Json => ({
@@ -50,17 +53,14 @@ export const documentAt = (line: SpecLine, members: Readonly<Record<string, Json
 
 /** The document set of `value` on `line`, entry first, then `members`. */
 export const resolvedAt = (line: SpecLine, value: Json, members: ReadonlyArray<ResolveMember>) =>
-	Effect.flatMap(entryUri, (document) =>
-		resolve({ document, line, members: Arr.fromIterable(members), value })
-	)
+	resolve({ document: entryUri, line, members: Arr.fromIterable(members), value })
 
 /** `value` on `line`, resolved and normalized under the author config `extra` makes, as generation's normalize reads it. */
 export const normalizedAt = (line: SpecLine, value: Json, extra: Readonly<Record<string, Json>>) =>
 	Effect.gen(function* () {
 		const resolution: Resolution = yield* resolvedAt(line, value, [])
 		const config = yield* authorConfigOf(extra)
-		const configDocument = yield* configUri
-		return yield* normalize(resolution, { checkFindings: [], config, configDocument })
+		return yield* normalize(resolution, { checkFindings: [], config, configDocument: configUri })
 	})
 
 /** A JSON Pointer token, `~` and `/` escaped. */
