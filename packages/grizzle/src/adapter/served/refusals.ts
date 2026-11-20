@@ -9,6 +9,7 @@ import {
 	identifierOf,
 	type ParamDecl,
 	type Raisable,
+	rostersOf,
 	type SchemaArtifacts,
 	type StoredRelationName
 } from "#compiler/plan/common.ts"
@@ -118,11 +119,16 @@ export const refusalsOf = (
 }
 
 /**
- * Every refusal a compiled installation's artifacts state, drawn as data (refusalsOf), cut to none: every roster of its
- * codebook among them.
+ * Every refusal a compiled installation's artifacts state, drawn as data (refusalsOf), cut to none: every roster their
+ * owned schema declares among them, the level's and those below it. The codebook is the installation's, every level's
+ * rosters, so the artifacts of a level below its top hold the codes of rosters a level above declares, whose domains
+ * no relation of theirs is typed by and no write of a login over the level can report (README "Levels").
  */
 export const installationRefusals = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
+	artifacts: Pick<
+		SchemaArtifacts,
+		"owned" | "names" | "constraintLaws" | "theoryLaws" | "world" | "derived"
+	>
 ): ServedRefusals =>
 	refusalsOf(
 		artifacts,
@@ -130,7 +136,7 @@ export const installationRefusals = (
 			constraintLaws: artifacts.constraintLaws,
 			theoryLaws: artifacts.theoryLaws,
 			relations: [...artifacts.derived.schema.relations.values()],
-			rosters: new Set(artifacts.names.codes.rosters.keys())
+			rosters: new Set(Arr.map(rostersOf(artifacts.owned), (r) => r.closed))
 		},
 		[]
 	)
@@ -140,7 +146,10 @@ export const installationRefusals = (
  * layer rebuilds a served file's (witness/index.ts servedWitness), under the laws of the levels above `above`.
  */
 export const installationWitness = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">,
+	artifacts: Pick<
+		SchemaArtifacts,
+		"owned" | "names" | "constraintLaws" | "theoryLaws" | "world" | "derived"
+	>,
 	above: LawsAbove
 ): InstallationWitness =>
 	servedWitness(installationRefusals(artifacts), above, artifacts.names.codes)
