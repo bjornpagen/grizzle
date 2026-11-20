@@ -30,6 +30,7 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { schema } from "#compiler/public/schema.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
+import type { Expr } from "#compiler/sql/ast.ts"
 import { tableCol } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -467,7 +468,11 @@ export const generatedExpr = (installation: Installation, field: "g" | "h"): Sca
 	return writing.kind === "generated" ? writing.expr : assert.fail(`${field} is generated`)
 }
 
-/** The SQL text of Gen's generated column of `field` as the installation creates it. */
+/**
+ * The SQL text of what Gen's generated column of `field` computes as the installation creates it: its generation, or,
+ * where the installation hoists it into a row function (physical/ddl/row-functions.ts), that function's body, each
+ * column the function's parameter by position, which is the expression the column's call evaluates.
+ */
 export const generatedSql = (installation: Installation, field: "g" | "h"): string => {
 	const table = installation.names.relation("Gen")
 	const column = installation.names.column("Gen", field)
@@ -481,10 +486,29 @@ export const generatedSql = (installation: Installation, field: "g" | "h"): stri
 		Option.getOrUndefined(Arr.findFirst(create.columns, (col) => col.name === column)),
 		`the column of ${field}`
 	).generated
-	return generation?.kind === "stored"
-		? printExpr(generation.expr)
-		: assert.fail(`${field}'s column is a stored generation`)
+	if (generation?.kind !== "stored") {
+		return assert.fail(`${field}'s column is a stored generation`)
+	}
+	const expr = generation.expr
+	const body =
+		expr.kind === "call" && expr.fn.kind === "qualified"
+			? rowFunctionBody(installation, expr.fn.name)
+			: undefined
+	return printExpr(body ?? expr)
 }
+
+/** The body of the installation's row function `name`, a PL/pgSQL constant; none where it creates no such function. */
+const rowFunctionBody = (installation: Installation, name: string): Expr | undefined =>
+	Option.getOrUndefined(
+		Arr.findFirst(
+			Arr.flatMap(installation.statements, (st) =>
+				st.kind === "createConstant" && st.language === "plpgsql" && st.name.name === name
+					? [st.body]
+					: []
+			),
+			() => true
+		)
+	)
 
 /**
  * The SQL text of a case's shared subterm as the installation prints it: h's column, a flag's or a double's read
