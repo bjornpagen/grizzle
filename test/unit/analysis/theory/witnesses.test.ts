@@ -5,21 +5,25 @@
  *
  * The box: rules of each kind, a check, a containment and a key, drawn as their arms over three relations, R0 to R2,
  * one or two breaking arms and, for a containment, one or two target arms, each arm one to three matches, so one
- * relation may stand twice in an arm (a self-join), and none to two negated arms of one or two matches each.
+ * relation may stand twice in an arm (a self-join), and none to two negated arms of one or two matches each, each
+ * negating none or one arm of one or two matches in turn, a match under two negations.
  *
  * Oracle: the drawn plan itself, read apart from query.ts:
  *
  * - Witnesses: a check has one per breaking arm, its rows the arm's matches, every occurrence, its absences its negated
- *   arms' matches; a containment one per source arm, its rows the arm's matches, its absences the arm's negated
- *   matches then every target arm's matches, its presences every target arm's negated matches; a key one per pair of
- *   breaking arms, an arm with itself and with every later arm, its rows both arms' matches, its absences both arms'
- *   negated matches. Each list is a multiset in the plan's order, so an occurrence counted once for two fails.
+ *   arms' matches, its presences the matches under two negations; a containment one per source arm, its rows the arm's
+ *   matches, its absences the arm's negated matches then every target arm's matches and its matches under two
+ *   negations, its presences every target arm's negated matches then the arm's matches under two negations; a key one
+ *   per pair of breaking arms, an arm with itself and with every later arm, its rows both arms' matches, its absences
+ *   both arms' negated matches, its presences both arms' matches under two negations. Each list is a multiset in the
+ *   plan's order, so an occurrence counted once for two fails.
  * - Touches agreement: for each relation, an INSERT of it can break the rule (Touches `added` or `both`) exactly when it
  *   stands among some witness's rows or presences, and a DELETE (`removed` or `both`) exactly when it stands among some
  *   witness's absences; neither when no witness reads it, where touches gives none.
  *
- * Features: each rule kind; a match, a negated match, a target match and a target negation; a self-join; a relation
- * both inserted and deleted into breaking (`both`); and a relation the rule never reads.
+ * Features: each rule kind; a match, a negated match, a match under two negations, a target match, a target negation
+ * and a target's match under two negations; a self-join; a relation both inserted and deleted into breaking (`both`);
+ * and a relation the rule never reads.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -55,8 +59,10 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 			"a key",
 			"a match",
 			"a negated match",
+			"a match under two negations",
 			"a target match",
 			"a target negation",
+			"a target's match under two negations",
 			"a self-join",
 			"a relation an insert and a delete can both break",
 			"a relation the rule never reads"
@@ -68,10 +74,16 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 				if (Arr.some(plan.arms, (a) => a.negated.length > 0)) {
 					k.note("a negated match")
 				}
+				if (Arr.some(plan.arms, (a) => Arr.some(a.negated, (n) => n.negated.length > 0))) {
+					k.note("a match under two negations")
+				}
 				if (plan.kind === "contained") {
 					k.note("a target match")
 					if (Arr.some(plan.target, (a) => a.negated.length > 0)) {
 						k.note("a target negation")
+					}
+					if (Arr.some(plan.target, (a) => Arr.some(a.negated, (n) => n.negated.length > 0))) {
+						k.note("a target's match under two negations")
 					}
 				}
 				if (Arr.some(plan.arms, (a) => new Set(a.matches).size < a.matches.length)) {
@@ -117,9 +129,17 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original:
-					"\tconst read = [...matched.flatMap((a) => a.matches), ...negating.flatMap(negatedMatches)].filter(",
-				replacement: "\tconst read = [...negating.flatMap(negatedMatches)].filter(",
-				why: "Operator mutant (element) at packages/engine/src/analysis/theory/query.ts:1811 in columnsOf: `[...matched.flatMap((a) => a.matches), ...negating.flatMap(negatedMatches)]` becomes `[...negating.flatMap(negatedMatches)]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+					'\t\t\t[...reads(breakingArms(rule), "positive"), ...reads(targetArms(rule), "negative")],',
+				replacement: '\t\t\t[...reads(targetArms(rule), "negative")],',
+				why: "An INSERT that adds a breaking arm's facts read as breaking nothing (query.ts probedTouches): its matches' writes are never captured."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original:
+					'const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "positive")',
+				replacement:
+					'const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "negative")',
+				why: "A negation under a negation read negatively, as one negation is: a relation under two negations, whose insert brings back the breaking facts its row held out, is read as an absence."
 			}
 		]
 	})

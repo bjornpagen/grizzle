@@ -247,8 +247,8 @@ export const aRuleOverAQueryCompilesWheneverTheBuildersAdmitItAHeadLiteralReadWh
 		]
 	})
 
-/** A rule over a query compiles a negation of a table, a join, a union or a derived relation, alone or in a conjunction, on either side of every rule, and refuses one of a query a rule may not read, by name. */
-export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionOrADerivedRelationAloneOrInAConjunctionOnEitherSideOfEveryRuleAndRefusesOneOfAQueryARuleMayNotReadByName =
+/** A rule over a query compiles a negation of a table, a join, a union, a derived relation or a query that negates in turn, alone or in a conjunction, on either side of every rule, and refuses one of a query a rule may not read, by name. */
+export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionADerivedRelationOrAQueryThatNegatesInTurnAloneOrInAConjunctionOnEitherSideOfEveryRuleAndRefusesOneOfAQueryARuleMayNotReadByName =
 	property.exhaust(finite(negationCase), {
 		needs: {},
 		situations: [
@@ -298,7 +298,7 @@ export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionOrADerivedRelati
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a rule over a query reads a negation of select-project-join arms: a schema schema.extend builds compiles to its artifacts exactly when every arm it negates joins, selects and projects, and is refused otherwise: an aggregate by the rule the types name, a negation that negates in turn as UnsupportedLawFamily"
+			name: "a rule over a query reads a negation of select-project-join arms, each of which may negate in turn: a schema schema.extend builds compiles to its artifacts exactly when every arm it negates joins, selects and projects, and is refused otherwise, an aggregate by the rule the types name"
 		},
 		box: "every containment into and out of, check over and key over a derived relation of Item, read itself or through a semijoin, whose definition negates Mark, a join of Mark and Note, their union, the join derived, a query that aggregates or one that negates, alone, in a conjunction or in a conjunction nested in one, binding Mark's on by a literal or not at all",
 		kept: [],
@@ -311,9 +311,9 @@ export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionOrADerivedRelati
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original: `\t\t\tif (arm.negated.length > 0) {\n\t\t\t\treturn this.#refuse(relation, \`negates \${negated}, which negates in turn\`)\n\t\t\t}\n`,
-				replacement: "",
-				why: "A negated query that negates in turn admitted, its inner negation dropped (analysis/theory/query.ts negated); the fourth box fails."
+				original: "\t\t\treturn { arm, bindings }\n",
+				replacement: `\t\t\treturn arm.negated.length > 0 ? this.#refuse(relation, \`negates \${negated}, which negates in turn\`) : { arm, bindings }\n`,
+				why: "A negated query that negates in turn refused as UnsupportedLawFamily, as it was before a probe read a relation under two negations (analysis/theory/query.ts negated); the fourth box fails."
 			}
 		]
 	})

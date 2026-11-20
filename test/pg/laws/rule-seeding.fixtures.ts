@@ -22,7 +22,7 @@ import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
+import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { type PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import {
@@ -267,7 +267,139 @@ const tagged = (name: string) => {
 	return schema.extend(Base, `${name}_1`, [Tagged], [key(on(Tagged, "k", "tag"))])
 }
 
-export const shapes = ["titles", "viewed", "deep", "key", "tagged"] as const
+/**
+ * standing: a key over the L1s no standing block holds out, a block standing where no mark lifts it: the side negates a
+ * derived relation, Standing, that negates in turn, as an Active of the sittings no standing invalidation names does.
+ * A block deleted brings back the facts it held out, a negated relation's rows lost; a mark inserted does too, a row
+ * gained by a relation under two negations; and a mark deleted holds them out again.
+ */
+const standing = (name: string) => {
+	const { Base } = base(name)
+	const Standing = derived(
+		"Standing",
+		query(Base).rule((r) => {
+			const { id: x } = v(N, "block")
+			return r
+				.match(N, { id: x })
+				.where(r.not(M, { up: x }))
+				.find({ x })
+		})
+	)
+	const Mid = schema.extend(Base, `${name}_1`, [Standing], [])
+	const Unheld = derived(
+		"Unheld",
+		query(Mid).rule((r) => {
+			const { id: x1, up: k, v: w } = v(L1, "first")
+			return r
+				.match(L1, { id: x1, up: k, v: w })
+				.where(r.not(Standing, { x: x1 }))
+				.find({ k, w })
+		})
+	)
+	return schema.extend(Mid, `${name}_2`, [Unheld], [key(on(Unheld, "k"))])
+}
+
+/**
+ * lifted: a containment whose target is standing's side, the L1s no standing block holds out: the keys with a path to
+ * an L2 are contained in the keys of an unheld L1, so a block inserted withdraws the target's facts it holds out, a
+ * negated relation's rows gained, and a mark deleted does too, a row lost by a relation under two negations.
+ */
+const lifted = (name: string) => {
+	const { Base, path } = base(name)
+	const Standing = derived(
+		"Standing",
+		query(Base).rule((r) => {
+			const { id: x } = v(N, "block")
+			return r
+				.match(N, { id: x })
+				.where(r.not(M, { up: x }))
+				.find({ x })
+		})
+	)
+	const Mid = schema.extend(Base, `${name}_1`, [Standing], [])
+	const Pathed = derived(
+		"Pathed",
+		query(Mid).rule((r) => {
+			const { k, x2 } = v(path, "path")
+			return r.match(path, { k, x2 }).find({ k })
+		})
+	)
+	const Unheld = derived(
+		"Unheld",
+		query(Mid).rule((r) => {
+			const { id: x1, up: k } = v(L1, "first")
+			return r
+				.match(L1, { id: x1, up: k })
+				.where(r.not(Standing, { x: x1 }))
+				.find({ k })
+		})
+	)
+	return schema.extend(
+		Mid,
+		`${name}_2`,
+		[Pathed, Unheld],
+		[contained(on(Pathed, "k"), on(Unheld, "k"))]
+	)
+}
+
+/**
+ * budget: edullm's First_budget in miniature, a check over a side three negations deep: an L1 is rate-paced where none
+ * of its L2s is paceless, an L2 paceless where no block marks it time-dependent, and every L1 that is not rate-paced
+ * holds value 1. A block deleted makes its L2 paceless and its L1 no longer rate-paced, an occurrence under three
+ * negations losing a row; an L2 inserted under an L1 does too, one under two gaining one.
+ */
+const budget = (name: string) => {
+	const { Base } = base(name)
+	const Paceless = derived(
+		"Paceless",
+		query(Base).rule((r) => {
+			const { id: x2, up: x1 } = v(L2, "member")
+			return r
+				.match(L2, { id: x2, up: x1 })
+				.where(r.not(N, { id: x2 }))
+				.find({ x: x1 })
+		})
+	)
+	const Low = schema.extend(Base, `${name}_1`, [Paceless], [])
+	const RatePaced = derived(
+		"RatePaced",
+		query(Low).rule((r) => {
+			const { id: x1 } = v(L1, "root")
+			return r
+				.match(L1, { id: x1 })
+				.where(r.not(Paceless, { x: x1 }))
+				.find({ x: x1 })
+		})
+	)
+	const Mid = schema.extend(Low, `${name}_2`, [RatePaced], [])
+	const Limited = derived(
+		"Limited",
+		query(Mid).rule((r) => {
+			const { id: x1, up: k, v: w } = v(L1, "first")
+			return r
+				.match(L1, { id: x1, up: k, v: w })
+				.where(r.not(RatePaced, { x: x1 }))
+				.find({ k, w })
+		})
+	)
+	return schema.extend(
+		Mid,
+		`${name}_3`,
+		[Limited],
+		[check("Budgeted", Limited, (l) => l.eq(l.w, 1))]
+	)
+}
+
+export const shapes = [
+	"titles",
+	"viewed",
+	"deep",
+	"key",
+	"tagged",
+	"standing",
+	"lifted",
+	"budget"
+] as const
 export type Shape = (typeof shapes)[number]
 
 /** What a shape's rule is: a containment, or a key. */
@@ -276,8 +408,11 @@ const ruleOf = {
 	viewed: "contained",
 	deep: "contained",
 	key: "key",
-	tagged: "key"
-} as const satisfies Record<Shape, "contained" | "key">
+	tagged: "key",
+	standing: "key",
+	lifted: "contained",
+	budget: "check"
+} as const satisfies Record<Shape, "contained" | "key" | "check">
 
 const schemaOf = (shape: Shape, name: string) => {
 	switch (shape) {
@@ -291,11 +426,26 @@ const schemaOf = (shape: Shape, name: string) => {
 			return keyed(name)
 		case "tagged":
 			return tagged(name)
+		case "standing":
+			return standing(name)
+		case "lifted":
+			return lifted(name)
+		case "budget":
+			return budget(name)
 	}
 }
 
-/** The SQLSTATE a shape's rule is refused under: a containment's, or a key's. */
-const codeOf = (shape: Shape): string => (ruleOf[shape] === "key" ? "23505" : "23503")
+/** The SQLSTATE a shape's rule is refused under: a containment's, a key's or a check's. */
+const codeOf = (shape: Shape): string => {
+	switch (ruleOf[shape]) {
+		case "contained":
+			return "23503"
+		case "key":
+			return "23505"
+		case "check":
+			return "23514"
+	}
+}
 
 /** One write of a transaction, as drawn. */
 type Op =
@@ -361,16 +511,19 @@ export const caseGen =
 type Removal = "deletes" | "unwind"
 
 /**
- * How a constructed case's last transaction withdraws facts: by removing rows, or by inserting blocks alone, which
- * withdraw the facts a negation of N admitted.
+ * How a constructed case's last transaction changes the facts it refuses by: by removing rows; by inserting blocks
+ * alone, which withdraw the facts a negation of N admitted; or by inserting marks alone, which bring back the facts a
+ * standing block held out.
  */
-type Withdrawal = Removal | "block"
+type Withdrawal = Removal | "block" | "mark" | "unmark"
 
 /** The refusal a constructed case reaches by its withdrawal. */
 const refusedAfter = {
 	deletes: "refused once rows were deleted one at a time, and nothing else",
 	unwind: "refused once a link and its children were deleted at once, and nothing else",
-	block: "refused once a block was inserted"
+	block: "refused once a block was inserted",
+	mark: "refused once a mark was inserted, and nothing else",
+	unmark: "refused once a mark was deleted, and nothing else"
 } as const satisfies Record<Withdrawal, EquivalenceFeature>
 
 /** An id of 1 to 3 other than `id`: `id` moved on by one or two, wrapping. */
@@ -522,10 +675,90 @@ const blockWithdrawn =
 	}
 
 /**
+ * standing's case refused by `withdrawal`, its values drawn. The build, one transaction: two chains of key k, their L1s
+ * a1 and b1 apart, of values w and 1 - w, and a block of b1, which no mark lifts, so k has the one value w. Deleting the
+ * block, or inserting a mark on b1, gives k the value 1 - w too, and the key is broken.
+ */
+const standingLifted =
+	(withdrawal: Extract<Withdrawal, "deletes" | "mark">): Gen<Case> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const a1 = s.draw(idGen)
+		const b1 = s.draw(otherThan(a1))
+		const w = s.draw(valueGen)
+		const chain = (first: number, value: number): Op => ({
+			kind: "chain",
+			k,
+			ids: [first, s.draw(idGen), s.draw(idGen)],
+			values: [value, s.draw(valueGen), s.draw(valueGen)]
+		})
+		return {
+			shape: "standing",
+			history: [
+				[chain(a1, w), chain(b1, 1 - w), { kind: "block", id: b1 }],
+				withdrawal === "mark"
+					? [{ kind: "mark", id: s.draw(int(1, 2)), up: b1 }]
+					: [{ kind: "delete", table: "N", id: b1 }]
+			]
+		}
+	}
+
+/**
+ * lifted's case refused by `withdrawal`, its values drawn. The build, one transaction: a chain of key k, its L1 a1 the
+ * only L1 of k, so k is a key of a path and of an unheld L1; under `unmark`, a block of a1 too and a mark lifting it.
+ * Inserting a block of a1, or deleting the mark, holds a1 out of the target, and the key of the path is contained in
+ * none.
+ */
+const liftedWithdrawn =
+	(withdrawal: Extract<Withdrawal, "block" | "unmark">): Gen<Case> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const a1 = s.draw(idGen)
+		const mark = s.draw(int(1, 2))
+		const chain: Op = {
+			kind: "chain",
+			k,
+			ids: [a1, s.draw(idGen), s.draw(idGen)],
+			values: [s.draw(valueGen), s.draw(valueGen), s.draw(valueGen)]
+		}
+		return {
+			shape: "lifted",
+			history:
+				withdrawal === "block"
+					? [[chain], [{ kind: "block", id: a1 }]]
+					: [
+							[chain, { kind: "block", id: a1 }, { kind: "mark", id: mark, up: a1 }],
+							[{ kind: "delete", table: "M", id: mark }]
+						]
+		}
+	}
+
+/**
+ * budget's case refused by a block deleted alone, its values drawn: a chain of key k whose L1 a1 is of value 0 and whose
+ * L2 a2, its only one, is under a block, so a1 is rate-paced and out of Limited; then the block deleted, which makes a2
+ * paceless and a1 no longer rate-paced, and its value 0 breaks the check.
+ */
+const budgetUnblocked: Gen<Case> = (s) => {
+	const k = s.draw(int(1, 2))
+	const [a1, a2, a3] = [s.draw(idGen), s.draw(idGen), s.draw(idGen)]
+	return {
+		shape: "budget",
+		history: [
+			[
+				{ kind: "chain", k, ids: [a1, a2, a3], values: [0, s.draw(valueGen), s.draw(valueGen)] },
+				{ kind: "block", id: a2 }
+			],
+			[{ kind: "delete", table: "N", id: a2 }]
+		]
+	}
+}
+
+/**
  * The withdrawals that refuse a shape's rule, each with the case constructed to reach its refusal. A containment is
  * refused by each, every fact its target holds a key by withdrawn while its source keeps the key. A key's rule is
  * broken only by facts added: deleting a block adds the facts it held out, and an unwind, which deletes links alone,
- * and an inserted block only withdraw facts, so they never refuse a key.
+ * and an inserted block only withdraw facts, so they never refuse a key. Under standing's negation of a negation, a
+ * mark inserted adds the facts its block held out too.
  */
 const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal, Gen<Case>]> => {
 	switch (shape) {
@@ -545,6 +778,18 @@ const withdrawalsOf = (shape: Shape): NonEmptyReadonlyArray<readonly [Withdrawal
 		case "key":
 		case "tagged":
 			return [["deletes", blockWithdrawn(shape)]]
+		case "standing":
+			return [
+				["deletes", standingLifted("deletes")],
+				["mark", standingLifted("mark")]
+			]
+		case "lifted":
+			return [
+				["block", liftedWithdrawn("block")],
+				["unmark", liftedWithdrawn("unmark")]
+			]
+		case "budget":
+			return [["deletes", budgetUnblocked]]
 	}
 }
 
@@ -615,7 +860,10 @@ export const seedTemplates: { readonly [S in Shape]: SeatTemplate } = {
 	viewed: seatTemplate(import.meta, schemaOf("viewed", "Seed_viewed"), "rule_seed_viewed"),
 	deep: seatTemplate(import.meta, schemaOf("deep", "Seed_deep"), "rule_seed_deep"),
 	key: seatTemplate(import.meta, schemaOf("key", "Seed_key"), "rule_seed_key"),
-	tagged: seatTemplate(import.meta, schemaOf("tagged", "Seed_tagged"), "rule_seed_tagged")
+	tagged: seatTemplate(import.meta, schemaOf("tagged", "Seed_tagged"), "rule_seed_tagged"),
+	standing: seatTemplate(import.meta, schemaOf("standing", "Seed_standing"), "rule_seed_standing"),
+	lifted: seatTemplate(import.meta, schemaOf("lifted", "Seed_lifted"), "rule_seed_lifted"),
+	budget: seatTemplate(import.meta, schemaOf("budget", "Seed_budget"), "rule_seed_budget")
 }
 
 /** A case's shape over its clone of the shape's template: its seat, its one rule's law, and the rule's whole check. */
@@ -672,6 +920,8 @@ export type EquivalenceFeature =
 	| "refused once a link and its children were deleted at once, and nothing else"
 	| "refused once rows were deleted one at a time, and nothing else"
 	| "refused once a block was inserted"
+	| "refused once a mark was inserted, and nothing else"
+	| "refused once a mark was deleted, and nothing else"
 	| "committed a needed key no first target arm holds"
 
 /** Whether the first cell of the first row is true. */
@@ -692,6 +942,9 @@ const laterArmOnly = (seat: Seat, shape: Shape): string | undefined => {
 			return `SELECT EXISTS (SELECT 1 FROM ${t("M")} m JOIN ${t("L1")} a ON a.${c("L1", "id")} = m.${c("M", "up")} WHERE NOT EXISTS (SELECT 1 FROM ${t("L1")} a2 JOIN ${t("L2")} b2 ON b2.${c("L2", "up")} = a2.${c("L1", "id")} JOIN ${t("L3")} z ON z.${c("L3", "up")} = b2.${c("L2", "id")} WHERE a2.${c("L1", "up")} = a.${c("L1", "up")} AND z.${c("L3", "v")} = 1))`
 		case "key":
 		case "tagged":
+		case "standing":
+		case "lifted":
+		case "budget":
 			return undefined
 	}
 }
@@ -764,6 +1017,177 @@ export const judgeHistory = (
 			}
 			if (Arr.some(ops, (op) => op.kind === "block")) {
 				note("refused once a block was inserted")
+			}
+			if (Arr.every(ops, (op) => op.kind === "mark")) {
+				note("refused once a mark was inserted, and nothing else")
+			}
+			if (Arr.every(ops, (op) => op.kind === "delete" && op.table === "M")) {
+				note("refused once a mark was deleted, and nothing else")
+			}
+		}
+	})
+
+/** The shapes whose rule reads a relation under two negations, which the concurrent search draws over. */
+export const nestedShapes = ["standing", "lifted"] as const satisfies ReadonlyArray<Shape>
+export type NestedShape = (typeof nestedShapes)[number]
+
+/** A concurrent case: a lawful build, then two transactions, each open before either commits. */
+interface Concurrent {
+	readonly shape: NestedShape
+	readonly build: ReadonlyArray<Op>
+	readonly first: ReadonlyArray<Op>
+	readonly second: ReadonlyArray<Op>
+}
+
+/** A concurrent case of one shape, drawn. */
+export const concurrentGen =
+	(shape: NestedShape): Gen<Concurrent> =>
+	(s) => ({
+		shape,
+		build: s.draw(array(opGen, { min: 1, max: 6 })),
+		first: s.draw(array(opGen, { min: 1, max: 2 })),
+		second: s.draw(array(opGen, { min: 1, max: 2 }))
+	})
+
+/**
+ * A write skew of a shape, its values drawn: a build each of whose two writes alone keeps the rule and which together
+ * break it. Under standing, two chains of key k of values w and 1 - w, each L1 under a block, and each transaction
+ * deletes one block, or marks it, so each alone brings back one value of k and both bring back two. Under lifted, a
+ * chain of key k beside a second L1 of k, and each transaction blocks one of the two L1s, so each alone leaves k an
+ * unheld L1 and both leave it none.
+ */
+const skewed =
+	(shape: NestedShape): Gen<Concurrent> =>
+	(s) => {
+		const k = s.draw(int(1, 2))
+		const a1 = s.draw(idGen)
+		const b1 = s.draw(otherThan(a1))
+		const w = s.draw(valueGen)
+		const lift = (id: number, mark: number): Op =>
+			s.draw(boolean) ? { kind: "delete", table: "N", id } : { kind: "mark", id: mark, up: id }
+		const chain = (first: number, value: number): Op => ({
+			kind: "chain",
+			k,
+			ids: [first, s.draw(idGen), s.draw(idGen)],
+			values: [value, s.draw(valueGen), s.draw(valueGen)]
+		})
+		switch (shape) {
+			case "standing":
+				return {
+					shape,
+					build: [
+						chain(a1, w),
+						chain(b1, 1 - w),
+						{ kind: "block", id: a1 },
+						{ kind: "block", id: b1 }
+					],
+					first: [lift(a1, 1)],
+					second: [lift(b1, 2)]
+				}
+			case "lifted":
+				return {
+					shape,
+					build: [chain(a1, w), chain(b1, w)],
+					first: [{ kind: "block", id: a1 }],
+					second: [{ kind: "block", id: b1 }]
+				}
+		}
+	}
+
+export type ConcurrentFeature =
+	| "concurrent writers both committed"
+	| "a concurrent writer refused by the rule"
+	| "a concurrent writer refused by a serialization failure"
+	| "a write skew refused"
+
+/** The concurrent search's aim: a write skew, which PostgreSQL's SSI must refuse one side of. */
+export const concurrentAims = (
+	shape: NestedShape
+): ReadonlyArray<readonly [ConcurrentFeature, Gen<Concurrent>]> => [
+	["a write skew refused", skewed(shape)]
+]
+
+/** The SQLSTATE of a serialization failure. */
+const serializationFailure = "40001"
+
+/**
+ * One concurrent case on its shape's seat, from empty: the build committed where the rule's whole check finds it
+ * lawful; then two transactions on two sessions at SERIALIZABLE, each taking its snapshot before either writes, each
+ * writing, then each committing, the first before the second, a writer that meets the other's row lock giving up at
+ * once. Whichever of them PostgreSQL refuses, by the rule at COMMIT or by a serialization failure, the state committed
+ * must keep the rule: the whole check, read afterwards, finds nothing.
+ */
+export const judgeConcurrent = (
+	installed: Installed,
+	c: Concurrent,
+	note: (f: ConcurrentFeature) => void
+) =>
+	Effect.gen(function* () {
+		const { seat } = installed
+		const first = seat.session
+		yield* cleared(seat, RELATIONS)
+		const substrate = yield* Substrate
+		const second = yield* substrate.session({ ...ownerSession(), label: "rule seed concurrent" })
+		const run = (session: RawSession, ops: ReadonlyArray<Op>) =>
+			Effect.gen(function* () {
+				for (const sql of Arr.flatMap(ops, (op) => statementsOf(seat, op))) {
+					const refused = yield* refusalOf(session.query(sql, []))
+					if (Option.isSome(refused)) {
+						return refused
+					}
+				}
+				return Option.none()
+			})
+		yield* first.begin
+		const built = yield* run(first, c.build)
+		const judged = Option.isNone(built) ? yield* first.values(installed.whole, []) : []
+		const broken = Option.isNone(built) && truth(judged)
+		if (Option.isSome(built) || broken) {
+			yield* first.rollback
+		} else {
+			yield* first.commit
+		}
+		const opening = ["SET LOCAL lock_timeout = '200ms'", "SELECT 1"]
+		yield* first.begin
+		yield* second.begin
+		for (const sql of opening) {
+			yield* first.query(sql, [])
+			yield* second.query(sql, [])
+		}
+		const wroteA = yield* run(first, c.first)
+		const wroteB = yield* run(second, c.second)
+		const endedA = Option.isSome(wroteA) ? wroteA : yield* refusalOf(first.commit)
+		if (Option.isSome(wroteA)) {
+			yield* first.rollback
+		}
+		const endedB = Option.isSome(wroteB) ? wroteB : yield* refusalOf(second.commit)
+		if (Option.isSome(wroteB)) {
+			yield* second.rollback
+		}
+		yield* first.begin
+		const found = yield* first.values(installed.whole, [])
+		const after = truth(found)
+		yield* first.rollback
+		if (after) {
+			return yield* new Disagreed({
+				message: `concurrent writers committed a state the rule's whole check finds broken: ${Formatter.format(c)}`
+			})
+		}
+		const refusals = Arr.getSomes([endedA, endedB])
+		if (refusals.length === 0) {
+			note("concurrent writers both committed")
+		}
+		if (Arr.some(refusals, (f) => f.code === codeOf(c.shape))) {
+			note("a concurrent writer refused by the rule")
+		}
+		if (Arr.some(refusals, (f) => f.code === serializationFailure)) {
+			note("a concurrent writer refused by a serialization failure")
+			if (
+				!broken &&
+				Option.isNone(built) &&
+				Arr.every([...c.first, ...c.second], (op) => op.kind !== "chain")
+			) {
+				note("a write skew refused")
 			}
 		}
 	})
@@ -1021,6 +1445,18 @@ export const footprints = (seat: Seat, k: number, from: number, to: number) =>
 		return yield* Effect.forEach(touchedOf(seat, k), (touched) => footprintOf(seat, touched))
 	})
 
+/** Whether a shape's target has a later arm a needed key may stand in alone (laterArmOnly). */
+const laterArmOf = {
+	titles: true,
+	viewed: true,
+	deep: true,
+	key: false,
+	tagged: false,
+	standing: false,
+	lifted: false,
+	budget: false
+} as const satisfies Record<Shape, boolean>
+
 /**
  * The refusals and commits a shape's search must reach: every shape commits, is refused by its rule, and is refused by
  * each withdrawal that can refuse it (withdrawalsOf), a constructed case reaching each; the three shapes whose rule is
@@ -1028,8 +1464,9 @@ export const footprints = (seat: Seat, k: number, from: number, to: number) =>
  * has.
  */
 export const requiredOf = (shape: Shape): NonEmptyReadonlyArray<EquivalenceFeature> => {
-	const containment: ReadonlyArray<EquivalenceFeature> =
-		ruleOf[shape] === "key" ? [] : ["committed a needed key no first target arm holds"]
+	const containment: ReadonlyArray<EquivalenceFeature> = laterArmOf[shape]
+		? ["committed a needed key no first target arm holds"]
+		: []
 	return [
 		"committed",
 		`refused by ${shape}`,

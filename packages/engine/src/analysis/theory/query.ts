@@ -48,17 +48,19 @@ import { guardedTerm } from "#compiler/scalar/natural.ts"
  * relations by equalities, select by conditions over their variables and project onto heading terms: the
  * select-project-join queries a rule's side may be. Each negation of such an arm, alone as a filter or inside a
  * conjunction that is one, is read the same way: it negates the arms of a stored or closed relation, of a query or of
- * a derived relation, each a select-project-join arm of its own (`NegatedArm`). A definition that aggregates, recurses,
- * orders or takes, approximates, attaches or nests a stage, or negates a query that does or that negates in turn, is
- * refused (UnsupportedLawFamily), naming what it does.
+ * a derived relation, each an arm of its own that may negate in turn (`NegatedArm`). A definition that aggregates,
+ * recurses, orders or takes, approximates, attaches or nests a stage, or negates a query that does, is refused
+ * (UnsupportedLawFamily), naming what it does.
  *
  * Every side of such a rule, a side over a stored relation among them, is read as arms (`SideArm`) by its probes
  * (`probes`), which the judge runs at COMMIT over the rows a transaction wrote, the side its facts meet read by arm, so each probe reads the rows of the keys its write reaches and never the
  * whole side (`readAs`). The rule's violation query (`violationQuery`), which the migration that adds the rule runs
  * over the rows it finds, reads each side whole, as its declared source, each definition a query of its own. Each is a
  * query description the checker reads as any query is, so grizzle's own query compiler types and lowers it. A relation a negated arm matches is read with the
- * negation's polarity: a row it gains withdraws the facts of the side that negates it, and a row it loses brings them
- * back.
+ * negation's polarity, composed through every negation it stands under (`Polarity`): under one, a row it gains
+ * withdraws the facts of the side that negates it and a row it loses brings them back; under two, a row it gains
+ * withdraws a fact of the arm that negates it and so brings back the side's facts that arm withdrew, and so on, each
+ * negation flipping it once more.
  */
 
 /** A match of a stored or closed relation in an arm, its bindings over the arm's variables. */
@@ -81,13 +83,14 @@ export interface ConjunctiveArm {
 
 /**
  * A negation in an arm: that no fact of `arm`, an arm of what the definition negates, agrees with `bindings`, a term of
- * the negating arm for each heading field of `arm` the negation binds. `arm` is closed, its variables its own, and
- * nothing negates inside it. A negation of a union is one per arm of the union, since NOT EXISTS over a union is the
- * conjunction of NOT EXISTS over each arm, and an anti-join of one stored or closed relation is the arm of its one
- * match.
+ * the negating arm for each heading field of `arm` the negation binds. `arm` is closed, its variables its own, and it
+ * may negate in turn, an Active of the sittings no ending and no standing invalidation names, a standing invalidation
+ * being one no reinstatement names. A negation of a union is one per arm of the union, since NOT EXISTS over a union is
+ * the conjunction of NOT EXISTS over each arm, and an anti-join of one stored or closed relation is the arm of its one
+ * match, which negates nothing.
  */
 export interface NegatedArm {
-	readonly arm: ConjunctiveArm
+	readonly arm: LiveArm
 	readonly bindings: InferredBindings
 }
 
@@ -264,14 +267,6 @@ const holdsNegation = (e: InferredExpr): boolean =>
  */
 const filtersOf = (e: InferredExpr): ReadonlyArray<InferredExpr> =>
 	e.kind === "and" && holdsNegation(e) ? e.args.flatMap(filtersOf) : [e]
-
-/** A conjunctive arm's own parts, read apart from what extends it. */
-const conjunctive = (arm: ConjunctiveArm): ConjunctiveArm => ({
-	vars: arm.vars,
-	matches: arm.matches,
-	where: arm.where,
-	head: arm.head
-})
 
 /** A conjunctive arm joined to terms of another (`joined`): its variables left, its matches and its conditions. */
 interface Joined {
@@ -547,8 +542,7 @@ class Flattener {
 	/**
 	 * The negated arms of a negation `w` in a rule of `relation`'s definition, its bindings read through the rule's
 	 * `leaves`: the one arm of a stored or closed relation's one match, or one per arm of the derived relation or query it
-	 * negates. An arm that negates in turn is refused, since a trigger reads each relation a negated arm matches with the
-	 * polarity of one negation.
+	 * negates, each with every negation of its own, which a probe reads with the polarity flipped once more (`Polarity`).
 	 */
 	#negated(
 		relation: string,
@@ -570,9 +564,6 @@ class Flattener {
 		const negated =
 			w.source.kind === "relation" ? `the derived relation ${w.source.name}` : "a query"
 		return source.arms.map((arm): NegatedArm => {
-			if (arm.negated.length > 0) {
-				return this.#refuse(relation, `negates ${negated}, which negates in turn`)
-			}
 			for (const field of Object.keys(bindings)) {
 				if (arm.head[field] === undefined) {
 					return this.#refuse(
@@ -581,19 +572,20 @@ class Flattener {
 					)
 				}
 			}
-			return { arm: conjunctive(arm), bindings }
+			return { arm, bindings }
 		})
 	}
 
 	/** The arm of one match of the stored or closed relation `relation`, binding each of `fields` to a variable it derives. */
-	#relationArm(relation: string, fields: ReadonlyArray<string>, loc: SourceLoc): ConjunctiveArm {
+	#relationArm(relation: string, fields: ReadonlyArray<string>, loc: SourceLoc): LiveArm {
 		const prefix = `q${this.#next++}.`
 		const bound = Object.fromEntries(fields.map((f) => [f, varRef(`${prefix}${f}`)] as const))
 		return {
 			vars: fields.map((f) => ({ id: `${prefix}${f}`, origin: { relation, field: f }, loc })),
 			matches: [{ relation, bindings: bound, loc }],
 			where: [],
-			head: bound
+			head: bound,
+			negated: []
 		}
 	}
 
@@ -771,13 +763,29 @@ export const storedSideArm = (
 	}
 }
 
-/** The matches of an arm's negated arms, each a match of a relation the arm reads negatively. */
-const negatedMatches = (arm: LiveArm): ReadonlyArray<ArmMatch> =>
-	arm.negated.flatMap((n) => n.arm.matches)
+/**
+ * How an arm reads a relation it matches, composed through every negation the match stands under: `positive`, a match
+ * of the arm itself or one under an even count of negations, where a row the relation gains can add a fact of the arm;
+ * `negative`, one under an odd count, where a row it loses can.
+ */
+type Polarity = "positive" | "negative"
+
+/** The polarity a negation turns `p` into. */
+const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "positive")
+
+/** The matches an arm's negations read at `polarity` (Polarity), at any depth: what each negated arm reads at the other. */
+const negatedReads = (arm: Pick<LiveArm, "negated">, polarity: Polarity): ReadonlyArray<ArmMatch> =>
+	arm.negated.flatMap((n) => readsAt(n.arm, flipped(polarity)))
+
+/** The matches an arm reads at `polarity` (Polarity), at any depth: its own matches positively, and its negations'. */
+const readsAt = (arm: LiveArm, polarity: Polarity): ReadonlyArray<ArmMatch> => [
+	...(polarity === "positive" ? arm.matches : []),
+	...negatedReads(arm, polarity)
+]
 
 /**
  * The stored relations a rule reads, sorted, each once: a probed rule's by a match of its arms or inside a negated arm,
- * a whole rule's every occurrence its violation query reads.
+ * at any depth, a whole rule's every occurrence its violation query reads.
  */
 export const ruleReads = (rule: QueryRule): ReadonlyArray<string> => {
 	switch (rule.kind) {
@@ -787,7 +795,7 @@ export const ruleReads = (rule: QueryRule): ReadonlyArray<string> => {
 			return [
 				...new Set(
 					[...breakingArms(rule), ...targetArms(rule)].flatMap((a) =>
-						[...a.matches, ...negatedMatches(a)].map((m) => m.relation)
+						[...readsAt(a, "positive"), ...readsAt(a, "negative")].map((m) => m.relation)
 					)
 				)
 			].toSorted(compareStrings)
@@ -865,7 +873,7 @@ const termHead = (terms: ReadonlyArray<InferredExpr>): Readonly<Record<string, I
 
 /**
  * The negation `n` as an anti-join of one stored or closed relation, where its arm is that relation's facts as they are:
- * one match, no condition, each column it binds bound to a variable of its own, and a head that renames those
+ * one match, no condition and no negation, each column it binds bound to a variable of its own, and a head that renames those
  * variables. Its bindings are then the negation's composed through the arm's, each heading field's term bound to the
  * column the field renames, and a column the head does not carry stays unbound, as an anti-join of the relation reads
  * it. Undefined for any other arm.
@@ -874,7 +882,7 @@ const relationAbsent = (
 	n: NegatedArm
 ): Extract<InferredExpr, { readonly kind: "absent" }> | undefined => {
 	const [match, ...more] = n.arm.matches
-	if (more.length > 0 || n.arm.where.length > 0) {
+	if (more.length > 0 || n.arm.where.length > 0 || n.arm.negated.length > 0) {
 		return undefined
 	}
 	const columnOf = new Map<string, string>()
@@ -906,13 +914,21 @@ const relationAbsent = (
 /**
  * That no fact of a negated arm agrees with its bindings: an anti-join of the one relation the arm reads as it is
  * (`relationAbsent`), a negation of a stored or closed relation among them, as its definition states it; else an
- * anti-join of the arm, read as an imported query.
+ * anti-join of the arm, read as an imported query, its own negations among its conditions (`conditionsOf`).
  */
 const absentOf = (n: NegatedArm, loc: SourceLoc): InferredExpr =>
 	relationAbsent(n) ?? {
 		kind: "absent",
 		source: imported(
-			[ruleDesc(n.arm.vars, n.arm.matches.map(matchDesc), n.arm.where, n.arm.head, loc)],
+			[
+				ruleDesc(
+					n.arm.vars,
+					n.arm.matches.map(matchDesc),
+					conditionsOf(n.arm, loc),
+					n.arm.head,
+					loc
+				)
+			],
 			loc
 		),
 		bindings: n.bindings
@@ -1503,23 +1519,184 @@ const opened = (n: NegatedArm, loc: SourceLoc): Joined =>
 		refuse("MalformedDescription", loc, `a negated arm that derives the field ${field} it binds`)
 	)
 
+/** The variables, matches and conditions of the arms between an arm and one it negates at some depth, each opened into
+ * the one before it (Nested `above`): none for a negated arm of the arm itself. */
+interface Between {
+	readonly vars: ReadonlyArray<VarDesc>
+	readonly matches: ReadonlyArray<ArmMatch>
+	readonly where: ReadonlyArray<InferredExpr>
+}
+
+const nothingBetween: Between = { vars: [], matches: [], where: [] }
+
 /**
- * The probes of each occurrence of `relation` in a negated arm of `arms`, each by its arm, the negated arm opened into
- * it, and the occurrence with its index among the opened arm's matches.
+ * A negated arm of an arm at any depth, opened into it (`opened`): `depth` the negations it stands under, one for a
+ * negated arm of the arm itself; `above` the arms between them, each opened into the one before it, read positively as
+ * they stand; and `open` the negated arm itself, opened into the last of them. A probe reads, positively, the facts of
+ * `open` that agree with a fact of each arm above it, so with a fact of the arm.
  */
-const negatedProbes = <A extends LiveArm>(
+interface Nested {
+	readonly depth: number
+	readonly above: Between
+	readonly open: Joined
+}
+
+/** Every negated arm of `arm` at any depth (Nested), each negated arm before the ones it negates. */
+const nestedOf = (arm: Pick<LiveArm, "negated">, loc: SourceLoc): ReadonlyArray<Nested> =>
+	arm.negated.flatMap((n) => {
+		const open = opened(n, loc)
+		const inner = nestedOf({ negated: negatedThrough(n.arm.negated, open.leaves) }, loc)
+		return [
+			{ depth: 1, above: nothingBetween, open },
+			...inner.map((x): Nested => ({
+				depth: x.depth + 1,
+				above: {
+					vars: [...open.vars, ...x.above.vars],
+					matches: [...open.matches, ...x.above.matches],
+					where: [...open.where, ...x.above.where]
+				},
+				open: x.open
+			}))
+		]
+	})
+
+/**
+ * The probes of each occurrence of `relation` in a negated arm of `arms`, at a depth `depths` admits, each by its arm,
+ * the negated arm opened into it through the arms between them (Nested), and the occurrence with its index among the
+ * opened arm's matches.
+ */
+const nestedProbes = <A extends LiveArm>(
 	arms: ReadonlyArray<A>,
 	relation: string,
+	depths: (depth: number) => boolean,
 	loc: SourceLoc,
-	probe: (arm: A, open: Joined, touched: ArmMatch, at: number) => ReadonlyArray<InferredQuery>
+	probe: (arm: A, nested: Nested, touched: ArmMatch, at: number) => ReadonlyArray<InferredQuery>
 ): ReadonlyArray<InferredQuery> =>
 	arms.flatMap((arm) =>
-		arm.negated.flatMap((n) => {
-			const open = opened(n, loc)
-			return open.matches.flatMap((m, at) =>
-				m.relation === relation ? probe(arm, open, m, at) : []
+		nestedOf(arm, loc).flatMap((nested) =>
+			depths(nested.depth)
+				? nested.open.matches.flatMap((m, at) =>
+						m.relation === relation ? probe(arm, nested, m, at) : []
+					)
+				: []
+		)
+	)
+
+/** The depths under an odd count of negations, where a write reads a relation negatively (Polarity). */
+const odd = (depth: number): boolean => depth % 2 === 1
+
+/** The depths under an even count of negations, two or more, where a write reads a relation positively (Polarity). */
+const even = (depth: number): boolean => depth % 2 === 0
+
+/**
+ * The matches of a nested arm's opened arm a probe of its `at`-th match on `side` reads as they stand, and those it
+ * drops (Relaxed): on the side of what a transaction adds, every other match as it stands, since the fact the added row
+ * makes stands at COMMIT on each of them; on the side of what it removes, its relaxation (`relaxation`), seeded at
+ * `bound`, the variables the arms above it bind.
+ */
+const deepest = (
+	nested: Nested,
+	side: ProbeSide,
+	bound: ReadonlySet<string>,
+	at: number
+): Relaxed => {
+	switch (side) {
+		case "added":
+			return { kept: nested.open.matches.filter((_, j) => j !== at), dropped: [] }
+		case "removed":
+			return relaxation(nested.open.matches, bound, at)
+	}
+}
+
+/**
+ * The probes of the facts of the rule's breaking side that a transaction's write of `relation` on `side` brings back by
+ * no longer blocking them: one per occurrence of the relation in a negated arm, at any depth, that reads it so that
+ * the write adds facts of the arm (Polarity): a row removed under an odd count of negations, or one added under an even
+ * count, which withdraws a fact of the negated arm above it and so brings back the facts that fact blocked. The negated
+ * arm is opened into the arm through the arms between them, each read as it stands (Nested), its occurrence held to
+ * its region, its other matches read as `deepest` says, so the facts some fact of the negated arm that read the written
+ * row blocked, directly or through the arms between, are the candidates, however many of its rows the transaction
+ * writes; the rule's violation is read over them, the arm's negations as they stand at COMMIT. A candidate whose arms
+ * between lost a row of their own to the same transaction is brought back by that row's probe, at its depth, too.
+ */
+const unblockedProbes = (
+	rule: ProbedRule,
+	relation: string,
+	side: ProbeSide,
+	loc: SourceLoc
+): ReadonlyArray<InferredQuery> =>
+	nestedProbes(
+		breakingArms(rule),
+		relation,
+		side === "removed" ? odd : even,
+		loc,
+		(arm, nested, touched, at) => {
+			const bound = boundVars([...arm.matches, ...nested.above.matches])
+			const r = deepest(nested, side, bound, at)
+			const h = held(touched, side, bound, r.kept, r.dropped, nested.open.where, loc)
+			const restricted: SideArm = {
+				...arm,
+				vars: [
+					...arm.vars,
+					...nested.above.vars,
+					...nested.open.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id))
+				],
+				matches: [...arm.matches, ...nested.above.matches, ...h.kept],
+				where: [...arm.where, ...nested.above.where, ...h.where]
+			}
+			return probesOf(h.region, violating(rule, restricted, loc), loc)
+		}
+	)
+
+/**
+ * The probes of the target tuples of a containment that a transaction's write of `relation` on `side` withdraws by
+ * blocking them: one per occurrence of the relation in a negated arm of an arm of the target, at any depth, that reads
+ * it so that the write withdraws facts of the arm (Polarity): a row added under an odd count of negations, or one
+ * removed under an even count. The negated arm is opened into the target's arm through the arms between them (Nested),
+ * its occurrence held to its region and its other matches read as `deepest` says, the tuples the written row now
+ * blocks, which stand blocked at COMMIT by a fact that reads one where they stood before. The target arm's negations
+ * are dropped: a tuple two writes block at once, each through a negation of its own, is blocked by the other's too,
+ * and is a candidate all the same. The source tuples that need a candidate and that the target no longer holds are the
+ * violation.
+ */
+const blockedProbes = (
+	rule: Extract<ProbedRule, { readonly kind: "contained" }>,
+	relation: string,
+	side: ProbeSide,
+	loc: SourceLoc
+): ReadonlyArray<InferredQuery> =>
+	nestedProbes(
+		rule.to.arms,
+		relation,
+		side === "added" ? odd : even,
+		loc,
+		(arm, nested, touched, at) => {
+			const bound = boundVars([...arm.matches, ...nested.above.matches])
+			const r = deepest(nested, side, bound, at)
+			const h = held(touched, side, bound, r.kept, r.dropped, nested.open.where, loc)
+			return probesOf(
+				h.region,
+				mapNonEmpty(tuples(rule.from, arm.terms, loc), (met) =>
+					ruleDesc(
+						[
+							...arm.vars,
+							...nested.above.vars,
+							...nested.open.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id))
+						],
+						[
+							{ ...met, loc },
+							...arm.matches.map(matchDesc),
+							...nested.above.matches.map(matchDesc),
+							...h.kept.map(matchDesc)
+						],
+						[...arm.where, ...nested.above.where, ...h.where, ...lacks(rule.to, arm.terms, loc)],
+						termHead(arm.terms),
+						loc
+					)
+				),
+				loc
 			)
-		})
+		}
 	)
 
 /**
@@ -1586,13 +1763,11 @@ export const everyRowProbes = (
  * attribute's (name, package), and read every row it holds:
  *
  * - for the facts it adds: one per occurrence of the relation in an arm of the rule's breaking side, the occurrence held
- *   to its region (`held`) and the arm's other matches read as they stand, and the rule's violation read over it;
- * - for the target tuples it withdraws: one per occurrence of the relation in a negated arm of an arm of a
- *   containment's target. The negated arm is opened into the target's arm (`opened`), its occurrence held to its region
- *   and its other matches read as they stand, the tuples the added rows now block, which stand blocked at COMMIT by a
- *   fact that reads one where they stood before. The target arm's negations are dropped: a tuple two inserts block at
- *   once, each through a negation of its own, is blocked by the other's too, and is a candidate all the same. The
- *   source tuples that need a candidate and that the target no longer holds are the violation.
+ *   to its region (`held`) and the arm's other matches read as they stand, and the rule's violation read over it; and
+ *   one per occurrence under an even count of negations, two or more, whose added row withdraws the fact of the
+ *   negated arm above it that blocked a fact of the arm (`unblockedProbes`);
+ * - for the target tuples it withdraws: one per occurrence of the relation under an odd count of negations in an arm of
+ *   a containment's target (`blockedProbes`).
  *
  * Every probe reads the side its facts meet by arm (`readAs`), each probe one rule of the violation: a probe per arm
  * of a key's side its fact meets, and per arm of a containment's source its candidate meets, each beside a negation
@@ -1602,41 +1777,15 @@ const addedProbes = (
 	rule: ProbedRule,
 	relation: string,
 	loc: SourceLoc
-): ReadonlyArray<InferredQuery> => {
-	const added = breakingArms(rule).flatMap((arm) =>
+): ReadonlyArray<InferredQuery> => [
+	...breakingArms(rule).flatMap((arm) =>
 		arm.matches.flatMap((m, i): ReadonlyArray<InferredQuery> =>
 			m.relation === relation ? factsAdded(rule, arm, m, i, loc) : []
 		)
-	)
-	if (rule.kind !== "contained") {
-		return added
-	}
-	const blocked = negatedProbes(rule.to.arms, relation, loc, (arm, open, touched, at) => {
-		const h = held(
-			touched,
-			"added",
-			boundVars(arm.matches),
-			open.matches.filter((_, j) => j !== at),
-			[],
-			open.where,
-			loc
-		)
-		return probesOf(
-			h.region,
-			mapNonEmpty(tuples(rule.from, arm.terms, loc), (met) =>
-				ruleDesc(
-					[...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id))],
-					[{ ...met, loc }, ...arm.matches.map(matchDesc), ...h.kept.map(matchDesc)],
-					[...arm.where, ...h.where, ...lacks(rule.to, arm.terms, loc)],
-					termHead(arm.terms),
-					loc
-				)
-			),
-			loc
-		)
-	})
-	return [...added, ...blocked]
-}
+	),
+	...unblockedProbes(rule, relation, "added", loc),
+	...(rule.kind === "contained" ? blockedProbes(rule, relation, "added", loc) : [])
+]
 
 /**
  * The probes of what a transaction removes of `relation`, its region delta.removed (ProbeSide `removed`): the rows a
@@ -1650,13 +1799,11 @@ const addedProbes = (
  *   withdraws and blocks, its row deleted and a row of a negated relation inserted, is withdrawn by the delete, whose
  *   probe reads no insert, where the insert's probe reads the row as it stands, deleted. The source tuples that agree
  *   with a candidate on its bound terms and that the target no longer holds are the violation, so a candidate the
- *   dropped matches or negations would have excluded is judged against the target all the same;
- * - for the facts it adds by no longer blocking them: one per occurrence of the relation in a negated arm of an arm of
- *   the rule's breaking side. The negated arm is opened into the arm (`opened`) and read as a target's arm is, its
- *   occurrence held to its region, the matches before it in the negated arm's relaxation order, seeded at the breaking
- *   arm's variables, read as they stand and those after it dropped, so the facts some fact of the negated arm that read
- *   a removed row blocked are the candidates, however many of its rows the transaction removes; the rule's violation is
- *   read over them, the arm's negations as they stand at COMMIT.
+ *   dropped matches or negations would have excluded is judged against the target all the same; and one per
+ *   occurrence under an even count of negations, two or more, whose removed row brings back a fact of the negated arm
+ *   above it, which blocks the tuple (`blockedProbes`);
+ * - for the facts it adds by no longer blocking them: one per occurrence of the relation under an odd count of
+ *   negations in an arm of the rule's breaking side (`unblockedProbes`).
  *
  * Every probe reads the side its candidates meet by arm (`readAs`), as the added side's do.
  */
@@ -1664,29 +1811,19 @@ const removedProbes = (
 	rule: ProbedRule,
 	relation: string,
 	loc: SourceLoc
-): ReadonlyArray<InferredQuery> => {
-	const lost =
-		rule.kind === "contained"
-			? rule.to.arms.flatMap((arm) =>
+): ReadonlyArray<InferredQuery> => [
+	...(rule.kind === "contained"
+		? [
+				...rule.to.arms.flatMap((arm) =>
 					arm.matches.flatMap((m, i): ReadonlyArray<InferredQuery> =>
 						m.relation === relation ? lostProbes(rule, arm, m, i, loc) : []
 					)
-				)
-			: []
-	const unblocked = negatedProbes(breakingArms(rule), relation, loc, (arm, open, touched, at) => {
-		const bound = boundVars(arm.matches)
-		const r = relaxation(open.matches, bound, at)
-		const h = held(touched, "removed", bound, r.kept, r.dropped, open.where, loc)
-		const restricted: SideArm = {
-			...arm,
-			vars: [...arm.vars, ...open.vars.filter((v) => !h.replaced.has(v.id) && !h.free.has(v.id))],
-			matches: [...arm.matches, ...h.kept],
-			where: [...arm.where, ...h.where]
-		}
-		return probesOf(h.region, violating(rule, restricted, loc), loc)
-	})
-	return [...lost, ...unblocked]
-}
+				),
+				...blockedProbes(rule, relation, "removed", loc)
+			]
+		: []),
+	...unblockedProbes(rule, relation, "removed", loc)
+]
 
 /** The probes of `touched`, the `at`-th match of an arm of a containment's target, held to its removed rows. */
 const lostProbes = (
@@ -1776,15 +1913,15 @@ const touchesOf = (
 	return removed === undefined ? { kind: "added", added } : { kind: "both", added, removed }
 }
 
-/** The columns that arms' matches of `relation` and other arms' negated arms' matches of it read, sorted, each once. */
+/**
+ * The columns `relation`'s matches among `reads` read, sorted, each once: of the matches the breaking arms read at one
+ * polarity and the target's arms at the other (Polarity), at any depth.
+ */
 const columnsOf = (
-	matched: ReadonlyArray<LiveArm>,
-	negating: ReadonlyArray<LiveArm>,
+	reads: ReadonlyArray<ArmMatch>,
 	relation: string
 ): ReadonlyArray<string> | undefined => {
-	const read = [...matched.flatMap((a) => a.matches), ...negating.flatMap(negatedMatches)].filter(
-		(m) => m.relation === relation
-	)
+	const read = reads.filter((m) => m.relation === relation)
 	return read.length === 0
 		? undefined
 		: [...new Set(read.flatMap((m) => Object.keys(m.bindings)))].toSorted(compareStrings)
@@ -1822,22 +1959,36 @@ const wholeTouches = (rule: WholeRule, relation: string): Touches | undefined =>
 	return touchesOf(columns("positive", []), columns("negative", replaced))
 }
 
-/** What writing `relation` can break of a probed rule (`touches`). */
-const probedTouches = (rule: ProbedRule, relation: string): Touches | undefined =>
-	touchesOf(
-		columnsOf(breakingArms(rule), targetArms(rule), relation),
-		columnsOf(targetArms(rule), breakingArms(rule), relation)
+/**
+ * What writing `relation` can break of a probed rule (`touches`): by adding rows, what the breaking arms read positively
+ * and the target's arms negatively; by removing them, what the target's arms read positively and the breaking arms
+ * negatively (Polarity).
+ */
+const probedTouches = (rule: ProbedRule, relation: string): Touches | undefined => {
+	const reads = (arms: ReadonlyArray<LiveArm>, polarity: Polarity) =>
+		arms.flatMap((a) => readsAt(a, polarity))
+	return touchesOf(
+		columnsOf(
+			[...reads(breakingArms(rule), "positive"), ...reads(targetArms(rule), "negative")],
+			relation
+		),
+		columnsOf(
+			[...reads(targetArms(rule), "positive"), ...reads(breakingArms(rule), "negative")],
+			relation
+		)
 	)
+}
 
 /**
  * One shape a rule's violation takes, by the stored and closed relations it reads, each occurrence once, in arm order:
  *
  * - `rows`: one row of each, present: the matches of one arm of the breaking side, or of a key, the matches of each of
  *   the two arms its pair of facts comes through, an arm paired with itself listing its matches twice;
- * - `present`: rows it needs present beyond those, any number of each: the matches of every negated arm of a
- *   containment's target, each blocking a target tuple the source's fact would meet;
- * - `absent`: rows it needs absent: the matches of the negated arms of its breaking arms and of every arm of a
- *   containment's target.
+ * - `present`: rows it needs present beyond those, any number of each: what a containment's target reads negatively,
+ *   each blocking a target tuple the source's fact would meet, and what its breaking arms read positively under two
+ *   negations or more, each blocking a fact that would block the breaking fact (Polarity);
+ * - `absent`: rows it needs absent: what its breaking arms read negatively, at any depth, and what a containment's
+ *   target reads positively, at any depth.
  *
  * A whole rule's one witness is every occurrence its violation query reads: its positive occurrences among `rows`, its
  * negative ones among `absent`, and an occurrence of both polarities, which only an aggregate reads (RelationRead), a
@@ -1860,9 +2011,13 @@ export interface Witness {
 const matched = (matches: NonEmptyReadonlyArray<ArmMatch>): NonEmptyReadonlyArray<string> =>
 	mapNonEmpty(matches, (m) => m.relation)
 
-/** The relations an arm's negated arms match, in order, each occurrence once. */
-const negatedOf = (arm: LiveArm): ReadonlyArray<string> =>
-	negatedMatches(arm).map((m) => m.relation)
+/** The relations of the matches an arm reads at `polarity`, at any depth, in order, each occurrence once. */
+const readAt = (arm: LiveArm, polarity: Polarity): ReadonlyArray<string> =>
+	readsAt(arm, polarity).map((m) => m.relation)
+
+/** The relations of the matches an arm's negations read at `polarity`, at any depth, in order, each occurrence once. */
+const negatedAt = (arm: LiveArm, polarity: Polarity): ReadonlyArray<string> =>
+	negatedReads(arm, polarity).map((m) => m.relation)
 
 /**
  * The witnesses of a rule (Witness): one per arm of a check's side and of a containment's source, each beside every arm
@@ -1885,16 +2040,16 @@ export const witnesses = (rule: QueryRule): NonEmptyReadonlyArray<Witness> => {
 		case "check":
 			return mapNonEmpty(rule.side.arms, (arm) => ({
 				rows: matched(arm.matches),
-				present: [],
-				absent: negatedOf(arm)
+				present: negatedAt(arm, "positive"),
+				absent: readAt(arm, "negative")
 			}))
 		case "contained": {
-			const present = rule.to.arms.flatMap(negatedOf)
-			const target = rule.to.arms.flatMap((a) => matched(a.matches))
+			const present = rule.to.arms.flatMap((a) => readAt(a, "negative"))
+			const target = rule.to.arms.flatMap((a) => readAt(a, "positive"))
 			return mapNonEmpty(rule.from.arms, (arm) => ({
 				rows: matched(arm.matches),
-				present,
-				absent: [...negatedOf(arm), ...target]
+				present: [...present, ...negatedAt(arm, "positive")],
+				absent: [...readAt(arm, "negative"), ...target]
 			}))
 		}
 		case "key": {
@@ -1902,8 +2057,8 @@ export const witnesses = (rule: QueryRule): NonEmptyReadonlyArray<Witness> => {
 			return flatMapNonEmpty(arms, (arm, i) =>
 				mapNonEmpty([arm, ...arms.slice(i + 1)], (other) => ({
 					rows: extendNonEmpty(matched(arm.matches), matched(other.matches)),
-					present: [],
-					absent: [...negatedOf(arm), ...negatedOf(other)]
+					present: [...negatedAt(arm, "positive"), ...negatedAt(other, "positive")],
+					absent: [...readAt(arm, "negative"), ...readAt(other, "negative")]
 				}))
 			)
 		}

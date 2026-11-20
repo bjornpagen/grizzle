@@ -14,10 +14,16 @@ import { everyFact } from "#compiler/ir/desc.ts"
 
 export const RELATIONS = 3
 
+/** A negated arm as drawn: the relations its matches read, in order, and each arm it negates in turn. */
+interface NegatedPlan {
+	readonly matches: Arr.NonEmptyReadonlyArray<number>
+	readonly negated: ReadonlyArray<Arr.NonEmptyReadonlyArray<number>>
+}
+
 /** An arm as drawn: the relations its matches read, in order, and each negated arm's. */
 interface ArmPlan {
 	readonly matches: Arr.NonEmptyReadonlyArray<number>
-	readonly negated: ReadonlyArray<Arr.NonEmptyReadonlyArray<number>>
+	readonly negated: ReadonlyArray<NegatedPlan>
 }
 
 /** A rule as drawn: its kind, its breaking arms, and a containment's target arms. */
@@ -35,9 +41,14 @@ const relationsGen =
 	(max: number): Gen<Arr.NonEmptyReadonlyArray<number>> =>
 	(s) => [s.draw(relationGen), ...s.draw(array(relationGen, { min: 0, max: max - 1 }))]
 
+const negatedGen: Gen<NegatedPlan> = (s) => ({
+	matches: s.draw(relationsGen(2)),
+	negated: s.draw(array(relationsGen(2), { min: 0, max: 1 }))
+})
+
 const armGen: Gen<ArmPlan> = (s) => ({
 	matches: s.draw(relationsGen(3)),
-	negated: s.draw(array(relationsGen(2), { min: 0, max: 2 }))
+	negated: s.draw(array(negatedGen, { min: 0, max: 2 }))
 })
 
 const armsGen: Gen<Arr.NonEmptyReadonlyArray<ArmPlan>> = (s) => [
@@ -66,14 +77,21 @@ const conjunctiveOf = (relations: Arr.NonEmptyReadonlyArray<number>, prefix: str
 			loc
 		})),
 		where: [],
-		head: { f: { kind: "var" as const, var: `${prefix}0` } }
+		head: { f: { kind: "var" as const, var: `${prefix}0` } },
+		negated: []
 	}
 }
 
 const sideArmOf = (arm: ArmPlan, prefix: string): SideArm => ({
 	...conjunctiveOf(arm.matches, `${prefix}m`),
 	negated: Arr.map(arm.negated, (n, j): NegatedArm => ({
-		arm: conjunctiveOf(n, `${prefix}n${j}.`),
+		arm: {
+			...conjunctiveOf(n.matches, `${prefix}n${j}.`),
+			negated: Arr.map(n.negated, (inner, i): NegatedArm => ({
+				arm: conjunctiveOf(inner, `${prefix}n${j}.n${i}.`),
+				bindings: { f: { kind: "var", var: `${prefix}n${j}.0` } }
+			}))
+		},
 		bindings: { f: { kind: "var", var: `${prefix}m0` } }
 	})),
 	terms: [{ kind: "var", var: `${prefix}m0` }]
@@ -113,25 +131,31 @@ export const expectedWitnesses = (
 	readonly present: ReadonlyArray<number>
 	readonly absent: ReadonlyArray<number>
 }> => {
-	const negatedOf = (arm: ArmPlan) => Arr.flatten(arm.negated)
+	/** What an arm's negated arms match, under one negation. */
+	const negatedOf = (arm: ArmPlan) => Arr.flatMap(arm.negated, (n) => n.matches)
+	/** What the arms its negated arms negate in turn match, under two negations. */
+	const twiceOf = (arm: ArmPlan) => Arr.flatMap(arm.negated, (n) => Arr.flatten(n.negated))
 	switch (plan.kind) {
 		case "check":
 			return Arr.map(plan.arms, (arm) => ({
 				rows: arm.matches,
-				present: [],
+				present: twiceOf(arm),
 				absent: negatedOf(arm)
 			}))
 		case "contained":
 			return Arr.map(plan.arms, (arm) => ({
 				rows: arm.matches,
-				present: Arr.flatMap(plan.target, negatedOf),
-				absent: [...negatedOf(arm), ...Arr.flatMap(plan.target, (t) => t.matches)]
+				present: [...Arr.flatMap(plan.target, negatedOf), ...twiceOf(arm)],
+				absent: [
+					...negatedOf(arm),
+					...Arr.flatMap(plan.target, (t) => [...t.matches, ...twiceOf(t)])
+				]
 			}))
 		case "key":
 			return Arr.flatMap(plan.arms, (arm, i) =>
 				Arr.map(plan.arms.slice(i), (other) => ({
 					rows: [...arm.matches, ...other.matches],
-					present: [],
+					present: [...twiceOf(arm), ...twiceOf(other)],
 					absent: [...negatedOf(arm), ...negatedOf(other)]
 				}))
 			)
@@ -155,8 +179,10 @@ export type Feature =
 	| `a ${RulePlan["kind"]}`
 	| "a match"
 	| "a negated match"
+	| "a match under two negations"
 	| "a target match"
 	| "a target negation"
+	| "a target's match under two negations"
 	| "a self-join"
 	| "a relation an insert and a delete can both break"
 	| "a relation the rule never reads"

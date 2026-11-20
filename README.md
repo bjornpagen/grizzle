@@ -2297,15 +2297,26 @@ definition too.
 
 - **What a side's query may be.** Matches, `where` conditions and the head's fields: joins, selections, projections
   and semijoins, a union of such rules, and negations. `r.not(Q, …)`, alone or inside `r.and(...)`, negates a table, a
-  query of such rules or a derived relation whose query is one, so a rule can read "the rows of R with no S" and "the
-  rows of R that no join of S and U names". A negation of a union negates each of its rules. An aggregate (`r.count()`,
-  `r.min(x)` and the others), a recursion, a negation inside a negated query and a text's tokens (`r.tokens`,
-  [Text](#text)) are read by a unit-local rule, below, and refused in any other: an aggregate, a nested negation and
-  tokens as `UnsupportedLawFamily` naming what the query does,
+  query of such rules or a derived relation whose query is one, which may negate in turn, so a rule can read "the rows
+  of R with no S", "the rows of R that no join of S and U names" and "the sittings no ending and no standing
+  invalidation names", an invalidation standing where no reinstatement names it. A negation of a union negates each of
+  its rules. An aggregate (`r.count()`, `r.min(x)` and the others), a recursion and a text's tokens (`r.tokens`,
+  [Text](#text)) are read by a unit-local rule, below, and refused in any other: an aggregate and tokens as
+  `UnsupportedLawFamily` naming what the query does,
   and a rule over a recursion as `Refused`, naming the unit-locality it lacks. `orderBy(...).take(k)`, `attach` or an
   approximate search, in the query or in a query it negates, are refused the same way (`Refused` over a derived
   relation, its refusal the type error's words), and a type error where the query does it itself. A family and a fold
   read tables only.
+- **A probe reads each relation with the polarity of the negations above it.** A rule that is not unit-local is judged
+  from the rows a transaction wrote (below): a row a relation gains under no negation, or under two, can add facts of
+  the side that reads it, and a row it loses under one negation can, and the judge probes exactly those, a target's the
+  other way round. `key(on(Active, "student", "form"))`, `Active` the sittings no ending and no standing invalidation
+  names, is so judged from each sitting a transaction adds, each ending or invalidation it deletes and each
+  reinstatement it adds: each probe reads `Active` at that sitting's student and form, through the index the law model
+  plans over `Sitting`'s `(form, student)` and the keys of `Ending`, `Invalidation` and `Reinstatement`, one student's
+  sittings of the form and never the table, its work the same however many students the tables hold. Two
+  transactions that each make one such sitting active, each alone keeping the key, read at COMMIT each other's writes
+  under SERIALIZABLE, so PostgreSQL commits at most one of them and fails the other with 40001.
 - **An order across relations is a row check over their join.** A sitting's visits lie after its start and, once it
   has one, before its end: `AfterStart` derives each visit beside its sitting's start, `check("VisitAfterStart",
   AfterStart, (s) => s.ge(Compute.lower(s.during, Seconds), s.at))`, and `BeforeEnd` each visit beside its end, its

@@ -21,7 +21,17 @@
  * - **tagged**: key's side, its arms tagging their facts by literals, the first two by 1 and the third by 2, a union a
  *   literal tells apart, under a key over the key and its tag: a probe of the first arm meets the second's tag by the
  *   same literal, bound, and the third's by a different one, compared in the third's own query
- *   (analysis/theory/query.ts Meeting), so the third arm meets no fact of the first's.
+ *   (analysis/theory/query.ts Meeting), so the third arm meets no fact of the first's;
+ * - **standing**: a key over the L1s no standing block holds out, a block standing where no mark lifts it: a side that
+ *   negates a query that negates in turn, an Active of the sittings no standing invalidation names in miniature, so a
+ *   probe reads M under two negations (analysis/theory/query.ts Polarity): a mark inserted brings back the facts its
+ *   block held out, as a block deleted does, and a mark deleted withdraws them;
+ * - **lifted**: a containment of the keys of a path in standing's side, a target that negates a query that negates in
+ *   turn: a block inserted withdraws the target facts it holds out, and a mark deleted does too, the target's
+ *   occurrence under two negations losing a row;
+ * - **budget**: edullm's First_budget in miniature, a check over the L1s that are not rate-paced, an L1 rate-paced
+ *   where none of its L2s is paceless and an L2 paceless where no block marks it: three negations deep, so a block
+ *   deleted, under three, brings back the facts the check reads.
  *
  * - **Equivalence:** one search per shape, each with the budget of its own, so a shape added takes none of another's;
  *   each case draws a history of direct SQL transactions at SERIALIZABLE over keys 1 and 2
@@ -60,7 +70,9 @@
  * whose turn aims at the refusal draws (aimsOf): a lawful build, then the withdrawal, which leaves a source fact its
  * every target fact withdrawn (withdrawalsOf). A key is refused by single-row deletes
  * of a block alone, which adds the facts it held out, and never by an unwind or an inserted block, so key's and
- * tagged's searches require the first refusal only.
+ * tagged's searches require the first refusal only. standing's is refused by a block deleted alone and by a mark
+ * inserted alone, the occurrence under two negations, and requires both, a constructed case reaching each; lifted's by a
+ * block inserted and by a mark deleted alone, each so constructed.
  */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
@@ -71,6 +83,11 @@ import { cleared } from "#test/pg/fin/installed.ts"
 import {
 	aimsOf,
 	caseGen,
+	concurrentAims,
+	type ConcurrentFeature,
+	concurrentGen,
+	judgeConcurrent,
+	nestedShapes,
 	type EquivalenceFeature,
 	footprints,
 	installedIn,
@@ -119,7 +136,43 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 				show: Formatter.format,
 				budget: { runs: 80, steered: 200 },
 				kept: [],
-				kills: []
+				kills:
+					shape === "budget"
+						? [
+								{
+									file: "packages/engine/src/analysis/theory/query.ts",
+									original: '\t\tside === "removed" ? odd : even,',
+									replacement: '\t\tside === "removed" ? (depth: number) => depth === 1 : even,',
+									why: "A relation under three negations probed by no deletion: a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
+								}
+							]
+						: shape === "lifted"
+							? [
+									{
+										file: "packages/engine/src/analysis/theory/query.ts",
+										original: '\t\tside === "added" ? odd : even,',
+										replacement: '\t\tside === "added" ? odd : odd,',
+										why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
+									}
+								]
+							: shape === "standing"
+								? [
+										{
+											file: "packages/engine/src/analysis/theory/query.ts",
+											original: "const even = (depth: number): boolean => depth % 2 === 0",
+											replacement:
+												"const even = (depth: number): boolean => depth % 2 === 0 && depth < 2",
+											why: "A relation read under two negations probed by no write: a mark inserted, which lifts a standing block and brings back the facts it held out, is judged by no probe, so the key it breaks commits."
+										},
+										{
+											file: "packages/engine/src/analysis/theory/query.ts",
+											original:
+												'const flipped = (p: Polarity): Polarity => (p === "positive" ? "negative" : "positive")',
+											replacement: "const flipped = (p: Polarity): Polarity => p",
+											why: "A negation that does not flip its arm's polarity: the deltas a probe of a negated relation reads are never captured, so a block deleted commits the key it breaks."
+										}
+									]
+								: []
 			})
 		])
 	)
@@ -185,3 +238,49 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 		])
 	)
 )
+
+/**
+ * Commit no state that breaks a rule reading a relation under two negations, whichever of two concurrent writers
+ * PostgreSQL refuses, one property for each such shape, each case on the worker's seat of its shape's schema: the
+ * judge's reads at COMMIT are its SERIALIZABLE transaction's, so two transactions that each keep the rule and together
+ * break it, two sittings of one student and form each made active, read each other's writes and one of them fails.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const commitNoStateThatBreaksARuleUnderTwoNegationsWhicheverConcurrentWriterIsRefused =
+	family(
+		Rec.fromEntries(
+			Arr.map(nestedShapes, (shape) => [
+				shape,
+				property.explore(aimed(concurrentGen(shape), concurrentAims(shape)), {
+					needs: { seated: Substrate.seat(seedTemplates[shape]) },
+					situations: [
+						"concurrent writers both committed",
+						"a concurrent writer refused by a serialization failure",
+						"a write skew refused"
+					] satisfies ReadonlyArray<Reached<ConcurrentFeature>>,
+					check:
+						({ seated }, k: Case<ConcurrentFeature>) =>
+						(c) =>
+							Effect.scoped(
+								Effect.flatMap(seated, (taken) =>
+									Effect.provideService(
+										Effect.flatMap(installedIn(taken, shape), (installed) =>
+											judgeConcurrent(installed, c, k.note)
+										),
+										Substrate,
+										taken.substrate
+									)
+								)
+							),
+					oracle: {
+						kind: "postgresql",
+						name: "the rule's whole violation query, read after both writers end: it finds nothing, whichever of them PostgreSQL refused"
+					},
+					show: Formatter.format,
+					kept: [],
+					kills: []
+				})
+			])
+		)
+	)

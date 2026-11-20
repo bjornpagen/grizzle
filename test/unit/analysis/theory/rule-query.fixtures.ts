@@ -542,8 +542,8 @@ export const amountSchemaOf = (c: TagCase, price: Decimal) => {
 
 /**
  * What a definition of Item negates: one table, Mark; a join of Mark and Note on the item, a query; a union of Mark's and
- * Note's items, a query of two rules; the join derived on a level below; or a query a rule may not read, one that
- * aggregates or one that negates in turn.
+ * Note's items, a query of two rules; the join derived on a level below; a query that negates in turn; or a query a rule
+ * may not read, one that aggregates.
  */
 type NegatedSource = "table" | "join" | "union" | "derived" | "aggregate" | "negating"
 
@@ -582,8 +582,8 @@ const Notes = schema("RuleQueryNegated", [Item, Mark, Claim, Note], [])
 
 /**
  * The reason each negated source is refused for, as a refusal reads (reasonOf), or none for one a rule reads: a
- * select-project-join query or a union of them, or a relation of one. An aggregate breaks a rule the types name too
- * (Refused); a negation that negates in turn is UnsupportedLawFamily.
+ * select-project-join query or a union of them, a relation of one, or one that negates in turn. An aggregate breaks a
+ * rule the types name too (Refused).
  */
 export const negatedRefusals: { readonly [S in NegatedSource]: ReasonRead | undefined } = {
 	table: undefined,
@@ -595,7 +595,7 @@ export const negatedRefusals: { readonly [S in NegatedSource]: ReasonRead | unde
 		refusal:
 			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
 	},
-	negating: { tag: "UnsupportedLawFamily" }
+	negating: undefined
 }
 
 /** A refusal's reason as a refusal reads: a named refusal's roster member, or another reason's tag. */
