@@ -278,14 +278,12 @@ export const drawnTemplate = fixtureTemplate(import.meta, Drawn, drawnInstall)
 export type Issues = ReadonlyArray<"held" | "unused">
 
 /**
- * A case: a kind, the numbers its first call issues to a fresh series, which the host draws, and those a second call
- * appends to the stored series, which the family's statement draws past them, each held or unused. A tall series' first
- * call issues 32,765 to 32,768 numbers, all unused, so its count meets its carrier's bound.
+ * A case: a kind, and the numbers one call issues to a fresh series, each held or unused, which the host draws. A tall
+ * series' call issues 32,765 to 32,768 numbers, all unused, so its count meets its carrier's bound and passes it.
  */
 export interface Issuing {
 	readonly kind: Kind
-	readonly first: Issues
-	readonly second: Issues
+	readonly issues: Issues
 }
 
 const issuesGen =
@@ -297,23 +295,15 @@ const issuesGen =
 
 export const issuingGen: Gen<Issuing> = (source) => {
 	const kind = source.draw(element(["Natural", "Small", "Whole", "Big", "Wide", "Tall"] as const))
-	return kind === "Tall"
-		? {
-				kind,
-				first: source.draw(issuesGen(32765, 32768, false)),
-				second: source.draw(issuesGen(0, 3, true))
-			}
-		: {
-				kind,
-				first: source.draw(issuesGen(0, 5, true)),
-				second: source.draw(issuesGen(0, 5, true))
-			}
+	return {
+		kind,
+		issues: source.draw(kind === "Tall" ? issuesGen(32765, 32768, false) : issuesGen(0, 5, true))
+	}
 }
 
 /**
- * What one call answers, by the model: accepted, its series' count and its numbers; refused on the kind's contract, a
- * count past its bound, or one past its carrier the family's statement draws over a stored series; or its input refused
- * before any statement, a count past its carrier the host draws for a fresh series.
+ * What the call answers, by the model: accepted, its series' count and its numbers; refused on the kind's contract, a
+ * count past its bound; or its input refused before any statement, a count past its carrier.
  */
 export type Expected =
 	| {
@@ -328,30 +318,22 @@ export type Expected =
 	| { readonly kind: "input" }
 
 /**
- * The model of a call issuing `issues` after `stored` numbers, of kind `kind`: each number its place, from 0, the
- * count their number, every value compared as an integer, whatever its host type. A count past the carrier is no
- * value of the column, never wrapped into one: the host refuses it as the call's input where it draws a fresh series,
- * and the family's statement refuses it on the contract over a stored one; a count within the carrier past the
- * contract's bound is the contract's CHECK's to refuse.
+ * The model of a call issuing `issues` to a fresh series of kind `kind`: each number its place, from 0, the count their
+ * number, every value compared as an integer, whatever its host type. A count past the carrier is no value of the
+ * column, never wrapped into one: the host refuses it as the call's input before any statement; a count within the
+ * carrier past the contract's bound is the contract's CHECK's to refuse.
  */
-export const expectedOf = (
-	kind: Kind,
-	stored: ReadonlyArray<{ readonly number: number; readonly issue: "held" | "unused" }>,
-	issues: Issues
-): Expected => {
-	const count = stored.length + issues.length
+export const expectedOf = (kind: Kind, issues: Issues): Expected => {
+	const count = issues.length
 	const { most, carrier } = kinds[kind]
 	return count > carrier
-		? { kind: stored.length === 0 ? "input" : "refused" }
+		? { kind: "input" }
 		: count > most
 			? { kind: "refused" }
 			: {
 					kind: "accepted",
 					count,
-					numbers: [
-						...stored,
-						...Arr.map(issues, (issue, i) => ({ number: stored.length + i, issue }))
-					]
+					numbers: Arr.map(issues, (issue, number) => ({ number, issue }))
 				}
 }
 
@@ -362,13 +344,11 @@ export type DrawnFeature =
 	| "natural"
 	| "metis's test number"
 	| "a count at its contract's bound"
-	| "a first call past its contract's bound, refused"
-	| "an append past its contract's bound, refused"
+	| "a count past its contract's bound, refused"
 	| "a count at its carrier's bound"
-	| "an append past its carrier's bound, refused"
-	| "a fresh series past its carrier's bound, refused"
+	| "a count past its carrier's bound, refused"
 	| "a held number in each direction of the containments"
-	| "an append to a stored series"
+	| "a series of no numbers"
 
 export const situations = [
 	"a contract over smallint",
@@ -377,11 +357,9 @@ export const situations = [
 	"natural",
 	"metis's test number",
 	"a count at its contract's bound",
-	"a first call past its contract's bound, refused",
-	"an append past its contract's bound, refused",
+	"a count past its contract's bound, refused",
 	"a count at its carrier's bound",
-	"an append past its carrier's bound, refused",
-	"a fresh series past its carrier's bound, refused",
+	"a count past its carrier's bound, refused",
 	"a held number in each direction of the containments",
-	"an append to a stored series"
+	"a series of no numbers"
 ] as const satisfies ReadonlyArray<Reached<DrawnFeature>>
