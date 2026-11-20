@@ -6,6 +6,7 @@ import {
 	codePoint,
 	constant,
 	element,
+	finite,
 	type Gen,
 	int,
 	map,
@@ -24,6 +25,7 @@ import {
 	type RelationSpec
 } from "#compiler/codec/recordset.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -673,3 +675,27 @@ export const encodeNeed = {
 		return Effect.succeed(encode)
 	})
 } as const satisfies Need<unknown>
+
+/** A relation of two texts, which a fact past the longest string fills. */
+export const notesHeading: RelationSpec = {
+	relation: "Note",
+	columns: positionalColumns([
+		{ name: "a", type: types.text },
+		{ name: "b", type: types.text }
+	]),
+	slot: { kind: "slot", name: "notes" },
+	codes: kindCodes
+}
+
+/**
+ * A text whose JSON string literal is longer than the longest string V8 holds (core/canonical.ts maxStringLength):
+ * U+0001 over and over, each unit six of the literal's (`\u0001`), one string shared by every case and field that holds
+ * it, so a fact of it costs its one allocation.
+ */
+export const pastTheBound: string = Str.repeat(Math.ceil(maxStringLength / 6) + 1)("\u0001")
+
+/** Where a case puts the text past the bound: in one field of a note, or in both. */
+export const pastTheBoundBox = finite((source) => ({
+	fields: source.draw(element(["a", "both"] as const)),
+	copies: source.draw(int(1, 2))
+}))

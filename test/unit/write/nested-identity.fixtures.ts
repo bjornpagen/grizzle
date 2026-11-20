@@ -130,18 +130,21 @@ const nestedInput = (program: CompiledWrite) => {
 }
 
 /**
- * What `set` keys and keeps: each key it holds a fact or a row at, its key's texts keyed (core/text.ts TextsKey); and
+ * What `set` keys and keeps: each key it holds a fact or a row at, its key's texts (core/text.ts TextsId texts); and
  * every text it keeps of what it holds at a key, each fact's signature's texts (its own texts and its relations' names;
  * its rows are kept under their relations) and each row's identity's texts.
  */
 const keyedTexts = (
 	set: NestedSet
-): { readonly keys: ReadonlyArray<string>; readonly texts: ReadonlyArray<string> } => {
-	const keys: Array<string> = []
+): {
+	readonly keys: ReadonlyArray<ReadonlyArray<string>>
+	readonly texts: ReadonlyArray<string>
+} => {
+	const keys: Array<ReadonlyArray<string>> = []
 	const texts: Array<string> = []
 	for (const byKey of set.tops.values()) {
 		for (const [key, at] of byKey) {
-			keys.push(key)
+			keys.push(key.texts)
 			for (const element of at.identity) {
 				if (typeof element === "string") {
 					texts.push(element)
@@ -151,7 +154,7 @@ const keyedTexts = (
 	}
 	for (const byKey of set.rows.values()) {
 		for (const [key, at] of byKey) {
-			keys.push(key)
+			keys.push(key.texts)
 			appendAll(texts, at.identity)
 		}
 	}

@@ -1,7 +1,6 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
@@ -14,8 +13,14 @@ import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
-import { compareStrings, sortInPlace } from "#compiler/core/order.ts"
-import { compareQuotedTuples, type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { sortInPlace } from "#compiler/core/order.ts"
+import {
+	compareTextLists,
+	compareTextsIds,
+	type TextsId,
+	TextsMap,
+	textsId
+} from "#compiler/core/text.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
@@ -110,7 +115,7 @@ export const refilledSlot = (
 	slot: NormalizedSlot,
 	facts: (fact: { readonly [field: string]: unknown }) => { readonly [field: string]: unknown }
 ): NormalizedSlot => {
-	const refilled = new Map<TextsKey, IdentifiedFact>()
+	const refilled = new TextsMap<IdentifiedFact>()
 	for (const e of slot.entries) {
 		refilled.set(e.identity, { identity: e.identity, fact: Object.freeze(facts(e.fact)) })
 	}
@@ -249,7 +254,7 @@ export const memberSlots = (groups: ReadonlyArray<GroupData>): ReadonlyArray<str
 /**
  * How the same-key checks read one kind of entry: their canonical order, the order they are judged in; the key of an
  * entry's fields, their key texts in the fields' order (identity.ts keyText: a float's -0 and +0 one key, as
- * PostgreSQL's equality holds them) keyed as one string (core/text.ts textsKey), which a Map holds a key's entries by,
+ * PostgreSQL's equality holds them) as one identity (core/text.ts textsId), which a TextsMap holds a key's entries by,
  * hashing it once; and an entry's value of a field, which a span's overlap and a refusal's witness read; each reader
  * built once for its fields and read per entry. An admitted fact is read by
  * its fields' names (`factReading`), a nested row at its cells' positions, its texts the ones its write holds
@@ -257,32 +262,28 @@ export const memberSlots = (groups: ReadonlyArray<GroupData>): ReadonlyArray<str
  */
 interface EntryReading<E> {
 	readonly order: (a: E, b: E) => number
-	readonly key: (fields: ReadonlyArray<KeySpec>) => (entry: E) => TextsKey
+	readonly key: (fields: ReadonlyArray<KeySpec>) => (entry: E) => TextsId
 	readonly value: (field: string) => (entry: E) => unknown
 }
 
 /** An admitted fact's reading (`EntryReading`): in its identities' canonical order, each field read by its name, its
  * key text worked out from its value, which the fact's carriers already admitted (identity.ts keyText). */
 const factReading: EntryReading<IdentifiedFact> = {
-	order: (a, b) => compareStrings(a.identity, b.identity),
+	order: (a, b) => compareTextsIds(a.identity, b.identity),
 	key: (fields) => (entry) =>
-		textsKey(fields.map(({ field, spec }) => keyText(spec, admittedText(spec, entry.fact[field])))),
+		textsId(fields.map(({ field, spec }) => keyText(spec, admittedText(spec, entry.fact[field])))),
 	value: (field) => (entry) => entry.fact[field]
 }
-
-/** Two lists of texts in the canonical order of facts: their keys' order (core/text.ts TextsKey), the code point order
- * of their JSON texts, worked out without keying them. */
-const canonicalOrder = compareQuotedTuples(compareCodePoints)
 
 /** A nested row's reading (`EntryReading`), a relation's of `columns`: in its identities' canonical order, an admitted
  * fact's, each field read at its column's position among the relation's, its key text of the text its write holds
  * (cells.ts textAt, identity.ts keyText). */
 const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
-	order: (a, b) => canonicalOrder(a.identity, b.identity),
+	order: (a, b) => compareTextLists(a.identity, b.identity),
 	key: (fields) => {
 		const at = fields.map(({ field, spec }) => ({ at: columns.at(columnKeyOf(field)), spec }))
 		return (row) =>
-			textsKey(at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec))))
+			textsId(at.map((c) => keyText(c.spec, textAt(row.values, row.texts, c.at, c.spec))))
 	},
 	value: (field) => {
 		const at = columns.at(columnKeyOf(field))
@@ -330,10 +331,7 @@ const admit = (
 }
 
 /** Each admitted entry of `entries` into `set`, the first of each identity kept. */
-const collect = (
-	set: Map<TextsKey, IdentifiedFact>,
-	entries: ReadonlyArray<IdentifiedFact>
-): void => {
+const collect = (set: TextsMap<IdentifiedFact>, entries: ReadonlyArray<IdentifiedFact>): void => {
 	for (const e of entries) {
 		if (!set.has(e.identity)) {
 			set.set(e.identity, e)
@@ -610,7 +608,7 @@ const keyConflictIn = <E>(
 	for (const key of facts.host.keys) {
 		const { fields } = key
 		const keyOf = reading.key(fields)
-		const seen = new Map<TextsKey, E>()
+		const seen = new TextsMap<E>()
 		for (const e of entries) {
 			const k = keyOf(e)
 			const prior = seen.get(k)
@@ -653,7 +651,7 @@ const keyShared = <E>(
 ): boolean => {
 	for (const { fields } of facts.host.keys) {
 		const keyOf = reading.key(fields)
-		const seen = new Map<TextsKey, E>()
+		const seen = new TextsMap<E>()
 		for (const e of entries) {
 			const k = keyOf(e)
 			const prior = seen.get(k)
@@ -681,7 +679,7 @@ const firstConflict = <E>(
 		const { span, witness } = check
 		const keyOf = reading.key(check.equal)
 		const spanValue = reading.value(span.field)
-		const groups = new Map<TextsKey, Array<{ readonly entry: E; readonly span: HostSpan }>>()
+		const groups = new TextsMap<Array<{ readonly entry: E; readonly span: HostSpan }>>()
 		for (const e of additions) {
 			const value = admitted(span.spec, spanValue(e))
 			const k = keyOf(e)
@@ -713,7 +711,7 @@ const firstConflict = <E>(
 /** One slot group's admitted facts, by how its inputs write them: a deletion's of rows (`delete`) apart from a unit
  * delete's, whose facts name units (`units`), and a retirement's, whose facts name groups (`retire`). */
 type GroupSets = Readonly<
-	Record<"insert" | "put" | "delete" | "units" | "retire", Map<TextsKey, IdentifiedFact>>
+	Record<"insert" | "put" | "delete" | "units" | "retire", TextsMap<IdentifiedFact>>
 >
 
 /** The set a single input's facts join: its operation's, a unit delete's its own (frontend/compile.ts SingleAct). */
@@ -822,11 +820,11 @@ export const normalizeChangeSet = (
 	const admittedGroups: Array<AdmittedGroup> = []
 	for (const { stratum, facts, inputs: enumerated } of groups) {
 		const sets: GroupSets = {
-			insert: new Map(),
-			put: new Map(),
-			delete: new Map(),
-			units: new Map(),
-			retire: new Map()
+			insert: new TextsMap(),
+			put: new TextsMap(),
+			delete: new TextsMap(),
+			units: new TextsMap(),
+			retire: new TextsMap()
 		}
 		const slotOf = new Map<keyof GroupSets, SlotData>()
 		/** The first of the group's nested writes whose generated field has no value: the group's refusal, once every
@@ -905,14 +903,14 @@ export const normalizeChangeSet = (
 			return Result.ok(group)
 		}
 		const { facts, sets, slotOf } = group
-		for (const id of sets.put.keys()) {
+		for (const [id] of sets.put) {
 			sets.insert.delete(id)
 		}
 		const refused = sameKey(facts, factReading, [...sets.put.values(), ...sets.insert.values()])
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}
-		for (const id of [...sets.insert.keys(), ...sets.put.keys()]) {
+		for (const [id] of [...sets.insert, ...sets.put]) {
 			sets.delete.delete(id)
 		}
 		for (const [category, slot] of slotOf) {

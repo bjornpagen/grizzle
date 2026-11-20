@@ -10,6 +10,7 @@ import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { NodeId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { TextsMap } from "#compiler/core/text.ts"
 import { typedEq } from "#compiler/ir/compare.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
@@ -291,7 +292,7 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 /** The placeholders of one write statement: its declared parameters', its member slots' and its nested rows' arrays. */
 export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsParamSlot> {
 	readonly #members = new Map<ParamId, NonEmptyReadonlyArray<MemberParamSlot>>()
-	readonly #nested = new Map<string, NonEmptyReadonlyArray<NestedRowsParamSlot>>()
+	readonly #nested = new TextsMap<NonEmptyReadonlyArray<NestedRowsParamSlot>>()
 
 	/**
 	 * The array placeholders of a stratum's nested rows of `relation`, one per column, its columns those `allocate` gives

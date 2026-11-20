@@ -6,23 +6,36 @@
  *   boundary's specification, each plant's fault named by the plant.
  * - Code point order: compareCodePoints orders as the UTF-8 bytes of the texts do, PostgreSQL's C collation. Oracle: a
  *   second implementation, TextEncoder's bytes compared one by one.
- * - Tuple orders: a tuple of texts orders as a JSON array by code unit and by code point; and its key (core/text.ts
- *   textsKey), compared as a string, orders as its JSON array by code point, and is another tuple's key exactly when the
- *   tuples are one. Oracle: a second implementation, the tuples spelled and compared.
+ * - Tuple orders: a tuple of texts orders as a JSON array by code unit and by code point; and its identity (core/text.ts
+ *   textsId) orders as its texts' code points, text by text, a tuple before every tuple it begins, as its texts do
+ *   compared as they are (compareTextLists), and is another tuple's identity in a TextsMap exactly when the tuples are
+ *   one, one tuple one digest. Oracle: a second implementation, the tuples spelled and compared.
+ * - Collisions: a TextsMap holds lists whose digests meet apart, those a birthday search finds and a family of texts
+ *   past V8's hashed length made to meet, and a lookup compares texts with at most its bucket's AVL height of entries.
+ *   Oracle: the specification, a map of lists exact whatever their digests.
  *
  * Features: live text, a non-string and each plant at each position; equal tuples, a prefix, a difference past the
  * first text, of two lengths, and at an escaped unit.
  */
 
-import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { codePoints, compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { compareStrings } from "#compiler/core/order.ts"
-import { compareQuotedTuples, isValidText, textsKey, validateText } from "#compiler/core/text.ts"
+import {
+	compareQuotedTuples,
+	compareTextLists,
+	compareTextsIds,
+	isValidText,
+	TextsMap,
+	textsId,
+	validateText
+} from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	plantedFault,
 	type PlantedFeature,
@@ -31,13 +44,18 @@ import {
 	plantedValue
 } from "#test/unit/values/support.ts"
 import {
+	avlHeight,
 	bytesNeed,
 	type CodePointFeature,
 	codePointFeatures,
+	collidingFamily,
+	collidingLists,
 	escaped,
 	kinds,
+	longestHashedText,
 	positions,
 	signOf,
+	spelledText,
 	text,
 	tuple,
 	type TupleFeature
@@ -125,7 +143,7 @@ export const codePointOrderMatchesUTF8ByteOrder = property.explore(
 )
 
 /** Text tuple orders order as their texts' spellings do, each text after its length, and as JSON arrays by code unit and by code point. Its budget is its suite's before it was a property (test/unit/values/text.test.ts at 4ca3036a): 2000 runs and 2000 steered cases. */
-export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAndAsJSONArraysByCodeUnitAndByCodePoint =
+export const textTuplesOrderAsJSONArraysByCodeUnitAndByCodePointAndAsIdentitiesByTheirTextsCodePoints =
 	property.explore((source) => [source.draw(tuple), source.draw(tuple)] as const, {
 		needs: {},
 		budget: { runs: 2000, steered: 2000 },
@@ -183,18 +201,30 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 						compareCodePoints(jsonText(a), jsonText(b)),
 						"code point order is the JSON array's"
 					)
-					const keyA = textsKey(a)
-					const keyB = textsKey(b)
-					assert.equal(
-						signOf(compareStrings(keyA, keyB)),
-						compareCodePoints(jsonText(a), jsonText(b)),
-						"a tuple's key, compared as a string, orders as its JSON array by code point"
+					const idA = textsId(a)
+					const idB = textsId(b)
+					/** Each tuple spelled as its texts' code points, compared list by list, a list before those it begins. */
+					const byCodePoints = Order.Array(Order.Array(Order.Number))(
+						Arr.map(a, codePoints),
+						Arr.map(b, codePoints)
 					)
 					assert.equal(
-						keyA === keyB,
-						jsonText(a) === jsonText(b),
-						"two tuples have one key exactly when they are one"
+						compareTextsIds(idA, idB),
+						byCodePoints,
+						"a tuple's identity orders as its texts by code point, text by text"
 					)
+					assert.equal(
+						compareTextLists(a, b),
+						byCodePoints,
+						"a tuple's texts as they are order as its identity does"
+					)
+					const same = jsonText(a) === jsonText(b)
+					assert.equal(
+						new TextsMap<true>().set(idA, true).has(idB),
+						same,
+						"two tuples are one identity exactly when they are one"
+					)
+					assert.ok(!same || idA.digest === idB.digest, "one tuple, one digest")
 				}),
 		oracle: {
 			kind: "second-implementation",
@@ -210,9 +240,134 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 			},
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\t\t\treturn mintTextsKey(inCodePointOrder(json, at))",
-				replacement: "\t\t\treturn mintTextsKey(json)",
-				why: "A key is its JSON text as it is, ordered by code unit: a scalar past U+FFFF, spelled by a surrogate pair, orders below a unit from U+E000, where code point order puts it above."
+				original: "\t\t\tbelowSurrogates &&= code < 0xd800",
+				replacement: "\t\t\tbelowSurrogates &&= true",
+				why: "Every identity is ordered by code unit: a scalar past U+FFFF, spelled by a surrogate pair, orders below a unit from U+E000, where code point order puts it above."
+			}
+		]
+	})
+
+/** The calls a TextsMap's lookups compare two identities' texts by: exactly in a bucket of one (core/text.ts
+ * sameTextsId), in order in a bucket's tree (compareTextsIds). */
+const compareSites = Object.freeze({
+	compares: { file: "packages/engine/src/core/text.ts", name: "sameTextsId" },
+	ordered: { file: "packages/engine/src/core/text.ts", name: "compareTextsIds" }
+})
+
+/** How many entries' texts one lookup of `key` in `map` compares with, and what it reads (kernel/calls.ts callCounts). */
+const lookupCompares = <V>(map: TextsMap<V>, key: ReadonlyArray<string>) =>
+	Effect.map(
+		callCounts(
+			Effect.sync(() => map.get(textsId(key))),
+			compareSites
+		),
+		([held, counts]) => [held, counts.compares + counts.ordered] as const
+	)
+
+/**
+ * A TextsMap holds lists whose digests meet apart, and a lookup compares at most its bucket's tree's height of entries,
+ * one where its digest is one list's. Over drawn prefixes: two lists of the prefix and a piece made to meet under
+ * FNV-1a's public start (text.fixtures.ts collidingLists, its digests textsId's), set beside a third list of the prefix alone, are three entries in the order they were set, each
+ * read back with its own value, a list set again keeping its place, and one deleted leaving the other; and a family of
+ * four texts of one length past V8's longest hashed text (text.fixtures.ts longestHashedText), the prefix and a filler
+ * then pieces made to meet under FNV-1a's public start (`collidingFamily`, its digests textsId's), whose first k for k =
+ * 2 to 4 set in ascending order are k entries, each read back as itself and the rest of the family held by none. Every
+ * lookup of a list or of a member of the family, held or not, compares texts with at most `avlHeight` of its bucket's
+ * entries (kernel/calls.ts callCounts), 2 at two, 2 at three, 3 at four, below 1.4405·log₂(k + 2) (core/text.ts
+ * BucketNode), so lists made to meet, however long their texts and in whatever order they come, make no lookup compare
+ * more. Budget: 4 runs, each three searches of a few hundred units.
+ */
+export const aTextsMapHoldsListsWhoseDigestsMeetApartAndALookupComparesAtMostItsBucketsHeight =
+	property.explore(spelledText, {
+		needs: {},
+		budget: { runs: 4, steered: 0 },
+		situations: [],
+		check: () => (prefix) =>
+			Effect.gen(function* () {
+				const [first, second] = collidingLists(prefix)
+				const alone = [prefix]
+				assert.equal(textsId(first).digest, textsId(second).digest, "the two lists' digests meet")
+				const map = new TextsMap<string>()
+					.set(textsId(first), "first")
+					.set(textsId(alone), "alone")
+					.set(textsId(second), "second")
+					.set(textsId([...first]), "first again")
+				assert.equal(map.size, 3, "two lists of one digest are two entries")
+				assert.deepEqual(
+					Arr.map([...map], ([key, value]) => [key.texts, value] as const),
+					[
+						[first, "first again"],
+						[alone, "alone"],
+						[second, "second"]
+					],
+					"in the order they were set, a list set again in its place"
+				)
+				const [held, pair] = yield* lookupCompares(map, second)
+				assert.equal(held, "second", "the second list of a digest read back as itself")
+				assert.ok(
+					pair <= avlHeight(2),
+					`a lookup in a bucket of two compares ${pair} entries, past its tree's height of ${avlHeight(2)}`
+				)
+				const [, single] = yield* lookupCompares(map, alone)
+				assert.ok(single <= avlHeight(1), `a lookup in a bucket of one compares ${single} entries`)
+				assert.ok(map.delete(textsId(first)), "a list of the bucket deleted")
+				assert.deepEqual(
+					[map.size, map.get(textsId(second)), map.has(textsId(first))],
+					[2, "second", false],
+					"the other list of its digest kept"
+				)
+				const family = collidingFamily(prefix)
+				assert.equal(
+					new Set(Arr.map(family, (text) => `${text.length} ${textsId([text]).digest}`)).size,
+					1,
+					"the family's texts are one length and one digest"
+				)
+				assert.ok(
+					Arr.every(family, (text) => text.length > longestHashedText),
+					"past V8's hashed length"
+				)
+				assert.equal(new Set(family).size, family.length, "the family's texts are distinct")
+				for (const k of [2, 3, 4]) {
+					const set = Arr.sort(Arr.take(family, k), Order.make(compareCodePoints))
+					const members = new TextsMap<string>()
+					for (const text of set) {
+						members.set(textsId([text]), text)
+					}
+					assert.equal(members.size, k, `${k} texts of one digest are ${k} entries`)
+					for (const text of family) {
+						const [found, compares] = yield* lookupCompares(members, [text])
+						assert.equal(
+							found,
+							Arr.contains(set, text) ? text : undefined,
+							`a member of the family read back at k = ${k} as itself where it was set, as none where not`
+						)
+						assert.ok(
+							compares <= avlHeight(k),
+							`a lookup in a bucket of ${k} set in ascending order compares ${compares} entries, past an AVL tree's height of ${avlHeight(k)}`
+						)
+					}
+				}
+			}),
+		oracle: { kind: "specification", name: "a map of lists, exact whatever their digests" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\t\t\t\treturn sameTextsId(held.entry.key, key) ? held.entry : undefined",
+				replacement: "\t\t\t\treturn held.entry",
+				why: "A bucket of one trusts the digest alone: the second list of a digest is taken for the first, so the two are one entry."
+			},
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\t\t\t\treturn foundIn(held.root, key)",
+				replacement: "\t\t\t\treturn held.root.entry",
+				why: "A bucket of several trusts the digest alone: a lookup of the second list of a digest reads the first's value."
+			},
+			{
+				file: "packages/engine/src/core/text.ts",
+				original: "\t\t: balanced(node.entry, node.before, insertedIn(node.after, entry))",
+				replacement: "\t\t: nodeOf(node.entry, node.before, insertedIn(node.after, entry))",
+				why: "A bucket of several is a list where entries come in ascending order: each goes after every entry before it, unbalanced, so the family's k texts set ascending are one chain and a lookup of the last compares k entries, past an AVL tree's height at three and four."
 			}
 		]
 	})

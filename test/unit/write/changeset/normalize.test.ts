@@ -70,15 +70,15 @@ export const normalizationAgainstTheAddWinsMeaningRefusesOnlyWhatAddWinsRejectsW
 				{
 					file: "packages/engine/src/runtime/write/normalize.ts",
 					original:
-						"\t\tfor (const id of [...sets.insert.keys(), ...sets.put.keys()]) {\n\t\t\tsets.delete.delete(id)\n\t\t}\n",
+						"\t\tfor (const [id] of [...sets.insert, ...sets.put]) {\n\t\t\tsets.delete.delete(id)\n\t\t}\n",
 					replacement: "",
 					why: "A stratum's deletions keep the facts its insertions and puts add (runtime/write/normalize.ts normalizeChangeSet, step 3's netting removed)."
 				},
 				{
 					file: "packages/engine/src/runtime/write/normalize.ts",
-					original: "\t\tfor (const id of [...sets.insert.keys(), ...sets.put.keys()]) {",
+					original: "\t\tfor (const [id] of [...sets.insert, ...sets.put]) {",
 					replacement:
-						"\t\tconst deletedAtOneKey = sameKey(facts, compareFactIdentities, sets.delete.values())\n\t\tif (deletedAtOneKey !== undefined) {\n\t\t\treturn Result.ok(deletedAtOneKey)\n\t\t}\n\t\tfor (const id of [...sets.insert.keys(), ...sets.put.keys()]) {",
+						"\t\tconst deletedAtOneKey = sameKey(facts, compareFactIdentities, sets.delete.values())\n\t\tif (deletedAtOneKey !== undefined) {\n\t\t\treturn Result.ok(deletedAtOneKey)\n\t\t}\n\t\tfor (const [id] of [...sets.insert, ...sets.put]) {",
 					why: "The engine's same-key check over a stratum's deletes restored, so two deletions at one key are refused by that key."
 				},
 				{

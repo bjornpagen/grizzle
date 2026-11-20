@@ -5,30 +5,25 @@ import {
 	TupleSet
 } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import type { Order } from "effect"
-import { compareQuotedTuples } from "#compiler/core/text.ts"
+import { Order } from "effect"
 
 export type Fact = { readonly [field: string]: unknown }
 
 /**
  * A fact's identity as the oracle holds it: each field's canonical text in field-name order, the list itself
- * (scalar/values/identity.ts factIdentity's `texts`), where the write keys it as one string (core/text.ts TextsKey).
+ * (scalar/values/identity.ts factIdentity's `texts`), which the write holds as an identity (core/text.ts TextsId).
  */
 export type FactTexts = ReadonlyArray<string>
 
 /** Identity to fact, keyed structurally by each fact's identity texts (`FactTexts`). */
 export type FactsByTexts = ReadonlyTupleMap<FactTexts, Fact>
 
-const quotedOrder = compareQuotedTuples(compareCodePoints)
-
 /**
- * Fact identities in their canonical order, the code point order of their JSON texts read field by field (core/text.ts
- * compareQuotedTuples), which the write's keys' own order is (core/text.ts TextsKey).
+ * Fact identities in their canonical order, their texts' code point order field by field, a list before every list it
+ * begins: PostgreSQL's C-collation order of their rows, read off each text by code point (grizzle-text
+ * compareCodePoints), apart from the write's own order of identities (core/text.ts compareTextsIds).
  */
-export const identityOrder: Order.Order<FactTexts> = (a, b) => {
-	const order = quotedOrder(a, b)
-	return order < 0 ? -1 : order > 0 ? 1 : 0
-}
+export const identityOrder: Order.Order<FactTexts> = Order.Array(compareCodePoints)
 
 /** The fact set of `entries`, each identity once, the last fact of an identity kept. */
 export const factSetOf = (entries: Iterable<readonly [FactTexts, Fact]>): FactsByTexts => {

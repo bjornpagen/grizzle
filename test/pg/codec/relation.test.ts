@@ -27,7 +27,7 @@ import { exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { positionalColumns, type RelationSpec } from "#compiler/codec/recordset.ts"
-import type { TextsKey } from "#compiler/core/text.ts"
+import { TextsMap } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { emptyCodebook } from "#compiler/ir/codes.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
@@ -84,7 +84,7 @@ export const relationInputsAgainstPostgreSQLPartitionsGeneratedCasesExactlyAsPos
 						pg.set(key, [...(pg.get(key) ?? []), String(group)])
 					}
 					for (const [k, facts] of cases.entries()) {
-						const groups = new Map<TextsKey, Array<number>>()
+						const groups = new TextsMap<Array<number>>()
 						for (const [ord, fact] of facts.entries()) {
 							const { identity } = succeeded(factIdentity(heading, fact))
 							groups.set(identity, [...(groups.get(identity) ?? []), ord])
@@ -167,7 +167,7 @@ export const relationInputsAgainstPostgreSQLSendsPostgreSQLASetTheEncodersArrays
 				file: "packages/engine/src/codec/recordset.ts",
 				original: "\t\t\t\tbyIdentity.set(entry.identity, entry)",
 				replacement:
-					"\t\t\t\tbyIdentity.set(textsKey([entry.identity, String(byIdentity.size)]), entry)",
+					"\t\t\t\tbyIdentity.set(textsId([...entry.identity.texts, String(byIdentity.size)]), entry)",
 				why: "The normalizer keeps every fact, so the arrays hold one value twice; the DISTINCT property fails."
 			}
 		]

@@ -8,6 +8,8 @@
  * whose weights sum positive (physical/ddl/rules.ts netted).
  */
 
+import type { TextsMap } from "#compiler/core/text.ts"
+
 /** What one change of each side weighs: a key it makes present 1, a key it makes absent -1. */
 export const weightOf = { added: 1, removed: -1 } as const
 
@@ -25,18 +27,15 @@ export interface Weighted<V> {
 	readonly value: V
 }
 
-/** A Z-set over keys K: each key in it with its weight and value. */
-export type ZSet<K, V> = ReadonlyMap<K, Weighted<V>>
+/** A Z-set: each key in it, the identity of a fact's texts (core/text.ts TextsId), with its weight and value. */
+export type ZSet<V> = TextsMap<Weighted<V>>
 
 /**
  * Adds `change` into `net`, which it changes and returns: each key weighs the sum of its weights in the two, and a key
  * whose weights sum to 0 is dropped. A key that stands keeps the value of the change whose weight stands on its sum's
  * side, `change`'s where both do.
  */
-export const addInto = <K, V>(
-	net: Map<K, Weighted<V>>,
-	change: ZSet<K, V>
-): Map<K, Weighted<V>> => {
+export const addInto = <V>(net: ZSet<V>, change: ZSet<V>): ZSet<V> => {
 	for (const [key, next] of change) {
 		const held = net.get(key)
 		if (held === undefined) {

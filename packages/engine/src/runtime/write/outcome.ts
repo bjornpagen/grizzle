@@ -2,7 +2,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { scalarReader } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
-import type { TextsKey } from "#compiler/core/text.ts"
+import type { TextsId } from "#compiler/core/text.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -37,7 +37,7 @@ interface WriteChanges {
  * value (net.ts relationIdentity). */
 export interface WrittenOutcome {
 	readonly relation: StoredRelationName
-	readonly identity: (fact: Fact) => TextsKey
+	readonly identity: (fact: Fact) => TextsId
 }
 
 /** A relation the ChangeSet writes, by name, with its heading, every field's name and type. */
@@ -147,9 +147,9 @@ const changesConverter = (result: WriteStepResult, codes: Codebook): ChangesConv
 const stepIdentity = (
 	returned: FamilyPart["rows"],
 	result: WriteStepResult,
-	identity: (fact: Fact) => TextsKey,
+	identity: (fact: Fact) => TextsId,
 	codes: Codebook
-): ((fact: Fact) => TextsKey) =>
+): ((fact: Fact) => TextsId) =>
 	returned === "counts" && result.kind === "update"
 		? relationIdentity(result.columns.slice(0, result.fields.length), codes)
 		: identity

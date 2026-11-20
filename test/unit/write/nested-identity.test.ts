@@ -13,8 +13,8 @@
  * - The specification as a second implementation of the dedupe: the facts are a set by their whole content, own
  *   fields and nested members alike, so a fact stated twice is one, and two distinct facts at one owner id are refused
  *   by the owner's key law before any SQL; an accepted write inserts every distinct fact's members once.
- * - The identity gate: every key the nested set holds a fact or a row at is its key's texts keyed (core/text.ts
- *   TextsKey), the same keys at the case's content length as at length 1, and every text it keeps of what it holds is
+ * - The identity gate: every key the nested set holds a fact or a row at is its key's texts (core/text.ts TextsId),
+ *   the same keys at the case's content length as at length 1, and every text it keeps of what it holds is
  *   one column's text, none longer than the longest text the write states, as many at the case's content length as at
  *   length 1. A key or a text joined from a row's texts grows with the content, and one spelled per character keeps
  *   more texts as it grows; neither holds the gate.
@@ -27,7 +27,7 @@
 import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { bindWrite } from "#compiler/runtime/write/bind.ts"
@@ -113,8 +113,8 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 					"the nested set keeps as many texts at any content length as at length 1"
 				)
 				assert.deepEqual(
-					Arr.sort(keyed.keys, Str.Order),
-					Arr.sort(atOne.keys, Str.Order),
+					Arr.sort(keyed.keys, Order.Array(Str.Order)),
+					Arr.sort(atOne.keys, Order.Array(Str.Order)),
 					"the nested set holds its facts and rows at the same keys at any content length as at length 1"
 				)
 				const distinct = Arr.dedupeWith(box.facts, sameFact)
@@ -215,7 +215,7 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
  * once in order, then each stated again where it first comes and all stated again after them, bind to the same write,
  * every statement's executions alike, or to the same refusal, its law and its witness; and stated with their owners in
  * ascending and in descending order, to the same refusal, or to the same rows inserted. The set keys its facts and rows
- * by their keys' texts (core/text.ts TextsKey) and names a conflict by its key's order, never by the order its facts
+ * by their keys' texts (core/text.ts TextsId) and names a conflict by its key's order, never by the order its facts
  * came in, so where two owners each hold two facts in conflict, it names the same one whichever comes first.
  *
  * Budget: 200 runs and 200 steered cases, as the identities' property beside it.
@@ -300,21 +300,21 @@ export const aNestedWritesSetIsTheSameSetHoweverItsFactsAreStatedAndNamesItsConf
 			{
 				file: "packages/engine/src/runtime/write/nesting.ts",
 				original:
-					"\t\tif (at.conflicted && (first === undefined || compareStrings(key, first.key) < 0)) {",
+					"\t\tif (at.conflicted && (first === undefined || compareTextsIds(key, first.key) < 0)) {",
 				replacement: "\t\tif (at.conflicted && first === undefined) {",
 				why: "A conflict is named by the order its facts came in, the first key in conflict met: where two owners' keys are each in conflict, stating the other owner first names it, and the refusal's witness depends on the order the set was stated in."
 			}
 		]
 	})
 
-/** The calls a nested write's keys are counted by (core/text.ts textsKey). */
+/** The calls a nested write's keys are counted by (core/text.ts textsId). */
 const keySites = Object.freeze({
-	keys: { file: "packages/engine/src/core/text.ts", name: "textsKey" }
+	keys: { file: "packages/engine/src/core/text.ts", name: "textsId" }
 })
 
 /**
  * A nested write keys each fact and each row once: over drawn owner facts, filling the nested set (runtime/write/
- * nesting.ts nestedRows) calls textsKey exactly twice for each fact and each member as stated, once for its key and
+ * nesting.ts nestedRows) calls textsId exactly twice for each fact and each member as stated, once for its key and
  * once for its level's admitted identity, however many are stated twice; and the rows the bound insert inserts are
  * keyed once more for each distinct owner fact alone, every nested row inserted at the key its set holds it at (NestedRow
  * keyed), read off V8's call counts (kernel/calls.ts callCounts).
@@ -352,13 +352,13 @@ export const aNestedWriteKeysEachFactAndEachRowOnce = property.explore(setGen, {
 		{
 			file: "packages/engine/src/runtime/write/nesting.ts",
 			original: "\t\t\t\tconst at = known.get(row.keyed)",
-			replacement: "\t\t\t\tconst at = known.get(textsKey(row.key))",
+			replacement: "\t\t\t\tconst at = known.get(textsId(row.key))",
 			why: "The set keys each row again where it looks it up: every member is keyed twice."
 		},
 		{
 			file: "packages/engine/src/runtime/write/bind.ts",
 			original: "\t\t\t\t\t\t\t\tadd(relation, row.keyed, row.values)",
-			replacement: "\t\t\t\t\t\t\t\tadd(relation, textsKey(row.key), row.values)",
+			replacement: "\t\t\t\t\t\t\t\tadd(relation, textsId(row.key), row.values)",
 			why: "The inserted rows key each nested row again, which its set keyed: every member is keyed twice."
 		}
 	]

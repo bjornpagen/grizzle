@@ -12,7 +12,7 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import { type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { type TextsId, textsId } from "#compiler/core/text.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Int8Type } from "#compiler/ir/clock.ts"
@@ -33,10 +33,10 @@ export type Encoder = (value: unknown) => Result.Result<ParamText, EncodingFailu
 
 /**
  * An admitted fact (scalar/values/identity.ts) with its identity, factIdentity's over the input's heading: each field's
- * canonical text in field-name order, keyed (core/text.ts TextsKey), the key's order the canonical order of facts.
+ * canonical text in field-name order, keyed (core/text.ts TextsId), the key's order the canonical order of facts.
  */
 export interface IdentifiedFact {
-	readonly identity: TextsKey
+	readonly identity: TextsId
 	readonly fact: { readonly [field: string]: unknown }
 }
 
@@ -265,14 +265,14 @@ export const walkedRows: FilledRows = Object.freeze({ kind: "walked" })
 /**
  * The key of a stratum's set of filled rows of a relation (`FilledRows`), which a statement's placeholders of them send
  * (lower/conservative/context.ts, runtime/write/bind.ts sources): its stratum, its relation and which rows it holds,
- * keyed as one string (core/text.ts textsKey).
+ * as one identity (core/text.ts textsId).
  */
 export const filledRowsKey = (
 	stratum: StratumAt,
 	relation: StoredRelationName,
 	rows: FilledRows
-): TextsKey =>
-	textsKey(
+): TextsId =>
+	textsId(
 		rows.kind === "walked"
 			? [String(stratum), relation, "walked"]
 			: [String(stratum), relation, "fresh", rows.family]

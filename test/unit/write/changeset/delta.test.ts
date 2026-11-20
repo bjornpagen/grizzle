@@ -18,7 +18,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { uuid } from "@bjornpagen/testing/values"
 import { Array as Arr, Effect, Option, Order } from "effect"
 import { StoredRelationName } from "#compiler/core/ids.ts"
-import { type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { compareTextsIds, type TextsId, textsId } from "#compiler/core/text.ts"
 import { sideOf } from "#compiler/core/zset.ts"
 import {
 	type ChangeRow,
@@ -56,29 +56,35 @@ import {
 } from "#test/unit/write/changeset/delta.fixtures.ts"
 
 /**
- * A Z-set's entries on `side`, each fact's key with the tag it stands by, in the keys' own order as strings: the order
- * the oracle's texts are in by compareQuotedTuples (`keyedEntries`), exactly where the key's order is the canonical one.
+ * A Z-set's entries on `side`, each fact's identity's texts (core/text.ts TextsId texts) with the tag
+ * it stands by, in the identities' canonical order (compareTextsIds): the order the oracle's texts are in
+ * (`keyedEntries`), exactly where the write's order is the canonical one.
  */
 const sideEntries = (
 	change: RelationChange,
 	side: "added" | "removed"
-): ReadonlyArray<readonly [TextsKey, Tag]> =>
-	Arr.sort(
-		Arr.flatMap([...change], ([id, w]) =>
-			sideOf(w.weight) === side ? [[id, w.value] as const] : []
+): ReadonlyArray<readonly [ReadonlyArray<string>, Tag]> =>
+	Arr.map(
+		Arr.sort(
+			Arr.flatMap([...change], ([id, w]) =>
+				sideOf(w.weight) === side ? [[id, w.value] as const] : []
+			),
+			Order.mapInput(compareTextsIds, ([id]: readonly [TextsId, Tag]): TextsId => id)
 		),
-		Order.mapInput(Order.String, ([id]: readonly [TextsKey, Tag]): string => id)
+		([id, tag]) => [id.texts, tag] as const
 	)
 
-/** A Z-set's facts on `side`, their keys in their own order. */
-const sideKeys = (change: RelationChange, side: "added" | "removed"): ReadonlyArray<TextsKey> =>
-	Arr.map(sideEntries(change, side), ([id]) => id)
+/** A Z-set's facts on `side`, their identities' texts in code point order, in canonical order. */
+const sideKeys = (
+	change: RelationChange,
+	side: "added" | "removed"
+): ReadonlyArray<ReadonlyArray<string>> => Arr.map(sideEntries(change, side), ([id]) => id)
 
-/** The oracle's entries in canonical order (`entriesOf`), each identity's texts keyed as the write keys them. */
+/** The oracle's entries in canonical order (`entriesOf`), each identity's texts as the write holds them in order. */
 const keyedEntries = <V>(
 	entries: Iterable<readonly [FactTexts, V]>
-): ReadonlyArray<readonly [TextsKey, V]> =>
-	Arr.map(entriesOf(entries), ([texts, v]) => [textsKey(texts), v] as const)
+): ReadonlyArray<readonly [ReadonlyArray<string>, V]> =>
+	Arr.map(entriesOf(entries), ([texts, v]) => [texts, v] as const)
 
 /** The weight a sign mutant gives a removal, and the zero a dropped-zero mutant keeps: the two ways the one netting
  * rule (core/zset.ts) can break. */
@@ -166,13 +172,13 @@ export const aWritesChangeSummedAsAZSetEqualsTheOraclesNettingOfDeltasAndCountsF
 								shuffledAll([
 									...Arr.flatMap(added, (id) =>
 										Arr.map(tagsOf(st.added, id), (tag): ChangeRow => ({
-											identity: textsKey(id),
+											identity: textsId(id),
 											tag
 										}))
 									),
 									...Arr.flatMap(removed, (id) =>
 										Arr.map(tagsOf(st.removed, id), (tag): ChangeRow => ({
-											identity: textsKey(id),
+											identity: textsId(id),
 											tag
 										}))
 									)
@@ -220,10 +226,11 @@ export const aWritesChangeSummedAsAZSetEqualsTheOraclesNettingOfDeltasAndCountsF
 						const whole = stateDelta(start, before)
 						for (const side of ["added", "removed"] as const) {
 							const keys = sideKeys(netted, side)
-							assert.deepEqual(keys, Arr.map(identitiesOf(oracle[side].keys()), textsKey))
+							const ordered = (texts: FactTexts) => texts
+							assert.deepEqual(keys, Arr.map(identitiesOf(oracle[side].keys()), ordered))
 							assert.deepEqual(
 								keys,
-								Arr.map(identitiesOf(whole[side].keys()), textsKey),
+								Arr.map(identitiesOf(whole[side].keys()), ordered),
 								"the netted delta is the state difference"
 							)
 						}

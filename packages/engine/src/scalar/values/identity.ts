@@ -5,7 +5,7 @@ import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { isPlainRecord } from "#compiler/core/record.ts"
-import { type TextsKey, textsKey, validateText } from "#compiler/core/text.ts"
+import { type TextsId, textsId, validateText } from "#compiler/core/text.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codeOf, type HandleOrder, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
@@ -716,9 +716,9 @@ interface FactFault {
 
 /**
  * An admitted fact: its values, and its identity, each field's canonical text in field-name order, as the list itself
- * (`texts`) and as its key (core/text.ts TextsKey), one string, the same exactly for the same fact of its heading, whose
- * own order is the canonical order of facts: the code point order of the JSON text of the texts, the order normal
- * facts are in (codec/recordset.ts). Every canonical text is well-formed.
+ * (`texts`) and as its identity (core/text.ts TextsId), the same exactly for the same fact of its heading, whose order
+ * is the canonical order of facts: the texts' code point order, field by field, PostgreSQL's C-collation order of
+ * their row, the order normal facts are in (codec/recordset.ts). Every canonical text is well-formed.
  */
 export interface AdmittedFact {
 	/** The admitted values, by field name, frozen. */
@@ -726,7 +726,7 @@ export interface AdmittedFact {
 	/** Each field's canonical text, in field-name order, a bytes field's its digest. */
 	readonly texts: ReadonlyArray<string>
 	/** The fact's identity, its texts' key. */
-	readonly identity: TextsKey
+	readonly identity: TextsId
 }
 
 const fieldOrder = (a: HeadingField, b: HeadingField): number => compareCodePoints(a.name, b.name)
@@ -1041,7 +1041,7 @@ export const digestFact = (plan: HeadingPlan, read: ReadFact): AdmittedFact => {
 		digested[at] = bytes.digest
 	}
 	const texts = digested ?? read.parts
-	return { fact: Object.freeze(kept), texts, identity: textsKey(texts) }
+	return { fact: Object.freeze(kept), texts, identity: textsId(texts) }
 }
 
 /**

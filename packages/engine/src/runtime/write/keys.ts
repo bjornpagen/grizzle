@@ -4,7 +4,7 @@
  */
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { carrierSpecOf, paramOfText } from "#compiler/codec/scalar.ts"
-import { type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { type TextsId, textsId } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -41,7 +41,7 @@ export interface Grouped {
 export type GroupSide = "member" | "owner"
 
 /**
- * The reader of a row's group in a family, its group key texts keyed (core/text.ts TextsKey), in the order the
+ * The reader of a row's group in a family, its group key texts keyed (core/text.ts TextsId), in the order the
  * family's group fields pair with them, from the side `side` names, a row of that side's relation, whose columns are
  * `columns`, its cells and the texts the write holds of them (cells.ts textAt): each group field's position among them
  * and its carrier's spec under the installation's codes, worked out once per family, so reading a row's group costs
@@ -52,11 +52,11 @@ export const groupReader = (
 	family: Grouped,
 	side: GroupSide,
 	columns: Columns
-): ((values: Cells, texts: Texts) => TextsKey) => {
+): ((values: Cells, texts: Texts) => TextsId) => {
 	const fields = family.group.map((g) => {
 		const field = g[side]
 		return { at: columns.at(columnKeyOf(field.name)), spec: carrierSpecOf(field.type, ctx.codes) }
 	})
 	return (values, texts) =>
-		textsKey(fields.map((f) => paramOfText(f.spec, textAt(values, texts, f.at, f.spec))))
+		textsId(fields.map((f) => paramOfText(f.spec, textAt(values, texts, f.at, f.spec))))
 }

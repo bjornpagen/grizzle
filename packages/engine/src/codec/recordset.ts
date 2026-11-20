@@ -15,8 +15,8 @@ import { countParam, type ScalarCodec, scalarCodec, textParam } from "#compiler/
 import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CodecFault, EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import { compareStrings, sortInPlace } from "#compiler/core/order.ts"
-import { type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { sortInPlace } from "#compiler/core/order.ts"
+import { compareTextsIds, TextsMap, textsId } from "#compiler/core/text.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type {
@@ -301,7 +301,8 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  *   fact's own (NULL, then its shape) before its fields', and its fields in name order (values/identity.ts readFact);
  * - it deduplicates complete facts by fact identity (values/identity.ts factIdentity: numeric 1.0 = 1.00, NaN = NaN,
  *   -0 = +0, uuid case), so the input is a set without a DISTINCT;
- * - it encodes canonically: facts in the canonical order of their identities (their keys' order), every column's
+ * - it encodes canonically: facts in the canonical order of their identities (their texts' code point order, field by
+ *   field, core/text.ts compareTextsIds), every column's
  *   array in that order, every element the quoted canonical text of its value (scalar.ts, `arrayElement`), so equal
  *   inputs give byte-identical parameters whatever their order, and NaN, the infinities and money's numeric text reach
  *   the element type's input function exactly.
@@ -312,12 +313,12 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  * adapter/reader/params.ts), and then normalized exactly like an array. A caller's retry replays the Stream.
  *
  * The one mint of normal facts: the facts of `byIdentity`, each admitted by factIdentity over one heading and frozen,
- * keyed by its fact identity, a key (core/text.ts TextsKey) a Map holds once each, so the facts are distinct by
- * construction, put in the canonical order of their identities here, the keys' own order as strings, and frozen.
+ * keyed by its fact identity (core/text.ts TextsId), which a TextsMap holds once each, so the facts are distinct by
+ * construction, put in the canonical order of their identities here (compareTextsIds), and frozen.
  */
-export const normalFacts = (byIdentity: ReadonlyMap<TextsKey, IdentifiedFact>): NormalFacts => {
+export const normalFacts = (byIdentity: TextsMap<IdentifiedFact>): NormalFacts => {
 	const entries = Array.from(byIdentity.values())
-	sortInPlace(entries, (a, b) => compareStrings(a.identity, b.identity))
+	sortInPlace(entries, (a, b) => compareTextsIds(a.identity, b.identity))
 	return mintNormal(
 		Object.freeze({
 			facts: Object.freeze(entries.map((e) => e.fact)),
@@ -377,10 +378,10 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		if (bytesAt.length === 0) {
 			return { reads, together: 0, widest: 0 }
 		}
-		const distinct = new Map<TextsKey, ReadFact>()
+		const distinct = new TextsMap<ReadFact>()
 		let widest = 0
 		for (const one of reads) {
-			const parts = textsKey(one.parts)
+			const parts = textsId(one.parts)
 			if (!distinct.has(parts)) {
 				distinct.set(parts, one)
 			}
@@ -438,7 +439,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		relation: ReadRelation,
 		book: DigestBook
 	): Result.Result<AdmittedRelation, EncodingFailure> => {
-		const byIdentity = new Map<TextsKey, IdentifiedFact>()
+		const byIdentity = new TextsMap<IdentifiedFact>()
 		for (const one of relation.reads) {
 			const admittedFact = digested(one, book)
 			if (!admittedFact.ok) {

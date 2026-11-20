@@ -33,6 +33,8 @@ import {
 } from "#compiler/codec/recordset.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import { EncodingFailure } from "#compiler/core/errors.ts"
+import { TextsMap } from "#compiler/core/text.ts"
+import type { IdentifiedFact } from "#compiler/ir/products.ts"
 import { arraysEncoder, readArrayLiteral } from "#test/support/arrays.ts"
 import { failed, succeeded } from "#test/support/assert.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
@@ -47,6 +49,7 @@ import {
 	literalCases,
 	type LiteralFeature,
 	normalizeNeed,
+	notesHeading,
 	orderedSets,
 	type PlantFeature,
 	plantedMembers,
@@ -61,6 +64,8 @@ import {
 	spelledReadings,
 	spelledSets,
 	otherReading,
+	pastTheBound,
+	pastTheBoundBox,
 	statements
 } from "#test/unit/codec/recordset.fixtures.ts"
 import { kindCodes, normalizedBy } from "#test/unit/codec/support.ts"
@@ -261,7 +266,7 @@ export const relationNormalizationEncodesCanonicallyTheSameSetInAnyOrderGivesByt
 		kills: [
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\tsortInPlace(entries, (a, b) => compareStrings(a.identity, b.identity))\n",
+				original: "\tsortInPlace(entries, (a, b) => compareTextsIds(a.identity, b.identity))\n",
 				replacement: "",
 				why: "A set is encoded in the order given, not its canonical order; the canonical encoding property fails."
 			},
@@ -293,7 +298,10 @@ export const relationNormalizationWritesEachArrayOfFactsNormalizedOnTheHostAsThe
 				return yield* Effect.sync(() => {
 					c.note(facts.length === 0 ? "an empty set" : "a set of several facts")
 					const normal = succeeded(normalizedBy(normalize, facts))
-					const byIdentity = new Map(Arr.map(normal.entries, (e) => [e.identity, e] as const))
+					const byIdentity = new TextsMap<IdentifiedFact>()
+					for (const e of normal.entries) {
+						byIdentity.set(e.identity, e)
+					}
 					const marked = normalFacts(byIdentity)
 					for (const { encode, write } of statements) {
 						const arrays = succeeded(encode(facts)).arrays
@@ -568,15 +576,62 @@ export const theArraysOfEveryFieldTypeCarryEachValuesCanonicalTextWhichArrayInRe
 		]
 	})
 
-/** The calls a fact identity's key is counted by (core/text.ts textsKey). */
+/**
+ * A relation input of facts whose texts spell past the longest string V8 holds is normalized, never throwing: over a
+ * box of notes holding one text whose JSON literal passes the bound (`pastTheBound`, U+0001 over and over) in one field
+ * or in both, beside a note of short texts, each stated once or twice, normalization admits each distinct note once,
+ * in canonical order, the short note before the long one whose first field it begins, since a fact's identity holds its
+ * texts and their digest and never one string of them (core/text.ts TextsId). Before IDKEY the identity was the texts'
+ * JSON array as one string, and JSON.stringify threw RangeError past the bound.
+ */
+export const aRelationInputOfFactsPastTheLongestStringIsNormalizedNeverThrowing = property.exhaust(
+	pastTheBoundBox,
+	{
+		box: "a note holding the text past the bound in its first field or in both, beside a short note, each stated once or twice",
+		needs: {},
+		situations: [],
+		check: () => (box) =>
+			Effect.sync(() => {
+				const long = {
+					a: pastTheBound,
+					b: box.fields === "both" ? pastTheBound : "b"
+				}
+				const short = { a: "\u0001", b: "b" }
+				const facts = Array.from({ length: box.copies }, () => [long, short]).flat()
+				const normal = succeeded(normalizedBy(relationNormalizer(notesHeading), facts))
+				assert.equal(normal.count, 2, "each distinct note once")
+				assert.deepEqual(
+					Arr.map(normal.facts, (fact) => fact["b"] === pastTheBound || fact["a"] === pastTheBound),
+					[false, true],
+					"the short note first, its first field the long one's prefix"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a fact's identity of any size: its texts and their digest, never one string of them"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\treturn { fact: Object.freeze(kept), texts, identity: textsId(texts) }",
+				replacement:
+					"\treturn { fact: Object.freeze(kept), texts, identity: textsId([JSON.stringify(texts)]) }",
+				why: "A fact's identity is its texts' JSON array as one string, as before IDKEY: past the longest string JSON.stringify throws RangeError, out of the write."
+			}
+		]
+	}
+)
+
+/** The calls a fact identity is counted by (core/text.ts textsId). */
 const keySites = Object.freeze({
-	keys: { file: "packages/engine/src/core/text.ts", name: "textsKey" }
+	keys: { file: "packages/engine/src/core/text.ts", name: "textsId" }
 })
 
 /**
  * A relation input's normalization keys each fact once and sorts the keys as they are: over sets of up to twenty
  * readings of distinct ids, normalizing them (read, then admitted: kept apart by identity and put in canonical order)
- * calls textsKey once for each fact, read off V8's call counts (kernel/calls.ts callCounts), so its sort and its
+ * calls textsId once for each fact, read off V8's call counts (kernel/calls.ts callCounts), so its sort and its
  * deduplication compare and hash each identity's key as it was made, quoting no text again.
  */
 export const relationNormalizationKeysEachFactOnceAndSortsTheKeysAsTheyAre = property.explore(
@@ -601,9 +656,9 @@ export const relationNormalizationKeysEachFactOnceAndSortsTheKeysAsTheyAre = pro
 		kills: [
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\tsortInPlace(entries, (a, b) => compareStrings(a.identity, b.identity))",
+				original: "\tsortInPlace(entries, (a, b) => compareTextsIds(a.identity, b.identity))",
 				replacement:
-					"\tsortInPlace(entries, (a, b) => compareStrings(textsKey([a.identity]), textsKey([b.identity])))",
+					"\tsortInPlace(entries, (a, b) => compareTextsIds(textsId(a.identity.texts), textsId(b.identity.texts)))",
 				why: "The sort keys each fact again at every comparison, so a set of n facts is keyed about n log n times past its n."
 			}
 		]

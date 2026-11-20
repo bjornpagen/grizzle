@@ -17,8 +17,7 @@ import {
 import { carrierSpecOf, cellOfText, paramOfText } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import type { ColumnIdent, StoredRelationName } from "#compiler/core/ids.ts"
-import { compareStrings } from "#compiler/core/order.ts"
-import { type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { compareTextsIds, type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import { type FamilyId, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
@@ -135,14 +134,14 @@ export type NestedFact = { readonly [field: string]: unknown }
  * text joined from them: its size is its row's arity, whatever its texts' lengths. Its cells are the same texts but a
  * bytes column's, which travels as its value: each value's text is the one its admission worked out, or, a value the
  * walk drew, worked out once where the row is made (`nestedRowOf`); and its key's texts keyed once there (core/text.ts
- * textsKey), the key its relation's rows are a set by, in the write's nested set and in its inserted rows (bind.ts).
+ * textsId), the key its relation's rows are a set by, in the write's nested set and in its inserted rows (bind.ts).
  */
 export interface NestedRow {
 	readonly identity: ReadonlyArray<string>
 	/** Its key's texts, as its cells begin. */
 	readonly key: MemberKey
-	/** Its key's texts keyed (core/text.ts TextsKey): the one key its relation's rows are a set by. */
-	readonly keyed: TextsKey
+	/** Its key's texts keyed (core/text.ts TextsId): the one key its relation's rows are a set by. */
+	readonly keyed: TextsId
 	readonly values: Cells
 	readonly texts: Texts
 	/** Its cells, key first, as its family statements send it (draw.ts MemberCell), each column's in its layout's order. */
@@ -210,7 +209,7 @@ class AtKey<I, V> {
 
 /**
  * One stratum's nested writes as sets (rule 0), across its every nested input, array or Stream: each insert's facts by
- * their relation and their key's texts keyed (core/text.ts TextsKey), each key holding the signature of its first fact
+ * their relation and their key's texts keyed (core/text.ts TextsId), each key holding the signature of its first fact
  * with that fact's host values; and each reached member relation's rows by their key's texts keyed (NestedRow keyed),
  * each key holding its first row. A fact's signature is its own row's texts when the insert's own statement writes it,
  * then, for each relation it nests rows of, the relation's name and those rows, each the set's one at its key where
@@ -221,8 +220,8 @@ class AtKey<I, V> {
  * tree's nodes in pre-order.
  */
 export interface NestedSet {
-	readonly tops: Map<StoredRelationName, Map<TextsKey, AtKey<ReadonlyArray<Signed>, NestedFact>>>
-	readonly rows: Map<StoredRelationName, Map<TextsKey, AtKey<ReadonlyArray<string>, NestedRow>>>
+	readonly tops: Map<StoredRelationName, TextsMap<AtKey<ReadonlyArray<Signed>, NestedFact>>>
+	readonly rows: Map<StoredRelationName, TextsMap<AtKey<ReadonlyArray<string>, NestedRow>>>
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -305,8 +304,7 @@ export const nestedRows = (
 	}
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation
-	const byKey =
-		into.tops.get(relation) ?? new Map<TextsKey, AtKey<ReadonlyArray<Signed>, NestedFact>>()
+	const byKey = into.tops.get(relation) ?? new TextsMap<AtKey<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
 	const own = walk.columns(relation)
 	/** A field of the insert's own row as its facts are read: its name, its position among its relation's columns and its
@@ -368,11 +366,11 @@ export const nestedRows = (
 		)
 		const textOf = (c: { readonly at: number; readonly spec: CarrierSpec }): string =>
 			textAt(root.values, root.texts, c.at, c.spec)
-		const key = textsKey(keyColumns.map((c) => paramOfText(c.spec, textOf(c))))
+		const key = textsId(keyColumns.map((c) => paramOfText(c.spec, textOf(c))))
 		const signature: Array<Signed> = nesting.root.kind === "plain" ? top.map(textOf) : []
 		for (const [reached, list] of rowsOf(nesting, shapeOf, root)) {
 			const known =
-				into.rows.get(reached) ?? new Map<TextsKey, AtKey<ReadonlyArray<string>, NestedRow>>()
+				into.rows.get(reached) ?? new TextsMap<AtKey<ReadonlyArray<string>, NestedRow>>()
 			into.rows.set(reached, known)
 			signature.push(reached)
 			for (const row of list) {
@@ -425,12 +423,12 @@ const byCodePoint = <K extends string, A>(
 	entries: Iterable<readonly [K, A]>
 ): ReadonlyArray<readonly [K, A]> => [...entries].toSorted(([a], [b]) => compareCodePoints(a, b))
 
-/** The first value, in its key's order (core/text.ts TextsKey, the canonical order of key texts), of the keys in
+/** The first value, in its key's order (core/text.ts compareTextsIds, the canonical order of key texts), of the keys in
  * conflict. */
-const firstConflicting = <V>(byKey: ReadonlyMap<TextsKey, AtKey<unknown, V>>): V | undefined => {
-	let first: { readonly key: TextsKey; readonly value: V } | undefined
+const firstConflicting = <V>(byKey: TextsMap<AtKey<unknown, V>>): V | undefined => {
+	let first: { readonly key: TextsId; readonly value: V } | undefined
 	for (const [key, at] of byKey) {
-		if (at.conflicted && (first === undefined || compareStrings(key, first.key) < 0)) {
+		if (at.conflicted && (first === undefined || compareTextsIds(key, first.key) < 0)) {
 			first = { key, value: at.first }
 		}
 	}
@@ -439,8 +437,8 @@ const firstConflicting = <V>(byKey: ReadonlyMap<TextsKey, AtKey<unknown, V>>): V
 
 /**
  * The first key conflict of a stratum's nested set: an insert's relation's key at which two facts nest different rows,
- * then a member relation's key holding two rows; relations in code point order and keys in their keys' order, the
- * canonical order of key texts (core/text.ts TextsKey), so the conflict named is the set's, whatever order its facts
+ * then a member relation's key holding two rows; relations in code point order and keys in their texts' order, the
+ * canonical order of key texts (core/text.ts TextsId), so the conflict named is the set's, whatever order its facts
  * came in. It names one of the two, its fact or its row, which
  * agree at the key.
  */
@@ -697,7 +695,7 @@ const nestedRowOf = (shape: RowShape, row: FilledNode): NestedRow => {
 	return {
 		identity: Object.freeze(identity),
 		key,
-		keyed: textsKey(key),
+		keyed: textsId(key),
 		values,
 		texts,
 		cells: Object.freeze(cells)
