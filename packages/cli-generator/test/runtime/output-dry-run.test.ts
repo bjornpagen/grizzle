@@ -1,730 +1,437 @@
+/**
+ * `--dry-run` (design 4.6 DM3-8, D-OUT3, 7.5, M3-DR1): `Output.send` builds the request as for sending, prints it to
+ * stdout with every credential replaced by `<redacted:<scheme>>`, and sends nothing. The properties run each send through
+ * the send harness (test/support/send.ts sendIn), as the generated entry runs it:
+ *
+ * - a dry run shows the placeholders of the alternative a real run would choose, or the first one's when none is
+ *   configured, never prompts and always exits 0;
+ * - a configured value the real run refuses is refused by the dry run in the same words;
+ * - a body prints as its text with every secret its placeholder, a body from stdin or a binary one as a summary that
+ *   reads nothing of it, a multipart body part by part;
+ * - a value under a redacted header or query name prints as `<redacted>` unless it is exactly the run's own placeholder;
+ * - a one-character credential is never spelled out inside a placeholder on any print path (hater m3 HB1), and a
+ *   credential a server echoes inside placeholder-shaped text is still scrubbed (its security review).
+ */
+
+import { assert, containsText, lacksText, matchesObject } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect, Option, Ref, Runtime } from "effect"
 import {
-	Cause,
-	ConfigProvider,
-	Effect,
-	Exit,
-	FileSystem,
-	Layer,
-	Option,
-	Path,
-	Queue,
-	Redacted,
-	Ref,
-	Runtime,
-	Schema,
-	Sink,
-	Stdio,
-	Stream,
-	Terminal
-} from "effect"
-import { TerminalCapabilities } from "effect/cli"
-import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http"
-/* oxlint-disable unicorn/no-array-for-each -- Sink.forEach is the Effect sink, not Array#forEach */
-import { describe, expect, test } from "vitest"
-import * as Auth from "#runtime-src/runtime/auth.ts"
-import * as BaseUrl from "#runtime-src/runtime/base-url.ts"
-import { Transport } from "#runtime-src/runtime/client.ts"
-import * as Client from "#runtime-src/runtime/client.ts"
-import * as Input from "#runtime-src/runtime/input.ts"
-import * as Multipart from "#runtime-src/runtime/multipart.ts"
-import * as Output from "#runtime-src/runtime/output.ts"
-import type { ScrubEntry } from "#runtime-src/runtime/redact.ts"
-import { RunCredentials } from "#runtime-src/runtime/redact.ts"
+	aimedBodies,
+	aimedDecorations,
+	BEARER,
+	BODY_FEATURES,
+	type BodyFeature,
+	bodyFeatures,
+	bodyOf,
+	bodyWorld,
+	DECORATED_FEATURES,
+	type DecoratedFeature,
+	decoratedFeatures,
+	decoratedWorld,
+	type Echo,
+	ECHOES,
+	echoedWorld,
+	echoes,
+	errorLineOf,
+	expectedBody,
+	expectedDecorated,
+	expectedPreview,
+	exposedIn,
+	type Flaw,
+	FLAWS,
+	INJECTED,
+	type OneCharacter,
+	oneCharacters,
+	oneCharacterWorld,
+	OUTPUT_PATHS,
+	type OutputPath,
+	PASSWORD,
+	PREVIEW_FEATURES,
+	type PreviewFeature,
+	previewFeatures,
+	previews,
+	previewWorld,
+	refusals,
+	refusedWorld,
+	type Scheme,
+	type Seen,
+	seenOf,
+	verboseBlocks
+} from "#test/runtime/output-dry-run.fixtures.ts"
+import { sendIn } from "#test/support/send.ts"
 
-// `--dry-run` (m3-dr1): `Output.send` builds the request as for sending, prints it to stdout with
-// every credential replaced by `<redacted:<scheme>>`, and sends nothing.
-
-const SECRET = "tok-DRY-RUN-SECRET"
-
-const KEY = "key-DRY-RUN-SECRET"
-
-const servers: BaseUrl.ServersTable = {
-	boundOrigins: ["https://api.example.com"],
-	defaultServer: 0,
-	servers: [{ url: "https://api.example.com/v1", variables: {} }]
-}
-
-const security: Auth.SecurityTable = {
-	schemes: {
-		apiKey: { in: "header", kind: "apiKey", name: "X-Key" },
-		bearerAuth: { kind: "http", scheme: "bearer" }
-	}
-}
-
-const meta = (
-	method: string,
-	requirement: Auth.SecurityRequirement = [["bearerAuth"]]
-): Output.OperationMeta => ({
-	media: { request: [], responses: { "200": ["application/json"] } },
-	method,
-	operationId: "items-call",
-	pathTemplate: "/items",
-	security: requirement
-})
-
-const jsonPost = HttpClientRequest.post("/items").pipe(
-	HttpClientRequest.bodyText('{"name":"a"}', "application/json")
-)
-
-// The first printed line that starts with `prefix`.
-const printed = (stdout: string, prefix: string): string =>
-	stdout.split("\n").find((text) => text.startsWith(prefix)) ?? ""
-
-const bytes = (text: string) => new TextEncoder().encode(text)
-
-const key = (name: string, input: Option.Option<string>): Terminal.UserInput => ({
-	input,
-	key: { ctrl: false, meta: false, name, shift: false }
-})
-
-interface World {
-	readonly dryRun?: boolean
-	readonly env?: Record<string, string>
-	readonly operation: Output.OperationMeta
-	readonly recorded?: readonly ScrubEntry[]
-	readonly reply?: () => Response
-	readonly request: HttpClientRequest.HttpClientRequest
-	readonly tty?: boolean
-	readonly verbose?: boolean
-}
-
-const capture = (into: Buffer[]) => () =>
-	Sink.forEach((chunk: string | Uint8Array) =>
-		Effect.sync(() => {
-			into.push(Buffer.from(chunk))
-		})
-	)
-
-const run = async (world: World) => {
-	let sent = 0
-	let asked = 0
-	const stdout: Buffer[] = []
-	const stderr: Buffer[] = []
-	const client = HttpClient.make((request) =>
-		Effect.sync(() => {
-			sent += 1
-
-			return HttpClientResponse.fromWeb(
-				request,
-				world.reply?.() ?? new Response("[]", { status: 200 })
-			)
-		})
-	)
-	const terminal = Terminal.make({
-		columns: Effect.succeed(80),
-		display: () => Effect.void,
-		readInput: Effect.gen(function* readInput() {
-			asked += 1
-			const queue = yield* Queue.unbounded<Terminal.UserInput, Cause.Done>()
-			yield* Queue.offerAll(queue, [key("x", Option.some("x")), key("enter", Option.none())])
-
-			return queue
+/**
+ * A dry run shows the placeholders of the alternative the real run would choose (the first that names a scheme and has
+ * every scheme configured), else none where `{}` allows anonymous access, else the first alternative's, in the
+ * alternative's order; it prints nothing on stderr, never prompts, even on a terminal, sends nothing and exits 0. It
+ * replaces five example cases, the print of a JSON POST's request line and headers among them; the exhaustion proves
+ * it over every requirement of at most two alternatives.
+ */
+export const previewedCredentials = property.exhaust(previews, {
+	needs: {},
+	box: "every requirement of at most two alternatives over the bearer and apiKey schemes and {}, under every set of configured schemes, on a terminal and off one",
+	situations: PREVIEW_FEATURES satisfies ReadonlyArray<Reached<PreviewFeature>>,
+	check: (_, c: Case<PreviewFeature>) => (preview) =>
+		Effect.gen(function* () {
+			c.noteAll(previewFeatures(preview))
+			const sent = yield* sendIn(previewWorld(preview))
+			assert.deepEqual<Seen>(seenOf(sent), expectedPreview(preview))
 		}),
-		readLine: Effect.die("unused"),
-		rows: Effect.succeed(24),
-		size: Effect.die("unused")
-	})
-	const tty = world.tty ?? false
-	const stdio = Stdio.layerTest({
-		stderr: capture(stderr),
-		stdin: Stream.empty,
-		stdinIsTerminal: Effect.succeed(tty),
-		stdout: capture(stdout),
-		stdoutIsTerminal: Effect.succeed(tty)
-	})
-	const recorded = Layer.effect(RunCredentials)(Ref.make(world.recorded ?? []))
-	const environment = Layer.mergeAll(
-		BaseUrl.layer(servers, "EXAMPLE"),
-		Auth.layer(security, "EXAMPLE", []),
-		ConfigProvider.layer(ConfigProvider.fromEnvRecord(world.env ?? {})),
-		FileSystem.layerNoop({}),
-		Path.layer,
-		stdio,
-		TerminalCapabilities.layer.pipe(Layer.provide(stdio)),
-		Layer.succeed(Terminal.Terminal, terminal),
-		Input.stdinClaimLayer,
-		recorded,
-		Layer.succeed(Transport, {
-			certified: Option.none(),
-			plain: { direct: client, environment: client }
-		}),
-		Layer.succeed(Output.ClientPolicy, {
-			binName: "example",
-			version: "1.2.3"
-		}),
-		Layer.succeed(Output.OutputPath, Option.none()),
-		Layer.succeed(Output.Force, false),
-		Layer.succeed(BaseUrl.baseUrlSetting, Option.none()),
-		Layer.succeed(BaseUrl.serverSetting, Option.none()),
-		Layer.succeed(BaseUrl.serverVariableSetting, []),
-		Layer.succeed(Auth.allowCredentialsForBaseUrl, false),
-		Layer.succeed(Client.verboseSetting, world.verbose ?? false),
-		Layer.succeed(Output.dryRunSetting, world.dryRun ?? true)
-	)
-	const exit = await Effect.runPromise(
-		Effect.exit(
-			Output.finalCatch([], { envPrefix: "EXAMPLE" })(Output.send(world.operation)(world.request))
-		).pipe(Effect.provide(environment))
-	)
-	const failure = Exit.isFailure(exit)
-		? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
-		: undefined
-
-	return {
-		asked,
-		exit,
-		failure,
-		sent,
-		stderr: Buffer.concat(stderr).toString("utf-8"),
-		stdout: Buffer.concat(stdout).toString("utf-8")
-	}
-}
-
-// m3-hb5: the preview of a request that cannot be built is wrong (M3-DR1), so a configured value
-// the real run refuses is refused under `--dry-run` with the same `UsageError`.
-const refusedLikeTheRealRun = async (world: World) => {
-	const dry = await run({ ...world, dryRun: true })
-	const real = await run({ ...world, dryRun: false })
-
-	expect(dry.failure).toMatchObject({ _tag: "UsageError" })
-	expect(dry.failure?.[Runtime.errorExitCode]).toBe(2)
-	expect(real.failure).toMatchObject({ _tag: "UsageError" })
-	expect(dry.stderr).toBe(real.stderr)
-	expect(dry.stderr).not.toBe("")
-	expect(dry.stdout).toBe("")
-	expect(dry.sent).toBe(0)
-	expect(real.sent).toBe(0)
-
-	return dry
-}
-
-describe("Output.send --dry-run", () => {
-	test("prints the method line, the headers in send order with the placeholder, and the body", async () => {
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			request: jsonPost
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout.split("\n")).toEqual([
-			"POST https://api.example.com/v1/items HTTP/1.1",
-			"content-type: application/json",
-			"accept: application/json",
-			"user-agent: example/1.2.3",
-			"authorization: Bearer <redacted:bearerAuth>",
-			"content-length: 12",
-			"",
-			'{"name":"a"}',
-			""
-		])
-		expect(result.stdout).not.toContain(SECRET)
-		expect(result.stderr).not.toContain(SECRET)
-	})
-
-	test("with no credential configured it exits 0 and shows the first alternative's placeholders", async () => {
-		const result = await run({
-			operation: meta("GET", [["bearerAuth", "apiKey"], ["apiKey"]]),
-			request: HttpClientRequest.get("/items")
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.failure).toBeUndefined()
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain("authorization: Bearer <redacted:bearerAuth>\n")
-		expect(result.stdout).toContain("x-key: <redacted:apiKey>\n")
-	})
-
-	test("[{}, {apiKey}] with the key configured prints the apiKey placeholder, not an anonymous request", async () => {
-		const result = await run({
-			env: { EXAMPLE_API_KEY: KEY },
-			operation: meta("GET", [[], ["apiKey"]]),
-			request: HttpClientRequest.get("/items")
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain("x-key: <redacted:apiKey>\n")
-		expect(result.stdout).not.toContain("authorization")
-		expect(result.stdout).not.toContain(KEY)
-	})
-
-	test("never prompts, even when stdin and stdout are TTYs", async () => {
-		const control = await run({
-			dryRun: false,
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items"),
-			tty: true
-		})
-		const result = await run({
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items"),
-			tty: true
-		})
-
-		expect(control.asked).toBe(1)
-		expect(result.asked).toBe(0)
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain("authorization: Bearer <redacted:bearerAuth>\n")
-	})
-
-	test("a multipart file part prints as <file <basename>, N bytes>", async () => {
-		const body = await Effect.runPromise(
-			Multipart.formData(
-				[
-					{ body: bytes('{"a":1}'), contentType: "application/json", name: "meta" },
-					{
-						body: Stream.make(bytes("PNG"), bytes("DATA")),
-						contentType: "image/png",
-						filename: "photo.png",
-						name: "file"
-					}
-				],
-				Option.some("BOUNDARY")
-			)
-		)
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			request: HttpClientRequest.post("/items").pipe(HttpClientRequest.setBody(body))
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout.slice(result.stdout.indexOf("\n\n") + 2)).toBe(
-			[
-				"--BOUNDARY",
-				'Content-Disposition: form-data; name="meta"',
-				"Content-Type: application/json",
-				"",
-				'{"a":1}',
-				"--BOUNDARY",
-				'Content-Disposition: form-data; name="file"; filename="photo.png"',
-				"Content-Type: image/png",
-				"",
-				"<file photo.png, 7 bytes>",
-				"--BOUNDARY--",
-				""
-			].join("\r\n")
-		)
-		expect(result.stdout).not.toContain("PNGDATA")
-	})
-
-	test("a stdin binary body prints <binary body from stdin> without reading stdin", async () => {
-		let read = false
-		const stdin = Stream.fromEffect(
-			Effect.sync(() => {
-				read = true
-
-				return bytes("raw")
-			})
-		)
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.setBody(HttpBody.stream(stdin))
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(read).toBe(false)
-		expect(result.stdout.endsWith("\n\n<binary body from stdin>\n")).toBe(true)
-	})
-
-	test("a recorded secret-file value in the body is replaced by its placeholder", async () => {
-		const password = "pw-DRY-RUN-SECRET"
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			recorded: [{ kind: "secret", label: "password-file", value: Redacted.make(password) }],
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.bodyText(JSON.stringify({ password }), "application/json")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain('{"password":"<redacted:password-file>"}')
-		expect(result.stdout).not.toContain(password)
-	})
-
-	test("a streamed text body never prints a recorded secret-file value or a credential", async () => {
-		const password = "pw-STREAM-SECRET"
-		const text = `{"password":"${password}","token":"${SECRET}"}\n`
-		const cut = text.indexOf(password) + 4
-		const chunks = [
-			bytes(text.slice(0, cut)),
-			bytes(text.slice(cut, cut + 9)),
-			bytes(text.slice(cut + 9))
-		]
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			recorded: [{ kind: "secret", label: "password-file", value: Redacted.make(password) }],
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.setBody(
-					HttpBody.stream(Stream.fromIterable(chunks), "text/plain", text.length)
-				),
-				HttpClientRequest.setHeader("content-type", "text/plain")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain(
-			'{"password":"<redacted:password-file>","token":"<redacted:bearerAuth>"}\n'
-		)
-		expect(result.stdout).not.toContain(password)
-		expect(result.stdout).not.toContain(SECRET)
-		expect(result.stderr).not.toContain(password)
-		expect(result.stderr).not.toContain(SECRET)
-	})
-
-	test("a multipart text part never prints a recorded secret-file value or a credential", async () => {
-		const password = "pw-PART-SECRET"
-		const text = `note ${password} and ${SECRET}`
-		const cut = text.indexOf(SECRET) + 5
-		const body = await Effect.runPromise(
-			Multipart.formData(
-				[
-					{
-						body: Stream.make(bytes(text.slice(0, cut)), bytes(text.slice(cut))),
-						contentType: "text/plain",
-						name: "note"
-					}
-				],
-				Option.some("BOUNDARY")
-			)
-		)
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			recorded: [{ kind: "secret", label: "password-file", value: Redacted.make(password) }],
-			request: HttpClientRequest.post("/items").pipe(HttpClientRequest.setBody(body))
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain(
-			"\r\n\r\nnote <redacted:password-file> and <redacted:bearerAuth>\r\n--BOUNDARY--"
-		)
-		expect(result.stdout).not.toContain(password)
-		expect(result.stdout).not.toContain(SECRET)
-		expect(result.stderr).not.toContain(password)
-		expect(result.stderr).not.toContain(SECRET)
-	})
-
-	test("an application/x-ndjson body from a file prints its records with a recorded value replaced", async () => {
-		const password = "pw-NDJSON-SECRET"
-		const text = `{"id":1,"password":"${password}"}\n{"id":2}\n`
-		const cut = text.indexOf(password) + 3
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			recorded: [{ kind: "secret", label: "password-file", value: Redacted.make(password) }],
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.setBody(
-					HttpBody.stream(
-						Stream.make(bytes(text.slice(0, cut)), bytes(text.slice(cut))),
-						"application/x-ndjson",
-						text.length
-					)
-				),
-				HttpClientRequest.setHeader("content-type", "application/x-ndjson")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout.slice(result.stdout.indexOf("\n\n") + 2)).toBe(
-			'{"id":1,"password":"<redacted:password-file>"}\n{"id":2}\n'
-		)
-		expect(result.stdout).not.toContain(password)
-		expect(result.stdout).not.toContain("<binary body")
-	})
-
-	test("a text-family stdin body prints <body from stdin> without reading stdin", async () => {
-		let read = false
-		const stdin = Stream.fromEffect(
-			Effect.sync(() => {
-				read = true
-
-				return bytes('{"name":"a"}')
-			})
-		)
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.setBody(HttpBody.stream(stdin, "application/json")),
-				HttpClientRequest.setHeader("content-type", "application/json")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(read).toBe(false)
-		expect(result.stdout.endsWith("\n\n<body from stdin>\n")).toBe(true)
-	})
-
-	test("a sequential stdin body prints <body from stdin> without reading stdin", async () => {
-		let read = false
-		const stdin = Stream.fromEffect(
-			Effect.sync(() => {
-				read = true
-
-				return bytes('{"id":1}\n')
-			})
-		)
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.setBody(HttpBody.stream(stdin, "application/x-ndjson")),
-				HttpClientRequest.setHeader("content-type", "application/x-ndjson")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(read).toBe(false)
-		expect(result.stdout.endsWith("\n\n<body from stdin>\n")).toBe(true)
-	})
-
-	test("an application/octet-stream body still prints <binary body, N bytes>", async () => {
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: SECRET },
-			operation: meta("POST"),
-			request: HttpClientRequest.post("/items").pipe(
-				HttpClientRequest.setBody(
-					HttpBody.stream(Stream.make(bytes("RAWDATA")), "application/octet-stream", 7)
-				),
-				HttpClientRequest.setHeader("content-type", "application/octet-stream")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout.endsWith("\n\n<binary body, 7 bytes>\n")).toBe(true)
-		expect(result.stdout).not.toContain("RAWDATA")
-	})
-
-	test("a redacted header is exempt only when it is exactly a placeholder form", async () => {
-		const canary = "canary-COOKIE-SECRET"
-		const result = await run({
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items").pipe(
-				HttpClientRequest.setHeader("cookie", `a=<redacted:bearerAuth>; session=${canary}`)
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).not.toContain(canary)
-		expect(result.stdout).toContain("cookie: a=<redacted:bearerAuth>; session=<redacted>\n")
-		expect(result.stdout).toContain("authorization: Bearer <redacted:bearerAuth>\n")
-	})
-
-	test("--dry-run prints a Redacted query parameter as a bare <redacted>", async () => {
-		const result = await run({
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items").pipe(
-				HttpClientRequest.setUrlParam("note", Redacted.make("canary-REDACTED-PARAM"))
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(printed(result.stdout, "GET ")).toBe(
-			"GET https://api.example.com/v1/items?note=<redacted> HTTP/1.1"
-		)
-		expect(result.stdout).not.toContain("canary-REDACTED-PARAM")
-	})
-
-	test("--dry-run prints a query value under a redacted name as a bare <redacted>", async () => {
-		const result = await run({
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items").pipe(
-				HttpClientRequest.setUrlParam("sig", "canary-SIG-VALUE")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(printed(result.stdout, "GET ")).toBe(
-			"GET https://api.example.com/v1/items?sig=<redacted> HTTP/1.1"
-		)
-		expect(result.stdout).not.toContain("canary-SIG-VALUE")
-	})
-
-	test("--dry-run prints a redacted header value that is not a placeholder as a bare <redacted>", async () => {
-		const result = await run({
-			operation: meta("GET", []),
-			request: HttpClientRequest.get("/items").pipe(
-				HttpClientRequest.setHeader("x-api-key", "canary-HEADER-VALUE")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(printed(result.stdout, "x-api-key: ")).toBe("x-api-key: <redacted>")
-		expect(result.stdout).not.toContain("canary-HEADER-VALUE")
-	})
-
-	test("--dry-run prints a Cookie pair with no = as a bare <redacted>", async () => {
-		const result = await run({
-			operation: meta("GET", []),
-			request: HttpClientRequest.get("/items").pipe(
-				HttpClientRequest.setHeader("cookie", "canary-BARE-PAIR")
-			)
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(printed(result.stdout, "cookie: ")).toBe("cookie: <redacted>")
-		expect(result.stdout).not.toContain("canary-BARE-PAIR")
-	})
-
-	test("a configured bearer credential holding CR LF is refused as the real run refuses it", async () => {
-		const result = await refusedLikeTheRealRun({
-			env: { EXAMPLE_BEARER_AUTH: "tok\r\nX-Evil: 1" },
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items")
-		})
-
-		expect(result.stderr).toContain("the credential for bearerAuth has a CR, LF, NUL")
-		expect(result.stderr).not.toContain("X-Evil")
-	})
-
-	test("a configured apiKey holding U+0100 is refused as the real run refuses it", async () => {
-		const result = await refusedLikeTheRealRun({
-			env: { EXAMPLE_API_KEY: "key\u0100" },
-			operation: meta("GET", [["apiKey"]]),
-			request: HttpClientRequest.get("/items")
-		})
-
-		expect(result.stderr).toContain("the credential for apiKey has a CR, LF, NUL")
-	})
-
-	test("a valid configured apiKey still prints its placeholder", async () => {
-		const result = await run({
-			env: { EXAMPLE_API_KEY: KEY },
-			operation: meta("GET", [["apiKey"]]),
-			request: HttpClientRequest.get("/items")
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout).toContain("x-key: <redacted:apiKey>\n")
-		expect(result.stdout).not.toContain(KEY)
-	})
-})
-
-// Hater m3 HB1: a credential shorter than a placeholder is never spelled out inside one. Removing
-// every placeholder token leaves no character of the credential, and no marker nests in another.
-describe("a one-character credential is never recoverable from output (HB1)", () => {
-	const placeholderToken = /<redacted(?::[^<>]*)?>/gu
-
-	const decodeErrorJson = Schema.decodeUnknownSync(
-		Schema.Struct({
-			error: Schema.Struct({
-				body: Schema.String,
-				kind: Schema.String,
-				message: Schema.String,
-				operation: Schema.String,
-				status: Schema.Number
-			})
-		})
-	)
-
-	const expectOpaque = (text: string) => {
-		expect(text).not.toContain("<red<")
-		expect(text.replaceAll(placeholderToken, "")).not.toContain("a")
-	}
-
-	test("--dry-run", async () => {
-		const result = await run({
-			env: { EXAMPLE_BEARER_AUTH: "a" },
-			operation: meta("POST"),
-			request: jsonPost
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(0)
-		expect(result.stdout.split("\n").find((line) => line.includes("thoriz"))).toMatch(
-			/tion: <redacted>$/u
-		)
-		expectOpaque(result.stdout)
-		expectOpaque(result.stderr)
-	})
-
-	test("--verbose", async () => {
-		const result = await run({
-			dryRun: false,
-			env: { EXAMPLE_BEARER_AUTH: "a" },
-			operation: meta("GET"),
-			request: HttpClientRequest.get("/items"),
-			verbose: true
-		})
-
-		expect(Exit.isSuccess(result.exit)).toBe(true)
-		expect(result.sent).toBe(1)
-
-		// The `> ` and `< ` blocks; the undeclared-media notice carries only the operation id.
-		const blocks = result.stderr
-			.split("\n")
-			.filter((line) => line.startsWith("> ") || line.startsWith("< "))
-			.join("\n")
-
-		expect(blocks).toContain("thoriz<redacted:bearerAuth>tion: <redacted>")
-		expectOpaque(blocks)
-	})
-
-	test("an error under <PREFIX>_ERROR_FORMAT=json", async () => {
-		const result = await run({
-			dryRun: false,
-			env: { EXAMPLE_BEARER_AUTH: "a", EXAMPLE_ERROR_FORMAT: "json" },
-			operation: meta("GET"),
-			reply: () =>
-				new Response('{"error":"bad token a","hint":"<redacted:bearerAuth>"}', {
-					headers: { "content-type": "application/json" },
-					status: 400
-				}),
-			request: HttpClientRequest.get("/items")
-		})
-
-		expect(Exit.isFailure(result.exit)).toBe(true)
-
-		// The scrubbed fields; the keys and `kind` and `matched` are the runtime's own vocabulary.
-		const { error } = decodeErrorJson(JSON.parse(result.stderr))
-
-		expect(error).toMatchObject({ kind: "ApiResponseError", status: 400 })
-		expect(error.body).toContain('"hint":"<redacted:bearerAuth>"')
-		expectOpaque(result.stdout)
-		for (const field of [error.body, error.message, error.operation]) {
-			expectOpaque(field)
+	oracle: {
+		kind: "specification",
+		name: "design 4.6 and D-OUT3: the chosen alternative's placeholders, the first alternative's when none is configured, no prompt, no send"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "const first = allowsAnonymous(requirement) ? [] : (requirement[0] ?? [])",
+			replacement: "const first = requirement[0] ?? []",
+			why: "A requirement whose {} allows anonymous access shows its first alternative's placeholders when nothing is configured; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "\t\t\tif (alternative.length === 0) {\n\t\t\t\tcontinue\n\t\t\t}",
+			replacement: "\t\t\tif (alternative.length === 0) {\n\t\t\t\treturn Option.some([])\n\t\t\t}",
+			why: "A {} before a configured alternative is chosen, so the dry run shows an anonymous request where the real run sends the credential; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "return { credentials: configured.value, placeholders: configured.value }",
+			replacement: "return { credentials: configured.value, placeholders: [] }",
+			why: "A configured alternative's placeholders are never written, so the dry run hides where its credentials go; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "const chosen = dryRun",
+			replacement: "const chosen = !dryRun",
+			why: "The dry run evaluates the requirement as a real run does, so it prompts on a terminal and fails for a missing credential; the property fails."
 		}
-	})
+	]
 })
 
-// Security review of m3-hb1: a server that wraps the credential in placeholder-shaped text cannot
-// make it print in an error body.
-describe("a credential echoed inside placeholder-shaped text is scrubbed (HB1b)", () => {
-	const echo = `{"echo":"<redacted:${SECRET}>","open":"<redacted:${SECRET} tail>"}`
+/**
+ * A configured value the real run refuses (a CR, LF or NUL, leading or trailing whitespace, a code point above U+00FF)
+ * is refused by the dry run as the real run refuses it (M3-DR1, m3-hb5): the same UsageError, exit 2, the same stderr
+ * naming the scheme and never the value's text, nothing on stdout, nothing sent. It replaces two example cases.
+ */
+export const refusedLikeTheRealRun = property.exhaust(refusals, {
+	needs: {},
+	box: "every flaw a configured value can carry, in each scheme's credential",
+	situations: [...FLAWS, "bearerAuth", "apiKey"] satisfies ReadonlyArray<Reached<Flaw | Scheme>>,
+	check: (_, c: Case<Flaw | Scheme>) => (refusal) =>
+		Effect.gen(function* () {
+			c.noteAll([refusal.flaw, refusal.scheme])
+			const real = yield* sendIn(refusedWorld(refusal))
+			const dry = yield* sendIn({ ...refusedWorld(refusal), dryRun: true })
+			matchesObject(
+				dry.failure,
+				Option.some({ _tag: "UsageError", [Runtime.errorExitCode]: 2 }),
+				"the dry run is refused with a usage error, exit 2"
+			)
+			matchesObject(
+				real.failure,
+				Option.some({ _tag: "UsageError" }),
+				"the real run is refused with a usage error"
+			)
+			assert.deepEqual(
+				{
+					stderr: dry.stderr,
+					stdout: dry.stdout,
+					sent: dry.requests.length + real.requests.length
+				},
+				{ stderr: real.stderr, stdout: "", sent: 0 }
+			)
+			containsText(dry.stderr, `the credential for ${refusal.scheme} has a CR, LF, NUL`)
+			lacksText(dry.stderr, INJECTED)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "M3-DR1: a dry run fails where the real run would, with the real run's error"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original:
+				"value === undefined ? Effect.void : Effect.asVoid(attachOne(request, { ...entry, value }))",
+			replacement: "Effect.void",
+			why: "The dry run writes the placeholder of a value the real run refuses, so it previews a request that cannot be sent; the property fails."
+		}
+	]
+})
 
-	test("an error body under <PREFIX>_ERROR_FORMAT=json", async () => {
-		const result = await run({
-			dryRun: false,
-			env: { EXAMPLE_BEARER_AUTH: SECRET, EXAMPLE_ERROR_FORMAT: "json" },
-			operation: meta("GET"),
-			reply: () =>
-				new Response(echo, { headers: { "content-type": "application/json" }, status: 400 }),
-			request: HttpClientRequest.get("/items")
-		})
+/**
+ * A dry run's body (design 4.6 DM3-8): a text body in memory, from a file or sequential prints as its text with the
+ * recorded secret-file value and the credential each its placeholder, wherever its chunks are cut; a body from stdin
+ * prints `<body from stdin>` for a text media type and `<binary body from stdin>` for any other, and stdin is never
+ * read; a binary body prints `<binary body, N bytes>`; a multipart body prints its delimiters and part heads, each text
+ * part scrubbed, a file part `<file <filename>, N bytes>` and a binary part `<binary part, N bytes>`. Nothing is sent,
+ * stderr is empty, and neither secret prints anywhere. It replaces nine example cases.
+ */
+export const printedBodies = property.explore(aimedBodies, {
+	needs: {},
+	situations: BODY_FEATURES satisfies ReadonlyArray<Reached<BodyFeature>>,
+	check: (_, c: Case<BodyFeature>) => (body) =>
+		Effect.gen(function* () {
+			c.noteAll(bodyFeatures(body))
+			const read = yield* Ref.make(false)
+			const world = yield* bodyWorld(body, read)
+			const sent = yield* sendIn(world)
+			const stdinRead = yield* Ref.get(read)
+			assert.deepEqual(
+				{
+					exit: sent.exit._tag,
+					sent: sent.requests.length,
+					stdinRead,
+					stderr: sent.stderr,
+					body: bodyOf(sent.stdout)
+				},
+				{
+					exit: "Success",
+					sent: 0,
+					stdinRead: false,
+					stderr: "",
+					body: Option.some(expectedBody(body))
+				}
+			)
+			lacksText(sent.stdout, PASSWORD)
+			lacksText(sent.stdout, BEARER)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.6 DM3-8: each body kind's print, every recorded value and credential its placeholder"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original:
+				'return line(printsAsText(mediaType) ? "<body from stdin>" : "<binary body from stdin>")',
+			replacement:
+				'return line(printsAsText(mediaType) ? "<binary body from stdin>" : "<body from stdin>")',
+			why: "A text body from stdin prints as a binary one and a binary one as text; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "if (body.contentLength === undefined) {",
+			replacement: "if (false) {",
+			why: "A body from stdin is read to print it, or summarized with no size; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: `this.summary = \`file \${filename}\``,
+			replacement: "this.summary = undefined",
+			why: "A multipart file part's content prints where its summary belongs; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: 'this.summary = "binary part"',
+			replacement: "this.summary = undefined",
+			why: "A multipart binary part's bytes print where its summary belongs; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "(scrubber, chunk: Uint8Array) => [scrubber, scrubber.push(chunk)] as const",
+			replacement: "(scrubber, chunk: Uint8Array) => [scrubber, [chunk]] as const",
+			why: "A streamed text body prints unscrubbed, so the recorded value and the credential show; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "out.push(...this.text.push(bytes))",
+			replacement: "out.push(bytes)",
+			why: "A multipart text part prints unscrubbed, so the recorded value and the credential show; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "? line(scrubValues(new TextDecoder().decode(body.body), recorded))",
+			replacement: "? line(new TextDecoder().decode(body.body))",
+			why: "A text body in memory prints unscrubbed, so a recorded secret-file value shows; the property fails."
+		}
+	]
+})
 
-		expect(Exit.isFailure(result.exit)).toBe(true)
-		expect(result.stderr).toContain("<redacted:bearerAuth>")
-		expect(result.stdout).not.toContain(SECRET)
-		expect(result.stderr).not.toContain(SECRET)
-	})
+/**
+ * A dry run prints a value under a redacted name as `<redacted>` unless it is exactly the run's own placeholder (design
+ * 4.6, 7.5): a `Redacted` query value always; a plain one under a redacted query name unless it is the placeholder; a
+ * redacted header unless it is a placeholder form of the run's (after `Bearer` or `Basic`); a Cookie pair by pair, a
+ * bare pair always; another scheme's placeholder is no placeholder of the run's; every value under a plain name prints
+ * as it is. It replaces five example cases.
+ */
+export const printedRedactedNames = property.explore(aimedDecorations, {
+	needs: {},
+	situations: DECORATED_FEATURES satisfies ReadonlyArray<Reached<DecoratedFeature>>,
+	check: (_, c: Case<DecoratedFeature>) => (decorated) =>
+		Effect.gen(function* () {
+			c.noteAll(decoratedFeatures(decorated))
+			const sent = yield* sendIn(decoratedWorld(decorated))
+			assert.deepEqual(
+				{ exit: sent.exit._tag, sent: sent.requests.length, stdout: sent.stdout },
+				{ exit: "Success", sent: 0, stdout: expectedDecorated(decorated) }
+			)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 4.6 and 7.5: a redacted name's value is the run's own placeholder or <redacted>, pair by pair in a Cookie"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "return forms.has(value) ? value : redactedPlaceholder()",
+			replacement: "return value",
+			why: "A value under a redacted header name prints as it is; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "onNone: () => redactedPlaceholder(),",
+			replacement: "onNone: () => pair,",
+			why: "A Cookie pair with no = prints as it is; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/auth.ts",
+			original: "written.has(Str.slice(equals + 1)(pair))",
+			replacement: "true",
+			why: "Every Cookie pair is kept, its value no placeholder of the run's; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "\t\tif (Redacted.isRedacted(value)) {\n\t\t\treturn redactedPlaceholder()",
+			replacement: "\t\tif (Redacted.isRedacted(value)) {\n\t\t\treturn Redacted.value(value)",
+			why: "A Redacted query value prints as it is; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			original: "UrlParams.isRedactedName(decodedQueryName(part.slice(0, equals)), names)",
+			replacement: "false",
+			why: "A query value under a redacted name prints as it is; the property fails."
+		}
+	]
+})
+
+/**
+ * A one-character credential, shorter than every placeholder, is never spelled out inside one (hater m3 HB1): on a dry
+ * run's two streams, a verbose send's request and response blocks and its stdout, and a JSON error's scrubbed fields,
+ * removing every placeholder the run emits whole leaves neither the credential's character nor an angle bracket, the
+ * mark of a placeholder nested in another. Each run also ends as its path does: the dry run sends nothing, the verbose
+ * send its one request, and the refused send fails with the server's 400. It replaces three example cases, each over the
+ * credential `a`; the exhaustion proves it over every letter the runtime's own output spells.
+ */
+export const oneCharacterCredential = property.exhaust(oneCharacters, {
+	needs: {},
+	box: "every letter of the runtime's own output as the bearer credential, on a dry run, a verbose send and a JSON error",
+	situations: OUTPUT_PATHS satisfies ReadonlyArray<Reached<OutputPath>>,
+	check: (_, c: Case<OutputPath>) => (one: OneCharacter) =>
+		Effect.gen(function* () {
+			c.note(one.path)
+			const sent = yield* sendIn(oneCharacterWorld(one))
+			const exposed = (text: string) => exposedIn(text, one.credential)
+			switch (one.path) {
+				case "a dry run":
+					assert.deepEqual(
+						{
+							exit: sent.exit._tag,
+							sent: sent.requests.length,
+							stdout: exposed(sent.stdout),
+							stderr: exposed(sent.stderr)
+						},
+						{ exit: "Success", sent: 0, stdout: [], stderr: [] }
+					)
+					return
+				case "a verbose send":
+					assert.deepEqual(
+						{
+							exit: sent.exit._tag,
+							sent: sent.requests.length,
+							stdout: exposed(sent.stdout),
+							blocks: exposed(verboseBlocks(sent.stderr))
+						},
+						{ exit: "Success", sent: 1, stdout: [], blocks: [] }
+					)
+					return
+				case "a JSON error": {
+					const error = Option.map(errorLineOf(sent.stderr), (fields) => ({
+						kind: fields.kind,
+						status: fields.status,
+						body: exposed(fields.body),
+						message: exposed(fields.message),
+						operation: exposed(fields.operation)
+					}))
+					assert.deepEqual(
+						{ exit: sent.exit._tag, stdout: exposed(sent.stdout), error },
+						{
+							exit: "Failure",
+							stdout: [],
+							error: Option.some({
+								kind: "ApiResponseError",
+								status: 400,
+								body: [],
+								message: [],
+								operation: []
+							})
+						}
+					)
+					return
+				}
+			}
+		}),
+	oracle: {
+		kind: "specification",
+		name: "hater m3 HB1: no character of a credential outside a placeholder, and no placeholder inside another"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/redact.ts",
+			original: "\t\t\t\tinsideToken(start, start + form.length)\n\t\t\t\t\t? Result.failVoid",
+			replacement: "\t\t\t\tfalse\n\t\t\t\t\t? Result.failVoid",
+			why: "A placeholder the run already printed is scrubbed again, so a one-character credential is spelled out inside it; the property fails."
+		},
+		{
+			file: "packages/generator/src/runtime-src/runtime/response.ts",
+			original:
+				'\t\tisSuccess(response.status)\n\t\t\t? Effect.succeed(response)\n\t\t\t: Effect.fail(toApiResponseError(table, response, "", scrubbed, Option.none()))',
+			replacement:
+				'\t\tisSuccess(response.status)\n\t\t\t? Effect.fail(toApiResponseError(table, response, "", scrubbed, Option.none()))\n\t\t\t: Effect.succeed(response)',
+			why: "A 2xx answer is classified as an API error and a 400 as a success, so the verbose send fails and the refused one succeeds; the property fails (TESTPOLICY2's census of this module, mutant 65041189b6)."
+		}
+	]
+})
+
+/**
+ * A credential a server echoes in its error body is scrubbed in every form, placeholder-shaped text among them (the
+ * security review of m3-hb1): bare, inside `<redacted:...>`, inside an unclosed one, after the scheme's own label, and
+ * beside the scheme's placeholder, under the text and the JSON error format. The run fails, stderr holds the scheme's
+ * placeholder, and neither stream holds the credential. It replaces one example case, the first two echo forms under
+ * JSON errors.
+ */
+export const echoedInsidePlaceholders = property.exhaust(echoes, {
+	needs: {},
+	box: "every echo form of the configured bearer credential in a 400's body, under each error format",
+	situations: ECHOES satisfies ReadonlyArray<Reached<Echo>>,
+	check: (_, c: Case<Echo>) => (echoed) =>
+		Effect.gen(function* () {
+			c.note(echoed.echo)
+			const sent = yield* sendIn(echoedWorld(echoed))
+			assert.equal(sent.exit._tag, "Failure")
+			containsText(sent.stderr, "<redacted:bearerAuth>")
+			lacksText(sent.stdout, BEARER)
+			lacksText(sent.stderr, BEARER)
+		}),
+	oracle: {
+		kind: "specification",
+		name: "the security review of m3-hb1: placeholder-shaped text a server sends is ordinary input to the scrub"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/generator/src/runtime-src/runtime/redact.ts",
+			original: "Arr.dedupe([redactedPlaceholder(), ...Arr.map(entries, placeholderOf)])",
+			replacement:
+				"Arr.dedupe([redactedPlaceholder(), ...Arr.map(entries, placeholderOf), ...Arr.map(Arr.fromIterable(text.matchAll(/<redacted:[^>]*>/gu)), (match) => match[0])])",
+			why: "Any placeholder-shaped text is opaque to the scrub, so a credential a server wraps in one prints; the property fails."
+		}
+	]
 })
