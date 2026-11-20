@@ -7,8 +7,10 @@ import {
 	Option,
 	Order,
 	Predicate,
+	Record,
 	Result,
-	Schema
+	Schema,
+	String as Str
 } from "effect"
 import {
 	buildsParameter,
@@ -20,7 +22,7 @@ import {
 	scalarTypeOf,
 	takesJsonContent
 } from "#emit/api.ts"
-import type { FormPart, MixedPlan, NestedFormPart, PartHeader } from "#emit/api.ts"
+import type { FormPart, NestedFormPart, PartHeader } from "#emit/api.ts"
 import { operationHelp } from "#emit/help.ts"
 import type { HelpBodyField, HelpFlag, HelpPartOption } from "#emit/help.ts"
 import type { EmittedFile } from "#emit/package.ts"
@@ -79,6 +81,25 @@ export interface CliEmitInput {
 }
 
 /**
+ * The reasons that refuse one operation (`CliRefusal`): its command is not emitted, the rest of
+ * the package is.
+ */
+const operationReasons = ["unsupported-body", "unsupported-flag", "unsupported-parameter"] as const
+
+type OperationReason = (typeof operationReasons)[number]
+
+/** The reasons that fail `emitCli` whole. */
+type PackageReason =
+	| "name-clash"
+	| "reserved-segment"
+	| "unknown-parent"
+	| "unknown-primary"
+	| "unplanned-parameter"
+	| "unprintable-name"
+	| "unresolved-schema"
+	| "unsafe-commands-module"
+
+/**
  * The plan, model or author config holds something the `cli/` layer cannot express. An SSE body is
  * `unsupported-body`, and so is a multipart body the runtime writer cannot send exactly
  * (`formParts` names why), alone or beside other media; an XML body is opaque `--body-file` bytes,
@@ -92,31 +113,12 @@ export interface CliEmitInput {
  * `emitCli`.
  */
 export class CliEmitError extends Data.TaggedError("CliEmitError")<{
-	readonly reason:
-		| "name-clash"
-		| "reserved-segment"
-		| "unknown-parent"
-		| "unknown-primary"
-		| "unplanned-parameter"
-		| "unprintable-name"
-		| "unresolved-schema"
-		| "unsafe-commands-module"
-		| "unsupported-body"
-		| "unsupported-flag"
-		| "unsupported-parameter"
+	readonly reason: OperationReason | PackageReason
 	readonly subject: string
 }> {}
 
-type OperationReason = "unsupported-body" | "unsupported-flag" | "unsupported-parameter"
-
-const operationReasons: readonly string[] = [
-	"unsupported-body",
-	"unsupported-flag",
-	"unsupported-parameter"
-] satisfies readonly OperationReason[]
-
 const isOperationReason = (reason: CliEmitError["reason"]): reason is OperationReason =>
-	operationReasons.includes(reason)
+	Arr.some(operationReasons, (candidate) => candidate === reason)
 
 /**
  * An operation-scope refusal: the operation's command is not emitted, the rest of the package
@@ -137,7 +139,7 @@ export interface CliEmitOutput {
 	readonly refusals: readonly CliRefusal[]
 }
 
-type Defs = Readonly<Record<string, Schema.Json>>
+type Defs = Record.ReadonlyRecord<string, Schema.Json>
 
 type Entry = readonly [string, Expr]
 
@@ -145,34 +147,29 @@ const refuse = (reason: CliEmitError["reason"], subject: string) =>
 	new CliEmitError({ reason, subject })
 
 const identifier = (name: string) =>
-	Schema.decodeUnknownEffect(Identifier)(name).pipe(
+	Schema.decodeEffect(Identifier)(name).pipe(
 		Effect.mapError(() => refuse("unprintable-name", name))
 	)
 
 const memberName = (name: string) =>
-	Schema.decodeUnknownEffect(MemberName)(name).pipe(
+	Schema.decodeEffect(MemberName)(name).pipe(
 		Effect.mapError(() => refuse("unprintable-name", name))
 	)
 
 const specifier = (value: string, reason: CliEmitError["reason"]) =>
-	Schema.decodeUnknownEffect(ModuleSpecifier)(value).pipe(
-		Effect.mapError(() => refuse(reason, value))
-	)
+	Schema.decodeEffect(ModuleSpecifier)(value).pipe(Effect.mapError(() => refuse(reason, value)))
 
-const I = Schema.decodeSync(Identifier)
+/** A fixed binding name the emitter writes, made as the printer makes its own (`regExpName`). */
+const I = (name: string): typeof Identifier.Type => Identifier.make(name)
 
-const M = Schema.decodeSync(MemberName)
+/** A fixed member name the emitter writes. */
+const M = (name: string): typeof MemberName.Type => MemberName.make(name)
 
-// `path("a.b.c")` is the member access `a.b.c`; every caller passes a fixed name.
+/** `path("a.b.c")` is the member access `a.b.c`; every caller passes a fixed name. */
 const path = (dotted: string): Expr => {
-	const [head = "", ...rest] = dotted.split(".")
+	const [head, ...rest] = Str.split(dotted, ".")
 
-	let expr = ident(I(head))
-	for (const name of rest) {
-		expr = member(expr, M(name))
-	}
-
-	return expr
+	return Arr.reduce(rest, ident(I(head)), (expr, name) => member(expr, M(name)))
 }
 
 const fn = (dotted: string, ...args: readonly Expr[]): Expr => call(path(dotted), args)
@@ -182,13 +179,16 @@ const pipe = (head: Expr, args: readonly Expr[]): Expr =>
 
 const flags = ident(I("flags"))
 
-// Segments of the modules every package has (`api/servers.ts`, `api/security.ts`, `api/root.ts`
-// and `cli/root.ts`). The names plan refuses them first (`TAG-02/reserved-segment`).
+/**
+ * Segments of the modules every package has (`api/servers.ts`, `api/security.ts`, `api/root.ts`
+ * and `cli/root.ts`). The names plan refuses them first (`TAG-02/reserved-segment`).
+ */
 const reservedSegments: ReadonlySet<string> = new Set(["root", "security", "servers"])
 
-const essence = (mediaType: string): string => (mediaType.split(";")[0] ?? "").trim().toLowerCase()
+const essence = (mediaType: string): string =>
+	Str.toLowerCase(Str.trim(Arr.headNonEmpty(Str.split(mediaType, ";"))))
 
-const isRange = (mediaType: string): boolean => essence(mediaType).endsWith("/*")
+const isRange = (mediaType: string): boolean => Str.endsWith("/*")(essence(mediaType))
 
 const isWholeBody = (flag: PlannedFlag): boolean =>
 	flag.source._tag === "Body" &&
@@ -200,39 +200,44 @@ const isPartFlag = (flag: PlannedFlag): boolean =>
 const isFieldFlag = (flag: PlannedFlag): boolean =>
 	flag.source._tag === "Body" && !isWholeBody(flag)
 
-const describedBy = (description: string): readonly Expr[] => {
+/** A description as a printed string, or none when sanitizing leaves no text. */
+const describedBy = (description: string): Option.Option<Expr> => {
 	const text = stripUnsafeText(description)
 
-	return text === "" ? [] : [str(text)]
+	return Str.isEmpty(text) ? Option.none() : Option.some(str(text))
 }
+
+/**
+ * The step that sets a flag's or argument's help text (`combinator` is `Flag.withDescription` or
+ * `Argument.withDescription`), or none when the description has no text.
+ */
+const descriptionStep = (combinator: string, description: string): readonly Expr[] =>
+	Option.toArray(Option.map(describedBy(description), (text) => fn(combinator, text)))
 
 /**
  * A secret flag's description argument: `Option.some` of the sanitized description, or
  * `Option.none()` when the property has none.
  */
-const secretDescription = (description: string): Expr => {
-	const [text] = describedBy(description)
-
-	return text === undefined ? fn("Option.none") : fn("Option.some", text)
-}
-
-// ---------------------------------------------------------------------------------------------
-// Body field schemas: the property a field flag writes, for its description and `int64` check.
-// The walk follows `$ref`, `properties`, `allOf` members and an array's `items`, each node once
-// per pointer token (so a cycle ends). A node is read shallowly: only the keywords below, never
-// its subtree.
+const secretDescription = (description: string): Expr =>
+	Option.match(describedBy(description), {
+		onNone: () => fn("Option.none"),
+		onSome: (text) => fn("Option.some", text)
+	})
 
 const refPrefix = "#/$defs/"
 
-type JsonObject = Readonly<Record<string, Schema.Json>>
+type JsonObject = Record.ReadonlyRecord<string, Schema.Json>
 
 const own = (record: JsonObject, key: string): Schema.Json | undefined =>
-	Object.hasOwn(record, key) ? record[key] : undefined
+	Record.has(record, key) ? record[key] : undefined
 
 const isJsonObject = (json: Schema.Json | undefined): json is JsonObject =>
-	Predicate.isObject(json) && !Array.isArray(json)
+	Predicate.isObject(json) && !Arr.isArray(json)
 
-// A bound outside the safe-integer range makes an integer field a digit string (design 4.5).
+const isJsonArray = (json: Schema.Json | undefined): json is readonly Schema.Json[] =>
+	Arr.isArray(json)
+
+/** A bound outside the safe-integer range makes an integer field a digit string (design 4.5). */
 const boundKeywords: readonly string[] = [
 	"exclusiveMaximum",
 	"exclusiveMinimum",
@@ -244,21 +249,24 @@ interface FieldNode {
 	readonly allOf: readonly Schema.Json[]
 	readonly contentEncoding: string | undefined
 	readonly contentMediaType: string | undefined
-	readonly default: Schema.Json | undefined
+	readonly default: Option.Option<Schema.Json>
 	readonly deprecated: boolean
-	readonly enum: readonly Schema.Json[] | undefined
+	readonly enum: Option.Option<readonly Schema.Json[]>
 	readonly format: string | undefined
 	readonly int64: boolean
 	readonly items: Schema.Json | undefined
-	readonly maxLength: number | undefined
-	readonly prose: string | undefined
+	readonly maxLength: Option.Option<number>
+	readonly prose: Option.Option<string>
 	readonly properties: JsonObject | undefined
 	readonly readOnly: boolean
 	readonly ref: string | undefined
 }
 
-// `None` for a node the walk cannot read: not an object, or a `$ref` that is not a string. A
-// `default` normalize refused reads as absent.
+/**
+ * One node of the walk, read shallowly: only the keywords `FieldNode` holds, never its subtree.
+ * `None` for a node the walk cannot read: not an object, or a `$ref` that is not a string. A
+ * `default` normalize refused reads as absent.
+ */
 const fieldNode = (
 	json: Schema.Json,
 	refusedDefaults: ReadonlySet<Schema.Json>
@@ -275,9 +283,8 @@ const fieldNode = (
 	const allOf = own(json, "allOf")
 	const values = own(json, "enum")
 	const properties = own(json, "properties")
-	const prose = [own(json, "description"), own(json, "title")].find(Predicate.isString)
 	const maxLength = own(json, "maxLength")
-	const unsafe = boundKeywords.some((keyword) => {
+	const unsafe = Arr.some(boundKeywords, (keyword) => {
 		const bound = own(json, keyword)
 
 		return Predicate.isNumber(bound) && Math.abs(bound) > Number.MAX_SAFE_INTEGER
@@ -290,21 +297,23 @@ const fieldNode = (
 	}
 
 	return Option.some({
-		allOf: Array.isArray(allOf) ? allOf : [],
+		allOf: isJsonArray(allOf) ? allOf : [],
 		contentEncoding: text("contentEncoding"),
 		contentMediaType: text("contentMediaType"),
-		default: refusedDefaults.has(json) ? undefined : own(json, "default"),
+		default: refusedDefaults.has(json)
+			? Option.none()
+			: Record.get<string, Schema.Json>(json, "default"),
 		deprecated: own(json, "deprecated") === true,
-		enum: Array.isArray(values) ? values : undefined,
+		enum: isJsonArray(values) ? Option.some(values) : Option.none(),
 		format: text("format"),
 		int64: own(json, "format") === "int64" || unsafe,
 		items: own(json, "items"),
 		maxLength:
 			Predicate.isNumber(maxLength) && Number.isSafeInteger(maxLength) && maxLength >= 0
-				? maxLength
-				: undefined,
+				? Option.some(maxLength)
+				: Option.none(),
 		properties: isJsonObject(properties) ? properties : undefined,
-		prose,
+		prose: Arr.findFirst([own(json, "description"), own(json, "title")], Predicate.isString),
 		readOnly: own(json, "readOnly") === true,
 		ref
 	})
@@ -329,7 +338,7 @@ interface FieldSchema {
 	/**
 	 * The tightest `maxLength` on the `$ref` chain: for a binary body, its byte limit (MED-21).
 	 */
-	readonly maxLength: number | undefined
+	readonly maxLength: Option.Option<number>
 	readonly mediaType: string | undefined
 	/**
 	 * The annotations help notes (SCH-29, 49, 50, 51): the first `enum` and `default` on the `$ref`
@@ -343,8 +352,10 @@ interface FieldSchema {
 	readonly password: boolean
 }
 
-// The node chain a schema reaches through `$ref`, starting at the schema itself; `settled` when
-// it ends at a node without `$ref`.
+/**
+ * The node chain a schema reaches through `$ref`, starting at the schema itself; `settled` when
+ * it ends at a node without `$ref`.
+ */
 interface Chain {
 	readonly nodes: readonly FieldNode[]
 	readonly settled: boolean
@@ -354,8 +365,10 @@ type Work =
 	| { readonly _tag: "Direct"; readonly node: FieldNode }
 	| { readonly _tag: "Expand"; readonly json: Schema.Json }
 
-// The text encoding of a base64 string node: `contentEncoding` on every line, or `format: byte`
-// without one on 3.0 only (FMT-10), as `flattenBody` reads it.
+/**
+ * The text encoding of a base64 string node: `contentEncoding` on every line, or `format: byte`
+ * without one on 3.0 only (FMT-10), as `flattenBody` reads it.
+ */
 const encodingOf = (node: FieldNode, line: SpecLine): FieldEncoding | undefined => {
 	if (node.contentEncoding === "base64" || node.contentEncoding === "base64url") {
 		return node.contentEncoding
@@ -366,14 +379,21 @@ const encodingOf = (node: FieldNode, line: SpecLine): FieldEncoding | undefined 
 		: undefined
 }
 
-// The stored `$defs`, the nodes among them whose `default` normalize refused (S30-27), and the
-// OpenAPI line, which decides whether `format: byte` is a base64 encoding.
+/**
+ * The stored `$defs`, the nodes among them whose `default` normalize refused (S30-27), and the
+ * OpenAPI line, which decides whether `format: byte` is a base64 encoding.
+ */
 interface FieldStore {
 	readonly defs: Defs
 	readonly line: SpecLine
 	readonly refusedDefaults: ReadonlySet<Schema.Json>
 }
 
+/**
+ * A body field's schema: the property a field flag writes, for its description and `int64` check.
+ * The walk follows `$ref`, `properties`, `allOf` members and an array's `items`, each node once
+ * per pointer token, so a cycle ends.
+ */
 const fieldSchema = (
 	{ defs, line, refusedDefaults }: FieldStore,
 	rootKey: string,
@@ -399,14 +419,14 @@ const fieldSchema = (
 				return { nodes, settled: true }
 			}
 
-			current = ref.startsWith(refPrefix)
-				? own(defs, JsonPointer.unescapeToken(ref.slice(refPrefix.length)))
+			current = Str.startsWith(refPrefix)(ref)
+				? own(defs, JsonPointer.unescapeToken(Str.slice(refPrefix.length)(ref)))
 				: undefined
 		}
 
 		return { nodes, settled: false }
 	}
-	// Depth first, in declaration order: a node's own `properties`, then its `allOf` members.
+	/** Depth first, in declaration order: a node's own `properties`, then its `allOf` members. */
 	const property = (start: Schema.Json, name: string): Schema.Json | undefined => {
 		const seen = new Set<Schema.Json>([start])
 		const pending: Work[] = [{ _tag: "Expand", json: start }]
@@ -432,21 +452,23 @@ const fieldSchema = (
 				}
 			}
 
-			pending.push(...Arr.reverse(later))
+			for (const next of Arr.reverse(later)) {
+				pending.push(next)
+			}
 		}
 
 		return undefined
 	}
 	let target = own(defs, rootKey)
-	for (const token of pointer.split("/").slice(1).map(JsonPointer.unescapeToken)) {
+	for (const token of Arr.map(Arr.drop(Str.split(pointer, "/"), 1), JsonPointer.unescapeToken)) {
 		target = target === undefined ? undefined : property(target, token)
 	}
 
 	const field = chain(target)
 	const items = repeated ? chain(field.nodes.at(-1)?.items) : { nodes: [], settled: true }
-	const described = field.nodes.find((node) => node.prose !== undefined)
+	const reached = Arr.appendAll(field.nodes, items.nodes)
 	const width = (): IntegerWidth => {
-		if ([...field.nodes, ...items.nodes].some((node) => node.int64)) {
+		if (Arr.some(reached, (node) => node.int64)) {
 			return "int64"
 		}
 
@@ -456,25 +478,28 @@ const fieldSchema = (
 	const last = field.nodes.at(-1)
 	const encoding = last === undefined ? undefined : encodingOf(last, line)
 
-	const bounds = field.nodes.flatMap((node) =>
-		node.maxLength === undefined ? [] : [node.maxLength]
-	)
+	const bounds = Arr.getSomes(Arr.map(field.nodes, (node) => node.maxLength))
 
 	const notes: HelpBodyField = {
-		default: Arr.findFirst(field.nodes, (node) => Option.fromUndefinedOr(node.default)),
-		deprecated: field.nodes.some((node) => node.deprecated),
-		enum: [...field.nodes, ...items.nodes].find((node) => node.enum !== undefined)?.enum,
-		readOnly: field.nodes.some((node) => node.readOnly)
+		default: Arr.findFirst(field.nodes, (node) => node.default),
+		deprecated: Arr.some(field.nodes, (node) => node.deprecated),
+		enum: Option.getOrUndefined(Arr.findFirst(reached, (node) => node.enum)),
+		readOnly: Arr.some(field.nodes, (node) => node.readOnly)
 	}
 
 	return {
-		description: described?.prose ?? "",
+		description: Option.getOrElse(
+			Arr.findFirst(field.nodes, (node) => node.prose),
+			() => ""
+		),
 		encoding,
 		integer: width(),
-		maxLength: bounds.length === 0 ? undefined : Math.min(...bounds),
+		maxLength: Arr.isReadonlyArrayNonEmpty(bounds)
+			? Option.some(Arr.min(bounds, Order.Number))
+			: Option.none(),
 		mediaType: last?.contentMediaType,
 		notes,
-		password: (repeated ? items : field).nodes.some((node) => node.format === "password")
+		password: Arr.some((repeated ? items : field).nodes, (node) => node.format === "password")
 	}
 }
 
@@ -482,7 +507,7 @@ const unknownField: FieldSchema = {
 	description: "",
 	encoding: undefined,
 	integer: "unsettled",
-	maxLength: undefined,
+	maxLength: Option.none(),
 	mediaType: undefined,
 	notes: { default: Option.none(), deprecated: false, enum: undefined, readOnly: false },
 	password: false
@@ -490,23 +515,23 @@ const unknownField: FieldSchema = {
 
 type BodyFlagSource = Extract<PlannedFlag["source"], { readonly _tag: "Body" }>
 
-// The body alternative a field flag writes into, and that field's schema.
+/** The body alternative a field flag writes into, and that field's schema. */
 const bodyField = (operation: Operation, source: BodyFlagSource, store: FieldStore) => {
-	const alternative = operation.body?.alternatives.find((candidate) =>
+	const alternative = Arr.findFirst(operation.body?.alternatives ?? [], (candidate) =>
 		source.media.includes(candidate.mediaType)
 	)
-	const schema =
-		alternative?.schema === undefined
-			? unknownField
-			: fieldSchema(store, alternative.schema.key, source.wireName, source.repeated)
+	const schema = Option.match(
+		Option.flatMap(alternative, (found) => Option.fromUndefinedOr(found.schema)),
+		{
+			onNone: () => unknownField,
+			onSome: ({ key }) => fieldSchema(store, key, source.wireName, source.repeated)
+		}
+	)
 
 	return { alternative, schema }
 }
 
-// ---------------------------------------------------------------------------------------------
-// One command.
-
-// Where an operation's builder and meta live: its primary command's `api/` module (design 4.4).
+/** Where an operation's builder and meta live: its primary command's `api/` module (design 4.4). */
 interface Target {
 	readonly from: string
 	readonly identifier: string
@@ -517,18 +542,23 @@ interface CommandContext extends FieldStore {
 	readonly api: Api
 	readonly booleans: Map<string, boolean>
 	readonly domain: NamePlan["domain"]
-	// The author config's environment prefix, which each command's run record reads.
+	/** The author config's environment prefix, which each command's run record reads. */
 	readonly envPrefix: string
 	readonly plan: NamePlan
 	readonly targets: ReadonlyMap<Operation, Target>
 }
 
-const parameterOf = (operation: Operation, location: string, wireName: string) =>
-	operation.parameters.find(
+const parameterOf = (
+	operation: Operation,
+	location: string,
+	wireName: string
+): Option.Option<Parameter> =>
+	Arr.findFirst(
+		operation.parameters,
 		(parameter) => parameter.location === location && parameter.wireName === wireName
 	)
 
-// What typing a header-shaped value reads: a parameter, or a part header typed as one (ENC-03).
+/** What typing a header-shaped value reads: a parameter, or a part header typed as one (ENC-03). */
 type Typed = Pick<Parameter, "location" | "schema" | "serialization">
 
 /**
@@ -552,23 +582,29 @@ const isArrayParameter = (
 		return array.success
 	})
 
-// Whether a styled parameter takes JSON (design 6.1): an object, or a union the scalar switch
-// covers (`nonStandardScalars`, design 6.1 Scalar switch). The operator gives it as JSON, which the
-// builder hands to the style serializer. A `content` parameter is one value whatever its schema.
+/**
+ * Whether a styled parameter takes JSON (design 6.1): an object, or a union the scalar switch
+ * covers (`nonStandardScalars`, design 6.1 Scalar switch). The operator gives it as JSON, which the
+ * builder hands to the style serializer. A `content` parameter is one value whatever its schema.
+ */
 const isObjectParameter = ({ serialization }: Pick<Typed, "serialization">): boolean =>
 	serialization.kind === "style" &&
 	(serialization.objectValued || serialization.nonStandardScalars !== undefined)
 
-// Whether a parameter flag takes JSON text: an object parameter, or a JSON content one. Its help
-// names the value json; the callers add that metavar as a step of the flag's one chain.
+/**
+ * Whether a parameter flag takes JSON text: an object parameter, or a JSON content one. Its help
+ * names the value json; the callers add that metavar as a step of the flag's one chain.
+ */
 const takesJsonText = (parameter: Typed): boolean =>
 	isObjectParameter(parameter) ||
 	(parameter.serialization.kind === "content" &&
 		takesJsonContent(parameter.location, parameter.serialization.mediaType))
 
-// The numeric kind of an `integer` or `number` parameter, or of its items for an array (design
-// 6.1): the runtime checks the operator's text against that grammar and sends it unchanged. A
-// `content` parameter is one value whatever its schema, so it has none.
+/**
+ * The numeric kind of an `integer` or `number` parameter, or of its items for an array (design
+ * 6.1): the runtime checks the operator's text against that grammar and sends it unchanged. A
+ * `content` parameter is one value whatever its schema, so it has none.
+ */
 const numericKindOf = (parameter: Typed, context: CommandContext) =>
 	Effect.gen(function* numeric() {
 		let kind: NumericKind | undefined
@@ -589,7 +625,7 @@ const numericKindOf = (parameter: Typed, context: CommandContext) =>
 const parameterDescription = (parameter: Parameter): string =>
 	parameter.docs.description ?? parameter.docs.summary ?? ""
 
-// The notice step of a deprecated parameter's flag or argument (PRM-07); none for any other.
+/** The notice step of a deprecated parameter's flag or argument (PRM-07); none for any other. */
 const deprecation = (parameter: Parameter, combinator: string, name: string): readonly Expr[] =>
 	parameter.deprecated ? [fn(combinator, str(name))] : []
 
@@ -600,12 +636,13 @@ const positionalEntry = (
 	context: CommandContext
 ) =>
 	Effect.gen(function* entry() {
-		const parameter = parameterOf(operation, "path", positional.wireName)
-		if (parameter === undefined) {
+		const planned = parameterOf(operation, "path", positional.wireName)
+		if (Option.isNone(planned)) {
 			return yield* refuse("unplanned-parameter", `path:${positional.wireName}`)
 		}
 
-		// The `api/` builder types a boolean path parameter as `boolean`; an argument is a string.
+		const parameter = planned.value
+		/** The `api/` builder types a boolean path parameter as `boolean`; an argument is a string. */
 		const boolean = isBooleanSchema(context.defs, context.booleans, parameter.schema.key)
 		if (Result.isFailure(boolean)) {
 			return yield* refuse("unresolved-schema", boolean.failure.key)
@@ -629,34 +666,38 @@ const positionalEntry = (
 			head = fn("Input.numericArgument", str(positional.name), str(numeric))
 		}
 
-		const described = describedBy(parameterDescription(parameter))
 		const value = pipe(head, [
 			...(object ? [fn("Argument.withMetavar", str("json"))] : []),
 			...(array ? [fn("Argument.atLeast", num(1))] : []),
 			...deprecation(parameter, "Input.deprecatedArgument", positional.name),
-			...(described.length === 0 ? [] : [fn("Argument.withDescription", ...described)])
+			...descriptionStep("Argument.withDescription", parameterDescription(parameter))
 		])
 
 		return [positional.identifier, value] as const
 	})
 
-// The step that carries a numeric flag's checked text as a `JsonNumber`, so the JSON body or the
-// multipart part sends the operator's digits unchanged (FMT-04).
+/**
+ * The step that carries a numeric flag's checked text as a `JsonNumber`, so the JSON body or the
+ * multipart part sends the operator's digits unchanged (FMT-04).
+ */
 const asJsonNumber = fn(
 	"Flag.map",
 	arrow([{ name: I("text") }], newExpr(path("Input.JsonNumber"), [ident(I("text"))]))
 )
 
-// A body field flag's constructor and the steps before its presence wrapper.
+/** A body field flag's constructor and the steps before its presence wrapper. */
 interface BodyFlagHead {
 	readonly head: Expr
 	readonly steps: readonly Expr[]
 }
 
-// An `integer` or `number` field is checked against the same grammar as an `integer` or `number`
-// parameter (an `int64` one as digits by `Input.int64Flag`), never parsed to a JavaScript number.
+/**
+ * An `integer` or `number` field is checked against the same grammar as an `integer` or `number`
+ * parameter (an `int64` one as digits by `Input.int64Flag`), never parsed to a JavaScript number.
+ * A JSON-valued field takes JSON text, named in help as an object parameter's is, and a multipart
+ * `file` part flag carries a path, or `-` for stdin.
+ */
 const bodyFlagHead = (flag: PlannedFlag, kind: string, integer: IntegerWidth): BodyFlagHead => {
-	// A JSON-valued field takes JSON text, named in help as an object parameter's is.
 	if (kind === "json") {
 		return {
 			head: fn("Input.jsonFlag", str(flag.name)),
@@ -668,7 +709,6 @@ const bodyFlagHead = (flag: PlannedFlag, kind: string, integer: IntegerWidth): B
 		return { head: fn("Input.int64Flag", str(flag.name)), steps: [] }
 	}
 
-	// A multipart `file` part flag carries a path, or `-` for stdin.
 	if (kind === "string" || kind === "file") {
 		return { head: fn("Flag.String", str(flag.name)), steps: [] }
 	}
@@ -683,54 +723,70 @@ const bodyFlagHead = (flag: PlannedFlag, kind: string, integer: IntegerWidth): B
 	}
 }
 
-// A JSON or form body property the runtime reads from a file and encodes (design 6.3 Binary): its
-// flag is a `file` flag inside a JSON or form alternative, where a multipart part flag of the same
-// kind is a part.
-const isEncodedField = (flag: PlannedFlag, alternative: MediaAlternative | undefined): boolean =>
-	(alternative?.codec === "json" || alternative?.codec === "form") &&
+/**
+ * A JSON or form body property the runtime reads from a file and encodes (design 6.3 Binary): its
+ * flag is a `file` flag inside a JSON or form alternative, where a multipart part flag of the same
+ * kind is a part.
+ */
+const isEncodedField = (flag: PlannedFlag, alternative: MediaAlternative): boolean =>
+	(alternative.codec === "json" || alternative.codec === "form") &&
 	flag.source._tag === "Body" &&
 	flag.source.kind === "file" &&
 	!flag.source.repeated
 
 const fileDescription = ({ description, encoding, mediaType }: FieldSchema): string =>
-	[
-		description,
-		`File path, or - for stdin; the ${encoding ?? "base64"} encoding is applied for you.`,
-		...(mediaType === undefined ? [] : [`Content type: ${mediaType}.`])
-	]
-		.filter((part) => part !== "")
-		.join(" ")
+	Arr.join(
+		Arr.filter(
+			[
+				description,
+				`File path, or - for stdin; the ${encoding ?? "base64"} encoding is applied for you.`,
+				...(mediaType === undefined ? [] : [`Content type: ${mediaType}.`])
+			],
+			Str.isNonEmpty
+		),
+		" "
+	)
 
-// The transfer encoding of a multipart `file` part flag, from its Encoding rule and never its
-// schema (design 6.3 Multipart transfer encoding): the runtime encodes the file's bytes.
+/**
+ * The transfer encoding of a multipart `file` part flag, from its Encoding rule and never its
+ * schema (design 6.3 Multipart transfer encoding): the runtime encodes the file's bytes.
+ */
 const partEncoding = (
 	flag: PlannedFlag,
-	alternative: MediaAlternative | undefined
-): FieldEncoding | undefined => {
+	alternative: Option.Option<MediaAlternative>
+): Option.Option<FieldEncoding> => {
 	const { source } = flag
-	if (alternative?.codec !== "multipart" || source._tag !== "Body" || source.kind !== "file") {
-		return undefined
+	if (source._tag !== "Body" || source.kind !== "file") {
+		return Option.none()
 	}
 
-	return alternative.encoding.find(
-		(rule) =>
-			rule.target.kind === "property" && formatPointer([rule.target.name]) === source.wireName
-	)?.contentEncoding
+	return Option.flatMap(
+		Option.filter(alternative, ({ codec }) => codec === "multipart"),
+		({ encoding }) =>
+			Option.flatMap(
+				Arr.findFirst(
+					encoding,
+					(rule) =>
+						rule.target.kind === "property" && formatPointer([rule.target.name]) === source.wireName
+				),
+				(rule) => Option.fromUndefinedOr(rule.contentEncoding)
+			)
+	)
 }
 
-// A field flag's help text; an encoded field the walk cannot settle an encoding for is refused.
+/** A field flag's help text; an encoded field the walk cannot settle an encoding for is refused. */
 const fieldDescription = (
 	flag: PlannedFlag,
-	alternative: MediaAlternative | undefined,
+	alternative: Option.Option<MediaAlternative>,
 	schema: FieldSchema
 ) =>
 	Effect.gen(function* described() {
 		const encoding = partEncoding(flag, alternative)
-		if (encoding !== undefined) {
-			return fileDescription({ ...schema, encoding })
+		if (Option.isSome(encoding)) {
+			return fileDescription({ ...schema, encoding: encoding.value })
 		}
 
-		if (!isEncodedField(flag, alternative)) {
+		if (!Option.exists(alternative, (found) => isEncodedField(flag, found))) {
 			return schema.description
 		}
 
@@ -741,11 +797,13 @@ const fieldDescription = (
 		return fileDescription(schema)
 	})
 
-// A parameter flag's constructor. A `content` parameter's value (any location, `querystring`
-// included) is JSON data under JSON media and form querystring media (design 6.1), decoded the way
-// a non-flattened JSON field flag is, and the operator's string under any other media; a boolean
-// styled parameter is negatable, an object one takes JSON, and an `integer` or `number` one (per item
-// for an array) is checked against its grammar.
+/**
+ * A parameter flag's constructor. A `content` parameter's value (any location, `querystring`
+ * included) is JSON data under JSON media and form querystring media (design 6.1), decoded the way
+ * a non-flattened JSON field flag is, and the operator's string under any other media; a boolean
+ * styled parameter is negatable, an object one takes JSON, and an `integer` or `number` one (per
+ * item for an array) is checked against its grammar.
+ */
 const parameterFlagHead = (
 	flag: PlannedFlag,
 	parameter: Typed,
@@ -774,22 +832,35 @@ const parameterFlagHead = (
 
 type PartOptionSource = Extract<PlannedFlag["source"], { readonly _tag: "PartOption" }>
 
-// The Encoding header a part header option sets, from the first multipart alternative it applies to.
+/**
+ * The Encoding header a part header option sets, from the first multipart alternative it applies
+ * to.
+ */
 const partHeaderOf = (operation: Operation, source: PartOptionSource) => {
 	const { option } = source
+	const applying = Arr.filter(operation.body?.alternatives ?? [], (alternative) =>
+		source.media.includes(alternative.mediaType)
+	)
+	const rules = Arr.flatMap(applying, (alternative) => alternative.encoding)
 
-	return (operation.body?.alternatives ?? [])
-		.filter((alternative) => source.media.includes(alternative.mediaType))
-		.flatMap((alternative) => alternative.encoding)
-		.find(
+	return Option.flatMap(
+		Arr.findFirst(
+			rules,
 			({ target }) => target.kind === "property" && formatPointer([target.name]) === source.part
-		)
-		?.headers.find((header) => option.kind === "header" && header.name === option.name)
+		),
+		(rule) =>
+			Arr.findFirst(
+				rule.headers,
+				(header) => option.kind === "header" && header.name === option.name
+			)
+	)
 }
 
-// A content type option takes one of the listed values, with no default (ENC-10). A part header
-// option is typed as a header parameter of its schema or content is, and is optional at parse:
-// `Input.partOptions` requires it only when its part is sent (ENC-03).
+/**
+ * A content type option takes one of the listed values, with no default (ENC-10). A part header
+ * option is typed as a header parameter of its schema or content is, and is optional at parse:
+ * `Input.partOptions` requires it only when its part is sent (ENC-03).
+ */
 const partOptionEntry = (
 	flag: PlannedFlag,
 	source: PartOptionSource,
@@ -798,7 +869,7 @@ const partOptionEntry = (
 ) =>
 	Effect.gen(function* entry() {
 		if (source.option.kind === "content-type") {
-			const choices = arr(source.option.choices.map((choice) => str(choice)))
+			const choices = arr(Arr.map(source.option.choices, (choice) => str(choice)))
 
 			return [
 				flag.identifier,
@@ -806,15 +877,17 @@ const partOptionEntry = (
 			] as const
 		}
 
-		const header = partHeaderOf(operation, source)
-		if (header === undefined) {
+		const found = partHeaderOf(operation, source)
+		if (Option.isNone(found)) {
 			return yield* refuse("unsupported-flag", flag.name)
 		}
 
+		const header = found.value
 		const typed: Typed = { ...header, location: "header" }
 		const array = yield* isArrayParameter(typed, context)
 		const object = isObjectParameter(typed)
-		const head = parameterFlagHead(flag, typed, object, yield* numericKindOf(typed, context))
+		const numeric = yield* numericKindOf(typed, context)
+		const head = parameterFlagHead(flag, typed, object, numeric)
 		const steps = [
 			...(takesJsonText(typed) ? [fn("Flag.withMetavar", str("json"))] : []),
 			array ? fn("Flag.atLeast", num(0)) : path("Flag.optional"),
@@ -824,8 +897,10 @@ const partOptionEntry = (
 		return [flag.identifier, pipe(head, steps)] as const
 	})
 
-// The flag of a whole-body input: `--body`, `--body-file`, or a positional body's `--part`
-// (HT:B15), repeated and kept in invocation order, each a path or `-`; `undefined` for any other.
+/**
+ * The flag of a whole-body input: `--body`, `--body-file`, or a positional body's `--part`
+ * (HT:B15), repeated and kept in invocation order, each a path or `-`; `undefined` for any other.
+ */
 const wholeBodyEntry = (flag: PlannedFlag): Expr | undefined => {
 	const { source } = flag
 	if (source._tag !== "Body") {
@@ -852,21 +927,27 @@ const wholeBodyEntry = (flag: PlannedFlag): Expr | undefined => {
 		: undefined
 }
 
-// A multipart `format: password` part is a file part (ruling DR4) whose help reads as the
-// secret-file flag's: `Input.secretPartFlag` carries the `path|-` metavar and the note.
+/**
+ * A multipart `format: password` part is a file part (ruling DR4) whose help reads as the
+ * secret-file flag's: `Input.secretPartFlag` carries the `path|-` metavar and the note.
+ */
 const isSecretPart = (
 	source: BodyFlagSource,
-	alternative: MediaAlternative | undefined,
+	alternative: Option.Option<MediaAlternative>,
 	schema: FieldSchema
-): boolean => source.kind === "file" && alternative?.codec === "multipart" && schema.password
+): boolean =>
+	source.kind === "file" &&
+	Option.exists(alternative, ({ codec }) => codec === "multipart") &&
+	schema.password
 
 const secretPartEntry = (
 	flag: PlannedFlag,
-	alternative: MediaAlternative | undefined,
+	alternative: Option.Option<MediaAlternative>,
 	schema: FieldSchema
 ) =>
 	Effect.gen(function* secretPart() {
-		const description = secretDescription(yield* fieldDescription(flag, alternative, schema))
+		const text = yield* fieldDescription(flag, alternative, schema)
+		const description = secretDescription(text)
 		const repeated = flag.source._tag === "Body" && flag.source.repeated
 		const presence = repeated ? fn("Flag.atLeast", num(0)) : path("Flag.optional")
 
@@ -876,6 +957,11 @@ const secretPartEntry = (
 		] as const
 	})
 
+/**
+ * A flag's config entry. A `format: password` property's secret-file flag (design 13.1 R4) is the
+ * m3-pw2 helper's, which carries its presence and its help note, after the property's sanitized
+ * description when it has one.
+ */
 const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandContext) =>
 	Effect.gen(function* entry() {
 		const { source } = flag
@@ -885,12 +971,13 @@ const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandCont
 		}
 
 		if (source._tag === "Parameter") {
-			const parameter = parameterOf(operation, source.location, source.wireName)
-			if (parameter === undefined) {
+			const planned = parameterOf(operation, source.location, source.wireName)
+			if (Option.isNone(planned)) {
 				return yield* refuse("unplanned-parameter", `${source.location}:${source.wireName}`)
 			}
 
-			// A `content` parameter is one value, whatever its schema: never negatable, never repeated.
+			const parameter = planned.value
+			/** A `content` parameter is one value, whatever its schema: never negatable, never repeated. */
 			const styled = parameter.serialization.kind === "style"
 			if (styled && parameter.required && flag.boolean) {
 				return yield* refuse("unsupported-flag", flag.name)
@@ -898,22 +985,18 @@ const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandCont
 
 			const array = yield* isArrayParameter(parameter, context)
 			const object = isObjectParameter(parameter)
-			const head = parameterFlagHead(
-				flag,
-				parameter,
-				object,
-				yield* numericKindOf(parameter, context)
-			)
+			const numeric = yield* numericKindOf(parameter, context)
+			const head = parameterFlagHead(flag, parameter, object, numeric)
 			const presence = parameter.required ? [] : [path("Flag.optional")]
-			// A deprecated parameter's notice goes outside the presence wrapper, which settles whether
-			// the operator gave the flag (PRM-07).
+			/**
+			 * A deprecated parameter's notice goes outside the presence wrapper, which settles whether
+			 * the operator gave the flag (PRM-07).
+			 */
 			const steps = [
 				...(takesJsonText(parameter) ? [fn("Flag.withMetavar", str("json"))] : []),
 				...(array ? [fn("Flag.atLeast", num(parameter.required ? 1 : 0))] : presence),
 				...deprecation(parameter, "Input.deprecated", flag.name),
-				...describedBy(parameterDescription(parameter)).map((text) =>
-					fn("Flag.withDescription", text)
-				)
+				...descriptionStep("Flag.withDescription", parameterDescription(parameter))
 			]
 
 			return [flag.identifier, pipe(head, steps)] as const
@@ -925,10 +1008,9 @@ const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandCont
 
 		const { alternative, schema } = bodyField(operation, source, context)
 
-		// A `format: password` property's secret-file flag (design 13.1 R4): the m3-pw2 helper carries
-		// its presence and its help note, after the property's sanitized description when it has one.
 		if (source.kind === "secret-file") {
-			const description = secretDescription(yield* fieldDescription(flag, alternative, schema))
+			const text = yield* fieldDescription(flag, alternative, schema)
+			const description = secretDescription(text)
 
 			return [flag.identifier, fn("Input.secretFileFlag", str(flag.name), description)] as const
 		}
@@ -946,7 +1028,7 @@ const flagEntry = (flag: PlannedFlag, operation: Operation, context: CommandCont
 		const steps = [
 			...carried,
 			source.repeated ? fn("Flag.atLeast", num(0)) : path("Flag.optional"),
-			...describedBy(description).map((text) => fn("Flag.withDescription", text))
+			...descriptionStep("Flag.withDescription", description)
 		]
 
 		return [flag.identifier, pipe(head, steps)] as const
@@ -959,38 +1041,50 @@ interface BodyPlan {
 	readonly domain: readonly string[]
 	readonly head: Expr
 	readonly parameter: string
-	readonly steps?: readonly Expr[]
+	readonly steps: readonly Expr[]
 }
 
 const wholeBody = (
 	command: PlannedCommand,
 	kind: "body" | "body-file"
-): Effect.Effect<Expr, CliEmitError> => {
-	const flag = command.flags.find(
-		(candidate) => candidate.source._tag === "Body" && candidate.source.kind === kind
+): Effect.Effect<Expr, CliEmitError> =>
+	Option.match(
+		Arr.findFirst(
+			command.flags,
+			(candidate) => candidate.source._tag === "Body" && candidate.source.kind === kind
+		),
+		{
+			onNone: () => Effect.succeed(fn("Option.none")),
+			onSome: (flag) => flagValue(flag.identifier)
+		}
 	)
 
-	return flag === undefined ? Effect.succeed(fn("Option.none")) : flagValue(flag.identifier)
-}
-
-// Bodies sent as the operator's bytes from `--body-file`: binary, and XML, which is never built
-// from its XML Object (design 6.3).
+/**
+ * Bodies sent as the operator's bytes from `--body-file`: binary, and XML, which is never built
+ * from its XML Object (design 6.3).
+ */
 const isOpaque = (alternative: MediaAlternative): boolean =>
 	alternative.codec === "binary" || alternative.codec === "xml"
 
-// Bodies sent as the operator's bytes, as given: `--body` text or a `--body-file` stream, never
-// parsed or framed (design 6.3 Sequential uploads).
+/**
+ * Bodies sent as the operator's bytes, as given: `--body` text or a `--body-file` stream, never
+ * parsed or framed (design 6.3 Sequential uploads).
+ */
 const isVerbatim = (alternative: MediaAlternative): boolean =>
 	alternative.codec === "ndjson" || alternative.codec === "jsonseq" || alternative.codec === "text"
 
-// Bodies the command hands to the builder as an `HttpBody`, not a JSON value.
+/** Bodies the command hands to the builder as an `HttpBody`, not a JSON value. */
 const isLoaded = (alternative: MediaAlternative): boolean =>
 	isOpaque(alternative) || isVerbatim(alternative)
 
-// A form-urlencoded body is merged from the JSON body sources into the value the `api/` builder
-// encodes (`Input.structuredBody`). A text or sequential body is `Input.sequentialBody`; the
-// builder's `Serialize.body` sets its media type as `Content-Type`. A multipart body is
-// `formBody`'s, and an SSE body is refused.
+/**
+ * A form-urlencoded body is merged from the JSON body sources into the value the `api/` builder
+ * encodes (`Input.structuredBody`). A text or sequential body is `Input.sequentialBody`; the
+ * builder's `Serialize.body` sets its media type as `Content-Type`. A multipart body is
+ * `formBody`'s, and an SSE body is refused. A secret-file field flag stays a path string at parse,
+ * which the runtime reads, bounded, and scrubs from every error path (m3-pw2); an encoded field's
+ * flag stays a path string at parse, which the runtime reads and encodes (m2-b64a).
+ */
 const alternativeBody = (
 	command: PlannedCommand,
 	alternative: MediaAlternative,
@@ -1003,12 +1097,12 @@ const alternativeBody = (
 			["bodyFile", yield* wholeBody(command, "body-file")]
 		]
 		if (isOpaque(alternative)) {
-			// MED-21: a binary body's `maxLength` counts its octets, so it bounds the upload.
+			/** MED-21: a binary body's `maxLength` counts its octets, so it bounds the upload. */
 			const limit =
 				alternative.codec === "binary" && alternative.schema !== undefined
 					? fieldSchema(context, alternative.schema.key, "", false).maxLength
-					: undefined
-			const bound: Entry[] = limit === undefined ? [] : [["maxBytes", num(limit)]]
+					: Option.none()
+			const bound = Option.toArray(Option.map(limit, (bytes): Entry => ["maxBytes", num(bytes)]))
 
 			return {
 				domain: [],
@@ -1028,23 +1122,20 @@ const alternativeBody = (
 			return yield* refuse("unsupported-body", `${alternative.codec}:${alternative.mediaType}`)
 		}
 
-		const schemaName =
-			alternative.schema === undefined ? undefined : context.domain.get(alternative.schema.key)
-		if (schemaName === undefined) {
+		const schemaRef = alternative.schema
+		const schemaName = schemaRef === undefined ? undefined : context.domain.get(schemaRef.key)
+		if (schemaRef === undefined || schemaName === undefined) {
 			return yield* refuse("unresolved-schema", alternative.mediaType)
 		}
 
-		const schemaKey = alternative.schema?.key ?? ""
 		const fields: Entry[] = []
-		for (const flag of command.flags.filter(isFieldFlag)) {
+		for (const flag of Arr.filter(command.flags, isFieldFlag)) {
 			const { source } = flag
 			if (source._tag !== "Body" || !source.media.includes(alternative.mediaType)) {
 				continue
 			}
 
 			const value = yield* flagValue(flag.identifier)
-			// The secret-file flag stays a path string at parse; the runtime reads it, bounded, and
-			// scrubs it from every error path (m3-pw2).
 			if (source.kind === "secret-file") {
 				fields.push([
 					source.wireName,
@@ -1070,12 +1161,11 @@ const alternativeBody = (
 				continue
 			}
 
-			const { encoding } = fieldSchema(context, schemaKey, source.wireName, false)
+			const { encoding } = fieldSchema(context, schemaRef.key, source.wireName, false)
 			if (encoding === undefined) {
 				return yield* refuse("unsupported-flag", flag.name)
 			}
 
-			// The flag stays a path string at parse; the runtime reads and encodes it (m2-b64a).
 			fields.push([
 				source.wireName,
 				fn(
@@ -1095,6 +1185,8 @@ const alternativeBody = (
 			])
 		}
 
+		const schema = yield* identifier(schemaName)
+
 		return {
 			domain: [schemaName],
 			value: fn(
@@ -1112,15 +1204,17 @@ const alternativeBody = (
 					],
 					["fields", obj(fields)],
 					["required", bool(required)],
-					["schema", ident(yield* identifier(schemaName))]
+					["schema", ident(schema)]
 				])
 			)
 		}
 	})
 
-// One part flag's values as `Serialize.FormFields` takes them: a list, empty when the flag is
-// absent. A JSON part's value is `Serialize.jsonPart`'s (ENC-22). A file part opens each path, or
-// stdin for `-` under the invocation's one stdin claim; `name` is the filename `-` gives.
+/**
+ * One part flag's values as `Serialize.FormFields` takes them: a list, empty when the flag is
+ * absent. A JSON part's value is `Serialize.jsonPart`'s (ENC-22). A file part opens each path, or
+ * stdin for `-` under the invocation's one stdin claim; `name` is the filename `-` gives.
+ */
 const flagValues = (flag: PlannedFlag, name: string) =>
 	Effect.gen(function* values() {
 		const repeated = flag.source._tag === "Body" && flag.source.repeated
@@ -1157,8 +1251,10 @@ const flagValues = (flag: PlannedFlag, name: string) =>
 		)
 	})
 
-// A part's values: its flag's, or for a part nested by name (HT:B16) its nested parts' values,
-// each as a part's, gathered by `Serialize.nestedValues`.
+/**
+ * A part's values: its flag's, or for a part nested by name (HT:B16) its nested parts' values,
+ * each as a part's, gathered by `Serialize.nestedValues`.
+ */
 const partValues = (part: FormPart) =>
 	Effect.gen(function* values() {
 		if (part.nested === undefined) {
@@ -1176,20 +1272,29 @@ const partValues = (part: FormPart) =>
 const isRepeatedPart = (flag: PlannedFlag): boolean =>
 	flag.source._tag === "Body" && flag.source.repeated
 
-// The names of the parts among `parts` whose flag repeats.
+/** The names of the parts among `parts` whose flag repeats. */
 const repeatedNames = (parts: readonly { readonly flag: PlannedFlag; readonly name: string }[]) =>
-	arr(parts.filter((part) => isRepeatedPart(part.flag)).map((part) => str(part.name)))
+	arr(
+		Arr.map(
+			Arr.filter(parts, (part) => isRepeatedPart(part.flag)),
+			(part) => str(part.name)
+		)
+	)
 
-// A nested body's `Serialize.FormPartFlags`: each nested part's flag and the nested parts that
-// repeat.
+/**
+ * A nested body's `Serialize.FormPartFlags`: each nested part's flag and the nested parts that
+ * repeat.
+ */
 const partFlags = (parts: readonly NestedFormPart[]): Expr =>
 	obj([
-		["flags", obj(parts.map((part) => [part.name, str(part.flag.name)] as const))],
+		["flags", obj(Arr.map(parts, (part) => [part.name, str(part.flag.name)] as const))],
 		["repeated", repeatedNames(parts)]
 	])
 
-// The step that asserts the part values against the body's schema before the request (design
-// 4.5, C2), and the domain name it imports; none for a multipart body that declares no schema.
+/**
+ * The step that asserts the part values against the body's schema before the request (design
+ * 4.5, C2), and the domain name it imports; none for a multipart body that declares no schema.
+ */
 const formAssertion = (
 	command: PlannedCommand,
 	alternative: MediaAlternative,
@@ -1208,17 +1313,20 @@ const formAssertion = (
 			return yield* refuse("unresolved-schema", "multipart/form-data")
 		}
 
-		// A part nested by name is asserted as its object, its nested parts by their own flags; it
-		// is named by its first nested flag when missing (HT:B16).
-		const nested = parts.flatMap((part) =>
+		/**
+		 * A part nested by name is asserted as its object, its nested parts by their own flags; it
+		 * is named by its first nested flag when missing (HT:B16).
+		 */
+		const nested = Arr.flatMap(parts, (part) =>
 			part.nested === undefined ? [] : [[part.name, partFlags(part.nested.parts)] as const]
 		)
+		const schema = yield* identifier(schemaName)
 		const options = obj([
-			["flags", obj(parts.map((part) => [part.name, str(part.flag.name)] as const))],
+			["flags", obj(Arr.map(parts, (part) => [part.name, str(part.flag.name)] as const))],
 			...(nested.length === 0 ? [] : ([["nested", obj(nested)]] as const)),
-			["repeated", repeatedNames(parts.filter((part) => part.nested === undefined))],
+			["repeated", repeatedNames(Arr.filter(parts, (part) => part.nested === undefined))],
 			["required", bool(body.required)],
-			["schema", ident(yield* identifier(schemaName))]
+			["schema", ident(schema)]
 		])
 
 		return {
@@ -1227,15 +1335,17 @@ const formAssertion = (
 		}
 	})
 
-// Whether the operator gave a flag at least once; a repeated flag's value is a list.
+/** Whether the operator gave a flag at least once; a repeated flag's value is a list. */
 const gaveFlag = (flag: PlannedFlag, repeated: boolean) =>
 	Effect.map(flagValue(flag.identifier), (value) =>
 		repeated ? fn("Option.isSome", fn("Option.fromIterable", value)) : fn("Option.isSome", value)
 	)
 
-// One part header's value as a header parameter (ENC-03, HDR-01), serialized by its style or
-// content as a header parameter is, and never required on its own: `Input.partOptions` settles
-// whether the sent part needs it. An array header's flag repeats, and its list is the value.
+/**
+ * One part header's value as a header parameter (ENC-03, HDR-01), serialized by its style or
+ * content as a header parameter is, and never required on its own: `Input.partOptions` settles
+ * whether the sent part needs it. An array header's flag repeats, and its list is the value.
+ */
 const headerValue = (entry: PartHeader, array: boolean) =>
 	Effect.gen(function* value() {
 		const { flag, header } = entry
@@ -1269,9 +1379,11 @@ interface KeyedPart {
 	readonly choice: readonly [string, Expr]
 }
 
-// A keyed part (ENC-10, ENC-03): `Input.partOptions` refuses an option flag without the part and a
-// sent part without a required option, before any request, and `Serialize.chooseParts` moves the
-// sent part's values beside its type and header parameters under its key in the builder's form.
+/**
+ * A keyed part (ENC-10, ENC-03): `Input.partOptions` refuses an option flag without the part and a
+ * sent part without a required option, before any request, and `Serialize.chooseParts` moves the
+ * sent part's values beside its type and header parameters under its key in the builder's form.
+ */
 const keyedPart = (part: FormPart, context: CommandContext) =>
 	Effect.gen(function* keyed() {
 		const { contentType, key } = part
@@ -1292,10 +1404,10 @@ const keyedPart = (part: FormPart, context: CommandContext) =>
 		for (const entry of part.headers) {
 			const { header } = entry
 			const array = yield* isArrayParameter(header, context)
-			options.push(
-				arr([str(entry.flag.name), yield* gaveFlag(entry.flag, array), bool(header.required)])
-			)
-			headers.push(yield* headerValue(entry, array))
+			const given = yield* gaveFlag(entry.flag, array)
+			options.push(arr([str(entry.flag.name), given, bool(header.required)]))
+			const value = yield* headerValue(entry, array)
+			headers.push(value)
 		}
 
 		const sent = yield* gaveFlag(part.flag, isRepeatedPart(part.flag))
@@ -1307,9 +1419,11 @@ const keyedPart = (part: FormPart, context: CommandContext) =>
 		})
 	})
 
-// A `multipart/form-data` alternative's body: the part values, asserted against its schema and
-// then streamed by the `api/` builder through the runtime writer (design 6.3). There is no
-// whole-body flag (D-ENC1 a). A part with a chosen type leaves the values for the builder's form.
+/**
+ * A `multipart/form-data` alternative's body: the part values, asserted against its schema and
+ * then streamed by the `api/` builder through the runtime writer (design 6.3). There is no
+ * whole-body flag (D-ENC1 a). A part with a chosen type leaves the values for the builder's form.
+ */
 const formBody = (
 	command: PlannedCommand,
 	alternative: MediaAlternative,
@@ -1337,7 +1451,7 @@ const formBody = (
 		const assertion = yield* formAssertion(command, alternative, parts.success, context)
 		const values = fn("Effect.all", obj(entries))
 		const [check, ...more] = checks
-		const ordered = [...more, values].map((next) => fn("Effect.andThen", next))
+		const ordered = Arr.map(Arr.append(more, values), (next) => fn("Effect.andThen", next))
 		const split =
 			choices.length === 0 ? [] : [fn("Effect.flatMap", fn("Serialize.chooseParts", obj(choices)))]
 
@@ -1350,13 +1464,15 @@ const formBody = (
 		} satisfies BodyPlan
 	})
 
-// The media alternatives a body or part option flag applies to; a parameter applies to none.
+/** The media alternatives a body or part option flag applies to; a parameter applies to none. */
 const sourceMedia = (flag: PlannedFlag): readonly string[] =>
 	flag.source._tag === "Parameter" ? [] : flag.source.media
 
-// A positional `multipart/mixed` alternative's body (design 6.3, HT:B15): each `--part` path opened
-// in invocation order, or stdin for `-` under the invocation's one stdin claim, for the `api/`
-// builder's `Serialize.mixed`. Part bytes are never parsed or asserted against the schema.
+/**
+ * A positional `multipart/mixed` alternative's body (design 6.3, HT:B15): each `--part` path
+ * opened in invocation order, or stdin for `-` under the invocation's one stdin claim, for the
+ * `api/` builder's `Serialize.mixed`. Part bytes are never parsed or asserted against the schema.
+ */
 const positionalBody = (
 	command: PlannedCommand,
 	alternative: MediaAlternative,
@@ -1368,26 +1484,30 @@ const positionalBody = (
 			return yield* refuse("unsupported-body", mixed.failure)
 		}
 
-		const flag = command.flags.find(
+		const flag = Arr.findFirst(
+			command.flags,
 			(candidate) => isPartFlag(candidate) && sourceMedia(candidate).includes(alternative.mediaType)
 		)
-		if (flag === undefined) {
+		if (Option.isNone(flag)) {
 			return yield* refuse("unsupported-body", `a --part flag for ${alternative.mediaType}`)
 		}
 
 		const source = ident(I("source"))
+		const sources = yield* flagValue(flag.value.identifier)
 
 		return fn(
 			"Effect.forEach",
-			yield* flagValue(flag.identifier),
-			arrow([{ name: I("source") }], fn("Multipart.fileBody", str(flag.name), source))
+			sources,
+			arrow([{ name: I("source") }], fn("Multipart.fileBody", str(flag.value.name), source))
 		)
 	})
 
-// The body flags that do not apply to one alternative, each mapped to whether the operator gave
-// it (`Input.selectBody`'s `foreign`): a field, part or part option flag whose media does not list
-// the key, and `--body` and `--body-file` for a multipart key (D-ENC1 a). A binary or XML key keeps
-// its own `--body` refusal.
+/**
+ * The body flags that do not apply to one alternative, each mapped to whether the operator gave
+ * it (`Input.selectBody`'s `foreign`): a field, part or part option flag whose media does not list
+ * the key, and `--body` and `--body-file` for a multipart key (D-ENC1 a). A binary or XML key keeps
+ * its own `--body` refusal.
+ */
 const foreignFlags = (command: PlannedCommand, alternative: MediaAlternative) =>
 	Effect.gen(function* foreign() {
 		const entries: Entry[] = []
@@ -1397,8 +1517,10 @@ const foreignFlags = (command: PlannedCommand, alternative: MediaAlternative) =>
 				continue
 			}
 
-			// `--part` applies to its positional key alone, `--body` and `--body-file` to no multipart
-			// key, and every other body flag to the keys its media lists.
+			/**
+			 * `--part` applies to its positional key alone, `--body` and `--body-file` to no multipart
+			 * key, and every other body flag to the keys its media lists.
+			 */
 			const applies =
 				isWholeBody(flag) && !isPartFlag(flag)
 					? alternative.codec !== "multipart"
@@ -1416,7 +1538,7 @@ const foreignFlags = (command: PlannedCommand, alternative: MediaAlternative) =>
 		return entries
 	})
 
-// One alternative's unevaluated body effect in the `Input.selectBody` table.
+/** One alternative's unevaluated body effect in the `Input.selectBody` table. */
 const choiceEntry = (
 	command: PlannedCommand,
 	alternative: MediaAlternative,
@@ -1434,12 +1556,14 @@ const choiceEntry = (
 
 		const form = yield* formBody(command, alternative, context)
 
-		return { domain: form.domain, value: pipe(form.head, form.steps ?? []) }
+		return { domain: form.domain, value: pipe(form.head, form.steps) }
 	})
 
-// A lone alternative is built directly. Several, or a range key, go into the `Input.selectBody`
-// table with each key's foreign flags; the builder takes the whole choice when it encodes per key
-// (`encodesByKey`), else the chosen body and its `Content-Type`.
+/**
+ * A lone alternative is built directly. Several, or a range key, go into the `Input.selectBody`
+ * table with each key's foreign flags; the builder takes the whole choice when it encodes per key
+ * (`encodesByKey`), else the chosen body and its `Content-Type`.
+ */
 const bodyPlan = (
 	command: PlannedCommand,
 	meta: Expr,
@@ -1458,12 +1582,15 @@ const bodyPlan = (
 				args: [["body", ident(I("parts"))]],
 				domain: [],
 				head: yield* positionalBody(command, first, context),
-				parameter: "parts"
+				parameter: "parts",
+				steps: []
 			})
 		}
 
 		if (!choosesType && first.codec === "multipart") {
-			return Option.some(yield* formBody(command, first, context))
+			const form = yield* formBody(command, first, context)
+
+			return Option.some(form)
 		}
 
 		if (!choosesType) {
@@ -1474,7 +1601,8 @@ const bodyPlan = (
 				args: [["body", ident(I(parameter))]],
 				domain: single.domain,
 				head: single.value,
-				parameter
+				parameter,
+				steps: []
 			})
 		}
 
@@ -1488,7 +1616,9 @@ const bodyPlan = (
 				alternative.mediaType,
 				fn(wrapper, str(alternative.mediaType), built.value)
 			])
-			domain.push(...built.domain)
+			for (const name of built.domain) {
+				domain.push(name)
+			}
 
 			const misplaced = yield* foreignFlags(command, alternative)
 			if (misplaced.length > 0) {
@@ -1515,7 +1645,8 @@ const bodyPlan = (
 					],
 			domain,
 			head: fn("Input.selectBody", obj(options)),
-			parameter: "selected"
+			parameter: "selected",
+			steps: []
 		})
 	})
 
@@ -1531,112 +1662,112 @@ const bindingOf = (location: string, pointer: string, wireName: string): Expr =>
 		["wireName", str(wireName)]
 	])
 
-// What help says of a part option: its choices, or its header's marks and its part flag.
+/** What help says of a part option: its choices, or its header's marks and its part flag. */
 const helpPartOption = (
 	command: PlannedCommand,
 	source: PartOptionSource
-): HelpPartOption | undefined => {
+): Option.Option<HelpPartOption> => {
 	const { option } = source
 	if (option.kind === "content-type") {
-		return option
+		return Option.some(option)
 	}
 
-	const header = partHeaderOf(command.operation, source)
-	const part = command.flags.find(
+	const part = Arr.findFirst(
+		command.flags,
 		(flag) => flag.source._tag === "Body" && flag.source.wireName === source.part
 	)
 
-	return header === undefined || part === undefined
-		? undefined
-		: {
-				deprecated: header.deprecated,
-				kind: "header",
-				name: header.name,
-				partFlag: part.name,
-				required: header.required
-			}
+	return Option.zipWith(
+		partHeaderOf(command.operation, source),
+		part,
+		(header, partFlag): HelpPartOption => ({
+			deprecated: header.deprecated,
+			kind: "header",
+			name: header.name,
+			partFlag: partFlag.name,
+			required: header.required
+		})
+	)
 }
 
-// What help says of `--part`: each position's content type, then every later part's.
+/** What help says of `--part`: each position's content type, then every later part's. */
 const partsHelp = (
 	command: PlannedCommand,
 	flag: PlannedFlag,
 	store: FieldStore
-): HelpFlag["source"] | undefined => {
-	const alternative = command.operation.body?.alternatives.find(
-		(candidate) => isPositionalBody(candidate) && sourceMedia(flag).includes(candidate.mediaType)
+): Option.Option<HelpFlag["source"]> =>
+	Option.flatMap(
+		Arr.findFirst(
+			command.operation.body?.alternatives ?? [],
+			(candidate) => isPositionalBody(candidate) && sourceMedia(flag).includes(candidate.mediaType)
+		),
+		(alternative) =>
+			Option.map(
+				Result.getSuccess(mixedParts(alternative, store.defs)),
+				({ item, prefix }): HelpFlag["source"] => {
+					const types = Arr.map(prefix, (rule) => rule.contentType)
+
+					return item === undefined
+						? { _tag: "Parts", prefix: types }
+						: { _tag: "Parts", item: item.contentType, prefix: types }
+				}
+			)
 	)
-	const mixed: Result.Result<MixedPlan, string> =
-		alternative === undefined
-			? Result.fail("no positional body")
-			: mixedParts(alternative, store.defs)
-
-	if (Result.isFailure(mixed)) {
-		return undefined
-	}
-
-	const { item, prefix } = mixed.success
-	const types = prefix.map((rule) => rule.contentType)
-
-	return item === undefined
-		? { _tag: "Parts", prefix: types }
-		: { _tag: "Parts", item: item.contentType, prefix: types }
-}
 
 const helpFlags = (command: PlannedCommand, store: FieldStore): readonly HelpFlag[] => {
 	const { operation } = command
-	const positionals = command.positionals.flatMap((positional) => {
-		const parameter = parameterOf(operation, "path", positional.wireName)
+	const positionals = Arr.flatMap(command.positionals, (positional) =>
+		Option.toArray(
+			Option.map(parameterOf(operation, "path", positional.wireName), (parameter): HelpFlag => ({
+				name: positional.name,
+				source: { _tag: "Parameter", negatable: false, parameter }
+			}))
+		)
+	)
+	const partFlagsOf = Arr.filter(command.flags, isPartFlag)
+	const parts = Arr.flatMap(partFlagsOf, (flag) =>
+		Option.toArray(
+			Option.map(partsHelp(command, flag, store), (source): HelpFlag => ({
+				name: flag.name,
+				source
+			}))
+		)
+	)
+	const valued = Arr.filter(command.flags, (flag) => !isWholeBody(flag))
+	const named = Arr.flatMap(valued, (flag): readonly HelpFlag[] => {
+		const { source } = flag
+		if (source._tag === "Body") {
+			const field = bodyField(operation, source, store).schema.notes
 
-		return parameter === undefined
-			? []
-			: [
-					{
-						name: positional.name,
-						source: { _tag: "Parameter", negatable: false, parameter }
-					} as const
-				]
+			return [{ name: flag.name, source: { _tag: "Body", field, pointer: source.wireName } }]
+		}
+
+		if (source._tag === "PartOption") {
+			return Option.toArray(
+				Option.map(helpPartOption(command, source), (option): HelpFlag => ({
+					name: flag.name,
+					source: { _tag: "PartOption", option, part: source.part }
+				}))
+			)
+		}
+
+		return Option.toArray(
+			Option.map(
+				parameterOf(operation, source.location, source.wireName),
+				(parameter): HelpFlag => ({
+					name: flag.name,
+					source: { _tag: "Parameter", negatable: flag.boolean, parameter }
+				})
+			)
+		)
 	})
-	const parts = command.flags.filter(isPartFlag).flatMap((flag): readonly HelpFlag[] => {
-		const plan = partsHelp(command, flag, store)
-
-		return plan === undefined ? [] : [{ name: flag.name, source: plan }]
-	})
-	const named = command.flags
-		.filter((flag) => !isWholeBody(flag))
-		.flatMap((flag): readonly HelpFlag[] => {
-			const { source } = flag
-			if (source._tag === "Body") {
-				const field = bodyField(operation, source, store).schema.notes
-
-				return [{ name: flag.name, source: { _tag: "Body", field, pointer: source.wireName } }]
-			}
-
-			if (source._tag === "PartOption") {
-				const option = helpPartOption(command, source)
-
-				return option === undefined
-					? []
-					: [{ name: flag.name, source: { _tag: "PartOption", option, part: source.part } }]
-			}
-
-			const parameter = parameterOf(operation, source.location, source.wireName)
-
-			return parameter === undefined
-				? []
-				: [{ name: flag.name, source: { _tag: "Parameter", negatable: flag.boolean, parameter } }]
-		})
 
 	return [...positionals, ...parts, ...named]
 }
 
-const record = (entries: Readonly<Record<string, string>>): Expr =>
-	obj(Object.entries(entries).map(([key, value]) => [key, str(value)] as const))
+const record = (entries: Record.ReadonlyRecord<string, string>): Expr =>
+	obj(Arr.map(Record.toEntries(entries), ([key, value]) => [key, str(value)] as const))
 
-/**
- * The operation's constant parameters, each with the value the request sends (`constantOf`), in
- * parameter order.
- */
 /**
  * The body members of a JSON or form alternative that admit one value (`flattenBody`'s constants), which its merge sends
  * with no flag; none for any other alternative, or one whose schema the walk cannot follow.
@@ -1730,19 +1861,21 @@ const constantsHelp = (
 
 const describeParameters = (command: PlannedCommand): Expr =>
 	obj([
-		...command.positionals.map(
+		...Arr.map(
+			command.positionals,
 			(positional) =>
 				[positional.name, bindingOf("path", positional.pointer, positional.wireName)] as const
 		),
-		...command.flags
-			.filter((flag) => !isWholeBody(flag))
-			.map((flag) => {
+		...Arr.map(
+			Arr.filter(command.flags, (flag) => !isWholeBody(flag)),
+			(flag) => {
 				const { source } = flag
 				const location = source._tag === "Parameter" ? source.location : "body"
 				const wireName = source._tag === "PartOption" ? source.part : source.wireName
 
 				return [flag.name, bindingOf(location, source.pointer, wireName)] as const
-			})
+			}
+		)
 	])
 
 const distinct = (values: readonly string[]): readonly string[] => [...new Set(values)]
@@ -1781,33 +1914,31 @@ const followsOf = (operation: Operation): boolean =>
 	)
 
 const choicesOf = (operation: Operation): Choices => {
-	const requestTypes = (operation.body?.alternatives ?? []).map((item) => item.mediaType)
+	const requestTypes = Arr.map(operation.body?.alternatives ?? [], (item) => item.mediaType)
 	const responseTypes = distinct(
-		operation.responses.flatMap((response) =>
-			response.alternatives.map((alternative) => alternative.mediaType)
+		Arr.flatMap(operation.responses, (response) =>
+			Arr.map(response.alternatives, (alternative) => alternative.mediaType)
 		)
 	)
 
 	return {
 		accepts: responseTypes.length > 1,
-		choosesType: requestTypes.length > 1 || requestTypes.some(isRange),
+		choosesType: requestTypes.length > 1 || Arr.some(requestTypes, isRange),
 		follows: followsOf(operation)
 	}
 }
 
-// The command's config object: arguments, flags, then the negotiation flags it needs.
+/** The command's config object: arguments, flags, then the negotiation flags it needs. */
 const configOf = (command: PlannedCommand, choices: Choices, context: CommandContext) =>
 	Effect.gen(function* config() {
 		const { operation } = command
-		const entries: Entry[] = []
-		for (const [index, positional] of command.positionals.entries()) {
-			const last = index === command.positionals.length - 1
-			entries.push(yield* positionalEntry(operation, positional, last, context))
-		}
-
-		for (const flag of command.flags) {
-			entries.push(yield* flagEntry(flag, operation, context))
-		}
+		const positionals = yield* Effect.forEach(command.positionals, (positional, index) =>
+			positionalEntry(operation, positional, index === command.positionals.length - 1, context)
+		)
+		const named = yield* Effect.forEach(command.flags, (flag) =>
+			flagEntry(flag, operation, context)
+		)
+		const entries: Entry[] = [...positionals, ...named]
 
 		if (choices.choosesType) {
 			entries.push(["contentType", path("Negotiate.contentTypeFlag")])
@@ -1824,8 +1955,10 @@ const configOf = (command: PlannedCommand, choices: Choices, context: CommandCon
 		return entries
 	})
 
-// The builder's argument entries for the operation's parameters, keyed by `inputKeys`. An array
-// parameter's flag or argument already yields the array, empty when an optional one is absent.
+/**
+ * The builder's argument entries for the operation's parameters, keyed by `inputKeys`. An array
+ * parameter's flag or argument already yields the array, empty when an optional one is absent.
+ */
 const parameterInputs = (command: PlannedCommand, context: CommandContext) =>
 	Effect.gen(function* inputs() {
 		const entries: Entry[] = []
@@ -1836,18 +1969,28 @@ const parameterInputs = (command: PlannedCommand, context: CommandContext) =>
 
 			const owner =
 				parameter.location === "path"
-					? command.positionals.find((candidate) => candidate.wireName === parameter.wireName)
-					: command.flags.find(
-							(candidate) =>
-								candidate.source._tag === "Parameter" &&
-								candidate.source.location === parameter.location &&
-								candidate.source.wireName === parameter.wireName
+					? Option.map(
+							Arr.findFirst(
+								command.positionals,
+								(candidate) => candidate.wireName === parameter.wireName
+							),
+							(positional) => positional.identifier
 						)
-			if (owner === undefined) {
+					: Option.map(
+							Arr.findFirst(
+								command.flags,
+								(candidate) =>
+									candidate.source._tag === "Parameter" &&
+									candidate.source.location === parameter.location &&
+									candidate.source.wireName === parameter.wireName
+							),
+							(flag) => flag.identifier
+						)
+			if (Option.isNone(owner)) {
 				return yield* refuse("unplanned-parameter", `${parameter.location}:${parameter.wireName}`)
 			}
 
-			const value = yield* flagValue(owner.identifier)
+			const value = yield* flagValue(owner.value)
 			const passed = parameter.required || (yield* isArrayParameter(parameter, context))
 			entries.push([key, passed ? value : fn("Option.getOrUndefined", value)])
 		}
@@ -1906,22 +2049,32 @@ const commandStatement = (
 	context: CommandContext
 ): Effect.Effect<CommandParts, CliEmitError> =>
 	Effect.gen(function* statement() {
-		// The `api/` layer emits no builder for an operation with a parameter it does not build.
-		const unbuilt = command.operation.parameters.find((parameter) => !buildsParameter(parameter))
-		if (unbuilt !== undefined) {
-			return yield* refuse("unsupported-parameter", `${unbuilt.location}:${unbuilt.wireName}`)
+		/** The `api/` layer emits no builder for an operation with a parameter it does not build. */
+		const unbuilt = Arr.findFirst(
+			command.operation.parameters,
+			(parameter) => !buildsParameter(parameter)
+		)
+		if (Option.isSome(unbuilt)) {
+			return yield* refuse(
+				"unsupported-parameter",
+				`${unbuilt.value.location}:${unbuilt.value.wireName}`
+			)
 		}
 
-		// Every command of an operation, alias or not, calls the primary's builder and meta, so each
-		// sends the same bytes and binds the same operation.
+		/**
+		 * Every command of an operation, alias or not, calls the primary's builder and meta, so each
+		 * sends the same bytes and binds the same operation.
+		 */
 		const target = context.targets.get(command.operation)
 		if (target === undefined) {
 			return yield* refuse("unknown-primary", command.name)
 		}
 
-		const namespace = ident(yield* identifier(target.namespace))
+		const namespaceName = yield* identifier(target.namespace)
+		const namespace = ident(namespaceName)
 		const name = yield* identifier(command.identifier)
-		const meta = member(namespace, yield* memberName(`${target.identifier}Meta`))
+		const metaName = yield* memberName(`${target.identifier}Meta`)
+		const meta = member(namespace, metaName)
 		const choices = choicesOf(command.operation)
 		const config = yield* configOf(command, choices, context)
 		const body = yield* bodyPlan(command, meta, choices.choosesType, context)
@@ -1929,11 +2082,12 @@ const commandStatement = (
 			...Option.match(body, { onNone: () => [], onSome: (plan) => plan.args }),
 			...(yield* parameterInputs(command, context))
 		]
-		const builder = member(namespace, yield* memberName(target.identifier))
+		const builderName = yield* memberName(target.identifier)
+		const builder = member(namespace, builderName)
 		const built = call(builder, inputs.length === 0 ? [] : [obj(inputs)])
 		const send = fn(
 			"Effect.flatMap",
-			fn("Output.send", ...(choices.accepts ? [meta, path("flags.accept")] : [meta]))
+			call(path("Output.send"), choices.accepts ? [meta, path("flags.accept")] : [meta])
 		)
 		const stopPoint = choices.follows
 			? [fn("Effect.provideService", path("Sse.StopPoint"), path("flags.follow"))]
@@ -1942,7 +2096,7 @@ const commandStatement = (
 			onNone: () => pipe(built, [send, ...stopPoint]),
 			onSome: (plan) =>
 				pipe(plan.head, [
-					...(plan.steps ?? []),
+					...plan.steps,
 					fn("Effect.flatMap", arrow([{ name: I(plan.parameter) }], built)),
 					send,
 					...stopPoint
@@ -1950,8 +2104,10 @@ const commandStatement = (
 		})
 		const handler = arrow(config.length === 0 ? [] : [{ name: I("flags") }], handled)
 		const make = fn("Command.make", str(command.name), obj(config), handler)
-		// The run's error format is recorded after parsing and before the handler's first fallible
-		// step, so an error raised before `send` renders in it (design 7.4 revision 31b).
+		/**
+		 * The run's error format is recorded after parsing and before the handler's first fallible
+		 * step, so an error raised before `send` renders in it (design 7.4 revision 31b).
+		 */
 		const recording = fn(
 			"Command.provideEffectDiscard",
 			fn("Output.recordRun", str(context.envPrefix))
@@ -1968,10 +2124,7 @@ const commandStatement = (
 		}
 	})
 
-// ---------------------------------------------------------------------------------------------
-// Modules.
-
-// Every identifier an expression reads at its head: the namespaces and bindings it needs.
+/** Every identifier an expression reads at its head: the namespaces and bindings it needs. */
 const heads = (expr: Expr, into: Set<string>): Set<string> => {
 	switch (expr._tag) {
 		case "Identifier": {
@@ -2027,9 +2180,6 @@ const heads = (expr: Expr, into: Set<string>): Set<string> => {
 		case "Undefined": {
 			break
 		}
-		default: {
-			break
-		}
 	}
 
 	return into
@@ -2042,10 +2192,12 @@ interface Binding {
 }
 
 const declaredNames = (statements: readonly Statement[]): readonly string[] =>
-	statements.flatMap((statement) => (statement._tag === "Expression" ? [] : [statement.name]))
+	Arr.flatMap(statements, (statement) => (statement._tag === "Expression" ? [] : [statement.name]))
 
-// The imports a module's statements read, from the fixed sources and the module's own bindings.
-// Two bindings of one name from different places are refused, never aliased.
+/**
+ * The imports a module's statements read, from the fixed sources and the module's own bindings.
+ * Two bindings of one name from different places are refused, never aliased.
+ */
 const moduleImports = (
 	statements: readonly Statement[],
 	bindings: readonly Binding[]
@@ -2060,12 +2212,12 @@ const moduleImports = (
 
 		const declared = new Set<string>(declaredNames(statements))
 		const all: Binding[] = [
-			...packageImports.map(([name, from]) => ({ from, kind: "Named" as const, name })),
-			...runtimeNamespaces.map(([name, from]) => ({ from, kind: "Namespace" as const, name })),
+			...Arr.map(packageImports, ([name, from]) => ({ from, kind: "Named" as const, name })),
+			...Arr.map(runtimeNamespaces, ([name, from]) => ({ from, kind: "Namespace" as const, name })),
 			...bindings
 		]
 		const chosen = new Map<string, Binding>()
-		for (const binding of all.filter((candidate) => used.has(candidate.name))) {
+		for (const binding of Arr.filter(all, (candidate) => used.has(candidate.name))) {
 			const known = chosen.get(binding.name)
 			if (known !== undefined && (known.from !== binding.from || known.kind !== binding.kind)) {
 				return yield* refuse("name-clash", binding.name)
@@ -2093,7 +2245,7 @@ const moduleImports = (
 	})
 
 const domainBindings = (names: readonly string[]): readonly Binding[] =>
-	names.map((name) => ({ from: "../domain/schemas.ts", kind: "Named", name }))
+	Arr.map(names, (name): Binding => ({ from: "../domain/schemas.ts", kind: "Named", name }))
 
 const cliAlias = (group: PlannedGroup): string => `${group.namespace}Cli`
 
@@ -2117,7 +2269,7 @@ interface Commands {
 	readonly statements: readonly Statement[]
 }
 
-// The commands a module emits; an operation-scope refusal drops its command and is recorded.
+/** The commands a module emits; an operation-scope refusal drops its command and is recorded. */
 const commandsOf = (
 	commands: readonly PlannedCommand[],
 	context: CommandContext
@@ -2143,10 +2295,10 @@ const commandsOf = (
 		}
 
 		return {
-			domain: Arr.dedupe(parts.flatMap((part) => part.domain)),
+			domain: Arr.dedupe(Arr.flatMap(parts, (part) => part.domain)),
 			emitted,
 			refusals,
-			statements: parts.map((part) => part.statement)
+			statements: Arr.map(parts, (part) => part.statement)
 		}
 	})
 
@@ -2156,9 +2308,9 @@ interface ApiModule {
 	readonly namespace: string
 }
 
-// Every api module under the namespace the names plan gave it, unique across the modules.
+/** Every api module under the namespace the names plan gave it, unique across the modules. */
 const apiModules = (plan: NamePlan): readonly ApiModule[] => [
-	...plan.groups.map((group) => ({
+	...Arr.map(plan.groups, (group) => ({
 		commands: group.commands,
 		from: `../api/${group.segment}.ts`,
 		namespace: String(group.namespace)
@@ -2168,20 +2320,30 @@ const apiModules = (plan: NamePlan): readonly ApiModule[] => [
 
 const targetsOf = (plan: NamePlan): ReadonlyMap<Operation, Target> =>
 	new Map(
-		apiModules(plan).flatMap(({ commands, from, namespace }) =>
-			commands
-				.filter((command) => command.alias === undefined)
-				.map((command) => [command.operation, { from, identifier: command.identifier, namespace }])
+		Arr.flatMap(apiModules(plan), ({ commands, from, namespace }) =>
+			Arr.map(
+				Arr.filter(commands, (command) => command.alias === undefined),
+				(command) =>
+					[command.operation, { from, identifier: command.identifier, namespace }] as const
+			)
 		)
 	)
 
-// The api namespaces a cli module may read, one per api module under its planned name; only the
-// ones its commands use are imported.
+/**
+ * The api namespaces a cli module may read, one per api module under its planned name; only the
+ * ones its commands use are imported.
+ */
 const apiBindings = (plan: NamePlan): readonly Binding[] =>
-	apiModules(plan).map(({ from, namespace }) => ({ from, kind: "Namespace", name: namespace }))
+	Arr.map(apiModules(plan), ({ from, namespace }): Binding => ({
+		from,
+		kind: "Namespace",
+		name: namespace
+	}))
 
-// The header fields a group module's `Command.make` sets, which its root table entry carries
-// (`runtime/groups.ts` `Header`): today the name only.
+/**
+ * The header fields a group module's `Command.make` sets, which its root table entry carries
+ * (`runtime/groups.ts` `Header`): today the name only.
+ */
 interface GroupHeader {
 	readonly name: string
 }
@@ -2196,10 +2358,13 @@ const groupFile = (
 ) =>
 	Effect.gen(function* file() {
 		const { domain, emitted, statements } = built
-		const subcommands = [
-			...emitted.map((command) => ident(I(command.identifier))),
-			...children.map((child) => member(ident(I(cliAlias(child))), M("group")))
-		]
+		const commands = yield* Effect.forEach(emitted, (command) =>
+			Effect.map(identifier(command.identifier), ident)
+		)
+		const nested = yield* Effect.forEach(children, (child) =>
+			Effect.map(identifier(cliAlias(child)), (alias) => member(ident(alias), M("group")))
+		)
+		const subcommands = [...commands, ...nested]
 		const all: Statement[] = [
 			...statements,
 			{
@@ -2216,9 +2381,9 @@ const groupFile = (
 		const imports = yield* moduleImports(all, [
 			...api,
 			...domainBindings(domain),
-			...children.map((child) => ({
+			...Arr.map(children, (child): Binding => ({
 				from: `./${child.segment}.ts`,
-				kind: "Namespace" as const,
+				kind: "Namespace",
 				name: cliAlias(child)
 			}))
 		])
@@ -2227,21 +2392,22 @@ const groupFile = (
 		return { content, path: `src/cli/${group.segment}.ts` }
 	})
 
-// `commands.module` is relative to the package root and must stay inside it: `./` then plain
-// segments, no `..`, `.` or empty segment, no absolute path.
+/**
+ * `commands.module` is relative to the package root and must stay inside it: `./` then plain
+ * segments, no `..`, `.` or empty segment, no absolute path.
+ */
 const commandsModule = (module: string) =>
 	Effect.gen(function* resolveModule() {
-		const segments = module.split("/")
-		const [lead, ...rest] = segments
+		const [lead, ...rest] = Str.split(module, "/")
 		if (
 			lead !== "." ||
 			rest.length === 0 ||
-			rest.some((part) => part === "" || part === "." || part === "..")
+			Arr.some(rest, (part) => part === "" || part === "." || part === "..")
 		) {
 			return yield* refuse("unsafe-commands-module", module)
 		}
 
-		return yield* specifier(`../../${rest.join("/")}`, "unsafe-commands-module")
+		return yield* specifier(`../../${Arr.join(rest, "/")}`, "unsafe-commands-module")
 	})
 
 const authorCommands = (config: AuthorConfig) =>
@@ -2252,18 +2418,19 @@ const authorCommands = (config: AuthorConfig) =>
 		}
 
 		const from = yield* commandsModule(declared.module)
-		const names: string[] = []
+		const names: Array<typeof Identifier.Type> = []
 		for (const name of declared.names) {
 			const folded = foldIdentifier(name, "camel")
 			if (Result.isFailure(folded)) {
 				return yield* refuse("unprintable-name", name)
 			}
 
-			names.push(yield* identifier(folded.success.name))
+			const command = yield* identifier(folded.success.name)
+			names.push(command)
 		}
 
 		return {
-			bindings: names.map((name) => ({ from, kind: "Named" as const, name })),
+			bindings: Arr.map(names, (name): Binding => ({ from, kind: "Named", name })),
 			names
 		}
 	})
@@ -2287,8 +2454,10 @@ const globalSettings: readonly string[] = [
 	"Output.dryRunSetting"
 ]
 
-// One table row per top-level group: its header and a thunk importing its module by a literal
-// specifier, so the module loads only when `Groups.root` selects it (design 4.1 Lazy root).
+/**
+ * One table row per top-level group: its header and a thunk importing its module by a literal
+ * specifier, so the module loads only when `Groups.root` selects it (design 4.1 Lazy root).
+ */
 const tableEntry = (group: PlannedGroup) =>
 	specifier(`./${group.segment}.ts`, "unprintable-name").pipe(
 		Effect.map((from) =>
@@ -2298,6 +2467,9 @@ const tableEntry = (group: PlannedGroup) =>
 			])
 		)
 	)
+
+/** The root's parameters, `args` and `groups`: a command of either name would be shadowed. */
+const rootParameters: readonly string[] = ["args", "groups"]
 
 const rootFile = (
 	topLevel: readonly PlannedGroup[],
@@ -2310,10 +2482,10 @@ const rootFile = (
 		const { domain, emitted, statements } = built
 		const author = yield* authorCommands(config)
 		const prefix = str(envPrefixOf(config))
-		const others = [
-			...emitted.map((command) => ident(I(command.identifier))),
-			...author.names.map((name) => ident(I(name)))
-		]
+		const commands = yield* Effect.forEach(emitted, (command) =>
+			Effect.map(identifier(command.identifier), ident)
+		)
+		const others = [...commands, ...Arr.map(author.names, ident)]
 		const files: readonly Statement[] =
 			plan.credentials.length === 0
 				? []
@@ -2323,19 +2495,19 @@ const rootFile = (
 							exported: false,
 							name: I("credentialFiles"),
 							value: arr(
-								plan.credentials.map((credential) =>
+								Arr.map(plan.credentials, (credential) =>
 									fn("Auth.credentialFileSetting", str(credential.scheme))
 								)
 							)
 						}
 					]
-		const globals = arr(globalSettings.map((setting) => path(setting)))
+		const globals = arr(Arr.map(globalSettings, (setting) => path(setting)))
 		const settings =
 			plan.credentials.length === 0
 				? globals
 				: fn("Arr.appendAll", globals, path("credentialFiles"))
 		const credentialFiles = plan.credentials.length === 0 ? arr([]) : path("credentialFiles")
-		// The loaded groups come first, then the untagged and author commands, as the eager order was.
+		/** The loaded groups come first, then the untagged and author commands, as the eager order was. */
 		const subcommands =
 			others.length === 0 ? path("groups") : fn("Arr.appendAll", path("groups"), arr(others))
 		const header = (children: Expr) =>
@@ -2343,9 +2515,11 @@ const rootFile = (
 				fn("Command.withSubcommands", children),
 				fn("Command.withGlobalFlags", settings)
 			])
-		const entries = yield* Effect.all(topLevel.map(tableEntry))
-		// With no top-level group there is nothing to load, and an empty table would infer `unknown`
-		// requirements, so the root is the header over the other commands.
+		const entries = yield* Effect.forEach(topLevel, tableEntry)
+		/**
+		 * With no top-level group there is nothing to load, and an empty table would infer `unknown`
+		 * requirements, so the root is the header over the other commands.
+		 */
 		const lazy: Statement[] =
 			topLevel.length === 0
 				? [
@@ -2390,14 +2564,17 @@ const rootFile = (
 				)
 			}
 		]
-		// `args` and `groups` are the root's parameters: a command of either name would be shadowed.
-		yield* checkDistinct([...declaredNames(all), ...author.names, "args", "groups"])
+		yield* checkDistinct([...declaredNames(all), ...author.names, ...rootParameters])
 
 		const imports = yield* moduleImports(all, [
 			...api,
 			{ from: "../api/security.ts", kind: "Named", name: "security" },
 			{ from: "../api/servers.ts", kind: "Named", name: "servers" },
-			...rootNamespaceImports.map(([name, from]) => ({ from, kind: "Namespace" as const, name })),
+			...Arr.map(rootNamespaceImports, ([name, from]): Binding => ({
+				from,
+				kind: "Namespace",
+				name
+			})),
 			...domainBindings(domain),
 			...author.bindings
 		])
@@ -2406,19 +2583,19 @@ const rootFile = (
 		return { content, path: "src/cli/root.ts" }
 	})
 
-const decodeDefs = Schema.decodeUnknownOption(
-	Schema.Struct({ $defs: Schema.Record(Schema.String, Schema.Json) })
-)
+/** The schema store's `$defs`: its document's `$defs` object, none when it holds no object there. */
+const defsOf = (document: Schema.Json): Defs => {
+	const defs = isJsonObject(document) ? own(document, "$defs") : undefined
+
+	return isJsonObject(defs) ? defs : {}
+}
 
 const byPath = Order.mapInput(Order.String, (file: EmittedFile) => file.path)
 
-// The code normalize's validation copy records when it removes a 3.0 `default` (S30-27).
+/** The code normalize's validation copy records when it removes a 3.0 `default` (S30-27). */
 const refusedDefaultCode = "S30-27/nonconforming-default"
 
-const isJsonArray = (json: Schema.Json | undefined): json is readonly Schema.Json[] =>
-	Arr.isArray(json)
-
-// The member of an object, or the element of an array, that one path token names.
+/** The member of an object, or the element of an array, that one path token names. */
 const childAt = (json: Schema.Json | undefined, token: string): Schema.Json | undefined => {
 	if (isJsonObject(json)) {
 		return own(json, token)
@@ -2461,33 +2638,30 @@ const refusedDefaultsOf = (edits: readonly SchemaEdit[], defs: Defs): ReadonlySe
  * and `cli/root.ts` with the untagged commands, the header table that loads each top-level group
  * by a literal `import()`, `root` building the root command and its global settings through
  * `Groups.root` from the arguments, the author-owned commands, and `services`. Files are sorted by
- * path. An operation the layer cannot
- * express is refused alone (`CliRefusal`), and a group left with no command and no emitted child
- * group is not emitted.
+ * path. An operation the layer cannot express is refused alone (`CliRefusal`), and a group left
+ * with no command and no emitted child group is not emitted.
  */
 export const emitCli = (
 	input: CliEmitInput
 ): Effect.Effect<CliEmitOutput, CliEmitError | PrinterError> =>
 	Effect.gen(function* emit() {
 		const { api, config, plan } = input
-		const reserved = plan.groups.find((group) => reservedSegments.has(group.segment))
-		if (reserved !== undefined) {
-			return yield* refuse("reserved-segment", reserved.segment)
+		const reserved = Arr.findFirst(plan.groups, (group) => reservedSegments.has(group.segment))
+		if (Option.isSome(reserved)) {
+			return yield* refuse("reserved-segment", reserved.value.segment)
 		}
 
-		const tags = new Set(plan.groups.map((group) => group.tag))
-		const orphan = plan.groups.find(
+		const tags = new Set(Arr.map(plan.groups, (group) => group.tag))
+		const orphan = Arr.findFirst(
+			plan.groups,
 			(group) => group.parent !== undefined && !tags.has(group.parent)
 		)
-		if (orphan !== undefined) {
-			return yield* refuse("unknown-parent", orphan.tag)
+		if (Option.isSome(orphan)) {
+			return yield* refuse("unknown-parent", orphan.value.tag)
 		}
 
 		const targets = targetsOf(plan)
-		const defs = Option.match(decodeDefs(api.schemas.document), {
-			onNone: (): Defs => ({}),
-			onSome: (store) => store.$defs
-		})
+		const defs = defsOf(api.schemas.document)
 		const context: CommandContext = {
 			api,
 			booleans: new Map(),
@@ -2499,54 +2673,49 @@ export const emitCli = (
 			refusedDefaults: refusedDefaultsOf(input.validationEdits, defs),
 			targets
 		}
-		const built = new Map<string, Commands>()
-		for (const group of plan.groups) {
-			built.set(group.tag, yield* commandsOf(group.commands, context))
-		}
-
+		const built = yield* Effect.forEach(plan.groups, (group) =>
+			Effect.map(commandsOf(group.commands, context), (commands) => ({ commands, group }))
+		)
 		const rootCommands = yield* commandsOf(plan.root, context)
-		// A group is emitted when it keeps a command or has an emitted child group.
+		/** A group is emitted when it keeps a command or has an emitted child group. */
 		const emitted = new Set<string>()
 		let grew = true
 		while (grew) {
 			grew = false
-			for (const group of plan.groups) {
-				const hasChild = plan.groups.some(
+			for (const { commands, group } of built) {
+				const hasChild = Arr.some(
+					plan.groups,
 					(child) => child.parent === group.tag && emitted.has(child.tag)
 				)
-				const kept = built.get(group.tag)?.emitted.length ?? 0
-				if (!emitted.has(group.tag) && (kept > 0 || hasChild)) {
+				if (!emitted.has(group.tag) && (commands.emitted.length > 0 || hasChild)) {
 					emitted.add(group.tag)
 					grew = true
 				}
 			}
 		}
 
-		const empty: Commands = { domain: [], emitted: [], refusals: [], statements: [] }
-		const commandsFor = (group: PlannedGroup): Commands => built.get(group.tag) ?? empty
-		const groups = plan.groups.filter((group) => emitted.has(group.tag))
-		const childrenOf = (group: PlannedGroup) => groups.filter((child) => child.parent === group.tag)
-		const files: EmittedFile[] = [
-			...(yield* Effect.all(
-				groups.map((group) =>
-					groupFile(group, commandsFor(group), childrenOf(group), apiBindings(plan))
-				)
-			))
-		]
-		files.push(
-			yield* rootFile(
-				groups.filter((group) => group.parent === undefined),
-				rootCommands,
-				plan,
-				config,
+		const kept = Arr.filter(built, ({ group }) => emitted.has(group.tag))
+		const groups = Arr.map(kept, ({ group }) => group)
+		const groupFiles = yield* Effect.forEach(kept, ({ commands, group }) =>
+			groupFile(
+				group,
+				commands,
+				Arr.filter(groups, (child) => child.parent === group.tag),
 				apiBindings(plan)
 			)
 		)
+		const rootModule = yield* rootFile(
+			Arr.filter(groups, (group) => group.parent === undefined),
+			rootCommands,
+			plan,
+			config,
+			apiBindings(plan)
+		)
 
 		return {
-			files: Arr.sort(files, byPath),
+			files: Arr.sort(Arr.append(groupFiles, rootModule), byPath),
 			refusals: [
-				...plan.groups.flatMap((group) => commandsFor(group).refusals),
+				...Arr.flatMap(built, ({ commands }) => commands.refusals),
 				...rootCommands.refusals
 			]
 		}
