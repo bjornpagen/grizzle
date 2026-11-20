@@ -1,9 +1,7 @@
-import { regex } from "arkregex"
 import {
 	Array as Arr,
 	Data,
 	Effect,
-	Equal,
 	Graph,
 	HashSet,
 	JsonPointer,
@@ -14,8 +12,6 @@ import {
 	Predicate,
 	Record,
 	Result,
-	Schema,
-	SchemaRepresentation,
 	String as Str,
 	UndefinedOr
 } from "effect"
@@ -91,7 +87,8 @@ export interface SchemaNormalization extends StoredSchemas {
 }
 
 /**
- * A conversion or import failure that no D-AD12 class names: a defect in that list (design 3.5).
+ * Effect's conversion of an OpenAPI Schema Object to draft 2020-12 failed, or answered no JSON: a defect of the
+ * conversion (design 3.5), never a property of the document.
  */
 export class SchemaImportDefect extends Data.TaggedError("SchemaImportDefect")<{
 	readonly key: string
@@ -120,7 +117,7 @@ const childAt = (node: Json, token: string): Option.Option<Json> => {
 }
 
 /**
- * The `$defs` key a `#/$defs/<token>` reference names (one token, as Effect's importer requires).
+ * The `$defs` key a `#/$defs/<token>` reference names: one token, as every reference the store rewrites names one.
  */
 const referenceKey = (ref: string): string | undefined => {
 	const tokens = JsonPointer.parseUriFragment(ref)
@@ -415,7 +412,7 @@ const messageOf = (cause: unknown): string =>
  * Rewrites every schema `$ref` to `#/$defs/<key>` from the resolution, before conversion, and
  * drops every `$id`. The resolver has already resolved each reference against the base URI its
  * `$id`s set, so once every `$ref` names a stored key no reference reads a base URI, and an
- * embedded resource is flattened into the store's `$defs` as Effect's importer requires.
+ * embedded resource is flattened into the store's `$defs`, where every reader of the store finds it.
  */
 const rewriteReferences = (resolution: Resolution, node: Json, at: CanonicalKey): Json => {
 	const where = resolution.line === "3.0" ? positions30 : positions2020
@@ -647,7 +644,6 @@ const keywordRows: ReadonlyMap<string, readonly [row30: string, row31: string]> 
 	string,
 	readonly [row30: string, row31: string]
 >([
-	["additionalProperties", ["S30-24", "SCH-13"]],
 	["const", ["SCH-28", "SCH-28"]],
 	["contains", ["SCH-12", "SCH-12"]],
 	["contentSchema", ["SCH-57", "SCH-57"]],
@@ -1058,7 +1054,7 @@ const retype = (value: Json): Json => {
 /**
  * An `additionalProperties` that rejects or types some keys. Beside `patternProperties` it cannot
  * stay: which keys it governs depends on the patterns, which are not asserted (SCH-15), so the
- * object is left open, as Effect's importer leaves it when it ignores patterns.
+ * object is left open.
  */
 const constrainsKeys = (value: Json): boolean =>
 	value === false || (isObject(value) && !isEmptySchema(value))
@@ -1230,176 +1226,36 @@ const breakAliasCycles = (initial: ReadonlyMap<string, Json>): EditedCopy => {
 }
 
 /**
- * The importer's failure classes D-AD12 names (spike S7); any other class is a defect.
+ * Refuses every `$ref` of the copy that names no definition of it (REF-02 in 3.0, SCH-03 after: a non-schema target):
+ * one the resolver keyed to a place the store holds no schema for, such as an OpenAPI object a schema's `$ref` reaches.
+ * The schema that holds it becomes `{}`, which admits any value, so every reference of the copy names a definition the
+ * copy holds, as the domain module's readers need.
  */
-const importClasses: readonly (readonly [prefix: string, code: (line: SpecLine) => string])[] = [
-	["Cannot intersect these", () => "SCO-09/union-not-asserted"],
-	[
-		'Cannot combine typed "additionalProperties"',
-		(line) => `${rowOf(line, "additionalProperties")}/not-asserted`
-	],
-	["Missing definition", (line) => `${line === "3.0" ? "REF-02" : "SCH-03"}/non-schema-target`],
-	["Definition ", () => "DOC-23/alias-cycle"]
-]
-
-const quoted = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
-
-/**
- * One token of the importer's error path, in brackets: a JSON string or an index. Splitting a path
- * at it yields the text around the tokens with each token at an odd index.
- */
-const pathToken = regex('\\[("(?:[^"\\\\]|\\\\.)*"|\\d+)\\]', "u")
-
-/**
- * The importer's error path (a line `  at ["definitions"]["A"][0]`) as tokens.
- */
-const importPath = (message: string): readonly string[] => {
-	const [, location = ""] = Str.split(message, "\n  at ")
-
-	return Arr.map(
-		Arr.filter(Str.split(location, pathToken), (_token, index) => index % 2 === 1),
-		(token) => (Str.startsWith('"')(token) ? Option.getOrElse(quoted(token), () => token) : token)
-	)
-}
-
-/**
- * The child a schema keyword reaches from `node`, with the number of path tokens it consumes.
- */
-const keywordChild = (
-	node: JsonObject,
-	keyword: string,
-	name: string
-): readonly [child: Option.Option<Json>, width: number] => {
-	const container = member(node, keyword)
-	if (copyPositions.one.has(keyword)) {
-		return [container, 1]
-	}
-
-	const indexed = copyPositions.list.has(keyword) || copyPositions.map.has(keyword)
-
-	return indexed
-		? [Option.flatMap(container, (found) => childAt(found, name)), 2]
-		: [Option.none(), 1]
-}
-
-/**
- * The deepest schema node on `tokens` that exists: the importer's path can run through merged
- * intersection scopes that are not positions in the document (spike S7).
- */
-const deepestSchema = (node: Json, tokens: readonly string[]): readonly string[] => {
-	let current = node
-	let consumed = 0
-	while (consumed < tokens.length && isObject(current)) {
-		const [found, width] = keywordChild(current, tokens[consumed] ?? "", tokens[consumed + 1] ?? "")
-		if (Option.isNone(found) || !(isObject(found.value) || Predicate.isBoolean(found.value))) {
-			break
-		}
-
-		current = found.value
-		consumed += width
-	}
-
-	return tokens.slice(0, consumed)
-}
-
-const multiDocument = (
-	definitions: ReadonlyMap<string, Json>
-): JsonSchema.MultiDocument<"draft-2020-12"> | undefined => {
-	const keys = sortedKeys(definitions)
-	const [first, ...rest] = Arr.map(keys, (key) => ({ $ref: refFor(key) }))
-	if (first === undefined) {
-		return undefined
-	}
-
-	const entries = Arr.flatMap(keys, (key): [string, JsonObject][] => {
-		const node = Option.filter(Option.fromUndefinedOr(definitions.get(key)), isObject)
-
-		return Option.isSome(node) ? [[key, node.value]] : []
-	})
-
-	return {
-		definitions: Record.fromEntries(entries),
-		dialect: "draft-2020-12",
-		schemas: [first, ...rest]
-	}
-}
-
-/**
- * Effect's importer as both import copies run it: the validation copy here, and the
- * code-generation copy in the domain emitter. Pattern constraints stay at the importer's default
- * (rejected): the validation copy removes every `pattern` and `patternProperties` before import, so
- * the two copies can never disagree on one.
- */
-export const importSchemas = (
-	multi: JsonSchema.MultiDocument<"draft-2020-12">
-): readonly [Schema.Top, ...Schema.Top[]] => SchemaRepresentation.fromJsonSchemaMultiDocument(multi)
-
-const importOnce = (
-	definitions: ReadonlyMap<string, Json>
-): Effect.Effect<Option.Option<string>> => {
-	const multi = multiDocument(definitions)
-	if (multi === undefined) {
-		return Effect.succeedNone
-	}
-
-	return Effect.try({ catch: messageOf, try: () => importSchemas(multi) }).pipe(
-		Effect.match({ onFailure: (message) => Option.some(message), onSuccess: () => Option.none() })
-	)
-}
-
-/**
- * The edit for one importer failure, or `undefined` when its class is unnamed or it makes no
- * progress (the located node is already `{}`).
- */
-const importEdit = (
-	line: SpecLine,
-	definitions: ReadonlyMap<string, Json>,
-	message: string
-): Option.Option<SchemaEdit> => {
-	const [first] = Str.split(message, "\n")
-	const found = Arr.findFirst(importClasses, ([prefix]) => Str.startsWith(prefix)(first))
-	const [root, name = "", ...tokens] = importPath(message)
-	const key = root === "schemas" ? (sortedKeys(definitions)[Number(name)] ?? "") : name
-	const node = definitions.get(key)
-	if (Option.isNone(found) || node === undefined) {
-		return Option.none()
-	}
-
-	const path = root === "definitions" ? deepestSchema(node, tokens) : []
-
-	return Equal.equals(replaceAt(node, path), node)
-		? Option.none()
-		: Option.some({ action: "replace", code: found.value[1](line), key, path })
-}
-
-/**
- * Imports through `importSchemas`; each rejected node becomes `{}` under the code of its class,
- * at its deepest existing schema ancestor, until the import succeeds. The importer stops at its
- * first failure, so repairs cannot be batched. The passes end: an edit that changes nothing is a
- * defect (`importEdit`), so each pass replaces a node that is not `{}` with `{}`, removing at least
- * one of the finitely many JSON values the definitions hold.
- */
-const importCopy = Effect.fnUntraced(function* importCopy(
+const withoutDanglingReferences = (
 	line: SpecLine,
 	initial: ReadonlyMap<string, Json>
-): Effect.fn.Return<EditedCopy, SchemaImportDefect> {
-	const definitions = new Map(initial)
+): EditedCopy => {
+	const code = `${line === "3.0" ? "REF-02" : "SCH-03"}/non-schema-target`
 	const edits: SchemaEdit[] = []
-	let failure = yield* importOnce(definitions)
-	while (Option.isSome(failure)) {
-		const found = importEdit(line, definitions, failure.value)
-		if (Option.isNone(found)) {
-			return yield* new SchemaImportDefect({ key: "", message: failure.value })
-		}
+	const definitions = new Map(
+		Arr.map(sortedKeys(initial), (key): [string, Json] => [
+			key,
+			transformSchema(initial.get(key) ?? {}, [], copyPositions, (node, path) => {
+				const ref = stringMember(node, "$ref")
+				const target = pipe(ref, UndefinedOr.map(referenceKey))
+				if (ref === undefined || (target !== undefined && initial.has(target))) {
+					return node
+				}
 
-		const edit = found.value
-		edits.push(edit)
-		definitions.set(edit.key, replaceAt(definitions.get(edit.key) ?? {}, edit.path))
-		failure = yield* importOnce(definitions)
-	}
+				edits.push({ action: "replace", code, key, path })
+
+				return {}
+			})
+		])
+	)
 
 	return { definitions, edits }
-})
+}
 
 /**
  * Derives the validation copy from stored definitions (design 3.5 "Import copies", D-AD12): the
@@ -1410,15 +1266,12 @@ const importCopy = Effect.fnUntraced(function* importCopy(
  * (int64 notice); `patternProperties` is removed with a notice, with an `additionalProperties`
  * beside it that rejects or types keys (SCH-15); a name in `required` whose property is read-only
  * is dropped (SCH-45: a notice in 3.1 and 3.2, none in 3.0); a 3.0 `default` outside the schema's
- * type is removed with a refusal (S30-27); then Effect's importer runs, and each node it still
- * rejects becomes `{}` under the code of its D-AD12 class. A pure alias cycle never reaches it: the
- * store has refused it already (`normalizeSchemas`). The copy is the stored document minus `edits`
- * (X10); it is recomputed, never edited.
+ * type is removed with a refusal (S30-27); then each schema holding a `$ref` that names no
+ * definition of the copy becomes `{}` (`withoutDanglingReferences`). A pure alias cycle never reaches
+ * it: the store has refused it already (`normalizeSchemas`). The copy is the stored document minus
+ * `edits` (X10); it is recomputed, never edited.
  */
-const validationCopy = Effect.fnUntraced(function* validationCopy(
-	line: SpecLine,
-	definitions: ReadonlyMap<string, Json>
-): Effect.fn.Return<ValidationCopy, SchemaImportDefect> {
+const validationCopy = (line: SpecLine, definitions: ReadonlyMap<string, Json>): ValidationCopy => {
 	const edits: SchemaEdit[] = []
 	const filtered = new Map(
 		Arr.map(sortedKeys(definitions), (key): [string, Json] => {
@@ -1427,13 +1280,13 @@ const validationCopy = Effect.fnUntraced(function* validationCopy(
 			return [key, transformSchema(definitions.get(key) ?? {}, [], copyPositions, visit)]
 		})
 	)
-	const imported = yield* importCopy(line, filtered)
+	const referenced = withoutDanglingReferences(line, filtered)
 
 	return {
-		definitions: imported.definitions,
-		edits: [...edits, ...imported.edits]
+		definitions: referenced.definitions,
+		edits: [...edits, ...referenced.edits]
 	}
-})
+}
 
 interface Rule {
 	readonly anchor: string
@@ -1572,16 +1425,6 @@ const rules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
 			element: "Schema $vocabulary",
 			message: "$vocabulary is not supported; schemas must use the OpenAPI dialect.",
 			severity: "refusal"
-		}
-	],
-	[
-		"union-not-asserted",
-		{
-			anchor: "composition-and-inheritance-polymorphism",
-			element: "Schema composition",
-			message:
-				"These allOf, anyOf or oneOf alternatives cannot be intersected; the schema is not asserted client-side.",
-			severity: "notice"
 		}
 	]
 ])
@@ -1726,7 +1569,7 @@ export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
 		)
 	}
 	const refused = refusedInSource(resolution, sites)
-	const validation = yield* validationCopy(resolution.line, stored.definitions)
+	const validation = validationCopy(resolution.line, stored.definitions)
 	const diagnostics = yield* diagnosticsOf(
 		resolution,
 		sites,

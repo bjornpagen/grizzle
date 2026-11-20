@@ -144,12 +144,11 @@ Labels: decided.
 
 ## Schemas
 
-Labels: decided; the coverage of Effect's schema importer is measured.
+Label: decided.
 
 - Shape keywords drive flags and serialization.
-- Constraint keywords that Effect's importer accepts are checked client-side. Others, `pattern` included, are sent unchecked and recorded as notices.
+- Constraint keywords are checked client-side, but the server-validated ones the copy used for checking removes (`pattern` among them), which are sent unchecked and recorded as notices.
 - A union whose branches are all constant values is read as an enum.
-- A schema Effect's importer cannot read (a union it cannot intersect, or declared properties beside a schema-valued `additionalProperties`) is sent unchecked with a notice.
 - A `$ref` into a location that is not a schema position, and a schema that aliases itself through a one-branch `allOf`, are refused.
 - Integers outside the safe range (`int64`) are typed as `number` in the copy used for checking, so their range is not checked client-side (notice). The request sends the digit string (see Requests).
 - Enum members outside the declared type are dropped with a notice. A 3.0 `nullable` in a 3.1 or later document is a notice and has no effect.
