@@ -81,7 +81,8 @@ import {
 	inForce,
 	interpretRows,
 	slotPlace,
-	statementRelations
+	statementRelations,
+	writeBatching
 } from "#compiler/plan/runtime.ts"
 
 /** The rows of a statement the flight did not send. */
@@ -358,31 +359,38 @@ const writeStatements = (
 	flight: FlightWrite,
 	inputs: BoundInputs,
 	chunks: Chunks,
-	transport: Transport
+	transportOf: (statement: FlightStatement) => Transport
 ): Result.Result<
 	{
 		readonly sent: ReadonlyArray<SentStatement>
 		readonly statements: ReadonlyArray<BatchStatement>
+		/** Whether some statement's facts were cut into batched executions (bind.ts batchedExecutions). */
+		readonly cut: boolean
 	},
 	InputFailure
 > => {
 	const skip = inputs.bound.skip
 	const sent: Array<SentStatement> = []
 	const statements: Array<BatchStatement> = []
+	let cut = false
 	for (const s of flight.statements) {
 		if (skip.has(s.index)) {
 			continue
 		}
+		const transport = transportOf(s)
 		const executions = chunks(s, transport)
 		if (!executions.ok) {
 			return Result.fail(valuesFailure(executions.error))
 		}
+		cut ||=
+			transport.batching.kind === "bounded" &&
+			Arr.filter(executions.value, (execution) => execution.part === "statement").length > 1
 		for (const [chunk, execution] of executions.value.entries()) {
 			sent.push({ statement: s, chunk, part: execution.part })
 			statements.push(preparedStatement(execution.text, execution.params))
 		}
 	}
-	return Result.succeed({ sent, statements })
+	return Result.succeed({ sent, statements, cut })
 }
 
 /** The second half of an application: its statements in one transaction of `frame` on `session` (see the header). */
@@ -412,17 +420,44 @@ export const runWrite = <R>(
 			inputApplyError
 		)
 		const backs = joinFlights(readBackFlights)
-		const writes = writeStatements(flight, inputs, inputs.bound.chunks, sessionTransport(session))
-		if (Result.isFailure(writes)) {
-			return yield* Effect.fail(inputApplyError(writes.failure))
-		}
+		const transport = sessionTransport(session)
+		const batched: Transport = { ...transport, batching: writeBatching }
+		/** The statements a read-back rides, whose rows it reads in the one execution that makes them. */
+		const ridingOn = new Set(
+			Arr.flatMap(reads.runs.runs, (run) => (run.kind === "riding" ? [run.riding.statement] : []))
+		)
+		/**
+		 * The write's flight, its statements of member inserts cut into executions within PostgreSQL's default work_mem where
+		 * `cutting` (bind.ts batchedExecutions), every other statement and every ridden one whole.
+		 */
+		const attempt = (cutting: boolean) =>
+			Effect.gen(function* () {
+				const writes = writeStatements(flight, inputs, inputs.bound.chunks, (s) =>
+					cutting && !ridingOn.has(s.index) ? batched : transport
+				)
+				if (Result.isFailure(writes)) {
+					return yield* Effect.fail(inputApplyError(writes.failure))
+				}
+				const ran = yield* Effect.result(
+					runFramed(session, frame, [...writes.success.statements, ...backs.statements])
+				)
+				return { writes: writes.success, ran }
+			})
+		/**
+		 * A batched flight a statement refused is sent again whole, in a transaction of its own, the first having changed
+		 * nothing: a refusal judges the call's facts all at once, its witness the least of every fact's (protocol.ts),
+		 * which the executions cut alone would choose among their own facts. A refusal at COMMIT reads the same deltas
+		 * either way, and stands.
+		 */
+		const first = yield* attempt(true)
+		const { writes, ran } =
+			first.writes.cut && Result.isFailure(first.ran) && first.ran.failure._tag === "BatchRefused"
+				? yield* attempt(false)
+				: first
 		/** Every statement the write sends but the read-backs, by its index in its flight. */
-		const sent = writes.success.sent
+		const sent = writes.sent
 		/** How many statements precede the read-backs. */
 		const written = sent.length
-		const ran = yield* Effect.result(
-			runFramed(session, frame, [...writes.success.statements, ...backs.statements])
-		)
 		if (Result.isFailure(ran)) {
 			return yield* flightFailure<R>(ran.failure, sent, context)
 		}

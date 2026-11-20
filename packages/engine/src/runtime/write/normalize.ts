@@ -128,6 +128,28 @@ export const refilledSlot = (
 }
 
 /**
+ * A slot's facts `from` to `to`, in their canonical order, as normalization would hold them had the slot stated them
+ * alone: one execution's share of a batched statement (runtime/write/bind.ts batchedExecutions). The brand's claim
+ * holds of every share of a normalized slot. A slot with a bytes column holds one binary array of all its facts, which
+ * no share of it carries, so only a slot of none is cut (`cuttable`).
+ */
+export const slicedSlot = (slot: NormalizedSlot, from: number, to: number): NormalizedSlot => {
+	const sliced = new TextsMap<IdentifiedFact>()
+	for (const e of slot.entries.slice(from, to)) {
+		sliced.set(e.identity, e)
+	}
+	const normal = normalFacts(sliced)
+	return Object.freeze({
+		...keyNormalized({ ...normal, binary: slot.binary }),
+		slot: slot.slot,
+		count: normal.facts.length
+	})
+}
+
+/** Whether a slot's facts may be cut into shares (`slicedSlot`): it has no bytes column, whose one array spans them. */
+export const cuttable = (slot: NormalizedSlot): boolean => slot.binary.size === 0
+
+/**
  * A same-key conflict between two additions, or two deletions, of one stratum: invariant-rejected with the key law and
  * its description, refused by the key's constraint on the table of `relation`, the stored relation the facts write;
  * its witness is the key values only, in the words the facts were stated in: a query entry's head fields under the

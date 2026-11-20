@@ -126,6 +126,12 @@ export interface FlightForm {
  */
 export interface PartedFlight {
 	readonly sentFor: (holdsFact: (input: NeededInput) => boolean) => FlightForm | undefined
+	/**
+	 * Whether a call's facts may be cut into executions of a share each (bind.ts batchedExecutions): every unit sent
+	 * with every part, a shared sub-query or a riding read-back, reads no fact of the call and delivers no row, so each
+	 * execution's parts read what the whole statement's would of their own facts.
+	 */
+	readonly cuttable: boolean
 }
 
 /**
@@ -136,6 +142,11 @@ export interface PartedFlight {
 const partedFlight = (parted: Parted<WriteSlot>): PartedFlight => {
 	const forms = new Map<string, FlightForm>()
 	return Object.freeze({
+		cuttable: parted.units.every(
+			(unit) =>
+				unit.kind === "part" ||
+				(unit.arms.length === 0 && unit.params.every((slot) => slot.kind === "scalar"))
+		),
 		sentFor: (holdsFact: (input: NeededInput) => boolean): FlightForm | undefined => {
 			const sent = sentUnits(parted, holdsFact)
 			if (sent === undefined) {

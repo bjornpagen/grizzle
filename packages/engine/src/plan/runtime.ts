@@ -102,7 +102,7 @@ export { outcomeKind } from "#compiler/runtime/write/net.ts"
 export { interpretRows, keyWitness, witnessDecoder } from "#compiler/runtime/write/outcome.ts"
 export { readChangeDetail, readLawDetail } from "#compiler/runtime/write/refusal.ts"
 export { constraintLawsOf, usesLaws } from "#compiler/runtime/write/laws.ts"
-export { inForce } from "#compiler/runtime/write/transport.ts"
+export { inForce, writeBatching } from "#compiler/runtime/write/transport.ts"
 export {
 	aboveJudgement,
 	type EntryKey,

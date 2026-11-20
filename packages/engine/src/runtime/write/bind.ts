@@ -10,6 +10,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
 	type NormalizedRelation,
@@ -81,7 +82,9 @@ import {
 	type MemberFacts,
 	normalizeChangeSet,
 	type NormalizedSlot,
+	cuttable,
 	refilledSlot,
+	slicedSlot,
 	type SlotData
 } from "#compiler/runtime/write/normalize.ts"
 import { keyWitness } from "#compiler/runtime/write/outcome.ts"
@@ -99,7 +102,7 @@ import {
 	nestedSource
 } from "#compiler/runtime/write/staged.ts"
 import type { OwnStep } from "#compiler/runtime/write/steps.ts"
-import type { Transport } from "#compiler/runtime/write/transport.ts"
+import type { Batching, Transport } from "#compiler/runtime/write/transport.ts"
 import {
 	type FilledColumn,
 	hostJudgement,
@@ -979,10 +982,79 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 	 * transport's message, its staged form's (`Chunks`); each placeholder of nested rows sends its source as the write
 	 * built it (`sourceOf`).
 	 */
+	/**
+	 * The executions of a statement of member inserts under `batching` (transport.ts Batching), each carrying a share of
+	 * every member slot's facts, cut in the slots' order and each slot's canonical order (`batchCuts`), its form the units
+	 * of the parts its share gives rows (`sentFormOf`): none where the batching is whole, the statement inserts nothing
+	 * or reads a relation parameter or nested rows, a slot has a bytes column (normalize.ts cuttable), or its facts fit
+	 * one execution, which `chunks` then sends as one. Every share is a call's facts as host normalization left them:
+	 * deduplicated, no two of one key, so no execution meets a fact another inserted at its key, and the deferred
+	 * constraints and the judge read every execution's rows at COMMIT. Its rows are every execution's, in order.
+	 */
+	const batchedExecutions = (
+		statement: FlightStatement,
+		sent: FlightForm,
+		batching: Batching
+	): Result.Result<ReadonlyArray<Execution>, EncodingFailure | LiteralBound> | undefined => {
+		if (batching.kind === "whole" || !insertsOnly(statement.step)) {
+			return undefined
+		}
+		if (statement.kind === "parted" && !sentForm(statement, runsLarge).cuttable) {
+			return undefined
+		}
+		if (!sent.paramSlots.every((slot) => slot.kind === "member" || slot.kind === "scalar")) {
+			return undefined
+		}
+		const members = [
+			...new Set(sent.paramSlots.flatMap((slot) => (slot.kind === "member" ? [slot.slot] : [])))
+		]
+		const normalized = members.map((id) => sentRows.slot(id))
+		if (!normalized.every(cuttable)) {
+			return undefined
+		}
+		const cuts = batchCuts(normalized, batching.bytes)
+		if (cuts.length < 2) {
+			return undefined
+		}
+		const executions: Array<Execution> = []
+		for (const cut of cuts) {
+			const shares = new Map(
+				members.map((id, i) => {
+					const range = defined(cut[i], "a cut's range of each member slot")
+					return [
+						id,
+						slicedSlot(defined(normalized[i], "a member slot's facts"), range.from, range.to)
+					] as const
+				})
+			)
+			const rows: WriteRows = {
+				slot: (id) => shares.get(id) ?? sentRows.slot(id),
+				nested: sentRows.nested
+			}
+			const holdsShare = (input: NeededInput): boolean =>
+				input.kind === "member" && shares.has(input.slot)
+					? defined(shares.get(input.slot), "a member slot's share").count > 0
+					: holdsFact(input)
+			const shareForm = sentFormOf(statement, runsLarge, holdsShare)
+			if (shareForm === undefined) {
+				continue
+			}
+			const params = Result.each(shareForm.paramSlots, (slot) => encodeSlot(slot, rows))
+			if (!params.ok) {
+				return params
+			}
+			executions.push({ text: shareForm.text, params: params.value, part: partOf(statement.step) })
+		}
+		return Result.ok(executions)
+	}
 	const chunks: Chunks = (statement, transport) => {
 		const sent = sentForms.get(statement.index)
 		if (sent === undefined) {
 			return Result.ok([])
+		}
+		const batched = batchedExecutions(statement, sent, transport.batching)
+		if (batched !== undefined) {
+			return batched
 		}
 		const nested = sent.paramSlots.map((slot): NestedPlaceholder | undefined =>
 			slot.kind === "nestedRows" ? { part: slot.part, source: sourceOf(slot) } : undefined
@@ -1069,6 +1141,74 @@ const insertsRows = (act: SingleAct): boolean => {
 		case "retire":
 			return false
 	}
+}
+
+/** Whether every write of `step` inserts: a write step's or each part of a single statement's (batchedExecutions). */
+const insertsOnly = (step: OwnStep): boolean => {
+	switch (step.kind) {
+		case "write":
+			return step.result.kind === "insert"
+		case "single":
+			return step.parts.every((part) => part.step.result.kind === "insert")
+		case "carrier":
+		case "check":
+		case "familyWrite":
+		case "hold":
+		case "retire":
+		case "admission":
+			return false
+	}
+}
+
+/** A range of a member slot's facts, `from` up to `to`, one execution's share of it. */
+interface ShareRange {
+	readonly from: number
+	readonly to: number
+}
+
+/** The bytes a fact takes in an execution, as its identity's texts count them: each text's UTF-8 and its end. */
+const factBytes = (texts: ReadonlyArray<string>): number => {
+	let bytes = 0
+	for (const text of texts) {
+		bytes += utf8Length(text) + 1
+	}
+	return bytes
+}
+
+/**
+ * The executions' cuts of member slots `slots` within `bytes`: each cut a range of every slot, in the slots' order and
+ * each slot's facts' canonical order, the facts of a cut together within `bytes` (`factBytes`) but where one fact alone
+ * is past it, every fact in exactly one cut.
+ */
+const batchCuts = (
+	slots: ReadonlyArray<NormalizedSlot>,
+	bytes: number
+): ReadonlyArray<ReadonlyArray<ShareRange>> => {
+	const cuts: Array<ReadonlyArray<ShareRange>> = []
+	let open: Array<ShareRange> = slots.map(() => ({ from: 0, to: 0 }))
+	let held = 0
+	let facts = 0
+	for (const [i, slot] of slots.entries()) {
+		for (const [at, entry] of slot.entries.entries()) {
+			const size = factBytes(entry.identity.texts)
+			if (facts > 0 && held + size > bytes) {
+				cuts.push(open)
+				open = slots.map((s, j) => {
+					const start = j < i ? s.entries.length : j === i ? at : 0
+					return { from: start, to: start }
+				})
+				held = 0
+				facts = 0
+			}
+			open[i] = { from: defined(open[i], "a cut's range of each member slot").from, to: at + 1 }
+			held += size
+			facts += 1
+		}
+	}
+	if (facts > 0) {
+		cuts.push(open)
+	}
+	return cuts
 }
 
 /** What a statement of `step` does, as its executions are read (write/program/staged.ts ExecutionPart). */

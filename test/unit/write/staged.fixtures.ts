@@ -21,7 +21,7 @@ import {
 	nestedSource,
 	type StagedStatement
 } from "#compiler/runtime/write/staged.ts"
-import type { Transport } from "#compiler/runtime/write/transport.ts"
+import { type Transport, wholeBatching } from "#compiler/runtime/write/transport.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
@@ -158,7 +158,8 @@ export const resolved = (sketch: Sketch) => {
 						)
 					),
 		literalUnits: maxStringLength,
-		frame: bindFrame
+		frame: bindFrame,
+		batching: wholeBatching
 	}
 	return { cells, statement, value, transport, width }
 }
