@@ -864,6 +864,8 @@ const reasonKey = (reason: CompileReason): string => {
 			return `${reason._tag}:${reason.precondition}`
 		case "Refused":
 			return `${reason._tag}:${reason.refusal}`
+		case "Misdeclared":
+			return `${reason._tag}:${reason.misdeclared.kind}`
 		case "MalformedDescription":
 		case "MalformedArtifact":
 		case "ArtifactFormat":

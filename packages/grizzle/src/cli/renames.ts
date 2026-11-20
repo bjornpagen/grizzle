@@ -33,27 +33,18 @@ import {
 	type Roster,
 	type RosterRenames
 } from "#compiler/plan/common.ts"
-import type { Declarations, Named, Rename } from "#compiler/plan/migration.ts"
+import {
+	type Declarations,
+	type Named,
+	namedSpelling,
+	type Rename
+} from "#compiler/plan/migration.ts"
 
 /** The sign a login's name follows, which no declared name holds. */
 const loginSign = "@"
 
 /** No rename and no drop declared. */
 export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: [] })
-
-/** A name as a refusal prints it, in the spelling it is declared in. */
-export const namedText = (n: Named): string => {
-	switch (n.kind) {
-		case "relation":
-			return n.relation
-		case "field":
-			return `${n.relation}.${n.field}`
-		case "handle":
-			return `${n.roster}#${n.handle}`
-		case "login":
-			return `${loginSign}${n.login}`
-	}
-}
 
 /** What a declaration's text shows wrong (see the header). */
 export type DeclarationFault =
@@ -304,7 +295,7 @@ export const parseDeclarations = (
 		for (const old of [...Arr.map(read, (r) => r.from), ...dropped]) {
 			const key = keyOf(old)
 			if (declaredOnce.has(key)) {
-				return yield* refused({ kind: "twice", name: namedText(old) })
+				return yield* refused({ kind: "twice", name: namedSpelling(old) })
 			}
 			declaredOnce.add(key)
 		}
@@ -312,7 +303,7 @@ export const parseDeclarations = (
 		for (const { to } of read) {
 			const key = keyOf(to)
 			if (renamedTo.has(key)) {
-				return yield* refused({ kind: "merged", name: namedText(to) })
+				return yield* refused({ kind: "merged", name: namedSpelling(to) })
 			}
 			renamedTo.add(key)
 		}

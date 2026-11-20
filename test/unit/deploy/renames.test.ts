@@ -21,7 +21,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { boolean, element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result } from "effect"
-import { type Named } from "#compiler/deploy/diff/plan.ts"
+import type { Named } from "#compiler/core/errors.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import {
@@ -168,8 +168,8 @@ export const declaredRenamesAndDropsARelationAFieldOrARosterRespelledToAnAlikeNa
 		]
 	})
 
-/** Declared renames and drops draft exactly the model's identities for every pair of renames, drops and additions over three names, refusing every drop no declaration names. */
-export const declaredRenamesAndDropsDraftExactlyTheModelsIdentitiesForEveryPairOfRenamesDropsAndAdditionsOverThreeNamesRefusingEveryDropNoDeclarationNames =
+/** Declared renames and drops draft exactly the model's identities for every pair of renames, drops and additions over three names, refusing every drop no declaration names and every declaration the snapshots do not bear out, by what it misses. */
+export const declaredRenamesAndDropsDraftExactlyTheModelsIdentitiesForEveryPairOfRenamesDropsAndAdditionsOverThreeNamesRefusingEveryDropNoDeclarationNamesAndEveryDeclarationTheSnapshotsDoNotBearOutByWhatItMisses =
 	property.exhaust(finite(boxGen), {
 		needs: {},
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
@@ -188,6 +188,12 @@ export const declaredRenamesAndDropsDraftExactlyTheModelsIdentitiesForEveryPairO
 					"\t\tconst codes = rosterCodes(before, renames.get(roster.closed) ?? noHandleRenames, roster)",
 				replacement: "\t\tconst codes = rosterCodes(before, noHandleRenames, roster)",
 				why: "A roster's declared handle renames are ignored when its codes are drafted, so a renamed handle takes a new code."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/declared.ts",
+				original: '\t\t\t\tif (code < 0) {\n\t\t\t\t\treturn "dropUnheld"\n\t\t\t\t}\n',
+				replacement: '\t\t\t\tif (code < 0) {\n\t\t\t\t\treturn "dropKept"\n\t\t\t\t}\n',
+				why: "A handle's drop over a roster that holds its code as a hole, as a draft run again over the folder it wrote finds it, is refused as a drop of a handle the schema keeps, naming the wrong side."
 			}
 		]
 	})

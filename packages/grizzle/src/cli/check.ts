@@ -29,7 +29,7 @@ import {
 } from "#cli/files.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
-import { namedText, noDeclarations } from "#cli/renames.ts"
+import { noDeclarations } from "#cli/renames.ts"
 import {
 	compileReasonText,
 	looksLikeLiteralPack,
@@ -44,6 +44,7 @@ import {
 	literalPackFault,
 	lossDecisions,
 	lossText,
+	namedSpelling,
 	noTransactionMarker,
 	orderFolderFiles,
 	type PackFault,
@@ -454,7 +455,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				at(
 					"undeclaredDrop",
 					schema.declared,
-					`${namedText(reason.error.reason.dropped)}: ${refusalText.undeclaredDrop.problem}`
+					`${namedSpelling(reason.error.reason.dropped)}: ${refusalText.undeclaredDrop.problem}`
 				)
 			} else {
 				at("compile", schema.declared, `${refusalText.compile.problem}: ${reason.message}`)

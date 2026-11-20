@@ -353,7 +353,11 @@ name the schema no longer holds to `grizzle generate`, once per name:
   grants whole, need no declaration.
 - `generate` refuses, before reading the configuration, a declaration its text alone shows wrong: a side of no such
   spelling, a rename between two kinds of name or to itself, a name renamed or dropped twice, two names renamed to one.
-  The draft refuses a declaration that names what the snapshot or the schema does not hold as it says.
+  The draft refuses a declaration that names what the snapshot or the schema does not hold as it says, as Misdeclared,
+  naming what it misses: `--drop <name> drops nothing: the previous snapshot holds no <name>` (a handle: none live),
+  which a draft run again over the folder it already wrote meets, since that folder's snapshot dropped the name, so
+  reset the directory or run the draft once; `--drop <name> drops what the schema keeps`; a rename's old side the
+  snapshot does not hold, or a new side the schema does not declare.
 
 What a declaration drafts:
 

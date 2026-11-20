@@ -13,15 +13,16 @@ import {
 	Record as Rec,
 	String as Str
 } from "effect"
+import type { Named } from "#compiler/core/errors.ts"
 import {
 	conversionOf as converts,
 	identity,
-	parseDeclaredName,
-	maxIdentifierBytes
+	maxIdentifierBytes,
+	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import type { CodeSlot } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import {

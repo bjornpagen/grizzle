@@ -479,6 +479,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   that makes its delta, whose rows exist nowhere else (write/schedule/plan.ts placeReadBacks).
  * - `UndeclaredDrop`: a migration drops `dropped`, which the previous installation holds and the schema no longer
  *   declares, and no declaration of the draft (`--rename`, `--drop`) names it.
+ * - `Misdeclared`: a declaration of the draft names what the previous snapshot and the target do not bear out, as
+ *   `misdeclared` says (Misdeclaration): the converse of UndeclaredDrop, each declaration standing for exactly the
+ *   change it names.
  * - `UnheldGroup`: the ChangeSet at `at` reads or writes `relation`, a body of the retirable unit headed by `header`, or
  *   reads that header's retirement field, at a group it does not state, as `why` says (UnheldWhy): a served call holds
  *   every group it touches before it touches it (write/hold/stated.ts), so no retirement of one commits while it runs.
@@ -520,7 +523,8 @@ export type CompileReason =
 			readonly expected: number
 	  }
 	| { readonly _tag: "UnsupportedOperation"; readonly at: SourceLoc; readonly capability: string }
-	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Dropped }
+	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Named }
+	| { readonly _tag: "Misdeclared"; readonly at: SourceLoc; readonly misdeclared: Misdeclaration }
 	| { readonly _tag: "UnsupportedLawFamily"; readonly at: SourceLoc; readonly capability: string }
 	| {
 			readonly _tag: "UnrepresentableKey"
@@ -852,26 +856,88 @@ export type ProseTag =
 	| "MalformedDescription"
 
 /**
- * What a migration may drop, as `--drop` spells it: a relation (`R`), a field of one (`R.f`), a roster's handle
- * (`R#h`), or a login (`@L`).
+ * A name a draft's declarations speak of, as `--rename` and `--drop` spell it (namedSpelling): a relation
+ * (`Relation`), a field of one (`Relation.field`), a roster's handle (`Roster#handle`), or a login (`@login`). What a
+ * declaration names, what a migration drops (UndeclaredDrop) and what a refused declaration names (Misdeclared) are
+ * each one.
  */
-export type Dropped =
+export type Named =
 	| { readonly kind: "relation"; readonly relation: DeclaredName }
 	| { readonly kind: "field"; readonly relation: DeclaredName; readonly field: DeclaredName }
 	| { readonly kind: "handle"; readonly roster: DeclaredName; readonly handle: string }
 	| { readonly kind: "login"; readonly login: DeclaredName }
 
-/** A dropped name as `--drop` spells it. */
-const droppedText = (d: Dropped): string => {
-	switch (d.kind) {
+/** A name a declaration speaks of, spelled as `--rename` and `--drop` spell it. */
+export const namedSpelling = (n: Named): string => {
+	switch (n.kind) {
 		case "relation":
-			return d.relation
+			return n.relation
 		case "field":
-			return `${d.relation}.${d.field}`
+			return `${n.relation}.${n.field}`
 		case "handle":
-			return `${d.roster}#${d.handle}`
+			return `${n.roster}#${n.handle}`
 		case "login":
-			return `@${d.login}`
+			return `@${n.login}`
+	}
+}
+
+/**
+ * What makes a draft's declaration one the previous snapshot and the target do not bear out (Misdeclared), each naming
+ * what it declares as `--rename` and `--drop` spell it:
+ * - `dropUnheld`: a drop of `dropped`, which the previous snapshot does not hold: no such relation, field or login, or
+ *   a handle whose code it holds as a hole, as it does once a migration of the chain dropped the handle, so a draft
+ *   run again over the folder it wrote meets it;
+ * - `dropKept`: a drop of `dropped`, which the target keeps: it declares it still, under its name or the one a
+ *   declared rename gives it;
+ * - `renameUnheld`: a rename of `from`, which the previous snapshot does not hold, a handle live;
+ * - `renameUndeclared`: a rename of `from` to `to`, which the target does not declare, a handle live;
+ * - `renameAcross`: a rename of `from` to `to` where the two do not correspond: a stored relation and a roster, a
+ *   field onto a relation, or a handle into a roster, other than the one its own continues as;
+ * - `renamedTwice`: two renames of `from`;
+ * - `renamedOnto`: two renames to `to`.
+ */
+export type Misdeclaration =
+	| { readonly kind: "dropUnheld"; readonly dropped: Named }
+	| { readonly kind: "dropKept"; readonly dropped: Named }
+	| { readonly kind: "renameUnheld"; readonly from: Named; readonly to: Named }
+	| { readonly kind: "renameUndeclared"; readonly from: Named; readonly to: Named }
+	| { readonly kind: "renameAcross"; readonly from: Corresponding; readonly to: Named }
+	| { readonly kind: "renamedTwice"; readonly from: Named }
+	| { readonly kind: "renamedOnto"; readonly to: Named }
+
+/** A name whose rename may name what does not correspond to it (renameAcross): every kind but a login, which is one
+ * kind of its own. */
+type Corresponding = Exclude<Named, { readonly kind: "login" }>
+
+/** Why a rename of `from` to a name that does not correspond is refused (Misdeclaration renameAcross), and its repair. */
+const acrossText = (from: Corresponding): string => {
+	switch (from.kind) {
+		case "relation":
+			return "a stored relation and a roster are each renamed to one of their own kind"
+		case "field":
+			return `a field is renamed on the relation ${from.relation} continues as, under its declared rename or its own name`
+		case "handle":
+			return `a handle is renamed in the roster ${from.roster} continues as, under its declared rename or its own name`
+	}
+}
+
+/** A misdeclaration's sentence: what the declaration names, what the snapshots hold of it, and its repair. */
+const misdeclaredText = (m: Misdeclaration): string => {
+	switch (m.kind) {
+		case "dropUnheld":
+			return `--drop ${namedSpelling(m.dropped)} drops nothing: the previous snapshot holds no ${namedSpelling(m.dropped)}${m.dropped.kind === "handle" ? " live" : ""}: a migration of the chain dropped it already, as a draft run again over the folder it wrote finds, or the chain never held it; remove the --drop`
+		case "dropKept":
+			return `--drop ${namedSpelling(m.dropped)} drops what the schema keeps: it still declares ${namedSpelling(m.dropped)}, under its name or the one a declared rename gives it; remove the --drop, or remove it from the schema`
+		case "renameUnheld":
+			return `--rename ${namedSpelling(m.from)}=${namedSpelling(m.to)} renames nothing: the previous snapshot holds no ${namedSpelling(m.from)}${m.from.kind === "handle" ? " live" : ""}; remove the --rename`
+		case "renameUndeclared":
+			return `--rename ${namedSpelling(m.from)}=${namedSpelling(m.to)} renames to what the schema does not declare: it declares no ${namedSpelling(m.to)}; name the new side as the schema declares it`
+		case "renameAcross":
+			return `--rename ${namedSpelling(m.from)}=${namedSpelling(m.to)} renames across: ${acrossText(m.from)}`
+		case "renamedTwice":
+			return `${namedSpelling(m.from)} is renamed twice: a declaration renames a name once`
+		case "renamedOnto":
+			return `two names are renamed to ${namedSpelling(m.to)}: a rename gives each name its own`
 	}
 }
 
@@ -1049,8 +1115,10 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return uninstalledText(reason.domain)
 		case "UninstalledFunction":
 			return `the installation installs no library function ${reason.fn}, which no stored field, check or contract of its schema calls: call it in a persistent expression of the schema, or compute the value in the application`
+		case "Misdeclared":
+			return misdeclaredText(reason.misdeclared)
 		case "UndeclaredDrop": {
-			const spelled = droppedText(reason.dropped)
+			const spelled = namedSpelling(reason.dropped)
 			return `${spelled} is dropped but not declared: declare it with --drop ${spelled}, or --rename it`
 		}
 	}
@@ -1155,8 +1223,12 @@ export const unsupported = (at: SourceLoc, capability: string): CompileError =>
 	new CompileError({ _tag: "UnsupportedOperation", at, capability })
 
 /** A drop no declaration names, at `at`. */
-export const undeclaredDrop = (at: SourceLoc, dropped: Dropped): CompileError =>
+export const undeclaredDrop = (at: SourceLoc, dropped: Named): CompileError =>
 	new CompileError({ _tag: "UndeclaredDrop", at, dropped })
+
+/** A declaration the previous snapshot and the target do not bear out, at `at`. */
+export const misdeclared = (at: SourceLoc, misdeclaration: Misdeclaration): CompileError =>
+	new CompileError({ _tag: "Misdeclared", at, misdeclared: misdeclaration })
 
 /** A bound crossed at `at`. */
 export const resourceBound = (at: SourceLoc, bound: CompileBound): CompileError =>

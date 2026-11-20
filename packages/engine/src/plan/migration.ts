@@ -26,7 +26,8 @@ export {
 } from "#compiler/deploy/ledger/ledger.ts"
 export { proofsTableName } from "#compiler/physical/ddl/ledger.ts"
 export { type GraphIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
-export type { AbandonedSchema, Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
+export type { AbandonedSchema, Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
+export { type Named, namedSpelling } from "#compiler/core/errors.ts"
 export { decideFolder, type Redraft } from "#compiler/deploy/ledger/decide.ts"
 export {
 	type FolderLaws,

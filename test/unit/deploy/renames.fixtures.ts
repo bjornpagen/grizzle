@@ -11,13 +11,9 @@ import {
 	Result,
 	String as Str
 } from "effect"
+import type { Misdeclaration, Named } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import {
-	alterationStatement,
-	type Declarations,
-	type Named,
-	type Step
-} from "#compiler/deploy/diff/plan.ts"
+import { alterationStatement, type Declarations, type Step } from "#compiler/deploy/diff/plan.ts"
 import { draftMigration } from "#compiler/deploy/render/generate.ts"
 import {
 	codebookOf,
@@ -81,17 +77,23 @@ interface Box {
 }
 
 /** What the model predicts of a box: the draft accepted; refused as UndeclaredDrop naming `name` of `dimension`;
- * refused as UnsupportedOperation, a declaration naming what the previous snapshot and the target do not hold as it
- * says; or, for handles, refused as declared out of their codes' order. */
+ * refused as Misdeclared, a declaration naming what the previous snapshot and the target do not hold as it says, for
+ * `misdeclaration`; or, for handles, refused as declared out of their codes' order. */
 type Verdict =
 	| { readonly kind: "accepted" }
 	| { readonly kind: "undeclared"; readonly dimension: Dimension; readonly name: Name }
-	| { readonly kind: "unsupported" }
+	| { readonly kind: "misdeclared"; readonly misdeclaration: Misdeclaration }
 	| { readonly kind: "reordered" }
 
+/** A verdict as a box's feature names it: a misdeclaration by what it misses, every other verdict by its kind. */
+type VerdictFeature = Exclude<Verdict["kind"], "misdeclared"> | Misdeclaration["kind"]
+
+const verdictFeature = (verdict: Verdict): VerdictFeature =>
+	verdict.kind === "misdeclared" ? verdict.misdeclaration.kind : verdict.kind
+
 export type Feature =
-	| `${Dimension} ${Operation["kind"] | Verdict["kind"] | "taken"}`
-	| `login and relation ${Verdict["kind"]}`
+	| `${Dimension} ${Operation["kind"] | VerdictFeature | "taken"}`
+	| `login and relation ${VerdictFeature}`
 
 export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"relation rename",
@@ -99,32 +101,47 @@ export const FEATURES: Arr.NonEmptyReadonlyArray<Feature> = [
 	"relation add",
 	"relation accepted",
 	"relation undeclared",
-	"relation unsupported",
+	"relation renameUnheld",
+	"relation renameUndeclared",
+	"relation dropUnheld",
+	"relation dropKept",
 	"relation taken",
 	"field rename",
 	"field drop",
 	"field add",
 	"field accepted",
 	"field undeclared",
-	"field unsupported",
+	"field renameUnheld",
+	"field renameUndeclared",
+	"field dropUnheld",
+	"field dropKept",
 	"field taken",
 	"handle rename",
 	"handle drop",
 	"handle add",
 	"handle accepted",
 	"handle undeclared",
-	"handle unsupported",
+	"handle renameUnheld",
+	"handle renameUndeclared",
+	"handle dropUnheld",
+	"handle dropKept",
 	"handle reordered",
 	"login rename",
 	"login drop",
 	"login add",
 	"login accepted",
 	"login undeclared",
-	"login unsupported",
+	"login renameUnheld",
+	"login renameUndeclared",
+	"login dropUnheld",
+	"login dropKept",
 	"login taken",
 	"login and relation accepted",
 	"login and relation undeclared",
-	"login and relation unsupported"
+	"login and relation renameUnheld",
+	"login and relation renameUndeclared",
+	"login and relation dropUnheld",
+	"login and relation dropKept"
 ]
 
 /** The names each dimension starts from. */
@@ -211,24 +228,27 @@ const takenNames = (t: Track): ReadonlySet<Name> => {
 	)
 }
 
-/** What a track contributes to the verdict, in the order the draft checks it: a declared rename the previous snapshot
- * or the target does not hold as it says; for handles, codes out of declared order; the first previous name the target
- * does not keep that no declaration drops; and a declared drop of a name the target keeps or the previous snapshot
- * lacks. */
+/** What a track contributes to the verdict, in the order the draft checks it: for handles, codes out of declared
+ * order, which the codebook refuses before any declaration is read (ir/codes.ts draftCodebook); the first declared
+ * rename the previous snapshot or the target does not hold as it says; the first name it renames twice; the first
+ * previous name the target does not keep that no declaration drops; and the first declared drop of a name the previous
+ * snapshot lacks or the target keeps. */
 interface Faults {
 	readonly dimension: Dimension
-	readonly rename: boolean
+	readonly rename: Misdeclaration | undefined
+	readonly twice: Name | undefined
 	readonly reordered: boolean
 	readonly lost: Name | undefined
-	readonly drop: boolean
+	readonly drop: Misdeclaration | undefined
 }
 
 /**
  * The model's faults of one track. A previous name is kept when its declared rename's name is the target's, or when
  * the target holds its own name and no declared rename takes it; one the target does not keep must be declared
- * dropped. A declaration is checked first: a rename from a name the previous schema does not hold or to one the target
- * does not, or two of one name, and then a drop of a name the previous schema does not hold or the target keeps, is
- * unsupported. A handle keeps its code across a declared rename, and a handle the target declares under a name the
+ * dropped. A declaration is checked first: a rename from a name the previous schema does not hold (renameUnheld) or to
+ * one the target does not (renameUndeclared), or two of one name (renamedTwice), and then a drop of a name the previous
+ * schema does not hold (dropUnheld) or the target keeps (dropKept), is misdeclared. A handle keeps its code across a
+ * declared rename, and a handle the target declares under a name the
  * previous roster held live keeps that one's code, any other taking the next code in declared order: codes out of
  * declared order are a reorder.
  */
@@ -239,9 +259,36 @@ const faultsOf = (t: Track): Faults => {
 	const renameOps = Arr.flatMap(t.operations, (op) =>
 		op.kind === "rename" && op.declared ? [op] : []
 	)
-	const rename =
-		Arr.some(renameOps, (op) => !Arr.contains(start, op.from) || !Arr.contains(target, op.to)) ||
-		new Set(Arr.map(renameOps, (op) => op.from)).size < renameOps.length
+	const named = (n: Name): Named => namedOf(t.dimension, n)
+	const rename = Option.getOrUndefined(
+		Arr.findFirst(renameOps, (op): Option.Option<Misdeclaration> => {
+			const sides = { from: named(op.from), to: named(op.to) }
+			return !Arr.contains(start, op.from)
+				? Option.some({ kind: "renameUnheld", ...sides })
+				: !Arr.contains(target, op.to)
+					? Option.some({ kind: "renameUndeclared", ...sides })
+					: Option.none()
+		})
+	)
+	const twice = Option.getOrUndefined(
+		Option.map(
+			Arr.findFirst(renameOps, (op, i) =>
+				Arr.some(Arr.take(renameOps, i), (o) => o.from === op.from)
+			),
+			(op) => op.from
+		)
+	)
+	/** The first declared drop that is `unheld` or `kept`, as Misdeclared names it. */
+	const misdropped = (unheld: (d: Name) => boolean, kept: (d: Name) => boolean) =>
+		Option.getOrUndefined(
+			Arr.findFirst([...drops], (d): Option.Option<Misdeclaration> =>
+				unheld(d)
+					? Option.some({ kind: "dropUnheld", dropped: named(d) })
+					: kept(d)
+						? Option.some({ kind: "dropKept", dropped: named(d) })
+						: Option.none()
+			)
+		)
 	if (t.dimension === "handle") {
 		const was = new Map(Arr.map(start, (h, code) => [h, code] as const))
 		const renamedFrom = new Map(Arr.map([...renames], ([from, to]) => [to, from] as const))
@@ -259,11 +306,15 @@ const faultsOf = (t: Track): Faults => {
 		return {
 			dimension: t.dimension,
 			rename,
+			twice,
 			reordered: Arr.some(codes, (code, i) => i > 0 && code < (codes[i - 1] ?? code)),
 			lost: Option.getOrUndefined(
 				Arr.findFirst(start, (h) => !live.has(was.get(h) ?? -1) && !drops.has(h))
 			),
-			drop: Arr.some([...drops], (d) => !Arr.contains(start, d) || live.has(was.get(d) ?? -1))
+			drop: misdropped(
+				(d) => !Arr.contains(start, d),
+				(d) => live.has(was.get(d) ?? -1)
+			)
 		}
 	}
 	const taken = takenNames(t)
@@ -271,9 +322,10 @@ const faultsOf = (t: Track): Faults => {
 	return {
 		dimension: t.dimension,
 		rename,
+		twice,
 		reordered: false,
 		lost: Option.getOrUndefined(Arr.findFirst(start, (n) => !kept(n) && !drops.has(n))),
-		drop: Arr.some([...drops], (d) => !Arr.contains(start, d) || kept(d))
+		drop: misdropped((d) => !Arr.contains(start, d), kept)
 	}
 }
 
@@ -283,18 +335,33 @@ const tracksOf = (box: Box): ReadonlyArray<Track> => box.tracks
 /** The model's verdict over a box's tracks, each check across every track before the next. */
 const verdictOf = (box: Box): Verdict => {
 	const faults = Arr.map(tracksOf(box), faultsOf)
-	if (Arr.some(faults, (x) => x.rename)) {
-		return { kind: "unsupported" }
-	}
 	if (Arr.some(faults, (x) => x.reordered)) {
 		return { kind: "reordered" }
+	}
+	for (const x of faults) {
+		if (x.rename !== undefined) {
+			return { kind: "misdeclared", misdeclaration: x.rename }
+		}
+	}
+	for (const x of faults) {
+		if (x.twice !== undefined) {
+			return {
+				kind: "misdeclared",
+				misdeclaration: { kind: "renamedTwice", from: namedOf(x.dimension, x.twice) }
+			}
+		}
 	}
 	for (const x of faults) {
 		if (x.lost !== undefined) {
 			return { kind: "undeclared", dimension: x.dimension, name: x.lost }
 		}
 	}
-	return Arr.some(faults, (x) => x.drop) ? { kind: "unsupported" } : { kind: "accepted" }
+	for (const x of faults) {
+		if (x.drop !== undefined) {
+			return { kind: "misdeclared", misdeclaration: x.drop }
+		}
+	}
+	return { kind: "accepted" }
 }
 
 const upper = (n: Name): string => Str.toUpperCase(n)
@@ -651,8 +718,8 @@ export const judge = (box: Box, note: (feature: Feature) => void): void => {
 	const [only, second] = box.tracks
 	note(
 		second === undefined
-			? `${only.dimension} ${verdict.kind}`
-			: `login and relation ${verdict.kind}`
+			? `${only.dimension} ${verdictFeature(verdict)}`
+			: `login and relation ${verdictFeature(verdict)}`
 	)
 	const at = Formatter.format(box)
 	if (verdict.kind !== "accepted") {
@@ -671,9 +738,18 @@ export const judge = (box: Box, note: (feature: Feature) => void): void => {
 					)
 				}
 				return
-			case "unsupported":
+			case "misdeclared":
+				assert.equal(reason._tag, "Misdeclared", `${at}: refused as misdeclared`)
+				if (reason._tag === "Misdeclared") {
+					assert.deepEqual(
+						reason.misdeclared,
+						verdict.misdeclaration,
+						`${at}: naming the first declaration the snapshots do not bear out, and what it misses`
+					)
+				}
+				return
 			case "reordered":
-				assert.equal(reason._tag, "UnsupportedOperation", `${at}: refused as unsupported`)
+				assert.equal(reason._tag, "UnsupportedOperation", `${at}: refused as reordered`)
 				return
 		}
 	}

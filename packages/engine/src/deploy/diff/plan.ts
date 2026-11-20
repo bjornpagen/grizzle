@@ -1,5 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { DeclaredName } from "#compiler/core/identity.ts"
+import type { Named } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { DeployPhase } from "#compiler/ir/products.ts"
 import type {
@@ -12,16 +12,6 @@ import type {
 	SqlStatement
 } from "#compiler/sql/ast.ts"
 import type { GenerationAnchor } from "#compiler/sql/generation.ts"
-
-/**
- * A name a draft's declarations speak of, as `--rename` and `--drop` spell it: a relation (`Relation`), a field of one
- * (`Relation.field`), a roster's handle (`Roster#handle`), or a login (`@login`).
- */
-export type Named =
-	| { readonly kind: "relation"; readonly relation: DeclaredName }
-	| { readonly kind: "field"; readonly relation: DeclaredName; readonly field: DeclaredName }
-	| { readonly kind: "handle"; readonly roster: DeclaredName; readonly handle: string }
-	| { readonly kind: "login"; readonly login: DeclaredName }
 
 /** A declared rename, `--rename <from>=<to>`: its two sides of one kind, `from` named as the previous snapshot names
  * it and `to` as the target does. */

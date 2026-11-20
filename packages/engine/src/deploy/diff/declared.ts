@@ -7,7 +7,13 @@ import {
 import { carriedOn, spelledAxis } from "#compiler/analysis/theory/families.ts"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import { canonicalEquals, Refusal } from "#compiler/core/canonical.ts"
-import { type Dropped, undeclaredDrop, unsupported } from "#compiler/core/errors.ts"
+import {
+	type Misdeclaration,
+	misdeclared,
+	type Named,
+	namedSpelling,
+	undeclaredDrop
+} from "#compiler/core/errors.ts"
 import {
 	conversionOf,
 	type DeclaredName,
@@ -30,7 +36,7 @@ import {
 	setAside,
 	withNames
 } from "#compiler/deploy/diff/aside.ts"
-import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { drawnWriting, fieldWriting } from "#compiler/deploy/snapshot/build.ts"
 import {
 	type AnyObject,
@@ -94,24 +100,10 @@ export interface Applied {
 	readonly previous: DeploySnapshot
 }
 
-/** A name as a refusal spells it. */
-const spelled = (n: Named): string => {
-	switch (n.kind) {
-		case "relation":
-			return n.relation
-		case "field":
-			return `${n.relation}.${n.field}`
-		case "handle":
-			return `${n.roster}#${n.handle}`
-		case "login":
-			return `@${n.login}`
-	}
-}
-
 /** The key a name is told apart by: its kind and its spelling, a login's name by its conversion, which names its role
  * (core/identity.ts declaredAlike). */
 const keyOf = (n: Named): string =>
-	n.kind === "login" ? `login ${conversionOf(n.login)}` : `${n.kind} ${spelled(n)}`
+	n.kind === "login" ? `login ${conversionOf(n.login)}` : `${n.kind} ${namedSpelling(n)}`
 
 const sameNamed = (a: Named, b: Named): boolean => keyOf(a) === keyOf(b)
 
@@ -215,7 +207,8 @@ const loginIn = (
 /**
  * The previous snapshot under the draft's declarations, and the statements that carry them out; or the refusal of a
  * declaration that names what the previous snapshot or the target does not hold as it says, of two renames of one name
- * or to one name, and of every drop no declaration names (UndeclaredDrop), each stored state the previous snapshot holds
+ * or to one name, each Misdeclared, naming what it misses (core/errors.ts Misdeclaration), and of every drop no
+ * declaration names (UndeclaredDrop), each stored state the previous snapshot holds
  * and the target, under the declared renames, no longer does (plan.ts Declarations): each stored relation and roster;
  * each field of a relation both hold, but a field grizzle draws again (a generated, drawn or accumulated one); each
  * roster handle whose code the target's codes hold as a hole; and each login. Data a migration loses is lost only where
@@ -248,8 +241,9 @@ export const applyDeclarations = (
 	temporaries: TemporaryCensus
 ): Applied => {
 	const loc = SourceLoc(`grizzle generate of schema ${target.schemaName}`, [])
-	const refuse = (n: Named, rule: string): never => {
-		throw new Refusal(unsupported(SourceLoc(loc.label, [spelled(n)]), rule))
+	/** The refusal of a declaration naming `n`, for `m`. */
+	const refuse = (n: Named, m: Misdeclaration): never => {
+		throw new Refusal(misdeclared(SourceLoc(loc.label, [namedSpelling(n)]), m))
 	}
 	const before = previous.theory.relations
 	const after = target.theory.relations
@@ -261,11 +255,14 @@ export const applyDeclarations = (
 		}
 		const was = heldIn(before, r.from.relation)
 		const now = heldIn(after, r.to.relation)
-		if (was === undefined || now === undefined || was.kind !== now.kind) {
-			return refuse(
-				r.from,
-				`a rename of ${r.from.relation} to ${r.to.relation}, which the previous snapshot and the target declare as stored relations, or rosters, of one kind`
-			)
+		if (was === undefined) {
+			return refuse(r.from, { kind: "renameUnheld", from: r.from, to: r.to })
+		}
+		if (now === undefined) {
+			return refuse(r.from, { kind: "renameUndeclared", from: r.from, to: r.to })
+		}
+		if (was.kind !== now.kind) {
+			return refuse(r.from, { kind: "renameAcross", from: r.from, to: r.to })
 		}
 		renamed.set(r.from.relation, r.to.relation)
 	}
@@ -294,16 +291,14 @@ export const applyDeclarations = (
 		const was = heldIn(before, from.relation)
 		const now = heldIn(after, to.relation)
 		const into = now?.kind === "relation" ? now.fields.find((f) => f.name === to.field) : undefined
-		if (
-			was?.kind !== "relation" ||
-			into === undefined ||
-			!alike(targetName(from.relation), to.relation) ||
-			!was.fields.some((f) => f.name === from.field)
-		) {
-			return refuse(
-				from,
-				`a rename of ${spelled(from)} to ${spelled(to)}, a field the previous snapshot declares renamed to one the target declares on that relation`
-			)
+		if (was?.kind !== "relation" || !was.fields.some((f) => f.name === from.field)) {
+			return refuse(from, { kind: "renameUnheld", from, to })
+		}
+		if (into === undefined) {
+			return refuse(from, { kind: "renameUndeclared", from, to })
+		}
+		if (!alike(targetName(from.relation), to.relation)) {
+			return refuse(from, { kind: "renameAcross", from, to })
 		}
 		const of = fields.get(from.relation) ?? new Map<string, string>()
 		of.set(from.field, to.field)
@@ -350,15 +345,18 @@ export const applyDeclarations = (
 		const now = heldIn(after, to.roster)
 		if (
 			was?.kind !== "closed" ||
+			!was.codes.some((c) => c.kind === "live" && c.handle === from.handle)
+		) {
+			return refuse(from, { kind: "renameUnheld", from, to })
+		}
+		if (
 			now?.kind !== "closed" ||
-			!alike(targetName(from.roster), to.roster) ||
-			!was.codes.some((c) => c.kind === "live" && c.handle === from.handle) ||
 			!now.codes.some((c) => c.kind === "live" && c.handle === to.handle)
 		) {
-			return refuse(
-				from,
-				`a rename of ${spelled(from)} to ${spelled(to)}, a handle the previous snapshot's roster holds renamed to one the target's holds`
-			)
+			return refuse(from, { kind: "renameUndeclared", from, to })
+		}
+		if (!alike(targetName(from.roster), to.roster)) {
+			return refuse(from, { kind: "renameAcross", from, to })
 		}
 		const into = handles.get(to.roster) ?? new Map<string, string>()
 		into.set(to.handle, from.handle)
@@ -377,11 +375,11 @@ export const applyDeclarations = (
 		}
 		const was = loginIn(previous.logins, from.login)
 		const now = loginIn(target.logins, to.login)
-		if (was === undefined || now === undefined) {
-			return refuse(
-				from,
-				`a rename of ${spelled(from)} to ${spelled(to)}, a login the previous snapshot holds renamed to one the target declares`
-			)
+		if (was === undefined) {
+			return refuse(from, { kind: "renameUnheld", from, to })
+		}
+		if (now === undefined) {
+			return refuse(from, { kind: "renameUndeclared", from, to })
 		}
 		logins.set(was.name, now)
 	}
@@ -404,15 +402,15 @@ export const applyDeclarations = (
 	}
 	const twice = repeated("from")
 	if (twice !== undefined) {
-		return refuse(twice, `two renames of ${spelled(twice)}`)
+		return refuse(twice, { kind: "renamedTwice", from: twice })
 	}
 	const merged = repeated("to")
 	if (merged !== undefined) {
-		return refuse(merged, `two renames to ${spelled(merged)}`)
+		return refuse(merged, { kind: "renamedOnto", to: merged })
 	}
 	const dropped = (n: Named): boolean => declarations.drops.some((d) => sameNamed(d, n))
-	const undeclared = (d: Dropped): never => {
-		throw new Refusal(undeclaredDrop(SourceLoc(loc.label, [spelled(d)]), d))
+	const undeclared = (d: Named): never => {
+		throw new Refusal(undeclaredDrop(SourceLoc(loc.label, [namedSpelling(d)]), d))
 	}
 	for (const [name, was] of Object.entries(before)) {
 		if (was.kind === "derived") {
@@ -460,29 +458,36 @@ export const applyDeclarations = (
 			undeclared(named)
 		}
 	}
-	/** Whether a declared drop drops what it names: something the previous snapshot holds that the target, under the
-	 * declared renames, no longer does, or whose name a rename of another takes. */
-	const drops = (d: Named): boolean => {
+	/**
+	 * What is wrong with a declared drop: the previous snapshot does not hold what it names (`dropUnheld`), a handle live;
+	 * or the target, under the declared renames, still does, and no rename of another takes its name (`dropKept`). None
+	 * for a drop that drops what it names.
+	 */
+	const misdropped = (d: Named): "dropUnheld" | "dropKept" | undefined => {
 		switch (d.kind) {
 			case "relation": {
 				const was = heldIn(before, d.relation)
-				return (
-					was !== undefined &&
-					!renamed.has(d.relation) &&
+				if (was === undefined) {
+					return "dropUnheld"
+				}
+				return !renamed.has(d.relation) &&
 					(heldAlike(after, d.relation)?.kind !== was.kind || taken(d.relation, was))
-				)
+					? undefined
+					: "dropKept"
 			}
 			case "field": {
 				const was = heldIn(before, d.relation)
 				const now = heldAlike(after, targetName(d.relation))
 				const f = was?.kind === "relation" ? was.fields.find((x) => x.name === d.field) : undefined
-				return (
-					f !== undefined &&
-					fields.get(d.relation)?.has(d.field) !== true &&
+				if (f === undefined) {
+					return "dropUnheld"
+				}
+				return fields.get(d.relation)?.has(d.field) !== true &&
 					(!(now?.kind === "relation" && now.fields.some((x) => alike(x.name, d.field))) ||
 						fieldTaken(d.relation, f) ||
 						drawnAnew(d.relation, f))
-				)
+					? undefined
+					: "dropKept"
 			}
 			case "handle": {
 				const was = heldIn(before, d.roster)
@@ -491,24 +496,27 @@ export const applyDeclarations = (
 					was?.kind === "closed"
 						? was.codes.findIndex((c) => c.kind === "live" && c.handle === d.handle)
 						: -1
-				return code >= 0 && (now?.kind !== "closed" || now.codes[code]?.kind !== "live")
+				if (code < 0) {
+					return "dropUnheld"
+				}
+				return now?.kind !== "closed" || now.codes[code]?.kind !== "live" ? undefined : "dropKept"
 			}
 			case "login": {
 				const was = loginIn(previous.logins, d.login)
-				return (
-					was !== undefined &&
-					!logins.has(was.name) &&
+				if (was === undefined) {
+					return "dropUnheld"
+				}
+				return !logins.has(was.name) &&
 					(loginIn(target.logins, d.login) === undefined || loginTaken(was))
-				)
+					? undefined
+					: "dropKept"
 			}
 		}
 	}
 	for (const d of declarations.drops) {
-		if (!drops(d)) {
-			return refuse(
-				d,
-				`a drop of ${spelled(d)}, which the previous snapshot holds and the target no longer declares`
-			)
+		const fault = misdropped(d)
+		if (fault !== undefined) {
+			return refuse(d, { kind: fault, dropped: d })
 		}
 	}
 	/** The fields each declared drop drops while the target declares them again, drawn anew (drawnAnew), by the

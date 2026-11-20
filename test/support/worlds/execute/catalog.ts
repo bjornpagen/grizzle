@@ -7,12 +7,13 @@ import { type MigrationSession, migrationSession } from "#adapter/migrate/sessio
 import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { nextTimestamp, parseTimestamp } from "#cli/clock.ts"
+import type { Named } from "#compiler/core/errors.ts"
 import { identifierOf, identity, roleIdentity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import type { Declarations, Named } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	emptySnapshot,
 	noWorkload,

@@ -19,10 +19,11 @@ import { matching } from "@bjornpagen/testing/pattern"
 import { regex } from "arkregex"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
+import type { Named } from "#compiler/core/errors.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
 import { type LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { jsonText, trusted } from "#compiler/core/trusted.ts"
-import type { Declarations, Named, Rename } from "#compiler/deploy/diff/plan.ts"
+import type { Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 import {
 	type CustomMeta,
 	type FolderLaws,

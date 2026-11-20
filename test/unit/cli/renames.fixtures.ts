@@ -18,13 +18,14 @@ import {
 import { passed } from "@bjornpagen/testing/lsw"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import type { DeclarationRefused } from "#cli/renames.ts"
+import type { Named } from "#compiler/core/errors.ts"
 import {
 	conversionOf,
-	type DeclaredName,
 	declaredAlike,
+	type DeclaredName,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
-import type { Named, Rename } from "#compiler/deploy/diff/plan.ts"
+import type { Rename } from "#compiler/deploy/diff/plan.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
