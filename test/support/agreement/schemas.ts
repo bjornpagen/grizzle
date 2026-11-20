@@ -1515,13 +1515,14 @@ const fieldTypeOf = (
 	return draw()
 }
 /**
- * Whether a key may hold a field of this type: a value an index entry bounds or holds by its image, a numeric of no
- * typmod among them, never a set, a vector, a span or a float.
+ * Whether a key may hold a field of this type as itself: a value an index entry bounds, never a set, a vector, a span, a
+ * float, or a text no pattern bounds and numeric of no typmod, whose widest values a key holds by their images alone,
+ * which a derived relation's inherited key, a unique index over plain columns, cannot.
  */
 const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(["real", "double precision", "money"] as const, t.spelling)
+			return !Arr.contains(["numeric", "real", "double precision", "money"] as const, t.spelling)
 		case "uuid":
 		case "date":
 		case "natural":
