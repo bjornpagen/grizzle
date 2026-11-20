@@ -445,8 +445,9 @@ const volatilityNames = { i: "IMMUTABLE", s: "STABLE", v: "VOLATILE" } as const
 const plainIdentifier = regex("^[a-z_][a-z0-9_$]*$")
 
 /**
- * The search_path a declared function pins (physical/ddl/functions.ts): pg_catalog, its own schema, pg_temp, as
- * PostgreSQL stores it in pg_proc.proconfig, each name quoted only where it must be.
+ * The search_path a declared function pins (physical/ddl/functions.ts): pg_catalog, its own schema, its level's, which
+ * is the root's only for a function the root declares, pg_temp, as PostgreSQL stores it in pg_proc.proconfig, each
+ * name quoted only where it must be.
  */
 const declaredSearchPath = (schema: string): string =>
 	`search_path=pg_catalog, ${plainIdentifier.test(schema) ? schema : `"${Str.replaceAll('"', '""')(schema)}"`}, pg_temp`
@@ -703,7 +704,7 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 					owner: f.owner
 				}),
 				...unless(f.securityDefiner, { kind: "notSecurityDefiner", function: f.name }),
-				...unless(Arr.contains(f.config, declaredSearchPath(j.catalog.schema)), {
+				...unless(Arr.contains(f.config, declaredSearchPath(f.schema)), {
 					kind: "searchPathUnfixed",
 					function: f.name
 				}),

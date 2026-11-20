@@ -169,6 +169,8 @@ interface CatalogSequence {
 
 interface CatalogFunction {
 	readonly name: string
+	/** The schema it is installed in: the root's, or a declared function's level's. */
+	readonly schema: string
 	/** pg_get_function_identity_arguments, which names the function in an ALTER FUNCTION. */
 	readonly args: string
 	readonly owner: string
@@ -405,7 +407,7 @@ const queries = {
 	) ORDER BY c.relname), '[]'::json)::text
 	FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = ANY($1::text[]) AND c.relkind = 'S'`,
 	functions: `SELECT COALESCE(json_agg(json_build_object(
-		'name', p.proname::text, 'args', pg_catalog.pg_get_function_identity_arguments(p.oid),
+		'name', p.proname::text, 'schema', n.nspname::text, 'args', pg_catalog.pg_get_function_identity_arguments(p.oid),
 		'owner', pg_catalog.pg_get_userbyid(p.proowner)::text, 'securityDefiner', p.prosecdef,
 		'volatility', p.provolatile::text, 'config', COALESCE(to_json(p.proconfig), '[]'::json),
 		'grants', ${grants("p.proacl", "f", "p.proowner")}, 'definition', pg_catalog.pg_get_functiondef(p.oid),
