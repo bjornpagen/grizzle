@@ -9,7 +9,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, Result, Stream, String as Str } from "effect"
-import { HttpBody, type HttpClientRequest } from "effect/http"
+import { Headers, HttpBody, type HttpClientRequest } from "effect/http"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import {
 	type AlternativeCase,
@@ -64,7 +64,7 @@ const sentOf = (request: Serialize.Request) =>
 			Effect.succeed(Option.none<readonly [Option.Option<string>, Option.Option<string>]>()),
 		onSuccess: (built: HttpClientRequest.HttpClientRequest) =>
 			Effect.map(bodyBytes(built.body), (bytes) => {
-				const contentType = Rec.get(built.headers, "content-type")
+				const contentType = Headers.get(built.headers, "content-type")
 				const boundary = Option.flatMap(contentType, (type) =>
 					Arr.get(Str.split("boundary=")(type), 1)
 				)
@@ -607,7 +607,7 @@ export const requestBody = property.explore(bodySpace, {
 				return
 			}
 			const made = built.success
-			const contentType = Rec.get(made.headers, "content-type")
+			const contentType = Headers.get(made.headers, "content-type")
 			const sent = expected.success
 			switch (sent.kind) {
 				case "empty":
@@ -618,12 +618,11 @@ export const requestBody = property.explore(bodySpace, {
 					assert.ok(made.body === given, "bytes pass through as given")
 					assert.deepEqual(contentType, Option.some(sent.contentType))
 					break
-				case "text":
-					assert.deepEqual(
-						yield* bodyBytes(made.body),
-						Option.some(Buffer.from(sent.text, "utf8").toString("latin1"))
-					)
+				case "text": {
+					const bytes = yield* bodyBytes(made.body)
+					assert.deepEqual(bytes, Option.some(Buffer.from(sent.text, "utf8").toString("latin1")))
 					assert.deepEqual(contentType, Option.some(sent.contentType))
+				}
 			}
 		}),
 	oracle: {
@@ -654,15 +653,16 @@ export const requestBody = property.explore(bodySpace, {
 	]
 })
 
-/** The table a chosen-codec case reads: each key's codec, recording the Content-Type it is handed into `seen`. */
-const tableOf = (
-	seen: Array<string>
-): Serialize.Alternatives<{
+/** The body each key of a chosen-codec case's table takes. */
+type TableBodies = {
 	"application/json": Serialize.Body
 	"application/x-www-form-urlencoded": Serialize.Json | undefined
 	"image/*": Serialize.Body
 	"multipart/form-data": Serialize.FormFields
-}> => ({
+}
+
+/** The table a chosen-codec case reads: each key's codec, recording the Content-Type it is handed into `seen`. */
+const tableOf = (seen: Array<string>): Serialize.Alternatives<TableBodies> => ({
 	"application/json": (body, contentType) => {
 		seen.push(contentType)
 		return Serialize.body(contentType, body)
@@ -693,32 +693,42 @@ const tableOf = (
 	}
 })
 
-/** A chosen case's body as its key's codec takes it. */
-const chosenOf = (chosen: AlternativeCase) => {
+/** A chosen case's body as its key's codec takes it, and what the codec `table` holds under that key makes of it
+ * alone, each arm calling its own key's codec. */
+const chosenOf = (
+	chosen: AlternativeCase,
+	table: Serialize.Alternatives<TableBodies>
+): Readonly<{ choice: Serialize.Chosen<TableBodies>; alone: Serialize.RequestBody }> => {
 	switch (chosen.key) {
 		case "application/json":
-			return { key: chosen.key, contentType: chosen.contentType, body: chosen.body }
-		case "application/x-www-form-urlencoded":
 			return {
-				key: chosen.key,
-				contentType: chosen.contentType,
-				body: { name: chosen.body.name, tags: chosen.body.tags }
+				choice: { key: chosen.key, contentType: chosen.contentType, body: chosen.body },
+				alone: table[chosen.key](chosen.body, chosen.contentType)
 			}
-		case "image/*":
+		case "application/x-www-form-urlencoded": {
+			const body = { name: chosen.body.name, tags: chosen.body.tags }
 			return {
-				key: chosen.key,
-				contentType: chosen.contentType,
-				body: HttpBody.uint8Array(chosen.body)
+				choice: { key: chosen.key, contentType: chosen.contentType, body },
+				alone: table[chosen.key](body, chosen.contentType)
 			}
-		case "multipart/form-data":
+		}
+		case "image/*": {
+			const body = HttpBody.uint8Array(chosen.body)
 			return {
-				key: chosen.key,
-				contentType: chosen.contentType,
-				body: {
-					name: [chosen.body.name],
-					file: [{ filename: "a.bin", stream: Stream.make(chosen.body.file) }]
-				}
+				choice: { key: chosen.key, contentType: chosen.contentType, body },
+				alone: table[chosen.key](body, chosen.contentType)
 			}
+		}
+		case "multipart/form-data": {
+			const body = {
+				name: [chosen.body.name],
+				file: [{ filename: "a.bin", stream: Stream.make(chosen.body.file) }]
+			}
+			return {
+				choice: { key: chosen.key, contentType: chosen.contentType, body },
+				alone: table[chosen.key](body, chosen.contentType)
+			}
+		}
 	}
 }
 
@@ -740,11 +750,11 @@ export const chosenCodec = property.explore(alternativeSpace, {
 		Effect.gen(function* () {
 			c.noteAll(alternativeFeatures(chosen))
 			const seen: Array<string> = []
-			const choice = chosenOf(chosen)
+			const { choice, alone } = chosenOf(chosen, tableOf([]))
 			const through = yield* sentOf(posted(Serialize.alternatives(choice, tableOf(seen))))
 			assert.deepEqual(seen, [chosen.contentType])
-			const alone = yield* sentOf(posted(tableOf([])[choice.key](choice.body, choice.contentType)))
-			assert.deepEqual(through, alone)
+			const sentAlone = yield* sentOf(posted(alone))
+			assert.deepEqual(through, sentAlone)
 			if (chosen.key === "application/json") {
 				assert.deepEqual(
 					through,
