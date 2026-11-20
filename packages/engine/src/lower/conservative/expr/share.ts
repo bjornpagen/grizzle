@@ -120,7 +120,8 @@ const truthOf = (e: ScalarExpr): boolean | undefined =>
  */
 class Interned {
 	readonly #byKey = new Map<string, ScalarExpr>()
-	readonly #ownOf = new Map<ScalarExpr, string>()
+	/** Each representative's own fields but its volatility (`fieldsText`). */
+	readonly #fieldsOf = new Map<ScalarExpr, string>()
 	readonly #numberOf = new Map<ScalarExpr, number>()
 	readonly #representative = new Map<ScalarExpr, ScalarExpr>()
 
@@ -142,8 +143,8 @@ class Interned {
 	#made(e: ScalarExpr): ScalarExpr {
 		const args = e.args.map((a) => this.of(a))
 		const same = args.every((a, i) => a === e.args[i])
-		const own = ownText(e)
-		const key = `${own}(${args.map((a) => this.number(a)).join(",")})`
+		const fields = fieldsText(e)
+		const key = `${fields};volatility=${e.volatility}(${args.map((a) => this.number(a)).join(",")})`
 		const held = this.#byKey.get(key)
 		if (held !== undefined) {
 			return held
@@ -155,7 +156,7 @@ class Interned {
 					e.id
 				)
 		this.#byKey.set(key, rebuilt)
-		this.#ownOf.set(rebuilt, own)
+		this.#fieldsOf.set(rebuilt, fields)
 		this.#numberOf.set(rebuilt, this.#numberOf.size)
 		return rebuilt
 	}
@@ -171,7 +172,16 @@ class Interned {
 
 	/** Whether two representatives have the same own fields and arity, so they differ, if at all, in an argument. */
 	sameShape(a: ScalarExpr, b: ScalarExpr): boolean {
-		return a.args.length === b.args.length && this.#ownOf.get(a) === this.#ownOf.get(b)
+		return this.sameFields(a, b) && a.volatility === b.volatility
+	}
+
+	/**
+	 * Whether two representatives have the same own fields but their volatilities, and the same arity: whether `a` may
+	 * be `b` rebuilt over other arguments (Sharing #over), whose volatility builtExpr joins from its own and the
+	 * arguments' (ir/expr.ts exprEffects).
+	 */
+	sameFields(a: ScalarExpr, b: ScalarExpr): boolean {
+		return a.args.length === b.args.length && this.#fieldsOf.get(a) === this.#fieldsOf.get(b)
 	}
 }
 
@@ -196,11 +206,12 @@ const valueText = (value: unknown): string => {
 }
 
 /**
- * The canonical text of an expression's own fields: every one but its arguments, its label and the derived ones, each
- * by its name in code-unit order.
+ * The canonical text of an expression's own fields but its volatility: every one but its arguments, its label and the
+ * derived ones, each by its name in code-unit order. Its volatility, which builtExpr joins from its own and its
+ * arguments', stands beside it in its structure (Interned).
  */
-const ownText = (e: ScalarExpr): string => {
-	const { args: _args, id: _id, deps: _deps, pgType: _pgType, ...own } = e
+const fieldsText = (e: ScalarExpr): string => {
+	const { args: _args, id: _id, deps: _deps, pgType: _pgType, volatility: _volatility, ...own } = e
 	const fields: ReadonlyArray<readonly [string, unknown]> = Object.entries(own)
 	return fields
 		.toSorted(([a], [b]) => compareStrings(a, b))
@@ -709,9 +720,89 @@ class Sharing {
 	}
 
 	/**
+	 * Whether `other` may be `whole` with its subterm `x` replaced by a literal and folded (#substituted), at some
+	 * literal: false only where none makes it, so the factoring that would try each of `x`'s values tries none. It reads
+	 * the shapes the fold can build, never a value. The fold keeps each subterm that does not read `x`, makes `x` the
+	 * literal, and makes each subterm that reads `x` a literal (a constant evaluated, a connective decided), the fold of
+	 * one of its arguments (a conditional decided or of equal arms, a connective's one operand left), or the subterm over
+	 * its arguments' folds, its own fields but its volatility kept (#simplified, #over). A literal is made only where
+	 * every argument of an operation, or some argument of a conditional or a connective, may fold to one.
+	 */
+	#foldsTo(whole: ScalarExpr, x: ScalarExpr, other: ScalarExpr): boolean {
+		const reading = new Map<ScalarExpr, boolean>()
+		const reads = (n: ScalarExpr): boolean => {
+			if (n === x) {
+				return true
+			}
+			const known = reading.get(n)
+			if (known !== undefined) {
+				return known
+			}
+			const read = n.args.some(reads)
+			reading.set(n, read)
+			return read
+		}
+		const literal = new Map<ScalarExpr, boolean>()
+		/** Whether the fold of `n` may be a literal. */
+		const toLiteral = (n: ScalarExpr): boolean => {
+			if (n === x) {
+				return true
+			}
+			if (!reads(n)) {
+				return n.kind === "literal"
+			}
+			const known = literal.get(n)
+			if (known !== undefined) {
+				return known
+			}
+			const may =
+				n.kind === "cond"
+					? toLiteral(n.args[1]) || toLiteral(n.args[2])
+					: connectiveOf(n) !== undefined
+						? n.args.some(toLiteral)
+						: n.args.every(toLiteral)
+			literal.set(n, may)
+			return may
+		}
+		const made = new Map<ScalarExpr, Map<ScalarExpr, boolean>>()
+		/** Whether the fold of `n` may be `o`. */
+		const folds = (n: ScalarExpr, o: ScalarExpr): boolean => {
+			if (n === x) {
+				return o.kind === "literal"
+			}
+			if (!reads(n)) {
+				return n === o
+			}
+			const row = made.get(n) ?? new Map<ScalarExpr, boolean>()
+			made.set(n, row)
+			const known = row.get(o)
+			if (known !== undefined) {
+				return known
+			}
+			const rebuilt =
+				this.#interned.sameFields(n, o) &&
+				n.args.every((a, i) => {
+					const b = o.args[i]
+					return b !== undefined && folds(a, b)
+				})
+			const may =
+				rebuilt ||
+				(n.kind === "cond"
+					? folds(n.args[1], o) || folds(n.args[2], o)
+					: connectiveOf(n) !== undefined
+						? (o.kind === "literal" && n.args.some(toLiteral)) || n.args.some((a) => folds(a, o))
+						: o.kind === "literal" && n.args.every(toLiteral))
+			row.set(o, may)
+			return may
+		}
+		return folds(whole, other)
+	}
+
+	/**
 	 * The arms of a conditional factored (the module's second rewrite): `cond(c, C[a], C[b])` as `C[cond(c, a, b)]`,
 	 * where the arms differ at one pair, or where one arm is the other at one of the values of a subterm of it; the
-	 * conditional itself where neither holds, or where it may raise.
+	 * conditional itself where neither holds, or where it may raise. A subterm's values are tried only where the other
+	 * arm may be the arm at some literal at all (#foldsTo).
 	 */
 	#factored(e: ScalarExpr, facts: Facts): ScalarExpr {
 		if (e.kind !== "cond" || this.#raisesAt(e)) {
@@ -732,7 +823,10 @@ class Sharing {
 		] as const) {
 			for (const x of this.#occurrences(whole).keys()) {
 				const values = x === whole || x.kind === "literal" ? undefined : this.#valuesOf(x)
-				for (const v of values ?? []) {
+				if (values === undefined || !this.#foldsTo(whole, x, other)) {
+					continue
+				}
+				for (const v of values) {
 					const k = this.#literal(v, x)
 					if (this.#substituted(whole, new Map([[x, k]])) !== other) {
 						continue

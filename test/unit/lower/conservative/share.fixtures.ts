@@ -1,12 +1,23 @@
 /**
  * What the properties of share.test.ts read: their cases, a world of the NULL language (test/support/null/language.ts)
  * with rows of it and a generated field built to read one subterm more than once, the schema that states it beside a
- * second generated field of that subterm alone, and the installation and law model the schema compiles to.
+ * second generated field of that subterm alone, and the installation and law model the schema compiles to; and the
+ * cases of a factoring's work, a world whose Pick holds as many values as it has kinds (`countedWorld`) and a
+ * conditional over a read of it, whose arms no value makes one of the other (`apartGen`) or whose ELSE arm is its THEN
+ * arm at a value (`valueArmGen`).
  */
 
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { array, element, type Gen, int, type Weighted, weighted } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	element,
+	type Gen,
+	int,
+	type Weighted,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -340,11 +351,14 @@ export const caseGen: Gen<ShareCase> = (s) => {
 	}
 }
 
+/** What a case's schema is built of: its world, its term and its shared subterm. */
+type Built = Pick<ShareCase, "world" | "term" | "shared">
+
 /**
  * The schema of a case: its world's closed relations, and Gen, the rows' fields with the generated field g of the
  * case's term and h of its shared subterm alone: a flag's read, or a predicate's conditional of 1 and 0.
  */
-const builtOf = (sc: ShareCase) => {
+const builtOf = (sc: Built) => {
 	const c = closedOf(sc.world)
 	const Gen = generatedRelation(
 		"Gen",
@@ -372,7 +386,7 @@ const builtOf = (sc: ShareCase) => {
 }
 
 /** A case's installation, from nothing under its schema's own levels. */
-export const installationOfCase = (sc: ShareCase): Installation => {
+export const installationOfCase = (sc: Built): Installation => {
 	const owned = succeeded(ownedInput(builtOf(sc).schema), "the case's schema owns")
 	return succeeded(
 		compileInstallation(
@@ -447,3 +461,146 @@ export const loweredG = (installation: Installation, g: ScalarExpr): string =>
 			loc: SourceLoc("Gen.g", [])
 		})
 	)
+
+/**
+ * A world of `kinds` kinds and `flags` flags whose Pick holds a row at every kind, its integer `n` the kind's code, so a
+ * read of Pick's `n` takes `kinds` values; and no row of Wt and Next, whose reads no case here makes.
+ */
+export const countedWorld = (kinds: number, flags: number): World => ({
+	kinds,
+	flags,
+	pick: Array.from({ length: kinds }, (_, kind) => ({
+		flag: kind % flags,
+		n: kind,
+		d: 0,
+		t: "",
+		b: false,
+		x: 0,
+		y: 0
+	})),
+	weight: Array.from({ length: flags }, () => undefined),
+	succ: Array.from({ length: flags }, () => undefined),
+	next: Array.from({ length: flags }, () => []),
+	allowed: Array.from({ length: kinds }, () => [])
+})
+
+/** The installation of a work case's world and term as g, h Pick's flag at the row's kind, which no work case reads. */
+export const installationOfTerm = (world: World, term: Term): Installation =>
+	installationOfCase({ world, term, shared: { kind: "flag", term: flagRead } })
+
+/** Pick's integer at the row's own kind: in a countedWorld, one of as many values as the world has kinds. */
+const countRead: Term = { t: "at", field: "n", key: { k: "own" } }
+
+/** An integer literal. */
+const intLit = (value: number): Term => ({ t: "lit", literal: { sort: "int", value } })
+
+/**
+ * A conditional whose arms are operations of two kinds: `cond(p, greatest(T, a), least(f, b))`, T Pick's `n` at the
+ * row's kind, alone or beside a leaf under an extremum, f a row's integer and a, b leaves. Neither arm holds a
+ * conditional, and the THEN arm at no value of T's read is the ELSE arm, a least of a row's integer, so a factoring of
+ * it tries no value. No closed read in it is read twice, so a split it takes is of a predicate, whose values are true
+ * and false at every size of its world. `kinds` is that size, its kinds, and `flags` its flags.
+ */
+export interface ApartCase {
+	readonly kinds: number
+	readonly flags: number
+	readonly read: ApartRead
+	readonly term: Term
+}
+
+/** How an apart case's THEN arm reads Pick's `n`: alone under its greatest, or beside a leaf under an extremum. */
+export type ApartRead = "a read alone" | "a read beside a leaf"
+
+/** An apart case: a world of one to three kinds, and its conditional. */
+export const apartGen: Gen<ApartCase> = (s) => {
+	const kinds = s.draw(int(1, 3))
+	const flags = s.draw(int(1, 3))
+	const form = s.draw(element(["a read alone", "a read beside a leaf"] as const))
+	const op = s.draw(element(["greatest", "least"] as const))
+	const leaf = s.draw(leafGen)
+	const read: Term =
+		form === "a read alone"
+			? countRead
+			: s.draw(boolean)
+				? { t: "extremum", op, a: countRead, b: leaf }
+				: { t: "extremum", op, a: leaf, b: countRead }
+	return {
+		kinds,
+		flags,
+		read: form,
+		term: {
+			t: "cond",
+			p: s.draw(exactPredGen(countedWorld(kinds, flags), 1)),
+			a: { t: "extremum", op: "greatest", a: read, b: s.draw(leafGen) },
+			b: {
+				t: "extremum",
+				op: "least",
+				a: { t: "field", field: s.draw(element(["n", "m"] as const)) },
+				b: s.draw(leafGen)
+			}
+		}
+	}
+}
+
+/**
+ * How a conditional's ELSE arm is its THEN arm at a value of Pick's `n` at the row's kind, the arm folded (share.ts
+ * #substituted), where the arms differ at more than one pair, so only a factoring that tries the read's values makes
+ * it:
+ *
+ * - "a decided conditional": `cond(p, cond(n = v, 1001, 1002), 1002)`, the THEN arm at any value but v its own ELSE arm,
+ *   which the factoring makes `cond(cond(p, n, w) = v, 1001, 1002)`, w the first value but v;
+ * - "a constant operation": `cond(p, greatest(n, 1001), 1001)`, the THEN arm at any value 1001, every value of n being
+ *   below it, which the factoring makes `greatest(cond(p, n, 0), 1001)`.
+ */
+export type ValueArm = "a decided conditional" | "a constant operation"
+
+/**
+ * A case of an arm at a value: its world of two to four kinds, the arm's kind, the conditional, its condition one
+ * predicate of no connective, so no subterm of it is read twice and no split takes it, and the literal its ELSE arm is,
+ * which the factored column prints once.
+ */
+export interface ValueArmCase {
+	readonly world: World
+	readonly arm: ValueArm
+	readonly term: Term
+	readonly literal: number
+}
+
+/** A case of an arm at a value. */
+export const valueArmGen: Gen<ValueArmCase> = (s) => {
+	const kinds = s.draw(int(2, 4))
+	const world = countedWorld(kinds, s.draw(int(1, 3)))
+	const p = s.draw(exactPredGen(world, 0))
+	const arm = s.draw(element(["a decided conditional", "a constant operation"] as const))
+	switch (arm) {
+		case "a decided conditional":
+			return {
+				world,
+				arm,
+				literal: 1002,
+				term: {
+					t: "cond",
+					p,
+					a: {
+						t: "cond",
+						p: { p: "cmp", op: "eq", a: countRead, b: intLit(s.draw(int(0, kinds - 1))) },
+						a: intLit(1001),
+						b: intLit(1002)
+					},
+					b: intLit(1002)
+				}
+			}
+		case "a constant operation":
+			return {
+				world,
+				arm,
+				literal: 1001,
+				term: {
+					t: "cond",
+					p,
+					a: { t: "extremum", op: "greatest", a: countRead, b: intLit(1001) },
+					b: intLit(1001)
+				}
+			}
+	}
+}

@@ -25,6 +25,9 @@
  *
  * - No lowering reads a closed relation's rows: g lowered twice or three times reads them as often as once, the values
  *   a closed read takes and the host's reads of the relations being the installation's.
+ * - A factoring tries a closed read's values only where the other arm may be the arm at one of them: over arms no value
+ *   makes one of the other, g's lowering substitutes as often over a world of k kinds as of 2k and 3k; and an ELSE arm
+ *   that is the THEN arm at a value is factored still.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -42,16 +45,23 @@ import { callCounts } from "#test/support/kernel/calls.ts"
 import { hostColumns } from "#test/support/null/build.ts"
 import { evalTerm, type Item, silent } from "#test/support/null/language.ts"
 import {
+	type ApartCase,
+	type ApartRead,
+	apartGen,
 	armsReadShared,
 	caseGen,
+	countedWorld,
 	generatedExpr,
 	generatedSql,
 	installationOfCase,
+	installationOfTerm,
 	loweredG,
 	occurrences,
 	type ShareCase,
 	type ShareFeature,
-	sharedSql
+	sharedSql,
+	type ValueArm,
+	valueArmGen
 } from "#test/unit/lower/conservative/share.fixtures.ts"
 
 /** What the host evaluates `expr` to at row `id`, as text: its value, NULL, or why it has none. */
@@ -266,3 +276,105 @@ export const loweringAnExpressionReadsNoClosedRelationsRowsItsValuesAndTheHostsR
 			}
 		]
 	})
+
+/** An apart case at three sizes of its world: its kinds, twice and three times as many. */
+const substitutionsAt = (c: ApartCase) =>
+	Effect.gen(function* () {
+		const counted: Array<number> = []
+		for (const scale of [1, 2, 3]) {
+			const installation = installationOfTerm(countedWorld(c.kinds * scale, c.flags), c.term)
+			const g = generatedExpr(installation, "g")
+			const [, counts] = yield* callCounts(
+				Effect.sync(() => loweredG(installation, g)),
+				factoringWork
+			)
+			counted.push(counts.substituted)
+		}
+		return counted
+	})
+
+/** The calls a factoring's tries are counted by: an arm substituted at a value (share.ts #substituted). */
+const factoringWork = Object.freeze({
+	substituted: {
+		file: "packages/engine/src/lower/conservative/expr/share.ts",
+		name: "#substituted"
+	}
+})
+
+/**
+ * A factoring tries a subterm's values only where the other arm may be the arm at one of them (share.ts #foldsTo): over
+ * conditionals whose arms are operations of two kinds, a read of Pick's `n` in the THEN arm (share.fixtures.ts
+ * apartGen), g's lowering substitutes as often over a world of k kinds as over 2k and 3k, where each try would
+ * substitute the arm once per value of the read, as many as the world's kinds.
+ */
+export const aFactoringTriesASubtermsValuesOnlyWhereTheOtherArmMayBeTheArmAtOneOfThem =
+	property.explore(apartGen, {
+		needs: {},
+		situations: ["a read alone", "a read beside a leaf"] satisfies ReadonlyArray<
+			Reached<ApartRead>
+		>,
+		check: (_, n: Case<ApartRead>) => (c) =>
+			Effect.gen(function* () {
+				n.note(c.read)
+				const [k, twice, thrice] = yield* substitutionsAt(c)
+				assert.ok(
+					k === twice && twice === thrice,
+					`g's lowering substitutes as often at ${c.kinds}, ${2 * c.kinds} and ${3 * c.kinds} kinds, not ${k}, ${twice} and ${thrice} times`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a factoring's substitutions, counted (kernel/calls.ts callCounts), a function of the term alone where no value makes one arm of the other"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/expr/share.ts",
+				original: "\t\t\t\tif (values === undefined || !this.#foldsTo(whole, x, other)) {\n",
+				replacement: "\t\t\t\tif (values === undefined) {\n",
+				why: "A factoring tries every value of a closed read though no value makes one arm of the other: each try substitutes the arm, once per value of the relation (pantry's Node: 1.4M tries, 52 s of its insert's compile)."
+			}
+		]
+	})
+
+/**
+ * A conditional whose ELSE arm is its THEN arm at a value of a closed read, the arm folded, is factored, its ELSE arm's
+ * literal printed once (share.fixtures.ts valueArmGen): the factoring's filter (share.ts #foldsTo) keeps every arm a
+ * value may make, a decided conditional's arm and a constant operation's literal among them.
+ */
+export const aConditionalWhoseElseArmIsItsThenArmAtAClosedReadsValueIsFactored = property.explore(
+	valueArmGen,
+	{
+		needs: {},
+		situations: ["a decided conditional", "a constant operation"] satisfies ReadonlyArray<
+			Reached<ValueArm>
+		>,
+		check: (_, k: Case<ValueArm>) => (c) =>
+			Effect.sync(() => {
+				k.note(c.arm)
+				const installation = installationOfTerm(c.world, c.term)
+				const column = generatedSql(installation, "g")
+				const count = occurrences(column, String(c.literal))
+				assert.equal(count, 1, `g's column prints ${c.literal} once, factored: ${column}`)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the factored column, its ELSE arm's literal counted in its SQL"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/expr/share.ts",
+				original: "\t\t\t\t\t? folds(n.args[1], o) || folds(n.args[2], o)\n",
+				replacement: "\t\t\t\t\t? false\n",
+				why: "The filter reads a conditional decided at a value as no arm of it: `cond(p, cond(n = v, 1001, 1002), 1002)` is never factored, 1002 printed twice."
+			},
+			{
+				file: "packages/engine/src/lower/conservative/expr/share.ts",
+				original: '\t\t\t\t\t\t: o.kind === "literal" && n.args.every(toLiteral))\n',
+				replacement: "\t\t\t\t\t\t: false)\n",
+				why: "The filter reads an operation evaluated at a value as never a literal: `cond(p, greatest(n, 1001), 1001)` is never factored, 1001 printed twice."
+			}
+		]
+	}
+)
