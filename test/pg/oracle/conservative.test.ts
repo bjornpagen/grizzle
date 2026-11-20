@@ -44,7 +44,19 @@ export const generated = conservativeAgreement(
 )
 
 /** The same agreement on generated cases with dense facts, so fewer results are empty. */
-export const dense = conservativeAgreement(denseQueryCaseGen(defaultGenConfig), [], {
-	runs: 2000,
-	steered: 2000
-})
+export const dense = conservativeAgreement(
+	denseQueryCaseGen(defaultGenConfig),
+	[
+		{
+			file: "test/support/oracle/gen/ops.ts",
+			original: '\tfn === "count" ? naturalType : overloadOf(fn, type).result',
+			replacement:
+				'\tfn === "count"\n\t\t? Object.assign({}, naturalType, { contract: Object.assign({}, naturalType.contract, { predicate: undefined }) })\n\t\t: overloadOf(fn, type).result',
+			why: "A count is typed natural without its predicate, as a builder's environment builds it, so the classes a union arm's literal of a count's column is drawn from hold int8's negatives, and the floor's union of a count with -1 stores a value natural's domain refuses (23514)."
+		}
+	],
+	{
+		runs: 2000,
+		steered: 2000
+	}
+)

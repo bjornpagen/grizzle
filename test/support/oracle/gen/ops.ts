@@ -19,14 +19,13 @@ import {
 	definedRangeOp,
 	nativeOp
 } from "#compiler/scalar/compute/registry.ts"
-import { f } from "#test/support/fixtures/ir/desc.ts"
-import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import {
 	type GenCarrier,
 	genCarrierOf,
 	genCarriers,
 	hasCap
 } from "#test/support/oracle/gen/domain.ts"
+import { naturalType } from "#test/support/oracle/gen/natural.ts"
 
 export const compareOps = ["eq", "ne", "lt", "le", "gt", "ge"] as const
 export type CompareOp = (typeof compareOps)[number]
@@ -204,9 +203,6 @@ const overloadOf = (fn: Exclude<GenAggregate, "count">, type: ScalarType | undef
 
 /** count's lowering: the native call. */
 const nativeLowering: AggregateLowering = { kind: "native" }
-
-/** natural's type, a count's. */
-const naturalType: ScalarType = scalarOf(f.natural, {})
 
 /**
  * The result type the checker gives the aggregate (scalar/aggregate.ts unaryOverload): count is natural; sum is bigint
