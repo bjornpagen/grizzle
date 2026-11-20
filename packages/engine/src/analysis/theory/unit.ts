@@ -124,6 +124,8 @@ interface Walk {
 	readonly regions: Array<RegionRead>
 	/** The fields of the row of the recursion whose step the walk reads, where it reads one, that hold its unit. */
 	readonly self: ReadonlyArray<string> | undefined
+	/** The query each copy the walk makes of a query was walked from (`walked`, WholeRule `definitionOf`). */
+	readonly definitions: WeakMap<InferredQuery, InferredQuery>
 }
 
 /** Where a walk stands in its query: the polarity of what it reads there. */
@@ -897,12 +899,15 @@ const walked = (query: InferredQuery, at: At, w: Walk): Walked | NotLocal => {
 		}
 	}
 	const read = stage(query.stage)
-	return read === notLocal
-		? notLocal
-		: {
-				query: read.stage === query.stage ? query : { ...query, stage: read.stage },
-				delivered: read.delivered
-			}
+	if (read === notLocal) {
+		return notLocal
+	}
+	if (read.stage === query.stage) {
+		return { query, delivered: read.delivered }
+	}
+	const copy: InferredQuery = { ...query, stage: read.stage }
+	w.definitions.set(copy, query)
+	return { query: copy, delivered: read.delivered }
 }
 
 /** A unit's holders by relation, each with its leading key fields. */
@@ -1543,19 +1548,25 @@ const restrictToUnits = (
 	facts: RegionFacts,
 	relations: ReadonlyMap<string, TheoryRelation>,
 	loc: SourceLoc
-): { readonly judged: InferredQuery; readonly replaced: ReadonlyArray<ReplacedRead> } => {
+): Pick<WholeRule, "judged" | "replaced" | "definitionOf"> => {
 	const region = regionOf(unit, regions, facts, relations, loc)
+	const definitions = new WeakMap<InferredQuery, InferredQuery>()
 	const read = walked(violation, top, {
 		holders: holdersOf(unit),
 		restrict: { kind: "region", region: region.source },
 		reads: [],
 		regions: [],
-		self: undefined
+		self: undefined,
+		definitions
 	})
 	if (read === notLocal) {
 		throw defect("a whole rule's violation query is unit-local at its unit")
 	}
-	return { judged: read.query, replaced: region.replaced }
+	const definitionOf = (query: InferredQuery): InferredQuery => {
+		const walkedFrom = definitions.get(query)
+		return walkedFrom === undefined ? query : definitionOf(walkedFrom)
+	}
+	return { judged: read.query, replaced: region.replaced, definitionOf }
 }
 
 /**
@@ -1607,7 +1618,8 @@ const unitAt = (
 		restrict: deciding,
 		reads,
 		regions,
-		self: undefined
+		self: undefined,
+		definitions: new WeakMap()
 	})
 	const [r0, ...rs] = reads
 	return read === notLocal || r0 === undefined ? undefined : { unit, reads: [r0, ...rs], regions }

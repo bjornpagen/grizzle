@@ -8,6 +8,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbes,
@@ -183,6 +184,7 @@ const compileProbe = (
 		catalog,
 		rule,
 		probe,
+		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
 		deltas
@@ -198,19 +200,22 @@ const compileProbe = (
  * parameter, its outputs unaliased; with the index requests of `rule` its checked DAG's access paths are
  * (`requestsOf`). It states the images' equality beside each equality of a text its requests' indexes hold by its image
  * (sql/image.ts) and of no other: its lookups are those requests', and a text it compares that none of them
- * holds is read through no image, so the judge of a schema whose indexes hold none is as it was.
+ * holds is read through no image, so the judge of a schema whose indexes hold none is as it was. Navigation reads the
+ * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
+ * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule `definitionOf`).
  */
 const judgedStatement = (
 	b: InstallBuilder,
 	catalog: ReturnType<typeof evidenceCatalog>,
 	rule: RuleTrigger,
 	query: InferredQuery,
+	columns: QueryColumns,
 	label: string,
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc, b.columns), {
+		checkQuery(b.checked, navigateQuery(query, loc, columns), {
 			read: "region",
 			label,
 			clock: noClock
@@ -1230,7 +1235,16 @@ export const addRules = (
 			const t = tableOf(name)
 			return t === undefined ? undefined : sessionDelta(t, side)
 		}
-		const lowered = judgedStatement(b, catalog, rule, unit.judged, label, rule.law.loc, deltas)
+		const lowered = judgedStatement(
+			b,
+			catalog,
+			rule,
+			unit.judged,
+			(query) => b.columns(unit.definitionOf(query)),
+			label,
+			rule.law.loc,
+			deltas
+		)
 		appendAll(requests, lowered.requests)
 		const holder = defined(
 			tableOf(headNonEmpty(unit.unit.holders).relation),
@@ -1288,7 +1302,7 @@ export const addRules = (
 		const r = rule.rule
 		const label = `rule ${rule.law.named.display} over every row`
 		const lowered = (query: InferredQuery): Compiled =>
-			judgedStatement(b, catalog, rule, query, label, rule.law.loc, everyRow(rule))
+			judgedStatement(b, catalog, rule, query, b.columns, label, rule.law.loc, everyRow(rule))
 		const compiled: NonEmptyReadonlyArray<Compiled> =
 			r.kind === "whole"
 				? [lowered(r.everyRow)]

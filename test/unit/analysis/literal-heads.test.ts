@@ -59,9 +59,15 @@ export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReads
 				},
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
-					original: "stage: { ...stage, arms: [headAtUnion(rule, union)] }",
+					original: "stage: { ...stage, arms: [alone(rule)] }",
 					replacement: "stage: { ...stage, arms: [rule] }",
 					why: "A rule navigation splits out of a union is checked alone, its literal at its own default: `scope` 0n is a bigint beside Node.start's natural, refused as two types, where the union types it natural."
+				},
+				{
+					file: "packages/engine/src/physical/ddl/rules.ts",
+					original: "\t\t\t(query) => b.columns(unit.definitionOf(query)),\n",
+					replacement: "\t\t\tb.columns,\n",
+					why: "A whole rule's statement over its units reads the heading of the walked copy of the union it splits, checked alone, where the copy's recursive import reads the document's channel, which only its import types: refused as a channel bound to a column, as pantry's assembledPartRows was (tests.ts:1040)."
 				},
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -82,10 +88,10 @@ const headingChecks = {
 /**
  * A union's heading is checked once per installation however many statements navigation reads it in: the installation
  * holds one QueryColumns (physical/ddl/context.ts InstallBuilder.columns), every law reads the union in its violation
- * as one live query (analysis/theory/query.ts liveReading), and the walk that reads a violation per unit shares what it
- * leaves as it was (analysis/theory/unit.ts Walked), so every statement the judge navigates meets the one union, and
- * three checked derived relations reading it, each with its own judge statements that split it, check its heading as
- * often as one does.
+ * as one live query (analysis/theory/query.ts liveReading), and a whole rule's statement over its units reads a walked
+ * copy's heading at the definition it was walked from (WholeRule `definitionOf`), so every statement the judge
+ * navigates reads the one union's, and three checked derived relations reading it, each with its own judge statements
+ * that split it, check its heading as often as one does.
  */
 export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigateIt =
 	property.exhaust(
@@ -133,13 +139,6 @@ export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigate
 					original: "\t\t\tconst found = known.get(query)\n",
 					replacement: "\t\t\tconst found = known.get({ ...query })\n",
 					why: "Each law reads its own live copy of every query its violation imports, so the judge's statements of three laws meet three unions, each one's heading checked apart."
-				},
-				{
-					file: "packages/engine/src/analysis/theory/unit.ts",
-					original:
-						"\t\t\t\tquery: read.stage === query.stage ? query : { ...query, stage: read.stage },\n",
-					replacement: "\t\t\t\tquery: { ...query, stage: read.stage },\n",
-					why: "The walk that reads a violation per unit copies the union it leaves as it was, so each law's statement over its units meets a union of its own, its heading checked again."
 				}
 			]
 		}

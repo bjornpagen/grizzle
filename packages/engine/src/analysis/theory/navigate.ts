@@ -151,7 +151,10 @@ interface Flat {
  * A conjunction matches one rule of the union alone, so each bare head literal of that rule is typed at the union's
  * column (`headAtUnion`), the type the union's checked heading states (`columns`), never the literal's own default: a
  * union's heading has one type per column, `scope` natural where some rules fix it at 0n and others read Node.start,
- * and the rule matched alone delivers the column at that type, as the union did.
+ * and the rule matched alone delivers the column at that type, as the union did. The heading is the union's
+ * definition's (`columns` reads a whole rule's walked copy at the definition it was walked from, analysis/theory/query.ts
+ * WholeRule `definitionOf`), never a copy's, which reads channels only its import types. A query of one rule is that
+ * rule: matched alone, its head is the heading it delivered, as it was typed.
  */
 const conjunctions = (
 	arms: NonEmptyReadonlyArray<InferredRule>,
@@ -171,7 +174,10 @@ const conjunctions = (
 			if (inner.length === 1 && inner[0] === stage.arms[0]) {
 				continue
 			}
-			const union = columns(source.query)
+			const alone =
+				stage.arms.length > 1
+					? (rule: InferredRule): InferredRule => headAtUnion(rule, columns(source.query))
+					: (rule: InferredRule): InferredRule => rule
 			return conjunctions(
 				mapNonEmpty(inner, (rule) => ({
 					...arm,
@@ -183,7 +189,7 @@ const conjunctions = (
 										...source,
 										query: {
 											...source.query,
-											stage: { ...stage, arms: [headAtUnion(rule, union)] }
+											stage: { ...stage, arms: [alone(rule)] }
 										}
 									}
 								}

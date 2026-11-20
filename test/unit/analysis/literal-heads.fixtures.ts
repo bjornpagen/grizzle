@@ -31,7 +31,8 @@ export const uses = [
 	"a check comparing it first",
 	"a union's literal compared with a natural column",
 	"a check over a union's literal",
-	"a write member's query over a union's literal"
+	"a write member's query over a union's literal",
+	"a union's literal beside a channel-bound recursive import"
 ] as const
 export type Use = (typeof uses)[number]
 
@@ -44,8 +45,11 @@ type UnionUse = Extract<
 /** The use a write member makes of the union `scoped`. */
 type WriteUse = Extract<Use, "a write member's query over a union's literal">
 
+/** The use whose union a whole rule's walk binds to its unit's channels. */
+type WalkUse = Extract<Use, "a union's literal beside a channel-bound recursive import">
+
 /** The uses that read the one-rule query `fixed`. */
-type PlainUse = Exclude<Use, UnionUse | WriteUse>
+type PlainUse = Exclude<Use, UnionUse | WriteUse | WalkUse>
 
 const label = str.bytes(64, str.regex("^.*$", "su"))
 
@@ -131,12 +135,14 @@ const unionReadOf = (use: UnionUse) =>
  * the refusal it meets.
  */
 export const installed = (use: Use): Result.Result<unknown, CompileError> =>
-	use === "a write member's query over a union's literal"
-		? writtenOverUnion()
-		: use === "a union's literal compared with a natural column" ||
-			  use === "a check over a union's literal"
-			? installedOverUnion(use)
-			: installedOverQuery(use)
+	use === "a union's literal beside a channel-bound recursive import"
+		? installedOverWalk()
+		: use === "a write member's query over a union's literal"
+			? writtenOverUnion()
+			: use === "a union's literal compared with a natural column" ||
+				  use === "a check over a union's literal"
+				? installedOverUnion(use)
+				: installedOverQuery(use)
 
 /** Where a write member's rows land: a scope and its node's start. */
 const Scoped = relation("Scoped", { id: pg.integer, start: natural }, ["id"])
@@ -284,6 +290,85 @@ export const installedReadingUnion = (
 	return installedAs(
 		login(top, "desk", [
 			role(top, "writer", { Item, Doc, Node }, { write: ["Item", "Doc", "Node"], refresh: [] })
+		])
+	)
+}
+
+/** A part of a document at its parent's place, keyed by its document first: the unit a rule over a walk is judged in. */
+const Part = relation("Part", { doc: pg.integer, start: pg.integer, parent: pg.integer }, [
+	"doc",
+	"start"
+])
+
+/** A part's level, natural. */
+const Level = relation("Level", { doc: pg.integer, start: pg.integer, level: natural }, [
+	"doc",
+	"start"
+])
+
+const Parts = schema("LiteralHeadsParts", [Part, Level], [])
+
+/** Every part a document's root reaches, its document carried through every step: a recursion local to the document. */
+const descent = query(Parts).recursive("Descent", {
+	row: { doc: pg.integer, part: pg.integer },
+	base: [
+		(r) => {
+			const p = v(Part, "p")
+			return r
+				.match(Part, { doc: p.doc, start: p.start, parent: p.start })
+				.find({ doc: p.doc, part: p.start })
+		}
+	],
+	rec: [
+		(r, self) => {
+			const s = v(self, "s")
+			const p = v(Part, "p")
+			return r
+				.match(self, { doc: s.doc, part: s.part })
+				.match(Part, { doc: s.doc, parent: s.part, start: p.start })
+				.find({ doc: s.doc, part: p.start })
+		}
+	]
+})
+
+/**
+ * A union whose heading types `level` natural: one rule fixes it at the literal 0n for a document's roots, the other
+ * reads Level.level of each part the recursion reaches, as pantry's assembledPartRows does with its instance 0n and its
+ * instanceParts (qti/overlay-queries/tests.ts).
+ */
+const leveled = query(Parts)
+	.rule((r) => {
+		const p = v(Part, "p")
+		return r
+			.match(Part, { doc: p.doc, start: p.start, parent: p.start })
+			.find({ doc: p.doc, part: p.start, level: 0n })
+	})
+	.rule((r) => {
+		const { doc, part } = v(descent, "descent")
+		const { level } = v(Level, "level")
+		return r
+			.match(descent, { doc, part })
+			.match(Level, { doc, start: part, level })
+			.find({ doc, part, level })
+	})
+
+const Leveled = derived("Leveled", leveled)
+
+/**
+ * The installation of a check over Leveled, a whole rule judged per document: its walk reads the recursion at the
+ * document's channels, so the union it splits is a copy that reads them, whose heading navigation reads at the union's
+ * definition: compiled, or the refusal it meets.
+ */
+const installedOverWalk = (): Result.Result<unknown, CompileError> => {
+	const top = schema.extend(
+		[Parts],
+		"LiteralHeadsWalked",
+		[Leveled],
+		[check("Shallow", Leveled, (x) => x.lt(x.level, 5n))]
+	)
+	return installedAs(
+		login(top, "desk", [
+			role(top, "writer", { Part, Level }, { write: ["Part", "Level"], refresh: [] })
 		])
 	)
 }

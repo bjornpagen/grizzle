@@ -163,6 +163,13 @@ export interface WholeRule {
 	/** The violation query restricted to the units a transaction wrote (unit.ts restrictToUnits): what the judge runs. */
 	readonly judged: InferredQuery
 	/**
+	 * The query of the violation each query `judged` reads was walked from, itself where the walk copied none: a copy
+	 * reads the unit's channels its import binds (unit.ts passedChannels), which only that import types, so a union's
+	 * heading is its definition's, checked where no channel is (analysis/theory/navigate.ts conjunctions), never the
+	 * copy's, checked alone.
+	 */
+	readonly definitionOf: (query: InferredQuery) => InferredQuery
+	/**
 	 * The holders whose gained rows its region reads only where they replace a row the transaction lost at the `fields`
 	 * a witness fixes its rows at, proved at generate time to open a fact only there (unit.ts proofsOf): the rows each
 	 * lost, at those fields, which the judge captures for the region, beside the sides its occurrences read.
