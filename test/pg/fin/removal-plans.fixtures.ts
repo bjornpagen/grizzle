@@ -17,7 +17,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { judgedFixtureTemplate } from "#test/pg/reads/support.ts"
 
 const Owner = relation(
 	"Owner",
@@ -168,5 +168,8 @@ export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message:
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const removalsInstall = Object.freeze({ label: "removal_plans", programs })
 
-/** Removals installed as `grizzle generate` drafts it, once per member: the template every case clones. */
-export const removalsTemplate = fixtureTemplate(import.meta, Removals, removalsInstall)
+/**
+ * Removals installed as `grizzle generate` drafts it, once per member, its login planning under the judged settings over
+ * relations never analyzed (reads/support.ts judgedFixtureTemplate): the template every case clones.
+ */
+export const removalsTemplate = judgedFixtureTemplate(import.meta, Removals, removalsInstall)

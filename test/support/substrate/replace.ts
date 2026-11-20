@@ -20,16 +20,23 @@ type Emptying = "whole" | "rows"
 export type ResetGroup = {
 	readonly tables: ReadonlyArray<string>
 	readonly emptying: Emptying
+	/**
+	 * The materialized views over the tables (schema-qualified, quoted), lowest level first, each of which a seat's
+	 * reset puts back as its case found it once the tables are empty (foundViews, viewsRestored): what a REFRESH writes
+	 * there outlives every TRUNCATE of the tables it reads.
+	 */
+	readonly views: ReadonlyArray<string>
 } & Brand.Brand<"ResetGroup">
 const ResetGroup = Brand.nominal<ResetGroup>()
 
 /**
  * Every stored relation's table of an installation, by its names (kernel/naming.ts namesOf, or installationNamesOf
- * for one installed from its compiled script): its rows are the state a case writes whole. An installation of closed
- * relations alone stores nothing, and its group truncates nothing.
+ * for one installed from its compiled script), and every materialized view of its derived relations: its rows are the
+ * state a case writes whole, and what a refresh computes from them. An installation of closed relations alone stores
+ * nothing, and its group truncates nothing.
  */
 export const installationGroup = (names: Names): ResetGroup =>
-	ResetGroup({ tables: names.storedTables, emptying: "whole" })
+	ResetGroup({ tables: names.storedTables, emptying: "whole", views: names.materializedViews })
 
 /**
  * Every table of `tables`, an installation's stored relations' (kernel/naming.ts Names storedTables) or a fixture's,
@@ -38,14 +45,14 @@ export const installationGroup = (names: Names): ResetGroup =>
  * before it wrote.
  */
 export const rowsGroup = (tables: ReadonlyArray<string>): ResetGroup =>
-	ResetGroup({ tables, emptying: "rows" })
+	ResetGroup({ tables, emptying: "rows", views: [] })
 
 /** No table: the group of a template whose cases write no table of its own (substrate.ts base). */
-export const noTables: ResetGroup = ResetGroup({ tables: [], emptying: "whole" })
+export const noTables: ResetGroup = ResetGroup({ tables: [], emptying: "whole", views: [] })
 
 /** Every table a fixture's own DDL creates, which a test builds by hand rather than installs. */
 export const fixtureGroup = (tables: Arr.NonEmptyReadonlyArray<string>): ResetGroup =>
-	ResetGroup({ tables, emptying: "whole" })
+	ResetGroup({ tables, emptying: "whole", views: [] })
 
 /**
  * The deletion of every row of `tables` (Emptying rows): its own READ COMMITTED transaction, under the replica role, so
@@ -190,4 +197,53 @@ export const clearRows = (
 				discard: true
 			}
 		)
+	)
+
+/** A materialized view of a reset group as a case found it: whether PostgreSQL holds it populated (relispopulated). */
+export interface FoundView {
+	readonly view: string
+	readonly populated: boolean
+}
+
+/**
+ * Each view of `group` as it stands now, read as a seat's case takes its clone, which the seat holds as its template
+ * (Substrate.seat): populated, as the migration that creates a materialized view populates it (deploy/diff/diff.ts), or
+ * not, as an installation from its compiled script leaves it WITH NO DATA. One catalog read, none for a group of no view.
+ */
+export const foundViews = (
+	connection: Pick<PgConnection, "queryValues">,
+	group: ResetGroup
+): Effect.Effect<ReadonlyArray<FoundView>, SqlError> =>
+	Arr.isReadonlyArrayNonEmpty(group.views)
+		? Effect.map(
+				connection.queryValues(
+					"SELECT v.view, c.relispopulated FROM pg_catalog.unnest($1::text[]) WITH ORDINALITY AS v(view, n) JOIN pg_catalog.pg_class AS c ON c.oid = v.view::regclass ORDER BY v.n",
+					[group.views]
+				),
+				(rows) =>
+					Arr.map(rows, ([view, populated]) => ({
+						view: String(view),
+						populated: populated === true
+					}))
+			)
+		: Effect.succeed([])
+
+/**
+ * The views a case found (foundViews) put back as it found them, lowest level first, over tables a reset has emptied:
+ * a populated one refreshed, so it holds what its definition reads there, the rows its installation populated it with
+ * over the same empty tables; one found unpopulated refreshed WITH NO DATA. Each is the view's owner's to refresh, the
+ * reset's own role.
+ */
+export const viewsRestored = (
+	connection: Pick<PgConnection, "query">,
+	found: ReadonlyArray<FoundView>
+): Effect.Effect<void, SqlError> =>
+	Effect.forEach(
+		found,
+		(v) =>
+			connection.query(
+				`REFRESH MATERIALIZED VIEW ${v.view}${v.populated ? "" : " WITH NO DATA"}`,
+				[]
+			),
+		{ discard: true }
 	)

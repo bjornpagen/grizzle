@@ -19,7 +19,7 @@ import {
 	select,
 	tree
 } from "#compiler/public/schema.ts"
-import { fixtureTemplate } from "#test/pg/reads/support.ts"
+import { judgedFixtureTemplate } from "#test/pg/reads/support.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 const Node = relation(
@@ -390,5 +390,8 @@ export const stored = (s: Sketch): ReadonlyArray<Unit> =>
 /** How the module's fixture is installed: its label and the programs its login's workload holds. */
 export const worldInstall = Object.freeze({ label: "keyed_target", programs })
 
-/** World installed as `grizzle generate` drafts it, once per member: the template every case clones. */
-export const worldTemplate = fixtureTemplate(import.meta, World, worldInstall)
+/**
+ * World installed as `grizzle generate` drafts it, once per member, its login planning under the judged settings over
+ * relations never analyzed (reads/support.ts judgedFixtureTemplate): the template every case clones.
+ */
+export const worldTemplate = judgedFixtureTemplate(import.meta, World, worldInstall)

@@ -3,7 +3,6 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import { cleared, seatOfInstalled } from "#test/pg/fin/installed.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
@@ -22,7 +21,6 @@ import {
 	worldInstall,
 	worldTemplate
 } from "#test/pg/write/keyed-target/keyed-target.fixtures.ts"
-import { judgedSettings, unanalyzed } from "#test/support/plans.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -41,19 +39,8 @@ export const aWriteStatementReadsTheRelationsItWritesOnlyThroughAKeyItBindsOnPos
 					Effect.flatMap(fixture, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const substrate = yield* Substrate
 								const o = yield* openedIn(World, {}, worldInstall, taken)
 								const seat = yield* seatOfInstalled(o.installed, RELATIONS, "keyed_target")
-								const login = quoteIdent(o.installed.as(o.server).role)
-								for (const setting of judgedSettings) {
-									yield* substrate.superuser(
-										`ALTER ROLE ${login} IN DATABASE ${quoteIdent(substrate.database)} SET ${setting.parameter} = ${setting.value}`
-									)
-								}
-								yield* unanalyzed(
-									substrate.admin,
-									Arr.map(RELATIONS, (r) => o.installed.names.relation(r))
-								)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									/** The instance of `s` over emptied tables. */

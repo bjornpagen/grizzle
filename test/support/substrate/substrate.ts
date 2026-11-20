@@ -73,7 +73,13 @@ import {
 	uniqueSchemaName
 } from "#test/support/substrate/names.ts"
 import { type BackendCancel, openPsql, type PsqlWriter } from "#test/support/substrate/psql.ts"
-import { clearRows, noTables, type ResetGroup } from "#test/support/substrate/replace.ts"
+import {
+	clearRows,
+	foundViews,
+	noTables,
+	type ResetGroup,
+	viewsRestored
+} from "#test/support/substrate/replace.ts"
 import {
 	type Credentials,
 	beginSerializable,
@@ -1114,7 +1120,7 @@ const substrateCases = <T>(
 	form: string,
 	template: SubstrateTemplate<T>,
 	database: DatabaseNeed<Database>,
-	settled: (substrate: SubstrateShape, value: T) => Effect.Effect<void>
+	settled: (substrate: SubstrateShape, value: T) => Effect.Effect<Effect.Effect<void>>
 ): TemplateNeed<SubstrateCase<T>> => ({
 	key: `grizzle ${form} ${database.key}`,
 	template: database.template,
@@ -1130,14 +1136,15 @@ const substrateCases = <T>(
 				const taken = yield* take
 				const substrate = yield* substrateOver(form, taken, leases, spawning)
 				const value = bind(substrate)
-				yield* Effect.addFinalizer(() => settled(substrate, value))
+				const settle = yield* settled(substrate, value)
+				yield* Effect.addFinalizer(() => settle)
 				return { substrate, value }
 			})
 	)
 })
 
 /** What a case over a clone of its own leaves behind: nothing to settle, as its clone is dropped. */
-const dropped = (): Effect.Effect<void> => Effect.void
+const dropped = (): Effect.Effect<Effect.Effect<void>> => Effect.succeed(Effect.void)
 
 /**
  * One case's transaction on the worker's own clone of a template (Substrate.rolledBack): an owner connection inside the
@@ -1469,7 +1476,7 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		template: baseTemplate,
 		open: Effect.map(
 			substrateCases("Substrate.installing", base, Database.seat(baseTemplate, []), (substrate) =>
-				undoInstallEffects(substrate.admin)
+				Effect.succeed(undoInstallEffects(substrate.admin))
 			).open,
 			(take) => Effect.map(take, (taken) => taken.substrate)
 		)
@@ -1479,15 +1486,24 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		substrateCases("Substrate.freshOf", template, Database.fresh(template.database), dropped)
 	/**
 	 * A case's own substrate over the worker's own clone of `template`, held across the worker's cases: after each, the
-	 * case's allocations are released, the template's reset group emptied (SubstrateTemplate reset), every sequence put
-	 * back, and the clone must hold its template's catalog and rows again, or it is replaced and the case fails.
+	 * case's allocations are released, the template's reset group emptied (SubstrateTemplate reset) and its materialized
+	 * views put back as the case found them, which is as the template holds them (replace.ts foundViews, read as the case
+	 * takes the clone, and viewsRestored), every sequence put back, and the clone must hold its template's catalog and
+	 * rows again, or it is replaced and the case fails.
 	 */
 	static readonly seat = <T>(template: SubstrateTemplate<T>): TemplateNeed<SubstrateCase<T>> =>
 		substrateCases(
 			"Substrate.seat",
 			template,
 			Database.seat(template.database, []),
-			(substrate, value) => Effect.orDie(clearRows(substrate.admin, template.reset(value)))
+			(substrate, value) => {
+				const group = template.reset(value)
+				return Effect.map(Effect.orDie(foundViews(substrate.admin, group)), (found) =>
+					Effect.orDie(
+						Effect.andThen(clearRows(substrate.admin, group), viewsRestored(substrate.admin, found))
+					)
+				)
+			}
 		)
 	/**
 	 * One case's owner transaction on the worker's own clone of `template` (RolledBack), held with its connection across

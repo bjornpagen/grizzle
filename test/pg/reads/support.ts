@@ -27,6 +27,7 @@ import {
 import { quietPolls } from "#test/support/kernel/sanitize.ts"
 import type { FactSet } from "#test/support/oracle/install/load.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { judgedSettings, unanalyzed } from "#test/support/plans.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
@@ -322,6 +323,45 @@ export const alteredFixtureTemplate = <
 	alter: (generated: Generated) => Effect.Effect<void, E, Substrate | Scope.Scope>
 ): SubstrateTemplate<Generated> =>
 	alteredGeneratedTemplate({ ...fixtureSpec(declaredIn, fixture, options), alter })
+
+/**
+ * fixtureTemplate's installation as a suite that judges the plans of what its login sends reads it, made so once per
+ * member right after the install (alteredFixtureTemplate): the login's sessions plan under the judged settings, the
+ * login's defaults in the template's database (plans.ts judgedSettings), which the toolchain sets again on every clone
+ * as a template's role settings, and every stored relation planned as one never analyzed (plans.ts unanalyzed). A case
+ * over a seat of it sets nothing: what a case sets on the template's own login outlives the case, which no seat's reset
+ * undoes (the seat refused fin/removal-plans' and write/keyed-target's next case, each case's ALTER ROLE ... IN
+ * DATABASE ... SET left in pg_db_role_setting). A case opens it as fixtureTemplate's (openedIn).
+ */
+export const judgedFixtureTemplate = <
+	const N extends string,
+	R extends Record<string, AnyRelation | AnyClosed>,
+	const St extends ReadonlyArray<Statement>,
+	const P extends Readonly<Record<string, unknown>>
+>(
+	declaredIn: ImportMeta,
+	fixture: ReadFixture<N, R, St>,
+	options: FixtureInstall<P>
+): SubstrateTemplate<Generated> =>
+	alteredFixtureTemplate(declaredIn, fixture, options, (generated) =>
+		Effect.gen(function* () {
+			const substrate = yield* Substrate
+			const done = generated.installed
+			const server = fullWorld(namedFixture(fixture)(done.declared), options.programs).server
+			const login = quoteIdent(done.as(server).role)
+			for (const setting of judgedSettings) {
+				yield* substrate.superuser(
+					`ALTER ROLE ${login} IN DATABASE ${quoteIdent(substrate.database)} SET ${setting.parameter} = ${setting.value}`
+				)
+			}
+			yield* unanalyzed(
+				substrate.admin,
+				Arr.flatMap(Rec.values(done.installation.owned.relations), (r) =>
+					r.kind === "relation" ? [done.names.relation(r.name)] : []
+				)
+			)
+		})
+	)
 
 /**
  * fixtureTemplate's installation with what every case reads written once per member right after the install
