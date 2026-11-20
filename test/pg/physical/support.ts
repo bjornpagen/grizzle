@@ -266,6 +266,7 @@ export const worldsGrants = (
 				case "rowFunction":
 					return on("function", name, fn.tables.length > 0 ? [writer.role] : [], ["EXECUTE"])
 				case "world":
+				case "immutableGuard":
 				case "declared":
 				case "refusal":
 				case "snapshotGuard":
