@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
 import type { LawField } from "#compiler/ir/law.ts"
@@ -327,27 +328,33 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 
 /**
  * The chosen targets over another form of the write DAG (`WriteFrontend.restated`): each action and refused addition
- * with the nodes it names read through `at` (`WriteFrontend.restate`), each choice as it was made. A choice names no
- * node: a MERGE's scope names labels, which every form of the DAG keeps, and its absorbed deletion is a position in its
- * stratum.
+ * with the nodes it names read in `restate` (`WriteFrontend.restate`), which holds every node the frontend's queries
+ * name, each choice as it was made. A choice names no node: a MERGE's scope names labels, which every form of the DAG
+ * keeps, and its absorbed deletion is a position in its stratum.
  */
-export const chosenIn = (chosen: ChosenTargets, at: Counterpart): ChosenTargets => ({
-	strata: Object.freeze(
-		chosen.strata.map((stratum): ChosenStratum =>
-			Object.freeze({
-				actions: Object.freeze(
-					stratum.actions.map((action): ChosenAction =>
-						Object.freeze({
-							...action,
-							source: sourceIn(action.source, at),
-							info: infoIn(action.info, at)
-						})
-					)
-				),
-				outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
-				family: stratum.family
-			})
-		)
-	),
-	choices: chosen.choices
-})
+export const chosenIn = (
+	chosen: ChosenTargets,
+	restate: ReadonlyMap<RelNode, RelNode>
+): ChosenTargets => {
+	const at: Counterpart = (node) => defined(restate.get(node), "a node the write's queries name")
+	return {
+		strata: Object.freeze(
+			chosen.strata.map((stratum): ChosenStratum =>
+				Object.freeze({
+					actions: Object.freeze(
+						stratum.actions.map((action): ChosenAction =>
+							Object.freeze({
+								...action,
+								source: sourceIn(action.source, at),
+								info: infoIn(action.info, at)
+							})
+						)
+					),
+					outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
+					family: stratum.family
+				})
+			)
+		),
+		choices: chosen.choices
+	}
+}

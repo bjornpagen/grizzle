@@ -443,6 +443,28 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 		})
 	})
 
+/** The queries over another form of the write DAG, and the node standing there in the place of each node they name. */
+interface Restatement {
+	readonly restated: WriteQueries
+	readonly restate: ReadonlyMap<RelNode, RelNode>
+}
+
+/**
+ * The queries `named` names over another form of the write DAG (queriesIn), with each node read through `at` once and
+ * its answer kept as data: the frontend a compiled write holds for as long as it lives then holds the restated form's
+ * nodes alone, where a Counterpart closed over the restatement's analyses held every node's logical properties, its
+ * functional dependencies and their bitsets, twice over, past the compile that read them.
+ */
+const restatedIn = (named: Drafted, dag: ValidDag, at: Counterpart): Restatement => {
+	const restate = new Map<RelNode, RelNode>()
+	const restated = queriesIn(named, dag, (node) => {
+		const there = at(node)
+		restate.set(node, there)
+		return there
+	})
+	return { restated, restate }
+}
+
 /** An addition into a query entry whose fixed fields read a context the Db holds no fact of: every fact its sources hold
  * is outside the world, so its refusal is raised when they hold any row, at the start of its stratum, where its
  * sources are evaluated. `entry` names the entry; `reads` is its enumerated slot, its described
@@ -491,8 +513,11 @@ export interface WriteFrontend extends WriteQueries {
 	/** The same queries over the write DAG the optimized artifact lowers: ir.dag with every take correlated through bind
 	 * stated with its correlation explicit, analyzed in the same transaction context, every node under its own label. */
 	readonly restated: WriteQueries
-	/** The node of `restated.ir.dag` standing in the place of a node of `ir.dag`. */
-	readonly restate: Counterpart
+	/**
+	 * The node of `restated.ir.dag` standing in the place of each node of `ir.dag` the write names, as data: the nodes
+	 * alone, never the restatement's analyses they were read from (`restatedIn`).
+	 */
+	readonly restate: ReadonlyMap<RelNode, RelNode>
 	/** The ChangeSet's Description as planned: each field-equality member made the query it is (write/frontend/equal.ts). */
 	readonly desc: PlannedChangeSetDesc
 	readonly schema: CheckedSchema
@@ -3109,20 +3134,21 @@ const compile = (
 	 * the node standing in its place there. A DAG with no root restates nothing and names no node. The conservative
 	 * realization lowers `dag`, as checked. */
 	const roots = dag.roots
-	const restatement = ((): { readonly restated: WriteQueries; readonly restate: Counterpart } => {
+	const restatement = ((): Restatement => {
 		if (!isNonEmpty(roots)) {
-			return { restated: queries, restate: (node) => node }
+			return { restated: queries, restate: new Map() }
 		}
 		const takes = unwrap(everyParentTakes({ dag: rooted(roots), params: userParams }))
 		const again = analyzed(takes.query.dag)
 		const againJudged = judgedAsDelivered(again.dag)
-		const restate: Counterpart = (node) => againJudged.of(again.of(takes.node(node)).node)
 		const named: Drafted = {
 			strata: queries.ir.strata,
 			reads: queries.ir.reads,
 			params: queries.ir.params
 		}
-		return { restated: queriesIn(named, againJudged.dag, restate), restate }
+		return restatedIn(named, againJudged.dag, (node) =>
+			againJudged.of(again.of(takes.node(node)).node)
+		)
 	})()
 
 	return Object.freeze({
