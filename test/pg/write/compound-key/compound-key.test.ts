@@ -5,6 +5,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
+import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -24,6 +25,7 @@ import {
 	childField,
 	type ChildRow,
 	foreignKeys,
+	imaged,
 	judgeRefused,
 	keyCases,
 	type KeyField,
@@ -162,7 +164,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									deepEquals<ReadonlyArray<string>>(reason.key, s.unique),
 								`the refusal names a key of Parent in its declared order, not ${Formatter.format(reason.key)}`
 							)
-							const refused = yield* refusesWidest(reason.key, widestRow)
+							const refused = yield* refusesWidest(s, reason.key, widestRow)
 							c.note("a key refused past the item limit")
 							c.note(
 								refused
@@ -173,7 +175,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 						}
 						const done = installedOrNot.success
 						for (const fields of [s.key, s.unique]) {
-							const refused = yield* refusesWidest(fields, widestRow)
+							const refused = yield* refusesWidest(s, fields, widestRow)
 							assert.ok(
 								!refused,
 								`grizzle installs ${Formatter.format(fields)}, whose widest entry PostgreSQL refuses`
@@ -186,6 +188,21 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 						const parentTable = done.names.relation(b.Parent.name)
 						const childTable = done.names.relation(b.Child.name)
 						const column = (r: string, f: string) => done.names.column(r, f)
+						/** The column a key or a reference holds a field of a relation by: its own, or, for a text of no
+						 * bound, the column of its image the naming door names. */
+						const keyColumn = (r: string, f: string, of: string): string =>
+							imaged(s, of)
+								? identifierOf(
+										identity.lawColumn({
+											kind: "image",
+											image: "textDigest",
+											of: { kind: "field", field: f }
+										})
+									)
+								: column(r, f)
+						if (Arr.some([...s.key, ...s.unique], (f) => imaged(s, f))) {
+							c.note("a key over a text of no bound, held by its image")
+						}
 						const indexes = yield* uniqueIndexes(parentTable.schema, parentTable.name)
 						assert.ok(
 							Arr.some(
@@ -194,7 +211,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									i.primary &&
 									deepEquals(
 										i.columns,
-										Arr.map(s.key, (f) => column(b.Parent.name, f))
+										Arr.map(s.key, (f) => keyColumn(b.Parent.name, f, f))
 									)
 							),
 							`Parent's primary key is planned over ${Formatter.format(s.key)} in that order: ${Formatter.format(indexes)}`
@@ -203,7 +220,7 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 							Arr.some(indexes, (i) =>
 								deepEquals(
 									i.columns,
-									Arr.map(s.unique, (f) => column(b.Parent.name, f))
+									Arr.map(s.unique, (f) => keyColumn(b.Parent.name, f, f))
 								)
 							),
 							`Parent's declared key is planned over ${Formatter.format(s.unique)} in that order: ${Formatter.format(indexes)}`
@@ -215,7 +232,11 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									pairs,
 									Arr.map(
 										s.target,
-										(f) => [column(b.Child.name, childField(f)), column(b.Parent.name, f)] as const
+										(f) =>
+											[
+												keyColumn(b.Child.name, childField(f), f),
+												keyColumn(b.Parent.name, f, f)
+											] as const
 									)
 								)
 							),
@@ -272,6 +293,9 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									}
 									if (i === 0 && Arr.some(verdict.parents, (p) => deepEquals(p, widestRow))) {
 										c.note("a write of the widest values accepted")
+										if (Arr.some(s.key, (f) => imaged(s, f))) {
+											c.note("a write of a text past the item limit at a key accepted")
+										}
 									}
 									if (
 										w.op === "delete" &&
@@ -380,5 +404,18 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 		},
 		budget: { runs: 16, steered: 64 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/representability.ts",
+				original: 'imagedText(desc) ? "textDigest" : undefined',
+				replacement: "undefined",
+				why: "A key over a text of no bound refused again, unboundedText, where its image keys it."
+			},
+			{
+				file: "packages/engine/src/write/insert/protocol.ts",
+				original: "columns: arbiterColumns(w, relation.name, relation.uniques.arbiter),",
+				replacement: "columns: mapNonEmpty(pk, column),",
+				why: "An insert names its arbiter by the key's fields, which no unique index holds where a text of no bound stands by its image (42P10)."
+			}
+		]
 	})

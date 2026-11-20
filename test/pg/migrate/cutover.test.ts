@@ -45,8 +45,8 @@
  * A re-key past the limit is refused by the draft as UnrepresentableKey over the relation's texts; any other refusal of
  * any step fails the property.
  *
- * Text widths are drawn per re-key: short ones, and widths at the bound grizzle documents for a text beside the other
- * text and four bigints (public/text.ts keyTextBytes), which covers every index the world plans over a re-keyed key
+ * Text widths are drawn per re-key: short ones, and the widest a B-tree entry holds beside the other text and four
+ * bigints in any order, every column NULL-able (cutover.fixtures.ts fitsBeside), which covers every index the world plans over a re-keyed key
  * (its primary key, an owner's key with a count, a family's own UNIQUEs with an index and a fold's running value), so
  * an index entry near BTMaxItemSize is inside the box; every row of an even serial holds its texts at their full width
  * in four-byte characters no compression shortens, so PostgreSQL itself refuses a key grizzle admits that does not fit.

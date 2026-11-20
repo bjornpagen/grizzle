@@ -1572,10 +1572,10 @@ const withColumns = (
 				: {
 						...s,
 						columns: mapNonEmpty(s.columns, (c) => columnIn(into, c)),
-						primaryKey: {
-							...s.primaryKey,
-							columns: mapNonEmpty(s.primaryKey.columns, keyIn(into))
-						},
+						primaryKey:
+							s.primaryKey === undefined
+								? undefined
+								: { ...s.primaryKey, columns: mapNonEmpty(s.primaryKey.columns, keyIn(into)) },
 						secondary: s.secondary.map((c) => inlineIn(into, c))
 					}
 		}

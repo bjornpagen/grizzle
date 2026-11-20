@@ -747,7 +747,7 @@ const plannedSuperkeys = (installation: Installation): ReadonlyArray<ReadonlyArr
 				: object.kind === "PrimaryKey"
 					? Option.some({
 							relation: object.relation,
-							columns: Arr.map(object.columns, (f) => f.name)
+							columns: Arr.map(object.columns, nativeColumnName)
 						})
 					: Option.none()
 		return Option.match(

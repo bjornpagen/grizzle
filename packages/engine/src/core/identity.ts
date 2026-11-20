@@ -909,6 +909,19 @@ export interface KeySide {
 /** The access methods of an index grizzle installs: B-tree, GiST, pgvector's HNSW and hash. */
 export type IndexMethod = "btree" | "gist" | "hnsw" | "hash"
 
+/**
+ * The images a key installs a column over in its place, where the column's own values cannot serve the key's index
+ * (schema/representability.ts keyImageOf): `textDigest`, a text of no byte bound, which no B-tree entry holds for
+ * every value, keyed by its SHA-256 digest, the 32 bytes of its UTF-8's (physical/ddl/library.ts textDigest).
+ */
+export const keyImages = ["textDigest"] as const
+export type KeyImage = (typeof keyImages)[number]
+
+/** What a key's image is the image of: a field of the relation, by its name, or a law column, by its identity. */
+export type ImageOf =
+	| { readonly kind: "field"; readonly field: string }
+	| { readonly kind: "law"; readonly column: Identity<"lawColumn"> }
+
 /** One key of an access index: its field, direction and operator class. */
 interface IndexKey {
 	readonly field: string
@@ -982,6 +995,7 @@ export type LawColumnStatement =
 			readonly fold: Identifier<"law">
 			readonly plane: 0 | 1
 	  }
+	| { readonly kind: "image"; readonly image: KeyImage; readonly of: ImageOf }
 
 /** What each drawn law column of a family is, in its display. */
 const drawnWords = {
@@ -1154,6 +1168,16 @@ export const identity = Object.freeze({
 					`the accumulator ${column.kind} plane ${column.plane} of the fold ${column.fold} over the family ${column.owner}.${column.count}`,
 					hashed
 				)
+			case "image": {
+				const { of } = column
+				return mint(
+					"lawColumn",
+					[column.kind, column.image, of.kind === "field" ? of.field : of.column],
+					["image", ...(of.kind === "field" ? nameSegments(of.field) : of.column.segments)],
+					`the ${column.image} image of ${of.kind === "field" ? of.field : of.column.display}`,
+					hashed
+				)
+			}
 		}
 	},
 	/**

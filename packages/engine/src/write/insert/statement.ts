@@ -1,6 +1,11 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
+import type {
+	ColumnIdent,
+	ConstraintName,
+	EntryName,
+	StoredRelationName
+} from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -242,6 +247,9 @@ export interface WriteContext {
 	/** What an UPDATE of a relation's table meets of its stored generated columns, as the compilation's updater runs it
 	 * (laws/model/generation.ts generations), which every UPDATE's SET list is built against (sql/generation.ts). */
 	readonly generation: (relation: string) => TableGeneration
+	/** The image column a key installs a field of a relation over (laws/model/model.ts fieldImages), which a statement
+	 * reaching the relation's rows by the field's equality reaches them by (write/probe.ts reachedBy). */
+	readonly image: (relation: string, field: string) => ColumnIdent | undefined
 }
 
 /** A statement of its own numbers its relations from r0 and its columns from c1. */
@@ -260,6 +268,7 @@ interface WriteContextOptions {
 	readonly share: StatementShare
 	readonly level: Isolation
 	readonly generation: (relation: string) => TableGeneration
+	readonly image: (relation: string, field: string) => ColumnIdent | undefined
 }
 
 export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {
@@ -278,7 +287,8 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		level: options.level,
 		start: ownStatement,
 		share: options.share,
-		generation: options.generation
+		generation: options.generation,
+		image: options.image
 	}
 }
 

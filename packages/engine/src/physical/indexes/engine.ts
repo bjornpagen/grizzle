@@ -1375,12 +1375,13 @@ const createIndex = (
 			 */
 			const datums = imagedDatums(keys, columns.value)
 			if (method === "btree") {
-				/** A law column may hold NULL, which gives the entry its null bitmap; a field is NOT NULL. */
+				/** A law column that may hold NULL gives the entry its null bitmap (TargetField `nullable`); a field is NOT
+				 * NULL. */
 				const entry = btreeEntry(
 					datums.map((d, i) => ({
 						name: d.field,
 						datum: d.datum,
-						nullable: readColumn(defined(keys[i], "a datum per key").column).kind === "law"
+						nullable: targetField(readColumn(defined(keys[i], "a datum per key").column)).nullable
 					}))
 				)
 				if (!entry.ok) {

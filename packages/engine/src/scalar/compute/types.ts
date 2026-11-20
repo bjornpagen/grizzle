@@ -180,6 +180,13 @@ export const wildcardText: ScalarType = Object.freeze({
 	text: "wildcard"
 })
 
+/** The bytea type, of the storage capability alone: what a key's image column holds (laws/model/plan.ts keyedAs). */
+export const bytesType: ScalarType = Object.freeze({
+	carrier: "bytes",
+	caps: capabilitySet(carrierCapabilities.bytes),
+	contract: undefined
+})
+
 /** The base of a type: what an expression over a field computes with. */
 export const valueType = (t: ScalarType): PlainType => baseOf(t)
 

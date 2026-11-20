@@ -709,41 +709,32 @@ const fixedDatum: Readonly<Record<FixedType, Datum>> = {
 const varlena = (bytes: number): Datum => ({ bytes: 4 + bytes, align: 4, fixed: false })
 
 /**
- * The widest datum a key field admits, or that nothing bounds it: numeric(p, s) is at most
- * numeric_maximum_size, NUMERIC_HDRSZ (8) plus a NumericDigit (2 bytes) for each of (p + 2 * (DEC_DIGITS - 1)) /
- * DEC_DIGITS base-10000 digits (numeric.c); text is its bytes, four per code point unless pinned to ASCII.
+ * The widest datum a key's index entry holds for a field: numeric(p, s) is at most numeric_maximum_size, NUMERIC_HDRSZ
+ * (8) plus a NumericDigit (2 bytes) for each of (p + 2 * (DEC_DIGITS - 1)) / DEC_DIGITS base-10000 digits (numeric.c);
+ * text is its bytes, four per code point unless pinned to ASCII; a text nothing bounds is held by its image, the
+ * SHA-256 of its UTF-8, a bytea of 32 bytes.
  */
-type DatumBoundOf =
-	| { readonly kind: "bounded"; readonly datum: Datum }
-	| { readonly kind: "unbounded" }
-
-const datumOf = (f: KeyFieldSketch): DatumBoundOf => {
+const datumOf = (f: KeyFieldSketch): Datum => {
 	switch (f.kind) {
 		case "fixed":
-			return { kind: "bounded", datum: fixedDatum[f.type] }
+			return fixedDatum[f.type]
 		case "numeric":
-			return {
-				kind: "bounded",
-				datum: { bytes: 8 + 2 * Math.floor((f.precision + 6) / 4), align: 4, fixed: false }
-			}
+			return { bytes: 8 + 2 * Math.floor((f.precision + 6) / 4), align: 4, fixed: false }
 		case "ascii text":
-			return { kind: "bounded", datum: varlena(f.length) }
+			return varlena(f.length)
 		case "any text":
 		case "bounded contract":
-			return { kind: "bounded", datum: varlena(4 * f.length) }
+			return varlena(4 * f.length)
 		case "octet contract":
-			return { kind: "bounded", datum: varlena(f.bytes) }
+			return varlena(f.bytes)
 		case "wildcard":
-			return { kind: "unbounded" }
+			return varlena(32)
 	}
 }
 
-/** The bounded datums of the fields: as many as the fields exactly when every one is bounded. */
-export const boundedDatums = (fields: ReadonlyArray<KeyFieldSketch>): ReadonlyArray<Datum> =>
-	Arr.flatMap(fields, (f) => {
-		const d = datumOf(f)
-		return d.kind === "bounded" ? [d.datum] : []
-	})
+/** The datums a key's index entry holds for its fields, in key order (`datumOf`). */
+export const keyedDatums = (fields: ReadonlyArray<KeyFieldSketch>): ReadonlyArray<Datum> =>
+	Arr.map(fields, datumOf)
 
 /** Where the datums laid out so far end, and whether every offset so far is exact. */
 interface Laid {
@@ -871,11 +862,7 @@ export const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => 
 	if (s.boundary.kind === "none") {
 		return s.fields
 	}
-	const datums = boundedDatums(s.fields)
-	if (datums.length < s.fields.length) {
-		return s.fields
-	}
-	const { end, exact } = datumsEnd(datums)
+	const { end, exact } = datumsEnd(keyedDatums(s.fields))
 	const start = (exact ? Math.ceil(end / 4) * 4 : end + 3) + 4
 	const room = postgresBtreeMaxItem + s.boundary.delta - start
 	if (room < 0) {
@@ -891,7 +878,7 @@ export const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => 
 
 export type KeySizeFeature =
 	| "admitted"
-	| "refused, unbounded"
+	| "imaged"
 	| "refused, over the limit"
 	| "at the limit, admitted"
 	| "at the limit, refused"
@@ -915,8 +902,9 @@ type FixedGistFamily =
 	| "date"
 	| "code"
 
-/** A set over a roster is bit(n), a varlena, which btree_gist keys as it keys text (btree_bit.c over gbt_var). */
-type GistFamily = FixedGistFamily | "numeric" | "text" | "bit" | "range" | "vector"
+/** A set over a roster is bit(n), a varlena, which btree_gist keys as it keys text (btree_bit.c over gbt_var), and so
+ * is a key's image, a bytea (btree_bytea.c). */
+type GistFamily = FixedGistFamily | "numeric" | "text" | "bit" | "bytea" | "range" | "vector"
 
 /** Each fixed family's typlen, its datum's bytes: a code is a smallint. */
 export const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
@@ -948,6 +936,7 @@ const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
 		case "numeric":
 		case "text":
 		case "bit":
+		case "bytea":
 		case "range":
 		case "vector":
 			return false
@@ -970,6 +959,7 @@ export const gistKeyBytes = (family: Exclude<GistFamily, "vector">, bytes: numbe
 		case "numeric":
 		case "text":
 		case "bit":
+		case "bytea":
 			return 4 + Math.ceil(bytes / 4) * 4 + bytes
 		case "range":
 			return bytes
@@ -1349,6 +1339,7 @@ const gistFamilies: Arr.NonEmptyReadonlyArray<GistFamily> = [
 	"numeric",
 	"text",
 	"bit",
+	"bytea",
 	"range",
 	"vector"
 ]

@@ -5,7 +5,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
-import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
+import type { DeclaredName, Identity, IndexMethod, KeyImage } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Direction } from "#compiler/core/order.ts"
@@ -16,7 +16,7 @@ import {
 	nonEmptyNameSet
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type { ExprDesc, FieldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, HeldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -475,7 +475,27 @@ export type LawColumnValue =
 			readonly guard: ReadonlyArray<ScalarExpr>
 			readonly term: ScalarExpr
 	  }
+	| {
+			/** A key's image (laws/model/plan.ts keyedAs): the digest `image` of its term where every conjunct of its
+			 * guard holds, and null elsewhere, generated STORED from the row as a term is. */
+			readonly kind: "image"
+			readonly image: KeyImage
+			readonly guard: ReadonlyArray<ScalarExpr>
+			readonly term: ScalarExpr
+	  }
 	| { readonly kind: "drawn"; readonly draws: Drawn }
+
+/**
+ * The values a law column holds, by the type and descriptor of a field of them: a term's own field's, x's of pred(x),
+ * the target field's a constant meets, a drawn column's or a counted predecessor's count's; or an image's, a digest of
+ * 32 bytes (HeldDesc `digest`, core/identity.ts KeyImage), whatever the field it is the image of.
+ */
+export interface LawColumnValues {
+	readonly type: ScalarType
+	readonly desc: HeldDesc
+	/** Whether the column may hold NULL (laws/model/plan.ts mayHoldNull), which an index entry over it counts. */
+	readonly nullable: boolean
+}
 
 /** A family by its slots: one count counts one family, so its owner relation and count field name it. */
 export interface FamilyId {
@@ -523,9 +543,11 @@ export type Drawn =
  */
 type NativeBody =
 	| {
+			/** A PRIMARY KEY over its key's columns, each a field's or the law column of a field's image in its place
+			 * (laws/model/plan.ts keyedAs). */
 			readonly kind: "PrimaryKey"
 			readonly relation: TableRelation
-			readonly columns: NonEmptyReadonlyArray<LawField>
+			readonly columns: NonEmptyReadonlyArray<NativeColumn>
 			/** The identity ownership named the primary key's constraint by. */
 			readonly named: Identity<"primaryKey" | "key">
 	  }
@@ -592,14 +614,14 @@ type NativeBody =
 	  }
 	| {
 			/**
-			 * A column a law adds to its relation, generated STORED from the row: in no heading and no role view. `field`
-			 * is the field whose values it holds, its type the column's and an index entry over it sized as one of the
-			 * field's: a term's own field, x of pred(x), or, for a constant, the field of the target it meets.
+			 * A column a law adds to its relation, generated STORED from the row or drawn by the host: in no heading and no
+			 * role view. `holds` are its values, its type's base the column's and an index entry over it sized by its
+			 * descriptor (`LawColumnValues`).
 			 */
 			readonly kind: "LawColumn"
 			readonly relation: TableRelation
 			readonly column: ColumnIdent
-			readonly field: LawField
+			readonly holds: LawColumnValues
 			readonly value: LawColumnValue
 	  }
 	| {

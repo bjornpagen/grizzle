@@ -254,7 +254,7 @@ export const swaps = (c: Case<Feature>, value: SwapCase): void => {
 	/** The moved primary key: built under its swap name and attached under its own. */
 	const m = draftTo(value, "moved")
 	const [pk] = Arr.flatMap(m.after.statements, (s) =>
-		s.kind === "createTable" ? [s.primaryKey.name] : []
+		s.kind === "createTable" && s.primaryKey !== undefined ? [s.primaryKey.name] : []
 	)
 	if (pk === undefined) {
 		throw new Error("a relation without a primary key")

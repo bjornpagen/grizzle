@@ -1,5 +1,5 @@
 import { heapTupleHeaderBytes } from "#compiler/core/page.ts"
-import type { FieldDesc } from "#compiler/ir/desc.ts"
+import type { HeldDesc } from "#compiler/ir/desc.ts"
 import { alignUp, bitsPerByte, maxAlign } from "#compiler/schema/representability.ts"
 import { datumBound, isFixedWidth } from "#compiler/schema/representability.ts"
 
@@ -37,8 +37,8 @@ export interface RowColumn {
 	readonly nullable: boolean
 }
 
-/** A column of the field descriptor `desc` as a row stores it at most (`RowColumn`). */
-export const rowColumn = (desc: FieldDesc, nullable: boolean): RowColumn => {
+/** A column of the descriptor `desc` as a row stores it at most (`RowColumn`). */
+export const rowColumn = (desc: HeldDesc, nullable: boolean): RowColumn => {
 	const bound = datumBound(desc)
 	if (bound === undefined) {
 		return { bytes: toastPointerBytes, align: 1, nullable }

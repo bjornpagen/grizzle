@@ -85,12 +85,29 @@ export interface Seat {
 	readonly lawsOf: (kind: string) => ReadonlyArray<LawId>
 }
 
+/** The field a law column's values are of, or the one it is the image of, as the law model planned it. */
+const heldName = (
+	plan: Extract<LawModel["natives"][number], { readonly namespace: "column" }>["plan"]
+): string => {
+	switch (plan.kind) {
+		case "term":
+			return plan.term.column.name
+		case "constant":
+		case "drawn":
+		case "indexPred":
+			return plan.field.name
+		case "image":
+			return `${plan.image} ${plan.of.kind === "field" ? plan.of.field.name : heldName(plan.of.column)}`
+	}
+}
+
 /** The role a law column holds, from the native that adds it. */
 const lawColumnRole = (
-	value: Extract<LawModel["natives"][number], { readonly namespace: "column" }>["object"]
+	native: Extract<LawModel["natives"][number], { readonly namespace: "column" }>
 ): string => {
-	if (value.value.kind === "generated") {
-		return `‹gen ${value.field.name}›`
+	const value = native.object
+	if (value.value.kind !== "drawn") {
+		return `‹gen ${heldName(native.plan)}›`
 	}
 	const d = value.value.draws
 	switch (d.kind) {
@@ -266,12 +283,10 @@ export const seatOfInstalled = (
 				byColumn.set(field.column, field.name)
 			}
 			const lawColumns = Arr.flatMap(model.natives, (native) =>
-				native.namespace === "column" && native.object.relation.name === relation
-					? [native.object]
-					: []
+				native.namespace === "column" && native.object.relation.name === relation ? [native] : []
 			)
 			const roles = Arr.map(lawColumns, lawColumnRole)
-			for (const [i, object] of lawColumns.entries()) {
+			for (const [i, { object }] of lawColumns.entries()) {
 				const role = Arr.getUnsafe(roles, i)
 				const shared = Arr.filter(roles, (r) => r === role).length > 1
 				byColumn.set(object.column, shared ? familyRole(role, object) : role)

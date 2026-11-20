@@ -48,8 +48,9 @@ interface Datum {
 	readonly fixed: boolean
 }
 
-/** pg_type's typlen and typalign of each fixed type; a varlena's 4-byte header and its longest value, int-aligned. */
-const datumOf = (t: PairType): Datum | undefined => {
+/** pg_type's typlen and typalign of each fixed type; a varlena's 4-byte header and its longest value, int-aligned; the
+ * wildcard, which bounds nothing, as its image, SHA-256's 32 bytes. */
+const datumOf = (t: PairType): Datum => {
 	switch (t.kind) {
 		case "uuid":
 			return { bytes: 16, align: 1, fixed: true }
@@ -66,7 +67,7 @@ const datumOf = (t: PairType): Datum | undefined => {
 		case "letters":
 			return { bytes: 4 + t.length, align: 4, fixed: false }
 		case "wildcard":
-			return undefined
+			return { bytes: 4 + 32, align: 4, fixed: false }
 	}
 }
 
@@ -94,14 +95,7 @@ export type IndexColumns = ReadonlyArray<{ readonly name: string; readonly type:
 
 /** The fault the model finds in an index over `columns`, or none where its entry fits. */
 export const faultOf = (columns: IndexColumns): KeyFault | undefined => {
-	const bounded: Array<{ readonly name: string; readonly datum: Datum }> = []
-	for (const c of columns) {
-		const datum = datumOf(c.type)
-		if (datum === undefined) {
-			return { kind: "unboundedText", field: c.name }
-		}
-		bounded.push({ name: c.name, datum })
-	}
+	const bounded = Arr.map(columns, (c) => ({ name: c.name, datum: datumOf(c.type) }))
 	const bytes = maxalign(datumsEnd(Arr.map(bounded, (b) => b.datum)).end)
 	return bytes > postgresBtreeMaxItem
 		? {
@@ -194,13 +188,9 @@ export const typesOf = (s: PlannedSketch): ReadonlyArray<PairType> => {
 	) {
 		return fields
 	}
-	const others = Arr.map(Arr.take(index, index.length - 1), (p) =>
+	const datums = Arr.map(Arr.take(index, index.length - 1), (p) =>
 		datumOf(defined(fields[p], "a field"))
 	)
-	const datums = Arr.filter(others, (d): d is Datum => d !== undefined)
-	if (datums.length < others.length) {
-		return fields
-	}
 	const { end, exact } = datumsEnd(datums)
 	const room =
 		postgresBtreeMaxItem + s.boundary.delta - ((exact ? Math.ceil(end / 4) * 4 : end + 3) + 4)
@@ -235,7 +225,7 @@ export type PlannedFeature =
 	| "target is a superkey"
 	| "admitted"
 	| "declared key refused"
-	| "target UNIQUE refused, unbounded"
+	| "a text no pattern bounds, keyed by its digest"
 	| "target UNIQUE refused, over the limit"
 	| "target UNIQUE at the limit, admitted"
 	| "a referencing run no B-tree entry holds, admitted"

@@ -4,6 +4,7 @@ import { assert, deepEquals, defined, nonEmpty } from "@bjornpagen/testing/asser
 import {
 	array,
 	boolean,
+	constant,
 	element,
 	type Gen,
 	int,
@@ -44,12 +45,14 @@ import { wideOctets } from "#test/support/wide-text.ts"
  * bytes on an 8 KiB page, schema/representability.ts btreeMaxItemSize).
  *
  * A case declares Parent(t0, t1, t2, n, payload), each `t` text of at most its drawn number of UTF-8 bytes
- * (`str.bytes(w, str.regex("^.*$", "su"))`), keyed by a drawn ordering of a drawn subset of (t0, t1, t2, n) holding a
+ * (`str.bytes(w, str.regex("^.*$", "su"))`) or of no byte bound, which every key, UNIQUE and reference holds by its
+ * image, its SHA-256 digest's 32 bytes in a column STORED in its place (README "Keys and indexes"), keyed by a drawn ordering of a drawn subset of (t0, t1, t2, n) holding a
  * text, with a declared key over `payload` and a drawn subset of the texts in a drawn order, mutable or not; and
  * Child(id, c_<f> for each key field f) whose c_ fields are contained in Parent's key, the containment's fields in a
  * drawn order of them. A Child row is the fact Child holds, its id and the key it names, so two children naming one key
  * at one id are one row, however unlike the Parent rows they were drawn from. A text value is the empty text, `a`, `b`,
- * or the widest value its bound admits, which no compression shortens (test/support/wide-text.ts wideOctets); `n` and
+ * or the widest value its bound admits, which no compression shortens (test/support/wide-text.ts wideOctets), a text of
+ * no bound's widest past the item limit, which no B-tree entry holds whole; `n` and
  * `payload` are small integers. One of the key's texts may be sized to the widest bound grizzle's layout admits beside
  * the rest, or one byte past it.
  *
@@ -62,8 +65,9 @@ import { wideOctets } from "#test/support/wide-text.ts"
  *   columns in that order. Whether PostgreSQL also refuses a refused key's widest entry is noted, never asserted: the
  *   README counts an entry "from its columns' types", at its worst alignment.
  * - The catalog: Parent's primary key and its declared key are unique indexes over exactly their fields in their
- *   declared order, and the containment is one foreign key from Child to Parent pairing its fields in its declared
- *   order (README "Keys and containment").
+ *   declared order, each text of no bound by its image's column, and the containment is one foreign key from Child to
+ *   Parent pairing its fields in its declared order, a text of no bound by the two images' columns (README "Keys and
+ *   containment").
  * - The set model of each write (README "Writes"): an insert adds the rows no stored row repeats and a put leaves the
  *   row at each primary key the one given, each refused on a key where two rows it adds share it and differ; a delete
  *   removes the stored rows equal to a row it names, so a row unlike the stored one at its key changes nothing and two
@@ -119,9 +123,12 @@ export type Write =
 /** A write's facts as its call states them: under each operation, each relation's facts. */
 export type CallFacts = Readonly<Record<string, Readonly<Record<string, ReadonlyArray<unknown>>>>>
 
+/** A text's byte bound, or none: a text of no bound, which a key holds by its image. */
+type Width = number | "unbounded"
+
 /** A case's schema: each text's byte bound, the keys' orders, the containment's, and whether Parent is mutable. */
 interface Shape {
-	readonly widths: readonly [number, number, number]
+	readonly widths: readonly [Width, Width, Width]
 	readonly key: Arr.NonEmptyReadonlyArray<KeyField>
 	readonly unique: Arr.NonEmptyReadonlyArray<"payload" | TextField>
 	readonly target: Arr.NonEmptyReadonlyArray<KeyField>
@@ -168,6 +175,8 @@ export type Situation =
 	| "a delete of two rows at one key, which is no refusal"
 	| "a refused key whose widest entry PostgreSQL refuses too"
 	| "a refused key whose widest entry PostgreSQL holds"
+	| "a key over a text of no bound, held by its image"
+	| "a write of a text past the item limit at a key accepted"
 
 export const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a primary key of 1 fields, its texts in their declared order",
@@ -185,11 +194,27 @@ export const situations: Arr.NonEmptyReadonlyArray<Situation> = [
 	"a delete refused on the containment",
 	"a write of the widest values accepted",
 	"a delete of a row unlike the stored one at its key, which keeps it",
-	"a delete of two rows at one key, which is no refusal"
+	"a delete of two rows at one key, which is no refusal",
+	"a key over a text of no bound, held by its image",
+	"a write of a text past the item limit at a key accepted"
 ]
 
-/** A byte-bounded text of at most `w` bytes. */
-const textOf = (w: number) => str.bytes(w, str.regex("^.*$", "su"))
+/** A text of at most `w` bytes, or of no bound. */
+const textOf = (w: Width) =>
+	w === "unbounded" ? str.regex("^.*$", "su") : str.bytes(w, str.regex("^.*$", "su"))
+
+/** Whether a key field is a text of no bound in the shape, which a key holds by its image. */
+export const imaged = (s: Shape, f: string): boolean =>
+	Option.exists(
+		Arr.findFirstIndex(TEXTS, (t) => t === f),
+		(at) => s.widths[at] === "unbounded"
+	)
+
+/**
+ * The widest value a text of no bound takes: past the item limit, so no B-tree entry holds it whole and only its image
+ * keys it.
+ */
+const unboundedWidth = btreeMaxItemSize + 400
 
 /** Parent's field descriptors by name. */
 const parentFields = (s: Shape): Readonly<Record<string, FieldBase>> => ({
@@ -250,11 +275,12 @@ export const layoutBytes = (s: Shape, fields: ReadonlyArray<string>): Option.Opt
 	return layout.ok ? Option.some(layout.value.btreeBytes) : Option.none()
 }
 
-/** A byte bound: a few bytes, a few hundred, or near a third of the item limit. */
-const widthGen: Gen<number> = weighted([
+/** A byte bound: a few bytes, a few hundred, near a third of the item limit, or none. */
+const widthGen: Gen<Width> = weighted<Width>([
 	[3, int(1, 8)],
 	[2, int(9, 300)],
-	[2, int(600, 1400)]
+	[2, int(600, 1400)],
+	[2, constant<Width>("unbounded")]
 ])
 
 /** Where a shape's widths stand: drawn, one key text at the widest bound grizzle's layout admits, or a byte past it. */
@@ -319,7 +345,7 @@ const shapeWith =
 					source.draw(all(["payload" as const, ...source.draw(subset(TEXTS, { min: 0, max: 3 }))]))
 				)
 		const target = nonEmpty(source.draw(all(key)))
-		const widths: [number, number, number] = [
+		const widths: [Width, Width, Width] = [
 			source.draw(widthGen),
 			source.draw(widthGen),
 			source.draw(widthGen)
@@ -333,7 +359,7 @@ const shapeWith =
 		}
 		const sized = source.draw(element(texts))
 		const at = TEXTS.indexOf(sized)
-		const sizedTo = (w: number): Shape => ({
+		const sizedTo = (w: Width): Shape => ({
 			...base,
 			widths: [at === 0 ? w : widths[0], at === 1 ? w : widths[1], at === 2 ? w : widths[2]]
 		})
@@ -356,7 +382,8 @@ const shapeWith =
 /** A text field's values: the empty text, `a`, `b`, and its widest value. */
 const valuesOf = (s: Shape, salt: number, f: TextField): Arr.NonEmptyReadonlyArray<string> => {
 	const at = TEXTS.indexOf(f)
-	return ["", "a", "b", wideOctets(defined(s.widths[at], "a bound"), salt + at)]
+	const width = defined(s.widths[at], "a bound")
+	return ["", "a", "b", wideOctets(width === "unbounded" ? unboundedWidth : width, salt + at)]
 }
 
 const parentGen =
@@ -642,17 +669,22 @@ export const verdictOf = (
 }
 
 /** The columns PostgreSQL lays a key's entry out over, as raw DDL spells them. */
-const columnSql = (f: string): string =>
-	f === "n" || f === "payload" ? "integer" : "text COLLATE pg_c_utf8"
+const columnSql = (s: Shape, f: string): string =>
+	f === "n" || f === "payload" ? "integer" : imaged(s, f) ? "bytea" : "text COLLATE pg_c_utf8"
 
 /** A value as a raw insert binds it. */
 const rawValue = (row: ParentRow, f: string): string => String(valueAt(row, f))
+
+/** The `n`th parameter as a raw insert writes it into an index over the key's columns: a text of no bound as its image,
+ * PostgreSQL's own SHA-256 of its UTF-8, the column a key holds in its place. */
+const rawParam = (s: Shape, f: string, n: number): string =>
+	imaged(s, f) ? `sha256(convert_to($${n}, 'UTF8'))` : `$${n}`
 
 /**
  * Whether PostgreSQL itself refuses the widest entry of a unique index over `fields` (54000), in a table of those
  * columns in a scratch schema of the case's, its transaction rolled back.
  */
-export const refusesWidest = (fields: ReadonlyArray<string>, row: ParentRow) =>
+export const refusesWidest = (shape: Shape, fields: ReadonlyArray<string>, row: ParentRow) =>
 	Effect.gen(function* () {
 		const s = yield* Substrate
 		const scratch = yield* s.schema({ create: false, label: "keywidth" })
@@ -664,7 +696,7 @@ export const refusesWidest = (fields: ReadonlyArray<string>, row: ParentRow) =>
 			yield* session.query(`CREATE SCHEMA ${quoteIdent(scratch)}`, [])
 			yield* session.query(
 				`CREATE TABLE ${table} (${Arr.join(
-					Arr.map(fields, (f, i) => `${defined(columns[i])} ${columnSql(f)} NOT NULL`),
+					Arr.map(fields, (f, i) => `${defined(columns[i])} ${columnSql(shape, f)} NOT NULL`),
 					", "
 				)})`,
 				[]
@@ -672,7 +704,7 @@ export const refusesWidest = (fields: ReadonlyArray<string>, row: ParentRow) =>
 			yield* session.query(`CREATE UNIQUE INDEX ON ${table} (${Arr.join(columns, ", ")})`, [])
 			yield* session.query(
 				`INSERT INTO ${table} VALUES (${Arr.join(
-					Arr.map(fields, (_, i) => `$${i + 1}`),
+					Arr.map(fields, (f, i) => rawParam(shape, f, i + 1)),
 					", "
 				)})`,
 				Arr.map(fields, (f) => rawValue(row, f))

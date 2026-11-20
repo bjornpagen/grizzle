@@ -48,6 +48,7 @@ import {
 	appendNonEmpty,
 	concatNonEmpty,
 	extendNonEmpty,
+	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -186,7 +187,9 @@ import {
 	type MetAccess,
 	metFound,
 	metRowsOf,
+	arbiterColumns,
 	type HeldKey,
+	imagesAt,
 	keyedAmong,
 	probeGroup,
 	probeKey,
@@ -722,7 +725,7 @@ const appendedOf = (
 						supply,
 						of,
 						"last",
-						mapNonEmpty(c.family.group, (g) =>
+						flatMapNonEmpty(c.family.group, (g) =>
 							bound(w, of, g.member, col(a, columnAt(facts, columnKeyOf(g.owner.name))))
 						),
 						[installed(w, of, c.family.shape.index)],
@@ -1166,7 +1169,9 @@ const appendScan = (
 	const index = installed(w, name, family.shape.index)
 	/** The member's group columns bound to `keys`, a group's values in order. */
 	const groupAt = (keys: ReadonlyArray<Expr>) =>
-		mapNonEmpty(family.group, (g, i) => bound(w, name, g.member, defined(keys[i], "a group key")))
+		flatMapNonEmpty(family.group, (g, i) =>
+			bound(w, name, g.member, defined(keys[i], "a group key"))
+		)
 	const ownerReads = ownerReadsOf(drawnColumns)
 	/** The owner reads whose copies are `held` (schedule.ts CopySource), which the owner's rows the stratum inserts hold. */
 	const heldReads = [...ownerReads].filter(
@@ -1294,7 +1299,7 @@ const appendScan = (
 				supply,
 				owner.name,
 				{
-					key: mapNonEmpty(family.group, (g, i) =>
+					key: flatMapNonEmpty(family.group, (g, i) =>
 						bound(w, owner.name, g.owner, defined(g0Keys[i], "a group key"))
 					),
 					filter: () => [],
@@ -2104,7 +2109,7 @@ const insertOf = (
 								}
 							: {
 									kind: "columns",
-									columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)),
+									columns: arbiterColumns(w, name, d.member.uniques.arbiter),
 									action: { kind: "doNothing" }
 								},
 					columns: inserted,
@@ -2199,7 +2204,7 @@ const metRefusal = (
 			from: proposedColumn(f),
 			schema: operatorSchemaOf(w.names, rowType(f))
 		})),
-		filter: () => [],
+		filter: imagesAt(w, name, pk, (f) => col(met.alias, proposedColumn(f))),
 		placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
 	}
 	const repeatEqual = stated
@@ -2358,7 +2363,7 @@ const recountOf = (
 					supply,
 					memberName,
 					"last",
-					mapNonEmpty(family.group, (g, i) =>
+					flatMapNonEmpty(family.group, (g, i) =>
 						bound(w, memberName, g.member, defined(putKey[i], "a group key"))
 					),
 					[index],

@@ -10,14 +10,16 @@
  * Each case draws a target relation B, its declared key, and a containment from a source relation A into a side of B
  * that is B's key or a superkey of it, in a drawn order, every pair of one type: a fixed-width type, a text bounded by
  * an octet_length contract (sometimes sized to bring the target's entry to the item limit plus a drawn delta), ASCII
- * text of a bounded pattern, or the wildcard, which bounds nothing. The oracle restates PostgreSQL: index_form_tuple's
+ * text of a bounded pattern, or the wildcard, which bounds nothing and which every index holds by its image, SHA-256's
+ * 32 bytes (schema/representability.ts keyImageOf). The oracle restates PostgreSQL: index_form_tuple's
  * layout of each index's columns in their order (heaptuple.c fill_val), exact through a prefix of fixed-width columns
  * and at the worst padding from the first varlena on, against nbtree.h's BTMaxItemSize, the indexes checked in the
  * order compilation meets them: A's and B's primary keys, then the target's UNIQUE where one is planned. The first that
  * fails is the refusal, by its columns and its fault.
  *
  * Features: the target the declared key or a superkey; admitted; the declared key refused; the target's UNIQUE refused
- * as unbounded or over the limit, or admitted at the limit; a referencing run no B-tree entry holds, admitted.
+ * over the limit, or admitted at the limit; a text no pattern bounds, keyed by its digest; a referencing run no B-tree
+ * entry holds, admitted.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
@@ -49,8 +51,8 @@ import {
 	typesOf
 } from "#test/unit/laws/model/planned-entries.fixtures.ts"
 
-/** The law model's planned B-tree indexes fit their entries, or the first that outgrows its entry or holds unbounded text is UnrepresentableKey. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
-export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrowsItsEntryOrHoldsUnboundedTextIsUnrepresentableKey =
+/** The law model's planned B-tree indexes fit their entries, a text no pattern bounds held by its digest, or the first that outgrows its entry is UnrepresentableKey. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
+export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsHeldByItsDigestOrTheFirstThatOutgrowsItsEntryIsUnrepresentableKey =
 	property.explore(sketchGen, {
 		needs: {},
 		budget: { runs: 300, steered: 300 },
@@ -59,7 +61,7 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 			"target is a superkey",
 			"admitted",
 			"declared key refused",
-			"target UNIQUE refused, unbounded",
+			"a text no pattern bounds, keyed by its digest",
 			"target UNIQUE refused, over the limit",
 			"target UNIQUE at the limit, admitted",
 			"a referencing run no B-tree entry holds, admitted"
@@ -130,10 +132,7 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 						? [
 								{
 									columns: columns(s.target.order, nameAt),
-									feature: (fault: KeyFault): PlannedFeature =>
-										fault.kind === "unboundedText"
-											? "target UNIQUE refused, unbounded"
-											: "target UNIQUE refused, over the limit"
+									feature: (): PlannedFeature => "target UNIQUE refused, over the limit"
 								}
 							]
 						: [])
@@ -142,6 +141,9 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 				if (Option.isNone(first)) {
 					succeeded(compiled, "every planned index fits")
 					c.note("admitted")
+					if (Arr.some(types, (t) => t.kind === "wildcard")) {
+						c.note("a text no pattern bounds, keyed by its digest")
+					}
 					if (faultOf(columns(s.target.order, (p) => `s${p}`)) !== undefined) {
 						c.note("a referencing run no B-tree entry holds, admitted")
 					}
@@ -174,6 +176,12 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 				original: "\treturn bytes > btreeMaxItemSize",
 				replacement: "\treturn bytes >= btreeMaxItemSize",
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry)."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\t: keyImageOf(plannedField(c).desc)",
+				replacement: "\t\t: undefined",
+				why: "The law model plans a text no pattern bounds into a UNIQUE as itself, which no entry holds: refused."
 			}
 		]
 	})

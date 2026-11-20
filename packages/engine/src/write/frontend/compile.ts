@@ -2315,7 +2315,7 @@ const compile = (
 					: []
 			),
 			...lawColumns.flatMap((c) =>
-				c.value.kind === "generated"
+				c.value.kind !== "drawn"
 					? [
 							{
 								key: columnKey({ kind: "law", column: c.column }),

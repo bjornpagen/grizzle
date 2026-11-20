@@ -8,8 +8,8 @@ import type {
 	TriggerLaw
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import { columnKey } from "#compiler/ir/law.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
+import { columnKey, type NativeColumn } from "#compiler/ir/law.ts"
+import { fieldImages, type LawModel } from "#compiler/laws/model/model.ts"
 import type { OwnedRelation } from "#compiler/schema/own.ts"
 
 /**
@@ -85,20 +85,25 @@ const byRelation = <V>(
 
 /**
  * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts columnKey): its
- * primary key's native and each UNIQUE native, a law column by its identifier, so a key a law adds over law columns (an
+ * primary key's native and each UNIQUE native, a field's image by the field it compares (laws/model/model.ts
+ * fieldImages), any other law column by its identifier, so a key a law adds over law columns (an
  * alternatives arm's, a selected side's, a family's slot) is the key PostgreSQL enforces, which a check by those columns
  * finds one row of at most and no read of fields alone binds whole. A span key (WITHOUT OVERLAPS) is no key a read by its
  * columns is a point read of.
  */
-const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> =>
-	byRelation(
-		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => {
-			if (object.kind === "PrimaryKey") {
-				return [[object.relation.name, object.columns.map((field) => field.name)]]
-			}
-			return object.kind === "Unique" ? [[object.relation.name, object.columns.map(columnKey)]] : []
-		})
+const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> => {
+	const compared = fieldImages(model.natives).compared
+	/** A key's column by its text, a field's image by the field it compares. */
+	const text = (relation: string, c: NativeColumn): string =>
+		compared(relation, c)?.name ?? columnKey(c)
+	return byRelation(
+		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, ReadonlyArray<string>]> =>
+			object.kind === "PrimaryKey" || object.kind === "Unique"
+				? [[object.relation.name, object.columns.map((c) => text(object.relation.name, c))]]
+				: []
+		)
 	)
+}
 
 /**
  * The counted groups of each member relation by its declared name: for each family whose owner is immutable, so the

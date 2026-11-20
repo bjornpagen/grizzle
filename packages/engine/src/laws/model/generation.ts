@@ -75,7 +75,7 @@ const storedGenerated = (laws: LawModel, relation: string): ReadonlyArray<Stored
 			f.writing.kind === "generated" ? [generated(f.column, [f.writing.expr])] : []
 		),
 		...lawColumns.flatMap((c) =>
-			c.value.kind === "generated" ? [generated(c.column, [...c.value.guard, c.value.term])] : []
+			c.value.kind === "drawn" ? [] : [generated(c.column, [...c.value.guard, c.value.term])]
 		)
 	]
 }

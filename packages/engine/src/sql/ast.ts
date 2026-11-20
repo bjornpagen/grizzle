@@ -1330,15 +1330,15 @@ export interface CreateTable {
 	readonly kind: "createTable"
 	readonly table: ObjectName
 	readonly columns: NonEmptyReadonlyArray<ColumnDef>
-	readonly primaryKey: PrimaryKey
+	/** Its primary key, where the table declares it: none where its own ALTER TABLE ... ADD CONSTRAINT adds it after a
+	 * column the table's CREATE TABLE does not hold, a field's image. */
+	readonly primaryKey: PrimaryKey | undefined
 	readonly secondary: ReadonlyArray<InlineConstraint>
 }
 
 /** Every constraint a table declares inline, its primary key first. */
-export const tableConstraints = (t: CreateTable): NonEmptyReadonlyArray<TableConstraint> => [
-	t.primaryKey,
-	...t.secondary
-]
+export const tableConstraints = (t: CreateTable): ReadonlyArray<TableConstraint> =>
+	t.primaryKey === undefined ? t.secondary : [t.primaryKey, ...t.secondary]
 
 /**
  * A write program's transaction-scoped carrier: CREATE TEMPORARY TABLE ... ON COMMIT DROP. It lives in pg_temp, the

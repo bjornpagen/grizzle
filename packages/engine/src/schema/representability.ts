@@ -1,9 +1,10 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
+import type { KeyImage } from "#compiler/core/identity.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
-import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, HeldDesc } from "#compiler/ir/desc.ts"
 import type { TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
@@ -428,6 +429,7 @@ export const isFixedWidth = (bound: DatumBound): boolean => {
 		case "code":
 			return true
 		case "bit":
+		case "bytea":
 		case "numeric":
 		case "text":
 		case "range":
@@ -448,6 +450,7 @@ type Family =
 	| "date"
 	| "code"
 	| "bit"
+	| "bytea"
 	| "numeric"
 	| "text"
 	| "range"
@@ -605,7 +608,7 @@ const predicateByteBound = (predicate: ExprDesc): number =>
  * The most UTF-8 bytes a text-valued descriptor admits, declared or inferred: its pattern's bound, tightened by every
  * contract's predicate bound on the way down (predicateByteBound); Infinity when nothing bounds it.
  */
-export const textByteBound = (desc: InferredFieldDesc): number => {
+export const textByteBound = (desc: HeldDesc): number => {
 	if (desc.kind === "text") {
 		return languageByteBound(desc.language)
 	}
@@ -618,15 +621,48 @@ export const textByteBound = (desc: InferredFieldDesc): number => {
 	return Number.POSITIVE_INFINITY
 }
 
-const isTextDesc = (desc: InferredFieldDesc): boolean =>
+const isTextDesc = (desc: HeldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
 
 /**
  * Whether a lookup index holds a field by its image, never its datum (sql/image.ts): a text whose pattern
  * and contracts prove no byte bound (textByteBound), which no B-tree entry holds for every value it admits.
  */
-export const imagedText = (desc: InferredFieldDesc): boolean =>
+export const imagedText = (desc: HeldDesc): boolean =>
 	isTextDesc(desc) && !Number.isFinite(textByteBound(desc))
+
+/**
+ * The image a declared key, a UNIQUE or a reference installs a column over in its own place (core/identity.ts
+ * KeyImage), read off the column's descriptor: a text whose pattern and contracts prove no byte bound (`imagedText`),
+ * which no B-tree entry holds for every value it admits, is keyed by its digest, the 32 bytes of the SHA-256 of its UTF-8
+ * (physical/ddl/library.ts textDigest); any other column's own datum its index holds. Text equality under pg_c_utf8 compares a
+ * text's bytes, so two texts of one digest are one text unless SHA-256 collides, the premise every fingerprint and
+ * content digest grizzle keys by rests on: an image key holds apart exactly the texts the text's key would.
+ */
+export const keyImageOf = (desc: HeldDesc): KeyImage | undefined =>
+	imagedText(desc) ? "textDigest" : undefined
+
+/**
+ * The bytes of a SHA-256 digest, the bytea sha256(bytea) returns.
+ *
+ * @limitKind published
+ * @owner FIPS 180-4
+ * @unit bytes
+ * @scope a SHA-256 message digest, sha256(bytea)'s result
+ * @constraint compile-time constant
+ * @source https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
+ * @quote SHA-256 ... 256-bit message digest
+ * @verified 2026-11-20
+ */
+const sha256Bytes = 32
+
+/**
+ * The datum of a key's image in an index entry (`keyImageOf`): a text's digest, its 32 bytes, a bytea varlena of at most
+ * its four-byte header and 32 bytes, compared byte for byte under no collation.
+ */
+export const keyImageDatum: { readonly [I in KeyImage]: DatumBound } = Object.freeze({
+	textDigest: fixed(varlenaHeaderBytes + sha256Bytes, 4, "bytea")
+})
 
 /**
  * The digits of an MD5 digest in hexadecimal, md5(text)'s length.
@@ -714,7 +750,7 @@ const rangeBytes = (endpoint: number): number =>
  * The largest index datum of a field, declared or inferred; undefined for bytes and for text whose pattern proves no
  * byte bound.
  */
-export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
+export const datumBound = (desc: HeldDesc): DatumBound | undefined => {
 	switch (desc.kind) {
 		case "contract":
 			if (isTextDesc(desc)) {
@@ -733,6 +769,8 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 			return fixed(numericMaximumSize(desc.precision), 4, "numeric")
 		case "computedNumeric":
 			return fixed(numericMaximumSize(desc.bound.digits + desc.bound.scale), 4, "numeric")
+		case "digest":
+			return keyImageDatum[desc.image]
 		case "span":
 			return isDateEndpoint(desc.endpoint)
 				? fixed(rangeBytes(typlens.date), 4, "range")
@@ -819,6 +857,7 @@ const gistKeyBytes = (d: GistDatum): number => {
 		case "numeric":
 		case "text":
 		case "bit":
+		case "bytea":
 			return varlenaHeaderBytes + alignUp(d.bytes, 4) + d.bytes
 		case "range":
 			return d.bytes
@@ -903,7 +942,7 @@ export interface KeyLayout {
 	readonly gist: { readonly span: string; readonly bytes: GistEntryBytes } | undefined
 }
 
-const isSpanDesc = (desc: InferredFieldDesc): boolean =>
+const isSpanDesc = (desc: HeldDesc): boolean =>
 	desc.kind === "span" || (desc.kind === "contract" && isSpanDesc(desc.base))
 
 /**
@@ -912,7 +951,7 @@ const isSpanDesc = (desc: InferredFieldDesc): boolean =>
  */
 export type KeyFields = ReadonlyArray<{
 	readonly field: string
-	readonly desc: InferredFieldDesc
+	readonly desc: HeldDesc
 }>
 
 /**
@@ -920,29 +959,30 @@ export type KeyFields = ReadonlyArray<{
  * which is stored only, or a field whose datum has no bound. The rule every key's index entry starts from, a declared key's (keyLayout) and an inherited
  * one's (analysis/derived/keys.ts derivedKeyLayout).
  */
-export const keyDatums = (
-	fields: KeyFields
-): Result.Result<
-	ReadonlyArray<{
-		readonly field: string
-		readonly desc: InferredFieldDesc
-		readonly datum: DatumBound
-	}>,
-	KeyFault
-> => {
+export const keyDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault> =>
+	datumsBy(fields, datumBound)
+
+/** A key's fields with their descriptors and the datum its index entry holds for each, in key order. */
+type KeyDatums = ReadonlyArray<{
+	readonly field: string
+	readonly desc: HeldDesc
+	readonly datum: DatumBound
+}>
+
+/** Each field's datum as `datumOf` reads its descriptor, or the key's fault (`keyDatums`). */
+const datumsBy = (
+	fields: KeyFields,
+	datumOf: (desc: HeldDesc) => DatumBound | undefined
+): Result.Result<KeyDatums, KeyFault> => {
 	if (fields.length > indexMaxKeys) {
 		return Result.err({ kind: "columns", limit: indexMaxKeys })
 	}
-	const out: Array<{
-		readonly field: string
-		readonly desc: InferredFieldDesc
-		readonly datum: DatumBound
-	}> = []
+	const out: Array<KeyDatums[number]> = []
 	for (const { field, desc } of fields) {
 		if (desc.kind === "bytes") {
 			return Result.err({ kind: "storageOnly", field })
 		}
-		const bound = datumBound(desc)
+		const bound = datumOf(desc)
 		if (bound === undefined) {
 			return Result.err({ kind: "unboundedText", field })
 		}
@@ -950,6 +990,16 @@ export const keyDatums = (
 	}
 	return Result.ok(out)
 }
+
+/**
+ * The datums a declared key's index entry holds, each field's own (`keyDatums`) but a field the key installs over its
+ * image (`keyImageOf`), whose image's datum the entry holds in the field's place, so a text of no byte bound keys.
+ */
+const keyedDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault> =>
+	datumsBy(fields, (desc) => {
+		const image = keyImageOf(desc)
+		return image === undefined ? datumBound(desc) : keyImageDatum[image]
+	})
 
 /** A key's bounded datums as its index's columns, in key order: a key's fields are NOT NULL. */
 export const keyColumns = (
@@ -1025,7 +1075,8 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  *   (numericMaximumSize), and a computed numeric, a derived relation's inferred field, the same over its integer and
  *   fraction digits. Text is bounded by its pattern's language (the text analysis's bound), by a contract's
  *   charLength predicate, utf8EncodingMaxBytes per code point, and by a contract's octetLength predicate, exactly; the
- *   wildcard pattern has none. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
+ *   wildcard pattern has none: a text of no byte bound is counted as its image, its SHA-256 digest's 32 bytes
+ *   (keyImageOf, keyImageDatum), which the key holds in its place. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
  *   key field like any other: every vector has one form, its components finite (pgvector refuses NaN and infinity)
  *   and its zero 0, so pgvector's equality is identity. A range is its header, its two bounds and its flags byte
  *   (rangeBytes).
@@ -1050,7 +1101,7 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  * entry within PostgreSQL's limit.
  */
 export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault> => {
-	const bounded = keyDatums(fields)
+	const bounded = keyedDatums(fields)
 	if (!bounded.ok) {
 		return bounded
 	}

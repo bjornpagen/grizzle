@@ -379,10 +379,9 @@ const registryForm = (
 				: undefined
 		}
 		case "textSha256": {
-			const fn = library("textDigest")
 			const [x] = args
 			return args.length === 1 && x !== undefined
-				? call("encode", [qualifiedCall(fn.schema, fn.name, [x]), lit.text("hex", types.text)])
+				? call("encode", [textDigestForm(library, x), lit.text("hex", types.text)])
 				: undefined
 		}
 		case "canonicalZero":
@@ -390,6 +389,16 @@ const registryForm = (
 				? binary("+", first, lit.float(0, sql.carrier === "float4" ? types.real : types.double))
 				: undefined
 	}
+}
+
+/**
+ * A text's SHA-256 digest, the 32 bytes of its UTF-8's: `<textDigest>(x)`, the installation's library function
+ * `library` names (physical/ddl/library.ts textDigest). The one SQL form of the digest: a key's image column holds it,
+ * a write's probe of the key reads it, and Compute.sha256 of a text writes it as hex.
+ */
+export const textDigestForm = (library: PhysicalNames["library"], x: Expr): Expr => {
+	const fn = library("textDigest")
+	return qualifiedCall(fn.schema, fn.name, [x])
 }
 
 /**

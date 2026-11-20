@@ -10,6 +10,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
+	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -17,9 +18,10 @@ import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
+import type { PrimaryKeyObject, UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
+import { textDigestForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	DrivenColumn,
 	Expr,
@@ -34,6 +36,7 @@ import {
 	conjunction,
 	cteRefAs,
 	distinctCore,
+	eq,
 	exists,
 	lit,
 	select,
@@ -115,17 +118,48 @@ const delivered = (
 	}
 }
 
-/** A field of `relation` bound to `value`, compared at its type: through the extension's operator over a vector. */
+/**
+ * A field of `relation` bound to `value`, compared at its type: through the extension's operator over a vector; and,
+ * where a key installs the field over its image (WriteContext image, laws/model/plan.ts keyedAs), first that image's
+ * column bound to the value's image, the digest the column holds (lower/conservative/expr/ops.ts textDigestForm): the
+ * key's index holds the image in the field's place, so PostgreSQL reaches the row by it, and the field's own equality
+ * decides beside it.
+ */
 export const bound = (
 	w: WriteContext,
 	relation: string,
 	f: LawField,
 	value: Expr
-): ProbeColumn => ({
-	column: w.names.column(relation, f.name),
-	value,
-	schema: operatorSchemaOf(w.names, rowType(f))
-})
+): NonEmptyReadonlyArray<ProbeColumn> => {
+	const own: ProbeColumn = {
+		column: w.names.column(relation, f.name),
+		value,
+		schema: operatorSchemaOf(w.names, rowType(f))
+	}
+	const image = w.image(relation, f.name)
+	return image === undefined
+		? [own]
+		: [{ column: image, value: textDigestForm(w.names.library, value), schema: undefined }, own]
+}
+
+/**
+ * The equality of the image of each of `fields` of `relation` a key installs it over (`bound`), read over the stored
+ * row under `inner`, to the image of its value: what reaches the row by the key's index where the field's own equality
+ * is a bound column of its own (a met row's key).
+ */
+export const imagesAt = (
+	w: WriteContext,
+	relation: string,
+	fields: ReadonlyArray<LawField>,
+	value: (f: LawField) => Expr
+): ((inner: string) => ReadonlyArray<Expr>) => {
+	const images = fields.flatMap((f) => {
+		const image = w.image(relation, f.name)
+		return image === undefined ? [] : [{ image, f }]
+	})
+	return (inner) =>
+		images.map(({ image, f }) => eq(col(inner, image), textDigestForm(w.names.library, value(f))))
+}
 
 /** `fields` of `relation` bound to their values (`bound`), with no further condition. */
 export const atFields = (
@@ -134,7 +168,7 @@ export const atFields = (
 	fields: NonEmptyReadonlyArray<LawField>,
 	value: (f: LawField) => Expr
 ): ProbeAccess => ({
-	key: mapNonEmpty(fields, (f) => bound(w, relation, f, value(f))),
+	key: flatMapNonEmpty(fields, (f) => bound(w, relation, f, value(f))),
 	filter: () => [],
 	placed: mapNonEmpty(fields, (f) => w.names.column(relation, f.name))
 })
@@ -142,6 +176,17 @@ export const atFields = (
 /** The installed name of a native column of `relation`. */
 const nativeName = (w: WriteContext, relation: string, column: NativeColumn): string =>
 	column.kind === "field" ? w.names.column(relation, column.field.name) : column.column
+
+/**
+ * The columns an ON CONFLICT names a declared key of `relation` by: its constraint's, each a field's or the image's
+ * that stands in a field's place (laws/model/uniques.ts PrimaryKeyObject `installed`), PostgreSQL inferring its arbiter
+ * from exactly the columns of its unique index (42P10 for any other list).
+ */
+export const arbiterColumns = (
+	w: WriteContext,
+	relation: string,
+	key: PrimaryKeyObject
+): NonEmptyReadonlyArray<string> => mapNonEmpty(key.installed, (c) => nativeName(w, relation, c))
 
 /**
  * Where a row of `relation` given by `value` conflicts at the unique object `u`: at a guarded object its UNIQUE's own
@@ -166,7 +211,7 @@ export const atObject = (
 				placed: placedBy(w, relation, u)
 			}
 		: {
-				key: u.equal.map((f) => bound(w, relation, f, value(f))),
+				key: u.equal.flatMap((f) => bound(w, relation, f, value(f))),
 				filter: (inner) => {
 					const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
 					const guards = withinRow(w.cx, u, stored)
@@ -362,9 +407,10 @@ const metAtFields = (
 	filter: (inner) => {
 		const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
 		const guards = withinRow(w.cx, u, stored)
+		const images = imagesAt(w, relation, u.equal, (f) => col(rows, column(f)))(inner)
 		return u.kind === "span"
-			? [...guards, binary("&&", stored(u.span), col(rows, column(u.span)))]
-			: guards
+			? [...images, ...guards, binary("&&", stored(u.span), col(rows, column(u.span)))]
+			: [...images, ...guards]
 	}
 })
 
@@ -543,12 +589,21 @@ export const keyedAmong = (
 	held: string,
 	keys: NonEmptyReadonlyArray<HeldKey>
 ): NonEmptyReadonlyArray<Expr> =>
-	mapNonEmpty(keys, (k) =>
-		amongHeld(
-			supply,
-			col(alias, w.names.column(relation, k.field.name)),
-			held,
-			(h) => col(h, k.column),
-			operatorSchemaOf(w.names, rowType(k.field))
-		)
-	)
+	mapNonEmpty(keys, (k) => {
+		const image = w.image(relation, k.field.name)
+		return image === undefined
+			? amongHeld(
+					supply,
+					col(alias, w.names.column(relation, k.field.name)),
+					held,
+					(h) => col(h, k.column),
+					operatorSchemaOf(w.names, rowType(k.field))
+				)
+			: amongHeld(
+					supply,
+					col(alias, image),
+					held,
+					(h) => textDigestForm(w.names.library, col(h, k.column)),
+					undefined
+				)
+	})

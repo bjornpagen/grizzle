@@ -56,6 +56,32 @@ export const lawColumnsOf = (
 ): ReadonlyMap<ColumnIdent, NativeOf<"LawColumn">> =>
 	new Map(Arr.map(onRelation(model, "LawColumn", relation), (c) => [c.column, c] as const))
 
+/** The field a generated law column holds the values of, as the law model planned it: a term's own field, a
+ * constant's target field, a counted predecessor's count, or an image's kind and the field it is the image of. */
+const generatedText = (model: LawModel, relation: string, column: ColumnIdent): string => {
+	const planned = Arr.findFirst(model.natives, (n) =>
+		n.namespace === "column" && n.object.relation.name === relation && n.object.column === column
+			? Option.some(n.plan)
+			: Option.none()
+	)
+	if (Option.isNone(planned)) {
+		throw new Error(`the law column ${column} of ${relation}, which the law model planned`)
+	}
+	const held = (plan: typeof planned.value): string => {
+		switch (plan.kind) {
+			case "term":
+				return plan.term.column.name
+			case "constant":
+			case "drawn":
+			case "indexPred":
+				return plan.field.name
+			case "image":
+				return `${plan.image} ${plan.of.kind === "field" ? plan.of.field.name : held(plan.of.column)}`
+		}
+	}
+	return held(planned.value)
+}
+
 /** What a drawn column draws, as text: its kind, and a fold's position and plane. */
 const drawnText = (d: Drawn): string =>
 	d.kind === "before" || d.kind === "after" ? `${d.kind} ${d.fold}.${d.plane}` : d.kind
@@ -74,7 +100,7 @@ export const columnText = (model: LawModel, relation: LawRelation, c: NativeColu
 	)
 	return native.value.kind === "drawn"
 		? `‹${drawnText(native.value.draws)}›`
-		: `‹generated ${native.field.name}›`
+		: `‹generated ${generatedText(model, relation.name, c.column)}›`
 }
 
 /** A foreign key as its contract reads it: its relations, its pairs of referencing and referenced columns as a set,
@@ -152,13 +178,7 @@ export const keySets = (model: LawModel, relation: string): ReadonlyArray<string
 				return [columnSet(model, o.relation, o.columns)]
 			}
 			if (o.kind === "PrimaryKey" && o.relation.name === relation) {
-				return [
-					columnSet(
-						model,
-						o.relation,
-						Arr.map(o.columns, (field) => ({ kind: "field" as const, field }))
-					)
-				]
+				return [columnSet(model, o.relation, o.columns)]
 			}
 			return []
 		}),
@@ -330,7 +350,7 @@ export const generatedColumn = (
 ): NativeOf<"LawColumn"> => {
 	const found = Arr.filter(
 		[...lawColumnsOf(model, relation).values()],
-		(c) => c.value.kind === "generated" && c.field.name === field
+		(c) => c.value.kind === "generated" && generatedText(model, relation, c.column) === field
 	)
 	assert.equal(found.length, 1, `one generated law column of ${relation} holds ${field}`)
 	return defined(found[0])
@@ -460,10 +480,7 @@ export const breaks = (model: LawModel, o: NativeObject, state: State): boolean 
 	switch (o.kind) {
 		case "PrimaryKey":
 		case "Unique": {
-			const columns: ReadonlyArray<NativeColumn> =
-				o.kind === "PrimaryKey"
-					? Arr.map(o.columns, (field) => ({ kind: "field" as const, field }))
-					: o.columns
+			const columns: ReadonlyArray<NativeColumn> = o.columns
 			const tuples = Arr.flatMap(rows(o.relation.name), (r) => {
 				const t = tupleOf(model, o.relation.name, columns, r)
 				return t === undefined ? [] : [t]

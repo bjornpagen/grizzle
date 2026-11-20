@@ -65,9 +65,9 @@ export const aMergedFamilyAxisHoldsExactlyWhenEveryContainmentMergedIntoItHoldsE
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					"\t\t\tpairs.map((p) => p.from)\n\t\t)\n\t\tconst targetColumns = extendNonEmpty(\n\t\t\ttarget.base,\n\t\t\tpairs.map((p) => p.to)",
+					"\t\t\t\tpairs.map((p) => p.from)\n\t\t\t),\n\t\t\ttarget.relation,\n\t\t\textendNonEmpty(\n\t\t\t\ttarget.base,\n\t\t\t\tpairs.map((p) => p.to)",
 				replacement:
-					"\t\t\tpairs.slice(0, 1).map((p) => p.from)\n\t\t)\n\t\tconst targetColumns = extendNonEmpty(\n\t\t\ttarget.base,\n\t\t\tpairs.slice(0, 1).map((p) => p.to)",
+					"\t\t\t\tpairs.slice(0, 1).map((p) => p.from)\n\t\t\t),\n\t\t\ttarget.relation,\n\t\t\textendNonEmpty(\n\t\t\t\ttarget.base,\n\t\t\t\tpairs.slice(0, 1).map((p) => p.to)",
 				why: "An axis's foreign key carries only the first copy riding it (laws/model/plan.ts axis)."
 			}
 		]

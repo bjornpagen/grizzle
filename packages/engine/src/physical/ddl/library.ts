@@ -13,7 +13,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
-import { type Identity, identity } from "#compiler/core/identity.ts"
+import { type Identity, identity, type KeyImage } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
@@ -479,9 +479,10 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 export const libraryIdentity = (fn: LibraryFn): Identity<"libraryFunction"> => identities[fn]
 
 /**
- * The library functions the persistent expressions of `model` call (constants.ts persistentExprs), in name order:
- * those its installation installs. A contract's predicate, a derived relation's definition and a role's statements
- * call only those, or are refused as UninstalledFunction where they are compiled.
+ * The library functions the persistent expressions of `model` call (constants.ts persistentExprs), and each key image's
+ * (laws/model/plan.ts keyedAs), in name order: those its installation installs. A contract's predicate, a derived
+ * relation's definition and a role's statements call only those, or are refused as UninstalledFunction where they are
+ * compiled.
  */
 export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 	const called = new Set<LibraryFn>()
@@ -492,8 +493,18 @@ export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 			called.add(fn)
 		}
 	}
+	for (const { object: o } of model.natives) {
+		if (o.kind === "LawColumn" && o.value.kind === "image") {
+			called.add(imageFunctions[o.value.image])
+		}
+	}
 	return [...called].toSorted(compareStrings)
 }
+
+/** The library function each key image is computed by: a text's digest by textDigest. */
+export const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
+	textDigest: "textDigest"
+})
 
 /** A library function's CREATE in the schema `schema`: an installation's, or a session's pg_temp. */
 export const libraryCreate = (schema: string, fn: LibraryFn): CreateConstant => ({

@@ -8,8 +8,8 @@
  *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
  *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts as
  *   schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize at the fold, over
- *   that UNIQUE, and an unbounded text refused whatever its entry. Features: unbounded, and each bound's kind with each
- *   verdict.
+ *   that UNIQUE, and a text of no bound admitted, held by its digest, 32 bytes, whatever its values
+ *   (schema/representability.ts keyImageOf). Features: unbounded, and each bound's kind with each verdict.
  * - A carried set's key: a set an axis carries is its roster's bit(n), n every code the roster has minted, holes
  *   included, sized exactly by the installation's codes (physical/ddl/tables.ts setUniqueBound), so a roster pruned of
  *   many handles refuses the UNIQUE when it is compiled rather than at an insert. The box: Tag's codes its two live
@@ -67,10 +67,11 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 				const bytes = bytesOf(t)
 				if (bytes === undefined) {
 					c.note("unbounded")
-				} else {
-					c.pair(t.kind, verdictOf(bytes))
+					succeeded(compiled, "a text of no bound, the axis key holding its digest")
+					return
 				}
-				if (bytes !== undefined && entryBytes(bytes) <= btreeMaxItemSize) {
+				c.pair(t.kind, verdictOf(bytes))
+				if (entryBytes(bytes) <= btreeMaxItemSize) {
 					succeeded(compiled, `an entry of ${entryBytes(bytes)} bytes fits`)
 					return
 				}
@@ -85,21 +86,16 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 					"the refusal is the fold's"
 				)
 				assert.deepEqual(reason.key, ["doc", "at", "after"], "the UNIQUE Line's axes reference")
-				assert.deepEqual(
-					reason.fault,
-					bytes === undefined
-						? { kind: "unboundedText", field: "after" }
-						: {
-								kind: "btreeEntry",
-								bytes: entryBytes(bytes),
-								limit: btreeMaxItemSize,
-								datums: [
-									{ field: "doc", bytes: typlens.uuid },
-									{ field: "at", bytes: typlens.int8 },
-									{ field: "after", bytes: 4 + bytes }
-								]
-							}
-				)
+				assert.deepEqual(reason.fault, {
+					kind: "btreeEntry",
+					bytes: entryBytes(bytes),
+					limit: btreeMaxItemSize,
+					datums: [
+						{ field: "doc", bytes: typlens.uuid },
+						{ field: "at", bytes: typlens.int8 },
+						{ field: "after", bytes: 4 + bytes }
+					]
+				})
 			}),
 		oracle: {
 			kind: "specification",
@@ -113,6 +109,12 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 				original: "\treturn bytes > btreeMaxItemSize",
 				replacement: "\treturn bytes >= btreeMaxItemSize",
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry); the concat fold's axis key fails."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\t: keyImageOf(plannedField(c).desc)",
+				replacement: "\t\t: undefined",
+				why: "The axis carries the running text of no bound as itself, which no entry holds: the fold refused."
 			}
 		]
 	})

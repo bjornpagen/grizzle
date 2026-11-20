@@ -10,6 +10,7 @@ import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations, reality } from "#compiler/laws/model/generation.ts"
+import { fieldImages } from "#compiler/laws/model/model.ts"
 import { dispatchNode } from "#compiler/lower/conservative/dispatch.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import type { ConservativeProgram, DeltaRelation } from "#compiler/lower/conservative/types.ts"
@@ -134,7 +135,8 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		/** The conservative realization lowers every described member by the conservative baseline. */
 		dispatch: dispatchNode,
 		share: options.share,
-		generation: generations(frontend.laws, updaterOf(frontend))
+		generation: generations(frontend.laws, updaterOf(frontend)),
+		image: fieldImages(frontend.laws.natives).columnOf
 	})
 	const supply = new CarrierSupply((t, at) => w.cx.typeRef(t, at))
 	const steps: Array<ConservativeStep> = []

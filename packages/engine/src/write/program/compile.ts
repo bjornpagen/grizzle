@@ -31,7 +31,7 @@ import type { DeltaSide, RelDag, RelNode } from "#compiler/ir/rel.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations } from "#compiler/laws/model/generation.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
+import { fieldImages, type LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conservative/types.ts"
@@ -1711,7 +1711,8 @@ const compile = (
 			dispatch: sharing.dispatch,
 			share,
 			level: options.level,
-			generation: generations(options.laws, options.world)
+			generation: generations(options.laws, options.world),
+			image: fieldImages(options.laws.natives).columnOf
 		})
 	}
 	const plan = planWrite(

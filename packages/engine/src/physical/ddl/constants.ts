@@ -1008,7 +1008,7 @@ export const persistentExprs = (model: LawModel): ReadonlyArray<ScalarExpr> => {
 				roots.push(o.predicate)
 				continue
 			case "LawColumn":
-				if (o.value.kind === "generated") {
+				if (o.value.kind !== "drawn") {
 					roots.push(o.value.term)
 					appendAll(roots, o.value.guard)
 				}

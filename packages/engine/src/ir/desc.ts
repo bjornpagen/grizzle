@@ -34,6 +34,7 @@ import {
 	type FunctionVolatility,
 	functionVolatilities
 } from "#compiler/core/function.ts"
+import type { KeyImage } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings, type Direction, directions } from "#compiler/core/order.ts"
 import { deepFreeze, isRecord, mapRecord } from "#compiler/core/record.ts"
@@ -177,6 +178,13 @@ export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): vo
 export type InferredFieldDesc =
 	| FieldDesc
 	| { readonly kind: "computedNumeric"; readonly bound: NumericBound }
+
+/**
+ * What a column an index entry or a row holds is, as their sizing reads it: a field's descriptor, declared or inferred,
+ * or a key's image (`digest`), the bytea a law column holds in a field's place (laws/model/plan.ts keyedAs), which no
+ * declaration states and no relation's field is.
+ */
+export type HeldDesc = InferredFieldDesc | { readonly kind: "digest"; readonly image: KeyImage }
 
 /** The Compute catalogue. */
 export const computeFns = [

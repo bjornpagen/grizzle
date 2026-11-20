@@ -46,13 +46,20 @@ import { compileInstallation, type Installation } from "#compiler/physical/insta
 import { findMarkers, splitStatements } from "#compiler/plan/migration.ts"
 import { accumulated, drawn as drawnField, natural, pg } from "#compiler/public/fields.ts"
 import { type AnyRelation, schema, type Statement } from "#compiler/public/schema.ts"
-import { keyTextBytes, str } from "#compiler/public/text.ts"
+import { str } from "#compiler/public/text.ts"
+import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import {
 	generatedField,
 	generatedRelation,
 	relationBuilder as relation
 } from "#compiler/schema/relation.ts"
+import {
+	btreeEntryBytes,
+	btreeMaxItemSize,
+	type EntryColumn,
+	typlens
+} from "#compiler/schema/representability.ts"
 import {
 	containedBuilder,
 	countedBuilder,
@@ -287,18 +294,40 @@ const anyText = str.regex("^.*$", "su")
 const textField = (bytes: number) => str.bytes(bytes, anyText)
 
 /**
- * The widest text, in UTF-8 bytes, that grizzle's documented bound admits beside another text as wide and four bigints
- * (keyTextBytes): the width "near" draws, at which every index the world plans over a compound key fits.
+ * Whether texts of `widths` UTF-8 bytes fit one B-tree entry beside four bigints in every order and nullability an index
+ * the world plans over them takes (schema/representability.ts btreeEntryBytes): texts first or last, every column
+ * NULL-able, as a family's hidden columns may be.
  */
-const nearWidth: number = (() => {
-	const room = (n: number): number =>
-		keyTextBytes([textField(n), pg.bigint, pg.bigint, pg.bigint, pg.bigint])
+const fitsBeside = (widths: ReadonlyArray<number>): boolean => {
+	const text = (n: number): EntryColumn => ({
+		name: "text",
+		datum: { bytes: varlenaHeaderBytes + n, align: 4, family: "text" },
+		nullable: true
+	})
+	const bigint: EntryColumn = {
+		name: "bigint",
+		datum: { bytes: typlens.int8, align: 8, family: "int8" },
+		nullable: true
+	}
+	const texts = Arr.map(widths, text)
+	const bigints = Arr.replicate(bigint, 4)
+	return Arr.every(
+		[
+			[...texts, ...bigints],
+			[...bigints, ...texts]
+		],
+		(columns) => btreeEntryBytes(columns) <= btreeMaxItemSize
+	)
+}
+
+/** The widest of `widths(n)`'s texts that fit beside four bigints (`fitsBeside`), by bisection over a page's bytes. */
+const widestFitting = (widths: (n: number) => ReadonlyArray<number>): number => {
 	let found = 1
 	let lo = 1
 	let hi = 2704
 	while (lo <= hi) {
 		const mid = Math.floor((lo + hi) / 2)
-		if (mid <= room(mid)) {
+		if (fitsBeside(widths(mid))) {
 			found = mid
 			lo = mid + 1
 		} else {
@@ -306,14 +335,19 @@ const nearWidth: number = (() => {
 		}
 	}
 	return found
-})()
+}
+
+/**
+ * The widest text, in UTF-8 bytes, that fits beside another text as wide and four bigints in every index the world
+ * plans over a compound key (`fitsBeside`): the width "near" draws.
+ */
+const nearWidth: number = widestFitting((n) => [n, n])
 
 /** Half of BTMaxItemSize, 2,704 bytes: two texts wider than it make a key no B-tree entry holds. */
 const halfLimit = 1352
 
-/** The widest one text grizzle's documented bound admits beside four bigints: the width "near" draws for an
- * identifier. */
-const nearIdentifier: number = keyTextBytes([pg.bigint, pg.bigint, pg.bigint, pg.bigint])
+/** The widest one text that fits beside four bigints (`fitsBeside`): the width "near" draws for an identifier. */
+const nearIdentifier: number = widestFitting((n) => [n])
 
 /** A re-key's widths: short ones, or at the documented bound, each text drawn apart. */
 const widthsGen =

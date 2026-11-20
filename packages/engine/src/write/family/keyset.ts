@@ -24,6 +24,7 @@ import {
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import { textDigestForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	Cte,
 	Expr,
@@ -166,25 +167,35 @@ export const heldAmong = (
 	held: Reach["held"],
 	hop: Hop
 ): NonEmptyReadonlyArray<Expr> => {
-	const among = (stored: Expr, value: Expr, type: LawField["type"]): Expr =>
-		amongHeld(
-			supply,
-			stored,
-			held.cte,
-			(h) =>
-				transformExpr(value, {
-					...identityHooks,
-					expr: (e) => (e.kind === "column" && e.table === held.alias ? { ...e, table: h } : e)
-				}),
-			operatorSchemaOf(w.names, type)
-		)
+	/** `value` read of a held row given under `h`. */
+	const readAt = (value: Expr, h: string): Expr =>
+		transformExpr(value, {
+			...identityHooks,
+			expr: (e) => (e.kind === "column" && e.table === held.alias ? { ...e, table: h } : e)
+		})
+	/** The stored field `field` of `relation` among the held rows' values of it, or, where a key installs it over its
+	 * image, its image's column among their images, whose index the key's holds in its place. */
+	const among = (relation: RelationInfo, field: LawField, value: Expr): Expr => {
+		const image = w.image(relation.name, field.name)
+		return image === undefined
+			? amongHeld(
+					supply,
+					storedAt(w, relation, hop.alias, field),
+					held.cte,
+					(h) => readAt(value, h),
+					operatorSchemaOf(w.names, field.type)
+				)
+			: amongHeld(
+					supply,
+					col(hop.alias, image),
+					held.cte,
+					(h) => textDigestForm(w.names.library, readAt(value, h)),
+					undefined
+				)
+	}
 	return hop.kind === "group"
-		? mapNonEmpty(hop.family.group, (g) =>
-				among(storedAt(w, hop.family.member, hop.alias, g.member), hop.at(g), g.member.type)
-			)
-		: mapNonEmpty(accessFields(hop), (f) =>
-				among(storedAt(w, hop.relation, hop.alias, f), hop.at(f), f.type)
-			)
+		? mapNonEmpty(hop.family.group, (g) => among(hop.family.member, g.member, hop.at(g)))
+		: mapNonEmpty(accessFields(hop), (f) => among(hop.relation, f, hop.at(f)))
 }
 
 /**

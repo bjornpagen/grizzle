@@ -89,6 +89,7 @@ import {
 	type Requested
 } from "#compiler/write/insert/unique.ts"
 import {
+	arbiterColumns,
 	atFields,
 	type MetAccess,
 	metAtObject,
@@ -568,7 +569,7 @@ export const buildInsert = (
 				case "returned":
 					return {
 						kind: "columns",
-						columns: mapNonEmpty(pk, column),
+						columns: arbiterColumns(w, relation.name, relation.uniques.arbiter),
 						action: { kind: "doSelect", where: undefined }
 					}
 			}

@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { KeyImage } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { RecordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
@@ -276,6 +277,7 @@ export type LawColumnHolds =
 	| { readonly kind: "constant"; readonly target: string; readonly field: string }
 	| { readonly kind: "drawn"; readonly field: string }
 	| { readonly kind: "predecessor"; readonly field: string }
+	| { readonly kind: "image"; readonly image: KeyImage; readonly of: LawColumnHolds }
 
 /**
  * A column an index key reads: a field of the relation, by its declared name, or a law column the law model adds to the

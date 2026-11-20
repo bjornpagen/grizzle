@@ -664,17 +664,27 @@ const setAt = <K, V>(map: Map<K, Map<string, V>>, outer: K, inner: string, value
 	map.set(outer, within)
 }
 
-/** What a law column the law model planned holds (LawColumnHolds), by the field whose values it holds. */
-const holdsOf = (plan: LawColumnPlan, field: string): LawColumnHolds => {
+/** What a law column the law model planned holds (LawColumnHolds), by the field whose values it holds: an image by
+ * what the column it is the image of holds, a field's as a term over every row is. */
+const holdsOf = (plan: LawColumnPlan): LawColumnHolds => {
 	switch (plan.kind) {
 		case "term":
-			return { kind: "term", field }
+			return { kind: "term", field: plan.term.column.name }
 		case "constant":
 			return { kind: "constant", target: plan.target.name, field: plan.field.name }
 		case "drawn":
 			return { kind: "drawn", field: plan.field.name }
 		case "indexPred":
 			return { kind: "predecessor", field: plan.field.name }
+		case "image":
+			return {
+				kind: "image",
+				image: plan.image,
+				of:
+					plan.of.kind === "field"
+						? { kind: "term", field: plan.of.field.name }
+						: holdsOf(plan.of.column)
+			}
 	}
 }
 
@@ -759,7 +769,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 	const holds = new Map<string, Map<string, LawColumnHolds>>()
 	for (const n of installation.laws.natives) {
 		if (n.namespace === "column") {
-			setAt(holds, n.object.relation.name, n.object.column, holdsOf(n.plan, n.object.field.name))
+			setAt(holds, n.object.relation.name, n.object.column, holdsOf(n.plan))
 		}
 	}
 	const creates = new Map<NameKey, CreateTable>()

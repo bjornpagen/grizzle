@@ -76,10 +76,10 @@ import {
 	type DomainCheckTerm,
 	type DomainNative,
 	familyKey,
-	fieldColumn,
 	isSpanField,
 	keyTuple,
 	type LawColumnValue,
+	type LawColumnValues,
 	type LawField,
 	type LawRelation,
 	type NativeColumn,
@@ -103,6 +103,7 @@ import {
 	type CheckPredicate,
 	type LawColumnPlan,
 	type LawPlan,
+	mayHoldNull,
 	type NativePlan,
 	type PlannedColumn,
 	type PlannedSpanKey,
@@ -119,6 +120,7 @@ import {
 import { rowColumn, wideRow } from "#compiler/laws/model/rows.ts"
 import { type RelationLaws, relationLaws } from "#compiler/laws/model/uniques.ts"
 import { lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
+import { bytesType } from "#compiler/scalar/compute/types.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { guardedTerm } from "#compiler/scalar/natural.ts"
 import { ProgramPatterns, tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -185,17 +187,56 @@ export type NamedNative =
 	| { readonly object: DomainNative; readonly namespace: "domain" }
 	| { readonly object: NativeOf<"RosterDomain" | "ReverseIndex">; readonly namespace: "unnamed" }
 
-/** A primary key's native object: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS. */
+/**
+ * The image law columns a key installs fields over in their place (plan.ts keyedAs), each one per field: every native
+ * over a field's image names one column, its identity the field's and its image's.
+ */
+export interface FieldImages {
+	/** The image column of a field of `relation`, by the field's name; none for a field no key, UNIQUE or reference
+	 * holds by its image. */
+	readonly columnOf: (relation: string, field: string) => ColumnIdent | undefined
+	/**
+	 * The field a native column of `relation` compares, by its arm: a field itself, or the field whose image a law column
+	 * is, two rows agreeing at the image exactly where they agree at the field; none for any other law column, a term's,
+	 * a constant's or a drawn one's, or an image of one.
+	 */
+	readonly compared: (relation: string, column: NativeColumn) => LawField | undefined
+}
+
+/** The image law columns of fields among `natives` (`FieldImages`). */
+export const fieldImages = (natives: ReadonlyArray<NamedNative>): FieldImages => {
+	const columns = new Map<string, Map<string, ColumnIdent>>()
+	const fields = new Map<string, Map<ColumnIdent, LawField>>()
+	for (const n of natives) {
+		if (n.namespace !== "column" || n.plan.kind !== "image" || n.plan.of.kind !== "field") {
+			continue
+		}
+		const relation = n.object.relation.name
+		const field = n.plan.of.field
+		columns.set(
+			relation,
+			(columns.get(relation) ?? new Map<string, ColumnIdent>()).set(field.name, n.object.column)
+		)
+		fields.set(
+			relation,
+			(fields.get(relation) ?? new Map<ColumnIdent, LawField>()).set(n.object.column, field)
+		)
+	}
+	return {
+		columnOf: (relation, field) => columns.get(relation)?.get(field),
+		compared: (relation, column) =>
+			column.kind === "field" ? column.field : fields.get(relation)?.get(column.column)
+	}
+}
+
+/** A primary key's native object: a PRIMARY KEY, or a primary key WITHOUT OVERLAPS, its span a field. */
 export type PrimaryNative =
 	| NativeOf<"PrimaryKey">
 	| (Omit<NativeOf<"WithoutOverlaps">, "span" | "key"> & {
 			readonly span: { readonly kind: "field"; readonly field: SpanField }
 			readonly key: {
 				readonly kind: "primary"
-				readonly scalars: NonEmptyReadonlyArray<{
-					readonly kind: "field"
-					readonly field: LawField
-				}>
+				readonly scalars: NonEmptyReadonlyArray<NativeColumn>
 			}
 	  })
 
@@ -232,19 +273,26 @@ type Merged =
 			readonly law: TheoryLaw
 	  }
 
-/** A primary key's planned object as the model holds it, discharging `lawIds`, each column a field. */
+/** A primary key's planned object as the model holds it, discharging `lawIds`, each column as `column` reads it. */
 const primaryNative = (
 	plan: PrimaryKeyPlan,
-	lawIds: NonEmptyReadonlyArray<LawId>
+	lawIds: NonEmptyReadonlyArray<LawId>,
+	column: (c: PlannedColumn) => NativeColumn
 ): PrimaryNative => {
 	if (plan.kind === "PrimaryKey") {
-		return { ...plan, lawIds }
+		return {
+			kind: "PrimaryKey",
+			relation: plan.relation,
+			columns: mapNonEmpty(plan.columns, column),
+			named: plan.named,
+			lawIds
+		}
 	}
 	return {
 		kind: "WithoutOverlaps",
 		relation: plan.relation,
 		span: plan.span,
-		key: plan.key,
+		key: { kind: "primary", scalars: mapNonEmpty(plan.key.scalars, column) },
 		named: plan.named,
 		lawIds
 	}
@@ -492,12 +540,7 @@ const nativeIdentity = (
 ): NativeIdentity => {
 	switch (object.kind) {
 		case "PrimaryKey":
-			return keyTuple(
-				scalarKeySet(
-					object.relation.name,
-					mapNonEmpty(object.columns, (field) => fieldColumn(field))
-				)
-			)
+			return keyTuple(scalarKeySet(object.relation.name, object.columns))
 		case "Unique":
 			return keyTuple(scalarKeySet(object.relation.name, object.columns))
 		case "WithoutOverlaps":
@@ -875,7 +918,7 @@ class ColumnLowering {
 		if (known !== undefined) {
 			return known
 		}
-		const value = this.#lower(row, plan, loc)
+		const value = plan.kind === "image" ? this.#image(row, plan, loc) : this.#lower(row, plan, loc)
 		row.values.set(named.canonical, value)
 		this.#roots.push(
 			this.#ext.project(row.region, [
@@ -888,7 +931,7 @@ class ColumnLowering {
 
 	#lower(
 		row: ColumnRow,
-		plan: Exclude<LawColumnPlan, { readonly kind: "drawn" }>,
+		plan: Exclude<LawColumnPlan, { readonly kind: "drawn" | "image" }>,
 		loc: SourceLoc
 	): Extract<LawColumnValue, { readonly kind: "generated" }> {
 		switch (plan.kind) {
@@ -920,6 +963,41 @@ class ColumnLowering {
 				}
 			}
 		}
+	}
+
+	/**
+	 * An image's value (laws/model/plan.ts keyedAs): the digest of its column's value, lowered as that column's is, under
+	 * its column's guard: a field's own value, a term's under its side's selection, a constant's literal, or a drawn
+	 * column read by its identifier.
+	 */
+	#image(
+		row: ColumnRow,
+		plan: Extract<LawColumnPlan, { readonly kind: "image" }>,
+		loc: SourceLoc
+	): Extract<LawColumnValue, { readonly kind: "image" }> {
+		const of = plan.of
+		const read = (field: string, lawColumns: ReadonlyMap<string, ScalarType>): ScalarExpr =>
+			unwrap(lowerTerm(guardedTerm({ kind: "field", field }).term, this.#env(row, loc, lawColumns)))
+				.expr
+		const value = ((): Pick<
+			Extract<LawColumnValue, { readonly kind: "image" }>,
+			"guard" | "term"
+		> => {
+			if (of.kind === "field") {
+				return { guard: [], term: read(of.field.name, new Map()) }
+			}
+			const column = of.column
+			switch (column.kind) {
+				case "term":
+				case "constant":
+					return this.#lower(row, column, loc)
+				case "drawn": {
+					const ident = this.#identifier(column)
+					return { guard: [], term: read(ident, new Map([[ident, column.field.type]])) }
+				}
+			}
+		})()
+		return { kind: "image", image: plan.image, ...value }
 	}
 
 	#guard(row: ColumnRow, predicate: ExprDesc, text: string, loc: SourceLoc): ScalarExpr {
@@ -1338,7 +1416,7 @@ class Specializer {
 			const columns = [
 				...r.fields.map((f) => rowColumn(f.desc, false)),
 				...(lawColumns.get(r.name) ?? []).map((c) =>
-					rowColumn(c.field.desc, c.value.kind === "generated" && c.value.guard.length > 0)
+					rowColumn(c.holds.desc, c.value.kind !== "drawn" && c.value.guard.length > 0)
 				)
 			]
 			const refused = wideRow(r.name, columns, heapTupleMaxBytes)
@@ -1451,7 +1529,8 @@ class Specializer {
 		const laws: [LawId, ...Array<LawId>] = [pk.law.id]
 		const object = primaryNative(
 			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
-			laws
+			laws,
+			(c) => this.#column(c)
 		)
 		byKey.set(
 			nativeIdentity(object, (side) => this.recognizer.closedSideOrdinal(side)),
@@ -1564,6 +1643,13 @@ class Specializer {
 		const lawIds: NonEmptyReadonlyArray<LawId> = [plan.law.id]
 		switch (n.kind) {
 			case "PrimaryKey":
+				return {
+					kind: "PrimaryKey",
+					relation: n.relation,
+					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
+					named: n.named,
+					lawIds
+				}
 			case "RosterDomain":
 				return { ...n, lawIds }
 			case "WithoutOverlaps": {
@@ -1649,15 +1735,11 @@ class Specializer {
 					kind: "LawColumn",
 					relation: c.relation,
 					column: this.#lawColumn(c),
-					field: heldField(c),
+					holds: heldValues(c),
 					value:
 						n.value.kind === "drawn"
 							? n.value
-							: {
-									kind: "generated",
-									guard: n.value.guard.map(renamed),
-									term: renamed(n.value.term)
-								},
+							: { ...n.value, guard: n.value.guard.map(renamed), term: renamed(n.value.term) },
 					lawIds
 				}
 			}
@@ -1786,16 +1868,22 @@ class Specializer {
 const isKeyLaw = (law: TheoryLaw): boolean =>
 	law.detail.kind === "key" || law.detail.kind === "projectedKey"
 
-/** The field whose values a law column holds, its type the column's and an index entry over it sized as one of the
- * field's: a term's own field, a constant's target field, a drawn column's or a counted predecessor's count. */
-const heldField = (c: LawColumnPlan): LawField => {
+/**
+ * The values a law column holds (ir/law.ts LawColumnValues), its type the column's and an index entry over it sized by
+ * its descriptor: a field's, a term's own field, a constant's target field, a drawn column's or a counted predecessor's
+ * count; or an image's, the digest of its column, 32 bytes of bytea.
+ */
+const heldValues = (c: LawColumnPlan): LawColumnValues => {
+	const nullable = mayHoldNull(c)
 	switch (c.kind) {
 		case "constant":
 		case "drawn":
 		case "indexPred":
-			return c.field
+			return { type: c.field.type, desc: c.field.desc, nullable }
 		case "term":
-			return c.term.column
+			return { type: c.term.column.type, desc: c.term.column.desc, nullable }
+		case "image":
+			return { type: bytesType, desc: { kind: "digest", image: c.image }, nullable }
 	}
 }
 
@@ -1822,6 +1910,15 @@ const lawColumnIdentity = (plan: LawColumnPlan): Identity<"lawColumn"> => {
 			return identity.lawColumn(plan.named)
 		case "indexPred":
 			return identity.lawColumn(plan.named)
+		case "image":
+			return identity.lawColumn({
+				kind: "image",
+				image: plan.image,
+				of:
+					plan.of.kind === "field"
+						? { kind: "field", field: plan.of.field.name }
+						: { kind: "law", column: lawColumnIdentity(plan.of.column) }
+			})
 	}
 }
 

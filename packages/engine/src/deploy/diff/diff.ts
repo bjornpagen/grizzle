@@ -480,6 +480,40 @@ interface KeptTable {
 	readonly reexpressed: ReadonlySet<string>
 }
 
+/**
+ * A table's primary key columns, in key order: as its CREATE TABLE declares the key, or, where the key reads a column a
+ * law adds, a field's image, as the key's own ALTER TABLE ... ADD CONSTRAINT among `objects` adds it.
+ */
+const primaryKeyColumns = (
+	objects: ReadonlyArray<AnyObject>,
+	create: CreateTable
+): NonEmptyReadonlyArray<string> => {
+	const declared = create.primaryKey ?? ownPrimaryKey(objects, create.table)
+	return mapNonEmpty(declared.columns, (k) => k.column)
+}
+
+/** The primary key of `table` its own ALTER TABLE ... ADD CONSTRAINT among `objects` adds: a table holds one. */
+const ownPrimaryKey = (
+	objects: ReadonlyArray<AnyObject>,
+	table: ObjectName
+): Extract<TableConstraint, { readonly kind: "primaryKey" }> => {
+	for (const o of objects) {
+		const v = installed(o)
+		if (
+			v.kind === "primaryKey" &&
+			v.placement.kind === "own" &&
+			v.placement.constraint.kind === "primaryKey" &&
+			nameKey(v.table) === nameKey(table)
+		) {
+			return v.placement.constraint
+		}
+	}
+	return refuse(
+		`${table.schema}.${table.name}`,
+		"a table whose primary key its CREATE TABLE or its own ALTER TABLE declares"
+	)
+}
+
 /** The fate of the column `column` of a table both install, the one every part of the previous table is built over
  * has: a column its table lacks is a malformed snapshot. */
 const columnFate = (kept: KeptTable, column: string): ColumnFate =>
@@ -2472,8 +2506,8 @@ class Differ {
 		if (head === undefined || kept === undefined || !this.mayHoldRows(t)) {
 			return undefined
 		}
-		const key = mapNonEmpty(kept.create.primaryKey.columns, (k) => k.column)
-		const held = mapNonEmpty(kept.old.primaryKey.columns, (k) => k.column)
+		const key = primaryKeyColumns(this.input.target.manifest.objects, kept.create)
+		const held = primaryKeyColumns(this.input.previous.manifest.objects, kept.old)
 		if (!held.every((column) => column !== c.name && key.includes(column))) {
 			const at = relationLoc(this.input.installation, head.relation)
 			const rule = { kind: "addedOverRows", key, held } as const

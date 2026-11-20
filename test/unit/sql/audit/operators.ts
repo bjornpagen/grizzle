@@ -405,10 +405,13 @@ const constraints =
 	(f: (c: TableConstraint) => ReadonlyArray<TableConstraint>) =>
 	(s: SqlStatement): ReadonlyArray<SqlStatement> => {
 		if (s.kind === "createTable") {
+			const declared = s.primaryKey
 			return [
-				...Arr.flatMap(f(s.primaryKey), (v) =>
-					v.kind === "primaryKey" ? [{ ...s, primaryKey: v }] : []
-				),
+				...(declared === undefined
+					? []
+					: Arr.flatMap(f(declared), (v) =>
+							v.kind === "primaryKey" ? [{ ...s, primaryKey: v }] : []
+						)),
 				...Arr.flatMap(s.secondary, (c, i) =>
 					Arr.flatMap(f(c), (v) =>
 						v.kind === "unique" || v.kind === "exclude" || v.kind === "check"
@@ -1383,15 +1386,16 @@ const requiredBreakTable = breakTable([
 		rule: "scope",
 		holes: {
 			...noHoles,
-			statement: createTables((t) => {
-				const [first, ...rest] = t.primaryKey.columns
+			statement: createTables((t): ReadonlyArray<CreateTable> => {
+				const declared = t.primaryKey
+				if (declared === undefined) {
+					return []
+				}
+				const [first, ...rest] = declared.columns
 				return [
 					{
 						...t,
-						primaryKey: {
-							...t.primaryKey,
-							columns: [{ ...first, column: "no_such_column" }, ...rest]
-						}
+						primaryKey: { ...declared, columns: [{ ...first, column: "no_such_column" }, ...rest] }
 					}
 				]
 			})

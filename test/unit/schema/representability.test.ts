@@ -47,7 +47,6 @@ import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
 import {
 	armOf,
-	boundedDatums,
 	boundOf,
 	boundsAbove,
 	btreeTupleBytes,
@@ -59,6 +58,7 @@ import {
 	fixedTyplens,
 	gistDatumGen,
 	type GistFeature,
+	keyedDatums,
 	gistKeyBytes,
 	gistTupleBytes,
 	greedyAlternatives,
@@ -331,8 +331,8 @@ export const keyTextBytesIsTheMostBytesATextHoldsBesideItsFieldsInEveryIndexGriz
 		]
 	})
 
-/** B-tree entries (nbtree.h BTMaxItemSize) refuses a key with an unbounded field or a worst-case entry above the item limit, and admits every other. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
-export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAWorstCaseEntryAboveTheItemLimitAndAdmitsEveryOther =
+/** B-tree entries (nbtree.h BTMaxItemSize) hold a text no pattern bounds by its digest and refuse a key whose worst-case entry is above the item limit, and admit every other. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
+export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigestAndRefuseAKeyWhoseWorstCaseEntryIsAboveTheItemLimitAndAdmitEveryOther =
 	property.explore(
 		(source) => ({
 			fields: source.draw(nonEmptyOf(keyFieldGen, 4)),
@@ -359,7 +359,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 			budget: { runs: 150, steered: 150 },
 			situations: [
 				"admitted",
-				"refused, unbounded",
+				"imaged",
 				"refused, over the limit",
 				"at the limit, admitted",
 				"at the limit, refused",
@@ -381,13 +381,10 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 					const owned = ownValue(
 						schema("Keys", [Kind, R], s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
 					)
-					const bounded = boundedDatums(fields)
-					if (bounded.length < fields.length) {
-						c.note("refused, unbounded")
-						refused(owned, "UnrepresentableKey")
-						return
+					if (Arr.some(fields, (f) => f.kind === "wildcard")) {
+						c.note("imaged")
 					}
-					const admitted = btreeTupleBytes(bounded) <= postgresBtreeMaxItem
+					const admitted = btreeTupleBytes(keyedDatums(fields)) <= postgresBtreeMaxItem
 					if (planted) {
 						c.note(admitted ? "at the limit, admitted" : "at the limit, refused")
 					}
@@ -401,7 +398,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 				}),
 			oracle: {
 				kind: "second-implementation",
-				name: "BTMaxItemSize and pg_type's sizes and alignments, restated"
+				name: "BTMaxItemSize and pg_type's sizes and alignments, restated, a text no pattern bounds held as SHA-256's 32 bytes"
 			},
 			kept: [],
 			kills: [
@@ -410,6 +407,18 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyWithAnUnboundedFieldOrAW
 					original: ") - alignUp(itemPointerBytes, maxAlign)",
 					replacement: ") - alignUp(itemPointerBytes, maxAlign) + 16",
 					why: "BTMaxItemSize sixteen bytes past PostgreSQL's."
+				},
+				{
+					file: "packages/engine/src/schema/representability.ts",
+					original: 'imagedText(desc) ? "textDigest" : undefined',
+					replacement: "undefined",
+					why: "A text of no byte bound keyed by itself again, which no entry holds: its key refused."
+				},
+				{
+					file: "packages/engine/src/schema/representability.ts",
+					original: 'textDigest: fixed(varlenaHeaderBytes + sha256Bytes, 4, "bytea")',
+					replacement: 'textDigest: fixed(varlenaHeaderBytes, 4, "bytea")',
+					why: "The digest counted at no byte, so a key the image overfills is admitted."
 				}
 			]
 		}

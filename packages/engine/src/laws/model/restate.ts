@@ -642,6 +642,18 @@ const lawColumnStatement = (
 				term: { kind: plan.term.kind, field: spell.field(plan.relation.name, plan.term.field) },
 				selection: spell.conjuncts(plan.relation, plan.selection).map((c) => c.text)
 			}
+		case "image":
+			return {
+				kind: "image",
+				image: plan.image,
+				of:
+					plan.of.kind === "field"
+						? { kind: "field", field: spell.field(plan.relation.name, plan.of.field.name) }
+						: {
+								kind: "law",
+								column: identity.lawColumn(lawColumnStatement(plan.of.column, spell, law))
+							}
+			}
 		case "drawn":
 		case "indexPred": {
 			const named = plan.named

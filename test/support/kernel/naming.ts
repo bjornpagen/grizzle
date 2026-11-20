@@ -42,12 +42,7 @@ import {
 } from "#compiler/ir/desc.ts"
 
 import { type Codebook, codeOf, firstCodebook } from "#compiler/ir/codes.ts"
-import {
-	fieldNames,
-	type NativeColumn,
-	type NativeObject,
-	type NativeOf
-} from "#compiler/ir/law.ts"
+import { type NativeColumn, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
@@ -475,7 +470,7 @@ const constraintsOf = (
 	): ReadonlyArray<NamedConstraint> => [{ ident, relation, kind, fields, object: object.kind }]
 	switch (object.kind) {
 		case "PrimaryKey":
-			return named("pk", object.relation.name, fieldNames(object.columns))
+			return named("pk", object.relation.name, Arr.map(object.columns, indexedName))
 		case "WithoutOverlaps":
 			return named(
 				object.key.kind === "primary" ? "pk" : "key",

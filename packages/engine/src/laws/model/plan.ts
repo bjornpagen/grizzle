@@ -31,7 +31,12 @@ import { type RegionFacts, wholeRule } from "#compiler/analysis/theory/unit.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { CompileError, type ProseTag, prose } from "#compiler/core/errors.ts"
-import type { DeclaredName, Identity, LawColumnStatement } from "#compiler/core/identity.ts"
+import type {
+	DeclaredName,
+	Identity,
+	KeyImage,
+	LawColumnStatement
+} from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { type CellSide, sideOf } from "#compiler/ir/cells.ts"
@@ -69,8 +74,8 @@ import { type CombineFn, combine, monoidSpecs } from "#compiler/ir/monoid.ts"
 import { closedCell } from "#compiler/ir/rel.ts"
 import { baseOf, rosterOf, type ScalarType, sameScalarType } from "#compiler/ir/scalar.ts"
 import { keyOf, literalKey } from "#compiler/laws/model/names.ts"
+import { bytesType } from "#compiler/scalar/compute/types.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
-import { indexMaxKeys } from "#compiler/schema/representability.ts"
 import {
 	type BtreeEntryBytes,
 	btreeEntry,
@@ -78,7 +83,10 @@ import {
 	datumBound,
 	type EntryColumn,
 	type GistEntryBytes,
-	gistEntry
+	gistEntry,
+	indexMaxKeys,
+	keyImageDatum,
+	keyImageOf
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -104,7 +112,9 @@ const unrepresentable = (
  *   from the row;
  * - a drawn column of a family (`Drawn`), a plain column the host writes and the family's foreign keys and CHECKs
  *   prove, holding values of `field`;
- * - a counted family's ‹p›, pred of its drawn index, generated from the row.
+ * - a counted family's ‹p›, pred of its drawn index, generated from the row;
+ * - the image a key, a UNIQUE or a reference installs a column `of` over in its place (`keyedAs`), generated from the
+ *   row: a text of no byte bound's digest, Compute.sha256 of the column, NULL where the column is.
  *
  * A field term over every fact is the field itself, never a law column (`sideColumns`).
  */
@@ -141,10 +151,30 @@ export type LawColumnPlan =
 			/** The drawn index the predecessor is pred of. */
 			readonly index: LawColumnPlan
 	  }
+	| {
+			readonly kind: "image"
+			readonly relation: RelationInfo
+			readonly of: ImagedColumn
+			readonly image: KeyImage
+	  }
+
+/**
+ * A column a key installs over its image (`keyedAs`): a field, or a law column of a term, a constant or a drawn fold
+ * accumulator, whose values are a field's.
+ */
+export type ImagedColumn =
+	| { readonly kind: "field"; readonly field: LawField }
+	| {
+			readonly kind: "law"
+			readonly column: Extract<LawColumnPlan, { readonly kind: "term" | "constant" | "drawn" }>
+	  }
 
 /** A family's law column as the naming door states it (core/identity.ts LawColumnStatement): a drawn one's, by its
  * family and what it draws. */
-export type DrawnStatement = Exclude<LawColumnStatement, { readonly kind: "constant" | "term" }>
+export type DrawnStatement = Exclude<
+	LawColumnStatement,
+	{ readonly kind: "constant" | "term" | "image" }
+>
 
 /** A column a planned native reads: a field, or a law column. */
 export type PlannedColumn =
@@ -197,6 +227,8 @@ const plannedField = (c: PlannedColumn): LawField => {
 		case "drawn":
 		case "indexPred":
 			return column.field
+		case "image":
+			return plannedField(column.of)
 	}
 }
 
@@ -206,11 +238,19 @@ const plannedField = (c: PlannedColumn): LawField => {
  * hold: it is counted at its roster's handles, the fewest codes the roster can have, so the count refuses only an entry
  * certainly past the bound.
  */
-const plannedDatum = (c: PlannedColumn): DatumBound | undefined => fieldDatum(plannedField(c))
+const plannedDatum = (c: PlannedColumn): DatumBound | undefined =>
+	c.kind === "law" && c.column.kind === "image"
+		? keyImageDatum[c.column.image]
+		: fieldDatum(plannedField(c))
 
-/** A planned column as a refusal names it: a field by its name, a law column by what it holds. */
+/** A planned column as a refusal names it: a field by its name, a law column by what it holds, an image as the column
+ * it stands in the place of. */
 const plannedText = (c: PlannedColumn): string =>
-	c.kind === "field" ? c.field.name : lawColumnText(c.column)
+	c.kind === "field"
+		? c.field.name
+		: c.column.kind === "image"
+			? plannedText(c.column.of)
+			: lawColumnText(c.column)
 
 /**
  * The B-tree entry of an index the law model plans over `columns`, a UNIQUE or a reverse index, proved within
@@ -241,12 +281,24 @@ const plannedEntry = (
 	return proved.ok ? proved.value : unrepresentable(loc, subject, key, proved.error)
 }
 
-/** A planned column as an index entry holds it: a field NOT NULL, a law column possibly NULL. */
+/** A planned column as an index entry holds it: a field NOT NULL, a law column possibly NULL, an image where the column
+ * it is the image of is, since the digest of a value is never NULL. */
 const entryColumn = (c: PlannedColumn, datum: DatumBound): EntryColumn => ({
 	name: plannedText(c),
 	datum,
-	nullable: c.kind === "law"
+	nullable: mayBeNull(c)
 })
+
+/** Whether a planned column may hold NULL in an index entry: a law column (`mayHoldNull`), never a field. */
+const mayBeNull = (c: PlannedColumn): boolean => c.kind === "law" && mayHoldNull(c.column)
+
+/**
+ * Whether a law column may hold NULL, as an index entry and a row over it count it: an image where the column it is the
+ * image of may, a field's never, since the digest of a value is never NULL; any other, which a guard or a predecessor's
+ * first slot leaves NULL, counted as one that may.
+ */
+export const mayHoldNull = (c: LawColumnPlan): boolean =>
+	c.kind !== "image" || (c.of.kind === "law" && mayHoldNull(c.of.column))
 
 /** A planned column with its datum, where its datum is bounded. */
 interface BoundedColumn<C extends PlannedColumn> {
@@ -263,7 +315,10 @@ interface BoundedColumn<C extends PlannedColumn> {
  * below that only refuses an entry certainly past the limit. A reverse index is chosen to fit (`btreeRun`,
  * `plannedPeriodReverse`), so its run reads this bound from above: the index engine never refuses the run it picks.
  */
-const createdDatum = (c: PlannedColumn): DatumBound | undefined => datumBound(plannedField(c).desc)
+const createdDatum = (c: PlannedColumn): DatumBound | undefined =>
+	c.kind === "law" && c.column.kind === "image"
+		? keyImageDatum[c.column.image]
+		: datumBound(plannedField(c).desc)
 
 /** The columns of `columns` whose datum is bounded in an index the engine creates (`createdDatum`), in their order. */
 const boundedColumns = <C extends PlannedColumn>(
@@ -436,6 +491,75 @@ const sideText = (side: ResolvedSide): string =>
 const lawColumn = (column: LawColumnPlan): PlannedColumn => ({ kind: "law", column })
 
 /**
+ * The image a key, a UNIQUE or a reference installs a planned column over in its place (schema/representability.ts
+ * keyImageOf), read off the field whose values it holds; none for an image itself, or a counted predecessor, a natural.
+ */
+const imageOf = (c: PlannedColumn): KeyImage | undefined =>
+	c.kind === "law" && (c.column.kind === "image" || c.column.kind === "indexPred")
+		? undefined
+		: keyImageOf(plannedField(c).desc)
+
+/**
+ * A planned column of `relation` as an index over it holds it under `image`: the column itself, or the law column of
+ * its image in its place, generated from the row, which a key, a UNIQUE or a reference compares as it would the column,
+ * two rows agreeing there exactly where they agree at the column (schema/representability.ts keyImageOf).
+ */
+const keyedAs = (
+	relation: RelationInfo,
+	c: PlannedColumn,
+	image: KeyImage | undefined
+): PlannedColumn => {
+	if (image === undefined) {
+		return c
+	}
+	if (c.kind === "field") {
+		return lawColumn({ kind: "image", relation, of: c, image })
+	}
+	const column = c.column
+	switch (column.kind) {
+		case "term":
+		case "constant":
+		case "drawn":
+			return lawColumn({ kind: "image", relation, of: { kind: "law", column }, image })
+		case "indexPred":
+		case "image":
+			throw defect(
+				`an image of a field, a term, a constant or a drawn column of ${relation.name}; ${lawColumnText(column)} is none`
+			)
+	}
+}
+
+/** The columns a key, a UNIQUE or an index over `columns` of `relation` installs, each under its own image. */
+const keyedColumns = <C extends PlannedColumn>(
+	relation: RelationInfo,
+	columns: NonEmptyReadonlyArray<C>
+): NonEmptyReadonlyArray<PlannedColumn> =>
+	mapNonEmpty(columns, (c) => keyedAs(relation, c, imageOf(c)))
+
+/**
+ * A reference's columns as installed: each target column under its own image (`keyedColumns`), and each source column
+ * under its target column's, so the two sides of every pair compare alike.
+ */
+const keyedReference = (
+	from: RelationInfo,
+	columns: NonEmptyReadonlyArray<PlannedColumn>,
+	to: RelationInfo,
+	targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+): {
+	readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+	readonly targetColumns: NonEmptyReadonlyArray<PlannedColumn>
+} => ({
+	columns: mapNonEmpty(columns, (c, i) =>
+		keyedAs(from, c, imageOf(defined(targetColumns[i], "a target column per source column")))
+	),
+	targetColumns: keyedColumns(to, targetColumns)
+})
+
+/** A planned column as its logical column, the column of which an image is the image. */
+const unimaged = (c: PlannedColumn): PlannedColumn =>
+	c.kind === "law" && c.column.kind === "image" ? c.column.of : c
+
+/**
  * What a leaf of a generated CHECK's predicate names beyond its relation's fields: a law column of the relation at the
  * type of the values it holds, or a literal at its type.
  */
@@ -475,7 +599,8 @@ export type NativePlan =
 	| {
 			readonly kind: "PrimaryKey"
 			readonly relation: RelationInfo
-			readonly columns: NonEmptyReadonlyArray<LawField>
+			/** Its key's fields as installed, each a field or its image in its place (`keyedColumns`). */
+			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
@@ -607,9 +732,24 @@ const lawColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<Native
 		c.kind === "law" ? [...dependencies(c.column), { kind: "LawColumn", column: c.column }] : []
 	)
 
-/** The law columns a law column's value reads, which must stand beside it: a counted predecessor reads its index. */
-const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> =>
-	column.kind === "indexPred" ? [{ kind: "LawColumn", column: column.index }] : []
+/**
+ * The law columns a law column's value reads, which must stand beside it: a counted predecessor reads its index, and the
+ * image of a drawn column that column; an image of a field, a term or a constant is generated from the row's fields.
+ */
+const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> => {
+	switch (column.kind) {
+		case "indexPred":
+			return [{ kind: "LawColumn", column: column.index }]
+		case "image":
+			return column.of.kind === "law" && column.of.column.kind === "drawn"
+				? [{ kind: "LawColumn", column: column.of.column }]
+				: []
+		case "constant":
+		case "term":
+		case "drawn":
+			return []
+	}
+}
 
 /**
  * The columns a side lowers to, one per term (§ partial projections): a field term of an unselected side is its field;
@@ -652,20 +792,29 @@ export type PrimaryKeyPlan =
 			readonly span: FieldColumn<SpanField>
 			readonly key: {
 				readonly kind: "primary"
-				readonly scalars: NonEmptyReadonlyArray<FieldColumn>
+				readonly scalars: NonEmptyReadonlyArray<PlannedColumn>
 			}
 			readonly named: Identity<"primaryKey" | "key">
 	  })
 
 /**
  * The native object of the primary key `key` of `r`: a PRIMARY KEY over a scalar key, or its span field last WITHOUT
- * OVERLAPS. A primary key whose only field is a span has no native lowering: PostgreSQL's PRIMARY KEY needs a column
- * before WITHOUT OVERLAPS (42601), and an exclusion constraint is no primary key, so it is UnrepresentableKey.
+ * OVERLAPS, each field in its image's place where it has one (`keyedColumns`). A primary key whose only field is a span
+ * has no native lowering: PostgreSQL's PRIMARY KEY needs a column before WITHOUT OVERLAPS (42601), and an exclusion
+ * constraint is no primary key, so it is UnrepresentableKey.
  */
 export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): PrimaryKeyPlan => {
 	const { fields, span, named } = key
 	if (span === undefined) {
-		return { kind: "PrimaryKey", relation: r, columns: fields, named }
+		return {
+			kind: "PrimaryKey",
+			relation: r,
+			columns: keyedColumns(
+				r,
+				mapNonEmpty(fields, (f) => fieldColumn(f))
+			),
+			named
+		}
 	}
 	const scalars = fields.filter((f) => f !== span)
 	if (!isNonEmpty(scalars)) {
@@ -674,7 +823,10 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
 			field: span.name
 		})
 	}
-	const scalarColumns = mapNonEmpty(scalars, (f) => fieldColumn(f))
+	const scalarColumns = keyedColumns(
+		r,
+		mapNonEmpty(scalars, (f) => fieldColumn(f))
+	)
 	return {
 		kind: "WithoutOverlaps",
 		relation: r,
@@ -1670,7 +1822,7 @@ class RowConditions {
 	}
 }
 
-/** The type of the values a law column holds: its field's. */
+/** The type of the values a law column holds: its field's, or an image's, a digest's bytea. */
 const heldType = (column: LawColumnPlan): ScalarType => {
 	switch (column.kind) {
 		case "constant":
@@ -1679,6 +1831,8 @@ const heldType = (column: LawColumnPlan): ScalarType => {
 			return column.field.type
 		case "term":
 			return column.term.column.type
+		case "image":
+			return bytesType
 	}
 }
 
@@ -1691,6 +1845,7 @@ const isGenerated = (c: PlannedColumn): boolean => {
 		case "term":
 		case "constant":
 		case "indexPred":
+		case "image":
 			return true
 		case "drawn":
 			return false
@@ -2082,11 +2237,16 @@ export class Recognizer {
 	): ReadonlyArray<NativePlan> {
 		const { fields, span, primary, named } = d.key
 		if (primary) {
-			return [primaryKeyPlan(rel, d.key, loc)]
+			const pk = primaryKeyPlan(rel, d.key, loc)
+			return [...lawColumns(pk.kind === "PrimaryKey" ? pk.columns : pk.key.scalars), pk]
 		}
 		if (span === undefined) {
-			const columns = mapNonEmpty(fields, fieldColumn)
+			const columns = keyedColumns(
+				rel,
+				mapNonEmpty(fields, (f) => fieldColumn(f))
+			)
 			return [
+				...lawColumns(columns),
 				{
 					kind: "Unique",
 					relation: rel,
@@ -2095,8 +2255,11 @@ export class Recognizer {
 				}
 			]
 		}
-		const scalars = fields.filter((f) => f !== span).map(fieldColumn)
+		const scalars = fields
+			.filter((f) => f !== span)
+			.map((f) => keyedAs(rel, fieldColumn(f), imageOf(fieldColumn(f))))
 		return [
+			...lawColumns(scalars),
 			{
 				kind: "WithoutOverlaps",
 				relation: rel,
@@ -2117,7 +2280,7 @@ export class Recognizer {
 	 * is a span field, its law column last. */
 	#projectedKey(side: ResolvedSide, loc: SourceLoc): ReadonlyArray<NativePlan> {
 		const relation = tableOf(side.rel)
-		const columns = sideColumns(side)
+		const columns = keyedColumns(relation, sideColumns(side))
 		const span = spanTermOf(side, loc)
 		if (span === undefined) {
 			return [
@@ -2296,8 +2459,13 @@ export class Recognizer {
 	): ReadonlyArray<NativePlan> {
 		const fromRel = tableOf(from.rel)
 		const toRel = tableOf(to.rel)
-		const sourceColumns = sideColumns(from)
-		const reference = this.#reference(to, sourceColumns, fromRel, toRel, loc, part)
+		const side = sideColumns(from)
+		const referenced = this.#reference(to, side, fromRel, toRel, loc, part)
+		const reference = keyedReference(fromRel, referenced.columns, toRel, referenced.targetColumns)
+		/** The source's own columns as the reference installs them, which its columns list first (`#reference`). */
+		const sourceColumns = mapNonEmpty(side, (_, i) =>
+			defined(reference.columns[i], "a referencing column per term of the source")
+		)
 		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
 		return [
 			...lawColumns(reference.columns),
@@ -2333,9 +2501,10 @@ export class Recognizer {
 		containment: string,
 		loc: SourceLoc
 	): ReadonlyArray<NativePlan> {
-		const fields = columns.flatMap((c): ReadonlyArray<NativeColumn> =>
-			c.kind === "field" ? [c] : []
-		)
+		const fields = columns.flatMap((c): ReadonlyArray<NativeColumn> => {
+			const logical = unimaged(c)
+			return logical.kind === "field" ? [logical] : []
+		})
 		const declared =
 			isNonEmpty(fields) &&
 			fields.length === columns.length &&
@@ -2411,8 +2580,12 @@ export class Recognizer {
 				"a coverage law whose span pair is one of its pairs"
 			)
 		}
-		const sourceColumns = sideColumns(from)
-		const targetColumns = sideColumns(to)
+		const { columns: sourceColumns, targetColumns } = keyedReference(
+			fromRel,
+			sideColumns(from),
+			toRel,
+			sideColumns(to)
+		)
 		const sourceSpan = defined(sourceColumns[at], "a coverage source's span column")
 		const targetSpan = defined(targetColumns[at], "a coverage target's span column")
 		const sourceScalars = sourceColumns.filter((_, i) => i !== at)
@@ -2552,6 +2725,8 @@ export class Recognizer {
 				case "drawn":
 				case "indexPred":
 					return true
+				case "image":
+					return column.of.kind === "field" ? written(column.of.field) : lawFed(column.of.column)
 			}
 		}
 		return targets.some((c) => (c.kind === "field" ? written(c.field) : lawFed(c.column)))
@@ -2771,14 +2946,16 @@ class FamilyPlanner {
 			this.#combine(fold, i)
 		}
 
+		const numbering = keyedColumns(member, familyKeyColumns)
+		const successors = keyedColumns(member, successorKey)
 		const natives: ReadonlyArray<NativePlan> = [
-			...lawColumns([copy, index, pred, ...group, lastPred]),
+			...lawColumns([copy, index, pred, ...group, lastPred, ...numbering, ...successors]),
 			{
 				kind: "Unique",
 				relation: member,
-				columns: familyKeyColumns,
+				columns: numbering,
 				entry: plannedEntry(
-					familyKeyColumns,
+					numbering,
 					`the UNIQUE of ${member.name} that ${familyText(this.#shape())} numbers its members by`,
 					this.#loc
 				)
@@ -2786,9 +2963,9 @@ class FamilyPlanner {
 			{
 				kind: "Unique",
 				relation: member,
-				columns: successorKey,
+				columns: successors,
 				entry: plannedEntry(
-					successorKey,
+					successors,
 					`the UNIQUE of ${member.name} that holds each member of ${familyText(this.#shape())} the predecessor of at most one`,
 					this.#loc
 				)
@@ -2998,13 +3175,20 @@ class FamilyPlanner {
 		onUpdate: OnUpdate,
 		deferral: ForeignKeyDeferral
 	): AxisPlan {
-		const columns = extendNonEmpty(
-			source.base,
-			pairs.map((p) => p.from)
+		const { columns, targetColumns } = keyedReference(
+			source.relation,
+			extendNonEmpty(
+				source.base,
+				pairs.map((p) => p.from)
+			),
+			target.relation,
+			extendNonEmpty(
+				target.base,
+				pairs.map((p) => p.to)
+			)
 		)
-		const targetColumns = extendNonEmpty(
-			target.base,
-			pairs.map((p) => p.to)
+		const reverseColumns = mapNonEmpty(source.keyed, (_, i) =>
+			defined(columns[i], "a source column per keyed column, which its base leads with")
 		)
 		const generated = columns.find(isGenerated)
 		if (onUpdate === "cascade" && generated !== undefined) {
@@ -3040,7 +3224,7 @@ class FamilyPlanner {
 				deferral,
 				laws: [own, ...laws],
 				reverse: plannedReverse(
-					source.keyed,
+					reverseColumns,
 					`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references its target's key from`,
 					this.#loc
 				)
@@ -3200,5 +3384,7 @@ const lawColumnText = (c: LawColumnPlan): string => {
 			}`
 		case "indexPred":
 			return `indexPred ${c.named.owner}.${c.named.count}`
+		case "image":
+			return `${c.image} of ${c.of.kind === "field" ? c.of.field.name : lawColumnText(c.of.column)}`
 	}
 }
