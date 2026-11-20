@@ -1,3 +1,4 @@
+import { utf8Length, utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { Effect, Option, String as Str } from "effect"
 import type { FileSystem, PlatformError, Stream } from "effect"
 import { parseStrictJson } from "#load/json.ts"
@@ -19,15 +20,17 @@ export interface Loaded {
 	readonly value: Json
 }
 
-const hasBom = (bytes: Uint8Array): boolean =>
-	bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
-
-const decoder = new TextDecoder("utf-8", { fatal: true })
+/** A byte order mark, which grizzle-text's utf8Text keeps as a character. */
+const BYTE_ORDER_MARK = "\uFEFF"
 
 /**
- * The text of UTF-8 bytes, `None` when they are not valid UTF-8.
+ * A document's text past a leading byte order mark, which the loader skips, and the byte offset the text starts at, so
+ * a refusal's offset counts the mark's bytes.
  */
-const decodeUtf8 = Option.liftThrowable((bytes: Uint8Array): string => decoder.decode(bytes))
+const pastMark = (text: string): readonly [text: string, base: number] =>
+	Str.startsWith(BYTE_ORDER_MARK)(text)
+		? [Str.slice(BYTE_ORDER_MARK.length)(text), utf8Length(BYTE_ORDER_MARK)]
+		: [text, 0]
 
 /**
  * Loads one document from bytes already read. The first non-whitespace character picks the
@@ -39,14 +42,14 @@ export const loadBytes = Effect.fn("load.loadBytes")(function* loadBytes(
 ): Effect.fn.Return<Loaded, LoadRefusal> {
 	const { document } = options
 
-	return yield* Option.match(decodeUtf8(bytes), {
+	return yield* Option.match(Option.map(Option.fromUndefinedOr(utf8Text(bytes)), pastMark), {
 		onNone: () => refuse(document, "DOC-14/invalid-encoding", wholeInput),
-		onSome: (text) =>
+		onSome: ([text, base]) =>
 			Str.startsWith("{")(Str.trimStart(text))
-				? parseStrictJson(text, document, hasBom(bytes) ? 3 : 0).pipe(
+				? parseStrictJson(text, document, base).pipe(
 						Effect.map((value): Loaded => ({ document, format: "json", value }))
 					)
-				: parseStrictYaml(text, document, hasBom(bytes) ? 3 : 0).pipe(
+				: parseStrictYaml(text, document, base).pipe(
 						Effect.map((value): Loaded => ({ document, format: "yaml", value }))
 					)
 	})

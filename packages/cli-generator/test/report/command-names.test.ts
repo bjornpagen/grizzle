@@ -71,25 +71,25 @@ export const commandNames = property.explore(namesSpace, {
 	budget: { runs: 4, steered: 40 },
 	kills: [
 		{
-			file: "packages/generator/src/generate.ts",
+			file: "packages/cli-generator/src/generate.ts",
 			original: "refusedBy(refusals, entry.command.operation) ? [] : [commandName(entry)]",
 			replacement: "[commandName(entry)]",
 			why: "A refused operation's commands are listed beside the emitted ones; the property fails."
 		},
 		{
-			file: "packages/generator/src/generate.ts",
+			file: "packages/cli-generator/src/generate.ts",
 			original: "\tif (command.alias !== undefined) {",
 			replacement: "\tif (command.alias === undefined) {",
 			why: "An alias command is listed with no alias index; the property fails."
 		},
 		{
-			file: "packages/generator/src/generate.ts",
+			file: "packages/cli-generator/src/generate.ts",
 			original: "path: [...namesOf(group), command.name]",
 			replacement: "path: [group.name, command.name]",
 			why: "A command of a nested group is listed without its parent groups' names; the property fails."
 		},
 		{
-			file: "packages/generator/src/generate.ts",
+			file: "packages/cli-generator/src/generate.ts",
 			original:
 				"\t\t...Arr.map(group.commands, (command) => ({ command, path: [...namesOf(group), command.name] })),\n\t\t...Arr.flatMap(\n\t\t\tArr.filter(plan.groups, (child) => child.parent === group.tag),\n\t\t\twalk\n\t\t)",
 			replacement:
@@ -97,7 +97,7 @@ export const commandNames = property.explore(namesSpace, {
 			why: "A group's child groups are walked before its own commands, so the order is not design 8.3's; the property fails."
 		},
 		{
-			file: "packages/generator/src/generate.ts",
+			file: "packages/cli-generator/src/generate.ts",
 			original:
 				"\treturn [\n\t\t...Arr.flatMap(\n\t\t\tArr.filter(plan.groups, (group) => group.parent === undefined),\n\t\t\twalk\n\t\t),\n\t\t...Arr.map(plan.root, (command) => ({ command, path: [command.name] }))\n\t]",
 			replacement:
@@ -105,7 +105,7 @@ export const commandNames = property.explore(namesSpace, {
 			why: "The root's commands are listed before the groups', so the order is not design 8.3's; the property fails."
 		},
 		{
-			file: "packages/generator/src/report/index.ts",
+			file: "packages/cli-generator/src/report/index.ts",
 			original: '(scheme) => scheme.source === "author-supplied"',
 			replacement: '(scheme) => scheme.source !== "author-supplied"',
 			why: "A scheme the author config adds is left out of authorSuppliedSchemes; the property fails."

@@ -17,7 +17,7 @@ import {
 	subset,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { jsonTextOf, type Json } from "@superstarter/json"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, FileSystem, Option, Path, Record } from "effect"
 import { generate } from "#generate.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
@@ -422,8 +422,8 @@ export const outcomeOf = (c: NamesCase, dir: string) =>
 		const path = yield* Path.Path
 		const specPath = path.join(dir, "openapi.json")
 		const configPath = path.join(dir, "author-config.json")
-		yield* fs.writeFileString(specPath, jsonTextOf(documentJson(c)))
-		yield* fs.writeFileString(configPath, jsonTextOf(configJson(c)))
+		yield* fs.writeFileString(specPath, jsonText(documentJson(c)))
+		yield* fs.writeFileString(configPath, jsonText(configJson(c)))
 		const { report } = yield* generate(
 			{
 				document,
