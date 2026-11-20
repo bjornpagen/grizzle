@@ -1,9 +1,11 @@
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Layer } from "effect"
+import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "effect"
 import { Db } from "#adapter/public/db.ts"
+import { partRuns } from "#adapter/reader/execution.ts"
+import { identity } from "#compiler/core/identity.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	type Answer,
@@ -16,16 +18,35 @@ import {
 	factsTemplate,
 	featureOf,
 	features,
+	expectedRead,
 	givenOf,
 	gone,
+	type ReadFeature,
+	type ReadSketch,
 	readBits,
+	readFeatureOf,
+	readFeatures,
+	readGivenOf,
+	reads,
+	readSketchGen,
+	storeRec,
 	type Sketch,
 	sketchGen,
 	storedBits
 } from "#test/pg/write/fact-sets/fact-sets.fixtures.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { answered } from "#test/support/calls.ts"
+import {
+	compileTemplate,
+	declaredOf,
+	installedCodes,
+	paramTexts,
+	testCompile
+} from "#test/support/compile.ts"
+import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { conservativeServedJson, servedFixtureOf } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+import { outputRows } from "#test/support/wire.ts"
 
 /**
  * A parameter relation's facts are stored with the bits they were written with, on PostgreSQL 19, by the optimized
@@ -229,6 +250,93 @@ export const aParameterRelationsFactsAreStoredWithTheBitsTheyWereWrittenWithByBo
 				replacement:
 					"\tconst leftOperand = { targets: mapNonEmpty(left.columns, (c) => c.target), signs: 0 }\n\tconst rightOperand = { targets: mapNonEmpty(right.columns, (c) => c.target), signs: 0 }",
 				why: "The conservative realization's state difference compares under PostgreSQL's equality, so a put of +0 over a stored -0 reads back no change."
+			}
+		]
+	})
+
+/**
+ * A read of a parameter relation delivers each of its facts, on PostgreSQL 19 by both lowerings: -0 and +0 at otherwise
+ * equal fields are two rows, read whole, filtered or joined to a stored fact, each with the bits it was written with;
+ * a projection that drops a field is a merge, which delivers +0 for either zero.
+ */
+export const aReadOfAParameterRelationDeliversEachOfItsFactsByBothLoweringsAndAProjectionThatDropsAFieldTheCanonicalZero =
+	property.exhaust(finite(readSketchGen), {
+		needs: { fixture: Substrate.seat(factsTemplate) },
+		situations: readFeatures satisfies ReadonlyArray<Reached<ReadFeature>>,
+		check:
+			({ fixture }, c: Case<ReadFeature>) =>
+			(s: ReadSketch) =>
+				Effect.scoped(
+					Effect.flatMap(fixture, (taken) =>
+						Effect.provideService(
+							Effect.gen(function* () {
+								const sub = yield* Substrate
+								const o = yield* openedIn(Facts, {}, factsInstall, taken)
+								yield* storeRec(o.installed)
+								const query = reads[s.read]
+								const options = {
+									...testCompile,
+									installation: identity.schema(parsedSchemaName(o.installed.declared)),
+									codes: installedCodes(o.installed.names.codes)
+								}
+								const template = succeeded(
+									compileTemplate(query, undefined, options),
+									"the read compiles"
+								)
+								const artifact =
+									s.lowering === "optimized" ? template.runs.optimized : template.runs.conservative
+								const spec = artifact.statement.spec
+								const params = paramTexts(
+									spec,
+									{ s: at.s, variable: at.variable, given: readGivenOf(s) },
+									declaredOf(template, query, undefined, options)
+								)
+								const rows = yield* sub.admin.queryValues(spec.sql, params)
+								const [run] = partRuns(
+									artifact.parts,
+									outputRows(Arr.map(rows, (row) => Arr.map(row, (cell) => String(cell))))
+								)
+								const place = Option.getOrThrowWith(
+									Arr.findFirstIndex(spec.heading, (h) => h.name === "value"),
+									() => new Error("the read's value column")
+								)
+								const delivered: ReadonlyArray<string> = Arr.sort(
+									Arr.map(run ?? [], (cells) =>
+										bitsOf(Number(defined(cells[place], "a row's value")))
+									),
+									Str.Order
+								)
+								const model = expectedRead(s)
+								assert.deepEqual(
+									delivered,
+									model,
+									`${Formatter.format(s)}: delivered ${Formatter.format(delivered)}, the fact identity gives ${Formatter.format(model)}`
+								)
+								c.note(readFeatureOf(s))
+							}),
+							Substrate,
+							taken.substrate
+						)
+					)
+				),
+		oracle: {
+			kind: "specification",
+			name: "the fact identity: a read delivers each fact of a parameter relation by its bits but NaN's, and a projection's merge the canonical zero"
+		},
+		box: "each read of a parameter relation (whole, filtered, joined to a stored fact, projected without its field) by each lowering, its facts one, one stated twice, or two at one variable and field, each of both zeros, NaN, both least subnormals, the least normal and 1.5",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/compare.ts",
+				original: "\t\treturn carrier === undefined ? [] : [negativeZero(c.target.expr, carrier)]",
+				replacement: "\t\treturn []",
+				why: "The conservative read's parameter relation is SELECT DISTINCT under PostgreSQL's equality, so -0 and +0 at otherwise equal fields are one row, whichever its plan meets first."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\tfloat8: (v) => floatText(v),",
+				replacement: "\tfloat8: (v) => floatText(v === 0 ? 0 : v),",
+				why: "The codec holds -0 and +0 one fact of a parameter relation, so neither lowering's read delivers both."
 			}
 		]
 	})

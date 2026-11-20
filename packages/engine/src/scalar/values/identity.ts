@@ -490,7 +490,9 @@ const canonicalTexts: CanonicalTexts = {
  * state, a join variable's value, the merged zero is +0, so no plan picks one. A write stores the facts it states: a
  * parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, -0 and +0 two of them,
  * so a -0 a write states is stored as -0 wherever it reads the relation, and two facts at one key that differ only in a
- * zero's sign are refused as two facts (ir/compare.ts factSet, check/checker.ts RowsOf). min and max of floats order -0
+ * zero's sign are refused as two facts (ir/compare.ts factSet, check/checker.ts RowsOf). A read of a parameter relation
+ * delivers each of its facts, so -0 and +0 at otherwise equal fields are two rows; a read's own merges, a projection
+ * that drops a field, a union or a group's key, take +0 as every merge does. min and max of floats order -0
  * below 0, and a float sum or mean whose exact value is zero is -0 exactly when every value it sums is; any other float
  * that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign
  * (check/merge.ts, scalar/aggregate.ts, lower/conservative/expr/total.ts roundToFloat). This module is the host side,

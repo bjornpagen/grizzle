@@ -410,3 +410,164 @@ export const factsInstall = Object.freeze({ label: "fact_sets", programs })
 
 /** Facts installed as `grizzle generate` drafts it, once per member: the template every case clones. */
 export const factsTemplate = fixtureTemplate(import.meta, Facts, factsInstall)
+
+/** A read of `given` whole, each fact its variable, field and value. */
+const readWhole = query(Facts).rule((r) => {
+	const given = r.relation("given", {
+		variable: pg.bigint,
+		field: pg.bigint,
+		value: pg["double precision"]
+	})
+	const { variable, field, value } = v(given, "given")
+	return r.match(given, { variable, field, value }).find({ variable, field, value })
+})
+
+/** `given` filtered by its variable. */
+const readFiltered = query(Facts).rule((r) => {
+	const given = r.relation("given", {
+		variable: pg.bigint,
+		field: pg.bigint,
+		value: pg["double precision"]
+	})
+	const { variable, field, value } = v(given, "given")
+	return r
+		.match(given, { variable, field, value })
+		.where(r.eq(variable, r.param("variable", pg.bigint)))
+		.find({ variable, field, value })
+})
+
+/** `given` joined to Rec's stored fact at its variable and field. */
+const readJoined = query(Facts).rule((r) => {
+	const given = r.relation("given", {
+		variable: pg.bigint,
+		field: pg.bigint,
+		value: pg["double precision"]
+	})
+	const { variable, field, value } = v(given, "given")
+	const { base } = v(Rec, "rec")
+	return r
+		.match(given, { variable, field, value })
+		.match(Rec, { s: r.param("s", pg.bigint), variable, field, base })
+		.find({ variable, field, value, base })
+})
+
+/** `given` with its field dropped: a merge, which takes each float's canonical zero. */
+const readProjected = query(Facts).rule((r) => {
+	const given = r.relation("given", {
+		variable: pg.bigint,
+		field: pg.bigint,
+		value: pg["double precision"]
+	})
+	const { variable, field, value } = v(given, "given")
+	return r.match(given, { variable, field, value }).find({ variable, value })
+})
+
+/** The reads of a parameter relation, by name: whole, filtered, joined to a stored fact, and projected. */
+export const reads = Object.freeze({
+	whole: readWhole,
+	filtered: readFiltered,
+	joined: readJoined,
+	projected: readProjected
+})
+export type Read = keyof typeof reads
+const readNames = [
+	"whole",
+	"filtered",
+	"joined",
+	"projected"
+] as const satisfies ReadonlyArray<Read>
+
+/** The lowering a read runs by: the optimized one generate serves, or the conservative baseline. */
+const lowerings = ["optimized", "conservative"] as const
+export type Lowering = (typeof lowerings)[number]
+
+/** A read's case: its lowering, its read, and `given`'s two facts' values at one variable and one field. */
+export interface ReadSketch {
+	readonly lowering: Lowering
+	readonly read: Read
+	readonly first: number
+	readonly second: Option.Option<number>
+}
+
+export const readSketchGen: Gen<ReadSketch> = (source) => ({
+	lowering: source.draw(element(lowerings)),
+	read: source.draw(element(readNames)),
+	first: source.draw(element(values)),
+	second: source.draw(option(element(values)))
+})
+
+/** `given`'s facts of a read's case: one, or two at one variable and one field, which differ in their value alone. */
+export const readGivenOf = (
+	s: ReadSketch
+): ReadonlyArray<{ variable: bigint; field: bigint; value: number }> => [
+	{ variable: at.variable, field: 1n, value: s.first },
+	...Option.match(s.second, {
+		onNone: () => [],
+		onSome: (value) => [{ variable: at.variable, field: 1n, value }]
+	})
+]
+
+/** A float's canonical zero, the value a merge delivers for it: +0 for either zero, every other value itself. */
+const canonical = (x: number): number => (x === 0 ? 0 : x)
+
+/**
+ * The fact identity's answer to a read, each delivered value's bits in order: the whole, filtered and joined reads
+ * deliver each fact of `given`, -0 and +0 two of them, every NaN one; the projection is a merge, which delivers each
+ * value's canonical zero, one row for -0 and +0.
+ */
+export const expectedRead = (s: ReadSketch): ReadonlyArray<string> => {
+	const facts = Arr.dedupeWith(
+		Arr.map(readGivenOf(s), (f) => f.value),
+		sameFact
+	)
+	const delivered =
+		s.read === "projected" ? Arr.dedupeWith(Arr.map(facts, canonical), sameFact) : facts
+	return Arr.sort(Arr.map(delivered, bitsOf), Str.Order)
+}
+
+/** The features a read's case reaches: each read by each lowering of one fact, one fact stated twice, -0 and +0, and two
+ * other facts. */
+export type ReadFeature = `${Lowering}: ${Read} of ${
+	| "one fact"
+	| "one fact twice"
+	| "-0 and +0"
+	| "two other facts"}`
+
+export const readFeatures: Arr.NonEmptyReadonlyArray<ReadFeature> = Arr.flatMap(lowerings, (l) =>
+	Arr.flatMap(
+		readNames,
+		(r) =>
+			[
+				`${l}: ${r} of one fact`,
+				`${l}: ${r} of one fact twice`,
+				`${l}: ${r} of -0 and +0`,
+				`${l}: ${r} of two other facts`
+			] as const
+	)
+)
+
+/** The feature a read's case reaches. */
+export const readFeatureOf = (s: ReadSketch): ReadFeature =>
+	Option.match(s.second, {
+		onNone: (): ReadFeature => `${s.lowering}: ${s.read} of one fact`,
+		onSome: (second): ReadFeature =>
+			sameFact(s.first, second)
+				? `${s.lowering}: ${s.read} of one fact twice`
+				: s.first === second
+					? `${s.lowering}: ${s.read} of -0 and +0`
+					: `${s.lowering}: ${s.read} of two other facts`
+	})
+
+/** Rec's stored fact the joined read meets, at the case's snapshot, variable and field 1. */
+export const storeRec = (installed: Installed): Effect.Effect<void, SqlError, Substrate> =>
+	Effect.gen(function* () {
+		const s = yield* Substrate
+		const column = (field: string) => quoteIdent(installed.names.column("Rec", field))
+		yield* s.admin.queryValues(
+			`INSERT INTO ${printObjectName(installed.names.relation("Rec"))} (${Arr.join(
+				Arr.map(["s", "variable", "field", "base"], column),
+				", "
+			)}) VALUES (7, 1, 1, 1)`,
+			[]
+		)
+	})
