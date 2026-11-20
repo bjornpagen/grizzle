@@ -1317,7 +1317,8 @@ const printExpression = (statement: Extract<Statement, { readonly _tag: "Express
 
 /**
  * A type alias: past column 100 a union breaks, and any other type moves to its own line, as
- * `vp fmt` does.
+ * `vp fmt` does, a union the formatter hugs (`isHuggedUnion`) among them: it moves whole, however
+ * long its line is then (measured with oxfmt).
  */
 const printTypeAlias = (alias: Extract<Statement, { readonly _tag: "TypeAlias" }>) => {
 	const head = `export type ${alias.name} =`
@@ -1327,7 +1328,7 @@ const printTypeAlias = (alias: Extract<Statement, { readonly _tag: "TypeAlias" }
 		? brokenUnion(head, alias.type, 0, alias.name)
 		: {
 				failure: unbreakable(line, alias.type, alias.name),
-				text: textWidth(line) > lineWidth && !isHuggedUnion(alias.type) ? moved : line
+				text: textWidth(line) > lineWidth ? moved : line
 			}
 
 	return succeedUnless(layout.failure, () => withDoc(alias.doc, layout.text))
