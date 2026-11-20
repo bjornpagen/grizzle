@@ -2,8 +2,9 @@ import { firstIndex } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import type { ValueFault } from "#compiler/core/errors.ts"
+import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
+import { isPlainRecord } from "#compiler/core/record.ts"
 import { type TextsKey, textsKey, validateText } from "#compiler/core/text.ts"
 import { int8Max, int8Min } from "#compiler/ir/carriers.ts"
 import { codeOf, type HandleOrder, handlesText, type RosterCodec } from "#compiler/ir/codes.ts"
@@ -688,7 +689,7 @@ export interface HeadingField {
 
 /** A fact refused at the boundary: the fault, and the field it is in when it is about one field. */
 interface FactFault {
-	readonly fault: ValueFault
+	readonly fault: CodecFault
 	readonly field: string | undefined
 }
 
@@ -708,15 +709,6 @@ export interface AdmittedFact {
 }
 
 const fieldOrder = (a: HeadingField, b: HeadingField): number => compareCodePoints(a.name, b.name)
-
-/** A plain object: any non-null object reads every string key as unknown. */
-const isPlainRecord = (value: unknown): value is { readonly [field: string]: unknown } => {
-	if (typeof value !== "object" || value === null || Array.isArray(value)) {
-		return false
-	}
-	const proto: unknown = Object.getPrototypeOf(value)
-	return proto === Object.prototype || proto === null
-}
 
 /**
  * What admitting a fact reads of its heading, worked out once per heading rather than once per fact (the relation
@@ -836,13 +828,26 @@ export interface ReadFact {
 /**
  * Reads a fact against its heading: a plain object whose own keys are exactly the heading's field names, each value
  * admitted by its carrier but a bytes value, which is checked and kept as it is (`ReadFact`). Its shape and each field
- * are read once (hostRead).
+ * are read once (hostRead), so a getter runs once and what it returned is the value admitted.
+ *
+ * A fact is refused by the first fault the one read meets, in the order it reads, which is the order of refusal:
+ * - the fact itself: NULL or undefined is nullValue, the null ban's; anything but a plain record, or one whose own
+ *   keys are not as many as its heading's fields, is factShape;
+ * - then each field in its heading's name order (`HeadingPlan` entries): a field the fact lacks, or one whose read
+ *   throws, is factShape at it; a NULL or undefined value is nullValue at it; a value its carrier does not admit is
+ *   that carrier's fault at it (`admitValue`);
+ * - then a heading that repeats a name refuses the fact as factShape.
+ * So the null ban is one fault among a field's, never a pass of its own: a NULL in a fact of another shape is the
+ * shape's refusal, and a NULL after a field its carrier refuses is that field's.
  *
  * A per-fact hot path: the heading's plan is worked out once per heading, and each fact costs one pass over its
  * fields with no per-field closure, tuple or Option beyond the field's own read.
  */
 export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFact, FactFault> => {
-	if (typeof fact !== "object" || fact === null) {
+	if (fact === null || fact === undefined) {
+		return Result.err({ fault: "nullValue", field: undefined })
+	}
+	if (typeof fact !== "object") {
 		return Result.err({ fault: "factShape", field: undefined })
 	}
 	const keys = hostRead<number, FactFault>(unshapedFact, () =>
@@ -879,19 +884,22 @@ export const readFact = (plan: HeadingPlan, fact: unknown): Result.Result<ReadFa
 
 /**
  * A stated value read as its field's: the one admission of a caller's value of a field, every reader's, a write's facts
- * (readFact), an evaluated row's (program/evaluate.ts admission) and a decoded row's (program/decode.ts): a bytes value
- * checked and kept as it is, its bytes unread (values/bytes.ts checkBytes), or a value admitted already; every other
- * carrier's value its exact parse (parseValue).
+ * (readFact), an evaluated row's (program/evaluate.ts admission) and a decoded row's (program/decode.ts): NULL or
+ * undefined refused by the null ban (nullValue), a field holding no value; a bytes value checked and kept as it is,
+ * its bytes unread (values/bytes.ts checkBytes), or a value admitted already; every other carrier's value its exact
+ * parse (parseValue).
  */
 export const admitValue = (
 	spec: CarrierSpec,
 	value: unknown
-): Result.Result<HostValue | Uint8Array, ValueFault> =>
-	spec.carrier !== "bytes"
-		? parseValue(spec, value)
-		: value instanceof AdmittedBytes
-			? Result.ok(value)
-			: checkBytes(value)
+): Result.Result<HostValue | Uint8Array, CodecFault> =>
+	value === null || value === undefined
+		? Result.err("nullValue")
+		: spec.carrier !== "bytes"
+			? parseValue(spec, value)
+			: value instanceof AdmittedBytes
+				? Result.ok(value)
+				: checkBytes(value)
 
 /**
  * A read value's part of its fact's identity (ReadFact `parts`), from the value admitValue read: a bytes value's length,

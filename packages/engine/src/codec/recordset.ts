@@ -16,7 +16,6 @@ import { nominal } from "#compiler/core/brand.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CodecFault, EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import { compareStrings, sortInPlace } from "#compiler/core/order.ts"
-import { isRecord } from "#compiler/core/record.ts"
 import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Param, ParamText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -298,7 +297,8 @@ const mintNormal = nominal<Pick<NormalFacts, "facts" | "entries">, NormalFacts>(
  *
  * - it parses every field exactly through its carrier (values/identity.ts parseValue), which refuses a value its
  *   column would store as another, numeric(5,2)'s 1.231 among them, so fact identity is the stored value's;
- * - it refuses any null member and any null field (nullValue);
+ * - it refuses any null member and any null field (nullValue), each fact by the first fault its one read meets, the
+ *   fact's own (NULL, then its shape) before its fields', and its fields in name order (values/identity.ts readFact);
  * - it deduplicates complete facts by fact identity (values/identity.ts factIdentity: numeric 1.0 = 1.00, NaN = NaN,
  *   -0 = +0, uuid case), so the input is a set without a DISTINCT;
  * - it encodes canonically: facts in the canonical order of their identities (their keys' order), every column's
@@ -350,23 +350,9 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		}
 		return byteaElementBytes(value.length)
 	}
-	/** One fact read, its refusal unplaced: the null ban, then the fact read against the heading. */
-	const readRow = (fact: unknown): Result.Result<ReadFact, RowRefusal> => {
-		if (fact === null || fact === undefined) {
-			return Result.err({ fault: "nullValue", field: undefined })
-		}
-		if (isRecord(fact)) {
-			for (const column of columns) {
-				if (Object.hasOwn(fact, column.field)) {
-					const value = fact[column.field]
-					if (value === null || value === undefined) {
-						return Result.err({ fault: "nullValue", field: column.field })
-					}
-				}
-			}
-		}
-		return readFact(s.plan, fact)
-	}
+	/** One fact read against the heading, each field once, its refusal unplaced: the first fault of the one read, the null
+	 * ban's among them (scalar/values/identity.ts readFact). */
+	const readRow = (fact: unknown): Result.Result<ReadFact, RowRefusal> => readFact(s.plan, fact)
 	/** A refusal of one fact's read placed in the input. */
 	const place = (refusal: RowRefusal): EncodingFailure =>
 		encodeFailure(refusal.fault, placeOf(s, refusal.field))

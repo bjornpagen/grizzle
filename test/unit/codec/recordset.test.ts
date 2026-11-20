@@ -22,6 +22,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * far past.
  */
 import type { Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import {
@@ -47,80 +48,107 @@ import {
 	type LiteralFeature,
 	normalizeNeed,
 	orderedSets,
-	type Plant,
-	plantSituations,
+	type PlantFeature,
+	plantedMembers,
+	plantedValue,
+	plantFeatures,
+	plantFeaturesOf,
 	readingHeading,
-	refusalCases,
+	ruleOf,
 	scaledSpec,
 	slotSpec,
 	spanCases,
 	spelledReadings,
 	spelledSets,
+	otherReading,
 	statements
 } from "#test/unit/codec/recordset.fixtures.ts"
 import { kindCodes, normalizedBy } from "#test/unit/codec/support.ts"
 import { asDecimal } from "#test/unit/codec/values.ts"
 
 /**
- * Relation normalization refuses a planted member with its word, naming the slot and the field, never the value.
- *
- * Budget: its suite's count before the conversion (unit/codec/recordset-refusals: 300 independent cases and 0 steered,
- * Vitest at grizzle 4ca3036a).
+ * A relation input's member is refused by the first fault of its one read, by one rule (scalar/values/identity.ts
+ * readFact), whatever other faults it holds: the member as a whole first, NULL or undefined (nullValue), then anything
+ * but a plain record of its heading's count of own keys (factShape); then each field in name order, a field it lacks
+ * or whose getter throws (factShape), NULL or undefined (nullValue), or a value its carrier refuses (that carrier's
+ * fault, as the field's one admission gives it, admitValue); the refusal names the slot and the field, never the value.
+ * And each field is read once, exactly where the read reaches it: a getter runs once, or never where the read stops
+ * before its field. The box: every way a member is planted as a whole, crossed with every way each of its three fields
+ * is planted, the member alone or after a valid one.
  */
-export const relationNormalizationRefusesAPlantedMemberWithItsWordNamingTheSlotAndTheFieldNeverTheValue =
-	property.explore(refusalCases, {
+export const aRelationInputsMemberIsRefusedByTheFirstFaultOfItsOneReadByOneRuleEachFieldReadOnce =
+	property.exhaust(finite(plantedMembers), {
+		box: "a member planted as a whole (a fact, NULL, undefined, a number, an array, a record of another prototype, a fact with a key past its heading's) crossed with each of its three fields planted (its value, its value through a getter, no such field, NULL, undefined, a value its carrier refuses, a getter that throws), alone or after a valid member",
 		needs: { normalizeNeed },
-		situations: plantSituations,
+		situations: plantFeatures satisfies ReadonlyArray<Reached<PlantFeature>>,
 		check:
-			({ normalizeNeed }, c: Case<`plant ${Plant}`>) =>
-			({ facts, at, plant, field, bad }) =>
+			({ normalizeNeed }, c: Case<PlantFeature>) =>
+			(plant) =>
 				Effect.gen(function* () {
 					const normalize = yield* normalizeNeed
 					return yield* Effect.sync(() => {
-						c.note(`plant ${plant}`)
-						const [member, reason, slot]: readonly [
-							unknown,
-							EncodingFailure["reason"]["_tag"],
-							string | undefined
-						] = (() => {
-							switch (plant) {
-								case "null member":
-									return [null, "nullValue", "readings"]
-								case "null field":
-									return [{ ...bad, [field]: null }, "nullValue", `readings.${field}`]
-								case "undefined field":
-									return [{ ...bad, [field]: undefined }, "nullValue", `readings.${field}`]
-								case "missing field": {
-									const { [field]: _, ...rest } = bad
-									return [rest, "factShape", undefined]
-								}
-								case "extra field":
-									return [{ ...bad, extra: 1 }, "factShape", undefined]
-								case "number for decimal":
-									return [{ ...bad, value: 1.5 }, "decimalNumber", "readings.value"]
-							}
-						})()
-						const members = [
-							...facts.slice(0, at % (facts.length + 1)),
-							member,
-							...facts.slice(at % (facts.length + 1))
-						]
-						const result = normalizedBy(normalize, members)
-						const failure = !result.ok ? result.error : result.value
-						assert.ok(failure instanceof EncodingFailure, plant)
-						assert.equal(failure.reason._tag, reason, plant)
-						if (slot !== undefined) {
-							assert.deepEqual(failure.place, { _tag: "Slot", name: slot }, plant)
+						const { member, reads } = plantedValue(plant)
+						const { refusal, reached } = ruleOf(plant)
+						const result = normalizedBy(
+							normalize,
+							plant.after === "alone" ? [member] : [otherReading, member]
+						)
+						for (const field of fieldsOfReading) {
+							const getter =
+								plant.fields[field] === "its value through a getter" ||
+								plant.fields[field] === "a getter that throws"
+							assert.equal(
+								reads[field],
+								getter && reached.has(field) ? 1 : 0,
+								`${field}'s getter runs once where the read reaches it, never where it stops before`
+							)
 						}
+						for (const feature of plantFeaturesOf(plant, refusal, reached)) {
+							c.note(feature)
+						}
+						if (refusal === undefined) {
+							assert.equal(
+								succeeded(result).count,
+								plant.after === "alone" ? 1 : 2,
+								"a member of no fault is admitted"
+							)
+							return
+						}
+						const failure = failed(result)
+						assert.deepEqual(
+							[failure.reason._tag, failure.place],
+							[
+								refusal.fault,
+								{
+									_tag: "Slot",
+									name: refusal.field === undefined ? "readings" : `readings.${refusal.field}`
+								}
+							],
+							"the rule's first fault, at the slot and its field"
+						)
 					})
 				}),
 		oracle: {
 			kind: "specification",
-			name: "README's Errors and outcomes: the slot and the field named, never the value"
+			name: "the rule of refusal: the member whole, then each field by name, the first fault of one read, each field read once"
 		},
-		budget: { runs: 300, steered: 0 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/codec/recordset.ts",
+				original:
+					"\tconst readRow = (fact: unknown): Result.Result<ReadFact, RowRefusal> => readFact(s.plan, fact)",
+				replacement:
+					'\tconst readRow = (fact: unknown): Result.Result<ReadFact, RowRefusal> => { if (fact === null || fact === undefined) { return Result.err({ fault: "nullValue", field: undefined }) } if (typeof fact === "object") { for (const column of columns) { if (Object.hasOwn(fact, column.field)) { const value = fact[column.field]; if (value === null || value === undefined) { return Result.err({ fault: "nullValue", field: column.field }) } } } } return readFact(s.plan, fact) }',
+				why: "The null ban reads every field the member holds before readFact reads it again, as it did before PERFWRITE: a getter runs twice, and runs on a record of another prototype the read refuses whole; a NULL is refused over the member's shape and over an earlier field's fault, and of two NULLs the first in heading order, not by name."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original:
+					'\tvalue === null || value === undefined\n\t\t? Result.err("nullValue")\n\t\t: spec.carrier !== "bytes"',
+				replacement: '\tspec.carrier !== "bytes"',
+				why: "No admission holds the null ban: a NULL field reaches its carrier's parse and is refused by the carrier's type fault, not nullValue."
+			},
 			{
 				file: "packages/engine/src/scalar/values/decimal.ts",
 				original: "\tconst units = exactUnits(d, typmod.scale)",

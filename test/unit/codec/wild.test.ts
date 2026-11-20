@@ -12,7 +12,6 @@ import { carrierSpecOf, paramEncoder, scalarCodec } from "#compiler/codec/scalar
 import { int4Max } from "#compiler/core/canonical.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
 import { digestOf } from "#compiler/scalar/values/bytes.ts"
-import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { factIdentity, parseValue } from "#compiler/scalar/values/identity.ts"
 import { echoed, outputText, paramText } from "#test/support/wire.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
@@ -211,7 +210,7 @@ export const factIdentityRefusesEveryFactWithAWordAndItsFieldOrAdmitsEveryFieldA
 					c.note("admitted")
 					return
 				}
-				assert.ok(isValueFault(admitted.error.fault), `refused with ${admitted.error.fault}`)
+				assert.ok(isCodecFault(admitted.error.fault), `refused with ${admitted.error.fault}`)
 				c.note(admitted.error.field === undefined ? "refused whole" : "refused at a field")
 				if (drawn.kind === "fields" && Arr.every(drawn.fields, (f) => f.kind === "live")) {
 					assert.fail(

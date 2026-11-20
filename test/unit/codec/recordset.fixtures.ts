@@ -1,6 +1,6 @@
 /** What the properties of recordset.test.ts read: its spaces, models and helpers. */
 
-import { nonEmpty } from "@bjornpagen/testing/assert"
+import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
 	codePoint,
@@ -23,8 +23,11 @@ import {
 	relationNormalizer,
 	type RelationSpec
 } from "#compiler/codec/recordset.ts"
+import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import type { CodecFault } from "#compiler/core/errors.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { admitValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
@@ -54,22 +57,6 @@ interface Scaled {
 	readonly n: Decimal
 }
 
-export type Plant =
-	| "null member"
-	| "null field"
-	| "undefined field"
-	| "missing field"
-	| "extra field"
-	| "number for decimal"
-
-const plants: Arr.NonEmptyReadonlyArray<Plant> = [
-	"null member",
-	"null field",
-	"undefined field",
-	"missing field",
-	"extra field",
-	"number for decimal"
-]
 export const fieldsOfReading = ["id", "value", "raw"] as const
 
 /** A reading as a caller states it. */
@@ -99,9 +86,6 @@ const readingOf =
 		value: source.draw(hundredths),
 		raw: source.draw(anyDouble)
 	})
-
-/** A reading of a drawn id. */
-const readingFact: Gen<Reading> = (source) => source.draw(readingOf(source.draw(uuid(4))))
 
 /** Every character array_in reads as syntax, blanks, and NULL's letters among plain ones. */
 const arrayCell = string(
@@ -139,20 +123,313 @@ interface BoundCase {
 	readonly by: number
 }
 
-/** A refusal case: a set of readings, where a planted member goes among them, the plant, its field and its reading. */
-export const refusalCases = (source: Source) => ({
-	facts: source.draw(uniqueArray(uuid(4), readingOf, { min: 0, max: 4 })),
-	at: source.draw(int(0, 2 ** 31 - 1)),
-	plant: source.draw(element(plants)),
-	field: source.draw(element(fieldsOfReading)),
-	bad: source.draw(readingFact)
+/** A reading's fields, as `fieldsOfReading` names them. */
+type ReadingField = (typeof fieldsOfReading)[number]
+
+/**
+ * What a planted member is as a whole: a fact, NULL, undefined, a number, an array, a record of another prototype than
+ * a plain object's, or a fact holding a key past its heading's.
+ */
+const wholePlants = [
+	"a fact",
+	"a NULL member",
+	"an undefined member",
+	"a number",
+	"an array",
+	"a record of another prototype",
+	"a key past its heading's"
+] as const
+type WholePlant = (typeof wholePlants)[number]
+
+/**
+ * What a planted member's field holds: its value, as a data property or through a getter, or a fault: no such field,
+ * NULL, undefined, a value its carrier refuses, or a getter that throws.
+ */
+const fieldPlants = [
+	"its value",
+	"its value through a getter",
+	"no such field",
+	"NULL",
+	"undefined",
+	"a value its carrier refuses",
+	"a getter that throws"
+] as const
+type FieldPlant = (typeof fieldPlants)[number]
+
+/** A member with any number of faults planted: as a whole, at each field, and whether a valid member comes before it. */
+export interface PlantedMember {
+	readonly whole: WholePlant
+	readonly fields: Readonly<Record<ReadingField, FieldPlant>>
+	readonly after: "alone" | "after a valid member"
+}
+
+/** Every planted member: each whole, each field's every plant, alone and after a valid member. */
+export const plantedMembers: Gen<PlantedMember> = (source) => ({
+	whole: source.draw(element(wholePlants)),
+	fields: {
+		id: source.draw(element(fieldPlants)),
+		value: source.draw(element(fieldPlants)),
+		raw: source.draw(element(fieldPlants))
+	},
+	after: source.draw(element(["alone", "after a valid member"] as const))
 })
 
-/** Every plant's situation. */
-export const plantSituations: ReadonlyArray<`plant ${Plant}`> = Arr.map(
-	plants,
-	(p) => `plant ${p}` as const
+/** A valid reading, which each field of a planted member holds unless its plant says otherwise. */
+const validReading: Reading = {
+	id: "00000000-0000-4000-8000-000000000001",
+	value: Decimal.of("1.25"),
+	raw: 0.5
+}
+
+/** A valid reading of another id, the member a planted one may follow. */
+export const otherReading: Reading = { ...validReading, id: "00000000-0000-4000-8000-000000000002" }
+
+/** A value each field's carrier refuses: a number for a uuid, a JavaScript number for a numeric, a text for a double. */
+const refusedValues: Readonly<Record<ReadingField, unknown>> = { id: 42, value: 1.5, raw: "x" }
+
+/** The fault a field's carrier refuses its refused value by, as the field's one admission gives it (admitValue). */
+const refusedFaults: Readonly<Record<ReadingField, CodecFault>> = Record.map(
+	{ id: types.uuid, value: types.numeric52, raw: types.float8 },
+	(type, field) => {
+		const admitted = admitValue(carrierSpecOf(type, kindCodes), refusedValues[field])
+		return admitted.ok
+			? assert.fail(`${field}'s carrier refuses its refused value`)
+			: admitted.error
+	}
 )
+
+/** A record of another prototype than a plain object's, which a read refuses whole. */
+const otherPrototype = (): object => {
+	const record = {}
+	Reflect.setPrototypeOf(record, { inherited: true })
+	return record
+}
+
+/**
+ * `member` with each field of a reading set on it, each plant's way, in its heading's order, each getter counting its
+ * runs in `reads`.
+ */
+const withFields = (
+	member: object,
+	plant: PlantedMember,
+	reads: Record<ReadingField, number>
+): object => {
+	for (const field of fieldsOfReading) {
+		const value = validReading[field]
+		const plain = (held: unknown) =>
+			Object.defineProperty(member, field, { value: held, enumerable: true, writable: true })
+		switch (plant.fields[field]) {
+			case "its value":
+				plain(value)
+				break
+			case "its value through a getter":
+				Object.defineProperty(member, field, {
+					enumerable: true,
+					get: () => {
+						reads[field] += 1
+						return value
+					}
+				})
+				break
+			case "no such field":
+				break
+			case "NULL":
+				plain(null)
+				break
+			case "undefined":
+				plain(undefined)
+				break
+			case "a value its carrier refuses":
+				plain(refusedValues[field])
+				break
+			case "a getter that throws":
+				Object.defineProperty(member, field, {
+					enumerable: true,
+					get: () => {
+						reads[field] += 1
+						throw new Error(`a planted getter of ${field}`)
+					}
+				})
+				break
+		}
+	}
+	return member
+}
+
+/**
+ * A planted member as a caller states it, and how many times each field's getter has run: its fields set in its
+ * heading's order, each plant's way, under the prototype its whole names.
+ */
+export const plantedValue = (
+	plant: PlantedMember
+): { readonly member: unknown; readonly reads: Readonly<Record<ReadingField, number>> } => {
+	const reads: Record<ReadingField, number> = { id: 0, value: 0, raw: 0 }
+	switch (plant.whole) {
+		case "a NULL member":
+			return { member: null, reads }
+		case "an undefined member":
+			return { member: undefined, reads }
+		case "a number":
+			return { member: 7, reads }
+		case "an array":
+			return { member: [], reads }
+		case "a fact":
+			return { member: withFields({}, plant, reads), reads }
+		case "a record of another prototype":
+			return { member: withFields(otherPrototype(), plant, reads), reads }
+		case "a key past its heading's":
+			return {
+				member: Object.defineProperty(withFields({}, plant, reads), "extra", {
+					value: 1,
+					enumerable: true
+				}),
+				reads
+			}
+	}
+}
+
+/** A refusal as the rule names it: its fault, and its field, none for the member as a whole. */
+export interface RuledRefusal {
+	readonly fault: CodecFault
+	readonly field: ReadingField | undefined
+}
+
+/** A reading's fields in the order the rule reads them: by name. */
+const byName: ReadonlyArray<ReadingField> = Arr.sort(fieldsOfReading, Str.Order)
+
+/** A field plant's fault, none for a field that holds its value. */
+const fieldFault = (field: ReadingField, plant: FieldPlant): CodecFault | undefined => {
+	switch (plant) {
+		case "its value":
+		case "its value through a getter":
+			return undefined
+		case "no such field":
+		case "a getter that throws":
+			return "factShape"
+		case "NULL":
+		case "undefined":
+			return "nullValue"
+		case "a value its carrier refuses":
+			return refusedFaults[field]
+	}
+}
+
+/**
+ * What the rule of refusal reads of a planted member: its refusal, the first fault met reading it once, the member as a
+ * whole first (NULL or undefined is nullValue; anything but a plain record, or one of another count of own keys than
+ * its heading's three, is factShape), then each field in name order, the first fault there; and the fields the read
+ * reaches, each read once, the read stopping at the first fault.
+ */
+export const ruleOf = (
+	plant: PlantedMember
+): { readonly refusal: RuledRefusal | undefined; readonly reached: ReadonlySet<ReadingField> } => {
+	const reached = new Set<ReadingField>()
+	switch (plant.whole) {
+		case "a NULL member":
+		case "an undefined member":
+			return { refusal: { fault: "nullValue", field: undefined }, reached }
+		case "a number":
+		case "an array":
+		case "a record of another prototype":
+			return { refusal: { fault: "factShape", field: undefined }, reached }
+		case "a fact":
+		case "a key past its heading's":
+			break
+	}
+	const keys =
+		Arr.filter(fieldsOfReading, (field) => plant.fields[field] !== "no such field").length +
+		(plant.whole === "a key past its heading's" ? 1 : 0)
+	if (keys !== fieldsOfReading.length) {
+		return { refusal: { fault: "factShape", field: undefined }, reached }
+	}
+	for (const field of byName) {
+		reached.add(field)
+		const fault = fieldFault(field, plant.fields[field])
+		if (fault !== undefined) {
+			return { refusal: { fault, field }, reached }
+		}
+	}
+	return { refusal: undefined, reached }
+}
+
+/** What a planted member's case reaches: which step of the rule refused it, over which other faults, and its getters. */
+export type PlantFeature =
+	| "admitted"
+	| "a NULL member"
+	| "refused as a whole over a field's NULL"
+	| "refused at a missing field its count hides"
+	| "a field's fault over a later field's NULL"
+	| "a NULL over a later field's other fault"
+	| "the first of two NULLs by name"
+	| "a getter run once"
+	| "a getter the read stops before"
+	| "a throwing getter refused"
+
+export const plantFeatures: Arr.NonEmptyReadonlyArray<PlantFeature> = [
+	"admitted",
+	"a NULL member",
+	"refused as a whole over a field's NULL",
+	"refused at a missing field its count hides",
+	"a field's fault over a later field's NULL",
+	"a NULL over a later field's other fault",
+	"the first of two NULLs by name",
+	"a getter run once",
+	"a getter the read stops before",
+	"a throwing getter refused"
+]
+
+/** The features of a planted member, refused by `refusal` and read as far as `reached`. */
+export const plantFeaturesOf = (
+	plant: PlantedMember,
+	refusal: RuledRefusal | undefined,
+	reached: ReadonlySet<ReadingField>
+): ReadonlyArray<PlantFeature> => {
+	const faultAt = (field: ReadingField) => fieldFault(field, plant.fields[field])
+	const after = (field: ReadingField) => Arr.filter(byName, (other) => Str.Order(other, field) > 0)
+	const getters = Arr.filter(
+		fieldsOfReading,
+		(field) => plant.fields[field] === "its value through a getter"
+	)
+	const features: Array<PlantFeature> = []
+	if (Arr.some(getters, (field) => reached.has(field))) {
+		features.push("a getter run once")
+	}
+	if (Arr.some(getters, (field) => !reached.has(field))) {
+		features.push("a getter the read stops before")
+	}
+	if (refusal === undefined) {
+		return [...features, "admitted"]
+	}
+	const { field } = refusal
+	if (field === undefined) {
+		const isNullMember = plant.whole === "a NULL member" || plant.whole === "an undefined member"
+		return isNullMember
+			? [...features, "a NULL member"]
+			: Arr.some(fieldsOfReading, (f) => faultAt(f) === "nullValue")
+				? [...features, "refused as a whole over a field's NULL"]
+				: features
+	}
+	const later = Arr.map(after(field), faultAt)
+	if (refusal.fault === "nullValue") {
+		if (Arr.contains(later, "nullValue")) {
+			features.push("the first of two NULLs by name")
+		}
+		if (Arr.some(later, (fault) => fault !== undefined && fault !== "nullValue")) {
+			features.push("a NULL over a later field's other fault")
+		}
+		return features
+	}
+	if (Arr.contains(later, "nullValue")) {
+		features.push("a field's fault over a later field's NULL")
+	}
+	if (plant.fields[field] === "no such field") {
+		features.push("refused at a missing field its count hides")
+	}
+	if (plant.fields[field] === "a getter that throws") {
+		features.push("a throwing getter refused")
+	}
+	return features
+}
 
 /** A relation of one span column of the fixed width 15. */
 export const slotSpec: RelationSpec = {

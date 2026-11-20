@@ -763,8 +763,10 @@ type AdmittedGroup =
  * is its EncodingFailure whatever law the others break, and a nested write's generated field with no value refuses the
  * application only once every input admits.
  *
- * 1. Admits every fact through its heading's exact carriers: the null ban, the field set, and each value's exact parse
- *    (values/identity.ts parseValue), before fact identity is taken.
+ * 1. Admits every fact through its heading's exact carriers, each fact read once and refused by the first fault of
+ *    that read (values/identity.ts readFact): the fact whole, NULL or of another shape than its heading's, then each
+ *    field in name order, missing, NULL or a value its carrier's exact parse refuses (values/identity.ts admitValue),
+ *    before fact identity is taken.
  * 2. Collapses equal facts: a ChangeSet's facts of one relation are a set by identity (rule 0), so a fact stated twice,
  *    in one array, across arrays or across inserts, is one fact. A nested insert's facts are one set across its stratum (nesting.ts NestedSet):
  *    a fact stated twice with every row it nests is one, and so is each member row it nests.

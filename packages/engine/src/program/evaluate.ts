@@ -38,7 +38,7 @@ import { typingEnv } from "#compiler/analysis/theory/theory.ts"
 import { rowNode } from "#compiler/check/generated.ts"
 import { checkDefinition } from "#compiler/check/index.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
-import { type CodecFault, type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { PublicResult } from "#compiler/core/public-result.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
@@ -67,8 +67,7 @@ import {
 	admitValue,
 	evaluatedValue,
 	type HeadingField,
-	heldValue,
-	type HostValue
+	heldValue
 } from "#compiler/scalar/values/identity.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
@@ -538,10 +537,7 @@ const admission = <R>(
 	Reflect.setPrototypeOf(values, null)
 	for (const field of relation.stated) {
 		const value = fields[field.name]
-		const read: Result.Result<HostValue | Uint8Array, CodecFault> =
-			value === null || value === undefined
-				? Result.err("nullValue")
-				: admitValue(field.spec, value)
+		const read = admitValue(field.spec, value)
 		if (!read.ok) {
 			if (!isRowField<R>(fields, field.name)) {
 				throw defect(`the type of a field ${field.name} the row states`)

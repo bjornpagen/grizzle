@@ -22,7 +22,7 @@ import { boolean, element, int, shuffled } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
-import type { ValueFault } from "#compiler/core/errors.ts"
+import type { CodecFault } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
@@ -199,7 +199,7 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 						const [h, value, refusal]: readonly [
 							ReadonlyArray<HeadingField>,
 							unknown,
-							{ readonly fault: ValueFault; readonly field: string | undefined }
+							{ readonly fault: CodecFault; readonly field: string | undefined }
 						] =
 							malformed === "an extra key"
 								? [heading, { ...fact, extra: 1 }, { fault: "factShape", field: undefined }]
@@ -214,7 +214,7 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 										: malformed === "an array"
 											? [heading, [fact], { fault: "factShape", field: undefined }]
 											: malformed === "null"
-												? [heading, null, { fault: "factShape", field: undefined }]
+												? [heading, null, { fault: "nullValue", field: undefined }]
 												: malformed === "a real past the range"
 													? [
 															heading,
