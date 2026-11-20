@@ -318,8 +318,11 @@ const refusedLaw = (
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: each inline reference inserted under a savepoint,
- * which PostgreSQL's CHECK refuses exactly where its lexical form is not its four parts in order, naming Inline split;
+ * One case in its one transaction, which the case's end rolls back: each inline reference inserted alone, which
+ * PostgreSQL's CHECK refuses exactly where its lexical form is not its four parts in order, naming Inline split, the
+ * transaction rolled back to the savepoint the substrate sets under every statement of a case (substrate.ts
+ * undoneAlone), so a refused insert leaves it as it was: a savepoint the case set itself would be released with that
+ * one, and a rollback to it fail (3B001);
  * then the package's attributes and references, and the judge (SET CONSTRAINTS ALL IMMEDIATE), which refuses exactly
  * where a reference's attribute's lexical form is not its four parts in order, naming Reference split.
  */
@@ -349,7 +352,6 @@ export const runWritten = (
 		}
 		yield* connection.query("SET CONSTRAINTS ALL DEFERRED", [])
 		for (const [element, drawn] of written.inline.entries()) {
-			yield* connection.query("SAVEPOINT inline", [])
 			const refused = yield* refusalOf(
 				connection.query(
 					`INSERT INTO ${inline} (${i("package")}, ${i("element")}, ${i("lexical")}, ${i("lead")}, ${i("target")}, ${i("params")}, ${i("trail")}) VALUES ('p', ${element}, ${literal(drawn.lexical)}, ${literal(drawn.lead)}, ${literal(drawn.target)}, ${literal(drawn.params)}, ${literal(drawn.trail)})`,
@@ -362,10 +364,8 @@ export const runWritten = (
 						message: `the CHECK accepted an inline reference whose lexical form is not its parts in order: ${Formatter.format(drawn)}`
 					})
 				}
-				yield* connection.query("RELEASE SAVEPOINT inline", [])
 				continue
 			}
-			yield* connection.query("ROLLBACK TO SAVEPOINT inline", [])
 			if (split(drawn) || refusedLaw(installed.installation, refused.value) !== inlineLaw) {
 				return yield* new Disagreed({
 					message: `the CHECK refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} an inline reference ${split(drawn) ? "split as its lexical form is" : "naming another law"}: ${Formatter.format(drawn)}`

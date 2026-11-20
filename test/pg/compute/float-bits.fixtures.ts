@@ -124,8 +124,11 @@ const literal = (x: number): string =>
  * row per value by identity with the number of times the multiple holds it: every insert is accepted, -0 and 0 are two
  * rows and every NaN one, each row's stored image is the host's (scalar/compute/float.ts floatBits), and its count the
  * model's; a read by the image, under an index scan or a sequential one, finds exactly the row of that identity, and a
- * read by `=` on the value finds every row `=` holds equal, both zeros for a zero. Then each tally, under a savepoint:
- * accepted exactly when the bag holds its value's identity, so a tally of -0 is refused where the bag holds 0 alone.
+ * read by `=` on the value finds every row `=` holds equal, both zeros for a zero. Then each tally, inserted alone:
+ * accepted exactly when the bag holds its value's identity, so a tally of -0 is refused where the bag holds 0 alone. A
+ * refused insert, a tally's or a value's written with another's image, leaves the transaction as it was, rolled back
+ * to the savepoint the substrate sets under every statement of a case (substrate.ts undoneAlone): a savepoint the case
+ * set itself would be released with that one, and a rollback to it fail (3B001).
  */
 export const runBag = (
 	installed: Installed,
@@ -175,14 +178,12 @@ export const runBag = (
 		}
 		const [value, other] = drawn.mismatched
 		if (floatBits(value) !== floatBits(other)) {
-			yield* connection.query("SAVEPOINT mismatch", [])
 			const refused = yield* refusalOf(
 				connection.query(
 					`INSERT INTO ${bag} (${b("variable")}, ${b("bits")}, ${b("value")}, ${b("count")}) VALUES ('w', ${floatBits(other)}, ${literal(value)}::float8, 1)`,
 					[]
 				)
 			)
-			yield* connection.query("ROLLBACK TO SAVEPOINT mismatch", [])
 			assert.ok(
 				Option.isSome(refused) && refused.value.code === "23514",
 				`the law refuses ${literal(value)} written with ${literal(other)}'s image: ${where}`
@@ -228,7 +229,6 @@ export const runBag = (
 		yield* connection.query("SET LOCAL enable_seqscan = on", [])
 		yield* connection.query("SET LOCAL enable_bitmapscan = on", [])
 		for (const [at, value] of drawn.tallied.entries()) {
-			yield* connection.query("SAVEPOINT tally", [])
 			const refused = yield* refusalOf(
 				connection.query(
 					`INSERT INTO ${tally} (${t("variable")}, ${t("value")}, ${t("at")}) VALUES ('v', ${literal(value)}::float8, ${at})`,
@@ -241,11 +241,9 @@ export const runBag = (
 					held,
 					`a tally of ${literal(value)} accepted where the bag lacks its identity: ${where}`
 				)
-				yield* connection.query("RELEASE SAVEPOINT tally", [])
 				c.note("a tally accepted")
 				continue
 			}
-			yield* connection.query("ROLLBACK TO SAVEPOINT tally", [])
 			assert.ok(
 				!held,
 				`a tally of ${literal(value)} refused (${refused.value.code}) where the bag holds its identity: ${where}`
