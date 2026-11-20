@@ -1,13 +1,14 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
+	Cause,
+	Data,
 	Effect,
 	FileSystem,
 	Match,
 	Option,
 	Path,
 	Runtime,
-	Schema,
 	Stdio,
 	Stream
 } from "effect"
@@ -26,7 +27,8 @@ import type { DocumentSet } from "#load/document-set.ts"
 import { loadBytes } from "#load/index.ts"
 import type { LoadRefusal } from "#load/index.ts"
 import { readOperatorFile, readStreamBytes } from "#load/read.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri, isDocumentUri } from "#model/brands.ts"
+import type { DocumentUri } from "#model/brands.ts"
 import { isDocumentRefusal, sortDiagnostics } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { distinctDiagnostics } from "#normalize/operations.ts"
@@ -41,23 +43,18 @@ import { diagnoseDocument } from "#validate/index.ts"
 /**
  * A run that has already printed everything it has to say on stderr and exits 1 (design 8.1).
  */
-class GeneratorExit extends Schema.TaggedError<GeneratorExit, { readonly brand: unique symbol }>()(
-	"GeneratorExit",
-	{}
-) {
+class GeneratorExit extends Data.TaggedError("GeneratorExit") {
 	override readonly [Runtime.errorExitCode] = 1
 
 	override readonly [Runtime.errorReported] = false
 }
 
 /** The retrieval URI of a specification read from stdin; a file's is its `file:` URL (design 3.3). */
-const stdinDocument = "stdin:"
+const stdinDocument = fixedDocumentUri("stdin:")
 
-const FailureReason = Schema.Struct({ reason: Schema.String })
-
-const FailureSubject = Schema.Struct({ subject: Schema.String })
-
-const decodeDocument = Schema.decodeUnknownEffect(DocumentUri)
+/** A file's `file:` URL as its retrieval URI, or the failure that it is none. */
+const fileDocument = (url: URL): Effect.Effect<DocumentUri, Cause.NoSuchElementError> =>
+	Effect.fromOption(Option.liftPredicate(url.href, isDocumentUri))
 
 const write = (sink: "stderr" | "stdout", text: string): Effect.Effect<void, never, Stdio.Stdio> =>
 	Effect.gen(function* writeGen() {
@@ -82,7 +79,7 @@ const printDiagnostics = (
 ): Effect.Effect<void, never, Stdio.Stdio> => printLines(Arr.map(diagnostics, humanLine))
 
 const exit = (lines: readonly string[]): Effect.Effect<never, GeneratorExit, Stdio.Stdio> =>
-	printLines(lines).pipe(Effect.andThen(Effect.fail(GeneratorExit.make())))
+	printLines(lines).pipe(Effect.andThen(Effect.fail(new GeneratorExit())))
 
 interface Spec {
 	readonly document: DocumentUri
@@ -102,7 +99,7 @@ const specOf = (argument: string) =>
 
 		if (argument === "-") {
 			const stdin: Spec = {
-				document: yield* decodeDocument(stdinDocument),
+				document: stdinDocument,
 				source: { _tag: "Stream", stream: stdio.stdin }
 			}
 
@@ -113,7 +110,7 @@ const specOf = (argument: string) =>
 		const real = yield* fs.realPath(absolute).pipe(Effect.orElseSucceed(() => absolute))
 		const url = yield* path.toFileUrl(real)
 		const file: Spec = {
-			document: yield* decodeDocument(url.href),
+			document: yield* fileDocument(url),
 			source: { _tag: "File", path: argument }
 		}
 
@@ -125,29 +122,52 @@ const configOf = (configPath: string) =>
 		const path = yield* Path.Path
 		const url = yield* path.toFileUrl(path.resolve(configPath))
 
-		return { document: yield* decodeDocument(url.href), path: configPath }
+		return { document: yield* fileDocument(url), path: configPath }
 	})
 
-/**
- * One line for a failure that is not a diagnostic (design 8.1).
- */
-export const failureLine = (error: Exclude<GenerateError, { _tag: "GenerateRefused" }>): string =>
-	Match.value(error).pipe(
-		Match.tag("RunLockHeld", () => "error: another run holds the output directory's lock"),
-		Match.tag("WriteRefused", (refused) => `error: the output was not written (${refused.reason})`),
-		Match.orElse((failure) => {
-			const reason = Option.match(Schema.decodeUnknownOption(FailureReason)(failure), {
-				onNone: () => "",
-				onSome: (found) => ` reason ${sanitizeField(found.reason)}`
-			})
-			const subject = Option.match(Schema.decodeUnknownOption(FailureSubject)(failure), {
-				onNone: () => "",
-				onSome: (found) => ` subject ${sanitizeField(jsonText(found.subject))}`
-			})
+/** A failure the generator prints as one line: every failure of a run but a refusal. */
+type LineFailure = Exclude<GenerateError, { _tag: "GenerateRefused" }>
 
-			return `error: generation failed (${failure._tag})${reason}${subject}`
-		})
-	)
+/** A generation failure's line: its tag, then the fields it names. */
+const generationFailed = (failure: LineFailure, fields: string): string =>
+	`error: generation failed (${failure._tag})${fields}`
+
+/** A failure's reason, a token of its class, after its tag. */
+const reasonField = (reason: string): string => ` reason ${sanitizeField(reason)}`
+
+/** A failure's subject, as its JSON text, every character a line may not hold raw escaped. */
+const subjectField = (subject: string): string => ` subject ${sanitizeField(jsonText(subject))}`
+
+const withSubject = (failure: Extract<LineFailure, { reason: string; subject: string }>): string =>
+	generationFailed(failure, `${reasonField(failure.reason)}${subjectField(failure.subject)}`)
+
+const withReason = (failure: Extract<LineFailure, { reason: string }>): string =>
+	generationFailed(failure, reasonField(failure.reason))
+
+const tagAlone = (failure: LineFailure): string => generationFailed(failure, "")
+
+/**
+ * One line for a failure that is not a diagnostic (design 8.1), by its class: a held lock and a refused write say what
+ * happened; any other failure names its tag and the reason and subject its class carries.
+ */
+export const failureLine = (error: LineFailure): string =>
+	Match.valueTags(error, {
+		RunLockHeld: () => "error: another run holds the output directory's lock",
+		WriteRefused: (refused) => `error: the output was not written (${refused.reason})`,
+		ApiEmitError: withSubject,
+		CliEmitError: withSubject,
+		PrinterError: withSubject,
+		DomainEmitError: withReason,
+		PackageEmitError: withReason,
+		SchemaManifestError: withReason,
+		BodyNotReadable: tagAlone,
+		InvalidInstanceLocation: tagAlone,
+		ParameterNotReadable: tagAlone,
+		RunLockUnavailable: tagAlone,
+		SchemaError: tagAlone,
+		SchemaImportDefect: tagAlone,
+		ValidatorError: tagAlone
+	})
 
 /**
  * Every failure prints and exits 1: a refusal as its diagnostic lines, anything else as one line.
@@ -293,7 +313,7 @@ const generateCommand = Command.make(
 			})
 
 			if (status !== 0) {
-				return yield* GeneratorExit.make()
+				return yield* new GeneratorExit()
 			}
 		})
 ).pipe(Command.withDescription("Generate a CLI package from an OpenAPI document."))
@@ -357,7 +377,7 @@ const validateCommand = Command.make(
 			yield* printDiagnostics(diagnostics)
 
 			if (Arr.some(diagnostics, isDocumentRefusal)) {
-				return yield* GeneratorExit.make()
+				return yield* new GeneratorExit()
 			}
 		})
 ).pipe(Command.withDescription("Check an OpenAPI document without writing anything."))
@@ -413,7 +433,7 @@ const isShowHelp = (error: unknown): error is CliError.ShowHelp =>
  */
 export const main = Command.run(root, { version: generatorManifest.version }).pipe(
 	Effect.catchIf(isShowHelp, (help) =>
-		help.errors.length === 0 ? Effect.void : Effect.fail(GeneratorExit.make())
+		help.errors.length === 0 ? Effect.void : Effect.fail(new GeneratorExit())
 	),
-	Effect.catchIf(CliError.isCliError, () => Effect.fail(GeneratorExit.make()))
+	Effect.catchIf(CliError.isCliError, () => Effect.fail(new GeneratorExit()))
 )

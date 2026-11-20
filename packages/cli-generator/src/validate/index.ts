@@ -5,6 +5,7 @@ import { validate as validate31 } from "@hyperjump/json-schema/openapi-3-1"
 import { validate as validate32 } from "@hyperjump/json-schema/openapi-3-2"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	FileSystem,
 	Option,
@@ -38,26 +39,21 @@ import { manifest } from "#validate/schemas/manifest.ts"
 import { surrogateRefusal, surrogateSites } from "#validate/surrogates.ts"
 
 /**
- * A vendored schema file cannot be read or differs from the manifest.
+ * A vendored schema file cannot be read (`cause` is the read's failure) or differs from the
+ * manifest.
  */
-export class SchemaManifestError extends Schema.TaggedError<
-	SchemaManifestError,
-	{ readonly brand: unique symbol }
->()("SchemaManifestError", {
-	cause: Schema.optionalKey(Schema.Defect()),
-	file: Schema.String,
-	reason: Schema.Literals(["unreadable", "sha256-mismatch"])
-}) {}
+export class SchemaManifestError extends Data.TaggedError("SchemaManifestError")<{
+	readonly cause?: PlatformError.PlatformError | PlatformError.BadArgument
+	readonly file: string
+	readonly reason: "unreadable" | "sha256-mismatch"
+}> {}
 
 /**
  * The validator library failed to register, compile or run a schema.
  */
-export class ValidatorError extends Schema.TaggedError<
-	ValidatorError,
-	{ readonly brand: unique symbol }
->()("ValidatorError", {
-	cause: Schema.Defect()
-}) {}
+export class ValidatorError extends Data.TaggedError("ValidatorError")<{
+	readonly cause: unknown
+}> {}
 
 /**
  * One BASIC output error unit. `instanceLocation` is a URI fragment, not yet decoded (m1-va2).
@@ -110,8 +106,8 @@ export const checkManifest = (
 > =>
 	Effect.forEach(manifest, (entry) =>
 		read(entry.file).pipe(
-			Effect.mapError((cause) =>
-				SchemaManifestError.make({ cause, file: entry.file, reason: "unreadable" })
+			Effect.mapError(
+				(cause) => new SchemaManifestError({ cause, file: entry.file, reason: "unreadable" })
 			),
 			Effect.flatMap((bytes) =>
 				sha256Hex(bytes).pipe(
@@ -119,7 +115,7 @@ export const checkManifest = (
 						hex === entry.sha256
 							? Effect.succeed(bytes)
 							: Effect.fail(
-									SchemaManifestError.make({ file: entry.file, reason: "sha256-mismatch" })
+									new SchemaManifestError({ file: entry.file, reason: "sha256-mismatch" })
 								)
 					)
 				)
@@ -151,7 +147,7 @@ const register = checkManifest(readVendored).pipe(
 		Effect.forEach(files, (bytes) =>
 			decodeSchemaText(textDecoder.decode(bytes)).pipe(
 				Effect.mapBoth({
-					onFailure: (cause) => ValidatorError.make({ cause }),
+					onFailure: (cause) => new ValidatorError({ cause }),
 					onSuccess: schemaObjectOf
 				})
 			)
@@ -159,7 +155,7 @@ const register = checkManifest(readVendored).pipe(
 	),
 	Effect.flatMap((schemas) =>
 		Effect.try({
-			catch: (cause) => ValidatorError.make({ cause }),
+			catch: (cause) => new ValidatorError({ cause }),
 			try: () => {
 				setShouldValidateFormat(false)
 				Arr.forEach(schemas, (schema) => registerSchema(schema))
@@ -198,7 +194,7 @@ const validateCopy = Effect.fn("validate.validateCopy")(function* validateCopy(
 
 	const schema = schemaUri[line]
 	const validator = yield* Effect.tryPromise({
-		catch: (cause) => ValidatorError.make({ cause }),
+		catch: (cause) => new ValidatorError({ cause }),
 		try: () => compilerOf[line](schema)
 	})
 	const output = validator(copy, "BASIC")

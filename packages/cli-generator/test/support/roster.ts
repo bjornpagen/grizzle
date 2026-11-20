@@ -31,6 +31,7 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/generated/redirect-chains.test.ts",
 	"test/generated/retry-policy.test.ts",
 	"test/generated/run-scoped.test.ts",
+	"test/generator-cli-failure.test.ts",
 	"test/grizzle/once.test.ts",
 	"test/load/document-set.test.ts",
 	"test/load/read.test.ts",
@@ -93,5 +94,6 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/support/built-package.test.ts",
 	"test/support/cli-package.test.ts",
 	"test/validate/diagnostics.test.ts",
+	"test/validate/validate.test.ts",
 	"test/write/check.test.ts"
 ]

@@ -8,7 +8,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect, Option, Record as Rec, Result, String as Str } from "effect"
+import { Effect, Option, Result, String as Str } from "effect"
+import { Headers } from "effect/http"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
 import {
 	type FormFeature,
@@ -104,7 +105,7 @@ export const formBody = property.explore(formSpace, {
 				)
 			}
 			if (Result.isSuccess(built) && Result.isSuccess(expected)) {
-				const contentType = Rec.get(built.success.headers, "content-type")
+				const contentType = Headers.get(built.success.headers, "content-type")
 				Option.match(expected.success, {
 					onNone: () => {
 						assert.equal(built.success.body._tag, "Empty")
@@ -112,8 +113,9 @@ export const formBody = property.explore(formSpace, {
 					},
 					onSome: () => assert.deepEqual(contentType, Option.some(form.mediaType))
 				})
+				const sent = yield* bodyBytes(built.success.body)
 				assert.deepEqual(
-					yield* bodyBytes(built.success.body),
+					sent,
 					Option.map(expected.success, (written) => Buffer.from(written, "utf8").toString("latin1"))
 				)
 			}
