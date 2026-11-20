@@ -96,6 +96,12 @@ export const binRun = property.explore(invocation, {
 			original: "\t\t\tstdin: { stream: Stream.make(invocation.stdin) },\n\t\t\tkillSignal",
 			replacement: '\t\t\tstdin: "ignore",\n\t\t\tkillSignal',
 			why: "A bin's stdin is never written, so the bytes an invocation gives it are lost; the property fails."
+		},
+		{
+			file: "packages/generator/src/emit/printer.ts",
+			original: "!reservedWords.has(value)",
+			replacement: "reservedWords.has(value)",
+			why: "Operator mutant 5179ff1319 at packages/generator/src/emit/printer.ts:85 in <module>: `!reservedWords.has(value)` becomes `reservedWords.has(value)`; the property fails (the census, lane TESTPOLICY2)."
 		}
 	]
 })
