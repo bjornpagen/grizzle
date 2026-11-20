@@ -98,7 +98,7 @@ import { lawChecksOf, witnessField } from "#compiler/write/program/decide.ts"
 type Lowered = Result.Result<ExprTable, Unevaluated>
 
 /**
- * A relation of the schema as its sources read its rows, read once a relation (readRelations): its name, its fields as
+ * A relation of the schema as its sources read its rows, read once a relation (relationReadingOf): its name, its fields as
  * the judge reads them, the fields of its rows a domain holds, its generated fields and its row checks by name.
  * Every source of the relation reads the one reading, so a row admitted to it is read once over it (witness.ts
  * RowReading), however many sources evaluate the row.
@@ -205,65 +205,61 @@ const relationReading = (
 })
 
 /**
- * Every relation of the model as its sources read it (RelationReading), by name: a stored relation's fields as its
- * table holds them and its row checks by the CHECK each is installed as (decide.ts lawChecksOf, the witness's reading);
- * a derived relation's, live or materialized, its definition's heading as the checker types it (check/index.ts
- * checkDefinition, the theory's typing of a rule over it) and its row checks, each its predicate over the derived row
- * (rowPredicate); a closed relation's, rosters among them, its heading as a query matches it (check/schema.ts
- * ClosedRelation) and no row check, which the schema refuses over the facts it fixes. The model compiled, so each
- * definition checks.
+ * The relation `name` of the model as its sources read it (RelationReading), none for a name the model holds no
+ * relation of: a stored relation's fields as its table holds them and its row checks by the CHECK each is installed as
+ * (decide.ts lawChecksOf, the witness's reading); a derived relation's, live or materialized, its definition's heading
+ * as the checker types it (check/index.ts checkDefinition, the theory's typing of a rule over it) and its row checks,
+ * each its predicate over the derived row (rowPredicate); a closed relation's, rosters among them, its heading as a
+ * query matches it (check/schema.ts ClosedRelation) and no row check, which the schema refuses over the facts it fixes.
+ * The model compiled, so its definition checks. Read where a source of the relation is first prepared (rowEvaluatorOver
+ * `readingOf`), never for a relation no source of the evaluator reads.
  */
-const readRelations = (model: LawModel, codes: Codebook): ReadonlyMap<string, RelationReading> => {
-	const read = new Map<string, RelationReading>()
-	for (const [name, stored] of model.checked.relations) {
-		read.set(
+const relationReadingOf = (
+	model: LawModel,
+	codes: Codebook,
+	name: string
+): RelationReading | undefined => {
+	const stored = model.checked.relations.get(name)
+	if (stored !== undefined) {
+		return relationReading(
 			name,
-			relationReading(
-				name,
-				stored.fields.map(witnessField),
-				lawChecksOf(model, stored).flatMap(({ laws, test }) =>
-					test.kind === "row"
-						? laws.flatMap(({ described }) =>
-								described.kind === "check"
-									? [
-											{
-												name: described.name,
-												predicate: Result.ok(test.predicate)
-											}
-										]
-									: []
-							)
-						: []
-				),
-				codes
-			)
+			stored.fields.map(witnessField),
+			lawChecksOf(model, stored).flatMap(({ laws, test }) =>
+				test.kind === "row"
+					? laws.flatMap(({ described }) =>
+							described.kind === "check"
+								? [{ name: described.name, predicate: Result.ok(test.predicate) }]
+								: []
+						)
+					: []
+			),
+			codes
 		)
 	}
-	for (const derived of Object.values(model.owned.relations)) {
-		if (derived.desc.kind !== "derived") {
-			continue
-		}
-		const admitted = checkDefinition(model.checked, `derived ${derived.name}`, derived.desc.query)
-		if (!admitted.ok) {
-			throw defect(`the definition of ${derived.name}, which the compiled schema checked`)
-		}
-		const heading = admitted.value.dag.roots[0].heading
-		const checks: Array<RowCheck> = []
-		for (const statement of model.owned.statements) {
-			if (statement.kind !== "check" || statement.relation !== derived.name) {
-				continue
-			}
-			checks.push({
-				name: statement.name,
-				predicate: rowPredicate(model, derived.name, heading, statement.predicate)
-			})
-		}
-		read.set(derived.name, relationReading(derived.name, statedFields(heading), checks, codes))
+	const closed = model.checked.closed.get(name)
+	if (closed !== undefined) {
+		return relationReading(name, statedFields(closed.heading), [], codes)
 	}
-	for (const [name, closed] of model.checked.closed) {
-		read.set(name, relationReading(name, statedFields(closed.heading), [], codes))
+	const derived = model.owned.relations[name]
+	if (derived?.desc.kind !== "derived") {
+		return undefined
 	}
-	return read
+	const admitted = checkDefinition(model.checked, `derived ${name}`, derived.desc.query)
+	if (!admitted.ok) {
+		throw defect(`the definition of ${name}, which the compiled schema checked`)
+	}
+	const heading = admitted.value.dag.roots[0].heading
+	const checks = model.owned.statements.flatMap((statement): ReadonlyArray<RowCheck> =>
+		statement.kind === "check" && statement.relation === name
+			? [
+					{
+						name: statement.name,
+						predicate: rowPredicate(model, name, heading, statement.predicate)
+					}
+				]
+			: []
+	)
+	return relationReading(name, statedFields(heading), checks, codes)
 }
 
 /**
@@ -283,14 +279,11 @@ const selectedOf = (source: unknown): SelectedDesc => {
  */
 const prepare = (
 	model: LawModel,
-	relations: ReadonlyMap<string, RelationReading>,
+	readingOf: (relation: string) => RelationReading,
 	source: unknown
 ): Prepared => {
 	const selected = selectedOf(source)
-	const relation = relations.get(selected.relation)
-	if (relation === undefined) {
-		throw defect(`a row source of the schema, not of ${selected.relation}`)
-	}
+	const relation = readingOf(selected.relation)
 	return {
 		relation,
 		selection: rowPredicate(
@@ -608,10 +601,11 @@ const evaluated = <S, R>(
 
 /**
  * rowEvaluator(schema), the shell's (packages/grizzle adapter/public/host.ts), over `answer`, the shell's spelling of a
- * caller's Result: the host's evaluation of rows of the schema's sources (see the header), its schema compiled and its
- * relations read once: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits a row of R once,
- * holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row of any source of
- * R, R itself or select(R, φ), each source read once, where it is first evaluated. One judge reads every row, over the
+ * caller's Result: the host's evaluation of rows of the schema's sources (see the header), its schema compiled once and
+ * each relation read once, where a source of it is first evaluated, and held for every other (`readingOf`), so a
+ * relation no source reads is never read: `const evaluate = rowEvaluator(schema)`, then `evaluate.admit(R, row)` admits
+ * a row of R once, holding it to its domains, and `evaluate(source, admitted)` is the admitted row's evaluation as a row
+ * of any source of R, R itself or select(R, φ), each source read once, where it is first evaluated. One judge reads every row, over the
  * schema's closed relations and one pattern table, so a closed relation is indexed and a pattern parsed once for the
  * evaluator. Each answer a caller reads, an admission and every item, is `answer`'s, made where it is computed (Answers).
  * A schema that does not compile is its CompileError.
@@ -621,16 +615,29 @@ export const rowEvaluatorOver = <S extends AnySchema>(
 	answer: PublicResult
 ): Result.Result<RowEvaluator<S>, CompileError> =>
 	Result.map(lawModel(schema, "rowEvaluator"), (model): RowEvaluator<S> => {
-		const relations = readRelations(model, firstCodebook(rostersOf(model.owned)))
+		const codes = firstCodebook(rostersOf(model.owned))
 		const judge = judgeOf(closedTableOf(model.checked), new CompilePatterns())
 		const answers = answersOf(answer)
+		const readings = new Map<string, RelationReading>()
+		const readingOf = (relation: string): RelationReading => {
+			const known = readings.get(relation)
+			if (known !== undefined) {
+				return known
+			}
+			const read = relationReadingOf(model, codes, relation)
+			if (read === undefined) {
+				throw defect(`a row source of the schema, not of ${relation}`)
+			}
+			readings.set(relation, read)
+			return read
+		}
 		const sources = new WeakMap<object, Prepared>()
 		const preparedOf = (source: object): Prepared => {
 			const known = sources.get(source)
 			if (known !== undefined) {
 				return known
 			}
-			const prepared = prepare(model, relations, source)
+			const prepared = prepare(model, readingOf, source)
 			sources.set(source, prepared)
 			return prepared
 		}

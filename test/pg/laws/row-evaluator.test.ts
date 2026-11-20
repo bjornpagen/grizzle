@@ -132,15 +132,14 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: '\t\tif (derived.desc.kind !== "derived") {',
-				replacement: '\t\tif (derived.desc.kind === "derived") {',
+				original: '\tif (derived?.desc.kind !== "derived") {',
+				replacement: '\tif (derived?.desc.kind === "derived") {',
 				why: "No derived relation is read as a source, as before a live derived relation was, which the checked schema holds no analysis of."
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original:
-					"\t\tread.set(name, relationReading(name, statedFields(closed.heading), [], codes))",
-				replacement: "\t\tread.delete(name)",
+				original: "\t\treturn relationReading(name, statedFields(closed.heading), [], codes)",
+				replacement: "\t\treturn undefined",
 				why: "No closed relation is read as a source, as before: a row of a closed relation or of a selection of one, which RowSource admits, is a defect thrown, a row source of the schema not found."
 			}
 		]
