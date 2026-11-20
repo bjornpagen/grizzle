@@ -207,6 +207,23 @@ const Checked = schema.extend(
 	[check("Fit", Fit, (f) => f.or(f.ne(f.attr, 1), f.eq(f.base, 1)))]
 )
 
+/**
+ * The relations each derived relation of the box matches, an entry at each occurrence its rule reads one: what a law over
+ * it reads as the schema declares it (`storedReadsOf`).
+ */
+const declaredReads: ReadonlyMap<string, ReadonlyArray<string>> = new Map([
+	[Declared.name, [Node.name, Decl.name]],
+	[CardName.name, [Dcl.name, Card.name]],
+	[TypedName.name, [Dcl.name, Typed.name]],
+	[Fit.name, [Bind.name, CardName.name, TypedName.name]]
+])
+
+/** The stored relations `relation` reads as the box declares it, one at each occurrence: itself where it is stored. */
+const storedReadsOf = (relation: string): ReadonlyArray<string> => {
+	const read = declaredReads.get(relation)
+	return read === undefined ? [relation] : Arr.flatMap(read, storedReadsOf)
+}
+
 /** The schema installed through its first migration, its tables empty. */
 export const checkCostTemplate = migratedTemplate({
 	declaredIn: import.meta,
@@ -375,7 +392,8 @@ const smallTableRescans = (plan: PlanNode, probeCost: number): number =>
  * a declaration at each of a declaring kind or of tag 5, weighed by its place, the tables analyzed; then the rule's
  * check, as the migration that adds the rule runs it (deploy/render/sql.ts violationCheck), each statement it plans
  * explained with ANALYZE, and the block run. The rules' checks are each planned and run so. Every plan reads each table
- * by one node, so it derives no relation twice, and handles each row it reads a bounded number of times: its rows
+ * by one node per occurrence its law reads it at as the box declares it, so it derives no relation twice, and handles
+ * each row it reads a bounded number of times: its rows
  * touched (bench/harness/explain.ts rowsTouched, every row each node handled over all its loops, a join's examined
  * pairs among them) at most its nodes times the rows of the tables and the rows its sequential rescans of tables no
  * larger than an index probe touch (`smallTableRescans`), since a filter, a projection, a deduplication,
@@ -432,15 +450,25 @@ export const runCheck = (
 		const installation = installed.installation
 		const checks = lawChecks(installation)
 		assert.equal(checks.rules.length, 4, "the schema's four rules")
-		/** The occurrences of each table a rule reads (WholeRule reads), each rule of the box a unit-local one. */
+		/**
+		 * The occurrences of each table a rule reads as the box declares it, each rule of the box a unit-local one: each of
+		 * its sides' relations, a derived one by the relations its rule matches (`storedReadsOf`), never the reads of the
+		 * compiled check (WholeRule reads, walked from the violation query the check is), which count a side read twice
+		 * twice.
+		 */
 		const occurrences = (law: LawId): ReadonlyArray<string> => {
 			const rule = defined(
 				Arr.findFirst(installation.laws.rules, (r) => r.law.id === law).pipe(Option.getOrUndefined),
 				`${law}, a rule of the box`
 			).rule
-			return rule.kind === "whole"
-				? Arr.map(rule.reads, (r) => installation.names.relation(r.relation).name)
-				: assert.fail(`${law}: a unit-local rule, judged whole`)
+			if (rule.kind !== "whole") {
+				return assert.fail(`${law}: a unit-local rule, judged whole`)
+			}
+			const sides = rule.law.kind === "contained" ? [rule.law.from, rule.law.to] : [rule.law.side]
+			return Arr.map(
+				Arr.flatMap(sides, (side) => storedReadsOf(side.relation)),
+				(relation) => installation.names.relation(relation).name
+			)
 		}
 		for (const rule of checks.rules) {
 			assert.equal(
@@ -480,8 +508,8 @@ export const runCheck = (
 					const read = Arr.filter(scans, (t) => t === table).length
 					const at = Arr.filter(reads, (t) => t === table).length
 					assert.ok(
-						read <= at + 1,
-						`${Formatter.format(c)}: ${law} reads ${table} by ${read} plan nodes, past the ${at} its law reads it at and its units' one`
+						read <= at,
+						`${Formatter.format(c)}: ${law} reads ${table} by ${read} plan nodes, past the ${at} its law reads it at`
 					)
 				}
 			}

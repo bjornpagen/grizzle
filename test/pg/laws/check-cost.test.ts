@@ -19,8 +19,10 @@
  *
  * Property: for each case of the box, no SELECT DISTINCT of a check's query reads only sets whose every column its
  * targets keep (check-cost.fixtures.ts needlessDeduplications), and every statement the check's block plans, explained
- * with ANALYZE as PL/pgSQL plans it, reads each table by at most one plan node per occurrence its law reads it at and
- * one more, its units' region, and touches at most its plan's nodes times the rows of the tables (runCheck), and the
+ * with ANALYZE as PL/pgSQL plans it, reads each table by at most one plan node per occurrence its law reads it at, as
+ * the box declares its sides and the rules of the relations they read, never as the compiled check reads them, and the
+ * check over every row reads no region beside them (WholeRule everyRow), and touches at most its plan's nodes times the
+ * rows of the tables (runCheck), and the
  * block raises nothing; then, with an element of a declaring kind no declaration names, two declared elements of one
  * document and kind that share a weight, and a binding of attribute 1 to a variable of base type 2, it raises SQLSTATE
  * 23000 under the law's identity. The oracle is the bound itself, rows counted over every loop and scans counted per
@@ -58,7 +60,7 @@ export const aLawsFullCheckReadsEachTableOncePerOccurrenceAndEachRowABoundedNumb
 				Effect.flatMap(ledger, ({ connection, value }) => runCheck(value, connection, c, k)),
 		oracle: {
 			kind: "specification",
-			name: "the bound: no deduplication of a set, and every plan of the check reads each table by one node per occurrence of its law and its units' one, and touches at most its nodes times the rows of the tables it reads, counted over all loops; and SQLSTATE 23000 under the law's identity for an undeclared element, two declared elements at one key and a binding of a type its attribute refuses"
+			name: "the bound: no deduplication of a set, and every plan of the check reads each table by one node per occurrence its law reads it at as the box declares it, and touches at most its nodes times the rows of the tables it reads, counted over all loops; and SQLSTATE 23000 under the law's identity for an undeclared element, two declared elements at one key and a binding of a type its attribute refuses"
 		},
 		box: "the rules Node's elements of a declaring kind, and of tag, group and band 5, contained in Decl on (pkg, path, at), Node ⋈ Decl keyed by (pkg, path, kind, w), and a check over Bind ⋈ CardName ⋈ TypedName, two layouts at 500, 1,000, 2,000, 4,000, 8,000 and 16,000 elements, analyzed",
 		kept: [],
