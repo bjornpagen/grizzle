@@ -72,7 +72,7 @@ import {
 	decodedColumn,
 	domainCheckOf,
 	domainOf,
-	type Drafted,
+	type Applied,
 	draftNext,
 	grantCases,
 	type Grantee,
@@ -111,7 +111,7 @@ import {
 	ownerSessionOf
 } from "#test/pg/closed/codes.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { setText, setWidth } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	type RosterFeature,
 	type RosterState,
@@ -125,7 +125,7 @@ import {
 	sizeOf
 } from "#test/support/closed/generate.ts"
 import { parsedName, roleNamesOf } from "#test/support/kernel/naming.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { customDataStep, noDeclarations } from "#test/support/migrate/kit.ts"
 import { expectConstraint, expectSqlstate, inTransaction } from "#test/support/substrate/expect.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -622,14 +622,15 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 							)
 							let before = history.installed
 							let snapshot = m.snapshot
-							const drafted: Array<Drafted> = []
+							/** The folders past the install, in name order: each step's migration, a removal's data step before it. */
+							const drafted: Array<Applied> = []
 							for (const [i, step] of history.steps.entries()) {
 								const after = stepped(before, step)
 								const next = yield* draftNext(
 									m,
 									snapshot,
 									setsOf(m.declared, after).version,
-									i + 2,
+									2 * i + 3,
 									step.kind === "remove"
 										? {
 												renames: [],
@@ -652,17 +653,19 @@ export const aSetRoundTripsThroughItsBitColumnDecodesUnchangedAfterGrowthAndARem
 										},
 										"VALIDATE names the column of the sets that still hold the removed handle"
 									)
-									yield* m.owner.query(
-										`UPDATE ${table} SET ${members} = ${members} & $1::text::bit(${setWidth(sizeOf(after))})`,
-										[
+									/** The data step, a custom migration at the ordinal its step's migration leaves before it
+									 * (draftNext at 2i + 3, its step 2i + 2), clearing the removed bit from every set. */
+									const step = customDataStep(snapshot, 2 * i + 1, [
+										`UPDATE ${table} SET ${members} = ${members} & X'${hexOfText(
 											setText(
 												sizeOf(after),
 												Arr.flatMap(after.slots, (slot, code) =>
 													slot.kind === "live" ? [code] : []
 												)
 											)
-										]
-									)
+										)}'::bit(${setWidth(sizeOf(after))});`
+									])
+									drafted.splice(drafted.length - 1, 0, { snapshot, folder: step })
 									k.note("a removal refused until the data step")
 								}
 								yield* applyNext(m, drafted)

@@ -78,7 +78,13 @@ import {
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { migrated, type Version, workloadOf } from "#test/support/installed.ts"
 import { lawIdOf, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
-import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
+import {
+	customDataStep,
+	draftedAt,
+	fromSnapshot,
+	generate,
+	noDeclarations
+} from "#test/support/migrate/kit.ts"
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -872,11 +878,11 @@ const removal = (
 			sys.snapshot = g.snapshot
 			sys.names = names
 		} else {
-			const { g, folder, names } = yield* draftNext(sys, built, kept, dropOf(before, p.handle))
+			let next = yield* draftNext(sys, built, kept, dropOf(before, p.handle))
 			const named: Array<{ readonly table: string; readonly column: string }> = []
 			let applied = false
 			for (let attempt = 0; !applied && attempt <= holders.length; attempt += 1) {
-				const failure = yield* failureOf(applyWith(sys, [folder], g.snapshot))
+				const failure = yield* failureOf(applyWith(sys, [next.folder], next.g.snapshot))
 				if (failure === undefined) {
 					applied = true
 					continue
@@ -893,7 +899,14 @@ const removal = (
 						: "VALIDATE refused a removed bit a set holds"
 				)
 				named.push(at)
-				yield* sys.m.owner.query(dataStepOf(sys, after, code, at.column), [])
+				/** The data step, a custom migration at the refused draft's place, which it never took; the removal is drafted
+				 * again after it. */
+				const step = customDataStep(sys.snapshot, sys.drafts, [
+					dataStepOf(sys, after, code, at.column)
+				])
+				yield* applyWith(sys, [step], sys.snapshot)
+				sys.folders.push(step)
+				next = yield* draftNext(sys, built, kept, dropOf(before, p.handle))
 			}
 			assert.ok(applied, "the removal applies once its data step ran")
 			unorderedEqual(
@@ -901,9 +914,9 @@ const removal = (
 				holders,
 				"VALIDATE names exactly the columns that hold the removed code"
 			)
-			sys.folders.push(folder)
-			sys.snapshot = g.snapshot
-			sys.names = names
+			sys.folders.push(next.folder)
+			sys.snapshot = next.g.snapshot
+			sys.names = next.names
 		}
 		yield* sameAsModel(sys, after)
 		return took

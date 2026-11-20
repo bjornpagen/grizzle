@@ -145,6 +145,7 @@ export const failedFolder = (error: MigrateError): Option.Option<string> => {
 	const reason = error.reason
 	switch (reason._tag) {
 		case "StatementFailed":
+		case "GuardedTableUnbracketed":
 		case "TransactionFailed":
 		case "FileCommitRefused":
 			return Option.some(reason.folder)

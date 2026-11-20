@@ -1884,7 +1884,10 @@ schema.
   immutable table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE changing any field
   but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column, which the owner
   axis's ON UPDATE CASCADE carries, and a retirement), whoever runs it, its owner included, with 42501 naming the table.
-  A migration's data steps on such a table run with the guard disabled and enable it again in the same transaction.
+  A migration's data steps on such a table run with the guard disabled and enable it again in the same transaction:
+  a draft's and the data step you write at its place, over every table the previous version guards and this one keeps,
+  and a custom migration's (`generate --custom`) transactional file, over every guard the database holds as it runs. A
+  `-- grizzle: no-transaction` file has no transaction to do that in, so it cannot write a guarded table.
   `mutable(Post)` among a schema's rules allows in-place updates; it changes how a `put` runs, never what it means. A
   family's owner whose family changes after it is inserted is mutable too ([Families](#families)).
 - **First insertion wins, by `race`.** `race(Claim)` among a schema's rules makes a table's primary key first come,

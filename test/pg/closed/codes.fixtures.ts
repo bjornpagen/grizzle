@@ -228,7 +228,7 @@ export const namesHeld = (session: RawSession, call: string) =>
 	})
 
 /** A migration of the installed `m` from `previous` to `version`, drafted as `grizzle generate` drafts it and reviewed. */
-export interface Drafted {
+interface Drafted {
 	readonly plan: RealInstallPlan
 	readonly snapshot: DeploySnapshot
 	readonly folder: FolderTexts
@@ -275,8 +275,14 @@ export const draftNext = (
 		})
 	)
 
+/** A folder past a history's install as a test applies it: its texts and the snapshot it reaches. */
+export interface Applied {
+	readonly snapshot: DeploySnapshot
+	readonly folder: FolderTexts
+}
+
 /** Applies `m`'s folders and then `next` as `m`'s owner login, the runner's MigrateError its failure. */
-export const applyNext = (m: Installed, next: ReadonlyArray<Drafted>) =>
+export const applyNext = (m: Installed, next: ReadonlyArray<Applied>) =>
 	Effect.gen(function* () {
 		const substrate = yield* Substrate
 		const migrator = yield* openMigrator(substrate, m.ambientOwner.credentials)

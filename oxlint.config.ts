@@ -82,6 +82,7 @@ const DICTIONARY_MINTS = [
 	"test/unit/deps/deps.dictionary.ts",
 	"test/unit/live/call-error.dictionary.ts",
 	"test/unit/live/values.dictionary.ts",
+	"test/pg/migrate/custom-guard.dictionary.ts",
 	"test/unit/physical/membership.dictionary.ts",
 	"test/unit/scalar/descriptors.dictionary.ts",
 	"test/unit/scalar/registry.dictionary.ts",

@@ -3,11 +3,56 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
-import type { CreateUpdateGuardTrigger, Expr, PlFunction, Revoke } from "#compiler/sql/ast.ts"
+import type {
+	AlterTable,
+	CreateUpdateGuardTrigger,
+	EmittedText,
+	Expr,
+	ObjectName,
+	PlFunction,
+	Revoke
+} from "#compiler/sql/ast.ts"
 import { call, lit, objectName, types } from "#compiler/sql/build.ts"
+import { emitText } from "#compiler/sql/emit.ts"
+import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /** The name of every immutable relation's table's guard trigger. */
 export const immutableTriggerName: string = identifierOf(identity.immutableTrigger())
+
+/**
+ * The bracket of a migration's data steps on guarded tables, the one spelling of it: each guard of `guarded` disabled,
+ * `ALTER TABLE <t> DISABLE TRIGGER <guard>`, before the steps and enabled again after them, in their one transaction,
+ * so no committed state, nor any other transaction, sees a guard disabled, and a step that fails rolls the disabling
+ * back with it. Only where the set comes from differs: a draft's, from the previous installation's manifest
+ * (deploy/diff/diff.ts unguard), and a custom migration's, from the catalog where its file runs (dataStepBracket).
+ */
+export const guardBracket = (
+	guarded: ReadonlyArray<ObjectName>
+): { readonly disable: ReadonlyArray<AlterTable>; readonly enable: ReadonlyArray<AlterTable> } => {
+	const toggled = (kind: "disableTrigger" | "enableTrigger"): ReadonlyArray<AlterTable> =>
+		guarded.map((table) => ({
+			kind: "alterTable",
+			table,
+			actions: [{ kind, name: immutableTriggerName }]
+		}))
+	return { disable: toggled("disableTrigger"), enable: toggled("enableTrigger") }
+}
+
+/**
+ * A custom migration's data step's bracket (guardBracket) as the runner sends it (adapter/migrate/apply.ts), over the
+ * tables the catalog holds a guard on where the step runs.
+ */
+export const dataStepBracket = (
+	guarded: ReadonlyArray<ObjectName>
+): {
+	readonly disable: ReadonlyArray<EmittedText>
+	readonly enable: ReadonlyArray<EmittedText>
+} => {
+	const { disable, enable } = guardBracket(guarded)
+	const texts = (statements: ReadonlyArray<AlterTable>): ReadonlyArray<EmittedText> =>
+		statements.map((statement) => emitText(statement, emptyNameMap).text)
+	return { disable: texts(disable), enable: texts(enable) }
+}
 
 /** The fields of `relation` its guard holds fixed: every field its rows never change in place, but a generated one. */
 const fixedFields = (relation: RelationInfo): ReadonlyArray<string> =>

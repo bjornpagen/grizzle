@@ -680,6 +680,24 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	}
 }
 
+/**
+ * Statement `statement` (1-based) of a custom migration's no-transaction file `folder`/`file` wrote `table`, whose
+ * immutability guard refused it: a statement run alone has no transaction for the guard to be disabled in and enabled
+ * again before it commits, as a transactional data step's is (apply.ts guardBracket), so it must run in one.
+ */
+export class GuardedTableUnbracketed extends Data.TaggedError("GuardedTableUnbracketed")<{
+	readonly schema: string
+	readonly folder: string
+	readonly file: string
+	readonly statement: number
+	readonly table: string
+	readonly failure: StatementFailure
+}> {
+	override get message(): string {
+		return `${this.folder}/${this.file} statement ${this.statement} writes ${this.table}, whose immutability guard refused it: a no-transaction custom step cannot write a guarded table; use a transactional step`
+	}
+}
+
 /** The transaction of `folder`/`file` failed whole: its BEGIN refused, the connection lost, or the driver. */
 export class TransactionFailed extends Data.TaggedError("TransactionFailed")<{
 	readonly schema: string
@@ -872,6 +890,7 @@ export type MigrateReason =
 	| MarkersUnresolved
 	| LossesUndecided
 	| StatementFailed
+	| GuardedTableUnbracketed
 	| TransactionFailed
 	| LedgerUnlocked
 	| RecordFailed
@@ -905,6 +924,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	MarkersUnresolved: "marker",
 	LossesUndecided: "decision",
 	StatementFailed: "statement",
+	GuardedTableUnbracketed: "statement",
 	TransactionFailed: "statement",
 	LedgerUnlocked: "record",
 	RecordFailed: "record",
@@ -956,6 +976,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "MarkersUnresolved":
 			case "LossesUndecided":
 			case "StatementFailed":
+			case "GuardedTableUnbracketed":
 			case "TransactionFailed":
 			case "LedgerUnlocked":
 			case "RecordFailed":
@@ -985,6 +1006,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "FolderRefused":
 				return { kind: "folder", folder: reason.folder }
 			case "StatementFailed":
+			case "GuardedTableUnbracketed":
 				return {
 					kind: "statement",
 					folder: reason.folder,
@@ -1026,6 +1048,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 		const reason = this.reason
 		switch (reason._tag) {
 			case "StatementFailed":
+			case "GuardedTableUnbracketed":
 			case "TransactionFailed":
 			case "LedgerUnlocked":
 			case "RecordFailed":

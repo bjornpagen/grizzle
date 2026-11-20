@@ -8,6 +8,7 @@ import {
 	Result as EffectResult,
 	String as Str
 } from "effect"
+import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { formatTimestamp } from "#cli/clock.ts"
 import { type LoginFileKind, loginFileKinds, loginFiles } from "#cli/files.ts"
 import type { refusalText } from "#cli/refusals.ts"
@@ -15,7 +16,11 @@ import { rosterRenames } from "#cli/renames.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import { type MigrationName, parseMigrationName } from "#compiler/deploy/render/folder.ts"
-import { type GenerateResult, generateMigration } from "#compiler/deploy/render/generate.ts"
+import {
+	customMigration,
+	type GenerateResult,
+	generateMigration
+} from "#compiler/deploy/render/generate.ts"
 import {
 	type DraftWorkload,
 	emptySnapshot,
@@ -153,6 +158,31 @@ const epoch = 1_791_849_600_000
  */
 export const draftedAt = (ordinal: number): string =>
 	formatTimestamp(DateTime.makeUnsafe(epoch + ordinal * 1000))
+
+/**
+ * A custom migration (`grizzle generate --custom`, deploy/render/generate.ts customMigration) over `snapshot`, drafted at
+ * the history's `ordinal` on the tests' one clock (draftedAt), holding one data step written by hand, `statements` as its
+ * one transactional file: what a person writes when a migration's VALIDATE refuses the rows that hold a removed code.
+ */
+export const customDataStep = (
+	snapshot: DeploySnapshot,
+	ordinal: number,
+	statements: NonEmptyReadonlyArray<string>
+): FolderTexts => {
+	const folder = succeeded(
+		customMigration({
+			snapshot,
+			name: parsedMigrationName(`data_${ordinal}`),
+			timestamp: draftedAt(ordinal)
+		}),
+		"a custom migration"
+	)
+	return {
+		name: folder.name,
+		metaText: folder.metaText,
+		files: [{ name: "01-data.sql", text: Arr.join(statements, "\n") }]
+	}
+}
 
 /**
  * The committed snapshot a draft continues: the installation's empty snapshot, as a migrations directory without the

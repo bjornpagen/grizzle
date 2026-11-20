@@ -280,6 +280,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "FolderRefused":
 		case "SnapshotUnreached":
 		case "StatementFailed":
+		case "GuardedTableUnbracketed":
 		case "TransactionFailed":
 		case "LedgerUnlocked":
 		case "RecordFailed":

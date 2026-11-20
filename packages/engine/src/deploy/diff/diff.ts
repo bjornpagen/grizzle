@@ -109,7 +109,7 @@ import type { Head } from "#compiler/ir/instant.ts"
 import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
-import { immutableTriggerName } from "#compiler/physical/ddl/immutable.ts"
+import { guardBracket } from "#compiler/physical/ddl/immutable.ts"
 import { refreshStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -1511,7 +1511,7 @@ class Differ {
 		const written = this.dataSteps(this.backfill())
 		if (isNonEmpty(written)) {
 			this.push("structure.immediate", statement(checkedAtOnce))
-			this.unguard(written)
+			this.unguard()
 		}
 		this.ruleChecks(checks.rules)
 		this.validations()
@@ -2719,28 +2719,29 @@ class Differ {
 	}
 
 	/**
-	 * The immutability guard (physical/ddl/immutable.ts) of each table of `written` the previous installation guards,
-	 * disabled in the table's Structure alteration, before Structure's first data step, and enabled again in its
-	 * structure.constraints alteration, after its last, in Structure's one transaction: a data step writes a column the
-	 * migration adds, sets aside or draws again on rows already stored, which the guard would refuse as a change of a
-	 * fixed field, and no other transaction sees the guard disabled, nor any committed state holds it so. A table the
-	 * previous installation does not guard takes its guard in Validate, after every data step.
+	 * The bracket of Structure's data steps (physical/ddl/immutable.ts guardBracket), where it holds one, after SET
+	 * CONSTRAINTS ALL IMMEDIATE: every table the previous installation guards that the target keeps, its guard disabled
+	 * in Structure, before the first data step, and enabled again in structure.constraints, after the last, in
+	 * Structure's one transaction. Every such table, never only those the draft's own steps write: a reviewer's data step
+	 * written at that place (README, Migrations) writes what it writes, a guarded table's rows a removed code holds among
+	 * them, which the guard would refuse as a change of a fixed field; no other transaction sees a guard disabled, nor
+	 * any committed state holds it so. A table the previous installation does not guard takes its guard in Validate,
+	 * after every data step.
 	 */
-	unguard(written: NonEmptyReadonlyArray<ObjectName>): void {
+	unguard(): void {
 		const guarded = new Set(
 			[...this.prev.values()].flatMap((o) => {
 				const v = installed(o)
 				return v.kind === "immutableTrigger" ? [nameKey(v.create.table)] : []
 			})
 		)
-		for (const t of written) {
-			if (guarded.has(nameKey(t))) {
-				this.alter("structure", t, [{ kind: "disableTrigger", name: immutableTriggerName }])
-				this.alter("structure.constraints", t, [
-					{ kind: "enableTrigger", name: immutableTriggerName }
-				])
-			}
-		}
+		const kept = [...this.next.values()].flatMap((o) => {
+			const v = installed(o)
+			return v.kind === "table" && guarded.has(nameKey(v.create.table)) ? [v.create.table] : []
+		})
+		const bracket = guardBracket(kept)
+		this.sql("structure", bracket.disable)
+		this.sql("structure.constraints", bracket.enable)
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder
