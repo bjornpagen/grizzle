@@ -19,7 +19,7 @@ import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
 import type { ServedFile } from "#compiler/served/forms.ts"
 import { rosterCodesOf, rosterWire, servedFile, servedText } from "#compiler/served/json.ts"
-import { artifactRefusal, failed, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { runtimeDifference } from "#test/support/served.ts"
@@ -150,16 +150,14 @@ export const roundTrip = (
 			undefined,
 			`roster ${name}'s codec reads back otherwise at ${differs}\n${printed}`
 		)
-		const turned = artifactRefusal(
-			failed(
-				servedFile(holesOnly(text, name)),
-				`the file with roster ${name}'s live codes turned to holes does not read back\n${printed}`
-			)
+		const emptied = succeeded(
+			servedFile(holesOnly(text, name)),
+			`the file with roster ${name}'s live codes turned to holes reads back\n${printed}`
 		)
 		assert.deepEqual(
-			[turned.artifact, turned.at],
-			["served", ["rosters", name]],
-			`the reader refuses the served file at roster ${name}\n${printed}`
+			emptied.rosters.get(name),
+			Arr.map(codes, (): RosterCodes[number] => ({ kind: "hole" })),
+			`roster ${name}, every handle removed, reads back as the empty roster its codes' holes are\n${printed}`
 		)
 	}
 	if (rosters.length > 1) {

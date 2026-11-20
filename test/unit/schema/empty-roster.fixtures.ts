@@ -3,21 +3,26 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, subarray } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { CodecFault } from "#compiler/core/errors.ts"
 import { identity } from "#compiler/core/identity.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { closed, relation } from "#compiler/public/dynamic.ts"
 import { bits, closedId } from "#compiler/public/fields.ts"
-import { schema } from "#compiler/public/schema.ts"
+import { login, role, schema } from "#compiler/public/schema.ts"
+import { workload } from "#compiler/public/workload.ts"
 import { admitValue, type HostValue } from "#compiler/scalar/values/identity.ts"
+import { rostersOf } from "#compiler/schema/own.ts"
+import { changeSetOver } from "#compiler/write/changeset/value.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
+import { compiledLogin } from "#test/support/served-login.ts"
 
 /** A situation the property reaches. */
 export type Feature =
@@ -53,6 +58,8 @@ export interface CompiledCase {
 	readonly facts: ReadonlyArray<string>
 	readonly types: { readonly code: ScalarType; readonly bits: ScalarType }
 	readonly codes: Parameters<typeof scalarCodec>[1]
+	/** A login over the registry whose one role inserts into Graded, its served file read back as a layer reads it. */
+	readonly login: unknown
 }
 
 /**
@@ -68,6 +75,8 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 		"id"
 	])
 	const value = schema("Registry", [Graders, Graded], [])
+	const app = role(value, "app", { Graders, Graded }, { write: ["Graded"] })
+	const grade = changeSetOver.empty(app).insert(Graded, [])
 	const artifacts = succeeded(testArtifacts(value, testCompile), "the registry's artifacts")
 	succeeded(
 		compileInstallation(owning(value), {
@@ -91,7 +100,8 @@ export const compiledCase = (drawn: RosterCase): CompiledCase => {
 		bitsWidth: codec.width,
 		facts: [...Graders.handles],
 		types: { code: typeOf("grader"), bits: typeOf("graders") },
-		codes: artifacts.names.codes
+		codes: artifacts.names.codes,
+		login: login(value, "registry_app", [app], { workload: [workload(app, { grade })] })
 	}
 }
 
@@ -102,3 +112,17 @@ export const valueAdmitted = (
 	value: unknown
 ): Result.Result<HostValue | Uint8Array, CodecFault> =>
 	admitValue(scalarCodec(compiled.types[field], compiled.codes).spec, value)
+
+/**
+ * The served file `grizzle generate` writes for the case's login, read back from its JSON value as a layer loads it
+ * (served/json.ts servedFile), and the live handles it holds of Graders: generate and the served reader read one roster.
+ */
+export const servedHandles = (compiled: CompiledCase) =>
+	Effect.map(
+		compiledLogin(compiled.login, (owned) => firstCodebook(rostersOf(owned))),
+		({ back }) =>
+			Arr.flatMap(
+				defined(back.rosters.get(parsedName("Graders")), "the served file's codes of Graders"),
+				(slot) => (slot.kind === "live" ? [slot.handle] : [])
+			)
+	)

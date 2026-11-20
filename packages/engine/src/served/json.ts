@@ -1,5 +1,4 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type CanonicalObject,
@@ -557,7 +556,7 @@ export const servedText = (file: ServedFile): Result.Result<string, CompileError
  */
 interface FileRosters {
 	readonly codes: ReadonlyMap<DeclaredName, RosterCodes>
-	readonly handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>
+	readonly handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>
 }
 
 /**
@@ -575,23 +574,21 @@ const isRosterSlot = (slot: unknown): slot is string | false =>
 
 /**
  * The file's rosters (RostersWire) read once, each name trusted as the compile wrote it, refused where `wire` is no
- * record of rosters' codes, or a roster holds no live handle: its codes are a declaration's, which holds one.
+ * record of rosters' codes: a roster's live handles are its codes' handles, none for an empty roster, the empty domain
+ * a declaration of no handle is, as the compile wrote it.
  */
 const fileRosters = (wire: unknown): FileRosters => {
 	if (!isPlainRecord(wire)) {
 		return unread([rostersKey], "the file's rosters, each roster's codes under its declared name")
 	}
 	const codes = new Map<DeclaredName, RosterCodes>()
-	const handles = new Map<DeclaredName, NonEmptyReadonlyArray<string>>()
+	const handles = new Map<DeclaredName, ReadonlyArray<string>>()
 	for (const [roster, slots] of Object.entries(wire)) {
 		if (!isList(slots) || !slots.every(isRosterSlot)) {
 			return unread([rostersKey, roster], "a roster's codes, each a handle or a hole (false)")
 		}
 		const name = trusted<DeclaredName>(roster)
 		const live = slots.filter((slot) => slot !== false)
-		if (!isNonEmpty(live)) {
-			return unread([rostersKey, roster], "a roster's codes holding a live handle")
-		}
 		codes.set(name, rosterCodesOf(slots))
 		handles.set(name, live)
 	}
@@ -609,7 +606,7 @@ const rosterTag = { ordered: tags.roster, unordered: tags.unorderedRoster } as c
  * handlesInOrder); refused, read `within`, where the file holds no codes of it.
  */
 const rosterOf = (
-	handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>,
+	handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>,
 	order: RosterOrder,
 	payload: string,
 	within: Path
@@ -633,11 +630,11 @@ const rosterOf = (
  */
 class ServedReader {
 	readonly #shared: ReadonlyArray<unknown>
-	readonly #handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>
+	readonly #handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>
 
 	constructor(
 		shared: ReadonlyArray<unknown>,
-		handles: ReadonlyMap<DeclaredName, NonEmptyReadonlyArray<string>>
+		handles: ReadonlyMap<DeclaredName, ReadonlyArray<string>>
 	) {
 		this.#shared = shared
 		this.#handles = handles

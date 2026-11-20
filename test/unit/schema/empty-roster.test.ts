@@ -11,7 +11,8 @@
  *   wide at least, PostgreSQL's bit(n) holding a bit at least.
  * - A write's value of the closed id is admitted exactly where it is a handle of the roster, so every value is refused
  *   over the empty roster; a set's exactly where each member is one, the empty set always.
- * - The roster's facts, what a read of it delivers, are its handles, none for the empty roster.
+ * - The roster's facts, what a read of it delivers, are its handles, none for the empty roster, and the served file
+ *   `grizzle generate` writes for a login writing the relation, read back as a layer loads it, holds exactly them.
  *
  * Oracle: the specification, the roster's handles as drawn.
  */
@@ -23,6 +24,7 @@ import { Array as Arr, Effect, Order } from "effect"
 import {
 	compiledCase,
 	type Feature,
+	servedHandles,
 	rosterCaseGen,
 	valueAdmitted
 } from "#test/unit/schema/empty-roster.fixtures.ts"
@@ -41,7 +43,7 @@ export const aRosterOfAnyNumberOfHandlesNoneAmongThemTypesItsClosedIdsItsSetsIts
 			"a set's value refused"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (drawn) =>
-			Effect.sync(() => {
+			Effect.gen(function* () {
 				c.note(
 					drawn.handles.length === 0
 						? "an empty roster"
@@ -63,6 +65,12 @@ export const aRosterOfAnyNumberOfHandlesNoneAmongThemTypesItsClosedIdsItsSetsIts
 					Arr.sort(compiled.facts, Order.String),
 					Arr.sort(drawn.handles, Order.String),
 					"a read of the roster delivers its handles"
+				)
+				const served = yield* Effect.orDie(servedHandles(compiled))
+				assert.deepEqual(
+					Arr.sort(served, Order.String),
+					Arr.sort(drawn.handles, Order.String),
+					"the served file generate writes, read back as a layer loads it, holds the roster's handles"
 				)
 				for (const value of drawn.values) {
 					const admitted = valueAdmitted(compiled, "code", value).ok
@@ -95,6 +103,14 @@ export const aRosterOfAnyNumberOfHandlesNoneAmongThemTypesItsClosedIdsItsSetsIts
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/served/json.ts",
+				original:
+					"\t\tconst live = slots.filter((slot) => slot !== false)\n\t\tcodes.set(name, rosterCodesOf(slots))",
+				replacement:
+					'\t\tconst live = slots.filter((slot) => slot !== false)\n\t\tif (live.length === 0) {\n\t\t\treturn unread([rostersKey, roster], "a roster\'s codes holding a live handle")\n\t\t}\n\t\tcodes.set(name, rosterCodesOf(slots))',
+				why: "The served reader refuses a roster of no live handle, which generate writes for an empty roster, so the first served(file, login) of a login over it fails with MalformedArtifact (edullm's ledger, rosters.GraderVersion: [])."
+			},
 			{
 				file: "packages/engine/src/schema/relation.ts",
 				original: "\t\tvalue.length === 0\n\t\t\t? []\n\t\t\t: requireNames(",

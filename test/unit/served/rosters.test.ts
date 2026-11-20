@@ -13,9 +13,9 @@
  * - The file: a served file holding the rosters, its text written (servedText) and read from the JSON value it parses
  *   to (servedFile), holds every roster's codes, and the codebook built from them is the one built from the codes
  *   written, codec for codec, as the runtime reads them (test/support/served.ts runtimeDifference).
- * - Fail closed: the file with one roster's live codes all turned to holes does not read back: a roster holds a live
- *   handle, so the reader refuses one that holds none as a malformed served file at that roster (MalformedArtifact),
- *   never a roster of no handle.
+ * - Every handle removed: the file with one roster's live codes all turned to holes reads back, that roster every
+ *   code a hole, the empty roster a declaration of no handle is after its handles were removed (empty-roster), as
+ *   generate writes it.
  *
  * The oracle is the codes themselves: identity, and the codebook rosterCodebook builds from them.
  */
