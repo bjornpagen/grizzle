@@ -3,11 +3,13 @@
  * drift.ts): the specification the drift-proof properties hold the drift check and the proof digests to.
  */
 
-import { Array as Arr, Order } from "effect"
+import { Array as Arr, Order, String as Str } from "effect"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
+import { quoteIdent } from "#compiler/core/text.ts"
 import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
+import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 
 /** The kinds of manifest identity no description names, whose objects the drift check never proves. */
@@ -21,10 +23,69 @@ const undescribed = [
 ] as const
 
 /**
+ * What each object of `snapshot` is created after, as the specification states it, read off the manifest's text rather
+ * than its statements' trees: each object its edges create it after, and each other object whose name the printed text
+ * of its replayed statements holds, quoted as grizzle prints every name: a schema object's `"schema"."name"`, a schema's
+ * `"schema".`. A name the printer spells bare (an index a replica identity names) is no part of it, so it never holds
+ * more than PostgreSQL needs first.
+ */
+export const specifiedAfter = (
+	snapshot: DeploySnapshot
+): ReadonlyMap<string, ReadonlySet<string>> => {
+	const names = Arr.flatMap(
+		snapshot.manifest.objects,
+		(o): ReadonlyArray<readonly [string, string]> => {
+			const ident = parseIdent(o.ident)
+			switch (ident.kind) {
+				case "schema":
+					return [[o.ident, `${quoteIdent(ident.name)}.`]]
+				case "domain":
+				case "type":
+				case "table":
+				case "materializedView":
+				case "view":
+				case "index":
+				case "statistics":
+				case "function":
+					return [[o.ident, `${quoteIdent(ident.schema)}.${quoteIdent(ident.name)}`]]
+				case "rowSecurity":
+				case "replicaIdentity":
+				case "extension":
+				case "role":
+				case "membership":
+				case "privileges":
+				case "publication":
+				case "column":
+				case "constraint":
+				case "trigger":
+				case "policy":
+				case "other":
+					return []
+			}
+		}
+	)
+	const after = new Map<string, Set<string>>()
+	for (const edge of snapshot.manifest.edges) {
+		after.set(edge.to, new Set([...(after.get(edge.to) ?? []), edge.from]))
+	}
+	for (const o of succeeded(manifestStatements(snapshot)).objects) {
+		const text = Arr.join(Arr.map(o.statements, printStatement), "\n")
+		const own = after.get(o.ident) ?? new Set<string>()
+		for (const [ident, name] of names) {
+			if (ident !== o.ident && Str.includes(name)(text)) {
+				own.add(ident)
+			}
+		}
+		after.set(o.ident, own)
+	}
+	return after
+}
+
+/**
  * The objects of `now` whose proof digest the proofs `proven`'s check recorded (none before the first) no longer
  * holds, as the specification states it, by object rather than by digest: an object of `now` is tainted when `proven`
  * holds no object of its identity, or one whose replayed statements (manifestStatements) have another canonical text,
- * or one created after other objects than it is, or when an object it is created after is tainted.
+ * or one created after other objects than it is (specifiedAfter), or when an object it is created after is tainted.
  */
 export const specifiedTainted = (
 	proven: DeploySnapshot | undefined,
@@ -37,26 +98,20 @@ export const specifiedTainted = (
 				canonicalTextOf(o.statements)
 			])
 		)
-	const afterOf = (s: DeploySnapshot): ReadonlyMap<string, ReadonlyArray<string>> => {
-		const after = new Map<string, Array<string>>()
-		for (const edge of s.manifest.edges) {
-			after.set(edge.to, [...(after.get(edge.to) ?? []), edge.from])
-		}
-		return after
-	}
 	const was = proven === undefined ? new Map<string, string>() : statementsOf(proven)
-	const wasAfter = proven === undefined ? new Map<string, ReadonlyArray<string>>() : afterOf(proven)
+	const wasAfter =
+		proven === undefined ? new Map<string, ReadonlySet<string>>() : specifiedAfter(proven)
 	const is = statementsOf(now)
-	const after = afterOf(now)
+	const after = specifiedAfter(now)
 	const sameAfter = (ident: string): boolean =>
-		canonicalTextOf(Arr.sort(after.get(ident) ?? [], Order.String)) ===
-		canonicalTextOf(Arr.sort(wasAfter.get(ident) ?? [], Order.String))
+		canonicalTextOf(Arr.sort([...(after.get(ident) ?? [])], Order.String)) ===
+		canonicalTextOf(Arr.sort([...(wasAfter.get(ident) ?? [])], Order.String))
 	const tainted = new Set<string>()
 	for (const o of now.manifest.objects) {
 		if (
 			was.get(o.ident) !== is.get(o.ident) ||
 			!sameAfter(o.ident) ||
-			Arr.some(after.get(o.ident) ?? [], (from) => tainted.has(from))
+			Arr.some([...(after.get(o.ident) ?? [])], (from) => tainted.has(from))
 		) {
 			tainted.add(o.ident)
 		}
@@ -73,10 +128,7 @@ export const specifiedReplay = (
 	now: DeploySnapshot
 ): ReadonlyArray<string> => {
 	const tainted = specifiedTainted(proven, now)
-	const after = new Map<string, Array<string>>()
-	for (const edge of now.manifest.edges) {
-		after.set(edge.to, [...(after.get(edge.to) ?? []), edge.from])
-	}
+	const after = specifiedAfter(now)
 	const needed = new Set<string>()
 	const pending = Arr.filter([...tainted], (ident) =>
 		Arr.every(undescribed, (kind) => kind !== parseIdent(ident).kind)

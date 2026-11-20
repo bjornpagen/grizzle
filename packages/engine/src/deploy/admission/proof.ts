@@ -4,7 +4,6 @@ import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.t
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { ownedDigest } from "#compiler/core/fingerprint.ts"
 import type { ReplayedObject } from "#compiler/deploy/admission/manifest.ts"
-import type { InstallationManifest } from "#compiler/ir/products.ts"
 
 /**
  * The drift check's proofs (adapter/admission/drift.ts, deploy/ledger/ledger.ts proofsTable).
@@ -13,10 +12,10 @@ import type { InstallationManifest } from "#compiler/ir/products.ts"
  * its relation, its columns, its constraint, its function's header. That description is what PostgreSQL deparses of
  * the catalog the object's statements leave over the objects they are created after: a view's definition reads its
  * tables' columns, a foreign key its target's key, a column its domain. So an object's proof digest digests its
- * replayed statements (manifest.ts ReplayedObject) and the proof digests of every object the manifest's edges create
- * it after, under the environment, everything else a description is a function of: the server, the role the replay
- * runs as, every extension's version, the description statement's own text and the installation's names (drift.ts
- * proofEnvironment). Two objects of one digest are described alike by any server of that environment, so a description
+ * replayed statements (manifest.ts ReplayedObject) and the proof digests of every object it is created after (its
+ * `after`: each the manifest's edges create it after, and each its statements name), under the environment,
+ * everything else a description is a function of: the server, the role the replay runs as, every extension's version,
+ * the description statement's own text and the installation's names (drift.ts proofEnvironment). Two objects of one digest are described alike by any server of that environment, so a description
  * a drift check verified once stands proven for every later installation whose object has its digest, and a change of
  * the object, of anything it is created after, or of the environment is a new digest, which proves nothing.
  *
@@ -30,23 +29,7 @@ declare const proofDigestBrand: unique symbol
 
 const proofDigest = nominal<string, ProofDigest>()
 
-/** The manifest's edges by the object each creates after another: each object's own `from`s. */
-const createdAfter = (
-	edges: InstallationManifest["edges"]
-): ReadonlyMap<string, ReadonlyArray<string>> => {
-	const after = new Map<string, Array<string>>()
-	for (const edge of edges) {
-		const known = after.get(edge.to)
-		if (known === undefined) {
-			after.set(edge.to, [edge.from])
-		} else {
-			known.push(edge.from)
-		}
-	}
-	return after
-}
-
-/** A manifest whose edge names an object it does not hold before the object created after it. */
+/** A manifest that does not hold an object before an object created after it. */
 const unordered = (ident: string, from: string): Refusal =>
 	new Refusal(
 		malformedArtifact(
@@ -65,19 +48,17 @@ export interface ProvedObject {
 /**
  * Each object with its proof digest, in install order (see the header): SHA-256 in the domain `drift-proof` over its
  * identity, its replayed statements, the environment and the digests of the objects it is created after, in code point
- * order, computed in install order, so every object it is created after has its digest first. A manifest whose edge
- * names an object it does not hold before the object created after it is refused as MalformedArtifact.
+ * order, computed in install order, so every object it is created after has its digest first. A manifest that does not
+ * hold an object before one created after it is refused as MalformedArtifact.
  */
 export const proofDigests = (
 	objects: ReadonlyArray<ReplayedObject>,
-	edges: InstallationManifest["edges"],
 	environment: string
 ): Result.Result<ReadonlyArray<ProvedObject>, CompileError> =>
 	catchRefusal(() => {
-		const after = createdAfter(edges)
 		const digests = new Map<string, ProofDigest>()
 		return objects.map((o): ProvedObject => {
-			const before = (after.get(o.ident) ?? []).map((from) => {
+			const before = o.after.map((from) => {
 				const digest = digests.get(from)
 				if (digest === undefined) {
 					throw unordered(o.ident, from)
@@ -103,15 +84,14 @@ export const proofDigests = (
 
 /**
  * What the drift check replays to describe `unproven` (drift.ts): every object it names and every object one of them is
- * created after, transitively, by the manifest's edges, in install order, which is what PostgreSQL needs to create each
+ * created after (ReplayedObject after), transitively, in install order, which is what PostgreSQL needs to create each
  * and all its description reads. Nothing else: an object no unproven one is created after stays unreplayed.
  */
 export const replayedOver = (
 	objects: ReadonlyArray<ReplayedObject>,
-	edges: InstallationManifest["edges"],
 	unproven: ReadonlySet<string>
 ): ReadonlyArray<ReplayedObject> => {
-	const after = createdAfter(edges)
+	const after = new Map(objects.map((o) => [o.ident, o.after] as const))
 	const needed = new Set<string>()
 	const pending = [...unproven]
 	for (let ident = pending.pop(); ident !== undefined; ident = pending.pop()) {

@@ -84,7 +84,7 @@ import type { CarrierName } from "#compiler/sql/naming.ts"
  * of), a function's (a constant is one), an operator class's or an extended statistics object's. A rename in one namespace never renames
  * a name of another.
  */
-type NameSpace = "relation" | "type" | "function" | "operatorClass" | "statistics"
+export type NameSpace = "relation" | "type" | "function" | "operatorClass" | "statistics"
 
 /** The namespace of the schema object a RENAME or a DROP names. */
 const objectSpace = (

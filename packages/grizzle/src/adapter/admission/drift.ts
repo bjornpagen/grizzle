@@ -1963,11 +1963,7 @@ export const driftCheck = (
 						(o) => o.by
 					)
 					const proved = yield* toResult(
-						proofDigests(
-							objects,
-							snapshot.manifest.edges,
-							proofEnvironment(yield* environment.row(first), installation)
-						)
+						proofDigests(objects, proofEnvironment(yield* environment.row(first), installation))
 					)
 					const rows = Arr.sort(
 						Arr.flatMap(proved, ({ object, digest }): ReadonlyArray<ProofRow> =>
@@ -1996,7 +1992,7 @@ export const driftCheck = (
 						unproven.size === 0 && proofs.size === rows.length
 							? { kind: "held" }
 							: { kind: "record", rows }
-					const replayed = replayedOver(objects, snapshot.manifest.edges, unproven)
+					const replayed = replayedOver(objects, unproven)
 					/**
 					 * A fact compared fact by fact: an unproven object's, or one no object owns. An object replayed only for one
 					 * created after it stands proven, its installed description its proof's.
