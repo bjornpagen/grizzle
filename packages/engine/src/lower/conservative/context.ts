@@ -303,7 +303,7 @@ export class WriteParams extends StatementParams<MemberParamSlot | NestedRowsPar
 		rows: FilledRows,
 		allocate: () => ReadonlyArray<RelationColumn>
 	): NonEmptyReadonlyArray<NestedRowsParamSlot> {
-		const key = `${stratum}\u0000${relation}\u0000${filledRowsKey(rows)}`
+		const key = filledRowsKey(stratum, relation, rows)
 		const known = this.#nested.get(key)
 		if (known !== undefined) {
 			return known

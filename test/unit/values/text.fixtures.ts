@@ -103,13 +103,6 @@ export const tuple: Gen<ReadonlyArray<string>> = array(string(spelledUnit, { min
 	max: 3
 })
 
-/** Each text after its length and a colon: the spelling compareTextTuples orders by without spelling it. */
-export const lengthSpelled = (texts: ReadonlyArray<string>): string =>
-	Arr.join(
-		Arr.map(texts, (t) => `${t.length}:${t}`),
-		""
-	)
-
 /** Whether JSON.stringify escapes a code unit: a quote, a backslash or a control. */
 export const escaped = (unit: number): boolean => unit === 0x22 || unit === 0x5c || unit < 0x20
 

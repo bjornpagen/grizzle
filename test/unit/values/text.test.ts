@@ -6,10 +6,9 @@
  *   boundary's specification, each plant's fault named by the plant.
  * - Code point order: compareCodePoints orders as the UTF-8 bytes of the texts do, PostgreSQL's C collation. Oracle: a
  *   second implementation, TextEncoder's bytes compared one by one.
- * - Tuple orders: a tuple of texts orders as its texts' spellings do, each after its length and a colon, and as a JSON
- *   array by code unit and by code point; and its key (core/text.ts textsKey), compared as a string, orders as its JSON
- *   array by code point, and is another tuple's key exactly when the tuples are one. Oracle: a second implementation,
- *   the tuples spelled and compared.
+ * - Tuple orders: a tuple of texts orders as a JSON array by code unit and by code point; and its key (core/text.ts
+ *   textsKey), compared as a string, orders as its JSON array by code point, and is another tuple's key exactly when the
+ *   tuples are one. Oracle: a second implementation, the tuples spelled and compared.
  *
  * Features: live text, a non-string and each plant at each position; equal tuples, a prefix, a difference past the
  * first text, of two lengths, and at an escaped unit.
@@ -21,13 +20,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { compareStrings } from "#compiler/core/order.ts"
-import {
-	compareQuotedTuples,
-	compareTextTuples,
-	isValidText,
-	textsKey,
-	validateText
-} from "#compiler/core/text.ts"
+import { compareQuotedTuples, isValidText, textsKey, validateText } from "#compiler/core/text.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
 import {
@@ -43,7 +36,6 @@ import {
 	codePointFeatures,
 	escaped,
 	kinds,
-	lengthSpelled,
 	positions,
 	signOf,
 	text,
@@ -182,11 +174,6 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 						}
 					}
 					assert.equal(
-						signOf(compareTextTuples(a, b)),
-						compareCodePoints(lengthSpelled(a), lengthSpelled(b)),
-						"length-first order is the spelling's"
-					)
-					assert.equal(
 						signOf(compareQuotedTuples(compareStrings)(a, b)),
 						signOf(compareStrings(jsonText(a), jsonText(b))),
 						"code unit order is the JSON array's"
@@ -211,15 +198,15 @@ export const textTupleOrdersOrderAsTheirTextsSpellingsDoEachTextAfterItsLengthAn
 				}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the tuples spelled, each text after its length and a colon, and by JSON.stringify, then compared"
+			name: "the tuples spelled by JSON.stringify, then compared"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/core/text.ts",
-				original: "\t\t\treturn y === undefined ? 1 : -1",
-				replacement: "\t\t\treturn -1",
-				why: "compareTextTuples orders a tuple before its own prefix; the tuple orders property fails."
+				original: "\t\t\t\treturn y === undefined ? -1 : 1",
+				replacement: "\t\t\t\treturn 1",
+				why: "compareQuotedTuples orders a tuple after its own prefix, where a JSON array that goes on (`,`) is below one that ends (`]`); the tuple orders property fails."
 			},
 			{
 				file: "packages/engine/src/core/text.ts",

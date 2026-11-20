@@ -53,9 +53,8 @@ export const aWritesNestedSourcesSendEveryStatementTheBytesItSendsAsItsFlightsOn
 		kills: [
 			{
 				file: "packages/engine/src/runtime/write/bind.ts",
-				original:
-					"\t\tconst key = [slot.stratum, slot.relation, filledRowsKey(slot.rows)] as const",
-				replacement: "\t\tconst key = [slot.stratum] as const",
+				original: "\t\tconst key = filledRowsKey(slot.stratum, slot.relation, slot.rows)",
+				replacement: "\t\tconst key = String(slot.stratum)",
 				why: "A write's nested sources are keyed by stratum alone, so two relations' nested rows in one stratum share one source and a statement sends another relation's cells (runtime/write/bind.ts), the recorded plant nested-sources-keyed-by-stratum."
 			},
 			{

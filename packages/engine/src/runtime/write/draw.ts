@@ -11,9 +11,6 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 
-/** An owner, or a group, by its key's texts, in the order the family's group fields pair with them. */
-export type Owner = NonEmptyReadonlyArray<ParamText>
-
 /** A member by its relation's primary key: each key field's text, in key order. */
 export type MemberKey = NonEmptyReadonlyArray<ParamText>
 

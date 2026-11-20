@@ -1,9 +1,10 @@
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 /**
  * A group's key texts on the host, as a write's statements carry them: each key field's value admitted in its type's
  * carrier under the installation's codes.
  */
 import { carrierSpecOf, paramOfText } from "#compiler/codec/scalar.ts"
+import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { columnKeyOf } from "#compiler/ir/law.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
@@ -14,7 +15,6 @@ import {
 	type Texts,
 	textAt
 } from "#compiler/runtime/write/cells.ts"
-import type { Owner } from "#compiler/runtime/write/draw.ts"
 import type { HostEvaluator } from "#compiler/runtime/write/fill.ts"
 
 /** A fact of a member relation's slot, as normalization admitted it: its fields' host values by name. */
@@ -41,21 +41,22 @@ export interface Grouped {
 export type GroupSide = "member" | "owner"
 
 /**
- * The reader of a row's group key texts in a family, from the side `side` names, a row of that side's relation, whose
- * columns are `columns`, its cells and the texts the write holds of them (cells.ts textAt): each group field's position
- * among them and its carrier's spec under the installation's codes, worked out once per family, so reading a row's group
- * costs its fields' texts the write holds none of and no more.
+ * The reader of a row's group in a family, its group key texts keyed (core/text.ts TextsKey), in the order the
+ * family's group fields pair with them, from the side `side` names, a row of that side's relation, whose columns are
+ * `columns`, its cells and the texts the write holds of them (cells.ts textAt): each group field's position among them
+ * and its carrier's spec under the installation's codes, worked out once per family, so reading a row's group costs
+ * its fields' texts the write holds none of, and one key.
  */
 export const groupReader = (
 	ctx: FillContext,
 	family: Grouped,
 	side: GroupSide,
 	columns: Columns
-): ((values: Cells, texts: Texts) => Owner) => {
-	const fields = mapNonEmpty(family.group, (g) => {
+): ((values: Cells, texts: Texts) => TextsKey) => {
+	const fields = family.group.map((g) => {
 		const field = g[side]
 		return { at: columns.at(columnKeyOf(field.name)), spec: carrierSpecOf(field.type, ctx.codes) }
 	})
 	return (values, texts) =>
-		mapNonEmpty(fields, (f) => paramOfText(f.spec, textAt(values, texts, f.at, f.spec)))
+		textsKey(fields.map((f) => paramOfText(f.spec, textAt(values, texts, f.at, f.spec))))
 }

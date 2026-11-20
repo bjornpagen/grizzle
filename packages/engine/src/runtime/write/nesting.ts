@@ -1,7 +1,6 @@
 import { defect, defined, invariant } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { type ReadonlyTupleMap, TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * A nested write as binding runs it, from its data (`NestingData`): each fact split along its families, each level's own
  * fields admitted, the whole nesting filled in one walk by the write's filler (runtime/write/fill.ts), and its rows cut
@@ -18,8 +17,8 @@ import {
 import { carrierSpecOf, cellOfText, paramOfText } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
 import type { ColumnIdent, StoredRelationName } from "#compiler/core/ids.ts"
-import { compareTextTuples } from "#compiler/core/text.ts"
-import type { ParamText } from "#compiler/core/wire.ts"
+import { compareStrings } from "#compiler/core/order.ts"
+import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import { type FamilyId, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
@@ -128,15 +127,18 @@ export type NestedFact = { readonly [field: string]: unknown }
  * the walk filled it, never copied, and the texts the write holds of them (cells.ts Texts), every such column's, which
  * the host's same-key checks read at their columns' positions as they read its values (normalize.ts rowReading); and
  * its identity, the canonical texts of every column the walk filled (scalar/values/identity.ts canonicalText), its
- * key's first, so two rows are one exactly when each such column is. The identity is those texts themselves, never one text joined from them: its size is its row's
- * arity, whatever its texts' lengths. Its cells are the same texts but a bytes column's, which travels as its value:
- * each value's text is the one its admission worked out, or, a value the walk drew, worked out once where the row is
- * made (`nestedRowOf`).
+ * key's first, so two rows are one exactly when each such column is. The identity is those texts themselves, never one
+ * text joined from them: its size is its row's arity, whatever its texts' lengths. Its cells are the same texts but a
+ * bytes column's, which travels as its value: each value's text is the one its admission worked out, or, a value the
+ * walk drew, worked out once where the row is made (`nestedRowOf`); and its key's texts keyed once there (core/text.ts
+ * textsKey), the key its relation's rows are a set by, in the write's nested set and in its inserted rows (bind.ts).
  */
 export interface NestedRow {
 	readonly identity: ReadonlyArray<string>
-	/** Its key's texts, which its relation's rows are a set by. */
+	/** Its key's texts, as its cells begin. */
 	readonly key: MemberKey
+	/** Its key's texts keyed (core/text.ts TextsKey): the one key its relation's rows are a set by. */
+	readonly keyed: TextsKey
 	readonly values: Cells
 	readonly texts: Texts
 	/** Its cells, key first, as its family statements send it (draw.ts MemberCell), each column's in its layout's order. */
@@ -144,93 +146,79 @@ export interface NestedRow {
 }
 
 /**
- * One element of a nested fact's signature: a canonical text of its own row, the insert's own statement's to write, or
- * a row it nests as its relation's set holds it, the first of its identity, so two facts nest one row exactly when they
- * hold one element.
+ * One element of a nested fact's signature: a canonical text of its own row, the insert's own statement's to write, the
+ * name of a relation whose rows it nests, or a row it nests, the one its relation's set holds at its key where their
+ * identities agree (`AtKey` held), so two facts nest one row where they hold one element and, at a key in conflict,
+ * where the rows' identities agree (`sameSignature`).
  */
 type Signed = string | NestedRow
 
-/**
- * One stratum's nested writes as sets (rule 0), across its every nested input, array or Stream: each insert's facts by
- * their relation and their key's texts, each signature at a key with the host values of its first fact; and each
- * reached member relation's rows by their key's texts and their identity. A fact's signature is its own row's texts
- * when the insert's own statement writes it, then every row it nests, each row the set's one of its identity: a tuple
- * as long as its rows are many, never their texts joined. A fact or a row stated twice, in one array, across arrays or
- * across inserts, is one. Two signatures or two identities at one key are a key conflict, which `nestedConflict` names
- * once every input is in, so the refusal depends on the set alone, never on the order its facts came in. Each
- * relation's rows keep the order they are inserted in: each owner's members in slot order, a tree's nodes in pre-order.
- */
-export interface NestedSet {
-	readonly tops: Map<
-		StoredRelationName,
-		TupleMap<ReadonlyArray<ParamText>, AtKey<ReadonlyArray<Signed>, NestedFact>>
-	>
-	readonly rows: Map<
-		StoredRelationName,
-		TupleMap<MemberKey, AtKey<ReadonlyArray<string>, NestedRow>>
-	>
-}
-
-/** Whether two identities hold the same elements in order, each pair one value. */
-const sameIdentity = (a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>): boolean => {
-	if (a.length !== b.length) {
-		return false
-	}
-	for (let i = 0; i < a.length; i += 1) {
-		if (a[i] !== b[i]) {
-			return false
-		}
-	}
-	return true
-}
+/** Whether two rows' identities are one: the same texts in order. */
+const sameTexts = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+	a.length === b.length && a.every((text, i) => text === b[i])
 
 /**
- * The distinct values a nested set holds at one key, by their identities, the first first: the first alone while no
- * other identity has come, which is every key of a set with no conflict, and a set of all of them once one has, so a
- * key costs no set of its own until its conflict.
+ * Whether two signatures are one fact's: element for element, each text the same, and each row the same row or one of
+ * the same identity, which a row held at a key in conflict is no other's.
  */
-class AtKey<I extends ReadonlyArray<unknown>, V> {
-	readonly #identity: I
-	readonly #value: V
-	#all: TupleMap<I, V> | undefined = undefined
-	constructor(identity: I, value: V) {
-		this.#identity = identity
-		this.#value = value
+const sameSignature = (a: ReadonlyArray<Signed>, b: ReadonlyArray<Signed>): boolean =>
+	a.length === b.length &&
+	a.every((x, i) => {
+		const y = b[i]
+		return (
+			x === y ||
+			(typeof x !== "string" &&
+				y !== undefined &&
+				typeof y !== "string" &&
+				sameTexts(x.identity, y.identity))
+		)
+	})
+
+/**
+ * What a nested set holds at one key: the identity first met there, the value it came with, and whether a value of
+ * another identity has come since, the key's conflict. A later value is compared with the first alone: a key in
+ * conflict refuses the write, whatever its other identities are, so the set keeps none of them.
+ */
+class AtKey<I, V> {
+	readonly identity: I
+	readonly first: V
+	#conflicted = false
+	constructor(identity: I, first: V) {
+		this.identity = identity
+		this.first = first
 	}
 
-	/** How many distinct identities the key holds. */
-	get size(): number {
-		return this.#all?.size ?? 1
+	/** Whether a value of another identity than the first's came to the key. */
+	get conflicted(): boolean {
+		return this.#conflicted
 	}
 
-	/** The value the key's first identity came with. */
-	get first(): V {
-		return this.#value
-	}
-
-	/** The key's identities, the first first. */
-	*keys(): IterableIterator<I> {
-		if (this.#all === undefined) {
-			yield this.#identity
-			return
+	/** The value the key holds of `identity`, `same` its identities' equality: its first, where `identity` is the first's;
+	 * `value` itself otherwise, the key in conflict from then on. */
+	held(identity: I, value: V, same: (a: I, b: I) => boolean): V {
+		if (same(identity, this.identity)) {
+			return this.first
 		}
-		yield* this.#all.keys()
-	}
-
-	/** The value the key holds of `identity`, `value` added where it holds none. */
-	held(identity: I, value: V): V {
-		if (sameIdentity(identity, this.#identity)) {
-			return this.#value
-		}
-		const all = this.#all ?? new TupleMap<I, V>().set(this.#identity, this.#value)
-		this.#all = all
-		const known = all.get(identity)
-		if (known !== undefined) {
-			return known
-		}
-		all.set(identity, value)
+		this.#conflicted = true
 		return value
 	}
+}
+
+/**
+ * One stratum's nested writes as sets (rule 0), across its every nested input, array or Stream: each insert's facts by
+ * their relation and their key's texts keyed (core/text.ts TextsKey), each key holding the signature of its first fact
+ * with that fact's host values; and each reached member relation's rows by their key's texts keyed (NestedRow keyed),
+ * each key holding its first row. A fact's signature is its own row's texts when the insert's own statement writes it,
+ * then, for each relation it nests rows of, the relation's name and those rows, each the set's one at its key where
+ * their identities agree: a tuple as long as its rows are many, never their texts joined. A fact or a row stated twice,
+ * in one array, across arrays or across inserts, is one. A second signature or identity at one key is a key conflict,
+ * which `nestedConflict` names once every input is in, so the refusal depends on the set alone, never on the order its
+ * facts came in. Each relation's rows keep the order they are inserted in: each owner's members in slot order, a
+ * tree's nodes in pre-order.
+ */
+export interface NestedSet {
+	readonly tops: Map<StoredRelationName, Map<TextsKey, AtKey<ReadonlyArray<Signed>, NestedFact>>>
+	readonly rows: Map<StoredRelationName, Map<TextsKey, AtKey<ReadonlyArray<string>, NestedRow>>>
 }
 
 /** A stratum's nested writes before any fact: no fact and no row. */
@@ -314,8 +302,7 @@ export const nestedRows = (
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation
 	const byKey =
-		into.tops.get(relation) ??
-		new TupleMap<ReadonlyArray<ParamText>, AtKey<ReadonlyArray<Signed>, NestedFact>>()
+		into.tops.get(relation) ?? new Map<TextsKey, AtKey<ReadonlyArray<Signed>, NestedFact>>()
 	into.tops.set(relation, byKey)
 	const own = walk.columns(relation)
 	/** A field of the insert's own row as its facts are read: its name, its position among its relation's columns and its
@@ -376,25 +363,26 @@ export const nestedRows = (
 		)
 		const textOf = (c: { readonly at: number; readonly spec: CarrierSpec }): string =>
 			textAt(root.values, root.texts, c.at, c.spec)
-		const key = keyColumns.map((c) => paramOfText(c.spec, textOf(c)))
+		const key = textsKey(keyColumns.map((c) => paramOfText(c.spec, textOf(c))))
 		const signature: Array<Signed> = nesting.root.kind === "plain" ? top.map(textOf) : []
 		for (const [reached, list] of rowsOf(nesting, shapeOf, root)) {
 			const known =
-				into.rows.get(reached) ?? new TupleMap<MemberKey, AtKey<ReadonlyArray<string>, NestedRow>>()
+				into.rows.get(reached) ?? new Map<TextsKey, AtKey<ReadonlyArray<string>, NestedRow>>()
 			into.rows.set(reached, known)
+			signature.push(reached)
 			for (const row of list) {
-				const identities = known.get(row.key)
-				const held = identities === undefined ? row : identities.held(row.identity, row)
-				if (identities === undefined) {
-					known.set(row.key, new AtKey(row.identity, row))
+				const at = known.get(row.keyed)
+				const held = at === undefined ? row : at.held(row.identity, row, sameTexts)
+				if (at === undefined) {
+					known.set(row.keyed, new AtKey(row.identity, row))
 				}
 				signature.push(held)
 			}
 		}
-		const signatures = byKey.get(key)
-		if (signatures === undefined) {
+		const at = byKey.get(key)
+		if (at === undefined) {
 			byKey.set(key, new AtKey<ReadonlyArray<Signed>, NestedFact>(signature, fact))
-		} else if (signatures.held(signature, fact) !== fact) {
+		} else if (at.held(signature, fact, sameSignature) !== fact) {
 			continue
 		}
 		if (nesting.root.kind === "plain") {
@@ -409,14 +397,13 @@ const byCodePoint = <K extends string, A>(
 	entries: Iterable<readonly [K, A]>
 ): ReadonlyArray<readonly [K, A]> => [...entries].toSorted(([a], [b]) => compareCodePoints(a, b))
 
-/** The first, in its texts' order (core/text.ts compareTextTuples), of the keys that hold more than one value. */
-const firstConflicting = <V>(
-	byKey: ReadonlyTupleMap<ReadonlyArray<ParamText>, AtKey<ReadonlyArray<unknown>, V>>
-): V | undefined => {
-	let first: { readonly key: ReadonlyArray<ParamText>; readonly value: V } | undefined
-	for (const [key, held] of byKey) {
-		if (held.size > 1 && (first === undefined || compareTextTuples(key, first.key) < 0)) {
-			first = { key, value: held.first }
+/** The first value, in its key's order (core/text.ts TextsKey, the canonical order of key texts), of the keys in
+ * conflict. */
+const firstConflicting = <V>(byKey: ReadonlyMap<TextsKey, AtKey<unknown, V>>): V | undefined => {
+	let first: { readonly key: TextsKey; readonly value: V } | undefined
+	for (const [key, at] of byKey) {
+		if (at.conflicted && (first === undefined || compareStrings(key, first.key) < 0)) {
+			first = { key, value: at.first }
 		}
 	}
 	return first?.value
@@ -424,8 +411,9 @@ const firstConflicting = <V>(
 
 /**
  * The first key conflict of a stratum's nested set: an insert's relation's key at which two facts nest different rows,
- * then a member relation's key holding two rows; relations in code point order and keys in their texts' order, so the
- * conflict named is the set's, whatever order its facts came in. It names one of the two, its fact or its row, which
+ * then a member relation's key holding two rows; relations in code point order and keys in their keys' order, the
+ * canonical order of key texts (core/text.ts TextsKey), so the conflict named is the set's, whatever order its facts
+ * came in. It names one of the two, its fact or its row, which
  * agree at the key.
  */
 export const nestedConflict = (
@@ -449,16 +437,17 @@ export const nestedConflict = (
 	return undefined
 }
 
-/** A nested set with no conflict as its rows: each member relation's, by key, in the order they are inserted. */
+/** A nested set with no conflict as its rows: each member relation's, one at each key, in the order they are
+ * inserted. */
 export const nestedRowsOf = (
 	set: NestedSet
-): ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>> =>
+): ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>> =>
 	new Map(
 		[...set.rows].map(([relation, byKey]) => {
-			const rows = new TupleMap<MemberKey, NestedRow>()
-			for (const [key, identities] of byKey) {
-				invariant(identities.size === 1, "a nested set with no conflict holds one row at each key")
-				rows.set(key, identities.first)
+			const rows: Array<NestedRow> = []
+			for (const at of byKey.values()) {
+				invariant(!at.conflicted, "a nested set with no conflict holds one row at each key")
+				rows.push(at.first)
 			}
 			return [relation, rows] as const
 		})
@@ -677,7 +666,14 @@ const nestedRowOf = (shape: RowShape, row: FilledNode): NestedRow => {
 		cells.push(cellOfText(c.spec, values[c.at], text))
 		identity.push(text)
 	}
-	return { identity: Object.freeze(identity), key, values, texts, cells: Object.freeze(cells) }
+	return {
+		identity: Object.freeze(identity),
+		key,
+		keyed: textsKey(key),
+		values,
+		texts,
+		cells: Object.freeze(cells)
+	}
 }
 
 /**

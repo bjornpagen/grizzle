@@ -1,6 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
@@ -42,37 +41,6 @@ export const wellFormed = (text: string): WellFormedText => {
 		throw defect("a text grizzle holds is well-formed")
 	}
 	return text
-}
-
-/**
- * The order of two lists of well-formed texts as each text after its length and a colon would spell them, compared by
- * code point, without spelling them: at the first position they differ, texts of two lengths are ordered by their
- * lengths' decimal spellings, a colon after each, and texts of one length by code point; a list that is the other's
- * prefix is first. No text is ever copied, so the order costs its lists' arity and the units it reads, never a text as
- * long as their sum.
- */
-export const compareTextTuples = (
-	a: ReadonlyArray<string>,
-	b: ReadonlyArray<string>
-): -1 | 0 | 1 => {
-	for (let i = 0; i < a.length; i += 1) {
-		const x = a[i]
-		const y = b[i]
-		if (x === undefined || y === undefined) {
-			return y === undefined ? 1 : -1
-		}
-		if (x === y) {
-			continue
-		}
-		if (x.length !== y.length) {
-			return compareCodePoints(`${x.length}:`, `${y.length}:`)
-		}
-		const order = compareCodePoints(x, y)
-		if (order !== 0) {
-			return order
-		}
-	}
-	return a.length < b.length ? -1 : 0
 }
 
 /**

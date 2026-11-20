@@ -1,7 +1,7 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import type { ReadonlyTupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { byteaArray } from "#compiler/codec/bytea.ts"
 import { encodeFailure, slotPlace } from "#compiler/codec/fault.ts"
 import {
@@ -15,7 +15,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
 import { compareStrings, sortInPlace } from "#compiler/core/order.ts"
-import { compareTextTuples, type TextsKey, textsKey } from "#compiler/core/text.ts"
+import { compareQuotedTuples, type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
@@ -34,7 +34,6 @@ import { type ScalarType, type SpanCarrier, spanOf } from "#compiler/ir/scalar.t
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { type Columns, textAt } from "#compiler/runtime/write/cells.ts"
 import { keptReads } from "#compiler/runtime/write/decoded.ts"
-import type { MemberKey } from "#compiler/runtime/write/draw.ts"
 import {
 	nestedConflict,
 	type NestedFact,
@@ -140,12 +139,9 @@ interface KeyRefusal {
 export interface Normalized {
 	readonly kind: "normalized"
 	readonly slots: ReadonlyMap<ParamId, NormalizedSlot>
-	/** Each stratum's nested rows, by reached member relation, a set by key (nesting.ts NestedSet), in the order they
+	/** Each stratum's nested rows, by reached member relation, one at each key (nesting.ts NestedSet), in the order they
 	 * are inserted. */
-	readonly nested: ReadonlyMap<
-		StratumAt,
-		ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>>
-	>
+	readonly nested: ReadonlyMap<StratumAt, ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>>>
 }
 
 /**
@@ -274,11 +270,15 @@ const factReading: EntryReading<IdentifiedFact> = {
 	value: (field) => (entry) => entry.fact[field]
 }
 
-/** A nested row's reading (`EntryReading`), a relation's of `columns`: in its identities' order, each field read at its
- * column's position among the relation's, its key text of the text its write holds (cells.ts textAt, identity.ts
- * keyText). */
+/** Two lists of texts in the canonical order of facts: their keys' order (core/text.ts TextsKey), the code point order
+ * of their JSON texts, worked out without keying them. */
+const canonicalOrder = compareQuotedTuples(compareCodePoints)
+
+/** A nested row's reading (`EntryReading`), a relation's of `columns`: in its identities' canonical order, an admitted
+ * fact's, each field read at its column's position among the relation's, its key text of the text its write holds
+ * (cells.ts textAt, identity.ts keyText). */
 const rowReading = (columns: Columns): EntryReading<NestedRow> => ({
-	order: (a, b) => compareTextTuples(a.identity, b.identity),
+	order: (a, b) => canonicalOrder(a.identity, b.identity),
 	key: (fields) => {
 		const at = fields.map(({ field, spec }) => ({ at: columns.at(columnKeyOf(field)), spec }))
 		return (row) =>
@@ -921,10 +921,7 @@ export const normalizeChangeSet = (
 	}
 	/** Each stratum's nested rows by relation, judged as the stratum's additions of that relation (step 3): a row its
 	 * set holds once at its key may still share another declared key with another row. */
-	const rows = new Map<
-		StratumAt,
-		ReadonlyMap<StoredRelationName, ReadonlyTupleMap<MemberKey, NestedRow>>
-	>()
+	const rows = new Map<StratumAt, ReadonlyMap<StoredRelationName, ReadonlyArray<NestedRow>>>()
 	for (const [stratum, set] of nested) {
 		const factsOf = (name: StoredRelationName): CheckedFacts =>
 			defined(
@@ -941,8 +938,8 @@ export const normalizeChangeSet = (
 			)
 		}
 		const held = nestedRowsOf(set)
-		for (const [name, byKey] of held) {
-			const refused = sameKey(factsOf(name), rowReading(walk.columns(name)), byKey.values())
+		for (const [name, relationRows] of held) {
+			const refused = sameKey(factsOf(name), rowReading(walk.columns(name)), relationRows)
 			if (refused !== undefined) {
 				return Result.ok(refused)
 			}

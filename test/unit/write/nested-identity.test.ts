@@ -13,10 +13,11 @@
  * - The specification as a second implementation of the dedupe: the facts are a set by their whole content, own
  *   fields and nested members alike, so a fact stated twice is one, and two distinct facts at one owner id are refused
  *   by the owner's key law before any SQL; an accepted write inserts every distinct fact's members once.
- * - The identity gate: every text the nested set keys a row or a fact by is one column's text, none longer than the
- *   longest text the write states, and the set keys by exactly as many texts at the case's content length as at
- *   length 1. A key joined from texts is longer than each of them, and one spelled per character grows with the
- *   content; neither holds the gate.
+ * - The identity gate: every key the nested set holds a fact or a row at is its key's texts keyed (core/text.ts
+ *   TextsKey), the same keys at the case's content length as at length 1, and every text it keeps of what it holds is
+ *   one column's text, none longer than the longest text the write states, as many at the case's content length as at
+ *   length 1. A key or a text joined from a row's texts grows with the content, and one spelled per character keeps
+ *   more texts as it grows; neither holds the gate.
  *
  * Features: a fact stated twice, two facts at one id differing in their title alone or in their members, facts at one
  * id that differ in their members' bodies alone (every fact at an id of one title and one count of members), two bodies
@@ -36,17 +37,27 @@ import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { nestedRowsColumn } from "#test/support/compile.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	Bodies,
+	boundSet,
+	byOwner,
 	caseGen,
 	factsOf,
 	type IdentityFeature,
+	insertOwners,
 	keyedAt,
 	lawNames,
 	Owner,
+	ownersInConflict,
 	programOf,
+	rowsAsASet,
 	sameFact,
+	type SetFeature,
+	setGen,
+	setLength,
+	setSpace,
 	statedTexts
 } from "#test/unit/write/nested-identity.fixtures.ts"
 
@@ -86,19 +97,25 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 					})
 				)
 				const keyed = keyedAt(program, box.facts, box.length)
+				const atOne = keyedAt(program, box.facts, 1)
 				const longest = Arr.reduce(statedTexts(box.facts, box.length), 0, (n, t) =>
 					Math.max(n, t.length)
 				)
-				for (const t of keyed) {
+				for (const t of keyed.texts) {
 					assert.ok(
 						t.length <= longest,
-						`a text the nested set keys by is one column's: ${t.length} units, past the longest stated text's ${longest}`
+						`a text the nested set keeps is one column's: ${t.length} units, past the longest stated text's ${longest}`
 					)
 				}
 				assert.equal(
-					keyed.length,
-					keyedAt(program, box.facts, 1).length,
-					"the nested set keys by as many texts at any content length as at length 1"
+					keyed.texts.length,
+					atOne.texts.length,
+					"the nested set keeps as many texts at any content length as at length 1"
+				)
+				assert.deepEqual(
+					Arr.sort(keyed.keys, Str.Order),
+					Arr.sort(atOne.keys, Str.Order),
+					"the nested set holds its facts and rows at the same keys at any content length as at length 1"
 				)
 				const distinct = Arr.dedupeWith(box.facts, sameFact)
 				if (distinct.length < box.facts.length) {
@@ -192,3 +209,157 @@ export const aNestedWritesIdentitiesDedupeItsFactsAndRowsByTheirWholeContentRefu
 			}
 		]
 	})
+
+/**
+ * A nested write's set is the same set however its facts are stated (rule 0): over drawn owner facts, the facts stated
+ * once in order, then each stated again where it first comes and all stated again after them, bind to the same write,
+ * every statement's executions alike, or to the same refusal, its law and its witness; and stated with their owners in
+ * ascending and in descending order, to the same refusal, or to the same rows inserted. The set keys its facts and rows
+ * by their keys' texts (core/text.ts TextsKey) and names a conflict by its key's order, never by the order its facts
+ * came in, so where two owners each hold two facts in conflict, it names the same one whichever comes first.
+ *
+ * Budget: 200 runs and 200 steered cases, as the identities' property beside it.
+ */
+export const aNestedWritesSetIsTheSameSetHoweverItsFactsAreStatedAndNamesItsConflictByItsKeysOrder =
+	property.explore(setSpace, {
+		needs: {},
+		budget: { runs: 200, steered: 200 },
+		situations: [
+			"accepted",
+			"a fact stated twice",
+			"refused at one key the nested set holds in conflict",
+			"refused where the nested set holds two keys in conflict"
+		] satisfies ReadonlyArray<Reached<SetFeature>>,
+		check: (_, c: Case<SetFeature>) => (facts) =>
+			Effect.gen(function* () {
+				const once = yield* boundSet(facts)
+				const again = yield* boundSet([...Arr.flatMap(facts, (f) => [f, f]), ...facts])
+				const ascending = yield* boundSet(byOwner(facts, "ascending"))
+				const descending = yield* boundSet(byOwner(facts, "descending"))
+				if (Arr.dedupeWith(facts, sameFact).length < facts.length) {
+					c.note("a fact stated twice")
+				}
+				switch (once.kind) {
+					case "refused": {
+						assert.deepEqual(again, once, "stated again, the same refusal, its law and witness")
+						assert.deepEqual(
+							ascending,
+							once,
+							"owners ascending, the same refusal, its law and witness"
+						)
+						assert.deepEqual(
+							descending,
+							once,
+							"owners descending, the same refusal, its law and witness"
+						)
+						/** Two facts at one owner of two titles or two counts, which the same-key check refuses first. */
+						const sameKeyFirst = Arr.some(facts, (f) =>
+							Arr.some(
+								facts,
+								(g) =>
+									f.owner === g.owner &&
+									(f.title !== g.title || f.bodies.length !== g.bodies.length)
+							)
+						)
+						const conflicts = sameKeyFirst ? 0 : ownersInConflict(facts).length
+						if (conflicts > 1) {
+							c.note("refused where the nested set holds two keys in conflict")
+						} else if (conflicts === 1) {
+							c.note("refused at one key the nested set holds in conflict")
+						}
+						return
+					}
+					case "bound": {
+						assertVariant(again, "kind", "bound", "stated again, the set binds")
+						assert.deepEqual(
+							again.statements,
+							once.statements,
+							"stated again, every statement's executions alike"
+						)
+						for (const [order, other] of [
+							["ascending", ascending],
+							["descending", descending]
+						] as const) {
+							assertVariant(other, "kind", "bound", `owners ${order}, the set binds`)
+							assert.deepEqual(
+								rowsAsASet(other.inserted()),
+								rowsAsASet(once.inserted()),
+								`owners ${order}, the same rows inserted`
+							)
+						}
+						c.note("accepted")
+					}
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "rule 0: one set of facts, stated once, stated again or reordered, is one write or one refusal"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/nesting.ts",
+				original:
+					"\t\tif (at.conflicted && (first === undefined || compareStrings(key, first.key) < 0)) {",
+				replacement: "\t\tif (at.conflicted && first === undefined) {",
+				why: "A conflict is named by the order its facts came in, the first key in conflict met: where two owners' keys are each in conflict, stating the other owner first names it, and the refusal's witness depends on the order the set was stated in."
+			}
+		]
+	})
+
+/** The calls a nested write's keys are counted by (core/text.ts textsKey). */
+const keySites = Object.freeze({
+	keys: { file: "packages/engine/src/core/text.ts", name: "textsKey" }
+})
+
+/**
+ * A nested write keys each fact and each row once: over drawn owner facts, filling the nested set (runtime/write/
+ * nesting.ts nestedRows) calls textsKey exactly twice for each fact and each member as stated, once for its key and
+ * once for its level's admitted identity, however many are stated twice; and the rows the bound insert inserts are
+ * keyed once more for each distinct owner fact alone, every nested row inserted at the key its set holds it at (NestedRow
+ * keyed), read off V8's call counts (kernel/calls.ts callCounts).
+ */
+export const aNestedWriteKeysEachFactAndEachRowOnce = property.explore(setGen, {
+	needs: {},
+	budget: { runs: 40, steered: 0 },
+	situations: [],
+	check: () => (facts) =>
+		Effect.gen(function* () {
+			const members = Arr.reduce(facts, 0, (n, f) => n + f.bodies.length)
+			const [, setCounts] = yield* callCounts(
+				Effect.sync(() => keyedAt(insertOwners, facts, setLength)),
+				keySites
+			)
+			assert.equal(
+				setCounts.keys,
+				2 * (facts.length + members),
+				"each stated fact and member keyed once and its identity once"
+			)
+			const bound = yield* boundSet(facts)
+			if (bound.kind !== "bound") {
+				return
+			}
+			const [, insertedCounts] = yield* callCounts(Effect.sync(bound.inserted), keySites)
+			assert.equal(
+				insertedCounts.keys,
+				Arr.dedupeWith(facts, sameFact).length,
+				"the inserted rows keyed once for each owner fact, no nested row again"
+			)
+		}),
+	oracle: { kind: "specification", name: "one key per fact and per row, made once" },
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/runtime/write/nesting.ts",
+			original: "\t\t\t\tconst at = known.get(row.keyed)",
+			replacement: "\t\t\t\tconst at = known.get(textsKey(row.key))",
+			why: "The set keys each row again where it looks it up: every member is keyed twice."
+		},
+		{
+			file: "packages/engine/src/runtime/write/bind.ts",
+			original: "\t\t\t\t\t\t\t\tadd(relation, row.keyed, row.values)",
+			replacement: "\t\t\t\t\t\t\t\tadd(relation, textsKey(row.key), row.values)",
+			why: "The inserted rows key each nested row again, which its set keyed: every member is keyed twice."
+		}
+	]
+})

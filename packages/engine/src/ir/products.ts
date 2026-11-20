@@ -12,7 +12,7 @@ import type {
 	StoredRelationName
 } from "#compiler/core/ids.ts"
 import type { Direction } from "#compiler/core/order.ts"
-import type { TextsKey } from "#compiler/core/text.ts"
+import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
 import type { Certificate } from "#compiler/ir/certificate.ts"
 import type { Int8Type } from "#compiler/ir/clock.ts"
@@ -262,9 +262,21 @@ export type FilledRows =
 /** The rows a stratum's nested writes' walk fills (`FilledRows` walked). */
 export const walkedRows: FilledRows = Object.freeze({ kind: "walked" })
 
-/** The key of a set of filled rows (`FilledRows`) among a stratum's sets of a relation. */
-export const filledRowsKey = (rows: FilledRows): string =>
-	rows.kind === "walked" ? "walked" : `fresh\u0000${rows.family}`
+/**
+ * The key of a stratum's set of filled rows of a relation (`FilledRows`), which a statement's placeholders of them send
+ * (lower/conservative/context.ts, runtime/write/bind.ts sources): its stratum, its relation and which rows it holds,
+ * keyed as one string (core/text.ts textsKey).
+ */
+export const filledRowsKey = (
+	stratum: StratumAt,
+	relation: StoredRelationName,
+	rows: FilledRows
+): TextsKey =>
+	textsKey(
+		rows.kind === "walked"
+			? [String(stratum), relation, "walked"]
+			: [String(stratum), relation, "fresh", rows.family]
+	)
 
 /**
  * What fills one placeholder of a statement spec, decided where the lowering allocated it, with its encoder. For a

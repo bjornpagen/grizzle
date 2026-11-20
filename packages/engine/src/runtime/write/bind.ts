@@ -5,7 +5,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 /**
  * Binding one application of a write before any SQL is sent (`bindWrite`): its declared parameters admitted, its
  * members normalized, each statement's placeholder values encoded, and its statements' executions in its one flight,
@@ -21,6 +20,7 @@ import { carrierSpecOf, paramEncoder, paramOfText } from "#compiler/codec/scalar
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import type { LawId, ParamId, StoredRelationName } from "#compiler/core/ids.ts"
 import { isIterable } from "#compiler/core/record.ts"
+import { type TextsKey, textsKey } from "#compiler/core/text.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import type { FillAt } from "#compiler/ir/fill.ts"
 import { familyKey, type GeneratedLaw, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
@@ -50,7 +50,7 @@ import {
 	type Texts,
 	textAt
 } from "#compiler/runtime/write/cells.ts"
-import type { MemberCell, MemberKey, Owner } from "#compiler/runtime/write/draw.ts"
+import type { MemberCell } from "#compiler/runtime/write/draw.ts"
 import {
 	type FilledNode,
 	type Filler,
@@ -446,9 +446,7 @@ const hostRows = (
 	const normalNestedRows = (
 		stratum: StratumAt,
 		relation: StoredRelationName
-	): ReadonlyArray<NestedRow> => [
-		...(normalized.nested.get(stratum)?.get(relation)?.values() ?? [])
-	]
+	): ReadonlyArray<NestedRow> => normalized.nested.get(stratum)?.get(relation) ?? []
 	/** The write's rows as normalization leaves them: each slot's normal facts, each nested row as the walk filled it. */
 	const normalRows: WriteRows = { slot: factsOf, nested: normalNestedRows }
 	const ctx: FillContext = { codes, evaluate: prepared.evaluate, columns: prepared.columns }
@@ -694,13 +692,11 @@ const hostRows = (
 		return { kind: "stamped", stated }
 	}
 	/**
-	 * The reader of a row's key texts in `relation` (`insertedKey`), which its rows are a set by, as a nested row's key is
-	 * (NestedRow `key`), from its cells and the texts the write holds of them (cells.ts textAt): each column's position and
-	 * spec worked out once for the relation.
+	 * The reader of a row's key texts in `relation` (`insertedKey`), keyed (core/text.ts TextsKey), which its rows are a
+	 * set by, as a nested row's key is (NestedRow `keyed`), from its cells and the texts the write holds of them (cells.ts
+	 * textAt): each column's position and spec worked out once for the relation.
 	 */
-	const keyReader = (
-		relation: StoredRelationName
-	): ((values: Cells, texts: Texts) => MemberKey) => {
+	const keyReader = (relation: StoredRelationName): ((values: Cells, texts: Texts) => TextsKey) => {
 		const columns = prepared.columns(relation)
 		const read = insertedKey(relation)
 		const key = mapNonEmpty(read.kind === "held" ? read.columns : read.stated, (c) => ({
@@ -708,7 +704,7 @@ const hostRows = (
 			spec: carrierSpecOf(c.type, codes)
 		}))
 		return (cells, texts) =>
-			mapNonEmpty(key, (c) => paramOfText(c.spec, textAt(cells, texts, c.at, c.spec)))
+			textsKey(key.map((c) => paramOfText(c.spec, textAt(cells, texts, c.at, c.spec))))
 	}
 	/** Each stratum's inserted rows (`InsertedStratum`), from the sources its statements send. */
 	const inserted = (): ReadonlyArray<InsertedStratum> =>
@@ -716,11 +712,11 @@ const hostRows = (
 			.toSorted((a, b) => a - b)
 			.map((stratum): InsertedStratum => {
 				/** Each relation's rows, by their key, which the host holds. */
-				const keyed = new Map<StoredRelationName, TupleMap<MemberKey, KeyedRow>>()
+				const keyed = new Map<StoredRelationName, Map<TextsKey, KeyedRow>>()
 				/** A row of `relation` at its key: its source's cells themselves, and where another source gave the key cells
 				 * before, those cells with this one's over them (`overlaid`). */
-				const add = (relation: StoredRelationName, key: MemberKey, filled: Cells): void => {
-					const of = keyed.get(relation) ?? new TupleMap<MemberKey, KeyedRow>()
+				const add = (relation: StoredRelationName, key: TextsKey, filled: Cells): void => {
+					const of = keyed.get(relation) ?? new Map<TextsKey, KeyedRow>()
 					keyed.set(relation, of)
 					const row = of.get(key)
 					if (row === undefined) {
@@ -758,7 +754,7 @@ const hostRows = (
 					if (n.stratum === stratum) {
 						for (const relation of n.layouts.keys()) {
 							for (const row of sentRows.nested(stratum, relation)) {
-								add(relation, row.key, row.values)
+								add(relation, row.keyed, row.values)
 							}
 						}
 					}
@@ -775,7 +771,7 @@ const hostRows = (
 							memberColumns.at(c.key)
 						)
 						const keyOf = keyReader(f.member)
-						const drawn = new TupleMap<MemberKey, Cells>()
+						const drawn = new Map<TextsKey, Cells>()
 						for (const member of freshMembersOf(stratum, familyKey(f.id))) {
 							drawn.set(keyOf(member.values, member.texts), member.values)
 						}
@@ -959,9 +955,9 @@ const boundStatements = (flight: FlightWrite, inputs: BindInputs, host: HostRows
 	 * sends them (`sourceOf`), so no statement builds, writes or measures the cells or a column another statement sends,
 	 * and a binding none of whose statements is sent, an insertion preview's (program/preview.ts), encodes none.
 	 */
-	const sources = new TupleMap<readonly [StratumAt, StoredRelationName, string], NestedSource>()
+	const sources = new Map<TextsKey, NestedSource>()
 	const sourceOf = (slot: Extract<WriteSlot, { readonly kind: "nestedRows" }>): NestedSource => {
-		const key = [slot.stratum, slot.relation, filledRowsKey(slot.rows)] as const
+		const key = filledRowsKey(slot.stratum, slot.relation, slot.rows)
 		const built = sources.get(key)
 		if (built !== undefined) {
 			return built
@@ -1169,17 +1165,16 @@ const freshOwners = (
 		}
 		/** The members of each group the fill drew, by the family's key and the group, each group once however many of the
 		 * stratum's owner rows name it. */
-		const drawnMembers = new Map<string, TupleMap<Owner, ReadonlyArray<CellRow>>>()
+		const drawnMembers = new Map<string, Map<TextsKey, ReadonlyArray<CellRow>>>()
 		/** Each member of a filled owner's families, as its fill's cells and their texts: its input's, which the fill
 		 * starts each member's row from, and every column the fill drew on it. */
 		const keepMembers = (
 			filled: FilledNode,
-			inputs: ReadonlyArray<{ readonly family: string; readonly group: Owner }>
+			inputs: ReadonlyArray<{ readonly family: string; readonly group: TextsKey }>
 		): void => {
 			for (const [place, g] of filled.families.entries()) {
 				const input = defined(inputs[place], "the members a filled family was given")
-				const groups =
-					drawnMembers.get(input.family) ?? new TupleMap<Owner, ReadonlyArray<CellRow>>()
+				const groups = drawnMembers.get(input.family) ?? new Map<TextsKey, ReadonlyArray<CellRow>>()
 				drawnMembers.set(input.family, groups)
 				groups.set(input.group, g.members)
 			}
@@ -1211,7 +1206,7 @@ const freshOwners = (
 		const byGroup = new Map(
 			counted.map((f) => {
 				const groupOf = groupReader(ctx, f, "member", ctx.columns(f.member))
-				const groups = new TupleMap<Owner, Array<CellRow>>()
+				const groups = new Map<TextsKey, Array<CellRow>>()
 				for (const member of membersOf(f.member)) {
 					const group = groupOf(member.values, member.texts)
 					const list = groups.get(group) ?? []
