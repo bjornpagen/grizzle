@@ -8,7 +8,9 @@
  *   the objects the specification's replay set names, and admits the database; once it recorded the version's rows,
  *   the next check replays nothing and admits it again. Then a hand edit of an object no version changed (a column
  *   added, an index dropped, a CHECK dropped, a trigger disabled), made outside any migration, is refused at the stage
- *   drift with exactly its own mismatch.
+ *   drift with exactly its own mismatch. A history ends at a version holding an object of its edit
+ *   (drift-proofs.fixtures.ts editable): a CHECK is dropped over the shop's first two versions, whose second holds its
+ *   one CHECK of a table, Task's WeightNonNegative.
  * - **Oracle:** specification. The replay set restated by object (test/support/migrate/proofs.ts specifiedReplay): an object
  *   whose replayed statements' canonical text, or the objects it is created after, differ from the proven version's,
  *   or that is created after one that does, is unproven where a description names its kind, and the replay is every

@@ -1,6 +1,6 @@
 /** What the properties of drift-proofs.test.ts read: its spaces, models and helpers. */
 
-import { defined } from "@bjornpagen/testing/assert"
+import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Result } from "effect"
 import type { DriftMismatch, ProofRow } from "#adapter/admission/drift.ts"
@@ -12,7 +12,9 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import type { ProofStatements } from "#compiler/deploy/ledger/ledger.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { parseIdent } from "#compiler/physical/obligations/graph.ts"
-import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { firstCodes } from "#test/support/compile.ts"
+import { atName } from "#test/support/kernel/naming.ts"
+import { draftChain, fromEmpty, noDeclarations } from "#test/support/migrate/kit.ts"
 import { testSql } from "#test/support/sql.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared } from "#test/unit/deploy/schemas.ts"
 
@@ -35,18 +37,20 @@ export const handEdits = [
 ] as const
 export type HandEdit = (typeof handEdits)[number]
 
-/** A case: a history of the shop's first `versions` versions, then `edit` of the `k`-th object it may make it of. */
+/**
+ * A case: a history of the shop's first `versions` versions, then `edit` of the `k`-th object its last version holds of
+ * the edit, a version that holds one (`editable`).
+ */
 export interface ProofCase {
 	readonly versions: number
 	readonly edit: HandEdit
 	readonly k: number
 }
 
-export const caseGen: Gen<ProofCase> = (source) => ({
-	versions: source.draw(int(1, versions.length)),
-	edit: source.draw(element(handEdits)),
-	k: source.draw(int(0, 999))
-})
+export const caseGen: Gen<ProofCase> = (source) => {
+	const [edit, held] = source.draw(element(editable))
+	return { versions: source.draw(element(held)), edit, k: source.draw(int(0, 999)) }
+}
 
 export type ProofFeature =
 	| "the first version"
@@ -162,6 +166,38 @@ export const madeEdit = (
 	const made = edits[edit]()
 	return Option.fromUndefinedOr(made[k % Math.max(made.length, 1)])
 }
+
+/**
+ * Each hand edit, with the counts of the shop's first versions whose last holds an object of it (madeEdit), read off the
+ * shop drafted once, under one schema's name: the objects an edit may be made of are a snapshot's kinds and identities
+ * within its schema, whatever schema a case drafts it under. Task's WeightNonNegative, the shop's one CHECK of a table,
+ * stands in its second version alone (shopV3 drops it with Task.weight), so a CHECK is dropped over two versions; a
+ * history whose last version holds no object of an edit is no case of it.
+ */
+const editable: Arr.NonEmptyReadonlyArray<readonly [HandEdit, Arr.NonEmptyReadonlyArray<number>]> =
+	(() => {
+		const drafted = draftChain(
+			Arr.map(versions, ([desc, declared]) => ({
+				desc,
+				options: { schema: atName("proofs"), extensions: [], codes: firstCodes },
+				declared
+			})),
+			fromEmpty
+		)
+		return Arr.map(
+			handEdits,
+			(edit) =>
+				[
+					edit,
+					nonEmpty(
+						Arr.flatMap(drafted, (g, at) =>
+							Option.isSome(madeEdit(g.snapshot, edit, 0)) ? [at + 1] : []
+						),
+						`a version of the shop holding an object of ${edit}`
+					)
+				] as const
+		)
+	})()
 
 /** The statement of a hand edit as the migration session sends it, in a step of its own. */
 export const editStatement = (made: MadeEdit) => oneShotStatement(testSql(made.sql), [])
