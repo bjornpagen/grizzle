@@ -161,7 +161,7 @@ export const failedFolder = (error: MigrateError): Option.Option<string> => {
 		case "InputRefused":
 		case "LockUnread":
 		case "ApplyBusy":
-		case "WalLevelNotLogical":
+		case "WalLevelMinimal":
 		case "DecoderUnreplicated":
 		case "LedgerUncompiled":
 		case "LedgerUnread":

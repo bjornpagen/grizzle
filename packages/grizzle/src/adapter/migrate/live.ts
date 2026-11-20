@@ -1,5 +1,10 @@
-import { Array as Arr, Effect, Result } from "effect"
-import { DecoderUnreplicated, type MigrateError, stopped } from "#adapter/migrate/errors.ts"
+import { Array as Arr, Effect, Option, Result } from "effect"
+import {
+	DecoderUnreplicated,
+	type MigrateError,
+	stopped,
+	WalLevelMinimal
+} from "#adapter/migrate/errors.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { oneShotStatement } from "#adapter/wire/batch.ts"
 import type { CatalogQuery } from "#adapter/wire/statement.ts"
@@ -10,8 +15,9 @@ import type { DeploySnapshot } from "#compiler/plan/serve.ts"
 
 /**
  * The live source's admission by migrate (physical/ddl/live.ts): an installation whose snapshot holds a decoder login
- * reads its changes by logical decoding, so the server's wal_level is logical before any statement of its folders
- * runs (walLevelColumn, read by the survey), and its decoder login holds the replication right once its files commit
+ * reads its changes by logical decoding, so the server's wal_level is one PostgreSQL 19 decodes at before any statement
+ * of its folders runs (walLevelColumn, read by the survey, and liveSourceRefusal), and its decoder login holds the
+ * replication right once its files commit
  * (grantReplicationRight), which no drafted file can give: the REPLICATION attribute and Amazon RDS's rds_replication
  * are two grants, and which one the migration identity may give only the server knows. The survey reads both, so a
  * migration of an installation whose decoder holds its right sends nothing more. The decoder login is the one the
@@ -42,6 +48,32 @@ export type SurveyedDecoder =
 
 /** The server's wal_level, as the survey reads it beside the session's role. */
 export const walLevelColumn: C.CatalogExpr = C.catalogCall("current_setting", [C.text("wal_level")])
+
+/**
+ * PostgreSQL 19's wal_level, as current_setting reads it: minimal, replica or logical (REL_19_0
+ * src/backend/access/rmgrdesc/xlogdesc.c wal_level_options, whose hidden archive and hot_standby read as replica).
+ */
+const walLevels = ["minimal", "replica", "logical"] as const
+
+/** One of PostgreSQL 19's wal_level values (walLevels). */
+export type WalLevel = (typeof walLevels)[number]
+
+/** The survey's wal_level text as PostgreSQL 19's level, none for a text no PostgreSQL 19 server reads it as. */
+export const walLevelOf = (text: string): Option.Option<WalLevel> =>
+	Arr.findFirst(walLevels, (level) => level === text)
+
+/**
+ * The refusal of the live source of `schema` on a server at `level`, none where PostgreSQL 19 decodes its WAL: at
+ * replica, 19's default, logical decoding turns on by itself when the first logical slot is made, as the live leader
+ * makes its source's (physical/ddl/live.ts), and off again, asynchronously, after the last is dropped
+ * (logicaldecoding.sgml at REL_19_0, "automatically activated upon creation of the first logical replication slot"); at
+ * logical it is always on; at minimal the WAL holds too little to decode, which no slot changes.
+ */
+export const liveSourceRefusal = (
+	level: WalLevel,
+	schema: string
+): Option.Option<WalLevelMinimal> =>
+	level === "minimal" ? Option.some(new WalLevelMinimal({ schema })) : Option.none()
 
 const self = C.from("pg_roles", "s")
 const rdsReplication = C.from("pg_roles", "x")

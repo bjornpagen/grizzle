@@ -48,8 +48,7 @@ import {
 	StatementFailed,
 	type StatementFailure,
 	stopped,
-	TransactionFailed,
-	WalLevelNotLogical
+	TransactionFailed
 } from "#adapter/migrate/errors.ts"
 
 import {
@@ -78,11 +77,14 @@ import {
 	attributeGrantColumn,
 	decoderRole,
 	grantReplicationRight,
+	liveSourceRefusal,
 	membershipGrantColumn,
 	type ReplicationGrants,
 	replicationHeldQuery,
 	type SurveyedDecoder,
-	walLevelColumn
+	type WalLevel,
+	walLevelColumn,
+	walLevelOf
 } from "#adapter/migrate/live.ts"
 import { type ApplyPlan, planApply, runFiles } from "#adapter/migrate/plan.ts"
 import {
@@ -234,12 +236,12 @@ const roleName = ([name]: ReadonlyArray<string>): string | undefined => name
 
 /**
  * The session's role, the server's max_stack_depth in kilobytes (admission/expectation.ts stackDepthColumn) and its
- * wal_level, and what the session's role may give a decoder login (live.ts ReplicationGrants).
+ * wal_level (live.ts walLevelOf), and what the session's role may give a decoder login (live.ts ReplicationGrants).
  */
 interface SessionRow {
 	readonly user: string
 	readonly stackDepth: string
-	readonly walLevel: string
+	readonly walLevel: WalLevel
 	readonly grants: ReplicationGrants
 }
 
@@ -258,12 +260,15 @@ const sessionRead: CatalogQuery<SessionRow> = {
 		)
 	),
 	what: "a role name, two settings and two privileges",
-	row: ([user, stackDepth, walLevel, attribute, membership]) =>
-		user === undefined ||
-		stackDepth === undefined ||
-		walLevel === undefined ||
-		(attribute !== "true" && attribute !== "false") ||
-		(membership !== "true" && membership !== "false")
+	row: ([user, stackDepth, walLevelText, attribute, membership]) => {
+		const walLevel = Option.getOrUndefined(
+			Option.flatMap(Option.fromNullishOr(walLevelText), walLevelOf)
+		)
+		return user === undefined ||
+			stackDepth === undefined ||
+			walLevel === undefined ||
+			(attribute !== "true" && attribute !== "false") ||
+			(membership !== "true" && membership !== "false")
 			? undefined
 			: {
 					user,
@@ -271,6 +276,7 @@ const sessionRead: CatalogQuery<SessionRow> = {
 					walLevel,
 					grants: { attribute: attribute === "true", membership: membership === "true" }
 				}
+	}
 }
 
 const serverSettings = C.from("pg_settings", "s")
@@ -592,10 +598,10 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		)
 	}
 	const [sourced] = Arr.filter(checked, (c) => c.decoder !== undefined)
-	if (sourced !== undefined && walLevel !== "logical") {
-		return yield* stopped(
-			new WalLevelNotLogical({ schema: sourced.parsed.schema, level: walLevel })
-		)
+	const refused =
+		sourced === undefined ? Option.none() : liveSourceRefusal(walLevel, sourced.parsed.schema)
+	if (Option.isSome(refused)) {
+		return yield* stopped(refused.value)
 	}
 	const surveyed: Array<readonly [Checked, number, LedgerRead["kind"]]> = []
 	for (const [c, at] of schemas) {

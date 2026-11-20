@@ -85,7 +85,8 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   reaches it, under its port's lock, and taken as it is when it runs. Its state is `~/.local/var/toolchain-pg/5442/`:
     - a family of builtin C.UTF-8 members, the first on port 5442 and the rest on ports free when each was made, each
       serving at most 16 of a run's workers (`workersPerMember`, measured: SSI's LWLocks and the checkpointer are a
-      member's own), localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP, `wal_level = logical`,
+      member's own), localhost only, with TLS 1.3, SCRAM, and only `hostssl` lines for TCP, PostgreSQL's default
+      `wal_level`, replica, at which a live source's slot turns logical decoding on by itself, as production's will,
       `max_pred_locks_per_transaction = 2048`, production's, whose relation promotion PostgreSQL derives at 1023, and
       `timezone` and `log_timezone` at UTC whatever the machine's zone;
     - each member sized to its share of a full-width run (`pg.config.ts` `sizing`): `max_connections` holds a connection

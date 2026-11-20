@@ -6,8 +6,9 @@
  * decodes to nothing.
  *
  * Each case installs a drawn world as generate drafts it, its live source among its objects (the secret, each footprint
- * table's replica identity, the publication, the decoder login), opens a temporary pgoutput slot as the decoder login,
- * opens the source as its listener and its leader do, under the installation's own roles: as the decoder login, each
+ * table's replica identity, the publication, the decoder login), through migrate's survey on a member at PostgreSQL
+ * 19's default wal_level, replica, which the case reads first; opens a temporary pgoutput slot as the decoder login,
+ * which turns logical decoding on by itself at that level; and opens the source as its listener and its leader do, under the installation's own roles: as the decoder login, each
  * statement they send on an ordinary session, as the served file holds it, where the secret's read answers a key, the
  * slot check answers the WAL position the decoder's own slot stands at, and the LISTEN, the advisory lock, the snapshot read and the
  * fan-out run; as the login, the secret's read refused (42501), since a login that held the key could seal a payload
@@ -27,6 +28,7 @@
  * that wrote, the live source opens, a login's read of the secret refused.
  */
 
+import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
@@ -87,6 +89,15 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 						const publication = identifierOf(identity.liveSource(installed.schema))
 						const slot = `${installed.schema}_decoded`
 						const decoder = yield* substrate.session(roleSession(installed.decoder()))
+						const walLevel = yield* decoder.values(
+							"SELECT pg_catalog.current_setting('wal_level')",
+							[]
+						)
+						assert.deepEqual(
+							walLevel,
+							[["replica"]],
+							"the member runs PostgreSQL 19's default wal_level, replica, where the slot turns logical decoding on by itself"
+						)
 						yield* decoder.query(
 							"SELECT pg_catalog.pg_create_logical_replication_slot($1::name, 'pgoutput', true)",
 							[slot]
@@ -198,5 +209,14 @@ export const theLiveSourceDecodesEachCommitsTransactionToExactlyItsRowsRouteKeys
 		},
 		budget: { runs: cases, steered: 48 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/migrate/live.ts",
+				original:
+					'\tlevel === "minimal" ? Option.some(new WalLevelMinimal({ schema })) : Option.none()',
+				replacement:
+					'\tlevel !== "logical" ? Option.some(new WalLevelMinimal({ schema })) : Option.none()',
+				why: "migrate refuses a live source below wal_level = logical, as before PostgreSQL 19's automatic activation, so no world installs on the member at replica and every case fails at its install."
+			}
+		]
 	})

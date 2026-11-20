@@ -470,15 +470,15 @@ export class LockUnread extends Data.TaggedError("LockUnread")<{
 }
 
 /**
- * The server's wal_level is not logical: the live source of `schema` reads its changes by logical decoding of the WAL,
- * which needs it, so the apply is refused before any statement runs.
+ * The server's wal_level is minimal: the live source of `schema` reads its changes by logical decoding of the WAL,
+ * which PostgreSQL 19 runs at replica, its default, where it turns itself on when the source's slot is made, and at
+ * logical, never at minimal, so the apply is refused before any statement runs (live.ts liveSourceRefusal).
  */
-export class WalLevelNotLogical extends Data.TaggedError("WalLevelNotLogical")<{
+export class WalLevelMinimal extends Data.TaggedError("WalLevelMinimal")<{
 	readonly schema: string
-	readonly level: string
 }> {
 	override get message(): string {
-		return `the server's wal_level is ${this.level}, and the live source of ${this.schema} decodes the WAL, which needs wal_level = logical: run ALTER SYSTEM SET wal_level = logical, restart the server, and migrate again`
+		return `the server's wal_level is minimal, and the live source of ${this.schema} decodes the WAL, which PostgreSQL 19 does at wal_level = replica, its default, turning logical decoding on by itself when the source's slot is made, and at logical, but never at minimal: set wal_level = replica and migrate again`
 	}
 }
 
@@ -831,7 +831,7 @@ export type MigrateReason =
 	| InputRefused
 	| LockUnread
 	| ApplyBusy
-	| WalLevelNotLogical
+	| WalLevelMinimal
 	| DecoderUnreplicated
 	| LedgerUncompiled
 	| LedgerUnread
@@ -864,7 +864,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	InputRefused: "input",
 	LockUnread: "busy",
 	ApplyBusy: "busy",
-	WalLevelNotLogical: "server",
+	WalLevelMinimal: "server",
 	DecoderUnreplicated: "drift",
 	LedgerUncompiled: "ledger",
 	LedgerUnread: "ledger",
@@ -915,7 +915,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "InputRefused":
 			case "LockUnread":
 			case "ApplyBusy":
-			case "WalLevelNotLogical":
+			case "WalLevelMinimal":
 			case "DecoderUnreplicated":
 			case "LedgerUncompiled":
 			case "LedgerUnread":
@@ -976,7 +976,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "OwnedByAnother":
 			case "LockUnread":
 			case "ApplyBusy":
-			case "WalLevelNotLogical":
+			case "WalLevelMinimal":
 			case "DecoderUnreplicated":
 			case "LedgerUncompiled":
 			case "LedgerUnread":
@@ -1017,7 +1017,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "InputRefused":
 			case "LockUnread":
 			case "ApplyBusy":
-			case "WalLevelNotLogical":
+			case "WalLevelMinimal":
 			case "DecoderUnreplicated":
 			case "LedgerUncompiled":
 			case "LedgerUnread":
