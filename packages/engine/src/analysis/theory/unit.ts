@@ -1041,6 +1041,10 @@ const statedOf = (
 	}
 }
 
+/** A containment's relations and field pairs as one text: what two canonically equal containments share. */
+const pairedKey = (c: FieldContainment): string =>
+	[c.from, c.to, ...c.pairs.flatMap((p) => [p.from, p.to])].join("\u0000")
+
 /**
  * The containments `statements` state over the rows of a stored relation its source's selection admits, field by field
  * into a stored relation (`RegionFacts`), and every one they compose to:
@@ -1082,16 +1086,34 @@ export const regionFactsOf = (
 		...[...definitions].flatMap(([name, query]) => definedOf(name, query, known))
 	]
 	const containments: Array<FieldContainment> = []
+	/**
+	 * The containments held, by their relations and field pairs (`pairedKey`): one held is another only where both are
+	 * alike, so a containment is compared, by canonical equality, with the few held at its own pairs alone.
+	 */
+	const heldAt = new Map<string, Array<FieldContainment>>()
 	const hold = (c: FieldContainment): void => {
 		const states = c.from !== c.to || c.pairs.some((p) => p.from !== p.to)
-		if (states && !containments.some((held) => canonicalEquals(held, c))) {
-			containments.push(c)
+		if (!states) {
+			return
 		}
+		const key = pairedKey(c)
+		const alike = heldAt.get(key) ?? []
+		if (alike.some((held) => canonicalEquals(held, c))) {
+			return
+		}
+		alike.push(c)
+		heldAt.set(key, alike)
+		containments.push(c)
 	}
 	stated.forEach(hold)
+	/** The stated containments over every row of their source, by it: each a second a composition reads (`composed`). */
+	const everyRowOf = Map.groupBy(
+		stated.filter((s) => s.selection.length === 0),
+		(s) => s.from
+	)
 	for (let at = 0; at < containments.length; at++) {
 		const first = defined(containments[at], "a containment the closure holds")
-		for (const second of stated) {
+		for (const second of everyRowOf.get(first.to) ?? []) {
 			const c = composed(first, second)
 			if (c !== undefined) {
 				hold(c)
@@ -1108,16 +1130,13 @@ export const regionFactsOf = (
 	return { containments, roots }
 }
 
-/** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), over the rows of E `first`'s selection admits, where `second`
- * holds over every row of M, at the pairs of `second` whose field of M one of `first`'s pairs reaches, its projection
- * there, where `first` reaches one (`regionFactsOf`). */
+/** E ⊆ N from E ⊆ M (`first`) and M ⊆ N (`second`), a containment over every row of M (`regionFactsOf` reads each
+ * stated one out of first's target), over the rows of E `first`'s selection admits, at the pairs of `second` whose
+ * field of M one of `first`'s pairs reaches, its projection there, where `first` reaches one. */
 const composed = (
 	first: FieldContainment,
 	second: FieldContainment
 ): FieldContainment | undefined => {
-	if (first.to !== second.from || second.selection.length > 0) {
-		return undefined
-	}
 	const pairs = second.pairs.flatMap((p) => {
 		const from = first.pairs.find((q) => q.to === p.from)
 		return from === undefined ? [] : [{ from: from.from, to: p.to }]

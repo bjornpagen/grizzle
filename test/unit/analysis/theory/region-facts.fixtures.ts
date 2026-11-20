@@ -204,22 +204,23 @@ const headingOf = (box: Box, relationName: string): ReadonlyArray<string> =>
 		? ["k", "parent", "at", "n", "start", "end"]
 		: [...fields, ...(box.family?.owner === relationName ? ["n"] : [])]
 
-/** V's definition: each rule a match of its relation at its two fields, delivered as V's k and x. */
-const viewOf = (view: Arr.NonEmptyReadonlyArray<ViewRule>) => ({
+/** V's definition: each rule a match of its relation at its two fields, delivered as V's k and x; each relation named
+ * by `named`. */
+const viewOf = (view: Arr.NonEmptyReadonlyArray<ViewRule>, named: (r: string) => string) => ({
 	kind: "derived" as const,
-	name: "V",
+	name: named("V"),
 	level: 1,
 	storage: "live" as const,
 	query: decodedQuery({
 		kind: "rules",
 		arms: Arr.map(view, (r) => ({
 			vars: [
-				{ id: "vk", origin: { relation: r.relation, field: r.k } },
-				{ id: "vx", origin: { relation: r.relation, field: r.x } }
+				{ id: "vk", origin: { relation: named(r.relation), field: r.k } },
+				{ id: "vx", origin: { relation: named(r.relation), field: r.x } }
 			],
 			matches: [
 				{
-					source: { kind: "relation" as const, name: r.relation },
+					source: { kind: "relation" as const, name: named(r.relation) },
 					bindings: {
 						[r.k]: { kind: "var" as const, var: "vk" },
 						[r.x]: { kind: "var" as const, var: "vx" }
@@ -239,12 +240,22 @@ const viewOf = (view: Arr.NonEmptyReadonlyArray<ViewRule>) => ({
  * every statement among them; and, where V stands, an extension of it declaring V and the containments into V, as a
  * derived relation is declared above the schema its definition reads.
  */
-export const schemaOfBox = (box: Box): SchemaDesc => {
+export const schemaOfBox = (box: Box): SchemaDesc => schemaOfCopies(box, [""])
+
+/**
+ * The schema of disjoint copies of the box (schemaOfBox), one per suffix, each relation of a copy named with its suffix:
+ * every statement of a copy is among its own relations, so no fact of one copy composes with another's.
+ */
+export const schemaOfCopies = (
+	box: Box,
+	suffixes: Arr.NonEmptyReadonlyArray<string>
+): SchemaDesc => {
+	const copies = Arr.map(suffixes, (suffix) => (r: string) => `${r}${suffix}`)
 	const base = schemaOf(
-		[
+		Arr.flatMap(copies, (named) => [
 			...Arr.map(plain, (r) =>
 				relation(
-					r,
+					named(r),
 					{
 						k: f.natural,
 						x: f.natural,
@@ -257,7 +268,7 @@ export const schemaOfBox = (box: Box): SchemaDesc => {
 			...(box.tree
 				? [
 						relation(
-							"T",
+							named("T"),
 							{
 								k: f.natural,
 								parent: drawnNatural,
@@ -270,17 +281,18 @@ export const schemaOfBox = (box: Box): SchemaDesc => {
 						)
 					]
 				: [])
-		],
-		[
+		]),
+		Arr.flatMap(copies, (named) => [
 			...Arr.map(
 				Arr.filter(box.containments, (c) => c.to !== "V"),
-				(c) => contained(sideOf(c.from, c.left, c.source), sideOf(c.to, c.right, c.target))
+				(c) =>
+					contained(sideOf(named(c.from), c.left, c.source), sideOf(named(c.to), c.right, c.target))
 			),
 			...(box.family === undefined
 				? []
 				: [
-						counted(on(box.family.member, box.family.group), {
-							owner: box.family.owner,
+						counted(on(named(box.family.member), box.family.group), {
+							owner: named(box.family.owner),
 							count: "n"
 						})
 					]),
@@ -288,13 +300,13 @@ export const schemaOfBox = (box: Box): SchemaDesc => {
 				? [
 						{
 							kind: "tree" as const,
-							member: on("T", ["parent", "at"]),
-							slots: { owner: "T", count: "n" },
+							member: on(named("T"), ["parent", "at"]),
+							slots: { owner: named("T"), count: "n" },
 							root: ["k"] as const
 						}
 					]
 				: [])
-		]
+		])
 	)
 	const view = box.view
 	return !Arr.isReadonlyArrayNonEmpty(view)
@@ -302,10 +314,16 @@ export const schemaOfBox = (box: Box): SchemaDesc => {
 		: {
 				name: "T_1",
 				extends: decodedSchema(base),
-				relations: [viewOf(view)],
-				statements: Arr.map(
-					Arr.filter(box.containments, (c) => c.to === "V"),
-					(c) => contained(sideOf(c.from, c.left, c.source), sideOf(c.to, c.right, c.target))
+				relations: Arr.map(copies, (named) => viewOf(view, named)),
+				statements: Arr.flatMap(copies, (named) =>
+					Arr.map(
+						Arr.filter(box.containments, (c) => c.to === "V"),
+						(c) =>
+							contained(
+								sideOf(named(c.from), c.left, c.source),
+								sideOf(named(c.to), c.right, c.target)
+							)
+					)
 				)
 			}
 }

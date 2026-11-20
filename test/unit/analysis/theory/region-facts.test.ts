@@ -19,6 +19,11 @@
  * reaches, one carrying its first's selection and one of three containments, a chain the closure follows to its end; a
  * family's group into its owner's key; a tree's parent into its starts; a derived relation into the relation its every
  * rule reads; and a containment into a derived relation composed into a relation it reads.
+ *
+ * The closure's work, counted, never timed (kernel/calls.ts callCounts): the theory of k disjoint copies of a box
+ * (region-facts.fixtures.ts schemaOfCopies) compares values canonically and tries compositions affinely in k, a
+ * containment held compared only with those alike at its relations and pairs, and composed only with the stated
+ * containments out of its target.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -26,6 +31,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { array, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
+import { affine } from "#test/support/growth.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	type Box,
 	boxGen,
@@ -35,7 +42,8 @@ import {
 	featureOf,
 	type Instance,
 	instanceGen,
-	schemaOfBox
+	schemaOfBox,
+	schemaOfCopies
 } from "#test/unit/analysis/theory/region-facts.fixtures.ts"
 import { theoryOf } from "#test/unit/analysis/theory/support.ts"
 
@@ -147,6 +155,79 @@ export const everyContainmentAWholeRulesRegionReadsHoldsInEveryStateTheSchemasCo
 				original: "\t\t\t\t\t\t\t...s.member.terms.slice(0, 1)",
 				replacement: "\t\t\t\t\t\t\t...s.member.terms.slice(1, 2)",
 				why: "A tree's member is paired with its starts at its index in place of its parent, so a member's index is said to be some row's start, which an instance refutes."
+			}
+		]
+	})
+
+/**
+ * The closure's work (analysis/theory/unit.ts regionFactsOf): a pair of values canonical equality compares
+ * (core/canonical.ts memberPairs), and a composition tried (unit.ts composed).
+ */
+const closureWork = Object.freeze({
+	compared: { file: "packages/engine/src/core/canonical.ts", name: "memberPairs" },
+	composed: { file: "packages/engine/src/analysis/theory/unit.ts", name: "composed" }
+})
+
+/** What a box's theory reaches of the counted work: a canonical comparison, and a composition tried. */
+type ClosureWork = "a canonical comparison" | "a composition"
+
+/**
+ * The theory of disjoint copies of a box does the closure's work once per copy: over k copies of a box, k = 1, 2 and 3
+ * (region-facts.fixtures.ts schemaOfCopies), the theory's canonical comparisons and the compositions its closure tries
+ * (closureWork) are each exactly affine in k, where a containment compared with every one held, or composed with every
+ * one stated, does work in k² (test/support/growth.ts affine).
+ */
+export const theTheoryOfDisjointCopiesOfABoxComparesAndComposesAffinelyInItsCopies =
+	property.explore(boxGen, {
+		needs: {},
+		situations: ["a canonical comparison", "a composition"] satisfies ReadonlyArray<
+			Reached<ClosureWork>
+		>,
+		check: (_, k: Case<ClosureWork>) => (box) =>
+			Effect.gen(function* () {
+				const counted: Array<Readonly<Record<keyof typeof closureWork, number>>> = []
+				for (const suffixes of [["_1"], ["_1", "_2"], ["_1", "_2", "_3"]] as const) {
+					const [, counts] = yield* callCounts(
+						Effect.sync(() => theoryOf(schemaOfCopies(box, suffixes))),
+						closureWork
+					)
+					counted.push(counts)
+				}
+				const at = (copies: number) => Arr.getUnsafe(counted, copies - 1)
+				if (at(1).compared > 0) {
+					k.note("a canonical comparison")
+				}
+				if (at(1).composed > 0) {
+					k.note("a composition")
+				}
+				affine(
+					(copies) => at(copies).compared,
+					1,
+					"the theory's canonical comparisons over copies of a box"
+				)
+				affine(
+					(copies) => at(copies).composed,
+					1,
+					"the closure's compositions over copies of a box"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the closure's comparisons and compositions, counted (kernel/calls.ts callCounts), affine in the copies of a box"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tif (alike.some((held) => canonicalEquals(held, c))) {",
+				replacement: "\t\tif (containments.some((held) => canonicalEquals(held, c))) {",
+				why: "A containment is compared with every one held, each copy's with every other copy's, so the comparisons grow as k² (a fresh qti-database generate, 896 statements, spent 152.9 s of its 326 s profile in the closure)."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original: "\t\tfor (const second of everyRowOf.get(first.to) ?? []) {",
+				replacement: "\t\tfor (const second of stated) {",
+				why: "A containment held is composed with every one stated, each copy's with every other copy's, so the compositions tried grow as k²."
 			}
 		]
 	})
