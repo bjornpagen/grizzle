@@ -9,8 +9,8 @@ import {
 	Order,
 	Path,
 	Random,
+	Data,
 	Ref,
-	Schema,
 	String as Str
 } from "effect"
 import type { Digest } from "effect/crypto"
@@ -32,22 +32,18 @@ export interface GeneratedFile {
 /**
  * The writer refused before or during the write; `subject` names the path involved.
  */
-export class WriteRefused extends Schema.TaggedError<
-	WriteRefused,
-	{ readonly brand: unique symbol }
->()("WriteRefused", {
-	reason: Schema.Literals([
-		"duplicate-path",
-		"io",
-		"output-not-directory",
-		"output-parent-missing",
-		"path-conflict",
-		"reserved-path",
-		"symlink",
-		"unsafe-path"
-	]),
-	subject: Schema.String
-}) {}
+export class WriteRefused extends Data.TaggedError("WriteRefused")<{
+	readonly reason:
+		| "duplicate-path"
+		| "io"
+		| "output-not-directory"
+		| "output-parent-missing"
+		| "path-conflict"
+		| "reserved-path"
+		| "symlink"
+		| "unsafe-path"
+	readonly subject: string
+}> {}
 
 /**
  * A previous-manifest path the writer left in place, or a previous manifest it could not use.
@@ -88,7 +84,7 @@ const ancestorsOf = (path: string): readonly string[] => {
 }
 
 const refused = (reason: WriteRefused["reason"], subject: string) =>
-	Effect.fail(WriteRefused.make({ reason, subject }))
+	Effect.fail(new WriteRefused({ reason, subject }))
 
 /** The first path of the plan the writer refuses before any mutation, as its refusal. */
 const planFault = (
@@ -102,15 +98,15 @@ const planFault = (
 		const key = fold(relative)
 
 		if (!confined(path, outputDir, relative)) {
-			return Option.some(WriteRefused.make({ reason: "unsafe-path", subject: relative }))
+			return Option.some(new WriteRefused({ reason: "unsafe-path", subject: relative }))
 		}
 
 		if (reserved.has(key)) {
-			return Option.some(WriteRefused.make({ reason: "reserved-path", subject: relative }))
+			return Option.some(new WriteRefused({ reason: "reserved-path", subject: relative }))
 		}
 
 		if (folded.has(key)) {
-			return Option.some(WriteRefused.make({ reason: "duplicate-path", subject: relative }))
+			return Option.some(new WriteRefused({ reason: "duplicate-path", subject: relative }))
 		}
 
 		folded.add(key)
@@ -120,12 +116,12 @@ const planFault = (
 		Arr.findFirst(files, ({ path: relative }) =>
 			Arr.some(ancestorsOf(fold(relative)), (ancestor) => folded.has(ancestor))
 		),
-		(conflicting) => WriteRefused.make({ reason: "path-conflict", subject: conflicting.path })
+		(conflicting) => new WriteRefused({ reason: "path-conflict", subject: conflicting.path })
 	)
 }
 
 const ioFailure = (subject: string) => (_error: PlatformError.PlatformError) =>
-	WriteRefused.make({ reason: "io", subject })
+	new WriteRefused({ reason: "io", subject })
 
 /**
  * A temp sibling's name part. The run lock keeps every other run out of the output directory and
@@ -459,7 +455,7 @@ const planned = (
 			)
 		})
 		const manifest = yield* printManifest(entries).pipe(
-			Effect.mapError(() => WriteRefused.make({ reason: "unsafe-path", subject: manifestFileName }))
+			Effect.mapError(() => new WriteRefused({ reason: "unsafe-path", subject: manifestFileName }))
 		)
 		return { sorted, manifest }
 	})

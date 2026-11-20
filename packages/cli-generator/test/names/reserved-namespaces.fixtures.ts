@@ -14,19 +14,11 @@ import {
 	type Gen,
 	oneOf
 } from "@bjornpagen/testing/gen"
-import {
-	Array as Arr,
-	Effect,
-	FileSystem,
-	JsonPointer,
-	Option,
-	Order,
-	Path,
-	Schema,
-	Stream
-} from "effect"
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { Array as Arr, Effect, FileSystem, JsonPointer, Option, Order, Path, Stream } from "effect"
+import type { Schema } from "effect"
 import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { reservedCommandNames, reservedFlagNames } from "#names/reserved.ts"
 
 /**
@@ -230,7 +222,7 @@ export const outcomeOf = (c: NameCase, dir: string) =>
 		}
 		const result = yield* generate(
 			{
-				document: DocumentUri.make("file:///reserved/openapi.json"),
+				document: fixedDocumentUri("file:///reserved/openapi.json"),
 				outDir: path.join(dir, "out"),
 				source: {
 					_tag: "Stream",
@@ -238,7 +230,7 @@ export const outcomeOf = (c: NameCase, dir: string) =>
 				},
 				strict: false
 			},
-			{ document: DocumentUri.make("file:///reserved/author-config.json"), path: configPath }
+			{ document: fixedDocumentUri("file:///reserved/author-config.json"), path: configPath }
 		)
 		const outcome: Outcome = {
 			refusals: Arr.map(

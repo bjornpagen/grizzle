@@ -1,3 +1,5 @@
+import { Array as Arr } from "effect"
+
 /** Effect's built-in global flags a generated CLI keeps, with their one-letter forms. */
 const builtInFlags: readonly string[] = ["completions", "h", "help", "log-level", "v", "version"]
 
@@ -53,7 +55,7 @@ const booleanNames: readonly string[] = [
 export const reservedFlagNames: ReadonlySet<string> = new Set([
 	...builtInFlags,
 	...runtimeFlags,
-	...booleanNames.map((name) => `no-${name}`)
+	...Arr.map(booleanNames, (name) => `no-${name}`)
 ])
 
 /**

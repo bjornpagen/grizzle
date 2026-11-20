@@ -1,93 +1,60 @@
-import nodeFs from "node:fs"
-import nodePath from "node:path"
-import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
-import * as NodeFileSystem from "@effect/platform-node/NodeFileSystem"
-import * as NodePath from "@effect/platform-node/NodePath"
-import { Array as Arr, Effect, FileSystem, Layer, Order, Path, Schema, pipe } from "effect"
-import { describe, expect, test } from "vitest"
-import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
-
-const fixture = nodePath.resolve(import.meta.dirname, "fixtures/golden/users-update")
-
-const readFixture = (relative: string): string =>
-	nodeFs.readFileSync(nodePath.join(fixture, relative), "utf-8")
-
-const goldenSpec = readFixture("openapi.json")
-
-const goldenConfig = readFixture("author-config.json")
-
-const document = Schema.decodeUnknownSync(DocumentUri)("file:///golden/openapi.json")
-
-const configDocument = Schema.decodeUnknownSync(DocumentUri)("file:///golden/author-config.json")
-
-const layer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, NodeCrypto.layerDigest)
+/**
+ * Determinism (invariant I8): a generated package is a function of its document and its author config alone, so one
+ * document generated twice, into two fresh output directories at different paths, leaves the same tree of files, byte
+ * for byte, its generation report and its manifest among them.
+ *
+ * Oracle: the document generated a second time, into a directory of its own (metamorphic).
+ */
+import { assert } from "@bjornpagen/testing/assert"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Scratch } from "@bjornpagen/testing/resources"
+import { Effect } from "effect"
+import {
+	type DeterminismFeature,
+	determinismFeaturesOf,
+	generationSpace,
+	treeOf
+} from "#test/determinism.fixtures.ts"
+import { digestService } from "#test/support/digest.ts"
 
 /**
- * Generates the golden spec into `<dir>/out` of a fresh temp directory, then returns every file
- * under it as a sorted list of relative path and bytes (hex, so the comparison is byte for byte).
+ * One document generated twice leaves one tree. Its budget replaces the one example case of the suite it converts (the
+ * golden fixture generated twice) with two drawn documents, each a whole generation twice, and up to eight steered
+ * while no document of several operations has run, as canonical-order's, which generates twice a case too.
  */
-const generateTree = Effect.gen(function* generateTreeGen() {
-	const fs = yield* FileSystem.FileSystem
-	const path = yield* Path.Path
-	const dir = yield* fs.makeTempDirectoryScoped({ prefix: "ts4-" })
-	const specPath = path.join(dir, "openapi.json")
-	const configPath = path.join(dir, "author-config.json")
-	const out = path.join(dir, "out")
-
-	yield* fs.writeFileString(specPath, goldenSpec)
-	yield* fs.writeFileString(configPath, goldenConfig)
-	yield* generate(
+export const generatedTwiceAlike = property.explore(generationSpace, {
+	needs: { scratch: Scratch.dir, digest: digestService },
+	situations: ["a package of several operations"],
+	check: (resources, k: Case<DeterminismFeature>) => (c) =>
+		Effect.gen(function* () {
+			k.noteAll(determinismFeaturesOf(c))
+			const scratch = yield* resources.scratch
+			const digest = yield* resources.digest
+			const first = yield* treeOf(scratch, digest, "first", c)
+			const second = yield* treeOf(scratch, digest, "a-second-run", c)
+			assert.deepEqual(second, first, "the second generation's tree is the first's, byte for byte")
+		}),
+	oracle: {
+		kind: "universal",
+		name: "a document generated twice into fresh directories leaves the same files"
+	},
+	kept: [],
+	budget: { runs: 2, steered: 8 },
+	kills: [
 		{
-			document,
-			outDir: out,
-			source: { _tag: "File", path: specPath },
-			strict: false
+			file: "packages/cli-generator/src/write/index.ts",
+			original: "Effect.map((sha256) => ({ path: file.path, sha256, size: bytes.length }))",
+			replacement:
+				'Effect.map((sha256) => ({ path: outputDir + "/" + file.path, sha256, size: bytes.length }))',
+			why: "The manifest records each file under the output directory's own path, so a package's bytes depend on where it was generated; the property fails."
 		},
-		{ document: configDocument, path: configPath }
-	)
-
-	const relatives = yield* fs.readDirectory(out, { recursive: true })
-	const files = yield* pipe(
-		relatives,
-		Effect.filter((relative) =>
-			fs.stat(path.join(out, relative)).pipe(Effect.map((info) => info.type === "File"))
-		)
-	)
-	const sorted = Arr.sort(files, Order.String)
-
-	return yield* pipe(
-		sorted,
-		Effect.forEach((relative) =>
-			fs.readFile(path.join(out, relative)).pipe(
-				Effect.map((bytes) => ({
-					bytes: Buffer.from(bytes).toString("hex"),
-					relative: relative.split(path.sep).join("/")
-				}))
-			)
-		)
-	)
-})
-
-const generateTwice = Effect.runPromise(
-	Effect.scoped(
-		Effect.gen(function* twice() {
-			const first = yield* generateTree
-			const second = yield* generateTree
-
-			return { first, second }
-		})
-	).pipe(Effect.provide(layer))
-)
-
-describe("determinism (I8)", () => {
-	test("generates the golden spec twice into fresh directories with identical trees", async () => {
-		const { first, second } = await generateTwice
-		const paths = first.map((file) => file.relative)
-
-		expect(paths).toContain("generation-report.json")
-		expect(paths.some((relative) => relative.includes("manifest"))).toBe(true)
-		expect(second.map((file) => file.relative)).toEqual(paths)
-		expect(second).toEqual(first)
-	})
+		{
+			file: "packages/cli-generator/src/write/index.ts",
+			original:
+				'\t\tyield* lock.registerTemp(temp)\n\t\tyield* fs\n\t\t\t.writeFileString(temp, content, { flag: "wx" })\n\t\t\t.pipe(Effect.mapError(ioFailure(relative)))\n\t\tyield* fs.rename(temp, target).pipe(Effect.mapError(ioFailure(relative)))',
+			replacement:
+				'\t\tyield* fs\n\t\t\t.writeFileString(temp, content, { flag: "wx" })\n\t\t\t.pipe(Effect.mapError(ioFailure(relative)))\n\t\tyield* fs.copyFile(temp, target).pipe(Effect.mapError(ioFailure(relative)))',
+			why: "The writer copies each temp sibling into place and forgets it, so every run leaves its temp files under names of its own random part; the property fails."
+		}
+	]
 })

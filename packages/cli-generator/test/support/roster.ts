@@ -7,7 +7,9 @@
 export const propertyModules: ReadonlyArray<string> = [
 	"test/check/document-set.test.ts",
 	"test/check/grammar.test.ts",
+	"test/check/path-items.test.ts",
 	"test/corpus/walk.test.ts",
+	"test/determinism.test.ts",
 	"test/emit/constructs.test.ts",
 	"test/emit/domain-module.test.ts",
 	"test/emit/emitted-package.test.ts",
@@ -100,5 +102,6 @@ export const propertyModules: ReadonlyArray<string> = [
 	"test/support/cli-package.test.ts",
 	"test/validate/diagnostics.test.ts",
 	"test/validate/validate.test.ts",
-	"test/write/check.test.ts"
+	"test/write/check.test.ts",
+	"test/write/lock.test.ts"
 ]
