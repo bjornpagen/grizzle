@@ -33,6 +33,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { refinementText, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
 import {
 	judgesLaw,
 	type ArrayPart,
@@ -431,6 +432,8 @@ interface Shared {
 	evaluations: EvaluationLookup | undefined
 	readonly free: Map<RelNode, OuterRefs>
 	scopes: Fold<RelNode, NodeScope> | undefined
+	/** The evaluation keys of the DAG's reads of fields of calls (call/keys.ts), made at the first key read. */
+	evaluationKeys: EvaluationKeys | undefined
 }
 
 /**
@@ -659,7 +662,8 @@ export class LowerContext {
 			statement: { kind: "query", params: new StatementParams<never>() },
 			evaluations: undefined,
 			free: new Map(),
-			scopes: undefined
+			scopes: undefined,
+			evaluationKeys: undefined
 		}
 		this.#scope = {
 			sublinkDepth: 0,
@@ -752,6 +756,13 @@ export class LowerContext {
 	 * The evaluation of the call of evaluation key `key` a query around the scope hosts: the innermost host's that holds
 	 * it, undefined where none does, so the read evaluates the call itself.
 	 */
+	/** The evaluation key of `read`, a read of a field of a call (call/keys.ts EvaluationKeys). */
+	evaluationKey(read: NodeOf<"Call">): string {
+		const keys = this.#shared.evaluationKeys ?? new EvaluationKeys(this.dag)
+		this.#shared.evaluationKeys = keys
+		return keys.of(read)
+	}
+
 	hostedEvaluation(read: NodeOf<"Call">, key: string): HostedEvaluation | undefined {
 		for (let host = this.#scope.evaluations; host !== undefined; host = host.outer) {
 			const hosted = host.evaluation(read, key, this)

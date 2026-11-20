@@ -27,16 +27,16 @@ const Done = relation("Done", { session: pg.integer, k: pg.bigint }, ["session",
 const fields = { session: pg.integer, k: pg.bigint, v: pg.bigint } as const
 const key = ["session", "k", "v"] as const
 
-/** The relations the members write, one each, with the field of the call each reads. */
+/** The relations the members write, one each, with the field of the call each reads: two fields, read alternately. */
 const outs = [
 	[relation("Out0", fields, key), "a0"],
 	[relation("Out1", fields, key), "a1"],
-	[relation("Out2", fields, key), "a2"],
-	[relation("Out3", fields, key), "a3"],
-	[relation("Out4", fields, key), "a4"],
-	[relation("Out5", fields, key), "a5"],
-	[relation("Out6", fields, key), "a6"],
-	[relation("Out7", fields, key), "a7"]
+	[relation("Out2", fields, key), "a0"],
+	[relation("Out3", fields, key), "a1"],
+	[relation("Out4", fields, key), "a0"],
+	[relation("Out5", fields, key), "a1"],
+	[relation("Out6", fields, key), "a0"],
+	[relation("Out7", fields, key), "a1"]
 ] as const
 
 export const Shared = schema(
@@ -73,7 +73,7 @@ export const readersGen: Gen<Readers> = element([1, 2, 4, 8] as const)
 
 /**
  * The case's ChangeSet: one call of machine, each of its eight arguments an import of `pending` bound to the session,
- * which each of `members` inserts reads one field of, into a relation of its own.
+ * which each of `members` inserts reads one field of, a0 or a1 alternately, into a relation of its own.
  */
 export const readersOf = (members: Readers): unknown => {
 	const run = Fn.row(machine, {

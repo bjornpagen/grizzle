@@ -11,8 +11,10 @@
  * each level two rules that read the level below.
  *
  * Properties, per case, counting the write DAG's nodes (write/frontend/compile.ts WriteFrontend `ir.dag`): the bound
- * query's scans of Item and of Done are one each, whatever the members, the arguments or the depth; and every member's
- * call reads the same eight argument nodes. Oracle: specification, one node per distinct closed import. Kills: the
+ * query's scans of Item and of Done are one each, whatever the members, the arguments or the depth; the members' reads
+ * of one field of the call are one node (check/checker.ts #closedCall), every one reading the same eight argument nodes;
+ * and every read of a field of the call has one evaluation key (lower/conservative/call/keys.ts EvaluationKeys), each
+ * digested only where two reads are of one evaluation shape. Oracle: specification, one node per distinct closed import. Kills: the
  * checker's memo (an import built at every occurrence), the merger's stand-ins (every member's imports its own), and the
  * one resolution of an imported query (each import a resolution of its own, its key its own).
  *
@@ -22,9 +24,10 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
 import { compiled } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	chainWriteOf,
@@ -52,6 +55,18 @@ const kills = Object.freeze([
 		why: "Each member's closed imports are its own nodes, so two members' calls read two copies of the arguments, and the scans of Item are as many as the members."
 	},
 	{
+		file: "packages/engine/src/check/checker.ts",
+		original: "\t\tif (called.key === undefined) {\n",
+		replacement: "\t\tif (true) {\n",
+		why: "Every read of a field of a closed call is a call of its own, so the members reading one field read as many call nodes as they are."
+	},
+	{
+		file: "packages/engine/src/lower/conservative/call/keys.ts",
+		original: `\t\tconst key = this.#reads.get(shape) === 1 ? \`shape:\${shape}\` : this.#digest(read)\n`,
+		replacement: "\t\tconst key = this.#digest(read)\n",
+		why: "Every read's evaluation key is digested, its evaluation shape shared or not, so a lone read is digested too."
+	},
+	{
 		file: "packages/engine/src/ir/desc.ts",
 		original: "\t\tconst known = this.#imported.get(q)\n",
 		replacement: "\t\tconst known = undefined\n",
@@ -67,11 +82,24 @@ export const aClosedImportReadByEveryMemberOfAWriteIsOneNodeOfItsDagItsEveryRead
 		check: (_, k) => (members) =>
 			Effect.sync(() => {
 				k.note(members === 1 ? "one member" : "several members")
-				const nodes = topoOrder(compiled(Shared, readersOf(members)).ir.dag)
+				const dag = compiled(Shared, readersOf(members)).ir.dag
+				const nodes = topoOrder(dag)
 				assert.equal(scansOf(nodes, "Item"), 1, "Item is scanned once")
 				assert.equal(scansOf(nodes, "Done"), 1, "Done is scanned once")
 				const calls = Arr.filter(nodes, (n) => n.kind === "Call")
-				assert.equal(calls.length, members, "each member reads one call")
+				assert.equal(
+					calls.length,
+					Math.min(members, 2),
+					"the members' reads of one field of the call are one node"
+				)
+				const keys = new EvaluationKeys(dag)
+				const evaluations = new Set(Arr.map(calls, (n) => keys.of(n)))
+				assert.equal(evaluations.size, 1, "every read of a field of the call reads one evaluation")
+				assert.equal(
+					keys.digested,
+					calls.length > 1 ? calls.length : 0,
+					"the reads' keys are digested only where two reads are of one evaluation shape"
+				)
 				const argumentsOf = (n: RelNode): ReadonlyArray<RelNode> =>
 					n.kind === "Call" ? Arr.flatMap(n.args, (a) => (a.kind === "rows" ? [a.rows] : [])) : []
 				const [first, ...rest] = calls
@@ -103,5 +131,9 @@ export const aChainOfBoundQueriesEachLevelReadingTheOneBelowInTwoRulesIsOneNodeP
 		oracle: { kind: "specification", name: "one node per distinct closed import" },
 		box: "one insert of the top of a chain of 1, 4 and 8 bound queries, each level two rules reading the level below",
 		kept: [],
-		kills: Arr.filter(kills, (kill) => kill.file !== "packages/engine/src/write/frontend/dag.ts")
+		kills: Arr.filter(
+			kills,
+			(kill) =>
+				Str.includes("importedKey")(kill.original) || kill.file === "packages/engine/src/ir/desc.ts"
+		)
 	})

@@ -18,6 +18,8 @@ import {
 	VarId
 } from "#compiler/core/ids.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
+import { wellFormed } from "#compiler/core/text.ts"
 import {
 	builtExpr,
 	type ExprSpec,
@@ -70,6 +72,7 @@ import {
 	type VarDecl,
 	conservativeMeta
 } from "#compiler/ir/rel.ts"
+import { typeLabel } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 
 const malformed = (path: S.Path, capability: string): CompileError =>
@@ -999,6 +1002,26 @@ const digestedFields = (node: TableNode): object => {
 	}
 	return node
 }
+
+/**
+ * Each node's shape, a fold over the DAG: SHA-256 of its kind, its heading's columns and their types, and, per input
+ * edge in order, that input's shape. A shape is a function of exactly what a node's share or evaluation key encodes
+ * (dagDigestWithin, reachDigestWithin): two nodes whose normalized reaches are one are of one kind and heading, their
+ * edges in one order to inputs whose reaches are one, so equal keys have equal shapes, and a node whose shape no other
+ * node has has a key no other node has, which no comparison need digest (lower/shapes/share/statements.ts ShareIndex,
+ * lower/conservative/call/index.ts EvaluationKeys). The converse fails, a shape reading no expression, label or
+ * claim, and two nodes of one shape are told apart by their keys alone. Each node's shape is computed once, from its
+ * inputs': linear in the DAG, where a key normalizes and encodes the whole reach of its node.
+ */
+export const nodeShapes = (): Fold<RelNode, string> =>
+	new Fold<RelNode, string>(function* (node) {
+		let text = `${node.kind}\u0000${node.heading.map((c) => `${c.name}:${typeLabel(c.type)}`).join(",")}`
+		for (const input of edgesOf(node)) {
+			const shape: string = yield input
+			text += `\u0000${shape}`
+		}
+		return sha256Hex(wellFormed(text))
+	})
 
 /** The digest of what `roots` reach within `context`, its enclosing nodes read as `outer` says (normalizedOver). */
 const digestOver = (

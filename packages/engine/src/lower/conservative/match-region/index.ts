@@ -12,7 +12,6 @@ import type { SelectionKey } from "#compiler/ir/physical.ts"
 import type { HeadingColumn, NodeOf, Occurrence, VarDecl } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
 import {
-	evaluationKey,
 	evaluationQuery,
 	evaluationWidth,
 	readsOnlyParameters
@@ -297,7 +296,7 @@ const regionEvaluations = (cx: LowerContext, node: Region): ReadonlyMap<Occurren
 		o.source.kind === "Call" &&
 		o.source.function.kind === "field" &&
 		!readsOnlyParameters(cx, o.source)
-			? [{ occurrence: o, key: evaluationKey(cx.dag, o.source) }]
+			? [{ occurrence: o, key: cx.evaluationKey(o.source) }]
 			: []
 	)
 	return new Map(

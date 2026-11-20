@@ -1,10 +1,18 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { freeVars, type NodeScope, nodeScopes, nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
+import {
+	freeVars,
+	type NodeScope,
+	nodeScopes,
+	nodeShapes,
+	nodesByLabel,
+	topoOrder
+} from "#compiler/ir/dag.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import { edgesOf, inputsOf, type RelNode, type ValidDag } from "#compiler/ir/rel.ts"
 import { statementEvaluations } from "#compiler/lower/conservative/call/index.ts"
@@ -69,6 +77,12 @@ export class ShareIndex {
 	readonly #labels: ReadonlyMap<NodeId, RelNode>
 	/** Each node's share key or its absence, by label, computed on its first read. */
 	readonly #keys = new Map<NodeId, { readonly key: string | undefined }>()
+	/** Whether each node may be shared, by label, decided on its first read. */
+	readonly #eligible = new Map<NodeId, boolean>()
+	/** Each node's shape (ir/dag.ts nodeShapes): equal for every two nodes of one share key. */
+	readonly #shapes = nodeShapes()
+	/** How many share keys the index has digested. */
+	#digested = 0
 	/** The longest path from each node to a leaf, folded from its inputs'. */
 	readonly #heights = new Fold<RelNode, number>(function* (node) {
 		let h = 0
@@ -97,6 +111,16 @@ export class ShareIndex {
 		return this.#heights.of(node)
 	}
 
+	/** The node's shape: two nodes of one share key are of one shape. */
+	shape(node: RelNode): string {
+		return this.#shapes.of(node)
+	}
+
+	/** How many share keys the index has digested, each a normalized, encoded reach: the planning's work. */
+	get digested(): number {
+		return this.#digested
+	}
+
 	/**
 	 * The node's share key when it may be shared: expensive under the CTE policy's cost classes, uncorrelated, without
 	 * free variables, read laterally by no expression and off every recursion's feedback (cte-policy rules 3 to 6).
@@ -106,6 +130,17 @@ export class ShareIndex {
 		if (known !== undefined) {
 			return known.key
 		}
+		const key = this.eligible(node) ? this.#shareKey(node) : undefined
+		this.#keys.set(node.id, { key })
+		return key
+	}
+
+	/** Whether the node may be shared at all (`key`), which decides whether it has a key, without digesting it. */
+	eligible(node: RelNode): boolean {
+		const known = this.#eligible.get(node.id)
+		if (known !== undefined) {
+			return known
+		}
 		const eligible =
 			node.kind !== "Recursive" &&
 			node.kind !== "SelfRef" &&
@@ -114,13 +149,13 @@ export class ShareIndex {
 			!this.#feedback.has(node) &&
 			!readsOutside(nodeGraph, subtreeOf(nodeGraph, node)) &&
 			costClass(node) === "expensive"
-		const key = eligible ? this.#shareKey(node) : undefined
-		this.#keys.set(node.id, { key })
-		return key
+		this.#eligible.set(node.id, eligible)
+		return eligible
 	}
 
 	/** The share key of an eligible node; a DAG it cannot key is refused. */
 	#shareKey(node: RelNode): string {
+		this.#digested += 1
 		return unwrap(shareKey(this.dag, node))
 	}
 }
@@ -169,71 +204,133 @@ export const planStatementShares = (
 	catchRefusal(() => {
 		const chosen: Array<CarriedShare> = []
 		const carriedKeys = new Set<string>()
-		const copiesOf = new Map<string, [RelNode, ...Array<RelNode>]>()
-		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead. */
-		const stop = (node: RelNode): boolean => {
+		/** The shapes of the carried sub-queries: a copy of one is of its shape (ShareIndex.shape). */
+		const carriedShapes = new Set<string>()
+		/** Each node the statements have read that may be shared, carried by no key then, in the order they first read it,
+		 * by the round they first read it in. */
+		const seen = new Map<RelNode, number>()
+		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead: one of a carried
+		 * shape whose key is carried. */
+		const carried = (node: RelNode): boolean => {
+			if (!carriedShapes.has(index.shape(node))) {
+				return false
+			}
 			const key = index.key(node)
 			return key !== undefined && carriedKeys.has(key)
 		}
-		for (;;) {
+		for (let round = 0; ; round++) {
 			/** The statements: the roots, then each chosen fill, which lowers its own copy of the share `own` names. */
 			const units: ReadonlyArray<{ readonly root: RelNode; readonly own: string | undefined }> = [
 				...roots.map((root) => ({ root, own: undefined })),
 				...chosen.map((c) => ({ root: c.node, own: c.key }))
 			]
-			const statementsOf = new Map<string, Set<number>>()
+			/** Each node that may be shared, by the statements reading it, in the order the statements first read it. */
+			const readers = new Map<RelNode, Set<number>>()
 			for (const [u, unit] of units.entries()) {
 				const nodes =
-					unit.own === undefined && stop(unit.root) ? [] : reach(index, unit.root, (n) => stop(n))
+					unit.own === undefined && carried(unit.root) ? [] : reach(index, unit.root, carried)
 				for (const node of nodes) {
-					const key = index.key(node)
-					if (key === undefined || carriedKeys.has(key) || node.heading.length === 0) {
+					if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
 						continue
 					}
-					const set = statementsOf.get(key) ?? new Set<number>()
+					const set = readers.get(node) ?? new Set<number>()
 					set.add(u)
-					statementsOf.set(key, set)
-					const copies = copiesOf.get(key)
-					if (copies === undefined) {
-						copiesOf.set(key, [node])
-					} else if (!copies.includes(node)) {
-						copies.push(node)
+					readers.set(node, set)
+					if (!seen.has(node)) {
+						seen.set(node, round)
 					}
 				}
 			}
-			/** The highest key enough statements read, the least key among equals. */
-			let best:
-				| { readonly key: string; readonly node: RelNode; readonly height: number }
-				| undefined
-			for (const [key, statements] of statementsOf) {
+			const classes = sharedClasses(index, [...seen.keys()])
+			/** The highest class enough statements read this round, the least key among equals, each tie digested. */
+			let best: { readonly nodes: ReadonlyArray<RelNode>; readonly height: number } | undefined
+			let tied: Array<ReadonlyArray<RelNode>> = []
+			for (const nodes of classes) {
+				const statements = new Set(nodes.flatMap((n) => [...(readers.get(n) ?? [])]))
 				if (statements.size < 2) {
 					continue
 				}
-				const [node] = defined(copiesOf.get(key), "the copies of a key a statement reads")
-				const height = index.height(node)
-				if (
-					best === undefined ||
-					height > best.height ||
-					(height === best.height && key < best.key)
-				) {
-					best = { key, node, height }
+				const height = index.height(defined(nodes[0], "a class's first node"))
+				if (best === undefined || height > best.height) {
+					best = { nodes, height }
+					tied = [nodes]
+				} else if (height === best.height) {
+					tied.push(nodes)
 				}
 			}
 			if (best === undefined) {
 				break
 			}
-			carriedKeys.add(best.key)
-			chosen.push({ key: best.key, node: best.node, copies: [] })
-		}
-		return chosen
-			.map((c) => ({
-				...c,
-				copies: [
-					...defined(copiesOf.get(c.key), "the copies of a carried key, which statements read")
-				]
+			const keyed = tied.map((nodes) => ({
+				nodes,
+				key: defined(index.key(defined(nodes[0], "a class's first node")), "an eligible key")
 			}))
+			const winner = keyed.reduce((a, b) => (b.key < a.key ? b : a))
+			carriedKeys.add(winner.key)
+			carriedShapes.add(index.shape(defined(winner.nodes[0], "a class's first node")))
+			chosen.push({
+				key: winner.key,
+				node: defined(winner.nodes[0], "a class's first node"),
+				copies: []
+			})
+		}
+		/** Each carried key's copies: the nodes of its shape the statements read before it was carried, by its key. */
+		const roundOf = new Map(chosen.map((c, i) => [c.key, i] as const))
+		return chosen
+			.map((c) => {
+				const shape = index.shape(c.node)
+				const copies = [...seen].flatMap(([node, round]) =>
+					round <= defined(roundOf.get(c.key), "a carried key's round") &&
+					index.shape(node) === shape &&
+					index.key(node) === c.key
+						? [node]
+						: []
+				)
+				return { ...c, copies }
+			})
 			.toSorted((a, b) => index.height(a.node) - index.height(b.node))
 	})
+
+/**
+ * The nodes `nodes`, each one that may be shared, in the order the statements first read them, as classes of one share
+ * key, each class in that order, its first node the one the statements read first: a node of a shape no other of them
+ * has is a class alone, its key no other node's, and undigested; the nodes of a shape several have are classed by their
+ * keys, digested.
+ */
+const sharedClasses = (
+	index: ShareIndex,
+	nodes: ReadonlyArray<RelNode>
+): ReadonlyArray<ReadonlyArray<RelNode>> => {
+	const byShape = new Map<string, Array<RelNode>>()
+	for (const node of nodes) {
+		const shape = index.shape(node)
+		const same = byShape.get(shape)
+		if (same === undefined) {
+			byShape.set(shape, [node])
+		} else {
+			same.push(node)
+		}
+	}
+	const classes: Array<ReadonlyArray<RelNode>> = []
+	for (const same of byShape.values()) {
+		if (same.length === 1) {
+			classes.push(same)
+			continue
+		}
+		const byKey = new Map<string, Array<RelNode>>()
+		for (const node of same) {
+			const key = defined(index.key(node), "an eligible key")
+			const nodesOf = byKey.get(key)
+			if (nodesOf === undefined) {
+				byKey.set(key, [node])
+			} else {
+				nodesOf.push(node)
+			}
+		}
+		appendAll(classes, [...byKey.values()])
+	}
+	return classes
+}
 
 /**
  * How many times the statement rooted at `root` lowers each share key, every use of a node lowered anew: a copy under

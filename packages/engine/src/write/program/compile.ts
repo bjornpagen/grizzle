@@ -40,7 +40,6 @@ import { generations } from "#compiler/laws/model/generation.ts"
 import { fieldImages, type LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import {
-	evaluationKey,
 	evaluationQuery,
 	evaluationWidth,
 	readsOnlyParameters
@@ -313,7 +312,7 @@ const plannedNodes = (planned: PlannedWrite): ReadonlyArray<RelNode> => {
 
 /**
  * The evaluations a single statement holds once each as a part of its own, which every part reads
- * (lower/shapes/share/statements.ts carryEvaluation): one per evaluation key (lower/conservative/call evaluationKey) of
+ * (lower/shapes/share/statements.ts carryEvaluation): one per evaluation key (lower/conservative/call/keys.ts EvaluationKeys) of
  * the calls the field reads under `roots` read, each that reads only parameters (readsOnlyParameters), with the first
  * read of it, in the order the reads are met.
  */
@@ -334,7 +333,7 @@ const heldEvaluations = (
 			queue.push(input)
 		}
 		if (node.kind === "Call" && node.function.kind === "field" && readsOnlyParameters(cx, node)) {
-			const key = evaluationKey(cx.dag, node)
+			const key = cx.evaluationKey(node)
 			if (!keys.has(key)) {
 				keys.add(key)
 				held.push({ read: node, key })

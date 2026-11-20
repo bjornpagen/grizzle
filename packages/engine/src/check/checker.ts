@@ -213,6 +213,22 @@ interface ParentColumn {
 }
 
 /**
+ * A bound value's part of a key (`importedKey`, Checker `#closedCall`): a parameter by its name, a constant by its
+ * canonical text, and, under region reads (`region`), an outer value by the region and the column it is read through;
+ * none for an outer value elsewhere, whose rows are its reader's.
+ */
+const boundPart = (value: BindValue, region: boolean): string | undefined => {
+	switch (value.kind) {
+		case "param":
+			return `p:${value.cell.name}`
+		case "literal":
+			return `l:${canonicalTextOf([value.value, value.stated])}`
+		case "column":
+			return region ? `c:${value.node}:${value.name}` : undefined
+	}
+}
+
+/**
  * The key two imports share exactly when they read the same rows (Checker `#imported`): the imported query, by its
  * identity, which one resolution of the compile's Descriptions gives every import of it in every query it checks
  * (check/session.ts CheckSession), and each bound value, a parameter by its name, the one parameter of that name its
@@ -233,21 +249,12 @@ const importedKey = (
 	const parts = [`q${session.place(query)}`]
 	let closed = true
 	for (const [param, value] of [...values].toSorted(([a], [b]) => compareStrings(a, b))) {
-		switch (value.kind) {
-			case "param":
-				parts.push(`${param}=p:${value.cell.name}`)
-				break
-			case "literal":
-				parts.push(`${param}=l:${canonicalTextOf([value.value, value.stated])}`)
-				break
-			case "column":
-				if (!region) {
-					return undefined
-				}
-				parts.push(`${param}=c:${value.node}:${value.name}`)
-				closed = false
-				break
+		const part = boundPart(value, region)
+		if (part === undefined) {
+			return undefined
 		}
+		closed = closed && value.kind !== "column"
+		parts.push(`${param}=${part}`)
 	}
 	return { text: parts.join(" "), closed }
 }
@@ -980,6 +987,11 @@ export class Checker {
 	 * its ParamSlots), each by region and column (`reexposedKey`): a value a region is correlated to from outside.
 	 */
 	readonly #reexposed = new Set<string>()
+	/**
+	 * Each node of `#imported` by its key, which a call over it reads its argument's key by (`#callArgs`): a closed
+	 * import's alone, never a regional one's, whose rows are its region's.
+	 */
+	readonly #importKeys = new Map<RelNode, string>()
 	/** The admitted patterns the query's compile reads (scalar/regex/patterns.ts), each parsed once per query. */
 	readonly patterns = new CompilePatterns()
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
@@ -2062,7 +2074,8 @@ export class Checker {
 	/**
 	 * A call of a declared function that returns rows (Fn.rows): the function its level declares, its arguments
 	 * (#callArgs). The call's heading is its result's, each field at its declared type, which the lowering casts the
-	 * function's value to.
+	 * function's value to. A volatile function's every call is an evaluation of its own, never one node for several; an
+	 * immutable or stable one's closed calls at one argument tuple are one node (#closedCall).
 	 */
 	#callSource(
 		src: Extract<ResolvedSource, { readonly kind: "call" }>,
@@ -2086,20 +2099,25 @@ export class Checker {
 				`a declared function whose rows a query reads, of values alone; a field of ${fn.name}'s rows holds rows or a row, which another function's body reads`
 			)
 		}
-		return this.node(
-			{
-				kind: "Call",
-				function: {
-					kind: "declared",
-					name: fn.name,
-					volatility: fn.desc.volatility,
-					definition: fn.definition
+		const called = this.#callArgs(fn, src.args, loc, bind)
+		const build = (args: ReadonlyArray<CallArg<LiveRefs>>): RelNode =>
+			this.node(
+				{
+					kind: "Call",
+					function: {
+						kind: "declared",
+						name: fn.name,
+						volatility: fn.desc.volatility,
+						definition: fn.definition
+					},
+					args,
+					heading: this.#calledHeading(returned, loc)
 				},
-				args: this.#callArgs(fn, src.args, loc, bind),
-				heading: this.#calledHeading(returned, loc)
-			},
-			loc
-		)
+				loc
+			)
+		return fn.desc.volatility === "volatile"
+			? build(called.args)
+			: this.#closedCall(`rows ${fn.name}`, called, build)
 	}
 
 	/**
@@ -2138,21 +2156,26 @@ export class Checker {
 				`a field of ${fn.name}'s row that holds rows of values alone; ${field === undefined ? `its row has no field ${src.field}` : `${src.field} holds ${functionTypeLabel(field.type)}, which another function's body reads`}`
 			)
 		}
-		return this.node(
-			{
-				kind: "Call",
-				function: {
-					kind: "field",
-					field: src.field,
-					row: mapNonEmpty(returns.heading, (f) => f.name),
-					name: fn.name,
-					volatility: fn.desc.volatility,
-					definition: fn.definition
-				},
-				args: this.#callArgs(fn, src.args, loc, bind),
-				heading: this.#calledHeading(read, loc)
-			},
-			loc
+		return this.#closedCall(
+			`field ${fn.name}.${src.field}`,
+			this.#callArgs(fn, src.args, loc, bind),
+			(args) =>
+				this.node(
+					{
+						kind: "Call",
+						function: {
+							kind: "field",
+							field: src.field,
+							row: mapNonEmpty(returns.heading, (f) => f.name),
+							name: fn.name,
+							volatility: fn.desc.volatility,
+							definition: fn.definition
+						},
+						args,
+						heading: this.#calledHeading(read, loc)
+					},
+					loc
+				)
 		)
 	}
 
@@ -2176,9 +2199,11 @@ export class Checker {
 		given: Extract<ResolvedSource, { readonly kind: "call" }>["args"],
 		loc: SourceLoc,
 		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
-	): ReadonlyArray<CallArg<LiveRefs>> {
+	): { readonly args: ReadonlyArray<CallArg<LiveRefs>>; readonly key: string | undefined } {
 		this.#callArguments(fn, Object.keys(given), loc)
-		return fn.desc.args.map((declared): CallArg<LiveRefs> => {
+		/** Each argument's part of the call's key (`#closedCall`), none where an argument is no closed one. */
+		const parts: Array<string | undefined> = []
+		const args = fn.desc.args.map((declared): CallArg<LiveRefs> => {
 			const at = childLoc(childLoc(loc, "args"), declared.name)
 			const arg = defined(given[declared.name], "an argument #callArguments found")
 			if (declared.type.kind === "value") {
@@ -2186,10 +2211,13 @@ export class Checker {
 					return fail("MalformedDescription", at, `a value for argument ${declared.name}, not rows`)
 				}
 				const type = this.fieldType(declared.type.type, at)
+				const value = bind(arg, declared.name, at)
+				const part = boundPart(value, false)
+				parts.push(part === undefined ? undefined : `${declared.name}=${part}`)
 				return {
 					kind: "value",
 					name: declared.name,
-					expr: this.#boundArgument(bind(arg, declared.name, at), type, declared.name, at),
+					expr: this.#boundArgument(value, type, declared.name, at),
 					type
 				}
 			}
@@ -2206,6 +2234,8 @@ export class Checker {
 				)
 			}
 			const rows = this.#importSource(arg, at, bind)
+			const imported = this.#importKeys.get(rows)
+			parts.push(imported === undefined ? undefined : `${declared.name}=r(${imported})`)
 			const columns = mapNonEmpty(heading, (f) => {
 				const type = this.fieldType(f.type, childLoc(at, f.name))
 				const delivered = columnOf(rows.heading, f.name)
@@ -2220,6 +2250,32 @@ export class Checker {
 			})
 			return { kind: "rows", name: declared.name, rows, columns }
 		})
+		const closed = parts.every((p) => p !== undefined)
+		return { args, key: closed ? parts.join(" ") : undefined }
+	}
+
+	/**
+	 * A call of a declared function as one node of the query (`#imported`, `#closedCall`): `build` builds it at `args`,
+	 * once for every read of one function at closed arguments of one key, a read of one field of it or of its rows, which
+	 * read the same rows wherever they stand, as a closed import does; at once where an argument is no closed one.
+	 */
+	#closedCall(
+		read: string,
+		called: { readonly args: ReadonlyArray<CallArg<LiveRefs>>; readonly key: string | undefined },
+		build: (args: ReadonlyArray<CallArg<LiveRefs>>) => RelNode
+	): RelNode {
+		if (called.key === undefined) {
+			return build(called.args)
+		}
+		const key = `${read} ${called.key}`
+		const known = this.#imported.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const node = build(called.args)
+		this.#imported.set(key, node)
+		this.#importKeys.set(node, key)
+		return node
 	}
 
 	/**
@@ -2470,6 +2526,9 @@ export class Checker {
 		}
 		const node = this.#importAt(src, values, loc)
 		table.set(key.text, node)
+		if (key.closed) {
+			this.#importKeys.set(node, key.text)
+		}
 		return node
 	}
 

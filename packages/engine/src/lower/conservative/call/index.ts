@@ -4,18 +4,9 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { unwrap } from "#compiler/core/canonical.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { reachDigestWithin, relNode } from "#compiler/ir/dag.ts"
 import { fieldColumnType, rowTypeOf } from "#compiler/ir/physical.ts"
-import {
-	type CallFunction,
-	conservativeMeta,
-	type NodeOf,
-	type RelDag,
-	type TextSplit,
-	tokensHeading
-} from "#compiler/ir/rel.ts"
+import { type CallFunction, type NodeOf, type TextSplit, tokensHeading } from "#compiler/ir/rel.ts"
 import {
 	columnIn,
 	distinctSelect,
@@ -266,32 +257,6 @@ export const evaluationWidth = (node: NodeOf<"Call">): number => {
 }
 
 /**
- * The identity of a read's call, its evaluation key: the function and the arguments it is called at, the field it reads,
- * its heading and what an analysis claims of its rows left out, digested as a share key is but with every enclosing
- * node its arguments read named by its label (ir/dag.ts reachDigestWithin), so two reads of fields of one call at equal
- * arguments, its function immutable or stable, read one evaluation of it: two that read only parameters wherever they
- * stand, and two that read the same enclosing row, a region's, in that region.
- */
-export const evaluationKey = (dag: RelDag, node: NodeOf<"Call">): string => {
-	const called = node.function
-	if (called.kind !== "field") {
-		throw defect("the evaluation key of a read of a field of a call")
-	}
-	const evaluation = relNode(node.id, {
-		...node,
-		function: {
-			kind: "declared",
-			name: called.name,
-			volatility: called.volatility,
-			definition: called.definition
-		},
-		heading: [],
-		meta: conservativeMeta
-	})
-	return unwrap(reachDigestWithin(dag, [evaluation], "evaluation"))
-}
-
-/**
  * Whether a field read's call reads nothing outside the read: no outer reference and no recursion's feedback, so its
  * evaluation stands at its statement's WITH, which it may be read from wherever the read stands.
  */
@@ -371,7 +336,7 @@ const lowerField = (
 	cx: LowerContext,
 	env: Env
 ): OperandSelect => {
-	const hosted = cx.hostedEvaluation(node, evaluationKey(cx.dag, node))
+	const hosted = cx.hostedEvaluation(node, cx.evaluationKey(node))
 	const evaluated =
 		hosted === undefined ? ownEvaluation(node, called, cx, env) : { ...hosted, where: [] }
 	const array = defined(
