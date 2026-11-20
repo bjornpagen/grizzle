@@ -165,6 +165,14 @@ export const aFloatsZerosAreOneKeyAndTwoFactsAWriteOfAFactAtAStoredFactsKeyWhose
 				replacement:
 					"\tor([ne(a, floatZero(carrier)), eq(signByte(a, carrier), signByte(a, carrier))])",
 				why: "Two zeros read one sign, so an insert of the other zero is met."
+			},
+			{
+				file: "packages/engine/src/write/probe.ts",
+				original:
+					"\t\t\tconjunction(equal.map((e) => factFieldEq(e.type, at(e.column), e.value, w.names)))",
+				replacement:
+					"\t\t\tconjunction(equal.map((e) => typedEq(e.type, at(e.column), e.value, w.names)))",
+				why: "The stored row an insert meets at its key repeats the fact by PostgreSQL's equality alone, so an insert of the other zero is met and answered unchanged."
 			}
 		]
 	})

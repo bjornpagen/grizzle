@@ -11,7 +11,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
+import { factFieldEq, type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
 import type { Family } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import {
@@ -467,7 +467,7 @@ export const recountUpdate = <L extends RecountedLast>(
 			const recounted = (): Expr =>
 				written(w, value(x, column, col(o, installedColumn)), field.type)
 			sets.push({ column: installedColumn, value: recounted() })
-			changed.push(not(typedEq(field.type, col(o, installedColumn), recounted(), w.names)))
+			changed.push(not(factFieldEq(field.type, col(o, installedColumn), recounted(), w.names)))
 		}
 		assign(x.family.count, x.last.count)
 		for (const [key, column] of x.last.columns) {

@@ -5,7 +5,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
+import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 /**
  * A write statement's reads of stored relations, each driven by rows the statement holds: a probe of a key or a group
  * (sql/ast.ts FromSource `probe`), or the row an arbitration met (`met`). These are the only reads of a stored table a
@@ -231,8 +231,9 @@ export const probeGroup = (
 }
 
 /**
- * A column of the one row a key probe reaches, the value it must equal there, and the type it is compared at: checked
- * over that row once the probe's key has reached it, outside the probe, so the key and the probe's own conditions alone
+ * A column of the one row a key probe reaches, the value it must equal there, and the type it is compared at, as one
+ * fact's field (ir/compare.ts factFieldEq), a float's zero of its sign, since every check of one is a stored row's
+ * repeat of a fact at its key: checked over that row once the probe's key has reached it, outside the probe, so the key and the probe's own conditions alone
  * choose the index PostgreSQL reaches the row by. Bound inside, beside the key, a column an index leads with makes that
  * index a candidate as good as the key's to a planner holding no statistics, and one a row's siblings share reads every
  * sibling per probe.
@@ -257,7 +258,7 @@ const checked = (
 		simpleSelect(
 			[target(lit.int(1, types.integer))],
 			[source],
-			conjunction(equal.map((e) => typedEq(e.type, at(e.column), e.value, w.names)))
+			conjunction(equal.map((e) => factFieldEq(e.type, at(e.column), e.value, w.names)))
 		)
 	)
 

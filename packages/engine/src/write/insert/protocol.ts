@@ -6,7 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { LawId } from "#compiler/core/ids.ts"
-import { factEq, typedEq } from "#compiler/ir/compare.ts"
+import { factEq, factFieldEq, typedEq } from "#compiler/ir/compare.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
@@ -785,7 +785,12 @@ export const buildInsert = (
 					? {
 							access: metNarrowed(access, (inner) =>
 								compared.map((f) =>
-									same(f, storedField(inner)(f), col(access.rows, from.columns.of(f)))
+									factFieldEq(
+										rowType(f),
+										storedField(inner)(f),
+										col(access.rows, from.columns.of(f)),
+										w.names
+									)
 								)
 							),
 							equal: []
@@ -867,7 +872,7 @@ export const buildInsert = (
 					],
 					[delivered.source, stored.source],
 					conjunction(
-						reached.equal.map((e) => typedEq(e.type, stored.at(e.column), e.value, w.names))
+						reached.equal.map((e) => factFieldEq(e.type, stored.at(e.column), e.value, w.names))
 					)
 				)
 			}

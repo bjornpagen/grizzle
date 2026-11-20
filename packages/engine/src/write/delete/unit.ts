@@ -73,7 +73,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { factEq, typedEq } from "#compiler/ir/compare.ts"
+import { factEq, factFieldEq } from "#compiler/ir/compare.ts"
 import { type Family, isSequence, type TreeMembers } from "#compiler/ir/family.ts"
 import { type LawField, type RelationInfo, type ColumnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
@@ -285,7 +285,9 @@ export const unitSql = (
 		const key = new Set(relation.primaryFields.map((f) => columnKeyOf(f.name)))
 		return read.columns
 			.filter((c) => !key.has(c.key))
-			.map((c) => typedEq(c.type, col(m, c.column), col(n, columnAt(read.shape, c.key)), w.names))
+			.map((c) =>
+				factFieldEq(c.type, col(m, c.column), col(n, columnAt(read.shape, c.key)), w.names)
+			)
 	}
 	/** `relation`'s stored rows the stratum adds again unchanged: each added row's stored row at its key, equal to it at
 	 * every column its read states. */

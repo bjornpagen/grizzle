@@ -140,6 +140,19 @@ export const factEq = <F>(sides: RowSides<F>, names: OperatorNames): Expr => {
 	return and([rowEq(sides, names), ...signs])
 }
 
+/**
+ * Whether two values of `type` are one fact's field, as factEq compares each field of two facts: equal under the type's
+ * equality and, for a float, zeros of one sign where they are zeros; a value of any other type compares as typedEq
+ * does. A stored row's field checked against a fact's, an exact repeat's, an unchanged row's or a changed one's, reads
+ * it (write/probe.ts Equal).
+ */
+export const factFieldEq = (
+	type: ScalarType,
+	left: Expr,
+	right: Expr,
+	names: OperatorNames
+): Expr => factEq({ fields: [type], typeOf: (t) => t, left: () => left, right: () => right }, names)
+
 /** Whether two rows of one heading are two facts (factEq's negation): unequal, or a float field -0 in one and +0 in the other. */
 export const factNe = <F>(sides: RowSides<F>, names: OperatorNames): Expr => {
 	const signs = floatFields(sides).map(({ field, carrier }) =>
