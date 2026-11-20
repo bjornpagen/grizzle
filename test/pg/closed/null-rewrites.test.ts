@@ -4,18 +4,20 @@
  *
  * The lowering decides some comparisons by another form: a text's equation with a concatenation, `t = p || q`, by its
  * lengths, a prefix and a suffix, so that nothing allocates (scalar/compute/typing.ts concatEquation); ends_with as
- * `right(a, char_length(b)) = b`; a match whose pattern is a term by a CASE over the pattern's values; and, in a query,
+ * `right(a, char_length(b)) = b`; a match whose pattern is a closed relation's str.pattern payload by a read of the
+ * payload's ARE dictionary at its key; and, in a query,
  * an IEEE 754 division by its guarded form, a zero divisor's infinity or NaN chosen by the dividend's sign. PostgreSQL
  * reads BETWEEN as two comparisons and IN as one per value. A form whose conjuncts read different operands, or whose
  * CASE ends in a constant, gives false or a value where the plain meaning is NULL, and NOT then turns it true; a form
  * that sets two operands that read no row side by side in a comparison or a CASE fails a generation expression's
  * installation with 42P22 (upstream/generated-column-collation-before-planning).
  *
- * Each case draws a roster Kind of one to three handles and Pick, a closed relation of a text t and a double f at a
- * drawn subset of the kinds. An operand is the row's own text, Pick.at("t", kind) at the row's kind, Pick.at at a
+ * Each case draws a roster Kind of one to three handles and Pick, a closed relation of a text t, its pattern p (a
+ * str.pattern payload holding t's value, the one text payload a match reads as its pattern, since 8b0332f84) and a
+ * double f at a drawn subset of the kinds. An operand is the row's own text, Pick.at("t", kind) at the row's kind, Pick.at at a
  * handle written in the term, or a literal, over the letters a and b, which a pattern reads as themselves. The
  * predicates: a concatenation's equation or inequation with an operand, on either side; starts_with and ends_with; a
- * match against a literal, or Pick's text where Pick holds a row; BETWEEN two operands; IN a list of literals; in a query, whether f over the
+ * match against a literal, or Pick's pattern where Pick holds a row; BETWEEN two operands; IN a list of literals; in a query, whether f over the
  * row's double is below zero; under AND, OR and NOT.
  * Positions, each its own relation: a row check, a generated field `Logic.cond(φ, n, m)`, a containment of a
  * selection into a closed relation, a key over a selection, and a query's filter.
@@ -71,7 +73,7 @@ export const aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIs
 					"test/pg/closed/null-rewrites.test.ts#aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIsInEveryPosition:-:1.0.1.1.6.1.0.2.1.3.1.1.1.2.1.3.2.3.5.0.0.2.0.1.1.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.6.1.1.0"
 				),
 				reason:
-					"TEST_SEED=3553103864, case 0: a generated field's match of the row's text against Pick.at at a written handle installed as CASE 'a' WHEN 'a' THEN …, a CASE over two constants, which PostgreSQL refused with 42P22",
+					"TEST_SEED=3553103864, case 0: a generated field's match of the row's text against Pick.at at a written handle installed as CASE 'a' WHEN 'a' THEN …, a CASE over two constants, which PostgreSQL refused with 42P22; since 8b0332f84 the pattern is Pick's str.pattern payload, read from its ARE dictionary at the handle's key",
 				since: "2026-11-19"
 			}
 		],

@@ -55,6 +55,12 @@ type Operand =
 	| { readonly kind: "pickAt"; readonly handle: number }
 	| { readonly kind: "literal"; readonly text: string }
 
+/**
+ * A match's pattern, never the row's own text: a literal, or Pick's pattern at the row's kind or a written handle, a
+ * value the schema states when it compiles.
+ */
+type PatternOperand = Exclude<Operand, { readonly kind: "row" }>
+
 type Pred =
 	| {
 			readonly kind: "concat"
@@ -65,7 +71,7 @@ type Pred =
 			readonly whole: Operand
 	  }
 	| { readonly kind: "startsWith" | "endsWith"; readonly a: Operand; readonly b: Operand }
-	| { readonly kind: "matches"; readonly subject: Operand; readonly pattern: Operand }
+	| { readonly kind: "matches"; readonly subject: Operand; readonly pattern: PatternOperand }
 	| { readonly kind: "between"; readonly a: Operand; readonly low: Operand; readonly high: Operand }
 	| { readonly kind: "in"; readonly a: Operand; readonly values: NonEmptyReadonlyArray<string> }
 	| { readonly kind: "negative" }
@@ -112,10 +118,10 @@ const operandGen = (kinds: number): Gen<Operand> =>
  * A pattern operand, never the row's own text: a literal, or Pick's text at the row's kind or a written handle where
  * Pick holds a row, since a pattern must take a value the schema states when it compiles.
  */
-const patternGen = (kinds: number, held: boolean): Gen<Operand> => {
-	const literal: Gen<Operand> = (s) => ({ kind: "literal", text: s.draw(textGen) })
+const patternGen = (kinds: number, held: boolean): Gen<PatternOperand> => {
+	const literal: Gen<PatternOperand> = (s) => ({ kind: "literal", text: s.draw(textGen) })
 	return held
-		? oneOf<Operand>([
+		? oneOf<PatternOperand>([
 				() => ({ kind: "pick" }),
 				(s) => ({ kind: "pickAt", handle: s.draw(int(0, kinds - 1)) }),
 				literal
@@ -303,6 +309,12 @@ const truth = (c: RewriteCase, item: Item, p: Pred): Truth => {
 /** A text of up to three characters: a pattern that bounds its bytes, as a match in a query requires. */
 const Short = str.regex("^.{0,3}$", "su")
 
+/**
+ * Pick's text again as a pattern, the one text payload a match reads as its pattern (str.pattern, since 8b0332f84), each
+ * value admitted where the schema reads Pick and lowered to its ARE: Pick.p holds what Pick.t does.
+ */
+const PickPattern = str.pattern
+
 type TextTerm = Term<string, unknown, unknown, "text", unknown>
 
 type DoubleTerm = Term<number, unknown, unknown, "double precision", unknown>
@@ -314,6 +326,21 @@ interface Reads {
 	readonly pickT: TextTerm
 	readonly pickF: DoubleTerm
 	readonly pickAt: (handle: number) => TextTerm
+	/** Pick's pattern at the row's kind, and at a written handle: what a match reads as its pattern. */
+	readonly pickP: TextTerm
+	readonly pickAtP: (handle: number) => TextTerm
+}
+
+/** A match's pattern over a row's reads: a literal's Pattern, or Pick's pattern payload. */
+const patternOf = (o: PatternOperand, r: Reads) => {
+	switch (o.kind) {
+		case "pick":
+			return r.pickP
+		case "pickAt":
+			return r.pickAtP(o.handle)
+		case "literal":
+			return Text.pattern(o.text)
+	}
 }
 
 /** A predicate over a row's reads, in the scalar catalogue's vocabulary alone, so a check, a selection and a filter share it. */
@@ -347,10 +374,7 @@ const predicateOf = (p: Pred, r: Reads): Predicate => {
 		case "endsWith":
 			return Logic.eq(Text.endsWith(operand(p.a), operand(p.b)), true)
 		case "matches":
-			return Text.matches(
-				operand(p.subject),
-				p.pattern.kind === "literal" ? Text.pattern(p.pattern.text) : operand(p.pattern)
-			)
+			return Text.matches(operand(p.subject), patternOf(p.pattern, r))
 		case "between":
 			return Logic.between(operand(p.a), operand(p.low), operand(p.high))
 		case "in":
@@ -374,10 +398,10 @@ const schemaOf = (c: RewriteCase) => {
 	const Kind = closed.ordered("Kind", [kindOf(0), ...upTo(c.kinds - 1, (i) => kindOf(i + 1))])
 	const Pick = closed.relation(
 		"Pick",
-		{ kind: closedId(Kind), t: Short, f: pg["double precision"] },
+		{ kind: closedId(Kind), t: Short, p: PickPattern, f: pg["double precision"] },
 		["kind"],
 		Arr.flatMap(c.pick, (p, kind) =>
-			p === undefined ? [] : [{ kind: kindOf(kind), t: p.t, f: p.f }]
+			p === undefined ? [] : [{ kind: kindOf(kind), t: p.t, p: p.t, f: p.f }]
 		)
 	)
 	const Allowed = closed.relation(
@@ -396,12 +420,20 @@ const schemaOf = (c: RewriteCase) => {
 	}
 	const itemOf = <const N extends string>(name: RelationName<N>) => relation(name, fields, ["id"])
 	/** A row's reads, built where the row's own type is known: its text and double, and Pick's at its kind. */
-	const readsOf = (t: TextTerm, x: DoubleTerm, pickT: TextTerm, pickF: DoubleTerm): Reads => ({
+	const readsOf = (
+		t: TextTerm,
+		x: DoubleTerm,
+		pickT: TextTerm,
+		pickF: DoubleTerm,
+		pickP: TextTerm
+	): Reads => ({
 		t,
 		x,
 		pickT,
 		pickF,
-		pickAt: (handle) => Pick.at("t", kindOf(handle))
+		pickAt: (handle) => Pick.at("t", kindOf(handle)),
+		pickP,
+		pickAtP: (handle) => Pick.at("p", kindOf(handle))
 	})
 	const Checked = itemOf("Checked")
 	const Contained = itemOf("Contained")
@@ -411,7 +443,10 @@ const schemaOf = (c: RewriteCase) => {
 		g: generated(
 			pg.integer,
 			Logic.cond(
-				predicateOf(c.generated, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind))),
+				predicateOf(
+					c.generated,
+					readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind), Pick.at("p", r.kind))
+				),
 				r.n,
 				r.m
 			)
@@ -419,12 +454,18 @@ const schemaOf = (c: RewriteCase) => {
 	}))
 	const statements = [
 		check("Holds", Checked, (r) =>
-			predicateOf(c.checked, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind)))
+			predicateOf(
+				c.checked,
+				readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind), Pick.at("p", r.kind))
+			)
 		),
 		contained(
 			on(
 				select(Contained, (r) =>
-					predicateOf(c.contained, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind)))
+					predicateOf(
+						c.contained,
+						readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind), Pick.at("p", r.kind))
+					)
 				),
 				"kind"
 			),
@@ -433,7 +474,10 @@ const schemaOf = (c: RewriteCase) => {
 		key(
 			on(
 				select(Keyed, (r) =>
-					predicateOf(c.keyed, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind)))
+					predicateOf(
+						c.keyed,
+						readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind), Pick.at("p", r.kind))
+					)
 				),
 				"n"
 			)
@@ -448,7 +492,12 @@ const schemaOf = (c: RewriteCase) => {
 		const r = v(Queried, "r")
 		return q
 			.match(Queried, { id: r.id, kind: r.kind, t: r.t, x: r.x, n: r.n, m: r.m })
-			.where(predicateOf(c.queried, readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind))))
+			.where(
+				predicateOf(
+					c.queried,
+					readsOf(r.t, r.x, Pick.at("t", r.kind), Pick.at("f", r.kind), Pick.at("p", r.kind))
+				)
+			)
 			.find({ id: r.id })
 	})
 	return {
@@ -622,32 +671,63 @@ const verdict = (
 	)
 }
 
+/** The situation of a query's division whose dividend, Pick's f at a kind Pick holds no row at, is NULL over x = 0. */
+const nullDivision = "a division by a zero divisor over a NULL dividend" satisfies Feature
+
 /**
- * A case as the generator draws it, its generated field aimed, by draws of its own, at a BETWEEN of two literals and the
- * row's text beside a match of the row's text against a literal while no witness has put either in a generation
- * expression (Steered): half its cases. A rotating case is drawn unaimed.
+ * A case as the generator draws it, aimed by draws of its own while a witness is pending (Steered), each aim at half
+ * its cases: its generated field at a BETWEEN of two literals and the row's text beside a match of the row's text
+ * against a literal while no witness has put either in a generation expression (aimedPairs); its query at a division
+ * over a NULL dividend while none has met one (aimedDivision). A rotating case, and a kept case, is drawn unaimed.
  */
 export const aimedCaseGen: Steered<RewriteCase, Feature>["under"] = (steering) => (source) => {
+	const pending = (feature: Feature): boolean =>
+		Option.exists(steering, (features) => features.has(feature))
 	const c = source.draw(caseGen)
-	if (
-		!Option.exists(steering, (pending) => pending.has(betweenPair) || pending.has(matchPair)) ||
-		!source.draw(boolean)
-	) {
-		return c
-	}
-	const value: Operand = { kind: "literal", text: source.draw(textGen) }
-	const bound: Operand = { kind: "literal", text: source.draw(textGen) }
-	const row: Operand = { kind: "row" }
-	const between: Pred = source.draw(boolean)
-		? { kind: "between", a: value, low: bound, high: row }
-		: { kind: "between", a: value, low: row, high: bound }
-	const match: Pred = {
-		kind: "matches",
-		subject: row,
-		pattern: { kind: "literal", text: source.draw(textGen) }
-	}
-	return { ...c, generated: { kind: "and", args: [between, match] } }
+	const paired =
+		(pending(betweenPair) || pending(matchPair)) && source.draw(boolean)
+			? source.draw(aimedPairs(c))
+			: c
+	return pending(nullDivision) && source.draw(boolean) ? aimedDivision(paired) : paired
 }
+
+/**
+ * `c`'s query filter the sign of Pick's f over the row's double, and its first item at x = 0 at the first kind Pick holds
+ * no row at, where one is: a division by a zero divisor whose dividend is NULL. A case whose Pick holds every kind is
+ * left as drawn, since dropping a row would leave a pattern read of it unadmitted.
+ */
+const aimedDivision = (c: RewriteCase): RewriteCase => {
+	const [first, ...rest] = c.items
+	return Option.match(
+		Arr.findFirstIndex(c.pick, (p) => p === undefined),
+		{
+			onNone: () => c,
+			onSome: (absent): RewriteCase => ({
+				...c,
+				queried: { kind: "negative" },
+				items: [{ ...first, kind: absent, x: 0 }, ...rest]
+			})
+		}
+	)
+}
+
+/** `c`'s generated field a BETWEEN of two literals and the row's text beside a match of the row's text against a literal. */
+const aimedPairs =
+	(c: RewriteCase): Gen<RewriteCase> =>
+	(source) => {
+		const value: Operand = { kind: "literal", text: source.draw(textGen) }
+		const bound: Operand = { kind: "literal", text: source.draw(textGen) }
+		const row: Operand = { kind: "row" }
+		const between: Pred = source.draw(boolean)
+			? { kind: "between", a: value, low: bound, high: row }
+			: { kind: "between", a: value, low: row, high: bound }
+		const match: Pred = {
+			kind: "matches",
+			subject: row,
+			pattern: { kind: "literal", text: source.draw(textGen) }
+		}
+		return { ...c, generated: { kind: "and", args: [between, match] } }
+	}
 
 export const rewriteCase = (c: RewriteCase, notes: Case<Feature>) =>
 	Effect.gen(function* () {
