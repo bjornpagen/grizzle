@@ -1,3 +1,4 @@
+import { regex } from "arkregex"
 import { Array as Arr, Schema, String as Str } from "effect"
 import {
 	CookieName,
@@ -18,7 +19,7 @@ import { SpecLine } from "#model/spec-section.ts"
 /**
  * The text of an inventory row id: an uppercase prefix that may hold digits, a hyphen, a number.
  */
-const rowIdPattern = /^[A-Z][A-Z0-9]*-[0-9]+$/u
+const rowIdPattern = regex("^[A-Z][A-Z0-9]*-[0-9]+$", "u")
 
 /**
  * An inventory row id such as `PRM-27`.
@@ -61,19 +62,26 @@ const styleName = Schema.Literals([
 	"spaceDelimited"
 ])
 
-// A response Header Object by name, with its `required` and `deprecated` marks (HDR-03, HDR-04);
-// absent in the document, each is false.
+/**
+ * A response Header Object by name, with its `required` and `deprecated` marks (HDR-03, HDR-04);
+ * absent in the document, each is false.
+ */
 const responseHeaders = Schema.Array(
 	Schema.Struct({ deprecated: Schema.Boolean, name: HeaderName, required: Schema.Boolean })
 )
 
-// The non-standard serializations the author config opted into for one entry (design 6.1, D-OQ1
-// (b)), one marker per switch: `nonStandard` (`deepObjectBrackets`) sends a `deepObject` value's
-// nested members in the bracket convention; `nonStandardScalars` (`deepObjectScalars`) sends a
-// scalar `deepObject` value as `name=value`. Set only from the author config, never defaulted or
-// inferred; absent is strict.
+/**
+ * The author config's `deepObjectBrackets` opt-in for one entry (design 6.1, D-OQ1 (b)): a
+ * `deepObject` value's nested members go in the bracket convention. Set only from the author config,
+ * never defaulted or inferred; absent is strict.
+ */
 const nonStandard = Schema.optionalKey(Schema.Literal("deepObjectBrackets"))
 
+/**
+ * The author config's `deepObjectScalars` opt-in for one entry (design 6.1, D-OQ1 (b)): a scalar
+ * `deepObject` value goes as `name=value`. Set only from the author config, never defaulted or
+ * inferred; absent is strict.
+ */
 const nonStandardScalars = Schema.optionalKey(Schema.Literal("deepObjectScalars"))
 
 /**
@@ -83,7 +91,10 @@ const nonStandardScalars = Schema.optionalKey(Schema.Literal("deepObjectScalars"
  * admits only objects (design 6.1): the operator gives the value as JSON, which the runtime expands
  * by its style.
  */
-export class StyleSerialization extends Schema.Class<StyleSerialization>("StyleSerialization")({
+export class StyleSerialization extends Schema.Class<
+	StyleSerialization,
+	{ readonly brand: unique symbol }
+>("StyleSerialization")({
 	allowReserved: Schema.Boolean,
 	explode: Schema.Boolean,
 	kind: Schema.Literal("style"),
@@ -101,12 +112,14 @@ export class StyleSerialization extends Schema.Class<StyleSerialization>("StyleS
  * parameter's form-urlencoded content, one per declared property in document order, decided as a
  * form body alternative's are (design 6.1, 6.3); it is empty for any other content.
  */
-export class ContentSerialization extends Schema.Class<ContentSerialization>(
-	"ContentSerialization"
-)({
-	// An `EncodingRule`'s part headers carry a `Serialization`, so the reference is suspended and its
-	// type stated: inferring it would be circular.
-	// oxlint-disable-next-line eslint/no-use-before-define -- read lazily, after both classes exist
+export class ContentSerialization extends Schema.Class<
+	ContentSerialization,
+	{ readonly brand: unique symbol }
+>("ContentSerialization")({
+	/**
+	 * An `EncodingRule`'s part headers carry a `Serialization`, so the reference is suspended and its
+	 * type stated: inferring it would be circular.
+	 */
 	encoding: Schema.Array(Schema.suspend((): Schema.Codec<EncodingRule, unknown> => EncodingRule)),
 	kind: Schema.Literal("content"),
 	mediaType: MediaType,
@@ -121,9 +134,11 @@ export class ContentSerialization extends Schema.Class<ContentSerialization>(
  */
 export const Serialization = Schema.Union([StyleSerialization, ContentSerialization])
 
-// A part header of an Encoding Object: a Header Object by name, typed and serialized as a header
-// parameter is (HDR-01, ENC-03), with its `required` and `deprecated` marks and, when the Header
-// Object or its schema carries `x-sensitive: true`, `sensitive`.
+/**
+ * A part header of an Encoding Object: a Header Object by name, typed and serialized as a header
+ * parameter is (HDR-01, ENC-03), with its `required` and `deprecated` marks and, when the Header
+ * Object or its schema carries `x-sensitive: true`, `sensitive`.
+ */
 const partHeaders = Schema.Array(
 	Schema.Struct({
 		deprecated: Schema.Boolean,
@@ -163,7 +178,9 @@ const nestedEncodingRule = Schema.Struct({
  * present whenever the part nests; `nestedItem` is the nested `itemEncoding`, the rule of every
  * nested position after the nested `prefixEncoding` (ENC-09).
  */
-export class EncodingRule extends Schema.Class<EncodingRule>("EncodingRule")({
+export class EncodingRule extends Schema.Class<EncodingRule, { readonly brand: unique symbol }>(
+	"EncodingRule"
+)({
 	contentEncoding: Schema.optionalKey(Schema.Literal("base64")),
 	contentType: Schema.Array(MediaRange),
 	headers: partHeaders,
@@ -289,7 +306,10 @@ export class EventContract extends Schema.Class<EventContract, { readonly brand:
  * names the alternative's properties refused at `field` scope, in property order (design 8.5);
  * absent, none is refused.
  */
-export class MediaAlternative extends Schema.Class<MediaAlternative>("MediaAlternative")(
+export class MediaAlternative extends Schema.Class<
+	MediaAlternative,
+	{ readonly brand: unique symbol }
+>("MediaAlternative")(
 	Schema.Struct({
 		codec: Schema.Literals([
 			"binary",
@@ -326,7 +346,7 @@ export class MediaAlternative extends Schema.Class<MediaAlternative>("MediaAlter
 /**
  * A request body; alternatives keep document order.
  */
-export class Body extends Schema.Class<Body>("Body")({
+export class Body extends Schema.Class<Body, { readonly brand: unique symbol }>("Body")({
 	alternatives: Schema.Array(MediaAlternative),
 	docs: Docs,
 	origin: Origin,
@@ -339,7 +359,9 @@ export class Body extends Schema.Class<Body>("Body")({
  * or its schema carries `x-sensitive: true`; output redacts such a header's value (`format:
  * password` is read from its schema, not here).
  */
-export class Parameter extends Schema.Class<Parameter>("Parameter")({
+export class Parameter extends Schema.Class<Parameter, { readonly brand: unique symbol }>(
+	"Parameter"
+)({
 	deprecated: Schema.Boolean,
 	docs: Docs,
 	location: Schema.Literals(["cookie", "header", "path", "query", "querystring"]),
@@ -355,7 +377,9 @@ export class Parameter extends Schema.Class<Parameter>("Parameter")({
 /**
  * One status code, status range or `default` response.
  */
-export class ResponseCase extends Schema.Class<ResponseCase>("ResponseCase")({
+export class ResponseCase extends Schema.Class<ResponseCase, { readonly brand: unique symbol }>(
+	"ResponseCase"
+)({
 	alternatives: Schema.Array(MediaAlternative),
 	docs: Docs,
 	headers: responseHeaders,
@@ -371,7 +395,7 @@ export class ResponseCase extends Schema.Class<ResponseCase>("ResponseCase")({
 /**
  * A server, at root, path item or operation level; `accepted` comes only from the author config.
  */
-export class Server extends Schema.Class<Server>("Server")({
+export class Server extends Schema.Class<Server, { readonly brand: unique symbol }>("Server")({
 	accepted: Schema.Boolean,
 	level: Schema.Literals(["operation", "pathItem", "root"]),
 	name: Schema.optionalKey(SafeText),
@@ -388,8 +412,10 @@ export class Server extends Schema.Class<Server>("Server")({
 	)
 }) {}
 
-// One OAuth flow as help text: its URLs when the spec gives them and its scopes by name. No URL here
-// ever becomes a request target (design 9 I3).
+/**
+ * One OAuth flow as help text: its URLs when the spec gives them and its scopes by name. No URL here
+ * ever becomes a request target (design 9 I3).
+ */
 const OAuthFlow = Schema.Struct({
 	authorizationUrl: Schema.optionalKey(SafeText),
 	deviceAuthorizationUrl: Schema.optionalKey(SafeText),
@@ -426,9 +452,9 @@ const schemeKind = Schema.Union([
 		type: Schema.Literal("apiKey")
 	}),
 	Schema.Struct({ scheme: Schema.Literals(["basic", "bearer"]), type: Schema.Literal("http") }),
-	// `oauth2MetadataUrl` (3.2) is shown in help and never fetched (design 9 I3).
 	Schema.Struct({
 		flows: OAuthFlows,
+		/** The 3.2 metadata URL, shown in help and never fetched (design 9 I3). */
 		oauth2MetadataUrl: Schema.optionalKey(SafeText),
 		type: Schema.Literal("oauth2Token")
 	}),
@@ -439,21 +465,25 @@ const schemeKind = Schema.Union([
 /**
  * A declared security scheme; flows and discovery URLs are recorded for help only.
  */
-export class SecurityScheme extends Schema.Class<SecurityScheme>("SecurityScheme")({
+export class SecurityScheme extends Schema.Class<SecurityScheme, { readonly brand: unique symbol }>(
+	"SecurityScheme"
+)({
 	credentialSources: Schema.Array(Schema.NonEmptyString),
 	deprecated: Schema.Boolean,
 	kind: schemeKind,
 	name: Schema.NonEmptyString,
 	origin: Origin,
 	rows,
-	// Where the scheme came from; an author-supplied one must not reach help or the report unmarked.
+	/** Where the scheme came from; an author-supplied one must not reach help or the report unmarked. */
 	source: Schema.Literals(["spec", "author-supplied"])
 }) {}
 
 /**
  * Alternatives are OR in document order; each alternative's uses are AND.
  */
-export class SecurityPolicy extends Schema.Class<SecurityPolicy>("SecurityPolicy")({
+export class SecurityPolicy extends Schema.Class<SecurityPolicy, { readonly brand: unique symbol }>(
+	"SecurityPolicy"
+)({
 	alternatives: Schema.Array(
 		Schema.Struct({
 			uses: Schema.Array(
@@ -469,7 +499,9 @@ export class SecurityPolicy extends Schema.Class<SecurityPolicy>("SecurityPolicy
 /**
  * The one schema store: a JSON document of `$defs`.
  */
-class SchemaStore extends Schema.Class<SchemaStore>("SchemaStore")({
+class SchemaStore extends Schema.Class<SchemaStore, { readonly brand: unique symbol }>(
+	"SchemaStore"
+)({
 	document: JsonLiteral,
 	origin: Origin,
 	rows
@@ -478,7 +510,9 @@ class SchemaStore extends Schema.Class<SchemaStore>("SchemaStore")({
 /**
  * An element that is read and counted but never affects requests.
  */
-export class Informational extends Schema.Class<Informational>("Informational")({
+export class Informational extends Schema.Class<Informational, { readonly brand: unique symbol }>(
+	"Informational"
+)({
 	origin: Origin,
 	reason: SafeText,
 	row: RowId
@@ -532,7 +566,9 @@ export const Naming = Schema.Struct({
 /**
  * One operation, keyed by method token and path template.
  */
-export class Operation extends Schema.Class<Operation>("Operation")({
+export class Operation extends Schema.Class<Operation, { readonly brand: unique symbol }>(
+	"Operation"
+)({
 	body: Schema.optionalKey(Body),
 	deprecated: Schema.Boolean,
 	docs: Docs,
@@ -551,7 +587,7 @@ export class Operation extends Schema.Class<Operation>("Operation")({
 /**
  * The normalized model of one API document set.
  */
-export class Api extends Schema.Class<Api>("Api")({
+export class Api extends Schema.Class<Api, { readonly brand: unique symbol }>("Api")({
 	documents: Schema.Array(DocumentUri),
 	entry: DocumentUri,
 	info: Docs,
