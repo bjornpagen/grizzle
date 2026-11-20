@@ -1,3 +1,4 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	bytes,
@@ -7,8 +8,19 @@ import {
 	string,
 	uniqueArray
 } from "@bjornpagen/testing/gen"
-import { Effect, FileSystem, Path, Record as Rec, Schema } from "effect"
+import {
+	Array as Arr,
+	Data,
+	Effect,
+	FileSystem,
+	Option,
+	Path,
+	Predicate,
+	Record as Rec,
+	Result
+} from "effect"
 import { ChildProcess } from "effect/process"
+import { parseJson } from "#runtime/json.ts"
 import { type BinInvocation, type BuiltPackage, workerFixture } from "#test/support/cli-package.ts"
 import { type Finished, finished } from "#test/support/process.ts"
 
@@ -22,13 +34,38 @@ process.stderr.write(readFileSync(0))
 process.exitCode = args.length % 4
 `
 
-/** What the echo bin prints on stdout. */
-const Echoed = Schema.fromJsonString(
-	Schema.Struct({
-		args: Schema.Array(Schema.String),
-		env: Schema.Record(Schema.String, Schema.String)
-	})
-)
+/** What the echo bin prints on stdout: its argv and its environment. */
+type Echoed = Readonly<{ args: ReadonlyArray<string>; env: Readonly<Record<string, string>> }>
+
+/** A record of strings, read from a JSON value: none when it is no object or a member is no string. */
+const stringRecordOf = (value: unknown): Option.Option<Readonly<Record<string, string>>> =>
+	Predicate.isObject(value)
+		? Option.map(
+				Option.all(
+					Arr.map(Rec.toEntries(value), ([name, member]) =>
+						Predicate.isString(member) ? Option.some([name, member] as const) : Option.none()
+					)
+				),
+				Rec.fromEntries
+			)
+		: Option.none()
+
+/** A list of strings, read from a JSON value: none when it is no array or an item is no string. */
+const stringsOf = (value: unknown): Option.Option<ReadonlyArray<string>> =>
+	Arr.isArray(value) && Arr.every(value, Predicate.isString) ? Option.some(value) : Option.none()
+
+/** The echo bin's stdout read: UTF-8 text of one JSON object with `args`, a list of strings, and `env`, a record of them. */
+const echoedOf = (stdout: Uint8Array): Option.Option<Echoed> =>
+	Option.flatMap(Option.fromNullishOr(utf8Text(stdout)), (text) =>
+		Option.flatMap(Result.getSuccess(parseJson(text)), (value) =>
+			Predicate.isObject(value)
+				? Option.all({ args: stringsOf(value["args"]), env: stringRecordOf(value["env"]) })
+				: Option.none()
+		)
+	)
+
+/** An echo bin's stdout that is not the report it writes. */
+class EchoUnreadable extends Data.TaggedError("EchoUnreadable")<{ readonly stdout: Uint8Array }> {}
 
 /** Characters an argument or a value may hold: quotes, spaces, a newline, shell metacharacters and text beyond ASCII. */
 const valueCharacter = characterOf([
@@ -80,7 +117,10 @@ type Echo = Readonly<{
 
 /** What the echo bin reported of a finished run. */
 export const echoOf = Effect.fn("cliPackageTest.echo")(function* (run: Finished) {
-	const echoed = yield* Schema.decodeEffect(Echoed)(new TextDecoder().decode(run.stdout))
+	const echoed = yield* Effect.fromOption(
+		echoedOf(run.stdout),
+		() => new EchoUnreadable({ stdout: run.stdout })
+	)
 	const echo: Echo = {
 		args: echoed.args,
 		env: echoed.env,

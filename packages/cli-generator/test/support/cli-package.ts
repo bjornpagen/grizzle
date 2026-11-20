@@ -1,3 +1,4 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { type Need, NeedFailed } from "@bjornpagen/testing/property"
 import { HARDENED_FLAGS } from "@bjornpagen/testing/runner"
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto"
@@ -5,6 +6,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
 	Array as Arr,
 	Context,
+	Data,
 	Deferred,
 	Effect,
 	Fiber,
@@ -14,9 +16,10 @@ import {
 	Option,
 	Path,
 	type PlatformError,
+	Predicate,
 	Record as Rec,
 	Ref,
-	Schema,
+	Result,
 	type Scope,
 	Stream,
 	String as Str
@@ -24,7 +27,8 @@ import {
 import { Digest } from "effect/crypto"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generate, type GenerateResult } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { type DocumentUri, isDocumentUri } from "#model/brands.ts"
+import { parseJson } from "#runtime/json.ts"
 import { type Finished, finished } from "#test/support/process.ts"
 
 /** A file a fixture writes: its path, `/`-separated and relative to the directory it lands in, and its text. */
@@ -60,35 +64,47 @@ export type BinInvocation = Readonly<{
 /** A build step of a generated package. */
 type BuildStep = "install" | "typecheck" | "build"
 
+/** A child's output as an error message shows it: its text, or how many bytes it wrote that are no UTF-8. */
+const shownOutput = (bytes: Uint8Array): string =>
+	utf8Text(bytes) ?? `(${String(bytes.length)} bytes that are no UTF-8)`
+
 /**
  * A build step that exited non-zero, with its exit code and output, which its message states, so a need that fails by
  * it (workerFixture, the grizzle tier's twins) says which step failed and why.
  */
-class BuildStepFailed extends Schema.TaggedError<
-	BuildStepFailed,
-	{ readonly brand: unique symbol }
->()("BuildStepFailed", {
-	step: Schema.Literals(["install", "typecheck", "build"]),
-	exitCode: Schema.Int,
-	stdout: Schema.Uint8Array,
-	stderr: Schema.Uint8Array
-}) {
+class BuildStepFailed extends Data.TaggedError("BuildStepFailed")<{
+	readonly step: BuildStep
+	readonly exitCode: number
+	readonly stdout: Uint8Array
+	readonly stderr: Uint8Array
+}> {
 	override get message(): string {
-		const decoder = new TextDecoder()
-		return `the generated package's ${this.step} exited ${this.exitCode}:\n${decoder.decode(this.stdout)}${decoder.decode(this.stderr)}`
+		return `the generated package's ${this.step} exited ${String(this.exitCode)}:\n${shownOutput(this.stdout)}${shownOutput(this.stderr)}`
 	}
 }
 
-/** The generated manifest's one bin, the built entry a user's `npx` runs. */
-const Manifest = Schema.fromJsonString(
-	Schema.Struct({ bin: Schema.Record(Schema.String, Schema.String) })
-)
+/** The generated manifest's bins, the built entries a user's `npx` runs: its `bin` member's paths, read from its text. */
+const binsOf = (text: string): Option.Option<ReadonlyArray<string>> =>
+	Option.flatMap(Result.getSuccess(parseJson(text)), (manifest) =>
+		Predicate.isObject(manifest) && Predicate.isObject(manifest["bin"])
+			? Option.liftPredicate(Rec.values(manifest["bin"]), (paths) =>
+					Arr.every(paths, Predicate.isString)
+				)
+			: Option.none()
+	)
+
+/** A generated manifest that is no JSON text, or whose `bin` member is no object of paths. */
+class ManifestUnreadable extends Data.TaggedError("ManifestUnreadable")<{
+	readonly path: string
+}> {}
 
 /** A manifest that names no bin or more than one. */
-class ManifestBinUnclear extends Schema.TaggedError<
-	ManifestBinUnclear,
-	{ readonly brand: unique symbol }
->()("ManifestBinUnclear", { bins: Schema.Array(Schema.String) }) {}
+class ManifestBinUnclear extends Data.TaggedError("ManifestBinUnclear")<{
+	readonly bins: ReadonlyArray<string>
+}> {}
+
+/** A fixture file's fixed URI, which is no document URI. */
+class FixtureUriRefused extends Data.TaggedError("FixtureUriRefused")<{ readonly uri: string }> {}
 
 /**
  * A suite's fixture as a need, `key` naming it: `open` (a capture server, the package generated and built against its
@@ -125,8 +141,10 @@ const writeUnder = Effect.fn("cliPackage.write")(function* (directory: string, f
 })
 
 /** The fixed URI diagnostics name a fixture file by. */
-const documentOf = (file: FixtureFile) =>
-	Schema.decodeEffect(DocumentUri)(`file:///fixture/${file.path}`)
+const documentOf = (file: FixtureFile): Effect.Effect<DocumentUri, FixtureUriRefused> => {
+	const uri = `file:///fixture/${file.path}`
+	return isDocumentUri(uri) ? Effect.succeed(uri) : Effect.fail(new FixtureUriRefused({ uri }))
+}
 
 /**
  * Generates the fixture through `generate` into `<root>/out`, where `root` is a temporary directory the scope removes,
@@ -164,7 +182,7 @@ const buildStep = Effect.fn("cliPackage.step")(function* (
 ) {
 	const run = yield* finished(ChildProcess.make("pnpm", args, { cwd: dir }))
 	if (run.exitCode !== 0) {
-		return yield* BuildStepFailed.make({ step, ...run })
+		return yield* new BuildStepFailed({ step, ...run })
 	}
 })
 
@@ -181,11 +199,14 @@ export const buildPackage = Effect.fn("cliPackage.build")(function* (generated: 
 	const path = yield* Path.Path
 	yield* buildStep(generated.dir, "install", ["install", "--prefer-offline", "--ignore-workspace"])
 	yield* buildStep(generated.dir, "build", ["run", "build"])
-	const manifestText = yield* fs.readFileString(path.join(generated.dir, "package.json"))
-	const manifest = yield* Schema.decodeEffect(Manifest)(manifestText)
-	const bins = Rec.values(manifest.bin)
+	const manifestPath = path.join(generated.dir, "package.json")
+	const manifestText = yield* fs.readFileString(manifestPath)
+	const bins = yield* Effect.fromOption(
+		binsOf(manifestText),
+		() => new ManifestUnreadable({ path: manifestPath })
+	)
 	return yield* Option.match(Arr.length(bins) === 1 ? Arr.head(bins) : Option.none(), {
-		onNone: () => Effect.fail(ManifestBinUnclear.make({ bins })),
+		onNone: () => Effect.fail(new ManifestBinUnclear({ bins })),
 		onSome: (bin) =>
 			Effect.succeed<BuiltPackage>({ dir: generated.dir, bin: path.join(generated.dir, bin) })
 	})
@@ -210,7 +231,7 @@ export const typecheckPackage = Effect.fn("cliPackage.typecheck")(function* (
 		ChildProcess.make("node", ["--run", "typecheck"], { cwd: generated.dir })
 	)
 	if (run.exitCode !== 0) {
-		return yield* BuildStepFailed.make({ step: "typecheck", ...run })
+		return yield* new BuildStepFailed({ step: "typecheck", ...run })
 	}
 })
 
