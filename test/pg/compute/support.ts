@@ -198,6 +198,8 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 			)
 		case "bytes":
 			throw new Error("no compute case reads bytes, which are stored only")
+		case "tsvector":
+			throw new Error("no compute case reads a search document, which PostgreSQL alone parses")
 		case "range4":
 		case "range8":
 		case "rangeDate":

@@ -108,6 +108,11 @@ export interface CarrierHost {
 	readonly range8: Span<bigint>
 	readonly rangeDate: Span<CalendarDate>
 	readonly vector: Vector
+	/**
+	 * A search document's host value is the text PostgreSQL prints for it (tsvector_out): its lexemes in their one order,
+	 * each with its positions and weights, so two documents are one value exactly where their texts are one.
+	 */
+	readonly tsvector: string
 	readonly exactInteger: bigint
 	readonly exactMoney: Money
 }
@@ -132,6 +137,7 @@ interface SpecExtras {
 	readonly code: { readonly roster: RosterCodec; readonly only: ReadonlySet<string> | undefined }
 	readonly bits: { readonly roster: RosterCodec }
 	readonly vector: { readonly dimensions: number }
+	readonly tsvector: unknown
 	readonly range4: { readonly width: bigint | undefined }
 	readonly range8: { readonly width: bigint | undefined }
 	readonly rangeDate: { readonly width: bigint | undefined }
@@ -185,6 +191,7 @@ interface OrderExtras {
 	readonly code: { readonly roster: HandleOrder }
 	readonly bits: { readonly roster: HandleOrder }
 	readonly vector: unknown
+	readonly tsvector: unknown
 	readonly range4: unknown
 	readonly range8: unknown
 	readonly rangeDate: unknown
@@ -331,6 +338,7 @@ const coercions: Admitters = {
 	range8: (value, spec) => admitSpan("int8", value, spec.width),
 	rangeDate: (value, spec) => admitSpan("date", value, spec.width),
 	vector: (value, spec) => admitVector(value, spec.dimensions),
+	tsvector: (value) => validateText(value),
 	exactInteger: (value, spec) => integerAt(value, spec.typmod),
 	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType"))
 }
@@ -371,6 +379,7 @@ export const unreadableOf: { readonly [C in Carrier]: () => ValueFault } = {
 	range8: () => "spanType",
 	rangeDate: () => "spanType",
 	vector: () => "vectorType",
+	tsvector: () => "textType",
 	exactInteger: () => "integerType",
 	exactMoney: () => "moneyType"
 }
@@ -432,6 +441,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	range8: isSpanOf(isBigint),
 	rangeDate: isSpanOf((value): value is CalendarDate => toCalendarDate(value).ok),
 	vector: isVector,
+	tsvector: isString,
 	exactInteger: isBigint,
 	exactMoney: (value) => value instanceof Money
 }
@@ -464,6 +474,7 @@ const canonicalTexts: CanonicalTexts = {
 	range8: (v) => spanText(v),
 	rangeDate: (v) => spanText(v),
 	vector: (v) => Vector.componentText(v),
+	tsvector: (v) => v,
 	exactInteger: (v) => String(v),
 	exactMoney: (v) => v.toString()
 }
@@ -575,6 +586,7 @@ const comparators: Comparators = {
 	range8: (x, y) => compareSpan(x, y),
 	rangeDate: (x, y) => compareSpan(x, y),
 	vector: (x, y) => Vector.compare(x, y),
+	tsvector: (x, y) => compareCodePoints(x, y),
 	exactInteger: (x, y) => compareOrdered(x, y),
 	exactMoney: (x, y) => x.compare(y)
 }
@@ -582,8 +594,8 @@ const comparators: Comparators = {
 /**
  * Whether PostgreSQL's equality of a carrier's values is their host values' identity: a carrier each of whose values has
  * one host value, so two values are equal exactly where they are one host value (compareValues's 0 of them): an
- * integer, a boolean, a uuid's and a date's text, a text, whose order compares code points, and a closed id's handle,
- * whose order ranks it in its roster. A numeric's and money's are objects; a double's NaN is equal to itself in
+ * integer, a boolean, a uuid's and a date's text, a text and a search document's printed text, whose order compares
+ * code points, and a closed id's handle, whose order ranks it in its roster. A numeric's and money's are objects; a double's NaN is equal to itself in
  * PostgreSQL's order and to no value in the host's identity; bytes, a set, a span and a vector are objects; so each of
  * those is equal by its order. Each carrier states it here, so a new one is a case to decide.
  */
@@ -606,6 +618,7 @@ export const equalByIdentity: { readonly [C in Carrier]: boolean } = {
 	range8: false,
 	rangeDate: false,
 	vector: false,
+	tsvector: true,
 	exactInteger: true,
 	exactMoney: false
 }
@@ -791,6 +804,7 @@ const sameExtras: { readonly [C in Carrier]: (a: SpecOf<C>, b: CarrierSpec) => b
 	range8: (a, b) => b.carrier === "range8" && a.width === b.width,
 	rangeDate: (a, b) => b.carrier === "rangeDate" && a.width === b.width,
 	vector: (a, b) => b.carrier === "vector" && a.dimensions === b.dimensions,
+	tsvector: (_, b) => b.carrier === "tsvector",
 	exactInteger: (a, b) => b.carrier === "exactInteger" && sameTypmod(a.typmod, b.typmod),
 	exactMoney: (_, b) => b.carrier === "exactMoney"
 }
@@ -962,6 +976,7 @@ const heldAs: { readonly [C in Carrier]: "shared" | "again" } = {
 	range8: "shared",
 	rangeDate: "shared",
 	vector: "again",
+	tsvector: "shared",
 	exactInteger: "shared",
 	exactMoney: "shared"
 }

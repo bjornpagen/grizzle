@@ -92,6 +92,8 @@ export const wireSql = (descriptor: ScalarType, names: SqlNames): string => {
 			return "text"
 		case "bytes":
 			return "bytea"
+		case "tsvector":
+			return "tsvector"
 		case "range4":
 			return "int4range"
 		case "range8":

@@ -28,6 +28,7 @@ import {
 import { defaultOps } from "#compiler/lower/conservative/expr/ops.ts"
 import { equalityChain, sharedExpr } from "#compiler/lower/conservative/expr/share.ts"
 import { ieeeForm } from "#compiler/lower/conservative/expr/total.ts"
+import { lowerSearchOp } from "#compiler/lower/conservative/search/index.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
@@ -235,6 +236,9 @@ export const lowerScalar = (expr: ScalarExpr, site: ScalarSite): Expr => {
 			}
 			if (operandTypes.some((t) => t.carrier === "vector")) {
 				return lowerVectorOp(expr, args, site.at(expr), site.names.vectorSchema)
+			}
+			if (operandTypes.some((t) => t.carrier === "tsvector")) {
+				return lowerSearchOp(expr, args, site.at(expr))
 			}
 			return (
 				defaultOps(expr, args, site.names.library) ??

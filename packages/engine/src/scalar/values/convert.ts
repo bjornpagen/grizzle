@@ -107,6 +107,7 @@ const convertBits =
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |
+ * | tsvector | tsvectorout, its lexemes in order with their positions and weights | the text itself |
  * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
  * | code | int2out of the code | the live handle the code names |
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
@@ -139,6 +140,7 @@ export const convertByCarrier: {
 	range8: () => convertSpan(BigInt),
 	rangeDate: () => convertSpan(convertDate),
 	vector: (spec) => convertVector(spec.dimensions),
+	tsvector: () => identity,
 	exactInteger: () => BigInt,
 	exactMoney: () => (text) => Money.fromOutput(text)
 }
@@ -156,6 +158,7 @@ const converted: { readonly [C in ConvertedCarrier]: Converter<C> } = {
 	uuid: convertByCarrier.uuid({ carrier: "uuid" }),
 	date: convertByCarrier.date({ carrier: "date" }),
 	text: convertByCarrier.text({ carrier: "text" }),
+	tsvector: convertByCarrier.tsvector({ carrier: "tsvector" }),
 	range4: convertByCarrier.range4({ carrier: "range4", width: undefined }),
 	range8: convertByCarrier.range8({ carrier: "range8", width: undefined }),
 	rangeDate: convertByCarrier.rangeDate({ carrier: "rangeDate", width: undefined }),

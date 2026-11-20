@@ -231,6 +231,7 @@ const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm }
 	range8: literalArray,
 	rangeDate: literalArray,
 	vector: literalArray,
+	tsvector: textBinaryArray,
 	exactInteger: literalArray,
 	exactMoney: literalArray
 }

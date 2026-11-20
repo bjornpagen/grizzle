@@ -87,6 +87,8 @@ const carrierHost = (descriptor: ScalarType): string => {
 			return `Span<${branded(type.span.endpoint, carrierHost(type.span.endpoint))}>`
 		case "vector":
 			return `Vector<${type.typmod.dims}>`
+		case "tsvector":
+			return `SearchDocument<${jsonText(type.configuration)}>`
 		case "date":
 			return "CalendarDate"
 		case "bytes":
@@ -263,6 +265,7 @@ const paramDomain = (descriptor: ScalarType): string => {
 		case "code":
 		case "bits":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return domainOf(descriptor, carrierHost(descriptor))

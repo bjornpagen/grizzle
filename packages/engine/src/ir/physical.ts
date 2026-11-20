@@ -307,6 +307,8 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return qualifiedType(names.bitsDomain(b.roster.closed))
 		case "vector":
 			return namedType(names.vectorSchema, "vector", [b.typmod.dims])
+		case "tsvector":
+			return types.tsvector
 		case "exactInteger":
 			return b.digits <= int8ExactDigits ? types.bigint : types.numeric
 		case "exactMoney":

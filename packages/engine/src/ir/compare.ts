@@ -49,6 +49,7 @@ export const operatorSchemaOf = (
 		case "range4":
 		case "range8":
 		case "rangeDate":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined

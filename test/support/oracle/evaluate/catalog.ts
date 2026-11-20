@@ -95,6 +95,14 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "btrim":
 		case "regexpCount":
 		case "sha256":
+		case "searchPart":
+		case "searchConcat":
+		case "websearchMatches":
+		case "plainMatches":
+		case "websearchRank":
+		case "plainRank":
+		case "websearchRankCd":
+		case "plainRankCd":
 			return "database"
 		case "union":
 		case "intersection":
@@ -506,7 +514,7 @@ const ordered = <V extends bigint | string>(a: V, b: V): -1 | 0 | 1 => (a < b ? 
  * value, booleans false first, uuids by their bytes, which their lowercase hex orders, dates by day, text in code point
  * order under C.UTF-8, a closed id by its position in its roster's declared order, which is its codes' order, a set by
  * its membership of each handle in that order, a span by its start, then its end, and a vector as pgvector's vector_cmp
- * orders it. A bytes value has no order the reference reads: no Compute operation compares one.
+ * orders it. A bytes value and a search document have no order the reference reads: no Compute operation compares one.
  */
 export const compareCarried = (
 	a: ModelValue,
@@ -542,6 +550,7 @@ export const compareCarried = (
 		case "text":
 			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
 		case "bytes":
+		case "tsvector":
 			return undefined
 		case "code": {
 			const i = isString(a) ? base.roster.handles.indexOf(a) : -1
@@ -865,6 +874,14 @@ const catalogApply = (
 		case "btrim":
 		case "regexpCount":
 		case "sha256":
+		case "searchPart":
+		case "searchConcat":
+		case "websearchMatches":
+		case "plainMatches":
+		case "websearchRank":
+		case "plainRank":
+		case "websearchRankCd":
+		case "plainRankCd":
 			return declined(op, "database", "PostgreSQL alone evaluates it")
 		case "collapse":
 			return isString(a) ? Result.succeed(collapsedText(a)) : mismatch(op)

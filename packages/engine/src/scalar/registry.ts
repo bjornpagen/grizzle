@@ -46,6 +46,7 @@ import {
 	textInfoOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
+import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import { minted, mintedRefusal } from "#compiler/scalar/minted.ts"
 import { nativeCapabilities, unorderedCodeCapabilities } from "#compiler/scalar/native.ts"
 
@@ -72,6 +73,14 @@ export const breaksTies = (t: ScalarType): boolean =>
  * never off the carrier's name.
  */
 export const storedOnly = (t: ScalarType): boolean => capsOf(t).every((c) => c === "storage")
+
+/**
+ * Whether a type is a search document's (ir/scalar.ts SearchType), the one type of the textSearch capability: a value
+ * PostgreSQL alone makes, parsing its row's texts in a generated field, and reads, matching and ranking it. So no caller
+ * writes one, no parameter carries one, grizzle fills none, and no literal is of one. Each of those refusals reads it
+ * here, off the capability set.
+ */
+export const searchedOnly = (t: ScalarType): boolean => capsOf(t).includes("textSearch")
 
 /**
  * A capability diagnostic: UnsupportedOperation, its capability naming the
@@ -109,6 +118,7 @@ export const carrierSql = {
 	range8: "range",
 	rangeDate: "range",
 	vector: "vector",
+	tsvector: "tsvector",
 	exactInteger: "exact integer",
 	exactMoney: "exact money"
 } as const satisfies { readonly [C in Carrier]: string }
@@ -582,6 +592,8 @@ const scalarAt = (
 				})
 			)
 		}
+		case "search":
+			return Result.ok(searchType(desc.configuration))
 		case "span":
 			return Result.flatMap(scalarAt(desc.endpoint, env, childLoc(loc, "endpoint")), (endpoint) =>
 				spanType(endpoint, desc.width, loc)
@@ -671,6 +683,8 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 			return capabilitiesOf("bits")
 		case "vector":
 			return capabilitiesOf("vector")
+		case "search":
+			return capabilitiesOf("tsvector")
 		case "span": {
 			const endpoint = endpointBase(desc.endpoint)
 			return capabilitiesOf(
@@ -685,6 +699,18 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 			return descCapabilities(desc.base)
 	}
 }
+
+/**
+ * A search document of `configuration` (ir/scalar.ts SearchType), its keys in the decoder's order (ir/scalar-shape.ts),
+ * so a built type and its decoded copy are alike.
+ */
+export const searchType = (configuration: TextSearchConfiguration): DeclaredType =>
+	Object.freeze({
+		carrier: "tsvector",
+		caps: capabilitiesOf("tsvector"),
+		contract: undefined,
+		configuration
+	})
 
 /** A plain value type of `carrier`: no typmod, refinement or contract. */
 const plainType = (carrier: (typeof pgCarriers)[keyof typeof pgCarriers] | "uuid"): ContractBase =>
@@ -792,6 +818,15 @@ const contractOver = (
 				loc,
 				"equality",
 				`${typeLabel(base)} is stored only, so no predicate reads it; no contract is over bytes`
+			)
+		)
+	}
+	if (base.carrier === "tsvector") {
+		return Result.err(
+			capabilityError(
+				loc,
+				"textSearch",
+				`${typeLabel(base)} is a search document, PostgreSQL's parse of its row's texts, which no predicate reads; no contract is over one`
 			)
 		)
 	}

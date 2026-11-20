@@ -83,7 +83,10 @@ export const builtinTypeNames = [
 	"datemultirange",
 	"record",
 	"bit varying",
-	"name"
+	"name",
+	"tsvector",
+	"regconfig",
+	"char"
 ] as const
 export type BuiltinTypeName = (typeof builtinTypeNames)[number]
 
@@ -141,6 +144,8 @@ export const catalogSpelling: { readonly [T in CatalogTypeName]: CatalogSpelling
 	trigger: "qualified",
 	void: "qualified",
 	name: "qualified",
+	tsvector: "qualified",
+	regconfig: "qualified",
 	oid: "qualified",
 	char: "qualified",
 	regclass: "qualified",
@@ -254,7 +259,8 @@ const binaryOperators = [
 	"&<",
 	"&>",
 	"-|-",
-	"<=>"
+	"<=>",
+	"@@"
 ] as const
 export type BinaryOperator = (typeof binaryOperators)[number]
 
@@ -266,8 +272,8 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
  * (physical/ddl/rules.ts judged), a text's image an index holds (sql/image.ts), the database default's
  * statement and the binary comparison of two rows, the function of PostgreSQL's `*<>` (record_image_ne), by which a
- * migration's backfill writes only the rows whose drawn values change (deploy/diff/backfill.ts staged); a relation
- * input's arrays are a FROM
+ * migration's backfill writes only the rows whose drawn values change (deploy/diff/backfill.ts staged), and full text
+ * search's parse, weighting, query parse and ranks (lower/conservative/search); a relation input's arrays are a FROM
  * item of their own. Extension functions (pgvector) are qualified by their extension's schema instead. Each with where
  * its call computes (`reach`): over its row's values, or over many rows, as an aggregate or a window function does.
  */
@@ -362,7 +368,13 @@ export const builtinFunctions = {
 	to_regprocedure: { reach: "row" },
 	pg_get_userbyid: { reach: "row" },
 	pg_my_temp_schema: { reach: "row" },
-	record_image_ne: { reach: "row" }
+	record_image_ne: { reach: "row" },
+	to_tsvector: { reach: "row" },
+	setweight: { reach: "row" },
+	websearch_to_tsquery: { reach: "row" },
+	plainto_tsquery: { reach: "row" },
+	ts_rank: { reach: "row" },
+	ts_rank_cd: { reach: "row" }
 } as const satisfies { readonly [name: string]: { readonly reach: "row" | "rows" } }
 export type BuiltinFunctionName = keyof typeof builtinFunctions
 

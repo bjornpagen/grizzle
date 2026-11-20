@@ -145,6 +145,8 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return bytesColumn
 		case "vector":
 			return vectorColumn(desc.dimensions)
+		case "search":
+			return plainColumns.text
 		case "span":
 			return spanColumn(columnOf(desc.endpoint))
 		case "contract":

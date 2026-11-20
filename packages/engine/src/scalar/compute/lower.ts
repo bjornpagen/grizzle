@@ -1056,6 +1056,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }

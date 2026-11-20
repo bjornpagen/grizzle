@@ -657,6 +657,7 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined

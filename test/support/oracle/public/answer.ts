@@ -353,6 +353,7 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 		case "code":
 			return typeof host === "string" ? Result.succeed(host) : wrong()
 		case "bytes":
+		case "tsvector":
 			return wrong()
 		case "bits":
 			return host instanceof Set && Arr.every([...host], Predicate.isString)

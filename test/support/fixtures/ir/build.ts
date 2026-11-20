@@ -185,6 +185,7 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 		case "bytes":

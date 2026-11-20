@@ -126,6 +126,7 @@ const familyOf = (name: string): Family => {
 		case "uuid":
 		case "date":
 		case "vector":
+		case "tsvector":
 			return "other"
 	}
 }
@@ -205,6 +206,13 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	sha256: { result: "text", args: ["bytes"] },
 	floatBits: { result: "integer", args: ["float"] },
 	cosineDistance: { result: "float", args: ["other", "other"] },
+	textDocument: { result: "other", args: ["text"] },
+	websearchMatches: { result: "bool", args: ["other", "text"] },
+	plainMatches: { result: "bool", args: ["other", "text"] },
+	websearchRank: { result: "float", args: ["other", "text"] },
+	plainRank: { result: "float", args: ["other", "text"] },
+	websearchRankCd: { result: "float", args: ["other", "text"] },
+	plainRankCd: { result: "float", args: ["other", "text"] },
 	union: { result: "bits", args: ["bits", "bits"] },
 	intersection: { result: "bits", args: ["bits", "bits"] },
 	difference: { result: "bits", args: ["bits", "bits"] },

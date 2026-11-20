@@ -28,7 +28,7 @@ import type { ParamDecl } from "#compiler/ir/products.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
 import { type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { commonType, compatible } from "#compiler/scalar/compute/types.ts"
-import { storedOnly } from "#compiler/scalar/registry.ts"
+import { searchedOnly, storedOnly } from "#compiler/scalar/registry.ts"
 
 /**
  * A parameter is of one kind once a use types it: a scalar of the type its uses declare, or a relation of the heading
@@ -84,6 +84,13 @@ export class ParamCell {
 				`storage: parameter ${this.name} of ${typeLabel(type)}, which is stored only and never a parameter`
 			)
 		}
+		if (searchedOnly(type)) {
+			return fail(
+				"UnsupportedOperation",
+				loc,
+				`textSearch: parameter ${this.name} of ${typeLabel(type)}, a search document, which PostgreSQL alone makes and never a parameter`
+			)
+		}
 		const prior = this.#entry
 		switch (prior.kind) {
 			case "relation":
@@ -113,7 +120,7 @@ export class ParamCell {
 	 * parameter carries, is refused.
 	 */
 	relationUse(heading: Heading, loc: SourceLoc): ParamId {
-		const stored = heading.find((c) => storedOnly(c.type))
+		const stored = heading.find((c) => storedOnly(c.type) || searchedOnly(c.type))
 		if (stored !== undefined) {
 			return fail(
 				"UnsupportedOperation",

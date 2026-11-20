@@ -22,6 +22,7 @@ export type ConvertedCarrier =
 	| "uuid"
 	| "date"
 	| "text"
+	| "tsvector"
 	| "range4"
 	| "range8"
 	| "rangeDate"

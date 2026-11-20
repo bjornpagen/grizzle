@@ -99,6 +99,8 @@ export const declaredDescOf = (
 		}
 		case "vector":
 			return Result.ok({ kind: "vector", dimensions: type.typmod.dims })
+		case "tsvector":
+			return Result.ok({ kind: "search", configuration: type.configuration })
 		case "exactInteger":
 		case "exactMoney":
 			return Result.err({ kind: "exact", type: typeLabel(type) })

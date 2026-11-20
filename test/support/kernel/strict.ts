@@ -502,6 +502,7 @@ const readers: {
 	range8: () => readSpan("int8"),
 	rangeDate: () => readSpan("date"),
 	vector: (spec) => readVector(spec),
+	tsvector: () => (text) => toResult(validateText(text)),
 	exactInteger: () => strictIntegers.exactInteger,
 	exactMoney: () => readExactMoney
 }

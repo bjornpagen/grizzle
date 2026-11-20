@@ -5,12 +5,14 @@ import { nominal } from "#compiler/core/brand.ts"
 import { bitsColumn, brandColumn, type Columned, codeColumn } from "#compiler/core/decoder.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { bytesDescriptor } from "#compiler/scalar/bytes.ts"
+import { searchDocumentTerm } from "#compiler/scalar/compute/builders.ts"
 import { callerContractParts } from "#compiler/scalar/contract.ts"
 import { dateDescriptor } from "#compiler/scalar/date.ts"
 import { instantDescriptor } from "#compiler/scalar/instant.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
+import { searchDescriptor } from "#compiler/scalar/search.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
@@ -47,6 +49,7 @@ import type {
 	SpanConstructor
 } from "#compiler/types/fields/constructors.ts"
 
+import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import type {
 	AccumulatedField,
 	Bits as BitsValue,
@@ -78,6 +81,11 @@ import type {
 	DistinctMembers
 } from "#compiler/types/schema/relation.ts"
 import type { Fin, NaturalFieldOf, SlotField } from "#compiler/types/schema/statements.ts"
+import type {
+	SearchDocumentConstructor,
+	SearchDocumentField,
+	SearchPart
+} from "#compiler/types/search/search.ts"
 
 export { Decimal } from "#compiler/scalar/values/decimal.ts"
 export { Money } from "#compiler/scalar/values/money.ts"
@@ -122,6 +130,20 @@ export type {
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 export type { VectorField } from "#compiler/types/vector/vector.ts"
+export {
+	textQueryMaxBytes,
+	textSearchConfigurations,
+	textSearchWeights
+} from "#compiler/ir/search.ts"
+export type {
+	SearchDocument,
+	SearchDocumentField,
+	SearchPart,
+	TextQuery,
+	TextQueryParser,
+	TextSearchConfiguration,
+	TextSearchWeight
+} from "#compiler/types/search/search.ts"
 
 /**
  * Public barrel: Scalar field descriptors: uuid, natural, date, bytes, pg, contract, span and closedId, the runtime values of
@@ -274,6 +296,25 @@ export const generated: GeneratedConstructor = <F extends FieldBase>(
 	term: GeneratedTermOf<F>,
 	...extra: ReadonlyArray<never>
 ): GeneratedField<F> => generatedField<F>(type, term, extra)
+
+/**
+ * searchDocument(configuration, [weight, text], ...): a generated field PostgreSQL parses from its row's texts under
+ * `configuration`, one of pg_catalog's text search configurations, each text's positions labelled by its weight, A to
+ * D, and the parts concatenated in their order: `setweight(to_tsvector(configuration, text), weight) || ...`, a
+ * tsvector it stores and a GIN index serves the matches of. It stands in the record relation.generated's callback
+ * returns, over the row's text fields; a query matches and ranks it with Compute.textMatches, textRank and textRankCd.
+ */
+export const searchDocument: SearchDocumentConstructor = <const C extends TextSearchConfiguration>(
+	configuration: C,
+	...parts: NonEmptyReadonlyArray<SearchPart>
+): GeneratedField<SearchDocumentField<C>> => {
+	const descriptor = searchDescriptor(configuration)
+	return generatedField<SearchDocumentField<C>>(
+		descriptor,
+		searchDocumentTerm(descriptor, parts),
+		[]
+	)
+}
 
 /**
  * retirement: a retirable statement's header field, a boolean false while its group is open and true once its group is

@@ -82,6 +82,13 @@ import {
 	wildcardPattern
 } from "#compiler/ir/scalar.ts"
 import {
+	isTextSearchConfiguration,
+	isTextSearchWeight,
+	textQueryMaxBytes,
+	textSearchConfigurations,
+	textSearchStringMaxBytes
+} from "#compiler/ir/search.ts"
+import {
 	absBounds,
 	addBounds,
 	type Bounds,
@@ -172,6 +179,7 @@ import {
 	capabilitiesOf,
 	inferredType,
 	numericValue,
+	searchType,
 	storedOnly,
 	type TextLookup
 } from "#compiler/scalar/registry.ts"
@@ -871,6 +879,7 @@ const carrierBounds = (t: PlainType): Bounds | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }
@@ -1360,6 +1369,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return false
 	}
 }
@@ -2242,7 +2252,13 @@ class Typing<R extends Refs> {
 				? numericOf(bounds)
 				: r === "text"
 					? wildcardText
-					: plainType(r)
+					: r === "tsvector"
+						? stop(
+								"MalformedDescription",
+								this.env.loc,
+								`${op.fn}'s search document, whose type is the configuration it is parsed under, which its typing states`
+							)
+						: plainType(r)
 	}
 
 	lower(desc: ExprDesc<Located, R>, at: SourceLoc): Typed {
@@ -3018,6 +3034,134 @@ class Typing<R extends Refs> {
 					node.actual,
 					node.facts
 				)
+	}
+
+	/**
+	 * Compute.textDocument(configuration, weight, text, ...): a search document, the tsvector PostgreSQL parses from its
+	 * texts under `configuration`, each text's positions labelled by the weight before it and the parts concatenated in
+	 * their order (registry.ts searchPart and tsvector's ||), of the configuration's type (ir/scalar.ts SearchType). The
+	 * configuration and each weight are literals, a configuration of pg_catalog's and a weight label, which the schema
+	 * holds; each text is a text term. It is a generated field's alone: the host evaluates no part of it, and a query reads
+	 * a document a field stores, so a document in a query is refused, and a check, whose verdict is a boolean, reaches one
+	 * only through a match, which a check refuses.
+	 */
+	textDocument(args: ReadonlyArray<ExprDesc<Located, R>>, at: SourceLoc): Typed {
+		this.refusedAt(
+			"query",
+			at,
+			"textDocument in a query: a search document is a generated field's, which PostgreSQL parses where it writes its row, and a query matches and ranks the document the field stores"
+		)
+		const [configurationDesc, ...parts] = args
+		const configuration =
+			configurationDesc?.kind === "literal" &&
+			configurationDesc.type === undefined &&
+			isTextSearchConfiguration(configurationDesc.value)
+				? configurationDesc.value
+				: stop(
+						"MalformedDescription",
+						childLoc(at, 0),
+						`a text search configuration of pg_catalog's as textDocument's first argument: ${textSearchConfigurations.join(", ")}`
+					)
+		if (parts.length === 0 || parts.length % 2 !== 0) {
+			return stop(
+				"MalformedDescription",
+				at,
+				"a search document of at least one part, each a weight label and a text term"
+			)
+		}
+		const type = searchType(configuration)
+		const part = (i: number): Typed => {
+			const weightDesc = parts[i]
+			const textDesc = parts[i + 1]
+			const weightAt = childLoc(at, i + 1)
+			const textAt = childLoc(at, i + 2)
+			const weight =
+				weightDesc?.kind === "literal" &&
+				weightDesc.type === undefined &&
+				isTextSearchWeight(weightDesc.value)
+					? this.literal(weightDesc.value, wildcardText, weightAt)
+					: stop(
+							"MalformedDescription",
+							weightAt,
+							"a weight label of a search document's part: A, B, C or D"
+						)
+			const text = this.term(
+				textDesc ?? stop("MalformedDescription", textAt, "a text term of a search document's part"),
+				textAt
+			)
+			if (baseOf(text.actual).carrier !== "text") {
+				return stop(
+					"MalformedDescription",
+					textAt,
+					`a text term of a search document's part, not ${typeLabel(text.nominal)}`
+				)
+			}
+			const op = this.overload("searchPart", [text.actual, weight.actual], at)
+			return this.native(op, [text, weight], type, undefined, at, "Compute.textDocument")
+		}
+		let document = part(0)
+		for (let i = 2; i < parts.length; i += 2) {
+			const next = part(i)
+			const op = this.overload("searchConcat", [document.actual, next.actual], at)
+			document = this.native(op, [document, next], type, undefined, at, "Compute.textDocument")
+		}
+		return document
+	}
+
+	/**
+	 * A match or a rank of a search document against a query's text (registry.ts textSearchOf): the document a search
+	 * document's term, the query a text term or a string, parsed by websearch_to_tsquery or plainto_tsquery under the
+	 * document's own configuration, so no query is ever read under another. A match is a boolean, a rank a real. In a
+	 * query the text's bytes are proved within textQueryMaxBytes, by its type or a byte guard whose branch the read stands
+	 * in, since PostgreSQL refuses a tsquery past its operands' bound and a read never fails on a value; a check refuses
+	 * every match and rank (computeSpecs), which only PostgreSQL computes.
+	 */
+	textSearch(
+		fn:
+			| "websearchMatches"
+			| "plainMatches"
+			| "websearchRank"
+			| "plainRank"
+			| "websearchRankCd"
+			| "plainRankCd",
+		documentDesc: ExprDesc<Located, R>,
+		queryDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Typed {
+		const document = this.term(documentDesc, childLoc(at, 0))
+		if (baseOf(document.actual).carrier !== "tsvector") {
+			return stop(
+				"UnsupportedOperation",
+				childLoc(at, 0),
+				`textSearch: ${fn} reads a search document, not ${typeLabel(document.nominal)}`
+			)
+		}
+		const queryAt = childLoc(at, 1)
+		const query =
+			queryDesc.kind === "literal" && queryDesc.type === undefined
+				? this.literal(queryDesc.value, wildcardText, queryAt)
+				: this.term(queryDesc, queryAt)
+		if (baseOf(query.actual).carrier !== "text") {
+			return stop(
+				"MalformedDescription",
+				queryAt,
+				`a query's text for ${fn}, not ${typeLabel(query.nominal)}`
+			)
+		}
+		const bytes = textBytes(query)
+		if (bytes === undefined || bytes > textQueryMaxBytes) {
+			this.refusedAt(
+				"query",
+				queryAt,
+				`${fn} in a query over a text whose pattern bounds it within ${textQueryMaxBytes} bytes: PostgreSQL refuses a query whose operands pass ${textSearchStringMaxBytes} bytes, and a read never fails on a value; ${bytes === undefined ? "the query's pattern bounds no length" : `the query's pattern bounds it at ${bytes} bytes`}, so bound it by its type or by Compute.when(Compute.within(Compute.octetLength(q), 0, ${textQueryMaxBytes}), ...)`
+			)
+		}
+		const op = this.overload(fn, [document.actual, query.actual], at)
+		if (fn === "websearchMatches" || fn === "plainMatches") {
+			return this.native(op, [document, query], plainType("bool"), undefined, at, `Compute.${fn}`)
+		}
+		const rank = plainType("float4")
+		return this.native(op, [document, query], rank, boundsOfType(rank), at, `Compute.${fn}`)
 	}
 
 	/** A set over a roster, and the roster, or the refusal of a term of another type: it has no set algebra. */
@@ -4145,6 +4289,15 @@ class Typing<R extends Refs> {
 				return this.sha256(arg(0), here)
 			case "floatBits":
 				return this.floatBits(arg(0), here)
+			case "textDocument":
+				return this.textDocument(args, here)
+			case "websearchMatches":
+			case "plainMatches":
+			case "websearchRank":
+			case "plainRank":
+			case "websearchRankCd":
+			case "plainRankCd":
+				return this.textSearch(desc.fn, arg(0), arg(1), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)
@@ -4326,6 +4479,7 @@ class Typing<R extends Refs> {
 			case "range8":
 			case "rangeDate":
 			case "vector":
+			case "tsvector":
 				return stop("UnsupportedOperation", at, `sign: PostgreSQL has no sign over ${typeLabel(v)}`)
 		}
 	}
@@ -4564,6 +4718,7 @@ const roundingScale = (target: ScalarType): number => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return 0
 	}
 }
@@ -4604,6 +4759,7 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return { kind: "exact" }
 	}
 }
@@ -4766,6 +4922,7 @@ const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }

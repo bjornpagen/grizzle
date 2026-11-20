@@ -75,6 +75,7 @@ import type {
 	NegationFree,
 	NegationFreeEach,
 	OperandOrigin,
+	OriginOfTerm,
 	ParamsOfEach,
 	ParamsOfTerm,
 	Predicate,
@@ -99,6 +100,7 @@ import type {
 import type { PatternValidate } from "#compiler/types/fields/regex.ts"
 import type { FunctionType } from "#compiler/types/schema/function.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
+import type { TextQuery } from "#compiler/types/search/search.ts"
 import type { Scored } from "#compiler/types/vector/vector.ts"
 
 /** The SQL type a descriptor states, read off the descriptor as written. */
@@ -1299,6 +1301,51 @@ export interface ComputeApi {
 	): Admitted<
 		Binary<A, B, X, "vector", "vector">,
 		Term<number, PA & P<B>, UnhostedOrigin<OA | O<B>>, "double precision"> & Scored<OA, O<B>>
+	>
+
+	/**
+	 * A query of full text search over a text term, read by websearch_to_tsquery: the syntax of a web search engine,
+	 * quoted phrases, `or` and a leading `-` for not, which never raises on a text. It is no term: a match or a rank
+	 * reads it, parsing its text under the configuration of the document it meets, so no query is read under another.
+	 * In a query its text is bounded within textQueryMaxBytes by its type or a byte guard.
+	 */
+	websearchQuery<A extends TermBase | FirstValue, X, PA, OA>(
+		text: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, TextQuery<PA, OA>>
+	/** A query of full text search over a text term, read by plainto_tsquery: every word of it required. */
+	plainQuery<A extends TermBase | FirstValue, X, PA, OA>(
+		text: A & FirstTerm<A> & InputTerm<X, PA, OA, "text">
+	): Admitted<TakesFirst<A, "text">, TextQuery<PA, OA>>
+	/**
+	 * Whether a search document matches a query, `d @@ websearch_to_tsquery('<configuration>', q)` or plainto_tsquery's,
+	 * the configuration the document's own. PostgreSQL alone computes it, so a contract predicate, a row check and a
+	 * generated field refuse it; a query's filter over a stored document is what a GIN index serves.
+	 */
+	textMatches<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
+		document: A & FirstTerm<A> & InputTerm<X, PA, OA, "tsvector">,
+		query: Q
+	): Admitted<
+		TakesFirst<A, "tsvector">,
+		Predicate<PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>>
+	>
+	/**
+	 * A search document's rank for a query, ts_rank(d, q) in its two-argument form, PostgreSQL's default weights (A 1.0,
+	 * B 0.4, C 0.2, D 0.1) and no normalization, a real, the query parsed under the document's configuration.
+	 */
+	textRank<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
+		document: A & FirstTerm<A> & InputTerm<X, PA, OA, "tsvector">,
+		query: Q
+	): Admitted<
+		TakesFirst<A, "tsvector">,
+		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "real">
+	>
+	/** A search document's cover density rank for a query, ts_rank_cd(d, q), as textRank's. */
+	textRankCd<A extends TermBase | FirstValue, X, PA, OA, Q extends TextQuery<never>>(
+		document: A & FirstTerm<A> & InputTerm<X, PA, OA, "tsvector">,
+		query: Q
+	): Admitted<
+		TakesFirst<A, "tsvector">,
+		Term<number, PA & ParamsOfTerm<Q>, UnhostedOrigin<OA | OriginOfTerm<Q>>, "real">
 	>
 
 	/**

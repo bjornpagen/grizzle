@@ -19,10 +19,12 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
+import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 
 /**
  * The native carriers grizzle admits. range4, range8 and rangeDate are int4range, int8range and daterange,
- * the only span carriers; date is a calendar day; bytes is bytea, a value stored and read back whole (BytesType); there is
+ * the only span carriers; date is a calendar day; bytes is bytea, a value stored and read back whole (BytesType); tsvector
+ * is a search document, a value PostgreSQL alone computes and matches (SearchType); there is
  * no timestamp, interval, JSON or array carrier. exactInteger and exactMoney are the exact arithmetic carriers
  * (ExactType), never a field's.
  */
@@ -45,6 +47,7 @@ export const carriers = [
 	"range8",
 	"rangeDate",
 	"vector",
+	"tsvector",
 	"exactInteger",
 	"exactMoney"
 ] as const
@@ -77,6 +80,7 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	range8: false,
 	rangeDate: false,
 	vector: false,
+	tsvector: false,
 	exactInteger: false,
 	exactMoney: false
 }
@@ -108,6 +112,7 @@ export const routable: Readonly<Record<Carrier, boolean>> = {
 	range8: true,
 	rangeDate: false,
 	vector: false,
+	tsvector: false,
 	exactInteger: false,
 	exactMoney: false
 }
@@ -125,8 +130,8 @@ export const spanCarriers = [
  * The operation capability vocabulary: storage, equality, ordering, hashing used for bucketing, the
  * aggregate overload families, span endpoints, expression-index eligibility, GiST, the set algebra of a set over a
  * roster (union, intersection, difference, cardinality, subset and disjointness, and the singleton of a closed id of
- * it), and the admitted extension operation. A CapabilitySet is sorted and duplicate-free, so its canonical form is
- * its identity.
+ * it), PostgreSQL's full text search of a search document (its match and its ranks), and the admitted extension
+ * operation. A CapabilitySet is sorted and duplicate-free, so its canonical form is its identity.
  */
 export const capabilities = [
 	"avg",
@@ -141,6 +146,7 @@ export const capabilities = [
 	"spanEndpoint",
 	"storage",
 	"sum",
+	"textSearch",
 	"vectorDistance"
 ] as const
 export type Capability = (typeof capabilities)[number]
@@ -606,6 +612,20 @@ interface VectorType {
 }
 
 /**
+ * tsvector: a search document PostgreSQL computes from its row's texts under `configuration` (ir/search.ts), whose
+ * configuration is its identity as a type, so a query is parsed under the configuration of the document it meets and two
+ * documents of two configurations are two types. It is of storage and textSearch alone (scalar/native.ts): read back
+ * whole as the text PostgreSQL prints, matched and ranked by PostgreSQL, and nothing more, so no key, rule, comparison,
+ * parameter or host computation reads one, and no contract is over one.
+ */
+export interface SearchType {
+	readonly carrier: "tsvector"
+	readonly caps: CapabilitySet
+	readonly contract: undefined
+	readonly configuration: TextSearchConfiguration
+}
+
+/**
  * An exact arithmetic result: exactInteger, an integer, the value of add, sub, mul, neg, abs, gcd, lcm and integer
  * division over the integer carriers; exactMoney, an amount of money in cents, the value of add and sub over money and
  * of a money sum. Delivered as bigint and as Money, so no such operation overflows: `digits` bounds every value,
@@ -634,10 +654,14 @@ export type PlainType =
 	| BitsType
 	| SpanType
 	| VectorType
+	| SearchType
 	| ExactType
 
 /** The plain value domains a contract is over at its last level: every value type a field declares but a set and bytes. */
-type ContractedType = Exclude<PlainType, NumericValueType | ExactType | BitsType | BytesType>
+type ContractedType = Exclude<
+	PlainType,
+	NumericValueType | ExactType | BitsType | BytesType | SearchType
+>
 
 /** The carriers a contract is over. */
 export type ContractCarrier = ContractedType["carrier"]
@@ -664,10 +688,10 @@ export type ContractBase = ContractedType | ContractTypes
 
 /**
  * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
- * a roster, or bytes. A computed numeric and an exact value are a value's making, which no declaration states. How a
- * field is written, by its sequence among the ways, is the field's writing, never its type.
+ * a roster, bytes, or a search document. A computed numeric and an exact value are a value's making, which no
+ * declaration states. How a field is written, by its sequence among the ways, is the field's writing, never its type.
  */
-export type DeclaredType = ContractBase | BitsType | BytesType
+export type DeclaredType = ContractBase | BitsType | BytesType | SearchType
 
 /** A date: a calendar day, or a contract over one, as a span's endpoint, a closed id's payload or a field. */
 export type DateType = (BareType & { readonly carrier: "date" }) | ContractType<"date">
@@ -854,8 +878,8 @@ const sameRoster = (a: Roster, b: Roster): boolean =>
 
 /**
  * Two plain types of one carrier and capability set are one where their carrier's fields are: its numeric typmod or
- * computed bound, its vector dimensions, its exact digit bound, its text refinement (patterns and language key), its
- * roster or its span.
+ * computed bound, its vector dimensions, a search document's configuration, its exact digit bound, its text refinement
+ * (patterns and language key), its roster or its span.
  */
 const samePlain = (a: PlainType, b: PlainType): boolean => {
 	if (a.carrier !== b.carrier || !sameOrder(a.caps, b.caps)) {
@@ -877,6 +901,8 @@ const samePlain = (a: PlainType, b: PlainType): boolean => {
 			return a.typmod.precision === b.typmod.precision && a.typmod.scale === b.typmod.scale
 		case "vector":
 			return b.carrier === "vector" && a.typmod.dims === b.typmod.dims
+		case "tsvector":
+			return b.carrier === "tsvector" && a.configuration === b.configuration
 		case "exactInteger":
 		case "exactMoney":
 			return (b.carrier === "exactInteger" || b.carrier === "exactMoney") && a.digits === b.digits
@@ -993,6 +1019,7 @@ export const nativeNames = {
 	range8: "int8range",
 	rangeDate: "daterange",
 	vector: "vector",
+	tsvector: "tsvector",
 	exactInteger: "numeric",
 	exactMoney: "numeric"
 } as const satisfies { readonly [C in Carrier]: string }
@@ -1025,6 +1052,8 @@ export const typeLabel = (t: ScalarType): string => {
 				: `numeric(${t.typmod.precision},${t.typmod.scale})`
 		case "vector":
 			return `vector(${t.typmod.dims})`
+		case "tsvector":
+			return `tsvector ${t.configuration}`
 		case "code": {
 			const code =
 				t.roster.order === "ordered"

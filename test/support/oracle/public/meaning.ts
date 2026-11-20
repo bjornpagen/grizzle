@@ -1492,6 +1492,7 @@ const cellText = (v: Value, type: ScalarType): string => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			throw new Error(`a mixed root's cell of the ${carrier} carrier, which its arms never hold`)
 	}
 }

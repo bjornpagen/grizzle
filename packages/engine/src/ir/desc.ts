@@ -61,6 +61,7 @@ import {
 	type TextLanguage,
 	languageOctets
 } from "#compiler/ir/scalar.ts"
+import { type TextSearchConfiguration, textSearchConfigurations } from "#compiler/ir/search.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlot } from "#compiler/ir/slots.ts"
 import {
@@ -158,6 +159,11 @@ export type FieldDesc =
 	  }
 	| { readonly kind: "bits"; readonly roster: string }
 	| { readonly kind: "vector"; readonly dimensions: number }
+	| {
+			readonly kind: "search"
+			/** The text search configuration the document is parsed under, its identity as a type (ir/search.ts). */
+			readonly configuration: TextSearchConfiguration
+	  }
 
 /** Visits every descriptor inside `desc`: itself, then a contract's base's and a span's endpoint's, depth first. */
 export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): void => {
@@ -231,6 +237,13 @@ export const computeFns = [
 	"sha256",
 	"floatBits",
 	"cosineDistance",
+	"textDocument",
+	"websearchMatches",
+	"plainMatches",
+	"websearchRank",
+	"plainRank",
+	"websearchRankCd",
+	"plainRankCd",
 	"union",
 	"intersection",
 	"difference",
@@ -1003,6 +1016,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "span":
 		case "bits":
 		case "vector":
+		case "search":
 			return false
 	}
 }
@@ -2222,6 +2236,13 @@ const computeCases: {
 	sha256: unscaledCompute,
 	floatBits: unscaledCompute,
 	cosineDistance: unscaledCompute,
+	textDocument: unscaledCompute,
+	websearchMatches: unscaledCompute,
+	plainMatches: unscaledCompute,
+	websearchRank: unscaledCompute,
+	plainRank: unscaledCompute,
+	websearchRankCd: unscaledCompute,
+	plainRankCd: unscaledCompute,
 	union: unscaledCompute,
 	intersection: unscaledCompute,
 	difference: unscaledCompute,
@@ -2418,7 +2439,8 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 			(n) => n <= vectorMaxDimensions,
 			`1..${vectorMaxDimensions} dimensions`
 		)
-	})
+	}),
+	search: S.struct({ configuration: S.literalsShape(textSearchConfigurations) })
 })
 
 /** The decoder bindingsDescShape refers to (S.ref). */
@@ -2780,8 +2802,8 @@ const keyWriting = (decl: FieldDecl | undefined): boolean => {
 /**
  * The field types a closed relation's field may have: a closed id, which a key field always is, or an open type its
  * rows' values are coded by within the relation. A span and a vector have no finite code space a cell reads, a set
- * is no row's value, bytes have no literal, and an instant is the database's clock's, never a row's literal
- * (ir/instant.ts).
+ * is no row's value, bytes have no literal, a search document is PostgreSQL's parse of a row's texts, never a literal,
+ * and an instant is the database's clock's, never a row's literal (ir/instant.ts).
  */
 const closedFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
@@ -2798,6 +2820,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 		case "span":
 		case "bits":
 		case "vector":
+		case "search":
 			return false
 	}
 }

@@ -524,6 +524,7 @@ export const unrefined = (t: ScalarType): ScalarType => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return base

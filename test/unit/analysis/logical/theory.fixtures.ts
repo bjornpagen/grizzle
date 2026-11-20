@@ -121,6 +121,8 @@ export const identityOf = (desc: FieldDesc): string => {
 			return `span over ${identityOf(desc.endpoint)}`
 		case "vector":
 			return `vector(${desc.dimensions})`
+		case "search":
+			return `search document under ${desc.configuration}`
 	}
 }
 
@@ -147,6 +149,7 @@ export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 			case "text":
 			case "pattern":
 			case "vector":
+			case "search":
 				return desc
 		}
 	}
@@ -186,6 +189,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 					case "contract":
 					case "span":
 					case "vector":
+					case "search":
 						return ["a twin", a]
 				}
 			}

@@ -2569,6 +2569,8 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Ff.Bits<typeof ${ids(desc.roster)}>`
 		case "vector":
 			return `Fi.Vector<${desc.dimensions}>`
+		case "search":
+			return `Fi.SearchDocument<${jsonText(desc.configuration)}>`
 	}
 }
 
@@ -2722,6 +2724,8 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 			return `Fi.Span<${hostOfScalar(t.span.endpoint, ids)}>`
 		case "vector":
 			return `Fi.Vector<${t.typmod.dims}>`
+		case "tsvector":
+			return `Fi.SearchDocument<${jsonText(t.configuration)}>`
 	}
 }
 
@@ -5490,6 +5494,8 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Fi.BitsField<typeof ${ids(desc.roster)}>`
 		case "vector":
 			return `Fi.VectorField<${desc.dimensions}>`
+		case "search":
+			return `Fi.SearchDocumentField<${jsonText(desc.configuration)}>`
 	}
 }
 
@@ -5520,6 +5526,7 @@ const literalType = (
 		case "pattern":
 		case "span":
 		case "closedId":
+		case "search":
 			return hostOfDesc(desc, base, ids)
 	}
 }

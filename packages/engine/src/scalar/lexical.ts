@@ -213,6 +213,7 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined

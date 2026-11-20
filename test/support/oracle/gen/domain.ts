@@ -344,6 +344,11 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		kind: "undrawn",
 		reason:
 			"a bytes value is stored only, so no query compares, orders or computes one; its round trip is judged on its own installation (test/pg/fields/bytes.test.ts)"
+	},
+	tsvector: {
+		kind: "undrawn",
+		reason:
+			"a search document is PostgreSQL's parse of its row's texts, which the differential reference does not model; its matches and ranks are judged against PostgreSQL's own parse of the same texts on its own installation (test/pg/search)"
 	}
 }
 
@@ -845,6 +850,7 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	date: canonicalOnly,
 	text: canonicalOnly,
 	bytes: canonicalOnly,
+	tsvector: canonicalOnly,
 	code: canonicalOnly,
 	bits: canonicalOnly,
 	range4: canonicalOnly,

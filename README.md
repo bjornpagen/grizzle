@@ -1811,6 +1811,7 @@ schema.
 | `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type and Effect's `Brand.Brand<name>`                         |
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
 | `pg.vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
+| `searchDocument(configuration, [w, text], ...)`, generated | tsvector, a STORED generated column                            | `SearchDocument`, the text PostgreSQL prints for it                    |
 | `bytes`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
 
 Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `int4`; `pg["double precision"]`, never
@@ -1937,7 +1938,8 @@ Every field has one writer. An insert or a put takes exactly the fields its call
 
 - **The caller**, the default: a field declared by its type alone, `title: Title`.
 - **PostgreSQL**: a STORED generated column,
-  `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`.
+  `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`, or a search document PostgreSQL
+  parses from the row's texts, `searchDocument(configuration, [weight, text], ...)` ([Full text search](#full-text-search)).
 - **grizzle, drawn:** `drawn(natural)`, a family's count or index, and a tree's `start` and `end`
   ([Families](#families)).
 - **grizzle, accumulated:** `accumulated(type, start)`, a fold's end or accumulator, or a copy along a family's axis,
@@ -2866,6 +2868,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | compute | `Compute.add`, `Compute.mul`, `Compute.round`, `Compute.cond`, `Compute.when` and the rest of `Compute` |
 | match text | `Compute.matches(x, pattern)`, `Compute.startsWith`, `Compute.endsWith`, `Compute.isXsdPattern`; `Compute.concat` in checks |
 | search vectors | `.approximateNearest(...)`, with pgvector, from a parameter's vector or a stored row's ([Nearest rows](#nearest-rows)) |
+| search text | `Compute.textMatches`, `Compute.textRank`, `Compute.textRankCd` of a search document and a `Compute.websearchQuery` or `Compute.plainQuery` ([Full text search](#full-text-search)) |
 
 ### Differences from SQL
 
@@ -2879,7 +2882,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 - **Terms that meet have one type:** one SQL type, one contract and one roster. A text term never meets a uuid column, and two rosters of the same members never meet. Texts of any two patterns meet: a pattern is no part of a text's type. The rules of one query deliver each field they share at one type.
 - **A value is only its value**, the same under every plan. A `Decimal` has no display scale: `1`, `1.0` and `1.00` are one value, delivered as `1`, and a `pg.numeric(10, 2)` field holds at most two places, refusing a value of more rather than rounding it, and delivers `12.5`, not `12.50`. `new Intl.NumberFormat(undefined, { minimumFractionDigits: 2 }).format(d.toString())` prints it at the field's scale, exactly. A float keeps its zero's sign: `-0` is a value of its own, stored, computed and delivered as `-0`, equal to `0` under `=`, `DISTINCT` and a key's equality and apart from it as a fact's identity. Wherever an operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's state, a join variable's value, the merged zero is `+0`, so no plan picks one. A write stores the facts it states: a parameter relation's facts and a ChangeSet member's rows are sets of facts by their identity, `-0` and `0` two of them, so a `-0` a write states is stored as `-0` wherever it reads the relation, and two facts at one key that differ only in a zero's sign are refused as two facts. `min` and `max` of floats order `-0` below `0`, and a float sum or mean whose exact value is zero is `-0` exactly when every value it sums is; any other float that rounds to zero, a product, quotient, conversion or mean too small for its type, is the zero of its sign. A vector's components have one zero, `0`. A numeric quotient, power, square root or mean is PostgreSQL's for the values alone, as if no operand had trailing zeros: `Compute.div(x, 3n)` is the same number whatever scale `x` was stored at.
 - **Float and money sums are exact.** A sum of `real` or `double precision` values is their exact total rounded once to the result type, and of `Money` values their exact total; a mean of floats is that total over the count, rounded once. The same rows give the same sum in any order, under any plan.
-- **Every answer is a function of the facts**, but for two exceptions, both pgvector's. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
+- **Every answer is a function of the facts**, but for two exceptions, both pgvector's, and one caveat, full text search's: a search document, its matches and its ranks are PostgreSQL's parse of the facts' texts under the configuration's dictionaries and the database's builtin C.UTF-8 locale, a function of the facts on one server, which another PostgreSQL release's stemmers or stop word files may parse otherwise. `.approximateNearest` returns candidates from pgvector's index: which rows, and how many, depend on the index and the database owner's pgvector settings too. grizzle pins only `hnsw.iterative_scan = strict_order`, which keeps the candidates in exact distance order; `hnsw.ef_search`, `hnsw.max_scan_tuples` and `hnsw.scan_mem_multiplier` are the owner's, and a scan that reaches their bounds returns fewer rows than asked. `Compute.cosineDistance` is pgvector's own float arithmetic: one server gives the same result for the same vectors on every evaluation, but pgvector builds or CPUs may differ in the last place.
 - **No read fails on a value.** Every Compute operation is defined on every value its operands' types admit, or its precondition is proved where it stands, so no query, role view or check raises an arithmetic error on any row.
 
 ### Arithmetic
@@ -3015,6 +3018,56 @@ export const stepReads = query(Tutor).reads({ nearest: nearMissed, seen: seenBy 
 `.approximateNearest({ by, take })` searches one rule's rows, nearest first by `by`, a `Compute.cosineDistance` between a vector the rule matches and one query vector, through the HNSW index the workload's search requests, at most `take` of them. The query vector is one value for the whole statement: a parameter, a literal, or a field of another match than the ranked vector's, whose whole key the rule fixes to parameters or literals, in the match or by a `where` equality, `Missed` matched by its `id` above, which holds at most one row, so its fields are its row's. A match keyed to one row ranks at most that row, so a distance between two of its own fields ranks nothing. The statement reads that row by its key once, before the search, in a subquery PostgreSQL runs as an InitPlan, so the index orders by the stored vector as it orders by a parameter, in one scan. A key that holds no row leaves no candidates, an empty answer and no error, and the scan then never runs.
 
 `query(S).reads({ ... })` is a record of named queries as one query of exactly one row, which holds each query's rows under its name, an array in that query's own order: its `orderBy` or `take`, otherwise its key. `stepReads`' row is `{ nearest: ReadonlyArray<{ lesson: string; distance: number }>; seen: ReadonlyArray<{ lesson: string }> }`. Each query's parameters are its own under its name, `"nearest.missed"`, `"nearest.catalog"` and `"seen.learner"`, so two reads never share one by its name. The record is one statement, whatever its queries are, searches among them, so its queries read one snapshot under any isolation, and its `explain` plans that one statement. It is a query like any other: `deferrable(stepReads)` is a member of a workload. Each query is an attachment of the unit row, the one row of no columns `r.find({})` holds, and an attachment under a parent of no columns reads none of its columns; under any other parent, an attachment that reads none of the parent's columns is refused with `AttachedParentUnbound`.
+
+### Full text search
+
+```ts
+import { searchDocument } from "@bjornpagen/grizzle"
+
+/** A unit of a course: its subject, grade, texts and embedding, and the search document of its title and summary. */
+export const Unit = relation.generated(
+	"Unit",
+	{
+		id: LessonSlug,
+		subject: pg.integer,
+		grade: pg.integer,
+		title: Prose,
+		summary: Prose,
+		embedding: pg.vector(1536)
+	},
+	["id"],
+	(r) => ({ search: searchDocument("english", ["A", r.title], ["B", r.summary]) })
+)
+export const Course = schema("Course", [Unit], [])
+
+/** A query's text, within 4,096 bytes. */
+const SearchText = str.bytes(4096, str.regex("^.*$", "su"))
+
+/** The ten units of a subject up to a grade that best match a web search's text. */
+export const searchUnits = query(Course)
+	.rule((r) => {
+		const { id, subject, grade, search } = v(Unit, "unit")
+		const q = Compute.websearchQuery(r.param("q", SearchText))
+		return r
+			.match(Unit, { id, subject, grade, search })
+			.where(
+				r.and(
+					Compute.textMatches(search, q),
+					r.eq(subject, r.param("subject", Unit.fields.subject)),
+					r.le(grade, r.param("grade", Unit.fields.grade))
+				)
+			)
+			.find({ unit: id, rank: Compute.textRank(search, q) })
+	})
+	.orderBy(["rank", "desc"])
+	.take(10)
+```
+
+`searchDocument(configuration, [weight, text], ...)` is a generated field PostgreSQL parses from its row's texts: `setweight(to_tsvector('pg_catalog.<configuration>', text), weight) || ...`, the parts concatenated in their order, a tsvector stored with the row. The configuration is one of pg_catalog's (`textSearchConfigurations`: `simple`, and one per Snowball language, `english` among them), named per field and the document's type: a query is parsed under the configuration of the document it meets, so no query is ever read under another, and two documents of two configurations are two types. A weight is `A`, `B`, `C` or `D`, which a rank weighs a match by. Each text is a text term of the row, as a generated field's term reads it. A read delivers the document as the text PostgreSQL prints for it, `SearchDocument`; no caller writes one, no parameter carries one, and no key, rule, comparison, contract or fold reads one.
+
+`Compute.websearchQuery(text)` reads a query's text by `websearch_to_tsquery`, a web search engine's syntax of quoted phrases, `or` and a leading `-`, and `Compute.plainQuery(text)` by `plainto_tsquery`, every word required. A query is no term: `Compute.textMatches(document, query)`, the predicate `document @@ query`, `Compute.textRank(document, query)`, ts_rank's real, and `Compute.textRankCd(document, query)`, ts_rank_cd's, read it, each in PostgreSQL's two-argument form, its default weights (A 1.0, B 0.4, C 0.2, D 0.1) and no normalization. A match in a query's filter over a stored document requests a GIN index on the document's column, which serves it: PostgreSQL reads the rows the query's lexemes hold, never the table. `searchUnits` delivers `{ unit, rank }`, best first, ties broken by `unit`, its key.
+
+Text search is PostgreSQL's alone. What a document holds is its configuration's parser, dictionaries and stop word files, read under the database's builtin C.UTF-8 locale, which no host reproduces, so the host evaluates no document, match or rank, and every position a host judgement stands in refuses one: a contract predicate, a row check and a generated field compute no `textMatches`, `textRank` or `textRankCd`, a type error and `UnsupportedOperation` when the schema compiles; a document is made in a generated field alone. A query's text is read within `textQueryMaxBytes`, 262,143 bytes, by its type or by a byte guard whose branch the read stands in, `Compute.when(Compute.within(Compute.octetLength(q), 0, 4096), () => …, otherwise)`, since PostgreSQL refuses a query whose lexemes pass 1,048,575 bytes and a read never fails on a value; any other text is `UnsupportedOperation` when the query compiles.
 
 ## Reading
 
@@ -5098,6 +5151,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 - **A parameter is checked against its contract and pattern by PostgreSQL as it binds it**, its placeholder cast to its contract's domain or its own pattern domain, which `grizzle generate` installs for every pattern a served parameter names, so a query delivers a parameter's value, or a relation parameter's field, as bound. A refusal there is one round trip in, not before any SQL. A computed value not proved inside its pattern goes through the pattern's domain, which exists only for a pattern the installation declares: on a stored field, a closed relation's field, a derived table's column, a role's view column or a context field. Any other is `UnsupportedOperation` when the query compiles, naming the pattern.
 - **PostgreSQL keeps a backend's last 32 compiled regular expressions** (`MAX_CACHED_RES`), so rows that cycle through a dictionary of more patterns compile one per row. On 19rc1 (an Apple M-series laptop under load; 200,000 rows; dictionaries of 1 to 178 patterns; median of three runs) a row costs 1.4 to 4.9 µs grouped by pattern or cycling through 32 patterns or fewer, and 80 to 102 µs cycling through 33, 64 or 178; the CASE that reads each source's translation adds about 1 µs a row at 178. Order bulk reads and writes by pattern where you can.
 - **A concatenation is at most 1 GB** (`MaxAllocSize`). A write whose check or generated field concatenates more with `Compute.concat` fails with "invalid memory alloc request size". No query concatenates, and folds and equations never build theirs, however many parts an equation's concatenation has.
+- **A search document holds at most 1,048,575 bytes of lexemes and positions** (`MAXSTRPOS`): a write whose texts make a longer document fails with "string is too long for tsvector" (54000), as a translation past its bound does. A query's match or rank reads a text within `textQueryMaxBytes`, 262,143 bytes, so no read fails on its query.
 - **A translation or a regex reads at most 268,435,454 bytes**, four bytes per byte within `MaxAllocSize`. Past it, a write's check or generated field that translates fails with "requested length too large" (54000), and a check, selection or generated field that matches, a `str.regex` field's domain CHECK included, with "invalid memory alloc request size". A query translates or matches only a text its pattern bounds within the limit. `Compute.lowerAscii` is no translation there: it is `lower` under the C collation, which allocates the text's own length, so a query, a check and a generated field fold any text.
 
 ### Keys and indexes

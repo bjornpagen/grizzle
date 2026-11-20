@@ -364,6 +364,7 @@ export interface CarrierDecl {
  * - page seek: An equality prefix followed by a paged ordered program's completed order.
  * - span predicate: A span predicate: one GiST index per span field, scalar prefix through btree_gist.
  * - approximate vector retrieval: ApproximateNearest over a cosine distance: HNSW with the cosine operator class.
+ * - text search: A match of a stored search document against a query: GIN under tsvector's default class.
  * - write target: The key a ChangeSet's statement matches written facts on: exact deletion, put occupants, the
  *   insert arbiter.
  */
@@ -377,6 +378,7 @@ const accessUses = [
 	"page seek",
 	"span predicate",
 	"approximate vector retrieval",
+	"text search",
 	"write target"
 ] as const
 export type AccessUse = (typeof accessUses)[number]

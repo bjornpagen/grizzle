@@ -906,8 +906,8 @@ export interface KeySide {
 	readonly fields: ReadonlyArray<KeyColumnName>
 }
 
-/** The access methods of an index grizzle installs: B-tree, GiST, pgvector's HNSW and hash. */
-export type IndexMethod = "btree" | "gist" | "hnsw" | "hash"
+/** The access methods of an index grizzle installs: B-tree, GiST, pgvector's HNSW, hash and GIN. */
+export type IndexMethod = "btree" | "gist" | "hnsw" | "hash" | "gin"
 
 /**
  * The kinds of B-tree entry, by what decides a row's place among its entries: a `key`'s, a primary key's or a UNIQUE's,

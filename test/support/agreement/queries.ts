@@ -3583,6 +3583,7 @@ const keyValueText = (type: ScalarType): string => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			throw new Error(`no key of the agreement schema has a ${type.carrier} field`)

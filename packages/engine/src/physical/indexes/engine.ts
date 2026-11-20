@@ -538,6 +538,15 @@ const hashPlacements = (keys: Keys): Placements => ({
 	others: []
 })
 
+/**
+ * The documents a query matches, which only a GIN index on the search document's column finds: tsvector's default GIN
+ * class indexes each lexeme a document holds, so a match reads the documents of the query's lexemes and no other row.
+ */
+const textSearchPlacements = (keys: Keys): Placements => ({
+	own: { kind: "blocks", method: "gin", blocks: [keys], directed: undefined },
+	others: []
+})
+
 /** The nearest vectors, which only an HNSW index on the column under its class finds. */
 const nearestPlacements = (keys: Keys): Placements => ({
 	own: { kind: "blocks", method: "hnsw", blocks: [keys], directed: undefined },
@@ -557,7 +566,8 @@ const btreeNeeds: Readonly<Record<AccessUse, "lookup" | "range" | "order" | "non
 	"take seek": "order",
 	"page seek": "order",
 	"span predicate": "none",
-	"approximate vector retrieval": "none"
+	"approximate vector retrieval": "none",
+	"text search": "none"
 }
 
 /** A workload B-tree request's placements, by what its use asks of a B-tree (btreeNeeds). */
@@ -594,6 +604,8 @@ const placementsOf = (
 			return gistPlacements(keys, columns, label)
 		case "hnsw":
 			return nearestPlacements(keys)
+		case "gin":
+			return textSearchPlacements(keys)
 		case "hash":
 			return hashPlacements(keys)
 		case "btree":
@@ -898,6 +910,7 @@ const withinBlock: Readonly<
 	btree: (rank) => mapInput(compareNumbers, rank),
 	hash: (rank) => mapInput(compareNumbers, rank),
 	hnsw: (rank) => mapInput(compareNumbers, rank),
+	gin: (rank) => mapInput(compareNumbers, rank),
 	gist: (rank, columns) =>
 		combineAll([
 			mapInput(compareBooleans, (k: IndexKey) => columns.holds(k.column) === "few"),
@@ -1515,6 +1528,7 @@ const createIndex = (
 			break
 		}
 		case "hnsw":
+		case "gin":
 			if (keys.length > indexMaxKeys) {
 				unrepresentable({ kind: "columns", limit: indexMaxKeys })
 			}

@@ -136,6 +136,7 @@ const declaredText = (field: FieldDesc): DeclaredText => {
 		case "closedId":
 		case "bits":
 		case "vector":
+		case "search":
 			return { kind: "none" }
 	}
 }

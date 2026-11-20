@@ -170,7 +170,7 @@ export const hostedBoxItems: Arr.NonEmptyReadonlyArray<HostedCase> = [
 ]
 
 const hostedRefusal: Refused =
-	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric or cosineDistance, and call no declared function"
+	"an operation the host evaluates: a contract predicate, a row check and a generated field compute no quot, rem, round, trunc, ceil, floor, gcd, lcm, power, sqrt, widthBucket, minScale, numeric, cosineDistance, textMatches, textRank or textRankCd, and call no declared function"
 
 /**
  * The roster's verdict on a cell: refused where the host evaluates the position and computeSpecs marks the function,

@@ -933,6 +933,7 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			throw new Error(`no filler for a ${base.carrier} column`)

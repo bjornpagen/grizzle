@@ -129,6 +129,7 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }
@@ -168,6 +169,7 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }
@@ -368,6 +370,7 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }

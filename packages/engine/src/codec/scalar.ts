@@ -130,6 +130,7 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "date":
 		case "text":
 		case "bytes":
+		case "tsvector":
 		case "exactMoney":
 			return { carrier: type.carrier }
 	}

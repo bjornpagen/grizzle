@@ -384,6 +384,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 		case "vector":
 		case "bits":
 		case "bytes":
+		case "tsvector":
 			break
 	}
 	throw new Error(`${what}: a ${type.carrier} column delivered ${typeof host} ${String(host)}`)

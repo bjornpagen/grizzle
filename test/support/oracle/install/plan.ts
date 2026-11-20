@@ -508,6 +508,12 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				return builtin(builtinType("text"), { kind: "text" })
 			case "bytes":
 				return builtin(builtinType("bytea"), { kind: "bytes" })
+			case "search":
+				return refuse(
+					"UnsupportedOperation",
+					location,
+					"a search document, PostgreSQL's parse of its row's texts, which the reference installation does not model"
+				)
 			case "contract": {
 				const existing = domains.get(field.name)
 				if (existing !== undefined && existing.identity !== identity(field)) {

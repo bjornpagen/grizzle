@@ -388,6 +388,9 @@ const registryForm = (
 			return args.length === 1 && first !== undefined
 				? binary("+", first, lit.float(0, sql.carrier === "float4" ? types.real : types.double))
 				: undefined
+		case "searchPart":
+		case "textSearch":
+			return undefined
 	}
 }
 

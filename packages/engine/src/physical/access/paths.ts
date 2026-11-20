@@ -15,7 +15,8 @@ import type { AccessIndexRequest, AccessKey, AccessPath } from "#compiler/ir/pro
 const methodOpclass = {
 	btree: "default",
 	gist: "default",
-	hnsw: "vectorCosine"
+	hnsw: "vectorCosine",
+	gin: "default"
 } as const satisfies Record<AccessPath["method"], "default" | "vectorCosine">
 
 /** The identity of a path: equal paths of several programs are one request. Its parts are joined by NUL, its keys by

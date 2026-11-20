@@ -18,9 +18,10 @@ import type { Perturbation } from "#test/support/oracle/perturb.ts"
 
 /**
  * The storage carriers the general draw declares a field of: every one but a set's, whose only comparison is equality
- * and whose algebra is the closed laws' (W3), which the public reference does not model.
+ * and whose algebra is the closed laws' (W3), and a search document's, PostgreSQL's parse of its row's texts, neither of
+ * which the public reference models.
  */
-type DrawnCarrier = Exclude<StorageCarrier, "bits" | "bytes" | "date" | "rangeDate">
+type DrawnCarrier = Exclude<StorageCarrier, "bits" | "bytes" | "date" | "rangeDate" | "tsvector">
 
 /**
  * The field types the general draw declares, by the storage carrier each has (ir/scalar.ts StorageCarrier), so a

@@ -236,6 +236,8 @@ export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 			return ["value", v === true]
 		case "bytes":
 			throw referenceUnsupported("a bytes value, which is stored only")
+		case "tsvector":
+			throw referenceUnsupported("a search document, which PostgreSQL alone parses")
 		case "uuid":
 		case "date":
 		case "text":
@@ -287,6 +289,7 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 		case "bool":
 			return typeof v === "boolean" ? valueIdentity(v, type) : undefined
 		case "bytes":
+		case "tsvector":
 			return undefined
 		case "uuid":
 		case "date":
@@ -460,6 +463,8 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "bool", value: asBoolean(v) }
 		case "bytes":
 			throw referenceUnsupported("a bytes value, which is stored only")
+		case "tsvector":
+			throw referenceUnsupported("a search document, which PostgreSQL alone parses")
 		case "text":
 			return { kind: "text", value: asString(v) }
 		case "uuid":

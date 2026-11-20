@@ -122,6 +122,8 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			return validateText(value)
 		case "bytes":
 			return Result.err("bytesLiteral")
+		case "tsvector":
+			return Result.err("textType")
 		case "code":
 			return typeof value === "string" && base.roster.handles.includes(value)
 				? Result.ok(value)

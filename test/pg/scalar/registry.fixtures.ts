@@ -36,6 +36,7 @@ export const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, str
 	range8: "int8range",
 	rangeDate: "daterange",
 	vector: `${vectorSchema}.vector`,
+	tsvector: "tsvector",
 	exactInteger: "numeric",
 	exactMoney: "numeric"
 })

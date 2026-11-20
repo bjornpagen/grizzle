@@ -138,6 +138,7 @@ const exactWidening = (
 		case "uuid":
 		case "date":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }

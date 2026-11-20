@@ -105,6 +105,12 @@ export const nativeCapabilities = {
 	 * and its sum and avg are not language aggregates. vectorDistance is cosine_distance over the cosine domain.
 	 */
 	vector: ["equality", "ordering", "storage", "vectorDistance"],
+	/**
+	 * tsvector has equality, a B-tree, a GiST and a GIN class, but grizzle admits storage and its full text search alone:
+	 * a search document is read back whole, matched against a query and ranked by PostgreSQL, so no key, rule, comparison,
+	 * parameter or host computation reads one (ir/scalar.ts SearchType).
+	 */
+	tsvector: ["storage", "textSearch"],
 	/** Numeric's operations over integers, never a field's: no storage, no GiST. */
 	exactInteger: ["avg", "equality", "expressionIndex", "hashing", "minMax", "ordering", "sum"],
 	/** Numeric's over amounts at scale 2, reached through money's STABLE cast: no expression index, no avg. */

@@ -2410,6 +2410,7 @@ const hostText = (t: ScalarType): string => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return `unknown /* ${t.carrier} */`
 	}
 }

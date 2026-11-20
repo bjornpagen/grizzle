@@ -92,6 +92,7 @@ export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
 		case "date":
 		case "text":
 		case "bytes":
+		case "tsvector":
 			return { carrier: type.carrier }
 		case "numeric":
 			if (type.typmod === undefined) {

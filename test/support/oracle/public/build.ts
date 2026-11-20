@@ -164,6 +164,8 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return closedId(roster)
 		case "bytes":
 			throw new Error("a parameter of bytes, which no parameter is")
+		case "tsvector":
+			throw new Error("a parameter of a search document, which no parameter is")
 		case "bits":
 			throw new Error("a parameter of a set, which no drawn field declares")
 		case "range4":

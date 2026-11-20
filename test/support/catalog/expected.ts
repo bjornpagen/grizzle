@@ -139,7 +139,10 @@ const builtinTypname: { readonly [K in BuiltinTypeName]: string } = {
 	datemultirange: "datemultirange",
 	record: "record",
 	"bit varying": "varbit",
-	name: "name"
+	name: "name",
+	tsvector: "tsvector",
+	regconfig: "regconfig",
+	char: "char"
 }
 
 const cUtf8 = "pg_catalog.pg_c_utf8"

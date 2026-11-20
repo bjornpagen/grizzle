@@ -423,6 +423,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return n
 	}
 }

@@ -400,6 +400,9 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 		case "vector":
 			assert.deepEqual("typmod" in t ? t.typmod : "none", { dims: desc.dimensions }, at)
 			return
+		case "search":
+			assert.deepEqual("configuration" in t ? t.configuration : "none", desc.configuration, at)
+			return
 		case "span": {
 			const s = defined(spanOf(t), at)
 			assert.equal(s.width, desc.width, at)
@@ -432,6 +435,7 @@ type Content =
 	| { readonly kind: "closedId"; readonly roster: Roster }
 	| { readonly kind: "bits"; readonly roster: Roster }
 	| { readonly kind: "vector"; readonly dims: number }
+	| { readonly kind: "search"; readonly configuration: string }
 	| { readonly kind: "span"; readonly endpoint: Content; readonly width: bigint | undefined }
 	| {
 			readonly kind: "contract"
@@ -461,6 +465,8 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "bits", roster: envRoster(env, desc.roster) }
 		case "vector":
 			return { kind: "vector", dims: desc.dimensions }
+		case "search":
+			return { kind: "search", configuration: desc.configuration }
 		case "span":
 			return { kind: "span", endpoint: contentOf(desc.endpoint, env), width: desc.width }
 		case "contract":

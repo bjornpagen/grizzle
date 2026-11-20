@@ -190,6 +190,7 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 		case "date":
 			return { kind: "date" }
 		case "text":
+		case "tsvector":
 			return { kind: "text" }
 		case "bytes":
 			return { kind: "bytes" }

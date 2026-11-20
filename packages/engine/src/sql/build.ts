@@ -129,6 +129,12 @@ export const types = {
 	uuid: builtinType("uuid"),
 	date: builtinType("date"),
 	bytea: builtinType("bytea"),
+	/** A search document, pg_catalog's tsvector (ir/search.ts). */
+	tsvector: builtinType("tsvector"),
+	/** A text search configuration, pg_catalog's regconfig, the type a configuration's name is read as. */
+	regconfig: builtinType("regconfig"),
+	/** pg_catalog's one-byte "char", the type of a search document's weight label. */
+	char: builtinType("char"),
 	jsonb: builtinType("jsonb"),
 	money: builtinType("money"),
 	int4range: builtinType("int4range"),

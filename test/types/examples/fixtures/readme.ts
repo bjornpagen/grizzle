@@ -51,6 +51,7 @@ import {
 	row,
 	rows,
 	schema,
+	searchDocument,
 	select,
 	settled,
 	sha256,
@@ -1041,6 +1042,45 @@ export const seenBy = query(Tutor).rule((r) => {
 
 /** Both reads of a step, in one statement. */
 export const stepReads = query(Tutor).reads({ nearest: nearMissed, seen: seenBy })
+
+/** README: "Queries", full text search. */
+/** A unit of a course: its subject, grade, texts and embedding, and the search document of its title and summary. */
+export const Unit = relation.generated(
+	"Unit",
+	{
+		id: LessonSlug,
+		subject: pg.integer,
+		grade: pg.integer,
+		title: Prose,
+		summary: Prose,
+		embedding: pg.vector(1536)
+	},
+	["id"],
+	(r) => ({ search: searchDocument("english", ["A", r.title], ["B", r.summary]) })
+)
+export const Course = schema("Course", [Unit], [])
+
+/** A query's text, within 4,096 bytes. */
+const SearchText = str.bytes(4096, str.regex("^.*$", "su"))
+
+/** The ten units of a subject up to a grade that best match a web search's text. */
+export const searchUnits = query(Course)
+	.rule((r) => {
+		const { id, subject, grade, search } = v(Unit, "unit")
+		const q = Compute.websearchQuery(r.param("q", SearchText))
+		return r
+			.match(Unit, { id, subject, grade, search })
+			.where(
+				r.and(
+					Compute.textMatches(search, q),
+					r.eq(subject, r.param("subject", Unit.fields.subject)),
+					r.le(grade, r.param("grade", Unit.fields.grade))
+				)
+			)
+			.find({ unit: id, rank: Compute.textRank(search, q) })
+	})
+	.orderBy(["rank", "desc"])
+	.take(10)
 
 /** README: "Reading", the database's clock. */
 /** The calls that ran at or before the database's instant. */

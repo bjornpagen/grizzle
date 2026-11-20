@@ -773,6 +773,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 		case "closedId":
 		case "bits":
 		case "vector":
+		case "search":
 			return undefined
 	}
 }
@@ -851,6 +852,7 @@ export const datumBound = (desc: HeldDesc): DatumBound | undefined => {
 			return fixed(vectorHeaderBytes + typlens.float4 * desc.dimensions, 4, "vector")
 		case "bytes":
 		case "pattern":
+		case "search":
 			return undefined
 		case "text":
 			break

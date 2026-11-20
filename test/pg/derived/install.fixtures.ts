@@ -164,6 +164,7 @@ export const typmodOf = (desc: InferredFieldDesc): number => {
 		case "span":
 		case "closedId":
 		case "bits":
+		case "search":
 		case "computedNumeric":
 			return -1
 	}

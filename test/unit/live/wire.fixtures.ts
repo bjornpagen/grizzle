@@ -89,6 +89,7 @@ const specOf =
 			case "date":
 			case "text":
 			case "bytes":
+			case "tsvector":
 				return { carrier }
 			case "numeric":
 				return source.draw(boolean)
@@ -227,6 +228,7 @@ const valueOf =
 			case "date":
 				return source.draw(dateGen)
 			case "text":
+			case "tsvector":
 				return source.draw(textGen)
 			case "bytes":
 				return new Uint8Array(source.draw(bytes({ min: 0, max: 12 })))
@@ -449,6 +451,7 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 		case "uuid":
 		case "date":
 		case "text":
+		case "tsvector":
 		case "exactMoney":
 			return { carrier: spec.carrier }
 		case "exactInteger":

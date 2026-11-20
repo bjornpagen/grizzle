@@ -274,6 +274,20 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 			)
 		}
 	],
+	tsvector: [
+		{
+			label: "tsvector english",
+			type: { carrier: "tsvector", caps, configuration: "english" },
+			live: string(
+				weighted([
+					[1, codePoint(0x20, 0x7e)],
+					[1, codePoint(0xa0, 0xd7_ff)],
+					[1, codePoint(0xe0_00, 0x10_ffff)]
+				]),
+				{ min: 0, max: 10 }
+			)
+		}
+	],
 	exactInteger: [
 		{
 			label: "exact integer of 40 digits",

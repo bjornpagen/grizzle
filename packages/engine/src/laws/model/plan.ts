@@ -399,6 +399,7 @@ const hashable = (c: PlannedColumn): boolean => {
 		case "bits":
 		case "bytes":
 		case "vector":
+		case "tsvector":
 			return false
 	}
 }

@@ -60,6 +60,8 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 				`[${Array.from({ length: base.typmod.dims }, () => "0").join(",")}]`,
 				cx.baseTypeRef(base)
 			)
+		case "tsvector":
+			return lit.text("", cx.baseTypeRef(base))
 	}
 }
 

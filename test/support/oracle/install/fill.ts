@@ -125,6 +125,7 @@ const lawColumnType = (type: ScalarType): ColumnType | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined

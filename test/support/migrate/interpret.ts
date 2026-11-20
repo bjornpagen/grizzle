@@ -592,6 +592,9 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "date":
 		case "daterange":
 		case "datemultirange":
+		case "tsvector":
+		case "regconfig":
+		case "char":
 			return unevaluable(`a ${type.name} literal`)
 	}
 }
@@ -869,6 +872,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				case ">>":
 				case "@>":
 				case "~":
+				case "@@":
 					return unevaluable(`the operator ${e.op}`)
 			}
 		}

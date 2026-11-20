@@ -150,6 +150,7 @@ const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string
 	range8: itself,
 	rangeDate: itself,
 	vector: vectorCellText,
+	tsvector: itself,
 	exactInteger: itself,
 	exactMoney: numericCellText
 }

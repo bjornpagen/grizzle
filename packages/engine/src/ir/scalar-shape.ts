@@ -81,6 +81,7 @@ import {
 	isSpanCarrier,
 	spanCarriers
 } from "#compiler/ir/scalar.ts"
+import { type TextSearchConfiguration, textSearchConfigurations } from "#compiler/ir/search.ts"
 import * as S from "#compiler/ir/shape.ts"
 import {
 	numericMaxFractionDigits,
@@ -132,6 +133,7 @@ interface WireScalarType {
 	readonly span: WireSpan | undefined
 	readonly digits: number | undefined
 	readonly bound: NumericBound | undefined
+	readonly configuration: TextSearchConfiguration | undefined
 }
 
 const capabilityShape: S.Shape<Capability> = S.literalsShape(capabilities)
@@ -314,7 +316,8 @@ const wireBody: S.Shape<WireScalarType> = S.structStated(
 		only: S.nonEmptyUniqueStrings("handles"),
 		span: spanShape,
 		digits: S.nonNegativeInteger,
-		bound: numericBoundShape
+		bound: numericBoundShape,
+		configuration: S.literalsShape(textSearchConfigurations)
 	},
 	{}
 )
@@ -353,6 +356,9 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 	}
 	if (base.carrier === "bytes") {
 		return "bytes are never a contract's base"
+	}
+	if (base.carrier === "tsvector") {
+		return "a search document is never a contract's base"
 	}
 	const { name, predicate } = contract
 	if (predicate !== undefined) {
@@ -420,7 +426,7 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 /**
  * A wire descriptor as its carrier's variant, or the first broken rule: a contract's (narrowContract), or a plain one.
  * Each variant is rebuilt with the keys in the wire order (carrier, caps, typmod, contract, text, roster, only, span,
- * digits, bound), so decoding is idempotent.
+ * digits, bound, configuration), so decoding is idempotent.
  */
 const narrow = (t: WireScalarType): ScalarType | string =>
 	t.contract === undefined ? narrowPlain(t) : narrowContract(t, t.contract)
@@ -451,6 +457,9 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 	}
 	if (t.bound !== undefined && carrier !== "numeric") {
 		return "only a computed numeric carries a numeric bound"
+	}
+	if (t.configuration !== undefined && carrier !== "tsvector") {
+		return "only a search document names a text search configuration"
 	}
 	const contract = undefined
 	switch (carrier) {
@@ -523,6 +532,10 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 				? typmod
 				: Object.freeze({ carrier, caps, typmod, contract })
 		}
+		case "tsvector":
+			return t.configuration === undefined
+				? "a search document names its text search configuration"
+				: Object.freeze({ carrier, caps, contract, configuration: t.configuration })
 		case "exactInteger":
 		case "exactMoney":
 			return t.digits === undefined

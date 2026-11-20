@@ -32,6 +32,11 @@ import { pastRawSpace } from "#compiler/ir/pattern-space.ts"
 import type { PatternValue } from "#compiler/ir/pattern.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { baseOf, rosterOf, type ScalarType, spanOf, typeLabel } from "#compiler/ir/scalar.ts"
+import {
+	isTextSearchWeight,
+	type TextQueryParser,
+	type TextSearchConfiguration
+} from "#compiler/ir/search.ts"
 import { type ClosedIdParts, closedIdField } from "#compiler/scalar/closed-id.ts"
 
 import {
@@ -54,6 +59,7 @@ import {
 import { printSource } from "@bjornpagen/grizzle-text/regex/print"
 import { xsdPattern } from "@bjornpagen/grizzle-text/regex/xsd"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
+import type { TextSearchRead } from "#compiler/scalar/compute/registry.ts"
 import {
 	type GuardTest,
 	type GuardValue,
@@ -71,7 +77,7 @@ import {
 	termOf,
 	typedTermOf
 } from "#compiler/scalar/compute/term.ts"
-import { compatible, valueType } from "#compiler/scalar/compute/types.ts"
+import { compatible, valueType, wildcardText } from "#compiler/scalar/compute/types.ts"
 import {
 	adoptedType,
 	type ConstantGuard,
@@ -95,6 +101,7 @@ import {
 	isOwnedDescriptor,
 	type SqlTag
 } from "#compiler/scalar/registry.ts"
+import type { TextQueryValue as TextQuery } from "#compiler/scalar/search.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 
 const malformed = (loc: SourceLoc, capability: string): never => {
@@ -449,8 +456,8 @@ class Call {
 	}
 
 	/**
-	 * finish of an expression whose value is plain: a closed id's, a set's, a span's, a vector's and bytes' values are no
-	 * plain value.
+	 * finish of an expression whose value is plain: a closed id's, a set's, a span's, a vector's, a search document's and
+	 * bytes' values are no plain value.
 	 */
 	finishPlain(real: OpenExpr, ph: ExprDesc): PlainChecked {
 		const checked = this.finish(real, ph)
@@ -462,6 +469,7 @@ class Call {
 			carrier === "range8" ||
 			carrier === "rangeDate" ||
 			carrier === "vector" ||
+			carrier === "tsvector" ||
 			carrier === "bytes"
 		) {
 			return malformed(this.loc, `a value of a plain SQL type, not ${typeLabel(checked.type)}`)
@@ -922,6 +930,127 @@ const translate = (
 }
 
 /**
+ * The texts of the queries Compute.websearchQuery and plainQuery made, by the query (types/search TextQuery): a query is
+ * no term, so no position but a match's or a rank's reads one, which parse its text under the document they read. A
+ * registry, holding nothing alive.
+ */
+const textQueries = new WeakMap<object, { readonly query: TextQuery; readonly text: unknown }>()
+
+/** Compute.websearchQuery(text) and plainQuery(text): a query of `parser` over `text`, registered as one this module made. */
+const textQueryOf =
+	(parser: TextQueryParser) =>
+	(text: unknown, extra: ReadonlyArray<unknown>): TextQuery => {
+		if (extra.length > 0) {
+			return malformed(
+				captureLoc(`Compute.${parser}Query`, []),
+				`one operand for ${parser}Query: its text`
+			)
+		}
+		const query: TextQuery = Object.freeze({ ...builtMark, parser })
+		textQueries.set(query, { query, text })
+		return query
+	}
+
+/** The Compute functions of a match or a rank of a document, by the query's parser and what is read of it. */
+const textSearchFns = {
+	websearch: { match: "websearchMatches", rank: "websearchRank", rankCd: "websearchRankCd" },
+	plain: { match: "plainMatches", rank: "plainRank", rankCd: "plainRankCd" }
+} as const satisfies {
+	readonly [P in TextQueryParser]: { readonly [R in TextSearchRead]: ComputeFn }
+}
+
+/**
+ * What `read` reads of a search document, its first operand, and a query Compute.websearchQuery or plainQuery made,
+ * its text an operand opposite text, a string a text literal (registry.ts textSearchOf): the call, and the node's real
+ * and placeholder forms, which a match finishes as a predicate and a rank as a plain term.
+ */
+const textSearchCall = (
+	read: TextSearchRead,
+	name: string,
+	document: unknown,
+	query: unknown,
+	extra: ReadonlyArray<unknown>
+): { readonly call: Call; readonly real: OpenExpr; readonly ph: ExprDesc } => {
+	const call = new Call(`Compute.${name}`)
+	if (extra.length > 0) {
+		return malformed(call.loc, `two operands for ${name}: a search document and a query`)
+	}
+	const made = typeof query === "object" && query !== null ? textQueries.get(query) : undefined
+	if (made === undefined) {
+		return malformed(
+			call.loc,
+			`a query Compute.websearchQuery or Compute.plainQuery made as ${name}'s second operand`
+		)
+	}
+	const fn = textSearchFns[made.query.parser][read]
+	const d = call.term(document, `${name}'s document`)
+	const q = call.operand(made.text, wildcardText, "literal")
+	return {
+		call,
+		real: { kind: "compute", fn, args: [d.real, q.real] },
+		ph: { kind: "compute", fn, args: [d.ph, q.ph] }
+	}
+}
+
+/** Compute.textMatches(document, query): whether the document matches the query, a predicate. */
+const textMatches = (
+	document: unknown,
+	query: unknown,
+	extra: ReadonlyArray<unknown>
+): PredicateValue => {
+	const { call, real, ph } = textSearchCall("match", "textMatches", document, query, extra)
+	return call.finishPredicate(real, ph)
+}
+
+/** Compute.textRank(document, query) and textRankCd: the document's rank for the query, a real. */
+const textRank =
+	(read: "rank" | "rankCd", name: string) =>
+	(document: unknown, query: unknown, extra: ReadonlyArray<unknown>): PlainChecked => {
+		const { call, real, ph } = textSearchCall(read, name, document, query, extra)
+		return call.finishPlain(real, ph)
+	}
+
+/**
+ * The term of a search document under `configuration`, its parts' texts each labelled by its weight and concatenated in
+ * their order (typing.ts textDocument), carried by `descriptor`'s column, which delivers the document's printed text:
+ * the generation of a field searchDocument makes (public/fields.ts). Each part is a weight label and a text term of the
+ * row the generation reads.
+ */
+export const searchDocumentTerm = <T>(
+	descriptor: TermCarrier<T, "tsvector"> & { readonly configuration: TextSearchConfiguration },
+	parts: ReadonlyArray<unknown>
+): ScalarTerm<T, "tsvector"> => {
+	const call = new Call("searchDocument")
+	if (parts.length === 0) {
+		return malformed(call.loc, "a search document of at least one part, each [weight, text]")
+	}
+	const configuration: LiteralExpr = { kind: "literal", value: descriptor.configuration }
+	const real: Array<OpenExpr> = [configuration]
+	const ph: Array<ExprDesc> = [configuration]
+	for (const part of parts) {
+		if (!isList(part) || part.length !== 2) {
+			return malformed(
+				call.loc,
+				"a search document's part, [weight, text]: a weight label and a text term"
+			)
+		}
+		const [weight, text] = part
+		if (!isTextSearchWeight(weight)) {
+			return malformed(call.loc, "a search document's part's weight, one of A, B, C and D")
+		}
+		const label: LiteralExpr = { kind: "literal", value: weight }
+		const t = call.term(text, "a search document's part's text")
+		real.push(label, t.real)
+		ph.push(label, t.ph)
+	}
+	const checked = call.finish(
+		{ kind: "compute", fn: "textDocument", args: real },
+		{ kind: "compute", fn: "textDocument", args: ph }
+	)
+	return scalarTerm(checked.expr, checked.type, { column: descriptor.column, sql: "tsvector" })
+}
+
+/**
  * Compute.replaceWhitespace(x): XML Schema's whiteSpace replace, translate of tab, LF and CR each to a space
  * (@bjornpagen/grizzle-text text.ts replaceMap).
  */
@@ -1147,6 +1276,11 @@ const checks = Object.freeze({
 	sha256: unary("sha256"),
 	floatBits: unary("floatBits"),
 	cosineDistance: binary("cosineDistance", "literal"),
+	websearchQuery: textQueryOf("websearch"),
+	plainQuery: textQueryOf("plain"),
+	textMatches,
+	textRank: textRank("rank", "textRank"),
+	textRankCd: textRank("rankCd", "textRankCd"),
 	union: setOperation("union"),
 	intersection: setOperation("intersection"),
 	difference: setOperation("difference"),
@@ -1305,6 +1439,14 @@ export const compute = Object.freeze({
 		guardValue(checks.matches(subject, pattern), subject),
 	cosineDistance: (a: unknown, b: unknown) =>
 		plain(checks.cosineDistance(a, b), "double precision"),
+	websearchQuery: (text: unknown): TextQuery => checks.websearchQuery(text, []),
+	plainQuery: (text: unknown): TextQuery => checks.plainQuery(text, []),
+	textMatches: (document: unknown, query: unknown): PredicateValue =>
+		checks.textMatches(document, query, []),
+	textRank: (document: unknown, query: unknown) =>
+		plain(checks.textRank(document, query, []), "real"),
+	textRankCd: (document: unknown, query: unknown) =>
+		plain(checks.textRankCd(document, query, []), "real"),
 	union: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
 		carried(checks.union(a, b, []), a),
 	intersection: <T, S extends SqlTag>(a: TermCarrier<T, S>, b: unknown): ScalarTerm<T, S> =>
@@ -1452,6 +1594,19 @@ export const computeCore = Object.freeze({
 	xsdPattern: xsdAdmittedPattern,
 	matches: (subject: unknown, pattern: unknown) => guardBy(checks.matches(subject, pattern)),
 	cosineDistance: (a: unknown, b: unknown) => plainBy(checks.cosineDistance(a, b)),
+	websearchQuery: (text: unknown, ...extra: ReadonlyArray<unknown>): TextQuery =>
+		checks.websearchQuery(text, extra),
+	plainQuery: (text: unknown, ...extra: ReadonlyArray<unknown>): TextQuery =>
+		checks.plainQuery(text, extra),
+	textMatches: (
+		document: unknown,
+		query: unknown,
+		...extra: ReadonlyArray<unknown>
+	): PredicateValue => checks.textMatches(document, query, extra),
+	textRank: (document: unknown, query: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.textRank(document, query, extra)),
+	textRankCd: (document: unknown, query: unknown, ...extra: ReadonlyArray<unknown>) =>
+		plainBy(checks.textRankCd(document, query, extra)),
 	union: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
 		const checked = checks.union(a, b, extra)
 		return scalarTerm(checked.expr, checked.type, checked.carrier)

@@ -161,6 +161,7 @@ export const evaluatorOrder = (type: ScalarType): OrderSpec => {
 		case "text":
 		case "bytes":
 		case "vector":
+		case "tsvector":
 		case "range4":
 		case "range8":
 		case "rangeDate":
@@ -289,6 +290,7 @@ const integerOf = (c: Carrier): ((v: HostValue) => bigint) => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return () => {
 				throw defect(`an integer operand, not a ${c}`)
 			}
@@ -325,6 +327,7 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return () => {
 				throw defect(`an integer result, not a ${c}`)
 			}
@@ -491,6 +494,7 @@ const arithmetic = (
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return refused(`${fn} over ${c}`)
 	}
 }
@@ -544,6 +548,7 @@ const signed = (fn: "neg" | "abs" | "sign", c: Carrier, type: ScalarType): Unary
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return refused(`${fn} over ${c}`)
 	}
 }
@@ -779,6 +784,15 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "minScale":
 		case "cosineDistance":
 			return refused(`${fn}, outside a check's vocabulary`)
+		case "searchPart":
+		case "searchConcat":
+		case "websearchMatches":
+		case "plainMatches":
+		case "websearchRank":
+		case "plainRank":
+		case "websearchRankCd":
+		case "plainRankCd":
+			return refused(`${fn}, PostgreSQL's full text search, which the host does not evaluate`)
 		case "and":
 		case "or":
 		case "cast":
@@ -899,6 +913,14 @@ const operation = (
 		case "complement":
 		case "concat":
 		case "cosineDistance":
+		case "searchPart":
+		case "searchConcat":
+		case "websearchMatches":
+		case "plainMatches":
+		case "websearchRank":
+		case "plainRank":
+		case "websearchRankCd":
+		case "plainRankCd":
 		case "difference":
 		case "disjoint":
 		case "div":

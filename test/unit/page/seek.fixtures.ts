@@ -68,6 +68,7 @@ const comparison = (op: BinaryOperator, cmp: number): boolean => {
 		case "@>":
 		case "||":
 		case "~":
+		case "@@":
 			throw new Error(`no operator ${op} in a seek`)
 	}
 }

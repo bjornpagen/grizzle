@@ -286,6 +286,7 @@ export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => 
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return ["typed"]
 	}
 }

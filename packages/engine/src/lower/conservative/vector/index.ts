@@ -164,6 +164,8 @@ export const lowerVectorOp = (
 		case "library":
 		case "textSha256":
 		case "canonicalZero":
+		case "searchPart":
+		case "textSearch":
 			return refuseAt("UnsupportedOperation", at, `the vector operation ${describeOp(expr.op)}`)
 	}
 }

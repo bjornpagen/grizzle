@@ -155,6 +155,7 @@ interface WireExtras {
 	readonly range8: { readonly width: WireWidth }
 	readonly rangeDate: { readonly width: WireWidth }
 	readonly vector: { readonly dimensions: number }
+	readonly tsvector: unknown
 	readonly exactInteger: { readonly digits: number }
 	readonly exactMoney: { readonly digits: number }
 }
@@ -191,6 +192,7 @@ interface WireHost {
 	readonly range8: Span<bigint>
 	readonly rangeDate: Span<CalendarDate>
 	readonly vector: Vector
+	readonly tsvector: string
 	readonly exactInteger: bigint
 	readonly exactMoney: Money
 }
@@ -791,6 +793,19 @@ const carrierWire: CarrierWires = {
 		},
 		decode: (json) => Vector.branded(Float32Array.from(trustedArray(json), trustedNumber)),
 		is: isVector
+	},
+	/** A search document's text as PostgreSQL prints it, delivered as it is; no input of the wire is one. */
+	tsvector: {
+		schema: () => spelled(admittedText),
+		encode: (value) => value,
+		parse: (json) => {
+			if (typeof json !== "string") {
+				return Result.err("json")
+			}
+			return validateText(json).ok ? Result.ok(json) : Result.err("text")
+		},
+		decode: trustedString,
+		is: isString
 	},
 	exactInteger: {
 		schema: (spec) => spelled(integersBelow(spec.digits)),

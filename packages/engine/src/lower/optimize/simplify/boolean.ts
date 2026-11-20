@@ -234,6 +234,14 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "sha256":
 		case "floatBits":
 		case "cosineDistance":
+		case "searchPart":
+		case "searchConcat":
+		case "websearchMatches":
+		case "plainMatches":
+		case "websearchRank":
+		case "plainRank":
+		case "websearchRankCd":
+		case "plainRankCd":
 		case "union":
 		case "intersection":
 		case "difference":

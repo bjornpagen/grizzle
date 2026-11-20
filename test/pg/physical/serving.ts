@@ -59,9 +59,9 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 /**
  * What a probe asks of its relation: every key equal to a value; an equality prefix and its last key bounded on both
  * sides (by its sampled value alone, by the half of the column's extent holding it after a prefix); the keys' order;
- * equality on each scalar key and overlap on each span key; the nearest vectors.
+ * equality on each scalar key and overlap on each span key; the nearest vectors; the documents a query matches.
  */
-const shapes = ["equality", "range", "ordered", "overlap", "nearest"] as const
+const shapes = ["equality", "range", "ordered", "overlap", "nearest", "match"] as const
 export type Shape = (typeof shapes)[number]
 
 /** Each workload use's probe, as ir/products.ts accessUses defines the use. */
@@ -75,7 +75,8 @@ const accessShape: Readonly<Record<AccessUse, Shape>> = {
 	"take seek": "ordered",
 	"page seek": "ordered",
 	"span predicate": "overlap",
-	"approximate vector retrieval": "nearest"
+	"approximate vector retrieval": "nearest",
+	"text search": "match"
 }
 
 /**
@@ -87,7 +88,8 @@ const lawShape: Readonly<Record<IndexRequest["method"], Shape>> = {
 	btree: "equality",
 	hash: "equality",
 	gist: "overlap",
-	hnsw: "nearest"
+	hnsw: "nearest",
+	gin: "match"
 }
 
 const shapeOf = (r: IndexRequest): Shape =>
@@ -99,7 +101,8 @@ const sampledShape: Readonly<Record<Shape, boolean>> = {
 	range: true,
 	ordered: false,
 	overlap: true,
-	nearest: true
+	nearest: true,
+	match: true
 }
 
 /** Whether a shape asks for an order, so no sort may stand above its scan. */
@@ -108,7 +111,8 @@ const orderedShape: Readonly<Record<Shape, boolean>> = {
 	range: false,
 	ordered: true,
 	overlap: false,
-	nearest: true
+	nearest: true,
+	match: false
 }
 
 /**
@@ -118,13 +122,14 @@ const orderedShape: Readonly<Record<Shape, boolean>> = {
  * every page of its bucket's chain: the primary page, an overflow page of the entries the other values hashed to the
  * bucket hold (a split keeps a bucket's average under a page), and the page its own entries straddle into; it never
  * scans index-only, so reads no visibility map page. An HNSW scan reads a neighbourhood of its graph whatever the
- * result.
+ * result, and a GIN scan every posting list of its query's lexemes.
  */
 const descentPages: Readonly<Record<PlannedIndex["method"], number>> = {
 	btree: 4,
 	hash: 4,
 	gist: 8,
-	hnsw: Number.POSITIVE_INFINITY
+	hnsw: Number.POSITIVE_INFINITY,
+	gin: Number.POSITIVE_INFINITY
 }
 
 /**
@@ -199,7 +204,8 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"take seek": "btree",
 	"page seek": "btree",
 	"span predicate": "gist",
-	"approximate vector retrieval": "hnsw"
+	"approximate vector retrieval": "hnsw",
+	"text search": "gin"
 }
 
 /** A spec as text, for a report. */
@@ -921,6 +927,10 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 						tail: ` ORDER BY ${column(first.field)} OPERATOR(${quoteIdent(installed.installation.names.vectorSchema)}.${operator}) ${value(0)} LIMIT 10`
 					})
 				}
+				case "match":
+					return assert.fail(
+						`${label}: a text search request, which no drawn field asks: no field kind is a search document`
+					)
 			}
 		})
 		const { conditions } = statement
@@ -1598,6 +1608,7 @@ export const judgeServing = (
 					return swept <= alone ? Option.some({ kind: "right" }) : Option.none()
 				case "hash":
 				case "hnsw":
+				case "gin":
 					return Option.none()
 			}
 		}

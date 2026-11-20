@@ -234,6 +234,8 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			return typeof value === "string" ? Result.ok({ kind: "text", value }) : Result.err("a string")
 		case "bytes":
 			return Result.err("no literal: a bytes value is written and read back whole")
+		case "tsvector":
+			return Result.err("no literal: a search document is PostgreSQL's parse of its row's texts")
 		case "code":
 			return typeof value === "string"
 				? Result.ok({ kind: "handle", handle: value })
@@ -412,5 +414,7 @@ export const literalOfHost = (value: HostValue, type: ScalarType): TypedLiteral 
 		}
 		case "bytes":
 			throw defect(`a constant of ${typeLabel(type)}: a bytes value has no literal`)
+		case "tsvector":
+			throw defect(`a constant of ${typeLabel(type)}: a search document has no literal`)
 	}
 }

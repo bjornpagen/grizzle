@@ -28,6 +28,7 @@ import type {
 	VarDecl
 } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier, fewValued, isSpanCarrier } from "#compiler/ir/scalar.ts"
+import { conjuncts } from "#compiler/logical/props.ts"
 import { type Atom, atomKey, operandOf, predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { type Lookup, uniqueLookups, uniquePaths } from "#compiler/physical/access/paths.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
@@ -263,6 +264,10 @@ const isVectorColumn = (heading: Heading, column: string): boolean =>
 
 const isTextColumn = (heading: Heading, column: string): boolean =>
 	carrierOf(heading, column) === "text"
+
+/** A search document's column (ir/scalar.ts SearchType), which only a GIN index serves a match of. */
+const isSearchColumn = (heading: Heading, column: string): boolean =>
+	carrierOf(heading, column) === "tsvector"
 
 /** A column of few values (fewValued): fixing it bounds no scan. */
 const isFewValued = (heading: Heading, column: string): boolean => {
@@ -684,6 +689,7 @@ class Extractor {
 				)
 				return
 			case "Filter":
+				this.textSearch(n.input, n.pred)
 				return this.visit(n.input, withAtoms(pushed, predicateAtoms(n.input.id, n.pred)))
 			case "ProjectSet":
 				return this.visit(n.input, mapPushed(pushed, this.projection(n)))
@@ -1232,6 +1238,50 @@ class Extractor {
 			method: "btree",
 			keys: [...prefix.map((field): AccessKey => ({ field, dir: lead.dir })), ...ordered],
 			use
+		}
+	}
+
+	/**
+	 * The GIN path of each match a filter's conjunction holds of a stored search document and a query's text the
+	 * statement fixes, a parameter's or a literal's (registry.ts textSearchOf): tsvector's default GIN class finds the
+	 * documents a query matches, reading those rows alone. A match under a disjunction or a negation, or of a document no
+	 * stored column holds, asks nothing of an index.
+	 */
+	textSearch(input: RelNode, pred: ScalarExpr): void {
+		for (const e of conjuncts(pred)) {
+			if (e.kind !== "op") {
+				continue
+			}
+			const fn = nativeOp(e.op)?.fn
+			if (fn !== "websearchMatches" && fn !== "plainMatches") {
+				continue
+			}
+			const [document, query] = e.args.map((a) => operandOf(input.id, a))
+			if (document?.kind !== "column" || (query?.kind !== "fixed" && query?.kind !== "literal")) {
+				continue
+			}
+			for (const r of this.resolve(input, columnRequests([document.name]), nothing)) {
+				for (const { resolved } of r.columns) {
+					const field = storedColumn(resolved)
+					if (
+						field === undefined ||
+						r.base.relationKind === "world" ||
+						!isSearchColumn(r.base.heading, field)
+					) {
+						continue
+					}
+					this.lookups.push({
+						path: {
+							relation: r.base.relation,
+							derived: r.base.relationKind === "derived",
+							method: "gin",
+							keys: [{ field, dir: "asc" }],
+							use: "text search"
+						},
+						binds: []
+					})
+				}
+			}
 		}
 	}
 

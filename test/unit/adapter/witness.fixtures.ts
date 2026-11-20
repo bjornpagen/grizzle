@@ -168,6 +168,7 @@ export const keyValueGen = (
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined

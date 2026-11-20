@@ -193,6 +193,7 @@ const summable = (t: ScalarType): boolean => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return false
@@ -227,6 +228,7 @@ const bounded = (t: ScalarType): boolean => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return false
@@ -274,6 +276,7 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			throw defect(`sum admits ${base.carrier}`)
@@ -311,6 +314,7 @@ const leastOf = (t: ScalarType): TypedLiteral => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			throw defect(`max admits ${base.carrier}`)

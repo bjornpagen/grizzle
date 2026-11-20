@@ -162,6 +162,7 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return undefined

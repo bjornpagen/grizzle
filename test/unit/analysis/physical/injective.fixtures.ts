@@ -251,6 +251,7 @@ export const family = (t: ScalarType): Family => {
 		case "uuid":
 		case "date":
 		case "vector":
+		case "tsvector":
 			return "numeric"
 	}
 }

@@ -54,6 +54,8 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 			}
 			case "vector":
 				return f.typmod.dims === vectorTypmodOf(t)?.dims
+			case "tsvector":
+				return t.carrier === "tsvector" && f.configuration === t.configuration
 			case "code":
 			case "bits":
 				return f.roster.closed === rosterOf(t)?.closed

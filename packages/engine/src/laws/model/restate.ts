@@ -138,6 +138,7 @@ const descRoster = (t: FieldDesc): string | undefined => {
 		case "pattern":
 		case "span":
 		case "vector":
+		case "search":
 			return undefined
 	}
 }
@@ -265,6 +266,7 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 		case "text":
 		case "pattern":
 		case "vector":
+		case "search":
 			return t
 	}
 }

@@ -2748,6 +2748,8 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 		case "vector":
 			uses.add("Vector")
 			return `Vector<${t.typmod.dims}>`
+		case "tsvector":
+			throw new Error("no drawn computation is of a search document, which PostgreSQL alone parses")
 		case "code": {
 			const roster = jsonText(t.roster.closed)
 			if (position === "delivered") {

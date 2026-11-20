@@ -78,6 +78,7 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 			return undefined
 	}
 }
@@ -243,6 +244,14 @@ const exactIn = (
 		case "lower":
 		case "upper":
 		case "cosineDistance":
+		case "searchPart":
+		case "searchConcat":
+		case "websearchMatches":
+		case "plainMatches":
+		case "websearchRank":
+		case "plainRank":
+		case "websearchRankCd":
+		case "plainRankCd":
 		case "union":
 		case "intersection":
 		case "difference":

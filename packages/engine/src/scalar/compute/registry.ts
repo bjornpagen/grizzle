@@ -26,6 +26,7 @@ import {
 	nativeNames,
 	type SpanCarrier
 } from "#compiler/ir/scalar.ts"
+import type { TextQueryParser } from "#compiler/ir/search.ts"
 import {
 	floatCast,
 	type HostCast,
@@ -106,6 +107,13 @@ type Infix =
 	| "~"
 
 /**
+ * What a text search node reads of a document and a query (SqlForm textSearch): whether the document matches it, `@@`
+ * (ts_match_vq), or its rank by ts_rank or ts_rank_cd, each in its two-argument form, PostgreSQL's default weights and
+ * no normalization.
+ */
+export type TextSearchRead = "match" | "rank" | "rankCd"
+
+/**
  * The catalogue that owns an operator or function: PostgreSQL's own, in pg_catalog, or the pgvector extension's, which
  * SQL qualifies by the installation's extension schema.
  */
@@ -124,8 +132,12 @@ type Owner = "catalog" | "vector"
  * a text's ASCII case fold is lower under the C collation, collated back as every text is,
  * `lower(x COLLATE "C") COLLATE pg_c_utf8` (textLowerAscii); a reference's resolution against a base is a call of the
  * installation's own function of grizzle's library (ir/physical.ts LibraryFn), `<schema>.<fn>(base, reference)`
- * (textResolveReference); and a text's digest is the library's textDigest of it written as lowercase hex,
- * `encode(<schema>.<textDigest>(x), 'hex')` (textSha256).
+ * (textResolveReference); a text's digest is the library's textDigest of it written as lowercase hex,
+ * `encode(<schema>.<textDigest>(x), 'hex')` (textSha256); a part of a search document is its text parsed under the
+ * document's configuration and labelled by its weight, `setweight(to_tsvector('<configuration>'::regconfig, x), w)`
+ * (searchPart, lower/conservative/search); and a match or a rank of a document reads a query's text parsed under the
+ * document's own configuration, `d @@ websearch_to_tsquery('<configuration>'::regconfig, q)` and
+ * `ts_rank(d, plainto_tsquery(...))` (textSearch), the configuration read off the document's type.
  */
 type SqlForm =
 	| { readonly kind: "infix"; readonly op: Infix; readonly owner: Owner }
@@ -157,6 +169,8 @@ type SqlForm =
 	| { readonly kind: "floatBits"; readonly from: "float4" | "float8" }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
 	| { readonly kind: "textSha256" }
+	| { readonly kind: "searchPart" }
+	| { readonly kind: "textSearch"; readonly read: TextSearchRead; readonly parser: TextQueryParser }
 	| { readonly kind: "canonicalZero"; readonly carrier: "float4" | "float8" }
 
 /**
@@ -256,6 +270,14 @@ export type NativeFn =
 	| "sha256"
 	| "floatBits"
 	| "cosineDistance"
+	| "searchPart"
+	| "searchConcat"
+	| "websearchMatches"
+	| "plainMatches"
+	| "websearchRank"
+	| "plainRank"
+	| "websearchRankCd"
+	| "plainRankCd"
 	| "eq"
 	| "ne"
 	| "lt"
@@ -337,6 +359,13 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	sha256: { arity: 1, check: true, nodes: ["sha256"] },
 	floatBits: { arity: 1, check: true, nodes: ["floatBits"] },
 	cosineDistance: { arity: 2, check: false, nodes: ["cosineDistance"] },
+	textDocument: { arity: "variadic", check: true, nodes: ["searchPart", "searchConcat"] },
+	websearchMatches: { arity: 2, check: false, nodes: ["websearchMatches"] },
+	plainMatches: { arity: 2, check: false, nodes: ["plainMatches"] },
+	websearchRank: { arity: 2, check: false, nodes: ["websearchRank"] },
+	plainRank: { arity: 2, check: false, nodes: ["plainRank"] },
+	websearchRankCd: { arity: 2, check: false, nodes: ["websearchRankCd"] },
+	plainRankCd: { arity: 2, check: false, nodes: ["plainRankCd"] },
 	union: { arity: 2, check: true, nodes: ["union"] },
 	intersection: { arity: 2, check: true, nodes: ["intersection"] },
 	difference: { arity: 2, check: true, nodes: ["difference"] },
@@ -392,8 +421,11 @@ interface FixedOverload extends OverloadBase {
 	readonly result: OverloadResult
 }
 
-/** A fixed result: a registered result carrier, or text, which the lowering types as text of no pattern. */
-type OverloadResult = ResultCarrier | "text"
+/**
+ * A fixed result: a registered result carrier; text, which the lowering types as text of no pattern; or a search
+ * document, which the typing types by the configuration it is parsed under (typing.ts textDocument).
+ */
+type OverloadResult = ResultCarrier | "text" | "tsvector"
 
 /**
  * An operation whose result is a value of its first operand's type, which no fixed result carrier holds: LEAST and
@@ -1041,6 +1073,55 @@ const textSha256: FixedOverload = frozen({
 	reads: "value"
 })
 
+/**
+ * A part of a search document: its text parsed under the document's configuration, each position labelled by its
+ * weight, `setweight(pg_catalog.to_tsvector('pg_catalog.<configuration>'::regconfig, x), '<w>'::"char")`
+ * (lower/conservative/search), the configuration the node's type states and the weight its second operand, a literal
+ * of a weight label (typing.ts textDocument). to_tsvector(regconfig, text) and setweight(tsvector, "char") are IMMUTABLE
+ * in pg_proc, and a configuration's name is read into its oid where the statement is parsed, so the part stands in a
+ * generated column, the one place a document is made. A document of more than 1,048,575 bytes of lexemes and positions
+ * (MAXSTRPOS) is refused by PostgreSQL as it is made (54000), which refuses the row's write, as a translation's past its
+ * own bound does; no read makes one.
+ */
+const searchPart: FixedOverload = frozen({
+	fn: "searchPart",
+	operands: positional(["text", "text"]),
+	result: "tsvector",
+	sql: { kind: "searchPart" },
+	catalog: { kind: "construct", uses: [] },
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
+ * A match or a rank of a search document against a query's text, which websearch_to_tsquery or plainto_tsquery parses
+ * under the document's own configuration (SqlForm textSearch): `d @@ q`, ts_rank(d, q) or ts_rank_cd(d, q), each a
+ * real but the match. Every function it reads is IMMUTABLE in pg_proc and raises on no document; a query's text is read
+ * within textQueryMaxBytes (typing.ts textQuery), within which no query PostgreSQL parses raises either.
+ */
+const textSearchOf = (
+	fn:
+		| "websearchMatches"
+		| "plainMatches"
+		| "websearchRank"
+		| "plainRank"
+		| "websearchRankCd"
+		| "plainRankCd",
+	read: TextSearchRead,
+	parser: TextQueryParser
+): FixedOverload =>
+	frozen({
+		fn,
+		operands: positional(["tsvector", "text"]),
+		result: read === "match" ? "bool" : "float4",
+		sql: { kind: "textSearch", read, parser },
+		catalog: { kind: "construct", uses: [] },
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
+
 /** A boolean connective over any number of boolean operands. */
 const connective = (fn: "and" | "or"): FixedOverload =>
 	frozen({
@@ -1337,6 +1418,14 @@ const catalogOverloads = {
 	"floatBits:float8": floatBitsOf("float8"),
 	"floatBits:float4": floatBitsOf("float4"),
 	"sha256:text": textSha256,
+	"searchPart:text": searchPart,
+	tsvector_concat: infix("searchConcat", "||", "tsvector", "tsvector", total, "value"),
+	"websearchMatches:tsvector": textSearchOf("websearchMatches", "match", "websearch"),
+	"plainMatches:tsvector": textSearchOf("plainMatches", "match", "plain"),
+	"websearchRank:tsvector": textSearchOf("websearchRank", "rank", "websearch"),
+	"plainRank:tsvector": textSearchOf("plainRank", "rank", "plain"),
+	"websearchRankCd:tsvector": textSearchOf("websearchRankCd", "rankCd", "websearch"),
+	"plainRankCd:tsvector": textSearchOf("plainRankCd", "rankCd", "plain"),
 	"translate(text,text,text)": fnCall(
 		"translate",
 		"translate",
@@ -1475,6 +1564,12 @@ const catalogOverloads = {
 	 */
 	byteaeq: comparison("eq", "bytes"),
 	byteane: comparison("ne", "bytes"),
+	/**
+	 * tsvector's equality and inequality, which no Compute call reaches either, since a search document has no equality
+	 * capability: they stand as its native equality (equalities).
+	 */
+	tsvector_eq: comparison("eq", "tsvector"),
+	tsvector_ne: comparison("ne", "tsvector"),
 	"code:int2eq": comparison("eq", "code"),
 	"code:int2ne": comparison("ne", "code"),
 	"code:int2lt": comparison("lt", "code"),
@@ -1922,6 +2017,7 @@ const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
 	date: comparisonId("date_eq"),
 	text: comparisonId("texteq"),
 	bytes: comparisonId("byteaeq"),
+	tsvector: comparisonId("tsvector_eq"),
 	code: comparisonId("code:int2eq"),
 	bits: comparisonId("biteq"),
 	range4: definedRangeOp("range_eq", "range4"),

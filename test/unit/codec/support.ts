@@ -66,6 +66,7 @@ export const types = {
 	rangeDate: ofCarrier("rangeDate", scalarOf(f.span(f.pg("date"), undefined), {})),
 	vector3: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 3 }, {})),
 	embedding: ofCarrier("vector", scalarOf({ kind: "vector", dimensions: 4 }, {})),
+	search: ofCarrier("tsvector", scalarOf({ kind: "search", configuration: "english" }, {})),
 	cents: ofCarrier("int8", scalarOf(f.contract("Cents", f.bigint, undefined), {}))
 } as const satisfies Readonly<Record<string, ScalarType>>
 

@@ -273,7 +273,7 @@ const requestsOf = (
 	extractLookups([root], { pageable: [] }).flatMap(
 		({ path, binds }): ReadonlyArray<IndexRequest> => {
 			const target = b.model.relations.get(path.relation)?.relation
-			if (target === undefined || path.method === "hnsw" || path.derived) {
+			if (target === undefined || path.method === "hnsw" || path.method === "gin" || path.derived) {
 				return []
 			}
 			const keys = path.keys.flatMap((k) =>

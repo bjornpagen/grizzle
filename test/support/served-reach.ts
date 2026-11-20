@@ -73,6 +73,7 @@ export const typeRosters = (descriptor: ScalarType): ReadonlyArray<DeclaredName>
 		case "range8":
 		case "rangeDate":
 		case "vector":
+		case "tsvector":
 		case "exactInteger":
 		case "exactMoney":
 			return []

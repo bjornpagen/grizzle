@@ -66,7 +66,12 @@ import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { type ClosedRelations, type LeafDesc, noParams } from "#compiler/scalar/compute/typing.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { type ScalarEnv, scalarTypeOf, storedOnly } from "#compiler/scalar/registry.ts"
+import {
+	type ScalarEnv,
+	scalarTypeOf,
+	searchedOnly,
+	storedOnly
+} from "#compiler/scalar/registry.ts"
 import type { WritableEntry } from "#compiler/schema/entry.ts"
 import type {
 	Owned,
@@ -653,6 +658,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata
 	): FieldWriting {
 		const w = f.writing
+		if (searchedOnly(type) && w.kind !== "generated") {
+			return fail(
+				"UnsupportedOperation",
+				at,
+				`textSearch: ${r.name}.${f.name} of ${typeLabel(type)} is a search document, PostgreSQL's parse of its row's texts, which searchDocument's generation alone writes; it is ${w.kind}`
+			)
+		}
 		if (isInstantDesc(f.desc) && w.kind !== "caller") {
 			return fail(
 				"MalformedDescription",
