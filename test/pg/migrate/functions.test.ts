@@ -44,7 +44,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import {
 	callOf,
 	callsOf,
-	caseGen,
+	functionCaseSpace,
 	declaredBodies,
 	declaredNames,
 	declaredSignatures,
@@ -84,7 +84,7 @@ const plantNamed = {
 } as const
 
 /** Declared functions migrate, drift and grant as the snapshot says, their source byte for byte, and read no table. */
-export const declaredFunctions = property.explore(caseGen, {
+export const declaredFunctions = property.explore(functionCaseSpace, {
 	needs: { caseSubstrate: Substrate.installing },
 	situations: features satisfies ReadonlyArray<Reached<FunctionFeature>>,
 	budget: { runs: 24, steered: features.length },

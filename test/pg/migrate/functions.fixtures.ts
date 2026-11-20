@@ -1,7 +1,7 @@
 /** What the property of functions.test.ts reads: its space, the schemas a case installs, and the facts it reads back. */
 
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import { type Aimed, aimed, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
@@ -113,7 +113,7 @@ export type FunctionFeature =
 	| "a table read refused"
 	| "an SQL caller declared before its callee"
 
-export const caseGen: Gen<FunctionCase> = (source) => ({
+const drawnCaseGen: Gen<FunctionCase> = (source) => ({
 	level: source.draw(element(["root", "extension"] as const)),
 	first: {
 		kind: "declares",
@@ -123,6 +123,58 @@ export const caseGen: Gen<FunctionCase> = (source) => ({
 	change: source.draw(element(changes)),
 	plant: source.draw(element(functionPlants))
 })
+
+/** A drawn case whose second version removes its first function. */
+const removedGen: Gen<FunctionCase> = (source) => ({
+	...source.draw(drawnCaseGen),
+	change: "a function removed"
+})
+
+/**
+ * A drawn case whose second version changes its first heading, which its first version's two functions hold so: grade
+ * takes rows of it, and drawOf, which takes and returns a value, calls grade, so its body builds rows of the heading
+ * and names its row type, which its own signature reaches only through its callee's.
+ */
+const calleeHeadingGen: Gen<FunctionCase> = (source) => {
+	const drawn = source.draw(drawnCaseGen)
+	const grade: FunctionSketch = {
+		name: "grade",
+		args: [{ name: "program", type: { kind: "rows", heading: 0 } }],
+		returns: { kind: "value", type: "integer" },
+		volatility: "immutable",
+		language: source.draw(element(["plpgsql", "sql"] as const)),
+		spelling: source.draw(element(spellings)),
+		callsHelper: false,
+		callees: [],
+		names: []
+	}
+	const drawOf: FunctionSketch = {
+		name: "drawOf",
+		args: [{ name: "seed", type: { kind: "value", type: "integer" } }],
+		returns: { kind: "value", type: "integer" },
+		volatility: "stable",
+		language: source.draw(element(["plpgsql", "sql"] as const)),
+		spelling: source.draw(element(spellings)),
+		callsHelper: false,
+		callees: ["grade"],
+		names: [0]
+	}
+	return {
+		...drawn,
+		first: { ...drawn.first, functions: [grade, drawOf] },
+		change: "a heading"
+	}
+}
+
+/**
+ * A case's space: drawn whole, and aimed while pending at the two situations a drawn case seldom reaches, a second
+ * version that removes a function (removedGen) and a changed heading a body names through a callee alone
+ * (calleeHeadingGen), each drawn so it is reached.
+ */
+export const functionCaseSpace: Aimed<FunctionCase, FunctionFeature> = aimed(drawnCaseGen, [
+	["a change: a function removed", removedGen],
+	["a body naming a changed heading it takes no rows of", calleeHeadingGen]
+])
 
 /** The function the second version adds, which no first version declares. */
 const added: FunctionSketch = {
