@@ -18,7 +18,7 @@ import { compileSpans } from "#test/pg/spans/allen/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idDesc } from "#test/support/ids.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { type ScriptInstall, filledScriptTemplate } from "#test/support/script-template.ts"
 import { volumeFill } from "#test/support/substrate/fill.ts"
@@ -94,7 +94,7 @@ export const roomRule = (
 						bindings:
 							prefix === "by room"
 								? {
-										room: { kind: "param", name: "room", type: { kind: "uuid" } },
+										room: { kind: "param", name: "room", type: idDesc },
 										during: { kind: "var", var: "s" },
 										[outside]: { kind: "var", var: "o" }
 									}

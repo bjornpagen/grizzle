@@ -42,7 +42,7 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
-import { Id } from "#test/support/ids.ts"
+import { Id, idName } from "#test/support/ids.ts"
 import { installMigrated as install, loadMigrated as load } from "#test/support/install-migrate.ts"
 import { namesOf, parsedName, roleNamesOf } from "#test/support/kernel/naming.ts"
 import { checkedIn } from "#test/support/policy.ts"
@@ -205,9 +205,11 @@ export const derivedRelationsOnPostgreSQL19ARefinedTextLiteralColumnHasItsPatter
 								[]
 							)
 							const column = (field: string) => installed.names.column("Literals", field)
+							/** The id column's type: the tests' Id contract's domain (d4a2aaf70), which no collation refines. */
+							const idDomain = installed.names.contractDomain(parsedName(idName))
 							unorderedEqual(rows, [
 								[column("first"), typeOf(c.first), "pg_c_utf8"],
-								[column("id"), "uuid", "-"],
+								[column("id"), `${idDomain.schema}.${idDomain.name}`, "-"],
 								[column("second"), typeOf(c.second), "pg_c_utf8"]
 							])
 							yield* load(installed, {
