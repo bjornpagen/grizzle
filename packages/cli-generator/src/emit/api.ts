@@ -6,10 +6,12 @@ import {
 	Option,
 	Order,
 	Predicate,
+	Record,
 	Result,
-	Schema
+	String as Str,
+	pipe
 } from "effect"
-import type { Types } from "effect"
+import type { Schema } from "effect"
 import { isJsDocText } from "#emit/escape.ts"
 import type { JsDocText } from "#emit/escape.ts"
 import type { EmittedFile } from "#emit/package.ts"
@@ -119,8 +121,10 @@ type Defs = Readonly<Record<string, Schema.Json>>
 
 const fixedInputKeys: readonly string[] = ["body", "contentType"]
 
-// Segments of the modules every package has: `api/servers.ts`, `api/security.ts`, the root
-// commands' `api/root.ts` and `cli/root.ts`.
+/**
+ * Segments of the modules every package has: `api/servers.ts`, `api/security.ts`, the root
+ * commands' `api/root.ts` and `cli/root.ts`.
+ */
 const reservedSegments: ReadonlySet<string> = new Set(["root", "security", "servers"])
 
 /**
@@ -131,7 +135,7 @@ const reservedSegments: ReadonlySet<string> = new Set(["root", "security", "serv
 export const inputKeys = (operation: Operation): readonly InputKey[] => {
 	const taken = new Set(fixedInputKeys)
 
-	return operation.parameters.map((parameter) => {
+	return Arr.map(operation.parameters, (parameter) => {
 		const folded = foldIdentifier(parameter.wireName, "camel")
 		const base = Result.isSuccess(folded) ? folded.success.name : "parameter"
 		const key = taken.has(base) ? suffixed(base, (candidate) => taken.has(candidate)) : base
@@ -148,13 +152,14 @@ const refPrefix = "#/$defs/"
 const scalarTypes: ReadonlySet<string> = new Set(["boolean", "integer", "number", "string"])
 
 const own = (record: JsonNode, key: string): Schema.Json | undefined =>
-	Object.hasOwn(record, key) ? record[key] : undefined
+	Record.has(record, key) ? record[key] : undefined
 
-const isNode = (json: Schema.Json | undefined): json is JsonNode =>
-	Predicate.isObject(json) && !Array.isArray(json)
+const isNode = (json: Schema.Json | undefined): json is JsonNode => Predicate.isObject(json)
 
-// The node a schema reaches after its `$ref` chain through the store, or the key that does not
-// resolve; a chain back to a node it has passed is a cycle, which resolves to none, so it ends.
+/**
+ * The node a schema reaches after its `$ref` chain through the store, or the key that does not
+ * resolve; a chain back to a node it has passed is a cycle, which resolves to none, so it ends.
+ */
 const settle = (
 	defs: Defs,
 	start: Schema.Json | undefined,
@@ -171,34 +176,36 @@ const settle = (
 			return Result.succeed(current)
 		}
 
-		if (!Predicate.isString(ref) || !ref.startsWith(refPrefix)) {
+		if (!Predicate.isString(ref) || !Str.startsWith(refPrefix)(ref)) {
 			return Result.fail(key)
 		}
 
-		key = JsonPointer.unescapeToken(ref.slice(refPrefix.length))
+		key = JsonPointer.unescapeToken(Str.slice(refPrefix.length)(ref))
 		current = own(defs, key)
 	}
 
 	return Result.fail(key)
 }
 
-// A settled node's own `type` when it is one of the scalar types.
+/** A settled node's own `type` when it is one of the scalar types. */
 const scalarOf = (node: JsonNode): string | undefined => {
 	const type = own(node, "type")
 
 	return Predicate.isString(type) && scalarTypes.has(type) ? type : undefined
 }
 
-// Whether a parameter value is given once per item, and its scalar `type`, if it has one.
+/** Whether a parameter value is given once per item, and its scalar `type`, if it has one. */
 interface ScalarValue {
 	readonly array: boolean
 	readonly type: string | undefined
 }
 
-// How a stored parameter schema's value is given, through its `$ref` chain: whether it is an array,
-// and the scalar `type` of the schema, or of its `items` for an array. A type list, an untyped
-// schema and an array without `items` have no scalar type. The failure is the store key that does
-// not resolve.
+/**
+ * How a stored parameter schema's value is given, through its `$ref` chain: whether it is an array,
+ * and the scalar `type` of the schema, or of its `items` for an array. A type list, an untyped
+ * schema and an array without `items` have no scalar type. The failure is the store key that does
+ * not resolve.
+ */
 const scalarValueOf = (defs: Defs, key: string): Result.Result<ScalarValue, string> =>
 	Result.flatMap(settle(defs, own(defs, key), key), (node): Result.Result<ScalarValue, string> => {
 		if (own(node, "type") !== "array") {
@@ -245,7 +252,11 @@ const serialize = ident(fixedIdentifier("Serialize"))
 const fn = (name: string, args: readonly Expr[]) =>
 	call(member(serialize, fixedMemberName(name)), args)
 
-const strings = (values: readonly string[]) => arr(values.map(str))
+const strings = (values: readonly string[]) => arr(Arr.map(values, str))
+
+/** The `input` argument's member that holds an `Input` key. */
+const inputMember = (key: string): Effect.Effect<Expr, ApiEmitError> =>
+	Effect.map(memberName(key), (name) => member(ident(fixedIdentifier("input")), name))
 
 const optionalOf = (type: TypeExpr) => typeUnion([type, typeKeyword("undefined")])
 
@@ -280,12 +291,13 @@ const eventTableImport: Import = {
 	typeOnly: true
 }
 
-const essence = (mediaType: string): string => (mediaType.split(";")[0] ?? "").trim().toLowerCase()
+const essence = (mediaType: string): string =>
+	Str.toLowerCase(Str.trim(Arr.headNonEmpty(Str.split(";")(mediaType))))
 
-const isRange = (mediaType: string): boolean => essence(mediaType).endsWith("/*")
+const isRange = (mediaType: string): boolean => Str.endsWith("/*")(essence(mediaType))
 
 const mediaTypes = (alternatives: readonly MediaAlternative[]) =>
-	alternatives.map((alternative) => alternative.mediaType)
+	Arr.map(alternatives, (alternative) => alternative.mediaType)
 
 const refusedFieldsOf = (alternative: MediaAlternative): readonly string[] =>
 	alternative.refusedFields ?? []
@@ -296,13 +308,13 @@ const refusedFieldsOf = (alternative: MediaAlternative): readonly string[] =>
  * without a field refusal emits what it emitted before.
  */
 const refusedEntry = (alternatives: readonly MediaAlternative[]): Option.Option<Expr> => {
-	const listed = alternatives.filter((alternative) => refusedFieldsOf(alternative).length > 0)
+	const listed = Arr.filter(alternatives, (alternative) => refusedFieldsOf(alternative).length > 0)
 
 	return listed.length === 0
 		? Option.none()
 		: Option.some(
 				obj(
-					listed.map((alternative) => [
+					Arr.map(listed, (alternative) => [
 						alternative.mediaType,
 						strings(refusedFieldsOf(alternative))
 					])
@@ -460,28 +472,36 @@ const responseKey = (key: ResponseCase["key"]): string => {
 	return "code" in key ? String(key.code) : `${key.range}XX`
 }
 
-// The bracket convention option, `brackets: true`, for an entry the model marks (design 6.1);
-// nothing for an unmarked one, so it emits what it emitted before (C16).
+/**
+ * The bracket convention option, `brackets: true`, for an entry the model marks (design 6.1);
+ * nothing for an unmarked one, so it emits what it emitted before (C16).
+ */
 const brackets = (marker: EncodingRule["nonStandard"]): readonly (readonly [string, Expr])[] =>
 	marker === "deepObjectBrackets" ? [["brackets", bool(true)]] : []
 
-// The scalar switch's option, `scalars: true`, for an entry the model marks (design 6.1 Scalar
-// switch); nothing for an unmarked one (C16).
+/**
+ * The scalar switch's option, `scalars: true`, for an entry the model marks (design 6.1 Scalar
+ * switch); nothing for an unmarked one (C16).
+ */
 const scalars = (
 	marker: EncodingRule["nonStandardScalars"]
 ): readonly (readonly [string, Expr])[] =>
 	marker === "deepObjectScalars" ? [["scalars", bool(true)]] : []
 
 /**
+ * The list of the request a parameter's serializer call joins: its location's, and `query` for a
+ * `querystring` parameter.
+ */
+type ParameterList = "cookies" | "headers" | "path" | "query"
+
+/**
  * What one parameter adds to its operation's builder: the input field it reads, none for a
- * constant, and the serializer call of its location.
+ * constant, and the serializer call of its location, in the list it joins.
  */
 interface ParameterParts {
-	readonly cookie?: Expr
+	readonly call: Expr
 	readonly field: Option.Option<Field>
-	readonly header?: Expr
-	readonly path?: Expr
-	readonly query?: Expr
+	readonly list: ParameterList
 }
 
 const pathStyles: ReadonlySet<string> = new Set(["label", "matrix", "simple"])
@@ -498,11 +518,13 @@ interface ObjectSchemas {
 	readonly required: ReadonlySet<string>
 }
 
-// The properties and `required` names of an object root (a multipart or form body, a form
-// querystring): its own, then those of its `allOf` members, in document order, each node read once.
-const objectSchemas = (defs: Defs, key: string): ObjectSchemas => {
-	const properties = new Map<string, Schema.Json>()
-	const required = new Set<string>()
+/**
+ * The nodes of a stored schema and of its `allOf` members, each settled through its `$ref` chain:
+ * its own, then its members', in document order, each node read once. A member that does not
+ * resolve has none.
+ */
+const allOfNodes = (defs: Defs, key: string): readonly JsonNode[] => {
+	const nodes: JsonNode[] = []
 	const seen = new Set<JsonNode>()
 	const pending: (Schema.Json | undefined)[] = [own(defs, key)]
 	while (pending.length > 0) {
@@ -512,22 +534,41 @@ const objectSchemas = (defs: Defs, key: string): ObjectSchemas => {
 		}
 
 		seen.add(node.success)
+		nodes.push(node.success)
 
-		const declared = own(node.success, "properties")
-		for (const [name, schema] of isNode(declared) ? Object.entries(declared) : []) {
+		const members = own(node.success, "allOf")
+		const listed = Arr.isArray<Schema.Json | undefined>(members) ? Arr.filter(members, isNode) : []
+		for (const next of Arr.reverse(listed)) {
+			pending.push(next)
+		}
+	}
+
+	return nodes
+}
+
+/** The `allOf` nodes of a body alternative's schema (`allOfNodes`); none when it has no schema. */
+const bodyNodes = (defs: Defs, alternative: MediaAlternative): readonly JsonNode[] =>
+	alternative.schema === undefined ? [] : allOfNodes(defs, alternative.schema.key)
+
+/**
+ * The properties and `required` names of an object root (a multipart or form body, a form
+ * querystring) from its `allOf` nodes: its own, then those of its `allOf` members, in document
+ * order.
+ */
+const objectSchemas = (nodes: readonly JsonNode[]): ObjectSchemas => {
+	const properties = new Map<string, Schema.Json>()
+	const required = new Set<string>()
+	for (const node of nodes) {
+		const declared = own(node, "properties")
+		for (const [name, schema] of isNode(declared) ? Record.toEntries(declared) : []) {
 			if (!properties.has(name)) {
 				properties.set(name, schema)
 			}
 		}
 
-		const names = own(node.success, "required")
-		for (const name of Array.isArray(names) ? names.filter(Predicate.isString) : []) {
+		const names = own(node, "required")
+		for (const name of Arr.isArray(names) ? Arr.filter(names, Predicate.isString) : []) {
 			required.add(name)
-		}
-
-		const members: Schema.Json | undefined = own(node.success, "allOf")
-		if (Array.isArray(members)) {
-			pending.push(...Arr.reverse(members.filter(isNode)))
 		}
 	}
 
@@ -538,18 +579,23 @@ const cookieStyles: ReadonlySet<string> = new Set(["cookie", "form"])
 
 const headerStyles: ReadonlySet<string> = new Set(["simple"])
 
-// The styles each location's builder writes; a `querystring` parameter is written by content.
+/** The styles each location's builder writes; a `querystring` parameter is written by content. */
 const locationStyles: Readonly<
 	Record<Exclude<Parameter["location"], "querystring">, ReadonlySet<string>>
 > = { cookie: cookieStyles, header: headerStyles, path: pathStyles, query: queryStyles }
 
 const formMedia = "application/x-www-form-urlencoded"
 
-// The constructor that writes a `content` parameter in each location that takes one (PRM-15).
-const contentConstructors: Readonly<Partial<Record<Parameter["location"], string>>> = {
-	cookie: "cookieContent",
-	header: "headerContent",
-	query: "queryContent"
+/**
+ * The constructor that writes a `content` parameter in each location that takes one (PRM-15), and
+ * the list its call joins.
+ */
+const contentConstructors: Readonly<
+	Partial<Record<Parameter["location"], { readonly list: ParameterList; readonly writer: string }>>
+> = {
+	cookie: { list: "cookies", writer: "cookieContent" },
+	header: { list: "headers", writer: "headerContent" },
+	query: { list: "query", writer: "queryContent" }
 }
 
 /**
@@ -585,9 +631,21 @@ interface ParameterContext {
 	readonly memo: Map<string, boolean>
 }
 
-// A `querystring` parameter (design 6.1): its value is JSON data the runtime serializes by its one
-// media type. Form content declares the object's properties in document order, each with the
-// Encoding Object fields of its rule, as a form body's properties are (design 6.3).
+/** The type of a JSON value the runtime serializes, `Serialize.Json`. */
+const jsonType = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
+
+/** A parameter's field in its operation's `Input` type, optional when the parameter is. */
+const parameterField = (key: string, parameter: Parameter, type: TypeExpr): Field => ({
+	key,
+	optional: !parameter.required,
+	type: parameter.required ? type : optionalOf(type)
+})
+
+/**
+ * A `querystring` parameter (design 6.1): its value is JSON data the runtime serializes by its one
+ * media type. Form content declares the object's properties in document order, each with the
+ * Encoding Object fields of its rule, as a form body's properties are (design 6.3).
+ */
 const querystringParts = (
 	entry: InputKey,
 	defs: Defs
@@ -599,66 +657,50 @@ const querystringParts = (
 			return yield* refuse("unsupported-parameter", `querystring:${parameter.wireName}`)
 		}
 
-		const json = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
-		const field: Field = {
-			key,
-			optional: !parameter.required,
-			type: parameter.required ? json : optionalOf(json)
-		}
 		const { mediaType } = serialization
 		const options: (readonly [string, Expr])[] = [["required", bool(parameter.required)]]
 		if (essence(mediaType) === formMedia) {
-			const names = [...objectSchemas(defs, serialization.schema.key).properties.keys()]
-			const properties = yield* Effect.all(
-				names.map((name) =>
-					// oxlint-disable-next-line eslint/no-use-before-define -- the body encoders own it; called after load
-					formEncoding(serialization, name).pipe(
-						Effect.map((encoding) => arr([str(name), encoding]))
-					)
-				)
+			const properties = yield* formProperties(
+				serialization,
+				allOfNodes(defs, serialization.schema.key)
 			)
-			options.push(["properties", arr(properties)])
+			options.push(["properties", properties])
 		}
 
-		const value = member(ident(fixedIdentifier("input")), yield* memberName(key))
+		const value = yield* inputMember(key)
 
 		return {
-			field: Option.some(field),
-			query: fn("querystring", [str(parameter.wireName), str(mediaType), value, obj(options)])
+			call: fn("querystring", [str(parameter.wireName), str(mediaType), value, obj(options)]),
+			field: Option.some(parameterField(key, parameter, jsonType)),
+			list: "query"
 		}
 	})
 
-// A query, header or cookie `content` parameter (design 6.1): JSON data the runtime serializes by
-// its one media type, through the location's content constructor.
+/**
+ * A query, header or cookie `content` parameter (design 6.1): JSON data the runtime serializes by
+ * its one media type, through the location's content constructor.
+ */
 const contentParts = (entry: InputKey): Effect.Effect<ParameterParts, ApiEmitError> =>
 	Effect.gen(function* parts() {
 		const { key, parameter } = entry
 		const { location, serialization } = parameter
-		const writer = contentConstructors[location]
-		if (serialization.kind !== "content" || writer === undefined) {
+		const constructor = contentConstructors[location]
+		if (serialization.kind !== "content" || constructor === undefined) {
 			return yield* refuse("unsupported-parameter", `${location}:${parameter.wireName}`)
 		}
 
-		const json = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
-		const field: Field = {
-			key,
-			optional: !parameter.required,
-			type: parameter.required ? json : optionalOf(json)
-		}
-		const value = member(ident(fixedIdentifier("input")), yield* memberName(key))
-		const built = fn(writer, [
-			str(parameter.wireName),
-			str(serialization.mediaType),
-			value,
-			obj([["required", bool(parameter.required)]])
-		])
-		if (location === "query") {
-			return { field: Option.some(field), query: built }
-		}
+		const value = yield* inputMember(key)
 
-		return location === "header"
-			? { field: Option.some(field), header: built }
-			: { cookie: built, field: Option.some(field) }
+		return {
+			call: fn(constructor.writer, [
+				str(parameter.wireName),
+				str(serialization.mediaType),
+				value,
+				obj([["required", bool(parameter.required)]])
+			]),
+			field: Option.some(parameterField(key, parameter, jsonType)),
+			list: constructor.list
+		}
 	})
 
 /**
@@ -668,6 +710,13 @@ const contentParts = (entry: InputKey): Effect.Effect<ParameterParts, ApiEmitErr
 const constantExpr = (value: ConstantValue): Expr =>
 	typeof value === "boolean" ? bool(value) : str(typeof value === "number" ? String(value) : value)
 
+/**
+ * What one parameter adds to its operation's builder: a `querystring` or `content` parameter's
+ * parts are its own builder's, and any other's are its style's, as its location's serializer
+ * writes them. An object's value is JSON data, as a `content` parameter's is; the runtime refuses a
+ * member that is itself an object or array. A scalar-marked union is one JSON value too (design 6.1
+ * Scalar switch).
+ */
 const parameterParts = (
 	entry: InputKey,
 	context: ParameterContext
@@ -699,27 +748,18 @@ const parameterParts = (
 			return yield* refuse("unresolved-schema", array.failure)
 		}
 
-		// An object's value is JSON data, as a `content` parameter's is; the runtime refuses a member
-		// that is itself an object or array. A scalar-marked union is one JSON value too (design 6.1
-		// Scalar switch).
-		let valueType = typeKeyword(boolean.success ? "boolean" : "string")
-		if (serialization.objectValued || serialization.nonStandardScalars !== undefined) {
-			valueType = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])
-		} else if (array.success) {
-			valueType = typeReadonlyArray(typeKeyword("string"))
-		}
-
+		const scalarType = array.success
+			? typeReadonlyArray(typeKeyword("string"))
+			: typeKeyword(boolean.success ? "boolean" : "string")
+		const valueType =
+			serialization.objectValued || serialization.nonStandardScalars !== undefined
+				? jsonType
+				: scalarType
 		const constant = constantOf(defs, parameter)
 		const field: Option.Option<Field> = Option.isSome(constant)
 			? Option.none()
-			: Option.some({
-					key,
-					optional: !parameter.required,
-					type: parameter.required ? valueType : optionalOf(valueType)
-				})
-		const value = Option.isSome(constant)
-			? constantExpr(constant.value)
-			: member(ident(fixedIdentifier("input")), yield* memberName(key))
+			: Option.some(parameterField(key, parameter, valueType))
+		const value = Option.isSome(constant) ? constantExpr(constant.value) : yield* inputMember(key)
 		const { allowReserved, explode, style } = serialization
 		const wire = str(parameter.wireName)
 		const required = bool(parameter.required)
@@ -729,7 +769,7 @@ const parameterParts = (
 				["explode", bool(explode)]
 			])
 
-			return { field, path: fn(style, [wire, value, options]) }
+			return { call: fn(style, [wire, value, options]), field, list: "path" }
 		}
 
 		if (parameter.location === "query") {
@@ -741,7 +781,7 @@ const parameterParts = (
 				...scalars(serialization.nonStandardScalars)
 			])
 
-			return { field, query: fn(style, [wire, value, options]) }
+			return { call: fn(style, [wire, value, options]), field, list: "query" }
 		}
 
 		if (parameter.location === "header") {
@@ -750,7 +790,7 @@ const parameterParts = (
 				["required", required]
 			])
 
-			return { field, header: fn("header", [wire, value, options]) }
+			return { call: fn("header", [wire, value, options]), field, list: "headers" }
 		}
 
 		const options = obj([
@@ -761,7 +801,7 @@ const parameterParts = (
 			["style", str(style)]
 		])
 
-		return { cookie: fn("cookie", [wire, value, options]), field }
+		return { call: fn("cookie", [wire, value, options]), field, list: "cookies" }
 	})
 
 /**
@@ -876,6 +916,18 @@ interface OrderedPart extends FormPart {
 	readonly order: number
 }
 
+/** A nested part with its index among its part's nested rules. */
+interface NestedMember {
+	readonly order: number
+	readonly part: NestedFormPart
+}
+
+/** A part flag of a part nested by name, with the nested name its pointer's second token gives. */
+interface NestedFlag {
+	readonly flag: PartFlag
+	readonly nestedName: string
+}
+
 interface PartContext {
 	readonly alternative: MediaAlternative
 	readonly flags: readonly PlannedFlag[]
@@ -883,14 +935,31 @@ interface PartContext {
 	readonly schemas: ObjectSchemas
 }
 
-// The part option flag of kind `kind` (and header `header`) of the part at `pointer` under the
-// context's alternative.
+/** The unescaped tokens of a part flag's JSON Pointer: the part's name, then a nested part's. */
+const pointerTokens = (pointer: string): readonly string[] =>
+	Arr.map(Arr.drop(Str.split("/")(pointer), 1), JsonPointer.unescapeToken)
+
+/** The first of a part's rules that encodes the property `name`, with its index among them. */
+const ruleNamed = <Rule extends { readonly target: EncodingRule["target"] }>(
+	rules: readonly Rule[],
+	name: string
+): Option.Option<[Rule, number]> =>
+	Arr.findFirstWithIndex(
+		rules,
+		(rule) => rule.target.kind === "property" && rule.target.name === name
+	)
+
+/**
+ * The part option flag of kind `kind` (and header `header`) of the part at `pointer` under the
+ * context's alternative.
+ */
 const optionFlag = (
 	context: PartContext,
 	pointer: string,
 	matches: (option: PartOptionKind) => boolean
-): PlannedFlag | undefined =>
-	context.flags.find(
+): Option.Option<PlannedFlag> =>
+	Arr.findFirst(
+		context.flags,
 		({ source }) =>
 			source._tag === "PartOption" &&
 			source.part === pointer &&
@@ -898,18 +967,18 @@ const optionFlag = (
 			source.media.includes(context.alternative.mediaType)
 	)
 
-// The flag that chooses a part's `Content-Type` among `choices` under the context's alternative.
+/** The flag that chooses a part's `Content-Type` among `choices` under the context's alternative. */
 const choiceOf = (
 	context: PartContext,
 	pointer: string,
 	choices: readonly string[]
-): PartType | undefined => {
-	const flag = optionFlag(context, pointer, (option) => option.kind === "content-type")
+): Option.Option<PartType> =>
+	Option.map(
+		optionFlag(context, pointer, (option) => option.kind === "content-type"),
+		(flag): PartType => ({ _tag: "Chosen", choices, flag })
+	)
 
-	return flag === undefined ? undefined : { _tag: "Chosen", choices, flag }
-}
-
-// Each declared header of a part with its `--<part>-<header>` flag, or the first header with none.
+/** Each declared header of a part with its `--<part>-<header>` flag, or the first header with none. */
 const headersOf = (
 	context: PartContext,
 	pointer: string,
@@ -922,33 +991,33 @@ const headersOf = (
 			pointer,
 			(option) => option.kind === "header" && option.name === header.name
 		)
-		if (flag === undefined) {
+		if (Option.isNone(flag)) {
 			return Result.fail(`a flag for header ${header.name} of multipart part ${pointer}`)
 		}
 
-		headers.push({ flag, header })
+		headers.push({ flag: flag.value, header })
 	}
 
 	return Result.succeed(headers)
 }
 
-// The reason a body's multipart alternative is not one the writer sends, or `undefined`.
-const alternativeProblem = (alternative: MediaAlternative): string | undefined => {
+/** The reason a body's multipart alternative is not one the writer sends, if it is not. */
+const alternativeProblem = (alternative: MediaAlternative): Option.Option<string> => {
 	const { mediaType } = alternative
 	if (isRange(mediaType) || essence(mediaType) !== "multipart/form-data") {
-		return `a ${mediaType} request body`
+		return Option.some(`a ${mediaType} request body`)
 	}
 
 	const positional =
 		alternative.itemSchema !== undefined ||
 		alternative.itemEncoding !== undefined ||
 		alternative.prefixEncoding.length > 0 ||
-		alternative.encoding.some((rule) => rule.target.kind === "position")
+		Arr.some(alternative.encoding, (rule) => rule.target.kind === "position")
 
-	return positional ? `positional parts of ${mediaType}` : undefined
+	return positional ? Option.some(`positional parts of ${mediaType}`) : Option.none()
 }
 
-// The kind of nested body a part's one Encoding `contentType` names, if the writer nests it.
+/** The kind of nested body a part's one Encoding `contentType` names, if the writer nests it. */
 const nestedKind = (contentType: readonly string[]): NestedParts["kind"] | undefined => {
 	const [only, ...more] = contentType
 	const named = only === undefined || more.length > 0 ? undefined : essence(only)
@@ -961,8 +1030,10 @@ const nestedKind = (contentType: readonly string[]): NestedParts["kind"] | undef
 
 type NestedRule = NonNullable<EncodingRule["nested"]>[number]
 
-// The one concrete type a nested rule gives its nested part, or the reason the writer cannot send
-// it: a nested part has no part headers, no style but exploded `form`, and one listed type.
+/**
+ * The one concrete type a nested rule gives its nested part, or the reason the writer cannot send
+ * it: a nested part has no part headers, no style but exploded `form`, and one listed type.
+ */
 const nestedType = (rule: NestedRule, subject: string): Result.Result<string, string> => {
 	if (rule.headers.length > 0) {
 		return Result.fail(`part headers of ${subject}`)
@@ -973,22 +1044,24 @@ const nestedType = (rule: NestedRule, subject: string): Result.Result<string, st
 	}
 
 	const [only, ...more] = rule.contentType
-	if (only === undefined || more.length > 0 || only.includes("*")) {
+	if (only === undefined || more.length > 0 || Str.includes("*")(only)) {
 		return Result.fail(`one content type for ${subject}`)
 	}
 
 	return Result.succeed(only)
 }
 
-// Whether a part's rule nests by position: a nested `prefixEncoding` or `itemEncoding`.
+/** Whether a part's rule nests by position: a nested `prefixEncoding` or `itemEncoding`. */
 const nestsByPosition = (rule: EncodingRule): boolean =>
 	rule.nestedItem !== undefined ||
-	(rule.nested ?? []).some((nested) => nested.target.kind === "position")
+	Arr.some(rule.nested ?? [], (nested) => nested.target.kind === "position")
 
-// A part nested by position (design 6.3, HT:B16, ENC-08, ENC-09): its Encoding `contentType` is one
-// `multipart/mixed`, whose parts need no name (form-data would), it declares no part header or
-// transfer encoding and does not also nest by name, and each nested position rule gives one
-// concrete type. Its flag is the part's repeated file flag. Refused otherwise.
+/**
+ * A part nested by position (design 6.3, HT:B16, ENC-08, ENC-09): its Encoding `contentType` is one
+ * `multipart/mixed`, whose parts need no name (form-data would), it declares no part header or
+ * transfer encoding and does not also nest by name, and each nested position rule gives one
+ * concrete type. Its flag is the part's repeated file flag. Refused otherwise.
+ */
 const positionalPartOf = (
 	flag: PartFlag,
 	name: string,
@@ -1007,7 +1080,7 @@ const positionalPartOf = (
 	}
 
 	const nested = rule.nested ?? []
-	if (nested.some((candidate) => candidate.target.kind === "property")) {
+	if (Arr.some(nested, (candidate) => candidate.target.kind === "property")) {
 		return Result.fail(`nested parts by name and by position in multipart part ${pointer}`)
 	}
 
@@ -1039,48 +1112,46 @@ const positionalPartOf = (
 	})
 }
 
-// One part flag's part, with the index of its Encoding rule, or the reason it is refused.
-const partOf = (flag: PartFlag, context: PartContext): Result.Result<OrderedPart, string> => {
-	const { alternative } = context
+/**
+ * One part flag's part, the part `name`, with the index of its Encoding rule, or the reason it is
+ * refused. A part nested by name is an object part whose nested parts have the flags
+ * (`nestedPartOf`). A style the writer sends (ENC-40) arrives typed `text/plain`; normalize refuses
+ * any other, and the names plan gives that part no flag.
+ */
+const partOf = (
+	flag: PartFlag,
+	name: string,
+	context: PartContext
+): Result.Result<OrderedPart, string> => {
 	const pointer = flag.source.wireName
-	const [name, ...rest] = pointer.split("/").slice(1).map(JsonPointer.unescapeToken)
-	if (name === undefined || rest.length > 0) {
-		return Result.fail(`the nested multipart part ${pointer}`)
-	}
-
-	const order = alternative.encoding.findIndex(
-		(candidate) => candidate.target.kind === "property" && candidate.target.name === name
-	)
-	const rule = alternative.encoding[order]
-	if (rule === undefined) {
+	const found = ruleNamed(context.alternative.encoding, name)
+	if (Option.isNone(found)) {
 		return Result.fail(`an encoding for multipart part ${pointer}`)
 	}
 
+	const [rule, order] = found.value
 	if (nestsByPosition(rule)) {
 		return positionalPartOf(flag, name, rule, order)
 	}
 
-	// A part nested by name is an object part whose nested parts have the flags (`nestedPartOf`).
 	if (rule.nested !== undefined) {
 		return Result.fail(`nested parts in multipart part ${pointer}`)
 	}
 
-	// A style the writer sends (ENC-40) arrives typed `text/plain`; normalize refuses any other, and
-	// the names plan gives that part no flag.
 	if (rule.serialization !== undefined && !sendsFormPairs(rule.serialization)) {
 		return Result.fail(`a style for multipart part ${pointer}`)
 	}
 
 	const [first] = rule.contentType
-	if (first === undefined || rule.contentType.some((type) => type.includes("*"))) {
+	if (first === undefined || Arr.some(rule.contentType, Str.includes("*"))) {
 		return Result.fail(`one content type for multipart part ${pointer}`)
 	}
 
-	const contentType: PartType | undefined =
+	const contentType =
 		rule.contentType.length === 1
-			? { _tag: "Declared", mediaType: first }
+			? Option.some<PartType>({ _tag: "Declared", mediaType: first })
 			: choiceOf(context, pointer, rule.contentType)
-	if (contentType === undefined) {
+	if (Option.isNone(contentType)) {
 		return Result.fail(`a content type flag for multipart part ${pointer}`)
 	}
 
@@ -1090,74 +1161,67 @@ const partOf = (flag: PartFlag, context: PartContext): Result.Result<OrderedPart
 	}
 
 	const key = context.keys.get(name)
-	const keyed = contentType._tag === "Chosen" || headers.success.length > 0
+	const keyed = contentType.value._tag === "Chosen" || headers.success.length > 0
 	if (keyed && key === undefined) {
 		return Result.fail(`a form key for multipart part ${pointer}`)
 	}
 
-	const part: Types.Mutable<OrderedPart> = {
-		contentType,
+	return Result.succeed({
+		contentType: contentType.value,
 		flag,
 		headers: headers.success,
 		name,
-		order
-	}
-	if (keyed && key !== undefined) {
-		part.key = key
-	}
-
-	if (rule.contentEncoding !== undefined) {
-		part.contentEncoding = rule.contentEncoding
-	}
-
-	return Result.succeed(part)
+		order,
+		...(keyed && key !== undefined ? { key } : {}),
+		...(rule.contentEncoding === undefined ? {} : { contentEncoding: rule.contentEncoding })
+	})
 }
 
-const byOrder = Order.mapInput(Order.Number, (part: OrderedPart) => part.order)
+const byOrder = Order.mapInput(Order.Number, (entry: { readonly order: number }) => entry.order)
 
-// One nested part's flag with its nested name and the one concrete type its nested rule gives, and
-// its index among the nested rules, or the reason the writer cannot send it.
+/**
+ * One nested part's flag with its nested name and the one concrete type its nested rule gives, and
+ * its index among the nested rules, or the reason the writer cannot send it.
+ */
 const nestedMemberOf = (
-	flag: PartFlag,
-	nestedName: string,
-	rule: EncodingRule
-): Result.Result<{ readonly order: number; readonly part: NestedFormPart }, string> => {
+	nestedFlag: NestedFlag,
+	rules: readonly NestedRule[]
+): Result.Result<NestedMember, string> => {
+	const { flag, nestedName } = nestedFlag
 	const pointer = flag.source.wireName
-	const nested = rule.nested ?? []
-	const order = nested.findIndex(
-		(candidate) => candidate.target.kind === "property" && candidate.target.name === nestedName
-	)
-	const memberRule = nested[order]
-	if (memberRule === undefined) {
+	const found = ruleNamed(rules, nestedName)
+	if (Option.isNone(found)) {
 		return Result.fail(`an encoding for nested multipart part ${pointer}`)
 	}
 
-	const type = nestedType(memberRule, `nested multipart part ${pointer}`)
-	if (Result.isFailure(type)) {
-		return Result.fail(type.failure)
-	}
+	const [rule, order] = found.value
 
-	return Result.succeed({ order, part: { contentType: type.success, flag, name: nestedName } })
+	return Result.map(nestedType(rule, `nested multipart part ${pointer}`), (contentType) => ({
+		order,
+		part: { contentType, flag, name: nestedName }
+	}))
 }
 
-// A part nested by name (design 6.3, HT:B16, ENC-07): its Encoding `contentType` is one
-// `multipart/mixed` or `multipart/form-data`, it declares no part header or transfer encoding, and
-// each nested part with a flag has one concrete type and no part header. Refused otherwise.
+/**
+ * A part nested by name (design 6.3, HT:B16, ENC-07): its Encoding `contentType` is one
+ * `multipart/mixed` or `multipart/form-data`, it declares no part header or transfer encoding, and
+ * each nested part with a flag has one concrete type and no part header. Refused otherwise. Its
+ * flag is the first of its nested parts' flags in nested rule order.
+ */
 const nestedPartOf = (
 	name: string,
-	flags: readonly PartFlag[],
+	members: Arr.NonEmptyReadonlyArray<NestedFlag>,
 	context: PartContext
 ): Result.Result<OrderedPart, string> => {
-	const { alternative } = context
 	const pointer = formatPointer([name])
-	const order = alternative.encoding.findIndex(
-		(candidate) => candidate.target.kind === "property" && candidate.target.name === name
+	const found = Option.flatMap(ruleNamed(context.alternative.encoding, name), ([rule, order]) =>
+		rule.nested === undefined ? Option.none() : Option.some({ nested: rule.nested, order, rule })
 	)
-	const rule = alternative.encoding[order]
-	if (rule?.nested === undefined) {
+	if (Option.isNone(found)) {
 		return Result.fail(`an encoding for nested multipart part ${pointer}`)
 	}
 
+	const { nested, order, rule } = found.value
 	const kind = nestedKind(rule.contentType)
 	const [contentType] = rule.contentType
 	if (kind === undefined || contentType === undefined) {
@@ -1168,29 +1232,16 @@ const nestedPartOf = (
 		return Result.fail(`part headers of multipart part ${pointer}, which nests parts`)
 	}
 
-	const members: { readonly order: number; readonly part: NestedFormPart }[] = []
-	for (const flag of flags) {
-		const [, nestedName] = flag.source.wireName.split("/").slice(1).map(JsonPointer.unescapeToken)
-		const built = nestedName === undefined ? undefined : nestedMemberOf(flag, nestedName, rule)
-		if (built === undefined || Result.isFailure(built)) {
-			return Result.fail(built?.failure ?? `the nested multipart part ${flag.source.wireName}`)
-		}
-
-		members.push(built.success)
+	const built = Result.all(Arr.map(members, (entry) => nestedMemberOf(entry, nested)))
+	if (Result.isFailure(built)) {
+		return Result.fail(built.failure)
 	}
 
-	const parts = Arr.sort(
-		members,
-		Order.mapInput(Order.Number, (entry: (typeof members)[number]) => entry.order)
-	).map(({ part }) => part)
-	const [first] = parts
-	if (first === undefined) {
-		return Result.fail(`a flag for nested multipart part ${pointer}`)
-	}
+	const parts = Arr.map(Arr.sort(built.success, byOrder), ({ part }) => part)
 
 	return Result.succeed({
 		contentType: { _tag: "Declared", mediaType: contentType },
-		flag: first.flag,
+		flag: Arr.headNonEmpty(parts).flag,
 		headers: [],
 		name,
 		nested: { kind, parts },
@@ -1217,34 +1268,36 @@ export const formParts = (
 	defs: Defs
 ): Result.Result<readonly FormPart[], string> => {
 	const problem = alternativeProblem(alternative)
-	if (problem !== undefined) {
-		return Result.fail(problem)
+	if (Option.isSome(problem)) {
+		return Result.fail(problem.value)
 	}
 
-	const key = alternative.schema?.key ?? ""
 	const context: PartContext = {
 		alternative,
 		flags: command.flags,
 		keys: keyedPartKeys(command.operation),
-		schemas: objectSchemas(defs, key)
+		schemas: objectSchemas(bodyNodes(defs, alternative))
 	}
 	const parts: OrderedPart[] = []
-	const nested = new Map<string, PartFlag[]>()
+	const nested = new Map<string, Arr.NonEmptyReadonlyArray<NestedFlag>>()
 	for (const flag of command.flags) {
 		if (!isPartFlag(flag, alternative.mediaType)) {
 			continue
 		}
 
-		const [name, nestedName, ...rest] = flag.source.wireName
-			.split("/")
-			.slice(1)
-			.map(JsonPointer.unescapeToken)
-		if (name !== undefined && nestedName !== undefined && rest.length === 0) {
-			nested.set(name, [...(nested.get(name) ?? []), flag])
+		const [name, nestedName, ...rest] = pointerTokens(flag.source.wireName)
+		if (name === undefined || rest.length > 0) {
+			return Result.fail(`the nested multipart part ${flag.source.wireName}`)
+		}
+
+		if (nestedName !== undefined) {
+			const entry: NestedFlag = { flag, nestedName }
+			const prior = nested.get(name)
+			nested.set(name, prior === undefined ? [entry] : Arr.append(prior, entry))
 			continue
 		}
 
-		const part = partOf(flag, context)
+		const part = partOf(flag, name, context)
 		if (Result.isFailure(part)) {
 			return Result.fail(part.failure)
 		}
@@ -1252,8 +1305,8 @@ export const formParts = (
 		parts.push(part.success)
 	}
 
-	for (const [name, flags] of nested) {
-		const part = nestedPartOf(name, flags, context)
+	for (const [name, members] of nested) {
+		const part = nestedPartOf(name, members, context)
 		if (Result.isFailure(part)) {
 			return Result.fail(part.failure)
 		}
@@ -1261,13 +1314,13 @@ export const formParts = (
 		parts.push(part.success)
 	}
 
-	const sent = new Set(parts.map((part) => part.name))
-	const missing = [...context.schemas.required].find((name) => !sent.has(name))
-	if (missing !== undefined) {
-		return Result.fail(`a flag for multipart part ${formatPointer([missing])}`)
+	const sent = new Set(Arr.map(parts, (part) => part.name))
+	const missing = Arr.findFirst(context.schemas.required, (name) => !sent.has(name))
+	if (Option.isSome(missing)) {
+		return Result.fail(`a flag for multipart part ${formatPointer([missing.value])}`)
 	}
 
-	return Result.succeed(Arr.sort(parts, byOrder).map(({ order: _order, ...part }) => part))
+	return Result.succeed(Arr.map(Arr.sort(parts, byOrder), ({ order: _order, ...part }) => part))
 }
 
 /**
@@ -1290,80 +1343,41 @@ export interface MixedPlan {
 	readonly prefix: readonly PositionRule[]
 }
 
-// One position rule the writer sends exactly, or the reason it does not.
+/**
+ * One position rule the writer sends exactly, or the reason it does not: a rule that does not nest,
+ * giving the one concrete type a nested rule would (`nestedType`), whose part headers are named
+ * before its nesting.
+ */
 const positionRule = (rule: EncodingRule, index: number): Result.Result<PositionRule, string> => {
 	const at = `positional part ${index + 1}`
-	if (rule.headers.length > 0) {
-		return Result.fail(`part headers of ${at}`)
-	}
-
-	if (rule.nested !== undefined) {
+	if (rule.nested !== undefined && rule.headers.length === 0) {
 		return Result.fail(`nested parts in ${at}`)
 	}
 
-	if (rule.serialization !== undefined && !sendsFormPairs(rule.serialization)) {
-		return Result.fail(`a style for ${at}`)
-	}
-
-	const [only, ...more] = rule.contentType
-	if (only === undefined || more.length > 0 || only.includes("*")) {
-		return Result.fail(`one content type for ${at}`)
-	}
-
-	return Result.succeed(
+	return Result.map(nestedType(rule, at), (contentType) =>
 		rule.contentEncoding === undefined
-			? { contentType: only }
-			: { contentEncoding: rule.contentEncoding, contentType: only }
+			? { contentType }
+			: { contentEncoding: rule.contentEncoding, contentType }
 	)
 }
 
-interface PartBounds {
-	maxParts?: number
-	minParts?: number
-}
+/**
+ * The part count bounds of a positional body's array schema, from its `allOf` nodes: the tightest
+ * `minItems` and `maxItems`, and `items: false`, which admits no part beyond `prefixItems`.
+ */
+const partBounds = (nodes: readonly JsonNode[]): Pick<MixedPlan, "maxParts" | "minParts"> => {
+	const maxima = Arr.flatMap(nodes, ({ items, maxItems, prefixItems }) => [
+		...(Predicate.isNumber(maxItems) ? [maxItems] : []),
+		...(items === false ? [Arr.isArray(prefixItems) ? prefixItems.length : 0] : [])
+	])
+	const minima = Arr.flatMap(nodes, ({ minItems }) =>
+		Predicate.isNumber(minItems) ? [minItems] : []
+	)
 
-// The part count bounds of a positional body's array schema, from its own node and its `allOf`
-// members: the tightest `minItems` and `maxItems`, and `items: false`, which admits no part beyond
-// `prefixItems`.
-const partBounds = (defs: Defs, key: string | undefined): PartBounds => {
-	const bounds: PartBounds = {}
-	const seen = new Set<JsonNode>()
-	const pending: (Schema.Json | undefined)[] = key === undefined ? [] : [own(defs, key)]
-	const tighten = (
-		field: keyof PartBounds,
-		value: number,
-		pick: (a: number, b: number) => number
-	) => {
-		const known = bounds[field]
-		bounds[field] = known === undefined ? value : pick(known, value)
+	return {
+		...(Arr.isReadonlyArrayNonEmpty(maxima) ? { maxParts: Arr.min(maxima, Order.Number) } : {}),
+		...(Arr.isReadonlyArrayNonEmpty(minima) ? { minParts: Arr.max(minima, Order.Number) } : {})
 	}
-	while (pending.length > 0) {
-		const node = settle(defs, pending.pop(), key ?? "")
-		if (Result.isFailure(node) || seen.has(node.success)) {
-			continue
-		}
-
-		seen.add(node.success)
-
-		const { allOf, items, maxItems, minItems, prefixItems } = node.success
-		if (Predicate.isNumber(maxItems)) {
-			tighten("maxParts", maxItems, Math.min)
-		}
-
-		if (Predicate.isNumber(minItems)) {
-			tighten("minParts", minItems, Math.max)
-		}
-
-		if (items === false) {
-			tighten("maxParts", Array.isArray(prefixItems) ? prefixItems.length : 0, Math.min)
-		}
-
-		if (Array.isArray(allOf)) {
-			pending.push(...Arr.reverse(allOf.filter(isNode)))
-		}
-	}
-
-	return bounds
 }
 
 /**
@@ -1386,17 +1400,16 @@ export const mixedParts = (
 		prefix.push(built.success)
 	}
 
-	const plan: Types.Mutable<MixedPlan> = { ...partBounds(defs, alternative.schema?.key), prefix }
-	if (alternative.itemEncoding !== undefined) {
-		const item = positionRule(alternative.itemEncoding, prefix.length)
-		if (Result.isFailure(item)) {
-			return Result.fail(item.failure)
-		}
-
-		plan.item = item.success
+	const bounds = partBounds(bodyNodes(defs, alternative))
+	if (alternative.itemEncoding === undefined) {
+		return Result.succeed({ ...bounds, prefix })
 	}
 
-	return Result.succeed(plan)
+	return Result.map(positionRule(alternative.itemEncoding, prefix.length), (item) => ({
+		...bounds,
+		item,
+		prefix
+	}))
 }
 
 const positionEntry = (rule: PositionRule): Expr =>
@@ -1413,40 +1426,54 @@ interface BodyParts {
 	readonly fields: readonly Field[]
 }
 
-// One form-urlencoded property's Encoding Object fields: those its rule sets, `style` only when a
-// query style (design 6.3). An explicit Encoding `contentType` has no runtime input yet.
+/**
+ * One form-urlencoded property's Encoding Object fields: those its rule sets, `style` only when a
+ * query style (design 6.3); none for a property with no rule. An explicit Encoding `contentType`
+ * has no runtime input yet.
+ */
 const formEncoding = (
 	alternative: Pick<MediaAlternative, "encoding" | "mediaType">,
 	name: string
-): Effect.Effect<Expr, ApiEmitError> => {
-	const rule = alternative.encoding.find(
-		(candidate) => candidate.target.kind === "property" && candidate.target.name === name
+): Effect.Effect<Expr, ApiEmitError> =>
+	Option.match(ruleNamed(alternative.encoding, name), {
+		onNone: () => Effect.succeed(obj([])),
+		onSome: ([rule]) => {
+			const { serialization } = rule
+			const style = serialization?.style
+			if (style !== undefined && !queryStyles.has(style)) {
+				return Effect.fail(refuse("unsupported-encoding", `${alternative.mediaType}:${name}`))
+			}
+
+			return Effect.succeed(
+				obj([
+					...(serialization?.allowReserved === undefined
+						? []
+						: ([["allowReserved", bool(serialization.allowReserved)]] as const)),
+					...brackets(rule.nonStandard),
+					...(serialization?.explode === undefined
+						? []
+						: ([["explode", bool(serialization.explode)]] as const)),
+					...scalars(rule.nonStandardScalars),
+					...(style === undefined ? [] : ([["style", str(style)]] as const))
+				])
+			)
+		}
+	})
+
+/**
+ * The `properties` option of a form object (design 6.3): each property of its object root, from
+ * its `allOf` nodes in document order, with the Encoding Object fields of its rule.
+ */
+const formProperties = (
+	alternative: Pick<MediaAlternative, "encoding" | "mediaType">,
+	nodes: readonly JsonNode[]
+): Effect.Effect<Expr, ApiEmitError> =>
+	Effect.map(
+		Effect.forEach(objectSchemas(nodes).properties.keys(), (name) =>
+			Effect.map(formEncoding(alternative, name), (encoding) => arr([str(name), encoding]))
+		),
+		arr
 	)
-	const serialization = rule?.serialization
-	const entries: (readonly [string, Expr])[] = []
-	if (serialization?.allowReserved !== undefined) {
-		entries.push(["allowReserved", bool(serialization.allowReserved)])
-	}
-
-	entries.push(...brackets(rule?.nonStandard))
-
-	if (serialization?.explode !== undefined) {
-		entries.push(["explode", bool(serialization.explode)])
-	}
-
-	entries.push(...scalars(rule?.nonStandardScalars))
-
-	const style = serialization?.style
-	if (style !== undefined && !queryStyles.has(style)) {
-		return Effect.fail(refuse("unsupported-encoding", `${alternative.mediaType}:${name}`))
-	}
-
-	if (style !== undefined) {
-		entries.push(["style", str(style)])
-	}
-
-	return Effect.succeed(obj(entries))
-}
 
 /**
  * Whether a body with several media alternatives is encoded per alternative: one of them is form
@@ -1456,29 +1483,46 @@ const formEncoding = (
  */
 export const encodesByKey = (alternatives: readonly MediaAlternative[]): boolean =>
 	alternatives.length > 1 &&
-	alternatives.some(
+	Arr.some(
+		alternatives,
 		(alternative) => alternative.codec === "form" || alternative.codec === "multipart"
 	)
 
-// How one alternative's body value is typed and sent: `encode` takes the value and the
-// `Content-Type` expressions; `typed` is whether it reads the second; `declarations` declare the
-// value's type when the encoder names one.
+/**
+ * How one alternative's body value is typed and sent: `encode` takes the value and the
+ * `Content-Type` expressions; `typed` is whether it reads the second; `declarations` declare the
+ * value's type when the encoder names one.
+ */
 interface Encoder {
-	readonly declarations?: readonly Statement[]
+	readonly declarations: readonly Statement[]
 	readonly encode: (value: Expr, contentType: Expr) => Expr
 	readonly type: TypeExpr
 	readonly typed: boolean
 }
 
 const bytesEncoder: Encoder = {
+	declarations: [],
 	encode: (value, contentType) => fn("body", [contentType, value]),
 	type: typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Body")]),
 	typed: true
 }
 
-// A positional `multipart/mixed` body's encoder (HT:B15): its part bodies in order, sent by
-// `Serialize.mixed` under the position rules and the schema's count bounds, or none when the writer
-// cannot send the rules exactly.
+/**
+ * What a body's encoders are built from: its command, the schema store, the operation's media
+ * declaration, and the body's `required` mark as the builder passes it.
+ */
+interface EncoderContext {
+	readonly command: PlannedCommand
+	readonly defs: Defs
+	readonly media: Identifier
+	readonly required: Expr
+}
+
+/**
+ * A positional `multipart/mixed` body's encoder (HT:B15): its part bodies in order, sent by
+ * `Serialize.mixed` under the position rules and the schema's count bounds, or none when the writer
+ * cannot send the rules exactly.
+ */
 const mixedEncoder = (
 	alternative: MediaAlternative,
 	defs: Defs,
@@ -1494,20 +1538,23 @@ const mixedEncoder = (
 		...(item === undefined ? [] : ([["itemEncoding", positionEntry(item)]] as const)),
 		...(maxParts === undefined ? [] : ([["maxParts", num(maxParts)]] as const)),
 		...(minParts === undefined ? [] : ([["minParts", num(minParts)]] as const)),
-		["prefixEncoding", arr(prefix.map(positionEntry))],
+		["prefixEncoding", arr(Arr.map(prefix, positionEntry))],
 		["required", required]
 	])
 
 	return Option.some<Encoder>({
+		declarations: [],
 		encode: (value) => fn("mixed", [value, options]),
 		type: typeRef(fixedIdentifier("Serialize"), [fixedMemberName("MixedParts")]),
 		typed: false
 	})
 }
 
-// A nesting part's `Serialize.FormPartEntry` rule: a by-name part's `NestedForm`, its nested
-// parts' names and types, or a by-position part's `PositionalForm`, its flag and position types
-// (HT:B16); none for a part that does not nest.
+/**
+ * A nesting part's `Serialize.FormPartEntry` rule: a by-name part's `NestedForm`, its nested
+ * parts' names and types, or a by-position part's `PositionalForm`, its flag and position types
+ * (HT:B16); none for a part that does not nest.
+ */
 const nestingForm = (part: Pick<FormPart, "flag" | "nested" | "positions">): Expr | undefined => {
 	if (part.positions !== undefined) {
 		const { item, positions } = part.positions
@@ -1516,7 +1563,7 @@ const nestingForm = (part: Pick<FormPart, "flag" | "nested" | "positions">): Exp
 			["flag", str(part.flag.name)],
 			...(item === undefined ? [] : ([["item", str(item)]] as const)),
 			["kind", str("mixed")],
-			["positions", arr(positions.map((type) => str(type)))]
+			["positions", arr(Arr.map(positions, (type) => str(type)))]
 		])
 	}
 
@@ -1526,37 +1573,35 @@ const nestingForm = (part: Pick<FormPart, "flag" | "nested" | "positions">): Exp
 				["kind", str(part.nested.kind)],
 				[
 					"parts",
-					arr(part.nested.parts.map((inner) => arr([str(inner.name), str(inner.contentType)])))
+					arr(Arr.map(part.nested.parts, (inner) => arr([str(inner.name), str(inner.contentType)])))
 				]
 			])
 }
 
-// One alternative's encoder (design 4.5, 6.3). A form body is its JSON value, or `undefined` for
-// no body input, encoded by `Serialize.urlEncoded` over the schema's properties in document order;
-// a form alternative with refused fields passes its operation's `media` declaration's `refused`
-// list, the one list `--describe` also reads (design 8.5 rule 6).
-// A multipart body the writer can send is its part values, streamed by `Serialize.formData`. Any
-// other body is an `HttpBody` that `Serialize.body` sends. A multipart body the writer cannot send
-// has no encoder (`None`); `cli/` refuses its operation. A multipart body with a chosen part type is
-// the `formName` interface.
+/**
+ * One alternative's encoder (design 4.5, 6.3). A form body is its JSON value, or `undefined` for
+ * no body input, encoded by `Serialize.urlEncoded` over the schema's properties in document order;
+ * a form alternative with refused fields passes its operation's `media` declaration's `refused`
+ * list, the one list `--describe` also reads (design 8.5 rule 6). A positional multipart body is
+ * its parts' bytes in order, streamed by `Serialize.mixed`. Any other multipart body the writer can
+ * send is its part values, streamed by `Serialize.formData`: a keyed part travels with its type and
+ * header values in the form, so a part not sent has no type or header to give (ENC-10, ENC-03),
+ * and a chosen type's union is its own alias, named after the form and the part's key, so the field
+ * line stays short however many types it lists. Any other body is an `HttpBody` that
+ * `Serialize.body` sends. A multipart body the writer cannot send has no encoder (`None`); `cli/`
+ * refuses its operation. A multipart body with a chosen part type is the `formName` interface.
+ */
 const encoderOf = (
-	command: PlannedCommand,
+	context: EncoderContext,
 	alternative: MediaAlternative,
-	defs: Defs,
-	formName: string,
-	media: Identifier
+	formName: string
 ): Effect.Effect<Option.Option<Encoder>, ApiEmitError> =>
 	Effect.gen(function* encoder() {
-		const required = bool(command.operation.body?.required ?? false)
+		const { command, defs, media, required } = context
 		if (alternative.codec === "form" && !isRange(alternative.mediaType)) {
-			const names = [...objectSchemas(defs, alternative.schema?.key ?? "").properties.keys()]
-			const properties = yield* Effect.all(
-				names.map((name) =>
-					formEncoding(alternative, name).pipe(Effect.map((encoding) => arr([str(name), encoding])))
-				)
-			)
+			const properties = yield* formProperties(alternative, bodyNodes(defs, alternative))
 			const options = obj([
-				["properties", arr(properties)],
+				["properties", properties],
 				...(refusedFieldsOf(alternative).length > 0
 					? ([["refused", member(ident(media), fixedMemberName("refused"))]] as const)
 					: []),
@@ -1564,8 +1609,9 @@ const encoderOf = (
 			])
 
 			return Option.some<Encoder>({
+				declarations: [],
 				encode: (value, contentType) => fn("urlEncoded", [contentType, value, options]),
-				type: optionalOf(typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Json")])),
+				type: optionalOf(jsonType),
 				typed: true
 			})
 		}
@@ -1574,7 +1620,6 @@ const encoderOf = (
 			return Option.some(bytesEncoder)
 		}
 
-		// A positional body is its parts' bytes in order, streamed by `Serialize.mixed`.
 		if (isPositionalBody(alternative)) {
 			return mixedEncoder(alternative, defs, required)
 		}
@@ -1584,9 +1629,6 @@ const encoderOf = (
 			return Option.none()
 		}
 
-		// A keyed part travels with its type and header values in the form, so a part not sent has no
-		// type or header to give (ENC-10, ENC-03). A chosen type's union is its own alias, named after
-		// the form and the part's key, so the field line stays short however many types it lists.
 		const aliases: Statement[] = []
 		const keyed: Field[] = []
 		const sends: ((form: Expr) => Expr)[] = []
@@ -1609,14 +1651,12 @@ const encoderOf = (
 			if (contentType._tag === "Declared") {
 				typeArgument = typeLiteral(contentType.mediaType)
 			} else {
-				const alias = yield* identifier(
-					`${formName}${formKey.slice(0, 1).toUpperCase()}${formKey.slice(1)}ContentType`
-				)
+				const alias = yield* identifier(`${formName}${Str.capitalize(formKey)}ContentType`)
 				aliases.push({
 					_tag: "TypeAlias",
 					doc: yield* docText("The content types the operator may choose for one multipart part."),
 					name: alias,
-					type: typeUnion(contentType.choices.map((choice) => typeLiteral(choice)))
+					type: typeUnion(Arr.map(contentType.choices, (choice) => typeLiteral(choice)))
 				})
 				typeArgument = typeName(alias)
 			}
@@ -1635,12 +1675,13 @@ const encoderOf = (
 
 		const options = (form: Expr) =>
 			obj([
-				["parts", arr(sends.map((send) => send(form)))],
+				["parts", arr(Arr.map(sends, (send) => send(form)))],
 				["required", required]
 			])
 		const fields = typeRef(fixedIdentifier("Serialize"), [fixedMemberName("FormFields")])
 		if (keyed.length === 0) {
 			return Option.some<Encoder>({
+				declarations: [],
 				encode: (value) => fn("formData", [value, options(value)]),
 				type: fields,
 				typed: false
@@ -1668,26 +1709,27 @@ const encoderOf = (
 		})
 	})
 
-// A body encoded per alternative (`encodesByKey`): the `<Op>Bodies` interface maps each key the
-// builder sends to its value type, the input is the choice `Input.selectBody` made, and
-// `Serialize.alternatives` calls the chosen key's encoder, with annotated parameters. A multipart
-// alternative the writer cannot send is left out, so no builder sends multipart without its
-// boundary; `cli/` refuses that operation.
+/**
+ * A body encoded per alternative (`encodesByKey`): the `<Op>Bodies` interface maps each key the
+ * builder sends to its value type, the input is the choice `Input.selectBody` made, and
+ * `Serialize.alternatives` calls the chosen key's encoder, with annotated parameters. A multipart
+ * alternative the writer cannot send is left out, so no builder sends multipart without its
+ * boundary; `cli/` refuses that operation.
+ */
 const chosenParts = (
-	command: PlannedCommand,
-	defs: Defs,
+	context: EncoderContext,
+	alternatives: readonly MediaAlternative[],
 	name: Identifier,
-	formName: string,
-	media: Identifier
+	formName: string
 ) =>
 	Effect.gen(function* chosen() {
 		const declarations: Statement[] = []
 		const fields: Field[] = []
 		const table: (readonly [string, Expr])[] = []
-		for (const alternative of command.operation.body?.alternatives ?? []) {
+		for (const alternative of alternatives) {
 			const forms = declarations.length
 			const numbered = forms === 0 ? formName : `${formName}${forms + 1}`
-			const found = yield* encoderOf(command, alternative, defs, numbered, media)
+			const found = yield* encoderOf(context, alternative, numbered)
 			if (Option.isNone(found)) {
 				continue
 			}
@@ -1700,7 +1742,10 @@ const chosenParts = (
 				params.push({ name: fixedIdentifier("contentType"), type: sent })
 			}
 
-			declarations.push(...(encoder.declarations ?? []))
+			for (const declaration of encoder.declarations) {
+				declarations.push(declaration)
+			}
+
 			fields.push({ key: mediaType, optional: false, type: encoder.type })
 			table.push([
 				mediaType,
@@ -1730,12 +1775,14 @@ const chosenParts = (
 		} satisfies BodyParts
 	})
 
-// The body is always present in `Input` when the operation declares one: an optional body with
-// no input is `HttpBody.empty`, which `Serialize.request` sends without `Content-Type`. A lone
-// alternative is sent by its own encoder under its media type. The content type is an input when
-// the operator chooses it among bytes alternatives, or under a range key; a body with a form or
-// multipart alternative among several is encoded per key (`chosenParts`). `formName` names a
-// multipart body with a chosen part type.
+/**
+ * The body is always present in `Input` when the operation declares one: an optional body with
+ * no input is `HttpBody.empty`, which `Serialize.request` sends without `Content-Type`. A lone
+ * alternative is sent by its own encoder under its media type. The content type is an input when
+ * the operator chooses it among bytes alternatives, or under a range key; a body with a form or
+ * multipart alternative among several is encoded per key (`chosenParts`). `formName` names a
+ * multipart body with a chosen part type.
+ */
 const bodyParts = (
 	command: PlannedCommand,
 	defs: Defs,
@@ -1744,24 +1791,26 @@ const bodyParts = (
 	media: Identifier
 ): Effect.Effect<BodyParts, ApiEmitError> =>
 	Effect.gen(function* parts() {
-		const alternatives = command.operation.body?.alternatives ?? []
-		const [first] = alternatives
-		if (first === undefined) {
+		const { body } = command.operation
+		if (body === undefined || !Arr.isReadonlyArrayNonEmpty(body.alternatives)) {
 			return { declarations: [], fields: [] }
 		}
 
+		const { alternatives } = body
+		const context: EncoderContext = { command, defs, media, required: bool(body.required) }
 		if (encodesByKey(alternatives)) {
-			return yield* chosenParts(command, defs, bodies, formName, media)
+			return yield* chosenParts(context, alternatives, bodies, formName)
 		}
 
+		const first = Arr.headNonEmpty(alternatives)
 		const input = ident(fixedIdentifier("input"))
 		const value = member(input, fixedMemberName("body"))
 		if (alternatives.length === 1 && !isRange(first.mediaType)) {
-			const found = yield* encoderOf(command, first, defs, formName, media)
+			const found = yield* encoderOf(context, first, formName)
 			const encoder = Option.getOrElse(found, () => bytesEncoder)
 
 			return {
-				declarations: encoder.declarations ?? [],
+				declarations: encoder.declarations,
 				entry: ["body", encoder.encode(value, str(first.mediaType))],
 				fields: [{ key: "body", optional: false, type: encoder.type }]
 			}
@@ -1771,9 +1820,9 @@ const bodyParts = (
 		const contentType: Field = {
 			key: "contentType",
 			optional: false,
-			type: types.some(isRange)
+			type: Arr.some(types, isRange)
 				? typeKeyword("string")
-				: typeUnion(types.map((type) => typeLiteral(type)))
+				: typeUnion(Arr.map(types, (type) => typeLiteral(type)))
 		}
 
 		return {
@@ -1790,7 +1839,7 @@ const serverEntry = (server: Server): Expr => {
 	}
 
 	if (server.variables.length > 0) {
-		const variables = server.variables.map((variable) => {
+		const variables = Arr.map(server.variables, (variable) => {
 			const fields: (readonly [string, Expr])[] = [["default", str(variable.default)]]
 			if (variable.enum !== undefined) {
 				fields.push(["enum", strings(variable.enum)])
@@ -1804,20 +1853,22 @@ const serverEntry = (server: Server): Expr => {
 	return obj(entries)
 }
 
-// The servers table: every server of the level, the first accepted one as the default, and the
-// bound origin set of that level's servers (design 6.4).
-const serversTable = (servers: readonly Server[], bound: ApiEmitInput["boundOrigins"]): Expr => {
-	const entries: (readonly [string, Expr])[] = [
+/**
+ * The servers table: every server of the level, the first accepted one as the default, and the
+ * bound origin set of that level's servers (design 6.4).
+ */
+const serversTable = (servers: readonly Server[], bound: ApiEmitInput["boundOrigins"]): Expr =>
+	obj([
 		["boundOrigins", strings(bound(servers))],
-		["servers", arr(servers.map(serverEntry))]
-	]
-	const accepted = servers.findIndex((server) => server.accepted)
-	if (accepted !== -1) {
-		entries.push(["defaultServer", num(accepted)])
-	}
-
-	return obj(entries)
-}
+		["servers", arr(Arr.map(servers, serverEntry))],
+		...Option.match(
+			Arr.findFirstIndex(servers, (server) => server.accepted),
+			{
+				onNone: () => [],
+				onSome: (accepted) => [["defaultServer", num(accepted)] as const]
+			}
+		)
+	])
 
 const requestIdNames: ReadonlySet<string> = new Set([
 	"request-id",
@@ -1829,18 +1880,25 @@ const requestIdNames: ReadonlySet<string> = new Set([
  * The first declared response header, in response-key then document order, named `request-id`,
  * `x-request-id` or `x-correlation-id` in any case (design 7.1), with its declared spelling.
  */
-const requestIdHeaderOf = (responses: Operation["responses"]): string | undefined =>
-	responses
-		.flatMap((response) => response.headers)
-		.find((header) => requestIdNames.has(header.name.toLowerCase()))?.name
+const requestIdHeaderOf = (responses: Operation["responses"]): Option.Option<string> =>
+	Option.map(
+		Arr.findFirst(
+			Arr.flatMap(responses, (response) => response.headers),
+			(header) => requestIdNames.has(Str.toLowerCase(header.name))
+		),
+		(header) => header.name
+	)
 
 /**
  * The required response headers of each case that declares any, keyed as the media table keys the
  * case, each list in document order (design 7.3; HDR-03).
  */
 const requiredHeadersOf = (responses: Operation["responses"]): (readonly [string, Expr])[] =>
-	responses.flatMap((response) => {
-		const names = response.headers.filter((header) => header.required).map((header) => header.name)
+	Arr.flatMap(responses, (response) => {
+		const names = Arr.map(
+			Arr.filter(response.headers, (header) => header.required),
+			(header) => header.name
+		)
 
 		return names.length === 0 ? [] : [[responseKey(response.key), strings(names)] as const]
 	})
@@ -1858,35 +1916,39 @@ interface Markable {
 const sensitiveHeadersOf = (operation: Operation, defs: Defs): readonly string[] => {
 	const marked = (header: Markable): boolean =>
 		header.sensitive === true || isPasswordSchema(defs, header.schema.key)
-	const parameters = operation.parameters
-		.filter((parameter) => parameter.location === "header" && marked(parameter))
-		.map((parameter) => parameter.wireName)
-	const parts = (operation.body?.alternatives ?? [])
-		.filter((alternative) => alternative.codec === "multipart")
-		.flatMap((alternative) => alternative.encoding)
-		.flatMap((rule) => [
+	const parameters = pipe(
+		operation.parameters,
+		Arr.filter((parameter) => parameter.location === "header" && marked(parameter)),
+		Arr.map((parameter) => parameter.wireName)
+	)
+	const parts = pipe(
+		operation.body?.alternatives ?? [],
+		Arr.filter((alternative) => alternative.codec === "multipart"),
+		Arr.flatMap((alternative) => alternative.encoding),
+		Arr.flatMap((rule): readonly NestedRule[] => [
 			rule,
 			...(rule.nested ?? []),
-			...(rule.nestedItem ? [rule.nestedItem] : [])
-		])
-		.flatMap((rule) => rule.headers)
-		.filter(marked)
-		.map((header) => header.name)
+			...(rule.nestedItem === undefined ? [] : [rule.nestedItem])
+		]),
+		Arr.flatMap((rule) => rule.headers),
+		Arr.filter(marked),
+		Arr.map((header) => header.name)
+	)
 
 	return Arr.dedupe([...parameters, ...parts])
 }
 
 const requirementOf = (operation: Operation, schemes: ReadonlySet<string>) =>
 	Effect.gen(function* requirement() {
-		const alternatives = operation.security.alternatives.map((alternative) =>
-			alternative.uses.map((use) => use.scheme)
+		const alternatives = Arr.map(operation.security.alternatives, (alternative) =>
+			Arr.map(alternative.uses, (use) => use.scheme)
 		)
-		const unknown = alternatives.flat().find((scheme) => !schemes.has(scheme))
-		if (unknown !== undefined) {
-			return yield* refuse("unknown-scheme", unknown)
+		const unknown = Arr.findFirst(Arr.flatten(alternatives), (scheme) => !schemes.has(scheme))
+		if (Option.isSome(unknown)) {
+			return yield* refuse("unknown-scheme", unknown.value)
 		}
 
-		return arr(alternatives.map(strings))
+		return arr(Arr.map(alternatives, strings))
 	})
 
 interface CommandContext extends ParameterContext {
@@ -1896,6 +1958,15 @@ interface CommandContext extends ParameterContext {
 	readonly schemes: ReadonlySet<string>
 }
 
+/**
+ * An operation's statements: its body's declarations and its `Input` interface, its builder, its
+ * media declaration, its security requirement, its event table when it has one, and its meta. Only
+ * an operation with cookie parameters names `cookies`, and only one that declares a request id
+ * candidate names it, so M1 output is unchanged (C16); only one that declares a required response
+ * header names that table (HDR-03), and only one with a header the document marks sensitive names
+ * that list. An operation with no input takes no argument: an empty interface and an unused
+ * parameter fail the package's own lint.
+ */
 const commandStatements = (
 	command: PlannedCommand,
 	path: string,
@@ -1904,7 +1975,7 @@ const commandStatements = (
 	Effect.gen(function* statements() {
 		const { operation } = command
 		const name = command.identifier
-		const capitalized = `${name.slice(0, 1).toUpperCase()}${name.slice(1)}`
+		const capitalized = Str.capitalize(name)
 		const inputName = yield* identifier(`${capitalized}Input`)
 		const mediaName = yield* identifier(`${name}Media`)
 		const securityName = yield* identifier(`${name}Security`)
@@ -1915,46 +1986,38 @@ const commandStatements = (
 		)
 		const bodies = yield* identifier(`${capitalized}Bodies`)
 		const body = yield* bodyParts(command, context.defs, bodies, `${capitalized}Form`, mediaName)
-		const cookies = parameters.flatMap((part) => (part.cookie === undefined ? [] : [part.cookie]))
+		const callsIn = (list: ParameterList): readonly Expr[] =>
+			Arr.flatMap(parameters, (part) => (part.list === list ? [part.call] : []))
+		const cookies = callsIn("cookies")
 		const parts: (readonly [string, Expr])[] = [
-			[
-				"headers",
-				arr(parameters.flatMap((part) => (part.header === undefined ? [] : [part.header])))
-			],
-			[
-				"path",
-				fn("path", [
-					str(operation.key.path),
-					arr(parameters.flatMap((part) => (part.path === undefined ? [] : [part.path])))
-				])
-			],
-			["query", arr(parameters.flatMap((part) => (part.query === undefined ? [] : [part.query])))]
+			["headers", arr(callsIn("headers"))],
+			["path", fn("path", [str(operation.key.path), arr(callsIn("path"))])],
+			["query", arr(callsIn("query"))]
 		]
 		if (body.entry !== undefined) {
 			parts.push(body.entry)
 		}
 
-		// Only an operation with cookie parameters names `cookies`, so M1 output is unchanged (C16).
 		if (cookies.length > 0) {
 			parts.push(["cookies", arr(cookies)])
 		}
 
 		const fields = [...body.fields, ...Arr.getSomes(Arr.map(parameters, (part) => part.field))]
-		// An operation with no input takes no argument: an empty interface and an unused parameter
-		// fail the package's own lint.
 		const builder = typedArrow(
 			fields.length === 0 ? [] : [{ name: fixedIdentifier("input"), type: typeName(inputName) }],
 			fn("request", [str(operation.key.method), obj(parts)]),
 			typeRef(fixedIdentifier("Serialize"), [fixedMemberName("Request")])
 		)
-		const refused = refusedEntry(operation.body?.alternatives ?? [])
+		const requested = operation.body?.alternatives ?? []
+		const refused = refusedEntry(requested)
 		const media = obj([
 			...(Option.isSome(refused) ? ([["refused", refused.value]] as const) : []),
-			["request", strings(mediaTypes(operation.body?.alternatives ?? []))],
+			["request", strings(mediaTypes(requested))],
 			[
 				"responses",
 				obj(
-					operation.responses.map(
+					Arr.map(
+						operation.responses,
 						(response) =>
 							[responseKey(response.key), strings(mediaTypes(response.alternatives))] as const
 					)
@@ -1980,25 +2043,22 @@ const commandStatements = (
 			meta.push(["operationId", str(operation.operationId)])
 		}
 
-		// Only an operation that declares a candidate names one, so M1 output is unchanged (C16).
 		const requestId = requestIdHeaderOf(operation.responses)
-		if (requestId !== undefined) {
-			meta.push(["requestIdHeader", str(requestId)])
+		if (Option.isSome(requestId)) {
+			meta.push(["requestIdHeader", str(requestId.value)])
 		}
 
-		// Only an operation that declares a required response header names the table (HDR-03).
 		const requiredHeaders = requiredHeadersOf(operation.responses)
 		if (requiredHeaders.length > 0) {
 			meta.push(["requiredHeaders", obj(requiredHeaders)])
 		}
 
-		// Only an operation with a header the document marks sensitive names the list.
 		const sensitiveHeaders = sensitiveHeadersOf(operation, context.defs)
 		if (sensitiveHeaders.length > 0) {
 			meta.push(["sensitiveHeaders", strings(sensitiveHeaders)])
 		}
 
-		if (operation.servers.some((server) => server.level !== "root")) {
+		if (Arr.some(operation.servers, (server) => server.level !== "root")) {
 			meta.push(["servers", serversTable(operation.servers, context.bound)])
 		}
 
@@ -2006,14 +2066,18 @@ const commandStatements = (
 			...body.declarations,
 			...(fields.length === 0 ? [] : [{ _tag: "Interface", fields, name: inputName } as const])
 		]
+		const builderDoc = yield* docText(`Request builder for ${path}, not an HttpApi definition.`)
+		const builderName = yield* identifier(name)
+		const requirement = yield* requirementOf(operation, context.schemes)
+		const metaName = yield* identifier(`${name}Meta`)
 
 		return [
 			...declarations,
 			{
 				_tag: "Const",
-				doc: yield* docText(`Request builder for ${path}, not an HttpApi definition.`),
+				doc: builderDoc,
 				exported: true,
-				name: yield* identifier(name),
+				name: builderName,
 				value: builder
 			},
 			{
@@ -2028,7 +2092,7 @@ const commandStatements = (
 				exported: false,
 				name: securityName,
 				type: typeName(fixedIdentifier("SecurityRequirement")),
-				value: yield* requirementOf(operation, context.schemes)
+				value: requirement
 			},
 			...(eventTable.length === 0
 				? []
@@ -2041,18 +2105,27 @@ const commandStatements = (
 							value: obj(eventTable)
 						} as const
 					]),
-			{ _tag: "Const", exported: true, name: yield* identifier(`${name}Meta`), value: obj(meta) }
+			{ _tag: "Const", exported: true, name: metaName, value: obj(meta) }
 		]
 	})
 
-// An operation's builder, `Meta`, `Media`, `Security` and `Input` belong to its primary command
-// alone; its alias commands call them (design 4.4). An operation with a parameter this layer does
-// not build has none: `emitCli` refuses it.
+/**
+ * An operation's builder, `Meta`, `Media`, `Security` and `Input` belong to its primary command
+ * alone; its alias commands call them (design 4.4). An operation with a parameter this layer does
+ * not build has none: `emitCli` refuses it.
+ */
 const primaries = (commands: readonly PlannedCommand[]): readonly PlannedCommand[] =>
-	commands.filter(
-		(command) => command.alias === undefined && command.operation.parameters.every(buildsParameter)
+	Arr.filter(
+		commands,
+		(command) =>
+			command.alias === undefined && Arr.every(command.operation.parameters, buildsParameter)
 	)
 
+/**
+ * One `api/` module: the statements of each of its primary commands. Declaration names are composed
+ * from command identifiers and form keys; two compositions that spell the same name are refused
+ * rather than printed twice.
+ */
 const moduleFile = (
 	segment: string,
 	commands: readonly PlannedCommand[],
@@ -2060,13 +2133,12 @@ const moduleFile = (
 	context: CommandContext
 ) =>
 	Effect.gen(function* file() {
-		const statements = yield* Effect.all(
-			commands.map((command) => commandStatements(command, `${prefix}${command.name}`, context))
+		const byCommand = yield* Effect.forEach(commands, (command) =>
+			commandStatements(command, `${prefix}${command.name}`, context)
 		)
-		// Declaration names are composed from command identifiers and form keys; two compositions that
-		// spell the same name are refused rather than printed twice.
+		const statements = Arr.flatten(byCommand)
 		const declared = new Set<string>()
-		for (const statement of statements.flat()) {
+		for (const statement of statements) {
 			if (statement._tag !== "Expression") {
 				if (declared.has(statement.name)) {
 					return yield* refuse("unprintable-name", statement.name)
@@ -2086,13 +2158,13 @@ const moduleFile = (
 					? [domainImport]
 					: [])
 			],
-			statements: statements.flat()
+			statements
 		})
 
 		return { content, path: `src/api/${segment}.ts` }
 	})
 
-// The visible command path of a group, parents first, followed by a space.
+/** The visible command path of a group, parents first, followed by a space. */
 const groupPrefix = (group: PlannedGroup, byTag: ReadonlyMap<string, PlannedGroup>): string => {
 	const names = [group.name]
 	const seen = new Set([group.tag])
@@ -2103,10 +2175,10 @@ const groupPrefix = (group: PlannedGroup, byTag: ReadonlyMap<string, PlannedGrou
 		parent = parent.parent === undefined ? undefined : byTag.get(parent.parent)
 	}
 
-	return `${names.join(" ")} `
+	return `${Arr.join(names, " ")} `
 }
 
-// A scheme the document marks deprecated carries `deprecated: true`; any other prints no field.
+/** A scheme the document marks deprecated carries `deprecated: true`; any other prints no field. */
 const deprecation = (scheme: SecurityScheme): readonly (readonly [string, Expr])[] =>
 	scheme.deprecated ? [["deprecated", bool(true)]] : []
 
@@ -2122,7 +2194,7 @@ const flowKinds = [
 	"password"
 ] as const satisfies readonly (keyof OAuthFlows)[]
 
-// An optional help-only string field prints only when the spec gave it.
+/** An optional help-only string field prints only when the spec gave it. */
 const present = (name: string, value: string | undefined): readonly (readonly [string, Expr])[] =>
 	value === undefined ? [] : [[name, str(value)]]
 
@@ -2134,7 +2206,7 @@ const flowExpr = (flow: OAuthFlow): Expr =>
 		[
 			"scopes",
 			arr(
-				flow.scopes.map((scope) =>
+				Arr.map(flow.scopes, (scope) =>
 					obj([
 						["description", str(scope.description)],
 						["name", str(scope.name)]
@@ -2145,10 +2217,10 @@ const flowExpr = (flow: OAuthFlow): Expr =>
 		...present("tokenUrl", flow.tokenUrl)
 	])
 
-// An `oauth2` scheme's flows, help-only data the runtime never sends (design 9 I3).
+/** An `oauth2` scheme's flows, help-only data the runtime never sends (design 9 I3). */
 const flowsExpr = (flows: OAuthFlows): Expr =>
 	obj(
-		flowKinds.flatMap((flowKind) => {
+		Arr.flatMap(flowKinds, (flowKind) => {
 			const flow = flows[flowKind]
 
 			return flow === undefined ? [] : [[flowKind, flowExpr(flow)] as const]
@@ -2205,8 +2277,10 @@ const runtimeScheme = (scheme: SecurityScheme, env: string): Effect.Effect<Expr,
 	return Effect.fail(refuse("unsupported-scheme", scheme.name))
 }
 
-// A `mutualTLS` scheme's descriptor: the certificate environment names the plan derived (design
-// 4.4), which the runtime reads `Config` by; never a header.
+/**
+ * A `mutualTLS` scheme's descriptor: the certificate environment names the plan derived (design
+ * 4.4), which the runtime reads `Config` by; never a header.
+ */
 const certificateScheme = (scheme: SecurityScheme, names: PlannedCertificate): Expr =>
 	obj([
 		["caEnv", str(names.caEnv)],
@@ -2225,25 +2299,26 @@ const securityFile = (api: Api, plan: NamePlan) =>
 	Effect.gen(function* file() {
 		const entries = Arr.sort(
 			[
-				...plan.credentials.map((credential) => ({
+				...Arr.map(plan.credentials, (credential) => ({
 					describe: (scheme: SecurityScheme) => runtimeScheme(scheme, credential.env),
 					scheme: credential.scheme
 				})),
-				...plan.certificates.map((names) => ({
+				...Arr.map(plan.certificates, (names) => ({
 					describe: (scheme: SecurityScheme) => Effect.succeed(certificateScheme(scheme, names)),
 					scheme: names.scheme
 				}))
 			],
 			byEntryScheme
 		)
-		const schemes = yield* Effect.all(
-			entries.map((entry) => {
-				const scheme = api.securitySchemes.find((candidate) => candidate.name === entry.scheme)
-
-				return scheme === undefined
-					? Effect.fail(refuse("unknown-scheme", entry.scheme))
-					: entry.describe(scheme).pipe(Effect.map((value) => [entry.scheme, value] as const))
-			})
+		const schemes = yield* Effect.forEach(entries, (entry) =>
+			Option.match(
+				Arr.findFirst(api.securitySchemes, (candidate) => candidate.name === entry.scheme),
+				{
+					onNone: () => Effect.fail(refuse("unknown-scheme", entry.scheme)),
+					onSome: (scheme) =>
+						Effect.map(entry.describe(scheme), (value) => [entry.scheme, value] as const)
+				}
+			)
 		)
 		const content = yield* printModule({
 			imports: [
@@ -2289,9 +2364,15 @@ const serversFile = (api: Api, bound: ApiEmitInput["boundOrigins"]) =>
 		]
 	}).pipe(Effect.map((content) => ({ content, path: "src/api/servers.ts" })))
 
-const decodeDefs = Schema.decodeUnknownOption(
-	Schema.Struct({ $defs: Schema.Record(Schema.String, Schema.Json) })
-)
+/**
+ * The schemas of the generator's own schema store, its document's `$defs` object; none when the
+ * document holds no such object.
+ */
+const storeDefs = (document: Schema.Json): Defs => {
+	const defs = isNode(document) ? own(document, "$defs") : undefined
+
+	return isNode(defs) ? defs : {}
+}
 
 const byPath = Order.mapInput(Order.String, (file: EmittedFile) => file.path)
 
@@ -2308,39 +2389,32 @@ export const emitApi = (
 ): Effect.Effect<readonly EmittedFile[], ApiEmitError | PrinterError> =>
 	Effect.gen(function* emit() {
 		const { api, plan } = input
-		const reserved = plan.groups.find((group) => reservedSegments.has(group.segment))
-		if (reserved !== undefined) {
-			return yield* refuse("reserved-segment", reserved.segment)
+		const reserved = Arr.findFirst(plan.groups, (group) => reservedSegments.has(group.segment))
+		if (Option.isSome(reserved)) {
+			return yield* refuse("reserved-segment", reserved.value.segment)
 		}
 
 		const context: CommandContext = {
 			bound: input.boundOrigins,
-			defs: Option.match(decodeDefs(api.schemas.document), {
-				onNone: () => ({}),
-				onSome: (store) => store.$defs
-			}),
+			defs: storeDefs(api.schemas.document),
 			document: (uri) => documentLabel(api.entry, uri),
 			domain: plan.domain,
 			line: api.line,
 			memo: new Map(),
 			schemes: new Set(
-				[...plan.credentials, ...plan.certificates].map((credential) => credential.scheme)
+				Arr.map([...plan.credentials, ...plan.certificates], (credential) => credential.scheme)
 			)
 		}
-		const byTag = new Map(plan.groups.map((group) => [group.tag, group] as const))
-		const withPrimaries = plan.groups.filter((group) => primaries(group.commands).length > 0)
-		const groups = yield* Effect.all(
-			withPrimaries.map((group) =>
-				moduleFile(group.segment, primaries(group.commands), groupPrefix(group, byTag), context)
-			)
+		const byTag = new Map(Arr.map(plan.groups, (group) => [group.tag, group] as const))
+		const withPrimaries = Arr.filter(plan.groups, (group) => primaries(group.commands).length > 0)
+		const groups = yield* Effect.forEach(withPrimaries, (group) =>
+			moduleFile(group.segment, primaries(group.commands), groupPrefix(group, byTag), context)
 		)
-		const files: EmittedFile[] = [...groups]
 		const rootPrimaries = primaries(plan.root)
-		if (rootPrimaries.length > 0) {
-			files.push(yield* moduleFile("root", rootPrimaries, "", context))
-		}
+		const root =
+			rootPrimaries.length === 0 ? [] : [yield* moduleFile("root", rootPrimaries, "", context)]
+		const security = yield* securityFile(api, plan)
+		const servers = yield* serversFile(api, input.boundOrigins)
 
-		files.push(yield* securityFile(api, plan), yield* serversFile(api, input.boundOrigins))
-
-		return Arr.sort(files, byPath)
+		return Arr.sort([...groups, ...root, security, servers], byPath)
 	})
