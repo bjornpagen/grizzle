@@ -19,7 +19,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
  * executor serves.
  */
 import { element } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
@@ -130,8 +130,23 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 			name: "the worlds model's compile rules, against grizzle's served compile of the write"
 		},
 		budget: { runs: 80, steered: 16 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.1.0.9.0.0.0.0.9.9.0.0.0.9.0.0.0.0.0.0.0.0.0.9.f.0.0.0.0.0.0.1.0.1.2.3q.0.0.0.0.0.0.1.0.0.1.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.1.1.0.0.0.1"
+				),
+				reason:
+					"an insert through View0 then its delete in a stratum of its own, both sides of View0's delta read back, by a session whose claims hold no Tenant, the context View0 fills its doc from: View0 fills nothing, so grizzle writes no statement of either and compiles, where the model took the two strata's ops for the two sides of Share's delta made apart (NEGZERO2's replay at 46905a719)",
+				since: "2026-11-20"
+			}
+		],
 		kills: [
+			{
+				file: "test/support/worlds/model/session/apply.ts",
+				original: "\t\t\t\tif (w === undefined || w.target !== target || !fillsUnder(w, facts)) {",
+				replacement: "\t\t\t\tif (w === undefined || w.target !== target) {",
+				why: "An op through an entry that fills nothing under the session's claims makes a side of its target's delta, so the model refuses the kept case's read-backs as crossing statements, where grizzle writes no statement of the op and compiles it."
+			},
 			{
 				file: "packages/engine/src/core/errors.ts",
 				original: '\tError.isError(value) && "_tag" in value && value._tag === "CompileError"',

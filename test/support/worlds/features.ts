@@ -1687,21 +1687,26 @@ const readBacksOf = (
 	action: Extract<Action, { readonly kind: "apply" }>,
 	observation: Observation
 ): ReadonlyArray<WorldFeature> =>
-	Option.match(dbRoleAt(state, action.session), {
-		onNone: () => [],
-		onSome: (role): ReadonlyArray<WorldFeature> => {
-			const base = state.install.base
-			const classes = readBackClasses(base, role, action.strata, action.reads)
-			if (observation.kind === "applied") {
-				return Arr.map(classes, (c): WorldFeature => `readback:${c}`)
+	Option.match(
+		Option.flatMap(dbSession(state, action.session), (session) =>
+			Option.map(roleIn(state.install, session.role), (role) => ({ role, facts: session.facts }))
+		),
+		{
+			onNone: () => [],
+			onSome: ({ role, facts }): ReadonlyArray<WorldFeature> => {
+				const base = state.install.base
+				const classes = readBackClasses(base, role, action.strata, action.reads)
+				if (observation.kind === "applied") {
+					return Arr.map(classes, (c): WorldFeature => `readback:${c}`)
+				}
+				return observation.kind === "compile-refused" &&
+					!compileRefused(base, role, action.strata, [], facts) &&
+					Arr.contains(classes, "undetermined")
+					? ["readback:undetermined"]
+					: []
 			}
-			return observation.kind === "compile-refused" &&
-				!compileRefused(base, role, action.strata, []) &&
-				Arr.contains(classes, "undetermined")
-				? ["readback:undetermined"]
-				: []
 		}
-	})
+	)
 
 /**
  * What a get's input is, as the harness reads its own draw, whatever the model allows it: fields within which no key of
