@@ -215,10 +215,11 @@ export const aContainmentIsWholeWhereItIsUnitLocalNoFenceAndSelectedOrIntoATarge
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/laws/model/plan.ts",
-				original: '\t\tlaw.source.kind === "retirable" ||',
-				replacement: "\t\tfalse ||",
-				why: "A fence over immutable relations is discharged whole, its foreign key gone, which a hold and a retirement rely on; the fence's discharge fails."
+				file: "packages/engine/src/analysis/schema.ts",
+				original:
+					'\t\t\t\t(cascaded && f.writing.kind === "accumulated") || f.writing.kind === "retirement"',
+				replacement: '\t\t\t\tcascaded && f.writing.kind === "accumulated"',
+				why: "A header's retirement is a field its rows never change in place, so a fence over immutable relations, a body contained in its open header, reads no field that changes and is discharged whole, its foreign key gone, which a hold and a retirement rely on; the fence's discharge fails."
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
