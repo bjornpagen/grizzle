@@ -405,9 +405,11 @@ export const schema: typeof rootSchema & { readonly extend: typeof extend } = Ob
 
 /**
  * rows(fields): the heading of the rows a declared function takes as an argument or returns: its fields, at least one,
- * in the order the record writes them, which is its row type's attribute order. Each is a value of a base type, a
- * contract or a refined text over one (HeadingCheck), rows of another heading, an array of its row type, or one row of
- * one, row(heading), a value of its row type.
+ * in code point order of their names, whatever order the record writes them in, which is its row type's attribute
+ * order, the order oxlint's sort-keys writes the record in: a body builds one of its rows, `ROW(...)::${heading}`, and
+ * reads one positionally, in that order. Each is a value of a base type, a contract or a refined text over one
+ * (HeadingCheck), rows of another heading, an array of its row type, or one row of one, row(heading), a value of its row
+ * type.
  */
 export const rows = <const Fields extends Readonly<Record<string, FunctionType>>>(
 	fields: Fields & HeadingCheck<Fields> & MembersTyped<Fields>,
@@ -427,6 +429,8 @@ export const row = <const Heading extends AnyRows>(
  * fn(name, { calls, args, returns, volatility, language, body }): a declared function, the application's own PostgreSQL
  * function, which a level lists among its relations. `calls` lists the declared functions of its level its body calls,
  * which the installation creates first; each argument and its result are a value of a field's type or rows(heading);
+ * its arguments are its parameters in code point order of their names, whatever order `args` writes them in, so a
+ * body calls it positionally in that order, `$1` the first of them, or by name, `f(x => ..., y => ...)`;
  * its volatility is immutable, stable or volatile; its body is PL/pgSQL or SQL text the application owns, written
  * fn.body`...`, installed byte for byte but for each heading it names, which installs as its row type's name. It
  * installs in its level's schema as SECURITY DEFINER under the installation's function owner, a role of no privilege on

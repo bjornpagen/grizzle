@@ -5,8 +5,8 @@ import type { FieldBase, StoredOnlySql, WritingTag } from "#compiler/types/field
 
 /**
  * The heading of the rows a declared function takes as an argument or returns (schema/function.ts rows): its fields,
- * in the order the record writes them, which is the order of its row type's attributes, each a value of a field, rows
- * of another heading or one row of one.
+ * a record whose key order means nothing, since they install in code point order of their names, its row type's
+ * attributes' order, each a value of a field, rows of another heading or one row of one.
  */
 export interface Rows<out Fields> extends Built {
 	readonly kind: "rows"

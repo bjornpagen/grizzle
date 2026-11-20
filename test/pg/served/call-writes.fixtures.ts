@@ -49,7 +49,7 @@ const Value = relation("Value", { session: pg.integer, pos: pg.integer, out: Tex
 
 const Lines = rows({ pos: pg.integer, txt: Text })
 
-const Graded = rows({ pos: pg.integer, out: Text })
+const Graded = rows({ out: Text, pos: pg.integer })
 
 const grade = fn("grade", {
 	calls: [],
@@ -57,7 +57,7 @@ const grade = fn("grade", {
 	returns: Graded,
 	volatility: "immutable",
 	language: "plpgsql",
-	body: fn.body`\nBEGIN\n  RETURN QUERY SELECT p.pos + shift, upper(p.txt) FROM unnest(program) AS p;\nEND\n`
+	body: fn.body`\nBEGIN\n  RETURN QUERY SELECT upper(p.txt), p.pos + shift FROM unnest(program) AS p;\nEND\n`
 })
 
 /** The schema of a case under `name`: the base, and the level of Open and grade over it. */

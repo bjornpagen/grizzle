@@ -30,14 +30,16 @@ import { typeOnSearchPath } from "#compiler/sql/print.ts"
  *   types: it holds no privilege on any table or view, so a declared function, which runs as its owner, reads no
  *   relation, and a body that reads one fails as it runs, 42501 permission denied, wherever it is called.
  * - Each heading a function's signature names (rows()), and each heading a field of one names, once per level that
- *   declares a function over it: CREATE TYPE <level>.<row type> AS (<attributes>), named by its definition's digest
+ *   declares a function over it: CREATE TYPE <level>.<row type> AS (<attributes>), its attributes in its heading's
+ *   order, code point order of the fields' names (schema/function.ts byName), named by its definition's digest
  *   (identity.rowType), each value attribute its field's base type, text collated as every grizzle column is
  *   (ir/physical.ts lawColumnType), a field of rows an array of its heading's row type and a field of one row (row())
  *   that row type, each created before the row types that hold it; USAGE revoked from PUBLIC. A function's argument of
  *   rows is an array of it, its result of rows a set of it, and an argument or a result of one row the row type itself.
- * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>) RETURNS <type> | SETOF <row type> LANGUAGE
- *   <language> <volatility> SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for
- *   byte but for each heading it names, which is its row type's name alone, the one the pinned search_path resolves
+ * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>), its parameters in code point order of the
+ *   arguments' names (schema/function.ts byName), RETURNS <type> | SETOF <row type> LANGUAGE <language> <volatility>
+ *   SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for byte but for each
+ *   heading it names, which is its row type's name alone, the one the pinned search_path resolves
  *   (sql/print.ts typeOnSearchPath), and which the function's object depends on (sql/ast.ts CreateDeclaredFunction);
  *   EXECUTE revoked from PUBLIC; then handed over to the owner (sql/ast.ts HandOverFunction). A value's type is its field's base type: PostgreSQL holds a function's arguments and result to
  *   their declared types exactly, so a contract's or a pattern's domain is a statement's to check where it reads the

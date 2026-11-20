@@ -2082,8 +2082,8 @@ export class Checker {
 	}
 
 	/**
-	 * A call's arguments, in its function's declared order, each by its declared name and none other
-	 * (#callArguments). A value argument is bound as an import's parameter is (`bind`): a variable of the region the
+	 * A call's arguments, in its function's parameters' order (ir/rel.ts CallArg), each by its declared name and none
+	 * other (#callArguments). A value argument is bound as an import's parameter is (`bind`): a variable of the region the
 	 * call is matched in, a parent variable, a parameter or a typed constant, of a type that meets the argument's
 	 * declared type. A rows argument is a query imported under its bind map (#importSource), whose heading holds each
 	 * field of the argument's heading at a type that meets the field's.

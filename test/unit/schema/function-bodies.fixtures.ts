@@ -10,6 +10,7 @@ import { functionDescOf } from "#compiler/schema/function.ts"
 import { type Owned, own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import {
+	attributesOf,
 	bodyParts,
 	type Declarations,
 	drawnFunctions,
@@ -31,7 +32,7 @@ export type BodySituation =
  * content, so two headings are one exactly where their keys are. */
 const declaredKey = (v: Declarations, at: number): string =>
 	Arr.join(
-		Arr.map(defined(v.headings[at], `heading ${at}`).fields, ([name, t]) =>
+		Arr.map(attributesOf(defined(v.headings[at], `heading ${at}`)), ([name, t]) =>
 			t.kind === "value"
 				? `${name} ${t.type}`
 				: `${name} ${t.kind} of (${declaredKey(v, t.heading)})`

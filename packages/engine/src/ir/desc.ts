@@ -1601,15 +1601,16 @@ export const heldRelation = (relation: RelationDesc): boolean => {
 	}
 }
 
-/** A field of a declared function's heading, or one of its arguments: its declared name and its type, in order. */
+/** A field of a declared function's heading, or one of its arguments: its declared name and its type. */
 export interface NamedDesc<T> {
 	readonly name: string
 	readonly type: T
 }
 
 /**
- * The heading of the rows a declared function takes or returns (schema/function.ts rows): its fields in declared order,
- * at least one, each of a type a signature takes, which installs as a row type, its attributes in that order.
+ * The heading of the rows a declared function takes or returns (schema/function.ts rows): its fields in code point
+ * order of their names, never the order a record's keys were written in, at least one, each of a type a signature
+ * takes, which installs as a row type, its attributes in that order.
  */
 export type HeadingDesc = NonEmptyReadonlyArray<NamedDesc<FunctionTypeDesc>>
 
@@ -1666,7 +1667,7 @@ export interface FunctionBodyDesc {
 
 /**
  * A function the application declares in a level (schema/function.ts fn): its name, the declared functions its body
- * calls, its arguments in declared order, what it returns, its volatility, and its body in its language, the
+ * calls, its arguments in code point order of their names, its parameters' order, what it returns, its volatility, and its body in its language, the
  * application's own text, which PostgreSQL stores byte for byte.
  */
 export type FunctionDesc<L = Located> = L & {

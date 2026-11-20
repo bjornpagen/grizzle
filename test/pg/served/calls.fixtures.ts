@@ -19,11 +19,12 @@ import { fullWorld } from "#test/support/worlds.ts"
  * A served program that calls declared functions (schema/function.ts fn) returns the rows PostgreSQL computes calling
  * them itself. The schema holds Item(item, pos, txt), the program's lines, and Seed(item, shift), the calls to make;
  * `explode`, a function of rows argument `program`, a heading of (pos, txt), and value argument `shift`, returning rows
- * (pos, out), the half of each line's pos plus the shift (integer division, so two lines may give one row) and its text
- * upper-cased, NULL where the text is empty; `scale`, an SQL function of two integers, their product; and `moodOf`, of a
- * closed id of Mood, which returns it. The program matches each seed, then explode's rows at the seed's item's lines
- * and the seed's shift, a call reading two variables of the match before it, and finds each with scale(pos, 3), a call
- * term, and moodOf of the seed's mood.
+ * (out, pos), each line's text upper-cased, NULL where the text is empty, and the half of its pos plus the shift
+ * (integer division, so two lines may give one row), its body returning them in its heading's order, code point order
+ * of the names; `scale`, an SQL function of two integers, their product; and `moodOf`, of a closed id of Mood, which
+ * returns it. The program matches each seed, then explode's rows at the seed's item's lines and the seed's shift, a
+ * call reading two variables of the match before it, and finds each with scale(pos, 3), a call term, and moodOf of the
+ * seed's mood.
  */
 
 /** Any text. */
@@ -42,7 +43,7 @@ const Seed = relation("Seed", { item: pg.integer, shift: pg.integer, mood: close
 
 const Line = rows({ pos: pg.integer, txt: Text })
 
-const Exploded = rows({ pos: pg.integer, out: Text })
+const Exploded = rows({ out: Text, pos: pg.integer })
 
 /** The languages explode's body is drawn in. */
 const languages = ["plpgsql", "sql"] as const
@@ -50,8 +51,8 @@ const languages = ["plpgsql", "sql"] as const
 type Language = (typeof languages)[number]
 
 const explodeBodies: { readonly [L in Language]: FunctionBody } = {
-	plpgsql: fn.body`\nBEGIN\n  RETURN QUERY SELECT (p.pos / 2) + shift, CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END FROM unnest(program) AS p;\nEND\n`,
-	sql: fn.body`SELECT (p.pos / 2) + shift, CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END FROM unnest(program) AS p`
+	plpgsql: fn.body`\nBEGIN\n  RETURN QUERY SELECT CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END, (p.pos / 2) + shift FROM unnest(program) AS p;\nEND\n`,
+	sql: fn.body`SELECT CASE WHEN p.txt = '' THEN NULL ELSE upper(p.txt) END, (p.pos / 2) + shift FROM unnest(program) AS p`
 }
 
 const explodeOf = (language: Language) =>
@@ -76,7 +77,7 @@ const moodOf = fn("moodOf", {
 
 const scale = fn("scale", {
 	calls: [],
-	args: { x: pg.integer, k: pg.integer },
+	args: { k: pg.integer, x: pg.integer },
 	returns: pg.integer,
 	volatility: "immutable",
 	language: "sql",
@@ -249,7 +250,7 @@ export const oracleRows = (admin: PgConnection, schemaName: string) =>
 		const arrayType = String(typed.rows[0]?.["t"])
 		const rowType = Str.endsWith("[]")(arrayType) ? Str.slice(0, -2)(arrayType) : arrayType
 		const answered = yield* admin.query(
-			`SELECT DISTINCT s."item" AS "item", r."pos" AS "pos", r."out" AS "out", ${s}."scale"(r."pos", 3) AS "scaled" FROM ${s}."seed" AS s CROSS JOIN LATERAL ${s}."explode"(ARRAY(SELECT ROW(i."pos", i."txt")::${rowType} FROM ${s}."item" AS i WHERE i."item" = s."item"), s."shift") AS r`,
+			`SELECT DISTINCT s."item" AS "item", r."pos" AS "pos", r."out" AS "out", ${s}."scale"(3, r."pos") AS "scaled" FROM ${s}."seed" AS s CROSS JOIN LATERAL ${s}."explode"(ARRAY(SELECT ROW(i."pos", i."txt")::${rowType} FROM ${s}."item" AS i WHERE i."item" = s."item"), s."shift") AS r`,
 			[]
 		)
 		return answered.rows

@@ -1,4 +1,5 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
@@ -47,7 +48,35 @@ import type {
  * application owns, carried byte for byte. Its argument and result types, and a heading's fields, are each a value of a
  * field descriptor, rows of a heading, or one row of a heading. The builders read them once, into the function's
  * Description (ir/desc.ts FunctionDesc), and ownership judges which types a signature admits (schema/own.ts).
+ *
+ * A heading's fields and a function's arguments are each a set of names, and PostgreSQL reads both by position: a row
+ * type's attributes (`ROW(...)::<row type>`, a row read back) and a function's parameters (`f(a, b)`, `$1`). So both
+ * stand in one order grizzle defines, code point order of their names (byName), the order oxlint's sort-keys holds a
+ * record's keys to, and never in the order a record's keys were written: a record written in any key order installs
+ * the same row type and the same function.
  */
+
+/**
+ * A record's members in code point order of their names: the order a heading's fields install in, its row type's
+ * attributes, and a function's arguments, its parameters, whatever order the record's keys were written in.
+ */
+const byName = <T>(record: Readonly<Record<string, T>>): ReadonlyArray<readonly [string, T]> =>
+	Object.entries(record).toSorted(([a], [b]) => compareCodePoints(a, b))
+
+/**
+ * A copy of `record` whose keys are set in code point order of their names (byName), each holding its value: the record
+ * a built heading holds, which a query reads a call's sources and variables off, so every reader of it reads one order
+ * of its keys whatever order they were written in. (JavaScript keeps a key that names an array index before every other,
+ * in numeric order, which is one order of them too.)
+ */
+const nameOrdered = <T extends Readonly<Record<string, unknown>>>(record: T): T => {
+	const copy = { ...record }
+	for (const [name, value] of byName(record)) {
+		Reflect.deleteProperty(copy, name)
+		Reflect.set(copy, name, value)
+	}
+	return copy
+}
 
 /** The field descriptors of a heading or a signature, each a value type no writing of its own declares. */
 const valueDesc = (value: unknown, label: string): FieldDesc =>
@@ -71,12 +100,12 @@ const functionTypeOf = (value: unknown, label: string): FunctionTypeDesc => {
 	return { kind: "value", type: valueDesc(value, label) }
 }
 
-/** A heading's fields in declared order, at least one, each a value type, rows of a heading or one row of one. */
+/** A heading's fields by name (byName), at least one, each a value type, rows of a heading or one row of one. */
 const headingOf = (fields: unknown, label: string): HeadingDesc => {
 	if (!isPlainRecord(fields)) {
 		throw malformed(label, "a record of field descriptors, headings and rows of headings")
 	}
-	const heading = Object.entries(fields).map(([name, value]): NamedDesc<FunctionTypeDesc> => ({
+	const heading = byName(fields).map(([name, value]): NamedDesc<FunctionTypeDesc> => ({
 		name: requireName(name, label, "a field name"),
 		type: functionTypeOf(value, `${label} field ${name}`)
 	}))
@@ -87,9 +116,9 @@ const headingOf = (fields: unknown, label: string): HeadingDesc => {
 }
 
 /**
- * rows(fields): the heading of the rows a declared function takes as an argument or returns, its fields in the order
- * the record writes them, which is its row type's attribute order, each a value, rows of another heading (an array of
- * its row type) or one row of one (a value of its row type). Its Description is the heading itself.
+ * rows(fields): the heading of the rows a declared function takes as an argument or returns, its fields in code point
+ * order of their names (byName), which is its row type's attribute order, each a value, rows of another heading (an
+ * array of its row type) or one row of one (a value of its row type). Its Description is the heading itself.
  */
 export const rowsBuilder = <const Fields extends Readonly<Record<string, FunctionType>>>(
 	fields: Fields,
@@ -101,7 +130,7 @@ export const rowsBuilder = <const Fields extends Readonly<Record<string, Functio
 	const heading = headingOf(fields, "rows")
 	return ownValue({
 		kind: "rows",
-		value: { ...builtMark, kind: "rows", fields: frozenCopy(fields) },
+		value: { ...builtMark, kind: "rows", fields: frozenCopy(nameOrdered(fields)) },
 		desc: heading,
 		content: undefined
 	})
@@ -232,7 +261,7 @@ const admitFunction = (
 		name: functionName,
 		calls: callsOf(calls, label),
 		args: Object.freeze(
-			Object.entries(args).map(([arg, type]) => ({
+			byName(args).map(([arg, type]) => ({
 				name: requireName(arg, label, "an argument name"),
 				type: functionTypeOf(type, `${label} argument ${arg}`)
 			}))
@@ -248,7 +277,8 @@ const admitFunction = (
 /**
  * fn(name, definition): a declared function, which a level lists among its relations, `schema("App", [...relations,
  * f], statements)`. Its value holds its name, its argument types by name, its result type and its volatility; its
- * Description holds the functions its body calls and its body too.
+ * Description holds its arguments in code point order of their names (byName), its parameters' order, the functions
+ * its body calls and its body too.
  */
 export const fnBuilder = <
 	const Name extends string,

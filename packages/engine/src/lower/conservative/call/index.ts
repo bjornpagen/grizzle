@@ -51,9 +51,10 @@ const originOf = (node: NodeOf<"Call">) => ({ kind: "node", node: node.id }) as 
  * `count` fresh columns renaming its result's columns positionally, a row's attributes or a set's columns in its row
  * type's order.
  *
- * Each argument is passed in the function's declared order: a value cast to its declared type's base, the type the
- * function takes it at; rows as the array of the heading's row type (ir/physical.ts rowTypeOf), each element the row
- * of the argument query's fields in the heading's declared order,
+ * Each argument is passed in the function's parameters' order, its arguments' names' code point order: a value cast to
+ * its declared type's base, the type the function takes it at; rows as the array of the heading's row type
+ * (ir/physical.ts rowTypeOf), each element the row of the argument query's fields in the heading's order, its row
+ * type's attributes',
  * `ARRAY(SELECT ROW(r2.c1, r2.c2)::<level>.__rows_<digest> FROM (<rows argument>) AS r2(c1, c2))`. An argument reads
  * outer values through the environment, a region's columns among them, so a call that reads its region's variables is
  * placed LATERAL by the region (match-region), and runs once per binding of the matches before it.
@@ -161,8 +162,8 @@ const calledRows = (
  *     FROM <level>.<function>(<value>::<base type>, ARRAY(...), ...) AS r3(c3, c4)
  *     WHERE pg_catalog.num_nonnulls(r3.c3, r3.c4) = 2 OR <level>.__refuse('22004', '<function>', ...)
  *
- * The function's rows are its row type's (calledItem), its columns renamed positionally, in its attributes' order, the
- * heading's declared order, each to a fresh column of the statement; a row that holds NULL at any column is refused
+ * The function's rows are its row type's (calledItem), its columns renamed positionally, in its attributes' order, its
+ * heading's fields' names' code point order, each to a fresh column of the statement; a row that holds NULL at any column is refused
  * (refusingNull).
  */
 const lowerDeclared = (

@@ -1182,7 +1182,7 @@ export const signIn = ChangeSet.empty(Auth)
 /** README: "Levels". */
 /** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
 const Word = str.regex("^[a-z]+$", "u")
-const Weighted = rows({ word: Word, weight: natural })
+const Weighted = rows({ weight: natural, word: Word })
 
 /** A word folded to lower case: an SQL body. */
 export const folded = fn("folded", {
@@ -1216,7 +1216,7 @@ END
 
 /** A titled list of weighted words: a heading whose field holds rows of another. */
 const Titled = rows({ title: Word, words: Weighted })
-const Summary = rows({ title: Word, count: natural })
+const Summary = rows({ count: natural, title: Word })
 
 /** A titled list's title and its count of words: one row of a heading, from one row of another. */
 export const summary = fn("summary", {
@@ -1225,7 +1225,7 @@ export const summary = fn("summary", {
 	returns: row(Summary),
 	volatility: "immutable",
 	language: "sql",
-	body: fn.body`SELECT ROW((doc).title, cardinality((doc).words))::${Summary}`
+	body: fn.body`SELECT ROW(cardinality((doc).words), (doc).title)::${Summary}`
 })
 
 export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
@@ -1266,7 +1266,7 @@ export const shiftedLines = query(Docs).rule((r) => {
 })
 
 /** "Calling a function": the fields of one row, two members of one statement reading one call. */
-const Parted = rows({ short: Numbered, long: Numbered })
+const Parted = rows({ long: Numbered, short: Numbered })
 
 /** The lines of `program`, parted by the length of their word: one row, two fields of rows. */
 export const parted = fn("parted", {
@@ -1276,8 +1276,8 @@ export const parted = fn("parted", {
 	volatility: "immutable",
 	language: "sql",
 	body: fn.body`SELECT ROW(
-  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5),
-  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5))::${Parted}`
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5),
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5))::${Parted}`
 })
 
 const Short = relation("Short", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])

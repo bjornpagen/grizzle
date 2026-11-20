@@ -12,7 +12,7 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, oneOf, subset } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -30,6 +30,7 @@ import { str } from "#compiler/public/text.ts"
 import { bodyBuilder } from "#compiler/schema/function.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
+import { byCodePoints } from "#test/support/key-order.ts"
 
 /** The value types a case's signatures and headings draw from: a roster of the kinds a signature takes. */
 const valueTypes = [
@@ -165,6 +166,26 @@ const headingsGen: Gen<NonEmptyReadonlyArray<HeadingSketch>> = (source) => {
 /** The heading of a version at `at`. */
 const headingAt = (v: Pick<Declarations, "headings">, at: number): HeadingSketch =>
 	defined(v.headings[at], `heading ${at}`)
+
+/**
+ * A heading's fields as PostgreSQL holds them, its row type's attributes: in their names' code point order, whatever
+ * order the sketch drew them in, which its rows() record writes them in (test/support/key-order.ts).
+ */
+export const attributesOf = (h: HeadingSketch): ReadonlyArray<readonly [string, TypeSketch]> =>
+	Arr.sort(
+		h.fields,
+		Order.mapInput(byCodePoints, ([name]: readonly [string, TypeSketch]) => name)
+	)
+
+/**
+ * A function's arguments as PostgreSQL holds them, its parameters: in their names' code point order, whatever order the
+ * sketch drew them in, which its args record writes them in.
+ */
+export const parametersOf = (f: Pick<FunctionSketch, "args">): FunctionSketch["args"] =>
+	Arr.sort(
+		f.args,
+		Order.mapInput(byCodePoints, (a: FunctionSketch["args"][number]) => a.name)
+	)
 
 /** The headings a type names: the heading it is rows or a row of, then each heading a field of that one names. */
 const namedByType = (v: Pick<Declarations, "headings">, t: TypeSketch): ReadonlyArray<number> =>
@@ -307,7 +328,7 @@ const valueParts = (v: Declarations, t: TypeSketch): ReadonlyArray<Part> => {
 		case "row":
 			return [
 				"ROW(",
-				...Arr.flatMap(headingAt(v, t.heading).fields, ([, f], i) => [
+				...Arr.flatMap(attributesOf(headingAt(v, t.heading)), ([, f], i) => [
 					...(i === 0 ? [] : [", "]),
 					...valueParts(v, f)
 				]),
@@ -325,7 +346,10 @@ export const installedName = (name: string): string => conversionOf(parsedName(n
 /** A call of `callee` with a composite of NULLs for each of its arguments. */
 const callParts = (v: Declarations, callee: FunctionSketch): ReadonlyArray<Part> => [
 	`${quoteIdent(installedName(callee.name))}(`,
-	...Arr.flatMap(callee.args, (a, i) => [...(i === 0 ? [] : [", "]), ...valueParts(v, a.type)]),
+	...Arr.flatMap(parametersOf(callee), (a, i) => [
+		...(i === 0 ? [] : [", "]),
+		...valueParts(v, a.type)
+	]),
 	")"
 ]
 
@@ -441,7 +465,7 @@ export const headingKey = (
 	named: (at: number) => string
 ): string =>
 	Arr.join(
-		Arr.map(headingAt(v, at).fields, ([name, t]) => {
+		Arr.map(attributesOf(headingAt(v, at)), ([name, t]) => {
 			switch (t.kind) {
 				case "value":
 					return `${name} ${spelled[t.type]}`

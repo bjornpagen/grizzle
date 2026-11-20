@@ -31,6 +31,7 @@ import {
 	helperOf,
 	helperSource,
 	installedName,
+	parametersOf,
 	reachOf,
 	type Spelling,
 	spelled,
@@ -271,7 +272,7 @@ const heldOf = (v: VersionSketch): ReadonlyMap<string, Held> => {
 	return new Map([
 		...Arr.map(v.functions, (f) => {
 			const signature = `(${Arr.join(
-				Arr.map(f.args, (a) => `${a.name} ${typeKey(v, a.type)}`),
+				Arr.map(parametersOf(f), (a) => `${a.name} ${typeKey(v, a.type)}`),
 				", "
 			)}) ${typeKey(v, f.returns)}`
 			const body = bodyText(bodyParts(v, f), (h) => contentKey(v, h))
@@ -566,7 +567,7 @@ export const declaredSignatures = (
 						f.returns.kind === "rows" ? "set of" : "one",
 						f.returns.kind === "rows" ? named(f.returns.heading) : typeText(f.returns),
 						Arr.join(
-							Arr.map(f.args, (a) => typeText(a.type)),
+							Arr.map(parametersOf(f), (a) => typeText(a.type)),
 							", "
 						)
 					],
@@ -671,7 +672,7 @@ export const callsOf = (
 		: [
 				...Arr.map(v.functions, (f) => ({
 					name: f.name,
-					args: Arr.map(f.args, (a) => a.name),
+					args: Arr.map(parametersOf(f), (a) => a.name),
 					rows: f.returns.kind === "rows"
 				})),
 				{ name: helperName, args: [], rows: false }

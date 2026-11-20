@@ -36,8 +36,8 @@ import { fullWorld } from "#test/support/worlds.ts"
 
 /**
  * Reads of the fields of a declared function's one row (Fn.row), the shape of GRADING-SQL's machine: `machine`,
- * an SQL function of rows argument `items`, a heading of (slot, k, v, mark), and value argument `seed`, returns one row
- * of Out, whose fields `a` and `c` hold rows of A (k, v) and `b` rows of B (k, f), each the items of its slot, 0, 1 and
+ * an SQL function of rows argument `items`, a heading of (k, mark, slot, v), and value argument `seed`, returns one row
+ * of Out, whose fields `a` and `c` hold rows of A (k, v) and `b` rows of B (f, k), each the items of its slot, 0, 1 and
  * 2, f half of k, and `flow`, a text of the seed. An item's mark is what the row holds where PostgreSQL's would hold a
  * NULL or a repeat: 1 a NULL element of its field's array, 2 an element holding NULL at its v or f, 3 the field itself
  * NULL, 4 the whole row NULL, 5 its element twice; 0 its element as it is. The programs pass a session's items, the
@@ -55,11 +55,11 @@ const Text = str.regex("^[a-z]{0,2}$", "u")
 
 const A = rows({ k: pg.bigint, v: Text })
 
-const B = rows({ k: pg.bigint, f: pg["double precision"] })
+const B = rows({ f: pg["double precision"], k: pg.bigint })
 
 const Out = rows({ a: A, b: B, c: A, flow: Text })
 
-const Input = rows({ slot: pg.integer, k: pg.bigint, v: Text, mark: pg.integer })
+const Input = rows({ k: pg.bigint, mark: pg.integer, slot: pg.integer, v: Text })
 
 const machine = fn("machine", {
 	calls: [],
@@ -69,7 +69,7 @@ const machine = fn("machine", {
 	language: "sql",
 	body: fn.body`SELECT CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.mark = 4) THEN NULL ELSE ROW(
 CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.slot = 0 AND i.mark = 3) THEN NULL ELSE ARRAY(SELECT CASE WHEN i.mark = 1 THEN NULL ELSE ROW(i.k, CASE WHEN i.mark = 2 THEN NULL ELSE i.v END)::${A} END FROM unnest(items) AS i, generate_series(1, CASE WHEN i.mark = 5 THEN 2 ELSE 1 END) AS n WHERE i.slot = 0) END,
-CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.slot = 1 AND i.mark = 3) THEN NULL ELSE ARRAY(SELECT CASE WHEN i.mark = 1 THEN NULL ELSE ROW(i.k, CASE WHEN i.mark = 2 THEN NULL ELSE i.k::float8 / 2 END)::${B} END FROM unnest(items) AS i, generate_series(1, CASE WHEN i.mark = 5 THEN 2 ELSE 1 END) AS n WHERE i.slot = 1) END,
+CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.slot = 1 AND i.mark = 3) THEN NULL ELSE ARRAY(SELECT CASE WHEN i.mark = 1 THEN NULL ELSE ROW(CASE WHEN i.mark = 2 THEN NULL ELSE i.k::float8 / 2 END, i.k)::${B} END FROM unnest(items) AS i, generate_series(1, CASE WHEN i.mark = 5 THEN 2 ELSE 1 END) AS n WHERE i.slot = 1) END,
 CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.slot = 2 AND i.mark = 3) THEN NULL ELSE ARRAY(SELECT CASE WHEN i.mark = 1 THEN NULL ELSE ROW(i.k, CASE WHEN i.mark = 2 THEN NULL ELSE i.v END)::${A} END FROM unnest(items) AS i, generate_series(1, CASE WHEN i.mark = 5 THEN 2 ELSE 1 END) AS n WHERE i.slot = 2) END,
 'f' || seed::text)::${Out} END`
 })

@@ -793,10 +793,10 @@ export interface OrderedSetAggregate<R extends RefKinds> extends NodeCommon<R> {
 }
 
 /**
- * An argument of a call, in the function's declared order: a value, an expression of the scope the call stands in, of
- * the argument's declared type `type`; or rows, a node whose heading holds the argument's heading's fields, passed as an
- * array of the heading's row type, each element its fields in `columns`' order, the heading's declared order, each of
- * its declared type.
+ * An argument of a call, in its function's parameters' order, its arguments' names' code point order: a value, an
+ * expression of the scope the call stands in, of the argument's declared type `type`; or rows, a node whose heading
+ * holds the argument's heading's fields, passed as an array of the heading's row type, each element its fields in
+ * `columns`' order, the heading's, its row type's attributes', each of its declared type.
  */
 export type CallArg<R extends RefKinds> =
 	| {

@@ -3618,7 +3618,7 @@ body.
 
 ```ts
 const Word = str.regex("^[a-z]+$", "u")
-const Weighted = rows({ word: Word, weight: natural })
+const Weighted = rows({ weight: natural, word: Word })
 
 /** A word folded to lower case: an SQL body. */
 export const folded = fn("folded", {
@@ -3652,7 +3652,7 @@ END
 
 /** A titled list of weighted words: a heading whose field holds rows of another. */
 const Titled = rows({ title: Word, words: Weighted })
-const Summary = rows({ title: Word, count: natural })
+const Summary = rows({ count: natural, title: Word })
 
 /** A titled list's title and its count of words: one row of a heading, from one row of another. */
 export const summary = fn("summary", {
@@ -3661,7 +3661,7 @@ export const summary = fn("summary", {
 	returns: row(Summary),
 	volatility: "immutable",
 	language: "sql",
-	body: fn.body`SELECT ROW((doc).title, cardinality((doc).words))::${Summary}`
+	body: fn.body`SELECT ROW(cardinality((doc).words), (doc).title)::${Summary}`
 })
 
 export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
@@ -3669,21 +3669,30 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
 
 - **Arguments and results** are a value of a field's type, `rows(heading)` or `row(heading)`: an argument of rows is
   an array of the heading's row type, a result of rows is a set of them, `RETURNS SETOF`, and one row, as an argument
-  or a result, is a value of the row type itself, a composite. A heading's fields are in the order its record writes
-  them, its row type's attribute order, and each is a value, rows of another heading (an array of that one's row
-  type) or one row of one, so a heading holds another as one composite or as many: `Titled` above holds its words,
-  and its row type installs after `Weighted`'s. A value's type is a base type, a closed id, a contract or a refined
-  text over one: a serial, money, bytes, a set, a span or a vector is a type error, and from JavaScript `Refused` when
-  the schema is owned. A heading holds no NULL, so no row is no arm of a type: a function of one row returns its row,
-  and a body with none to return raises. PostgreSQL holds a function to its declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a
-  column whose type is not the row type's), so each is its field's base type, `natural` a bigint, `Word` a text and a
-  closed id its code, a smallint: a contract, a pattern or a roster is checked where a statement reads the function's
-  value, cast to its field's domain, never by the signature. A call passes a closed id of the argument's own roster
-  alone, as every term does.
+  or a result, is a value of the row type itself, a composite. Each field of a heading is a value, rows of another
+  heading (an array of that one's row type) or one row of one, so a heading holds another as one composite or as
+  many: `Titled` above holds its words, and its row type installs after `Weighted`'s. A value's type is a base type, a
+  closed id, a contract or a refined text over one: a serial, money, bytes, a set, a span or a vector is a type error,
+  and from JavaScript `Refused` when the schema is owned. A heading holds no NULL, so no row is no arm of a type: a
+  function of one row returns its row, and a body with none to return raises. PostgreSQL holds a function to its
+  declared types exactly (a PL/pgSQL `RETURN QUERY` refuses a column whose type is not the row type's), so each is its
+  field's base type, `natural` a bigint, `Word` a text and a closed id its code, a smallint: a contract, a pattern or
+  a roster is checked where a statement reads the function's value, cast to its field's domain, never by the
+  signature. A call passes a closed id of the argument's own roster alone, as every term does.
+- **Order.** A heading's fields and a function's arguments are each a set of names, and PostgreSQL reads both by
+  position: a row type's attributes, in the order `ROW(...)::${heading}` builds them and a body's `SELECT` or
+  `RETURN QUERY` returns them, and a function's parameters, in the order a call passes them and `$1`, `$2` number
+  them. Both stand in code point order of their names, whatever order the record writes its keys in, which is the
+  order oxlint's `sort-keys` holds a record to: `Summary` above is `(count, title)`, so its body builds
+  `ROW(cardinality(...), (doc).title)`, and a function of `args: { x, y, iy }` is `f(iy, x, y)`. A body calls a
+  declared function positionally in that order, or by name, `f(x => 0.5, y => 0, iy => 1)`, which no order changes.
+  A record written in any key order, sorted or not, installs the same row type and the same function, and grizzle's
+  own calls, rows arguments and reads of a call's rows take the same order.
 - **Names.** A function installs in its level's schema under its name's conversion, `folded`, `xsd_regex` for
   `xsdRegex`; functions are one namespace across a schema's levels, apart from its relations. Each heading installs
-  once per level as a row type named by its definition's digest, `__rows_<digest>`, so a changed heading is another
-  type and the functions over it take the new one.
+  once per level as a row type named by its definition's digest, `__rows_<digest>`, its fields by name, so a changed
+  heading is another type and the functions over it take the new one, and a heading whose record only writes its keys
+  in another order is the same type.
 - **A body names its row types** by placeholders: each `${heading}` of `` fn.body`...` `` is a heading `rows()` built,
   and the body installs with its row type's name in its place, `"__rows_<digest>"`, which the function's search_path
   resolves. A heading the body names is one its own arguments or result take rows of or return, or one a function it
@@ -3755,7 +3764,7 @@ them as a source. The ChangeSet below files a document's lines by the length of 
 statement, and calls `parted` once:
 
 ```ts
-const Parted = rows({ short: Numbered, long: Numbered })
+const Parted = rows({ long: Numbered, short: Numbered })
 
 /** The lines of `program`, parted by the length of their word: one row, two fields of rows. */
 export const parted = fn("parted", {
@@ -3765,8 +3774,8 @@ export const parted = fn("parted", {
 	volatility: "immutable",
 	language: "sql",
 	body: fn.body`SELECT ROW(
-  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5),
-  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5))::${Parted}`
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5),
+  ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) < 5))::${Parted}`
 })
 
 const Short = relation("Short", { doc: DocSlug, pos: natural, txt: Word }, ["doc", "pos"])
