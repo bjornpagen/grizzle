@@ -26,6 +26,7 @@ import {
 	Stream
 } from "effect"
 import { Force, OutputPath, writeBody } from "#runtime-src/runtime/output.ts"
+import { chunkText } from "#test/support/stdio.ts"
 
 /** Media types a body may carry: text, and binary types a terminal must not receive. */
 const MEDIA: Arr.NonEmptyReadonlyArray<readonly [string | undefined, boolean]> = [
@@ -126,7 +127,6 @@ export const sunkIn = (dir: ScratchDir, sinking: Sinking) =>
 			const path = yield* Path.Path
 			const target = path.join(dir, "out.bin")
 			const out: Array<string> = []
-			const decoder = new TextDecoder()
 			let pulled = 0
 			if (sinking.destination.kind === "file" && sinking.destination.target === "existing") {
 				yield* fs.writeFileString(target, "keep")
@@ -150,9 +150,9 @@ export const sunkIn = (dir: ScratchDir, sinking: Sinking) =>
 			const stdout = () =>
 				Sink.forEachArray((written: ReadonlyArray<string | Uint8Array>) =>
 					sinking.fault === "none"
-						? Effect.sync(() => {
-								for (const chunk of written) {
-									out.push(typeof chunk === "string" ? chunk : decoder.decode(chunk))
+						? Effect.map(Effect.forEach(written, chunkText), (texts) => {
+								for (const text of texts) {
+									out.push(text)
 								}
 							})
 						: Effect.fail(fault(sinking.fault))

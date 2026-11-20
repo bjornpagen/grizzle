@@ -34,6 +34,7 @@ import {
 	Raw,
 	writeResponse
 } from "#runtime-src/runtime/output.ts"
+import { chunkText } from "#test/support/stdio.ts"
 
 /** How a media type's body is written: framed as NDJSON or JSON-seq records, or as received; text or binary. */
 type Kind = Readonly<{ codec: "ndjson" | "jsonseq" | "none"; text: boolean }>
@@ -177,7 +178,6 @@ export const writtenIn = (dir: ScratchDir, written: Written) =>
 			const fs = yield* FileSystem.FileSystem
 			const target = path.join(dir, "out.jsonl")
 			const out: Array<string> = []
-			const decoder = new TextDecoder()
 			let writes = 0
 			const stdout = () =>
 				Sink.forEachArray((chunks: ReadonlyArray<string | Uint8Array>) =>
@@ -187,10 +187,11 @@ export const writtenIn = (dir: ScratchDir, written: Written) =>
 						if (broken) {
 							return Effect.fail(brokenPipe)
 						}
-						for (const chunk of chunks) {
-							out.push(typeof chunk === "string" ? chunk : decoder.decode(chunk))
-						}
-						return Effect.void
+						return Effect.map(Effect.forEach(chunks, chunkText), (texts) => {
+							for (const text of texts) {
+								out.push(text)
+							}
+						})
 					})
 				)
 			const context = yield* Layer.build(
