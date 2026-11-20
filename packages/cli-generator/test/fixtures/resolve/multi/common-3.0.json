@@ -1,6 +1,0 @@
-{
-  "parameters": {
-    "Limit": { "in": "query", "name": "limit", "schema": { "$ref": "#/schemas/LimitValue" } }
-  },
-  "schemas": { "LimitValue": { "type": "integer" } }
-}

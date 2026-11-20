@@ -1,5 +1,5 @@
-import { Schema, String as Str } from "effect"
-import { ComponentName } from "#model/brands.ts"
+import { String as Str } from "effect"
+import { isComponentName } from "#model/brands.ts"
 import type { DocumentUri } from "#model/brands.ts"
 
 /**
@@ -15,11 +15,6 @@ export interface CanonicalKey {
  * The string form of a canonical key, used as a map key.
  */
 export const keyOf = (key: CanonicalKey): string => `${key.document}#${key.pointer}`
-
-/**
- * Test whether a `$defs` candidate name matches the component-name pattern.
- */
-const isComponentName = Schema.is(ComponentName)
 
 /**
  * The `$defs` key a schema target is lifted under (design 2.2 SchemaStore key rule). A target at

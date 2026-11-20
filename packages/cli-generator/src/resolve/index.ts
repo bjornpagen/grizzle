@@ -1,6 +1,7 @@
 import { regex } from "arkregex"
 import {
 	Array as Arr,
+	Data,
 	Effect,
 	Graph,
 	Option,
@@ -8,12 +9,11 @@ import {
 	Predicate,
 	Record,
 	Result,
-	Schema,
 	String as Str
 } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
-import { isDiagnostic, makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
+import { makeDiagnostic } from "#model/diagnostic.ts"
 import { isObject, isArray, nodeAt, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { fixedMethods, queryMethod } from "#model/path-item.ts"
@@ -116,12 +116,9 @@ export interface Resolution {
 /**
  * The document set cannot be resolved; the model is not built (design 2.4).
  */
-class ResolveRefusal extends Schema.TaggedError<
-	ResolveRefusal,
-	{ readonly brand: unique symbol }
->()("ResolveRefusal", {
-	diagnostic: Schema.declare(isDiagnostic)
-}) {}
+class ResolveRefusal extends Data.TaggedError("ResolveRefusal")<{
+	readonly diagnostic: Diagnostic
+}> {}
 
 /**
  * A Components map whose names implicit connections refer to.
@@ -1552,7 +1549,7 @@ export const resolve = Effect.fn("resolve.resolve")(function* resolve(
 	if (failed !== undefined) {
 		const diagnostic = yield* toDiagnostic(memberOfFinding(failed.finding), failed.finding)
 
-		return yield* ResolveRefusal.make({ diagnostic })
+		return yield* new ResolveRefusal({ diagnostic })
 	}
 
 	const diagnostics = yield* Effect.forEach(resolver.findings, (finding) =>

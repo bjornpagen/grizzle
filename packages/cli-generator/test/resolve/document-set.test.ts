@@ -1,346 +1,240 @@
-import { readFileSync } from "node:fs"
-import { Effect, Option, Schema } from "effect"
-import { describe, expect, test } from "vitest"
-import { loadBytes } from "#load/index.ts"
-import { DocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
-import type { SpecLine } from "#model/spec-section.ts"
-import { keyOf } from "#resolve/canonical.ts"
-import type { CanonicalKey } from "#resolve/canonical.ts"
-import { implicitComponent, referenceAt, resolve } from "#resolve/index.ts"
-import type { Resolution, ResolvedReference, ResolveMember } from "#resolve/index.ts"
+/**
+ * References resolve across the document set as design 3.3 says. A chain of non-schema references of any length hops
+ * between documents, each reference resolved against the base of the document holding it (a member's retrieval URI,
+ * a 3.2 entry's `$self`), and ends at its target or at the first refusal: a relative file outside the set (REF-15), an
+ * absolute URI outside it (REF-16), a pointer a member lacks (REF-18) or a hop already on the chain (DOC-23). A schema
+ * cycle across two documents of any depth resolves, each target lifted under its canonical key. Every member's `$id`
+ * and `$anchor` is indexed before a reference is judged (B10), and an `$id` declared twice is REF-14; implicit
+ * connections resolve from the entry alone; and no two documents share a URI, by retrieval or by `$self`.
+ */
 
-const uri = (value: string): DocumentUri => Schema.decodeUnknownSync(DocumentUri)(value)
+import { assert } from "@bjornpagen/testing/assert"
+import type { Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Effect } from "effect"
+import {
+	aimedChains,
+	aimedCycles,
+	type ChainFeature,
+	chainFeatures,
+	chainResolved,
+	type CollisionFeature,
+	collisionResolved,
+	collisionSpace,
+	type ConnectionFeature,
+	connectionFeatures,
+	connectionsResolved,
+	connectionsSpace,
+	type CycleFeature,
+	cycleFeatures,
+	cycleResolved,
+	expectedChain,
+	expectedCollision,
+	expectedConnections,
+	expectedCycle,
+	expectedIndexed,
+	type IndexedFeature,
+	indexedFeatures,
+	indexedResolved,
+	indexedSpace
+} from "#test/resolve/document-set.fixtures.ts"
 
-const entry = uri("file:///spec/openapi.json")
-
-const fixture = (name: string, document: DocumentUri): Json => {
-	const bytes = new Uint8Array(
-		readFileSync(new URL(`../fixtures/resolve/multi/${name}`, import.meta.url))
-	)
-
-	return Effect.runSync(loadBytes(bytes, { document })).value
-}
-
-const member = (name: string, document: string): ResolveMember => {
-	const at = uri(document)
-
-	return { document: at, value: fixture(name, at) }
-}
-
-const input = (line: SpecLine, value: Json, members: readonly ResolveMember[]) => ({
-	document: entry,
-	line,
-	members,
-	value
-})
-
-const resolved = (line: SpecLine, value: Json, members: readonly ResolveMember[]): Resolution =>
-	Effect.runSync(resolve(input(line, value, members)))
-
-const refusal = (line: SpecLine, value: Json, members: readonly ResolveMember[]) =>
-	Effect.runSync(Effect.flip(resolve(input(line, value, members)))).diagnostic
-
-const at = (resolution: Resolution, site: CanonicalKey): ResolvedReference | undefined =>
-	resolution.references.get(keyOf(site))
-
-const openapi: Readonly<Record<SpecLine, string>> = {
-	"3.0": "3.0.3",
-	"3.1": "3.1.1",
-	"3.2": "3.2.0"
-}
-
-const spec = (line: SpecLine, members: Record<string, Json>): Json => ({
-	info: { title: "t", version: "1" },
-	openapi: openapi[line],
-	paths: {},
-	...members
-})
-
-const usesParameter = (ref: string) => ({
-	paths: {
-		"/a": { get: { parameters: [{ $ref: ref }], responses: { "200": { description: "ok" } } } }
-	}
-})
-
-const parameterAt = "/paths/~1a/get/parameters/0"
-
-describe("references across the document set", () => {
-	test("3.0 resolves a relative file against the document URL, and member-local pointers in the member", () => {
-		const common = member("common-3.0.json", "file:///spec/common.json")
-		const pet = member("pet-3.0.json", "file:///spec/pet.json")
-		const resolution = resolved("3.0", fixture("entry-3.0.json", entry), [common, pet])
-		const schemaAt = "/paths/~1pets/get/responses/200/content/application~1json/schema"
-
-		expect(referenceAt(resolution, "/paths/~1pets/get/parameters/0")?.target).toEqual({
-			document: common.document,
-			pointer: "/parameters/Limit"
-		})
-		expect(
-			at(resolution, { document: common.document, pointer: "/parameters/Limit/schema" })?.target
-		).toEqual({ document: common.document, pointer: "/schemas/LimitValue" })
-
-		const whole = referenceAt(resolution, schemaAt)
-
-		expect(whole?.target).toEqual({ document: pet.document, pointer: "" })
-		expect(whole?.defsKey).toBe(`${pet.document}#`)
-		expect(resolution.documents.get(pet.document)).toBe(pet.value)
-	})
-
-	test("3.1 resolves a schema reference against the nearest $id into another member", () => {
-		const owner = member("owner-3.1.json", "https://schemas.example.com/root/owner.json")
-		const resolution = resolved("3.1", fixture("entry-3.1.json", entry), [owner])
-		const ownerKey = { document: owner.document, pointer: "/$defs/Owner" }
-
-		expect(referenceAt(resolution, "/components/schemas/Pet/properties/owner")?.target).toEqual(
-			ownerKey
-		)
-		expect(resolution.defs.get(keyOf(ownerKey))).toBe(keyOf(ownerKey))
-		expect(
-			at(resolution, { document: owner.document, pointer: "/$defs/Owner/properties/name" })?.target
-		).toEqual({ document: owner.document, pointer: "/$defs/Name" })
-	})
-
-	test("3.2 resolves against $self, not the retrieval URI, into another member", () => {
-		const common = member("common-3.2.json", "https://api.example.com/v1/common.json")
-		const resolution = resolved("3.2", fixture("entry-3.2.json", entry), [common])
-
-		expect(referenceAt(resolution, "/paths/~1pets/get/parameters/0")?.target).toEqual({
-			document: common.document,
-			pointer: "/components/parameters/Limit"
-		})
-		expect(
-			at(resolution, {
-				document: common.document,
-				pointer: "/components/parameters/Limit/schema"
-			})?.target
-		).toEqual({ document: common.document, pointer: "/components/schemas/LimitValue" })
-	})
-
-	test("3.2 a relative reference that only the retrieval URI would place in the set is outside it", () => {
-		const common = member("common-3.2.json", "file:///spec/common.json")
-		const diagnostic = refusal("3.2", fixture("entry-3.2.json", entry), [common])
-
-		expect(diagnostic.code).toBe("REF-15/outside-set")
-		expect<string>(diagnostic.pointer).toBe("/paths/~1pets/get/parameters/0")
-	})
-
-	test("REF-15 a relative file outside the set is refused with no request", () => {
-		const common = member("common-3.0.json", "file:///spec/common.json")
-		const diagnostic = refusal("3.0", spec("3.0", usesParameter("missing.json#/P")), [common])
-
-		expect(diagnostic.code).toBe("REF-15/outside-set")
-		expect(diagnostic.scope).toBe("document")
-		expect<string>(diagnostic.pointer).toBe(parameterAt)
-	})
-
-	test("REF-16 an absolute URI outside the set is refused with no request", () => {
-		const common = member("common-3.0.json", "file:///spec/common.json")
-		const diagnostic = refusal(
-			"3.0",
-			spec("3.0", usesParameter("https://elsewhere.example.com/common.json#/parameters/Limit")),
-			[common]
-		)
-
-		expect(diagnostic.code).toBe("REF-16/outside-set")
-		expect<string>(diagnostic.pointer).toBe(parameterAt)
-	})
-
-	test("a missing target inside a member names the member in related and in its pointer key", () => {
-		const common = member("common-3.0.json", "file:///spec/common.json")
-		const diagnostic = refusal(
-			"3.0",
-			spec("3.0", usesParameter("common.json#/parameters/Absent")),
-			[common]
-		)
-
-		expect(diagnostic.code).toBe("REF-18/unresolvable")
-		expect<readonly { document: string; pointer: string }[] | undefined>(
-			diagnostic.related
-		).toEqual([{ document: common.document, pointer: "/parameters/Absent" }])
-	})
-
-	test("a refusal found inside a member names that member", () => {
-		const broken = { document: uri("file:///spec/broken.json"), value: { P: { $ref: "#/Q" } } }
-		const diagnostic = refusal("3.1", spec("3.1", usesParameter("broken.json#/P")), [broken])
-
-		expect(diagnostic.code).toBe("REF-18/unresolvable")
-		expect<string>(diagnostic.pointer).toBe(parameterAt)
-		expect<readonly { document: string; pointer: string }[] | undefined>(
-			diagnostic.related
-		).toEqual([{ document: broken.document, pointer: "/Q" }])
-	})
-
-	test("with a set of one, the entry resolves as before and documents holds the entry", () => {
-		const value = spec("3.1", {
-			...usesParameter("#/components/parameters/P"),
-			components: { parameters: { P: { in: "query", name: "p" } } }
-		})
-		const resolution = resolved("3.1", value, [])
-
-		expect(referenceAt(resolution, parameterAt)?.target).toEqual({
-			document: entry,
-			pointer: "/components/parameters/P"
-		})
-		expect([...resolution.documents.keys()]).toEqual([entry])
-	})
-
-	test("REF-14 a member whose $self names another document of the set is refused", () => {
-		const twin = {
-			document: uri("https://api.example.com/v1/twin.json"),
-			line: "3.2" as const,
-			value: spec("3.2", { $self: "file:///spec/openapi.json" })
+/**
+ * A chain from the entry's parameter use site ends where design 3.3 says. It replaces ten example cases, so its
+ * rotating stream is ten drawn chains; its floor and steered phase reach each situation by an aimed one.
+ */
+export const documentChains = property.explore(aimedChains, {
+	needs: {},
+	situations: [
+		"a set of one",
+		"a chain across two members",
+		"a chain past two hundred hops",
+		"a local hop inside a member",
+		"a relative hop inside a member away from the entry",
+		"the entry's $self as its base",
+		"a relative reference only the retrieval URI places in the set",
+		"a missing target in a member",
+		"a relative file outside the set",
+		"an absolute URI outside the set",
+		"a cycle across documents"
+	] satisfies ReadonlyArray<Reached<ChainFeature>>,
+	check: (_, c: Case<ChainFeature>) => (chain) =>
+		Effect.gen(function* () {
+			c.noteAll(chainFeatures(chain))
+			const resolved = yield* chainResolved(chain)
+			assert.deepEqual(resolved, expectedChain(chain))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 3.3: each reference against its holder's base, the chain to its target or its first refusal"
+	},
+	kept: [],
+	budget: { runs: 10, steered: 33 },
+	kills: [
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original: 'remoteUri.test(site.ref) ? "REF-16/outside-set" : "REF-15/outside-set",',
+			replacement: 'remoteUri.test(site.ref) ? "REF-15/outside-set" : "REF-16/outside-set",',
+			why: "A relative file outside the set reads as a remote URI and a remote URI as a relative file; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original: ': relatedFailure("REF-18/unresolvable", keyAt(site), outcome.target)',
+			replacement: ': failure("REF-18/unresolvable", keyAt(site))',
+			why: "A missing target no longer names the member and pointer it is missing from; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original: 'return relatedFailure("DOC-23/non-schema-cycle", siteKey, hop)',
+			replacement: 'return failure("DOC-23/non-schema-cycle", siteKey)',
+			why: "A cycle no longer names the hop that closes it; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original: "const outcome = this.lookup(ref, member.base, false, member.line)",
+			replacement: "const outcome = this.lookup(ref, site.member.base, false, member.line)",
+			why: "Every hop resolves against the use site's document, not the document holding it, so a relative hop inside a member away from the entry lands outside the set; the property fails."
+		},
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original: "this.settle(site, hop, via, docs)",
+			replacement: "this.settle(site, hop, [], docs)",
+			why: "A chain's Reference Objects between its use site and its target are dropped from via; the property fails."
 		}
-		const diagnostic = refusal("3.2", spec("3.2", {}), [twin])
-
-		expect(diagnostic.code).toBe("REF-14/duplicate-id")
-		expect(diagnostic.document).toBe(twin.document)
-	})
+	]
 })
 
-describe("implicit connections across the document set", () => {
-	test("a security scheme name defined only in a non-entry member is not found", () => {
-		const common = member("common-3.2.json", "https://api.example.com/v1/common.json")
-		const resolution = resolved("3.2", fixture("entry-3.2.json", entry), [common])
-
-		expect(Option.isNone(implicitComponent(resolution, "securitySchemes", "MemberKey"))).toBe(true)
-	})
-
-	test("an operationId found only in a member is not recorded", () => {
-		const paths = {
-			document: uri("file:///spec/paths.json"),
-			value: { Item: { get: { operationId: "inMember", responses: {} } } }
+/**
+ * A schema cycle across two documents resolves, every schema it reaches lifted under its canonical key. It replaces one
+ * example case of 2000 levels; its rotating stream is four drawn cycles, a fifth of them a thousand levels or more.
+ */
+export const schemaCycles = property.explore(aimedCycles, {
+	needs: {},
+	situations: [
+		"one level",
+		"an even cycle",
+		"an odd cycle",
+		"a thousand levels or more"
+	] satisfies ReadonlyArray<Reached<CycleFeature>>,
+	check: (_, c: Case<CycleFeature>) => (cycle) =>
+		Effect.gen(function* () {
+			c.noteAll(cycleFeatures(cycle))
+			const resolved = yield* cycleResolved(cycle)
+			assert.deepEqual(resolved, expectedCycle(cycle))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 2.2 and 3.3: a schema reference is one hop, its target lifted under its canonical key"
+	},
+	kept: [],
+	budget: { runs: 4, steered: 12 },
+	kills: [
+		{
+			file: "packages/cli-generator/src/resolve/canonical.ts",
+			original: "\tif (key.document !== entry) {\n\t\treturn keyOf(key)\n\t}\n",
+			replacement: "",
+			why: "A target in a member is lifted under its pointer alone, so two members' targets share a key; the property fails."
 		}
-		const resolution = resolved(
-			"3.1",
-			spec("3.1", { paths: { "/a": { $ref: "paths.json#/Item" } } }),
-			[paths]
-		)
-
-		expect(referenceAt(resolution, "/paths/~1a")?.target.document).toBe(paths.document)
-		expect(resolution.operationIds.has("inMember")).toBe(false)
-	})
+	]
 })
 
-describe("budgets span the document set", () => {
-	const a = uri("file:///spec/a.json")
-	const b = uri("file:///spec/b.json")
-
-	test("a non-schema reference cycle across two documents is a document refusal", () => {
-		const value = spec("3.1", {
-			...usesParameter("b.json#/P"),
-			components: { parameters: { P: { $ref: "b.json#/P" } } }
-		})
-		const other = { document: b, value: { P: { $ref: "openapi.json#/components/parameters/P" } } }
-		const diagnostic = refusal("3.1", value, [other])
-
-		expect(diagnostic.code).toBe("DOC-23/non-schema-cycle")
-		expect(diagnostic.scope).toBe("document")
-	})
-
-	test("a chain alternating between documents follows every hop, past any count", () => {
-		const hops = 200
-		const link = (index: number, here: DocumentUri): Json =>
-			index === hops ? { in: "query", name: "p" } : { $ref: `${here === a ? b : a}#/P${index + 1}` }
-		const doc = (here: DocumentUri) =>
-			Object.fromEntries(
-				Array.from({ length: hops + 1 }, (_, index) => [`P${index}`, link(index, here)])
-			)
-		const members = [
-			{ document: a, value: doc(a) },
-			{ document: b, value: doc(b) }
-		]
-		const value = spec("3.1", usesParameter("a.json#/P0"))
-
-		expect(referenceAt(resolved("3.1", value, members), parameterAt)?.via).toHaveLength(hops)
-	})
-
-	test("a schema cycle across two documents resolves", () => {
-		const levels = 2000
-		const schemas = (here: DocumentUri) =>
-			Object.fromEntries(
-				Array.from({ length: levels }, (_, index) => [
-					`S${index}`,
-					{
-						allOf: [
-							{ $ref: `${here === a ? b : a}#/S${(index + 1) % levels}` },
-							{ $ref: `${here === a ? b : a}#/S${(index + 1) % levels}` }
-						]
-					}
-				])
-			)
-		const members = [
-			{ document: a, value: schemas(a) },
-			{ document: b, value: schemas(b) }
-		]
-		const value = spec("3.1", { components: { schemas: { Root: { $ref: "a.json#/S0" } } } })
-		const resolution = resolved("3.1", value, members)
-
-		expect(resolution.defs.get(keyOf({ document: b, pointer: "/S1" }))).toBe(`${b}#/S1`)
-		expect(resolution.defs.get(keyOf({ document: a, pointer: "/S0" }))).toBe(`${a}#/S0`)
-	})
+/**
+ * A reference to an `$id` or `$anchor` only an unreached member declares resolves, and one declared twice is refused.
+ * It replaces four example cases; the exhaustion proves it over every declaration, line and home.
+ */
+export const idsIndexedFirst = property.exhaust(indexedSpace, {
+	needs: {},
+	box: "every declaration an unreached member makes (a fragment's $id, an OpenAPI document's component $id, an $anchor under its root $id) on 3.1 and 3.2, beside the entry or its $self, with the entry declaring the $id again or not",
+	situations: [
+		"a fragment's $id",
+		"an OpenAPI document's component $id",
+		"an $anchor under its root $id",
+		"an $id the entry declares again"
+	] satisfies ReadonlyArray<Reached<IndexedFeature>>,
+	check: (_, c: Case<IndexedFeature>) => (indexed) =>
+		Effect.gen(function* () {
+			c.noteAll(indexedFeatures(indexed))
+			const resolved = yield* indexedResolved(indexed)
+			assert.deepEqual(resolved, expectedIndexed(indexed))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 3.3 B10: every member's $id and $anchor indexed before any reference is judged"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original:
+				"\t\tconst indexed = this.index()\n\t\tif (indexed !== undefined) {\n\t\t\treturn indexed\n\t\t}\n",
+			replacement: "",
+			why: "Members are indexed only where references reach them, so an $id an unreached member declares is outside the set and a duplicate is never seen; the property fails."
+		}
+	]
 })
 
-const usesSchema = (ref: string) => ({ components: { schemas: { Root: { $ref: ref } } } })
+/**
+ * Implicit connections resolve from the entry alone: a member's security scheme is not found by name and a member's
+ * operationId is not recorded. It replaces two example cases; the exhaustion proves it over every line and home.
+ */
+export const entryOnlyConnections = property.exhaust(connectionsSpace, {
+	needs: {},
+	box: "every line, beside the entry or its $self, with the entry holding the scheme and an operation of its own or not",
+	situations: [
+		"a scheme a member alone holds",
+		"a scheme the entry holds too",
+		"an operationId a member alone holds",
+		"an operationId of the entry's own"
+	] satisfies ReadonlyArray<Reached<ConnectionFeature>>,
+	check: (_, c: Case<ConnectionFeature>) => (connections) =>
+		Effect.gen(function* () {
+			c.noteAll(connectionFeatures(connections))
+			const connected = yield* connectionsResolved(connections)
+			assert.deepEqual(connected, expectedConnections(connections))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 3.3: implicit connections resolve from the entry document only"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original:
+				"\t\tif (place.member !== this.entry) {\n\t\t\treturn\n\t\t}\n\n\t\tconst operationId",
+			replacement: "\t\tconst operationId",
+			why: "Every document's operations are recorded, so an operationId a member alone holds is found; the property fails."
+		}
+	]
+})
 
-describe("every member's $id and $anchor is indexed before a reference is judged (B10)", () => {
-	const unreached = uri("https://example.com/unreached.json")
-	const rootAt = { document: entry, pointer: "/components/schemas/Root" }
-
-	test("DOC-17 a $ref to a $id declared in a member no reference reaches resolves", () => {
-		const fragment = { $defs: { Pet: { $id: "https://example.com/schemas/pet", type: "object" } } }
-		const members = [{ document: unreached, value: fragment }]
-		const resolution = resolved(
-			"3.1",
-			spec("3.1", usesSchema("https://example.com/schemas/pet")),
-			members
-		)
-
-		expect(at(resolution, rootAt)?.target).toEqual({ document: unreached, pointer: "/$defs/Pet" })
-	})
-
-	test("REF-14 a $ref to a $id in another supplied OpenAPI document's components resolves", () => {
-		const other = spec("3.2", {
-			components: { schemas: { Pet: { $id: "https://example.com/schemas/pet", type: "object" } } }
-		})
-		const members = [{ document: unreached, line: "3.2" as const, value: other }]
-		const resolution = resolved(
-			"3.2",
-			spec("3.2", usesSchema("https://example.com/schemas/pet")),
-			members
-		)
-
-		expect(at(resolution, rootAt)?.target).toEqual({
-			document: unreached,
-			pointer: "/components/schemas/Pet"
-		})
-	})
-
-	test("a $ref to an $anchor under a member's root $id resolves", () => {
-		const fragment = { $defs: { Pet: { $anchor: "pet" } }, $id: "https://example.com/s.json" }
-		const members = [{ document: unreached, value: fragment }]
-		const resolution = resolved(
-			"3.1",
-			spec("3.1", usesSchema("https://example.com/s.json#pet")),
-			members
-		)
-
-		expect(at(resolution, rootAt)?.target).toEqual({ document: unreached, pointer: "/$defs/Pet" })
-	})
-
-	test("REF-14 a $id declared in the entry and again in an unreached member is refused", () => {
-		const pet = { $id: "https://example.com/schemas/pet", type: "object" }
-		const members = [{ document: unreached, value: { $defs: { Pet: pet } } }]
-		const diagnostic = refusal(
-			"3.1",
-			spec("3.1", { components: { schemas: { Pet: pet } } }),
-			members
-		)
-
-		expect(diagnostic.code).toBe("REF-14/duplicate-id")
-		expect<readonly string[]>([diagnostic.document, diagnostic.pointer]).toEqual([
-			unreached,
-			"/$defs/Pet"
-		])
-	})
+/**
+ * A 3.2 member whose `$self` names a document of the set is refused where the repeated URI registers. It replaces one
+ * example case; the exhaustion proves it over each document the `$self` may name.
+ */
+export const selfCollisions = property.exhaust(collisionSpace, {
+	needs: {},
+	box: "a 3.2 member's $self naming the entry, a member before it or a member after it, beside the entry or its $self",
+	situations: ["the entry", "a member before it", "a member after it"] satisfies ReadonlyArray<
+		Reached<CollisionFeature>
+	>,
+	check: (_, c: Case<CollisionFeature>) => (collision) =>
+		Effect.gen(function* () {
+			c.note(collision.named)
+			const resolved = yield* collisionResolved(collision)
+			assert.deepEqual(resolved, expectedCollision(collision))
+		}),
+	oracle: {
+		kind: "specification",
+		name: "design 3.3: no two documents of a set share a URI, by retrieval or by $self"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/cli-generator/src/resolve/index.ts",
+			original: 'pointer: resource === retrieval ? "" : "/$self"',
+			replacement: 'pointer: resource === retrieval ? "/$self" : ""',
+			why: "A repeated URI is stated at the wrong place, a $self's at the member's root and a retrieval URI's at its $self; the property fails."
+		}
+	]
 })

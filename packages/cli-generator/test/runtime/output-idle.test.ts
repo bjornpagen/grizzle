@@ -56,37 +56,37 @@ export const idleBound = property.explore(aimedRuns, {
 	budget: { runs: 13, steered: 30 },
 	kills: [
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "duration: Duration.seconds(seconds),",
 			replacement: "duration: Duration.infinity,",
 			why: "A body's read is bounded by no idle timeout, so a wait past the bound is waited and the body read whole; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "{ bytes: bodyOf(ok, idleSeconds), mediaType },",
 			replacement: "{ bytes: bodyOf(ok, Option.none()), mediaType },",
 			why: "A 2xx body is read under no idle timeout, so a wait past the bound on stdout or into --output is waited; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "readErrorBody(bodyOf(response, idleSeconds), scrubbed)",
 			replacement: "readErrorBody(bodyOf(response, Option.none()), scrubbed)",
 			why: "An error body's excerpt is read under no idle timeout, so a stalled error body is waited and its run ends with the API error; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: '(error) => error.reason !== "idleTimeout",',
 			replacement: "() => true,",
 			why: "An error body's idle timeout is swallowed as an empty excerpt, so the run ends with the API error (exit 1) where it stalled (exit 5); the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: `const name = \`\${envPrefix}_IDLE_TIMEOUT\``,
 			replacement: 'const name = "IDLE_TIMEOUT"',
 			why: "The unprefixed IDLE_TIMEOUT is read in place of the prefixed variable, so an invalid prefixed value is never refused; the property fails."
 		},
 		{
-			file: "packages/generator/src/runtime-src/runtime/output.ts",
+			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
 			original: "\t\tif (Option.isSome(flag)) {\n\t\t\treturn flag\n\t\t}",
 			replacement: "{}",
 			why: "--idle-timeout no longer beats the variable, so a variable the flag overrides decides the read; the property fails."

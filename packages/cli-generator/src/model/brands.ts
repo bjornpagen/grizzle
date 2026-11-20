@@ -232,6 +232,9 @@ export type DocumentUri = string & Brand.Brand<"DocumentUri">
 /** Whether a text is a DocumentUri. */
 export const isDocumentUri = (text: string): text is DocumentUri => uriPattern.test(text)
 
+/** Whether a text is a Components Object key: it matches the component-name pattern. */
+export const isComponentName = (text: string): boolean => componentNamePattern.test(text)
+
 /**
  * A DocumentUri the code writes as a literal, unchecked: the literal is the proof. Text from anywhere else goes through
  * isDocumentUri.
