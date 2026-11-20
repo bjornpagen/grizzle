@@ -76,11 +76,19 @@ const columnsOf = (r: Reference): Arr.NonEmptyReadonlyArray<Column> =>
 	r.kind === "superkey" ? r.order : Arr.append(r.order, r.fixed)
 
 /**
- * The columns of T a fixed target's own UNIQUE holds: each of its terms generated under its selection, as the seat
- * names a column generated from a field (test/pg/fin/installed.ts).
+ * The columns of T a fixed target's own UNIQUE holds, a side over its selection (README "Sides"): its guarded term, the
+ * one over T's earliest field, its primary key `k` first and every other field after it in declared order
+ * (columnsInOrder), generated under its selection, as the seat names a column generated from a field
+ * (test/pg/fin/installed.ts), and each other term its field's own column. One guarded column holds the side apart:
+ * UNIQUE NULLS DISTINCT and MATCH SIMPLE pass over a row whose guarded column is NULL, a row outside the selection.
  */
-const ownColumnsOf = (r: Extract<Reference, { readonly kind: "fixed" }>): ReadonlyArray<string> =>
-	Arr.map(r.order, (c) => `‹gen ${c}›`)
+const ownColumnsOf = (r: Extract<Reference, { readonly kind: "fixed" }>): ReadonlyArray<string> => {
+	const rank = (c: Column): number => columnsInOrder.indexOf(c)
+	const guarded = Arr.reduce(Arr.tailNonEmpty(r.order), Arr.headNonEmpty(r.order), (held, c) =>
+		rank(c) < rank(held) ? c : held
+	)
+	return Arr.map(r.order, (c) => (c === guarded ? `‹gen ${c}›` : c))
+}
 
 /** A column set as one text, its columns in code-unit order. */
 const setText = (columns: ReadonlyArray<string>): string =>

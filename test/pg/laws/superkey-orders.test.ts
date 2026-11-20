@@ -91,7 +91,14 @@ export const referencesIntoOneRelationsSuperkeysInDifferentOrdersOneUniqueIndexP
 		},
 		budget: { runs: 12, steered: 12 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\treturn terms.reduce((held, t) => (rank(t) < rank(held) ? t : held))",
+				replacement: "\treturn terms.reduce((held, t) => (rank(t) > rank(held) ? t : held))",
+				why: "A side guards its term over T's latest field, not its earliest, so a fixed target over k and another field generates that field and lands on k as itself, a set no side of that selection states."
+			}
+		]
 	})
 
 /**
