@@ -265,6 +265,7 @@ const pgValues: {
 	smallint: { kind: "integer", carrier: "int2" },
 	integer: { kind: "integer", carrier: "int4" },
 	bigint: { kind: "integer", carrier: "int8" },
+	numeric: { kind: "numeric" },
 	real: { kind: "float", carrier: "float4" },
 	"double precision": { kind: "float", carrier: "float8" },
 	money: { kind: "money" },

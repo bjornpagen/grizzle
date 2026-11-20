@@ -82,7 +82,7 @@ export const admitNumericTypmod = (
  * numeric(p, s), its typmod admitted (admitNumericTypmod). Its column is its scale's (values/convert.ts numericColumn),
  * so its host type is NumericHostOf<S>: a bigint at scale 0, a Decimal at any other.
  */
-const numeric = <const S extends number>(
+const numericTypmod = <const S extends number>(
 	precision: number,
 	scale: S,
 	...extra: ReadonlyArray<never>
@@ -103,16 +103,33 @@ const numeric = <const S extends number>(
 }
 
 /**
+ * numeric, PostgreSQL's numeric of no typmod, the descriptor that is also numeric(p, s)'s constructor (numericTypmod),
+ * as SQL spells `numeric` and `numeric(p, s)`: every value numeric holds, at numeric's own limits (scalar/registry.ts
+ * numericOwnLimits), NaN and the infinities among them. Its column is numeric's carrier's, so its host type is Decimal
+ * whatever the value's scale, and a value passes into and out of it as it is, never rounded to a scale nothing stated.
+ */
+const numeric = defineField(
+	numericTypmod,
+	"numeric",
+	{ kind: "pg", type: "numeric" },
+	{ column: carrierColumn("numeric") },
+	SourceLoc("pg.numeric", []),
+	bareEnv
+)
+
+/**
  * The pg namespace: PostgreSQL's numeric, money and boolean descriptors, each under the one name PostgreSQL's
- * format_type prints for its type, which is its SQL tag: smallint, integer, bigint, numeric, real, "double precision",
- * money and boolean. A type has one spelling, so no declaration names one type two ways. smallserial, serial, bigserial
+ * format_type prints for its type, which is its SQL tag: smallint, integer, bigint, numeric (numeric(p, s) its call),
+ * real, "double precision", money and boolean. A type has one spelling, so no declaration names one type two ways. smallserial, serial, bigserial
  * and uuidv7 are no descriptors but the refusal of one (scalar/minted.ts): grizzle mints no ids.
  *
- * - `pg.numeric(p, s)` is numeric with its typmod, precision and scale both declared: there is no numeric field
- *   without one, so every numeric value a field holds has the digits its typmod states. PostgreSQL's numerictypmodin
- *   rule is checked: precision 1-numericMaxPrecision and scale numericMinScale-numericMaxScale (ir/carriers.ts), both
- *   integers, a scale larger than the precision permitted. Its host type follows its values: a bigint at scale 0, whose
- *   values are integers and never NaN, and a Decimal at any other scale.
+ * - `pg.numeric` is numeric of no typmod, every value numeric holds, its host type Decimal: a field, a parameter, a
+ *   declared function's argument or result or a contract's base of it passes each value as it is.
+ * - `pg.numeric(p, s)` is numeric with its typmod, precision and scale both declared, so every value a field of it
+ *   holds has the digits its typmod states. PostgreSQL's numerictypmodin rule is checked: precision
+ *   1-numericMaxPrecision and scale numericMinScale-numericMaxScale (ir/carriers.ts), both integers, a scale larger
+ *   than the precision permitted. Its host type follows its values: a bigint at scale 0, whose values are integers and
+ *   never NaN, and a Decimal at any other scale.
  *
  * A malformed typmod from a JavaScript caller is CompileError MalformedDescription, thrown synchronously, the builders'
  * convention. Precision and scale are runtime values only, the TypeScript signatures in types/fields taking a number.

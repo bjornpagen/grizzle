@@ -691,7 +691,8 @@ The command line's own refusals, by stage:
   where nothing decides which of them the row broke: at least one did. Its `witness` is the key of a row you stated
   that breaks them, or `unreported` where grizzle cannot tell which row did, such as two family owners the write
   inserts without reading them, either of which may be a stored one inserted again: never assume a key is there.
-- No read raises an arithmetic error on a row: never catch 22003, 22012 or 2201F around a query. Integer arithmetic is
+- No read raises an arithmetic error on a row, but arithmetic over a `pg.numeric`, whose result past numeric's own
+  limit PostgreSQL refuses with 22003: catch no other 22003, nor 22012 or 2201F, around a query. Integer arithmetic is
   exact and delivers `bigint`, money arithmetic exact `Money`, and floats are IEEE 754 (`x / 0.0` is ±Infinity). A
   partial operation needs its precondition proved, by a literal's type (`Num.div(x, 7n)`), by a contract that
   declares it (`contract("Divisor", pg.bigint, (v) => Logic.ne(v, 0n), { proves: ["nonzero"] })`) or by a guard:
@@ -766,9 +767,11 @@ The command line's own refusals, by stage:
 - A call's flight, every byte the driver writes for its one round trip, is at most 1,908,342,784 bytes
   (`flightMaxBytes`), the most one write over TLS carries. A longer one is `InputTooLarge` (`flight`) before anything is
   sent, nothing ran, and grizzle never splits it into more round trips: split the input across calls.
-- Every numeric field declares its precision and scale, `pg.numeric(p, s)`; there is no bare `pg.numeric`. A sum,
-  a mean or an operation's numeric result carries the digits its computation proves, and one past 131,072 integer
-  digits is `ResourceBound`. Convert an integer, money or a float to numeric with `Num.numeric(x)`, never a cast to
+- A numeric field declares its precision and scale, `pg.numeric(p, s)`, or is `pg.numeric`, PostgreSQL's numeric of
+  no typmod, a `Decimal` passed as it is: type a declared function that `returns numeric` `returns: pg.numeric`, never
+  a typmod it does not state, which rounds its value. No key holds a `pg.numeric`. A sum, a mean or an operation's
+  numeric result carries the digits its computation proves, and one past 131,072 integer digits is `ResourceBound`,
+  but over a `pg.numeric` operand, where PostgreSQL's own limit refuses a value past it (22003). Convert an integer, money or a float to numeric with `Num.numeric(x)`, never a cast to
   a typmod you do not mean.
 - Parse an `xs:decimal` text with `Text.parseDecimal(x)`, the exact numeric of any digits, never a cast into the
   widest `pg.numeric(p, s)` with a lexical form, whose form ends at 256 integer and 255 fraction digits. Its text is

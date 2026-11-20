@@ -105,6 +105,7 @@ import {
 	magnitudeAtLeast,
 	minus,
 	mulBounds,
+	ownLimited,
 	negBounds,
 	negExact,
 	noFacts,
@@ -1860,7 +1861,8 @@ class Typing<R extends Refs> {
 	 * A node of `op` over the operands it reads, `args`, its preconditions judged over the caller's terms they stand for,
 	 * `judged`, position by position: an exact widening the typing puts between a term and the node keeps every fact
 	 * of the term, so the proof is the term's, and a refusal names the term and the remedy its own type has. A computed
-	 * numeric's type carries exactly the bounds proved of it (provedType).
+	 * numeric's type carries exactly the bounds proved of it (provedType), at numeric's own limit where an operand is
+	 * bounded by nothing but that limit (bounds.ts ownLimited).
 	 */
 	nativeJudged(
 		op: NativeOp,
@@ -1871,8 +1873,15 @@ class Typing<R extends Refs> {
 		at: SourceLoc,
 		operation: string
 	): Typed {
+		const made =
+			bounds === undefined
+				? undefined
+				: ownLimited(
+						bounds,
+						args.map((a) => a.bounds)
+					)
 		if (!op.partial) {
-			const rounded = resultBounds(op, type, bounds)
+			const rounded = resultBounds(op, type, made)
 			const stated = provedType(type, rounded)
 			return this.emitAt(this.totalNode(op, args, stated, type), stated, rounded, noFacts)
 		}
@@ -1882,7 +1891,7 @@ class Typing<R extends Refs> {
 				kind: "op",
 				op: op.id,
 				args: args.map((a) => a.node),
-				type: provedType(type, bounds),
+				type: provedType(type, made),
 				nonNull: "strict",
 				volatility: op.volatility
 			},
@@ -1895,7 +1904,7 @@ class Typing<R extends Refs> {
 				operation
 			}
 		}
-		return this.emitAt(node, node.spec.type, bounds, noFacts)
+		return this.emitAt(node, node.spec.type, made, noFacts)
 	}
 
 	/**

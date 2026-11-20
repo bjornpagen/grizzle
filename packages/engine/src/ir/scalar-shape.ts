@@ -88,7 +88,8 @@ import {
 	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
-	numericMinScale
+	numericMinScale,
+	numericOwnBound
 } from "#compiler/scalar/values/fault.ts"
 
 /**
@@ -325,7 +326,7 @@ const wireBody: S.Shape<WireScalarType> = S.structStated(
 /**
  * A contract's wire descriptor as its variant (ir/scalar.ts ContractType), or the first broken rule: it holds its carrier
  * and the contract alone, its base holding every other field; its base has its carrier and is a value domain a field
- * declares (ir/scalar.ts ContractBase), no computed numeric or exact value, set or bytes; and the predicate's
+ * declares (ir/scalar.ts ContractBase), no computed numeric's narrower bound or exact value, set or bytes; and the predicate's
  * expression rules hold against the base (expr.ts predicateProblems).
  */
 const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType | string => {
@@ -345,8 +346,11 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 	if (base.carrier !== t.carrier) {
 		return "a contract has its base's carrier"
 	}
-	if (isNumericValue(base)) {
-		return "a contract is over numeric(p, s), never a computed numeric"
+	if (
+		isNumericValue(base) &&
+		(base.bound.digits !== numericOwnBound.digits || base.bound.scale !== numericOwnBound.scale)
+	) {
+		return "a contract is over numeric(p, s) or numeric of no typmod at numeric's own limits, never a computed numeric's narrower bound"
 	}
 	if (isExactValue(base)) {
 		return `${base.carrier} is an arithmetic result, never a contract's base`

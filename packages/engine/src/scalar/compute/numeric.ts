@@ -74,7 +74,9 @@ const at = (p: FiniteParts, scale: number): bigint => units(p) * pow10(scale - p
 
 /**
  * A finite Decimal from signed units at a scale, in its one form, or "format" outside numeric's format, which the
- * lowering's digit bounds rule out of every admitted expression (lower.ts).
+ * lowering's digit bounds rule out of every admitted expression (lower.ts) over operands proved within it, and
+ * PostgreSQL refuses with 22003 over one bounded by nothing but numeric's own limit (scalar/values/fault.ts
+ * resultDigits).
  */
 export const fromUnits = (value: bigint, scale: number): NumericResult => {
 	const made = Decimal.fromParts(value < 0n, value < 0n ? -value : value, scale)

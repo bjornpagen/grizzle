@@ -39,7 +39,6 @@ import {
 	type Carrier,
 	isNumericValue,
 	numericBoundOf,
-	type NumericValueType,
 	RegexKey,
 	Roster,
 	type RosterHandles,
@@ -66,6 +65,7 @@ import {
 } from "#compiler/scalar/registry.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { closed } from "#compiler/schema/api.ts"
@@ -128,7 +128,10 @@ export const predicateTable = (
  * a schema declares by name over its base's FieldDesc (identity ignores the predicate), and a span over such an
  * endpoint.
  */
-const fieldDescFor = (t: Exclude<ScalarType, NumericValueType>): FieldDesc => {
+const fieldDescFor = (t: ScalarType): FieldDesc => {
+	if (isNumericValue(t)) {
+		return { kind: "pg", type: "numeric" }
+	}
 	const { contract } = t
 	if (contract !== undefined) {
 		return {
@@ -341,17 +344,21 @@ const languageGen: Gen<TextLanguage> = weighted<TextLanguage>([
 const carriedText = (patterns: Patterns, language: TextLanguage): TextInfo =>
 	language.kind === "every" ? "wildcard" : { patterns, key: language.key, check: language.check }
 
-/** The carrier of each pg type. */
+/** What each pg type is: a plain carrier, or numeric of no typmod at numeric's own limits, PostgreSQL's published ones. */
 const pgCarrier = {
-	smallint: "int2",
-	integer: "int4",
-	bigint: "int8",
-	real: "float4",
-	"double precision": "float8",
-	money: "money",
-	boolean: "bool",
-	date: "date"
-} as const satisfies Readonly<Record<PgScalarName, Carrier>>
+	smallint: { kind: "plain", carrier: "int2" },
+	integer: { kind: "plain", carrier: "int4" },
+	bigint: { kind: "plain", carrier: "int8" },
+	numeric: {
+		kind: "numericValue",
+		bound: { digits: numericMaxIntegerDigits, scale: numericMaxFractionDigits }
+	},
+	real: { kind: "plain", carrier: "float4" },
+	"double precision": { kind: "plain", carrier: "float8" },
+	money: { kind: "plain", carrier: "money" },
+	boolean: { kind: "plain", carrier: "bool" },
+	date: { kind: "plain", carrier: "date" }
+} as const satisfies Readonly<Record<PgScalarName, PlainContent | NumericValueContent>>
 
 /** Asserts that `t` is a plain value type of `carrier`: its capabilities, and no typmod, refinement or contract. */
 const plain = (t: ScalarType, carrier: Carrier, at: string): void => {
@@ -365,9 +372,18 @@ const plain = (t: ScalarType, carrier: Carrier, at: string): void => {
 /** Asserts that `t` is what `desc` states under `env`, field by field, read through the type's accessors. */
 export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: string): void => {
 	switch (desc.kind) {
-		case "pg":
-			plain(t, pgCarrier[desc.type], at)
+		case "pg": {
+			const content = pgCarrier[desc.type]
+			if (content.kind === "plain") {
+				plain(t, content.carrier, at)
+				return
+			}
+			assert.equal(t.carrier, "numeric", at)
+			assert.deepEqual("typmod" in t ? t.typmod : "none", undefined, at)
+			assert.deepEqual(numericBoundOf(t), content.bound, at)
+			assert.deepEqual(capsOf(t), capabilitiesOf("numeric"), at)
 			return
+		}
 		case "numeric":
 			assert.equal(t.carrier, "numeric", at)
 			assert.deepEqual(
@@ -424,9 +440,22 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 	}
 }
 
+/** A plain type's content: its carrier. */
+interface PlainContent {
+	readonly kind: "plain"
+	readonly carrier: Carrier
+}
+
+/** numeric of no typmod's content: its bound, numeric's own limits for pg.numeric. */
+interface NumericValueContent {
+	readonly kind: "numericValue"
+	readonly bound: { readonly digits: number; readonly scale: number }
+}
+
 /** A reading's content as plain data: exactly what `describes` holds its type to. */
 type Content =
-	| { readonly kind: "plain"; readonly carrier: Carrier }
+	| PlainContent
+	| NumericValueContent
 	| { readonly kind: "bytes" }
 	| {
 			readonly kind: "numeric"
@@ -449,7 +478,7 @@ type Content =
 export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 	switch (desc.kind) {
 		case "pg":
-			return { kind: "plain", carrier: pgCarrier[desc.type] }
+			return pgCarrier[desc.type]
 		case "numeric":
 			return { kind: "numeric", typmod: { precision: desc.precision, scale: desc.scale } }
 		case "bytes":
@@ -914,16 +943,16 @@ export const literalOperandSpace = aimed<LiteralOperand, LiteralFeature>(
 )
 
 /**
- * The descriptor boundary: describeField reads a descriptor a builder made, span takes one as its endpoint, and closedId
- * takes a closed relation. A copy of a descriptor's members (a look-alike), pg.numeric itself, the builder whose
- * precision and scale a caller left undeclared, a field of a writing of its own (drawn, accumulated, retirement or a
- * place), whose value no caller states, and any wild value are no descriptor: MalformedDescription at describeField
- * and span, a written field's naming its writing; any wild value is no closed relation: MalformedDescription at closedId. A live descriptor is
- * read; span builds over integer, bigint and contracts over them, and refuses any other endpoint by its capability;
- * closedId builds the closed relation's handle descriptor.
+ * The descriptor boundary: describeField reads a descriptor a builder made, pg.numeric itself among them (numeric of no
+ * typmod, which is also numeric(p, s)'s constructor), span takes one as its endpoint, and closedId takes a closed
+ * relation. A copy of a descriptor's members (a look-alike), a field of a writing of its own (drawn, accumulated,
+ * retirement or a place), whose value no caller states, and any wild value are no descriptor: MalformedDescription at
+ * describeField and span, a written field's naming its writing; any wild value is no closed relation:
+ * MalformedDescription at closedId. A live descriptor is read; span builds over integer, bigint and contracts over
+ * them, and refuses any other endpoint by its capability; closedId builds the closed relation's handle descriptor.
  */
 type Boundary = "describeField" | "span" | "closedId"
-type NoDescriptor = "look-alike" | "numeric builder" | "written field"
+type NoDescriptor = "look-alike" | "written field"
 
 /** What a boundary was handed and which boundary it was. */
 export type DescribeFeature = DrawnFeature<NoDescriptor> | `boundary ${Boundary}`
@@ -941,6 +970,7 @@ export const endpoints: Arr.NonEmptyReadonlyArray<object> = [
 const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	...endpoints,
 	pgDescriptors.smallint,
+	pgDescriptors.numeric,
 	pgDescriptors.numeric(9, 2),
 	pgDescriptors.numeric(1000, -1000),
 	pgDescriptors.real,
@@ -990,13 +1020,6 @@ const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = w
 										value: { ...field },
 										from: "look-alike"
 									}))
-								],
-								[
-									1,
-									constant<Stale<object, NoDescriptor>>({
-										value: pgDescriptors.numeric,
-										from: "numeric builder"
-									})
 								],
 								[
 									1,

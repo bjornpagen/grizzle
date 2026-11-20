@@ -100,11 +100,15 @@ export type LiteralDesc =
 export const literalPattern = (value: LiteralDesc): PatternValue | undefined =>
 	typeof value === "object" && "spelling" in value ? value : undefined
 
-/** The pg descriptors' types, each by the one name PostgreSQL prints for it. */
+/**
+ * The pg descriptors' types, each by the one name PostgreSQL prints for it: `numeric` is numeric of no typmod, every
+ * value numeric holds, as format_type prints it (pg.numeric), and numeric(p, s) is the numeric arm of FieldDesc.
+ */
 export const pgScalarNames = [
 	"smallint",
 	"integer",
 	"bigint",
+	"numeric",
 	"real",
 	"double precision",
 	"money",
@@ -115,8 +119,10 @@ export type PgScalarName = (typeof pgScalarNames)[number]
 
 /**
  * An authored field's descriptor, as a declaration states it and the Description boundary carries it
- * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared. No declaration states a computed
- * numeric, so none has an arm here; a derived relation's inferred field is an InferredFieldDesc. A set over a roster
+ * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared, and `pg` numeric is numeric of no
+ * typmod, which holds every numeric value (ir/scalar.ts NumericValueType at numeric's own limits). No declaration
+ * states a computed numeric of a narrower bound, so none has an arm here; a derived relation's inferred field is an
+ * InferredFieldDesc. A set over a roster
  * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
  * Text.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
  * read, its ARE planned beside its dictionary.

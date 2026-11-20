@@ -94,6 +94,12 @@ export const sqlstates = {
 	 * query's read of its call raises through the installation's refusal function (lower/conservative/call).
 	 */
 	nullValueNotAllowed: brand("22004"),
+	/**
+	 * A numeric value past numeric's own format, which PostgreSQL's arithmetic raises over an operand bounded by nothing
+	 * but numeric's own limit, pg.numeric's (scalar/values/fault.ts resultDigits): every other numeric making is proved
+	 * within it.
+	 */
+	numericValueOutOfRange: brand("22003"),
 	/** The isolation guard's refusal of a write in a transaction below SERIALIZABLE (physical/ddl/isolation.ts). */
 	invalidTransactionState: brand("25000"),
 	/**

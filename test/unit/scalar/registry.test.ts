@@ -13,8 +13,8 @@
  *   readings' contents compared apart.
  * - Literal operands: each carrier's literal is the one its host kind states, and every other value is refused by its
  *   fault, never thrown.
- * - describeField reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and
- *   every wild value as malformed, at describeField, span and closedId, never throwing.
+ * - describeField reads every descriptor a builder made, pg.numeric among them, and refuses a look-alike, a written field
+ *   and every wild value as malformed, at describeField, span and closedId, never throwing.
  *
  * Features: as each search names them; for the predicate table, a bound below, at and above zero.
  */
@@ -434,19 +434,18 @@ export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteral
 	})
 
 /**
- * DescribeField reads every descriptor a builder made, and refuses a look-alike, the undeclared numeric builder and
- * every wild value as malformed, at describeField, span and closedId.
+ * DescribeField reads every descriptor a builder made, pg.numeric among them, and refuses a look-alike, a written field
+ * and every wild value as malformed, at describeField, span and closedId.
  *
  * Budget: its suite's count before the conversion (unit/scalar/describe-field: 1000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTheUndeclaredNumericBuilderAndEveryWildValueAsMalformedAtDescribeFieldSpanAndClosedId =
+export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeAWrittenFieldAndEveryWildValueAsMalformedAtDescribeFieldSpanAndClosedId =
 	property.explore(boundarySpace, {
 		needs: {},
 		situations: [
 			"live",
 			"stale look-alike",
-			"stale numeric builder",
 			"stale written field",
 			...Arr.map(WILD_KINDS, (kind): DescribeFeature => `wild ${kind}`),
 			"boundary describeField",

@@ -10,10 +10,10 @@ import {
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
 import type { ExprDesc, FieldDesc, HeldDesc } from "#compiler/ir/desc.ts"
-import type { TextLanguage } from "#compiler/ir/scalar.ts"
+import type { NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
-import { varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
+import { numericOwnBound, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
 
 /**
  * BITS_PER_BYTE, the bits PostgreSQL counts in one byte of a datum.
@@ -787,6 +787,8 @@ const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"])
 			return fixed(typlens.int4, 4, "int4")
 		case "bigint":
 			return fixed(typlens.int8, 8, "int8")
+		case "numeric":
+			return numericDatum(numericOwnBound)
 		case "real":
 			return fixed(typlens.float4, 4, "float4")
 		case "double precision":
@@ -809,6 +811,14 @@ const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"])
  */
 const numericMaximumSize = (precision: number): number =>
 	numericHeaderBytes + numericDigitBytes * Math.floor((precision + 2 * (decDigits - 1)) / decDigits)
+
+/**
+ * The largest datum of numeric of no typmod within `bound` (ir/scalar.ts NumericBound): a computed numeric's, and
+ * pg.numeric's at numeric's own limits, whose widest value no B-tree entry holds, so a key over one is refused as
+ * UnrepresentableKey where its entry is laid out.
+ */
+const numericDatum = (bound: NumericBound): DatumBound =>
+	fixed(numericMaximumSize(bound.digits + bound.scale), 4, "numeric")
 
 /**
  * range_serialize's size of a range over an endpoint of `endpoint` bytes, both bounds present: its header, which is
@@ -839,7 +849,7 @@ export const datumBound = (desc: HeldDesc): DatumBound | undefined => {
 		case "numeric":
 			return fixed(numericMaximumSize(desc.precision), 4, "numeric")
 		case "computedNumeric":
-			return fixed(numericMaximumSize(desc.bound.digits + desc.bound.scale), 4, "numeric")
+			return numericDatum(desc.bound)
 		case "digest":
 			return imageDatum[desc.image]
 		case "span":

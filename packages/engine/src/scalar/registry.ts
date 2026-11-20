@@ -36,8 +36,11 @@ import {
 	isRosterSubset,
 	languageOctets,
 	languageWithin,
+	type BareCarrier,
+	type IntegerCarrier,
 	type NumericBound,
 	type NumericTypmod,
+	type NumericValueType,
 	type PatternLanguage,
 	patternsText,
 	type Roster,
@@ -49,6 +52,7 @@ import {
 import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import { minted, mintedRefusal } from "#compiler/scalar/minted.ts"
 import { nativeCapabilities, unorderedCodeCapabilities } from "#compiler/scalar/native.ts"
+import { numericOwnBound } from "#compiler/scalar/values/fault.ts"
 
 /** The capability set of a carrier. */
 export const capabilitiesOf = (carrier: Carrier): CapabilitySet =>
@@ -508,16 +512,50 @@ export const noRosters: RosterLookup = () => undefined
 /** The builder environment of a descriptor outside any schema: no rosters. */
 export const bareEnv: ScalarEnv = Object.freeze({ kind: "builder", roster: noRosters })
 
-const pgCarriers = {
-	smallint: "int2",
-	integer: "int4",
-	bigint: "int8",
-	real: "float4",
-	"double precision": "float8",
-	money: "money",
-	boolean: "bool",
-	date: "date"
-} as const satisfies { readonly [N in PgScalarName]: Carrier }
+/** A plain value type of `carrier`: no typmod, refinement or contract. */
+const plainType = (carrier: BareCarrier | IntegerCarrier | "uuid"): ContractBase =>
+	Object.freeze({ carrier, caps: capabilitiesOf(carrier), contract: undefined })
+
+/**
+ * A computed numeric of `bound`, frozen (ir/scalar.ts NumericBound), its keys in the decoder's order: an operation's,
+ * an aggregate's or a literal's numeric, and at numeric's own limits (ownLimits) numeric of no typmod as pg.numeric
+ * declares it.
+ */
+const numericOfBound = (bound: NumericBound): NumericValueType =>
+	Object.freeze({
+		carrier: "numeric",
+		caps: capabilitiesOf("numeric"),
+		typmod: undefined,
+		contract: undefined,
+		bound: Object.freeze({ digits: bound.digits, scale: bound.scale })
+	})
+
+/** A computed numeric of `bound` (numericOfBound). */
+export const numericValue = (bound: NumericBound): ScalarType => numericOfBound(bound)
+
+/**
+ * numeric of no typmod at numeric's own limits, numericMaxIntegerDigits integer and numericMaxFractionDigits fraction
+ * digits: every value numeric holds, NaN and the infinities among them. It is the type pg.numeric declares, and the one
+ * a literal adopts and an overload is looked up by (scalar/compute/types.ts anyNumeric): no bound is proved of it but
+ * numeric's own, which PostgreSQL enforces.
+ */
+export const numericOwnLimits: NumericValueType = numericOfBound(numericOwnBound)
+
+/**
+ * The type each pg descriptor's Description names (ir/desc.ts PgScalarName): a plain carrier's, and numeric of no
+ * typmod at numeric's own limits.
+ */
+const pgTypes = {
+	smallint: plainType("int2"),
+	integer: plainType("int4"),
+	bigint: plainType("int8"),
+	numeric: numericOwnLimits,
+	real: plainType("float4"),
+	"double precision": plainType("float8"),
+	money: plainType("money"),
+	boolean: plainType("bool"),
+	date: plainType("date")
+} as const satisfies { readonly [N in PgScalarName]: DeclaredType }
 
 /**
  * The descriptors are built here, frozen, from a decoded FieldDesc and the environment's resolved metadata, so each
@@ -530,10 +568,8 @@ const scalarAt = (
 	loc: SourceLoc
 ): Result.Result<DeclaredType, CompileError> => {
 	switch (desc.kind) {
-		case "pg": {
-			const carrier = pgCarriers[desc.type]
-			return Result.ok(plainType(carrier))
-		}
+		case "pg":
+			return Result.ok(pgTypes[desc.type])
 		case "numeric":
 			return Result.ok(numericType(Object.freeze({ precision: desc.precision, scale: desc.scale })))
 		case "uuid":
@@ -667,7 +703,7 @@ const endpointBase = (desc: FieldDesc): FieldDesc =>
 export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 	switch (desc.kind) {
 		case "pg":
-			return capabilitiesOf(pgCarriers[desc.type])
+			return capsOf(pgTypes[desc.type])
 		case "numeric":
 			return capabilitiesOf("numeric")
 		case "uuid":
@@ -712,29 +748,12 @@ export const searchType = (configuration: TextSearchConfiguration): DeclaredType
 		configuration
 	})
 
-/** A plain value type of `carrier`: no typmod, refinement or contract. */
-const plainType = (carrier: (typeof pgCarriers)[keyof typeof pgCarriers] | "uuid"): ContractBase =>
-	Object.freeze({ carrier, caps: capabilitiesOf(carrier), contract: undefined })
-
 const numericType = (typmod: NumericTypmod): ContractBase =>
 	Object.freeze({
 		carrier: "numeric",
 		caps: capabilitiesOf("numeric"),
 		typmod,
 		contract: undefined
-	})
-
-/**
- * A computed numeric of `bound`, frozen (ir/scalar.ts NumericBound), its keys in the decoder's order: an operation's,
- * an aggregate's or a literal's numeric, which no declaration states.
- */
-export const numericValue = (bound: NumericBound): ScalarType =>
-	Object.freeze({
-		carrier: "numeric",
-		caps: capabilitiesOf("numeric"),
-		typmod: undefined,
-		contract: undefined,
-		bound: Object.freeze({ digits: bound.digits, scale: bound.scale })
 	})
 
 /**

@@ -244,14 +244,18 @@ const zeroDivisorGen: Gen<PredicateCase> = (source) => {
 	)
 }
 
-/** VALUE of a numeric times the factor near numeric's most digits: a product past them, a ResourceBound both modes refuse alike. */
+/**
+ * VALUE of a numeric times a factor one digit short of numeric's most: a product past them over operands each proved
+ * within them, a ResourceBound both modes refuse alike. A factor of numeric's most digits is bounded by numeric's own
+ * limit alone, whose product PostgreSQL holds to it (scalar/values/fault.ts resultDigits).
+ */
 const resourceBoundGen: Gen<PredicateCase> = (source) =>
 	source.draw(
 		valuePredicate(source.draw(element(["numeric", "wide"] as const)), () => ({
 			kind: "binary",
 			fn: "mul",
 			left: { kind: "value" },
-			right: { kind: "literal", value: "1e131071" }
+			right: { kind: "literal", value: "1e131070" }
 		}))
 	)
 

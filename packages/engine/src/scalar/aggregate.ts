@@ -23,7 +23,7 @@ import {
 import { plainType } from "#compiler/scalar/native.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { describeFieldOrThrow, numericValue } from "#compiler/scalar/registry.ts"
-import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
+import { numericMaxIntegerDigits, resultDigits } from "#compiler/scalar/values/fault.ts"
 
 export type AggregateName = "count" | "sum" | "mean" | "min" | "max"
 
@@ -189,7 +189,10 @@ const numericMean = (lowering: AggregateLowering): Entry => ({
 	lowering
 })
 
-/** The result of `entry` over `arg`, or ResourceBound where a computed numeric's bound passes numeric's own. */
+/**
+ * The result of `entry` over `arg`, or ResourceBound where a computed numeric's bound passes numeric's own over an
+ * argument proved within it; over one bounded by nothing but numeric's own limit, at that limit (resultDigits).
+ */
 const resultOf = (
 	entry: Entry,
 	arg: ScalarType,
@@ -210,7 +213,8 @@ const resultOf = (
 	if (b === undefined) {
 		return Result.err(unsupported(loc, `a numeric aggregate over ${typeLabel(arg)}`))
 	}
-	const bound = entry.bound(b)
+	const made = entry.bound(b)
+	const bound = { digits: resultDigits(made.digits, [b.digits]), scale: made.scale }
 	return withinNumeric(numericValue(bound), bound.digits, loc)
 }
 

@@ -116,6 +116,7 @@ export type {
 	LiteralOf,
 	NaturalDomain,
 	NaturalField,
+	NumericField,
 	NumericHostOf,
 	NumericTypmodField,
 	PatternField,

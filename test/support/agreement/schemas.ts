@@ -908,6 +908,7 @@ const pgSpellings = [
 	"smallint",
 	"integer",
 	"bigint",
+	"numeric",
 	"real",
 	"double precision",
 	"money",
@@ -1513,11 +1514,14 @@ const fieldTypeOf = (
 	)
 	return draw()
 }
-/** Whether a key may hold a field of this type: a value an index entry bounds, never a set, a vector, a span or a float. */
+/**
+ * Whether a key may hold a field of this type: a value an index entry bounds, never a set, a vector, a span, a float or
+ * numeric of no typmod, whose widest value no B-tree entry holds.
+ */
 const keyable = (t: FieldType, contracts: ReadonlyArray<ContractSpec>): boolean => {
 	switch (t.kind) {
 		case "pg":
-			return !Arr.contains(["real", "double precision", "money"] as const, t.spelling)
+			return !Arr.contains(["numeric", "real", "double precision", "money"] as const, t.spelling)
 		case "uuid":
 		case "date":
 		case "natural":
@@ -1716,6 +1720,7 @@ const pgCanonical: { readonly [S in PgSpelling]: string } = {
 	smallint: "smallint",
 	integer: "integer",
 	bigint: "bigint",
+	numeric: "numeric",
 	real: "real",
 	"double precision": "double precision",
 	money: "money",
@@ -2598,6 +2603,7 @@ const pgHost: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type
 	real: "number",
 	"double precision": "number",
 	bigint: "bigint",
+	numeric: "Fi.Decimal",
 	money: "Fi.Money",
 	boolean: "boolean",
 	date: "Fi.CalendarDate"
@@ -5466,7 +5472,7 @@ const sqlOfDesc = (desc: FieldDesc): string => (desc.kind === "pg" ? desc.type :
 const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 	switch (desc.kind) {
 		case "pg":
-			return `Fi.Field<${pgHost[desc.type]}, ${jsonText(desc.type)}>`
+			return pgDescriptorType[desc.type]
 		case "numeric":
 			return `Fi.NumericTypmodField<${numericHost(desc)}>`
 		case "uuid":
@@ -5519,6 +5525,7 @@ const literalType = (
 		case "bits":
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":
+			return pgLiteral[desc.type]
 		case "bytes":
 		case "uuid":
 		case "text":
@@ -5528,6 +5535,37 @@ const literalType = (
 		case "search":
 			return hostOfDesc(desc, base, ids)
 	}
+}
+
+/** The literal a pg type's comparison takes: its host value, and numeric's a Decimal, a bigint or an exact decimal string. */
+const pgLiteral: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type"]]: string } = {
+	smallint: "number",
+	integer: "number",
+	real: "number",
+	"double precision": "number",
+	bigint: "bigint",
+	numeric: "Fi.Decimal | bigint | string",
+	money: "Fi.Money",
+	boolean: "boolean",
+	date: "Fi.CalendarDate"
+}
+
+/**
+ * The descriptor type of each pg type: a Field of its host and its SQL tag, and numeric of no typmod's NumericField,
+ * the descriptor that is also numeric(p, s)'s call.
+ */
+const pgDescriptorType: {
+	readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type"]]: string
+} = {
+	smallint: 'Fi.Field<number, "smallint">',
+	integer: 'Fi.Field<number, "integer">',
+	real: 'Fi.Field<number, "real">',
+	"double precision": 'Fi.Field<number, "double precision">',
+	bigint: 'Fi.Field<bigint, "bigint">',
+	numeric: "Fi.NumericField",
+	money: 'Fi.Field<Fi.Money, "money">',
+	boolean: 'Fi.Field<boolean, "boolean">',
+	date: 'Fi.Field<Fi.CalendarDate, "date">'
 }
 
 /** The type assertions of a base: every inference the types make, equal to what the engine describes. */

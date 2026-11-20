@@ -91,7 +91,8 @@ export const numericMaxScale = 1000
 
 /**
  * The most integer digits a numeric value has, |x| < 10^numericMaxIntegerDigits: past it PostgreSQL's arithmetic raises
- * 22003 "value overflows numeric format", so a numeric expression whose bound passes it is ResourceBound.
+ * 22003 "value overflows numeric format", so a numeric expression whose proved bound passes it is ResourceBound, and one
+ * over an operand bounded by nothing but it is admitted at it (resultDigits).
  *
  * @limitKind published
  * @owner PostgreSQL 19.0
@@ -118,6 +119,31 @@ export const numericMaxIntegerDigits = 131072
  * @verified 2026-11-20
  */
 export const numericMaxFractionDigits = 16383
+
+/**
+ * The integer digits a numeric result is bounded by, `needed` its making's bound over operands of `operands` integer
+ * digits: `needed` itself, where it lies within numeric's own limit or every operand is proved within it, so a bound past
+ * the limit is the compilation's to refuse (ResourceBound); and numeric's own limit where it passes the limit over an
+ * operand already at it, a value bounded by nothing proved but the limit, pg.numeric's (numericOwnBound). There no bound
+ * the operands have keeps the result within the limit, and none is missing: PostgreSQL enforces its own, refusing a
+ * value past it with 22003, numeric_value_out_of_range, as the host's arithmetic refuses it ("format",
+ * scalar/compute/numeric.ts). Every numeric result's bound is read here: an operation's (scalar/compute/bounds.ts
+ * ownLimited) and an aggregate's (scalar/aggregate.ts).
+ */
+export const resultDigits = (needed: number, operands: ReadonlyArray<number>): number =>
+	needed > numericMaxIntegerDigits && operands.some((digits) => digits >= numericMaxIntegerDigits)
+		? numericMaxIntegerDigits
+		: needed
+
+/**
+ * numeric's own limits as a bound (ir/scalar.ts NumericBound): numericMaxIntegerDigits integer digits and
+ * numericMaxFractionDigits fraction digits, which every numeric value lies within, the bound of numeric of no typmod
+ * as pg.numeric declares it (scalar/registry.ts numericOwnLimits).
+ */
+export const numericOwnBound: { readonly digits: number; readonly scale: number } = Object.freeze({
+	digits: numericMaxIntegerDigits,
+	scale: numericMaxFractionDigits
+})
 
 /**
  * The cosine domain, the norms between cosineNormMin and cosineNormMax inclusive, as vector_norm computes them: the

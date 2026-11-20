@@ -40,8 +40,9 @@ import type { ResultCarrier } from "#compiler/scalar/compute/types.ts"
 
 /**
  * Why a host computation has no value: the precondition of the operation its operands fail, or a numeric result past
- * numeric's format, which the lowering's digit bounds rule out (lower.ts). The evaluator meets either only on an
- * expression no lowering admits.
+ * numeric's format, which the lowering's digit bounds rule out (lower.ts) but over an operand bounded by nothing but
+ * numeric's own limit, where it is PostgreSQL's 22003, numeric_value_out_of_range (scalar/values/fault.ts
+ * resultDigits). The evaluator meets a precondition only on an expression no lowering admits.
  */
 export type Undefined = PreconditionKind | "format"
 
@@ -1305,9 +1306,11 @@ const endpoint = (
  *   integer, delivered as bigint; money + and - are `exact` money. The exact carriers' own overloads (OpIds prefixed
  *   "exact:" and "exactMoney:") take exact operands and are numeric's, total within the digit bounds;
  * - float +, -, *, / and the square root over double precision are `ieee`;
- * - numeric arithmetic, rounding, ceiling, floor, trunc, gcd and lcm are total: every numeric field declares its
+ * - numeric arithmetic, rounding, ceiling, floor, trunc, gcd and lcm are total: a numeric(p, s) field declares its
  *   precision and every computed numeric carries the bound its making proved, a making past numericMaxIntegerDigits
- *   being ResourceBound where the value is made, so none reaches numeric's limit;
+ *   being ResourceBound where the value is made, so none reaches numeric's limit; but over an operand bounded by
+ *   nothing but that limit, pg.numeric's, whose result PostgreSQL holds to it, refusing one past it with 22003
+ *   (scalar/values/fault.ts resultDigits);
  * - a divisor (/, %, div, mod over numeric, the exact integers, the integers' %, money / money) is `nonzero`; numeric
  *   sqrt's radicand `nonnegative`; min_scale's operand `finite`; power its base's sign, `powerDomain`, then its
  *   result's range, `powerRange`; width_bucket its operand and bounds `finite`, facts their types state as min_scale's

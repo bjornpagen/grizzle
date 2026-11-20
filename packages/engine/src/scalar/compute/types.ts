@@ -32,9 +32,8 @@ import {
 	definedIdOf
 } from "#compiler/scalar/compute/registry.ts"
 import { nativeCapabilities, type PlainCarrier } from "#compiler/scalar/native.ts"
-import { numericValue } from "#compiler/scalar/registry.ts"
+import { numericOwnLimits, numericValue } from "#compiler/scalar/registry.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
-import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 
 /**
  * The integer digits of a money amount, |amount| < 10^moneyDigits: a bigint count of minor units, less its fraction.
@@ -86,13 +85,10 @@ export const literalNumeric = (parts: DecimalParts): ScalarType =>
 	)
 
 /**
- * Every numeric value: a computed numeric at numeric's own limits. What a literal adopts before its own value bounds it,
- * and what an overload is looked up by, never a node's type.
+ * Every numeric value: numeric of no typmod at numeric's own limits, pg.numeric's type (scalar/registry.ts
+ * numericOwnLimits). What a literal adopts before its own value bounds it, and what an overload is looked up by.
  */
-export const anyNumeric: ScalarType = numericValue({
-	digits: numericMaxIntegerDigits,
-	scale: numericMaxFractionDigits
-})
+export const anyNumeric: ScalarType = numericOwnLimits
 
 /**
  * The bound every value of a numeric-convertible type has once converted into numeric exactly: an integer's or

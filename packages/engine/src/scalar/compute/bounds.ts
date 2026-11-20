@@ -1,7 +1,11 @@
 import type { Exact, Fact, FactSource, OperandPremise } from "#compiler/ir/proof.ts"
 import { doubleAtLeast, doubleParts, log2Of } from "#compiler/scalar/compute/cast.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
-import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
+import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
+	resultDigits
+} from "#compiler/scalar/values/fault.ts"
 
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
 
@@ -139,7 +143,8 @@ const infinite: Edge = { kind: "infinite" }
  * value: the branch of a guard that cannot hold. The integer digits are negative for a value below one by an order of
  * magnitude or more, as numeric(p, s) with s above p holds: |x| < 10^(p - s). They are never fewer than
  * -numericMaxFractionDigits, below which no numeric value but zero lies, nor more than one past
- * numericMaxIntegerDigits, which a compilation refuses as ResourceBound.
+ * numericMaxIntegerDigits, which a compilation refuses as ResourceBound where the operands' bounds were proved within
+ * it (ownLimited).
  */
 export interface Bounds {
 	readonly low: Edge
@@ -157,6 +162,20 @@ const bounds = (low: Edge, high: Edge, nan: boolean, digits: number, scale: numb
 		digits: Math.max(Math.min(digits, numericMaxIntegerDigits + 1), -numericMaxFractionDigits),
 		scale: Math.min(scale, numericMaxFractionDigits)
 	})
+
+/**
+ * A numeric result's bounds over its operands' (scalar/values/fault.ts resultDigits): its own, but at numeric's own
+ * limit where they pass it over an operand bounded by nothing but that limit, whose overflow PostgreSQL refuses (22003).
+ */
+export const ownLimited = (result: Bounds, operands: ReadonlyArray<Bounds | undefined>): Bounds => {
+	const digits = resultDigits(
+		result.digits,
+		operands.flatMap((b) => (b === undefined ? [] : [b.digits]))
+	)
+	return digits === result.digits
+		? result
+		: bounds(result.low, result.high, result.nan, digits, result.scale)
+}
 
 /** Every finite value of `digits` integer digits and `scale` fractional ones, with the infinities and NaN as given. */
 export const ofDigits = (

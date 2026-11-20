@@ -152,8 +152,9 @@ export const capabilitySet = (caps: ReadonlyArray<Capability>): CapabilitySet =>
 	Object.freeze([...new Set(caps)].toSorted(compareStrings))
 
 /**
- * numeric(p, s): precision 1..numericMaxPrecision, scale numericMinScale..numericMaxScale, both always present, as every
- * numeric field, cast, parameter and typed literal declares them: one typmod, one identity.
+ * numeric(p, s): precision 1..numericMaxPrecision, scale numericMinScale..numericMaxScale, both present wherever a
+ * typmod is, as a numeric(p, s) field, cast, parameter and typed literal declares them: one typmod, one identity.
+ * numeric of no typmod has none (NumericValueType).
  */
 export interface NumericTypmod {
 	readonly precision: number
@@ -501,7 +502,7 @@ export interface RosterHandles {
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = (typeof spanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
-type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
+export type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
 
 /**
  * The descriptor is a union tagged by carrier: each plain variant holds exactly the fields its carrier has, and a
@@ -525,9 +526,10 @@ interface NumericTypmodType {
 }
 
 /**
- * A computed numeric, PostgreSQL's numeric of no typmod: an aggregate's, an operation's or a conversion's result, with
- * the bound its making proved. No declaration names one, so it is never a declared type, a contract or a contract's
- * base.
+ * PostgreSQL's numeric of no typmod, with the bound what makes it proved: an aggregate's, an operation's or a
+ * conversion's result, a computed numeric, with its making's, and pg.numeric's declaration, a field, a parameter, a
+ * declared function's argument or result or a contract's base, with numeric's own limits, which PostgreSQL enforces
+ * (scalar/registry.ts numericOwnLimits). No declaration states a narrower bound.
  */
 export interface NumericValueType {
 	readonly carrier: "numeric"
@@ -650,10 +652,7 @@ export type PlainType =
 	| ExactType
 
 /** The plain value domains a contract is over at its last level: every value type a field declares but a set and bytes. */
-type ContractedType = Exclude<
-	PlainType,
-	NumericValueType | ExactType | BitsType | BytesType | SearchType
->
+type ContractedType = Exclude<PlainType, ExactType | BitsType | BytesType | SearchType>
 
 /** The carriers a contract is over. */
 export type ContractCarrier = ContractedType["carrier"]
@@ -672,16 +671,18 @@ export interface ContractType<C extends ContractCarrier = ContractCarrier> {
 type ContractTypes = { readonly [C in ContractCarrier]: ContractType<C> }[ContractCarrier]
 
 /**
- * The value domains a contract is over: every value type a field declares, never a computed numeric or an exact value,
- * which only an operation makes, nor a set over a roster, whose holes and padding no predicate over it could keep apart,
- * nor bytes, which no predicate reads; a contract's among them, so a contract is over another.
+ * The value domains a contract is over: every value type a field declares, numeric of no typmod at numeric's own limits
+ * among them, never an exact value, which only an operation makes, nor a set over a roster, whose holes and padding no
+ * predicate over it could keep apart, nor bytes, which no predicate reads; a contract's among them, so a contract is
+ * over another.
  */
 export type ContractBase = ContractedType | ContractTypes
 
 /**
  * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
- * a roster, bytes, or a search document. A computed numeric and an exact value are a value's making, which no
- * declaration states. How a field is written, by its sequence among the ways, is the field's writing, never its type.
+ * a roster, bytes, or a search document. An exact value and a computed numeric's narrower bound are a value's making,
+ * which no declaration states. How a field is written, by its sequence among the ways, is the field's writing, never
+ * its type.
  */
 export type DeclaredType = ContractBase | BitsType | BytesType | SearchType
 
@@ -710,7 +711,7 @@ export interface SpanInfo {
 	readonly width: bigint | undefined
 }
 
-/** Whether a type is a computed numeric, which no declaration states. */
+/** Whether a type is numeric of no typmod, a computed numeric or pg.numeric's, and no contract. */
 export const isNumericValue = (t: ScalarType): t is NumericValueType =>
 	t.carrier === "numeric" && t.contract === undefined && t.typmod === undefined
 
@@ -810,8 +811,8 @@ export const spanOf = (t: ScalarType): SpanInfo | undefined => {
 }
 
 /**
- * The typmod of a numeric descriptor, numeric(p, s), a contract's its base's; undefined for a computed numeric and every
- * other carrier.
+ * The typmod of a numeric descriptor, numeric(p, s), a contract's its base's; undefined for numeric of no typmod and
+ * every other carrier.
  */
 export const numericTypmodOf = (t: ScalarType): NumericTypmod | undefined => {
 	const b = baseOf(t)
@@ -837,11 +838,14 @@ export const vectorTypmodOf = (t: ScalarType): VectorTypmod | undefined => {
 export const exactDigitsOf = (t: ScalarType): number | undefined =>
 	t.carrier === "exactInteger" || t.carrier === "exactMoney" ? t.digits : undefined
 
-/** The proved bound of a computed numeric; undefined for numeric(p, s) and every other carrier. */
-export const numericBoundOf = (t: ScalarType): NumericBound | undefined =>
-	t.carrier === "numeric" && t.contract === undefined && t.typmod === undefined
-		? t.bound
-		: undefined
+/**
+ * The bound of numeric of no typmod, a contract's its base's: a computed numeric's proved one, pg.numeric's numeric's
+ * own limits; undefined for numeric(p, s) and every other carrier.
+ */
+export const numericBoundOf = (t: ScalarType): NumericBound | undefined => {
+	const b = baseOf(t)
+	return b.carrier === "numeric" && b.typmod === undefined ? b.bound : undefined
+}
 
 /** One list of patterns: each member's source and flags, in order. */
 export const samePatterns = (a: Patterns, b: Patterns): boolean =>

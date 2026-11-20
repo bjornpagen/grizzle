@@ -1350,7 +1350,9 @@ const lowered = <R extends Refs>(
  * admit (registry.ts Totality). Integer and money arithmetic is exact (an exact integer or exact money, its digits
  * bounded by its operands'); float arithmetic is IEEE 754; numeric arithmetic stays inside numeric's
  * numericMaxIntegerDigits by its operands' digit bounds (a numeric field's by its typmod, a computed numeric's by the
- * bound its type carries), past which an expression is ResourceBound; and a partial operation (a divisor, a root, a
+ * bound its type carries), past which an expression is ResourceBound, but over an operand bounded by nothing but that
+ * limit, pg.numeric's, which PostgreSQL enforces with 22003 (scalar/values/fault.ts resultDigits); and a partial
+ * operation (a divisor, a root, a
  * narrowing cast, a domain cast, power, width_bucket, min_scale) stands only with the proof of its precondition
  * (ir/proof.ts PreconditionProof): its operands' facts (a literal's value, a contract's declaration, a Logic.when
  * guard, the facts a term's TypeScript type states), or, for what rests on magnitudes no type states, the bound domain

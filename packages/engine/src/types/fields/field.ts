@@ -150,9 +150,18 @@ export type PatternField = Field<string, "text">
 export type { NumericHostOf }
 
 /**
- * numeric(p, s), its precision and scale both declared, as every numeric field is, its host type its scale's
- * (NumericHostOf). Its domain is numeric's whatever its host, Decimal, so its terms meet every numeric's and take a
- * numeric's literals; precision and scale are runtime values only.
+ * pg.numeric: PostgreSQL's numeric of no typmod, every value numeric holds, its host type Decimal, which is also the one
+ * call numeric(p, s), precision and scale both declared, whose host type is its scale's (NumericHostOf): a bigint at
+ * scale 0, a Decimal at any other. PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts
+ * numericMaxPrecision, numericMinScale and numericMaxScale).
+ */
+export type NumericField = Field<Decimal, "numeric"> &
+	(<const S extends number>(precision: number, scale: S) => NumericTypmodField<NumericHostOf<S>>)
+
+/**
+ * numeric(p, s), its precision and scale both declared, its host type its scale's (NumericHostOf). Its domain is
+ * numeric's whatever its host, Decimal, so its terms meet every numeric's and take a numeric's literals; precision and
+ * scale are runtime values only.
  */
 export interface NumericTypmodField<Host extends Decimal | bigint = Decimal | bigint> extends Field<
 	Host,

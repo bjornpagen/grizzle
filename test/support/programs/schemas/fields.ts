@@ -35,6 +35,7 @@ export type {
 	Infer,
 	LiteralOf,
 	NaturalField,
+	NumericField,
 	NumericTypmodField,
 	Span,
 	SpanEndpointLike,
