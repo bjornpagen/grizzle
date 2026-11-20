@@ -58,7 +58,11 @@ import {
 	type PageParamSlot,
 	type ProgramDelivery
 } from "#compiler/lower/conservative/types.ts"
-import type { CtePlan, CteStrategy } from "#compiler/lower/optimize/cte-policy/index.ts"
+import type {
+	CteDecision,
+	CtePlan,
+	CteStrategy
+} from "#compiler/lower/optimize/cte-policy/index.ts"
 import { partQuery, shiftedPart, type TaggedPart, taggedParts } from "#compiler/lower/parts.ts"
 import { aggregateLowerer } from "#compiler/lower/shapes/aggregate/index.ts"
 import { seededAttachment } from "#compiler/lower/shapes/attach-recursive/index.ts"
@@ -410,6 +414,15 @@ export interface ShapeLog<I extends ChoiceInput> {
 	readonly mode: InputChoiceMode
 	readonly log: CteLog
 	strategy(node: RelNode): CteStrategy | undefined
+	/** The policy's decision for a node it shares: its strategy and where its CTE stands (cte-policy CteDecision). */
+	decision(node: RelNode): CteDecision | undefined
+	/**
+	 * The CTEs `region`'s SELECT holds while it is lowered (cte-policy `sharedCorrelated`), its table made where the
+	 * region's lowering begins and read off where it ends; none for a region no shared node's CTE stands in.
+	 */
+	regionCtes(region: NodeId): CteLog | undefined
+	/** `lower`'s SELECT of `region` with the CTEs it holds leading its WITH (ShapeState). */
+	withRegionCtes(region: NodeId, lower: () => OperandSelect): OperandSelect
 	readonly record: (choice: ShapeChoice<I>) => void
 }
 
@@ -455,11 +468,20 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 	#mode: InputChoiceMode
 	#log: CteLog = freshCtes()
 	#choices: Array<ShapeChoice<I>> = []
+	/** The regions whose SELECT holds a CTE (cte-policy `sharedCorrelated`). */
+	readonly #holding: ReadonlySet<NodeId>
+	/** The CTEs of each region being lowered, by the region (`withRegionCtes`). */
+	readonly #regions = new Map<NodeId, CteLog>()
 
 	/** A state whose first statement is lowered in `mode`. */
 	constructor(mode: InputChoiceMode, cte: CtePlan) {
 		this.#mode = mode
 		this.cte = cte
+		this.#holding = new Set(
+			Object.values(cte.decisions).flatMap((d) =>
+				d.scope.kind === "region" ? [d.scope.region] : []
+			)
+		)
 	}
 
 	get mode(): InputChoiceMode {
@@ -491,6 +513,30 @@ export class ShapeState<I extends ChoiceInput> implements ShapeLog<I> {
 
 	strategy(node: RelNode): CteStrategy | undefined {
 		return this.cte.decisions[node.id]?.strategy
+	}
+
+	decision(node: RelNode): CteDecision | undefined {
+		return this.cte.decisions[node.id]
+	}
+
+	regionCtes(region: NodeId): CteLog | undefined {
+		return this.#regions.get(region)
+	}
+
+	/**
+	 * `lower`'s SELECT of `region` with the CTEs it holds (cte-policy `sharedCorrelated`) leading its WITH, each defined
+	 * at its first read inside it: a fresh table for the region while it is lowered, so a region lowered again, in
+	 * another statement or another mode, defines its CTEs again.
+	 */
+	withRegionCtes(region: NodeId, lower: () => OperandSelect): OperandSelect {
+		if (!this.#holding.has(region)) {
+			return lower()
+		}
+		const table: CteLog = freshCtes()
+		this.#regions.set(region, table)
+		const query = lower()
+		this.#regions.delete(region)
+		return withLeading(query, table.ctes)
 	}
 }
 
@@ -730,12 +776,26 @@ const dispatchIn = <I extends ChoiceInput>(
 		return lower(node, cx, env)
 	}
 	return (node, cx, env) => {
-		const strategy = state.strategy(node)
-		const materialized = strategy === undefined ? undefined : cteMaterialization(strategy)
-		if (materialized === undefined || cx.readsFeedback(node)) {
-			return plugIn(node, cx, env)
+		const decision = state.decision(node)
+		const materialized = decision === undefined ? undefined : cteMaterialization(decision.strategy)
+		if (decision === undefined || materialized === undefined || cx.readsFeedback(node)) {
+			return node.kind === "MatchRegion"
+				? state.withRegionCtes(node.id, () => plugIn(node, cx, env))
+				: plugIn(node, cx, env)
 		}
-		return cteAtFirstUse(cx, node, state.log, node, materialized, () => plugIn(node, cx, emptyEnv))
+		const scope = decision.scope
+		switch (scope.kind) {
+			case "statement":
+				return cteAtFirstUse(cx, node, state.log, node, materialized, () =>
+					plugIn(node, cx, emptyEnv)
+				)
+			case "region": {
+				const ctes = state.regionCtes(scope.region)
+				return ctes === undefined
+					? plugIn(node, cx, env)
+					: cteAtFirstUse(cx, node, ctes, node, materialized, () => plugIn(node, cx, env))
+			}
+		}
 	}
 }
 

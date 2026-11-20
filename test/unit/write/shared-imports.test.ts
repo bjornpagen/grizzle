@@ -41,8 +41,8 @@ const scansOf = (nodes: ReadonlyArray<RelNode>, relation: string): number =>
 const kills = Object.freeze([
 	{
 		file: "packages/engine/src/check/checker.ts",
-		original: "\t\tconst key = importedKey(this.options.session, src.query, values)\n",
-		replacement: "\t\tconst key = undefined\n",
+		original: "\t\t\timportedKey(this.options.session, src.query, values, false)\n",
+		replacement: "\t\t\tundefined\n",
 		why: "Every import is built where it stands, so each member's eight arguments read eight scans of Item, and each level of the chain two of the level below: the DAG is a tree of the Description's sharing, and the scans are many."
 	},
 	{

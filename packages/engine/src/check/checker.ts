@@ -217,14 +217,21 @@ interface ParentColumn {
  * identity, which one resolution of the compile's Descriptions gives every import of it in every query it checks
  * (check/session.ts CheckSession), and each bound value, a parameter by its name, the one parameter of that name its
  * query, or its ChangeSet, whose members' and read-backs' parameters are one namespace, declares, a constant by its
- * canonical text; none for an import bound to an outer value, whose rows are its reader's, built at each import.
+ * canonical text, and, under region reads (`region`), an outer value by the region and the column it is read through:
+ * every match of one query at one rule statement's unit channels reads one import, which the CTE policy computes once
+ * at the scope those values come from (lower/optimize/cte-policy rule 3b), where a node built at every match
+ * multiplied the statement by the import's reads, at every level of a chain of definitions (analysis/theory/navigate.ts
+ * sharedImports); none for an import bound to an outer value elsewhere, whose rows are its reader's, built at each
+ * import.
  */
 const importedKey = (
 	session: CheckSession,
 	query: ResolvedQuery,
-	values: ReadonlyMap<string, BindValue>
-): string | undefined => {
+	values: ReadonlyMap<string, BindValue>,
+	region: boolean
+): ImportKey | undefined => {
 	const parts = [`q${session.place(query)}`]
+	let closed = true
 	for (const [param, value] of [...values].toSorted(([a], [b]) => compareStrings(a, b))) {
 		switch (value.kind) {
 			case "param":
@@ -234,10 +241,25 @@ const importedKey = (
 				parts.push(`${param}=l:${canonicalTextOf([value.value, value.stated])}`)
 				break
 			case "column":
-				return undefined
+				if (!region) {
+					return undefined
+				}
+				parts.push(`${param}=c:${value.node}:${value.name}`)
+				closed = false
+				break
 		}
 	}
-	return parts.join(" ")
+	return { text: parts.join(" "), closed }
+}
+
+/**
+ * An import's key (`importedKey`): its text, and whether the import is closed, every value it is bound to a parameter or
+ * a constant, the key the session records on the completed DAG (Checker `root`), or bound to an outer value under
+ * region reads, a key of one rule statement's DAG alone.
+ */
+interface ImportKey {
+	readonly text: string
+	readonly closed: boolean
 }
 
 interface ParentScope {
@@ -948,6 +970,8 @@ export class Checker {
 	 * into a tree (a bound query read at many places, a call's rows argument at every read of the call's fields).
 	 */
 	readonly #imported = new Map<string, RelNode>()
+	/** The imports bound to outer values under region reads, each built once by its key (`importedKey`'s `region`). */
+	readonly #regional = new Map<string, RelNode>()
 	/** The admitted patterns the query's compile reads (scalar/regex/patterns.ts), each parsed once per query. */
 	readonly patterns = new CompilePatterns()
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
@@ -1925,7 +1949,7 @@ export class Checker {
 				)
 			}
 			case "query":
-				return this.#importSource(src, loc, bind)
+				return this.#regionImport(src, loc, bind)
 			case "step": {
 				const input = this.#importSource(src, loc, bind)
 				return this.node({ kind: "Step", input, heading: input.heading }, loc)
@@ -2355,20 +2379,71 @@ export class Checker {
 		loc: SourceLoc,
 		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
 	): RelNode {
+		const values = this.#boundValues(src, loc, bind)
+		return this.#keyedImport(
+			src,
+			values,
+			loc,
+			importedKey(this.options.session, src.query, values, false)
+		)
+	}
+
+	/**
+	 * A query source's import (`#importSource`), and under region reads also one node for every match of one query at
+	 * one set of outer values (`importedKey`'s `region`): every match of one region that reads the import at its
+	 * region's columns reads that one node, which the lowering computes once, in that region (lower/optimize/cte-policy
+	 * rule 3b), where a node of each match's own spelled and computed the import at every match.
+	 */
+	#regionImport(
+		src: Pick<Extract<ResolvedSource, { readonly kind: "query" }>, "query" | "bind">,
+		loc: SourceLoc,
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+	): RelNode {
+		if (this.options.read !== "region") {
+			return this.#importSource(src, loc, bind)
+		}
+		const values = this.#boundValues(src, loc, bind)
+		return this.#keyedImport(
+			src,
+			values,
+			loc,
+			importedKey(this.options.session, src.query, values, true)
+		)
+	}
+
+	/** The values an import's bind map binds its parameters to. */
+	#boundValues(
+		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "bind">,
+		loc: SourceLoc,
+		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+	): ReadonlyMap<string, BindValue> {
 		const values = new Map<string, BindValue>()
 		for (const [param, term] of entries(src.bind)) {
 			values.set(param, bind(term, param, childLoc(childLoc(loc, "bind"), param)))
 		}
-		const key = importedKey(this.options.session, src.query, values)
+		return values
+	}
+
+	/**
+	 * The import of `src` at `values`: one node for every import at one key, a closed one's among the closed imports
+	 * (`#imported`), another among the regional ones (`#regional`); its own where it has none.
+	 */
+	#keyedImport(
+		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "query">,
+		values: ReadonlyMap<string, BindValue>,
+		loc: SourceLoc,
+		key: ImportKey | undefined
+	): RelNode {
 		if (key === undefined) {
 			return this.#importAt(src, values, loc)
 		}
-		const known = this.#imported.get(key)
+		const table = key.closed ? this.#imported : this.#regional
+		const known = table.get(key.text)
 		if (known !== undefined) {
 			return known
 		}
 		const node = this.#importAt(src, values, loc)
-		this.#imported.set(key, node)
+		table.set(key.text, node)
 		return node
 	}
 

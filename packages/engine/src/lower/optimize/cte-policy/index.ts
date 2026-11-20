@@ -12,6 +12,7 @@ import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import {
 	deliveredInput,
+	inputsOf,
 	keptRowsOf,
 	type NodeOf,
 	type Occurrence,
@@ -36,13 +37,14 @@ type CteReason =
 	| "singleUse"
 	| "recursive"
 	| "correlated"
+	| "sharedCorrelated"
 	| "feedback"
 	| "cheapScan"
 	| "sharedExpensive"
 	| "sharedJoin"
 	| "readPerRow"
 
-interface CteDecision {
+export interface CteDecision {
 	readonly node: NodeId
 	readonly strategy: CteStrategy
 	readonly references: number
@@ -50,6 +52,14 @@ interface CteDecision {
 	readonly reason: CteReason
 	/** The node's demanded columns: what a CTE for it must carry. */
 	readonly columns: ReadonlyArray<string>
+	/**
+	 * Where the CTE stands: the statement's own WITH, or, for a shared node correlated to the one region every read of
+	 * it is an occurrence of (`sharedCorrelated`), that region's SELECT, inside which every value it reads of an outer
+	 * row is in scope.
+	 */
+	readonly scope:
+		| { readonly kind: "statement" }
+		| { readonly kind: "region"; readonly region: NodeId }
 }
 
 export interface CtePlan {
@@ -319,6 +329,7 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 	const labels = nodesByLabel(dag)
 	const feedback = feedbackReadsOf(nodeGraph, d.order)
 	const perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()
+	const regionOf = readingRegion(d.order, (node) => scopes.of(node).outer)
 	const decided: Array<Decided> = []
 	for (const node of d.order) {
 		const references = d.references(node)
@@ -327,33 +338,42 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 		}
 		const cost = costClass(node)
 		const demanded = d.demanded(node)
-		const decide = (strategy: CteStrategy, reason: CteReason): CteDecision => ({
+		const decide = (
+			strategy: CteStrategy,
+			reason: CteReason,
+			scope: CteDecision["scope"]
+		): CteDecision => ({
 			node: node.id,
 			strategy,
 			references,
 			cost,
 			reason,
-			columns: node.heading.flatMap((c) => (demanded.has(c.name) ? [c.name] : []))
+			columns: node.heading.flatMap((c) => (demanded.has(c.name) ? [c.name] : [])),
+			scope
 		})
 		let decision: CteDecision
 		if (node.kind === "Recursive") {
-			decision = decide("recursive", "recursive")
+			decision = decide("recursive", "recursive", statementScope)
 		} else if (feedback.has(node)) {
-			decision = decide("inline", "feedback")
+			decision = decide("inline", "feedback", statementScope)
 		} else if (
 			readsOutside(nodeGraph, subtreeOf(nodeGraph, node)) ||
 			freeVars(labels, scopes.of(node)).length > 0 ||
 			d.lateral(node)
 		) {
-			decision = decide("inline", "correlated")
+			const region = cost === "scan" ? undefined : regionOf(node, references)
+			decision =
+				region === undefined
+					? decide("inline", "correlated", statementScope)
+					: decide("materialized", "sharedCorrelated", { kind: "region", region: region.id })
 		} else if (cost === "scan") {
-			decision = decide("inline", "cheapScan")
+			decision = decide("inline", "cheapScan", statementScope)
 		} else if (perRow.has(node)) {
-			decision = decide("materialized", "readPerRow")
+			decision = decide("materialized", "readPerRow", statementScope)
 		} else if (cost === "expensive") {
-			decision = decide("materialized", "sharedExpensive")
+			decision = decide("materialized", "sharedExpensive", statementScope)
 		} else {
-			decision = decide("notMaterialized", "sharedJoin")
+			decision = decide("notMaterialized", "sharedJoin", statementScope)
 		}
 		decided.push({ node, decision })
 	}
@@ -361,6 +381,52 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 }
 
 const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `cte.${strategy}`
+
+/** A CTE of the statement's own WITH. */
+const statementScope: CteDecision["scope"] = { kind: "statement" }
+
+/**
+ * The region every read of a node is an occurrence of, where `references`, the node's reads, are all occurrences of
+ * that one region, no expression reads it, and every value it reads of the region is one the region is correlated to
+ * from outside, never one its occurrences bind (`outer`, the node's outer references by label): a rule statement's
+ * import its rule's unfolding reads more than once (analysis/theory/navigate.ts sharedImports), each read a match of
+ * the rule itself, correlated to the unit's channels the region reads through its own columns (check/checker.ts
+ * #bindValue). Its SELECT holds the CTE, every outer value it reads in scope there and none of the region's own items,
+ * so the node is spelled and planned once and computed once per row the region is read for, the unit's rows alone,
+ * each occurrence a join of its rows; inlined at each read, a chain of such definitions multiplied the statement at
+ * every level (rule 3b). None for any other node, which stays inlined (rule 3).
+ */
+const readingRegion = (
+	order: ReadonlyArray<RelNode>,
+	outer: (node: RelNode) => ReadonlyMap<NodeId, ReadonlySet<string>>
+): ((node: RelNode, references: number) => NodeOf<"MatchRegion"> | undefined) => {
+	const readers = new Map<RelNode, Array<RelNode>>()
+	for (const n of order) {
+		for (const input of inputsOf(n)) {
+			const known = readers.get(input)
+			if (known === undefined) {
+				readers.set(input, [n])
+			} else {
+				known.push(n)
+			}
+		}
+	}
+	return (node, references) => {
+		const [only, ...more] = readers.get(node) ?? []
+		if (
+			only?.kind !== "MatchRegion" ||
+			!more.every((m) => m === only) ||
+			only.occurrences.filter((o) => o.source === node).length !== references
+		) {
+			return undefined
+		}
+		const correlated = new Set(only.correlated.map((c) => c.var.name))
+		const read = outer(node).get(only.id)
+		return read === undefined || [...read].every((column) => correlated.has(column))
+			? only
+			: undefined
+	}
+}
 
 /**
  * The policy as a pass: the query unchanged, with its plan, and a certificate for each shared stage the statement
@@ -380,8 +446,14 @@ const cteRule = (strategy: Exclude<CteStrategy, "inline">): CertificateRule => `
  * 1. A node read once, or never shared, is inlined: an eligible single-use stage folds, but for a node a workload's
  *    read reads once per row of another (readPerRow), which rule 5b decides.
  * 2. A recursive relation is a WITH RECURSIVE: always a CTE, computed once per statement.
- * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE
- *    cannot read an outer row, and a recursive term admits one self-reference.
+ * 3. A correlated node, a node some expression reads laterally, and a node on a recursive step are inlined: a CTE of
+ *    the statement's WITH cannot read an outer row, and a recursive term admits one self-reference.
+ * 3b. But a shared correlated node of several sources whose every read is an occurrence of one region, reading of the
+ *    outer rows only what that region is correlated to, is MATERIALIZED in the region's own SELECT (readingRegion),
+ *    where every outer value it reads is in scope: spelled and planned once, computed once per row the region is read
+ *    for, each occurrence a join of its rows. A rule statement's import its rule's unfolding reads more than once is
+ *    one (analysis/theory/navigate.ts sharedImports); inlined at each read, a chain of such definitions multiplied the
+ *    statement at every level.
  * 4. A node whose stages are all scans, filters and projections of one source is inlined at each use: each use can then
  *    probe the source's indexes with its own restrictions, which a shared result would hide ("sharing an unfiltered
  *    computation is not automatically preferable to two selective indexed probes").
