@@ -6,23 +6,31 @@ import {
 	Option,
 	Order,
 	Record,
+	Result,
 	Schema,
-	SchemaGetter,
 	String as Str,
 	Struct
 } from "effect"
 import type { Types } from "effect"
-import { stripUnsafeText } from "#model/brands.ts"
-import { JsonPointer, MethodToken, PathTemplate } from "#model/brands.ts"
+import { isMethodToken, isNonEmptyText, isPathTemplate, stripUnsafeText } from "#model/brands.ts"
+import type { MethodToken, PathTemplate } from "#model/brands.ts"
 import { makeDiagnostic, pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
 import { ContentSerialization, Operation, Parameter as ParameterEntity } from "#model/entities.ts"
-import type { Body, Naming, NamingAlias, NamingHint, Parameter, Server } from "#model/entities.ts"
+import type {
+	Body,
+	Naming,
+	NamingAlias,
+	NamingHint,
+	Parameter,
+	RowId,
+	Server
+} from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
-import { childPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
+import { childPointer, formatPointer, parsePointerResult } from "#model/pointer.ts"
+import type { Json, JsonPointer } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import {
 	BodyOutcome,
@@ -42,6 +50,7 @@ import { effectiveServers } from "#normalize/servers.ts"
 import type { ServerSource, ServersContext } from "#normalize/servers.ts"
 import { referenceAt } from "#resolve/index.ts"
 import type { Resolution } from "#resolve/index.ts"
+import * as Read from "#runtime/read.ts"
 
 /**
  * The operations of the entry document and the diagnostics found assembling them. An operation
@@ -60,9 +69,12 @@ export type OperationsError = BodyNotReadable | ParameterNotReadable
 
 type Level = "operation" | "pathItem"
 
+/**
+ * A node of the entry document and the reference tokens of its pointer.
+ */
 interface Located {
 	readonly node: Json
-	readonly pointer: string
+	readonly tokens: ReadonlyArray<string>
 }
 
 interface Rule {
@@ -125,33 +137,116 @@ const rules = {
 
 type Code = keyof typeof rules
 
-const JsonMap = Schema.Record(Schema.String, Schema.Json)
+/**
+ * The members of the document root that assembly reads: its `paths`, by key, and its `servers`, read where they apply.
+ */
+interface Root {
+	readonly paths: Option.Option<Read.Members>
+	readonly servers: Option.Option<Json>
+}
 
-const PathsRoot = Schema.Struct({
-	paths: Schema.optionalKey(JsonMap),
-	servers: Schema.optionalKey(Schema.Json)
-})
+/**
+ * The document root's members, or none when the root is no object or its `paths` is no object.
+ */
+const rootOf = (value: Json): Option.Option<Root> =>
+	isObject(value)
+		? Result.getSuccess(
+				Read.struct(
+					value,
+					{
+						paths: Read.optionalMember(value, "paths", Read.members),
+						servers: Result.succeed(Record.get(value, "servers"))
+					},
+					Read.anything
+				)
+			)
+		: Option.none()
 
-const ItemFields = Schema.Struct({
-	additionalOperations: Schema.optionalKey(JsonMap),
-	parameters: Schema.optionalKey(Schema.Array(Schema.Json)),
-	servers: Schema.optionalKey(Schema.Json)
-})
+/**
+ * A path item as assembly reads it: its object, its pointer, its `additionalOperations` by key, its `parameters` and its
+ * `servers`, read where they apply.
+ */
+interface PathItem {
+	readonly additionalOperations: Option.Option<Read.Members>
+	readonly node: JsonObject
+	readonly parameters: Option.Option<ReadonlyArray<unknown>>
+	readonly pointer: JsonPointer
+	readonly servers: Option.Option<Json>
+	readonly tokens: ReadonlyArray<string>
+}
 
-const OperationFields = Schema.Struct({
-	deprecated: Schema.optionalKey(Schema.Boolean),
-	description: Schema.optionalKey(Schema.String),
-	operationId: Schema.optionalKey(Schema.String),
-	parameters: Schema.optionalKey(Schema.Array(Schema.Json)),
-	requestBody: Schema.optionalKey(Schema.Json),
-	servers: Schema.optionalKey(Schema.Json),
-	summary: Schema.optionalKey(Schema.String),
-	tags: Schema.optionalKey(Schema.Array(Schema.String))
-})
+/**
+ * The path item at a located node, or none when the node is no object or holds `additionalOperations` that is no
+ * object or `parameters` that is no array.
+ */
+const pathItemOf = (item: Located): Option.Option<PathItem> => {
+	const { node, tokens } = item
 
-const ParameterIdentity = Schema.Struct({ in: Schema.String, name: Schema.String })
+	return isObject(node)
+		? Result.getSuccess(
+				Result.map(
+					Read.struct(
+						node,
+						{
+							additionalOperations: Read.optionalMember(node, "additionalOperations", Read.members),
+							parameters: Read.optionalMember(node, "parameters", Read.array(Read.anything)),
+							servers: Result.succeed(Record.get(node, "servers"))
+						},
+						Read.anything
+					),
+					(fields): PathItem => ({ ...fields, node, pointer: formatPointer(tokens), tokens })
+				)
+			)
+		: Option.none()
+}
 
-const methodRows: ReadonlyMap<string, string> = new Map([
+/**
+ * The members of an Operation Object that assembly reads; `requestBody` and `servers` are read where they apply.
+ */
+interface OperationFields {
+	readonly deprecated: Option.Option<boolean>
+	readonly description: Option.Option<string>
+	readonly operationId: Option.Option<string>
+	readonly parameters: Option.Option<ReadonlyArray<unknown>>
+	readonly requestBody: Option.Option<Json>
+	readonly servers: Option.Option<Json>
+	readonly summary: Option.Option<string>
+	readonly tags: Option.Option<ReadonlyArray<string>>
+}
+
+/**
+ * An Operation Object's members, or none when one of them is of another type than its own.
+ */
+const operationFieldsOf = (node: JsonObject): Option.Option<OperationFields> =>
+	Result.getSuccess(
+		Read.struct(
+			node,
+			{
+				deprecated: Read.optionalMember(node, "deprecated", Read.boolean),
+				description: Read.optionalMember(node, "description", Read.string),
+				operationId: Read.optionalMember(node, "operationId", Read.string),
+				parameters: Read.optionalMember(node, "parameters", Read.array(Read.anything)),
+				requestBody: Result.succeed(Record.get(node, "requestBody")),
+				servers: Result.succeed(Record.get(node, "servers")),
+				summary: Read.optionalMember(node, "summary", Read.string),
+				tags: Read.optionalMember(node, "tags", Read.array(Read.string))
+			},
+			Read.anything
+		)
+	)
+
+/**
+ * A Parameter Object's identity members, `in` and `name`.
+ */
+const parameterIdentity: Read.Reader<{ readonly in: string; readonly name: string }> = Read.object(
+	(node) => ({
+		in: Read.member(node, "in", Read.string),
+		name: Read.member(node, "name", Read.string)
+	}),
+	Read.anything
+)
+
+const methodRows: ReadonlyMap<string, RowId> = new Map([
 	["DELETE", "PTH-17"],
 	["GET", "PTH-14"],
 	["HEAD", "PTH-19"],
@@ -176,70 +271,76 @@ const nodeAt = (resolution: Resolution, pointer: string): Option.Option<Json> =>
  * path item in another document of the set is not read here: the sites of its operations would sit
  * in that document, and assembly walks the entry's sites only.
  */
-const locate = (resolution: Resolution, use: string): Option.Option<Located> => {
-	const reference = referenceAt(resolution, use)
+const locate = (resolution: Resolution, key: string): Option.Option<Located> => {
+	const use: ReadonlyArray<string> = ["paths", key]
+	const reference = referenceAt(resolution, formatPointer(use))
 	if (reference !== undefined && reference.target.document !== resolution.document) {
 		return Option.none()
 	}
 
-	const pointer = reference === undefined ? use : reference.target.pointer
+	const tokens =
+		reference === undefined
+			? Option.some(use)
+			: Result.getSuccess(parsePointerResult(reference.target.pointer))
 
-	return nodeAt(resolution, pointer).pipe(Option.map((node): Located => ({ node, pointer })))
+	return Option.flatMap(tokens, (found) =>
+		Option.map(nodeAt(resolution, formatPointer(found)), (node): Located => ({
+			node,
+			tokens: found
+		}))
+	)
 }
-
-const decodeOption = <A, I>(schema: Schema.Codec<A, I>, value: Json): Option.Option<A> =>
-	Schema.decodeUnknownOption(schema)(value)
-
-const jsonPointer = (text: string) => Schema.decodeEffect(JsonPointer)(text).pipe(Effect.orDie)
 
 interface RawOperation {
 	readonly additional: boolean
-	readonly fields: typeof OperationFields.Type
-	readonly node: JsonObject
-	readonly itemFields: typeof ItemFields.Type
-	readonly itemPointer: string
+	readonly fields: OperationFields
+	readonly item: PathItem
 	readonly method: MethodToken
+	readonly node: JsonObject
 	readonly path: PathTemplate
-	readonly pointer: string
+	readonly pointer: JsonPointer
+	readonly tokens: ReadonlyArray<string>
 }
 
 const operationsOfItem = (
 	resolution: Resolution,
 	path: PathTemplate,
-	item: Located,
-	itemFields: typeof ItemFields.Type,
-	itemNode: Record<string, Json>
+	item: PathItem
 ): readonly RawOperation[] => {
 	const members = new Set(methodMembers(resolution.line))
 	const fixed = Arr.map(
-		Arr.filter(Record.keys(itemNode), (name) => members.has(name)),
+		Arr.filter(Record.keys(item.node), (name) => members.has(name)),
 		(name) => ({ additional: false, name, token: Str.toUpperCase(name) })
 	)
-	const extra = Arr.map(Record.keys(itemFields.additionalOperations ?? {}), (name) => ({
-		additional: true,
-		name,
-		token: name
-	}))
+	const extra = Arr.map(
+		Record.keys(Option.getOrElse(item.additionalOperations, Record.empty)),
+		(name) => ({
+			additional: true,
+			name,
+			token: name
+		})
+	)
 
 	return Arr.flatMap([...fixed, ...extra], (entry): readonly RawOperation[] => {
-		const pointer = entry.additional
-			? childPointer(childPointer(item.pointer, "additionalOperations"), entry.name)
-			: childPointer(item.pointer, entry.name)
+		const tokens = entry.additional
+			? [...item.tokens, "additionalOperations", entry.name]
+			: [...item.tokens, entry.name]
+		const pointer = formatPointer(tokens)
 		const node = nodeAt(resolution, pointer).pipe(Option.filter(isObject))
-		const fields = node.pipe(Option.flatMap((found) => decodeOption(OperationFields, found)))
-		const method = decodeOption(MethodToken, entry.token)
+		const fields = Option.flatMap(node, operationFieldsOf)
+		const method = Option.liftPredicate(entry.token, isMethodToken)
 
 		return Option.isSome(node) && Option.isSome(fields) && Option.isSome(method)
 			? [
 					{
 						additional: entry.additional,
 						fields: fields.value,
-						itemFields,
-						itemPointer: item.pointer,
+						item,
 						method: method.value,
 						node: node.value,
 						path,
-						pointer
+						pointer,
+						tokens
 					}
 				]
 			: []
@@ -263,29 +364,28 @@ const useSite = (key: string, raw: RawOperation): string => {
  * entry document, so the order is its use-site pointer token by token. Member order of `paths`,
  * a path item and `additionalOperations` is not semantic and never reaches a later stage.
  */
-const rawOperations = (resolution: Resolution): readonly RawOperation[] => {
-	const keys = decodeOption(PathsRoot, resolution.value).pipe(
-		Option.map((root) => Record.keys(root.paths ?? {})),
-		Option.getOrElse((): readonly string[] => [])
+const rawOperations = (
+	resolution: Resolution,
+	root: Option.Option<Root>
+): readonly RawOperation[] => {
+	const keys = Option.match(
+		Option.flatMap(root, (read) => read.paths),
+		{
+			onNone: (): readonly string[] => [],
+			onSome: (paths) => Record.keys(paths)
+		}
 	)
 	const sited = Arr.flatMap(keys, (key) => {
-		const path = decodeOption(PathTemplate, key)
-		const item = locate(resolution, childPointer("/paths", key))
-		const fields = item.pipe(Option.flatMap((located) => decodeOption(ItemFields, located.node)))
-		const node = item.pipe(Option.flatMap((located) => decodeOption(JsonMap, located.node)))
-		if (
-			Option.isNone(path) ||
-			Option.isNone(item) ||
-			Option.isNone(fields) ||
-			Option.isNone(node)
-		) {
+		const path = Option.liftPredicate(key, isPathTemplate)
+		const item = Option.flatMap(locate(resolution, key), pathItemOf)
+		if (Option.isNone(path) || Option.isNone(item)) {
 			return []
 		}
 
-		return Arr.map(
-			operationsOfItem(resolution, path.value, item.value, fields.value, node.value),
-			(raw) => ({ raw, site: useSite(key, raw) })
-		)
+		return Arr.map(operationsOfItem(resolution, path.value, item.value), (raw) => ({
+			raw,
+			site: useSite(key, raw)
+		}))
 	})
 
 	return Arr.map(
@@ -315,7 +415,7 @@ interface ParameterEntry {
 const parameterKey = (resolution: Resolution, pointer: string): ParameterKey => {
 	const target = follow(resolution, { document: resolution.document, pointer })
 	const identity = nodeOption(resolution, target).pipe(
-		Option.flatMap((node) => decodeOption(ParameterIdentity, node))
+		Option.flatMap((node) => Result.getSuccess(parameterIdentity(node)))
 	)
 
 	return Option.match(identity, {
@@ -327,16 +427,23 @@ const parameterKey = (resolution: Resolution, pointer: string): ParameterKey => 
 	})
 }
 
+/**
+ * The entries of an owner's `parameters`, none when it declares none.
+ */
 const entriesOf = (
 	resolution: Resolution,
 	owner: string,
-	list: readonly Json[],
+	list: Option.Option<ReadonlyArray<unknown>>,
 	level: Level
 ): readonly ParameterEntry[] =>
-	Arr.map(list, (_entry, index) => {
-		const pointer = childPointer(childPointer(owner, "parameters"), String(index))
+	Option.match(list, {
+		onNone: () => [],
+		onSome: (entries) =>
+			Arr.map(entries, (_entry, index) => {
+				const pointer = childPointer(childPointer(owner, "parameters"), String(index))
 
-		return { key: parameterKey(resolution, pointer), level, pointer }
+				return { key: parameterKey(resolution, pointer), level, pointer }
+			})
 	})
 
 interface Merged {
@@ -387,13 +494,18 @@ interface Shared {
 	readonly checkFindings: readonly Diagnostic[]
 	readonly context: ServersContext
 	readonly resolution: Resolution
+	/**
+	 * The document root's `servers`, which every operation inherits where nothing nearer overrides them.
+	 */
+	readonly rootServers: Option.Option<Json>
 	readonly schemes: SchemeNormalization
 }
 
 const operationInfo = (raw: RawOperation): DiagnosticOperation =>
-	raw.fields.operationId === undefined
-		? { method: raw.method, path: raw.path }
-		: { method: raw.method, operationId: raw.fields.operationId, path: raw.path }
+	Option.match(raw.fields.operationId, {
+		onNone: () => ({ method: raw.method, path: raw.path }),
+		onSome: (operationId) => ({ method: raw.method, operationId, path: raw.path })
+	})
 
 /**
  * A 3.2 `querystring` parameter's form content takes Encoding Objects as for bodies (design 6.1):
@@ -532,7 +644,7 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 	shared: Shared,
 	raw: RawOperation
 ): Effect.fn.Return<BodyResult, BodyNotReadable> {
-	if (raw.fields.requestBody === undefined) {
+	if (Option.isNone(raw.fields.requestBody)) {
 		return { body: Option.none(), diagnostics: [], refusedRequired: false }
 	}
 
@@ -567,65 +679,65 @@ const assembleBody = Effect.fnUntraced(function* assembleBody(
 	return { body: Option.some(hinted), diagnostics: outcome.diagnostics, refusedRequired: false }
 })
 
-const serverSource = (pointer: string, value: Option.Option<Json>): Effect.Effect<ServerSource> =>
-	jsonPointer(pointer).pipe(Effect.map((decoded): ServerSource => ({ pointer: decoded, value })))
-
-const effectiveServersOf = Effect.fnUntraced(function* effectiveServersOf(
-	shared: Shared,
-	raw: RawOperation
-): Effect.fn.Return<{ diagnostics: readonly Diagnostic[]; servers: readonly Server[] }> {
-	const operation = yield* serverSource(
-		childPointer(raw.pointer, "servers"),
-		Option.fromUndefinedOr(raw.fields.servers)
-	)
-	const pathItem = yield* serverSource(
-		childPointer(raw.itemPointer, "servers"),
-		Option.fromUndefinedOr(raw.itemFields.servers)
-	)
-	const root = yield* serverSource(
-		"/servers",
-		decodeOption(PathsRoot, shared.resolution.value).pipe(
-			Option.flatMap((fields) => Option.fromUndefinedOr(fields.servers))
-		)
-	)
-
-	return effectiveServers({ operation, pathItem, root }, shared.context)
+/**
+ * The `servers` of the level whose reference tokens are `tokens`.
+ */
+const serverSource = (tokens: ReadonlyArray<string>, value: Option.Option<Json>): ServerSource => ({
+	pointer: formatPointer([...tokens, "servers"]),
+	value
 })
 
-const docsOf = (
-	fields: typeof OperationFields.Type
-): Types.Mutable<typeof Operation.Encoded.docs> => {
-	const docs: Types.Mutable<typeof Operation.Encoded.docs> = {}
-	if (fields.description !== undefined) {
-		docs.description = stripUnsafeText(fields.description)
-	}
+const effectiveServersOf = (
+	shared: Shared,
+	raw: RawOperation
+): { readonly diagnostics: readonly Diagnostic[]; readonly servers: readonly Server[] } =>
+	effectiveServers(
+		{
+			operation: serverSource(raw.tokens, raw.fields.servers),
+			pathItem: serverSource(raw.item.tokens, raw.item.servers),
+			root: serverSource([], shared.rootServers)
+		},
+		shared.context
+	)
 
-	if (fields.summary !== undefined) {
-		docs.summary = stripUnsafeText(fields.summary)
-	}
+const docsOf = (fields: OperationFields): Operation["docs"] => ({
+	...Option.match(fields.description, {
+		onNone: () => ({}),
+		onSome: (description) => ({ description: stripUnsafeText(description) })
+	}),
+	...Option.match(fields.summary, {
+		onNone: () => ({}),
+		onSome: (summary) => ({ summary: stripUnsafeText(summary) })
+	})
+})
 
-	return docs
-}
+/**
+ * A row an operation records only when what it stands for is there.
+ */
+const rowWhen = (present: boolean, row: RowId): ReadonlyArray<RowId> => (present ? [row] : [])
 
 const rowsOf = (
 	shared: Shared,
 	raw: RawOperation,
 	merged: Merged,
 	built: { readonly body: Option.Option<Body>; readonly declared: boolean }
-): readonly string[] => {
+): ReadonlyArray<RowId> => {
 	const keptBody = Option.isSome(built.body) && bodylessMethods.has(raw.method)
-	const rows = [
+	const rows: ReadonlyArray<RowId> = [
 		"OPR-01",
 		"OPR-12",
 		raw.additional ? "PTH-23" : (methodRows.get(raw.method) ?? "PTH-23"),
-		...(raw.fields.operationId === undefined ? [] : ["OPR-06"]),
-		...(raw.fields.deprecated === undefined ? [] : ["OPR-14"]),
-		...(raw.fields.parameters === undefined ? [] : ["OPR-08"]),
-		...(Arr.some(merged.entries, (entry) => entry.level === "pathItem") ? ["PTH-26"] : []),
-		...(merged.overridden ? ["PTH-27"] : []),
-		...(Option.isSome(built.body) ? ["OPR-09"] : []),
-		...(keptBody && shared.resolution.line !== "3.0" ? ["OPR-11"] : []),
-		...(built.declared ? ["OPR-15"] : [])
+		...rowWhen(Option.isSome(raw.fields.operationId), "OPR-06"),
+		...rowWhen(Option.isSome(raw.fields.deprecated), "OPR-14"),
+		...rowWhen(Option.isSome(raw.fields.parameters), "OPR-08"),
+		...rowWhen(
+			Arr.some(merged.entries, (entry) => entry.level === "pathItem"),
+			"PTH-26"
+		),
+		...rowWhen(merged.overridden, "PTH-27"),
+		...rowWhen(Option.isSome(built.body), "OPR-09"),
+		...rowWhen(keptBody && shared.resolution.line !== "3.0", "OPR-11"),
+		...rowWhen(built.declared, "OPR-15")
 	]
 
 	return Arr.sort(Arr.dedupe(rows), Order.String)
@@ -654,28 +766,26 @@ const namingKeys = {
 const aliasesKey = "x-forge-aliases"
 
 /**
- * A dotted group, split at `.`; the empty string splits to no segments.
+ * A dotted group, split at `.`.
  */
-const DottedGroup = Schema.String.pipe(
-	Schema.decodeTo(Schema.Array(Schema.String), {
-		decode: SchemaGetter.split({ separator: "." }),
-		encode: SchemaGetter.forbiddenEncoding
-	})
-)
+const dottedGroup: Read.Reader<ReadonlyArray<string>> = (value) =>
+	Result.map(Read.string(value), (text) => Str.split(text, "."))
 
 /**
  * A group is a dotted string, split at `.`, or an array whose elements are kept whole; no segment
  * may be empty. Any other shape is unusable.
  */
 const groupSegments = (value: Json): Option.Option<Arr.NonEmptyReadonlyArray<string>> =>
-	decodeOption(DottedGroup, value).pipe(
-		Option.orElse(() => decodeOption(Schema.Array(Schema.String), value)),
+	Result.getSuccess(Read.union([dottedGroup, Read.array(Read.string)])(value)).pipe(
 		Option.filter(Arr.isReadonlyArrayNonEmpty),
 		Option.filter((segments) => Arr.every(segments, (segment) => segment !== ""))
 	)
 
-const methodName = (value: Json): Option.Option<string> =>
-	decodeOption(Schema.NonEmptyString, value)
+const methodName: Read.Reader<string> = Read.refine(
+	Read.string,
+	isNonEmptyText,
+	"a non-empty string"
+)
 
 const invalid = (pointer: string): NamingNotice => ({ code: "EXT-01/naming-invalid", pointer })
 
@@ -685,9 +795,9 @@ const invalid = (pointer: string): NamingNotice => ({ code: "EXT-01/naming-inval
  */
 const hintOf = (
 	holder: JsonObject,
-	pointer: string,
+	pointer: JsonPointer,
 	source: keyof typeof namingKeys
-): NamingRead<typeof NamingHint.Encoded> => {
+): NamingRead<typeof NamingHint.Type> => {
 	const keys = namingKeys[source]
 	const read = <A>(key: string, parse: (value: Json) => Option.Option<A>): NamingRead<A> =>
 		Option.match(Record.get(holder, key), {
@@ -702,7 +812,7 @@ const hintOf = (
 			}
 		})
 	const group = read(keys.group, groupSegments)
-	const method = read(keys.method, methodName)
+	const method = read(keys.method, (value) => Result.getSuccess(methodName(value)))
 	const notices = [...group.notices, ...method.notices]
 	if (Option.isNone(group.value) && Option.isNone(method.value)) {
 		return { notices, value: Option.none() }
@@ -725,9 +835,9 @@ const hintOf = (
  */
 const aliasOf = (
 	element: Json,
-	pointer: string,
+	pointer: JsonPointer,
 	index: number
-): NamingRead<typeof NamingAlias.Encoded> => {
+): NamingRead<typeof NamingAlias.Type> => {
 	if (!isObject(element)) {
 		return { notices: [invalid(pointer)], value: Option.none() }
 	}
@@ -739,7 +849,7 @@ const aliasOf = (
 		Arr.some(hints, (hint) => hint.group !== undefined) &&
 		Arr.some(hints, (hint) => hint.method !== undefined)
 	const rawId = Record.get(element, "operationId")
-	const operationId = Option.flatMap(rawId, methodName)
+	const operationId = Option.flatMap(rawId, (value) => Result.getSuccess(methodName(value)))
 	const notices = [
 		...forge.notices,
 		...fern.notices,
@@ -767,20 +877,20 @@ const aliasOf = (
 }
 
 /**
- * `x-forge-aliases` must be an array holding at least one usable alias; otherwise it is treated as
- * absent with one notice at the array.
+ * `x-forge-aliases` of the object whose reference tokens are `tokens` must be an array holding at least one usable
+ * alias; otherwise it is treated as absent with one notice at the array.
  */
 const aliasesOf = (
 	holder: JsonObject,
-	pointer: string
-): NamingRead<Arr.NonEmptyReadonlyArray<typeof NamingAlias.Encoded>> =>
+	tokens: ReadonlyArray<string>
+): NamingRead<Arr.NonEmptyReadonlyArray<typeof NamingAlias.Type>> =>
 	Option.match(Record.get(holder, aliasesKey), {
 		onNone: () => ({ notices: [], value: Option.none() }),
 		onSome: (value) => {
-			const arrayPointer = childPointer(pointer, aliasesKey)
+			const arrayPointer = formatPointer([...tokens, aliasesKey])
 			const read = isArray(value)
 				? Arr.map(value, (element, index) =>
-						aliasOf(element, childPointer(arrayPointer, String(index)), index)
+						aliasOf(element, formatPointer([...tokens, aliasesKey, String(index)]), index)
 					)
 				: []
 			const notices = Arr.flatMap(read, (one) => one.notices)
@@ -796,10 +906,10 @@ const aliasesOf = (
  * The naming extensions of an Operation Object (design 4.4, D-NAME4). Only the five naming keys
  * are read; every extension stays recorded as EXT-01 by `collectInformational`.
  */
-const namingOf = (raw: RawOperation): NamingRead<typeof Naming.Encoded> => {
+const namingOf = (raw: RawOperation): NamingRead<typeof Naming.Type> => {
 	const forge = hintOf(raw.node, raw.pointer, "forge")
 	const fern = hintOf(raw.node, raw.pointer, "fern")
-	const aliases = aliasesOf(raw.node, raw.pointer)
+	const aliases = aliasesOf(raw.node, raw.tokens)
 	const notices = [...forge.notices, ...fern.notices, ...aliases.notices]
 	if (Option.isNone(aliases.value) && Option.isNone(fern.value) && Option.isNone(forge.value)) {
 		return { notices, value: Option.none() }
@@ -834,8 +944,8 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 ): Effect.fn.Return<Assembly, OperationsError> {
 	const { resolution } = shared
 	const merged = mergeEntries(
-		entriesOf(resolution, raw.itemPointer, raw.itemFields.parameters ?? [], "pathItem"),
-		entriesOf(resolution, raw.pointer, raw.fields.parameters ?? [], "operation")
+		entriesOf(resolution, raw.item.pointer, raw.item.parameters, "pathItem"),
+		entriesOf(resolution, raw.pointer, raw.fields.parameters, "operation")
 	)
 	const parameters = yield* assembleParameters(shared, raw, merged)
 	const body = yield* assembleBody(shared, raw)
@@ -844,12 +954,8 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		childPointer(raw.pointer, "responses"),
 		operationInfo(raw)
 	)
-	const policy = yield* normalizeSecurityPolicy(
-		resolution,
-		shared.schemes,
-		Option.some(raw.pointer)
-	)
-	const servers = yield* effectiveServersOf(shared, raw)
+	const policy = yield* normalizeSecurityPolicy(resolution, shared.schemes, Option.some(raw.tokens))
+	const servers = effectiveServersOf(shared, raw)
 	const site = { operation: operationInfo(raw), pointer: raw.pointer }
 	const naming = namingOf(raw)
 	const namingNotices = yield* Effect.forEach(naming.notices, (found) =>
@@ -897,13 +1003,10 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		return { diagnostics: withoutAuthorChoiceNotices(diagnostics), operation: Option.none() }
 	}
 
-	const operationId = Option.filter(
-		Option.fromUndefinedOr(raw.fields.operationId),
-		(id) => id !== ""
-	)
+	const operationId = Option.filter(raw.fields.operationId, isNonEmptyText)
 	const operation = yield* Schema.decodeEffect(Operation)({
 		...(Option.isSome(body.body) ? { body: body.body.value } : {}),
-		deprecated: raw.fields.deprecated ?? false,
+		deprecated: Option.getOrElse(raw.fields.deprecated, () => false),
 		docs: docsOf(raw.fields),
 		key: { method: raw.method, path: raw.path },
 		...(Option.isSome(naming.value) ? { naming: naming.value.value } : {}),
@@ -914,7 +1017,10 @@ const assembleOne = Effect.fnUntraced(function* assembleOne(
 		rows: rowsOf(shared, raw, merged, { body: body.body, declared: policy.policy.declared }),
 		security: policy.policy,
 		servers: servers.servers,
-		tags: Arr.map(raw.fields.tags ?? [], stripUnsafeText)
+		tags: Option.match(raw.fields.tags, {
+			onNone: () => [],
+			onSome: (tags) => Arr.map(tags, stripUnsafeText)
+		})
 	}).pipe(Effect.orDie)
 
 	return { diagnostics, operation: Option.some(operation) }
@@ -972,14 +1078,16 @@ export const assembleOperations = Effect.fnUntraced(function* assembleOperations
 	context: ServersContext,
 	checkFindings: readonly Diagnostic[]
 ): Effect.fn.Return<OperationAssembly, OperationsError> {
+	const root = rootOf(resolution.value)
 	const shared: Shared = {
 		cache: new Map(),
 		checkFindings,
 		context,
 		resolution,
+		rootServers: Option.flatMap(root, (read) => read.servers),
 		schemes
 	}
-	const assembled = yield* Effect.forEach(rawOperations(resolution), (raw) =>
+	const assembled = yield* Effect.forEach(rawOperations(resolution, root), (raw) =>
 		assembleOne(shared, raw)
 	)
 

@@ -232,6 +232,12 @@ export type DocumentUri = string & Brand.Brand<"DocumentUri">
 /** Whether a text is a DocumentUri. */
 export const isDocumentUri = (text: string): text is DocumentUri => uriPattern.test(text)
 
+/** A text with at least one character, where the specification requires one. */
+export type NonEmptyText = string & Brand.Brand<"NonEmptyText">
+
+/** Whether a text is NonEmptyText. */
+export const isNonEmptyText = (text: string): text is NonEmptyText => !Str.isEmpty(text)
+
 /** Whether a text is a Components Object key: it matches the component-name pattern. */
 export const isComponentName = (text: string): boolean => componentNamePattern.test(text)
 

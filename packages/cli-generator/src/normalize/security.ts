@@ -10,18 +10,21 @@ import {
 	UndefinedOr
 } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { CookieName, HeaderName, stripUnsafeText } from "#model/brands.ts"
-import type { DocumentUri } from "#model/brands.ts"
+import { isCookieName, isHeaderName, isWireName, stripUnsafeText } from "#model/brands.ts"
+import type { DocumentUri, SafeText } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { SecurityPolicy, SecurityScheme } from "#model/entities.ts"
-import { childPointer, formatPointer, parsePointerResult } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
+import type { RowId } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
+import { childPointer, formatPointer, parsePointerResult, rootPointer } from "#model/pointer.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { follow, nodeOption } from "#normalize/document-set.ts"
 import type { Resolution } from "#resolve/index.ts"
 import { implicitComponent } from "#resolve/index.ts"
+import * as Read from "#runtime/read.ts"
 
 /**
  * The declared schemes of a document. `unusable` names schemes that were declared but refused, so
@@ -42,7 +45,7 @@ export interface SchemeNormalization {
 	readonly supplied:
 		| {
 				readonly document: DocumentUri
-				readonly requirement: readonly Readonly<Record<string, readonly string[]>>[]
+				readonly requirement: readonly Requirement[]
 		  }
 		| undefined
 	readonly unusable: readonly string[]
@@ -87,68 +90,112 @@ interface Built {
 	readonly scheme?: SecurityScheme
 }
 
-const SchemeNode = Schema.Struct({
-	deprecated: Schema.optionalKey(Schema.Boolean),
-	flows: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
-	in: Schema.optionalKey(Schema.String),
-	name: Schema.optionalKey(Schema.String),
-	oauth2MetadataUrl: Schema.optionalKey(Schema.String),
-	openIdConnectUrl: Schema.optionalKey(Schema.String),
-	scheme: Schema.optionalKey(Schema.String),
-	type: Schema.String
+/**
+ * The members of a Security Scheme Object that normalize reads.
+ */
+interface SchemeFields {
+	readonly deprecated: Option.Option<boolean>
+	readonly flows: Option.Option<Read.Members>
+	readonly in: Option.Option<string>
+	readonly name: Option.Option<string>
+	readonly oauth2MetadataUrl: Option.Option<string>
+	readonly openIdConnectUrl: Option.Option<string>
+	readonly scheme: Option.Option<string>
+	readonly type: string
+}
+
+/**
+ * A Security Scheme Object's members: refused when the node is no object, has no string `type` or holds a member of
+ * another type than its own.
+ */
+const schemeFields: Read.Reader<SchemeFields> = Read.object(
+	(node) => ({
+		deprecated: Read.optionalMember(node, "deprecated", Read.boolean),
+		flows: Read.optionalMember(node, "flows", Read.members),
+		in: Read.optionalMember(node, "in", Read.string),
+		name: Read.optionalMember(node, "name", Read.string),
+		oauth2MetadataUrl: Read.optionalMember(node, "oauth2MetadataUrl", Read.string),
+		openIdConnectUrl: Read.optionalMember(node, "openIdConnectUrl", Read.string),
+		scheme: Read.optionalMember(node, "scheme", Read.string),
+		type: Read.member(node, "type", Read.string)
+	}),
+	Read.anything
+)
+
+/**
+ * An author-supplied scheme, which the author config has read already, as the members normalize reads. The config
+ * admits no discovery URL, so it has none.
+ */
+const addedFields = (
+	added: NonNullable<NonNullable<AuthorConfig["security"]>["add"]>["schemes"][string]
+): SchemeFields => ({
+	deprecated: Option.fromUndefinedOr(added.deprecated),
+	flows: Option.fromUndefinedOr(added.flows),
+	in: Option.fromUndefinedOr(added.in),
+	name: Option.fromUndefinedOr(added.name),
+	oauth2MetadataUrl: Option.none(),
+	openIdConnectUrl: Option.none(),
+	scheme: Option.fromUndefinedOr(added.scheme),
+	type: added.type
 })
 
-const FlowNode = Schema.Struct({
-	authorizationUrl: Schema.optionalKey(Schema.String),
-	deviceAuthorizationUrl: Schema.optionalKey(Schema.String),
-	refreshUrl: Schema.optionalKey(Schema.String),
-	scopes: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
-	tokenUrl: Schema.optionalKey(Schema.String)
-})
+/**
+ * The members of an OAuth Flow Object that normalize reads.
+ */
+interface FlowFields {
+	readonly authorizationUrl: Option.Option<string>
+	readonly deviceAuthorizationUrl: Option.Option<string>
+	readonly refreshUrl: Option.Option<string>
+	readonly scopes: Option.Option<Readonly<Record<string, string>>>
+	readonly tokenUrl: Option.Option<string>
+}
 
-type SchemeFields = typeof SchemeNode.Type
+/**
+ * An OAuth Flow Object's members: refused when the node is no object or holds a member of another type than its own.
+ */
+const flowFields: Read.Reader<FlowFields> = Read.object(
+	(node) => ({
+		authorizationUrl: Read.optionalMember(node, "authorizationUrl", Read.string),
+		deviceAuthorizationUrl: Read.optionalMember(node, "deviceAuthorizationUrl", Read.string),
+		refreshUrl: Read.optionalMember(node, "refreshUrl", Read.string),
+		scopes: Read.optionalMember(node, "scopes", Read.record(Read.string, Read.string)),
+		tokenUrl: Read.optionalMember(node, "tokenUrl", Read.string)
+	}),
+	Read.anything
+)
 
-const JsonMap = Schema.Record(Schema.String, Schema.Json)
+/**
+ * A Security Requirement Object: each scheme name with its scopes.
+ */
+type Requirement = Readonly<Record<string, ReadonlyArray<string>>>
 
-const Requirement = Schema.Record(Schema.String, Schema.Array(Schema.String))
+const requirementObject: Read.Reader<Requirement> = Read.record(
+	Read.string,
+	Read.array(Read.string)
+)
 
-const AlternativeList = Schema.Array(Schema.Json)
+/**
+ * The OAuth flows normalize knows, each with the inventory row and specification anchor of its token acquisition and
+ * whether that acquisition is refused for good.
+ */
+const flowRules = {
+	authorizationCode: { anchor: "oauth-flows-authorization-code", permanent: false, row: "OAF-05" },
+	clientCredentials: { anchor: "oauth-flows-client-credentials", permanent: false, row: "OAF-04" },
+	deviceAuthorization: {
+		anchor: "oauth-flows-device-authorization",
+		permanent: false,
+		row: "OAF-06"
+	},
+	implicit: { anchor: "oauth-flows-implicit", permanent: true, row: "OAF-02" },
+	password: { anchor: "oauth-flows-password", permanent: true, row: "OAF-03" }
+} as const
 
-const decodeSchemeNode = Schema.decodeUnknownOption(SchemeNode)
+type FlowKind = keyof typeof flowRules
 
-const decodeFlowNode = Schema.decodeUnknownOption(FlowNode)
-
-const decodeJsonMap = Schema.decodeUnknownOption(JsonMap)
-
-const decodeRequirement = Schema.decodeUnknownOption(Requirement)
-
-const decodeAlternativeList = Schema.decodeUnknownOption(AlternativeList)
-
-const decodeCookieName = Schema.decodeUnknownOption(CookieName)
-
-const decodeHeaderName = Schema.decodeUnknownOption(HeaderName)
-
-const decodeSecurityScheme = Schema.decodeUnknownOption(SecurityScheme)
-
-const flowRules: ReadonlyMap<
-	string,
-	{ readonly anchor: string; readonly permanent: boolean; readonly row: string }
-> = new Map([
-	[
-		"authorizationCode",
-		{ anchor: "oauth-flows-authorization-code", permanent: false, row: "OAF-05" }
-	],
-	[
-		"clientCredentials",
-		{ anchor: "oauth-flows-client-credentials", permanent: false, row: "OAF-04" }
-	],
-	[
-		"deviceAuthorization",
-		{ anchor: "oauth-flows-device-authorization", permanent: false, row: "OAF-06" }
-	],
-	["implicit", { anchor: "oauth-flows-implicit", permanent: true, row: "OAF-02" }],
-	["password", { anchor: "oauth-flows-password", permanent: true, row: "OAF-03" }]
-])
+/**
+ * Whether a flow name is one normalize knows.
+ */
+const isFlowKind = (name: string): name is FlowKind => Record.has<string, unknown>(flowRules, name)
 
 const acquisitionHint = (permanent: boolean): string =>
 	permanent
@@ -207,134 +254,232 @@ const acquisitionFindings = (fields: SchemeFields, pointer: string): readonly Fi
 		]
 	}
 
-	return Arr.flatMap(Record.keys(fields.flows ?? {}), (flow): readonly Finding[] => {
-		const rule = fields.type === "oauth2" ? flowRules.get(flow) : undefined
+	if (fields.type !== "oauth2") {
+		return []
+	}
 
-		return rule === undefined
-			? []
-			: [
-					{
-						anchor: rule.anchor,
-						code: `${rule.row}/token-acquisition`,
-						element: "OAuth Flow Object",
-						hint: acquisitionHint(rule.permanent),
-						message: "Token acquisition through this OAuth flow is refused.",
-						pointer: childPointer(childPointer(pointer, "flows"), flow)
-					}
-				]
+	return Option.match(fields.flows, {
+		onNone: () => [],
+		onSome: (flows) =>
+			Arr.map(Arr.filter(Record.keys(flows), isFlowKind), (flow): Finding => {
+				const rule = flowRules[flow]
+
+				return {
+					anchor: rule.anchor,
+					code: `${rule.row}/token-acquisition`,
+					element: "OAuth Flow Object",
+					hint: acquisitionHint(rule.permanent),
+					message: "Token acquisition through this OAuth flow is refused.",
+					pointer: childPointer(childPointer(pointer, "flows"), flow)
+				}
+			})
 	})
 }
 
-const apiKeyRows: ReadonlyMap<string, string> = new Map([
-	["cookie", "SSC-14"],
-	["header", "SSC-12"],
-	["query", "SSC-13"]
-])
+type SchemeKind = SecurityScheme["kind"]
+
+type OAuthFlows = Extract<SchemeKind, { readonly type: "oauth2Token" }>["flows"]
+
+type OAuthFlow = NonNullable<OAuthFlows[FlowKind]>
 
 /**
- * One flow's help-only data, sanitized; a URL is present only when the spec gives it (design 9 I3).
- * `deviceAuthorizationUrl` belongs to the 3.2 `deviceAuthorization` flow and is read only there.
+ * A help-only URL of a flow under its member name, sanitized, when the spec gives it (design 9 I3); nothing when it
+ * does not.
  */
-interface FlowHelp {
-	authorizationUrl?: string
-	deviceAuthorizationUrl?: string
-	refreshUrl?: string
-	readonly scopes: readonly { readonly description: string; readonly name: string }[]
-	tokenUrl?: string
-}
+const helpUrl = <
+	K extends "authorizationUrl" | "deviceAuthorizationUrl" | "refreshUrl" | "tokenUrl"
+>(
+	key: K,
+	url: Option.Option<string>
+): { readonly [P in K]?: SafeText } =>
+	Option.match(url, {
+		onNone: () => ({}),
+		onSome: (text) => Record.singleton(key, stripUnsafeText(text))
+	})
 
-const flowHelp = (kind: string, flow: typeof FlowNode.Type): FlowHelp => {
-	const help: FlowHelp = {
-		scopes: Arr.map(Record.toEntries(flow.scopes ?? {}), ([name, description]) => ({
-			description: stripUnsafeText(description),
-			name: stripUnsafeText(name)
-		}))
-	}
-	if (flow.authorizationUrl !== undefined) {
-		help.authorizationUrl = stripUnsafeText(flow.authorizationUrl)
-	}
+/**
+ * One flow's help-only data, sanitized. `deviceAuthorizationUrl` belongs to the 3.2 `deviceAuthorization` flow and is
+ * read only there.
+ */
+const flowHelp = (kind: FlowKind, flow: FlowFields): OAuthFlow => ({
+	...helpUrl("authorizationUrl", flow.authorizationUrl),
+	...helpUrl(
+		"deviceAuthorizationUrl",
+		Option.filter(flow.deviceAuthorizationUrl, () => kind === "deviceAuthorization")
+	),
+	...helpUrl("refreshUrl", flow.refreshUrl),
+	scopes: Option.match(flow.scopes, {
+		onNone: () => [],
+		onSome: (scopes) =>
+			Arr.map(Record.toEntries(scopes), ([name, description]) => ({
+				description: stripUnsafeText(description),
+				name: stripUnsafeText(name)
+			}))
+	}),
+	...helpUrl("tokenUrl", flow.tokenUrl)
+})
 
-	if (kind === "deviceAuthorization" && flow.deviceAuthorizationUrl !== undefined) {
-		help.deviceAuthorizationUrl = stripUnsafeText(flow.deviceAuthorizationUrl)
-	}
+/**
+ * The help-only flows of an `oauth2` node by flow kind, in the order of `flowRules`, or none when a known flow is
+ * malformed. Unknown flow names carry nothing a help line needs and are skipped.
+ */
+const flowsOf = (flows: Read.Members): Option.Option<OAuthFlows> =>
+	Option.map(
+		Option.all(
+			Arr.flatMap(Record.keys(flowRules), (kind) =>
+				Option.toArray(
+					Option.map(Record.get(flows, kind), (json) =>
+						Option.map(
+							Result.getSuccess(flowFields(json)),
+							(flow) => [kind, flowHelp(kind, flow)] as const
+						)
+					)
+				)
+			)
+		),
+		(known) => Record.fromEntries(known)
+	)
 
-	if (flow.refreshUrl !== undefined) {
-		help.refreshUrl = stripUnsafeText(flow.refreshUrl)
-	}
-
-	if (flow.tokenUrl !== undefined) {
-		help.tokenUrl = stripUnsafeText(flow.tokenUrl)
-	}
-
-	return help
+/**
+ * A scheme node modelled: its kind and the inventory row of that kind.
+ */
+interface Modelled {
+	readonly kind: SchemeKind
+	readonly row: RowId
 }
 
 /**
- * The help-only flows of an `oauth2` node by flow kind, or none when a known flow is malformed.
- * Unknown flow names carry nothing a help line needs and are skipped.
+ * What a scheme node models as: its kind, or the findings that refuse it.
  */
-const flowsOf = (fields: SchemeFields): Option.Option<Readonly<Record<string, FlowHelp>>> => {
-	const flows: Record<string, FlowHelp> = {}
-	for (const [kind, json] of Record.toEntries(fields.flows ?? {})) {
-		if (!flowRules.has(kind)) {
-			continue
-		}
-
-		const flow = decodeFlowNode(json)
-		if (Option.isNone(flow)) {
-			return Option.none()
-		}
-
-		flows[kind] = flowHelp(kind, flow.value)
-	}
-
-	return Option.some(flows)
-}
+type Modelling = Result.Result<Modelled, readonly Finding[]>
 
 /**
- * The modelled kind and inventory row of a scheme node, or undefined when the type is unknown or
- * an `oauth2` flow is malformed. `oauth2MetadataUrl` is a 3.2 field and is recorded only on 3.2.
+ * The refusal of a scheme node that is not a scheme normalize can model.
  */
-const kindOf = (
-	fields: SchemeFields,
-	line: SpecLine
-): { readonly kind: unknown; readonly row: string } | undefined => {
+const malformed = (pointer: string): Modelling => Result.fail(invalidScheme(pointer).findings)
+
+/**
+ * The `apiKey` locations normalize sends, each modelling a scheme's name there: a cookie or header name must be a
+ * token, refused with its own finding when it is not, and a query name a wire name.
+ */
+const apiKeyLocations = {
+	cookie: (name: string, pointer: string): Modelling =>
+		isCookieName(name)
+			? Result.succeed({ kind: { in: "cookie", name, type: "apiKey" }, row: "SSC-14" })
+			: Result.fail([
+					{
+						anchor: "security-scheme-name",
+						code: "SSC-14/invalid-cookie-name",
+						element: "Security Scheme Object",
+						hint: 'A cookie name must be an RFC 6265 token: no space, control, or any of ()<>@,;:\\"/[]?={}.',
+						message: "The cookie apiKey name is not a valid cookie name.",
+						pointer
+					}
+				]),
+	header: (name: string, pointer: string): Modelling =>
+		isHeaderName(name)
+			? Result.succeed({ kind: { in: "header", name, type: "apiKey" }, row: "SSC-12" })
+			: Result.fail([
+					{
+						anchor: "security-scheme-name",
+						code: "SSC-12/invalid-header-name",
+						element: "Security Scheme Object",
+						hint: 'A header name must be an RFC 9110 token: no space, control, non-ASCII, or any of ()<>@,;:\\"/[]?={}.',
+						message: "The header apiKey name is not a valid header name.",
+						pointer
+					}
+				]),
+	query: (name: string, pointer: string): Modelling =>
+		isWireName(name)
+			? Result.succeed({ kind: { in: "query", name, type: "apiKey" }, row: "SSC-13" })
+			: malformed(pointer)
+} as const
+
+type ApiKeyLocation = keyof typeof apiKeyLocations
+
+const isApiKeyLocation = (location: string): location is ApiKeyLocation =>
+	Record.has<string, unknown>(apiKeyLocations, location)
+
+/**
+ * The `http` schemes normalize sends, case-insensitively, each with its inventory row.
+ */
+const httpRows = { basic: "SSC-15", bearer: "SSC-16" } as const
+
+type HttpScheme = keyof typeof httpRows
+
+const isHttpScheme = (scheme: string): scheme is HttpScheme =>
+	Record.has<string, unknown>(httpRows, scheme)
+
+/**
+ * An `http` scheme: basic or bearer; any other is refused as unsupported.
+ */
+const httpOf = (fields: SchemeFields, pointer: string): Modelling =>
+	Option.match(Option.filter(Option.map(fields.scheme, Str.toLowerCase), isHttpScheme), {
+		onNone: () =>
+			Result.fail([
+				{
+					anchor: "security-scheme-scheme",
+					code: "SSC-17/unsupported-scheme",
+					element: "Security Scheme Object",
+					hint: "Only the basic and bearer http schemes are supported.",
+					message: "The http authentication scheme is not supported.",
+					pointer
+				}
+			]),
+		onSome: (scheme) => Result.succeed({ kind: { scheme, type: "http" }, row: httpRows[scheme] })
+	})
+
+/**
+ * The modelled kind and inventory row of a scheme node, or the findings that refuse it: malformed when the type is
+ * unknown, an `apiKey` has no name or another location, an `oauth2` flow is malformed or an `openIdConnect` scheme has
+ * no discovery URL. `oauth2MetadataUrl` is a 3.2 field and is recorded only on 3.2.
+ */
+const kindOf = (fields: SchemeFields, line: SpecLine, pointer: string): Modelling => {
 	if (fields.type === "apiKey") {
-		return {
-			kind: { in: fields.in, name: fields.name, type: "apiKey" },
-			row: apiKeyRows.get(fields.in ?? "") ?? "SSC-05"
-		}
+		return Option.match(
+			Option.all({ location: Option.filter(fields.in, isApiKeyLocation), name: fields.name }),
+			{
+				onNone: () => malformed(pointer),
+				onSome: ({ location, name }) => apiKeyLocations[location](name, pointer)
+			}
+		)
 	}
 
 	if (fields.type === "http") {
-		const scheme = pipe(fields.scheme, UndefinedOr.map(Str.toLowerCase))
-
-		return { kind: { scheme, type: "http" }, row: scheme === "basic" ? "SSC-15" : "SSC-16" }
+		return httpOf(fields, pointer)
 	}
 
 	if (fields.type === "mutualTLS") {
-		return { kind: { type: "mutualTls" }, row: "SSC-20" }
+		return Result.succeed({ kind: { type: "mutualTls" }, row: "SSC-20" })
 	}
 
 	if (fields.type === "oauth2") {
-		const flows = flowsOf(fields)
+		const metadata = Option.match(
+			Option.filter(fields.oauth2MetadataUrl, () => line === "3.2"),
+			{
+				onNone: () => ({}),
+				onSome: (url) => ({ oauth2MetadataUrl: stripUnsafeText(url) })
+			}
+		)
 
-		const metadata =
-			line === "3.2" && fields.oauth2MetadataUrl !== undefined
-				? { oauth2MetadataUrl: stripUnsafeText(fields.oauth2MetadataUrl) }
-				: {}
-
-		return Option.isNone(flows)
-			? undefined
-			: { kind: { flows: flows.value, ...metadata, type: "oauth2Token" }, row: "SSC-18" }
+		return Option.match(flowsOf(Option.getOrElse(fields.flows, Record.empty)), {
+			onNone: () => malformed(pointer),
+			onSome: (flows) =>
+				Result.succeed({ kind: { flows, ...metadata, type: "oauth2Token" }, row: "SSC-18" })
+		})
 	}
 
-	return fields.type === "openIdConnect" && fields.openIdConnectUrl !== undefined
-		? {
-				kind: { openIdConnectUrl: stripUnsafeText(fields.openIdConnectUrl), type: "oidcToken" },
-				row: "SSC-19"
-			}
-		: undefined
+	return Option.match(
+		Option.filter(fields.openIdConnectUrl, () => fields.type === "openIdConnect"),
+		{
+			onNone: () => malformed(pointer),
+			onSome: (url) =>
+				Result.succeed({
+					kind: { openIdConnectUrl: stripUnsafeText(url), type: "oidcToken" },
+					row: "SSC-19"
+				})
+		}
+	)
 }
 
 /**
@@ -345,97 +490,44 @@ const kindOf = (
 interface Site {
 	readonly document: DocumentUri
 	readonly line: SpecLine
-	readonly pointer: string
+	readonly pointer: JsonPointer
 	readonly source: SecurityScheme["source"]
 }
 
-const modelFields = (name: string, site: Site, fields: Option.Option<SchemeFields>): Built => {
+/**
+ * A scheme modelled from its node's members; a scheme with an empty name is malformed.
+ */
+const modelFields = (name: string, site: Site, node: SchemeFields): Built => {
 	const { pointer } = site
-	if (Option.isNone(fields)) {
-		return invalidScheme(pointer)
-	}
 
-	const node = fields.value
-	const scheme = pipe(node.scheme, UndefinedOr.map(Str.toLowerCase))
-	if (node.type === "http" && scheme !== "basic" && scheme !== "bearer") {
-		return {
-			findings: [
-				{
-					anchor: "security-scheme-scheme",
-					code: "SSC-17/unsupported-scheme",
-					element: "Security Scheme Object",
-					hint: "Only the basic and bearer http schemes are supported.",
-					message: "The http authentication scheme is not supported.",
-					pointer
-				}
-			]
-		}
-	}
-
-	if (
-		node.type === "apiKey" &&
-		node.in === "cookie" &&
-		node.name !== undefined &&
-		Option.isNone(decodeCookieName(node.name))
-	) {
-		return {
-			findings: [
-				{
-					anchor: "security-scheme-name",
-					code: "SSC-14/invalid-cookie-name",
-					element: "Security Scheme Object",
-					hint: 'A cookie name must be an RFC 6265 token: no space, control, or any of ()<>@,;:\\"/[]?={}.',
-					message: "The cookie apiKey name is not a valid cookie name.",
-					pointer
-				}
-			]
-		}
-	}
-
-	if (
-		node.type === "apiKey" &&
-		node.in === "header" &&
-		node.name !== undefined &&
-		Option.isNone(decodeHeaderName(node.name))
-	) {
-		return {
-			findings: [
-				{
-					anchor: "security-scheme-name",
-					code: "SSC-12/invalid-header-name",
-					element: "Security Scheme Object",
-					hint: 'A header name must be an RFC 9110 token: no space, control, non-ASCII, or any of ()<>@,;:\\"/[]?={}.',
-					message: "The header apiKey name is not a valid header name.",
-					pointer
-				}
-			]
-		}
-	}
-
-	const modelled = kindOf(node, site.line)
-	const decoded =
-		modelled === undefined
-			? Option.none<SecurityScheme>()
-			: decodeSecurityScheme({
-					credentialSources: node.type === "mutualTLS" ? ["env"] : ["file", "env", "prompt"],
-					deprecated: node.deprecated ?? false,
-					kind: modelled.kind,
-					name,
-					origin: { document: site.document, pointer },
-					rows: ["SSC-01", modelled.row],
-					source: site.source
-				})
-
-	return Option.isNone(decoded)
-		? invalidScheme(pointer)
-		: { findings: acquisitionFindings(node, pointer), scheme: decoded.value }
+	return Result.match(kindOf(node, site.line, pointer), {
+		onFailure: (findings): Built => ({ findings }),
+		onSuccess: (modelled) =>
+			Str.isEmpty(name)
+				? invalidScheme(pointer)
+				: Option.match(
+						Schema.decodeOption(SecurityScheme)({
+							credentialSources: node.type === "mutualTLS" ? ["env"] : ["file", "env", "prompt"],
+							deprecated: Option.getOrElse(node.deprecated, () => false),
+							kind: modelled.kind,
+							name,
+							origin: { document: site.document, pointer },
+							rows: ["SSC-01", modelled.row],
+							source: site.source
+						}),
+						{
+							onNone: () => invalidScheme(pointer),
+							onSome: (scheme) => ({ findings: acquisitionFindings(node, pointer), scheme })
+						}
+					)
+	})
 }
 
 /**
  * Models one scheme node. An author-supplied scheme is judged by the same rules as a declared one;
  * only the document its findings and origin name differs.
  */
-const modelScheme = (name: string, site: Site, fields: Option.Option<SchemeFields>): Built => {
+const modelScheme = (name: string, site: Site, fields: SchemeFields): Built => {
 	const built = modelFields(name, site, fields)
 
 	return site.source === "spec"
@@ -446,14 +538,21 @@ const modelScheme = (name: string, site: Site, fields: Option.Option<SchemeField
 			}
 }
 
-const buildScheme = (resolution: Resolution, name: string, pointer: string): Built => {
+const buildScheme = (resolution: Resolution, name: string, pointer: JsonPointer): Built => {
 	const target = follow(resolution, { document: resolution.document, pointer })
-
-	return modelScheme(
-		name,
-		{ document: resolution.document, line: resolution.line, pointer, source: "spec" },
-		nodeOption(resolution, target).pipe(Option.flatMap((json) => decodeSchemeNode(json)))
+	const read = Option.flatMap(nodeOption(resolution, target), (json) =>
+		Result.getSuccess(schemeFields(json))
 	)
+
+	return Option.match(read, {
+		onNone: () => invalidScheme(pointer),
+		onSome: (fields) =>
+			modelScheme(
+				name,
+				{ document: resolution.document, line: resolution.line, pointer, source: "spec" },
+				fields
+			)
+	})
 }
 
 /**
@@ -465,7 +564,7 @@ export interface AuthorSecurity {
 	readonly configDocument: DocumentUri
 }
 
-const addRequirementPointer = "/security/add/requirement"
+const addRequirementPointer = formatPointer(["security", "add", "requirement"])
 
 const collision = (author: AuthorSecurity, name: string): Finding => ({
 	anchor: "security-scheme-object",
@@ -508,7 +607,7 @@ const addedSchemes = (
 						pointer: formatPointer(["security", "add", "schemes", name]),
 						source: "author-supplied"
 					},
-					decodeSchemeNode(node)
+					addedFields(node)
 				)
 	})
 
@@ -541,7 +640,7 @@ export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSec
 ): Effect.fn.Return<SchemeNormalization> {
 	const schemes = { document: resolution.document, pointer: "/components/securitySchemes" }
 	const names = nodeOption(resolution, schemes).pipe(
-		Option.flatMap((json) => decodeJsonMap(json)),
+		Option.filter(isObject),
 		Option.match({ onNone: (): string[] => [], onSome: (map) => Record.keys(map) })
 	)
 	const refused = new Set<string>(
@@ -649,33 +748,40 @@ const uriComponentName = (resolution: Resolution, name: string): string | undefi
 }
 
 interface Source {
-	readonly pointer: string
-	readonly rows: readonly string[]
+	readonly pointer: JsonPointer
+	readonly rows: ReadonlyArray<RowId>
 }
 
 /**
- * Operation `security` replaces the root list; with neither the policy is undeclared (design 6.5).
+ * Operation `security` replaces the root list; with neither the policy is undeclared (design 6.5). `operation` holds
+ * the reference tokens of the operation object. Each listed alternative is its Security Requirement Object, or none
+ * when it is malformed.
  */
 const effectiveList = (
 	resolution: Resolution,
-	operation: Option.Option<string>
-): { readonly list: readonly Json[]; readonly source: Source } | undefined => {
+	operation: Option.Option<ReadonlyArray<string>>
+):
+	| { readonly list: readonly Option.Option<Requirement>[]; readonly source: Source }
+	| undefined => {
 	const candidates: readonly Source[] = [
 		...Option.toArray(
-			Option.map(operation, (pointer): Source => ({
-				pointer: childPointer(pointer, "security"),
+			Option.map(operation, (tokens): Source => ({
+				pointer: formatPointer([...tokens, "security"]),
 				rows: ["SEC-01", "SEC-04"]
 			}))
 		),
-		{ pointer: "/security", rows: ["SEC-01", "SEC-03"] }
+		{ pointer: formatPointer(["security"]), rows: ["SEC-01", "SEC-03"] }
 	]
 	for (const source of candidates) {
 		const list = nodeOption(resolution, {
 			document: resolution.document,
 			pointer: source.pointer
-		}).pipe(Option.flatMap((json) => decodeAlternativeList(json)))
+		}).pipe(Option.filter(isArray))
 		if (Option.isSome(list)) {
-			return { list: list.value, source }
+			return {
+				list: Arr.map(list.value, (json) => Result.getSuccess(requirementObject(json))),
+				source
+			}
 		}
 	}
 
@@ -821,7 +927,7 @@ const judge = (
 
 /**
  * Normalizes the effective security policy of an operation, or of the root when `operation` is
- * omitted (design 6.5). `operation` is the pointer of the operation object. An alternative that
+ * omitted (design 6.5). `operation` holds the reference tokens of the operation object. An alternative that
  * names an undeclared or refused scheme, or two schemes that each set the `Authorization` header
  * (`SEC-01/conflicting-authorization`), is removed whole with element-scope refusals and never
  * dropped silently. A `mutualTLS` scheme is usable like any other (design 6.5, D-SEC3). A spec name
@@ -831,7 +937,7 @@ const judge = (
 export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecurityPolicy(
 	resolution: Resolution,
 	schemes: SchemeNormalization,
-	operation: Option.Option<string>
+	operation: Option.Option<ReadonlyArray<string>>
 ): Effect.fn.Return<PolicyNormalization> {
 	const spec = effectiveList(resolution, operation)
 	const lookup = lookupOf(schemes)
@@ -842,7 +948,7 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 		spec === undefined && schemes.supplied !== undefined
 			? {
 					document: schemes.supplied.document,
-					list: schemes.supplied.requirement,
+					list: Arr.map(schemes.supplied.requirement, (requirement) => Option.some(requirement)),
 					source: { pointer: addRequirementPointer, rows: ["CFG-1", "SEC-01", "SEC-08"] }
 				}
 			: undefined
@@ -853,28 +959,30 @@ export const normalizeSecurityPolicy = Effect.fnUntraced(function* normalizeSecu
 			UndefinedOr.map((declared) => ({ ...declared, document: resolution.document }))
 		)
 	const source = effective?.source ?? {
-		pointer: Option.getOrElse(operation, () => ""),
+		pointer: Option.match(operation, {
+			onNone: () => rootPointer,
+			onSome: (tokens) => formatPointer(tokens)
+		}),
 		rows: ["SEC-08"]
 	}
-	const judged = Arr.map(effective?.list ?? [], (json, index) => {
+	const judged = Arr.map(effective?.list ?? [], (requirement, index) => {
 		const pointer = childPointer(source.pointer, String(index))
-		const entries = decodeRequirement(json).pipe(
-			Option.map((requirement) => Record.toEntries(requirement))
-		)
 
-		return Option.isNone(entries)
-			? {
-					findings: [
-						{
-							anchor: "security-requirement-object",
-							code: "SEC-01/invalid-requirement",
-							element: "Security Requirement Object",
-							message: "The security requirement is malformed.",
-							pointer
-						}
-					]
-				}
-			: judge(resolution, schemes, lookup, entries.value, pointer, supplied !== undefined)
+		return Option.match(requirement, {
+			onNone: (): Judged => ({
+				findings: [
+					{
+						anchor: "security-requirement-object",
+						code: "SEC-01/invalid-requirement",
+						element: "Security Requirement Object",
+						message: "The security requirement is malformed.",
+						pointer
+					}
+				]
+			}),
+			onSome: (read) =>
+				judge(resolution, schemes, lookup, Record.toEntries(read), pointer, supplied !== undefined)
+		})
 	})
 	const diagnostics = yield* Effect.forEach(
 		Arr.flatMap(judged, (one) => one.findings),

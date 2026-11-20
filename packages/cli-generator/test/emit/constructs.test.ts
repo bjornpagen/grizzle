@@ -176,8 +176,8 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/operations.ts",
-			original: "itemFields.additionalOperations ?? {}",
-			replacement: "itemFields.additionalOperations",
+			original: "Option.getOrElse(item.additionalOperations, Record.empty)",
+			replacement: "Option.getOrUndefined(item.additionalOperations)",
 			why: "A path item without additionalOperations is read as holding undefined ones, so normalizing a planted path fails; the property fails (CATCH's evidence, mutant cd059841a8)."
 		},
 		{
@@ -197,8 +197,8 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 		{
 			file: "packages/cli-generator/src/normalize/security.ts",
 			original:
-				'[\n\t\t...Option.toArray(\n\t\t\tOption.map(operation, (pointer): Source => ({\n\t\t\t\tpointer: childPointer(pointer, "security"),\n\t\t\t\trows: ["SEC-01", "SEC-04"]\n\t\t\t}))\n\t\t),\n\t\t{ pointer: "/security", rows: ["SEC-01", "SEC-03"] }\n\t]',
-			replacement: '[{ pointer: "/security", rows: ["SEC-01", "SEC-03"] }]',
+				'[\n\t\t...Option.toArray(\n\t\t\tOption.map(operation, (tokens): Source => ({\n\t\t\t\tpointer: formatPointer([...tokens, "security"]),\n\t\t\t\trows: ["SEC-01", "SEC-04"]\n\t\t\t}))\n\t\t),\n\t\t{ pointer: formatPointer(["security"]), rows: ["SEC-01", "SEC-03"] }\n\t]',
+			replacement: '[{ pointer: formatPointer(["security"]), rows: ["SEC-01", "SEC-03"] }]',
 			why: "An operation's own security list is ignored for the document's, so an undeclared name in it is never reported; the property fails (CATCH's evidence, mutant 0d376bbffa)."
 		},
 		{

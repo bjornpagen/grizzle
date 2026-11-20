@@ -131,6 +131,9 @@ export const isJsonPointer = (text: string): text is JsonPointer => pointerPatte
 /** A pointer this module builds from escaped tokens, which is one by construction. */
 const builtPointer = Brand.nominal<JsonPointer>()
 
+/** The pointer to a document's root. */
+export const rootPointer: JsonPointer = builtPointer("")
+
 /**
  * A pointer text the generator built itself, as a JsonPointer: refused, it is a defect (the parser's own
  * PointerSyntaxError), never a failure a caller handles. It stands where a pointer the code built is still held as text,

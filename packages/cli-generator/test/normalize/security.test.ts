@@ -73,8 +73,8 @@ export const securityRules = property.explore(securitySpace, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/normalize/security.ts",
-			original: "node.deprecated ?? false",
-			replacement: "node.deprecated",
+			original: "Option.getOrElse(node.deprecated, () => false)",
+			replacement: "Option.getOrUndefined(node.deprecated)",
 			why: "A scheme that writes no `deprecated` is decoded with the mark absent, so it is refused as malformed and every alternative naming it is removed; the property fails (CATCH's evidence, mutant 887e3a2408)."
 		},
 		{
@@ -92,23 +92,22 @@ export const securityRules = property.explore(securitySpace, {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/security.ts",
-			original: "\t\tmodelled === undefined",
-			replacement: "\t\tmodelled !== undefined",
-			why: "Every scheme normalize can model is refused as malformed, and only an unknown one is kept; the property fails (CATCH's evidence, mutant a20dfcc157)."
+			original: "Str.isEmpty(name)",
+			replacement: "Str.isNonEmpty(name)",
+			why: "Every scheme normalize can model is refused as malformed, and only one with an empty name is kept; the property fails (CATCH's evidence, mutant a20dfcc157)."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/security.ts",
 			original:
-				'[\n\t\t...Option.toArray(\n\t\t\tOption.map(operation, (pointer): Source => ({\n\t\t\t\tpointer: childPointer(pointer, "security"),\n\t\t\t\trows: ["SEC-01", "SEC-04"]\n\t\t\t}))\n\t\t),\n\t\t{ pointer: "/security", rows: ["SEC-01", "SEC-03"] }\n\t]',
-			replacement: '[{ pointer: "/security", rows: ["SEC-01", "SEC-03"] }]',
+				'[\n\t\t...Option.toArray(\n\t\t\tOption.map(operation, (tokens): Source => ({\n\t\t\t\tpointer: formatPointer([...tokens, "security"]),\n\t\t\t\trows: ["SEC-01", "SEC-04"]\n\t\t\t}))\n\t\t),\n\t\t{ pointer: formatPointer(["security"]), rows: ["SEC-01", "SEC-03"] }\n\t]',
+			replacement: '[{ pointer: formatPointer(["security"]), rows: ["SEC-01", "SEC-03"] }]',
 			why: "An operation's own `security` is never read, so the root's list (or none) applies where the operation overrides it; the property fails (CATCH's evidence, mutant 0d376bbffa)."
 		},
 		{
 			file: "packages/cli-generator/src/normalize/security.ts",
 			original:
-				"nodeOption(resolution, schemes).pipe(\n\t\tOption.flatMap((json) => decodeJsonMap(json)),\n\t\tOption.match({ onNone: (): string[] => [], onSome: (map) => Record.keys(map) })\n\t)",
-			replacement:
-				"nodeOption(resolution, schemes).pipe(Option.flatMap((json) => decodeJsonMap(json)))",
+				"nodeOption(resolution, schemes).pipe(\n\t\tOption.filter(isObject),\n\t\tOption.match({ onNone: (): string[] => [], onSome: (map) => Record.keys(map) })\n\t)",
+			replacement: "nodeOption(resolution, schemes).pipe(Option.filter(isObject))",
 			why: "The declared schemes' names are never listed, so no scheme is modelled and every requirement names an undeclared one; the property fails (CATCH's evidence, mutant dadf3d56a5)."
 		}
 	]
