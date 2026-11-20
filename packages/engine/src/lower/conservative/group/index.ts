@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { appendNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -29,6 +30,7 @@ import {
 	core,
 	countStar,
 	derived,
+	eq,
 	keyedRead,
 	lit,
 	operandSelect,
@@ -39,28 +41,115 @@ import {
 
 type Aggregate = NodeOf<"Group">["aggs"][number]
 
+/** An aggregate of one argument's argument, which every lowering but count's reads. */
+const argumentOf = (args: ReadonlyArray<Expr>): Expr => defined(args[0], "an aggregate's argument")
+
+/** A float type's zero of one sign, a literal of its SQL type. */
+const zeroOf = (float: "float4" | "float8", negative: boolean): Expr =>
+	lit.float(negative ? -0 : 0, float === "float4" ? types.real : types.double)
+
 /**
- * An exact sum's numeric total as its result: a float's rounded once to its carrier as IEEE 754 rounds, ±Infinity past
- * the largest finite value (total.ts roundToFloat); money's the exact amount itself, exact money, which no sum
+ * IEEE 754's sum, over an argument's rows, of `zero` where the argument is zero and of `other` where it is not: a zero
+ * whose sign is the rows', in any order. -0 is the sum's identity, so `other` -0 sums the zeros alone, -0 exactly when
+ * each is -0; +0 absorbs -0, so `other` +0 is -0 exactly when every row is -0. It reads zeros alone, and never
  * overflows.
  */
-const roundedSum = (total: Expr, exact: ExactCarrier): Expr => {
+const zerosSum = (
+	float: "float4" | "float8",
+	arg: Expr,
+	zero: Expr,
+	other: Expr,
+	window: WindowSpec | undefined
+): Expr => ({
+	...call("sum", [
+		{
+			kind: "case",
+			operand: undefined,
+			whens: [{ when: eq(arg, zeroOf(float, false)), result: zero }],
+			else: other
+		}
+	]),
+	over: window
+})
+
+/**
+ * The zero of a float sum or mean that is zero: -0 exactly when every row is -0, as IEEE 754's sum of them is, and
+ * JavaScript's Math.sumPrecise: a +0 or any nonzero value makes it +0.
+ */
+const signedZero = (float: "float4" | "float8", arg: Expr, window: WindowSpec | undefined): Expr =>
+	zerosSum(float, arg, arg, zeroOf(float, false), window)
+
+/**
+ * A float's min or max over its rows with IEEE 754-2019's zero (scalar/aggregate.ts signedExtreme): the native extreme,
+ * and where it is zero the least zero -0 when any row's is, the greatest +0 when any row's is, read off the IEEE sum of
+ * the rows' zeros, negated for min: CASE WHEN min(x) = 0 THEN -sum(CASE WHEN x = 0 THEN -x ELSE -0 END) ELSE min(x)
+ * END.
+ */
+const signedExtremeOf = (
+	fn: "min" | "max",
+	float: "float4" | "float8",
+	arg: Expr,
+	window: WindowSpec | undefined
+): Expr => {
+	const native: Expr = { ...call(fn, [arg]), over: window }
+	const negated = (e: Expr): Expr => ({ kind: "negate", expr: e })
+	const zero =
+		fn === "max"
+			? zerosSum(float, arg, arg, zeroOf(float, true), window)
+			: negated(zerosSum(float, arg, negated(arg), zeroOf(float, true), window))
+	return {
+		kind: "case",
+		operand: undefined,
+		whens: [{ when: eq(native, zeroOf(float, false)), result: zero }],
+		else: native
+	}
+}
+
+/**
+ * An exact sum's numeric total as its result: a float's rounded once to its carrier as IEEE 754 rounds, ±Infinity past
+ * the largest finite value, a zero total of its rows' signs (total.ts roundToFloat, signedZero); money's the exact
+ * amount itself, exact money, which no sum overflows.
+ */
+const roundedSum = (
+	total: Expr,
+	exact: ExactCarrier,
+	arg: Expr,
+	window: WindowSpec | undefined
+): Expr => {
 	switch (exact) {
 		case "float4":
-			return roundToFloat(total, "float4")
 		case "float8":
-			return roundToFloat(total, "float8")
+			return roundToFloat(total, exact, signedZero(exact, arg, window))
 		case "money":
 			return total
 	}
 }
 
 /**
- * An exact mean: the exact total, its display scale trimmed because numeric_div reads it (registry.ts OperandReading), over the count, rounded
- * once to double precision as IEEE 754 rounds.
+ * An exact mean: the exact total, its display scale trimmed because numeric_div reads it (registry.ts OperandReading),
+ * over the count, rounded once to double precision as IEEE 754 rounds; a mean of a zero total of its rows' signs, cast
+ * to double precision from a real's, and a mean below half the least subnormal of a nonzero total the one zero.
  */
-const roundedMean = (total: Expr, count: Expr): Expr =>
-	roundToFloat(binary("/", call("trim_scale", [total]), count), "float8")
+const roundedMean = (
+	total: Expr,
+	count: Expr,
+	exact: "float4" | "float8",
+	arg: Expr,
+	window: WindowSpec | undefined
+): Expr => {
+	const zero: Expr = {
+		kind: "case",
+		operand: undefined,
+		whens: [
+			{
+				when: eq(total, lit.int(0, types.numeric)),
+				result: cast(signedZero(exact, arg, window), types.double)
+			}
+		],
+		else: zeroOf("float8", false)
+	}
+	return roundToFloat(binary("/", call("trim_scale", [total]), count), "float8", zero)
+}
 
 /**
  * An aggregate's SQL as its overload's lowering states it (scalar/aggregate.ts AggregateLowering): the one place an
@@ -105,7 +194,9 @@ export const aggregateExpr = (
 						args.map((a) => exactNumeric(a, lowering.exact))
 					)
 				),
-				lowering.exact
+				lowering.exact,
+				argumentOf(args),
+				window
 			)
 		case "exactMean":
 			return roundedMean(
@@ -115,8 +206,13 @@ export const aggregateExpr = (
 						args.map((a) => exactNumeric(a, lowering.exact))
 					)
 				),
-				counted(undefined)
+				counted(undefined),
+				lowering.exact,
+				argumentOf(args),
+				window
 			)
+		case "signedExtreme":
+			return signedExtremeOf(lowering.fn, lowering.float, argumentOf(args), window)
 	}
 }
 

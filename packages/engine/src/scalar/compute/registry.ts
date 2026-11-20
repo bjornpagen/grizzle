@@ -5,18 +5,27 @@ import { deepFreeze } from "#compiler/core/record.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
 import {
 	type DefinedOp,
+	canonicalZeroIds,
 	definedOp,
+	type ExprSpec,
 	type OpId,
 	OpId as opId,
 	type PartialOp,
 	partialOp,
 	type RangeOpCode,
 	rangeOp,
+	type ScalarExpr,
 	type Volatility
 } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { OperandIndex, ParseForm, Precondition } from "#compiler/ir/proof.ts"
-import { type Carrier, carriers, nativeNames, type SpanCarrier } from "#compiler/ir/scalar.ts"
+import {
+	type Carrier,
+	carriers,
+	floatCarrierOf,
+	nativeNames,
+	type SpanCarrier
+} from "#compiler/ir/scalar.ts"
 import {
 	floatCast,
 	type HostCast,
@@ -148,6 +157,7 @@ type SqlForm =
 	| { readonly kind: "floatBits"; readonly from: "float4" | "float8" }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
 	| { readonly kind: "textSha256" }
+	| { readonly kind: "canonicalZero"; readonly carrier: "float4" | "float8" }
 
 /**
  * The library function a node's SQL calls (ir/physical.ts LibraryFn), which its installation installs: a library
@@ -195,7 +205,8 @@ type CatalogRef =
  * only the difference and the subset test: it sets a set's hole and padding bits, so no Compute operation yields it;
  * right serves only the suffix test, endsWith, and substring only the infix test, infixAt, a concatenation's equation's
  * test of each middle part at its offset (typing.ts concatEquation); replace and btrim serve only the whiteSpace
- * collapse, and regexp_count only a text's UTF-16 code units, utf16Length.
+ * collapse, and regexp_count only a text's UTF-16 code units, utf16Length. canonicalZero serves no Compute operation
+ * either: it is the canonical zero a set delivers wherever it may merge -0 and +0 (check/merge.ts).
  */
 export type NativeFn =
 	| "add"
@@ -264,6 +275,7 @@ export type NativeFn =
 	| "disjoint"
 	| "adjoin"
 	| "cast"
+	| "canonicalZero"
 
 /**
  * What a Compute function is, one record each (computeSpecs): how many arguments it takes, a count or any number of
@@ -629,6 +641,27 @@ const extreme = (fn: "least" | "greatest", carrier: Carrier, order: OpId): Commo
 		result: carrier,
 		sql: { kind: fn },
 		catalog: { kind: "construct", uses: Object.freeze([order]) },
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
+
+/**
+ * A float's canonical zero: the value itself, its -0 written +0, `x + 0::type`, IEEE 754's sum, exact for every value
+ * (NaN and the infinities their own) and never past the type's range; what a set delivers of a float wherever it may
+ * take one of the two zeros for the other (check/merge.ts). Equal values give one result, so it maps distinct values
+ * to distinct values under PostgreSQL's equality (ir/injective.ts comparedValue).
+ */
+const canonicalZero = (carrier: "float4" | "float8"): FixedOverload =>
+	frozen({
+		fn: "canonicalZero",
+		operands: positional([carrier]),
+		result: carrier,
+		sql: { kind: "canonicalZero", carrier },
+		catalog: {
+			kind: "construct",
+			uses: Object.freeze([opId(carrier === "float4" ? "float4pl" : "float8pl")])
+		},
 		volatility: "immutable",
 		totality: total,
 		reads: "value"
@@ -1344,6 +1377,7 @@ const catalogOverloads = {
 	"between:real": between("float4", opId("float4ge"), opId("float4le")),
 	"in:real": membership("float4", opId("float4eq")),
 	"least:real": extreme("least", "float4", opId("float4lt")),
+	[canonicalZeroIds.float4]: canonicalZero("float4"),
 	"greatest:real": extreme("greatest", "float4", opId("float4gt")),
 	float8eq: comparison("eq", "float8"),
 	float8ne: comparison("ne", "float8"),
@@ -1354,6 +1388,7 @@ const catalogOverloads = {
 	"between:double precision": between("float8", opId("float8ge"), opId("float8le")),
 	"in:double precision": membership("float8", opId("float8eq")),
 	"least:double precision": extreme("least", "float8", opId("float8lt")),
+	[canonicalZeroIds.float8]: canonicalZero("float8"),
 	"greatest:double precision": extreme("greatest", "float8", opId("float8gt")),
 	cash_eq: comparison("eq", "money"),
 	cash_ne: comparison("ne", "money"),
@@ -1876,6 +1911,27 @@ const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
 
 /** The native equality of `carrier` (equalities). */
 export const carrierEquality = (carrier: Carrier): DefinedOp => equalities[carrier]
+
+/**
+ * The spec of a float term's canonical zero (canonicalZero), of the term's type: what a merge delivers of a float it may
+ * take one of two zeros of (check/merge.ts), and what a catalog rewrite delivers of one in the composition's place
+ * (lower/shapes/catalog); a term of any other type has none.
+ */
+export const canonicalZeroSpec = (expr: ScalarExpr): ExprSpec | undefined => {
+	const carrier = floatCarrierOf(expr.type)
+	const overload = carrier === undefined ? undefined : overloadOf("canonicalZero", [carrier])
+	const op = overload === undefined ? undefined : definedIdOf(overload)
+	return op === undefined
+		? undefined
+		: {
+				kind: "op",
+				op,
+				args: [expr],
+				type: expr.type,
+				nonNull: "strict",
+				volatility: "immutable"
+			}
+}
 
 /** The registry's node listed under a catalog identity. */
 const catalogOp = (id: keyof typeof catalogOverloads): NativeOp =>

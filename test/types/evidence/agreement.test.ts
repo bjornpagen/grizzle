@@ -110,6 +110,12 @@ export const evidence = agreement(agreementCases, {
 				'type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : Refusal<"page needs an ordered query">',
 			replacement: "type PagedArgument<O> = O extends OrderedBase ? PageOf<O> : unknown",
 			why: "paged takes a query no orderBy made (types/db/workload.ts PagedArgument answers unknown for it), so a paged query's unordered self is admitted; the agreements' program fails."
+		},
+		{
+			file: "packages/engine/src/check/approximate/trace.ts",
+			original: "\tconst scored = zeroPeeled(out.expr).term\n",
+			replacement: "\tconst scored = out.expr\n",
+			why: "An approximate search's score is read without its canonical zero, which the merge completion puts on a float its head delivers (check/complete.ts), so the lowering refuses a cosine distance the checker admitted; a clean drawn query's nearest search dies."
 		}
 	]
 })

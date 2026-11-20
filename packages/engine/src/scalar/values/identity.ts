@@ -456,10 +456,14 @@ const canonicalTexts: CanonicalTexts = {
 /**
  * Canonical value encoding for fact identity.
  *
- * One logical value compares the same in codecs, PostgreSQL equality, DISTINCT, keys, grouping and the test oracle,
- * and every value is in its one form, but a float's zero: -0 and +0 are two values, each its own fact identity, and one
- * key under PostgreSQL's equality (keyText), so a write compares two facts of one key by their identity (ir/compare.ts
- * factEq) and two keys by their key texts. This module is the host side, per scalar carrier:
+ * A value is only its value, the same under every plan. One logical value compares the same in codecs, PostgreSQL
+ * equality, DISTINCT, keys, grouping and the test oracle, and every value is in its one form, but a float's zero: -0
+ * and +0 are two values, each its own fact identity, and one key under PostgreSQL's equality (keyText), so a write
+ * compares two facts of one key by their identity (ir/compare.ts factEq) and two keys by their key texts. Wherever an
+ * operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's
+ * state, a join variable's value, the merged zero is +0, so no plan picks one; min and max of floats order -0 below 0,
+ * and a float sum or mean is -0 exactly when every value it sums is (check/merge.ts, scalar/aggregate.ts). This module
+ * is the host side, per scalar carrier:
  *
  * - `parseValue` is the boundary: the exact parse of a host value as its carrier's, which refuses a value its column
  *   would store as another (a numeric past its scale, a double no binary32 value holds) and alters none: two spellings

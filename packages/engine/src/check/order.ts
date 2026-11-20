@@ -1,15 +1,9 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, reportedAt } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { topoOrder } from "#compiler/ir/dag.ts"
 import { contextAdmits } from "#compiler/ir/evidence.ts"
-import type { CompletedOrder, OrderKey, RelNode, Roots, ValidDag } from "#compiler/ir/rel.ts"
-import {
-	analyzeLogical,
-	checkerEvidence,
-	orderSubjectOf,
-	withLogicalMeta
-} from "#compiler/logical/annotate.ts"
+import type { CompletedOrder, OrderKey, RelNode } from "#compiler/ir/rel.ts"
+import { type LogicalAnalysis, orderSubjectOf } from "#compiler/logical/annotate.ts"
 import { completeOrder } from "#compiler/logical/order.ts"
 
 /**
@@ -45,37 +39,24 @@ export interface StatedOrder {
  * A total order has no ties, so a shorter completed order selects exactly the same tuples in exactly
  * the same sequence as the conservative one.
  *
- * Every node then carries the analysis's logical metadata (logical/annotate.ts), so the relation an order
- * rests on records the key that makes it total, with its proof, here and after every rewrite that keeps a node's
- * metadata. Only the metadata is taken: node bodies, such as an
- * attachment's delivered type, stay the checker's. The claims are the analysis's own and are checked again wherever
- * they are read; the conservative lowering reads no metadata.
- *
  * Completion is part of what a checked order means, and every consumer of a checked query must read the same one. The
  * logical analysis it reads (logical/) sits below the checker: it imports only core, ir and scalar.
  *
- * `dag` with every stated order of a node its roots reach completed under the logical keys of the relation it orders,
- * in the order the orders were stated, or the first order that has no correct completion.
+ * Each stated order of a node `reachable` holds, its node with its completed order in place of its own, under the
+ * logical keys `analysis` (of the checked DAG) gives the relation it orders, in the order the orders were stated, or
+ * the first order that has no correct completion.
  */
-export const completeStatedOrders = <R extends Roots>(
-	dag: ValidDag<R>,
+export const completedOrders = (
+	analysis: LogicalAnalysis,
+	reachable: ReadonlySet<RelNode>,
 	stated: ReadonlyMap<RelNode, StatedOrder>
-): Result.Result<ValidDag<R>, CompileError> => {
-	if (stated.size === 0) {
-		return Result.ok(dag)
-	}
-	const analysis = analyzeLogical(dag, checkerEvidence)
-	if (!analysis.ok) {
-		return Result.err(analysis.error)
-	}
-	const reachable = new Set<RelNode>(topoOrder(dag))
-	/** Each ordered node with its completed order in place of its own, in the order the orders were stated. */
+): Result.Result<ReadonlyMap<RelNode, RelNode>, CompileError> => {
 	const completed = new Map<RelNode, RelNode>()
 	for (const [node, order] of stated) {
 		if (!reachable.has(node)) {
 			continue
 		}
-		const props = analysis.value.of(order.input).props
+		const props = analysis.of(order.input).props
 		const completion = completeOrder(
 			orderSubjectOf(order.input, props, order.fixed, (k) =>
 				contextAdmits("transaction", k.context)
@@ -87,5 +68,5 @@ export const completeStatedOrders = <R extends Roots>(
 		}
 		completed.set(node, order.withOrder(completion.value))
 	}
-	return Result.ok(withLogicalMeta(dag, analysis.value, (node) => completed.get(node) ?? node))
+	return Result.ok(completed)
 }

@@ -1,4 +1,4 @@
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { type ScalarExpr, zeroPeeled } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
 	type Carrier,
@@ -100,11 +100,17 @@ export const castIdentity = (from: ScalarType, to: ScalarType): `cast:${Carrier}
 
 /**
  * The value an equality compares an operand at: under every cast that maps distinct values to distinct values
- * (castInjective), its operand, so an equality of the cast values is an equality of the values. An equality of a column
- * with an expression over parameters and literals fixes the column, and of two columns equates them, whatever carriers
- * and widenings the comparison is written at.
+ * (castInjective), and under a float's canonical zero, which gives one value of equal ones and distinct values of
+ * distinct ones (ir/expr.ts canonicalZeroIds), its operand, so an equality of the cast values is an equality of the
+ * values. An equality of a column with an expression over parameters and literals fixes the column, and of two columns
+ * equates them, whatever carriers and widenings the comparison is written at, and a projection that delivers a
+ * column's canonical zero delivers the column.
  */
 export const comparedValue = (e: ScalarExpr): ScalarExpr => {
+	const peeled = zeroPeeled(e)
+	if (peeled.canonical) {
+		return comparedValue(peeled.term)
+	}
 	if (e.kind !== "cast") {
 		return e
 	}

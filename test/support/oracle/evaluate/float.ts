@@ -19,7 +19,18 @@ const sub = (a: number, b: number, width: Width): number => round(a - b, width)
 
 const mul = (a: number, b: number, width: Width): number => round(a * b, width)
 
-const div = (a: number, b: number, width: Width): number => round(a / b, width)
+/** A quotient: a / b, and by either zero the infinity of the dividend's sign, NaN over a zero or NaN dividend. */
+const div = (a: number, b: number, width: Width): number =>
+	round(
+		b !== 0
+			? a / b
+			: Number.isNaN(a) || a === 0
+				? Number.NaN
+				: a > 0
+					? Number.POSITIVE_INFINITY
+					: Number.NEGATIVE_INFINITY,
+		width
+	)
 
 /** The IEEE 754 square root: NaN below zero. */
 export const floatSqrt = (a: number): number => Math.sqrt(a)

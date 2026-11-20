@@ -241,6 +241,7 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "canonicalZero":
 		case "cast":
 			return { kind: "expr", expr }
 	}

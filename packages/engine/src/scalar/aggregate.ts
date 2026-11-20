@@ -10,6 +10,7 @@ import {
 	type NumericBound,
 	type ScalarType,
 	baseOf,
+	floatCarrierOf,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 import { numericMaxDisplayScale } from "#compiler/scalar/compute/numeric.ts"
@@ -63,23 +64,35 @@ export type ExactCarrier = "float4" | "float8" | "money"
  * - scaleFree: the native call over each argument through trim_scale: avg over numeric, whose quotient reads the sum's
  *   display scale;
  * - exactSum: sum over the exact numeric value of each argument, rounded once to real or double precision as IEEE 754
- *   rounds, or kept as exact money;
- * - exactMean: that exact sum over count(*), rounded once to double precision: avg over real and double precision.
+ *   rounds, or kept as exact money; a float total of zero is -0 exactly when every argument is -0, as IEEE 754's sum of
+ *   zeros is, and JavaScript's Math.sumPrecise;
+ * - exactMean: that exact sum over count(*), rounded once to double precision: avg over real and double precision, a
+ *   mean of zero -0 exactly when its sum is;
+ * - signedExtreme: min and max over real and double precision, the native extreme with IEEE 754-2019's zero, where
+ *   -0 < +0, as JavaScript's Math.min and Math.max: a least zero is -0 when any argument is -0, a greatest zero +0
+ *   when any is +0, where the native min and max keep whichever zero reaches them last, an order no plan fixes.
  */
 export type AggregateLowering =
 	| { readonly kind: "native" }
 	| { readonly kind: "widened" }
 	| { readonly kind: "scaleFree" }
 	| { readonly kind: "exactSum"; readonly exact: ExactCarrier }
-	| { readonly kind: "exactMean"; readonly exact: ExactCarrier }
+	| { readonly kind: "exactMean"; readonly exact: "float4" | "float8" }
+	| {
+			readonly kind: "signedExtreme"
+			readonly fn: "min" | "max"
+			readonly float: "float4" | "float8"
+	  }
 
 const native: AggregateLowering = Object.freeze({ kind: "native" })
 const widened: AggregateLowering = Object.freeze({ kind: "widened" })
 const scaleFree: AggregateLowering = Object.freeze({ kind: "scaleFree" })
 const exactSum = (exact: ExactCarrier): AggregateLowering =>
 	Object.freeze({ kind: "exactSum", exact })
-const exactMean = (exact: ExactCarrier): AggregateLowering =>
+const exactMean = (exact: "float4" | "float8"): AggregateLowering =>
 	Object.freeze({ kind: "exactMean", exact })
+const signedExtreme = (fn: "min" | "max", float: "float4" | "float8"): AggregateLowering =>
+	Object.freeze({ kind: "signedExtreme", fn, float })
 
 /** The overload of count, or of an aggregate of one argument; fn says which, as the IR's call does (ir/rel.ts). */
 export type AggregateOverload = CountOverload | UnaryOverload
@@ -337,9 +350,10 @@ const refusedAggregate = (loc: SourceLoc, capability: string): Result.Result<nev
  *
  * Every aggregate is a function of its contributions, one per keyed row, in any order: no plan, scan order, join order,
  * hash or sort grouping,
- * parallel worker, window frame or co-located aggregate can change it. count, min, max, bool_and, bool_or and the sums
- * over bigint, numeric and the exact integers already accumulate exactly or return an input, and are native. The
- * others are lowered to an exact accumulator (AggregateLowering):
+ * parallel worker, window frame or co-located aggregate can change it. count, bool_and, bool_or, min and max but a
+ * float's, and the sums over bigint, numeric and the exact integers already accumulate exactly or return an input, and
+ * are native. A float's min and max return an input, but either of two equal zeros, so their zero is IEEE 754-2019's
+ * (signedExtreme). The others are lowered to an exact accumulator (AggregateLowering):
  *
  * - r.sum over smallint or integer is sum over each argument cast to bigint, numeric of its argument's digits widened
  *   by the rows', as r.sum over bigint is: PostgreSQL's own sum(smallint) and sum(integer) accumulate in a bigint that
@@ -434,12 +448,13 @@ export const unaryOverload = (
 	if (!minMaxCarriers.includes(c) || !baseOf(arg).caps.includes("minMax")) {
 		return refusedAggregate(loc, `minMax: PostgreSQL has no ${name} over ${typeLabel(arg)}`)
 	}
+	const float = floatCarrierOf(value)
 	return Result.ok({
 		fn: name,
 		op: opId(`${name}(${catalogName(value)})`),
 		sql: name,
 		result: kept,
-		lowering: native
+		lowering: float === undefined ? native : signedExtreme(name, float)
 	})
 }
 

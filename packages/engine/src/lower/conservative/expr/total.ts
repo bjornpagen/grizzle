@@ -250,6 +250,7 @@ const exactIn = (
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "canonicalZero":
 			return undefined
 	}
 }
@@ -386,10 +387,12 @@ export const isOperandBinding = (query: OperandSelect): boolean => {
 /**
  * A numeric value rounded once to the float carrier as IEEE 754 rounds, half to even: NaN is NaN; at or past the
  * rounding threshold (the midpoint between the greatest finite value and 2^128 or 2^1024) an infinity of its sign; at
- * or below half the least subnormal the one zero; any other value through float8in or float4in, which round correctly
- * and admit subnormals. PostgreSQL's own numeric-to-float cast raises past the range, so it is never reached there.
+ * or below half the least subnormal `zero`, the zero its caller states: the one zero, or an exact float sum's or mean's
+ * of its rows' signs (lower/conservative/group aggregateExpr); any other value through float8in or float4in, which round
+ * correctly and admit subnormals. PostgreSQL's own numeric-to-float cast raises past the range, so it is never reached
+ * there.
  */
-export const roundToFloat = (n: Expr, carrier: "float4" | "float8"): Expr => {
+export const roundToFloat = (n: Expr, carrier: "float4" | "float8", zero: Expr): Expr => {
 	const { over, under, type } = thresholds[carrier]
 	return caseOf(
 		[
@@ -401,7 +404,7 @@ export const roundToFloat = (n: Expr, carrier: "float4" | "float8"): Expr => {
 					floatLit(Number.NEGATIVE_INFINITY, carrier)
 				)
 			],
-			[le(binary("*", call("abs", [n]), under), numericInteger(1n)), floatLit(0, carrier)]
+			[le(binary("*", call("abs", [n]), under), numericInteger(1n)), zero]
 		],
 		cast(n, type)
 	)
@@ -447,7 +450,7 @@ export const exactNumeric = (e: Expr, carrier: ExactCarrier): Expr => {
  * call among them, must.
  */
 const roundedOnce = (n: Expr, carrier: "float4" | "float8"): Expr =>
-	bindOperands([n], ([v]) => roundToFloat(v, carrier))
+	bindOperands([n], ([v]) => roundToFloat(v, carrier, floatLit(0, carrier)))
 
 /** A float operand's exact numeric value (exactNumeric), of a finite operand. */
 const exactOf = (x: Expr, carrier: "float4" | "float8"): Expr => exactNumeric(x, carrier)
@@ -478,10 +481,10 @@ const exactQuotient = (x: Expr, y: Expr, carrier: "float4" | "float8"): Expr => 
  * END. The fast test admits operands PostgreSQL's native operation meets with no overflow, underflow or zero divisor
  * (it computes IEEE there): NaN and the infinities (which it propagates), zeros of a product, and magnitudes inside
  * the range native.ts nativeRange states. The exact path computes the exact value of the finite operands and rounds it
- * once (roundToFloat); a zero divisor gives the infinity of the dividend's sign, or NaN over a zero or NaN dividend
- * (grizzle's floats have one zero, so the divisor's sign never shows), and NULL over a NULL dividend, as every
- * strict operation is NULL over a NULL operand, which a closed read at an absent key reads; the square root of a
- * negative is NaN.
+ * once (roundToFloat); a zero divisor gives the infinity of the dividend's sign, or NaN over a zero or NaN dividend,
+ * whichever zero divides, so equal operands give equal quotients, as every Compute operation gives equal results of
+ * equal operands (scalar/compute/evaluate.ts quotient), and NULL over a NULL dividend, as every strict operation is
+ * NULL over a NULL operand, which a closed read at an absent key reads; the square root of a negative is NaN.
  */
 const guardedForm = (
 	op: Exclude<IeeeOp, "round">,

@@ -2,9 +2,8 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
 	type Answer,
@@ -16,9 +15,6 @@ import {
 	families,
 	K,
 	keysGen,
-	type PlanShape,
-	planShapeGen,
-	planShapes,
 	putTargets,
 	type Sketch,
 	sketchGen,
@@ -29,6 +25,7 @@ import {
 } from "#test/pg/write/zero-sign/zero-sign.fixtures.ts"
 import { answered } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { type PlanShape, planShapeGen, planShapeOn } from "#test/support/plan-shapes.ts"
 import { refusedLaws } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -256,14 +253,8 @@ export const aFloatKeysZerosAreOneKeyToAnAttachmentAParentAtEitherZeroHasTheChil
 					Effect.flatMap(fixture, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const substrate = yield* Substrate
 								const o = yield* openedIn(Zeros, {}, zerosInstall, taken)
-								const login = quoteIdent(o.installed.as(o.server).role)
-								for (const [parameter, value] of Rec.toEntries(planShapes[shape])) {
-									yield* substrate.superuser(
-										`ALTER ROLE ${login} IN DATABASE ${quoteIdent(substrate.database)} SET ${parameter} = ${value}`
-									)
-								}
+								yield* planShapeOn(o.installed.as(o.server).role, shape)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 									yield* db.workload.loadFamilies.once({

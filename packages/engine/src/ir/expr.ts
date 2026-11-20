@@ -150,6 +150,35 @@ export const internedRangeOp = (
 
 export type OpId = CatalogOpId | RangeOpId
 
+/**
+ * The identity of each float type's canonical zero, an operation no Compute function names (scalar/compute/registry.ts
+ * canonicalZero): the value itself, its -0 written +0, the one zero a set delivers wherever it may merge -0 and +0
+ * (check/merge.ts).
+ */
+export const canonicalZeroIds = {
+	float4: "zero:real",
+	float8: "zero:double precision"
+} as const
+
+/** Whether an operation is a float's canonical zero. */
+const isCanonicalZero = (op: OpId): boolean =>
+	op === canonicalZeroIds.float4 || op === canonicalZeroIds.float8
+
+/**
+ * A head output as a reading of its term takes it: the term it delivers and whether it delivers the term's canonical
+ * zero (check/merge.ts), which a merge that may take one float of several equal ones puts on each float it delivers. The
+ * canonical zero keeps every value's order and maps distinct values to distinct ones, so what reads the term (an
+ * equality's compared value, a composition's selected column, an approximate search's score) reads it through.
+ */
+export const zeroPeeled = (
+	e: ScalarExpr
+): { readonly term: ScalarExpr; readonly canonical: boolean } => {
+	const [arg] = e.args
+	return e.kind === "op" && isCanonicalZero(e.op) && arg !== undefined
+		? { term: arg, canonical: true }
+		: { term: e, canonical: false }
+}
+
 declare const definedBrand: unique symbol
 
 /**

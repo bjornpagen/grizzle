@@ -723,6 +723,9 @@ export const floatCarrierOf = (t: ScalarType): "float4" | "float8" | undefined =
 	return carrier === "float4" || carrier === "float8" ? carrier : undefined
 }
 
+/** Whether a type is a float's, real or double precision (floatCarrierOf). */
+export const isFloat = (t: ScalarType): boolean => floatCarrierOf(t) !== undefined
+
 /** The capabilities of a descriptor, a contract's its base's. */
 export const capsOf = (t: ScalarType): CapabilitySet => baseOf(t).caps
 

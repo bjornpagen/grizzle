@@ -202,7 +202,10 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "float4":
 		case "float8": {
 			const total = exactSum(exactDoubles(values))
-			return roundedDouble(numeric(N.div(total, made(Decimal.fromBigInt(BigInt(values.length))))))
+			return signedTotal(
+				roundedDouble(numeric(N.div(total, made(Decimal.fromBigInt(BigInt(values.length)))))),
+				values
+			)
 		}
 		case "bool":
 		case "code":
@@ -222,8 +225,23 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 }
 
 /**
+ * The zero a float's least or greatest argument is when it is zero, IEEE 754-2019's minimum's and maximum's, where
+ * -0 < +0: the least -0 when any argument is -0, the greatest +0 when any is +0, every zero argument one of the least or
+ * greatest there.
+ */
+const extremeZero = (values: Arr.NonEmptyReadonlyArray<Value>, fn: "min" | "max"): number =>
+	fn === "min"
+		? Arr.some(values, (v) => Object.is(asNumber(v), -0))
+			? -0
+			: 0
+		: Arr.some(values, (v) => Object.is(asNumber(v), 0))
+			? 0
+			: -0
+
+/**
  * The least or greatest argument. PostgreSQL's <type>larger and <type>smaller keep one argument of a tie, and its input
- * order decides which; natively equal arguments are identical in their one form, so which one is unobservable.
+ * order decides which; natively equal arguments are identical in their one form, so which one is unobservable, but a
+ * float's two zeros, whose extreme is extremeZero's.
  */
 const extreme = (
 	values: Arr.NonEmptyReadonlyArray<Value>,
@@ -235,7 +253,11 @@ const extreme = (
 	const at = Arr.reduce<Value, number>(values, 0, (best, v, i) =>
 		compare(argument(best), v, type) === sign ? best : i
 	)
-	return argument(at)
+	const chosen = argument(at)
+	const carrier = baseOf(type).carrier
+	return (carrier === "float4" || carrier === "float8") && chosen === 0
+		? extremeZero(values, fn)
+		: chosen
 }
 
 /**
@@ -247,9 +269,11 @@ const extreme = (
  *   precision it is the real or double nearest the exact sum of the arguments' values (exactDouble), ties to even,
  *   an infinity where that total lies past the range; over money it is the exact total, exact money;
  * - avg over the exact types is numeric_div of the exact sum by the count at select_div_scale (numericMean); over the
- *   floats it is the double nearest numeric_div of the exact sum, trimmed, by the count;
+ *   floats it is the double nearest numeric_div of the exact sum, trimmed, by the count, a zero mean -0 exactly when
+ *   every argument is -0, as a float sum's zero is (signedTotal);
  * - min and max keep the argument's type under its total order (NaN greatest, enums in roster order, text in code
- *   point order); over boolean they are bool_and and bool_or, as are the boolean folds themselves.
+ *   point order), a float's zero IEEE 754-2019's (extremeZero); over boolean they are bool_and and bool_or, as are the
+ *   boolean folds themselves.
  *
  * Every one is stated for a group of any size, never declined: no sum's value depends on an order. The input is the
  * group's set of distinct complete bound tuples, never its rows: the caller passes one argument value per distinct

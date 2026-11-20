@@ -57,14 +57,19 @@ export class Declined {
  *
  * A value is the reference evaluator's exact carrier (evaluate/catalog.ts ModelValue): an integer as bigint,
  * numeric as Decimal, a float as a double, money as Money, booleans, text, uuids and closed ids' handles as strings, sets as Sets of handles. Every
- * value is the one form grizzle delivers: a Decimal has no display scale, and every float the reference holds has the
- * one zero, at its literal and at every operation result (evaluate/catalog.ts oneZero, aggregate.ts). A value stored
- * in, cast to or read through a column of a numeric(p, s) type is coerced as PostgreSQL's typmod coercion does, so
- * 1.234 stored in numeric(5,2) is 1.23.
+ * value is the one form grizzle delivers: a Decimal has no display scale, and a float keeps its zero's sign, -0 and +0
+ * two values, as grizzle stores and computes them. A value stored in, cast to or read through a column of a
+ * numeric(p, s) type is coerced as PostgreSQL's typmod coercion does, so 1.234 stored in numeric(5,2) is 1.23.
  *
- * ValueIdentity is native equality, which for the one form is identity: 1.0 and 1.00 are one Decimal, -0 is 0, NaN = NaN.
- * A collapse (DISTINCT, UNION, GROUP BY, a join variable, min and max) keeps one of natively equal values, which are
- * identical, so which one it keeps is unobservable and the reference states every collapse exactly.
+ * ValueIdentity is native equality, which for the one form is identity but a float's zero: 1.0 and 1.00 are one Decimal,
+ * NaN = NaN, and -0 = 0, two values of one class. A value is only its value, the same under every plan: wherever an
+ * operation may take one float of several equal ones, a set's member, a group's key, a union's row, a recursion's
+ * state, a join variable's value, the merged zero is +0, so no plan picks one; min and max of floats order -0 below 0,
+ * and a float sum or mean is -0 exactly when every value it sums is. A collapse (DISTINCT, UNION, GROUP BY, a join
+ * variable) keeps one of natively equal values, and the IR the reference evaluates delivers the canonical zero of each
+ * float a collapse may take one of two zeros of (check/merge.ts, the canonicalZero operation it evaluates), so the
+ * values a collapse meets are identical and which one it keeps is unobservable; min and max are IEEE 754-2019's
+ * (aggregate.ts extremeZero), a sum's and mean's zero signedTotal's. The reference states every collapse exactly.
  */
 export type Value = ModelValue | Declined
 export type Row = ReadonlyArray<Value>

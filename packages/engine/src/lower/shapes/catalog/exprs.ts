@@ -21,6 +21,7 @@ import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 import {
 	binaryCoercion,
 	booleanAnd,
+	canonicalZeroSpec,
 	castOf,
 	type NativeFn,
 	type NativeOp,
@@ -98,6 +99,19 @@ export const columnRef = (e: ScalarExpr): ColumnRef | undefined =>
 
 export const literalOf = (e: ScalarExpr): TypedLiteral | undefined =>
 	e.kind === "literal" ? e.value : undefined
+
+/**
+ * `e`, or its canonical zero where `canonical`, as ir/expr.ts zeroPeeled read the head output whose term `e` takes the
+ * place of: a rewrite that reads a term delivers the canonical zero of what replaces it.
+ */
+export const canonicalZeroOver = (
+	ed: CatalogEditor,
+	e: ScalarExpr,
+	canonical: boolean
+): ScalarExpr => {
+	const spec = canonical ? canonicalZeroSpec(e) : undefined
+	return spec === undefined ? e : ed.expr(spec)
+}
 
 /** An operator node with its operands, and the native function it is when the compute registry has it. */
 interface OpView {

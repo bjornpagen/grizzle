@@ -11,6 +11,7 @@ import { compileWrite } from "#compiler/write/program/compile.ts"
 import type { PutChoice } from "#compiler/write/put/choose.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { type PlanShape, planShapeNames } from "#test/support/plan-shapes.ts"
 import { checking } from "#test/support/policy.ts"
 
 /**
@@ -174,56 +175,6 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"put target deleteThenInsert",
 	"two zero keys refused as one key"
 ]
-
-/**
- * The plan shapes a read is held to the same answer under, each a whole assignment of the planner settings it moves, set
- * on the login in the case's database before its Db opens: hash joins and aggregates, merge joins and sorts, nested
- * loops over index scans, and every eligible query in a parallel worker.
- */
-export const planShapes = {
-	hash: {
-		enable_hashjoin: "on",
-		enable_mergejoin: "off",
-		enable_nestloop: "off",
-		enable_hashagg: "on",
-		enable_sort: "off",
-		enable_seqscan: "on",
-		debug_parallel_query: "off"
-	},
-	sort: {
-		enable_hashjoin: "off",
-		enable_mergejoin: "on",
-		enable_nestloop: "off",
-		enable_hashagg: "off",
-		enable_sort: "on",
-		enable_seqscan: "on",
-		debug_parallel_query: "off"
-	},
-	index: {
-		enable_hashjoin: "off",
-		enable_mergejoin: "off",
-		enable_nestloop: "on",
-		enable_hashagg: "off",
-		enable_sort: "on",
-		enable_seqscan: "off",
-		debug_parallel_query: "off"
-	},
-	parallel: {
-		enable_hashjoin: "on",
-		enable_mergejoin: "on",
-		enable_nestloop: "on",
-		enable_hashagg: "on",
-		enable_sort: "on",
-		enable_seqscan: "on",
-		debug_parallel_query: "regress"
-	}
-} as const
-export type PlanShape = keyof typeof planShapes
-
-/** Every plan shape, by its name. */
-const planShapeNames: Arr.NonEmptyReadonlyArray<PlanShape> = ["hash", "sort", "index", "parallel"]
-
-export const planShapeGen: Gen<PlanShape> = element(planShapeNames)
 
 /** The situations the attachment property reaches: children of both zeros under each plan shape. */
 export const attachmentFeatures: Arr.NonEmptyReadonlyArray<Feature> = Arr.map(

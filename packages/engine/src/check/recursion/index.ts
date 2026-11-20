@@ -114,8 +114,8 @@ export const recursion: RecursionPlugin = {
 			{
 				kind: "Recursive",
 				name: def.name,
-				base,
-				step,
+				base: cx.canonicalArm(base, baseLoc),
+				step: cx.canonicalArm(step, recLoc),
 				self,
 				termination: certificate(verdict, step),
 				origin,

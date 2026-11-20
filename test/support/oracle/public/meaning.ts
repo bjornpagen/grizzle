@@ -9,6 +9,15 @@ import {
 } from "#compiler/allen/atoms.ts"
 import { allenFormula } from "#compiler/allen/lower.ts"
 import { fullAllenMask } from "#compiler/allen/mask.ts"
+import { completeStated } from "#compiler/check/complete.ts"
+import {
+	declaredKeys,
+	deliversFloat,
+	groupedZeroed,
+	type MergeRule,
+	regionMatches,
+	type StatedMerge
+} from "#compiler/check/merge.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -37,13 +46,14 @@ import {
 } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
+	isFloat,
 	rosterOf,
 	type ScalarType,
 	sameScalarType,
 	spanCarrierOf
 } from "#compiler/ir/scalar.ts"
 import { type LowerEnv, lowerTerm } from "#compiler/scalar/compute/lower.ts"
-import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
+import { canonicalZeroSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { widening } from "#compiler/scalar/compute/types.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { bareEnv, scalarTypeOf } from "#compiler/scalar/registry.ts"
@@ -210,9 +220,60 @@ class Translation {
 	readonly b = new DagBuilder(makeIdSupply())
 	readonly #schema: ProgramSchema
 	#closures = 0
+	/**
+	 * The projections whose floats a merge may take, stated as the checker states them (check/merge.ts StatedMerge): a
+	 * rule's head under its matches, made `always` for an arm a union may take for another's. The program's meaning is
+	 * its IR with every float such a merge settles its canonical zero (meaningOf, check/complete.ts completeStated).
+	 */
+	readonly merges = new Map<RelNode, StatedMerge>()
 
 	constructor(schema: ProgramSchema) {
 		this.#schema = schema
+	}
+
+	/** A float term's canonical zero, of its type (scalar/compute/registry.ts canonicalZeroSpec). */
+	canonicalZero(expr: ScalarExpr): ScalarExpr {
+		const spec = canonicalZeroSpec(expr)
+		if (spec === undefined) {
+			throw new Error("a canonical zero of a float")
+		}
+		return this.b.expr(spec)
+	}
+
+	/** Records a projection whose floats a merge may take, under `rule`: one of no float merges none. */
+	stateMerge(node: RelNode, rule: MergeRule): void {
+		if (node.kind === "ProjectSet" && deliversFloat(node)) {
+			this.merges.set(node, { projection: node, rule, at: SourceLoc("a program's head", []) })
+		}
+	}
+
+	/**
+	 * An arm whose rows a union or a recursion may take for another arm's: every float it delivers its canonical zero,
+	 * a stated head's rule made `always`, any other arm read through a projection of each float's canonical zero.
+	 */
+	canonicalArm(arm: Built): Built {
+		const merge = this.merges.get(arm.node)
+		if (merge !== undefined) {
+			this.merges.set(arm.node, { ...merge, rule: { kind: "always" } })
+			return arm
+		}
+		if (!Arr.some(arm.heading, (c) => isFloat(c.type))) {
+			return arm
+		}
+		return {
+			node: this.b.node({
+				loc: undefined,
+				meta: conservativeMeta,
+				kind: "ProjectSet",
+				input: arm.node,
+				out: Arr.map(arm.heading, (c) => {
+					const column = this.col(arm.node, c)
+					return { name: c.name, expr: isFloat(c.type) ? this.canonicalZero(column) : column }
+				}),
+				heading: arm.heading
+			}),
+			heading: arm.heading
+		}
 	}
 
 	columnSpec(node: RelNode, c: HeadingColumn): ExprSpec {
@@ -424,14 +485,16 @@ class Translation {
 			heading: edge.heading
 		})
 		const state: Heading = [columnOf("src", type), columnOf("dst", type)]
+		/** A recursion's state is what its recursive UNION merges across its iterations: a float its canonical zero. */
+		const merged = (e: ScalarExpr): ScalarExpr => (isFloat(type) ? this.canonicalZero(e) : e)
 		const edges = this.b.node({
 			loc: undefined,
 			meta: conservativeMeta,
 			kind: "ProjectSet",
 			input: filtered,
 			out: [
-				{ name: "src", expr: this.col(filtered, columnOf("a", type)) },
-				{ name: "dst", expr: this.col(filtered, columnOf("b", type)) }
+				{ name: "src", expr: merged(this.col(filtered, columnOf("a", type))) },
+				{ name: "dst", expr: merged(this.col(filtered, columnOf("b", type))) }
 			],
 			heading: state
 		})
@@ -482,8 +545,8 @@ class Translation {
 			kind: "ProjectSet",
 			input: region,
 			out: [
-				{ name: "src", expr: this.col(region, columnOf("src", type)) },
-				{ name: "dst", expr: this.col(region, columnOf("dst", type)) }
+				{ name: "src", expr: merged(this.col(region, columnOf("src", type))) },
+				{ name: "dst", expr: merged(this.col(region, columnOf("dst", type))) }
 			],
 			heading: state
 		})
@@ -671,6 +734,12 @@ class Translation {
 			matches.push({ source: m.source, node, bound })
 		}
 		const region = this.region(matches, decls, correlated)
+		const regionNode = region.node
+		if (regionNode.kind !== "MatchRegion") {
+			throw new Error("a rule's region is a MatchRegion")
+		}
+		/** The region's matches and its float variables of two equal values, which its head's merges read. */
+		const matched = regionMatches(regionNode)
 		const declOf = (id: number): VarDecl => {
 			const decl = vars.get(id)
 			if (decl === undefined) {
@@ -856,10 +925,9 @@ class Translation {
 						throw new Error(`the head key ${h.name} is an aggregate`)
 				}
 			}
-			return {
-				...project(current, [...Arr.map(rule.head, plainItem), ...carriedItems(current)]),
-				correlation
-			}
+			const head = project(current, [...Arr.map(rule.head, plainItem), ...carriedItems(current)])
+			this.stateMerge(head.node, { kind: "matches", input: current.node, region: matched })
+			return { ...head, correlation }
 		}
 		/**
 		 * The group's input: every variable, then each computed key and each padding an aggregate folds as a column of
@@ -971,21 +1039,40 @@ class Translation {
 			}),
 			heading: groupHeading
 		}
+		/** A float the group delivers is the canonical zero where a group may take it as one of several (groupedZeroed). */
+		const zeroed = groupedZeroed(
+			matched,
+			current.heading,
+			new Set(Arr.map(keys, (c) => c.name)),
+			(source) => declaredKeys(source, () => undefined)
+		)
+		const groupColumn = (
+			name: string,
+			c: HeadingColumn,
+			delivered: "correlation" | "key" | "result"
+		): { readonly name: string; readonly type: ScalarType; readonly expr: ScalarExpr } => {
+			const column = this.col(group.node, c)
+			return {
+				name,
+				type: c.type,
+				expr: zeroed(c, delivered) ? this.canonicalZero(column) : column
+			}
+		}
 		const groupItem = (
 			h: HeadItem
 		): { readonly name: string; readonly type: ScalarType; readonly expr: ScalarExpr } => {
 			switch (h.kind) {
 				case "var":
-					return columnItem(group, h.name, declColumn(declOf(h.var.id)))
+					return groupColumn(h.name, declColumn(declOf(h.var.id)), "key")
 				case "computed":
-					return columnItem(group, h.name, computedColumn(h))
+					return groupColumn(h.name, computedColumn(h), "key")
 				case "count":
 				case "fold": {
 					const c = aggColumns.get(h)
 					if (c === undefined) {
 						throw new Error(`no aggregate column of ${h.name}`)
 					}
-					return columnItem(group, h.name, c)
+					return groupColumn(h.name, c, "result")
 				}
 				case "literal":
 					throw new Error(
@@ -994,7 +1081,10 @@ class Translation {
 			}
 		}
 		return {
-			...project(group, [...Arr.map(rule.head, groupItem), ...carriedItems(group)]),
+			...project(group, [
+				...Arr.map(rule.head, groupItem),
+				...Arr.map(carried, (c) => groupColumn(c.name, declColumn(c.decl), "correlation"))
+			]),
 			correlation
 		}
 	}
@@ -1004,7 +1094,12 @@ class Translation {
 	 * each parent row's children apart: its correlation fixes each correlation column to its parent column's value.
 	 */
 	query(q: ProgramQuery<ParentColumn>, outer: Outer, substitution: Substitution): BuiltRule {
-		const arms = Arr.map(q.arms, (arm) => this.rule(arm, substitution))
+		const built = Arr.map(q.arms, (arm) => this.rule(arm, substitution))
+		/** Arms beside another arm each deliver their floats' canonical zeros: the union may take one's row for another's. */
+		const arms =
+			built.length > 1
+				? Arr.map(built, (arm) => ({ ...this.canonicalArm(arm), correlation: arm.correlation }))
+				: built
 		const [first, ...rest] = arms
 		let current: Built =
 			rest.length === 0
@@ -1078,10 +1173,16 @@ class Translation {
 	 * node's heading the columns every group holds in the first group's order, told apart by its discriminant.
 	 */
 	mixed(root: MixedRoot): RelNode {
-		const arms = Arr.map(root.arms, (arm) => ({
+		const ruled = Arr.map(root.arms, (arm) => ({
 			group: arm.group,
 			built: this.rule(arm.rule, noSubstitution)
 		}))
+		/** An arm beside another arm of its heading group delivers its floats' canonical zeros (canonicalArm). */
+		const arms = Arr.map(ruled, (a) =>
+			Arr.filter(ruled, (b) => b.group === a.group).length > 1
+				? { group: a.group, built: this.canonicalArm(a.built) }
+				: a
+		)
 		const groups = Arr.map(indices(root.groups.length), (g) => {
 			const [first, ...rest] = Arr.filter(arms, (a) => a.group === g)
 			if (first === undefined) {
@@ -1127,13 +1228,27 @@ class Translation {
 }
 
 /** The query's IR: a defect of the translation when it does not validate. */
+/**
+ * A translation's DAG of one root, every float its stated merges settle its canonical zero, under the DAG's own logical
+ * analysis, as the checker completes its own (check/complete.ts completeStated).
+ */
+const completedOf = (
+	t: Translation,
+	node: RelNode
+): { readonly dag: ValidDag; readonly root: RelNode } => {
+	const completed = completeStated(t.b.build([node]), t.b, new Map(), t.merges)
+	if (!completed.ok) {
+		throw new Error(`the program's meaning does not complete: ${completed.error.message}`)
+	}
+	return { dag: completed.value, root: defined(completed.value.roots[0], "the completed root") }
+}
+
 const meaningOf = (
 	c: ProgramCase,
 	root: Root
 ): { readonly dag: ValidDag; readonly root: RelNode } => {
 	const t = new Translation(c.schema)
-	const node = t.root(root)
-	return { dag: t.b.build([node]), root: node }
+	return completedOf(t, t.root(root))
 }
 
 /** The case's facts as the reference takes them: each stored fact in the spelling that stored it. */
@@ -1282,8 +1397,7 @@ const mixedMeaningOf = (
 	root: MixedRoot
 ): { readonly dag: ValidDag; readonly root: RelNode } => {
 	const t = new Translation(c.schema)
-	const node = t.mixed(root)
-	return { dag: t.b.build([node]), root: node }
+	return completedOf(t, t.mixed(root))
 }
 
 /**

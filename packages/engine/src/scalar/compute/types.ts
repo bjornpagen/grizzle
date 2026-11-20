@@ -410,8 +410,3 @@ export const widening = (from: ScalarType, to: ScalarType): DefinedOp | undefine
 	const w = wideningOf(from, to)
 	return w === undefined ? undefined : w.kind === "coercion" ? binaryCoercion : definedIdOf(w.op)
 }
-
-export const isFloat = (t: ScalarType): boolean => {
-	const c = baseOf(t).carrier
-	return c === "float4" || c === "float8"
-}

@@ -108,6 +108,15 @@ export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResu
 			},
 			budget: { runs: casePerEntry, steered: casePerEntry },
 			kept: [],
-			kills: []
+			kills: [
+				{
+					file: "packages/engine/src/scalar/compute/evaluate.ts",
+					original:
+						'const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : quotient(a, b)',
+					replacement:
+						'const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : a / b',
+					why: "The host divides by -0 as IEEE 754 does, the infinity's sign the dividend's flipped, where the SQL gives the dividend's."
+				}
+			]
 		}
 	)

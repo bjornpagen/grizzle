@@ -1,10 +1,20 @@
 import { emptyAllenMask, parseAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"
 import { approximate } from "#compiler/check/approximate/index.ts"
+import { completeStated } from "#compiler/check/complete.ts"
 import type { CheckedNodeSpec, ScopedServices, StageScope } from "#compiler/check/context.ts"
 import { only } from "#compiler/check/defined.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
-import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
+import {
+	declaredKeys,
+	deliversFloat,
+	groupedZeroed,
+	type MergeRule,
+	type RegionMatches,
+	regionMatches,
+	type StatedMerge
+} from "#compiler/check/merge.ts"
+import type { StatedOrder } from "#compiler/check/order.ts"
 import type {
 	ParamCell,
 	ParamTable,
@@ -33,9 +43,8 @@ import {
 	splitWhere
 } from "#compiler/check/scan.ts"
 
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
-	appendNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -103,10 +112,12 @@ import {
 	type TakeBound,
 	type TextSplit,
 	tokensHeading,
+	unionArms,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import {
 	baseOf,
+	isFloat,
 	languageOctets,
 	languageWithin,
 	type PlainType,
@@ -134,6 +145,7 @@ import {
 } from "#compiler/scalar/compute/lower.ts"
 import {
 	binaryCoercion,
+	canonicalZeroSpec,
 	definedIdOf,
 	definedRangeOp,
 	overloadOf
@@ -894,6 +906,8 @@ export class Checker {
 	 * (order.ts).
 	 */
 	readonly #stated = new Map<RelNode, StatedOrder>()
+	/** Each projection whose floats a merge may take one of two zeros of, with its rule (check/merge.ts). */
+	readonly #merges = new Map<RelNode, StatedMerge>()
 	/** The labels reserved and not yet defined: the regions of the rules being checked, the recursions being checked. */
 	readonly #reserved = new Set<NodeId>()
 	/** The approximate searches built, by the identity of their sealed source, score and bound (approximate/). */
@@ -951,6 +965,99 @@ export class Checker {
 		return relNode(node.id, { ...spec, loc, meta: conservativeMeta })
 	}
 
+	/** The canonical zero of a float term (scalar/compute/registry.ts canonicalZeroSpec), of its type. */
+	canonicalZero(expr: ScalarExpr): ScalarExpr {
+		const spec = canonicalZeroSpec(expr)
+		if (spec === undefined) {
+			throw defect(`a canonical zero of ${typeLabel(expr.type)}`)
+		}
+		return this.emit(spec)
+	}
+
+	/**
+	 * Records a projection whose floats a merge may take one of two zeros of, under `rule`, which the completion settles
+	 * (check/merge.ts): a projection that delivers no float merges none, and is not recorded.
+	 */
+	stateMerge(projection: RelNode, rule: MergeRule, at: SourceLoc): void {
+		if (projection.kind === "ProjectSet" && deliversFloat(projection)) {
+			this.#merges.set(projection, { projection, rule, at })
+		}
+	}
+
+	/**
+	 * `node` as a node whose rows a union or a recursion may merge with another's: every float it delivers the canonical
+	 * zero (check/merge.ts). The projection that delivers its rows, when a merge records it (stateMerge), takes the
+	 * canonical zero of every float, its rule made `always`; otherwise a projection over it delivers each float's.
+	 */
+	canonicalArm(node: RelNode, loc: SourceLoc): RelNode {
+		if (this.#mergesAlways(node)) {
+			return node
+		}
+		const out = node.heading.map((c) => {
+			const column = this.emit(storedColumn(node.id, c.name, c.type))
+			return { name: c.name, expr: isFloat(c.type) ? this.canonicalZero(column) : column }
+		})
+		const arm = this.node({ kind: "ProjectSet", input: node, out, heading: node.heading }, loc)
+		this.#delivered.set(arm, this.deliveredOf(node))
+		const literals = this.#literals.get(node)
+		if (literals !== undefined) {
+			this.#literals.set(arm, literals)
+		}
+		return arm
+	}
+
+	/**
+	 * Whether every float `node` delivers is the canonical zero once each projection a merge records that delivers its
+	 * rows is made `always`, which this makes it: a node of no float column, a recorded projection, or a node that passes
+	 * on the rows of inputs that all are, unchanged (a filter, a take, an ordered result, a step, a semi- or anti-join's
+	 * left side, a union's arms, and a projection that widens them, whose casts keep a zero's sign).
+	 */
+	#mergesAlways(node: RelNode): boolean {
+		const merge = this.#merges.get(node)
+		if (merge !== undefined) {
+			this.#merges.set(node, { ...merge, rule: { kind: "always" } })
+			return true
+		}
+		if (!node.heading.some((c) => isFloat(c.type))) {
+			return true
+		}
+		switch (node.kind) {
+			case "Filter":
+			case "Take":
+			case "ProjectSet":
+			case "OrderedResult":
+			case "Step":
+				return this.#mergesAlways(node.input)
+			case "SemiJoin":
+			case "AntiJoin":
+			case "Difference":
+				return this.#mergesAlways(node.left)
+			case "Intersect":
+				return [this.#mergesAlways(node.left), this.#mergesAlways(node.right)].every(Boolean)
+			case "Union":
+				return unionArms(node.groups)
+					.map((arm) => this.#mergesAlways(arm))
+					.every(Boolean)
+			case "Base":
+			case "Closed":
+			case "Context":
+			case "InputSet":
+			case "Delta":
+			case "MatchRegion":
+			case "Group":
+			case "Produce":
+			case "Recursive":
+			case "SelfRef":
+			case "ApproximateNearest":
+			case "Attach":
+			case "Forbid":
+			case "Window":
+			case "OrderedSetAggregate":
+			case "Call":
+				return false
+		}
+	}
+
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
 		return this.schema.queryFieldType(desc, loc, this.#contracts, this.patterns)
 	}
@@ -981,7 +1088,8 @@ export class Checker {
 			searches: this.#searches,
 			arms: (arms, scope, loc, self) =>
 				this.arms(arms, self === undefined ? scope : { ...scope, self }, loc),
-			fieldType: (desc, loc) => this.fieldType(desc, loc)
+			fieldType: (desc, loc) => this.fieldType(desc, loc),
+			canonicalArm: (node, loc) => this.canonicalArm(node, loc)
 		}
 	}
 
@@ -1009,7 +1117,7 @@ export class Checker {
 		const out = this.stage(desc.stage, this.ownScope(role))
 		const order = rootOrder(out.order, role)
 		const root = order === undefined ? out.node : this.#orderedResult(out.node, order)
-		return unwrap(completeStatedOrders(this.b.build([root]), this.#stated))
+		return unwrap(completeStated(this.b.build([root]), this.b, this.#stated, this.#merges))
 	}
 
 	/** A root's delivered rows: its rows under the order stated, which order.ts completes. */
@@ -1335,7 +1443,15 @@ export class Checker {
 				)
 			}
 		}
-		const groupHeadings = mapNonEmpty(widenedGroups, (g) => ({
+		/**
+		 * The arms of one heading group meet, and the union may take a row of one for an equal row of another, so each
+		 * delivers its floats' canonical zeros (canonicalArm); arms of two groups are told apart by their discriminant and
+		 * never meet.
+		 */
+		const mergedGroups = mapNonEmpty(widenedGroups, (g) => ({
+			arms: g.arms.length > 1 ? mapNonEmpty(g.arms, (a) => this.canonicalArm(a, loc)) : g.arms
+		}))
+		const groupHeadings = mapNonEmpty(mergedGroups, (g) => ({
 			heading: g.arms[0].heading,
 			arms: g.arms
 		}))
@@ -1345,7 +1461,7 @@ export class Checker {
 				? firstGroup.heading
 				: firstGroup.heading.filter((c) => common.includes(c.name))
 		const node = this.node({ kind: "Union", groups: groupHeadings, discriminant, heading }, loc)
-		const [firstWidened, ...moreWidened] = widenedGroups
+		const [firstWidened, ...moreWidened] = mergedGroups
 		const flat: NonEmptyReadonlyArray<RelNode> = [
 			...firstWidened.arms,
 			...moreWidened.flatMap((g) => g.arms)
@@ -2598,7 +2714,7 @@ class RuleCheck {
 		const leaves = ruleLeaves(this.rule, true)
 		this.#declare(leaves)
 		this.#matches()
-		const region = this.#defineRegion(leaves)
+		const { region, matches } = this.#defineRegion(leaves)
 		let node = this.#filter(region)
 		/**
 		 * A negation that reads only columns the head delivers unchanged applies after the projection, over fewer
@@ -2609,7 +2725,7 @@ class RuleCheck {
 		if (late === undefined) {
 			node = this.#earlyFilters(node)
 		}
-		node = this.#head(node)
+		node = this.#head(node, matches)
 		for (const n of late ?? []) {
 			node = this.#relational(node, n.filter, this.at("where", n.index), (column) =>
 				n.correlated.get(column)
@@ -3241,7 +3357,10 @@ class RuleCheck {
 	 * its correlation hold. An unbound parent variable is correlated to its parent column, an imported parameter to its
 	 * outer value.
 	 */
-	#defineRegion(leaves: Leaves<Resolved["param"], Resolved["paramType"]>): RelNode {
+	#defineRegion(leaves: Leaves<Resolved["param"], Resolved["paramType"]>): {
+		readonly region: RelNode
+		readonly matches: RegionMatches
+	} {
 		for (const v of [...leaves.vars].toSorted(compareStrings)) {
 			if (!this.decls.has(v)) {
 				fail(
@@ -3302,7 +3421,7 @@ class RuleCheck {
 			}
 		}))
 		const occurrences: Array<Occurrence> = this.#defined.map((d) => d.occurrence)
-		return this.cx.define(
+		const region = this.cx.define(
 			this.region,
 			{
 				kind: "MatchRegion",
@@ -3315,6 +3434,7 @@ class RuleCheck {
 			},
 			this.loc
 		)
+		return { region, matches: regionMatches({ vars, occurrences, correlated }) }
 	}
 
 	/** The rule's scalar filters, and the equalities its hidden variables owe, as one Filter over the region. */
@@ -3847,7 +3967,7 @@ class RuleCheck {
 	}
 
 	/** find: a set projection; with aggregates a Group over the complete bound tuple; with a producer a Produce. */
-	#head(input: RelNode): RelNode {
+	#head(input: RelNode, matches: RegionMatches): RelNode {
 		const headEntries = entries(this.rule.head)
 		const corr = this.correlation
 			.filter(
@@ -3898,18 +4018,13 @@ class RuleCheck {
 					return { name, ...t }
 				})
 			]
-			const node = this.cx.node(
-				{
-					kind: "ProjectSet",
-					input,
-					...projectionOf(out)
-				},
-				this.at("head")
-			)
+			const projection = projectionOf(out)
+			const node = this.cx.node({ kind: "ProjectSet", input, ...projection }, this.at("head"))
 			this.cx.setLiterals(node, literals)
+			this.cx.stateMerge(node, { kind: "matches", input, region: matches }, this.at("head"))
 			return node
 		}
-		return this.#grouped(input, corr, plain, folded)
+		return this.#grouped(input, corr, plain, folded, matches)
 	}
 
 	/** The Group over `groupInput` of a head's aggregates, each under its result column. */
@@ -3978,54 +4093,9 @@ class RuleCheck {
 		return { columns, keyed }
 	}
 
-	/**
-	 * The keys of a matched source, narrowest first as its declaration states them: a relation's primary key and every
-	 * further key, a view's proved keys then its whole heading, a closed relation's key, a delta's relation's keys, the
-	 * empty key of a context's one fact, and the whole heading of any other source (a relation parameter, a matched
-	 * query or stage, a recursion's feedback), which is a set keyed by its heading.
-	 */
+	/** The keys of a matched source as its declaration states them (check/merge.ts declaredKeys). */
 	#sourceKeys(source: RelNode): NonEmptyReadonlyArray<KeySet> {
-		const heading = source.heading.map((c) => c.name)
-		switch (source.kind) {
-			case "Base":
-				return source.relationKind === "relation"
-					? [source.primaryKey, ...source.keys]
-					: appendNonEmpty<KeySet>(
-							source.view.map((k) => k.fields),
-							heading
-						)
-			case "Closed": {
-				const closed = this.cx.schema.closed.get(source.closed)
-				return closed === undefined ? [heading] : [closed.relation.primaryKey]
-			}
-			case "Context":
-				return [[]]
-			case "Delta":
-				return isNonEmpty(source.keys) ? source.keys : [heading]
-			case "InputSet":
-			case "MatchRegion":
-			case "Filter":
-			case "ProjectSet":
-			case "SemiJoin":
-			case "AntiJoin":
-			case "Union":
-			case "Intersect":
-			case "Difference":
-			case "Take":
-			case "Group":
-			case "Produce":
-			case "Recursive":
-			case "SelfRef":
-			case "ApproximateNearest":
-			case "OrderedResult":
-			case "Attach":
-			case "Forbid":
-			case "Window":
-			case "OrderedSetAggregate":
-			case "Step":
-			case "Call":
-				return [heading]
-		}
+		return declaredKeys(source, (name) => this.cx.schema.closed.get(name)?.relation.primaryKey)
 	}
 
 	/** An aggregate applied over `groupInput`: its native overload and its call, count over no argument. */
@@ -4114,7 +4184,8 @@ class RuleCheck {
 		input: RelNode,
 		corr: ReadonlyArray<{ readonly name: string; readonly slot: ParentSlot }>,
 		plain: ReadonlyArray<readonly [string, ResolvedExpr]>,
-		folded: Folded
+		folded: Folded,
+		matches: RegionMatches
 	): RelNode {
 		const loc = this.at("head")
 		const inputHeading = input.heading
@@ -4202,25 +4273,28 @@ class RuleCheck {
 						loc
 					)
 				: this.#produceNode(groupInput, keyColumns, producedColumn(keyNames, folded.producer), loc)
-		const renamed =
+		/** A float the group delivers is the canonical zero where a group may take it as one of several (groupedZeroed). */
+		const correlations = new Set(corr.map((c) => c.name))
+		const zeroed = groupedZeroed(matches, inputHeading, new Set(keyNames), (source) =>
+			this.#sourceKeys(source)
+		)
+		const keyRole = (name: string): "correlation" | "key" =>
+			correlations.has(name) ? "correlation" : "key"
+		const read = (c: HeadingColumn, delivered: "correlation" | "key" | "result"): ScalarExpr => {
+			const column = this.cx.emit(storedColumn(node.id, c.name, c.type))
+			return zeroed(c, delivered) ? this.cx.canonicalZero(column) : column
+		}
+		const projected =
 			constants.length > 0 ||
-			keyed.some((k) => k.name !== k.column.name) ||
-			results.some((r) => r.name !== r.column.name)
-		if (!renamed) {
+			keyed.some((k) => k.name !== k.column.name || zeroed(k.column, keyRole(k.name))) ||
+			results.some((r) => r.name !== r.column.name || zeroed(r.column, "result"))
+		if (!projected) {
 			return node
 		}
 		const literals = new Map<string, HeadLiteral>()
 		const out: Array<OutColumn> = [
-			...keyed.map(({ name, column: c }) => ({
-				name,
-				expr: this.cx.emit(storedColumn(node.id, c.name, c.type)),
-				type: c.type
-			})),
-			...results.map(({ name, column: c }) => ({
-				name,
-				expr: this.cx.emit(storedColumn(node.id, c.name, c.type)),
-				type: c.type
-			})),
+			...keyed.map(({ name, column: c }) => ({ name, expr: read(c, keyRole(name)), type: c.type })),
+			...results.map(({ name, column: c }) => ({ name, expr: read(c, "result"), type: c.type })),
 			...constants.map(([name, h]) => {
 				const t = this.#term(name, h, node, this.at("head", name))
 				if (t.literal !== undefined) {
@@ -4229,15 +4303,8 @@ class RuleCheck {
 				return { name, expr: t.expr, type: t.type }
 			})
 		].toSorted(byName)
-		const projected = this.cx.node(
-			{
-				kind: "ProjectSet",
-				input: node,
-				...projectionOf(out)
-			},
-			loc
-		)
-		this.cx.setLiterals(projected, literals)
-		return projected
+		const projection = this.cx.node({ kind: "ProjectSet", input: node, ...projectionOf(out) }, loc)
+		this.cx.setLiterals(projection, literals)
+		return projection
 	}
 }

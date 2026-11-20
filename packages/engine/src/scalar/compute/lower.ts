@@ -45,6 +45,7 @@ import {
 	type ContractInfo,
 	octetsOf,
 	integerTypmodOf,
+	isFloat,
 	patternsText,
 	type RegexRef,
 	regexRefOf,
@@ -77,7 +78,7 @@ import { parseBy } from "#compiler/scalar/compute/cast.ts"
 import { admitLiteral, literalMember, refined } from "#compiler/scalar/compute/evaluate.ts"
 import { nativeProof } from "#compiler/scalar/compute/native.ts"
 import type { NativeFn } from "#compiler/scalar/compute/registry.ts"
-import { isFloat, valueType } from "#compiler/scalar/compute/types.ts"
+import { valueType } from "#compiler/scalar/compute/types.ts"
 import {
 	boundsOfType,
 	type ClosedRelations,

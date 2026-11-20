@@ -102,6 +102,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "canonicalZero":
 		case "add":
 		case "sub":
 		case "mul":
@@ -753,6 +754,8 @@ const catalogApply = (
 		}
 		case "minScale":
 			return isDecimal(a) ? liftEngine(Engine.map(N.minScaleOf(a), BigInt)) : mismatch(op)
+		case "canonicalZero":
+			return isNumber(a) ? Result.succeed(a === 0 ? 0 : a) : mismatch(op)
 		case "least":
 		case "greatest": {
 			if (a === undefined || t === undefined) {

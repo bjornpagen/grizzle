@@ -129,7 +129,7 @@ export const parseDoubleForm = (x: Expr): Expr => {
 			{ when: text("INF"), result: double(Number.POSITIVE_INFINITY) },
 			{ when: text("NaN"), result: double(Number.NaN) }
 		],
-		else: roundToFloat(numeral, "float8")
+		else: roundToFloat(numeral, "float8", double(0))
 	}
 	return binary(
 		"*",

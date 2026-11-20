@@ -61,6 +61,11 @@ export interface CheckServices {
 	readonly searches: Map<string, RelNode>
 	/** The ScalarType of a descriptor the query carries (a recursive row's fields, say). */
 	readonly fieldType: (desc: FieldDesc, loc: SourceLoc) => ScalarType
+	/**
+	 * A node whose rows a merge meets with another's, every float it delivers the canonical zero (Checker.canonicalArm): a
+	 * recursion's base and step, whose state its recursive UNION merges.
+	 */
+	readonly canonicalArm: (node: RelNode, loc: SourceLoc) => RelNode
 }
 
 /** The checker's services in the checker's own scope type `S`, which a plug-in receives and passes back unchanged. */

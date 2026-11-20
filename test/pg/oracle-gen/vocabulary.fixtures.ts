@@ -155,7 +155,7 @@ export const aggregateSql = (fn: GenAggregate, arg: string, schema: string): str
  * PostgreSQL accumulates and types as numeric; a scale-free mean's is each value through trim_scale; a money sum's is
  * each amount's exact numeric value, since the checker keeps the total exact money, which PostgreSQL's sum(money) does
  * not; any other aggregate reads `x` as it is, a float's exact sum and mean rounding back to the float the native call
- * returns.
+ * returns, and a float's min and max reading its zeros' signs beside the native extreme.
  */
 export const argumentSql = (fn: GenAggregate, t: ScalarType, x: string): string => {
 	const lowering = aggregateLowering(fn, t)
@@ -168,6 +168,7 @@ export const argumentSql = (fn: GenAggregate, t: ScalarType, x: string): string 
 			return lowering.exact === "money" ? `${x}::numeric` : x
 		case "native":
 		case "exactMean":
+		case "signedExtreme":
 			return x
 	}
 }

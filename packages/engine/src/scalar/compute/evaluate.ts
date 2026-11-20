@@ -331,9 +331,24 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 }
 
 /**
+ * A float quotient as grizzle's SQL computes it (lower/conservative/expr/total.ts guardedForm): IEEE 754's, but a
+ * quotient by zero is the infinity of the dividend's sign, NaN over a zero or NaN dividend, whichever zero divides, so
+ * equal operands give equal quotients, as every Compute operation gives equal results of equal operands, and a set's
+ * merge of -0 and +0 changes no value computed after it.
+ */
+const quotient = (a: number, b: number): number =>
+	b !== 0
+		? a / b
+		: Number.isNaN(a) || a === 0
+			? Number.NaN
+			: a > 0
+				? Number.POSITIVE_INFINITY
+				: Number.NEGATIVE_INFINITY
+
+/**
  * IEEE 754 arithmetic of a float carrier, as the host's own: binary64 for double precision, binary32 for real by one
  * rounding of the binary64 result (correct for +, -, *, / and the square root, whose binary64 results round to binary32
- * exactly as a binary32 operation does), the one zero.
+ * exactly as a binary32 operation does), each zero's sign as IEEE 754 keeps it, and a quotient by zero `quotient`'s.
  */
 const ieee = (
 	fn: "add" | "sub" | "mul" | "div",
@@ -341,7 +356,7 @@ const ieee = (
 	b: number,
 	carrier: Carrier
 ): number => {
-	const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : a / b
+	const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : quotient(a, b)
 	return carrier === "float4" ? Math.fround(r) : r
 }
 
@@ -742,6 +757,10 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(new Set([...hostOf("bits", a(args)), hostOf("code", b(args))]))
 		case "complement":
 			return refused("complement, which no Compute operation yields")
+		case "canonicalZero": {
+			const carrier = c === "float4" ? "float4" : "float8"
+			return (args) => Result.ok(hostOf(carrier, a(args)) + 0)
+		}
 		case "least":
 		case "greatest": {
 			const extreme = extremum(fn, argTypes)
@@ -869,6 +888,7 @@ const operation = (
 		case "add":
 		case "adjoin":
 		case "btrim":
+		case "canonicalZero":
 		case "cardinality":
 		case "ceil":
 		case "charLength":

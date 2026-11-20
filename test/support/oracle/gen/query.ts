@@ -17,7 +17,15 @@ import { fullSwarm, keep, type Swarm, weightOf } from "@bjornpagen/testing/swarm
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import { AllenMask, fullAllenMask } from "#compiler/allen/mask.ts"
 import { allenExpr } from "#compiler/check/allen.ts"
-import { completeStatedOrders, type StatedOrder } from "#compiler/check/order.ts"
+import { completeStated } from "#compiler/check/complete.ts"
+import {
+	declaredKeys,
+	deliversFloat,
+	pickFree,
+	regionMatches,
+	type StatedMerge
+} from "#compiler/check/merge.ts"
+import type { StatedOrder } from "#compiler/check/order.ts"
 import { makeIdSupply, ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
@@ -57,13 +65,14 @@ import { defined } from "@bjornpagen/testing/assert"
 import {
 	baseOf,
 	exactDigitsOf,
+	isFloat,
 	isRefined,
 	type ScalarType,
 	sameScalarType,
 	spanCarrierOf,
 	spanOf
 } from "#compiler/ir/scalar.ts"
-import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
+import { canonicalZeroSpec, definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import { foldInputOf, keyedFoldInput } from "#test/support/fixtures/ir/fold.ts"
 import { parameterNames } from "#test/support/kernel/dict.ts"
 import { liveOf, validateDag } from "#test/support/oracle/dag-validate.ts"
@@ -1587,6 +1596,64 @@ class QueryResolver {
 	}
 
 	/**
+	 * `built` read through a projection that delivers the canonical zero of each float column `zeroed` names (check/merge.ts):
+	 * `built` itself where it names none.
+	 */
+	#zeroedOver(built: Built, zeroed: ReadonlySet<string>): Built {
+		if (zeroed.size === 0) {
+			return built
+		}
+		const out = Arr.map(built.heading, (c) => {
+			const read = this.col(built.node, c)
+			const spec = zeroed.has(c.name) ? canonicalZeroSpec(read) : undefined
+			return { name: c.name, expr: spec === undefined ? read : this.b.expr(spec) }
+		})
+		return {
+			node: this.b.node({
+				loc: undefined,
+				meta: conservativeMeta,
+				kind: "ProjectSet",
+				input: built.node,
+				out,
+				heading: built.heading
+			}),
+			heading: built.heading
+		}
+	}
+
+	/**
+	 * A region as its readers read it: each float variable a merge may take from either of two equal facts or fields its
+	 * canonical zero (check/merge.ts), so a generated query's answer is one under every plan and rewrite: a variable of two
+	 * equal values (bound by two fields, by a field and a correlation, or by a region equality), and one whose match's
+	 * bound fields hold no declared key of its source (pickFree, every variable the region delivers determined). A region
+	 * whose every float is one fact's field is read as it is.
+	 */
+	#merged(region: Built): Built {
+		const node = region.node
+		if (node.kind !== "MatchRegion") {
+			return region
+		}
+		const matches = regionMatches(node)
+		const delivered = new Set(Arr.map(node.vars, (v) => v.name))
+		const equated = new Set(Arr.flatMap(node.equalities, (e) => [e.a.name, e.b.name]))
+		const keyed = (source: RelNode, fields: ReadonlyArray<string>): boolean =>
+			Arr.some(
+				declaredKeys(source, () => undefined),
+				(k) => Arr.every(k, (f) => fields.includes(f))
+			)
+		return this.#zeroedOver(
+			region,
+			new Set(
+				Arr.flatMap(region.heading, (c) =>
+					isFloat(c.type) && (equated.has(c.name) || !pickFree(matches, delivered, keyed, c.name))
+						? [c.name]
+						: []
+				)
+			)
+		)
+	}
+
+	/**
 	 * `input` read through a region that binds its every column to a variable of the column's name, declaring besides
 	 * the variables `correlated` copies a column of an enclosing region's earlier source into.
 	 *
@@ -1618,7 +1685,7 @@ class QueryResolver {
 			correlated: Arr.map(correlated, (c) => ({ var: c.var, expr: c.expr })),
 			heading
 		})
-		return { node: id, heading }
+		return this.#merged({ node: id, heading })
 	}
 
 	/** A fresh variable `name` of the type of `c`. */
@@ -1825,7 +1892,7 @@ class QueryResolver {
 			correlated,
 			heading
 		})
-		return { node, heading }
+		return this.#merged({ node, heading })
 	}
 
 	pred(p: PredSketch, input: Built): ScalarExpr {
@@ -2219,7 +2286,9 @@ class QueryResolver {
 			aggs,
 			heading
 		})
-		return this.stored({ node: id, heading })
+		/** A group key takes one of the equal values it groups: a float key its canonical zero (check/merge.ts). */
+		const mergedKeys = new Set(Arr.flatMap(keys, (k) => (isFloat(k.type) ? [k.name] : [])))
+		return this.stored(this.#zeroedOver({ node: id, heading }, mergedKeys))
 	}
 
 	/** `input` projected onto `columns`, the set of their distinct values, read through a region that matches it whole. */
@@ -3016,6 +3085,9 @@ class QueryResolver {
 	}
 }
 
+/** Where a generated projection's merge stands. */
+const generatedAt = SourceLoc("a generated projection", [])
+
 /**
  * Resolves a root sketch to a query over `schema` under the case's three swarms, drawing their thinning decisions from
  * the case's tape. A DAG that fails validation is a defect of the generator, never of the case, so it throws with the
@@ -3036,8 +3108,20 @@ export const resolveQuery =
 		const r = new QueryResolver(source, schema, spelling, config, swarm, rewrite, soundness, names)
 		const root = r.root(sketch)
 		const built = r.b.build(Arr.of(root))
-		/** The stated orders completed as the checker completes them, every node then carrying the logical metadata. */
-		const completed = completeStatedOrders(built, r.stated)
+		/**
+		 * The stated orders completed as the checker completes them, every node then carrying the logical metadata, and
+		 * every float a generated projection delivers its canonical zero (check/merge.ts `always`): the generator states
+		 * no rule's matches, so it takes every projection's for a merge, which keeps the generated queries' answers the
+		 * same under every plan.
+		 */
+		const merges = new Map<RelNode, StatedMerge>(
+			Arr.flatMap(topoOrder(built), (node) =>
+				node.kind === "ProjectSet" && deliversFloat(node)
+					? [[node, { projection: node, rule: { kind: "always" }, at: generatedAt }] as const]
+					: []
+			)
+		)
+		const completed = completeStated(built, r.b, r.stated, merges)
 		if (!completed.ok) {
 			throw new Error(`could not complete a generated order: ${completed.error.message}`)
 		}

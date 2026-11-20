@@ -385,6 +385,10 @@ const registryForm = (
 				? call("encode", [qualifiedCall(fn.schema, fn.name, [x]), lit.text("hex", types.text)])
 				: undefined
 		}
+		case "canonicalZero":
+			return args.length === 1 && first !== undefined
+				? binary("+", first, lit.float(0, sql.carrier === "float4" ? types.real : types.double))
+				: undefined
 	}
 }
 
