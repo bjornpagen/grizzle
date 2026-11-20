@@ -156,8 +156,7 @@ const viewObjects = (
 				const from = b.readObject(read)
 				return from === undefined ? [] : [from]
 			}),
-			...usedNodes(use),
-			...b.constantNodes([create])
+			...usedNodes(use)
 		]
 	)
 

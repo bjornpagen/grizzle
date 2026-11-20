@@ -1,4 +1,4 @@
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { compareIdentities, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
 import {
@@ -18,7 +18,19 @@ import {
 	type PhysicalReason,
 	physicalKinds
 } from "#compiler/ir/products.ts"
-import type { SqlStatement } from "#compiler/sql/ast.ts"
+import {
+	type ObjectName,
+	type QualifiedFunctionRef,
+	type SqlStatement,
+	stubBody,
+	type TypeRef
+} from "#compiler/sql/ast.ts"
+import {
+	type AstHooks,
+	identityHooks,
+	type NameSpace,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 
 /** A graph identity as the manifest spells it, the key of an object in the manifest: `<kind>:<name>` for a schema, an
  * extension, a role, a role's membership in its login or a role's privileges; `<kind>:<schema>.<name>` for an object
@@ -112,6 +124,125 @@ export const parseIdent = (ident: string): GraphIdent => {
 		}
 	}
 	return { kind: "other", text: ident }
+}
+
+/**
+ * The namespaces a statement names an object of each qualified kind in (sql/transform.ts NameSpace): a table, a view
+ * and a materialized view also as the row type PostgreSQL creates under its name. A row security and a replica identity
+ * are named by no statement but their own.
+ */
+const namedIn: Readonly<Record<QualifiedKind, ReadonlyArray<NameSpace>>> = {
+	domain: ["type"],
+	type: ["type"],
+	table: ["relation", "type"],
+	materializedView: ["relation", "type"],
+	view: ["relation", "type"],
+	index: ["relation"],
+	statistics: ["statistics"],
+	function: ["function"],
+	rowSecurity: [],
+	replicaIdentity: []
+}
+
+/** A schema object's name in the namespace a statement names it in. */
+const nameKey = (namespace: NameSpace, schema: string, name: string): string =>
+	`${namespace}\u0000${schema}\u0000${name}`
+
+/** An object of a manifest by its identity (the `<kind>:<names>` key) and its statements. */
+interface Stated {
+	readonly ident: string
+	readonly ddl: ReadonlyArray<SqlStatement>
+}
+
+/** An edge of a manifest: `to` is created after `from`. */
+interface Edge {
+	readonly from: string
+	readonly to: string
+}
+
+/**
+ * The edges of what each object of `of` names among `objects`: `from` each other object of `objects` a statement of
+ * `to` names, as PostgreSQL resolves the statement when it runs it, by every name sql/transform.ts walks (an object's
+ * name in its namespace, a table's, a view's or a materialized view's row type among them, a named type a column, a
+ * cast or a literal names, a qualified function) and the schema of each, a PL/pgSQL function by its header alone.
+ * PostgreSQL resolves each such name as it creates the object, so each named object is one it is created after,
+ * whatever the object's addition states: a table whose CHECK casts a literal to a roster's bits domain, which no column
+ * of it is typed by, is created after the domain. The one source of the edges no addition states, which the install
+ * order reads (ObligationGraph order) and every manifest records (deploy/snapshot/build.ts targetState).
+ */
+export const namedEdges = (
+	objects: ReadonlyArray<Stated>,
+	of: ReadonlyArray<Stated>
+): ReadonlyArray<Edge> => {
+	const schemas = new Map<string, string>()
+	const byName = new Map<string, string>()
+	for (const o of objects) {
+		const ident = parseIdent(o.ident)
+		switch (ident.kind) {
+			case "schema":
+				schemas.set(ident.name, o.ident)
+				break
+			case "domain":
+			case "type":
+			case "table":
+			case "materializedView":
+			case "view":
+			case "index":
+			case "statistics":
+			case "function":
+			case "rowSecurity":
+			case "replicaIdentity":
+				for (const namespace of namedIn[ident.kind]) {
+					byName.set(nameKey(namespace, ident.schema, ident.name), o.ident)
+				}
+				break
+			case "extension":
+			case "role":
+			case "membership":
+			case "privileges":
+			case "publication":
+			case "column":
+			case "constraint":
+			case "trigger":
+			case "policy":
+			case "other":
+				break
+		}
+	}
+	return of.flatMap((o) => {
+		const from = new Set<string>()
+		const named = (namespace: NameSpace, schema: string, name: string): void => {
+			for (const ident of [byName.get(nameKey(namespace, schema, name)), schemas.get(schema)]) {
+				if (ident !== undefined && ident !== o.ident) {
+					from.add(ident)
+				}
+			}
+		}
+		const hooks: AstHooks = {
+			...identityHooks,
+			objectName: (n: ObjectName, namespace: NameSpace): ObjectName => {
+				named(namespace, n.schema, n.name)
+				return n
+			},
+			typeRef: (t: TypeRef): TypeRef => {
+				if (t.kind === "named") {
+					named("type", t.schema, t.name)
+				}
+				return t
+			},
+			functionRef: (f: QualifiedFunctionRef): QualifiedFunctionRef => {
+				named("function", f.schema, f.name)
+				return f
+			}
+		}
+		for (const s of o.ddl) {
+			transformStatement(
+				s.kind === "createFunction" && s.language === "plpgsql" ? { ...s, body: stubBody } : s,
+				hooks
+			)
+		}
+		return [...from].map((f) => ({ from: f, to: o.ident }))
+	})
 }
 
 /** A name the naming door minted, with the identity it was minted from. */
@@ -368,14 +499,17 @@ const priority: Comparator<Node<DeployPhase>> = combineAll([
  * deployment phase its DDL belongs to. One law can require several objects, and an object a later request reuses (a
  * key index serving a law's probe) takes that request's reasons (`addReasons`).
  *
- * Each object is added after the objects it is created after (`to` depends on `from`), each named by the handle its own
- * addition returned and each of its phase or an earlier one, so the graph is acyclic and its edges follow the phase
- * order by construction. The install order is a topological order of the edges that is also ordered by phase, Setup,
- * Structure, Indexes, Validate, Publish, which refines the dependency order: namespaces; constants, domains and helper
- * types; tables, columns and identities; native references; the refusal function, law functions and their triggers;
- * materialized views; key, law and workload indexes; validation; grants and publication. Ties are broken by a fixed
- * kind rank and then by the objects' names, a hashed name by the identity it was minted from, never by its digest,
- * which is no order: equal inputs produce one order byte for byte, and two installations of one schema one order.
+ * Each object is added after the objects it is created after (`to` depends on `from`) that its statements do not name,
+ * each named by the handle its own addition returned and each of its phase or an earlier one; every object its
+ * statements name it is created after too (namedEdges), which the graph reads off the statements, so no addition can
+ * leave one out, and one of a later phase is refused as a defect of the additions. So the graph is acyclic and its
+ * edges follow the phase order by construction. The install order is a topological order of the edges that is also
+ * ordered by phase, Setup, Structure, Indexes, Validate, Publish, which refines the dependency order: namespaces;
+ * constants, domains and helper types; tables, columns and identities; native references; the refusal function, law
+ * functions and their triggers; materialized views; key, law and workload indexes; validation; grants and publication.
+ * Ties are broken by a fixed kind rank and then by the objects' names, a hashed name by the identity it was minted
+ * from, never by its digest, which is no order: equal inputs produce one order byte for byte, and two installations of
+ * one schema one order.
  *
  * A freshly compiled object is `needed`: only installation and catalog validation establish the later states, created,
  * building, validated and trusted, which the deployment package records. The manifest holds the objects in install
@@ -476,15 +610,46 @@ export class ObligationGraph {
 	}
 
 	/**
-	 * Every object in install order: Kahn's order, each step taking the ready object first by `priority`, two equal ones
-	 * in the order they became ready, from a heap of the ready objects, so the order costs n log n in its objects.
+	 * What each object is created after: each object its addition states, and each its statements name (namedEdges),
+	 * whether or not its addition states it. A named object stands in the object's phase or an earlier one, as every
+	 * stated one does; one of a later phase is a defect of the graph's additions, which no phase's file could create.
+	 */
+	#createdAfter(): ReadonlyMap<Node<DeployPhase>, ReadonlySet<Node<DeployPhase>>> {
+		const byText = new Map(this.#nodes.map((n) => [n.text, n] as const))
+		const after = new Map(this.#nodes.map((n) => [n, new Set(n.after)] as const))
+		const stated = this.#nodes.map((n) => ({ ident: n.text, ddl: n.ddl }))
+		for (const e of namedEdges(stated, stated)) {
+			const from = defined(byText.get(e.from), "a named object of the graph")
+			const to = defined(byText.get(e.to), "an object of the graph")
+			if (phaseRank(from.phase) > phaseRank(to.phase)) {
+				throw defect(
+					`physical: ${e.to}, of phase ${to.phase}, names ${e.from}, of phase ${from.phase}`
+				)
+			}
+			defined(after.get(to), "an object of the graph").add(from)
+		}
+		return after
+	}
+
+	/**
+	 * Every object in install order: Kahn's order over what each is created after (#createdAfter), each step taking the
+	 * ready object first by `priority`, two equal ones in the order they became ready, from a heap of the ready objects,
+	 * so the order costs n log n in its objects.
 	 */
 	order(): ReadonlyArray<InstallObject> {
+		return this.#orderOver(this.#createdAfter())
+	}
+
+	#orderOver(
+		after: ReadonlyMap<Node<DeployPhase>, ReadonlySet<Node<DeployPhase>>>
+	): ReadonlyArray<InstallObject> {
 		const waiting = new Map<Node<DeployPhase>, number>()
 		const next = new Map<Node<DeployPhase>, Array<Node<DeployPhase>>>()
+		const afterOf = (node: Node<DeployPhase>): ReadonlySet<Node<DeployPhase>> =>
+			defined(after.get(node), "an object of the graph")
 		for (const node of this.#nodes) {
-			waiting.set(node, node.after.size)
-			for (const from of node.after) {
+			waiting.set(node, afterOf(node).size)
+			for (const from of afterOf(node)) {
 				const own = next.get(from)
 				if (own === undefined) {
 					next.set(from, [node])
@@ -494,7 +659,7 @@ export class ObligationGraph {
 			}
 		}
 		const ready = new ReadyHeap()
-		for (const node of this.#nodes.filter((n) => n.after.size === 0).toSorted(priority)) {
+		for (const node of this.#nodes.filter((n) => afterOf(n).size === 0).toSorted(priority)) {
 			ready.push(node)
 		}
 		const out: Array<InstallObject> = []
@@ -511,16 +676,19 @@ export class ObligationGraph {
 		return out
 	}
 
-	/** The manifest: the objects in install order with every edge, ordered by their objects' identities, the PUBLIC
-	 * revokes and the role defaults. */
+	/** The manifest: the objects in install order with every edge (#createdAfter), ordered by their objects'
+	 * identities, the PUBLIC revokes and the role defaults. */
 	manifest(extra: {
 		readonly roleDefaults: ReadonlyArray<SqlStatement>
 		readonly publicRevokes: ReadonlyArray<SqlStatement>
 	}): Omit<InstallationManifest<SqlStatement>, "comments"> {
+		const after = this.#createdAfter()
 		return {
-			objects: this.order(),
+			objects: this.#orderOver(after),
 			edges: this.#nodes
-				.flatMap((to) => [...to.after].map((from) => ({ from, to })))
+				.flatMap((to) =>
+					[...defined(after.get(to), "an object of the graph")].map((from) => ({ from, to }))
+				)
 				.toSorted(
 					thenBy(
 						mapInput(compareKeys, (e) => e.from.key),

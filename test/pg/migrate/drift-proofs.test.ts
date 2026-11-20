@@ -18,18 +18,18 @@
  * - **Kills:** a full replay every time; a stored description digest that is never compared.
  * - **Features:** the first version, a version over another, nothing changed, and each hand edit.
  *
- * And a cast's type, which no edge names (deploy/admission/manifest.ts ReplayedObject after): a set's schema migrated,
+ * And a cast's type, which only its cast names (physical/obligations/graph.ts namedEdges): a set's schema migrated,
  * then its table alone changed, its CHECK's or its generated field's membership test, whose singleton set is a literal
  * cast to its roster's bits domain, which no column is typed by.
  *
  * - **Property:** over the first version's proofs, the second's check replays exactly the specification's replay set,
  *   the table unproven and the domain, proven, among what it is created after, and admits the database: PostgreSQL
- *   resolves the cast, where a replay of the edges alone left the domain out and was refused (42704), S7's drift check
- *   on qti's attribute.
+ *   resolves the cast, where a manifest whose edges held no cast's type left the domain out of the replay, which was
+ *   refused (42704), S7's drift check on qti's attribute.
  * - **Oracle:** specification, the replay set restated by object, its objects' names read off their printed text
  *   (test/support/migrate/proofs.ts specifiedAfter); and PostgreSQL, which builds the replay.
  * - **Box, exhausted:** each of the two changes of the set's table (schemas.ts setChanges).
- * - **Kill:** a replay of the edges alone.
+ * - **Kill:** no edge from a type a cast names.
  * - **Features:** each change.
  */
 
@@ -251,10 +251,10 @@ export const driftReplaysTheDomainAnUnprovenTablesCastNames = property.exhaust(
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/deploy/admission/manifest.ts",
-				original: "\t\t\t\t\tafter.add(ident)\n",
+				file: "packages/engine/src/physical/obligations/graph.ts",
+				original: '\t\t\t\t\tnamed("type", t.schema, t.name)\n',
 				replacement: "",
-				why: "A replay creates only what the manifest's edges say an object is created after, so the unproven table is replayed without the bits domain its cast names, and PostgreSQL refuses the replay (42704): S7's drift check on qti's attribute."
+				why: "An object is created after no type a cast or a literal of its statements names, so the unproven table is replayed without the bits domain its cast names, and PostgreSQL refuses the replay (42704): S7's drift check on qti's attribute."
 			}
 		]
 	}

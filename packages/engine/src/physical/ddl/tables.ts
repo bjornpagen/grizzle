@@ -1,4 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
@@ -29,8 +28,8 @@ import {
 	type TableRelation,
 	fieldColumn
 } from "#compiler/ir/law.ts"
-import { type ColumnType, fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
-import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import { fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
+import { baseOf, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
 import { addColumnChecks, columnChecks } from "#compiler/physical/ddl/column-checks.ts"
 import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
@@ -134,7 +133,6 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 			const after: Array<Node<"setup">> = [b.levelNode(name)]
 			const columns = mapNonEmpty(r.fields, (c): ColumnDef => {
 				const { type, collation } = fieldColumnType(b.names, c.type)
-				appendAll(after, typeNodes(b, c.type))
 				return {
 					name: b.names.column(name, c.name),
 					type,
@@ -153,17 +151,6 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 				after
 			}
 		})
-
-/** The domain of the installed schema a column of type `t` is typed by, which the column's object is created after;
- * none for any other type. */
-const typeNodes = (b: InstallBuilder, t: ScalarType): ReadonlyArray<Node<"setup">> =>
-	typeNodeOf(b, fieldColumnType(b.names, t))
-
-/** The domain of the installed schema a column type names; none for any other type. */
-const typeNodeOf = (b: InstallBuilder, t: ColumnType): ReadonlyArray<Node<"setup">> => {
-	const node = b.typeNode(t.type)
-	return node === undefined ? [] : [node]
-}
 
 /** The names of a key's fields, at least one, as a key has. */
 const keyNames = (
@@ -471,7 +458,6 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 				secondary: inline.get(t.relation) ?? []
 			}
 		]
-		/** A generated column and a closed CHECK read constants, which the table is created after. */
 		const table = b.addTable(
 			t.relation,
 			{
@@ -481,7 +467,7 @@ export const addTables = (b: InstallBuilder): PlacedNatives => {
 				reasons: [enforcement(`relation ${t.relation}`)],
 				phase: "structure"
 			},
-			[...t.after, ...b.constantNodes(ddl)]
+			t.after
 		)
 		addIsolationTrigger(b, t.relation, table)
 	}
@@ -833,7 +819,7 @@ const lawColumnDdl = (b: InstallBuilder, o: NativeOf<"LawColumn">): SqlStatement
 	}
 }
 
-/** The objects of the natives once every table stands: each law column after its table and the type it names; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each key over a
+/** The objects of the natives once every table stands: each law column after its table; each key and CHECK after its table (a span key with a scalar component after btree_gist too); each key over a
  * column a law adds after those columns; then each reference, after its table, its target's table and key, and the law
  * columns it names. */
 const addNatives = (
@@ -861,11 +847,7 @@ const addNatives = (
 				reasons: lawReasons(o.lawIds),
 				phase: "structure"
 			},
-			[
-				b.table(o.relation.name),
-				...typeNodeOf(b, lawColumnType(b.names, o.field.type)),
-				...b.constantNodes(ddl)
-			]
+			[b.table(o.relation.name)]
 		)
 		lawColumns.set(
 			o.relation.name,
@@ -920,7 +902,7 @@ const addNatives = (
 						reasons: lawReasons(p.laws),
 						phase: "structure"
 					},
-					[b.table(p.relation), ...lawColumnsOf(p.relation, p.lawColumns), ...b.constantNodes(ddl)]
+					[b.table(p.relation), ...lawColumnsOf(p.relation, p.lawColumns)]
 				)
 				continue
 			}

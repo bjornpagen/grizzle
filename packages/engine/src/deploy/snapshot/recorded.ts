@@ -15,7 +15,7 @@ import type {
 	SqlStatement,
 	TypeRef
 } from "#compiler/sql/ast.ts"
-import { declaredBody } from "#compiler/sql/ast.ts"
+import { declaredBody, stubBody } from "#compiler/sql/ast.ts"
 import { lit, types } from "#compiler/sql/build.ts"
 import { functionSource, printStatement, typeOnSearchPath } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
@@ -286,22 +286,6 @@ export const recordedManifest = (m: InstallationManifest<SqlStatement>): Recorde
 	publicRevokes: m.publicRevokes,
 	comments: m.comments
 })
-
-/**
- * The stub body a recorded PL/pgSQL function is replayed with: one RAISE, which PL/pgSQL accepts in a function of any
- * result, and which never runs, since the drift check rolls its replay back. Its text is no part of any description:
- * the check describes a PL/pgSQL function by its header and holds the installed source to its record's digest.
- */
-const stubBody: PlBlock = {
-	declare: [],
-	body: [
-		{
-			kind: "raise",
-			message: "the drift check's stub of a recorded body, which never runs",
-			using: []
-		}
-	]
-}
 
 /**
  * The stub body a recorded declared function is replayed with, by its language: PL/pgSQL's one RAISE, as a PL/pgSQL

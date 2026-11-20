@@ -222,8 +222,8 @@ export const aLibraryFunctionIsInstalledExactlyWhereAPersistentExpressionCallsIt
 					why: "A grant names the function of no parameter, which is not the library function."
 				},
 				{
-					file: "packages/engine/src/physical/ddl/domains.ts",
-					original: "\t\t...b.constantNodes([ddl])",
+					file: "packages/engine/src/physical/obligations/graph.ts",
+					original: '\t\t\t\tnamed("function", f.schema, f.name)\n',
 					replacement: "",
 					why: "A contract's domain that calls the function does not wait for it, so a migration may drop the function before it."
 				}

@@ -100,7 +100,7 @@ import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import { definitionMeanings } from "#compiler/physical/derived/meaning.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
-import { namedIdent } from "#compiler/physical/obligations/graph.ts"
+import { namedEdges, namedIdent } from "#compiler/physical/obligations/graph.ts"
 import { levelChain, type Owned, ownLevel } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import {
@@ -940,21 +940,33 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 			guard: b.guard(schema)
 		}))
 		const [ledger] = bookkeeping
+		/** The objects this adds to the installation's or rewrites, whose named edges it adds (`edges`). */
+		const added: Array<ManifestObject> = []
 		for (const o of installation.manifest.objects) {
-			objects.push(o.kind === "publication" ? ledgerPublished(schema, o) : o)
+			if (o.kind === "publication") {
+				const published = ledgerPublished(schema, o)
+				objects.push(published)
+				added.push(published)
+			} else {
+				objects.push(o)
+			}
 			if (o.kind === "isolationFunction") {
 				for (const b of bookkeeping) {
 					objects.push(b.object, b.guard)
+					added.push(b.object, b.guard)
 				}
 			}
 		}
 		const privileges = ledgerPrivilegesObject(schema, installationLogins(installation))
 		if (privileges !== undefined) {
 			objects.push(privileges)
+			added.push(privileges)
 		}
-		/** The installation's edges, in its order (by the identities its objects' names were minted from), then the
-		 * bookkeeping tables'. */
-		const edges = [
+		/** The installation's edges, in its order (by the identities its objects' names were minted from), with every
+		 * object its statements name (physical/obligations/graph.ts namedEdges); then the bookkeeping tables'; then each
+		 * object this adds or rewrites (the bookkeeping tables, their guards, the ledger's privileges, the publication)
+		 * names, each edge once: the ledger's privileges after the ledger. */
+		const stated = [
 			...installation.manifest.edges,
 			...bookkeeping.flatMap((b) => [
 				{ from: namedIdent("schema", schema), to: b.object.ident },
@@ -965,6 +977,16 @@ export const targetState = (input: TargetInput): Result.Result<SnapshotContent, 
 				o.kind === "publication" ? [{ from: ledger.object.ident, to: o.ident }] : []
 			)
 		]
+		const edgeKey = (e: { readonly from: string; readonly to: string }): string =>
+			`${e.from}\u0000${e.to}`
+		const held = new Set(stated.map(edgeKey))
+		const edges = [...stated]
+		for (const e of namedEdges(objects, added)) {
+			if (!held.has(edgeKey(e))) {
+				held.add(edgeKey(e))
+				edges.push(e)
+			}
+		}
 		return {
 			schemaName: headNonEmpty(installation.owned.levels).name,
 			schema,

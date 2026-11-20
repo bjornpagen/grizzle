@@ -223,10 +223,10 @@ const widenedRelation = (
  * It adds the objects every installation holds when it is made: the schema, the refusal function every write statement
  * that can refuse and every context source raises through, the isolation default and guard, and the snapshot guard,
  * each after the schema. Each
- * later stage adds its objects after the objects it reads, named by the handles their stages returned; a domain a column
- * or a declaration names by its identifier (`addType`, `typeNode`), a constant a statement calls (`addConstant`,
- * `constantNodes`), a table by its relation
- * (`addTable`, `table`), and an extension an object needs at the object's addition (`provider`). */
+ * later stage adds its objects after the objects it reads that its statements do not name, named by the handles their
+ * stages returned: a table by its relation (`addTable`, `table`), a column a law adds, a key a reference names, and an
+ * extension an object needs at the object's addition (`provider`); every object its statements name, a domain, a type,
+ * a constant, a function, a relation or a schema, the graph adds on its own (physical/obligations/graph.ts namedEdges). */
 export class InstallBuilder {
 	readonly owned: Owned
 	/** The checker's reading of the owned schema, read once by the installation. */
@@ -269,7 +269,6 @@ export class InstallBuilder {
 	/** Each installed table's statements a write of it evaluates (`evaluatedTable`), by the table's identifier. */
 	readonly #evaluatedOn = new Map<string, Array<SqlStatement>>()
 	readonly #views = new Map<string, IndexedView>()
-	readonly #qualified = new Map<QualifiedKind, Map<string, Map<string, Node<DeployPhase>>>>()
 	/** The law columns of each stored relation an index may name (`lawColumnFields`). */
 	readonly #lawColumns: ReadonlyMap<string, ReadonlyMap<string, TargetField>>
 	/** The columns each table, view and materialized view the objects so far create holds, by its qualified name. */
@@ -395,40 +394,7 @@ export class InstallBuilder {
 				}
 			}
 		}
-		const node = this.graph.add(spec, after)
-		const ident = spec.ident
-		switch (ident.kind) {
-			case "domain":
-			case "type":
-			case "table":
-			case "materializedView":
-			case "view":
-			case "index":
-			case "statistics":
-			case "function":
-			case "rowSecurity":
-			case "replicaIdentity": {
-				const kind =
-					this.#qualified.get(ident.kind) ?? new Map<string, Map<string, Node<DeployPhase>>>()
-				const schema = kind.get(ident.schema.identifier) ?? new Map<string, Node<DeployPhase>>()
-				schema.set(ident.name.identifier, node)
-				kind.set(ident.schema.identifier, schema)
-				this.#qualified.set(ident.kind, kind)
-				return node
-			}
-			case "schema":
-			case "role":
-			case "membership":
-			case "privileges":
-			case "publication":
-			case "extension":
-			case "column":
-			case "constraint":
-			case "trigger":
-			case "policy":
-			case "text":
-				return node
-		}
+		return this.graph.add(spec, after)
 	}
 
 	/** The columns `statement` gives the relation it creates or adds to, counted against tableMaxColumns. */
@@ -479,7 +445,7 @@ export class InstallBuilder {
 	 * Adds a constant of the installed schema, a function of no argument (physical/ddl/constants.ts) or a library
 	 * function of its parameters (physical/ddl/library.ts), which a domain's CHECK, a table's CHECK, a generated column
 	 * or a view calls: its object is a function of the graph, so every object whose statements call it is created after
-	 * it (`readsOf`). A constant is named by its content, so one added again is the object already added, which takes
+	 * it (physical/obligations/graph.ts namedEdges). A constant is named by its content, so one added again is the object already added, which takes
 	 * the new reasons too.
 	 */
 	addConstant(
@@ -504,24 +470,6 @@ export class InstallBuilder {
 		)
 		this.#constants.set(name.identifier, { named: name, node, args: constantArgs(spec.ddl) })
 		return node
-	}
-
-	/** The installation's constants `statements` call, by identifier. */
-	#constantCalls(statements: ReadonlyArray<SqlStatement>): ReadonlySet<string> {
-		const called = new Set<string>()
-		const hooks: AstHooks = {
-			...identityHooks,
-			functionRef: (fn) => {
-				if (fn.schema === this.schema && this.#constants.has(fn.name)) {
-					called.add(fn.name)
-				}
-				return fn
-			}
-		}
-		for (const statement of statements) {
-			transformStatement(statement, hooks)
-		}
-		return called
 	}
 
 	/** The statements of the installed table of `relation` that a write of it evaluates (`evaluatedTable`). */
@@ -603,20 +551,6 @@ export class InstallBuilder {
 			}))
 	}
 
-	/** The objects of the constants `statements` call directly, which an object holding them is created after. */
-	constantNodes(statements: ReadonlyArray<SqlStatement>): ReadonlyArray<Node<"setup">> {
-		return [...this.#constantCalls(statements)].flatMap((identifier) => {
-			const known = this.#constants.get(identifier)
-			return known === undefined ? [] : [known.node]
-		})
-	}
-
-	/** The domain of the installed schema `type` names; none for a type the installation creates no object for (a
-	 * builtin type, the vector extension's). */
-	typeNode(type: TypeRef): Node<"setup"> | undefined {
-		return type.kind === "named" ? this.typeNamed(type) : undefined
-	}
-
 	/** The domain the installation creates under `name`; none for another type. */
 	typeNamed(name: { readonly schema: string; readonly name: string }): Node<"setup"> | undefined {
 		return this.#types.get(nameKey(name))
@@ -667,12 +601,6 @@ export class InstallBuilder {
 			case undefined:
 				return undefined
 		}
-	}
-
-	/** The object of `kind` the installation creates under `name`, which a statement names; none for an object it does
-	 * not create. */
-	objectNamed(kind: QualifiedKind, name: ObjectName): Node<DeployPhase> | undefined {
-		return this.#qualified.get(kind)?.get(name.schema)?.get(name.name)
 	}
 
 	/** The extension that provides `capability`, added the first time an object needs it, so the installation holds it

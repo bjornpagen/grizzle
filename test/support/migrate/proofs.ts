@@ -23,13 +23,12 @@ const undescribed = [
 ] as const
 
 /**
- * What each object of `snapshot` is created after, as the specification states it, read off the manifest's text rather
- * than its statements' trees: each object its edges create it after, and each other object whose name the printed text
- * of its replayed statements holds, quoted as grizzle prints every name: a schema object's `"schema"."name"`, a schema's
- * `"schema".`. A name the printer spells bare (an index a replica identity names) is no part of it, so it never holds
- * more than PostgreSQL needs first.
+ * The objects each object of `snapshot` names, as the specification states it, read off the manifest's text rather than
+ * its statements' trees: each other object whose name the printed text of its replayed statements holds, quoted as
+ * grizzle prints every name: a schema object's `"schema"."name"`, a schema's `"schema".`. A name the printer spells
+ * bare (an index a replica identity names) is no part of it, so it never holds more than PostgreSQL needs first.
  */
-export const specifiedAfter = (
+export const printedNames = (
 	snapshot: DeploySnapshot
 ): ReadonlyMap<string, ReadonlySet<string>> => {
 	const names = Arr.flatMap(
@@ -64,19 +63,32 @@ export const specifiedAfter = (
 			}
 		}
 	)
+	return new Map(
+		Arr.map(succeeded(manifestStatements(snapshot)).objects, (o) => {
+			const text = Arr.join(Arr.map(o.statements, printStatement), "\n")
+			return [
+				o.ident,
+				new Set(
+					Arr.flatMap(names, ([ident, name]) =>
+						ident !== o.ident && Str.includes(name)(text) ? [ident] : []
+					)
+				)
+			] as const
+		})
+	)
+}
+
+/** What each object of `snapshot` is created after, as the specification states it: each object its edges create it
+ * after, and each it names (printedNames). */
+export const specifiedAfter = (
+	snapshot: DeploySnapshot
+): ReadonlyMap<string, ReadonlySet<string>> => {
 	const after = new Map<string, Set<string>>()
 	for (const edge of snapshot.manifest.edges) {
 		after.set(edge.to, new Set([...(after.get(edge.to) ?? []), edge.from]))
 	}
-	for (const o of succeeded(manifestStatements(snapshot)).objects) {
-		const text = Arr.join(Arr.map(o.statements, printStatement), "\n")
-		const own = after.get(o.ident) ?? new Set<string>()
-		for (const [ident, name] of names) {
-			if (ident !== o.ident && Str.includes(name)(text)) {
-				own.add(ident)
-			}
-		}
-		after.set(o.ident, own)
+	for (const [ident, named] of printedNames(snapshot)) {
+		after.set(ident, new Set([...(after.get(ident) ?? []), ...named]))
 	}
 	return after
 }

@@ -85,12 +85,7 @@ import type {
 	RoleHold,
 	RoleOfLogin
 } from "#compiler/physical/install/extension.ts"
-import {
-	enforcement,
-	type Node,
-	type ObjectSpec,
-	type QualifiedKind
-} from "#compiler/physical/obligations/graph.ts"
+import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
 
@@ -128,7 +123,6 @@ import {
 } from "#compiler/sql/build.ts"
 import { nameOf } from "#compiler/sql/constants.ts"
 import { printExpr, printStartupOptions } from "#compiler/sql/print.ts"
-import { type AstHooks, identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
 import { filterFields, renderMembership } from "#compiler/write/entry/render.ts"
 import { endColumns } from "#compiler/write/family/statements.ts"
@@ -218,56 +212,6 @@ const sortedNames = (m: ReadonlyMap<string, UsedType>): ReadonlyArray<ObjectName
 	[...m.values()]
 		.toSorted((a, b) => compareIdentities(a.identity, b.identity))
 		.map((use) => use.name)
-
-/** The objects a world object's statements read: every relation, type and function they name that the installation
- * has created so far (a table, a materialized view, a view, a domain, a function, a constant), each once. A world object
- * waits for each, so a change to any of them (a conversion, a rebuild, a recreated view) drops it first and creates it
- * again after (`worldChangesOf`): PostgreSQL refuses to convert, drop or rename what a view, a policy or a function
- * body reads beneath it. A statement's own object is added after its reads, so it is none of them. */
-const readsOf = (
-	b: InstallBuilder,
-	statements: ReadonlyArray<SqlStatement>
-): ReadonlyArray<Node<DeployPhase>> => {
-	const read = new Set<Node<DeployPhase>>()
-	const note = (kinds: ReadonlyArray<QualifiedKind>, name: ObjectName): void => {
-		for (const kind of kinds) {
-			const node = b.objectNamed(kind, name)
-			if (node !== undefined) {
-				read.add(node)
-			}
-		}
-	}
-	const hooks: AstHooks = {
-		...identityHooks,
-		objectName: (name, space) => {
-			note(
-				space === "relation"
-					? ["table", "materializedView", "view"]
-					: space === "type"
-						? ["domain"]
-						: space === "function"
-							? ["function"]
-							: [],
-				name
-			)
-			return name
-		},
-		typeRef: (type) => {
-			if (type.kind === "named") {
-				note(["domain"], { schema: type.schema, name: type.name })
-			}
-			return type
-		},
-		functionRef: (fn) => {
-			note(["function"], { schema: fn.schema, name: fn.name })
-			return fn
-		}
-	}
-	for (const statement of statements) {
-		transformStatement(statement, hooks)
-	}
-	return [...read]
-}
 
 /** A field of a context an installed role reads, typed against the base: what the installation plans a claim's domain
  * for, which Db.open's admission validates the claim against. */
@@ -1367,7 +1311,7 @@ const addRole = (
 				reasons: why,
 				phase: "publish"
 			},
-			[schemaObject, ...plan.reads, ...readsOf(b, [plan.create]), ...usedNodes(own)]
+			[schemaObject, ...plan.reads, ...usedNodes(own)]
 		)
 		columnDomains(b, plan.heading, use)
 		views.push(plan.create.name)
@@ -1383,9 +1327,7 @@ const addRole = (
 		columnDomains(b, w.relation.fields, use)
 		appendAll(grants, plan.grants)
 		after.push(b.table(relation))
-		const functions = plan.functions.map((fn) =>
-			b.add(fn.spec, [b.schemaNode, ...readsOf(b, fn.spec.ddl)])
-		)
+		const functions = plan.functions.map((fn) => b.add(fn.spec, [b.schemaNode]))
 		appendAll(after, functions)
 		writers.push({
 			relation,
@@ -1638,7 +1580,7 @@ const addPolicy = (b: InstallBuilder, w: Writer): Node<"publish"> => {
 			reasons: [enforcement(`the writable entry ${w.entry}`)],
 			phase: "publish"
 		},
-		[b.table(w.relation), w.roleObject, ...readsOf(b, [ddl])]
+		[b.table(w.relation), w.roleObject]
 	)
 }
 

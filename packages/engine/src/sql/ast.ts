@@ -2181,6 +2181,23 @@ export type PlFunction = Extract<CreateFunction, { readonly language: "plpgsql" 
 export type SqlFunction = Extract<CreateFunction, { readonly language: "sql" }>
 
 /**
+ * The body a PL/pgSQL function is read with where its own never runs: one RAISE, which PL/pgSQL accepts in a function of
+ * any result and which names no object. The drift check replays a recorded function with it (deploy/snapshot/recorded.ts
+ * replayedStatement), its text no part of any description, and a function's names are read with it in place of its own
+ * (physical/obligations/graph.ts namedEdges), since PostgreSQL resolves no name of a PL/pgSQL body until it runs.
+ */
+export const stubBody: PlBlock = {
+	declare: [],
+	body: [
+		{
+			kind: "raise",
+			message: "the drift check's stub of a recorded body, which never runs",
+			using: []
+		}
+	]
+}
+
+/**
  * A closed relation's constant as the migration states it, `cells` cells of `width` bits: CREATE FUNCTION … RETURN
  * X'<hex>'::bit varying, its body the string of cells itself as one hex literal, under a comment of its row count and
  * its content's digest (ir/cells.ts constantDigestOf), which `grizzle check` decodes the literal and holds it to.

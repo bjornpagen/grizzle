@@ -12,7 +12,8 @@
  * - **Box, exhausted:** each later version of the shop's three over each earlier, the empty snapshot among them.
  * - **Features:** a first version, a changed version, an unchanged one, and the environment's change.
  *
- * And the replay's order (replayedOver over manifest.ts ReplayedObject after): a replay over any one unproven object
+ * And the replay's order (replayedOver over the manifest's edges, physical/obligations/graph.ts namedEdges among them):
+ * a replay over any one unproven object
  * creates every object its statements name before them, so PostgreSQL resolves every name the replay sends.
  *
  * - **Property:** over each object of each record, that object alone unproven, every object of the manifest a replayed
@@ -22,14 +23,14 @@
  * - **Box, exhausted:** each object of the shop's three versions and of a set's schema (schemas.ts setsSchema), whose table's CHECK
  *   and generated field each cast a singleton set's literal to the bits domain of a roster no column of the table is
  *   typed by, as qti's attribute does.
- * - **Features:** a replay of an object alone, and one that creates a type a statement casts to and no edge names.
+ * - **Features:** a replay of an object alone, and one that creates a set's bits domain a table's cast names.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order } from "effect"
+import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import { proofDigests, replayedOver } from "#compiler/deploy/admission/proof.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
@@ -86,7 +87,13 @@ const chain: ReadonlyArray<DeploySnapshot> = Arr.map(
 const digestsOf = (snapshot: DeploySnapshot, environment: string): ReadonlyMap<string, string> =>
 	new Map(
 		Arr.map(
-			succeeded(proofDigests(succeeded(manifestStatements(snapshot)).objects, environment)),
+			succeeded(
+				proofDigests(
+					succeeded(manifestStatements(snapshot)).objects,
+					snapshot.manifest.edges,
+					environment
+				)
+			),
 			(p) => [p.object.ident, p.digest] as const
 		)
 	)
@@ -144,7 +151,7 @@ export const proofDigestsChangeExactlyWhereAProofNoLongerCoversAnObject = proper
 					)
 				)
 				assert.deepEqual<ReadonlyArray<string>>(
-					Arr.map(replayedOver(objects, unproven), (o) => o.ident),
+					Arr.map(replayedOver(objects, now.manifest.edges, unproven), (o) => o.ident),
 					specifiedReplay(proven, now),
 					"the replay is every unproven object and every object one is created after"
 				)
@@ -214,7 +221,7 @@ const unprovenGen: Gen<Unproven> = (source) => {
 	return { record, object: source.draw(int(0, objects - 1)) }
 }
 
-type OrderFeature = "a replay of one object" | "a cast's type no edge names, created first"
+type OrderFeature = "a replay of one object" | "a set's domain a table's cast names, created first"
 
 /** A replay creates every object a replayed statement names before that statement, whatever it replays. */
 export const theReplayCreatesEveryObjectAStatementNamesBeforeIt = property.exhaust(
@@ -223,20 +230,23 @@ export const theReplayCreatesEveryObjectAStatementNamesBeforeIt = property.exhau
 		needs: {},
 		situations: [
 			"a replay of one object",
-			"a cast's type no edge names, created first"
+			"a set's domain a table's cast names, created first"
 		] satisfies ReadonlyArray<Reached<OrderFeature>>,
 		check: (_, c: Case<OrderFeature>) => (x) =>
 			Effect.sync(() => {
 				const record = defined(records[x.record], "a record")
 				const ident = defined(record.manifest.objects[x.object], "an object").ident
 				const replayed = Arr.map(
-					replayedOver(succeeded(manifestStatements(record)).objects, new Set([ident])),
+					replayedOver(
+						succeeded(manifestStatements(record)).objects,
+						record.manifest.edges,
+						new Set([ident])
+					),
 					(o) => o.ident
 				)
 				c.note("a replay of one object")
 				const place = new Map(Arr.map(replayed, (o, at) => [o, at] as const))
 				const named = specifiedAfter(record)
-				const edges = new Set(Arr.map(record.manifest.edges, (e) => `${e.from} ${e.to}`))
 				for (const [at, object] of replayed.entries()) {
 					for (const before of named.get(object) ?? []) {
 						const created = place.get(before)
@@ -244,8 +254,12 @@ export const theReplayCreatesEveryObjectAStatementNamesBeforeIt = property.exhau
 							created !== undefined && created < at,
 							`replaying ${ident}, ${object} names ${before}, which the replay creates before it`
 						)
-						if (parseIdent(before).kind === "domain" && !edges.has(`${before} ${object}`)) {
-							c.note("a cast's type no edge names, created first")
+						if (
+							parseIdent(object).kind === "table" &&
+							parseIdent(before).kind === "domain" &&
+							Str.includes("_bits_")(before)
+						) {
+							c.note("a set's domain a table's cast names, created first")
 						}
 					}
 				}
@@ -258,10 +272,10 @@ export const theReplayCreatesEveryObjectAStatementNamesBeforeIt = property.exhau
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/deploy/admission/manifest.ts",
-				original: "\t\t\t\t\tafter.add(ident)\n",
+				file: "packages/engine/src/physical/obligations/graph.ts",
+				original: '\t\t\t\t\tnamed("type", t.schema, t.name)\n',
 				replacement: "",
-				why: "An object is created after only what the manifest's edges say, so a table whose CHECK casts to a set's domain, which no edge names, is replayed without the domain, and PostgreSQL refuses the cast (42704): S7's drift check on qti's attribute."
+				why: "An object is created after no type a cast or a literal of its statements names, so a table whose CHECK casts to a set's domain, which no column of it is typed by, is replayed without the domain, and PostgreSQL refuses the cast (42704): S7's drift check on qti's attribute."
 			}
 		]
 	}

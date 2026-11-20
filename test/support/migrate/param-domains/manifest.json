@@ -137,6 +137,18 @@
 			{
 				"from": "table:param_domains.__ledger",
 				"to": "trigger:param_domains.__ledger.__isolation"
+			},
+			{
+				"from": "schema:param_domains",
+				"to": "trigger:param_domains.__ledger.__isolation"
+			},
+			{
+				"from": "schema:param_domains",
+				"to": "trigger:param_domains.coded.__isolation"
+			},
+			{
+				"from": "schema:param_domains",
+				"to": "trigger:param_domains.item.__isolation"
 			}
 		],
 		"objects": [
@@ -1619,5 +1631,5 @@
 		"spellings": {}
 	},
 	"workload": {},
-	"seal": "7aa0f0c8c55e1bc84aa980a4bd87758d98ecc822241d89337288415148df9969"
+	"seal": "c3a25446437b63de33f369374b8246184ecae9dbaf0f5389eebe526ecec15f10"
 }
