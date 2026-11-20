@@ -21,7 +21,9 @@
  * - an ordered family dropped, its member keeping a plain containment of its owner (Entry losing `at`);
  * - stored generated columns added in bulk to one relation;
  * - a caller field added and filled by a data step, row by row, from the model's function;
- * - a re-key whose texts are past PostgreSQL's B-tree entry limit, which the draft refuses by name, applying nothing.
+ * - a re-key whose texts are past PostgreSQL's B-tree entry limit, which the key, its references and its family's
+ *   axes hold by the texts' images (schema/representability.ts entryImages), each the SHA-256 digest of its text in a
+ *   column STORED from the row, so its migration keeps every fact as any re-key's does.
  *
  * `migrate` first writes a batch of new facts through the login's served file (a ChangeSet of the version installed,
  * ordered members nested under their new owners), then drafts the pending version from the snapshot before it
@@ -42,16 +44,16 @@
  *   nothing invented;
  * - the version's schema drafts no further change from the snapshot the migration reached: it is generated.
  *
- * A re-key past the limit is refused by the draft as UnrepresentableKey over the relation's texts; any other refusal of
- * any step fails the property.
+ * Any refusal of any step fails the property.
  *
  * Text widths are drawn per re-key: short ones, and the widest a B-tree entry holds beside the other text and four
  * bigints in any order, every column NULL-able (cutover.fixtures.ts fitsBeside), which covers every index the world plans over a re-keyed key
  * (its primary key, an owner's key with a count, a family's own UNIQUEs with an index and a fold's running value), so
  * an index entry near BTMaxItemSize is inside the box; every row of an even serial holds its texts at their full width
  * in four-byte characters no compression shortens, so PostgreSQL itself refuses a key grizzle admits that does not fit.
- * Past the limit, both texts are wider than half of BTMaxItemSize. Widths between the documented bound and the limit
- * are not drawn: grizzle's bound there is its own, which this suite does not restate.
+ * Past the limit, both texts are wider than half of BTMaxItemSize, which no entry holds as themselves, so every row of
+ * an even serial holds texts PostgreSQL refuses in any entry but their images'. Widths between the documented bound and
+ * the limit are not drawn: grizzle's bound there is its own, which this suite does not restate.
  *
  * Oracle: the world model, a second implementation of what every fact is after each delta, judged by PostgreSQL: the
  * rows it holds, the catalog of a fresh install, and the table_rewrite events it fires.
@@ -59,7 +61,7 @@
  * Features: each delta, a reference re-pointed under its own name among them; a re-keyed relation referenced by two
  * relations, and by a re-keyed relation; an ordered family's owner re-keyed and an ordered member re-keyed; ordered to
  * counted with a fold over the family; a dropped position a fold read; a key near BTMaxItemSize admitted and one past
- * it refused; and a version with all six deltas.
+ * it held by its texts' images; and a version with all six deltas.
  * Each is aimed at by a steered case, drawn over a world that holds every structure, never by filtering draws.
  *
  * The seventh delta, a property of its own over a tree rooted at one document field and keyed by it and its start
@@ -112,11 +114,11 @@ import {
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
- * The migrator under the identity cutover's deltas every migration of a cutover history rewrites each table at most once, reaches a fresh install's catalog, keeps every fact through the model's key mapping and leaves nothing to generate, and a key past BTMaxItemSize is refused by the draft.
+ * The migrator under the identity cutover's deltas every migration of a cutover history rewrites each table at most once, reaches a fresh install's catalog, keeps every fact through the model's key mapping and leaves nothing to generate, a key past BTMaxItemSize held by its texts' images.
  *
  * Its pre-conversion budget: runs 3, coverage cases 32 (test/pg/migrate/cutover.test.ts at d8eed1786).
  */
-export const theMigratorUnderTheIdentityCutoversDeltasEveryMigrationOfACutoverHistoryRewritesEachTableAtMostOnceReachesAFreshInstallsCatalogKeepsEveryFactThroughTheModelsKeyMappingAndLeavesNothingToGenerateAndAKeyPastBTMaxItemSizeIsRefusedByTheDraft =
+export const theMigratorUnderTheIdentityCutoversDeltasEveryMigrationOfACutoverHistoryRewritesEachTableAtMostOnceReachesAFreshInstallsCatalogKeepsEveryFactThroughTheModelsKeyMappingAndLeavesNothingToGenerateAKeyPastBTMaxItemSizeHeldByItsTextsImages =
 	property.explore(steered(cutoverSteered), {
 		needs: { substrate: Substrate.fresh },
 		situations: features satisfies ReadonlyArray<Reached<Feature>>,
@@ -134,7 +136,21 @@ export const theMigratorUnderTheIdentityCutoversDeltasEveryMigrationOfACutoverHi
 		},
 		budget: { runs: 3, steered: 32 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/schema/representability.ts",
+				original: "(fits ? undefined : imageIn(kind, c))",
+				replacement: "(fits || true ? undefined : imageIn(kind, c))",
+				why: "No entry holds a text by its image, so a re-key past BTMaxItemSize is refused UnrepresentableKey at its draft where the key, its references and its family's axes hold its texts by their digests."
+			},
+			{
+				file: "packages/engine/src/deploy/diff/backfill.ts",
+				original:
+					"\t\t...family.images.flatMap((image) => (added.has(image.column) ? [image.column] : [])),",
+				replacement: "\t\t...family.images.flatMap(() => []),",
+				why: "The backfill never draws a member's copy of its owner's key image, so a re-key of an ordered or counted family's owner past BTMaxItemSize leaves every stored member at the placeholder and VALIDATE refuses the family's CHECK (23514)."
+			}
+		]
 	})
 
 /**

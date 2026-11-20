@@ -9,7 +9,6 @@ import {
 	type Program,
 	program,
 	type Real,
-	refused,
 	runProgram,
 	took
 } from "@bjornpagen/testing/commands"
@@ -130,7 +129,7 @@ import { type RewriteObserver, rewriteObserver } from "#test/support/migrate/rew
 import { planRealInstall, type RealInstallPlan } from "#test/support/oracle/install/real.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
-import { ownedInput, owning } from "#test/support/policy.ts"
+import { owning } from "#test/support/policy.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -146,11 +145,18 @@ const bulk = { min: 2, max: 4 } as const
 /** The most caller fields filled by a data step a relation holds. */
 const maxFilled = 2
 
-/** The widths of a compound key's two texts, in UTF-8 bytes, and whether they sit at the documented bound. */
+/**
+ * Where a compound key's texts sit against PostgreSQL's B-tree entry: short; at the documented bound, the widest every
+ * index the world plans over the key holds as themselves (`fitsBeside`); or past BTMaxItemSize, both wider than half
+ * of it, where the key holds its texts by their images (schema/representability.ts entryImages).
+ */
+type WidthBound = "short" | "near" | "past"
+
+/** The widths of a compound key's two texts, in UTF-8 bytes, and where they sit (WidthBound). */
 interface Widths {
 	readonly a: number
 	readonly b: number
-	readonly near: boolean
+	readonly bound: WidthBound
 }
 
 /** A relation's key: its uuid `id`; the compound (`ka`, `kb`, `kc`) of two texts of its widths and a bigint; or the one
@@ -343,7 +349,7 @@ const widestFitting = (widths: (n: number) => ReadonlyArray<number>): number => 
  */
 const nearWidth: number = widestFitting((n) => [n, n])
 
-/** Half of BTMaxItemSize, 2,704 bytes: two texts wider than it make a key no B-tree entry holds. */
+/** Half of BTMaxItemSize, 2,704 bytes: two texts wider than it make a key no B-tree entry holds as themselves. */
 const halfLimit = 1352
 
 /** The widest one text that fits beside four bigints (`fitsBeside`): the width "near" draws for an identifier. */
@@ -357,9 +363,9 @@ const widthsGen =
 			? {
 					a: nearWidth - source.draw(int(0, 3)),
 					b: nearWidth - source.draw(int(0, 3)),
-					near: true
+					bound: "near"
 				}
-			: { a: source.draw(int(16, 64)), b: source.draw(int(16, 64)), near: false }
+			: { a: source.draw(int(16, 64)), b: source.draw(int(16, 64)), bound: "short" }
 
 /**
  * The uuid of a fact of relation `r`: the relation, then its serial scrambled by an odd multiplier modulo 2^32, a
@@ -757,10 +763,7 @@ const fillable = (m: Model): ReadonlyArray<number> =>
 	)
 
 /** The machine over a world: its commands, with re-keys drawn near the bound where `near` asks. */
-const machineOf = (
-	initial: Model,
-	near: boolean
-): Machine<Model, Params, "UnrepresentableKey"> => ({
+const machineOf = (initial: Model, near: boolean): Machine<Model, Params, never> => ({
 	initial,
 	commands: {
 		"re-key a relation": {
@@ -801,10 +804,10 @@ const machineOf = (
 				widths: {
 					a: halfLimit + source.draw(int(1, 64)),
 					b: halfLimit + source.draw(int(1, 64)),
-					near: false
+					bound: "past"
 				}
 			}),
-			judge: () => refused("UnrepresentableKey")
+			judge: (m, p) => accepted(reKeyed(m, p.rel, { kind: "compound", widths: p.widths }))
 		},
 		"switch an ordered family to counted": {
 			weight: 2,
@@ -968,7 +971,7 @@ export type Feature =
 	| "stored generated columns added in bulk to stored rows"
 	| "a field filled by a data step over stored rows"
 	| "a key near BTMaxItemSize admitted"
-	| "a key past BTMaxItemSize refused"
+	| "a key past BTMaxItemSize held by its texts' images"
 	| "a version with all six deltas"
 	| "a reference re-pointed under its own name"
 
@@ -986,7 +989,7 @@ export const features: Arr.NonEmptyReadonlyArray<Feature> = [
 	"stored generated columns added in bulk to stored rows",
 	"a field filled by a data step over stored rows",
 	"a key near BTMaxItemSize admitted",
-	"a key past BTMaxItemSize refused",
+	"a key past BTMaxItemSize held by its texts' images",
 	"a version with all six deltas",
 	"a reference re-pointed under its own name"
 ]
@@ -1025,8 +1028,8 @@ const aimOf = (f: Feature, m: Model): ReadonlyArray<CommandName> => {
 			return or(lacking("generated in bulk", "add stored generated columns in bulk"))
 		case "a field filled by a data step over stored rows":
 			return or(lacking("data-step field", "add a field filled by a data step"))
-		case "a key past BTMaxItemSize refused":
-			return ["re-key a relation past BTMaxItemSize"]
+		case "a key past BTMaxItemSize held by its texts' images":
+			return or(deltasOf(m, "re-key").length < 2 ? ["re-key a relation past BTMaxItemSize"] : [])
 		case "a reference re-pointed under its own name":
 			return or(
 				Arr.some(deltasOf(m, "re-key"), (d) => d.key.kind === "identifier")
@@ -1046,13 +1049,13 @@ const aimOf = (f: Feature, m: Model): ReadonlyArray<CommandName> => {
 
 /** The machine aimed at the pending features: where a command that advances one applies, only those do. */
 const aimedAt = (
-	base: Machine<Model, Params, "UnrepresentableKey">,
+	base: Machine<Model, Params, never>,
 	pending: ReadonlySet<Feature>
-): Machine<Model, Params, "UnrepresentableKey"> => {
+): Machine<Model, Params, never> => {
 	const aims = (m: Model): ReadonlySet<CommandName> =>
 		new Set(Arr.flatMap([...pending], (f) => aimOf(f, m)))
 	const anyAimed = (m: Model): boolean => Arr.some([...aims(m)], (k) => base.commands[k].applies(m))
-	const aimed = <K extends CommandName>(k: K): Command<Model, Params[K], "UnrepresentableKey"> => {
+	const aimed = <K extends CommandName>(k: K): Command<Model, Params[K], never> => {
 		const command = base.commands[k]
 		return { ...command, applies: (m) => command.applies(m) && (aims(m).has(k) || !anyAimed(m)) }
 	}
@@ -1392,11 +1395,22 @@ const noteMigration = (m: Model, note: (f: Feature) => void): void => {
 		Arr.some(
 			rekeys,
 			(d) =>
-				(d.key.kind === "compound" ? d.key.widths.near : d.key.near) &&
+				(d.key.kind === "compound" ? d.key.widths.bound === "near" : d.key.near) &&
 				Arr.some(nth(m.facts, d.rel, "facts"), (f) => f.serial % 2 === 0)
 		)
 	) {
 		note("a key near BTMaxItemSize admitted")
+	}
+	if (
+		Arr.some(
+			rekeys,
+			(d) =>
+				d.key.kind === "compound" &&
+				d.key.widths.bound === "past" &&
+				Arr.some(nth(m.facts, d.rel, "facts"), (f) => f.serial % 2 === 0)
+		)
+	) {
+		note("a key past BTMaxItemSize held by its texts' images")
 	}
 	const folded = (r: number) =>
 		Option.match(familyOf(nth(m.installed.rels, r, "relation")), {
@@ -1547,61 +1561,16 @@ const migration = (
 		})
 	)
 
-/** A re-key past the limit: the draft of the pending version with it is refused as UnrepresentableKey over the
- * relation's two texts, as its own key holds them or a reference to it does, and nothing is applied. */
-const pastLimit = (h: History, before: Model, p: Params["re-key a relation past BTMaxItemSize"]) =>
-	Effect.sync(() => {
-		const world = withRel(before.pending, p.rel, (rel) => ({
-			...rel,
-			key: { kind: "compound", widths: p.widths }
-		}))
-		const built = builtOf(world, h.declared)
-		const owned = ownedInput(built.value)
-		const plan = owned.ok
-			? planRealInstall(built.value, {
-					installation: identity.schema(parsedSchemaName(h.declared)),
-					logins: [built.world.server],
-					extensions: [],
-					codes: firstCodebook(rostersOf(owned.value)),
-					compile: compileInstallation
-				})
-			: owned
-		if (plan.ok) {
-			return took
-		}
-		const reason = plan.error.reason
-		assert.ok(
-			reason._tag === "UnrepresentableKey" &&
-				((reason.key.includes("ka") && reason.key.includes("kb")) ||
-					(reason.key.includes(`p${p.rel}a`) && reason.key.includes(`p${p.rel}b`))),
-			`a re-key of ${relName(p.rel)} past the limit is refused otherwise: ${plan.error.message}`
-		)
-		return refused<"UnrepresentableKey">("UnrepresentableKey")
-	})
-
 const real = (
 	h: History,
 	observer: RewriteObserver,
 	note: (f: Feature) => void
-): Real<
-	Model,
-	Params,
-	"UnrepresentableKey",
-	Effect.Error<ReturnType<typeof migration>>,
-	Substrate
-> => {
+): Real<Model, Params, never, Effect.Error<ReturnType<typeof migration>>, Substrate> => {
 	const modelOnly = () => Effect.succeed(took)
 	return {
 		"re-key a relation": modelOnly,
 		"re-key a relation to an identifier its references keep their names over": modelOnly,
-		"re-key a relation past BTMaxItemSize": (p, before) =>
-			Effect.tap(pastLimit(h, before, p), (answer) =>
-				Effect.sync(() => {
-					if (answer.kind === "refused") {
-						note("a key past BTMaxItemSize refused")
-					}
-				})
-			),
+		"re-key a relation past BTMaxItemSize": modelOnly,
 		"switch an ordered family to counted": modelOnly,
 		"drop an ordered family's position": modelOnly,
 		"add stored generated columns in bulk": modelOnly,

@@ -285,6 +285,15 @@ const zero: TypedLiteral = { kind: "int", value: 0n }
 export const placeStart = (installation: Installation, place: PlaceHead): Expr =>
 	drawnOf(installation, zero, place.field.type).placeholder
 
+/**
+ * A member's copy of a group field's image (ir/family.ts GroupImage), the empty bytea until the backfill draws it: the
+ * digest of the member's field (ir/fill.ts FillRule `image`), which no stored row keeps empty, a digest being 32 bytes.
+ */
+const imagePlaceholder: DrawnColumn = {
+	placeholder: cast(lit.text("\\x", types.text), types.bytea),
+	base: types.bytea
+}
+
 /** A family's counts and indices, 0 where it is empty, typed by its count's base. */
 const zeroOf = (installation: Installation, family: Family): DrawnColumn =>
 	drawnOf(installation, zero, family.count.type)
@@ -296,9 +305,10 @@ const identityOf = (installation: Installation, plane: FoldPlane): DrawnColumn =
 
 /**
  * The columns the target's families draw (DrawnColumns): on a member, the counted index ‹i› or the ordered index, the
- * copy ‹n›, each fold plane's before and after; on an owner, the count and each fold plane's end; a tree's parent and
- * interval among them; and every copy an axis carries (Copy) on its source. Each holds 0 where its family is
- * empty, but an accumulator or an end, which holds its plane's identity, and a copy, which holds its base. Each place
+ * copy ‹n›, each fold plane's before and after and each group field's image its owner axis carries (Family `images`);
+ * on an owner, the count and each fold plane's end; a tree's parent and interval among them; and every copy an axis
+ * carries (Copy) on its source. Each holds 0 where its family is empty, but an accumulator or an end, which holds its
+ * plane's identity, a copy, which holds its base, and an image, which holds the empty bytea (`imagePlaceholder`). Each place
  * ordered by a field (ir/instant.ts PlaceOrder) is drawn too, at 0 before its derivation numbers its stored rows
  * (placeDerivation); an unordered one is stamped (deploy/diff/diff.ts stampedColumn).
  */
@@ -336,6 +346,9 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 			if (base !== undefined) {
 				put(copy.axis === "last" ? owner : member, columnOf(copy.from), base)
 			}
+		}
+		for (const image of family.images) {
+			put(member, image.column, imagePlaceholder)
 		}
 	}
 	for (const place of installation.laws.theory.instants.places.values()) {
@@ -523,8 +536,9 @@ const drawnName = (n: number): string => `__drawn_${n}`
 /**
  * The columns of a family's member the backfill draws by its scan, by their installed names: its index where the
  * migration draws it anew, its copy of the count where it adds it, both columns of every plane of each fold it adds a
- * column of, whose before is its predecessor's after, and each of the family's predecessor copies it adds (`copies`,
- * backfillOf's `scanned`).
+ * column of, whose before is its predecessor's after, each copy of a group field's image it adds (Family `images`, the
+ * digest of the member's own field, ir/fill.ts FillRule `image`), and each of the family's predecessor copies it adds
+ * (`copies`, backfillOf's `scanned`).
  */
 const drawnNamesOf = (
 	family: Family,
@@ -536,6 +550,7 @@ const drawnNamesOf = (
 		...(holds(added, family.shape.index) ? [columnOf(family.shape.index)] : []),
 		...(added.has(family.copy) ? [family.copy] : []),
 		...folds.flatMap((fold) => fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])),
+		...family.images.flatMap((image) => (added.has(image.column) ? [image.column] : [])),
 		...[...copies].filter((c) => added.has(c))
 	])
 
@@ -2525,6 +2540,7 @@ export const backfillOf = (input: BackfillInput): Backfill => {
 			...family.folds.flatMap((fold) =>
 				fold.planes.flatMap((p) => [columnOf(p.before), columnOf(p.after)])
 			),
+			...family.images.map((image) => image.column),
 			...copies
 		])
 		const ownerColumns = new Set<string>([
