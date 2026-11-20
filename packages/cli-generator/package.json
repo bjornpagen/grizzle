@@ -1,0 +1,54 @@
+{
+	"name": "effect-openapi-cli-generator-workspace",
+	"private": true,
+	"type": "module",
+	"imports": {
+		"#oxlint.config.ts": "./oxlint.config.ts",
+		"#ratchet.json": "./packages/generator/ratchet.json",
+		"#toolchain.config.ts": "./toolchain.config.ts"
+	},
+	"packageManager": "pnpm@12.21.0",
+	"devEngines": {
+		"runtime": {
+			"name": "node",
+			"version": ">=26",
+			"onFail": "error"
+		}
+	},
+	"scripts": {
+		"prepare": "effect-tsgo patch",
+		"check": "turbo run typecheck runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate load --filter=./packages/* --filter=// --continue=dependencies-successful",
+		"check:full": "turbo run typecheck --filter=./packages/* --filter=// --continue=dependencies-successful --force -- --incremental false; typecheck=$?; turbo run runtime-gate benchmark oxlint format dead-code architecture dedupe workspace-gate load --filter=./packages/* --filter=// --continue=dependencies-successful --force && exit $typecheck",
+		"types": "turbo run typecheck --filter=./packages/* --filter=//",
+		"lint": "turbo run oxlint dead-code architecture workspace-gate --filter=./packages/* --filter=//",
+		"test": "turbo run test --filter=./packages/*",
+		"test:properties": "pnpm --filter effect-openapi-cli-generator run test:properties",
+		"corpus": "turbo run corpus --filter=./packages/*",
+		"fuzz": "node vendor/toolchain/packages/testing/scripts/fuzz.ts",
+		"format:write": "oxfmt . && turbo run oxlint --filter=./packages/* --filter=// -- --fix && oxfmt .",
+		"typecheck": "toolchain-typecheck",
+		"workspace-gate": "workspace-gate",
+		"oxlint": "toolchain-oxlint-root",
+		"format": "oxfmt --check .",
+		"dead-code": "node packages/generator/scripts/ratchet.ts dead-code",
+		"architecture": "fallow architecture",
+		"dedupe": "pnpm dedupe --check",
+		"ratchet:lower": "pnpm --filter effect-openapi-cli-generator run ratchet:lower && node packages/generator/scripts/ratchet.ts dead-code --lower"
+	},
+	"devDependencies": {
+		"@bjornpagen/devtools": "workspace:*",
+		"@bjornpagen/testing": "workspace:*",
+		"@effect/tsgo": "catalog:",
+		"@types/node": "catalog:",
+		"effect": "catalog:",
+		"fallow": "catalog:",
+		"lefthook": "catalog:",
+		"oxfmt": "catalog:",
+		"oxlint": "catalog:",
+		"tsrs": "catalog:",
+		"turbo": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:",
+		"vitest": "catalog:"
+	}
+}

@@ -1,0 +1,165 @@
+/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError<Self>()(tag, fields) declares a class; nothing is thrown */
+import { Runtime, Schema } from "effect"
+import { CliError } from "effect/cli"
+
+/**
+ * An OpenAPI response key (a status code 100-599, a range 1XX-5XX, or `default`), or `undeclared`.
+ */
+const MatchedResponse = Schema.String.pipe(
+	Schema.check(Schema.isPattern(/^(?:[1-5]\d\d|[1-5]XX|default|undeclared)$/u))
+)
+
+/**
+ * Flag or `--body` validation, mutually exclusive inputs, a refused header or cookie value,
+ * binary output to a terminal.
+ */
+export class UsageError extends Schema.TaggedError<UsageError>()("UsageError", {
+	flag: Schema.optionalKey(Schema.String),
+	message: Schema.String
+}) {
+	readonly [Runtime.errorExitCode] = 2
+
+	get [CliError.userMessage](): string {
+		return this.message
+	}
+}
+
+/**
+ * No security alternative of the operation is satisfiable.
+ */
+export class CredentialMissing extends Schema.TaggedError<CredentialMissing>()(
+	"CredentialMissing",
+	{
+		alternatives: Schema.Array(Schema.String),
+		operation: Schema.String
+	}
+) {
+	readonly [Runtime.errorExitCode] = 3
+
+	get [CliError.userMessage](): string {
+		return `${this.operation} needs a credential: ${this.alternatives.join(" or ")}`
+	}
+}
+
+/**
+ * The final status was not 2xx. Exits 3 for 401 and 403, otherwise 1. `body` is the response body, read whole and
+ * scrubbed of the run's recorded values; `requestId` is the declared request-id header's value, scrubbed and sanitized.
+ */
+export class ApiResponseError extends Schema.TaggedError<ApiResponseError>()("ApiResponseError", {
+	body: Schema.String,
+	matched: MatchedResponse,
+	mediaType: Schema.optionalKey(Schema.String),
+	operation: Schema.String,
+	requestId: Schema.optionalKey(Schema.String),
+	retryAfterSeconds: Schema.optionalKey(Schema.Int),
+	status: Schema.Int
+}) {
+	get [Runtime.errorExitCode](): number {
+		return this.status === 401 || this.status === 403 ? 3 : 1
+	}
+
+	get [CliError.userMessage](): string {
+		return `${this.operation} returned ${this.status} (matched ${this.matched})`
+	}
+}
+
+/**
+ * A 2xx event stream ended at an event its contract names a failure, after printing it: exit 1, the API-error exit.
+ * `data` is the event's data, scrubbed and sanitized as an error body is; `dataJson` is the same data as one compact JSON
+ * text, scrubbed, when the event's contract says its data is JSON, which `--error-format json` prints as a JSON value;
+ * `retrySafe` is the event's own word that the request took no effect, so running the command again is safe.
+ */
+export class StreamEventError extends Schema.TaggedError<
+	StreamEventError,
+	{ readonly brand: unique symbol }
+>()("StreamEventError", {
+	data: Schema.String,
+	dataJson: Schema.Option(Schema.String),
+	event: Schema.String,
+	itemIndex: Schema.Int,
+	operation: Schema.String,
+	retrySafe: Schema.Boolean
+}) {
+	override readonly [Runtime.errorExitCode] = 1
+
+	override get [CliError.userMessage](): string {
+		return `${this.operation} sent the failure event ${this.event} at item ${this.itemIndex}`
+	}
+}
+
+/**
+ * A connect, DNS, TLS, timeout or abort failure. The URL arrives already redacted.
+ */
+export class TransportError extends Schema.TaggedError<TransportError>()("TransportError", {
+	reason: Schema.Literals(["connect", "dns", "tls", "timeout", "aborted"]),
+	url: Schema.String
+}) {
+	readonly [Runtime.errorExitCode] = 4
+
+	get [CliError.userMessage](): string {
+		return `request to ${this.url} failed: ${this.reason}`
+	}
+}
+
+/**
+ * The runtime redirect loop refused a hop. Origins only, never a full `Location`.
+ */
+export class RedirectRefused extends Schema.TaggedError<RedirectRefused>()("RedirectRefused", {
+	from: Schema.String,
+	reason: Schema.Literals([
+		"crossOriginBody",
+		"downgrade",
+		"loop",
+		"scheme",
+		"userinfo",
+		"unreplayableBody"
+	]),
+	to: Schema.String
+}) {
+	readonly [Runtime.errorExitCode] = 4
+
+	get [CliError.userMessage](): string {
+		return `redirect from ${this.from} to ${this.to} refused: ${this.reason}`
+	}
+}
+
+/**
+ * Sequential decoding failed, a response body stream went idle, or an event stream sent an event its contract does not
+ * admit (`unexpectedEvent`) or data its event's schema refuses (`invalidData`).
+ */
+export class ResponseStreamError extends Schema.TaggedError<ResponseStreamError>()(
+	"ResponseStreamError",
+	{
+		itemIndex: Schema.optionalKey(Schema.Int),
+		reason: Schema.Literals([
+			"truncated",
+			"recordTooLarge",
+			"invalidFraming",
+			"idleTimeout",
+			"unexpectedEvent",
+			"invalidData"
+		])
+	}
+) {
+	readonly [Runtime.errorExitCode] = 5
+
+	get [CliError.userMessage](): string {
+		return this.itemIndex === undefined
+			? `response stream failed: ${this.reason}`
+			: `response stream failed at item ${this.itemIndex}: ${this.reason}`
+	}
+}
+
+/**
+ * `--output` found an existing path or could not write.
+ */
+export class OutputError extends Schema.TaggedError<OutputError>()("OutputError", {
+	path: Schema.String,
+	reason: Schema.Literals(["exists", "write"])
+}) {
+	readonly [Runtime.errorExitCode] = 5
+
+	get [CliError.userMessage](): string {
+		return `cannot write ${this.path}: ${this.reason}`
+	}
+}

@@ -1,0 +1,28 @@
+# The hooks run only the pinned lefthook: without this, the generated script searches a dozen
+# places for a lefthook binary and lets the commit through when it finds none. They name it and the gate by path, not
+# through pnpm exec, whose dependency check refuses to run anything while another lane's manifest change is not yet
+# installed; the gate installs what each snapshot's lockfile names on its own.
+lefthook: node_modules/.bin/lefthook
+# Check-only gates: the hooks never format or stage files, they only refuse. Each runs on a snapshot of exactly what it
+# lets through, never on the working tree (the toolchain's gate, vendor/toolchain/packages/devtools/bin/gate.sh), so
+# one lane's unfinished files never fail another's commit or push. The commit's gate, on what the index holds, runs
+# `pnpm types`, oxfmt's check of the staged files and the AST-only oxlint (oxlint.ast.config.ts) on them, and builds no
+# lint program; the push's gate runs the full `pnpm check` on each commit the push sends, which git names on stdin. A
+# merge or rebase skips pre-commit; the push gate covers it. The push's gate is a script job (.lefthook/pre-push/gate.sh,
+# committed executable, since lefthook makes a script job's file executable each time it runs it), as lefthook skips a
+# pre-push run job whenever `git diff HEAD @{push}` names no file: a push of a submodule's gitlink alone (every toolchain
+# move), of deletions alone or of an empty commit would go out ungated. The commit's run job is skipped only for a
+# commit that stages nothing, whose tree is its parent's.
+pre-commit:
+  skip:
+    - merge
+    - rebase
+  jobs:
+    - name: gate
+      run: sh vendor/toolchain/packages/devtools/bin/gate.sh commit
+pre-push:
+  jobs:
+    - name: gate
+      script: gate.sh
+      runner: sh
+      use_stdin: true

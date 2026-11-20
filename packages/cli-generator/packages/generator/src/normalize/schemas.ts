@@ -1,0 +1,1807 @@
+import { regex } from "arkregex"
+import {
+	Array as Arr,
+	Effect,
+	Equal,
+	Graph,
+	HashSet,
+	JsonPointer,
+	JsonSchema,
+	Option,
+	Order,
+	pipe,
+	Predicate,
+	Record,
+	Result,
+	Schema,
+	SchemaRepresentation,
+	String as Str,
+	UndefinedOr
+} from "effect"
+import type { DocumentUri } from "#model/brands.ts"
+import { makeDiagnostic, sortDiagnostics } from "#model/diagnostic.ts"
+import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
+import { isSpecificationExtension } from "#model/extension.ts"
+import { isObject, isArray, stringMember } from "#model/json-tree.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import { methodMembers } from "#model/path-item.ts"
+import { evaluatePointerResult, formatPointer, parsePointerResult } from "#model/pointer.ts"
+import type { Json } from "#model/pointer.ts"
+import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
+import type { SpecLine } from "#model/spec-section.ts"
+import { nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"
+import { defsKey, keyOf } from "#resolve/canonical.ts"
+import type { CanonicalKey } from "#resolve/canonical.ts"
+import type { ReferenceKind, Resolution } from "#resolve/index.ts"
+import { isJsonFamily } from "#runtime-src/runtime/sequential.ts"
+
+type Document = typeof DocumentUri.Type
+
+/**
+ * The design 2.2 `Shape` facts of one stored schema, which flattening and serialization read: the
+ * declared type set, property names in source order, `required`, whether items are declared, the
+ * `$defs` key a `$ref` names, and the binary and content-encoding markers. A marker the schema does
+ * not carry is `undefined`. The discriminator is a body fact (`MediaAlternative.discriminator`).
+ */
+export interface SchemaFacts {
+	readonly contentEncoding: string | undefined
+	readonly contentMediaType: string | undefined
+	readonly format: "binary" | "byte" | undefined
+	readonly items: boolean
+	readonly properties: readonly string[]
+	readonly reference: string | undefined
+	readonly required: readonly string[]
+	readonly types: readonly string[]
+}
+
+/**
+ * One change from the stored document to its validation copy. `path` is relative to the definition
+ * under `key`: the removed keyword, the dropped `enum` member, or the retyped or replaced node.
+ * Every edit carries the diagnostic code it is reported under.
+ */
+export interface SchemaEdit {
+	readonly action: "drop-member" | "remove" | "replace" | "retype"
+	readonly code: string
+	readonly key: string
+	readonly path: readonly string[]
+}
+
+/**
+ * The validation copy of design 3.5 and the edits that derive it from the stored document (X10).
+ */
+export interface ValidationCopy {
+	readonly definitions: ReadonlyMap<string, Json>
+	readonly edits: readonly SchemaEdit[]
+}
+
+/**
+ * The stored draft 2020-12 definitions under their `$defs` keys, with their facts.
+ */
+export interface StoredSchemas {
+	readonly definitions: ReadonlyMap<string, Json>
+	readonly facts: ReadonlyMap<string, SchemaFacts>
+}
+
+/**
+ * The schema store of one document set, its validation copy and the diagnostics the copy records.
+ */
+export interface SchemaNormalization extends StoredSchemas {
+	readonly diagnostics: readonly Diagnostic[]
+	readonly line: SpecLine
+	readonly validation: ValidationCopy
+}
+
+/**
+ * A conversion or import failure that no D-AD12 class names: a defect in that list (design 3.5).
+ */
+export class SchemaImportDefect extends Schema.TaggedError<
+	SchemaImportDefect,
+	{ readonly brand: unique symbol }
+>()("SchemaImportDefect", { key: Schema.String, message: Schema.String }) {}
+
+const member = (node: JsonObject, key: string): Option.Option<Json> => Record.get(node, key)
+
+const strings = (value: Json): readonly string[] =>
+	isArray(value) ? Arr.filter(value, Predicate.isString) : []
+
+const isJson = Schema.is(Schema.Json)
+
+const byString = Order.String
+
+const sortedKeys = (map: ReadonlyMap<string, unknown>): readonly string[] =>
+	Arr.sort([...map.keys()], byString)
+
+const tokensOf = (pointer: string): readonly string[] | undefined =>
+	Result.getOrUndefined(parsePointerResult(pointer))
+
+const childAt = (node: Json, token: string): Option.Option<Json> => {
+	if (isObject(node)) {
+		return member(node, token)
+	}
+
+	return isArray(node) ? Option.fromUndefinedOr(node[Number(token)]) : Option.none()
+}
+
+/**
+ * The `$defs` key a `#/$defs/<token>` reference names (one token, as Effect's importer requires).
+ */
+const referenceKey = (ref: string): string | undefined => {
+	const tokens = JsonPointer.parseUriFragment(ref)
+	const [defs, key, ...rest] = tokens ?? []
+
+	return defs === "$defs" && rest.length === 0 ? key : undefined
+}
+
+const refFor = (key: string): string => JsonPointer.formatUriFragment(["$defs", key])
+
+/**
+ * Subschema positions per line, as the resolver walks them (3.0 Schema Object; 2020-12 applicators).
+ */
+interface Positions {
+	readonly list: ReadonlySet<string>
+	readonly map: ReadonlySet<string>
+	readonly one: ReadonlySet<string>
+}
+
+const positions30: Positions = {
+	list: new Set(["allOf", "anyOf", "oneOf"]),
+	map: new Set(["properties"]),
+	one: new Set(["additionalProperties", "items", "not"])
+}
+
+const positions2020: Positions = {
+	list: new Set(["allOf", "anyOf", "oneOf", "prefixItems"]),
+	map: new Set(["$defs", "definitions", "dependentSchemas", "patternProperties", "properties"]),
+	one: new Set([
+		"additionalProperties",
+		"contains",
+		"contentSchema",
+		"else",
+		"if",
+		"items",
+		"not",
+		"propertyNames",
+		"then",
+		"unevaluatedItems",
+		"unevaluatedProperties"
+	])
+}
+
+/**
+ * Positions the copies descend into. Nested `$defs` stay out: every referenced member is lifted
+ * under its own key.
+ */
+const copyPositions: Positions = {
+	list: positions2020.list,
+	map: new Set(["dependentSchemas", "patternProperties", "properties"]),
+	one: positions2020.one
+}
+
+/**
+ * In-place applicators: a cycle of references through only these never descends into the instance.
+ */
+const inPlace: Positions = {
+	list: new Set(["allOf", "anyOf", "oneOf"]),
+	map: new Set(["dependentSchemas"]),
+	one: new Set(["else", "if", "not", "then"])
+}
+
+type Visit = (node: JsonObject, path: readonly string[]) => JsonObject
+
+/**
+ * Rebuilds a schema node: `visit` rewrites the node itself, then its subschemas are transformed.
+ * Objects are rebuilt with `Record.map`, so a `__proto__` member stays an own key. A JSON value is
+ * a finite tree, and `$ref` is a string it never follows, so the walk ends.
+ */
+const transformSchema = (
+	node: Json,
+	path: readonly string[],
+	where: Positions,
+	visit: Visit
+): Json => {
+	if (!isObject(node)) {
+		return node
+	}
+
+	const child = (value: Json, tokens: readonly string[]): Json =>
+		transformSchema(value, [...path, ...tokens], where, visit)
+
+	return Record.map(visit(node, path), (value, key): Json => {
+		if (where.one.has(key)) {
+			return child(value, [key])
+		}
+
+		if (where.list.has(key) && isArray(value)) {
+			return Arr.map(value, (item, index) => child(item, [key, String(index)]))
+		}
+
+		if (where.map.has(key) && isObject(value)) {
+			return Record.map(value, (item, name) => child(item, [key, name]))
+		}
+
+		return value
+	})
+}
+
+const forEachSchema = (
+	node: Json,
+	where: Positions,
+	visit: (node: JsonObject, path: readonly string[]) => void,
+	start: readonly string[]
+): void => {
+	transformSchema(node, start, where, (current, path) => {
+		visit(current, path)
+
+		return current
+	})
+}
+
+type Kind =
+	| "callback"
+	| "components"
+	| "encoding"
+	| "header"
+	| "mediaType"
+	| "operation"
+	| "pathItem"
+	| "requestBody"
+	| "response"
+	| "root"
+
+type Arity = "list" | "map" | "one"
+
+type Field = readonly [name: string, kind: Kind | "schema", arity: Arity]
+
+const methods: readonly string[] = Arr.sort(methodMembers("3.2"), Order.String)
+
+const content: Field = ["content", "mediaType", "map"]
+
+const encodings: readonly Field[] = [
+	["encoding", "encoding", "map"],
+	["itemEncoding", "encoding", "one"],
+	["prefixEncoding", "encoding", "list"]
+]
+
+const layoutFields: ReadonlyMap<Kind, readonly Field[]> = new Map<Kind, readonly Field[]>([
+	["callback", []],
+	[
+		"components",
+		[
+			["callbacks", "callback", "map"],
+			["headers", "header", "map"],
+			["mediaTypes", "mediaType", "map"],
+			["parameters", "header", "map"],
+			["pathItems", "pathItem", "map"],
+			["requestBodies", "requestBody", "map"],
+			["responses", "response", "map"],
+			["schemas", "schema", "map"]
+		]
+	],
+	["encoding", [["headers", "header", "map"], ...encodings]],
+	["header", [["schema", "schema", "one"], content]],
+	["mediaType", [["itemSchema", "schema", "one"], ["schema", "schema", "one"], ...encodings]],
+	[
+		"operation",
+		[
+			["callbacks", "callback", "map"],
+			["parameters", "header", "list"],
+			["requestBody", "requestBody", "one"],
+			["responses", "response", "map"]
+		]
+	],
+	[
+		"pathItem",
+		[
+			["additionalOperations", "operation", "map"],
+			["parameters", "header", "list"],
+			...Arr.map(methods, (method): Field => [method, "operation", "one"])
+		]
+	],
+	["requestBody", [content]],
+	["response", [["headers", "header", "map"], content]],
+	[
+		"root",
+		[
+			["components", "components", "one"],
+			["paths", "pathItem", "map"],
+			["webhooks", "pathItem", "map"]
+		]
+	]
+])
+
+interface Layout {
+	readonly roots: string[]
+	readonly structural: Set<string>
+}
+
+const childPointer = (pointer: string, ...tokens: readonly string[]): string =>
+	`${pointer}${formatPointer(tokens)}`
+
+/**
+ * Walks the OpenAPI objects that hold schemas. Every object and container on the way is recorded as
+ * structural (not a schema), and every Schema Object position as a root.
+ */
+const walkLayout = (layout: Layout, kind: Kind | "schema", node: Json, pointer: string): void => {
+	if (kind === "schema") {
+		layout.roots.push(pointer)
+
+		return
+	}
+
+	if (!isObject(node)) {
+		return
+	}
+
+	layout.structural.add(pointer)
+	if (kind === "callback") {
+		for (const [expression, item] of Record.toEntries(node)) {
+			walkLayout(layout, "pathItem", item, childPointer(pointer, expression))
+		}
+
+		return
+	}
+
+	for (const [name, child, arity] of layoutFields.get(kind) ?? []) {
+		const found = member(node, name)
+		if (Option.isNone(found)) {
+			continue
+		}
+
+		const value = found.value
+		const location = childPointer(pointer, name)
+		if (arity === "one") {
+			walkLayout(layout, child, value, location)
+		} else if (arity === "list" && isArray(value)) {
+			layout.structural.add(location)
+			for (const [index, item] of value.entries()) {
+				walkLayout(layout, child, item, childPointer(location, String(index)))
+			}
+		} else if (arity === "map" && isObject(value)) {
+			layout.structural.add(location)
+			for (const [entry, item] of Record.toEntries(value)) {
+				walkLayout(layout, child, item, childPointer(location, entry))
+			}
+		}
+	}
+}
+
+const layoutOf = (value: Json): Layout => {
+	const layout: Layout = { roots: [], structural: new Set() }
+	walkLayout(layout, "root", value, "")
+
+	return layout
+}
+
+/**
+ * The layout kind each non-schema reference target starts a walk at.
+ */
+const targetKinds: Readonly<Partial<Record<ReferenceKind, Kind>>> = {
+	callback: "callback",
+	header: "header",
+	mediaType: "mediaType",
+	parameter: "header",
+	pathItem: "pathItem",
+	requestBody: "requestBody",
+	response: "response"
+}
+
+/**
+ * The layout of each other document of the set, walked from the objects references reach there,
+ * so only the schema roots a reference brings into the entry's operations are stored.
+ */
+const memberLayouts = (resolution: Resolution): ReadonlyMap<Document, Layout> => {
+	const layouts = new Map<Document, Layout>()
+	for (const { kind, target } of resolution.references.values()) {
+		const start = targetKinds[kind]
+		const value = resolution.documents.get(target.document)
+		if (target.document === resolution.document || start === undefined || value === undefined) {
+			continue
+		}
+
+		const layout = layouts.get(target.document) ?? { roots: [], structural: new Set() }
+		layouts.set(target.document, layout)
+		const node = Result.getSuccess(evaluatePointerResult(value, target.pointer))
+		if (Option.isSome(node)) {
+			walkLayout(layout, start, node.value, target.pointer)
+		}
+	}
+
+	return layouts
+}
+
+const messageOf = (cause: unknown): string =>
+	Predicate.hasProperty(cause, "message") && Predicate.isString(cause.message)
+		? cause.message
+		: "The importer failed without a message."
+
+/**
+ * Rewrites every schema `$ref` to `#/$defs/<key>` from the resolution, before conversion, and
+ * drops every `$id`. The resolver has already resolved each reference against the base URI its
+ * `$id`s set, so once every `$ref` names a stored key no reference reads a base URI, and an
+ * embedded resource is flattened into the store's `$defs` as Effect's importer requires.
+ */
+const rewriteReferences = (resolution: Resolution, node: Json, at: CanonicalKey): Json => {
+	const where = resolution.line === "3.0" ? positions30 : positions2020
+	const tokens = tokensOf(at.pointer)
+	if (tokens === undefined) {
+		return node
+	}
+
+	return transformSchema(node, tokens, where, (current, path) => {
+		const site = { document: at.document, pointer: formatPointer(path) }
+		const flattened = Record.filter(current, (_, key) => key !== "$id")
+		const reference =
+			stringMember(current, "$ref") === undefined
+				? undefined
+				: resolution.references.get(keyOf(site))
+		if (reference === undefined) {
+			return flattened
+		}
+
+		if (reference.defsKey === undefined) {
+			return Record.filter(flattened, (_, key) => key !== "$ref")
+		}
+
+		const ref = refFor(reference.defsKey)
+
+		return Record.map(flattened, (value, key): Json => (key === "$ref" ? ref : value))
+	})
+}
+
+const fromOpenApi = (line: SpecLine, node: JsonObject): JsonSchema.JsonSchema =>
+	line === "3.0"
+		? JsonSchema.fromSchemaOpenApi3_0(node).schema
+		: JsonSchema.fromSchemaOpenApi3_1(node).schema
+
+const convert = (
+	line: SpecLine,
+	key: string,
+	node: Json
+): Effect.Effect<Json, SchemaImportDefect> => {
+	if (Predicate.isBoolean(node)) {
+		return Effect.succeed(node ? {} : { not: {} })
+	}
+
+	if (!isObject(node)) {
+		return Effect.fail(SchemaImportDefect.make({ key, message: "The schema is not an object." }))
+	}
+
+	return Effect.try({
+		catch: (cause) => SchemaImportDefect.make({ key, message: messageOf(cause) }),
+		try: () => fromOpenApi(line, node)
+	}).pipe(
+		Effect.filterOrFail(isJson, () =>
+			SchemaImportDefect.make({ key, message: "The conversion is not JSON." })
+		)
+	)
+}
+
+const typesOf = (node: JsonObject): readonly string[] =>
+	Option.match(member(node, "type"), {
+		onNone: () => [],
+		onSome: (type) => (Predicate.isString(type) ? [type] : strings(type))
+	})
+
+const factsOf = (node: Json): SchemaFacts => {
+	const object = isObject(node) ? node : {}
+	const ref = stringMember(object, "$ref")
+	const format = stringMember(object, "format")
+
+	return {
+		contentEncoding: stringMember(object, "contentEncoding"),
+		contentMediaType: stringMember(object, "contentMediaType"),
+		format: format === "binary" || format === "byte" ? format : undefined,
+		items: Option.isSome(member(object, "items")) || Option.isSome(member(object, "prefixItems")),
+		properties: Option.match(Option.filter(member(object, "properties"), isObject), {
+			onNone: () => [],
+			onSome: (properties) => Record.keys(properties)
+		}),
+		reference: pipe(ref, UndefinedOr.map(referenceKey)),
+		required: Option.match(member(object, "required"), { onNone: () => [], onSome: strings }),
+		types: typesOf(object)
+	}
+}
+
+/**
+ * The `contentSchema` sites inside the schema at `at` whose `contentMediaType` is JSON: each the schema of a JSON text
+ * the schema carries as a string, such as an SSE event's data, which the runtime checks that text against. sitesOf
+ * decides which of them are roots of the store.
+ */
+const jsonContentSites = (node: Json, at: CanonicalKey): ReadonlyArray<CanonicalKey> => {
+	const found: Array<CanonicalKey> = []
+	const start = Result.getOrElse(parsePointerResult(at.pointer), (): readonly string[] => [])
+	forEachSchema(
+		node,
+		copyPositions,
+		(current, path) => {
+			const media = stringMember(current, "contentMediaType")
+			const contentSchema = Record.get(current, "contentSchema")
+			if (media !== undefined && isJsonFamily(media) && Option.exists(contentSchema, isObject)) {
+				found.push({ document: at.document, pointer: formatPointer([...path, "contentSchema"]) })
+			}
+		},
+		start
+	)
+
+	return found
+}
+
+/**
+ * The source of every stored key: Schema Object roots under `defsKey` of their use site, in the
+ * entry and in the objects references reach in other documents; schema `$ref` targets in any
+ * document under the resolver's key unless the target is not a schema; and every JSON
+ * `contentSchema` inside a stored schema (`jsonContentSites`) whose key is its own use site's
+ * (`schemaKeyAt`), the key an SSE event's row names its data schema by: an inline one, or a 3.1
+ * or later `$ref` with an asserting sibling. A bare `$ref` is its target's key, which the targets
+ * above already store.
+ */
+const sitesOf = (resolution: Resolution): ReadonlyMap<string, CanonicalKey> => {
+	const entry: Document = resolution.document
+	const layout = layoutOf(resolution.value)
+	const members = memberLayouts(resolution)
+	const roots = [
+		...Arr.map(layout.roots, (pointer): CanonicalKey => ({ document: entry, pointer })),
+		...Arr.flatMap([...members], ([document, found]) =>
+			Arr.map(found.roots, (pointer): CanonicalKey => ({ document, pointer }))
+		)
+	]
+	const sites = new Map(
+		Arr.map(roots, (root): [string, CanonicalKey] => [defsKey(entry, root), root])
+	)
+	for (const { defsKey: key, kind, target } of resolution.references.values()) {
+		const structural =
+			target.document === entry ? layout.structural : members.get(target.document)?.structural
+		const lifted =
+			kind === "schema" && key !== undefined && structural?.has(target.pointer) !== true
+		if (lifted) {
+			sites.set(key, target)
+		}
+	}
+	for (const at of Arr.fromIterable(sites.values())) {
+		const node = nodeOption(resolution, at)
+		if (Option.isSome(node)) {
+			for (const site of jsonContentSites(node.value, at)) {
+				const key = defsKey(entry, site)
+				if (schemaKeyAt(resolution, site) === key) {
+					sites.set(key, site)
+				}
+			}
+		}
+	}
+
+	return sites
+}
+
+const storeFrom = (
+	resolution: Resolution,
+	sites: ReadonlyMap<string, CanonicalKey>
+): Effect.Effect<StoredSchemas, SchemaImportDefect> =>
+	Effect.forEach(sortedKeys(sites), (key) => {
+		const at = sites.get(key) ?? { document: resolution.document, pointer: "" }
+
+		return Effect.option(nodeIn(resolution, at)).pipe(
+			Effect.map(Option.getOrElse((): Json => ({}))),
+			Effect.flatMap((node) =>
+				convert(resolution.line, key, rewriteReferences(resolution, node, at))
+			),
+			Effect.map((converted): [string, Json] => [key, converted])
+		)
+	}).pipe(
+		Effect.map((entries): StoredSchemas => ({
+			definitions: new Map(entries),
+			facts: new Map(Arr.map(entries, ([key, node]): [string, SchemaFacts] => [key, factsOf(node)]))
+		}))
+	)
+
+/**
+ * Keywords beside a `$ref` that assert nothing: annotations, extensions and location keywords.
+ */
+const nonAsserting: ReadonlySet<string> = new Set([
+	"$anchor",
+	"$comment",
+	"$defs",
+	"$id",
+	"$schema",
+	"default",
+	"definitions",
+	"deprecated",
+	"description",
+	"example",
+	"examples",
+	"nullable",
+	"readOnly",
+	"title",
+	"writeOnly"
+])
+
+const asserts = (keyword: string): boolean =>
+	keyword !== "$ref" && !nonAsserting.has(keyword) && !isSpecificationExtension(keyword)
+
+/**
+ * The store key of the schema at a use site (design 2.2 key rule, SCH-03). A `$ref` names its
+ * target's key, so the target's export is shared, unless a 3.1 or later `$ref` carries a keyword
+ * beside it that asserts, such as `maximum`: then the use site's own key, whose stored definition
+ * keeps both. A 3.0 `$ref` ignores its siblings. A site without a `$ref` is its own key.
+ */
+export const schemaKeyAt = (resolution: Resolution, site: CanonicalKey): string => {
+	const own = defsKey(resolution.document, site)
+	const target = referenceIn(resolution, site)?.defsKey
+	if (target === undefined || resolution.line === "3.0") {
+		return target ?? own
+	}
+
+	const asserting = Option.exists(
+		nodeOption(resolution, site),
+		(node) => isObject(node) && Arr.some(Record.keys(node), asserts)
+	)
+
+	return asserting ? own : target
+}
+
+/**
+ * Inventory rows per keyword, for 3.0 and for 3.1 and 3.2.
+ */
+const keywordRows: ReadonlyMap<string, readonly [row30: string, row31: string]> = new Map<
+	string,
+	readonly [row30: string, row31: string]
+>([
+	["additionalProperties", ["S30-24", "SCH-13"]],
+	["const", ["SCH-28", "SCH-28"]],
+	["contains", ["SCH-12", "SCH-12"]],
+	["contentSchema", ["SCH-57", "SCH-57"]],
+	["dependentRequired", ["SCH-46", "SCH-46"]],
+	["dependentSchemas", ["SCH-16", "SCH-16"]],
+	["else", ["SCH-20", "SCH-20"]],
+	["enum", ["S30-16", "SCH-29"]],
+	["format", ["S30-26", "SCH-54"]],
+	["if", ["SCH-18", "SCH-18"]],
+	["maxContains", ["SCH-41", "SCH-41"]],
+	["minContains", ["SCH-42", "SCH-42"]],
+	["not", ["S30-21", "SCH-24"]],
+	["pattern", ["S30-09", "SCH-37"]],
+	["patternProperties", ["SCH-15", "SCH-15"]],
+	["then", ["SCH-19", "SCH-19"]],
+	["unevaluatedItems", ["SCH-25", "SCH-25"]],
+	["unevaluatedProperties", ["SCH-26", "SCH-26"]]
+])
+
+const rowOf = (line: SpecLine, keyword: string): string => {
+	const [row30, row31] = keywordRows.get(keyword) ?? ["SCO-01", "SCO-01"]
+
+	return line === "3.0" ? row30 : row31
+}
+
+/**
+ * Server-validated keywords, removed wherever they occur (D-AD12).
+ */
+const serverValidated: ReadonlySet<string> = new Set([
+	"contains",
+	"contentSchema",
+	"dependentRequired",
+	"dependentSchemas",
+	"else",
+	"if",
+	"maxContains",
+	"minContains",
+	"pattern",
+	"patternProperties",
+	"then",
+	"unevaluatedItems",
+	"unevaluatedProperties"
+])
+
+/**
+ * The dynamic and recursive keywords (D-AD12): refused wherever a schema holds them, and a body
+ * schema that applies one is refused with it (SCH-05, 06, 65, 66).
+ */
+const dynamicKeywords: ReadonlyMap<string, string> = new Map([
+	["$dynamicAnchor", "SCH-06/dynamic-anchor"],
+	["$dynamicRef", "SCH-05/dynamic-ref"],
+	["$recursiveAnchor", "SCH-65/recursive-anchor"],
+	["$recursiveRef", "SCH-66/recursive-ref"]
+])
+
+/**
+ * Keywords of other dialects that 3.1 and 3.2 refuse at element scope (SCH-07, SCH-64); a 3.0
+ * schema does not read them.
+ */
+const otherDialect: ReadonlyMap<string, string> = new Map([
+	["$vocabulary", "SCH-07/vocabulary"],
+	["dependencies", "SCH-64/dependencies"]
+])
+
+/**
+ * The refusal code of a refused keyword (D-AD12), or `undefined`.
+ */
+const refusedCode = (line: SpecLine, keyword: string): string | undefined =>
+	dynamicKeywords.get(keyword) ?? (line === "3.0" ? undefined : otherDialect.get(keyword))
+
+/**
+ * Every refused keyword in a stored schema's source, nested `$defs` and `definitions` members
+ * included, so whether a member is referenced does not change the refusal: one rule wherever the
+ * keyword sits. The copy removes the ones it stores; these are reported at their schema.
+ */
+const refusedInSource = (
+	resolution: Resolution,
+	sites: ReadonlyMap<string, CanonicalKey>
+): readonly (readonly [code: string, at: CanonicalKey])[] => {
+	const where = resolution.line === "3.0" ? positions30 : positions2020
+	const found: [string, CanonicalKey][] = []
+	for (const key of sortedKeys(sites)) {
+		const site = sites.get(key) ?? { document: resolution.document, pointer: "" }
+		const tokens = tokensOf(site.pointer)
+		const node = Option.getOrUndefined(nodeOption(resolution, site))
+		if (tokens === undefined || node === undefined) {
+			continue
+		}
+
+		const visit = (current: JsonObject, path: readonly string[]): void => {
+			for (const keyword of Record.keys(current)) {
+				const code = refusedCode(resolution.line, keyword)
+				if (code !== undefined) {
+					found.push([code, { document: site.document, pointer: formatPointer(path) }])
+				}
+			}
+		}
+		forEachSchema(node, where, visit, tokens)
+	}
+
+	return found
+}
+
+interface DynamicScan {
+	readonly found: boolean
+	readonly targets: readonly CanonicalKey[]
+}
+
+/**
+ * Whether the schema at `at` holds a dynamic or recursive keyword in place (subschemas included,
+ * nested `$defs` not), with the targets of its `$ref`s in visit order.
+ */
+const holdsDynamicKeyword = (resolution: Resolution, at: CanonicalKey): DynamicScan => {
+	const tokens = tokensOf(at.pointer)
+	const node = Option.getOrUndefined(nodeOption(resolution, at))
+	if (tokens === undefined || node === undefined) {
+		return { found: false, targets: [] }
+	}
+
+	const where = resolution.line === "3.0" ? positions30 : copyPositions
+	const targets: CanonicalKey[] = []
+	let found = false
+	forEachSchema(
+		node,
+		where,
+		(current, path) => {
+			found ||= Arr.some(Record.keys(current), (keyword) => dynamicKeywords.has(keyword))
+
+			const pointer = formatPointer(path)
+			const reference =
+				stringMember(current, "$ref") === undefined
+					? undefined
+					: referenceIn(resolution, { document: at.document, pointer })
+			if (reference !== undefined) {
+				targets.push(reference.target)
+			}
+		},
+		tokens
+	)
+
+	return { found, targets }
+}
+
+/**
+ * Whether the schema at `site` applies a dynamic or recursive keyword (SCH-05, 06, 65, 66):
+ * itself, through a subschema, or through a `$ref` chain, across the document set. A nested
+ * `$defs` member applies only through a reference. A body schema that does cannot be checked, so
+ * it is refused like any other refused body schema, and a required one raises to operation scope.
+ */
+export const appliesDynamicKeyword = (resolution: Resolution, site: CanonicalKey): boolean => {
+	const seen = new Set<string>()
+	const pending = [site]
+	for (let at = pending.pop(); at !== undefined; at = pending.pop()) {
+		if (seen.has(keyOf(at))) {
+			continue
+		}
+
+		seen.add(keyOf(at))
+
+		const scan = holdsDynamicKeyword(resolution, at)
+		if (scan.found) {
+			return true
+		}
+
+		for (const target of scan.targets) {
+			pending.push(target)
+		}
+	}
+
+	return false
+}
+
+const annotationKeys: ReadonlySet<string> = new Set([
+	"$comment",
+	"deprecated",
+	"description",
+	"examples",
+	"title"
+])
+
+const isStructured = (value: Json): boolean => isArray(value) || isObject(value)
+
+const isEmptySchema = (value: Json): boolean => isObject(value) && Record.isEmptyRecord(value)
+
+const inTypes = (types: readonly string[], value: Json): boolean => {
+	if (value === null) {
+		return types.includes("null")
+	}
+
+	if (Predicate.isNumber(value)) {
+		return types.includes("number") || (types.includes("integer") && Number.isInteger(value))
+	}
+
+	return (
+		(Predicate.isString(value) && types.includes("string")) ||
+		(Predicate.isBoolean(value) && types.includes("boolean"))
+	)
+}
+
+const isAnnotationOnly = (branch: JsonObject): boolean =>
+	Arr.every(
+		Record.keys(branch),
+		(key) => key === "const" || annotationKeys.has(key) || isSpecificationExtension(key)
+	)
+
+/**
+ * The values of a `oneOf`/`anyOf` whose branches are all primitive `const` values with annotations
+ * only (the S7 rule).
+ */
+const constValues = (branches: Json): Option.Option<readonly Json[]> => {
+	if (!isArray(branches) || branches.length === 0) {
+		return Option.none()
+	}
+
+	const values: Json[] = []
+	for (const branch of branches) {
+		if (!isObject(branch) || !isAnnotationOnly(branch)) {
+			return Option.none()
+		}
+
+		const value = member(branch, "const")
+		if (Option.isNone(value) || isStructured(value.value)) {
+			return Option.none()
+		}
+
+		values.push(value.value)
+	}
+
+	return Option.some(values)
+}
+
+const outsideSafeRange = (node: JsonObject): boolean =>
+	Arr.some(["exclusiveMaximum", "exclusiveMinimum", "maximum", "minimum"], (keyword) =>
+		Option.exists(
+			member(node, keyword),
+			(bound) => Predicate.isNumber(bound) && Math.abs(bound) > Number.MAX_SAFE_INTEGER
+		)
+	)
+
+const isInt64 = (node: JsonObject): boolean =>
+	typesOf(node).includes("integer") &&
+	(stringMember(node, "format") === "int64" || outsideSafeRange(node))
+
+interface Recorder {
+	readonly definitions: ReadonlyMap<string, Json>
+	readonly edits: SchemaEdit[]
+	readonly key: string
+	readonly line: SpecLine
+}
+
+const record = (
+	recorder: Recorder,
+	action: SchemaEdit["action"],
+	code: string,
+	path: readonly string[]
+): void => {
+	recorder.edits.push({ action, code, key: recorder.key, path })
+}
+
+/**
+ * The members a node's `enum` keeps. An object or array member removes the keyword
+ * (server-validated); a primitive member outside the declared type is dropped (SM-R16), and an
+ * `enum` left empty is removed.
+ */
+const filterEnum = (
+	recorder: Recorder,
+	node: JsonObject,
+	path: readonly string[]
+): Option.Option<readonly Json[]> => {
+	const found = member(node, "enum")
+	const enumPath = [...path, "enum"]
+	const types = typesOf(node)
+	if (Option.isNone(found) || !isArray(found.value)) {
+		return Option.none()
+	}
+
+	const members = found.value
+	if (Arr.some(members, isStructured)) {
+		record(recorder, "remove", `${rowOf(recorder.line, "enum")}/not-asserted`, enumPath)
+
+		return Option.none()
+	}
+
+	const kept = Arr.filter(members, (value, index) => {
+		const inside = types.length === 0 || inTypes(types, value)
+		if (!inside) {
+			const code = `${rowOf(recorder.line, "enum")}/outside-type`
+			record(recorder, "drop-member", code, [...enumPath, String(index)])
+		}
+
+		return inside
+	})
+
+	return Arr.isReadonlyArrayNonEmpty(kept) ? Option.some(kept) : Option.none()
+}
+
+const isReadOnlyNode = (node: JsonObject): boolean =>
+	Option.exists(member(node, "readOnly"), (value) => value === true)
+
+/**
+ * Whether a property schema is `readOnly: true`, itself or as the target of its `$ref`.
+ */
+const isReadOnly = (definitions: ReadonlyMap<string, Json>, schema: Json): boolean => {
+	if (!isObject(schema)) {
+		return false
+	}
+
+	const key = Option.fromUndefinedOr(
+		pipe(stringMember(schema, "$ref"), UndefinedOr.map(referenceKey))
+	)
+	const target = Option.flatMap(key, (name) => Option.fromUndefinedOr(definitions.get(name)))
+
+	return (
+		isReadOnlyNode(schema) ||
+		Option.exists(target, (node) => isObject(node) && isReadOnlyNode(node))
+	)
+}
+
+/**
+ * The names a node's `required` keeps on a request. A read-only property is not required there
+ * (D-SCH2): 3.0.4 says `required` takes effect on the response only, so it is dropped under a code
+ * no rule reports; in 3.1 and 3.2 the server decides (server-validated tier), so each drop is a
+ * SCH-45 notice. `required` in one `allOf` branch naming a read-only property declared in another
+ * is not seen here and stays asserted.
+ */
+const filterRequired = (
+	recorder: Recorder,
+	node: JsonObject,
+	path: readonly string[],
+	names: Json
+): Option.Option<Json> => {
+	const properties = member(node, "properties")
+	if (!isArray(names) || Option.isNone(properties) || !isObject(properties.value)) {
+		return Option.some(names)
+	}
+
+	const declared = properties.value
+	const code = recorder.line === "3.0" ? "S30-31/response-only" : "SCH-45/read-only-required"
+	const kept = Arr.filter(names, (name, index) => {
+		const readOnly =
+			Predicate.isString(name) &&
+			Option.exists(member(declared, name), (schema) => isReadOnly(recorder.definitions, schema))
+		if (readOnly) {
+			record(recorder, "drop-member", code, [...path, "required", String(index)])
+		}
+
+		return !readOnly
+	})
+
+	return Arr.isReadonlyArrayNonEmpty(kept) ? Option.some(kept) : Option.none()
+}
+
+/**
+ * Whether a value is an instance of one of the declared types; no declared type admits any value.
+ */
+const conformsTo = (types: readonly string[], value: Json): boolean => {
+	if (types.length === 0) {
+		return true
+	}
+
+	if (isArray(value)) {
+		return types.includes("array")
+	}
+
+	return isObject(value) ? types.includes("object") : inTypes(types, value)
+}
+
+/**
+ * The code of a keyword the validation copy removes, or `undefined` when the keyword stays. A 3.0
+ * `default` MUST conform to the schema's type (S30-27, D-OC3); one that does not is refused at
+ * element scope. In 3.1 and 3.2 `default` is an annotation (SCH-49) and stays.
+ */
+const removalCode = (
+	line: SpecLine,
+	node: JsonObject,
+	keyword: string,
+	value: Json
+): string | undefined => {
+	if (keyword === "default" && line === "3.0" && !conformsTo(typesOf(node), value)) {
+		return "S30-27/nonconforming-default"
+	}
+
+	const refused = refusedCode(line, keyword)
+	const notAsserted =
+		serverValidated.has(keyword) ||
+		(keyword === "format" && value !== "binary" && value !== "byte") ||
+		(keyword === "not" && !isEmptySchema(value)) ||
+		(keyword === "const" && isStructured(value))
+	if (refused !== undefined) {
+		return refused
+	}
+
+	if (notAsserted) {
+		return `${rowOf(line, keyword)}/not-asserted`
+	}
+
+	return keyword === "nullable" && line !== "3.0" ? "SCH-62/nullable-no-effect" : undefined
+}
+
+const retype = (value: Json): Json => {
+	if (Predicate.isString(value)) {
+		return "number"
+	}
+
+	return [...new Set(Arr.map(strings(value), (type) => (type === "integer" ? "number" : type)))]
+}
+
+/**
+ * An `additionalProperties` that rejects or types some keys. Beside `patternProperties` it cannot
+ * stay: which keys it governs depends on the patterns, which are not asserted (SCH-15), so the
+ * object is left open, as Effect's importer leaves it when it ignores patterns.
+ */
+const constrainsKeys = (value: Json): boolean =>
+	value === false || (isObject(value) && !isEmptySchema(value))
+
+const filterNode =
+	(recorder: Recorder): Visit =>
+	(node, path) => {
+		const int64 = isInt64(node)
+		let enumValues = filterEnum(recorder, node, path)
+		const rewritten = new Set<string>()
+		for (const keyword of ["oneOf", "anyOf"]) {
+			const values = Option.flatMap(member(node, keyword), constValues)
+			if (Option.isSome(values)) {
+				rewritten.add(keyword)
+				enumValues = Option.some(
+					Option.match(enumValues, {
+						onNone: () => values.value,
+						onSome: (current) =>
+							Arr.filter(current, (item) => Arr.some(values.value, (value) => value === item))
+					})
+				)
+			}
+		}
+
+		if (int64) {
+			record(recorder, "retype", "FMT-02/int64-range", path)
+		}
+
+		const patterned = Option.isSome(member(node, "patternProperties"))
+		const kept: [string, Json][] = []
+		for (const [keyword, value] of Record.toEntries(node)) {
+			const code = removalCode(recorder.line, node, keyword, value)
+			if (code !== undefined) {
+				record(recorder, "remove", code, [...path, keyword])
+			} else if (keyword === "additionalProperties" && patterned && constrainsKeys(value)) {
+				record(recorder, "remove", `${rowOf(recorder.line, "patternProperties")}/not-asserted`, [
+					...path,
+					keyword
+				])
+			} else if (keyword === "type" && int64) {
+				kept.push([keyword, retype(value)])
+			} else if (keyword === "required") {
+				const required = filterRequired(recorder, node, path, value)
+				if (Option.isSome(required)) {
+					kept.push([keyword, required.value])
+				}
+			} else if (keyword !== "enum" && !rewritten.has(keyword)) {
+				kept.push([keyword, value])
+			}
+		}
+
+		if (Option.isSome(enumValues)) {
+			kept.push(["enum", enumValues.value])
+		}
+
+		return Record.fromEntries(kept)
+	}
+
+interface Edge {
+	readonly from: string
+	readonly path: readonly string[]
+	readonly to: string
+}
+
+const edgesOf = (definitions: ReadonlyMap<string, Json>): readonly Edge[] => {
+	const edges: Edge[] = []
+	for (const key of sortedKeys(definitions)) {
+		forEachSchema(
+			definitions.get(key) ?? {},
+			inPlace,
+			(node, path) => {
+				const ref = stringMember(node, "$ref")
+				const to = pipe(ref, UndefinedOr.map(referenceKey))
+				if (to !== undefined && definitions.has(to)) {
+					edges.push({ from: key, path, to })
+				}
+			},
+			[]
+		)
+	}
+
+	return edges
+}
+
+const replaceAt = (node: Json, path: readonly string[]): Json => {
+	const [token, ...rest] = path
+	if (token === undefined) {
+		return {}
+	}
+
+	if (isArray(node)) {
+		return Arr.map(node, (item, index) => (String(index) === token ? replaceAt(item, rest) : item))
+	}
+
+	if (!isObject(node)) {
+		return node
+	}
+
+	return Record.map(node, (value, key) => (key === token ? replaceAt(value, rest) : value))
+}
+
+/**
+ * A copy of the definitions with the edits that made it, in the order they were made.
+ */
+interface EditedCopy {
+	readonly definitions: ReadonlyMap<string, Json>
+	readonly edits: readonly SchemaEdit[]
+}
+
+/**
+ * Refuses every reference site on a cycle that returns to a schema without descending into the
+ * instance (D-AD12 refused tier, DOC-23/alias-cycle): each such site becomes `{}`, the schema that
+ * admits any value, in the store and so in every copy of it.
+ */
+const breakAliasCycles = (initial: ReadonlyMap<string, Json>): EditedCopy => {
+	const edges = edgesOf(initial)
+	/**
+	 * The strongly connected components of the in-place reference graph. Graph's search keeps an
+	 * explicit stack, so a long reference chain cannot exhaust the call stack.
+	 */
+	const nodes = new Map<string, Graph.NodeIndex>()
+	const graph = Graph.directed<string, Edge>((mutable) => {
+		for (const key of sortedKeys(initial)) {
+			nodes.set(key, Graph.addNode(mutable, key))
+		}
+		for (const edge of edges) {
+			const from = nodes.get(edge.from)
+			const to = nodes.get(edge.to)
+			if (from !== undefined && to !== undefined) {
+				Graph.addEdge(mutable, from, to, edge)
+			}
+		}
+	})
+	const component = new Map<string, number>()
+	for (const [id, members] of Graph.stronglyConnectedComponents(graph).entries()) {
+		for (const node of members) {
+			const key = Graph.getNode(graph, node)
+			if (Option.isSome(key)) {
+				component.set(key.value, id)
+			}
+		}
+	}
+
+	const sizes = new Map<number, number>()
+	for (const id of component.values()) {
+		sizes.set(id, (sizes.get(id) ?? 0) + 1)
+	}
+
+	const definitions = new Map(initial)
+	const edits: SchemaEdit[] = []
+	for (const edge of edges) {
+		const id = component.get(edge.from)
+		const cyclic =
+			id !== undefined &&
+			id === component.get(edge.to) &&
+			(edge.from === edge.to || (sizes.get(id) ?? 0) > 1)
+		if (cyclic) {
+			edits.push({
+				action: "replace",
+				code: "DOC-23/alias-cycle",
+				key: edge.from,
+				path: edge.path
+			})
+			definitions.set(edge.from, replaceAt(definitions.get(edge.from) ?? {}, edge.path))
+		}
+	}
+
+	return { definitions, edits }
+}
+
+/**
+ * The importer's failure classes D-AD12 names (spike S7); any other class is a defect.
+ */
+const importClasses: readonly (readonly [prefix: string, code: (line: SpecLine) => string])[] = [
+	["Cannot intersect these", () => "SCO-09/union-not-asserted"],
+	[
+		'Cannot combine typed "additionalProperties"',
+		(line) => `${rowOf(line, "additionalProperties")}/not-asserted`
+	],
+	["Missing definition", (line) => `${line === "3.0" ? "REF-02" : "SCH-03"}/non-schema-target`],
+	["Definition ", () => "DOC-23/alias-cycle"]
+]
+
+const quoted = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.String))
+
+/**
+ * One token of the importer's error path, in brackets: a JSON string or an index. Splitting a path
+ * at it yields the text around the tokens with each token at an odd index.
+ */
+const pathToken = regex('\\[("(?:[^"\\\\]|\\\\.)*"|\\d+)\\]', "u")
+
+/**
+ * The importer's error path (a line `  at ["definitions"]["A"][0]`) as tokens.
+ */
+const importPath = (message: string): readonly string[] => {
+	const [, location = ""] = Str.split(message, "\n  at ")
+
+	return Arr.map(
+		Arr.filter(Str.split(location, pathToken), (_token, index) => index % 2 === 1),
+		(token) => (Str.startsWith('"')(token) ? Option.getOrElse(quoted(token), () => token) : token)
+	)
+}
+
+/**
+ * The child a schema keyword reaches from `node`, with the number of path tokens it consumes.
+ */
+const keywordChild = (
+	node: JsonObject,
+	keyword: string,
+	name: string
+): readonly [child: Option.Option<Json>, width: number] => {
+	const container = member(node, keyword)
+	if (copyPositions.one.has(keyword)) {
+		return [container, 1]
+	}
+
+	const indexed = copyPositions.list.has(keyword) || copyPositions.map.has(keyword)
+
+	return indexed
+		? [Option.flatMap(container, (found) => childAt(found, name)), 2]
+		: [Option.none(), 1]
+}
+
+/**
+ * The deepest schema node on `tokens` that exists: the importer's path can run through merged
+ * intersection scopes that are not positions in the document (spike S7).
+ */
+const deepestSchema = (node: Json, tokens: readonly string[]): readonly string[] => {
+	let current = node
+	let consumed = 0
+	while (consumed < tokens.length && isObject(current)) {
+		const [found, width] = keywordChild(current, tokens[consumed] ?? "", tokens[consumed + 1] ?? "")
+		if (Option.isNone(found) || !(isObject(found.value) || Predicate.isBoolean(found.value))) {
+			break
+		}
+
+		current = found.value
+		consumed += width
+	}
+
+	return tokens.slice(0, consumed)
+}
+
+const multiDocument = (
+	definitions: ReadonlyMap<string, Json>
+): JsonSchema.MultiDocument<"draft-2020-12"> | undefined => {
+	const keys = sortedKeys(definitions)
+	const [first, ...rest] = Arr.map(keys, (key) => ({ $ref: refFor(key) }))
+	if (first === undefined) {
+		return undefined
+	}
+
+	const entries = Arr.flatMap(keys, (key): [string, JsonObject][] => {
+		const node = Option.filter(Option.fromUndefinedOr(definitions.get(key)), isObject)
+
+		return Option.isSome(node) ? [[key, node.value]] : []
+	})
+
+	return {
+		definitions: Record.fromEntries(entries),
+		dialect: "draft-2020-12",
+		schemas: [first, ...rest]
+	}
+}
+
+/**
+ * Effect's importer as both import copies run it: the validation copy here, and the
+ * code-generation copy in the domain emitter. Pattern constraints stay at the importer's default
+ * (rejected): the validation copy removes every `pattern` and `patternProperties` before import, so
+ * the two copies can never disagree on one.
+ */
+export const importSchemas = (
+	multi: JsonSchema.MultiDocument<"draft-2020-12">
+): readonly [Schema.Top, ...Schema.Top[]] => SchemaRepresentation.fromJsonSchemaMultiDocument(multi)
+
+const importOnce = (
+	definitions: ReadonlyMap<string, Json>
+): Effect.Effect<Option.Option<string>> => {
+	const multi = multiDocument(definitions)
+	if (multi === undefined) {
+		return Effect.succeedNone
+	}
+
+	return Effect.try({ catch: messageOf, try: () => importSchemas(multi) }).pipe(
+		Effect.match({ onFailure: (message) => Option.some(message), onSuccess: () => Option.none() })
+	)
+}
+
+/**
+ * The edit for one importer failure, or `undefined` when its class is unnamed or it makes no
+ * progress (the located node is already `{}`).
+ */
+const importEdit = (
+	line: SpecLine,
+	definitions: ReadonlyMap<string, Json>,
+	message: string
+): Option.Option<SchemaEdit> => {
+	const [first] = Str.split(message, "\n")
+	const found = Arr.findFirst(importClasses, ([prefix]) => Str.startsWith(prefix)(first))
+	const [root, name = "", ...tokens] = importPath(message)
+	const key = root === "schemas" ? (sortedKeys(definitions)[Number(name)] ?? "") : name
+	const node = definitions.get(key)
+	if (Option.isNone(found) || node === undefined) {
+		return Option.none()
+	}
+
+	const path = root === "definitions" ? deepestSchema(node, tokens) : []
+
+	return Equal.equals(replaceAt(node, path), node)
+		? Option.none()
+		: Option.some({ action: "replace", code: found.value[1](line), key, path })
+}
+
+/**
+ * Imports through `importSchemas`; each rejected node becomes `{}` under the code of its class,
+ * at its deepest existing schema ancestor, until the import succeeds. The importer stops at its
+ * first failure, so repairs cannot be batched. The passes end: an edit that changes nothing is a
+ * defect (`importEdit`), so each pass replaces a node that is not `{}` with `{}`, removing at least
+ * one of the finitely many JSON values the definitions hold.
+ */
+const importCopy = Effect.fnUntraced(function* importCopy(
+	line: SpecLine,
+	initial: ReadonlyMap<string, Json>
+): Effect.fn.Return<EditedCopy, SchemaImportDefect> {
+	const definitions = new Map(initial)
+	const edits: SchemaEdit[] = []
+	let failure = yield* importOnce(definitions)
+	while (Option.isSome(failure)) {
+		const found = importEdit(line, definitions, failure.value)
+		if (Option.isNone(found)) {
+			return yield* SchemaImportDefect.make({ key: "", message: failure.value })
+		}
+
+		const edit = found.value
+		edits.push(edit)
+		definitions.set(edit.key, replaceAt(definitions.get(edit.key) ?? {}, edit.path))
+		failure = yield* importOnce(definitions)
+	}
+
+	return { definitions, edits }
+})
+
+/**
+ * Derives the validation copy from stored definitions (design 3.5 "Import copies", D-AD12): the
+ * server-validated keywords are removed with a notice per occurrence; refused keywords are removed
+ * with a refusal; an all-constant `oneOf` or `anyOf` becomes one `enum` with no notice; `enum`
+ * members outside the declared type are dropped with a notice (SM-R16); a 3.0 `nullable` in 3.1 or
+ * 3.2 is removed with a notice and no effect; an out-of-safe-range integer is asserted as a number
+ * (int64 notice); `patternProperties` is removed with a notice, with an `additionalProperties`
+ * beside it that rejects or types keys (SCH-15); a name in `required` whose property is read-only
+ * is dropped (SCH-45: a notice in 3.1 and 3.2, none in 3.0); a 3.0 `default` outside the schema's
+ * type is removed with a refusal (S30-27); then Effect's importer runs, and each node it still
+ * rejects becomes `{}` under the code of its D-AD12 class. A pure alias cycle never reaches it: the
+ * store has refused it already (`normalizeSchemas`). The copy is the stored document minus `edits`
+ * (X10); it is recomputed, never edited.
+ */
+const validationCopy = Effect.fnUntraced(function* validationCopy(
+	line: SpecLine,
+	definitions: ReadonlyMap<string, Json>
+): Effect.fn.Return<ValidationCopy, SchemaImportDefect> {
+	const edits: SchemaEdit[] = []
+	const filtered = new Map(
+		Arr.map(sortedKeys(definitions), (key): [string, Json] => {
+			const visit = filterNode({ definitions, edits, key, line })
+
+			return [key, transformSchema(definitions.get(key) ?? {}, [], copyPositions, visit)]
+		})
+	)
+	const imported = yield* importCopy(line, filtered)
+
+	return {
+		definitions: imported.definitions,
+		edits: [...edits, ...imported.edits]
+	}
+})
+
+interface Rule {
+	readonly anchor: string
+	readonly element: string
+	readonly message: string
+	readonly severity: "notice" | "refusal"
+}
+
+const keywordsSection = "json-schema-keywords"
+
+const rules: ReadonlyMap<string, Rule> = new Map<string, Rule>([
+	[
+		"alias-cycle",
+		{
+			anchor: "handling-reference-cycles",
+			element: "Schema reference cycle",
+			message:
+				"A cycle of schema references returns to a schema without descending into the instance.",
+			severity: "refusal"
+		}
+	],
+	[
+		"dependencies",
+		{
+			anchor: keywordsSection,
+			element: "Schema dependencies",
+			message:
+				"dependencies is not a keyword of the OpenAPI dialect; use dependentRequired or dependentSchemas.",
+			severity: "refusal"
+		}
+	],
+	[
+		"dynamic-anchor",
+		{
+			anchor: keywordsSection,
+			element: "Schema $dynamicAnchor",
+			message: "$dynamicAnchor is not supported.",
+			severity: "refusal"
+		}
+	],
+	[
+		"dynamic-ref",
+		{
+			anchor: keywordsSection,
+			element: "Schema $dynamicRef",
+			message: "$dynamicRef is not supported.",
+			severity: "refusal"
+		}
+	],
+	[
+		"int64-range",
+		{
+			anchor: "data-type-format",
+			element: "Schema integer range",
+			message: "int64 range is not asserted client-side.",
+			severity: "notice"
+		}
+	],
+	[
+		"non-schema-target",
+		{
+			anchor: keywordsSection,
+			element: "Schema $ref target",
+			message: "The $ref target is the document root or another object that is not a schema.",
+			severity: "refusal"
+		}
+	],
+	[
+		"nonconforming-default",
+		{
+			anchor: keywordsSection,
+			element: "Schema default",
+			message: "The default does not conform to the schema type; it is never sent.",
+			severity: "refusal"
+		}
+	],
+	[
+		"not-asserted",
+		{
+			anchor: keywordsSection,
+			element: "Schema keyword",
+			message: "The schema is not asserted here client-side; the value is sent unvalidated.",
+			severity: "notice"
+		}
+	],
+	[
+		"nullable-no-effect",
+		{
+			anchor: keywordsSection,
+			element: "Schema nullable",
+			message: 'nullable has no effect in OpenAPI 3.1 and later; use type: [..., "null"].',
+			severity: "notice"
+		}
+	],
+	[
+		"outside-type",
+		{
+			anchor: keywordsSection,
+			element: "Schema enum member",
+			message: "An enum member outside the declared type is dropped.",
+			severity: "notice"
+		}
+	],
+	[
+		"read-only-required",
+		{
+			anchor: "validating-readonly-and-writeonly",
+			element: "Schema required",
+			message:
+				"A required read-only property is not asserted client-side on a request; the server decides.",
+			severity: "notice"
+		}
+	],
+	[
+		"recursive-anchor",
+		{
+			anchor: keywordsSection,
+			element: "Schema $recursiveAnchor",
+			message: "$recursiveAnchor is not supported.",
+			severity: "refusal"
+		}
+	],
+	[
+		"recursive-ref",
+		{
+			anchor: keywordsSection,
+			element: "Schema $recursiveRef",
+			message: "$recursiveRef is not supported.",
+			severity: "refusal"
+		}
+	],
+	[
+		"vocabulary",
+		{
+			anchor: keywordsSection,
+			element: "Schema $vocabulary",
+			message: "$vocabulary is not supported; schemas must use the OpenAPI dialect.",
+			severity: "refusal"
+		}
+	],
+	[
+		"union-not-asserted",
+		{
+			anchor: "composition-and-inheritance-polymorphism",
+			element: "Schema composition",
+			message:
+				"These allOf, anyOf or oneOf alternatives cannot be intersected; the schema is not asserted client-side.",
+			severity: "notice"
+		}
+	]
+])
+
+/**
+ * The deepest existing node of the source document on the edit's path, as an RFC 6901 pointer.
+ */
+const sourcePointer = (value: Json, base: string, path: readonly string[]): string => {
+	const tokens = tokensOf(base)
+	if (tokens === undefined) {
+		return ""
+	}
+
+	let current = Result.getSuccess(evaluatePointerResult(value, base))
+	let consumed = 0
+	for (const token of path) {
+		current = Option.flatMap(current, (node) => childAt(node, token))
+		if (Option.isNone(current)) {
+			break
+		}
+
+		consumed += 1
+	}
+
+	return formatPointer([...tokens, ...path.slice(0, consumed)])
+}
+
+/**
+ * A refusal of a removed keyword is reported at its schema, as the resolver reports `$dynamicRef`;
+ * a name dropped from `required` at the `required` keyword, once per schema.
+ */
+const reportedPath = (edit: SchemaEdit, rule: Rule): readonly string[] => {
+	const removedRefusal = rule.severity === "refusal" && edit.action === "remove"
+	const droppedRequired = edit.action === "drop-member" && edit.path.at(-2) === "required"
+
+	return removedRefusal || droppedRequired ? edit.path.slice(0, -1) : edit.path
+}
+
+const diagnosticsOf = (
+	resolution: Resolution,
+	sites: ReadonlyMap<string, CanonicalKey>,
+	edits: readonly SchemaEdit[],
+	refused: readonly (readonly [code: string, at: CanonicalKey])[]
+): Effect.Effect<readonly Diagnostic[]> => {
+	const openapi = Option.getOrElse(declaredOpenapi(resolution.value), () => "unknown")
+	/**
+	 * A diagnostic's identity for deduplication: its code at its document and pointer.
+	 */
+	let seen = HashSet.fromIterable<readonly [code: string, document: string, pointer: string]>(
+		Arr.map(resolution.diagnostics, (diagnostic) => [
+			diagnostic.code,
+			diagnostic.document,
+			diagnostic.pointer
+		])
+	)
+	const records: DiagnosticInput[] = []
+	const report = (
+		code: string,
+		at: CanonicalKey,
+		rule: Rule | undefined,
+		keyword: Option.Option<string>
+	): void => {
+		const [, name = ""] = Str.split(code, "/")
+		const identity = [code, at.document, at.pointer] as const
+		if (rule !== undefined && !HashSet.has(seen, identity)) {
+			seen = HashSet.add(seen, identity)
+
+			records.push({
+				code,
+				document: at.document,
+				element: Option.match(
+					Option.filter(keyword, () => name === "not-asserted"),
+					{ onNone: () => rule.element, onSome: (found) => `Schema ${found}` }
+				),
+				message: rule.message,
+				openapi,
+				pointer: at.pointer,
+				scope: "element",
+				severity: rule.severity,
+				specSection: specSectionUrl(resolution.line, rule.anchor)
+			})
+		}
+	}
+	for (const edit of edits) {
+		const rule = rules.get(Str.split(edit.code, "/")[1] ?? "")
+		const site = sites.get(edit.key) ?? { document: resolution.document, pointer: "" }
+		const value = resolution.documents.get(site.document) ?? null
+		const pointer =
+			rule === undefined ? "" : sourcePointer(value, site.pointer, reportedPath(edit, rule))
+		report(
+			edit.code,
+			{ document: site.document, pointer },
+			rule,
+			edit.action === "remove" ? Arr.last(edit.path) : Option.none()
+		)
+	}
+
+	for (const [code, at] of refused) {
+		report(code, at, rules.get(Str.split(code, "/")[1] ?? ""), Option.none())
+	}
+
+	for (const reference of resolution.references.values()) {
+		if (reference.kind === "schema" && reference.defsKey === undefined) {
+			const row = resolution.line === "3.0" ? "REF-02" : "SCH-03"
+			report(
+				`${row}/non-schema-target`,
+				reference.site,
+				rules.get("non-schema-target"),
+				Option.none()
+			)
+		}
+	}
+
+	return pipe(
+		records,
+		Effect.forEach(makeDiagnostic),
+		Effect.map((diagnostics) => sortDiagnostics([...resolution.documents.keys()], diagnostics))
+	)
+}
+
+/**
+ * Normalizes the schemas of a resolved document set (design 3.5, unit NZ-4): the store, the facts,
+ * the validation copy, one diagnostic per distinct edit at its source use site, and a refusal for
+ * each refused keyword in a stored schema's source, nested `$defs` members included. A refusal the
+ * resolver already reported is not repeated. A pure alias cycle is refused in the store itself, each
+ * of its reference sites `{}` (`breakAliasCycles`), so the store and the validation copy derived
+ * from it read the cycle one way, and no later stage meets a reference that never reaches a schema.
+ */
+export const normalizeSchemas = Effect.fnUntraced(function* normalizeSchemas(
+	resolution: Resolution
+): Effect.fn.Return<SchemaNormalization, SchemaImportDefect> {
+	const sites = sitesOf(resolution)
+	const converted = yield* storeFrom(resolution, sites)
+	const acyclic = breakAliasCycles(converted.definitions)
+	const stored: StoredSchemas = {
+		definitions: acyclic.definitions,
+		facts: new Map(
+			Arr.map(sortedKeys(acyclic.definitions), (key): [string, SchemaFacts] => [
+				key,
+				factsOf(acyclic.definitions.get(key) ?? {})
+			])
+		)
+	}
+	const refused = refusedInSource(resolution, sites)
+	const validation = yield* validationCopy(resolution.line, stored.definitions)
+	const diagnostics = yield* diagnosticsOf(
+		resolution,
+		sites,
+		[...acyclic.edits, ...validation.edits],
+		refused
+	)
+
+	return { ...stored, diagnostics, line: resolution.line, validation }
+})
+
+const annotationsDropped: ReadonlySet<string> = new Set(["default", "example", "examples"])
+
+const forCodeGeneration: Visit = (node) =>
+	Record.map(
+		Record.filter(node, (_, keyword) => !annotationsDropped.has(keyword)),
+		(value, keyword): Json => {
+			if (keyword !== "properties" || !isObject(value)) {
+				return value
+			}
+
+			return Record.fromEntries(
+				Arr.sort(
+					Record.toEntries(value),
+					Order.mapInput(byString, ([name]: readonly [string, Json]) => name)
+				)
+			)
+		}
+	)
+
+const referencedKeys = (node: Json): readonly string[] => {
+	const keys: string[] = []
+	forEachSchema(
+		node,
+		copyPositions,
+		(current) => {
+			const ref = stringMember(current, "$ref")
+			const key = pipe(ref, UndefinedOr.map(referenceKey))
+			if (key !== undefined) {
+				keys.push(key)
+			}
+		},
+		[]
+	)
+
+	return keys
+}
+
+/**
+ * The code-generation copy (design 3.5): the validation copy restricted to `roots` and every
+ * definition they reference, with `examples`, `example` and `default` removed and the keys of every
+ * `properties` object sorted. A root that is not a stored key is skipped.
+ */
+export const codeGenerationCopy = (
+	validation: ReadonlyMap<string, Json>,
+	roots: readonly string[]
+): ReadonlyMap<string, Json> => {
+	const reached = new Set<string>()
+	const pending = Arr.filter(roots, (root) => validation.has(root))
+	let key = pending.pop()
+	while (key !== undefined) {
+		if (!reached.has(key)) {
+			reached.add(key)
+
+			for (const ref of referencedKeys(validation.get(key) ?? {})) {
+				if (validation.has(ref) && !reached.has(ref)) {
+					pending.push(ref)
+				}
+			}
+		}
+
+		key = pending.pop()
+	}
+
+	return new Map(
+		Arr.map(Arr.sort([...reached], byString), (name): [string, Json] => [
+			name,
+			transformSchema(validation.get(name) ?? {}, [], copyPositions, forCodeGeneration)
+		])
+	)
+}

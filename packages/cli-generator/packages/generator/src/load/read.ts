@@ -1,0 +1,235 @@
+import { ByteSize, Bytes, Effect, FileSystem, Option, Schema, Stream } from "effect"
+import type { PlatformError, Scope } from "effect"
+import type { DocumentUri } from "#model/brands.ts"
+import type { DiagnosticInput } from "#model/diagnostic.ts"
+import { Diagnostic, makeDiagnostic } from "#model/diagnostic.ts"
+
+type Document = typeof DocumentUri.Type
+
+const messages = {
+	"DOC-14/duplicate-key": "An object repeats a key.",
+	"DOC-14/invalid-encoding": "The document is not valid UTF-8.",
+	"DOC-14/invalid-json": "The document is not valid JSON.",
+	"DOC-14/invalid-yaml": "The document is not valid YAML 1.2.",
+	"DOC-14/unreadable": "The document could not be read.",
+	"DOC-14/unsafe-integer": "An integer in default, enum or const is beyond 2^53.",
+	"DOC-14/yaml-alias-cycle": "A YAML alias refers to a node that contains it.",
+	"DOC-14/yaml-multi-document": "The YAML stream holds more than one document.",
+	"DOC-14/yaml-non-finite": "A YAML number is not finite (.inf or .nan).",
+	"DOC-14/yaml-non-json-tag": "A YAML tag has no JSON value.",
+	"DOC-14/yaml-non-string-key": "A YAML mapping key is not a scalar."
+} as const
+
+export type LoadCode = keyof typeof messages
+
+/**
+ * The loader refused its input. `offset` is a byte offset into the input when one is known.
+ */
+export class LoadRefusal extends Schema.TaggedError<
+	LoadRefusal,
+	{ readonly brand: unique symbol }
+>()("LoadRefusal", {
+	diagnostic: Diagnostic,
+	offset: Schema.optionalKey(Schema.Natural)
+}) {}
+
+/**
+ * Where in the input a refusal points: 1-based line and column, 0-based byte offset.
+ */
+export interface Position {
+	readonly column: number
+	readonly line: number
+	readonly offset: number
+}
+
+/**
+ * Where a refusal points: the pointer of the value refused, and its place in the input when the
+ * parser knows one.
+ */
+export interface RefusalSite {
+	readonly pointer: string
+	readonly position: Option.Option<Position>
+}
+
+/**
+ * The site of a refusal of the input as a whole.
+ */
+export const wholeInput: RefusalSite = { pointer: "", position: Option.none() }
+
+const diagnosticFields = (
+	document: Document,
+	code: LoadCode,
+	pointer: string
+): DiagnosticInput => ({
+	code,
+	document,
+	element: "document",
+	message: messages[code],
+	openapi: "unknown",
+	pointer,
+	scope: "document",
+	severity: "refusal",
+	specSection: "https://spec.openapis.org/oas/v3.1.2.html#format"
+})
+
+/**
+ * Fails with a `LoadRefusal` whose diagnostic is a `DOC-14` document-scope refusal.
+ */
+export const refuse = (
+	document: Document,
+	code: LoadCode,
+	site: RefusalSite
+): Effect.Effect<never, LoadRefusal> => {
+	const fields = diagnosticFields(document, code, site.pointer)
+
+	return Option.match(site.position, {
+		onNone: () =>
+			makeDiagnostic(fields).pipe(
+				Effect.flatMap((diagnostic) => Effect.fail(LoadRefusal.make({ diagnostic })))
+			),
+		onSome: (position) =>
+			makeDiagnostic({ ...fields, column: position.column, line: position.line }).pipe(
+				Effect.flatMap((diagnostic) =>
+					Effect.fail(LoadRefusal.make({ diagnostic, offset: position.offset }))
+				)
+			)
+	})
+}
+
+/**
+ * Every byte of a stream (stdin), collected whole: the document is the operator's own, so what it holds is read.
+ */
+export const readStreamBytes = (
+	stream: Stream.Stream<Uint8Array, PlatformError.PlatformError>,
+	document: Document
+): Effect.Effect<Uint8Array, LoadRefusal> =>
+	stream.pipe(
+		Stream.runCollect,
+		Effect.map(Bytes.concat),
+		Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable", wholeInput))
+	)
+
+/**
+ * A check a trust boundary runs on the opened handle's metadata before any byte is read. A
+ * refusal here leaves the file unread.
+ */
+export type VerifyOpened = (
+	opened: FileSystem.File.Info
+) => Effect.Effect<void, LoadRefusal, FileSystem.FileSystem>
+
+/**
+ * One read of a handle: the chunks it yields, and the handle again while bytes remain.
+ */
+type Page = readonly [chunks: readonly Uint8Array[], next: Option.Option<FileSystem.File>]
+
+/**
+ * The handle's bytes until end of file, each read as large as the file the opened handle's `stat` reports, so a file
+ * that holds what it reports is read in one read, and one that grew since is read on to its end. A file that reports
+ * no bytes reads nothing: a read of none answers end of file at once.
+ */
+const handleStream = (
+	file: FileSystem.File,
+	size: number
+): Stream.Stream<Uint8Array, PlatformError.PlatformError> =>
+	Stream.paginate(file, (handle) =>
+		handle.readAlloc(size).pipe(
+			Effect.map(
+				Option.match({
+					onNone: (): Page => [[], Option.none()],
+					onSome: (chunk): Page => [[chunk], Option.some(handle)]
+				})
+			)
+		)
+	)
+
+const checkRegular = (
+	info: FileSystem.File.Info,
+	document: Document
+): Effect.Effect<void, LoadRefusal> =>
+	info.type === "File" ? Effect.void : refuse(document, "DOC-14/unreadable", wholeInput)
+
+/**
+ * Whether two `stat` results name the same file: equal `dev` and `ino`. Where the platform reports
+ * no inode, equal `size` stands in for it.
+ */
+export const sameFile = (a: FileSystem.File.Info, b: FileSystem.File.Info): boolean =>
+	a.dev === b.dev &&
+	(Option.isSome(a.ino) && Option.isSome(b.ino)
+		? a.ino.value === b.ino.value
+		: ByteSize.toBigInt(a.size) === ByteSize.toBigInt(b.size))
+
+type VerifyAgainst = (
+	before: FileSystem.File.Info,
+	opened: FileSystem.File.Info
+) => Effect.Effect<void, LoadRefusal, FileSystem.FileSystem>
+
+/**
+ * Opens `path` without following a symlink at its final component, checks the open handle (a
+ * regular file, then `verify` against the `stat` taken before the open), and reads that same
+ * handle to its end, so the bytes read are the bytes checked. The `stat` before the open refuses a special file
+ * already in place without opening it; one swapped in after that `stat` is refused by the handle
+ * check, but the open itself can block, since the FileSystem service cannot open non-blocking
+ * (accepted risk). `noFollow` refuses a symlink at the final component only; a parent directory
+ * swapped before the open is not detected here, so what `verify` can prove is limited to the
+ * window between the pre-open `stat` and the open.
+ */
+const readOpened = Effect.fnUntraced(function* readOpened(
+	path: string,
+	document: Document,
+	verify: VerifyAgainst
+): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem | Scope.Scope> {
+	const fs = yield* FileSystem.FileSystem
+	const unreadable = () => refuse(document, "DOC-14/unreadable", wholeInput)
+
+	const before = yield* fs.stat(path).pipe(Effect.catchTag("PlatformError", unreadable))
+
+	yield* checkRegular(before, document)
+
+	const file = yield* fs
+		.open(path, { flag: "r", noFollow: true })
+		.pipe(Effect.catchTag("PlatformError", unreadable))
+	const opened = yield* file.stat.pipe(Effect.catchTag("PlatformError", unreadable))
+
+	yield* checkRegular(opened, document)
+	yield* verify(before, opened)
+
+	return yield* readStreamBytes(
+		handleStream(file, Number(ByteSize.toBigInt(opened.size))),
+		document
+	)
+}, Effect.scoped)
+
+/**
+ * Reads a path the operator named (the entry document, a `--document` pair). A symlinked name is
+ * the operator's choice, so its real path is resolved first; that real path is then opened
+ * without following a symlink, and the handle must be the file a `stat` of the real path saw
+ * (`sameFile`). The dev/ino comparison covers only the window between that `stat` and the open:
+ * a file or final-component link swapped in there is refused, not read. A swap between
+ * `realPath` and the `stat` is not detected.
+ */
+export const readOperatorFile = Effect.fnUntraced(function* readOperatorFile(
+	path: string,
+	document: Document
+): Effect.fn.Return<Uint8Array, LoadRefusal, FileSystem.FileSystem> {
+	const fs = yield* FileSystem.FileSystem
+	const real = yield* fs
+		.realPath(path)
+		.pipe(Effect.catchTag("PlatformError", () => refuse(document, "DOC-14/unreadable", wholeInput)))
+
+	return yield* readOpened(real, document, (before, opened) =>
+		sameFile(before, opened) ? Effect.void : refuse(document, "DOC-14/unreadable", wholeInput)
+	)
+})
+
+/**
+ * Reads a file found inside a trust boundary (a `--ref-root` member). `path` is opened as given,
+ * never through a symlink at its final component, and `verify` decides whether the open handle
+ * is still the file the boundary admitted. What `verify` can prove is bounded by what it checks:
+ * the `--ref-root` check is path-based after the open (see `sameCheckedFile`).
+ */
+export const readMemberFile = (
+	path: string,
+	document: Document,
+	verify: VerifyOpened
+): Effect.Effect<Uint8Array, LoadRefusal, FileSystem.FileSystem> =>
+	readOpened(path, document, (_before, opened) => verify(opened))
