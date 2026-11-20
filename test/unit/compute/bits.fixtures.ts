@@ -173,7 +173,8 @@ export const agrees = ({ live, a, b }: Pattern, c: Case<Situation>) =>
 			carrier: "code",
 			caps: capabilitiesOf("code"),
 			contract: undefined,
-			roster
+			roster,
+			only: undefined
 		}
 		const adjoined = (to: ScalarExpr, handle: ScalarExpr, label: string): ScalarExpr =>
 			opNode("set_bit(bit,integer,integer)", [to, handle], set, label)

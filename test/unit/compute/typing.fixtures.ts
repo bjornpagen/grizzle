@@ -59,7 +59,7 @@ const fields: Readonly<Record<string, TestField>> = {
 	u: testPg.uuid,
 	day: field({ kind: "pg", type: "date" }, "date"),
 	cents: testContract("Cents", testPg.bigint, (x) => Compute.ge(x, 0n)),
-	mood: field({ kind: "closedId", roster: "Mood" }, "code"),
+	mood: field({ kind: "closedId", roster: "Mood", only: undefined }, "code"),
 	moods: field({ kind: "bits", roster: "Mood" }, "bits"),
 	span: testSpan(testPg.integer),
 	bin: field({ kind: "bytes" }, "bytea")

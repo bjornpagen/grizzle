@@ -161,7 +161,7 @@ const specDesc = (spec: TypeSpec): FieldDesc => {
 		case "text":
 			return textDesc(genTextSource, genTextFlags)
 		case "code":
-			return { kind: "closedId", roster: spec.roster.closed }
+			return { kind: "closedId", roster: spec.roster.closed, only: undefined }
 		case "contract":
 			return spec.name === "Tick"
 				? {
@@ -433,7 +433,7 @@ export const fieldDescOf = (type: ScalarType): FieldDesc => {
 			}
 		}
 		case "code":
-			return { kind: "closedId", roster: codeRoster(type).closed }
+			return { kind: "closedId", roster: codeRoster(type).closed, only: undefined }
 		case "range4":
 			return { kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined }
 		case "range8":

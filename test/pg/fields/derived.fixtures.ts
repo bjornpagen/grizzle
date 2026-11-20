@@ -936,7 +936,10 @@ const columnsOf = (sys: System) =>
 
 /** The closed id's, the set's, the count's and the weight's types over the model's roster: the codecs'. */
 const codeType = (state: RosterState): ScalarType =>
-	scalarOf({ kind: "closedId", roster: state.closed }, { [state.closed]: liveOf(state) })
+	scalarOf(
+		{ kind: "closedId", roster: state.closed, only: undefined },
+		{ [state.closed]: liveOf(state) }
+	)
 
 const setType = (state: RosterState): ScalarType =>
 	scalarOf({ kind: "bits", roster: state.closed }, { [state.closed]: liveOf(state) })

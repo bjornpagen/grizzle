@@ -14,7 +14,7 @@ import type { Refused } from "#compiler/core/refusals.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import { type CombineFn, combine, type MonoidSpec } from "#compiler/ir/monoid.ts"
-import { type ScalarType, sameEnteredType, typeLabel, enteredType } from "#compiler/ir/scalar.ts"
+import { enteredType, entersColumn, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { exprEmitter, lowerPredicate } from "#compiler/scalar/compute/lower.ts"
 import { noClosedRelations, noParams } from "#compiler/scalar/compute/typing.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -51,7 +51,8 @@ export const foldPlane: Refused =
  *   none, or one (before, after) pair per plane;
  * - its ends: one per plane;
  * - every accumulator and end: an accumulated field (desc.ts Writing) of the plane's type, x's (natural for count, which
- *   counts), but for its own text refinement (scalar.ts sameEnteredType), with no implicit cast, starting at the
+ *   counts), but for its own text refinement and a closed id's subset holding the plane's (scalar.ts entersColumn),
+ *   with no implicit cast, starting at the
  *   monoid's identity on the plane, plane by plane. The step's values, and so the running values, need not lie in an
  *   accumulator's pattern or byte bound: its column's domain refuses one outside it, an outcome on that pattern's rule.
  */
@@ -104,7 +105,7 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | und
 	}
 	const identity = monoid.identity(plane)
 	const accumulator = (f: LawField, i: number): RuleBreach | undefined => {
-		if (!sameEnteredType(f.type, plane)) {
+		if (!entersColumn(f.type, plane)) {
 			return namedBreach(foldPlane)
 		}
 		if (f.writing.kind !== "accumulated") {

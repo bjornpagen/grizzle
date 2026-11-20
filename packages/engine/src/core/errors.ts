@@ -1291,6 +1291,7 @@ export const valueFaultWords = [
 	"bytesChanged",
 	"bytesLiteral",
 	"codeHandle",
+	"codeSubset",
 	"bitsType",
 	"bitsMember",
 	"spanType",

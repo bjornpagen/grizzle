@@ -436,8 +436,9 @@ export interface KeyIndex {
  *
  * The deferral rule is the law model's; the names are the law model's and ownership's; this module only spells them.
  * Each column whose type PostgreSQL holds more values of than its host type spells also carries its column CHECK
- * (physical/ddl/column-checks.ts): a vector's cosine domain, a date's days and an integer numeric's integers; a bytes
- * column carries none, since its type's own bound is its value's (bytesMaxLength).
+ * (physical/ddl/column-checks.ts): a vector's cosine domain, a date's days, an integer numeric's integers and a
+ * closed id of a subset its subset's codes; a bytes column carries none, since its type's own bound is its value's
+ * (bytesMaxLength).
  * Every table is added before the objects on it, so the inline constraints are planned first. */
 export const addTables = (b: InstallBuilder): PlacedNatives => {
 	const inline: Inline = new Map()

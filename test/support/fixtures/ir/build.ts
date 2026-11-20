@@ -238,7 +238,7 @@ export class SchemaModel {
 						{
 							name: "id",
 							type: this.fieldType(
-								{ kind: "closedId", roster: r.name },
+								{ kind: "closedId", roster: r.name, only: undefined },
 								SourceLoc(`${r.name}.id`, [])
 							)
 						}

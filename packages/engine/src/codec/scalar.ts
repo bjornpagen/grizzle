@@ -13,11 +13,11 @@ import {
 	codecOf as rosterCodecOf
 } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, onlyOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
-	admitHandle,
 	admitHandles,
+	admitSubsetHandle,
 	admitted,
 	parseValue,
 	type CarrierHost,
@@ -84,6 +84,12 @@ export interface ScalarCodec {
 	readonly text: (value: unknown) => ParamText
 }
 
+/** The handles of the subset of its roster a closed id of `type` holds, as a set; none for every handle. */
+const subsetHandlesOf = (type: ScalarType): ReadonlySet<string> | undefined => {
+	const only = onlyOf(type)
+	return only === undefined ? undefined : new Set(only)
+}
+
 /**
  * The carrier admission spec of a descriptor, read off its base (ir/scalar.ts baseOf), which holds its typmod, roster
  * and span, a contract's carrier being its base's: everything the spec needs but a roster's codes, which the
@@ -102,6 +108,11 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "exactInteger":
 			return { carrier: "exactInteger", typmod: undefined }
 		case "code":
+			return {
+				carrier: type.carrier,
+				roster: rosterCodecOf(codes, type.roster),
+				only: subsetHandlesOf(type)
+			}
 		case "bits":
 			return { carrier: type.carrier, roster: rosterCodecOf(codes, type.roster) }
 		case "range4":
@@ -217,7 +228,8 @@ export const hostText = (
 	}
 	const live = { roster: base.roster.closed, rank: declaredOrder(base.roster).rank }
 	if (type.carrier === "code") {
-		return (value) => admitHandle(value, live)
+		const only = subsetHandlesOf(type)
+		return (value) => admitSubsetHandle(value, live, only)
 	}
 	const rankOf = (handle: string): number =>
 		defined(live.rank.get(handle), "an admitted handle's rank")

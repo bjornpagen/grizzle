@@ -230,6 +230,7 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	bytesLiteral:
 		"bytes in no literal: a bytes value is written and read back whole, never a rule's or a query's constant",
 	codeHandle: "a handle of the closed relation's roster",
+	codeSubset: "a handle of the subset of its roster the closed id holds",
 	bitsType: "a set of handles: a Set whose members are strings",
 	bitsMember: "a set of handles of the closed relation's roster",
 	spanType: "a span: an object with exactly the fields start and end",

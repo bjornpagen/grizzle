@@ -75,7 +75,12 @@ export type CarrierSpec =
 	| { readonly carrier: "bytes" }
 	| { readonly carrier: "numeric"; readonly typmod: NumericTypmod | undefined }
 	| { readonly carrier: "exactInteger"; readonly typmod: NumericTypmod | undefined }
-	| { readonly carrier: "code"; readonly roster: RosterCodec }
+	| {
+			readonly carrier: "code"
+			readonly roster: RosterCodec
+			/** The handles of the subset of its roster the closed id holds; none for every handle (ir/scalar.ts CodeType). */
+			readonly only: ReadonlySet<string> | undefined
+	  }
 	| { readonly carrier: "bits"; readonly roster: RosterCodec }
 	| { readonly carrier: "vector"; readonly dimensions: number }
 	| { readonly carrier: "range4" | "range8" | "rangeDate"; readonly width: bigint | undefined }
@@ -124,7 +129,7 @@ interface SpecExtras {
 	readonly date: unknown
 	readonly text: unknown
 	readonly bytes: unknown
-	readonly code: { readonly roster: RosterCodec }
+	readonly code: { readonly roster: RosterCodec; readonly only: ReadonlySet<string> | undefined }
 	readonly bits: { readonly roster: RosterCodec }
 	readonly vector: { readonly dimensions: number }
 	readonly range4: { readonly width: bigint | undefined }
@@ -243,11 +248,21 @@ const admitVector = (value: unknown, dimensions: number): Result.Result<Vector, 
 export type LiveHandles = Pick<RosterCodec, "roster" | "rank">
 
 /** A closed id's handle: a string the roster holds live, whose code the codec writes. */
-export const admitHandle = (
-	value: unknown,
-	roster: LiveHandles
-): Result.Result<string, ValueFault> =>
+const admitHandle = (value: unknown, roster: LiveHandles): Result.Result<string, ValueFault> =>
 	typeof value === "string" && roster.rank.has(value) ? Result.ok(value) : Result.err("codeHandle")
+
+/**
+ * A handle of the subset `only` of a roster a closed id holds (ir/scalar.ts CodeType): a live handle of the roster
+ * (admitHandle), and one of `only`'s, where the closed id holds no more than some of them; any other is codeSubset.
+ */
+export const admitSubsetHandle = (
+	value: unknown,
+	roster: LiveHandles,
+	only: ReadonlySet<string> | undefined
+): Result.Result<string, ValueFault> =>
+	Result.flatMap(admitHandle(value, roster), (handle) =>
+		only === undefined || only.has(handle) ? Result.ok(handle) : Result.err("codeSubset")
+	)
 
 /**
  * A set of a roster's handles, read once into a fresh Set grizzle alone holds, so a later change to the caller's Set
@@ -310,7 +325,7 @@ const coercions: Admitters = {
 	date: (value) => toCalendarDate(value),
 	text: (value) => validateText(value),
 	bytes: (value) => admitBytes(value),
-	code: (value, spec) => admitHandle(value, spec.roster),
+	code: (value, spec) => admitSubsetHandle(value, spec.roster, spec.only),
 	bits: (value, spec) => admitHandles(value, spec.roster),
 	range4: (value, spec) => admitSpan("int4", value, spec.width),
 	range8: (value, spec) => admitSpan("int8", value, spec.width),

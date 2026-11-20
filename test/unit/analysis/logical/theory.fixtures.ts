@@ -421,7 +421,7 @@ export const evidenceSchemaGen: Gen<SchemaDesc> = (source) => {
 			? {
 					relation: closedRelation(
 						"Lookup",
-						{ k: { kind: "closedId", roster: coded.roster.closed } },
+						{ k: { kind: "closedId", roster: coded.roster.closed, only: undefined } },
 						["k"],
 						Arr.map(coded.roster.handles, (handle) => ({ k: handle }))
 					),

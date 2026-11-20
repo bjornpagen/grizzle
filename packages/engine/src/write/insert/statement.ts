@@ -486,14 +486,38 @@ export const rowType = (field: LawField): ScalarType => field.type
 export const factHeading = (fields: ReadonlyArray<LawField>): Heading =>
 	fields.map((f) => ({ name: f.name, type: rowType(f) }))
 
-/** A type with every refinement dropped: a contract's base and unrefined text, the typmod kept. Its PostgreSQL type is
- * the base type with its typmod (LowerContext baseTypeRef), the type a deletion compares a member as against stored
- * facts (`CastInto` "compare"): a value outside a domain matches no fact instead of raising its check.
- * A text base is always built with the text carrier's own capabilities (`scalarAt`), so its
- * unrefined type is exactly the wildcard text. */
+/** A type with every refinement dropped: a contract's base, unrefined text and a closed id of every handle of its
+ * roster, the typmod kept. Its PostgreSQL type is the base type with its typmod (LowerContext baseTypeRef), the type a
+ * deletion compares a member as against stored facts (`CastInto` "compare"): a value outside a domain matches no fact
+ * instead of raising its check. A text base is always built with the text carrier's own capabilities (`scalarAt`), so
+ * its unrefined type is exactly the wildcard text. */
 export const unrefined = (t: ScalarType): ScalarType => {
 	const base = baseOf(t)
-	return base.carrier === "text" ? wildcardText : base
+	switch (base.carrier) {
+		case "text":
+			return wildcardText
+		case "code":
+			return base.only === undefined ? base : Object.freeze({ ...base, only: undefined })
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "bytes":
+		case "bits":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "vector":
+		case "exactInteger":
+		case "exactMoney":
+			return base
+	}
 }
 
 /** The heading a deletion compares a relation's facts as over `fields`: each field's unrefined type. */

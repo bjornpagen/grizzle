@@ -457,7 +457,7 @@ export const verdictOf = (c: UnionCase): UnionVerdict => {
 }
 
 /** Kind's closed id, which a `tag` literal is typed by. */
-const kindId = { kind: "closedId", roster: rosterName } as const
+const kindId = { kind: "closedId", roster: rosterName, only: undefined } as const
 
 /** An arm's rule: its match, its head, and its attachment. */
 const armRule = (s: DrawnSchema, arm: Arm): RuleDesc => {

@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Columned } from "#compiler/core/decoder.ts"
@@ -32,6 +33,7 @@ import {
 	type ContractInfo,
 	type DeclaredType,
 	isDateType,
+	isRosterSubset,
 	languageOctets,
 	languageWithin,
 	type NumericBound,
@@ -549,13 +551,16 @@ const scalarAt = (
 				})
 			)
 		case "closedId":
-			return Result.map(rosterAt(desc.roster, env, loc), (roster) =>
-				Object.freeze({
-					carrier: "code",
-					caps: closedIdCapabilities(roster),
-					contract: undefined,
-					roster
-				})
+			return Result.flatMap(rosterAt(desc.roster, env, loc), (roster) =>
+				Result.map(subsetIn(roster, desc.only, loc), (only) =>
+					Object.freeze({
+						carrier: "code",
+						caps: closedIdCapabilities(roster),
+						contract: undefined,
+						roster,
+						only
+					})
+				)
 			)
 		case "bits":
 			return Result.map(rosterAt(desc.roster, env, loc), (roster) =>
@@ -613,6 +618,29 @@ const rosterAt = (
 	return roster === undefined
 		? Result.err(malformedDescription(loc, `a closed relation named ${JSON.stringify(closed)}`))
 		: Result.ok(roster)
+}
+
+/**
+ * A closed id's subset `only` of `roster`, as its Description states it (ir/desc.ts FieldDesc): live handles of the
+ * roster, in its order, short of every handle, which is the closed id of the whole roster, none; or none. Any other is
+ * MalformedDescription, so one subset has one spelling.
+ */
+const subsetIn = (
+	roster: Roster,
+	only: NonEmptyReadonlyArray<string> | undefined,
+	loc: SourceLoc
+): Result.Result<NonEmptyReadonlyArray<string> | undefined, CompileError> => {
+	if (only === undefined) {
+		return Result.ok(undefined)
+	}
+	return isRosterSubset(roster, only)
+		? Result.ok(only)
+		: Result.err(
+				malformedDescription(
+					loc,
+					`a closed id's subset of handles of ${roster.closed}, each once in its order, short of every handle`
+				)
+			)
 }
 
 /** A span's endpoint through its contracts: the declaration its carrier is read off. */

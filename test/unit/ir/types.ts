@@ -108,7 +108,7 @@ const contractBaseGen: Gen<DeclaredSketch> = oneOf<DeclaredSketch>([
 	constant<DeclaredSketch>({ desc: { kind: "uuid" }, rosters: noRosters }),
 	map(textGen, (desc) => ({ desc, rosters: noRosters })),
 	map(rosterGen, (roster) => ({
-		desc: { kind: "closedId", roster: roster.name },
+		desc: { kind: "closedId", roster: roster.name, only: undefined },
 		rosters: { [roster.name]: roster.handles }
 	})),
 	(source) => ({

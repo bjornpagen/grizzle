@@ -12,7 +12,7 @@ const column: Column<CalendarDate> = carrierColumn("date")
  * 8601 text, a CalendarDate (ir/date.ts), and ordered as the calendar is. It is PostgreSQL's date, a plain scalar as
  * integer is, of no contract, so Compute.base of a date is the date itself. PostgreSQL's date also holds the
  * infinities, the days before the common era and the years past 9999, which no CalendarDate spells, so every stored
- * date column carries the range CHECK of the days a CalendarDate spells (physical/date/storage.ts), whoever writes
+ * date column carries the range CHECK of the days a CalendarDate spells (physical/ddl/column-checks.ts), whoever writes
  * it, and a span over dates holds its endpoints in the same range by its shape CHECK (physical/span/storage.ts). A date
  * is what a text of xs:date's lexical form parses into (scalar/lexical.ts), and a parse's value lies inside the range
  * by the form.

@@ -228,7 +228,14 @@ const readingDescGen: Gen<FieldDesc> = weighted([
 			language: source.draw(languageGen)
 		})
 	],
-	[1, map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "closedId", roster }))],
+	[
+		1,
+		map(element(["Kind", "Mode"]), (roster): FieldDesc => ({
+			kind: "closedId",
+			roster,
+			only: undefined
+		}))
+	],
 	[1, map(element(["Kind", "Mode"]), (roster): FieldDesc => ({ kind: "bits", roster }))],
 	[1, map(element([3, 4]), (dimensions): FieldDesc => ({ kind: "vector", dimensions }))],
 	[

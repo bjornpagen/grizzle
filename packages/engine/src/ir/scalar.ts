@@ -557,13 +557,17 @@ export interface TextType {
 /**
  * A closed id: one of the roster's live handles, stored as its code, a smallint under the roster's domain. An ordered
  * roster's closed id is ordered by code, which is the roster's declared order; an unordered roster's has none, which its
- * capabilities state (scalar/native.ts unorderedCodeCapabilities).
+ * capabilities state (scalar/native.ts unorderedCodeCapabilities). `only` is the subset of the roster's handles its
+ * values are, in the roster's order, never every handle; none for every handle (ir/desc.ts FieldDesc). It meets a
+ * closed id of its roster whatever either's subset (scalar/compute/types.ts compatible), as a refined text meets text,
+ * and a stored column of it is held to its subset by its CHECK (physical/ddl/column-checks.ts).
  */
 interface CodeType {
 	readonly carrier: "code"
 	readonly caps: CapabilitySet
 	readonly contract: undefined
 	readonly roster: Roster
+	readonly only: NonEmptyReadonlyArray<string> | undefined
 }
 
 /**
@@ -753,6 +757,24 @@ export const rosterOf = (t: ScalarType): Roster | undefined => {
 	return b.carrier === "code" || b.carrier === "bits" ? b.roster : undefined
 }
 
+/**
+ * Whether `only` is a subset of `roster`'s handles as a closed id holds one (CodeType): live handles of the roster,
+ * each once, in its order, short of every handle, so one subset has one spelling.
+ */
+export const isRosterSubset = (roster: Roster, only: NonEmptyReadonlyArray<string>): boolean => {
+	const held = roster.handles.filter((handle) => only.includes(handle))
+	return held.length < roster.handles.length && sameOrder(held, only)
+}
+
+/**
+ * The subset of its roster's handles a closed id holds, read through its contracts: none for a closed id of every
+ * handle, and for every other type.
+ */
+export const onlyOf = (t: ScalarType): NonEmptyReadonlyArray<string> | undefined => {
+	const base = baseOf(t)
+	return base.carrier === "code" ? base.only : undefined
+}
+
 /** The range carrier of a span descriptor. */
 export const spanCarrierOf = (t: ScalarType): SpanCarrier | undefined =>
 	t.carrier === "range4" || t.carrier === "range8" || t.carrier === "rangeDate"
@@ -820,6 +842,12 @@ const sameText = (a: TextInfo, b: TextInfo): boolean =>
 		? a === b
 		: samePatterns(a.patterns, b.patterns) && a.key === b.key
 
+/** One subset of a roster's handles, each in the roster's order (isRosterSubset), or every handle for both. */
+export const sameSubset = (
+	a: NonEmptyReadonlyArray<string> | undefined,
+	b: NonEmptyReadonlyArray<string> | undefined
+): boolean => (a === undefined || b === undefined ? a === b : sameOrder(a, b))
+
 /** One roster: its name, its order and its handles in order, by their digest, as its canonical form states them. */
 const sameRoster = (a: Roster, b: Roster): boolean =>
 	a.closed === b.closed && a.order === b.order && a.digest === b.digest
@@ -855,8 +883,9 @@ const samePlain = (a: PlainType, b: PlainType): boolean => {
 		case "text":
 			return b.carrier === "text" && sameText(a.text, b.text)
 		case "code":
+			return b.carrier === "code" && sameRoster(a.roster, b.roster) && sameSubset(a.only, b.only)
 		case "bits":
-			return (b.carrier === "code" || b.carrier === "bits") && sameRoster(a.roster, b.roster)
+			return b.carrier === "bits" && sameRoster(a.roster, b.roster)
 		case "range4":
 		case "range8":
 		case "rangeDate":
@@ -910,8 +939,30 @@ export const enteredType = (t: ScalarType): ScalarType =>
  * Whether two types differ only in what a column's domain enforces (enteredType): a value of either enters a stored
  * column of the other, its domain the judge.
  */
-export const sameEnteredType = (a: ScalarType, b: ScalarType): boolean =>
+const sameEnteredType = (a: ScalarType, b: ScalarType): boolean =>
 	sameScalarType(enteredType(a), enteredType(b))
+
+/** The type of every handle of a closed id's roster, for a closed id of a subset; every other type as it is. */
+const everyHandle = (t: ScalarType): ScalarType =>
+	t.contract === undefined && t.carrier === "code" && t.only !== undefined
+		? Object.freeze({ ...t, only: undefined })
+		: t
+
+/**
+ * Whether a value of type `value` enters a stored column of type `column` at the column's own type, as a caller's value,
+ * a generated field's term, a fold's step and a member's column do: one type but for what the column's domain enforces
+ * (sameEnteredType) and a closed id's subset, the value's handles every one the column holds (onlyOf), so a closed id of
+ * a subset enters a column of a wider subset of its roster or of the whole roster, and one of the whole roster no column
+ * of a subset, which no value of it is proved to keep to.
+ */
+export const entersColumn = (column: ScalarType, value: ScalarType): boolean => {
+	const held = onlyOf(column)
+	const given = onlyOf(value)
+	return (
+		sameEnteredType(everyHandle(column), everyHandle(value)) &&
+		(held === undefined || given?.every((h) => held.includes(h)) === true)
+	)
+}
 
 /**
  * Whether a value of this type is refined beyond its base: a contract, or text with a specific pattern. A comparison
@@ -974,10 +1025,13 @@ export const typeLabel = (t: ScalarType): string => {
 				: `numeric(${t.typmod.precision},${t.typmod.scale})`
 		case "vector":
 			return `vector(${t.typmod.dims})`
-		case "code":
-			return t.roster.order === "ordered"
-				? `code ${t.roster.closed}`
-				: `unordered code ${t.roster.closed}`
+		case "code": {
+			const code =
+				t.roster.order === "ordered"
+					? `code ${t.roster.closed}`
+					: `unordered code ${t.roster.closed}`
+			return t.only === undefined ? code : `${code} of ${t.only.join(", ")}`
+		}
 		case "bits":
 			return `bits ${t.roster.closed}`
 		case "text": {

@@ -55,7 +55,8 @@ const code: ScalarType = {
 	carrier: "code",
 	caps: capabilitiesOf("code"),
 	contract: undefined,
-	roster
+	roster,
+	only: undefined
 }
 
 const plain = (carrier: "bool" | "int8"): ScalarType => ({

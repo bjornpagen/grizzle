@@ -73,7 +73,7 @@ export const closedIdTypeOf = (
 		roster: (name) => (name === closed ? Roster.of(name, order, handles) : undefined)
 	}
 	const t = scalarTypeOf(
-		{ kind: "closedId", roster: closed },
+		{ kind: "closedId", roster: closed, only: undefined },
 		env,
 		SourceLoc("a test fixture's closed id", [])
 	)

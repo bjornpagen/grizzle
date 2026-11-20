@@ -201,7 +201,7 @@ export const typeInfo: Readonly<Record<TypeKind, TypeInfo>> = {
 	},
 	code: {
 		kind: "code",
-		spec: { carrier: "code", roster: rosterCodes },
+		spec: { carrier: "code", roster: rosterCodes, only: undefined },
 		values: rosterHandles,
 		keyable: true,
 		/** A stored closed id's text is its code's, smallint's: the handle the roster's names give it. */

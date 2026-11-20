@@ -172,7 +172,10 @@ export const insertCode = (m: Installed, state: RosterState): string => {
 
 /** A closed id's type over the roster's live handles: the column's codec's type. */
 export const codeType = (state: RosterState): ScalarType =>
-	scalarOf({ kind: "closedId", roster: state.closed }, { [state.closed]: liveOf(state) })
+	scalarOf(
+		{ kind: "closedId", roster: state.closed, only: undefined },
+		{ [state.closed]: liveOf(state) }
+	)
 
 /**
  * The function a domain's CHECK depends on, by pg_depend: its schema, its name and the facts a names constant must

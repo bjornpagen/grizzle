@@ -98,7 +98,7 @@ const scalars = Object.freeze({
 	numeric72: scalarOf({ kind: "numeric", precision: 7, scale: 2 }, {}),
 	numeric10: scalarOf({ kind: "numeric", precision: 1, scale: 0 }, {}),
 	numeric10000: scalarOf({ kind: "numeric", precision: 1000, scale: 0 }, {}),
-	kind: scalarOf({ kind: "closedId", roster: "Kind" }, { Kind: kindHandles }),
+	kind: scalarOf({ kind: "closedId", roster: "Kind", only: undefined }, { Kind: kindHandles }),
 	kinds: scalarOf({ kind: "bits", roster: "Kind" }, { Kind: kindHandles }),
 	range4: scalarOf(
 		{ kind: "span", endpoint: { kind: "pg", type: "integer" }, width: undefined },

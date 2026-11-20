@@ -23,7 +23,7 @@ export const schema: OracleSchema = {
 			heading: [
 				{ name: "id", spec: { carrier: "int4" } },
 				{ name: "account", spec: { carrier: "int4" } },
-				{ name: "kind", spec: { carrier: "code", roster: kindCodec } }
+				{ name: "kind", spec: { carrier: "code", roster: kindCodec, only: undefined } }
 			],
 			primaryKey: { law: wild.lawId("task_pk"), fields: ["id"] },
 			keys: [],

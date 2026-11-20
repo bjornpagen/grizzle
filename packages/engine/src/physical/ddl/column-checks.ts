@@ -1,6 +1,7 @@
 import type { Identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
+import { closedSubset } from "#compiler/physical/closed/storage.ts"
 import { dateRange } from "#compiler/physical/date/storage.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { integerNumeric } from "#compiler/physical/numeric/storage.ts"
@@ -10,19 +11,19 @@ import type { Expr, InlineConstraint } from "#compiler/sql/ast.ts"
 import { tableCol } from "#compiler/sql/build.ts"
 
 /** The identities of the column CHECKs (ColumnCheckKind), one kind each. */
-type ColumnCheckIdentity = Identity<"normCheck" | "dateCheck" | "integerCheck">
+type ColumnCheckIdentity = Identity<"normCheck" | "dateCheck" | "integerCheck" | "subsetCheck">
 
 /**
  * One kind of a stored column's CHECK of the values its host type spells, where PostgreSQL's type holds more: the
  * columns it holds of, by their type; its identity, the naming door's hashed one, which no declared check of the
- * relation can claim; its predicate over the unqualified column, as a row CHECK spells it; and the reason its object
- * carries.
+ * relation can claim; its predicate over the unqualified column of the type, as a row CHECK spells it; and the reason
+ * its object carries.
  */
 interface ColumnCheckKind {
 	readonly holds: (type: ScalarType) => boolean
 	readonly named: (relation: string, field: string) => ColumnCheckIdentity
-	readonly predicate: (b: InstallBuilder, column: Expr) => Expr
-	readonly reason: (relation: string, field: string) => string
+	readonly predicate: (b: InstallBuilder, column: Expr, type: ScalarType) => Expr
+	readonly reason: (relation: string, field: string, type: ScalarType) => string
 }
 
 /** One column's CHECK: its relation and field, its identity, the constraint its table declares, and its reason. */
@@ -36,9 +37,10 @@ interface ColumnCheck {
 
 /**
  * The column CHECKs, in the order a table declares them: a vector's cosine domain (physical/vector/storage.ts), a
- * date's days (physical/date/storage.ts), and an integer numeric's integers (physical/numeric/storage.ts).
+ * date's days (physical/date/storage.ts), an integer numeric's integers (physical/numeric/storage.ts), and a closed id
+ * subset's codes (physical/closed/storage.ts).
  */
-const kinds: ReadonlyArray<ColumnCheckKind> = [vectorNorm, dateRange, integerNumeric]
+const kinds: ReadonlyArray<ColumnCheckKind> = [vectorNorm, dateRange, integerNumeric, closedSubset]
 
 /**
  * The CHECK of every column of every stored relation each kind holds of, kind by kind, each in relation then field
@@ -66,9 +68,9 @@ export const columnChecks = (b: InstallBuilder): ReadonlyArray<ColumnCheck> => {
 								constraint: {
 									kind: "check",
 									name: b.name(named),
-									predicate: kind.predicate(b, tableCol(b.names.column(name, c.name)))
+									predicate: kind.predicate(b, tableCol(b.names.column(name, c.name)), c.type)
 								},
-								reason: kind.reason(name, c.name)
+								reason: kind.reason(name, c.name, c.type)
 							}
 						})
 				: []

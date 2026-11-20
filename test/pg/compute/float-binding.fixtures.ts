@@ -368,7 +368,11 @@ export const queryOf = (term: ExprDesc, width: Width, position: Position): Query
 								kind: "cond",
 								pred: D.gt(term, D.typedLit(1, fieldOf[width])),
 								onTrue: entry("g"),
-								onFalse: D.typedLit("high", { kind: "closedId", roster: grade.name })
+								onFalse: D.typedLit("high", {
+									kind: "closedId",
+									roster: grade.name,
+									only: undefined
+								})
 							}
 						]
 					},

@@ -6,8 +6,8 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type ExprDesc, exprChildren } from "#compiler/ir/desc.ts"
 import {
+	entersColumn,
 	type ScalarType,
-	sameEnteredType,
 	type TextInfo,
 	textInfoBounds,
 	textOf,
@@ -132,8 +132,8 @@ export const generatedRule = (
 
 /**
  * Why a generation expression of type `expression` cannot fill a column of type `declared`, or undefined when it can:
- * the two are one type but for a text's pattern and byte bound, which the column's domain enforces (scalar.ts
- * sameEnteredType). PostgreSQL coerces a generation expression into its column's type, so a text of any pattern or byte
+ * the two are one type but for a text's pattern and byte bound, which the column's domain enforces, and a closed id's
+ * subset, the expression's within the column's (scalar.ts entersColumn). PostgreSQL coerces a generation expression into its column's type, so a text of any pattern or byte
  * bound fills a refined text's column, the domain's CHECK refusing a row whose value lies outside it, as it refuses a
  * caller's value: an outcome on the pattern's rule. That holds where some value of the expression's type is one of the
  * declared type's; where the text analysis proves none is (disjointTexts), every row's value breaks the domain and no row
@@ -145,7 +145,7 @@ export const generatedTypeRule = (
 	expression: ScalarType,
 	patterns: PatternAutomata
 ): GeneratedRule | undefined => {
-	if (!sameEnteredType(declared, expression)) {
+	if (!entersColumn(declared, expression)) {
 		return { kind: "type", declared: typeLabel(declared), expression: typeLabel(expression) }
 	}
 	const declaredText = textOf(declared)

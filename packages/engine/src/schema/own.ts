@@ -730,7 +730,7 @@ const byName = <V>(map: ReadonlyMap<string, V>): ReadonlyArray<readonly [string,
 
 /** A roster's heading: its handle, under `id`. */
 const rosterHeading = (desc: RosterDesc): Readonly<Record<string, FieldDesc>> => ({
-	id: { kind: "closedId", roster: desc.name }
+	id: { kind: "closedId", roster: desc.name, only: undefined }
 })
 
 /** A stored relation's heading: an ordinary or closed relation's fields' types, a roster's handle. */

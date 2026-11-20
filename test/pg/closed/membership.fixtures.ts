@@ -16,7 +16,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { type Codebook, codecOf, codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { StatementSpec } from "#compiler/ir/products.ts"
-import { closedId } from "#compiler/public/fields.ts"
+import { type ClosedIdField, closedId } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyClosed,
@@ -27,6 +27,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { closedBuilder } from "#compiler/schema/relation.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import type { AnyRoster } from "#compiler/types/schema/relation.ts"
 import {
 	historiesGen,
 	holesOf,
@@ -109,7 +110,7 @@ export const itemIdsOf = (c: MembershipCase): RosterState => ({
  */
 export const schemaOf = (name: string, c: MembershipCase) => {
 	const declared: Record<string, AnyRelation | AnyClosed> = {}
-	const keyFields: Record<string, ReturnType<typeof closedId>> = {}
+	const keyFields: Record<string, ClosedIdField<AnyRoster>> = {}
 	for (const [i, state] of c.rosters.entries()) {
 		const roster = closedBuilder(state.closed, liveOf(state), "ordered", [])
 		declared[state.closed] = roster
@@ -130,13 +131,13 @@ export const schemaOf = (name: string, c: MembershipCase) => {
 		}
 		return row
 	})
-	const gridFields: Record<string, ReturnType<typeof closedId>> = c.payload
+	const gridFields: Record<string, ClosedIdField<AnyRoster>> = c.payload
 		? { ...keyFields, w: first }
 		: keyFields
 	const Grid = closed.relation("Grid", gridFields, key, rows)
 	const ids = itemIdsOf(c)
 	const ItemId = closedBuilder(ids.closed, liveOf(ids), "ordered", [])
-	const itemFields: Record<string, ReturnType<typeof closedId>> = {
+	const itemFields: Record<string, ClosedIdField<AnyRoster>> = {
 		id: closedId(ItemId),
 		...keyFields
 	}

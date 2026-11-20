@@ -91,7 +91,7 @@ export const lowersByCodes = (history: RosterHistory, c: Case<RosterFeature>) =>
 	Effect.sync(() => {
 		const state = history.state
 		const names = namesOf(state)
-		const code = typeOver(state, { kind: "closedId", roster: closed })
+		const code = typeOver(state, { kind: "closedId", roster: closed, only: undefined })
 		const live = liveOf(state)
 		const lowered = Arr.map(live, (handle) => {
 			const got = loweredCode(lowerLiteral(names, { kind: "handle", handle }, code), handle)

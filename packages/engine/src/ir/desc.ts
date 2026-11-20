@@ -146,7 +146,15 @@ export type FieldDesc =
 			readonly facts: ReadonlyArray<Fact>
 	  }
 	| { readonly kind: "span"; readonly endpoint: FieldDesc; readonly width: bigint | undefined }
-	| { readonly kind: "closedId"; readonly roster: string }
+	| {
+			readonly kind: "closedId"
+			readonly roster: string
+			/**
+			 * The handles of the roster a value is one of, a subset of them in the roster's order (scalar/closed-id.ts
+			 * readSubset); none for every handle, which a subset of every handle is too, so one set has one spelling.
+			 */
+			readonly only: NonEmptyReadonlyArray<string> | undefined
+	  }
 	| { readonly kind: "bits"; readonly roster: string }
 	| { readonly kind: "vector"; readonly dimensions: number }
 
@@ -2374,7 +2382,7 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 		{ width: S.refine(S.bigint, (w) => w > 0n, "a positive span width") },
 		{}
 	),
-	closedId: S.struct({ roster: name }),
+	closedId: S.structStated({ roster: name }, { only: S.nonEmptyUniqueStrings("handles") }, {}),
 	bits: S.struct({ roster: name }),
 	vector: S.struct({
 		dimensions: S.refine(

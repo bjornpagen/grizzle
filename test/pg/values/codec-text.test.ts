@@ -114,9 +114,9 @@ export const aValuesTextIsOnePerValueUnderPostgreSQLsEqualityAndReadsBackInEvery
 		kills: [
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: "\t\treturn (value) => admitHandle(value, live)",
+				original: "\t\treturn (value) => admitSubsetHandle(value, live, only)",
 				replacement:
-					'\t\treturn (value) => Result.map(admitHandle(value, live), (h) => String(live.rank.get(h) ?? ""))',
+					'\t\treturn (value) => Result.map(admitSubsetHandle(value, live, only), (h) => String(live.rank.get(h) ?? ""))',
 				why: "A closed id's text is its position in its roster's declared order, one per value still and the same in every installation, but no installation's names spell it; the read back fails over a closed id."
 			},
 			{

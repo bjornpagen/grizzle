@@ -663,7 +663,10 @@ const dataStepOf = (sys: System, after: Model, code: number, column: string): st
 
 /** A closed id's and a set's type over the roster's live handles: the columns' codecs' types. */
 const codeType = (state: RosterState): ScalarType =>
-	scalarOf({ kind: "closedId", roster: state.closed }, { [state.closed]: liveOf(state) })
+	scalarOf(
+		{ kind: "closedId", roster: state.closed, only: undefined },
+		{ [state.closed]: liveOf(state) }
+	)
 
 const setType = (state: RosterState): ScalarType =>
 	scalarOf({ kind: "bits", roster: state.closed }, { [state.closed]: liveOf(state) })

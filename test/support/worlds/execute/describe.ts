@@ -147,7 +147,7 @@ class Terms {
 			}
 			case "handle": {
 				const roster = sourceValue(this.#sources, { kind: "closed", name: term.closed })
-				return handleTerm(roster, closedIdOf(roster), term.member)
+				return handleTerm(roster, closedIdOf(roster, []), term.member)
 			}
 			case "literal":
 				return literalOf(term.value, domain)

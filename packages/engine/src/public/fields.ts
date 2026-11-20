@@ -1,3 +1,4 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Brand } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
@@ -52,6 +53,7 @@ import type {
 	BitsField,
 	BytesField,
 	ClosedIdField,
+	ClosedSubset,
 	Contract,
 	DateField,
 	DrawnField,
@@ -67,7 +69,8 @@ import type {
 	PlaceDescriptor,
 	RetirementField,
 	SpanField,
-	SpanWidthOf
+	SpanWidthOf,
+	SubsetHandles
 } from "#compiler/types/fields/field.ts"
 import type {
 	AnyClosedRelation,
@@ -89,6 +92,7 @@ export type {
 	BytesField,
 	CalendarDate,
 	ClosedIdField,
+	ClosedSubset,
 	Contract,
 	DateField,
 	DrawnField,
@@ -113,6 +117,7 @@ export type {
 	SpanField,
 	SpanWidthOf,
 	SqlOf,
+	SubsetHandles,
 	TextField,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
@@ -197,16 +202,32 @@ export const span: SpanConstructor = <E extends SpanEndpointLike>(
 	)
 }
 
-/** A reference to the roster the admission core admitted, its column the roster's codes read as its literal handles. */
-export const closedId: ClosedIdConstructor = <C extends AnyRoster>(
-	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
-): ClosedIdField<C> => {
-	const parts = closedIdOf(roster)
+/**
+ * A reference to the roster the admission core admitted, holding the subset of its handles `subset` states or every
+ * one, its column the roster's codes read as those literal handles.
+ */
+export const closedId: ClosedIdConstructor = <
+	C extends AnyRoster,
+	const Subset extends ClosedSubset<C> | undefined = undefined
+>(
+	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> },
+	subset: Subset | undefined,
+	...extra: ReadonlyArray<never>
+): ClosedIdField<C, SubsetHandles<C, Subset>> => {
+	const parts = closedIdOf(roster, [subset, ...extra])
+	const only = parts.only === undefined ? undefined : new Set<string>(parts.only)
+	/** Whether the closed id holds `handle`: every handle where it holds no subset, else its subset's (readSubset). */
+	const holds = (handle: HandleOf<C>): handle is SubsetHandles<C, Subset> =>
+		only === undefined || only.has(handle)
+	const [first, ...rest] = roster.handles.filter(holds)
+	if (first === undefined) {
+		throw defect("a closed id's subset holds some handle (scalar/closed-id.ts readSubset)")
+	}
 	return defineField(
 		{},
 		carrierSql.code,
 		parts.desc,
-		{ roster, column: codeColumn<HandleOf<C>>(parts.roster.closed, roster.handles) },
+		{ roster, column: codeColumn<SubsetHandles<C, Subset>>(parts.roster.closed, [first, ...rest]) },
 		parts.loc,
 		parts.env
 	)
@@ -216,7 +237,7 @@ export const closedId: ClosedIdConstructor = <C extends AnyRoster>(
 export const bits: BitsConstructor = <C extends AnyRoster>(
 	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
 ): BitsField<C> => {
-	const parts = closedIdOf(roster)
+	const parts = closedIdOf(roster, [])
 	return defineField(
 		{},
 		carrierSql.bits,

@@ -490,7 +490,8 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeTh
 									succeeded(describeField(admittedClosedId(x), SourceLoc("closedId", []))).desc,
 									{
 										kind: "closedId",
-										roster: Kind.name
+										roster: Kind.name,
+										only: undefined
 									}
 								)
 							} else {

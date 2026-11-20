@@ -28,7 +28,7 @@ interface Sample {
 	readonly noNumber: ReadonlyArray<"sum" | "mean">
 }
 
-const mood = field({ kind: "closedId", roster: "Mood" }, "code")
+const mood = field({ kind: "closedId", roster: "Mood", only: undefined }, "code")
 
 const moods = field({ kind: "bits", roster: "Mood" }, "bits")
 

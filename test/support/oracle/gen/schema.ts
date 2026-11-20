@@ -217,7 +217,7 @@ const payloadPatterns = (c: GenClosed): ReadonlyArray<RelationDesc> => {
 		closedRelation(
 			`${c.name}Payload`,
 			{
-				id: { kind: "closedId", roster: c.name },
+				id: { kind: "closedId", roster: c.name, only: undefined },
 				...Rec.fromEntries(
 					Arr.map(patterned, ({ col }) => [col.name, fieldDescOf(col.type)] as const)
 				)

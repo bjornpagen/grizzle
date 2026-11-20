@@ -13,13 +13,15 @@ import type {
 	Hosted,
 	Parameterless,
 	Predicate,
-	Refusal
+	Refusal,
+	Repeats
 } from "#compiler/types/core/phantom.ts"
 
 import type {
 	AccumulatedField,
 	BitsField,
 	ClosedIdField,
+	ClosedSubset,
 	Contract,
 	DrawnField,
 	Field,
@@ -37,6 +39,7 @@ import type {
 	SpanField,
 	SpanWidthOf,
 	StoredOnlySql,
+	SubsetHandles,
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
@@ -147,10 +150,34 @@ export type SpanConstructor = <E extends SpanEndpointLike>(
 	width?: SpanWidthOf<Infer<E>>
 ) => SpanField<Infer<E>, DomainOf<E>>
 
-/** A closed reference: its column is the roster's handles, the roster's non-empty tuple of literals. */
-export type ClosedIdConstructor = <C extends AnyRoster>(
-	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> }
-) => ClosedIdField<C>
+/**
+ * A closed reference: its column is the roster's handles, the roster's non-empty tuple of literals, or the subset
+ * `subset` states of them (SubsetHandles), its host type and language that subset's handles. A subset lists each handle
+ * once, and `except` leaves at least one.
+ */
+export type ClosedIdConstructor = <
+	C extends AnyRoster,
+	const Subset extends ClosedSubset<C> | undefined = undefined
+>(
+	roster: C & { readonly handles: NonEmptyReadonlyArray<HandleOf<C>> },
+	subset?: Subset & SubsetStated<C, Subset>
+) => ClosedIdField<C, SubsetHandles<C, Subset>>
+
+/**
+ * A subset stated as a closed id takes it: each handle its list names once, and some handle left, which `except` of
+ * every handle leaves none of.
+ */
+type SubsetStated<C, Subset> = Subset extends { readonly only: infer H }
+	? Repeats<H> extends true
+		? Refusal<"a closed id's subset lists each handle once">
+		: unknown
+	: Subset extends { readonly except: infer H }
+		? Repeats<H> extends true
+			? Refusal<"a closed id's subset lists each handle once">
+			: [SubsetHandles<C, Subset>] extends [never]
+				? Refusal<"a closed id's subset holds some handle: except leaves none">
+				: unknown
+		: unknown
 
 /** A set over a roster: its column reads a bit string into the set of handles its 1 bits' codes name. */
 export type BitsConstructor = <C extends AnyRoster>(

@@ -96,7 +96,7 @@ const caller = (type: FieldDesc): FieldDecl<object> => ({ type, writing: { kind:
 const fields: Readonly<Record<string, FieldDecl<object>>> = {
 	id: caller({ kind: "uuid" }),
 	account: caller({ kind: "uuid" }),
-	kind: caller({ kind: "closedId", roster: "Kind" }),
+	kind: caller({ kind: "closedId", roster: "Kind", only: undefined }),
 	kinds: caller({ kind: "bits", roster: "Kind" }),
 	budget: caller(budget),
 	title: caller(textDesc("^[A-Za-z ]{1,80}$", "u")),
@@ -481,7 +481,7 @@ const plan: RelationDesc = {
 	kind: "closedRelation",
 	name: "Plan",
 	fields: {
-		tier: { kind: "closedId", roster: "Tier" },
+		tier: { kind: "closedId", roster: "Tier", only: undefined },
 		seats: { kind: "pg", type: "integer" },
 		price: { kind: "numeric", precision: 10, scale: 2 }
 	},
@@ -502,7 +502,10 @@ const relations: ReadonlyArray<RelationDesc> = [
 	{
 		kind: "closedRelation",
 		name: "Fee",
-		fields: { tier: { kind: "closedId", roster: "Tier" }, amount: { kind: "pg", type: "money" } },
+		fields: {
+			tier: { kind: "closedId", roster: "Tier", only: undefined },
+			amount: { kind: "pg", type: "money" }
+		},
 		key: ["tier"],
 		slots: [],
 		rows: [{ tier: "Pro", amount: defined(MoneyText.parse("1999")) }]

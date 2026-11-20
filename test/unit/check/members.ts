@@ -294,7 +294,7 @@ const armRule = (c: MemberCase, arm: MemberArm): RuleDesc => {
 		head["extra"] = lit(1)
 	}
 	if (arm.tag !== "none") {
-		head["tag"] = typedLit(arm.tag, { kind: "closedId", roster: rosterName })
+		head["tag"] = typedLit(arm.tag, { kind: "closedId", roster: rosterName, only: undefined })
 	}
 	return rule({
 		vars: varsAt(r.name, read),

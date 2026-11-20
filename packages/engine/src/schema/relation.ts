@@ -787,7 +787,7 @@ export const closedBuilder = <
 	})
 	const declared = parseDeclaredName(desc.name)
 	const typed = declared.ok ? IrRoster.of(declared.value, order, desc.handles) : undefined
-	const parts = builtRosterParts(desc.name, { order, handles: desc.handles }, typed)
+	const parts = builtRosterParts(desc.name, { order, handles: desc.handles }, [], typed)
 	const value: Roster<Name, readonly [...Handles], Order> = ownValue({
 		kind: "closed",
 		value: {
@@ -806,25 +806,28 @@ export const closedBuilder = <
 }
 
 /**
- * The parts of a closed id over `value`: a roster closed.ordered or closed.unordered built, read off what its build admitted and the
- * roster it typed, or a JavaScript look-alike's, admitted by closedId's own core (scalar/closed-id.ts closedIdParts).
+ * The parts of a closed id over `value` holding the subset `rest` states, the arguments after its roster: none for every
+ * handle, or the subset of them a caller states. Its roster is one closed.ordered or closed.unordered built, read off
+ * what its build admitted and the roster it typed, or a JavaScript look-alike's, admitted by closedId's own core
+ * (scalar/closed-id.ts closedIdParts).
  */
-export const closedIdOf = (value: unknown): ClosedIdParts => {
+export const closedIdOf = (value: unknown, rest: ReadonlyArray<unknown>): ClosedIdParts => {
 	const built = ownedEntry(value, "closed")
 	return built === undefined
-		? closedIdParts(value)
+		? closedIdParts(value, rest)
 		: builtRosterParts(
 				built.desc.name,
 				{ order: rosterOrderOf(built.desc), handles: built.desc.handles },
+				rest,
 				built.content
 			)
 }
 
 /**
- * The descriptor of a closed id over `value`, for a caller that holds no literal handles: its parts closedIdOf's, its
- * column the admitted roster's handles (scalar/closed-id.ts closedIdField).
+ * The descriptor of a closed id over every handle of `value`, for a caller that holds no literal handles: its parts
+ * closedIdOf's, its column the admitted roster's handles (scalar/closed-id.ts closedIdField).
  */
-export const admittedClosedId = (value: unknown) => closedIdField(value, closedIdOf(value))
+export const admittedClosedId = (value: unknown) => closedIdField(value, closedIdOf(value, []))
 
 /**
  * A closed relation's rows as a JavaScript caller wrote them, checked and described, as the facts they state, over its
@@ -1331,7 +1334,7 @@ export const namedRelation = (value: unknown, label: string): NamedRelation => {
 			return {
 				name: desc.name,
 				kind: "closed",
-				fields: { id: { kind: "closedId", roster: desc.name } },
+				fields: { id: { kind: "closedId", roster: desc.name, only: undefined } },
 				primaryKey: ["id"],
 				roster: { order: rosterOrderOf(desc), handles: desc.handles },
 				descriptors: {}

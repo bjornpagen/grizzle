@@ -50,7 +50,8 @@ const code: ScalarType = {
 	carrier: "code",
 	caps: capabilitiesOf("code"),
 	contract: undefined,
-	roster
+	roster,
+	only: undefined
 }
 
 /** A host value of the box: a bigint, a Set of handles, or a handle or a text. */

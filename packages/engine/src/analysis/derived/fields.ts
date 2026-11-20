@@ -85,7 +85,7 @@ export const declaredDescOf = (
 			})
 		}
 		case "code":
-			return Result.ok({ kind: "closedId", roster: type.roster.closed })
+			return Result.ok({ kind: "closedId", roster: type.roster.closed, only: type.only })
 		case "bits":
 			return Result.ok({ kind: "bits", roster: type.roster.closed })
 		case "range4":

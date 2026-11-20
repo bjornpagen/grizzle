@@ -1282,6 +1282,15 @@ export const identity = Object.freeze({
 			`integer check of ${relation}.${field}`,
 			hashed
 		),
+	/** A closed id column's subset CHECK: the handles of its roster its field's subset holds. */
+	subsetCheck: (relation: string, field: string): Identity<"subsetCheck"> =>
+		mint(
+			"subsetCheck",
+			[relation, field],
+			[...nameSegments(relation), "subset", ...nameSegments(field)],
+			`closed id subset check of ${relation}.${field}`,
+			hashed
+		),
 	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */
 	domainCheck: (
 		domain: Identity<

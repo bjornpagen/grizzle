@@ -98,8 +98,8 @@ export const Ledger: SchemaDesc = {
 			kind: "closedRelation",
 			name: "Settlement",
 			fields: {
-				currency: { kind: "closedId", roster: "Currency" },
-				purpose: { kind: "closedId", roster: "Purpose" },
+				currency: { kind: "closedId", roster: "Currency", only: undefined },
+				purpose: { kind: "closedId", roster: "Purpose", only: undefined },
 				code: Code,
 				minor: Cents
 			},
@@ -116,7 +116,7 @@ export const Ledger: SchemaDesc = {
 			fields: {
 				id: c(F.bigint),
 				code: c(Code),
-				currency: c({ kind: "closedId", roster: "Currency" }),
+				currency: c({ kind: "closedId", roster: "Currency", only: undefined }),
 				opened: c(EpochDay)
 			},
 			primaryKey: ["id"]
@@ -127,7 +127,7 @@ export const Ledger: SchemaDesc = {
 			fields: {
 				id: c(F.integer),
 				account: c(F.bigint),
-				purpose: c({ kind: "closedId", roster: "Purpose" }),
+				purpose: c({ kind: "closedId", roster: "Purpose", only: undefined }),
 				amount: c(Cents),
 				refund: c(Refund),
 				remainder: c(F.boolean),
@@ -145,8 +145,8 @@ export const Ledger: SchemaDesc = {
 			kind: "relation",
 			name: "Rounding",
 			fields: {
-				currency: c({ kind: "closedId", roster: "Currency" }),
-				purpose: c({ kind: "closedId", roster: "Purpose" }),
+				currency: c({ kind: "closedId", roster: "Currency", only: undefined }),
+				purpose: c({ kind: "closedId", roster: "Purpose", only: undefined }),
 				minor: c(Cents)
 			},
 			primaryKey: ["currency"]
@@ -154,7 +154,10 @@ export const Ledger: SchemaDesc = {
 		{
 			kind: "relation",
 			name: "Payout",
-			fields: { entry: c(F.integer), purpose: c({ kind: "closedId", roster: "Purpose" }) },
+			fields: {
+				entry: c(F.integer),
+				purpose: c({ kind: "closedId", roster: "Purpose", only: undefined })
+			},
 			primaryKey: ["entry"]
 		}
 	],

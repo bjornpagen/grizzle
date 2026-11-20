@@ -282,7 +282,7 @@ const constantOf = (kind: ConstantKind, pick: number): Constant => {
 		case "offRoster":
 			return {
 				source: `Tone.handle("none")`,
-				value: () => handleTerm(Tone, closedIdOf(Tone), "none"),
+				value: () => handleTerm(Tone, closedIdOf(Tone, []), "none"),
 				column: "tone"
 			}
 		case "uuidUpper": {

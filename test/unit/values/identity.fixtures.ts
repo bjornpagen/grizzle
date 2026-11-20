@@ -193,7 +193,7 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 				: { fault: "uuidSyntax" }
 	},
 	{
-		spec: { carrier: "code", roster: handleCodec },
+		spec: { carrier: "code", roster: handleCodec, only: undefined },
 		live: element<unknown>(Arr.appendAll(handles, ["Draft", "draft ", "", 1])),
 		judge: (value) =>
 			typeof value === "string" && handles.includes(value)

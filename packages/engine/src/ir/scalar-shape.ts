@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { TextBounds } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
@@ -64,6 +65,7 @@ import {
 	type RegexCheck,
 	RegexKey,
 	type RegexRef,
+	isRosterSubset,
 	Roster,
 	type ScalarType,
 	type SpanCarrier,
@@ -126,6 +128,7 @@ interface WireScalarType {
 	readonly contract: WireContract | undefined
 	readonly text: TextInfo | undefined
 	readonly roster: Roster | undefined
+	readonly only: NonEmptyReadonlyArray<string> | undefined
 	readonly span: WireSpan | undefined
 	readonly digits: number | undefined
 	readonly bound: NumericBound | undefined
@@ -308,6 +311,7 @@ const wireBody: S.Shape<WireScalarType> = S.structStated(
 		contract: contractShape,
 		text: textInfoShape,
 		roster: rosterShape,
+		only: S.nonEmptyUniqueStrings("handles"),
 		span: spanShape,
 		digits: S.nonNegativeInteger,
 		bound: numericBoundShape
@@ -327,6 +331,7 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 		t.typmod !== undefined ||
 		t.text !== undefined ||
 		t.roster !== undefined ||
+		t.only !== undefined ||
 		t.span !== undefined ||
 		t.digits !== undefined ||
 		t.bound !== undefined
@@ -414,8 +419,8 @@ const narrowVectorTypmod = (typmod: WireTypmod | undefined): VectorTypmod | stri
 
 /**
  * A wire descriptor as its carrier's variant, or the first broken rule: a contract's (narrowContract), or a plain one.
- * Each variant is rebuilt with the keys in the wire order (carrier, caps, typmod, contract, text, roster, span, digits,
- * bound), so decoding is idempotent.
+ * Each variant is rebuilt with the keys in the wire order (carrier, caps, typmod, contract, text, roster, only, span,
+ * digits, bound), so decoding is idempotent.
  */
 const narrow = (t: WireScalarType): ScalarType | string =>
 	t.contract === undefined ? narrowPlain(t) : narrowContract(t, t.contract)
@@ -431,6 +436,9 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 	}
 	if (carrier !== "code" && carrier !== "bits" && t.roster !== undefined) {
 		return "only a closed id or a set over a roster has a roster"
+	}
+	if (carrier !== "code" && t.only !== undefined) {
+		return "only a closed id holds a subset of its roster"
 	}
 	if (!isSpanCarrier(carrier) && t.span !== undefined) {
 		return "only a range type has a span endpoint"
@@ -483,11 +491,16 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 				return "a text type carries regex metadata"
 			}
 			return Object.freeze({ carrier, caps, contract, text: t.text })
-		case "code":
+		case "code": {
 			if (t.roster === undefined) {
 				return "a closed id names its roster"
 			}
-			return Object.freeze({ carrier, caps, contract, roster: t.roster })
+			const { roster, only } = t
+			if (only !== undefined && !isRosterSubset(roster, only)) {
+				return "a closed id's subset holds handles of its roster, each once in its order, short of every handle"
+			}
+			return Object.freeze({ carrier, caps, contract, roster, only })
+		}
 		case "bits":
 			if (t.roster === undefined) {
 				return "a set names its roster"

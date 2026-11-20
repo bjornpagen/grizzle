@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Patterns } from "@bjornpagen/grizzle-text/regex/parse"
 import type { Brand } from "effect"
 import type { Column, FieldHost } from "#compiler/core/decoder.ts"
@@ -327,15 +328,36 @@ export type SpanWidthOf<E> = [BaseOf<E>] extends [CalendarDate] ? number : BaseO
 /**
  * A closed reference: one of the roster's handles, stored as its code under the roster's domain, whose domain is its
  * handles under the roster's identity (Rostered), so two rosters of one member set never meet, and, an unordered
- * roster's, under Unordered too, which no ordered operation reads (RosterBrands).
+ * roster's, under Unordered too, which no ordered operation reads (RosterBrands). Its host type and language are S, the
+ * handles it holds: every handle of the roster, or the subset closedId(C, { only }) or closedId(C, { except }) states
+ * (SubsetHandles). Its domain is the roster's whatever S is, so a closed id of a subset meets one of the whole roster, in
+ * a comparison, a join and a containment, as two refined texts meet as text; a value it holds is a handle of the
+ * roster, and a handle outside S is no value of its type.
  */
-export interface ClosedIdField<out C> extends Field<
-	HandleOf<C>,
+export interface ClosedIdField<out C, out S = HandleOf<C>> extends Field<
+	S,
 	"code",
 	HandleOf<C> & RosterBrands<RosterName<C>, OrderOf<C>>
 > {
 	readonly roster: C
 }
+
+/**
+ * The subset of a roster's handles a closed id holds, stated once where the field is declared: `only` the handles it
+ * lists, or every handle `except` the ones it lists, each list nonempty and each handle once.
+ */
+export type ClosedSubset<C> =
+	| { readonly only: NonEmptyReadonlyArray<HandleOf<C>> }
+	| { readonly except: NonEmptyReadonlyArray<HandleOf<C>> }
+
+/** The handles a closed id over C holds under `subset`: every handle for none, `only`'s, or every one but `except`'s. */
+export type SubsetHandles<C, Subset> = Subset extends {
+	readonly only: ReadonlyArray<infer H extends HandleOf<C>>
+}
+	? H
+	: Subset extends { readonly except: ReadonlyArray<infer H> }
+		? Exclude<HandleOf<C>, H>
+		: HandleOf<C>
 
 /**
  * A set over a roster: bit(n), one bit per code the roster has minted, holes included. Its host value is Bits<C>, and

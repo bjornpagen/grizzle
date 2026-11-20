@@ -280,6 +280,13 @@ which orders nothing.
 `closedId(Status)` refers into it. Each handle has a code, 0 … n − 1 in declared order. The API reads and writes names,
 and the table stores codes under a domain that admits only live handles.
 
+A closed id may hold some of its roster's handles: `closedId(Status, { only: ["Draft"] })` holds the handles it lists, and
+`closedId(Status, { except: ["Draft"] })` every handle but those. Each list names live handles, each once, and `except`
+leaves at least one; a subset of every handle is `closedId(Status)`. Its TypeScript type is the subset's names, and its
+column is the roster's domain with a CHECK of the subset's codes, so a direct writer stores no other handle either. It
+meets a closed id of the same roster, whatever that one's subset, in an equality, a join and a containment, but a value
+enters its column only from a closed id whose handles it holds.
+
 Every roster states whether its order means something. `closed.ordered` is a roster whose declared order is its
 comparison order, so its closed ids compare, range and sort by it. `closed.unordered` is one whose order means nothing,
 such as the element names of a grammar: a comparison, `between`, `orderBy`, `least`, `greatest`, `min`, `max` or a
@@ -1797,6 +1804,7 @@ schema.
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
 | `closedId(X)`, for `X = closed.ordered("X", [...])` or `closed.unordered("X", [...])` | smallint, behind the roster's domain | the union of its names |
+| `closedId(X, { only: [...] })`, `closedId(X, { except: [...] })` | smallint, behind the roster's domain and a CHECK of the subset's codes | the union of the subset's names |
 | `bits(X)`, a set of `X`'s handles                  | bit(n), behind a domain that holds only live handles                | `Bits<typeof X>`, a `ReadonlySet` of its names; `Bits.of(X, [...])`    |
 | `contract(name, base, check?)`                     | a domain with that CHECK                                            | the base type, branded with the name                                   |
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |

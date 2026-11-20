@@ -1,5 +1,6 @@
 /** What the properties of codes.test.ts read: its spaces, models and helpers. */
 
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { assert, nonEmpty } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
@@ -94,19 +95,22 @@ const installed = (live: number) => {
 		rosters: new Map([[closed, rosterCodec(closed, codes)]]),
 		spellings: noSpellings
 	}
-	const code: ScalarType = {
+	/** A closed id of the roster holding `only`, or every handle for none. */
+	const codeOf = (only: NonEmptyReadonlyArray<string> | undefined): ScalarType => ({
 		carrier: "code",
 		caps: capabilitiesOf("code"),
 		contract: undefined,
-		roster
-	}
+		roster,
+		only
+	})
+	const code = codeOf(undefined)
 	const bits: ScalarType = {
 		carrier: "bits",
 		caps: capabilitiesOf("bits"),
 		contract: undefined,
 		roster
 	}
-	return { roster, book, code, bits }
+	return { roster, book, code, codeOf, bits }
 }
 
 /** The model's stored text of a set, as bit_out writes it: position c is 1 exactly when the set holds code c. */
@@ -127,9 +131,12 @@ const writtenText = (held: number): ParamText => paramText(`X${hexOfText(storedT
  * handle and another roster's are refused; every set encodes as the model's text, holes 0, and converts back, and each
  * named invalid set is refused with its fault.
  */
-export const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "a hole">) =>
+export const roundTrips = (
+	{ live, held, variant }: Pattern,
+	c: Case<Variant | "a hole" | "a handle outside the subset">
+) =>
 	Effect.sync(() => {
-		const { roster, book, code, bits } = installed(live)
+		const { roster, book, code, codeOf, bits } = installed(live)
 		const ids = scalarCodec(code, book)
 		const sets = scalarCodec(bits, book)
 		const idsRead = scalarReader(code, book)
@@ -157,6 +164,27 @@ export const roundTrips = ({ live, held, variant }: Pattern, c: Case<Variant | "
 		}
 		faulted(ids.encode("elsewhere"), "codeHandle", "a handle of another roster")
 		const members = Arr.filter(roster.handles, (h) => isSet(held, Number(Str.slice(1)(h))))
+		const [first, ...rest] = members
+		if (first !== undefined && members.length < roster.handles.length) {
+			const subset = scalarCodec(codeOf([first, ...rest]), book)
+			for (const handle of roster.handles) {
+				if (members.includes(handle)) {
+					assert.equal(
+						succeeded(subset.encode(handle)),
+						succeeded(ids.encode(handle)),
+						`${handle}, of the subset, is written as its code`
+					)
+				} else {
+					faulted(subset.encode(handle), "codeSubset", `${handle} is no handle of the subset`)
+					c.note("a handle outside the subset")
+				}
+			}
+			faulted(
+				subset.encode("elsewhere"),
+				"codeHandle",
+				"a handle of another roster, beside a subset"
+			)
+		}
 		const fault = ((): { readonly value: unknown; readonly fault: CodecFault } | undefined => {
 			switch (variant) {
 				case "valid":

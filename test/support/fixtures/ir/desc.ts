@@ -188,7 +188,7 @@ export const f = {
 		endpoint,
 		width
 	}),
-	closedId: (roster: string): FieldDesc => ({ kind: "closedId", roster })
+	closedId: (roster: string): FieldDesc => ({ kind: "closedId", roster, only: undefined })
 } as const
 
 /** Contract predicate terms: the domain's VALUE and typed literals. */

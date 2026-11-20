@@ -7,7 +7,7 @@ import {
 	isExactValue,
 	isNumericValue,
 	type ScalarType,
-	sameEnteredType,
+	entersColumn,
 	typeLabel
 } from "#compiler/ir/scalar.ts"
 
@@ -70,10 +70,10 @@ const writtenOnly = (value: ScalarType, field: ScalarType): string => {
  * parameter its input binds, whose shape the codec checks; a query member is checked here. A delete's head is the
  * relation's heading; an insert's and a put's is the fields a member writes, no field PostgreSQL generates or grizzle
  * draws or accumulates, an instant left out or stated (write/frontend/instants.ts). Each head column enters the field it is
- * written into at the field's own type (ir/scalar.ts sameEnteredType), as a generated field's term and a fold's
+ * written into at the field's own type (ir/scalar.ts entersColumn), as a generated field's term and a fold's
  * accumulator do: the same carrier, contract, roster, numeric typmod, span endpoint and width, and vector dimensions,
- * never an exact value or a computed numeric, which no field stores; a text's pattern and byte bound alone are the
- * column's domain's, which PostgreSQL validates where the value is written. Anything else is
+ * never an exact value or a computed numeric, which no field stores, and a closed id's subset within the field's; a
+ * text's pattern and byte bound alone are the column's domain's, which PostgreSQL validates where the value is written. Anything else is
  * DescribedHeadingMismatch, located at the member. An attachment on the member's result is a field too,
  * one an Attach node's heading does not list: the checker refuses it where it is attached (checker.ts attach).
  *
@@ -118,7 +118,7 @@ export const checkMemberHeading = (
 	}
 	for (const c of expected) {
 		const d = delivered.find((x) => x.name === c.name)
-		if (d !== undefined && !sameEnteredType(c.type, d.type)) {
+		if (d !== undefined && !entersColumn(c.type, d.type)) {
 			fail(
 				"DescribedHeadingMismatch",
 				loc,

@@ -24,6 +24,7 @@ const { active, lintConfig } = standard(toolchain)
  * states, every probe of a scale program, every dimension a cost gate measures).
  */
 const DICTIONARY_MINTS = [
+	"test/types/schema/closed-subset.dictionary.ts",
 	"test/pg/substrate/transaction.dictionary.ts",
 	"test/pg/lower-conservative/vocabulary.dictionary.ts",
 	"test/pg/scalar/registry.dictionary.ts",

@@ -355,7 +355,7 @@ const versionOf = (
 	const kinds = closed.ordered(naming.roster, Arr.map(handles, naming.handle))
 	const weights = closedRelation(
 		weight,
-		{ kind: { kind: "closedId", roster: naming.roster }, w: integer },
+		{ kind: { kind: "closedId", roster: naming.roster, only: undefined }, w: integer },
 		["kind"],
 		Arr.map(handles, (h, code) => ({ kind: naming.handle(h), w: code }))
 	)

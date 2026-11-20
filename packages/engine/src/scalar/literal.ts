@@ -116,10 +116,14 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			return validateText(value)
 		case "bytes":
 			return Result.err("bytesLiteral")
-		case "code":
-			return typeof value === "string" && base.roster.handles.includes(value)
+		case "code": {
+			if (typeof value !== "string" || !base.roster.handles.includes(value)) {
+				return Result.err("codeHandle")
+			}
+			return base.only === undefined || base.only.includes(value)
 				? Result.ok(value)
-				: Result.err("codeHandle")
+				: Result.err("codeSubset")
+		}
 		case "bits":
 			return bitsLiteral(value, base.roster)
 		case "range4":

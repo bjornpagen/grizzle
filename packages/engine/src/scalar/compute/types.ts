@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { DecimalParts } from "#compiler/core/decimal.ts"
 import { integerDigits } from "#compiler/ir/carriers.ts"
 import { int8Digits } from "#compiler/ir/carriers.ts"
@@ -8,6 +9,7 @@ import {
 	type ExactValueCarrier,
 	type NumericBound,
 	type PlainType,
+	type Roster,
 	type ScalarType,
 	type SpanInfo,
 	type TextInfo,
@@ -16,7 +18,9 @@ import {
 	exactDigitsOf,
 	numericBoundOf,
 	numericTypmodOf,
+	onlyOf,
 	rosterOf,
+	sameSubset,
 	spanOf,
 	textOf,
 	vectorTypmodOf
@@ -233,7 +237,8 @@ const sameEndpoint = (a: SpanInfo | undefined, b: SpanInfo | undefined): boolean
 /**
  * The type two operands that meet combine to in a conditional or LEAST/GREATEST: their common type when they agree
  * in every meaning-changing field, the exact carrier where one is exact and the other a plain value of its family,
- * otherwise the shared type with the text refinement or span width widened, and two numerics of different typmods or
+ * otherwise the shared type with the text refinement or span width widened, a closed id's subset to the union of both's
+ * handles, and two numerics of different typmods or
  * bounds a computed numeric of both bounds' hull, as PostgreSQL's select_common_type and select_common_typmod do (a
  * common typmod survives only when all agree). It is the same whichever operand comes first.
  */
@@ -263,7 +268,28 @@ export const commonType = (a: ScalarType, b: ScalarType): ScalarType => {
 	if (x.carrier === "range4" || x.carrier === "range8" || x.carrier === "rangeDate") {
 		return withoutSpanWidth(x)
 	}
+	if (x.carrier === "code") {
+		return Object.freeze({ ...x, only: subsetUnion(x.roster, x.only, onlyOf(y)) })
+	}
 	return x
+}
+
+/**
+ * The handles of `roster` either of two closed ids' subsets holds, in the roster's order: every handle where either holds
+ * every one or the two hold every one between them.
+ */
+const subsetUnion = (
+	roster: Roster,
+	a: NonEmptyReadonlyArray<string> | undefined,
+	b: NonEmptyReadonlyArray<string> | undefined
+): NonEmptyReadonlyArray<string> | undefined => {
+	if (a === undefined || b === undefined) {
+		return undefined
+	}
+	const [first, ...rest] = roster.handles.filter((h) => a.includes(h) || b.includes(h))
+	return first === undefined || rest.length + 1 === roster.handles.length
+		? undefined
+		: [first, ...rest]
 }
 
 /**
@@ -286,7 +312,7 @@ const sameMeaning = (a: ScalarType, b: ScalarType): boolean => {
 	if (spanOf(a)?.width !== spanOf(b)?.width || exactDigitsOf(a) !== exactDigitsOf(b)) {
 		return false
 	}
-	return sameRegex(textOf(a), textOf(b))
+	return sameRegex(textOf(a), textOf(b)) && sameSubset(onlyOf(a), onlyOf(b))
 }
 
 /**

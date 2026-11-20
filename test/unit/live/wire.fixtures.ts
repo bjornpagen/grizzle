@@ -463,10 +463,13 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 						? { precision: spec.numeric.precision, scale: spec.numeric.scale }
 						: undefined
 			}
-		case "code":
+		case "code": {
+			const roster = Roster.of(succeeded(parseDeclaredName("Roster")), "ordered", spec.handles)
+			return { carrier: "code", roster: codecOf(firstCodebook([roster]), roster), only: undefined }
+		}
 		case "bits": {
 			const roster = Roster.of(succeeded(parseDeclaredName("Roster")), "ordered", spec.handles)
-			return { carrier: spec.carrier, roster: codecOf(firstCodebook([roster]), roster) }
+			return { carrier: "bits", roster: codecOf(firstCodebook([roster]), roster) }
 		}
 		case "range4":
 		case "range8":

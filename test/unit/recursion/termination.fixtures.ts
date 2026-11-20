@@ -18,7 +18,7 @@ export const integerLit = (n: number) => typedLit(n, integer)
 /** A Vertex column copied as data into the state, and its declared type. */
 export const copied: Arr.NonEmptyReadonlyArray<readonly [string, FieldDesc]> = [
 	["active", { kind: "pg", type: "boolean" }],
-	["level", { kind: "closedId", roster: "Level" }],
+	["level", { kind: "closedId", roster: "Level", only: undefined }],
 	["rank", { kind: "pg", type: "smallint" }],
 	["label", textDesc("^v[0-9]+$", "u")]
 ]

@@ -9,7 +9,9 @@
  * - Universal oracles: convert ∘ encode is the identity on every value, a cell's one text is the value's written text,
  *   and the order of two closed ids is their codes'.
  * - Named invalid variants, each refused with its fault: a removed handle (a hole's), a handle of another roster, a
- *   value that is no Set, and a Set holding a member that is no string.
+ *   value that is no Set, and a Set holding a member that is no string; and a closed id of a subset of the live handles
+ *   (closedId(R, { only })) writes each handle of the subset as the whole roster's closed id does and refuses every other
+ *   live handle with codeSubset.
  *
  * The box, exhausted: every hole pattern of a five-code roster that leaves a handle live, every subset of its live
  * handles, under every variant the pattern admits.
@@ -30,9 +32,11 @@ export const theClosedIdAndSetCodecsWriteACodeAndASetByTheInstallationsCodesRead
 			"another roster's handle",
 			"no Set",
 			"a member that is no string",
-			"a hole"
-		] satisfies ReadonlyArray<Reached<Variant | "a hole">>,
-		check: (_, c: Case<Variant | "a hole">) => (value) => roundTrips(value, c),
+			"a hole",
+			"a handle outside the subset"
+		] satisfies ReadonlyArray<Reached<Variant | "a hole" | "a handle outside the subset">>,
+		check: (_, c: Case<Variant | "a hole" | "a handle outside the subset">) => (value) =>
+			roundTrips(value, c),
 		oracle: {
 			kind: "second-implementation",
 			name: "a naive positional model of the codes"
@@ -47,6 +51,13 @@ export const theClosedIdAndSetCodecsWriteACodeAndASetByTheInstallationsCodesRead
 				replacement:
 					'\t\tfor (let code = text.indexOf("1", 1); code >= 0; code = text.indexOf("1", code + 1)) {',
 				why: "A set's text is read from its second code on, so code 0's handle is lost; convert after encode is no longer the identity."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original:
+					'only === undefined || only.has(handle) ? Result.ok(handle) : Result.err("codeSubset")',
+				replacement: 'only === undefined || true ? Result.ok(handle) : Result.err("codeSubset")',
+				why: "A closed id of a subset admits every live handle of its roster: a handle outside the subset is written as its code where the codec refuses it."
 			}
 		]
 	})
