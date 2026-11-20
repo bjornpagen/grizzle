@@ -58,6 +58,32 @@ const storedSessions = query(Clocks).rule((r) => {
 	const { token, user, at } = v(Session, "session")
 	return r.match(Session, { token, user, at }).find({ token, user, at })
 })
+/** A session's fields but its instant, its token another parameter's: a second query of Session's insert. */
+const otherSession = query(Clocks).rule((r) =>
+	r.find({ token: r.param("other", pg.integer), user: r.param("user", pg.integer) })
+)
+/** A session of each stored sign-in under another token, its instant the sign-in's: a second query of Session's put. */
+const otherOfStored = query(Clocks).rule((r) => {
+	const { user, at } = v(SignIn, "signIn")
+	return r.match(SignIn, { user, at }).find({ token: r.param("other", pg.integer), user, at })
+})
+/** The stored visits, each field, its clock a stored instant. */
+const storedVisits = query(Clocks).rule((r) => {
+	const { user, at, place } = v(Visit, "visit")
+	return r.match(Visit, { user, at, place }).find({ user, at, place })
+})
+/** A visit's fields but its clock. */
+const visit = query(Clocks).rule((r) =>
+	r.find({ user: r.param("user", pg.integer), place: r.param("place", pg.integer) })
+)
+/** The stored visits to one place. */
+const visitsTo = query(Clocks).rule((r) => {
+	const { user, at, place } = v(Visit, "visit")
+	return r
+		.match(Visit, { user, at, place })
+		.where(r.eq(place, r.param("place", pg.integer)))
+		.find({ user, at, place })
+})
 const orphan = query(Clocks).rule((r) =>
 	r.find({ token: r.param("token", pg.integer), user: r.param("user", pg.integer) })
 )
@@ -179,6 +205,41 @@ const cases: readonly [InstantCase, ...ReadonlyArray<InstantCase>] = [
 			clock: "SignIn.at",
 			apart: "strata"
 		})
+	},
+	{
+		name: "a clock's relation deleted from a query beside its insert",
+		changeSet: () => empty.delete(Visit, storedVisits).insert(Visit, visit),
+		verdict: compiled
+	},
+	{
+		name: "a reference stamped from two queries beside its clock",
+		changeSet: () =>
+			empty.insert(SignIn, fresh).insert(Session, session).insert(Session, otherSession),
+		verdict: compiled
+	},
+	{
+		name: "a reference stamped from host rows and a query beside its clock",
+		changeSet: () =>
+			empty
+				.insert(SignIn, fresh)
+				.insert(Session, [{ token: 1, user: 1 }])
+				.insert(Session, otherSession),
+		verdict: compiled
+	},
+	{
+		name: "a reference put from two queries stating stored instants",
+		changeSet: () => empty.put(Session, sessionOfStored).put(Session, otherOfStored),
+		verdict: compiled
+	},
+	{
+		name: "a clock and its reference stamped beside two deletes of another clock's relation",
+		changeSet: () =>
+			empty
+				.insert(SignIn, fresh)
+				.insert(Session, session)
+				.delete(Visit, storedVisits)
+				.delete(Visit, visitsTo),
+		verdict: compiled
 	},
 	{
 		name: "a clock stamped by two statements of a stratum",

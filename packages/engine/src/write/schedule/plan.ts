@@ -246,7 +246,10 @@ type Realization =
 
 /** A stratum realized as one statement where one snapshot suffices: its statements are writes of distinct relations, at
  * least two, each its action's only statement. No statement then reads what another writes, a deletion excepts no
- * addition, and every member reads the stratum's starting state, the statement's own snapshot. */
+ * addition, and every member reads the stratum's starting state, the statement's own snapshot. The front end makes a
+ * stratum's sources of one operation on one relation one action (write/frontend/compile.ts compileChangeSet), so a
+ * stratum writes one relation twice only by two operations, which the relation's immediate keys order, removals first,
+ * or by an insert's sources written at two headings. */
 const realizationOf = (drafted: ReadonlyArray<ActionDraft>): Realization => {
 	const writes = drafted.flatMap((draft): ReadonlyArray<LoneWrite> => {
 		const step = loneStep(draft.steps)
@@ -471,7 +474,10 @@ const directReads = (root: RelNode, carried: ReadonlySet<RelNode>): ReadonlyArra
 }
 
 /** The positions of the additions to an exact deletion's relation that it excepts: every addition to it, or, for a
- * deletion of a relation parameter's facts, only the described ones. None for any other action. */
+ * deletion of a relation parameter's facts, only the described ones; none that stamps an instant of the relation's
+ * primary key, whose every fact is new: its stamp is past every instant stored at its child (write/insert/stamp.ts), so
+ * no stored fact the deletion removes is one of them, and its rows carry no such instant to be compared at. None for
+ * any other action. */
 const exceptsOf = (
 	actions: ReadonlyArray<ChosenAction>,
 	action: ChosenAction
@@ -479,8 +485,13 @@ const exceptsOf = (
 	if (action.op !== "delete") {
 		return []
 	}
+	const key = action.info.relation.primaryFields
 	const additions = actions.flatMap((b, index) =>
-		b.relation === action.relation && b.op !== "delete" ? [{ index, action: b }] : []
+		b.relation === action.relation &&
+		b.op !== "delete" &&
+		!headStamped(b.info.stamps).some((s) => key.some((f) => f.name === s.field.name))
+			? [{ index, action: b }]
+			: []
 	)
 	return (
 		action.info.reads.kind === "described"

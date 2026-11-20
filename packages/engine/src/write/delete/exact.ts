@@ -146,12 +146,17 @@ const buildDelete = (
 	const { relation, input } = spec
 	const at = `${mode.kind === "exact" ? "delete" : "put deletion"} ${relation.name}`
 	const all = keyFirst(relation)
-	/** The fields a deletion matches facts at, which its input and every addition it excepts are read at: the ones a fact
-	 * carries (insert/statement.ts isCarried), one heading per relation (rule 0). A generated field is a function of
-	 * them, and an owner's drawn count and accumulated ends are grizzle's, so neither decides a match. */
-	const [first, ...rest] = all
-	const compared: NonEmptyReadonlyArray<LawField> = [first, ...rest.filter(isCarried)]
 	const pk = relation.primaryFields
+	/** The fields a deletion matches facts at, which its input and every addition it excepts are read at: the ones a fact
+	 * carries (insert/statement.ts isCarried), one heading per relation (rule 0), and each instant of the primary key,
+	 * which the deletion's target is reached by and every deletion's and put's facts state (write/frontend/instants.ts
+	 * `unstated`). A generated field is a function of them, and an owner's drawn count and accumulated ends are
+	 * grizzle's, so neither decides a match. */
+	const [first, ...rest] = all
+	const compared: NonEmptyReadonlyArray<LawField> = [
+		first,
+		...rest.filter((f) => isCarried(f) || (f.writing.kind === "instant" && pk.includes(f)))
+	]
 	const except = mode.kind === "exact" ? mode.except : []
 	const sharing = inputSharing(
 		w.share.deletions,

@@ -586,6 +586,11 @@ export type PlaceRule =
 			readonly held: NonEmptyReadonlyArray<string>
 	  }
 
+/** When a stratum is one statement, as the refusal of a stamp its statements would read apart says
+ * (write/schedule/plan.ts realizationOf). */
+const oneStatement =
+	"a stratum is one statement only where each table it writes takes one operation of one statement and none is written through a query entry, so write a put or a delete of a table it inserts, and any write of statements of its own, in another stratum (ChangeSet.sequence)"
+
 /** A place rule's sentence. */
 export const placeRuleText = (rule: PlaceRule): string => {
 	switch (rule.kind) {
@@ -606,7 +611,7 @@ export const placeRuleText = (rule: PlaceRule): string => {
 		case "groupStamped":
 			return `a place's group is stated, never stamped by the same insert, and ${rule.stamped} is: state it from a stored value, or stamp it in an earlier stratum`
 		case "stampedApart":
-			return `one call stamps a place in one statement, whose every row in a group shares one place, and this one would stamp it ${rule.apart === "strata" ? "in two strata" : "in a stratum of several statements"}: stamp it in one stratum`
+			return `one call stamps a place in one statement, whose every row in a group shares one place, and this one would stamp it ${rule.apart === "strata" ? "in two strata: stamp it in one stratum" : `in a stratum of several statements: ${oneStatement}`}`
 		case "addedOverRows":
 			return `an unordered place a migration adds to a table that holds rows is 0 on every stored row, which keeps them apart at the new primary key only where it holds the old one, and (${rule.key.join(", ")}) does not hold (${rule.held.join(", ")}): declare it place.by(field), a field that orders each group's stored rows, or add it under the old key's fields`
 	}
@@ -630,7 +635,7 @@ export const instantRuleText = (rule: InstantRule): string => {
 		case "clockUnstamped":
 			return `a reference an insert leaves out takes the instant its statement stamps ${rule.clock} with, and no insert of that stratum stamps ${rule.clock}: insert it in the same stratum, or state the reference from a stored instant`
 		case "stampedApart":
-			return `one call stamps ${rule.clock} in one statement, whose every row at a child shares one instant, and this one would stamp it ${rule.apart === "strata" ? "in two strata" : "in a stratum of several statements"}: stamp it in one stratum, and read it back as a stored instant after`
+			return `one call stamps ${rule.clock} in one statement, whose every row at a child shares one instant, and this one would stamp it ${rule.apart === "strata" ? "in two strata: stamp it in one stratum, and read it back as a stored instant after" : `in a stratum of several statements: ${oneStatement}, and read the stamp back there as a stored instant`}`
 		case "addedOverRows":
 			return `a clock a migration adds to a table that holds rows takes the migration's one instant on every stored row, which keeps them apart at the new primary key only where it holds the old one beside the clock, and (${rule.key.join(", ")}) does not hold (${rule.held.join(", ")}): add the clock under the old key's fields, or re-key the table in a migration of its own`
 	}

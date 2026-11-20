@@ -3375,7 +3375,10 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   sides two statements make: read each in a read-back of its own; a table the read-back reads, written at or after
   the statement making its delta: read `delta.added` of that table in its place, or write it in an earlier
   stratum with `ChangeSet.sequence`.
-- **Strata.** Every write in a stratum reads the state before it, so build order means nothing.
+- **Strata.** Every write in a stratum reads the state before it, so build order means nothing, and a stratum's
+  members of one operation on one table are one write of their union, whatever ChangeSets they came from, but for an
+  insert's host rows that leave computed fields out or own counted families, and queries that state different
+  instants, each a write of its own.
   `ChangeSet.union(a, b)` merges two ChangeSets stratum by stratum; `ChangeSet.sequence(a, b)` runs `b`'s strata after
   `a`'s. Either is one transaction, over the higher of the two schemas.
 - **Statement order.** A stratum's writes, its families' members and owner counts included, run in the order its
@@ -3534,8 +3537,10 @@ export const signIn = ChangeSet.empty(Auth)
 - **One instant per child per call.** Every row a call stamps at one child of one clock holds one instant, so rows of
   one child in one call that share the rest of a key need a field of their own in it, a place or a name, or they meet
   at the key. A call stamps a clock in one statement: its stratum's, which holds its every insert and those of the
-  references it stamps. A ChangeSet that would stamp it in two strata, or in a stratum of several statements, is refused
-  when it compiles (`stampedApart`); a later stratum reads the stamped rows back as stored instants.
+  references it stamps, a table's inserts one write of all their sources, however many queries, arrays and Streams
+  state them. A ChangeSet that would stamp it in two strata, or in a stratum of several statements, such as one that
+  inserts a table beside a put or a delete of it, whose removals run first, is refused when it compiles
+  (`stampedApart`); a later stratum reads the stamped rows back as stored instants.
 - **A stamped row is new.** Its instant is above every instant its child held, so an insertion that stamps a clock
   meets no stored row at the primary key: `delta.met` holds none of its rows ([Rows an insertion
   met](#rows-an-insertion-met)), and a call retried after `commitUnknown` adds them again, at a later instant.

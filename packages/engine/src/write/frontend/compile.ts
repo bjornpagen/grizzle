@@ -821,13 +821,31 @@ const merge = (params: Map<string, ParamDecl>, decl: ParamDecl, loc: SourceLoc):
  *    which the checked types of its declarations decide.
  * 2. Group. Within a stratum, the enumerated members (arrays and Streams) of one operation on one relation are one
  *    enumerated input (`EnumeratedInput`), the facts the host normalizes (normalize/): one slot read by one action.
- *    A slot whose facts carry no field is the unit relation, read like any other input. Every described insert or
- *    delete member is its own action. Every put source of one relation in one
- *    stratum is one action, because a put is the described deletion of the occupants at its members' keys, evaluated
- *    against the state before the stratum, plus their insertion: two separate statements would let the
- *    second deletion remove the first's new fact, so two puts of one key with different payloads would replace instead
- *    of conflicting. Several put sources are one described source, the Union of their queries and of
- *    the enumerated slot's InputSet, whose same-key check in the statement refuses such a pair.
+ *    A slot whose facts carry no field is the unit relation, read like any other input. Every source of one operation
+ *    on one relation in one stratum whose rows are written at one heading is one action, the slot's and the described
+ *    members' alike: a stratum's meaning is S' = (S \ D) ∪ A, its members' parallel composition, which reads no member
+ *    beside another, so the members of one operation are the one operation of their union. Several sources are one
+ *    described source, the Union of their queries and of the enumerated slot's InputSet, read as a set of facts
+ *    (insert/input.ts factSet), so a fact two of them give is one, and whose same-key check in the statement refuses
+ *    two facts of one key, which raise the primary key's law as a conflict witness between two actions would. For a
+ *    put it is the meaning itself: a put is the described deletion of the occupants at its members' keys, evaluated
+ *    against the state before the stratum, plus their insertion, and two separate statements would let the second
+ *    deletion remove the first's new fact, so two puts of one key with different payloads would replace instead of
+ *    conflicting. For an insert and a delete it keeps the stratum's writes one action per relation and operation, so a
+ *    stratum one snapshot suffices for is one statement (write/schedule/plan.ts realizationOf), which stamps each clock
+ *    once (write/frontend/instants.ts refuseStampedStatements) and makes each side of the relation's delta a read-back
+ *    reads whole. A whole relation's member is written at the fields it delivers, its caller's and the instants it
+ *    states from stored ones, a query entry's at the entry's facts, which its fill reads every source at; the slot's
+ *    rows at its relation's caller's fields, but that an insert's leave out the fields the call computes, which its
+ *    statement fills (`computedStamps`), and an owner's insert, or put beside no query, carries the counts and ends the
+ *    host draws into them (runtime/write/bind.ts freshOwners). A source written at another heading is another action of the operation, since one action's rows are
+ *    stamped and filled alike: an insert's host rows that leave computed fields out or carry an owner's counts, beside a
+ *    query's, which state the one and leave the other to the statement, and an insert's query stating a reference from
+ *    a stored instant beside one leaving it to be stamped; a put's or a delete's, which states every instant, never
+ *    compiles beside another (`stampsOf` refuses the one that leaves an instant out). Actions of two operations on one
+ *    relation stay two, in the schedule's order, removals before additions (`scheduleStratum`): an insert and a put or
+ *    a delete of one key, or a put and a delete, meet at the relation's immediate keys statement by statement, and
+ *    PostgreSQL runs sibling data-modifying CTEs of one table in no order.
  *    A query entry's action reads its sources through the entry's fill, one fill per action over
  *    the union of its sources, so it writes the target's facts. An addition into an entry whose fixed fields read a
  *    context the Db holds no fact of is no action but a refusal of its sources (WriteStratum.outside), and a deletion
@@ -1721,14 +1739,6 @@ const compile = (
 			return members.length > 0 || retires.length > 0 ? [{ s, members, retires }] : []
 		})
 	)
-	/** Every put source of the relation in the stratum is one action (see `compileChangeSet`).
-	 *
-	 * An exact delete of an absent fact is a no-op, so every delete member is its own action.
-	 *
-	 * Every generated addition of the relation in the stratum is one action over the union of its
-	 * sources, so the one SELECT DISTINCT over its head makes equal generated additions one new fact
-	 * whichever sources requested them. Every other insert member is its own action: the insert
-	 * protocol makes a second equal fact an exact repeat. */
 	/** Each stratum's nested writes, by its position among the occupied strata, the stratum its statements run in. */
 	const nestedWrites: Array<NestedWrite> = []
 	/** Each stratum's slots of the relations whose rows its family statements write, by operation, and the counted
@@ -1769,6 +1779,31 @@ const compile = (
 				const queries = ofOp.flatMap((m) =>
 					m.source.kind === "described" ? [{ root: m.source.root, loc: m.loc }] : []
 				)
+				/** The heading a described member's rows are written at: a whole relation's, the written fields it delivers, its
+				 * caller's and the instants it states; a query entry's, the entry's facts, at which its fill reads every
+				 * source. */
+				const writtenAt = (root: RelNode): Heading =>
+					target.kind === "whole"
+						? written.heading
+								.filter((c) => root.heading.some((d) => d.name === c.name))
+								.map(carriedColumn)
+						: facts
+				/** The operation's described members, those written at one heading together, in their first member's
+				 * order: each the sources of one action (see `compileChangeSet`), where its first member stands. */
+				const headed: Array<{
+					readonly heading: Heading
+					readonly roots: [RelNode, ...Array<RelNode>]
+					readonly loc: SourceLoc
+				}> = []
+				for (const q of queries) {
+					const heading = writtenAt(q.root)
+					const group = headed.find((g) => sameHeading(g.heading, heading))
+					if (group === undefined) {
+						headed.push({ heading, roots: [q.root], loc: q.loc })
+					} else {
+						group.roots.push(q.root)
+					}
+				}
 				const loc = firstOfOp.loc
 				const transport = enumerated.some((m) => m.kind === "stream") ? "stream" : "enumerated"
 				/** The member slot of the operation's enumerated members, its facts carrying `carried` and stating `walked`
@@ -1874,6 +1909,27 @@ const compile = (
 						computed
 					})
 				}
+				/**
+				 * The operation's actions `act`, one per heading its sources' rows are written at (see `compileChangeSet`):
+				 * its slot's, `carried`, with the described members written at it as more arms of its union, then each other
+				 * group of described members (`headed`) over their union. Only the slot's action fills the fields its host rows
+				 * leave out, `computed`, since a member written at its heading states them.
+				 */
+				const actionsOf = (
+					act: ActionOp,
+					carried: Heading,
+					slot: MemberSlot | undefined,
+					computed: ReadonlyArray<Stamped>
+				): void => {
+					const joined =
+						slot === undefined ? undefined : headed.find((g) => sameHeading(g.heading, carried))
+					draft(act, carried, slot, joined?.roots ?? [], loc, computed)
+					for (const g of headed) {
+						if (g !== joined) {
+							draft(act, g.heading, undefined, g.roots, g.loc, [])
+						}
+					}
+				}
 				/** An owner of counted families' counts and ends, which its enumerated slot carries at their starts when the
 				 * slot is the owner's own rows: a query entry's slot fills its fill, a member of the owner whose head holds only
 				 * the fields its facts state (check/member.ts memberHeading), so the owner's insert writes them at their starts
@@ -1925,14 +1981,7 @@ const compile = (
 						 * half is sent (runtime/write/bind.ts freshOwners), and a stored owner's are no field its UPDATE sets. A put
 						 * that also reads queries carries none, since their rows hold only written fields. */
 						const carried = isNonEmpty(queries) ? facts : [...facts, ...owned]
-						draft(
-							act,
-							carried,
-							singleInput(act, carried, facts),
-							queries.map((q) => q.root),
-							loc,
-							[]
-						)
+						actionsOf(act, carried, singleInput(act, carried, facts), [])
 						break
 					}
 					case "delete": {
@@ -1957,10 +2006,7 @@ const compile = (
 						 * written fields, so a fact inserted and deleted is one fact with one identity, which nets. A
 						 * generated field is a function of the written ones, so it decides no match. */
 						const act: WriteAct = { op, names: "rows" }
-						draft(act, facts, singleInput(act, facts, facts), [], loc, [])
-						for (const q of queries) {
-							draft(act, facts, undefined, [q.root], q.loc, [])
-						}
+						actionsOf(act, facts, singleInput(act, facts, facts), [])
 						break
 					}
 					case "insert": {
@@ -2018,10 +2064,7 @@ const compile = (
 						const computed = computedStamps(s, relation.name)
 						const stated = facts.filter((c) => !computed.some((st) => st.field.name === c.name))
 						const carried = [...stated, ...owned]
-						draft(insert, carried, singleInput(insert, carried, stated), [], loc, computed)
-						for (const q of queries) {
-							draft(insert, facts, undefined, [q.root], q.loc, [])
-						}
+						actionsOf(insert, carried, singleInput(insert, carried, stated), computed)
 						break
 					}
 				}

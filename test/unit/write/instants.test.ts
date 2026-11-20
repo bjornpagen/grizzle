@@ -14,8 +14,13 @@
  * ChangeSet, built as a JavaScript caller builds it (write/changeset/value.ts), so the shapes the types refuse are
  * reached too: an insert, a put and a delete of SignIn stating its instant from a stored one or leaving it out, from
  * a query or an array; Session stamped beside SignIn's insert, alone, a stratum after it, and stated from a stored
- * instant, and put stating a stored instant or leaving it out; Orphan stamped beside SignIn's insert; Chain stamped beside it; SignIn stamped in two strata; and SignIn and
- * Session stamped in a stratum one statement after another realizes, beside a delete of Session.
+ * instant, and put stating a stored instant or leaving it out; Orphan stamped beside SignIn's insert; Chain stamped
+ * beside it; SignIn stamped in two strata; SignIn and Session stamped in a stratum one statement after another realizes,
+ * beside a delete of Session, whose removals run before its addition; and SignIn and Session stamped in one statement,
+ * Session's insert from two queries, or from host rows and a query, or beside two deletes of Visit, each operation of
+ * one relation one action over its sources' union (write/frontend/compile.ts), Session put from two queries stating
+ * stored instants, and Visit deleted from a query beside its insert, which stamps Visit's clock past every stored
+ * instant, so its deletion excepts none of its rows (write/schedule/plan.ts exceptsOf).
  *
  * Property, per case, against the rule stated over the case (instants.fixtures.ts cases, each with its verdict): the
  * ChangeSet compiles, or is refused as InstantRefused at the relation and field the rule names, by its rule.
@@ -94,6 +99,33 @@ export const aChangeSetWritesAnInstantAsTheSchemasLawsMakeItStampingWhatItLeaves
 					"\t\tconst inChild = s.stamp.child.find((f) => stamped.some((o) => o.field.name === f.name))\n",
 				replacement: "\t\tconst inChild = s.stamp.child.find(() => false)\n",
 				why: "A stamp may read a child the same insert stamps, so Chain's at, of child (user, s), compiles beside its s where the rule refuses it, and the property fails."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original: "\t\t\t\t\tconst group = headed.find((g) => sameHeading(g.heading, heading))\n",
+				replacement: "\t\t\t\t\tconst group = headed.find(() => false)\n",
+				why: "Each query of an operation on a relation is its own action, as before the merge, so Session's two inserts beside SignIn's are two statements of one stratum stamping SignIn.at, refused where the rule compiles them, and the property fails."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					"\t\t\t\t\t\tslot === undefined ? undefined : headed.find((g) => sameHeading(g.heading, carried))\n",
+				replacement: "\t\t\t\t\t\tslot === undefined ? undefined : headed.find(() => false)\n",
+				why: "The slot of an operation is an action apart from its queries, as before the merge, so Session's host rows and query beside SignIn's insert are two statements stamping SignIn.at, refused where the rule compiles them, and the property fails."
+			},
+			{
+				file: "packages/engine/src/write/delete/exact.ts",
+				original:
+					'\t\t...rest.filter((f) => isCarried(f) || (f.writing.kind === "instant" && pk.includes(f)))\n',
+				replacement: "\t\t...rest.filter((f) => isCarried(f))\n",
+				why: "An exact deletion matches facts without the instant of its key, which its target is reached by, so Visit's deletion from two queries, one deletion over their union, dies where the rule compiles it, and the property fails."
+			},
+			{
+				file: "packages/engine/src/write/schedule/plan.ts",
+				original:
+					"\t\t!headStamped(b.info.stamps).some((s) => key.some((f) => f.name === s.field.name))\n",
+				replacement: "\t\ttrue\n",
+				why: "An exact deletion excepts an insertion that stamps its key's instant, whose rows carry none to compare at, so Visit's deletion beside its insert dies where the rule compiles it, and the property fails."
 			},
 			{
 				file: "packages/engine/src/write/frontend/instants.ts",
