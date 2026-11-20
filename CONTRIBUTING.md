@@ -2,12 +2,17 @@
 
 The code and the tests are the specification. A behaviour is defined by what the packages' sources do and what
 `test/` checks against PostgreSQL. A change that alters a documented behaviour changes the test that pins it in the same
-commit. The two packages are published to npm as `@bjornpagen/grizzle-engine` and `@bjornpagen/grizzle`.
+commit. A consumer takes three packages, `@bjornpagen/grizzle`, `@bjornpagen/grizzle-engine` and `@bjornpagen/grizzle-text`,
+from the repository itself; none is published.
 
 ## Layout
 
-The repository is a pnpm workspace of two published packages, an engine and a shell, the dev tools and the testing
-library, with the tests, benches and scripts at its root:
+The repository is a pnpm workspace of the three packages a consumer takes, a text package, an engine and a shell, the
+local cluster's package, the dev tools and the testing library, with the tests, benches and scripts at its root:
+
+- **`packages/text`** (`@bjornpagen/grizzle-text`) is grizzle's text primitives and its one regex engine,
+  dependency-free and browser-safe: code point order, UTF-8, XML's whiteSpace collapse and replace, the regex IR, its
+  parsers, automata and printer, and the base they stand on. The engine and the shell depend on it.
 
 - **`packages/engine`** (`@bjornpagen/grizzle-engine`) is the pure engine: the authoring API, checking, analysis,
   lowering, the installation and the migrations it plans. It has no runtime Effect: it imports from `effect` only with
@@ -53,7 +58,7 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
   and no package: Node runs each package's `src/*.ts` directly through type stripping, and every package's `exports`
   and `bin` name its `src/` modules, so the repository, its tests and scripts, and every consumer resolve
   `@bjornpagen/grizzle` and its subpaths to the source, under no condition. grizzle is not published: a consumer takes
-  the repository as a git submodule and adds `packages/engine` and `packages/grizzle` to its pnpm workspace, so each
+  the repository as a git submodule and adds `packages/engine`, `packages/grizzle` and `packages/text` to its pnpm workspace, so each
   module's real path lies outside `node_modules`, where Node strips types, and pnpm links the `grizzle` bin to
   `src/cli/bin.ts`. A package's `tsconfig.json` extends only the repository's own `tsconfig.base.json`, by relative
   path, because a consumer's Vite reads the nearest tsconfig of every module it transforms, and a consumer installs

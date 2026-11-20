@@ -8,7 +8,8 @@ import {
 	type PlatformError,
 	Path,
 	Record,
-	Stream
+	Stream,
+	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -153,13 +154,18 @@ const checkoutFiles = [
 	"packages/engine/src",
 	"packages/grizzle/package.json",
 	"packages/grizzle/src",
+	"packages/text/package.json",
+	"packages/text/src",
 	"packages/pg/package.json",
 	"packages/pg/bin",
 	"packages/pg/src"
 ] as const
 
-/** The checkout's workspace members, by their directory under packages/. */
-const members = ["engine", "grizzle", "pg"] as const
+/**
+ * The checkout's workspace members, by their directory under packages/: the three a consumer lists (README "Install"),
+ * grizzle, the engine and the text package both depend on, and the local cluster's package.
+ */
+const members = ["engine", "grizzle", "text", "pg"] as const
 
 /** What a workspace member depends on, from its package.json. */
 type MemberManifest = {
@@ -176,8 +182,10 @@ const projectDependencies = ["effect", "pg"] as const
  * A consumer's pnpm workspace that takes this repository as a git submodule, installed in `layout`: a copy of the files
  * a checkout holds (checkoutFiles) at vendor/grizzle, with no node_modules at its root, and every member's
  * dependencies linked where `layout` puts them, each to the package the repository's own install holds by its real
- * path, so every copy of a package is the one copy a consumer's install would hold: the engine, grizzle and the local
- * cluster's package as workspace members, the testing library the toolchain's, and every other dependency as installed.
+ * path, so every copy of a package is the one copy a consumer's install would hold: the engine, grizzle, the text package
+ * and the local cluster's package as workspace members, the testing library the toolchain's, and every other dependency
+ * as installed. A member's dependency on a package of this repository (`workspace:*`) that no member is dies as a
+ * defect, so the consumer lists every package a member reaches, as the README's Install says it must.
  * The consumer's project depends on grizzle, the local cluster's package, effect and pg. It lives as long as the scope.
  */
 export const submoduleConsumer = Effect.fnUntraced(function* (layout: Layout) {
@@ -209,6 +217,20 @@ export const submoduleConsumer = Effect.fnUntraced(function* (layout: Layout) {
 		]),
 		["@bjornpagen/testing", path.join(root, "vendor", "toolchain", "packages", "testing")]
 	])
+	for (const { manifest } of manifests) {
+		for (const [name, spec] of Record.toEntries({
+			...manifest.dependencies,
+			...manifest.devDependencies
+		})) {
+			if (Str.startsWith("workspace:")(spec) && !workspaceMembers.has(name)) {
+				return yield* Effect.die(
+					new Error(
+						`${manifest.name} depends on ${name} by ${spec}, a package of the workspace no member of a consumer's is`
+					)
+				)
+			}
+		}
+	}
 	const installed = Effect.fnUntraced(function* (member: string, name: string) {
 		const own = workspaceMembers.get(name)
 		if (own !== undefined) {
