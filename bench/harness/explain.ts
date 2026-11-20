@@ -705,12 +705,34 @@ const generatingScan = (n: PlanNode): boolean =>
 	n.nodeType === "Values Scan"
 
 /** A scan's rows over all of its loops: its output plus what its filter and index recheck removed. */
+export const scannedRows = (n: PlanNode): number =>
+	(n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops
+
+/** The rows scans read over all of their loops (scannedRows). */
 const scanned = (nodes: Iterable<PlanNode>): number =>
-	Iterator.from(nodes).reduce(
-		(sum, n) =>
-			sum + (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops,
-		0
-	)
+	Iterator.from(nodes).reduce((sum, n) => sum + scannedRows(n), 0)
+
+/** The nodes that descend into an index themselves, each counting its descents under ANALYZE (Index Searches). */
+const indexDescending: ReadonlySet<string> = new Set([
+	"Index Scan",
+	"Index Only Scan",
+	"Bitmap Index Scan"
+])
+
+/** The nodes that combine or read bitmaps their children built, each descent made by a bitmap index scan beneath. */
+const bitmapReading: ReadonlySet<string> = new Set(["Bitmap Heap Scan", "BitmapAnd", "BitmapOr"])
+
+/**
+ * The descents a node made into an index over all of its loops, the one count of them: an index scan's PostgreSQL's
+ * own (Index Searches), which a skip scan or an array of keys makes more than one a loop, else one a loop; a bitmap's,
+ * those of the bitmap index scans beneath it; none for any other node, a sequential scan's among them.
+ */
+export const descentsOf = (n: PlanNode): number =>
+	indexDescending.has(n.nodeType)
+		? Option.getOrElse(n.indexSearches, () => n.actualLoops)
+		: bitmapReading.has(n.nodeType)
+			? Arr.reduce(n.children, 0, (sum, child) => sum + descentsOf(child))
+			: 0
 
 /** Rows the plan read from stored relations. */
 export const rowsRead = (plan: PlanNode): number => scanned(planNodes(plan).filter(storedScan))

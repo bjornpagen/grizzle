@@ -11,6 +11,7 @@ import {
 	Schedule
 } from "effect"
 import {
+	descentsOf,
 	explainStatementWith,
 	type PlanNode,
 	parsePlan,
@@ -1006,10 +1007,7 @@ export const touchedBy = (node: PlanNode): number =>
 /** What a scan of an index of `scanned`'s facts read (ScanReads). */
 export const scanReads = (scan: PlanNode, scanned: IndexFacts): ScanReads => {
 	const loops = Math.max(1, scan.actualLoops)
-	const descents = Math.max(
-		loops,
-		Option.getOrElse(scan.indexSearches, () => loops)
-	)
+	const descents = descentsOf(scan)
 	const entries = (scan.actualRows + scan.rowsRemovedByFilter) * scan.actualLoops
 	const fetched = Option.getOrElse(scan.heapFetches, () => entries)
 	const under = Arr.reduce(scan.children, 0, (sum, child) => sum + touchedBy(child))
@@ -1080,9 +1078,10 @@ const descentsUnder = (claim: Claim, scanned: IndexFacts): number => {
  */
 const extraDescents = (scan: PlanNode, index: string, allowed: number): Option.Option<string> => {
 	const loops = Math.max(1, scan.actualLoops)
-	return Option.isSome(scan.indexSearches) && scan.indexSearches.value > loops * allowed
+	const descents = descentsOf(scan)
+	return descents > loops * allowed
 		? Option.some(
-				`${scan.indexSearches.value} descents of ${index}${loops === 1 ? "" : ` over ${loops} loops`}${allowed === 1 ? "" : `, past the ${allowed} a loop its skipped closed keys allow`}`
+				`${descents} descents of ${index}${loops === 1 ? "" : ` over ${loops} loops`}${allowed === 1 ? "" : `, past the ${allowed} a loop its skipped closed keys allow`}`
 			)
 		: Option.none()
 }
@@ -1222,12 +1221,8 @@ export const judgeScan = (
 				kind: "served",
 				through,
 				touched,
-				descended: Option.exists(
-					scan.indexSearches,
-					(searches) => searches > Math.max(1, scan.actualLoops)
-				)
-					? "by a skip scan"
-					: "once a loop"
+				descended:
+					descentsOf(scan) > Math.max(1, scan.actualLoops) ? "by a skip scan" : "once a loop"
 			}
 }
 

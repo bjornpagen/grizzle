@@ -4,7 +4,13 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { type PlanNode, parsePlan, planNodes } from "#bench/harness/explain.ts"
+import {
+	descentsOf,
+	type PlanNode,
+	parsePlan,
+	planNodes,
+	scannedRows
+} from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -260,11 +266,9 @@ const readOf = (plan: PlanNode, table: string): Read =>
 		),
 		{ rows: 0, buffers: 0, descents: 0 },
 		(sum, n) => ({
-			rows:
-				sum.rows +
-				(n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) * n.actualLoops,
+			rows: sum.rows + scannedRows(n),
 			buffers: sum.buffers + n.buffers.sharedHit + n.buffers.sharedRead,
-			descents: sum.descents + (n.nodeType === "Seq Scan" ? 0 : n.actualLoops)
+			descents: sum.descents + descentsOf(n)
 		})
 	)
 
