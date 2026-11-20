@@ -6489,7 +6489,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 	const callbackSource = (set: string, tally: string): string => {
 		switch (form) {
 			case "readsCaller":
-				return `{ g: Fi.generated(${set}, Cp.Bits.union(r.w, r.w)) }`
+				return `{ g: Fi.generated(${set}, Fi.Bits.union(r.w, r.w)) }`
 			case "refinedGenerated":
 				return `{ t: Fi.generated(Tx.str.regex(${jsonText(doubledPattern)}), Cp.Text.concat(r.word, r.word)) }`
 			case "generatedContract":
