@@ -115,7 +115,7 @@ const runCatch = <A, E>(program: Effect.Effect<A, E, Stdio.Stdio>, credentials =
 	})
 
 	return Effect.runPromise(
-		Effect.exit(finalCatch(credentials)(program)).pipe(
+		Effect.exit(finalCatch(credentials, { envPrefix: "EXAMPLE" })(program)).pipe(
 			Effect.provide(Layer.merge(layer, runCredentialsLayer))
 		)
 	).then((exit) => ({ exit, stderr: Buffer.concat(stderr).toString("utf-8") }))
@@ -248,7 +248,7 @@ describe("every wire form of a credential is scrubbed (audit F2)", () => {
 		const echo = basicHeader()
 		const token = echo.slice("Basic ".length)
 		const text = await bodyWith(echo, [basic])
-		const rendered = renderError(responseError({ body: echo, status: 401 }), [basic])
+		const rendered = renderError(responseError({ body: echo, status: 401 }), [basic], false)
 
 		for (const output of [text, rendered]) {
 			expect(output).not.toContain(token)
@@ -266,7 +266,7 @@ describe("every wire form of a credential is scrubbed (audit F2)", () => {
 	test("a percent-encoded query key echoed in a URL is scrubbed", async () => {
 		const url = `https://api.example.com/users?${queryWire()}`
 		const text = await bodyWith(`redirected to ${url}`, [queryKey])
-		const rendered = renderError(new TransportError({ reason: "connect", url }), [queryKey])
+		const rendered = renderError(new TransportError({ reason: "connect", url }), [queryKey], false)
 
 		expect(queryWire()).toContain("%2F")
 		for (const output of [text, rendered]) {
@@ -286,7 +286,8 @@ describe("every echoed form of a query credential is scrubbed (audit M F1)", () 
 				const text = await bodyWith(`echo ${echo} end`, [credential])
 				const rendered = renderError(
 					responseError({ body: `echo ${echo} end`, requestId: `id-${probe[form]}` }),
-					[credential]
+					[credential],
+					false
 				)
 
 				expect(text).toBe("echo api_key=<redacted:apiKey> end")
@@ -318,7 +319,8 @@ describe("renderError", () => {
 	test("an ApiResponseError shows its line, request id and scrubbed body", () => {
 		const text = renderError(
 			responseError({ body: `echo ${canary}\u001B[31m`, requestId: "req-1" }),
-			[bearer]
+			[bearer],
+			false
 		)
 
 		expect(text).toContain("users.get")
@@ -330,14 +332,15 @@ describe("renderError", () => {
 	})
 
 	test("an empty body prints no body section", () => {
-		expect(renderError(responseError(), [bearer]).trimEnd().split("\n")).toHaveLength(1)
+		expect(renderError(responseError(), [bearer], false).trimEnd().split("\n")).toHaveLength(1)
 	})
 
 	test("a credential in a request id or transport URL is scrubbed", () => {
-		const api = renderError(responseError({ requestId: `id-${canary}` }), [bearer])
+		const api = renderError(responseError({ requestId: `id-${canary}` }), [bearer], false)
 		const transport = renderError(
 			new TransportError({ reason: "connect", url: `https://h/?k=${canary}` }),
-			[bearer]
+			[bearer],
+			false
 		)
 
 		expect(api).not.toContain(canary)
@@ -346,7 +349,7 @@ describe("renderError", () => {
 
 	test("a long body prints whole", () => {
 		const body = "y".repeat(100_000)
-		const text = renderError(responseError({ body }), [bearer])
+		const text = renderError(responseError({ body }), [bearer], false)
 
 		expect(text.split("\n").at(-1)).toBe(body)
 	})
@@ -502,9 +505,11 @@ describe("a credential split by invisible characters is scrubbed (security revie
 		"renderError and the error body redact a credential split by %#",
 		async (split) => {
 			const echo = `x CANARY-SECRET${split}-123 y`
-			const rendered = renderError(responseError({ body: echo, requestId: echo, status: 401 }), [
-				bearer
-			])
+			const rendered = renderError(
+				responseError({ body: echo, requestId: echo, status: 401 }),
+				[bearer],
+				false
+			)
 			const body = await bodyWith(echo, [bearer])
 
 			for (const output of [rendered, body]) {
@@ -533,7 +538,8 @@ describe("credentials are scrubbed before the text is sanitized (audit S2, desig
 	test("the request id line and the body of a rendered error", () => {
 		const rendered = renderError(
 			responseError({ body: strippableEcho, requestId: strippableEcho }),
-			[strippableBearer]
+			[strippableBearer],
+			false
 		)
 
 		expect(rendered.split("\n").slice(1)).toEqual([
@@ -635,9 +641,7 @@ const sendTo = async (
 			plain: { direct: client, environment: client }
 		}),
 		Layer.succeed(ClientPolicy, {
-			allowed: new Set(["POST"]),
 			binName: "example",
-			direct: {},
 			version: "1.2.3"
 		}),
 		Layer.succeed(OutputPath, Option.some(target)),
@@ -649,7 +653,9 @@ const sendTo = async (
 		Layer.succeed(Auth.allowCredentialsForBaseUrl, false)
 	)
 	const exit = await Effect.runPromise(
-		Effect.exit(createRequest.pipe(Effect.flatMap(send(created)))).pipe(Effect.provide(environment))
+		Effect.exit(createRequest.pipe(Effect.flatMap(send(created, Option.none())))).pipe(
+			Effect.provide(environment)
+		)
 	)
 
 	return { exit, requests: requests.count }
