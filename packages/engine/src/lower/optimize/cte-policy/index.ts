@@ -1,3 +1,4 @@
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -13,6 +14,7 @@ import {
 	deliveredInput,
 	keptRowsOf,
 	type NodeOf,
+	type Occurrence,
 	type RelKind,
 	type RelNode,
 	unionArms,
@@ -141,6 +143,98 @@ const probedByKey = (node: RelNode, columns: ReadonlyArray<string>): boolean => 
 	return kept !== undefined && probedByKey(kept.input, columns)
 }
 
+/**
+ * A fold a region reads per key (`foldsReadByKey`): the fold, the nodes its occurrence reads it through, from the
+ * occurrence's source down, and each grouping column it restricts with the variable the occurrence binds through it.
+ */
+export interface FoldByKey {
+	readonly fold: NodeOf<"Group">
+	readonly through: ReadonlyArray<RelNode>
+	readonly keys: NonEmptyReadonlyArray<{ readonly column: string; readonly variable: VarDecl }>
+}
+
+/**
+ * The fold a source reads through projections that rename its columns and filters that keep its rows, the nodes it
+ * reads it through, and the column of the fold each of `columns` is there; undefined where the source is no such chain
+ * over a Group.
+ */
+const foldBeneath = (
+	source: RelNode,
+	columns: ReadonlyArray<string>
+):
+	| {
+			readonly fold: NodeOf<"Group">
+			readonly through: ReadonlyArray<RelNode>
+			readonly columns: ReadonlyArray<string | undefined>
+	  }
+	| undefined => {
+	let at = source
+	let named: ReadonlyArray<string | undefined> = columns
+	const through: Array<RelNode> = []
+	while (at.kind === "Filter" || at.kind === "ProjectSet") {
+		through.push(at)
+		if (at.kind === "ProjectSet") {
+			const input = at.input
+			const out = new Map(at.out.map((o) => [o.name, o.expr]))
+			named = named.map((name) => {
+				const e = name === undefined ? undefined : out.get(name)
+				return e?.kind === "column" && e.column.node === input.id ? e.column.name : undefined
+			})
+		}
+		at = at.input
+	}
+	return at.kind === "Group" ? { fold: at, through, columns: named } : undefined
+}
+
+/**
+ * The occurrences of a region whose folds a workload's read reads per key: each occurrence whose source is a fold, read
+ * through projections that rename its columns and filters (`foldBeneath`), that binds grouping columns of it to
+ * variables an occurrence of a stored relation binds, where one stored relation's range binds those columns in the
+ * fold's input (probedByKey). The region places such an occurrence after the stored ones, which read nothing outside
+ * themselves, and reads it for each of their bindings as the fold of that binding's keys alone, the keys restricted
+ * below the aggregate, which the index the workload's access paths request reads (lower/shapes/region foldProbe), as an
+ * attachment's fold by its correlation is read (`attachmentRead` perKey). A grouped derived table is never flattened,
+ * so the whole fold joined beside its aggregate, or derived once for the statement (rule 5b), folds every row of its
+ * input for each statement: edullm's learning-commons crosswalk, two counts of one standard's supports, each read
+ * beside the pair folded every standard's (100 ms against 0.1 to 1 ms stored). Each binding meets the groups of its
+ * keys, as the join of the whole fold does, so the region's bindings are the same set.
+ */
+export const foldsReadByKey = (
+	region: NodeOf<"MatchRegion">
+): ReadonlyMap<Occurrence, FoldByKey> => {
+	const stored = new Set(
+		region.occurrences.flatMap((o) =>
+			o.source.kind === "Base" ? o.bindings.map((b) => b.var) : []
+		)
+	)
+	const out = new Map<Occurrence, FoldByKey>()
+	for (const o of region.occurrences) {
+		const bound = o.source.kind === "Base" ? [] : o.bindings.filter((b) => stored.has(b.var))
+		const beneath = foldBeneath(
+			o.source,
+			bound.map((b) => b.column)
+		)
+		if (beneath === undefined) {
+			continue
+		}
+		const fold = beneath.fold
+		const keys = bound.flatMap((b, i) => {
+			const column = beneath.columns[i]
+			return column !== undefined && fold.keys.includes(column) ? [{ column, variable: b.var }] : []
+		})
+		if (
+			isNonEmpty(keys) &&
+			probedByKey(
+				fold.input,
+				keys.map((k) => k.column)
+			)
+		) {
+			out.set(o, { fold, through: beneath.through, keys })
+		}
+	}
+	return out
+}
+
 /** The rows an attachment's child delivers: the child, through every attachment of its own to the rows it attaches to. */
 const attachedRows = (child: RelNode): RelNode => {
 	const input = deliveredInput(child)
@@ -183,7 +277,8 @@ const fixedByValue = (region: NodeOf<"MatchRegion">): ReadonlySet<VarDecl> =>
 /**
  * The nodes a reader reads once per row of its other input, as PostgreSQL evaluates them where they stand: the source
  * of a region's occurrence no value restricts (no constant fixes one of its columns, and no parameter or literal one of
- * the variables it binds), which the region joins to its other occurrences; the right side of a semi- or anti-join,
+ * the variables it binds), which the region joins to its other occurrences, but a fold the region reads per key
+ * (`foldsReadByKey`), whose every read is its binding's groups; the right side of a semi- or anti-join,
  * which it tests for each row of its left; and an attachment's rows no stored relation's range binds by the columns it
  * correlates (attachmentRead `once`), which its part would otherwise read for each parent row.
  */
@@ -192,8 +287,13 @@ const readPerRow = (order: ReadonlyArray<RelNode>): ReadonlySet<RelNode> => {
 	for (const node of order) {
 		if (node.kind === "MatchRegion") {
 			const fixed = fixedByValue(node)
+			const byKey = foldsReadByKey(node)
 			for (const o of node.occurrences) {
-				if (o.constants.length === 0 && o.bindings.every((b) => !fixed.has(b.var))) {
+				if (
+					o.constants.length === 0 &&
+					o.bindings.every((b) => !fixed.has(b.var)) &&
+					!byKey.has(o)
+				) {
 					out.add(o.source)
 				}
 			}

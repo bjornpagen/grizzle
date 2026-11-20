@@ -719,6 +719,14 @@ export class LowerContext {
 		return this.#within({ ...this.#scope, dispatch })
 	}
 
+	/** The scope whose node `node` lowers through `lower`, and every other node as this scope's dispatch lowers it. */
+	withLowering<K extends RelKind>(node: NodeOf<K>, lower: NodeLowerer<K>): LowerContext {
+		const dispatch = this.#scope.dispatch
+		return this.withDispatch((n, cx, env) =>
+			n === node ? lower(node, cx, env) : dispatch(n, cx, env)
+		)
+	}
+
 	/** The innermost share frame the query being lowered is inside, undefined outside every frame. */
 	get sharing(): ShareFrame | undefined {
 		return this.#scope.sharing

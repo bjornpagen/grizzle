@@ -9,6 +9,7 @@ import { exprsOf, inputsOf, type NodeOf, type RelNode, type VarDecl } from "#com
 import { baseOf, type Carrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
+	type ColumnEqualities,
 	distinctSelect,
 	type Env,
 	extendEnv,
@@ -17,9 +18,12 @@ import {
 } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import {
+	type FoldProbe,
 	type PlacedOccurrence,
 	regionParts
 } from "#compiler/lower/conservative/match-region/index.ts"
+import { foldsReadByKey } from "#compiler/lower/optimize/cte-policy/index.ts"
+import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
 import { type NativeOp, nativeOp, operandCarriers } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, FromItem, JoinStep, OperandBody, Select, Target } from "#compiler/sql/ast.ts"
@@ -372,6 +376,36 @@ const impliedBounds = (
 }
 
 /**
+ * The folds a region reads per key (cte-policy foldsReadByKey), each `LATERAL (SELECT k, count(*) FROM (<input>) WHERE
+ * k = r2.c1 GROUP BY k)`, the fold of one binding's keys alone (aggregate/index.ts keyedGroup), the keys restricted
+ * below the aggregate. A derived relation's definition always wants every group, and a fold, or a node the region reads
+ * it through, that the statement shares (a CTE: read by two readers, or derived once beside a recursion) is derived
+ * once for every reader, so each is read whole.
+ */
+const foldProbe =
+	(facts: ShapeFacts, shared: (node: RelNode) => boolean): FoldProbe =>
+	(region) =>
+		new Map(
+			facts.derivedDefinition
+				? []
+				: [...foldsReadByKey(region)].flatMap(([o, byKey]) =>
+						shared(byKey.fold) || byKey.through.some(shared)
+							? []
+							: [
+									[
+										o,
+										{
+											fold: byKey.fold,
+											keys: byKey.keys,
+											lower: (cx: LowerContext, env: Env, restriction: ColumnEqualities) =>
+												keyedGroup(facts, byKey.fold, cx, env, restriction)
+										}
+									] as const
+								]
+					)
+		)
+
+/**
  * The optimized MatchRegion: one flat FROM list within PostgreSQL's collapse limit, an explicit JOIN chain past it.
  *
  * R01 fuses a rule's matches into one region, so PostgreSQL sees the full relation graph. PostgreSQL plans one FROM
@@ -422,9 +456,13 @@ const impliedBounds = (
  * else reads it.
  */
 export const regionLowerer =
-	(facts: ShapeFacts, once: (node: RelNode) => boolean): NodeLowerer<"MatchRegion"> =>
+	(
+		facts: ShapeFacts,
+		once: (node: RelNode) => boolean,
+		shared: (node: RelNode) => boolean
+	): NodeLowerer<"MatchRegion"> =>
 	(node, cx, env) => {
-		const lowered = regionParts(node, cx, env)
+		const lowered = regionParts(node, cx, env, foldProbe(facts, shared))
 		const parts = {
 			...lowered,
 			conditions: [...lowered.conditions, ...impliedBounds(node, cx, env, lowered)]

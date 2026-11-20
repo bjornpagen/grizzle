@@ -673,7 +673,11 @@ const optimizedLowerers = <I extends ChoiceInput>(
 	Delta: realized(facts, conservativeLowerers.Delta),
 	MatchRegion: realized(
 		facts,
-		regionLowerer(facts, (n) => state.strategy(n) === "materialized")
+		regionLowerer(
+			facts,
+			(n) => state.strategy(n) === "materialized",
+			(n) => state.strategy(n) !== undefined
+		)
 	),
 	Filter: realized(facts, conservativeLowerers.Filter),
 	ProjectSet: realized(facts, conservativeLowerers.ProjectSet),
