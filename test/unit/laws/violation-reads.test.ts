@@ -155,7 +155,7 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			},
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
-				original: "\t\tcheckQuery(b.checked, navigateQuery(query, loc, columns), {\n",
+				original: '\t\tcheckQuery(b.checked, navigateQuery(query, loc, columns, "perUnit"), {\n',
 				replacement: "\t\tcheckQuery(b.checked, query, {\n",
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
@@ -270,7 +270,9 @@ export const aLawsFullViolationQueryRunsEachRulesCheckInValidateAfterEveryPrimar
  * the join does; and Known's selection contained in Two's at kind 1, a derived relation of two rules over ops, a query
  * of the same join, the first fixing kind at 1, negates each rule as a chain of lookups from the (doc, at) it is
  * filtered at, as does Either, one rule over either, a query of Op's and Item's rows, contained in it, a rule over
- * a union, at any depth of one-rule imports, read as its conjunctions. Never is a relation read whole for
+ * a union, at any depth of one-rule imports, read as its conjunctions; and Known's selection contained in One's at
+ * kind 1, ops read once at kind 1, inlined at its one read, the selection's `kind = 1` a condition of the term that
+ * defines One's kind. Never is a relation read whole for
  * the document and joined to the others by PostgreSQL's estimates, which follow-up 4's known_operand_base_key, reading
  * Expression twice inside its count, and expression_node_in_unknown_operand_base, negating UnknownOperandBase's two
  * rules over the operands' join, were.
@@ -283,6 +285,7 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			"a check over a join",
 			"a join contained in a union of joins",
 			"a union contained in a union of joins",
+			"a join contained in a join read once",
 			"a judged statement"
 		] satisfies ReadonlyArray<Reached<UnitFeature>>,
 		check: (_, k: CaseOf<UnitFeature>) => (c) =>
@@ -326,12 +329,12 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			kind: "specification",
 			name: "the shape of a chain of steps (analysis/theory/navigate.ts): every source after a core's first a LATERAL lookup by what the steps before it bound"
 		},
-		box: "a key of Known(doc, kind, base), a check of its base, or a selection of it or Either, one rule over a query of two over Op and Item, contained in Two's at kind 1, of two rules over ops = Op ⋈ Item ⋈ Item, the first fixing kind at 1, Known = Op ⋈ Item ⋈ Item, Op and Item immutable and keyed by their document first, so the rule is unit-local",
+		box: "a key of Known(doc, kind, base), a check of its base, or a selection of it or Either, one rule over a query of two over Op and Item, contained in Two's at kind 1, of two rules over ops = Op ⋈ Item ⋈ Item, the first fixing kind at 1, or a selection of Known contained in One's at kind 1, ops read once at kind 1, Known = Op ⋈ Item ⋈ Item, Op and Item immutable and keyed by their document first, so the rule is unit-local",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst query = navigateQuery(inside.query, loc, columns)",
+				original: "\t\tconst query = navigatedQuery(inside.query, loc, columns, sharing, interned)",
 				replacement: "\t\tconst query = inside.query",
 				why: "An aggregate's import is read as written, Known's join of Op and Item a core of three sources, which PostgreSQL joins by its estimates; it fails the key's case."
 			},
@@ -359,7 +362,7 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: '\t\t\tif (v.kind !== "var" || isBare(term) || readsOf(term).has(v.var)) {',
 				replacement: '\t\t\tif (v.kind !== "var" || readsOf(term).has(v.var)) {',
-				why: "A bare literal defines a variable: navigation replaces the selection's kind by the 1 its `kind = 1` states, so Two's own `kind = 1` reads 1 = 1, two bare literals the checker refuses, and the schema does not compile, as qti's \"Item ref target\" over select(ItemRefTarget, type = item) did not; it fails the containment's case."
+				why: "A bare literal defines a variable: navigation replaces the selection's kind by the 1 its `kind = 1` states, so One's own `kind = 1`, over ops inlined at its one read, reads 1 = 1, two bare literals the checker refuses, and the schema does not compile, as qti's \"Item ref target\" over select(ItemRefTarget, type = item) did not; it fails the case of a containment in One. Two's first rule reads ops twice, so navigation holds ops whole and Two's kind is that read's own, which no literal defines."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",

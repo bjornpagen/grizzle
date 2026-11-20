@@ -101,7 +101,7 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
 		] satisfies ReadonlyArray<Reached<GateFeature>>,
 		check: (_, k: Case<GateFeature>) => (c) =>
 			Effect.sync(() => {
-				const navigated = navigateQuery(gateQueryOf(c), loc, gateColumns)
+				const navigated = navigateQuery(gateQueryOf(c), loc, gateColumns, "perRead")
 				if (navigated.stage.kind !== "rules") {
 					return assert.fail("a navigated member is one rules stage")
 				}

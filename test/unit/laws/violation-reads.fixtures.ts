@@ -477,7 +477,7 @@ const Item = relation(
 	["doc", "at"]
 )
 
-const unitLaws = ["key", "check", "contained", "union contained"] as const
+const unitLaws = ["key", "check", "contained", "union contained", "contained once"] as const
 
 export interface UnitCase {
 	readonly law: (typeof unitLaws)[number]
@@ -490,6 +490,7 @@ export type UnitFeature =
 	| "a check over a join"
 	| "a join contained in a union of joins"
 	| "a union contained in a union of joins"
+	| "a join contained in a join read once"
 	| "a judged statement"
 
 /** The situation a case of the unit-local box reaches by its law alone. */
@@ -503,6 +504,8 @@ export const unitFeatureOf = (c: UnitCase): UnitFeature => {
 			return "a join contained in a union of joins"
 		case "union contained":
 			return "a union contained in a union of joins"
+		case "contained once":
+			return "a join contained in a join read once"
 	}
 }
 
@@ -533,7 +536,8 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 				[check("C", Known, (k) => k.ne(k.base, 9))]
 			)
 		case "contained":
-		case "union contained": {
+		case "union contained":
+		case "contained once": {
 			const ops = query(Base).rule((r) => {
 				const { doc, at, base } = v(Op, "o")
 				const { parent } = v(Item, "i")
@@ -585,6 +589,42 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 				"doc",
 				"at"
 			)
+			if (c.law === "contained once") {
+				/**
+				 * One, ops read once at kind 1: navigation inlines it at the selection's one read of One, so the selection's
+				 * `kind = 1` meets One's own, where Two's first rule reads ops twice and holds its rows whole, its kind the
+				 * read's own.
+				 */
+				const One = derived(
+					"One",
+					query(Base).rule((r) => {
+						const { doc, at, base, parent, kind } = v(ops, "o")
+						return r
+							.match(ops, { doc, at, base, parent, kind })
+							.where(r.eq(kind, 1))
+							.find({ doc, at: parent, kind })
+					})
+				)
+				return schema.extend(
+					[Base],
+					"UnitBox_1",
+					[Known, One],
+					[
+						contained(
+							on(
+								select(Known, (k) => k.and(k.eq(k.base, 7), k.ne(k.kind, 3))),
+								"doc",
+								"at"
+							),
+							on(
+								select(One, (t) => t.eq(t.kind, 1)),
+								"doc",
+								"at"
+							)
+						)
+					]
+				)
+			}
 			return c.law === "contained"
 				? schema.extend(
 						[Base],

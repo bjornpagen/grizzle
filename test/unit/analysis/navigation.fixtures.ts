@@ -65,7 +65,7 @@ const stepsOf = (q: InferredQuery): number =>
 export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => void): void => {
 	const built = buildSchema(c.schema)
 	const desc = succeeded(queryInput(buildRoot(built, built.schema, read.query))).desc
-	const navigated = navigateQuery(desc, loc, queryColumns(checking(built.schema), loc))
+	const navigated = navigateQuery(desc, loc, queryColumns(checking(built.schema), loc), "perUnit")
 	if (navigated === desc) {
 		return
 	}

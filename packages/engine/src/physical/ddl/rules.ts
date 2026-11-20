@@ -219,7 +219,7 @@ const judgedStatement = (
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc, columns), {
+		checkQuery(b.checked, navigateQuery(query, loc, columns, "perUnit"), {
 			read: "region",
 			label,
 			clock: noClock,

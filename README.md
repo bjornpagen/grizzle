@@ -2453,6 +2453,12 @@ definition too.
   it bound. A dependency's negation of a derived join of its node and the resource its ref names reads that node and
   that resource by key at the dependency's row, never the two joined at `(package, path)` alone and filtered after,
   which PostgreSQL, estimating every read at one row on tables no ANALYZE has run on, nests once for each dependency.
+  A definition that joins and that the rule reads more than once, counting the reads of the definitions that read it,
+  is read whole instead, once per unit: a `MATERIALIZED` CTE inside the unit's LATERAL subquery, read at the unit's
+  key, every read of it a join of its rows. A chain of definitions each reading the one below it twice is then one
+  CTE a level, where a chain of lookups at every read doubled the statement, its planning and its reads at every
+  level: edullm's assembled-catalog rules were one statement of 3798 SELECTs reading one table 1186 times, whose
+  planning at a session's first COMMIT took 12.4 GB.
   The unit is as narrow as the rule's joins allow: a rule over one relation's rows by their whole key is judged a row
   at a time. Whether a rule is unit-local is decided when the schema compiles,
   from its query; any other rule is judged by its probes, below. Its outcome and its law are the same either way.

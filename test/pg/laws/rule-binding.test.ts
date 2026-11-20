@@ -72,7 +72,8 @@ export const aRulesJudgeReadsEachRelationAJoinItReadsHoldsByALookupARowWrittenWi
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\tconst query = navigateQuery(source.query, loc, columns)",
+				original:
+					"\t\t\tconst query = navigatedQuery(source.query, loc, columns, sharing, interned)",
 				replacement: "\t\t\tconst query = source.query",
 				why: "A whole rule's read per unit is read as written, its step's rule never navigated: Placed's Named and Node joined within a document, which PostgreSQL with no statistics reads as a product it filters after, 4,539 rows for 134 written, and Resolved's negation as the first kill reads it."
 			}
