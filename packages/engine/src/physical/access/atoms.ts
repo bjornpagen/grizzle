@@ -1,3 +1,4 @@
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
 import type { RangeOpCode, ScalarExpr } from "#compiler/ir/expr.ts"
 import { baseOf, isSpanCarrier } from "#compiler/ir/scalar.ts"
@@ -11,12 +12,17 @@ export type Atom =
 	| { readonly kind: "pairEq"; readonly a: string; readonly b: string }
 	| { readonly kind: "pairRange"; readonly column: string; readonly other: string }
 	| { readonly kind: "pairSpan"; readonly column: string; readonly other: string }
+	| {
+			readonly kind: "termEq"
+			readonly column: string
+			readonly reads: NonEmptyReadonlyArray<string>
+	  }
 
 type Operand =
 	| { readonly kind: "column"; readonly name: string; readonly span: boolean }
 	| { readonly kind: "fixed" }
 	| { readonly kind: "literal" }
-	| { readonly kind: "computed" }
+	| { readonly kind: "computed"; readonly reads: ReadonlyArray<string> }
 
 /** The identity of an atom: its kind and fields joined by NUL, which no column name holds. */
 export const atomKey = (a: Atom): string => {
@@ -35,6 +41,8 @@ export const atomKey = (a: Atom): string => {
 			return `pairRange\u0000${a.column}\u0000${a.other}`
 		case "pairSpan":
 			return `pairSpan\u0000${a.column}\u0000${a.other}`
+		case "termEq":
+			return `termEq\u0000${a.column}\u0000${a.reads.join("\u0000")}`
 	}
 }
 
@@ -56,9 +64,17 @@ const isSpanType = (e: ScalarExpr): boolean => {
 	return isSpanCarrier(c)
 }
 
+/** The local columns an expression reads, each plain reference of the local node it holds, in order, each once. */
+const localReads = (local: NodeId, e: ScalarExpr): ReadonlyArray<string> =>
+	e.kind === "column"
+		? e.column.node === local
+			? [e.column.name]
+			: []
+		: [...new Set(e.args.flatMap((a) => localReads(local, a)))]
+
 /** What the expression `e` is relative to the local node, which its column references name by its label. A cast of a parameter, or an operation over parameters and outer values,
  * is fixed; an expression reading a local column through anything but a plain reference is computed, which is not what
- * an index key holds. */
+ * an index key holds, beside the local columns it reads. */
 export const operandOf = (local: NodeId, e: ScalarExpr): Operand => {
 	switch (e.kind) {
 		case "column":
@@ -70,7 +86,7 @@ export const operandOf = (local: NodeId, e: ScalarExpr): Operand => {
 		case "literal":
 			return { kind: "literal" }
 		case "value":
-			return { kind: "computed" }
+			return { kind: "computed", reads: [] }
 		case "op":
 		case "cast":
 		case "domainCast":
@@ -80,7 +96,7 @@ export const operandOf = (local: NodeId, e: ScalarExpr): Operand => {
 		case "closedHas":
 		case "call":
 			if (e.deps.nodes.includes(local)) {
-				return { kind: "computed" }
+				return { kind: "computed", reads: localReads(local, e) }
 			}
 			return e.deps.params.length === 0 && e.deps.nodes.length === 0
 				? { kind: "literal" }
@@ -117,7 +133,7 @@ const comparisonAtoms = (
 		]
 	}
 	if (r.kind === "computed") {
-		return []
+		return fn === "eq" ? termEqAtoms(l.name, r.reads) : []
 	}
 	if (fn === "eq") {
 		const eq: Atom = {
@@ -132,6 +148,15 @@ const comparisonAtoms = (
 	}
 	return [{ kind: "range", column: l.name, bound: fn === "lt" || fn === "le" ? "upper" : "lower" }]
 }
+
+/**
+ * A local column equal to a term computed from other local columns, `column = f(reads)`: inside a match region a join
+ * condition, which binds the column at an occurrence wherever a partner occurrence binds every column the term reads,
+ * as a navigation's equality binds a column to its channel. A term that reads the column itself, or no local column,
+ * binds nothing.
+ */
+const termEqAtoms = (column: string, reads: ReadonlyArray<string>): ReadonlyArray<Atom> =>
+	isNonEmpty(reads) && !reads.includes(column) ? [{ kind: "termEq", column, reads }] : []
 
 const spanAtoms = (span: Operand, other: Operand): ReadonlyArray<Atom> => {
 	if (span.kind !== "column" || !span.span) {
@@ -165,7 +190,10 @@ const spanAtoms = (span: Operand, other: Operand): ReadonlyArray<Atom> => {
  *   beside its relation's columns (analysis/theory/navigate.ts), which a B-tree on the text's suffix key serves as a
  *   range (sql/suffix.ts);
  * - pairEq, pairRange, pairSpan: the same relations between two local columns, which inside a match region are join
- *   conditions between occurrences.
+ *   conditions between occurrences;
+ * - termEq: a local column equal to a term over other local columns, a join condition between the column's occurrence
+ *   and one that binds every column the term reads (`termEqAtoms`), as a text equated with a concatenation of another
+ *   match's columns is (scalar/compute/typing.ts concatEquation).
  *
  * A conjunction is the union of its conjuncts' atoms. A disjunction keeps only what holds in every disjunct: an
  * equality, span or pair atom present in all of them, so an Allen formula's disjuncts, each with its own unnegated range
@@ -184,7 +212,7 @@ export const predicateAtoms = (
 	}
 	const operand = (i: number): Operand => {
 		const arg = e.args[i]
-		return arg === undefined ? { kind: "computed" } : operandOf(local, arg)
+		return arg === undefined ? { kind: "computed", reads: [] } : operandOf(local, arg)
 	}
 	const code = typeof e.op === "string" ? undefined : e.op.code
 	if (code === "range_contains_elem") {
@@ -295,8 +323,6 @@ export const predicateAtoms = (
 		case "concat":
 		case "startsWith":
 		case "right":
-		case "substring":
-		case "infixAt":
 		case "matches":
 		case "translate":
 		case "lowerAscii":

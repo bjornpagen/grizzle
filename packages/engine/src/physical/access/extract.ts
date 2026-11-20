@@ -1,5 +1,9 @@
 import { firstIndex, appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	combineAll,
 	type Comparator,
@@ -127,6 +131,11 @@ const statisticsOrder: Comparator<StatisticsShape> = combineAll([
 	mapInput(compareStrings, (s: StatisticsShape) => s.use)
 ])
 
+/** Whether every member of a list is defined: the list of them. */
+const everyDefined = <T>(
+	xs: NonEmptyReadonlyArray<T | undefined>
+): xs is NonEmptyReadonlyArray<T> => xs.every((x) => x !== undefined)
+
 /** An equality fact on a column: a fixed one replaces a literal one, a literal one only fills an absent one. */
 const noteEq = (
 	eq: Map<string, "fixed" | "literal">,
@@ -161,6 +170,7 @@ const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 			case "pairEq":
 			case "pairRange":
 			case "pairSpan":
+			case "termEq":
 				pairs.push(a)
 				continue
 		}
@@ -216,6 +226,13 @@ const mapPushed = (p: Pushed, rename: (column: string) => string | undefined): P
 			case "pairSpan": {
 				const pair = both(a.column, a.other)
 				return pair === undefined ? [] : [{ ...a, column: pair[0], other: pair[1] }]
+			}
+			case "termEq": {
+				const column = rename(a.column)
+				const reads = mapNonEmpty(a.reads, rename)
+				return column === undefined || !everyDefined(reads) || reads.includes(column)
+					? []
+					: [{ kind: "termEq", column, reads }]
 			}
 			case "eq":
 			case "range":
@@ -524,11 +541,42 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 			case "range":
 			case "span":
 			case "suffix":
+			case "termEq":
 				return []
 		}
 	}
 	for (const [k1, k2, kind] of pushed.pairs.flatMap(relatedBy)) {
 		relate(k1, k2, kind)
+	}
+	/**
+	 * A column equal to a term over other columns (atoms.ts termEq): fixed where every column the term reads is, a
+	 * correlated value or a class equated with one, as a navigation step's channels are; else joined, at each occurrence
+	 * that binds it, with each other occurrence that binds every column the term reads that is not fixed, where the
+	 * partner fixes the term, so the column is a lookup's as a shared variable's is.
+	 */
+	const joinTerm = (a: Extract<Atom, { readonly kind: "termEq" }>): void => {
+		const k = classOf(a.column)
+		const reads = mapNonEmpty(a.reads, classOf)
+		if (k === undefined || !everyDefined(reads)) {
+			return
+		}
+		const open = reads.filter((r) => fixedClasses.get(r) !== "fixed")
+		for (const x of bindingsOf(k)) {
+			if (!isNonEmpty(open)) {
+				setEq(x.facts, x.column, "fixed")
+				continue
+			}
+			for (const [at, { facts }] of sites.entries()) {
+				if (at !== x.at && open.every((r) => facts.classes.has(r))) {
+					partner(x.facts, at, facts).eq.add(x.column)
+				}
+			}
+		}
+	}
+	for (const a of pushed.pairs) {
+		if (a.kind === "termEq") {
+			joinTerm(a)
+		}
 	}
 	return { occurrences, classOf }
 }

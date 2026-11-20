@@ -1150,10 +1150,11 @@ export interface TextApi {
 	 * a || b, PostgreSQL's textcat: text of no pattern, which compilation reads within a's bytes and b's where both are
 	 * bounded, a string by its own. The second operand is a text term the first meets, a parameter among them, or a
 	 * string. Admitted in contract predicates, row checks, generated fields and folds; in a query only as a side of
-	 * Logic.eq or Logic.ne, which is decided without building the concatenation, since it allocates its result,
-	 * which PostgreSQL refuses past 1 GB, and a read never fails on a value. Concatenations nested in that side are its
-	 * parts, read in order: `Logic.eq(t, Text.concat(Text.concat(a, b), c))` decides t by the lengths of a, b
-	 * and c, a's prefix, b at its offset and c's suffix, in a query as in a check.
+	 * Logic.eq or Logic.ne, which is decided as t's equality with the concatenation built only where its bytes are
+	 * within the most one varlena holds, since it allocates its result, which PostgreSQL refuses past 1 GB, and a read
+	 * never fails on a value; past them the lengths decide it false. So a probe reads t by its key or its image's
+	 * index. Concatenations nested in that side are its parts, read in order: `Logic.eq(t, Text.concat(Text.concat(a,
+	 * b), c))` is t against a, b and c built in order, in a query as in a check.
 	 */
 	concat<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,

@@ -153,7 +153,6 @@ export const lowerVectorOp = (
 		case "disjoint":
 		case "adjoin":
 		case "endsWith":
-		case "infixAt":
 		case "collapse":
 		case "lowerAscii":
 		case "parseDouble":

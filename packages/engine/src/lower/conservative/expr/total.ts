@@ -227,8 +227,6 @@ const exactIn = (
 		case "startsWith":
 		case "endsWith":
 		case "right":
-		case "substring":
-		case "infixAt":
 		case "matches":
 		case "translate":
 		case "lowerAscii":

@@ -13,7 +13,9 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
+import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 import type { HostValue } from "#compiler/scalar/values/identity.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { evaluate } from "#test/support/oracle/evaluate/catalog.ts"
@@ -392,6 +394,61 @@ export const referenceValueOf = (c: EquationCase, root: ScalarExpr, row: Equatio
 	return typeof value.success === "boolean"
 		? value.success
 		: assert.fail(`a truth value: ${Formatter.format(value.success)}`)
+}
+
+/** The native function an expression applies, when it is a native node: none for any other. */
+const nativeFnOf = (e: ScalarExpr): string | undefined =>
+	e.kind === "op" && typeof e.op === "string" ? nativeOp(e.op)?.fn : undefined
+
+/** Whether an expression is the literal integer `n`, read through any cast around it. */
+const isIntegerLiteral = (e: ScalarExpr, n: number): boolean =>
+	e.kind === "literal"
+		? e.value.kind === "int" && e.value.value === BigInt(n)
+		: (e.kind === "cast" || e.kind === "domainCast") &&
+			Arr.some(e.args, (a) => isIntegerLiteral(a, n))
+
+/**
+ * Whether a cond is the guard of a concatenation: its WHEN a byte count compared past the most bytes one varlena holds,
+ * `… > bytesMaxLength` (scalar/values/fault.ts), so its ELSE builds a text PostgreSQL can allocate.
+ */
+const isBytesGuard = (cond: ScalarExpr): boolean => {
+	const [when] = cond.args
+	return (
+		when !== undefined &&
+		nativeFnOf(when) === "gt" &&
+		Arr.some(when.args, (a) => isIntegerLiteral(a, bytesMaxLength))
+	)
+}
+
+/**
+ * The concatenations a lowered expression builds, each a chain of textcat no textcat holds, and those of them standing
+ * anywhere but as the ELSE of a guard of its bytes (isBytesGuard): the concatenations a read could fail on past 1 GB.
+ */
+export const builtConcatenations = (
+	root: ScalarExpr
+): { readonly built: number; readonly unguarded: number } => {
+	let built = 0
+	let unguarded = 0
+	const visit = (e: ScalarExpr, guarded: boolean, inConcat: boolean): void => {
+		const concat = nativeFnOf(e) === "concat"
+		if (concat && !inConcat) {
+			built += 1
+			unguarded += guarded ? 0 : 1
+		}
+		Arr.forEach(e.args, (a, i) =>
+			visit(
+				a,
+				e.kind === "cond" && i === 2 && isBytesGuard(e)
+					? true
+					: concat || e.kind === "cast" || e.kind === "domainCast"
+						? guarded
+						: false,
+				concat
+			)
+		)
+	}
+	visit(root, false, false)
+	return { built, unguarded }
 }
 
 /** Whether a row reads NULL in the whole or a part. */

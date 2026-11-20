@@ -89,7 +89,6 @@ export const lowerSearchOp = (
 		case "disjoint":
 		case "adjoin":
 		case "endsWith":
-		case "infixAt":
 		case "parseDouble":
 		case "parseDecimal":
 		case "sha256":

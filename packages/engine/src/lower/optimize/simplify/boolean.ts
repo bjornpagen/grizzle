@@ -219,8 +219,6 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "startsWith":
 		case "endsWith":
 		case "right":
-		case "substring":
-		case "infixAt":
 		case "matches":
 		case "translate":
 		case "lowerAscii":

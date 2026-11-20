@@ -717,8 +717,9 @@ The command line's own refusals, by stage:
   the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Text.pattern`'s match is a
   guard: `Logic.when(Text.matches(x, digits), (x) => …, otherwise)`. `Text.concat` builds text in checks,
   generated fields and folds; in a query, compare a text with a concatenation (`Logic.eq(t, Text.concat(a, b))`)
-  and it is decided without building it, a concatenation nested in it read through as its parts
-  (`Text.concat(Text.concat(a, b), c)` is a, b and c, each read at its offset). Its first operand is a term: write a leading literal as
+  and it is decided as t's equality with the concatenation built under its bytes' guard, so a probe reads t by its key
+  or its image's index, a concatenation nested in it read through as its parts
+  (`Text.concat(Text.concat(a, b), c)` is a, b and c, built in order). Its first operand is a term: write a leading literal as
   `Type.literal(Prose, "item-")`. Normalize text with `Text.translate(x, from, to)`, strings of one length with
   each character of `from` once (`Text.translate(title, "\t\n\r", "   ")` for `xs:normalizedString`), and fold
   ASCII case with `Text.lowerAscii(x)`, never a locale's `lower`. A translation is text of the image of `x`'s

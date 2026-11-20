@@ -3,8 +3,8 @@
  * after the running text. Its law means what the fold says: evaluated by the reference evaluator over every state of
  * a small box, the violation query of a concat fold over an ordered family, its (before, after) pair named, is empty
  * exactly on the states a naive left fold calls lawful. Its combine is the equation `after = before || x`, which the
- * scalar lowering decides without building the concatenation (compute/typing.ts concatEquation), so the law reads no
- * text longer than one PostgreSQL holds.
+ * scalar lowering decides as an equality with the concatenation built under its bytes' guard (compute/typing.ts
+ * concatEquation), so the law reads no text longer than one PostgreSQL holds.
  *
  * A concat fold names its pair, and folds only a sequence: the fold rule refuses one over a counted family, whose
  * order is hidden, and one whose accumulators are hidden, whose law would need an ordered aggregate (check/fold.ts
@@ -85,9 +85,11 @@ export const aConcatFoldIsViolatedExactlyWhenItsAccumulatorsAreNotTheNaiveFolds 
 		kills: [
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: '\t\t\t[test("startsWith", p), ...middle, test("endsWith", lastNonEmpty(rest))],',
-				replacement: '\t\t\t[test("startsWith", p), ...middle, test("startsWith", p)],',
-				why: "The equation's concatenation checked by its length and its head alone (scalar/compute/typing.ts concatEquation); the fold property fails."
+				original:
+					'\t\t\t\t\tthis.overload("concat", [a.actual, b.actual], here),\n\t\t\t\t\t[a, b],',
+				replacement:
+					'\t\t\t\t\tthis.overload("concat", [b.actual, a.actual], here),\n\t\t\t\t\t[b, a],',
+				why: "The equation's concatenation built with its parts reversed (scalar/compute/typing.ts concatEquation), so each after is stated as its step before the running text; the fold property fails."
 			},
 			{
 				file: "packages/engine/src/ir/monoid.ts",

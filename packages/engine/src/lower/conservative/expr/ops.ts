@@ -179,17 +179,6 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 }
 
 /**
- * A text's infix test at a start, `substring(a, start, char_length(b)) = b` (scalar/compute/registry.ts textInfix): a
- * concatenation's equation's test of a middle part at its offset.
- */
-const textInfix = (args: ReadonlyArray<Expr>): Expr | undefined => {
-	const [a, start, b] = args
-	return args.length === 3 && a !== undefined && start !== undefined && b !== undefined
-		? binary("=", call("substring", [a, start, call("char_length", [b])]), b)
-		: undefined
-}
-
-/**
  * A float's identity image (scalar/compute/registry.ts floatBitsOf): NaN's one form (canonicalNanBits) where the float
  * is NaN, which `=` holds equal to every NaN, else its IEEE 754 binary64 bits, `('x' || encode(float8send(x),
  * 'hex'))::bit(64)` read as a signed bigint, a real widened to double precision first, which is exact. NULL reaches the
@@ -355,8 +344,6 @@ const registryForm = (
 			return adjoinSet(args)
 		case "endsWith":
 			return textSuffix(args)
-		case "infixAt":
-			return textInfix(args)
 		case "floatBits":
 			return floatBitsForm(sql.from, args)
 		case "collapse":

@@ -1,8 +1,8 @@
 /**
  * A text's equation with a concatenation of any number of parts, `t = p1 || … || pn` (scalar/compute/typing.ts
- * concatEquation): its concatenation's nested concatenations read through as its parts, decided by the parts' lengths,
- * p1 as t's prefix, each middle part at the sum of the lengths before it (the infix test, `substring(t, o + 1,
- * char_length(pi)) = pi`) and pn as t's suffix, with no text built, in a query as in a check.
+ * concatEquation): its concatenation's nested concatenations read through as its parts, decided as an equality of t
+ * with the parts built in order, `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) >
+ * bytesMaxLength THEN '' ELSE p1 || … || pn END`, so a probe reads t by its key, in a query as in a check.
  *
  * - Property: over equations of two to five parts drawn as concatenation trees of any bracketing (concat-equation.
  *   fixtures.ts), each part a text column, bounded or not, a bare literal, a translation a query refuses or an integer
@@ -10,7 +10,8 @@
  *   when every part's two-part analogue does, the part at its own place beside a column every site lowers, and a
  *   refusal is one an analogue gives; where it compiles, the host's value of the lowered equation over drawn rows
  *   (texts of one-, two- and four-byte characters, empty ones and NULL) is its plain meaning, three-valued, and the
- *   reference evaluator's is too where no operand is NULL.
+ *   reference evaluator's is too where no operand is NULL; and the lowering builds its concatenation, each one it
+ *   builds standing in the ELSE of its bytes' guard, so no read allocates past the most bytes one varlena holds.
  *
  * Oracle: the equation's plain meaning, the whole against the parts' texts joined in order, NULL at a NULL operand;
  * and, for what compiles, the two-part equation, whose lowering decides it.
@@ -27,6 +28,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import {
 	analogueDesc,
 	anyEquationGen,
+	builtConcatenations,
 	type EquationFeature,
 	equationDesc,
 	hostValueOf,
@@ -105,6 +107,11 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsCompilesExactlyWhereI
 						continue
 					}
 					const root = lowered.value.root.expr
+					const concatenations = builtConcatenations(root)
+					assert.ok(
+						concatenations.built > 0 && concatenations.unguarded === 0,
+						`the equation builds its concatenation, each under its bytes' guard, ${Formatter.format(concatenations)}: ${label}`
+					)
 					for (const row of c.rows) {
 						const meaning = meaningOf(c, row)
 						const where = `${Formatter.format(row)}: ${label}`
@@ -142,29 +149,34 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsCompilesExactlyWhereI
 			},
 			{
 				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: '\t\t\t\t\tthis.literal(1, plainType("int4"), here),',
-				replacement: '\t\t\t\t\tthis.literal(0, plainType("int4"), here),',
-				why: "A middle part is read one character early, at the sum of the lengths before it counted from 1 as from 0, so a whole that is the parts in order is refused wherever a part before it is not empty."
-			},
-			{
-				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: '\t\t\t\tthis.overload("charLength", [x.actual], here),',
-				replacement: '\t\t\t\tthis.overload("octetLength", [x.actual], here),',
-				why: "The lengths are bytes, not characters, so a middle part after a multibyte one is read at a byte count of characters, past its place."
-			},
-			{
-				file: "packages/engine/src/scalar/compute/typing.ts",
-				original: '\t\tconst guard: GuardDesc = { kind: "within", low: 1n, high }',
-				replacement: '\t\tconst guard: GuardDesc = { kind: "within", low: high, high }',
-				why: "The guard a fourth part's start stands under holds at int4's greatest value alone, so the part is read only through its false, and a whole that is five parts in order is refused."
-			},
-			{
-				file: "packages/engine/src/scalar/compute/evaluate.ts",
 				original:
-					'\t\t\t\t\tsubstringOf(hostOf("text", a(args)), start(b(args)), BigInt(Array.from(part).length)) ===',
+					'\t\t\t\t\tthis.overload("concat", [a.actual, b.actual], here),\n\t\t\t\t\t[a, b],',
 				replacement:
-					'\t\t\t\t\tsubstringOf(hostOf("text", a(args)), start(b(args)), BigInt(part.length)) ===',
-				why: "The host's infix test reads a part's UTF-16 code units for its characters, so a part holding a character past the Basic Multilingual Plane reads one character too many."
+					'\t\t\t\t\tthis.overload("concat", [b.actual, a.actual], here),\n\t\t\t\t\t[b, a],',
+				why: "The parts are built in reverse order, so a whole that is the parts in order is refused wherever two of them differ."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					'\t\tconst guarded = this.conditional(past, this.literal("", wildcardText, here), built, here)',
+				replacement:
+					'\t\tconst guarded = this.conditional(past, built, this.literal("", wildcardText, here), here)',
+				why: "The guard's branches are swapped: within the bound the whole is compared with the empty text, so a whole that is non-empty parts in order is refused."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					'\t\t\t[this.comparison("eq", [bytesOf(t), bytes], here), this.comparison("eq", [t, guarded], here)],',
+				replacement:
+					'\t\t\t[this.comparison("eq", [bytesOf(t), bytes], here), this.comparison("eq", [t, built], here)],',
+				why: "The concatenation is built unguarded, so a read whose parts pass the most bytes one varlena holds fails on the value, where it must decide the equation false."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original:
+					'\t\t\t: this.native(this.overload("not", [bool], here), [holds], bool, undefined, here, "not")\n\t}\n\n\t/** A part standing first',
+				replacement: "\t\t\t: holds\n\t}\n\n\t/** A part standing first",
+				why: "`<>` lowers as `=`, so every inequation means its equation."
 			}
 		]
 	})

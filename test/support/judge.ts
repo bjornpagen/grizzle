@@ -113,9 +113,7 @@ export interface JudgedPlan {
 /** Whether `plan` reads a row of one of `deltas`: a node over one returned or filtered out a row in some loop. */
 const readsDeltaRow = (plan: PlanNode, deltas: ReadonlySet<string>): boolean =>
 	Iterator.from(planNodes(plan)).some(
-		(n) =>
-			Option.exists(n.relation, (r) => deltas.has(r)) &&
-			n.actualLoops * (n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck) > 0
+		(n) => Option.exists(n.relation, (r) => deltas.has(r)) && n.actualLoops * scannedRowsOf(n) > 0
 	)
 
 /** Each delta the judge's parts stand up, by name: its CREATE, as the part runs it where the session holds none. */
@@ -222,3 +220,33 @@ export const judgedPlans = <E>(
 		)
 		return plans
 	})
+
+/** The rows a scan reads a loop: its output and what its filters removed. */
+export const scannedRowsOf = (n: PlanNode): number =>
+	n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck
+
+/**
+ * The table a plan node reads rows of, when it scans one: a sequential, index, index-only, bitmap heap or TID scan's
+ * relation. A bitmap index scan's entries are its heap scan's rows, but those that rolled-back cases left in the
+ * database's indexes besides, which no visible row answers.
+ */
+export const scannedTableOf = (n: PlanNode): Option.Option<string> =>
+	n.nodeType !== "Bitmap Index Scan" && Str.endsWith(" Scan")(n.nodeType)
+		? n.relation
+		: Option.none()
+
+/**
+ * The planner settings a case explains a judged statement's probes under: the hash and merge joins and the
+ * materialization of a nested loop's inner side off, so PostgreSQL reads every join by a nested loop that runs its inner
+ * side again for each outer row, which it plans as a lookup at that row's values where an index serves one
+ * (test/support/oracle/perturb.ts plannerSettings). At a case's few hundred rows PostgreSQL would read a negation's
+ * inner side whole, every row once, hashed or materialized, which says nothing of a lookup; at edullm's scale, analyzed,
+ * it plans the lookup itself: on PostgreSQL 19rc2 over 100,000 identifiers of 50 packages, analyzed, the ledger's probe
+ * is a nested loop anti join reading one row a loop through the image's index, with every setting at its default. So a
+ * property of the lookups is over analyzed tables, as autovacuum leaves a stored one.
+ */
+export const lookupSettings = [
+	"SET LOCAL enable_hashjoin = off",
+	"SET LOCAL enable_mergejoin = off",
+	"SET LOCAL enable_material = off"
+] as const

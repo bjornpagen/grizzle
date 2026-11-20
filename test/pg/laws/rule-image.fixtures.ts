@@ -4,7 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
 import { parsePlan, type PlanNode, planNodes } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -19,7 +19,13 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedPlans, judgedStatementsOf } from "#test/support/judge.ts"
+import {
+	judgedPlans,
+	judgedStatementsOf,
+	lookupSettings,
+	scannedRowsOf,
+	scannedTableOf
+} from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -183,20 +189,6 @@ const valueSql = (x: string, length: number): string =>
 /** The document whose identifier is the empty text, a value as any other. */
 const emptyDocument = 2
 
-/** The rows a scan reads a loop: its output and what its filters removed. */
-const rowsOf = (n: PlanNode): number =>
-	n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck
-
-/**
- * The table a plan node reads rows of, when it scans one: a sequential, index, index-only, bitmap heap or TID scan's
- * relation. A bitmap index scan's entries are its heap scan's rows, but those that rolled-back cases left in the
- * database's indexes besides, which no visible row answers.
- */
-const scannedOf = (n: PlanNode): Option.Option<string> =>
-	n.nodeType !== "Bitmap Index Scan" && Str.endsWith(" Scan")(n.nodeType)
-		? n.relation
-		: Option.none()
-
 /** What one scan of a stored table read, a loop, beside the most rows one lookup of its table matches. */
 interface Read {
 	readonly table: string
@@ -207,22 +199,6 @@ interface Read {
 	readonly buffers: number
 	readonly most: number
 }
-
-/**
- * The planner settings each case explains its probes under: the hash and merge joins and the materialization of a
- * nested loop's inner side off, so PostgreSQL reads every join by a nested loop that runs its inner side again for each
- * outer row, which it plans as a lookup at that row's values where an index serves one (test/support/oracle/perturb.ts
- * plannerSettings). At a case's few hundred identifiers PostgreSQL would read a negation's inner side whole, every
- * identifier once, hashed or materialized, which says nothing of a lookup; at edullm's scale, analyzed, it plans the
- * lookup itself: on PostgreSQL 19rc2 over 100,000 identifiers of 50 packages, analyzed, the ledger's probe is a nested
- * loop anti join reading one row a loop through the image's index, with every setting at its default. So the property
- * is of the lookups, over analyzed tables, as autovacuum leaves a stored one.
- */
-const lookups = [
-	"SET LOCAL enable_hashjoin = off",
-	"SET LOCAL enable_mergejoin = off",
-	"SET LOCAL enable_material = off"
-] as const
 
 /**
  * One case in its one transaction, which the case's end rolls back: `packages` packages of `documents` documents, each
@@ -285,7 +261,7 @@ export const runImaged = (
 			"SET CONSTRAINTS ALL DEFERRED",
 			`INSERT INTO ${session} (${s("id")}, ${s("package")}, ${s("item")}) SELECT k, ${pkg(`1 + k % ${stored.packages}`)}, ${value(`3 * k % ${stored.documents}`)} FROM generate_series(0, ${stored.sessions - 1}) AS k(k)`,
 			`DELETE FROM ${attribute} WHERE ${a("package")} = ${pkg("1")} AND ${a("path")} = ${path("1")} AND ${a("name")} = 0`,
-			...lookups
+			...lookupSettings
 		]
 		for (const sql of [...loaded, ...written]) {
 			yield* connection.query(sql, [])
@@ -313,7 +289,7 @@ export const runImaged = (
 		 * must make one. */
 		const withinPlan = (plan: PlanNode, what: string) => {
 			const read = Arr.flatMap([...planNodes(plan)], (n): ReadonlyArray<Read> => {
-				const bounded = Option.flatMap(scannedOf(n), (table) =>
+				const bounded = Option.flatMap(scannedTableOf(n), (table) =>
 					Option.map(
 						Option.fromUndefinedOr(bound.get(`${quoteIdent(names.schema)}.${quoteIdent(table)}`)),
 						(most) => ({ table, most })
@@ -326,7 +302,7 @@ export const runImaged = (
 								node: n.nodeType,
 								index: Option.getOrUndefined(n.index),
 								loops: n.actualLoops,
-								rows: rowsOf(n),
+								rows: scannedRowsOf(n),
 								buffers: (n.buffers.sharedHit + n.buffers.sharedRead) / Math.max(1, n.actualLoops)
 							}
 						]

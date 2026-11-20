@@ -1,7 +1,8 @@
 /**
  * A text's equation with a concatenation of any number of parts (scalar/compute/typing.ts concatEquation) on
- * PostgreSQL 19, decided by the parts' lengths, the first part as the text's prefix, each middle part at the sum of
- * the lengths before it and the last as its suffix, with no text built.
+ * PostgreSQL 19, decided as an equality of the text with the parts built in order under their bytes' guard,
+ * `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … ||
+ * pn END`.
  *
  * - **expressions**: equations of two to five parts drawn as concatenation trees of any bracketing, over text columns,
  *   bounded or not, and bare literals, the whole a column or a literal on either side, `=` or `<>`
@@ -75,11 +76,10 @@ export const anEquationWithAConcatenationOfAnyNumberOfPartsIsOnPostgreSQLTheWhol
 				why: "Flattening is capped at two parts: a concatenation nested in an equation's side is one part, typed as a term, which a query refuses beside an equation, so no query compiles an equation of three parts or more."
 			},
 			{
-				file: "packages/engine/src/lower/conservative/expr/ops.ts",
-				original: '\t\t? binary("=", call("substring", [a, start, call("char_length", [b])]), b)',
-				replacement:
-					'\t\t? binary("=", call("substring", [a, start, call("octet_length", [b])]), b)',
-				why: "The infix test's SQL reads a middle part's bytes for its characters, so PostgreSQL reads a multibyte part with characters past its end, and refuses a whole that is the parts in order."
+				file: "packages/engine/src/scalar/compute/typing.ts",
+				original: '\t\t\t[bytes, this.literal(bytesMaxLength, plainType("int4"), here)],',
+				replacement: '\t\t\t[bytes, this.literal(0, plainType("int4"), here)],',
+				why: "The guard's bound is zero bytes, so PostgreSQL compares every whole of non-empty parts with the empty text, and refuses one that is the parts in order."
 			}
 		]
 	})

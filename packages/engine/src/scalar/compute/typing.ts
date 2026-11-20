@@ -3,7 +3,6 @@ import {
 	appendNonEmpty,
 	concatNonEmpty,
 	isNonEmpty,
-	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -101,7 +100,6 @@ import {
 	floorOfExact,
 	finiteEnds,
 	hullBounds,
-	insideRange,
 	magnitudeAtLeast,
 	minus,
 	mulBounds,
@@ -2474,25 +2472,25 @@ class Typing<R extends Refs> {
 
 	/**
 	 * An equation of a text with a concatenation, `t = p1 || … || pn` or its negation, its parts read through every nested
-	 * concatenation (concatParts), so n is at least two, decided without building the concatenation: `CASE WHEN
-	 * char_length(t) = char_length(p1) + … + char_length(pn) THEN starts_with(t, p1) AND <each middle part at its offset>
-	 * AND right(t, char_length(pn)) = pn ELSE <the lengths' equation> END`, which holds exactly where t is the parts in
-	 * order, since its first characters are p1's, the characters of each middle part's length past the lengths before it
-	 * are that part's, and the rest, of pn's length, are pn's; two parts are p1 and pn alone. Lengths are characters, as
-	 * starts_with, substring and right read them, so a part of multibyte characters, or an empty one, lies where it does.
+	 * concatenation (concatParts), so n is at least two: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN
+	 * Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, an equality of t with the parts built in order,
+	 * so a probe that knows the parts reads t by its key, and by its image where an index holds t by one (sql/image.ts
+	 * statingImages states `md5(t) = md5(…)` beside every equality of an imaged column), never every t of the rows its other
+	 * columns find.
 	 *
-	 * A middle part pi is `substring(t, o + 1, char_length(pi)) = pi`, o the sum of the lengths before it (holdsAt), rather
-	 * than a recursion on the suffix, t's rest past p1 equated with p2 || … || pn: PostgreSQL's substring reads t only up to
-	 * the part's end, detoasting only that slice of a long t, and copies the part's characters alone, where the rest,
-	 * `right(t, -o)`, copies all of t past o at every part, and a recursion whose each step rests on the last holds part
-	 * k under k - 1 of them, which PostgreSQL evaluates anew each time, as it shares no subexpression. The lengths are
-	 * summed exactly (exact integers, bigint), since n of them, each up to MaxAllocSize characters, pass int4.
+	 * It is total: the concatenation is built only where its bytes, Σ octet_length(pi) summed exactly (exact integers,
+	 * bigint), are within the most bytes one varlena holds (values/fault.ts bytesMaxLength), so textcat never allocates
+	 * past MaxAllocSize, at any site: a fold's combine over concat (ir/monoid.ts) is such an equation, and so stands in a
+	 * law's violation query and its CHECK, and a query decides an equation over any number of parts. Past it the CASE
+	 * gives the empty text, which decides nothing: t is a value PostgreSQL holds, of at most bytesMaxLength bytes, so its
+	 * length is not the parts' and the first conjunct is false there.
 	 *
-	 * It is three-valued exactly as `t = p1 || … || pn` is: the lengths' equation reads every operand, so it is NULL where
-	 * any is, and the CASE takes it there, where a conjunction would let a false prefix, middle or suffix decide. No
-	 * operand is longer than a value PostgreSQL already holds, so nothing allocates past MaxAllocSize, at any site: a
-	 * fold's combine over concat (ir/monoid.ts) is such an equation, and so stands in a law's violation query and its
-	 * CHECK, and a query decides an equation over any number of parts. Undefined for any other comparison.
+	 * It is three-valued exactly as `t = p1 || … || pn` is: every octet_length is NULL where its operand is, so the sum is
+	 * NULL where any part is, the CASE takes its ELSE there, the concatenation, NULL as textcat is at a NULL operand, and
+	 * both conjuncts are NULL; where every operand is a text, the conjuncts are false together past the bound, and within
+	 * it the second is the equation itself, which the first, the lengths' agreement, only restates. Lengths are bytes, as
+	 * texteq and textcat read them, so a part of multibyte characters, or an empty one, lies where it does. Undefined for
+	 * any other comparison.
 	 */
 	concatEquation(
 		desc: Extract<ExprDesc<Located, R>, { readonly kind: "compare" }>,
@@ -2520,53 +2518,49 @@ class Typing<R extends Refs> {
 			whole.kind === "literal" && whole.type === undefined
 				? this.literal(whole.value, wildcardText, here)
 				: this.textOperand("an equation with a concatenation", p, whole, here)
-		const lengthOf = (x: Typed): Typed =>
+		const bytesOf = (x: Typed): Typed =>
 			this.native(
-				this.overload("charLength", [x.actual], here),
+				this.overload("octetLength", [x.actual], here),
 				[x],
 				plainType("int4"),
-				ofRange(0n, BigInt(maxAllocSize), String(maxAllocSize).length),
+				ofRange(0n, BigInt(bytesMaxLength), String(bytesMaxLength).length),
 				here,
-				"char_length"
+				"octet_length"
 			)
-		const plus = (a: Typed, b: Typed, operation: string): Typed => {
-			const [x, y] = this.exactPair(a, b, here)
+		const [lp, ...lengths] = mapNonEmpty([p, ...rest], bytesOf)
+		const bytes = lengths.reduce((sum, l) => {
+			const [x, y] = this.exactPair(sum, l, here)
 			const add = this.overload("add", [valueType(x.nominal), valueType(y.nominal)], here)
 			const bounds = arithmeticBounds("add", x.bounds, y.bounds)
-			return this.native(add, [x, y], this.resultType(add, bounds), bounds, here, operation)
-		}
-		const [lp, ...lengths] = mapNonEmpty([p, ...rest], lengthOf)
-		const ends = lengths.reduce<NonEmptyReadonlyArray<Typed>>(
-			(sums, l) => appendNonEmpty(sums, plus(lastNonEmpty(sums), l, "length")),
-			[lp]
+			return this.native(add, [x, y], this.resultType(add, bounds), bounds, here, "length")
+		}, lp)
+		const built = rest.reduce(
+			(a, b) =>
+				this.native(
+					this.overload("concat", [a.actual, b.actual], here),
+					[a, b],
+					wildcardText,
+					undefined,
+					here,
+					"concat"
+				),
+			p
 		)
+		const past = this.comparison(
+			"gt",
+			[bytes, this.literal(bytesMaxLength, plainType("int4"), here)],
+			here
+		)
+		const guarded = this.conditional(past, this.literal("", wildcardText, here), built, here)
 		const bool = plainType("bool")
-		const test = (fn: "startsWith" | "endsWith", b: Typed): Typed =>
-			this.native(this.overload(fn, [t.actual, b.actual], here), [t, b], bool, undefined, here, fn)
-		const lengthsHold = this.comparison("eq", [lengthOf(t), lastNonEmpty(ends)], here)
-		const middle = rest
-			.slice(0, -1)
-			.map((part, i) =>
-				this.holdsAt(
-					t,
-					plus(
-						defined(ends[i], "the lengths before a middle part"),
-						this.literal(1, plainType("int4"), here),
-						"offset"
-					),
-					part,
-					here
-				)
-			)
-		const parts = this.native(
+		const holds = this.native(
 			this.overload("and", [bool], here),
-			[test("startsWith", p), ...middle, test("endsWith", lastNonEmpty(rest))],
+			[this.comparison("eq", [bytesOf(t), bytes], here), this.comparison("eq", [t, guarded], here)],
 			bool,
 			undefined,
 			here,
 			"and"
 		)
-		const holds = this.conditional(lengthsHold, parts, lengthsHold, here)
 		return desc.op === "eq"
 			? holds
 			: this.native(this.overload("not", [bool], here), [holds], bool, undefined, here, "not")
@@ -2601,59 +2595,6 @@ class Typing<R extends Refs> {
 					part.concat,
 					`a text operand for concat, not ${typeLabel(b.nominal)}`
 				)
-	}
-
-	/**
-	 * Whether `t` holds the text `part` at the character `start`, counted from 1, an exact integer: the infix test
-	 * `substring(t, start, char_length(part)) = part` (registry.ts textInfix), start narrowed into substring's int4.
-	 * The narrowing stands on start's own bounds where they prove it, as they do for a concatenation's second and third
-	 * parts, which start at most two MaxAllocSize lengths in, within int4; a later part, whose start's bounds pass int4,
-	 * stands under Num.within's guard of int4's positive values, `CASE WHEN start BETWEEN 1 AND 2147483647 THEN …
-	 * ELSE false END`, the guard a partial operation stands under: inside the equation's branch, where its lengths hold,
-	 * every part starts within t, whose length is an int4, so the guard holds there and its false is never read.
-	 */
-	holdsAt(t: Typed, start: Typed, part: Typed, at: SourceLoc): Typed {
-		const int4 = plainType("int4")
-		const narrowing = defined(
-			castOf("exactInteger", "int4"),
-			"the narrowing of an exact integer into int4"
-		)
-		const test = (typing: Typing<R>, s: Typed): Typed => {
-			const narrowed = typing.castNode(s, int4, { kind: "computed", op: narrowing }, at)
-			return typing.native(
-				typing.overload("infixAt", [t.actual, int4, part.actual], at),
-				[t, narrowed, part],
-				plainType("bool"),
-				undefined,
-				at,
-				"infixAt"
-			)
-		}
-		const ends = start.bounds === undefined ? undefined : finiteEnds(start.bounds)
-		const [low, high] = integerRanges.int4
-		if (ends !== undefined && insideRange(ends[0], ends[1], exactOf(low, 0), exactOf(high, 0))) {
-			return test(this, start)
-		}
-		const guard: GuardDesc = { kind: "within", low: 1n, high }
-		const { predicate, within } = this.guardPredicate(guard, start, at)
-		const branch = new Typing(
-			this.env,
-			[
-				...this.#scope,
-				{
-					kind: "occurrences",
-					holds: {
-						kind: "facts",
-						subject: start.node,
-						refinement: guardRefinement(guard, within),
-						facts: guardFacts(guard, within)
-					}
-				}
-			],
-			this.#tape
-		)
-		const held = test(branch, branch.restate(start, start.nominal, start.actual, start.facts))
-		return this.conditional(predicate, held, this.literal(false, plainType("bool"), at), at)
 	}
 
 	/**
@@ -4272,7 +4213,7 @@ class Typing<R extends Refs> {
 				this.refusedAt(
 					"query",
 					here,
-					"concat in a query beside an equation: a concatenation allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; a query compares a text with a concatenation, which is decided without building it, and every other concatenation stands in contract predicates, row checks, generated fields and folds"
+					"concat in a query beside an equation: a concatenation allocates its result, which PostgreSQL refuses past 1 GB, and a read never fails on a value; a query compares a text with a concatenation, which builds it only within the bytes one varlena holds, and every other concatenation stands in contract predicates, row checks, generated fields and folds"
 				)
 				return this.concat(arg(0), arg(1), here)
 			case "startsWith":
