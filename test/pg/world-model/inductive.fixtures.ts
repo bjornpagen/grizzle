@@ -154,12 +154,10 @@ export const inductiveWorld = (
 		? Effect.flatMap(resources[ic.install.key], (taken) =>
 				templateWorld(taken, Option.some(poolSize))
 			)
-		: Effect.flatMap(resources.own, (substrate) =>
-				Effect.provideService(
-					realizeRace(specOf(ic.install), ordinarySession, poolSize),
-					Substrate,
-					substrate
-				)
+		: Effect.provideServiceEffect(
+				realizeRace(specOf(ic.install), ordinarySession, poolSize),
+				Substrate,
+				resources.own
 			)
 
 /** The installation a case's world is (specOf). */

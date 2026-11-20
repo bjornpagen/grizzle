@@ -19,35 +19,40 @@ catalogMode: strict
 # every install.
 allowBuilds:
   lefthook: false
-# Admit a release once it is a day old.
+# Admit a release once it is a day old, except Effect's own packages, at their newest as the toolchain's are: its
+# shared base lists exactly the diagnostics the installed @effect/tsgo ships, so grizzle's @effect/tsgo is the pin's.
 minimumReleaseAge: 1440
+minimumReleaseAgeExclude:
+  - effect
+  - "@effect/*"
 # Node 26 is the floor, so its types are the only Node types, even for packages that ask for newer: code typed against
 # 26 runs on 26 and every Node after it.
 overrides:
   "@types/node": "catalog:"
 catalog:
-  "@aws-sdk/rds-signer": 3.1169.0
-  "@clerk/backend": 3.29.0
+  "@aws-sdk/rds-signer": 3.1172.0
+  "@clerk/backend": 3.31.1
   "@effect/language-service": 0.87.5
   "@effect/platform-node": 4.1.4
-  "@effect/tsgo": 0.69.0
+  "@effect/tsgo": 0.73.2
   "@effect/vitest": 4.1.4
-  "@hyperjump/json-schema": 1.18.0
+  "@hyperjump/json-schema": 1.18.1
   "@types/node": 26.6.6
   "@types/pg": 8.23.1
+  # Vercel's packages and OpenTelemetry's move by hand, never in a routine bump (Bjorn, 2026-11-20).
   "@vercel/functions": 3.11.3
-  arkregex: 0.0.14
+  arkregex: 0.0.15
   effect: 4.1.4
   eslint-plugin-better-tailwindcss: 4.11.0
-  fallow: 3.43.0
+  fallow: 3.44.0
   lefthook: 2.2.2
-  oxfmt: 0.78.0
-  oxlint: 1.93.0
+  oxfmt: 0.79.0
+  oxlint: 1.94.0
   pg: 8.23.1
-  tsrs: 0.25.0-ts7.1.0-beta
-  turbo: 2.11.11
+  tsrs: 7.1.0-beta.tsrs3
+  turbo: 2.11.13
   typescript: 7.1.0-beta
-  vitest: 5.1.0
+  vitest: 5.1.1
 permissions:
   fallow:
     skills: true

@@ -406,10 +406,9 @@ type NamedByAs<St, Kind> = Kind extends "key"
 		: Kind extends "contained" | "mirrors"
 			? SideNames<Stated<St, "left">> | SideNames<Stated<St, "right">>
 			: Kind extends "alternatives"
-				?
-						| RelationOfKey<Stated<St, "parent">>
-						| Stated<St, "roster">
-						| RelationOfKey<Exclude<Stated<St, "arms">[keyof Stated<St, "arms">], undefined>>
+				? | RelationOfKey<Stated<St, "parent">>
+					| Stated<St, "roster">
+					| RelationOfKey<Exclude<Stated<St, "arms">[keyof Stated<St, "arms">], undefined>>
 				: Kind extends "ordered" | "counted" | "tree"
 					? SideNames<Stated<St, "family">> | OwnerOf<Stated<St, "slots">>
 					: Kind extends "fold"
@@ -649,11 +648,10 @@ type DeclaredOnlyAt<X, Twice, Below> =
 type ClashesOf<B, Relations extends ReadonlyArray<unknown>, Below> = B extends readonly [infer R]
 	? IsOneLiteral<NameOf<R>> extends false
 		? never
-		:
-				| (KnownNames<Declared<Relations>> extends true
-						? ClashOf<R, UnderName<Declared<Relations>, NameOf<R>>>
-						: never)
-				| (KnownNames<Below> extends true ? ClashOf<R, UnderName<Below, NameOf<R>>> : never)
+		: | (KnownNames<Declared<Relations>> extends true
+					? ClashOf<R, UnderName<Declared<Relations>, NameOf<R>>>
+					: never)
+			| (KnownNames<Below> extends true ? ClashOf<R, UnderName<Below, NameOf<R>>> : never)
 	: never
 
 /**

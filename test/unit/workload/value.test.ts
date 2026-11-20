@@ -25,12 +25,12 @@ import { workload as admitWorkload, workloadState } from "#compiler/program/work
 import { schema } from "#compiler/public/schema.ts"
 import { refusalLoc, refused, succeeded, throwsRefused } from "#test/support/assert.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	Board,
 	fixtureLogin,
 	orderedTasks,
-	switchToManualDescribed,
-	W
+	switchToManualDescribed
 } from "#test/unit/workload/fixtures.ts"
 import {
 	admits,

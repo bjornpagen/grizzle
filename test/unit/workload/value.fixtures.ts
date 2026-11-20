@@ -18,6 +18,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { workload } from "#compiler/public/workload.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
 import { schemaNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
@@ -28,8 +29,7 @@ import {
 	tasksForAccount,
 	titlesByPrefix,
 	topThree,
-	urgentAtLeast,
-	W
+	urgentAtLeast
 } from "#test/unit/workload/fixtures.ts"
 
 type Kind = "query" | "changeSet"

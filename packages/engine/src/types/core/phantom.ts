@@ -324,9 +324,8 @@ type IsExactly<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : fals
  * Compute.base.
  */
 type ExactFamily<T, Sql extends SqlTag> = [Sql] extends ["exact integer"]
-	?
-			| InputTerm<number, never, unknown, "smallint" | "integer">
-			| InputTerm<bigint, never, unknown, "bigint">
+	? | InputTerm<number, never, unknown, "smallint" | "integer">
+		| InputTerm<bigint, never, unknown, "bigint">
 	: [Sql] extends ["exact money"]
 		? InputTerm<Money, never, unknown, "money">
 		: [Sql] extends ["smallint" | "integer"]

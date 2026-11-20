@@ -196,11 +196,9 @@ export const transitionWorld = (
 	transition: Transition
 ): Effect.Effect<RealWorld, RealizeRefused | SqlError | NeedFailed, Scope.Scope> =>
 	runsTheMigrator(transition)
-		? Effect.flatMap(resources.own, (substrate) =>
-				Effect.provideService(
-					realize(transition.slot.install, ordinarySession),
-					Substrate,
-					substrate
-				)
+		? Effect.provideServiceEffect(
+				realize(transition.slot.install, ordinarySession),
+				Substrate,
+				resources.own
 			)
 		: Effect.flatMap(resources.seat, (taken) => templateWorld(taken, Option.none()))

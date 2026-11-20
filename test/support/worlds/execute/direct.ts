@@ -132,8 +132,8 @@ const literalOf = (
 const matching = (names: DirectNames, t: OracleTable, fact: HostFact): Effect.Effect<Expr> =>
 	Effect.map(
 		Effect.forEach(Rec.toEntries(fact), ([field, value]) =>
-			Effect.flatMap(columnOf(t, field), (c) =>
-				Effect.map(literalOf(names, t, field, value), (l) => eq(col("r", c.column), l))
+			Effect.zipWith(columnOf(t, field), literalOf(names, t, field, value), (c, l) =>
+				eq(col("r", c.column), l)
 			)
 		),
 		(parts) => (Arr.isReadonlyArrayNonEmpty(parts) ? and(parts) : lit.bool(true))
@@ -490,9 +490,10 @@ export const directSql = (
 			case "update": {
 				const t = yield* names.table(statement.relation)
 				const set = yield* Effect.forEach(Rec.toEntries(statement.set), ([f, v]) =>
-					Effect.flatMap(columnOf(t, f), (c) =>
-						Effect.map(literalOf(names, t, f, v), (value) => ({ column: c.column, value }))
-					)
+					Effect.zipWith(columnOf(t, f), literalOf(names, t, f, v), (c, value) => ({
+						column: c.column,
+						value
+					}))
 				)
 				if (!Arr.isReadonlyArrayNonEmpty(set)) {
 					return { sql: noAssignmentSql(t.name), reads: none }

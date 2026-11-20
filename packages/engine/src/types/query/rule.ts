@@ -283,9 +283,8 @@ type RequireBound<R> =
  * and is held against every relation of the schema.
  */
 type ShownMatch<S, R, K, N> = [K] extends ["relation" | "closedRelation"]
-	?
-			| (string extends N ? RelationOf<S> : UnderName<RelationsOf<S>, N>)
-			| Refusal<"the relation is not in this query's schema">
+	? | (string extends N ? RelationOf<S> : UnderName<RelationsOf<S>, N>)
+		| Refusal<"the relation is not in this query's schema">
 	: MatchCheck<S, R>
 
 /** The parameters a source of kind K contributes: an ordinary relation none, any other source its own. */

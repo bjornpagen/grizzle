@@ -25,6 +25,7 @@ import {
 	statisticsKinds,
 	type StatisticsRequest
 } from "#compiler/physical/statistics/statistics.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
 import {
 	compareColumns,
 	named,
@@ -35,7 +36,7 @@ import {
 	statisticsGen,
 	workloadGen
 } from "#test/unit/workload/extract.fixtures.ts"
-import { fixtureLogin, planOf, W } from "#test/unit/workload/fixtures.ts"
+import { fixtureLogin, planOf } from "#test/unit/workload/fixtures.ts"
 
 /**
  * The workload plan records each program's access by name and plans exactly the paths and statistics its programs

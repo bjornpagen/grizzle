@@ -25,6 +25,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import { owning } from "#test/support/policy.ts"
 import {
@@ -35,7 +36,6 @@ import {
 	titlesByPrefix,
 	topThree,
 	urgentAtLeast,
-	W,
 	workPrograms
 } from "#test/unit/workload/fixtures.ts"
 

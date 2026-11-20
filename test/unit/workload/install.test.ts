@@ -27,7 +27,8 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec } from "effect"
 import { refused, succeeded } from "#test/support/assert.ts"
-import { planOf, W } from "#test/unit/workload/fixtures.ts"
+import * as W from "#test/support/fixtures/api/work.ts"
+import { planOf } from "#test/unit/workload/fixtures.ts"
 import {
 	all,
 	alone,

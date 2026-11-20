@@ -6,7 +6,6 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { compileTestWorkload, type FixtureSchema, testCompile } from "#test/support/compile.ts"
-import * as Sp from "#test/support/fixtures/api/spans.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -16,8 +15,6 @@ import { Id } from "#test/support/ids.ts"
  * The schemas beyond the examples are marked: Board is the pagination example's Task with the account filter, ordered by priority,
  * and a bounded title, so its prefix search is representable.
  */
-
-export { Sp, W }
 
 /** The worked example's described arm switch. */
 export const switchToManualDescribed = ChangeSet.empty(W.Work)

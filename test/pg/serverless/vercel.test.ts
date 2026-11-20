@@ -186,7 +186,7 @@ export const attachesPgsOwnPoolOnceAndKeepsTheInstanceAlivePastTheIdleTimeoutAft
 								assert.equal(context.waits.length, releases, "one wait per release")
 								assert.equal(heldAtEnd.length, releases, "every wait is watched from its hand-over")
 								assert.equal(attached.length, 1, "attached once, whatever the leases")
-								const held = yield* Effect.promise(() => Promise.all(heldAtEnd))
+								const held = yield* Effect.forEach(heldAtEnd, (wait) => Effect.promise(() => wait))
 								const last = defined(held.at(-1), "the last release's wait")
 								const lastBurst = defined(c.bursts.at(-1), "the last burst")
 								assert.ok(

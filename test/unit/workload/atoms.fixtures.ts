@@ -8,8 +8,8 @@ import { predicateAtoms } from "#compiler/physical/access/atoms.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { succeeded } from "#test/support/assert.ts"
+import * as Sp from "#test/support/fixtures/api/spans.ts"
 import { checkedInput, checkOptions } from "#test/support/policy.ts"
-import { Sp } from "#test/unit/workload/fixtures.ts"
 
 /** The atoms of every Filter a query checks to. */
 export const filterAtoms = (q: unknown) => {
