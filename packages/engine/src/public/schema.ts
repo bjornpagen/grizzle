@@ -151,6 +151,7 @@ export type {
 	RelationOf,
 	RelationsOf,
 	Schema,
+	SchemaOver,
 	StatementsBelow,
 	StatementsByName,
 	StatementsOf,

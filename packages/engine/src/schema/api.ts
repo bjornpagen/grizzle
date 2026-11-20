@@ -81,13 +81,15 @@ import type {
 	AnySchema,
 	Declared,
 	DeclaredOnce,
-	DeclaredOver,
 	DerivedAt,
+	Extended,
 	Fragment,
 	FragmentsIn,
+	LeastOf,
+	LeastRecord,
+	LeastStated,
 	LevelsOf,
 	Schema,
-	StatementsBelow,
 	StatementsByName,
 	StatementsReadBack,
 	StatementsWithin
@@ -365,30 +367,37 @@ const rootSchema = <
  * Query is invariant in its schema, so a query over this level, which would read its own relations, is no query over
  * any level below it. Its statements are the base's, then its own, held by name over the base's relations and its
  * own. A relation or statement typed `any` is refused (DeclaredOnce, StatementsWithin).
+ *
+ * The base may be a parameter, for a level built over whatever schema it is given, bounded by the least level it reads,
+ * `<Base extends SchemaOver<typeof Policy>>(base: Base) => schema.extend(base, ...)`, or by AnySchema: the call checks
+ * its list, its derived relations and its statements over that least level (Least, read off the bound's `least`
+ * member, LeastStated), and the same checks over the base itself wait for the parameter's instantiation, which
+ * refuses the level there (Extended).
  */
 const extend = <
 	Base extends AnySchema,
 	const Name extends string,
 	const Relations extends ReadonlyArray<
-		AnyRelation | AnyClosed | DerivedAt<LevelsOf<Base>> | AnyFragment | AnyFunction
+		AnyRelation | AnyClosed | DerivedAt<LevelsOf<LeastOf<Base, Least>>> | AnyFragment | AnyFunction
 	>,
-	const Statements extends ReadonlyArray<Statement>
+	const Statements extends ReadonlyArray<Statement>,
+	Least extends AnySchema = never
 >(
-	base: Base & { readonly statements: StatementsBelow<Base> },
+	base: Base & LeastStated<Least>,
 	name: Name,
-	relations: Relations & DeclaredOnce<Relations, Base["relations"]>,
+	relations: Relations & DeclaredOnce<Relations, LeastOf<Base, Least>["relations"]>,
 	statements: Statements &
-		StatementsWithin<Statements, DeclaredOver<Base["relations"], Relations>> &
-		StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>,
+		StatementsWithin<Statements, LeastRecord<Base, Least, Relations>> &
+		StatementsReadBack<Statements, LeastRecord<Base, Least, Relations>>,
 	...extra: ReadonlyArray<never>
-): Schema<
-	Name,
-	DeclaredOver<Base["relations"], Relations>,
-	StatementsByName<Statements, DeclaredOver<Base["relations"], Relations>>,
-	Base,
-	FragmentsIn<Relations>
-> =>
-	schemaBuilder.extend<Base, Name, Relations, Statements>(base, name, relations, statements, extra)
+): Extended<Base, Least, Name, Relations, Statements> =>
+	schemaBuilder.extend<Base, Name, Relations, Statements, LeastRecord<Base, Least, Relations>>(
+		base,
+		name,
+		relations,
+		statements,
+		extra
+	)
 
 export const schema: typeof rootSchema & { readonly extend: typeof extend } = Object.freeze(
 	Object.assign(rootSchema, { extend })

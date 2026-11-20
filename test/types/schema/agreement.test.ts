@@ -62,9 +62,9 @@ export const schemas = agreement(schemaCases, {
 		{
 			file: "packages/engine/src/types/schema/schema.ts",
 			original:
-				"\treadonly statements: readonly [...StatementsBelow<Base>, ...StatementsFromNames<Named, Relations>]",
+				"\treadonly statements: readonly [...Below, ...StatementsFromNames<Named, SpelledOver>]",
 			replacement:
-				'\treadonly statements: readonly [\n\t\t...StatementsBelow<Base>,\n\t\t...StatementsFromNames<Named, Relations>,\n\t\t...ReadonlyArray<Fragments["statements"][number]>\n\t]',
+				'\treadonly statements: readonly [\n\t\t...Below,\n\t\t...StatementsFromNames<Named, SpelledOver>,\n\t\t...ReadonlyArray<Fragments["statements"][number]>\n\t]',
 			why: "A level's statements are an open tuple again, its fragments' statements spread as ReadonlyArray after its own (types/schema/schema.ts), so every drawn schema's StatementsOf is no longer the tuple its calls wrote; the agreement's program fails."
 		},
 		{

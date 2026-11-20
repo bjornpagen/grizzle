@@ -3797,6 +3797,16 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   ([Errors and outcomes](#errors-and-outcomes)). `Qti`'s own laws are named as they would be were `Ledger` not
   installed: a process holds no predicate of a law above it, so it never claims to judge one, and judges each of its
   own.
+- **A level over whatever base it is given.** A package's level over the base its installation hands it is a function
+  of that base, bounded by the least level it reads: `export const ledgerOf = <Base extends SchemaOver<typeof Qti>>(base:
+  Base) => schema.extend(base, "Ledger", [Sitting], [contained(on(Sitting, "item"), on(Item, "id"))])`. The call checks
+  the level over that least level, the one level it knows: its relations' names against `Qti`'s, its statements'
+  relations among `Qti`'s and its own, and each derived relation's definition a query over a level of `Qti`. `AnySchema`
+  is the weakest bound, which knows no relation's name and admits no derived relation. The same checks over the base
+  itself wait for `ledgerOf(base)`: a level the base refuses, one of whose relations takes a name the base holds
+  another relation under, or whose statement names a relation the base lacks, is typed with its refusal, which no
+  schema admits, so it is refused wherever it is taken as a schema, as a base, a role's or a login's, naming the rule
+  it breaks: `Refusal<"two relations of one name across a schema's levels">`.
 
 ## Fragments
 

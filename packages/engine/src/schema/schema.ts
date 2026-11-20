@@ -44,11 +44,10 @@ import type {
 	AnyFragment,
 	AnySchema,
 	Declared,
-	DeclaredOver,
+	Extension,
 	Fragment,
 	FragmentsIn,
 	Schema,
-	StatementsBelow,
 	StatementsByName,
 	StatementsReadBack
 } from "#compiler/types/schema/schema.ts"
@@ -617,7 +616,8 @@ const admitExtend = (
 /**
  * A level named `name` over `base`: relations, derived relations among them, and statements; the value holds the
  * base's relations, then each relation of its own list the base does not declare (record.ts levelRecordOver), and the
- * base's statements before its own, its own read back whole as the root's are, and the base it extends.
+ * base's statements before its own, its own read back whole as the root's are over the record SpelledOver they are
+ * spelled over (types/schema/schema.ts Extension), and the base it extends.
  */
 const extend = <
 	Base extends AnySchema,
@@ -625,31 +625,22 @@ const extend = <
 	const Relations extends ReadonlyArray<
 		AnyRelation | AnyClosed | AnyDerived | AnyFragment | AnyFunction
 	>,
-	const Statements extends ReadonlyArray<Statement>
+	const Statements extends ReadonlyArray<Statement>,
+	SpelledOver
 >(
-	base: Base & { readonly statements: StatementsBelow<Base> },
+	base: Base,
 	name: Name,
 	relations: Relations,
-	statements: Statements &
-		StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>,
+	statements: Statements & StatementsReadBack<Statements, SpelledOver>,
 	extra: ReadonlyArray<unknown>
-): Schema<
-	Name,
-	DeclaredOver<Base["relations"], Relations>,
-	StatementsByName<Statements, DeclaredOver<Base["relations"], Relations>>,
-	Base,
-	FragmentsIn<Relations>
-> => {
+): Extension<Base, Name, Relations, Statements, SpelledOver> => {
 	const admitted = admitExtend(base, name, relations, statements, extra)
-	const below: StatementsBelow<Base> = base.statements
-	const added: StatementsReadBack<
-		Statements,
-		DeclaredOver<Base["relations"], Relations>
-	> = statements
-	const all: readonly [
-		...StatementsBelow<Base>,
-		...StatementsReadBack<Statements, DeclaredOver<Base["relations"], Relations>>
-	] = [...below, ...added]
+	const below: Base["statements"] = base.statements
+	const added: StatementsReadBack<Statements, SpelledOver> = statements
+	const all: readonly [...Base["statements"], ...StatementsReadBack<Statements, SpelledOver>] = [
+		...below,
+		...added
+	]
 	Object.freeze(all)
 	const listed: ReadonlyArray<
 		Base["listed"][number] | FragmentsIn<Relations>["statements"][number]

@@ -1,4 +1,5 @@
 import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
+import type { Refused } from "#compiler/core/refusals.ts"
 import type { Identical } from "#compiler/types/core/identical.ts"
 import type {
 	Carriers,
@@ -60,18 +61,25 @@ import type {
  * the schema (LevelsOf). An extension's statements are its base's, then its own, exactly the tuple its calls wrote; the
  * statements of the fragments its levels list, its base's then its own, each fragment's held by name as the fragment
  * holds them, are apart from them (`listed`), and StatementsOf reads both.
+ *
+ * `Below` is the statements of the levels below it, its base's as the base holds them (StatementsBelow), and
+ * `SpelledOver` the record its own statements are spelled over and read back by: its own record, but for a level
+ * schema.extend built over a base parameter (Extended), whose statements are spelled over its record over the base's
+ * bound, the one record its call knows, and read back as the very statements the call wrote.
  */
 export interface Schema<
 	Name extends string,
 	Relations,
 	Named extends ReadonlyArray<Statement>,
 	Base extends AnySchema = never,
-	Fragments extends AnyFragment = never
+	Fragments extends AnyFragment = never,
+	Below extends ReadonlyArray<Statement> = StatementsBelow<Base>,
+	SpelledOver = Relations
 > extends Phantom<{ readonly extends: Base; readonly fragments: Fragments }> {
 	readonly kind: "schema"
 	readonly name: Name
 	readonly relations: Relations
-	readonly statements: readonly [...StatementsBelow<Base>, ...StatementsFromNames<Named, Relations>]
+	readonly statements: readonly [...Below, ...StatementsFromNames<Named, SpelledOver>]
 	readonly listed: ReadonlyArray<Base["listed"][number] | Fragments["statements"][number]>
 }
 
@@ -373,7 +381,137 @@ export interface AnySchema extends Built {
 	readonly relations: Readonly<Record<string, AnyRelation | AnyClosed | AnyDerived>>
 	readonly statements: ReadonlyArray<Statement>
 	readonly listed: ReadonlyArray<Statement>
+	/**
+	 * The least level of a base parameter bounded by AnySchema, the weakest bound (SchemaOver): AnySchema, none of whose
+	 * relations' names a call knows.
+	 */
+	readonly [least]?: AnySchema | undefined
+	/** No schema is refused: a level its instantiation refuses states its refusal here (Extended), which no schema admits. */
+	readonly [refused]?: undefined
 }
+
+/**
+ * The keys a schema type's bound and its refusal ride under, phantoms no runtime value holds (core/phantom.ts): the least
+ * level a base parameter's bound states (SchemaOver), and the refusal of a level its instantiation refuses (Extended).
+ */
+declare const least: unique symbol
+declare const refused: unique symbol
+
+/**
+ * A schema of which L is a level: the bound of a base parameter, for a level built over whatever schema of L it is
+ * given, `<Base extends SchemaOver<typeof Policy>>(base: Base) => schema.extend(base, "Analysis", relations,
+ * statements)`. It holds L's relations under their names, and states L as its least level, the level a call of
+ * schema.extend over the parameter reads its checks over (Extended). AnySchema is the weakest bound, whose relations'
+ * names no call knows.
+ */
+export interface SchemaOver<L extends AnySchema> extends AnySchema {
+	readonly relations: L["relations"]
+	readonly [least]?: L | undefined
+}
+
+/**
+ * What schema.extend infers a base's least level Least from: the `least` member a bound states (SchemaOver, AnySchema),
+ * which a base parameter's type reads from its constraint. A built schema states none, so Least is inferred from none
+ * and stays never. `kind`, a member every schema has, keeps it no weak type.
+ */
+export interface LeastStated<Least> {
+	readonly kind: "schema"
+	readonly [least]?: Least | undefined
+}
+
+/** A base's least level: the base itself where it states none, a built schema; its bound's level where it is a parameter. */
+export type LeastOf<Base extends AnySchema, Least extends AnySchema> = [Least] extends [never]
+	? Base
+	: Least
+
+/**
+ * The record a level's statements are spelled over: its record over its base's least level (LeastOf), which is its record
+ * over the base where the base is a built schema.
+ */
+export type LeastRecord<
+	Base extends AnySchema,
+	Least extends AnySchema,
+	Relations extends ReadonlyArray<unknown>
+> = DeclaredOver<LeastOf<Base, Least>["relations"], Relations>
+
+/**
+ * The level schema.extend builds over Base, named Name, of its list Relations and its statements Statements spelled over
+ * the record SpelledOver: its record over the base's (DeclaredOver), and its statements below its own its base's.
+ */
+export type Extension<
+	Base extends AnySchema,
+	Name extends string,
+	Relations extends ReadonlyArray<unknown>,
+	Statements extends ReadonlyArray<Statement>,
+	SpelledOver
+> = Schema<
+	Name,
+	DeclaredOver<Base["relations"], Relations>,
+	StatementsByName<Statements, SpelledOver>,
+	Base,
+	FragmentsIn<Relations>,
+	Base["statements"],
+	SpelledOver
+>
+
+/**
+ * What schema.extend(base, name, relations, statements) builds: the level over Base (Extension). Its call checks its
+ * list and its statements over the base's least level (LeastOf): the base itself where it is a built schema, so every
+ * check is the base's at the call; where it is a base parameter, its bound's level, the one level the call knows, and
+ * the same checks over the base itself wait for the parameter's instantiation, where the base is known
+ * (InstantiationRefusal). A level its instantiation refuses states the refusal under `refused`, which no schema admits
+ * (AnySchema), so it is refused wherever it is taken as a schema: a base of another level, a role's, a login's.
+ */
+export type Extended<
+	Base extends AnySchema,
+	Least extends AnySchema,
+	Name extends string,
+	Relations extends ReadonlyArray<unknown>,
+	Statements extends ReadonlyArray<Statement>
+> = RefusedAt<
+	Extension<Base, Name, Relations, Statements, LeastRecord<Base, Least, Relations>>,
+	InstantiationRefusal<Base, Least, Relations, Statements>
+>
+
+/**
+ * A level refused by Why, none where Why is never: the level, with the refusal under `refused`. The level is the
+ * value either way, which states no refusal, so the builder's value is the level whatever its instantiation decides.
+ */
+type RefusedAt<Level, Why> = [Why] extends [never]
+	? Level
+	: Level & { readonly [refused]?: Refusal<Why & Refused> }
+
+/**
+ * The rule a level over a base parameter breaks at its instantiation, never where its base is a built schema (Least is
+ * never), whose call checked each rule over the base itself: each check its call read over the base's least level, read
+ * again over the base, in the order the call checks them.
+ */
+type InstantiationRefusal<
+	Base extends AnySchema,
+	Least extends AnySchema,
+	Relations extends ReadonlyArray<unknown>,
+	Statements extends ReadonlyArray<Statement>
+> = [Least] extends [never] ? never : RefusalOver<Base, Relations, Statements>
+
+/**
+ * The first rule a level of the list Relations and the statements Statements over the base Base breaks, its call's
+ * checks over the base itself: a relation of a name the base holds another relation of (DeclaredOnce), a statement
+ * naming a relation no level declares (StatementsWithin), and a derived relation whose definition is a query over no
+ * level of the base (extend's DerivedAt).
+ */
+type RefusalOver<
+	Base extends AnySchema,
+	Relations extends ReadonlyArray<unknown>,
+	Statements extends ReadonlyArray<Statement>
+> = [Clashing<Relations, Base["relations"]>] extends [never]
+	? [Undeclared<DeclaredOver<Base["relations"], Relations>, NamedBy<Statements[number]>>] extends [
+			never
+		]
+		? [Exclude<Extract<Relations[number], AnyDerived>, DerivedAt<LevelsOf<Base>>>] extends [never]
+			? never
+			: "a derived definition is a query over a level of the schema it extends"
+		: "a statement names a relation no level of the schema declares"
+	: "two relations of one name across a schema's levels"
 
 /** A derived relation whose definition is a query over one of the levels L. */
 export type DerivedAt<L> = L extends unknown

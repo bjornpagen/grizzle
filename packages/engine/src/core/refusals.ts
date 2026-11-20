@@ -26,6 +26,7 @@ export const refusals = [
 	"a declared name: ASCII letters, digits and underscores, a letter first",
 	"a derived definition has at least one field",
 	"a derived definition has one heading: a materialized view stores one heading group",
+	"a derived definition is a query over a level of the schema it extends",
 	"a derived definition reads no context: a materialized view holds no session",
 	"a divisor proved nonzero: guard it with Compute.when(Compute.nonzero(x), (x) => …, otherwise)",
 	"a family counts by an ordinary relation's drawn count: a closed relation's count numbers the slots of its key",

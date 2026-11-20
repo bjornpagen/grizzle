@@ -67,6 +67,11 @@ export default defineConfig({
   spreading records, which drops one of two relations of a name. A name is one relation across every level: a relation
   listed twice or an identical copy is one declaration, two that differ are `DuplicateIdentity` naming both, and so is
   a law built over a relation of a declared name other than the one declared.
+- A package's level over whatever base its installation hands it is a function of that base, bounded by the least
+  level it reads: `<Base extends SchemaOver<typeof Qti>>(base: Base) => schema.extend(base, "Ledger", ...)`, or
+  `AnySchema`, which knows no relation's name and admits no derived relation. The call checks the level over the bound;
+  the same checks over the base wait for the call with it, whose result, refused, carries `Refusal<"...">` and is
+  refused wherever it is taken as a schema.
 - A library's relations and laws can be one value, `fragment(relations, statements)`, which an application lists
   among its relations, `schema("App", [...own, Jobs], laws)`. The fragment is a level of every schema that lists it:
   queries and ChangeSets written over it (`query(Jobs)`, `ChangeSet.empty(Jobs)`) stand in that schema's workloads, and
