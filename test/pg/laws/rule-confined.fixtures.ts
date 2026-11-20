@@ -4,7 +4,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { parsePlan, planNodes } from "#bench/harness/explain.ts"
+import { planNodes } from "#bench/harness/explain.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -21,9 +21,8 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { wholeStatementsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { plannedQueryOf } from "#test/support/judge.ts"
+import { judgedPlans } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -134,7 +133,8 @@ const docName = (d: string): string =>
 /**
  * One case in its one transaction, which the case's end rolls back: `packages` packages of `documents` lawful documents
  * loaded with the captures off, ANALYZE where the case draws it, then document 0 of package 1 written whole through
- * the captures and judged. Each whole rule's statement is explained: every scan of a stored table reads, a loop, the
+ * the captures. Each whole rule's statement is explained over the deltas that hold its rows (test/support/judge.ts
+ * judgedPlans), and then the judge runs: every scan of a stored table reads, a loop, the
  * rows of one unit, one node, its output and what its filters removed together, never a node of another document,
  * which a read of Node through an index of (pkg, kind, at) reads, every document of the package at that place.
  */
@@ -176,20 +176,17 @@ export const runConfined = (
 			...statistics,
 			"SET CONSTRAINTS ALL DEFERRED",
 			`INSERT INTO ${node} (${nodeColumns}) SELECT 1, ${docName("0")}, a, a, 0, 0 FROM ${written}`,
-			`INSERT INTO ${typed} (${typedColumns}) SELECT 1, ${docName("0")}, a, a, 0 FROM ${written}`,
-			"SET CONSTRAINTS ALL IMMEDIATE"
+			`INSERT INTO ${typed} (${typedColumns}) SELECT 1, ${docName("0")}, a, a, 0 FROM ${written}`
 		]) {
 			yield* connection.query(sql, [])
 		}
 		const storedTables = new Set([node, typed])
-		const statements = wholeStatementsOf(installed.installation)
-		assert.ok(statements.length > 0, "the judge holds the whole rule's statement")
-		for (const statement of statements) {
-			const explained = yield* connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
-				[]
-			)
-			const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+		const judged = yield* judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			wholeStatementsOf(installed.installation)
+		)
+		for (const { plan } of judged) {
 			const scans = Arr.filter(planNodes(plan), (n) =>
 				Option.match(n.relation, {
 					onNone: () => false,
@@ -208,5 +205,6 @@ export const runConfined = (
 				`${Formatter.format(stored)}: each scan of a stored table reads one node a loop, its unit's, beside ${stored.documents} documents of its package at each place: ${Formatter.format(read)}`
 			)
 		}
+		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		c.note(stored.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})

@@ -401,8 +401,9 @@ const loadedSql = (installed: Installed, from: number, to: number): ReadonlyArra
 
 /**
  * One locality case in its one transaction, which the case's end rolls back: `stored` lawful documents loaded with the
- * captures off, ANALYZE where the case draws it, one document written whole through the captures, and the judge. Each
- * whole rule's statement is explained, and again once `more` documents are loaded: each reads fewer rows than the
+ * captures off, ANALYZE where the case draws it, and one document written whole through the captures. Each whole
+ * rule's statement is explained over the deltas that hold its rows (test/support/judge.ts judgedPlans), before the
+ * judge, which runs at the case's end, and again once `more` documents are loaded: each reads fewer rows than the
  * documents beside the written one, both times, the written document's tokens alone, never a token of another
  * document. Then `written` documents are written whole, and four times as many: every node a statement runs more than
  * once reads fewer rows a run than the documents written, one written unit's rows a run, so the judge's work grows with
@@ -424,11 +425,7 @@ export const runTokensLocality = (
 		for (const sql of [...loadedSql(installed, 10, 10 + locality.stored), ...statistics]) {
 			yield* connection.query(sql, [])
 		}
-		for (const sql of [
-			"SET CONSTRAINTS ALL DEFERRED",
-			...documentsSql(installed, 0, 0),
-			"SET CONSTRAINTS ALL IMMEDIATE"
-		]) {
+		for (const sql of ["SET CONSTRAINTS ALL DEFERRED", ...documentsSql(installed, 0, 0)]) {
 			yield* connection.query(sql, [])
 		}
 		const first = yield* readsOf(installed, connection)
@@ -446,11 +443,7 @@ export const runTokensLocality = (
 			[-locality.written, -1],
 			[-5 * locality.written, -locality.written - 1]
 		] as const) {
-			for (const sql of [
-				"SET CONSTRAINTS ALL DEFERRED",
-				...documentsSql(installed, low, high),
-				"SET CONSTRAINTS ALL IMMEDIATE"
-			]) {
+			for (const sql of ["SET CONSTRAINTS ALL DEFERRED", ...documentsSql(installed, low, high)]) {
 				yield* connection.query(sql, [])
 			}
 			const documents = 1 - low
@@ -460,5 +453,6 @@ export const runTokensLocality = (
 				`${Formatter.format(locality)}: each node a whole rule's statement runs more than once reads one written document a run, fewer rows than the ${documents} documents written: ${Formatter.format(reruns)}`
 			)
 		}
+		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		c.note(locality.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})

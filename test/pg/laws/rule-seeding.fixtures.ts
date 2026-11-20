@@ -12,7 +12,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
-import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
+import { rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -33,9 +33,9 @@ import {
 	seatIn,
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
-import { succeeded } from "#test/support/assert.ts"
 import {
 	foundQueryOf,
+	judgedPlans,
 	type JudgedStatement,
 	judgedStatementsOf,
 	plannedQueryOf
@@ -1424,13 +1424,15 @@ const siReadLocks = (session: RawSession) =>
 	)
 
 /**
- * The footprint of touching `touched`, on a fresh session planning for large tables, in one transaction rolled back. A
- * stored row stands in every delta of its table as it is stored: the capture's own statements stand up the session's
- * deltas and arm the judge (`armingOf`), which a statement that writes no row runs none of, the row's image is copied
- * into each delta, and the capture's marks name each in the written set, so the judge's region is the row and the
- * table is not written, which would move the row's index entries. A touched row its table does not store, a block,
- * stands in each delta at its id alone. Then SET CONSTRAINTS ALL IMMEDIATE runs the judge over the deltas; the SIRead locks the transaction
- * holds are counted; and each probe of the judge over the table is explained while the deltas hold the row's images.
+ * The footprint of touching `touched`, on a fresh session planning for large tables, in two transactions rolled back,
+ * each writing the touch alike. A stored row stands in every delta of its table as it is stored: the capture's own
+ * statements stand up the session's deltas and arm the judge (`armingOf`), which a statement that writes no row runs
+ * none of, the row's image is copied into each delta, and the capture's marks name each in the written set, so the
+ * judge's region is the row and the table is not written, which would move the row's index entries. A touched row its
+ * table does not store, a block, stands in each delta at its id alone, as a capture of its insert writes it. In the
+ * first, each probe of the judge over the table is explained while the deltas hold the row's images, before the judge
+ * reads and deletes them (test/support/judge.ts judgedPlans); in the second, SET CONSTRAINTS ALL IMMEDIATE runs the
+ * judge over them and the SIRead locks the transaction holds are counted, the judge's alone, no explained read's.
  */
 const footprintOf = (seat: Seat, touched: Touched) =>
 	Effect.gen(function* () {
@@ -1443,58 +1445,56 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 		const t = seat.table(table)
 		const id = seat.column(table, "id")
 		const { standUp, mark } = armingOf(seat, table)
-		const images = touched.stored
-			? Arr.map(deltasOf(seat, table), (d) => {
-					const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
-					const values = Arr.join(
+		const images = Arr.map(deltasOf(seat, table), (d) => {
+			const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
+			return touched.stored
+				? `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${Arr.join(
 						Arr.map(d.columns, (c) => (c === countColumn ? "1" : quoteIdent(c))),
 						", "
-					)
-					return `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${values} FROM ${t} WHERE ${id} = ${touched.id}`
-				})
-			: Arr.flatMap(deltasOf(seat, table), (d) =>
-					Arr.contains(d.columns, countColumn)
-						? [
-								`INSERT INTO pg_temp.${quoteIdent(d.name)} (${Arr.join(Arr.map(d.columns, quoteIdent), ", ")}) SELECT ${Arr.join(
-									Arr.map(d.columns, (c) =>
-										c === countColumn
-											? "1"
-											: quoteIdent(c) === id
-												? `${touched.id}`
-												: assert.fail(`a block's delta holds ${c}`)
-									),
-									", "
-								)}`
-							]
-						: []
-				)
+					)} FROM ${t} WHERE ${id} = ${touched.id}`
+				: `INSERT INTO pg_temp.${quoteIdent(d.name)} (${columns}) SELECT ${Arr.join(
+						Arr.map(d.columns, (c) =>
+							c === countColumn
+								? "1"
+								: quoteIdent(c) === id
+									? `${touched.id}`
+									: assert.fail(`a block's delta holds ${c}`)
+						),
+						", "
+					)}`
+		})
 		const write = [
 			...sessionFunction("rule_seed_stand_up", standUp),
 			...images,
 			...sessionFunction("rule_seed_mark", mark)
 		]
-		yield* session.begin
-		const footprint = yield* Effect.onError(
+		/** `measured` after the touch's write, in a transaction rolled back after it. */
+		const touching = <A, E>(measured: Effect.Effect<A, E>) =>
 			Effect.gen(function* () {
-				for (const sql of write) {
-					yield* session.query(sql, [])
-				}
-				yield* session.query("SET CONSTRAINTS ALL IMMEDIATE", [])
-				const locks = yield* siReadLocks(session)
-				const rows: Array<number> = []
-				for (const probe of probesOn(seat, table)) {
-					const explained = yield* session.values(
-						`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(probe)}`,
-						[]
-					)
-					rows.push(rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan))
-				}
-				return { rows, locks } satisfies Footprint
-			}),
-			() => Effect.ignore(session.rollback)
+				yield* session.begin
+				const value = yield* Effect.onError(
+					Effect.gen(function* () {
+						for (const sql of write) {
+							yield* session.query(sql, [])
+						}
+						return yield* measured
+					}),
+					() => Effect.ignore(session.rollback)
+				)
+				yield* session.rollback
+				return value
+			})
+		const judged = yield* touching(
+			judgedPlans(
+				(sql) => session.values(sql, []),
+				seat.installed.installation,
+				probesOn(seat, table)
+			)
 		)
-		yield* session.rollback
-		return footprint
+		const locks = yield* touching(
+			Effect.andThen(session.query("SET CONSTRAINTS ALL IMMEDIATE", []), siReadLocks(session))
+		)
+		return { rows: Arr.map(judged, (p) => rowsRead(p.plan)), locks } satisfies Footprint
 	})
 
 export type LocalityFeature = `${Shape} measured`

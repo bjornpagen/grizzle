@@ -1423,6 +1423,14 @@ const definitionText = (column: ColumnDefinition): string =>
 		...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
 	].join(" ")
 
+/** A session table's CREATE: the judge's PL/pgSQL statement that stands up a delta or the sentinel (CreateSessionTable),
+ * as a test that stands one up before the judge runs spells it too. */
+export const sessionTableCreate = (
+	name: string,
+	columns: ReadonlyArray<ColumnDefinition>
+): string =>
+	`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name })} (${columns.map(definitionText).join(", ")}) ON COMMIT PRESERVE ROWS`
+
 const columnHead = (column: ColumnDef): string => {
 	const parts = [quoteIdent(column.name), printType(column.type)]
 	if (column.collation !== undefined) {
@@ -1703,9 +1711,7 @@ const plStatement = (out: Lines, statement: PlStatement): void => {
 			selectBlock(out, statement.query)
 			return out.line(";")
 		case "createSessionTable":
-			return out.line(
-				`CREATE TEMPORARY TABLE ${printTableName({ schema: temporarySchema, name: statement.name })} (${statement.columns.map(definitionText).join(", ")}) ON COMMIT PRESERVE ROWS;`
-			)
+			return out.line(`${sessionTableCreate(statement.name, statement.columns)};`)
 		case "createSessionTrigger":
 			return out.line(
 				`CREATE CONSTRAINT TRIGGER ${quoteIdent(statement.name)} AFTER INSERT ON ${printTableName({ schema: temporarySchema, name: statement.table })} DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION ${printObjectName(statement.function)}();`

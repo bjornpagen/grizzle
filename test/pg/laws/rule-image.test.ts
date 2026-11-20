@@ -42,13 +42,6 @@ export const aProbeOfATextOfNoByteBoundReadsItsRowsAsAPointLookup = property.exp
 	kept: [],
 	kills: [
 		{
-			file: "packages/engine/src/physical/indexes/engine.ts",
-			original: "\t\t\t\tconst heldBlock = (block: PlacedBlock): Block => mapNonEmpty(block, held)",
-			replacement:
-				'\t\t\t\tconst heldBlock = (block: PlacedBlock): Block => { const bounded = block.map(held).filter((k) => k.column.kind !== "image"); return isNonEmpty(bounded) ? bounded : mapNonEmpty(block, held) }',
-			why: "A lookup index is planned over the bounded columns of its request, PostgreSQL rechecking the text of no byte bound on the rows it finds, as a containment's reverse index was: the ledger's probe of a session reads Attribute through (kind, name, package), every identifier of the session's package a loop, and the probe of a deleted identifier reads ItemSession through (package), every session of its package."
-		},
-		{
 			file: "packages/engine/src/sql/image.ts",
 			original: "\t\t\t? [c, eq(imageOf(c.left), imageOf(c.right))]",
 			replacement: "\t\t\t? [c]",

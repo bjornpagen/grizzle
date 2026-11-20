@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
-import { parsePlan, rowsRead } from "#bench/harness/explain.ts"
+import { rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
@@ -20,10 +20,10 @@ import { str } from "#compiler/public/text.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
+	judgedPlans,
 	type JudgedStatement,
 	judgedStatementsOf,
 	plannedQueryOf
@@ -743,24 +743,25 @@ const loaded = (
 	]
 }
 
-/** The rows each probe of the rows written of A reads, as EXPLAIN ANALYZE counts them, on `connection`. */
+/** The rows each probe of the rows written of A reads, as EXPLAIN ANALYZE counts them over the deltas that hold
+ * them (test/support/judge.ts judgedPlans), on `connection`. */
 const readsOf = (installed: Installed, connection: PgConnection) =>
-	Effect.forEach(newsProbesOfA(installed.installation), (probe) =>
-		Effect.map(
-			connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(probe)}`,
-				[]
-			),
-			(explained) => rowsRead(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)
-		)
+	Effect.map(
+		judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			newsProbesOfA(installed.installation)
+		),
+		Arr.map((judged) => rowsRead(judged.plan))
 	)
 
 /**
  * One indexTie case in its one transaction, which the case's end rolls back, so no statistics outlive it and
  * autovacuum sees no row of it: `few` attributes of the touched row's package, name and governor loaded with A's
  * captures off, ANALYZE where the case draws it, the touched row's reference or declaration, then the touched row,
- * which its capture counts on A's side of news, and the judge. Every probe of A's side of news is explained; then
- * `more` such attributes are loaded and each probe explained again. Each must read the same rows.
+ * which its capture counts on A's side of news. Every probe of A's side of news is explained over the deltas that hold
+ * it, before the judge; then `more` such attributes are loaded and each probe explained again, and the judge runs.
+ * Each must read the same rows.
  */
 export const runTie = (
 	installed: Installed,
@@ -781,8 +782,7 @@ export const runTie = (
 				: `INSERT INTO ${names.table(Q)} (package, name) VALUES ('pkg', 7)`
 		for (const sql of [
 			touched,
-			`INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`,
-			"SET CONSTRAINTS ALL IMMEDIATE"
+			`INSERT INTO ${a} (package, path, start, name, governor, note) VALUES ('pkg', 'doc/touched', 0, 7, ${tie.governor}, 0)`
 		]) {
 			yield* connection.query(sql, [])
 		}
@@ -800,5 +800,6 @@ export const runTie = (
 			first,
 			`${Formatter.format(tie)}: each probe of the touched row reads the same rows beside ${tie.more} more rows of its package, name and governor`
 		)
+		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		c.note(tie.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})

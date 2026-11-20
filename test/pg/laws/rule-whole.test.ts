@@ -196,6 +196,13 @@ export const aWholeRuleOverAContainedRelationsJoinReadsItOncePerRowItGainedNever
 				original: "\t\tconst at = proofs.get(place)",
 				replacement: "\t\tconst at: NonEmptyReadonlyArray<string> | undefined = undefined",
 				why: "Marks's region reads every node a transaction wrote, so its statement reads Tag once per node, three a document, where it read it once per tag."
+			},
+			{
+				file: "test/support/judge.ts",
+				original: "\t\tconst temporary = yield* values(",
+				replacement:
+					'\t\tyield* values("SET CONSTRAINTS ALL IMMEDIATE")\n\t\tconst temporary = yield* values(',
+				why: "The judge's statements explained after the judge has run, as every property explained them after SET CONSTRAINTS ALL IMMEDIATE until e8de84026 made each part delete the delta rows it reads: every scan of Tag reads empty deltas, 0 loops, so the bound held over no rows whatever Marks's region read; the measurement is refused, no judged statement reading a delta row."
 			}
 		]
 	})

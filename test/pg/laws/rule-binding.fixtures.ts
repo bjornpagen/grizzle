@@ -4,23 +4,15 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
-import { parsePlan, planNodes, rowsTouched } from "#bench/harness/explain.ts"
+import { planNodes, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
-import { temporarySchema } from "#compiler/core/temporary.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
-import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import {
-	type JudgedStatement,
-	judgedStatementsOf,
-	plannedQueryOf,
-	raisedRule
-} from "#test/support/judge.ts"
+import { judgedPlans, judgedStatementsOf, raisedRule } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -190,43 +182,12 @@ const documentRows = (
 const writtenRows = (b: Binding): number =>
 	b.documents * (2 * b.nodes - 1 + Math.floor((b.nodes - 1) / 8))
 
-/** The deltas a judged statement reads: its tables of pg_temp, each by name once. */
-const deltasRead = (statement: JudgedStatement): ReadonlyArray<string> => {
-	const names = new Set<string>()
-	visitSelect(statement.query, {
-		...inertVisitor,
-		fromItem: (item) => {
-			if (
-				item.kind === "table" &&
-				typeof item.table !== "string" &&
-				item.table.schema === temporarySchema
-			) {
-				names.add(item.table.name)
-			}
-		}
-	})
-	return [...names]
-}
-
-/**
- * Whether every delta a judged statement reads stands in the session, as the judge runs it: the judge stands up the
- * deltas a transaction writes and those a whole rule's region reads beside them (physical/ddl/rules.ts partsOf), and a
- * probe of a side no write of the case fills, a delete's, reads a delta that never stood.
- */
-const standing = (connection: PgConnection, statement: JudgedStatement) =>
-	Effect.map(
-		connection.queryValues(
-			`SELECT pg_catalog.bool_and(pg_catalog.to_regclass(pg_catalog.format('%I.%I', 'pg_temp', d)) IS NOT NULL)::text FROM pg_catalog.unnest($1::text[]) AS t(d)`,
-			[deltasRead(statement)]
-		),
-		(rows) => rows[0]?.[0] === "true"
-	)
-
 /**
  * One case in its one transaction, which the case's end rolls back: `stored` documents of package 2 loaded with the
  * captures off, then the case's documents of package 1 written through the captures, all into tables the transaction
- * filled, ANALYZE where the case draws it, and the judge run, which accepts them; then every statement the judge runs of
- * either rule (`standing`), explained with ANALYZE as PL/pgSQL plans it (test/support/judge.ts plannedQueryOf). Each
+ * filled, and ANALYZE where the case draws it; then every statement the judge runs of either rule, explained with
+ * ANALYZE as PL/pgSQL plans it over the deltas that hold the rows (test/support/judge.ts judgedPlans), and the judge
+ * run, which accepts them. Each
  * reads every relation a join of it reads by the columns the rows before it bound, a lookup a row of what the
  * transaction wrote: its rows touched, every row each node of its plan handled over all of its loops, at most its plan's
  * nodes times the rows written, whatever PostgreSQL estimates. A join read under its correlation alone, Resolved's
@@ -249,25 +210,24 @@ export const runBinding = (
 			...documentRows(installed, 2, stored, b.nodes),
 			...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
 			...documentRows(installed, 1, b.documents, b.nodes),
-			...statistics,
-			"SET CONSTRAINTS ALL IMMEDIATE"
+			...statistics
 		]) {
 			yield* connection.query(sql, [])
 		}
 		const rows = writtenRows(b)
 		const statements = judgedStatementsOf(installed.installation)
+		const judged = yield* judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			statements
+		)
 		for (const rule of installed.installation.laws.rules) {
 			const identity = identifierOf(rule.named)
 			const read = Arr.filter(statements, (s) => Option.contains(raisedRule(s), identity))
 			assert.ok(read.length > 0, `the judge tests ${identity}`)
-			const ran = yield* Effect.filter(read, (s) => standing(connection, s))
+			const ran = Arr.filter(judged, (p) => Option.contains(raisedRule(p.statement), identity))
 			assert.ok(ran.length > 0, `the judge runs a statement of ${identity} over the rows written`)
-			for (const statement of ran) {
-				const explained = yield* connection.queryValues(
-					`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
-					[]
-				)
-				const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
+			for (const { plan } of ran) {
 				const nodes = Arr.fromIterable(planNodes(plan)).length
 				const touched = rowsTouched(plan)
 				assert.ok(
@@ -276,6 +236,7 @@ export const runBinding = (
 				)
 			}
 		}
+		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		c.note(b.statistics === "none" ? "planned with no statistics" : "planned analyzed")
 		if (b.judged === "probed") {
 			c.note("a probed rule's negated join")

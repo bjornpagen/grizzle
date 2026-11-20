@@ -41,8 +41,8 @@ export const aJudgedCommitLeavesTheSessionsTablesEmptyAndTruncatesNoneOfThem = p
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original: ") ON COMMIT PRESERVE ROWS;`",
-				replacement: ") ON COMMIT DELETE ROWS;`",
+				original: ") ON COMMIT PRESERVE ROWS`",
+				replacement: ") ON COMMIT DELETE ROWS`",
 				why: "The session's deltas and sentinel are ON COMMIT DELETE ROWS, as before, so every COMMIT that touched them truncates each one the session holds, the ones it wrote among them, and they hold no page after it."
 			},
 			{

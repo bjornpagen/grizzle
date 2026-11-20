@@ -15,13 +15,11 @@ import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
-import type { OperandSelect } from "#compiler/sql/ast.ts"
-import { identityHooks, Transform } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { compileTemplate, testCompile } from "#test/support/compile.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
+import { judgedPlans, judgedStatementsOf } from "#test/support/judge.ts"
 import { namesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -185,25 +183,6 @@ const valueSql = (x: string, length: number): string =>
 /** The document whose identifier is the empty text, a value as any other. */
 const emptyDocument = 2
 
-/** The session's tables a query reads, its deltas: every table of pg_temp a FROM of it names. */
-const sessionTablesOf = (query: OperandSelect): ReadonlyArray<string> => {
-	const named: Array<string> = []
-	new Transform({
-		...identityHooks,
-		fromSource: (source) => {
-			if (
-				source.kind === "table" &&
-				typeof source.table !== "string" &&
-				source.table.schema === "pg_temp"
-			) {
-				named.push(source.table.name)
-			}
-			return source
-		}
-	}).select(query)
-	return named
-}
-
 /** The rows a scan reads a loop: its output and what its filters removed. */
 const rowsOf = (n: PlanNode): number =>
 	n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByIndexRecheck
@@ -249,8 +228,9 @@ const lookups = [
  * One case in its one transaction, which the case's end rolls back: `packages` packages of `documents` documents, each
  * a root of an item or a test whose identifier, title and an element's class are attributes, loaded with the captures
  * off, and analyzed; then, through the captures, `sessions` sessions each of a stored identifier, and
- * the deletion of an identifier no session holds, and the judge run (SET CONSTRAINTS ALL IMMEDIATE), which leaves its
- * deltas holding those rows. Each query the judge raises on is then explained over them: every scan of Attribute or
+ * the deletion of an identifier no session holds, whose rows the deltas hold until the judge reads them. Each query the
+ * judge raises on is explained over them before the judge runs (test/support/judge.ts judgedPlans), and then the judge
+ * runs (SET CONSTRAINTS ALL IMMEDIATE) and accepts the lawful state: every scan of Attribute or
  * ItemSession reads, a loop, at most the rows one lookup's every equality matches, its value's among them, and those
  * its image's hash collides with, the most rows of one package and name, or one package, that share a value's image;
  * never a package's identifiers, which an index of the bounded columns alone reads, every one at each lookup.
@@ -305,7 +285,6 @@ export const runImaged = (
 			"SET CONSTRAINTS ALL DEFERRED",
 			`INSERT INTO ${session} (${s("id")}, ${s("package")}, ${s("item")}) SELECT k, ${pkg(`1 + k % ${stored.packages}`)}, ${value(`3 * k % ${stored.documents}`)} FROM generate_series(0, ${stored.sessions - 1}) AS k(k)`,
 			`DELETE FROM ${attribute} WHERE ${a("package")} = ${pkg("1")} AND ${a("path")} = ${path("1")} AND ${a("name")} = 0`,
-			"SET CONSTRAINTS ALL IMMEDIATE",
 			...lookups
 		]
 		for (const sql of [...loaded, ...written]) {
@@ -324,56 +303,55 @@ export const runImaged = (
 			[session, Number(bounds?.[1])]
 		])
 
-		/** The judged queries whose every delta the write stood up: those the judge ran. */
-		const temporary = yield* connection.queryValues(
-			"SELECT relname::text FROM pg_catalog.pg_class WHERE relnamespace = pg_catalog.pg_my_temp_schema()",
-			[]
+		/** The judged queries over the deltas the write stood up, each explained before the judge runs: those it runs. */
+		const judgeQueries = yield* judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			judgedStatementsOf(installed.installation)
 		)
-		const standing = new Set(Arr.map(temporary, (row) => String(row[0])))
-		const queries = Arr.filter(judgedStatementsOf(installed.installation), (q) =>
-			Arr.every(sessionTablesOf(q.query), (t) => standing.has(t))
-		)
-		assert.ok(queries.length > 0, "the judge ran a query it raises on")
-		/**
-		 * Every scan of Attribute or ItemSession `sql` makes, explained as it runs, each within its table's bound; the
-		 * scans, for a read that must make one.
-		 */
+		/** Every scan of Attribute or ItemSession `plan` makes, each within its table's bound; the scans, for a read that
+		 * must make one. */
+		const withinPlan = (plan: PlanNode, what: string) => {
+			const read = Arr.flatMap([...planNodes(plan)], (n): ReadonlyArray<Read> => {
+				const bounded = Option.flatMap(scannedOf(n), (table) =>
+					Option.map(
+						Option.fromUndefinedOr(bound.get(`${quoteIdent(names.schema)}.${quoteIdent(table)}`)),
+						(most) => ({ table, most })
+					)
+				)
+				return Option.isSome(bounded)
+					? [
+							{
+								...bounded.value,
+								node: n.nodeType,
+								index: Option.getOrUndefined(n.index),
+								loops: n.actualLoops,
+								rows: rowsOf(n),
+								buffers: (n.buffers.sharedHit + n.buffers.sharedRead) / Math.max(1, n.actualLoops)
+							}
+						]
+					: []
+			})
+			assert.ok(
+				Arr.every(read, (r) => r.rows <= r.most),
+				`${Formatter.format(stored)}: each scan of Attribute and ItemSession ${what} makes reads, a loop, at most the rows one lookup's equalities and its image's collisions match, beside ${stored.documents} identifiers of each package: ${Formatter.format(read)}`
+			)
+			return read
+		}
+		/** Every scan of Attribute or ItemSession `sql` makes, explained as it runs, each within its table's bound. */
 		const within = (sql: string, what: string) =>
-			Effect.gen(function* () {
-				const explained = yield* connection.queryValues(
+			Effect.map(
+				connection.queryValues(
 					`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${sql}`,
 					[]
-				)
-				const plan = succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-				const read = Arr.flatMap([...planNodes(plan)], (n): ReadonlyArray<Read> => {
-					const bounded = Option.flatMap(scannedOf(n), (table) =>
-						Option.map(
-							Option.fromUndefinedOr(bound.get(`${quoteIdent(names.schema)}.${quoteIdent(table)}`)),
-							(most) => ({ table, most })
-						)
-					)
-					return Option.isSome(bounded)
-						? [
-								{
-									...bounded.value,
-									node: n.nodeType,
-									index: Option.getOrUndefined(n.index),
-									loops: n.actualLoops,
-									rows: rowsOf(n),
-									buffers: (n.buffers.sharedHit + n.buffers.sharedRead) / Math.max(1, n.actualLoops)
-								}
-							]
-						: []
-				})
-				assert.ok(
-					Arr.every(read, (r) => r.rows <= r.most),
-					`${Formatter.format(stored)}: each scan of Attribute and ItemSession ${what} makes reads, a loop, at most the rows one lookup's equalities and its image's collisions match, beside ${stored.documents} identifiers of each package: ${Formatter.format(read)}`
-				)
-				return read
-			})
-		for (const judged of queries) {
-			yield* within(plannedQueryOf(judged), "the judge's query")
+				),
+				(explained) =>
+					withinPlan(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan, what)
+			)
+		for (const { plan } of judgeQueries) {
+			withinPlan(plan, "the judge's query")
 		}
+		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])
 		/** The reader's read through its query entry of the documents of package 2 that hold document 5's identifier. */
 		const [stored5] = yield* connection.queryValues(
 			`SELECT ${a("value")} FROM ${attribute} WHERE ${a("package")} = ${pkg("2")} AND ${a("path")} = ${path("5")} AND ${a("name")} = 0`,

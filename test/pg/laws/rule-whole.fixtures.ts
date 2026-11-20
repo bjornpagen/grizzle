@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { aimed, array, boolean, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec } from "effect"
-import { type PlanNode, parsePlan, planNodes, rowsRead } from "#bench/harness/explain.ts"
+import { type PlanNode, planNodes, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
@@ -26,13 +26,12 @@ import {
 } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
+	judgedPlans,
 	type JudgedStatement,
 	judgedStatementsOf,
-	plannedQueryOf,
 	raisedRule
 } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
@@ -1223,14 +1222,13 @@ const loaded = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray
 
 /** Each whole rule's statement's plan, as EXPLAIN ANALYZE runs it, on `connection`. */
 const plansOf = (installed: Installed, connection: PgConnection) =>
-	Effect.forEach(wholeStatementsOf(installed.installation), (statement) =>
-		Effect.map(
-			connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
-				[]
-			),
-			(explained) => succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan
-		)
+	Effect.map(
+		judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			wholeStatementsOf(installed.installation)
+		),
+		Arr.map((judged) => judged.plan)
 	)
 
 /** The rows each whole rule's statement reads of the stored tables, as EXPLAIN ANALYZE counts them, on `connection`. */
@@ -1262,24 +1260,30 @@ const heaviestRerun = (plan: PlanNode): Rerun | undefined =>
 export const rerunsOf = (installed: Installed, connection: PgConnection) =>
 	Effect.map(plansOf(installed, connection), Arr.map(heaviestRerun))
 
-/** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole. */
+/** The statements writing lawful documents `from` to `to` through the captures, as a publish writes them whole, their
+ * rows standing in the deltas until the judge reads them. */
 const writtenWhole = ({ node, expr }: Tables, from: number, to: number): ReadonlyArray<string> => [
 	"SET CONSTRAINTS ALL DEFERRED",
 	`INSERT INTO ${node} (doc, sub, part, start, parent, kind) SELECT d, d + 1000000, d + 2000000, s, 0, CASE WHEN s = 0 THEN 2 WHEN s = 1 THEN 1 ELSE 0 END FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`,
-	"SET CONSTRAINTS ALL IMMEDIATE"
+	`INSERT INTO ${expr} (doc, sub, part, start, type) SELECT d, d + 1000000, d + 2000000, s, 1 FROM generate_series(${from}, ${to}) AS g(d), generate_series(0, 2) AS h(s)`
 ]
+
+/** The judge's run, after every measurement of its statements, which reads and deletes the deltas' rows. */
+const judgeRun = "SET CONSTRAINTS ALL IMMEDIATE"
 
 /**
  * One locality case in its one transaction, which the case's end rolls back: `stored` lawful documents loaded with the
- * captures off, ANALYZE where the case draws it, one document written whole, which the captures hold, and the judge.
- * Every whole rule's statement is explained; then `more` documents are loaded and each explained again. Each must read
+ * captures off, ANALYZE where the case draws it, and one document written whole, which the captures hold. Every whole
+ * rule's statement is explained over the deltas that hold its rows (test/support/judge.ts judgedPlans); then `more`
+ * documents are loaded and each explained again. Each must read
  * fewer rows than there are documents beside the written one, each three rows of each table, both times: the written
  * document's rows, three of each table, read once per unit of the region or once per fact a negation reads them at,
  * whichever plan PostgreSQL chooses, and never a row of another document, a read of which reads past the written unit's
  * key range into all of them.
  *
- * Then `written` more documents are written whole, and three times as many again, each statement explained both times:
+ * Then `written` more documents are written whole, and three times as many again, each statement explained both times
+ * over the deltas that hold every document written so far, and the judge runs at the case's end, after every
+ * measurement, since it deletes every row of a delta it reads:
  * every node of its plan that runs more than once must handle fewer rows a run than there are documents written. A
  * node runs more than once inside a step, once per written unit, and reads that unit's rows alone, a few of each
  * table, whatever the units written; one that reads the region again inside a step, or a second copy of it that an
@@ -1302,8 +1306,7 @@ export const runLocality = (
 		const written = 0
 		for (const sql of [
 			`INSERT INTO ${tables.node} (doc, sub, part, start, parent, kind) VALUES (${placed(written)}, 0, 0, 2), (${placed(written)}, 1, 0, 1), (${placed(written)}, 2, 0, 0)`,
-			`INSERT INTO ${tables.expr} (doc, sub, part, start, type) VALUES (${placed(written)}, 0, 1), (${placed(written)}, 1, 1), (${placed(written)}, 2, 1)`,
-			"SET CONSTRAINTS ALL IMMEDIATE"
+			`INSERT INTO ${tables.expr} (doc, sub, part, start, type) VALUES (${placed(written)}, 0, 1), (${placed(written)}, 1, 1), (${placed(written)}, 2, 1)`
 		]) {
 			yield* connection.query(sql, [])
 		}
@@ -1333,6 +1336,7 @@ export const runLocality = (
 				`${Formatter.format(locality)}: each node a whole rule's statement runs more than once reads one written unit a run, fewer rows than the ${documents} documents written: ${Formatter.format(reruns)}`
 			)
 		}
+		yield* connection.query(judgeRun, [])
 		c.note(locality.statistics === "none" ? "measured with no statistics" : "measured analyzed")
 	})
 
@@ -1356,7 +1360,7 @@ export const narrowedGen: Gen<Narrowed> = (s) => ({
 /**
  * One case of the narrowed region in its one transaction, which the case's end rolls back: `documents` lawful documents
  * written whole through the captures, as a publish writes them, the first `tagged` of them tagged at their start 2, a
- * node of kind 0 at mark 1, then the judge, and every whole rule's statement explained. Each scan of Tag runs at most
+ * node of kind 0 at mark 1, every whole rule's statement explained over the deltas that hold them, and then the judge. Each scan of Tag runs at most
  * once per tag written: Marks joins Tag and Node at Node's key, Tag contained in Node there, so its region holds the
  * tags' units and no node's, every node written fresh (analysis/theory/unit.ts proofsOf), and Tagged's region holds
  * the tags' units and the nodes removed, none; where the region held every node written, Marks would read Tag once per
@@ -1371,14 +1375,14 @@ export const runNarrowed = (
 	Effect.gen(function* () {
 		const tables = tablesOf(installed, narrowed.shape)
 		for (const sql of [
-			...writtenWhole(tables, 1, narrowed.documents).slice(0, -1),
-			`INSERT INTO ${tables.tag} (doc, sub, part, start, mark) SELECT d, d + 1000000, d + 2000000, 2, 1 FROM generate_series(1, ${narrowed.tagged}) AS g(d)`,
-			"SET CONSTRAINTS ALL IMMEDIATE"
+			...writtenWhole(tables, 1, narrowed.documents),
+			`INSERT INTO ${tables.tag} (doc, sub, part, start, mark) SELECT d, d + 1000000, d + 2000000, 2, 1 FROM generate_series(1, ${narrowed.tagged}) AS g(d)`
 		]) {
 			yield* connection.query(sql, [])
 		}
 		const tag = installed.installation.names.relation("Tag").name
 		const plans = yield* plansOf(installed, connection)
+		yield* connection.query(judgeRun, [])
 		const loops = Arr.flatMap(plans, (plan) =>
 			Iterator.from(planNodes(plan))
 				.filter((n) => Option.contains(n.relation, tag))

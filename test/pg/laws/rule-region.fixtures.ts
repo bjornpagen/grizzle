@@ -4,15 +4,14 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { parsePlan, rowsTouched } from "#bench/harness/explain.ts"
+import { rowsTouched } from "#bench/harness/explain.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, key, mutable, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { succeeded } from "#test/support/assert.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
+import { judgedPlans, judgedStatementsOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -106,14 +105,13 @@ export type RepeatsFeature = "a probed rule's region" | "a whole rule's region"
  * `connection`: its work.
  */
 const workOf = (installed: Installed, connection: PgConnection) =>
-	Effect.forEach(judgedStatementsOf(installed.installation), (statement) =>
-		Effect.map(
-			connection.queryValues(
-				`EXPLAIN (ANALYZE, BUFFERS, TIMING OFF, SETTINGS, FORMAT JSON) ${plannedQueryOf(statement)}`,
-				[]
-			),
-			(explained) => rowsTouched(succeeded(parsePlan(explained[0]?.[0]), "one EXPLAIN plan").plan)
-		)
+	Effect.map(
+		judgedPlans(
+			(sql) => connection.queryValues(sql, []),
+			installed.installation,
+			judgedStatementsOf(installed.installation)
+		),
+		Arr.map((judged) => rowsTouched(judged.plan))
 	)
 
 /**
