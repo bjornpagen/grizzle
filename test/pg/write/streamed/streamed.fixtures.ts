@@ -1,0 +1,192 @@
+/** What streamed.test.ts reads: its schema, its space, and each case's run. */
+
+import { assert } from "@bjornpagen/testing/assert"
+import { element, type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Option, String as Str } from "effect"
+import { installWrites, openFull } from "#bench/write/support/writes.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { counted, fin, key, on, relation, schema } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { answered } from "#test/support/calls.ts"
+import { member } from "#test/support/served-db.ts"
+import { Substrate } from "#test/support/substrate/substrate.ts"
+
+const Text = str.bytes(512, str.regex("^.*$", "su"))
+
+/** Nodes of documents, wide, keyed (doc, path, at) and by seq, as edullm's qti.node and learning-commons' standards. */
+const Wide = relation(
+	"Wide",
+	{ doc: pg.bigint, path: Text, at: pg.bigint, seq: pg.bigint, body: Text },
+	["doc", "path", "at"]
+)
+
+/** An area and its counted members, members facts of their own, as learning-commons' GuidanceArea and Guideline. */
+const Area = relation("Area", { area: pg.bigint, members: drawn(natural) }, ["area"])
+
+const Member = relation("Member", { member: pg.bigint, area: pg.bigint }, ["member"])
+
+/** A relation every call of the case's insertAll names with no facts, as learning-commons' parts name every other. */
+const Note = relation("Note", { id: pg.bigint }, ["id"])
+
+const build = (name: string) =>
+	schema(
+		name,
+		[Wide, Area, Member, Note],
+		[key(on(Wide, "seq")), counted(on(Member, "area"), fin(Area, "members"))]
+	)
+
+/**
+ * A case: how many wide facts one call inserts and how wide each body is, how many areas and members each, and what the
+ * call states besides: every fact once, its first fact again as its last (a repeat across shares), its first fact
+ * stored before the call and stated again as its last (a stored fact repeated across shares), or its last fact at its
+ * first's seq with its own key (a pair across shares, refused on the seq key).
+ */
+export interface Streamed {
+	readonly facts: number
+	readonly body: number
+	readonly areas: number
+	readonly members: number
+	readonly shape: "distinct" | "repeated" | "stored" | "paired"
+}
+
+export const streamedGen: Gen<Streamed> = (s) => ({
+	facts: s.draw(int(6000, 10000)),
+	body: s.draw(int(200, 400)),
+	areas: s.draw(int(20, 60)),
+	members: s.draw(int(1, 40)),
+	shape: s.draw(element(["distinct", "repeated", "stored", "paired"] as const))
+})
+
+export type StreamedFeature =
+	| "every fact once"
+	| "a fact repeated across shares"
+	| "a stored fact repeated across shares"
+	| "a pair refused across shares"
+
+/** Wide fact `i`: document i mod 7, a long path, at i, seq i. */
+const wideOf = (c: Streamed, i: number) => ({
+	doc: BigInt(i % 7),
+	path: `document/${Str.padStart(6, "0")(String(i % 997))}/${Str.repeat(120)("p")}`,
+	at: BigInt(i),
+	seq: BigInt(i),
+	body: `${Str.repeat(c.body)("b")}${String(i)}`
+})
+
+/** The call's wide facts as its shape states them. */
+const widesOf = (c: Streamed) => {
+	const facts = Arr.map(
+		Array.from({ length: c.facts }, (_, i) => i),
+		(i) => wideOf(c, i)
+	)
+	switch (c.shape) {
+		case "distinct":
+			return facts
+		case "repeated":
+		case "stored":
+			return [...facts, wideOf(c, 0)]
+		case "paired":
+			return [...facts, { ...wideOf(c, c.facts), seq: 0n }]
+	}
+}
+
+/**
+ * One case on a fresh installation: the call's facts inserted through the Db's served change member (adapter/db/
+ * handles.ts applyChange), which draws them in shares of whole groups and sends each as a flight of the call's one
+ * transaction (adapter/apply/run.ts runWriteShares). It answers what one execution of every fact answers: accepted with
+ * every distinct fact added once, each area its members counted, a repeat added once; or, for a pair across shares,
+ * refused, storing nothing.
+ */
+export const runStreamed = (c: Streamed, k: Case<StreamedFeature>) =>
+	Effect.scoped(
+		Effect.gen(function* () {
+			const fx = yield* installWrites(build("Streamed"), "streamed", { programs: {}, logins: [] })
+			const S = build(fx.installed.declared)
+			const db = yield* openFull(fx, S)
+			const served = yield* db.serve({
+				load: ChangeSet.empty(S).insertAll({ Wide: [], Area: [], Member: [], Note: [] })
+			})
+			const wides = widesOf(c)
+			const areas = Arr.map(
+				Array.from({ length: c.areas }, (_, i) => i + 1),
+				(area) => ({ area: BigInt(area) })
+			)
+			const members = Arr.flatMap(
+				Array.from({ length: c.areas }, (_, i) => i + 1),
+				(area) =>
+					Arr.map(
+						Array.from({ length: ((area * 7) % c.members) + 1 }, (_, i) => i + 1),
+						(i) => ({
+							member: BigInt(area * 1000 + i),
+							area: BigInt(area)
+						})
+					)
+			)
+			const call = member(served, "load")
+			if (call.shape !== "write") {
+				return assert.fail("the load member writes")
+			}
+			const load = (facts: {
+				readonly Wide: ReadonlyArray<unknown>
+				readonly Area: ReadonlyArray<unknown>
+				readonly Member: ReadonlyArray<unknown>
+			}) => answered(call.once({ params: {}, facts: { insert: { ...facts, Note: [] } } }))
+			const none = yield* load({ Wide: [], Area: [], Member: [] })
+			assert.ok(
+				"kind" in none && none.kind === "unchanged",
+				`${Formatter.format({ ...c })}: a call of no facts changes nothing, ${Formatter.format(none)}`
+			)
+			if (c.shape === "stored") {
+				const first = yield* load({ Wide: [wideOf(c, 0)], Area: [], Member: [] })
+				assert.ok("kind" in first && first.kind === "accepted", "the stored fact is stored first")
+			}
+			const outcome = yield* load({ Wide: wides, Area: areas, Member: members })
+			const substrate = yield* Substrate
+			const stored = yield* substrate.admin.queryValues(
+				`SELECT (SELECT count(*) FROM ${fx.table("Wide")})::text, (SELECT count(*) FROM ${fx.table("Member")})::text, (SELECT coalesce(sum(members), 0) FROM ${fx.table("Area")})::text, (SELECT count(*) FROM ${fx.table("Area")} a WHERE a.members <> (SELECT count(*) FROM ${fx.table("Member")} m WHERE m.area = a.area))::text`,
+				[]
+			)
+			if (c.shape === "paired") {
+				assert.ok(
+					"kind" in outcome && outcome.kind === "refused",
+					`${Formatter.format({ ...c })}: a pair at one seq across shares is refused, ${Formatter.format(outcome)}`
+				)
+				assert.deepEqual(
+					stored,
+					[["0", "0", "0", "0"]],
+					`${Formatter.format({ ...c })}: the refused call stores nothing`
+				)
+				k.note("a pair refused across shares")
+				return
+			}
+			const counts = "counts" in outcome ? outcome.counts : []
+			const addedOf = (relation: string) =>
+				Option.getOrUndefined(Arr.findFirst(counts, (n) => n.relation === relation))?.added
+			assert.ok(
+				"kind" in outcome && outcome.kind === "accepted",
+				`${Formatter.format({ ...c })}: the call is accepted, ${Formatter.format(outcome)}`
+			)
+			assert.deepEqual(
+				[addedOf("Wide"), addedOf("Area"), addedOf("Member")],
+				[
+					BigInt(c.shape === "stored" ? c.facts - 1 : c.facts),
+					BigInt(c.areas),
+					BigInt(members.length)
+				],
+				`${Formatter.format({ ...c })}: every distinct fact is added once, ${Formatter.format(counts)}`
+			)
+			assert.deepEqual(
+				stored,
+				[[String(c.facts), String(members.length), String(members.length), "0"]],
+				`${Formatter.format({ ...c })}: the tables hold every fact once, each area its members counted`
+			)
+			k.note(
+				c.shape === "repeated"
+					? "a fact repeated across shares"
+					: c.shape === "stored"
+						? "a stored fact repeated across shares"
+						: "every fact once"
+			)
+		})
+	)

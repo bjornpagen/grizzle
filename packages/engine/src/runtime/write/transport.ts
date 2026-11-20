@@ -110,7 +110,7 @@ const workMemDefault = 4096 * 1024
  *   takes before it spills, measured as no temporary block at that share (workMemParts)
  * @from {@link workMemDefault}, {@link workMemParts}
  */
-export const writeBatching: Batching = {
+export const writeBatching: Extract<Batching, { readonly kind: "bounded" }> = {
 	kind: "bounded",
 	bytes: Math.floor(workMemDefault / workMemParts)
 }

@@ -1,6 +1,8 @@
 import * as Arr from "effect/Array"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Order from "effect/Order"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as Stream from "effect/Stream"
@@ -12,6 +14,7 @@ import {
 	readsRow,
 	riddenRows
 } from "#adapter/apply/readback.ts"
+import { callShares } from "#adapter/apply/shares.ts"
 import {
 	type ApplyError,
 	CommitUnknown,
@@ -42,9 +45,12 @@ import {
 	bindFrame,
 	type FlightFailure,
 	type Frame,
+	type BatchOutcome,
+	type FlightBatch,
 	joinFlights,
 	preparedStatement,
-	runFramed
+	runFramed,
+	runFramedFlights
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import type { WrittenAt } from "#adapter/witness/classify.ts"
@@ -57,6 +63,7 @@ import type {
 	FlightWrite,
 	MemberFacts,
 	RefusedLaw,
+	RelationCounts,
 	StatementAt,
 	Transport,
 	Witness
@@ -507,4 +514,164 @@ export const runWrite = <R>(
 		)
 		const changes = interpretRows(flight.outcome, flight.statements, (i) => raws.get(i) ?? noRows)
 		return applyOutcome.committed(changes.counts, reads.read(readsRow(delivered)))
+	})
+
+/** A share of a streamed write a host normalization refused within it, which the whole call judges (runWriteShares). */
+class ShareRejected extends Data.TaggedError("ShareRejected") {}
+
+/** A call drawn in shares (shares.ts callShares), and the inputs of its call of no facts, which its read-backs read. */
+export interface DrawnCall {
+	readonly shares: Iterable<HostCall>
+	readonly empty: BoundInputs
+}
+
+/**
+ * A call's facts drawn in shares of whole groups, where its write's every statement is fed by its facts and no
+ * read-back rides one of them (shares.ts callShares): none where they fit one share, or the write is no such write,
+ * which the call binds whole.
+ */
+export const drawnCall = <R>(
+	entry: WriteEntry,
+	call: HostCall,
+	reads: BoundReads<R>
+): Effect.Effect<DrawnCall | undefined, InputFailure> =>
+	Effect.gen(function* () {
+		if (Arr.some(reads.runs.runs, (run) => run.kind === "riding")) {
+			return undefined
+		}
+		const none = new Map(Arr.map(entry.program.binding.members, (m) => [m.slot, []] as const))
+		const empty = yield* hostInputs(entry, { ...call, members: none })
+		if (empty.kind !== "bound") {
+			return undefined
+		}
+		const sendsAlone = empty.bound.skip.size < entry.program.statements.length
+		const shares = callShares(entry.program, call, writeBatching.bytes, sendsAlone)
+		return shares === undefined ? undefined : { shares, empty }
+	})
+
+/** Each relation's counts of `counts` added to those `into` holds, by relation. */
+const addCounts = (
+	into: Map<string, RelationCounts>,
+	counts: ReadonlyArray<RelationCounts>
+): void => {
+	for (const c of counts) {
+		const held = into.get(c.relation)
+		into.set(
+			c.relation,
+			held === undefined
+				? c
+				: {
+						relation: c.relation,
+						added: held.added + c.added,
+						deleted: held.deleted + c.deleted,
+						put: held.put + c.put
+					}
+		)
+	}
+}
+
+/**
+ * A call drawn in shares applied in its one transaction of `frame` on `session` (wire/batch.ts runFramedFlights): each
+ * share bound on the host (hostInputs) only once the flight of the share before it has drained, its statements sent
+ * as one flight, cut into executions within PostgreSQL's default work_mem (bind.ts batchedExecutions), and its rows read
+ * at once into the outcome's counts, which every share's add to, so the host holds one share's facts, parameters and
+ * rows at a time; then the read-backs and COMMIT. A refusal, a statement's or COMMIT's, or a share's host refusal, sends
+ * the call again whole, in a transaction of its own, the first having changed nothing, so the outcome and its witness
+ * are the whole call's (`whole`); that path alone holds every fact.
+ */
+export const runWriteShares = <R>(
+	session: Session,
+	frame: Frame,
+	entry: WriteEntry,
+	drawn: DrawnCall,
+	reads: BoundReads<R>,
+	whole: (session: Session) => Effect.Effect<ApplyOutcome<R>, ApplyError>
+): Effect.Effect<ApplyOutcome<R>, ApplyError> =>
+	Effect.gen(function* () {
+		const flight = entry.program
+		const empty = drawn.empty
+		const context: WitnessContext = {
+			violation: entry.witness.classify,
+			statement: (at) => ({
+				relations: statementRelations(flight.prepared.witness, at),
+				judge: (refuser) => hostJudgement(flight.prepared.witness, empty.bound.stated, at, refuser),
+				above: (owner) => aboveJudgement(flight.prepared.witness, empty.bound.stated, at, owner)
+			})
+		}
+		const sentBacks = Arr.flatMap(reads.runs.runs, (run) => (run.kind === "sent" ? [run] : []))
+		const readBackFlights = yield* Effect.mapError(
+			Effect.forEach(sentBacks, (run) => readBackFlight(run, empty)),
+			inputApplyError
+		)
+		const backs = joinFlights(readBackFlights)
+		const batched: Transport = { ...sessionTransport(session), batching: writeBatching }
+		const shares = drawn.shares[Symbol.iterator]()
+		const counts = new Map<string, RelationCounts>()
+		const next = (): Effect.Effect<
+			FlightBatch<ReadonlyArray<SentStatement>> | undefined,
+			InputFailure | ShareRejected
+		> =>
+			Effect.gen(function* () {
+				const step = shares.next()
+				if (step.done === true) {
+					return undefined
+				}
+				const inputs = yield* hostInputs(entry, step.value)
+				if (inputs.kind !== "bound") {
+					return yield* new ShareRejected()
+				}
+				const writes = writeStatements(flight, inputs, inputs.bound.chunks, () => batched)
+				if (Result.isFailure(writes)) {
+					return yield* Effect.fail(writes.failure)
+				}
+				return { statements: writes.success.statements, batch: writes.success.sent }
+			})
+		const read = (
+			sent: ReadonlyArray<SentStatement>,
+			outcomes: ReadonlyArray<BatchOutcome>
+		): void => {
+			const raws = new Map<number, OutputRows>()
+			for (const [one, outcome] of Arr.zip(sent, outcomes)) {
+				const before = raws.get(one.statement.index)
+				raws.set(
+					one.statement.index,
+					before === undefined ? outcome.rows : [...before, ...outcome.rows]
+				)
+			}
+			addCounts(
+				counts,
+				interpretRows(flight.outcome, flight.statements, (i) => raws.get(i) ?? noRows).counts
+			)
+		}
+		const ran = yield* Effect.result(runFramedFlights(session, frame, next, read, backs.statements))
+		if (Result.isFailure(ran)) {
+			const failure = ran.failure
+			switch (failure._tag) {
+				case "ShareRejected":
+					return yield* whole(session)
+				case "ConnectionLost":
+					return yield* new TransportFailure({ reason: failure })
+				case "EncodingFailure":
+				case "InputTooLarge":
+					return yield* Effect.fail(inputApplyError(failure))
+			}
+		}
+		const answer = ran.success
+		if (answer.kind === "failed") {
+			return answer.failure._tag === "BatchRefused" || answer.failure._tag === "CommitRefused"
+				? yield* whole(session)
+				: yield* flightFailure<R>(answer.failure, answer.at ?? [], context)
+		}
+		const sentRows = yield* Effect.mapError(
+			backs.read(answer.closing),
+			(unreadable) =>
+				new ExecutionFailure({
+					reason: new UnreadableAnswer({ index: unreadable.index, fate: unreadable.fate })
+				})
+		)
+		const total = Arr.sort(
+			[...counts.values()],
+			Order.mapInput(Order.String, (c: RelationCounts) => c.relation)
+		)
+		return applyOutcome.committed(total, reads.read(readsRow(sentRows)))
 	})

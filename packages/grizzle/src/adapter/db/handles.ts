@@ -3,7 +3,14 @@ import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import { type HostCall, hostInputs, inputApplyError, runWrite } from "#adapter/apply/run.ts"
+import {
+	drawnCall,
+	type HostCall,
+	hostInputs,
+	inputApplyError,
+	runWrite,
+	runWriteShares
+} from "#adapter/apply/run.ts"
 import { dbChangeFrame, type ServedDbContext } from "#adapter/db/context.ts"
 import { type CallInput, callInput, noFacts, windowedInput } from "#adapter/db/input.ts"
 import {
@@ -49,6 +56,7 @@ import type {
 } from "#adapter/served/load.ts"
 import type { ApplyOutcome, ExecutedStatement, StatementPlan } from "#adapter/types/db.ts"
 import { takenRows } from "#adapter/wire/batch.ts"
+import type { Session } from "#adapter/wire/session.ts"
 import {
 	type AnswerFailure,
 	callError,
@@ -581,6 +589,31 @@ const applyChange = (
 	host: HostCall
 ): Effect.Effect<ApplyOutcome<unknown>, ApplyError> =>
 	Effect.gen(function* () {
+		const frame = dbChangeFrame(ctx, change.entry.program.exclusion)
+		const lease = Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason }))
+		/** The call bound whole, every fact at once, and run in its one transaction on `session`. */
+		const whole = (session: Session) =>
+			Effect.gen(function* () {
+				const inputs = yield* Effect.mapError(hostInputs(change.entry, host), inputApplyError)
+				if (inputs.kind === "rejected") {
+					return applyOutcome.invariantRejected(
+						{ kind: "every", laws: [inputs.refused] },
+						inputs.witness
+					)
+				}
+				return yield* runWrite(session, frame, change.entry, inputs, change.reads)
+			})
+		const drawn = yield* Effect.mapError(
+			drawnCall(change.entry, host, change.reads),
+			inputApplyError
+		)
+		if (drawn !== undefined) {
+			return yield* Effect.scoped(
+				Effect.flatMap(lease, (session) =>
+					runWriteShares(session, frame, change.entry, drawn, change.reads, whole)
+				)
+			)
+		}
 		const inputs = yield* Effect.mapError(hostInputs(change.entry, host), inputApplyError)
 		if (inputs.kind === "rejected") {
 			return applyOutcome.invariantRejected(
@@ -589,16 +622,8 @@ const applyChange = (
 			)
 		}
 		return yield* Effect.scoped(
-			Effect.flatMap(
-				Effect.mapError(ctx.pool.lease, (reason) => new TransportFailure({ reason })),
-				(session) =>
-					runWrite(
-						session,
-						dbChangeFrame(ctx, change.entry.program.exclusion),
-						change.entry,
-						inputs,
-						change.reads
-					)
+			Effect.flatMap(lease, (session) =>
+				runWrite(session, frame, change.entry, inputs, change.reads)
 			)
 		)
 	})

@@ -1,0 +1,332 @@
+/** What shares.test.ts reads: its schema, its space, and each case's run. */
+
+import { setFlagsFromString } from "node:v8"
+import { runInNewContext } from "node:vm"
+import { type Gen, int } from "@bjornpagen/testing/gen"
+import type { Case } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Order, String as Str } from "effect"
+import { collectInputs } from "#adapter/apply/collect.ts"
+import { callShares, eachShare, valueBytes } from "#adapter/apply/shares.ts"
+import { bindFrame } from "#adapter/wire/batch.ts"
+import { drawn, natural, pg } from "#compiler/public/fields.ts"
+import { counted, fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { bindWrite } from "#compiler/runtime/write/bind.ts"
+import { inForce, writeBatching } from "#compiler/runtime/write/transport.ts"
+import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
+import { compileWrite } from "#compiler/write/program/compile.ts"
+import { flightOf } from "#compiler/write/program/served.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
+import { checking } from "#test/support/policy.ts"
+import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
+
+const Text = str.bytes(512, str.regex("^.*$", "su"))
+
+/** Nodes of documents, wide: learning-commons' standards are facts of this width, inserted by the hundred thousand. */
+const Wide = relation("Wide", { doc: pg.bigint, path: Text, at: pg.bigint, body: Text }, [
+	"doc",
+	"path",
+	"at"
+])
+
+const Shared = schema("Shares", [Wide], [])
+
+const reality = realityWrite(succeeded(testArtifacts(Shared, testCompile)))
+
+/** A case: how wide each fact's body is, and how the call's facts are drawn, one share at a time or all at once. */
+export interface Drawn {
+	readonly body: number
+}
+
+export const drawnGen: Gen<Drawn> = (s) => ({ body: s.draw(int(100, 300)) })
+
+export type Feature = "a narrow body" | "a wide body"
+
+/** The engine's collector, which V8 exposes once asked to (node:v8 setFlagsFromString), so a heap read is what lives. */
+const collect = (): (() => void) => {
+	setFlagsFromString("--expose-gc")
+	const gc: unknown = runInNewContext("gc")
+	if (typeof gc !== "function") {
+		throw new Error("V8 exposes no collector")
+	}
+	return () => {
+		Reflect.apply(gc, undefined, [])
+	}
+}
+
+/** Fact `i` of a case. */
+const factOf = (c: Drawn, i: number) => ({
+	doc: BigInt(i % 7),
+	path: `document/${Str.padStart(6, "0")(String(i % 997))}/${Str.repeat(60)("p")}`,
+	at: BigInt(i),
+	body: `${Str.repeat(c.body)("b")}${String(i)}`
+})
+
+/**
+ * The most heap one call of `shares` shares' worth of facts holds beyond its facts themselves, bound share by share
+ * (`eachShare`), each share's statements' executions built as the write sends them: after each share's executions are
+ * built, the heap is collected and read, less what it held with the call's facts alone.
+ */
+const peakOf = (c: Drawn, shares: number) =>
+	Effect.gen(function* () {
+		const gc = collect()
+		const perShare = Math.floor(writeBatching.bytes / valueBytes(factOf(c, 0)))
+		const facts = Arr.map(
+			Array.from({ length: shares * perShare }, (_, i) => i),
+			(i) => factOf(c, i)
+		)
+		const change = ChangeSet.empty(Shared).insert(Wide, facts)
+		const program = succeeded(compileWrite(checking(Shared), descOf(change), reality))
+		const write = flightOf(program, program.frontend.codes)
+		const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+		const call = { params: {}, bound: new Map(), members }
+		const drawn = callShares(write, call, writeBatching.bytes, false) ?? [call]
+		/**
+		 * Every fact read once by a whole bind before the heap is read, so V8's flattening of their texts, which the
+		 * first read of a concatenated text makes in place, is the caller's facts' growth, never the call's.
+		 */
+		const warmed = bindWrite(write, { members, params: {}, transport: inForce(bindFrame) })
+		if (!warmed.ok) {
+			return yield* Effect.die(new Error("the call's facts bind whole"))
+		}
+		gc()
+		const base = process.memoryUsage().heapUsed
+		let peak = 0
+		const sent = yield* eachShare(
+			drawn,
+			(call) =>
+				Effect.sync(() =>
+					bindWrite(write, { members: call.members, params: {}, transport: inForce(bindFrame) })
+				),
+			(bound) =>
+				Effect.sync(() => {
+					if (!bound.ok || bound.value.kind !== "bound") {
+						throw new Error("a share of distinct facts binds")
+					}
+					const executions = Arr.flatMap(write.statements, (s) => {
+						const built =
+							bound.value.kind === "bound" ? bound.value.chunks(s, inForce(bindFrame)) : undefined
+						return built?.ok === true ? built.value : []
+					})
+					gc()
+					peak = Math.max(peak, process.memoryUsage().heapUsed - base)
+					return executions.length
+				})
+		)
+		return { peak, shares: sent.length, facts: facts.length }
+	})
+
+/**
+ * One case: the heap one call holds beyond its facts, at one share's worth of facts and at sixteen. Drawn and bound a
+ * share at a time, the call of sixteen shares holds what the call of one holds, within a share's slack, never sixteen
+ * times it.
+ */
+export const runShares = (c: Drawn, k: Case<Feature>) =>
+	Effect.gen(function* () {
+		const one = yield* peakOf(c, 1)
+		const four = yield* peakOf(c, 4)
+		const sixteen = yield* peakOf(c, 16)
+		k.note(c.body < 200 ? "a narrow body" : "a wide body")
+		return { one, four, sixteen }
+	})
+
+/**
+ * The most the heap of a call of many shares may hold beyond its facts: three times what one share's call holds, and
+ * two shares' bytes besides, so a collection's timing or the index of a drawn call never reads as a share held twice, and
+ * sixteen shares held at once always does.
+ */
+export const boundOf = (one: { readonly peak: number }): number =>
+	3 * one.peak + 2 * writeBatching.bytes
+
+/**
+ * learning-commons' families in one schema: an owner and its ordered members, nested in its fact, as Standard and
+ * StandardChild; a tree, every node nested in its root's fact, as Outline; and a counted family whose members are facts
+ * of their own, as GuidanceArea and Guideline.
+ */
+const Owner = relation("Owner", { id: pg.bigint, children: drawn(natural) }, ["id"])
+
+const Child = relation("Child", { parent: pg.bigint, at: drawn(natural), value: pg.bigint }, [
+	"parent",
+	"at"
+])
+
+const Node = relation(
+	"Node",
+	{
+		root: pg.bigint,
+		start: drawn(natural),
+		end: drawn(natural),
+		parent: drawn(natural),
+		at: drawn(natural),
+		children: drawn(natural),
+		label: pg.bigint
+	},
+	["root", "start"]
+)
+
+const Area = relation("Area", { area: pg.bigint, members: drawn(natural) }, ["area"])
+
+const Member = relation("Member", { member: pg.bigint, area: pg.bigint }, ["member"])
+
+const Families = schema(
+	"ShareFamilies",
+	[Owner, Child, Node, Area, Member],
+	[
+		ordered(on(Child, "parent", "at"), fin(Owner, "children")),
+		tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["root"] }),
+		counted(on(Member, "area"), fin(Area, "members"))
+	]
+)
+
+const familiesReality = realityWrite(succeeded(testArtifacts(Families, testCompile)))
+
+/**
+ * A case of the families: how many owners, trees and areas, how many members each holds (an owner's ordered members,
+ * a tree's nodes under its root, an area's counted members), and the bytes a share holds, small, so a call is many
+ * shares.
+ */
+export interface Grouped {
+	readonly owners: number
+	readonly trees: number
+	readonly areas: number
+	readonly members: number
+	readonly bytes: number
+}
+
+export const groupedGen: Gen<Grouped> = (s) => ({
+	owners: s.draw(int(3, 12)),
+	trees: s.draw(int(2, 8)),
+	areas: s.draw(int(3, 12)),
+	members: s.draw(int(1, 9)),
+	bytes: s.draw(int(200, 1200))
+})
+
+export type GroupedFeature = "a call of several shares" | "a group past a share"
+
+/** A tree's node below its root, `label` its own, with `width` children each until depth 2. */
+interface TreeNode {
+	readonly label: bigint
+	readonly children: ReadonlyArray<TreeNode>
+}
+
+/** A tree's node at `depth` below its root, `label` its own, with `width` children each until depth 2. */
+const nodeOf = (label: number, depth: number, width: number): TreeNode => ({
+	label: BigInt(label),
+	children:
+		depth >= 2
+			? []
+			: Arr.map(
+					Array.from({ length: width }, (_, i) => i + 1),
+					(i) => nodeOf(label * 10 + i, depth + 1, width)
+				)
+})
+
+/** Each relation's inserted rows, every cell as text, sorted: what a bind fills before any SQL. */
+const insertedRows = (
+	bound: ReturnType<typeof bindWrite>
+): ReadonlyMap<string, ReadonlyArray<string>> => {
+	if (!bound.ok || bound.value.kind !== "bound") {
+		throw new Error("a call of distinct facts binds")
+	}
+	const out = new Map<string, Array<string>>()
+	for (const stratum of bound.value.inserted()) {
+		for (const [relation, rows] of stratum.rows) {
+			const held = out.get(relation) ?? []
+			for (const row of rows) {
+				held.push(
+					Arr.join(
+						Arr.map(row.values, (cell) => String(cell)),
+						"|"
+					)
+				)
+			}
+			out.set(relation, held)
+		}
+	}
+	return new Map(
+		Arr.map([...out], ([relation, rows]) => [relation, Arr.sort(rows, Order.String)] as const)
+	)
+}
+
+/**
+ * One case: the call of every family's facts bound whole, and drawn in shares of `bytes` (callShares) each bound alone:
+ * every share's inserted rows together are the whole call's, every count, end, slot, tree position and member slot the
+ * host draws as the whole call draws it, since a share holds whole groups.
+ */
+export const runGrouped = (c: Grouped, k: Case<GroupedFeature>) =>
+	Effect.gen(function* () {
+		const owners = Arr.map(
+			Array.from({ length: c.owners }, (_, i) => i + 1),
+			(id) => ({
+				id: BigInt(id),
+				children: Arr.map(
+					Array.from({ length: c.members }, (_, i) => i + 1),
+					(i) => ({ value: BigInt(id * 100 + i) })
+				)
+			})
+		)
+		const trees = Arr.map(
+			Array.from({ length: c.trees }, (_, i) => i + 1),
+			(root) => ({
+				root: BigInt(root),
+				...nodeOf(root, 0, Math.max(1, Math.min(3, c.members)))
+			})
+		)
+		const areas = Arr.map(
+			Array.from({ length: c.areas }, (_, i) => i + 1),
+			(area) => ({ area: BigInt(area) })
+		)
+		const members = Arr.flatMap(
+			Array.from({ length: c.areas }, (_, i) => i + 1),
+			(area) =>
+				Arr.map(
+					Array.from({ length: c.members }, (_, i) => i + 1),
+					(i) => ({
+						member: BigInt(area * 100 + i),
+						area: BigInt(area)
+					})
+				)
+		)
+		const change = ChangeSet.empty(Families).insertAll({
+			Owner: owners,
+			Node: trees,
+			Area: areas,
+			Member: members
+		})
+		const program = succeeded(compileWrite(checking(Families), descOf(change), familiesReality))
+		const write = flightOf(program, program.frontend.codes)
+		const membersOf = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
+		const call = { params: {}, bound: new Map(), members: membersOf }
+		const whole = insertedRows(
+			bindWrite(write, { members: membersOf, params: {}, transport: inForce(bindFrame) })
+		)
+		const drawn = callShares(write, call, c.bytes, false)
+		if (drawn === undefined) {
+			return { whole, shared: whole, shares: 1 }
+		}
+		const shared = new Map<string, Array<string>>()
+		let shares = 0
+		for (const share of drawn) {
+			shares += 1
+			const rows = insertedRows(
+				bindWrite(write, { members: share.members, params: {}, transport: inForce(bindFrame) })
+			)
+			for (const [relation, held] of rows) {
+				shared.set(relation, [...(shared.get(relation) ?? []), ...held])
+			}
+		}
+		if (shares > 1) {
+			k.note("a call of several shares")
+		}
+		if (shares > 1 && c.members * 60 > c.bytes) {
+			k.note("a group past a share")
+		}
+		return {
+			whole,
+			shared: new Map(
+				Arr.map([...shared], ([r, rows]) => [r, Arr.sort(rows, Order.String)] as const)
+			),
+			shares
+		}
+	})
