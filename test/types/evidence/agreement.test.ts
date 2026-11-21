@@ -50,6 +50,7 @@ import {
 	evidenceRequired,
 	faultCases,
 	faultProgram,
+	faultSpace,
 	faultsRequired,
 	reorderedVerdicts
 } from "#test/support/agreement/queries.ts"
@@ -127,7 +128,7 @@ export const evidence = agreement(agreementCases, {
  * whole process tree took 95.9 CPU-s against the old count's 104.4, both reaching every situation
  * (~/.cache/grizzle-release/TESTSYS/GZ-TYPES/measure/budgets/r2/faults.*.txt, 2026-11-16, load 470 to 670).
  */
-export const faults = agreement(faultCases, {
+export const faults = agreement(faultSpace, {
 	situations: faultsRequired,
 	notes: agreementReached,
 	checking: "disarmed",

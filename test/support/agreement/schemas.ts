@@ -369,7 +369,6 @@ const schemaFaults = [
 	"generatedWrongType",
 	"generatedContract",
 	"generatedTwiceNamed",
-	"generatedKey",
 	"finOverClosedNotNatural",
 	"slotOverOrdinary",
 	"slotNotClosed",
@@ -684,7 +683,6 @@ const refusals: { readonly [F in SchemaFault | KeptFault]: Refusing } = {
 		"a contract is a type of its own, so a bigint term fills no Tally field"
 	),
 	generatedTwiceNamed: named("a generated field is named apart from the relation's written fields"),
-	generatedKey: structural({ tag: "MalformedDescription" }, "the primary key names written fields"),
 	finOverClosedNotNatural: structural(
 		{ tag: "MalformedDescription" },
 		"fin over a closed relation names a natural field, and label is a closed id"
@@ -6492,7 +6490,6 @@ type GeneratedForm =
 	| "generatedWrongType"
 	| "generatedContract"
 	| "generatedTwiceNamed"
-	| "generatedKey"
 
 /** The caller's text a refined generated field concatenates, and the refinement of its carrier the field declares. */
 const wordPattern = "^[a-z]{0,4}$"
@@ -6501,8 +6498,10 @@ const doubledPattern = "^[a-c]{0,8}$"
 /**
  * A relation with generated fields over its caller's id, depth and set w. Valid, a generated set reading w, or a
  * concatenation of the caller's word, a text of no pattern, into a field of a pattern, which the field's domain judges;
- * or a planted fault: a generated field reading another, a term of a type other than its field's, a bigint term into a contract over bigint, a generated field named as a written
- * one, a primary key naming a generated field. The engine's compilation of a schema holding it is the oracle.
+ * or a planted fault: a generated field reading another, a term of a type other than its field's, a bigint term into a
+ * contract over bigint, a generated field named as a written one. A primary key naming a generated field is no fault
+ * since 55fce798e, a key generation, which test/types/evidence/generated-keys agrees over every shape of. The engine's
+ * compilation of a schema holding it is the oracle.
  */
 const generatedProbe = (d: Drawing, base: Base): Probe => {
 	const roster = d.from(base.rosters)
@@ -6512,8 +6511,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 		"generatedReadsGenerated",
 		"generatedWrongType",
 		"generatedContract",
-		"generatedTwiceNamed",
-		"generatedKey"
+		"generatedTwiceNamed"
 	])
 	if (form === "refinedGenerated") {
 		d.note("refinedGenerated")
@@ -6534,8 +6532,6 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 				return "{ label: Fi.generated(Fi.pg.bigint, r.depth) }"
 			case "generatedTwiceNamed":
 				return "{ depth: Fi.generated(Fi.pg.integer, r.depth) }"
-			case "generatedKey":
-				return `{ next: ${nextSource} }`
 		}
 	}
 	return {
@@ -6549,7 +6545,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 					form === "generatedContract"
 						? [`export const ${tally} = Fi.contract(${jsonText(tallyName)}, Fi.pg.bigint)`]
 						: [],
-				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, [${form === "generatedKey" ? '"next"' : '"id"'}], (r) => (${callbackSource(set, tally)}))`,
+				line: `export const ${own} = Sc.relation.generated("Generated", { id: Fi.Id, depth: Fi.pg.integer, w: ${set}${form === "refinedGenerated" ? `, word: Tx.str.regex(${jsonText(wordPattern)})` : ""} }, ["id"], (r) => (${callbackSource(set, tally)}))`,
 				tail: []
 			}
 		},
@@ -6591,8 +6587,6 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 							return { label: generatedField(pgDescriptors.bigint, row["depth"], []) }
 						case "generatedTwiceNamed":
 							return { depth: generatedField(pgDescriptors.integer, row["depth"], []) }
-						case "generatedKey":
-							return { next: next(row) }
 					}
 				}
 				const made: unknown = Reflect.apply(generatedRelation, undefined, [
@@ -6603,7 +6597,7 @@ const generatedProbe = (d: Drawing, base: Base): Probe => {
 						w: set,
 						...(form === "refinedGenerated" ? { word: regexField(wordPattern, []) } : {})
 					},
-					[form === "generatedKey" ? "next" : "id"],
+					["id"],
 					callback,
 					[]
 				])

@@ -1,7 +1,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { type Aimed, aimed, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { keep, type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Effect, Option, pipe, Record as Rec, String as Str } from "effect"
@@ -260,6 +260,14 @@ export type Fault = (typeof agreementFaults)[number]
 
 /** What a case plants: no fault, or one. */
 type Planted = "clean" | Fault
+
+/**
+ * How spanEndpoints draws its two spans: as drawn, any of Slot's spans and its partner three times in four; or aimed at
+ * a contract's span against its base's, a span over Cents opposite one over bigint, the subtle pair whose carriers agree
+ * and whose brands do not, by an Allen predicate or a producer (endpointOf). The faulted space aims a case at it while
+ * no witness has reached it (faultCases), a pair one spanEndpoints case in about ten draws of itself.
+ */
+type EndpointAim = "drawn" | "contractAgainstBase"
 
 /** What a drawn case reached: its constructs, and the engine's verdict on it. */
 export type AgreementNote =
@@ -729,13 +737,15 @@ class Drawing {
 	readonly #source: Source
 	readonly #swarm: Swarm<AgreementFeature>
 	readonly fault: Planted
+	readonly aim: EndpointAim
 	#params = 0
 	readonly reached = new Set<AgreementFeature>()
 
-	constructor(source: Source, drawn: Swarm<AgreementFeature>, fault: Planted) {
+	constructor(source: Source, drawn: Swarm<AgreementFeature>, fault: Planted, aim: EndpointAim) {
 		this.#source = source
 		this.#swarm = drawn
 		this.fault = fault
+		this.aim = aim
 	}
 
 	/** Whether `feature` appears at this place, as the swarm keeps it; noted when it does. */
@@ -1636,15 +1646,24 @@ const endpointOf = (
 	bound: ReadonlyArray<Var>
 ): Endpoint => {
 	const ints = Arr.filter(bound, (v) => v.field.kind === "int")
-	const first = d.from(spans)
+	const paired = Arr.filter(
+		spans,
+		(v) => v.field.kind === "centsSpan" || v.field.kind === "bigSpan"
+	)
+	const atPair = d.aim === "contractAgainstBase" && Arr.isReadonlyArrayNonEmpty(paired)
+	const first = atPair ? d.from(paired) : d.from(spans)
 	const partner = Arr.filter(spans, (v) => v.field.kind === partnerKind(first.field.kind))
 	const left = varTerm(first)
 	const right = varTerm(
-		Arr.isReadonlyArrayNonEmpty(partner) && d.from([0, 1, 2, 3]) !== 0
+		Arr.isReadonlyArrayNonEmpty(partner) && (atPair || d.from([0, 1, 2, 3]) !== 0)
 			? d.from(partner)
 			: d.from(spans)
 	)
-	switch (d.from(["allen", "pointIn", "intersection", "difference"] as const)) {
+	switch (
+		atPair
+			? d.from(["allen", "intersection", "difference"] as const)
+			: d.from(["allen", "pointIn", "intersection", "difference"] as const)
+	) {
 		case "allen":
 			return { kind: "filter", p: { kind: "allen", left, mask: maskOf(d), right } }
 		case "pointIn":
@@ -3813,9 +3832,9 @@ interface Drawn {
 
 /** One query planting `fault`: the case's swarm over the constructs, then the query under it. */
 const drawnGen =
-	(fault: Planted): Gen<Drawn> =>
+	(fault: Planted, aim: EndpointAim): Gen<Drawn> =>
 	(source) => {
-		const d = new Drawing(source, source.draw(swarm(agreementFeatures)), fault)
+		const d = new Drawing(source, source.draw(swarm(agreementFeatures)), fault, aim)
 		return { spec: drawQuery(d), reached: d.reached }
 	}
 
@@ -4086,11 +4105,23 @@ const verdictText = (v: Verdict): string => {
 }
 
 /** One case: a drawn query and what the engine says of it. */
-export const agreementCases: Gen<AgreementCase> = (source) => caseOf(drawnGen("clean")(source))
+export const agreementCases: Gen<AgreementCase> = (source) =>
+	caseOf(drawnGen("clean", "drawn")(source))
 
 /** One faulted case: a fault drawn among every fault, then a query planting it. */
 export const faultCases: Gen<AgreementCase> = (source) =>
-	caseOf(drawnGen(source.draw(element(agreementFaults)))(source))
+	caseOf(drawnGen(source.draw(element(agreementFaults)), "drawn")(source))
+
+/**
+ * The faulted space the faults agreement draws: faultCases, and while no witness has reached a contract's span refused
+ * against its base's, a case aimed at it, a spanEndpoints query over that pair (EndpointAim).
+ */
+export const faultSpace: Aimed<AgreementCase, AgreementNote | FaultNote> = aimed(faultCases, [
+	[
+		"a contract's span refused against its base's",
+		(source) => caseOf(drawnGen("spanEndpoints", "contractAgainstBase")(source))
+	]
+])
 
 /** What a case reached: its notes, and each required pair of them it notes together (agreementPairs). */
 export const agreementReached = (
