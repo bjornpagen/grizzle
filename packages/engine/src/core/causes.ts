@@ -143,7 +143,10 @@ export type RecursionRefusal =
  * - `foldAccumulator`: a fold whose running value, its `accumulator`, rides its family's axes as itself, where its
  *   widest value, a numeric of no precision or a text of no byte bound that fits, could carry the entry past the
  *   B-tree limit `limit` (`bytes`, none for a text of no bound): the fold is the author's declaration, so its fix is the
- *   `bound` the folded fields declare, a numeric's precision or a text's byte bound.
+ *   `bound` the folded fields declare, a numeric's precision, or a text's byte bound of at most `largest`, the most
+ *   bytes a text holds as itself beside the axes' other columns; or, for a text, its running values carried by their
+ *   SHA-256 digests, generated fields over the fields `running` names, in their places in the fold (ir/family.ts
+ *   FoldCarrier).
  */
 export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
@@ -180,7 +183,17 @@ export type KeyFault =
 			readonly accumulator: string
 			readonly bytes: number | undefined
 			readonly limit: number
-			readonly bound: "precision" | "byteBound"
+			readonly bound:
+				| { readonly kind: "precision" }
+				| {
+						readonly kind: "byteBound"
+						readonly largest: number
+						readonly running: {
+							readonly before: string
+							readonly after: string
+							readonly end: string
+						}
+				  }
 	  }
 
 /**
@@ -373,6 +386,20 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 const keyFix =
 	"declare a byte bound (str.bytes(n)) or a precision, or key by an explicit digest field you declare (e.g. a generated Crypto.sha256(x))"
 
+/** A foldAccumulator refusal's fix: the bound its folded fields declare, or, for a text, its digests' carriage. */
+const foldBoundText = (
+	bound: Extract<KeyFault, { readonly kind: "foldAccumulator" }>["bound"]
+): string => {
+	switch (bound.kind) {
+		case "precision":
+			return "declare its precision, pg.numeric(p, s), on the fields the fold steps and ends in"
+		case "byteBound": {
+			const { before, after, end } = bound.running
+			return `declare a byte bound of at most ${bound.largest} bytes, the most a text holds as itself beside the axes' other columns, str.bytes(${bound.largest}), on the fields the fold steps and ends in; or carry its running values by their SHA-256 digests: declare generated fields Crypto.sha256(row.${before}), Crypto.sha256(row.${after}) and Crypto.sha256(row.${end}), and name them in the fold where ${before}, ${after} and ${end} stand`
+		}
+	}
+}
+
 /**
  * A key fault's text after the key's name: the one text of each fault, a declared key's and an inherited one's alike,
  * an entry past its bound naming the fix (`keyFix`).
@@ -400,7 +427,7 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 		case "spanAlone":
 			return `${name}: it is the span ${fault.field} alone, which a primary key WITHOUT OVERLAPS never is; only a candidate key can be`
 		case "foldAccumulator":
-			return `${name}: its running value ${fault.accumulator} rides the family's axes as itself, and ${fault.bytes === undefined ? "a text of no byte bound" : `its widest value, ${fault.bytes} bytes with the axes' other columns,`} could pass PostgreSQL's ${fault.limit}-byte B-tree limit there; ${fault.bound === "precision" ? "declare its precision, pg.numeric(p, s)," : "declare a byte bound, str.bytes(n),"} on the fields the fold steps and ends in`
+			return `${name}: its running value ${fault.accumulator} rides the family's axes as itself, and ${fault.bytes === undefined ? "a text of no byte bound" : `its widest value, ${fault.bytes} bytes with the axes' other columns,`} could pass PostgreSQL's ${fault.limit}-byte B-tree limit there; ${foldBoundText(fault.bound)}`
 	}
 }
 

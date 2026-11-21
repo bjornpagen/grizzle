@@ -18,6 +18,7 @@ import type {
 	BitsField,
 	NaturalDomain,
 	FieldBase,
+	GeneratedField,
 	HandleOf,
 	StoredOnlySql,
 	WritingTag
@@ -469,7 +470,10 @@ type NameOfMonoid<M> = M extends Monoid<infer N> ? N : never
 
 /**
  * What the term A of the heading C is as an accumulator of field X's type: one, an accumulated field whose domain and SQL
- * type are X's; an accumulated field of another type; or no accumulated field.
+ * type are X's, or, X a text, a generated field, which stands in the place of the running text it digests where it is
+ * `Crypto.sha256(row.v)` over the accumulated v (ir/family.ts FoldCarrier); an accumulated field of another type; or
+ * neither. A generated field's reads are no part of its type, so the schema's compile admits the digest alone
+ * (analysis/theory/families.ts runningValue), and its value, v, is typed there.
  */
 type AccumulatorOf<C, A, X> = A extends keyof C
 	? C[A] extends AccumulatedField<FieldBase>
@@ -478,7 +482,11 @@ type AccumulatorOf<C, A, X> = A extends keyof C
 				? "held"
 				: "type"
 			: "type"
-		: "absent"
+		: C[A] extends GeneratedField<FieldBase>
+			? X extends readonly [unknown, "text"]
+				? "held"
+				: "absent"
+			: "absent"
 	: "absent"
 
 /** An accumulator of field X's type in the heading C: an accumulated field of C whose domain and SQL type are X's. */

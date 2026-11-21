@@ -66,6 +66,7 @@ import {
 	type NativeColumn,
 	type OnUpdate,
 	type RelationInfo,
+	sameNativeColumn,
 	scalarKeySet,
 	type SpanField,
 	spanKeySet,
@@ -88,8 +89,9 @@ import {
 	type EntryColumn,
 	type GistEntryBytes,
 	gistEntry,
+	exactKeyFault,
 	indexMaxKeys,
-	exactKeyFault
+	textRoomBeside
 } from "#compiler/schema/representability.ts"
 
 /** A refusal deep inside recognition is a core Refusal, which the model's boundary returns (`catchRefusal`). */
@@ -1783,6 +1785,8 @@ interface CarriedPair {
 	readonly fromKey: string
 	readonly toKey: string
 	readonly laws: NonEmptyReadonlyArray<LawId>
+	/** The column its base pin holds at its start: `from`, or the running value whose digest `from` is. */
+	readonly pinned: PlannedColumn
 }
 
 /**
@@ -2687,9 +2691,14 @@ interface CopyStart {
 }
 
 /** A fold's accumulator an axis carries: the column, its fold and plane, and whether it is the step's before or after. */
+/** What a fold refused for its running value declares to fix it (KeyFault `foldAccumulator`). */
+type FoldBound = Extract<KeyFault, { readonly kind: "foldAccumulator" }>["bound"]
+
 interface CarriedAccumulator {
 	readonly column: PlannedColumn
 	readonly fold: FamilyFold
+	/** The fold's number among its family's folds, which names its law. */
+	readonly at: number
 	readonly plane: FoldPlane
 	readonly side: "before" | "after"
 }
@@ -2990,7 +2999,7 @@ class FamilyPlanner {
 								c.column.draws.fold === at
 					)
 					if (column !== undefined) {
-						return { column, fold, plane, side }
+						return { column, fold, at, plane, side }
 					}
 				}
 			}
@@ -3001,9 +3010,11 @@ class FamilyPlanner {
 	/**
 	 * The fold `carried` is an accumulator of refused where its axes' UNIQUE over `columns` fits but for that
 	 * accumulator, a numeric of no precision or a text whose bound passes what the entry leaves it: the author declares
-	 * the fold, never the UNIQUE grizzle keys its running values by, so the refusal names the fold, the field it steps
-	 * and the bound its fields declare (KeyFault `foldAccumulator`). Columns that overfill the entry without it are the
-	 * UNIQUE's own refusal (`plannedEntry`).
+	 * the fold, never the UNIQUE grizzle keys its running values by, so the refusal names the fold, at the fold's own
+	 * statement whichever law planned the family first, the field it steps and the bound its fields declare (KeyFault
+	 * `foldAccumulator`): a numeric's precision, or a text's byte bound of at most the bytes a text holds beside the axes'
+	 * other columns (textRoomBeside), or its digests' carriage. Columns that overfill the entry without it, a text's
+	 * header among them, and an accumulator of any other carrier, are the UNIQUE's own refusal (`plannedEntry`).
 	 */
 	#refuseUnboundedFold(carried: CarriedAccumulator, columns: ReadonlyArray<PlannedColumn>): void {
 		const entryOf = (of: ReadonlyArray<PlannedColumn>): ReadonlyArray<EntryColumn> =>
@@ -3022,9 +3033,35 @@ class FamilyPlanner {
 			return
 		}
 		const { fold, plane } = carried
+		const bound = ((): FoldBound | undefined => {
+			if (datum?.family === "numeric") {
+				return { kind: "precision" }
+			}
+			if (datum !== undefined && datum.family !== "text") {
+				return undefined
+			}
+			const largest = textRoomBeside(
+				rest.map((c) => c.datum),
+				rest.some((c) => c.nullable)
+			)
+			return largest < 0
+				? undefined
+				: {
+						kind: "byteBound",
+						largest,
+						running: {
+							before: plannedText(this.#planned(plane.before)),
+							after: plannedText(this.#planned(plane.after)),
+							end: plane.end.name
+						}
+					}
+		})()
+		if (bound === undefined) {
+			return
+		}
 		const stepped = fold.step.kind === "value" ? fold.step.field.name : undefined
 		unrepresentable(
-			this.#loc,
+			this.#recognizer.foldLaw(familyKey(this.#family.id), carried.at).law.loc,
 			`the ${fold.monoid} fold ${stepped === undefined ? "" : `of ${this.#member.name}.${stepped} `}into ${this.#owner.name}.${plane.end.name}`,
 			[stepped ?? plane.end.name],
 			{
@@ -3032,7 +3069,7 @@ class FamilyPlanner {
 				accumulator: plannedText(carried.column),
 				bytes: datum === undefined ? undefined : bytes,
 				limit: btreeMaxItemSize,
-				bound: datum?.family === "numeric" ? "precision" : "byteBound"
+				bound
 			}
 		)
 	}
@@ -3062,8 +3099,9 @@ class FamilyPlanner {
 		const targetKeys = targetBase.map(carriedKey)
 		const out: Array<CarriedPair> = []
 		for (const p of pairs) {
-			const from = this.#planned(p.from)
-			const to = this.#planned(p.to)
+			const native = this.#carrier(axis, p)
+			const from = this.#planned(native.from)
+			const to = this.#planned(native.to)
 			const fromKey = carriedKey(from)
 			const toKey = carriedKey(to)
 			const at = targetKeys.indexOf(toKey)
@@ -3077,9 +3115,35 @@ class FamilyPlanner {
 					`a family axis whose foreign key references each column once; the ${axis} axis of ${familyText(this.#shape())} carries ${textOf(to)} twice`
 				)
 			}
-			out.push({ from, to, fromKey, toKey, laws: p.laws })
+			out.push({ from, to, fromKey, toKey, laws: p.laws, pinned: this.#planned(p.from) })
 		}
 		return out
+	}
+
+	/**
+	 * The columns `axis` pairs for the pair `p`: its own, or, where `p` is a fold plane's copy whose axes carry its
+	 * running values by their SHA-256 digests (ir/family.ts FoldCarrier), those digests: a member's before's to its
+	 * predecessor's after's on the predecessor axis, the owner's end's to its last member's after's on the last axis.
+	 */
+	#carrier(
+		axis: AxisKind,
+		p: AxisPair
+	): { readonly from: NativeColumn; readonly to: NativeColumn } {
+		for (const fold of this.#family.folds) {
+			for (const plane of fold.planes) {
+				const c = plane.carrier
+				if (c.kind === "values" || !sameNativeColumn(p.to, plane.after)) {
+					continue
+				}
+				if (axis === "predecessor" && sameNativeColumn(p.from, plane.before)) {
+					return { from: fieldColumn(c.before), to: fieldColumn(c.after) }
+				}
+				if (axis === "last" && sameNativeColumn(p.from, fieldColumn(plane.end))) {
+					return { from: fieldColumn(c.end), to: fieldColumn(c.after) }
+				}
+			}
+		}
+		return p
 	}
 
 	/**
@@ -3225,7 +3289,7 @@ class FamilyPlanner {
 	 * root, which the axis's foreign key leaves out). Any other owner axis has no base: every member has an owner.
 	 */
 	#pin(axis: AxisKind, pair: CarriedPair, index: PlannedColumn): void {
-		const start = this.#startOf(pair.from)
+		const start = this.#startOf(pair.pinned)
 		const shape = this.#family.shape
 		const at = ((): PlannedColumn | undefined => {
 			switch (axis) {
@@ -3245,7 +3309,7 @@ class FamilyPlanner {
 		conditions.add(
 			or([
 				cmp("gt", conditions.column(at), naturalLiteral(0n)),
-				cmp("eq", conditions.column(pair.from), conditions.literal(start.start, start.type))
+				cmp("eq", conditions.column(pair.pinned), conditions.literal(start.start, start.type))
 			])
 		)
 	}

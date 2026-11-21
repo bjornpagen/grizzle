@@ -11,8 +11,9 @@
  *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
  *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts in any
  *   order as schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize at the
- *   fold, by the fold's name and its byte bound, and an unbounded text refused whatever its entry. Features: unbounded,
- *   and each bound's kind with each verdict.
+ *   fold, by the fold's name, the largest byte bound that fits, counted by hand the same way (fittingBytes), and the
+ *   running texts its digests would carry, and an unbounded text refused whatever its entry. Features: unbounded, and
+ *   each bound's kind with each verdict.
  * - A sum fold's numeric: Entry's (account, at, after) for a sum of `amount` into Account's `total`, the amounts and
  *   accumulators one numeric type. The box: PostgreSQL's numeric of no typmod, and numeric(p, 2) at the least and the
  *   greatest precisions a field declares, exhausted. The oracle: a numeric of no typmod reaches numeric's own limit,
@@ -45,6 +46,7 @@ import {
 	docSchema,
 	entryBytes,
 	entryOf,
+	fittingBytes,
 	type Feature,
 	fittingCodes,
 	live,
@@ -109,7 +111,11 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 					accumulator: "after",
 					bytes: bytes === undefined ? undefined : entryBytes(bytes),
 					limit: btreeMaxItemSize,
-					bound: "byteBound"
+					bound: {
+						kind: "byteBound",
+						largest: fittingBytes,
+						running: { before: "before", after: "after", end: "text" }
+					}
 				})
 			}),
 		oracle: {
@@ -124,6 +130,18 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 				original: "\treturn bytes > btreeMaxItemSize",
 				replacement: "\treturn bytes >= btreeMaxItemSize",
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry); the concat fold's axis key fails."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\t\tthis.#recognizer.foldLaw(familyKey(this.#family.id), carried.at).law.loc,",
+				replacement: "\t\t\tthis.#loc,",
+				why: "The fold's refusal points at the statement whose law planned its family first, its ordered family's, not at the fold the author fixes; the concat fold's axis key fails."
+			},
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\t\t\trest.some((c) => c.nullable)\n\t\t\t)",
+				replacement: "\t\t\t\ttrue\n\t\t\t)",
+				why: "The largest byte bound a refused fold names counts a null bitmap its axis's key never holds, a MAXALIGN step short of the bound that fits; the concat fold's axis key fails."
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
@@ -227,7 +245,7 @@ export const aSumFoldOverANumericOfNoPrecisionIsRefusedByItsOwnNameItsSummedFiel
 				assert.ok(
 					reason.fault.kind === "foldAccumulator" &&
 						reason.fault.accumulator === "after" &&
-						reason.fault.bound === "precision" &&
+						reason.fault.bound.kind === "precision" &&
 						reason.fault.bytes !== undefined &&
 						reason.fault.bytes > btreeMaxItemSize,
 					"refused for the precision its running sum lacks, past the item limit"

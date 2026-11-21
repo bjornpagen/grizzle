@@ -59,7 +59,7 @@ export const entryBytes = (textBytes: number): number =>
 	alignUp(textStartBytes + textBytes, maxAlign)
 
 /** The most text bytes whose entry fits: BTMaxItemSize is itself MAXALIGNed. */
-const fittingBytes = btreeMaxItemSize - textStartBytes
+export const fittingBytes = btreeMaxItemSize - textStartBytes
 
 /** UTF-8 encodes a code point in at most 4 bytes. */
 const codePointBytes = 4

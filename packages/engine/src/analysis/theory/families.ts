@@ -31,10 +31,12 @@ import {
 	type AxisPair,
 	type Family,
 	type FamilyFold,
+	type FoldCarrier,
 	type FoldPlane,
 	type MemberShape,
 	orderOf,
-	type TreeMembers
+	type TreeMembers,
+	valuesCarried
 } from "#compiler/ir/family.ts"
 import {
 	columnKey,
@@ -664,14 +666,17 @@ interface PlaneEntry<C> {
 
 /**
  * A fold's accumulators on each of its planes: `named`, the (before, after) fields its step side names, over its
- * sequence's index field, which their copies along the predecessor axis read; or `hidden`, the drawn law columns its
- * law names, as a fold over a counted family's always are (check/fold.ts foldRule).
+ * sequence's index field, which their copies along the predecessor axis read, each plane with what its axes carry of
+ * them (FoldCarrier); or `hidden`, the drawn law columns its law names, as a fold over a counted family's always are
+ * (check/fold.ts foldRule), which its axes carry themselves.
  */
 export type FoldAccumulators =
 	| {
 			readonly kind: "named"
 			readonly index: LawField
-			readonly planes: NonEmptyReadonlyArray<PlaneEntry<LawField>>
+			readonly planes: NonEmptyReadonlyArray<
+				PlaneEntry<LawField> & { readonly carrier: FoldCarrier }
+			>
 	  }
 	| { readonly kind: "hidden"; readonly planes: NonEmptyReadonlyArray<PlaneEntry<ColumnIdent>> }
 
@@ -683,14 +688,16 @@ export const foldPlanes = (a: FoldAccumulators): NonEmptyReadonlyArray<FoldPlane
 				before: { kind: "field", field: p.before },
 				after: { kind: "field", field: p.after },
 				end: p.end,
-				identity: p.identity
+				identity: p.identity,
+				carrier: p.carrier
 			}))
 		case "hidden":
 			return mapNonEmpty(a.planes, (p) => ({
 				before: { kind: "law", column: p.before },
 				after: { kind: "law", column: p.after },
 				end: p.end,
-				identity: p.identity
+				identity: p.identity,
+				carrier: valuesCarried
 			}))
 	}
 }
@@ -859,6 +866,62 @@ const endFields = (f: FamilyShape, end: SideDesc, loc: SourceLoc): ReadonlyArray
 }
 
 /**
+ * A running value a fold's side names: the field itself, or, where the side names a generated field
+ * `Crypto.sha256(row.v)` of the same row, the field v it digests, which the family's axes carry by that digest
+ * (ir/family.ts FoldCarrier). Only a digest of the field alone stands for it: a digest is equal exactly where its text
+ * is, short of a SHA-256 collision, and no other generation is.
+ */
+type RunningValue =
+	| { readonly kind: "value"; readonly field: LawField }
+	| { readonly kind: "digest"; readonly field: LawField; readonly digest: LawField }
+
+/** The running value `named`, a field of `r` a fold's side names (RunningValue). */
+const runningValue = (r: RelationInfo, named: LawField, loc: SourceLoc): RunningValue => {
+	const w = named.writing
+	if (w.kind !== "generated" || w.desc.kind !== "compute" || w.desc.fn !== "sha256") {
+		return { kind: "value", field: named }
+	}
+	const [read, ...more] = w.desc.args
+	return read?.kind === "field" && more.length === 0
+		? { kind: "digest", field: fieldOf(r, read.field, loc), digest: named }
+		: { kind: "value", field: named }
+}
+
+/**
+ * What a named plane's axes carry, from the running values its sides name: the values where each of its before, after
+ * and end names its value, their digests where each names its digest, and refused where they are named unalike, since
+ * each axis pairs a member's before or the owner's end with an after, a digest only with a digest.
+ */
+const carrierOf = (
+	before: RunningValue,
+	after: RunningValue,
+	end: RunningValue,
+	f: FamilyShape,
+	loc: SourceLoc
+): FoldCarrier => {
+	if (before.kind === "digest" && after.kind === "digest" && end.kind === "digest") {
+		return Object.freeze({
+			kind: "digests",
+			before: before.digest,
+			after: after.digest,
+			end: end.digest
+		})
+	}
+	if (before.kind === "value" && after.kind === "value" && end.kind === "value") {
+		return valuesCarried
+	}
+	const spelled = (v: RunningValue, r: RelationInfo): string =>
+		v.kind === "digest"
+			? `${r.name}.${v.digest.name} (the digest of ${v.field.name})`
+			: `${r.name}.${v.field.name}`
+	return refuse(
+		"MalformedDescription",
+		loc,
+		`a fold's sides name a plane's before, after and end alike, each its running value or each its SHA-256 digest, since its axes pair a digest only with a digest; they name ${spelled(before, f.member)}, ${spelled(after, f.member)} and ${spelled(end, f.owner)}`
+	)
+}
+
+/**
  * A fold statement over its family, resolved as the fold whose law is `law`: its step value, its accumulator pairs (the
  * fields the step side names, or hidden drawn law columns named by its law), its ends and each plane's identity. The
  * fold's typing is check/fold.ts foldRule's, refused here at the fold's statement: the step value, a commutative
@@ -876,14 +939,18 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 	const accumulatorTerms = monoid.step === "value" ? rest.slice(1) : rest
 	const x =
 		valueTerm === undefined ? undefined : fieldTerm(f.member, valueTerm, "a fold's step side", loc)
-	const named = accumulatorTerms.map((t) => fieldTerm(f.member, t, "a fold's step side", loc))
-	const pairs = named.flatMap((before, j) => {
+	const running = accumulatorTerms.map((t) =>
+		runningValue(f.member, fieldTerm(f.member, t, "a fold's step side", loc), loc)
+	)
+	const named = running.map((v) => v.field)
+	const runningPairs = running.flatMap((before, j) => {
 		if (j % 2 === 1) {
 			return []
 		}
-		const after = named[j + 1]
+		const after = running[j + 1]
 		return after === undefined ? [] : [{ before, after }]
 	})
+	const pairs = runningPairs.map((p) => ({ before: p.before.field, after: p.after.field }))
 	if (named.length % 2 === 1) {
 		return refuse(
 			"MalformedDescription",
@@ -891,7 +958,8 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 			`a fold's step side names its accumulators in (before, after) pairs; it names ${named.length}`
 		)
 	}
-	const ends = endFields(f, s.end, loc)
+	const runningEnds = endFields(f, s.end, loc).map((e) => runningValue(f.owner, e, loc))
+	const ends = runningEnds.map((e) => e.field)
 	const refused = foldRule(monoid, {
 		order: orderOf(f),
 		step: x,
@@ -910,6 +978,11 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 		defined(ends[p], "foldRule admits a fold of one end per plane")
 	const accumulators = ((): FoldAccumulators => {
 		if (!isNonEmpty(pairs)) {
+			if (runningEnds.some((e) => e.kind === "digest")) {
+				throw defect(
+					"foldRule admits a plane of a digest's value, a text or bytes, only with its (before, after) pair named"
+				)
+			}
 			return {
 				kind: "hidden",
 				planes: mapNonEmpty(identities, (start, p) => {
@@ -930,8 +1003,18 @@ export const foldEntry = (s: FoldStatement, f: FamilyShape, law: Identifier<"law
 			kind: "named",
 			index: f.shape.index.field,
 			planes: mapNonEmpty(identities, (start, p) => {
-				const pair = defined(pairs[p], "foldRule admits no accumulator or one pair per plane")
-				return { before: pair.before, after: pair.after, end: endAt(p), identity: start }
+				const pair = defined(
+					runningPairs[p],
+					"foldRule admits no accumulator or one pair per plane"
+				)
+				const end = defined(runningEnds[p], "foldRule admits a fold of one end per plane")
+				return {
+					before: pair.before.field,
+					after: pair.after.field,
+					end: end.field,
+					identity: start,
+					carrier: carrierOf(pair.before, pair.after, end, f, loc)
+				}
 			})
 		}
 	})()

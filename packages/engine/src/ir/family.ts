@@ -96,7 +96,10 @@ export interface FamilyFold {
 	readonly planes: NonEmptyReadonlyArray<FoldPlane>
 }
 
-/** One plane of a fold: its accumulator before and after a member's step, its end on the owner, and its identity. */
+/**
+ * One plane of a fold: its accumulator before and after a member's step, its end on the owner, its identity, and what
+ * its family's predecessor and last axes carry of it (FoldCarrier).
+ */
 export interface FoldPlane {
 	/** A field when the step side names it, else a drawn law column. */
 	readonly before: NativeColumn
@@ -104,7 +107,28 @@ export interface FoldPlane {
 	readonly after: NativeColumn
 	readonly end: LawField
 	readonly identity: TypedLiteral
+	readonly carrier: FoldCarrier
 }
+
+/**
+ * What a fold plane's axes carry of its running values: the values themselves, its predecessor axis each member's
+ * before to its predecessor's after and its last axis the owner's end to its last member's after; or each value's
+ * SHA-256 digest, a generated field `Crypto.sha256(row.v)` over it that PostgreSQL stores beside it, where the fold's
+ * sides name those digests in the values' places: the axes then pair the digests, so a running text of any length
+ * rides a UNIQUE of 32-byte digests, and the values are equal where their digests are, short of a SHA-256 collision.
+ * Either way the host fills the values, and the fold's CHECK and its base pins read them.
+ */
+export type FoldCarrier =
+	| { readonly kind: "values" }
+	| {
+			readonly kind: "digests"
+			readonly before: LawField
+			readonly after: LawField
+			readonly end: LawField
+	  }
+
+/** A plane whose axes carry its running values themselves (FoldCarrier `values`). */
+export const valuesCarried: FoldCarrier = Object.freeze({ kind: "values" })
 
 /** Whether a family's order is a field, an ordered family's or a tree's, or hidden, a counted family's. */
 export const orderOf = (f: Pick<Family, "shape">): "ordered" | "counted" =>

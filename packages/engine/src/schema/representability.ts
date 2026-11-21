@@ -1123,6 +1123,20 @@ export const lookupEntry = (
 		: Result.err({ kind: "orderedColumns", bytes, limit: btreeMaxItemSize, columns: ordered })
 }
 
+/** A text's varlena at no bytes: its four-byte header, aligned to 4. */
+const textHeader = fixed(varlenaHeaderBytes, 4, "text")
+
+/**
+ * The most UTF-8 bytes a text's data takes beside the datums `others` in one B-tree entry, any order of them, its null
+ * bitmap there where `nulls`: BTMaxItemSize less the entry over `others` and the text's own varlena at no bytes, each
+ * datum at its worst alignment padding (btreeEntryBytes), and negative where that much alone passes it. textBytesBeside
+ * sizes a key's text by it, and a fold refused for its running text names it as the most bytes a byte bound may admit
+ * (laws/model/plan.ts, KeyFault `foldAccumulator`).
+ */
+export const textRoomBeside = (others: ReadonlyArray<DatumBound>, nulls: boolean): number =>
+	alignDown(btreeMaxItemSize, maxAlign) -
+	[...others, textHeader].reduce((offset, d) => afterAtWorst(offset, d), indexDataOffset(nulls))
+
 /**
  * The most UTF-8 bytes a text can hold beside `others` in one B-tree entry whose other columns are exactly theirs, in
  * any order, any of them a law column that may be NULL: BTMaxItemSize less the entry over `others` and the text's own
@@ -1142,16 +1156,19 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
 	if (!bounded.ok) {
 		return bounded
 	}
-	const text = { field: "the text", datum: fixed(varlenaHeaderBytes, 4, "text") }
-	const datums = [...bounded.value, text]
-	const extent = datums.reduce((offset, d) => afterAtWorst(offset, d.datum), indexDataOffset(true))
-	const room = alignDown(btreeMaxItemSize, maxAlign) - extent
+	const room = textRoomBeside(
+		bounded.value.map((d) => d.datum),
+		true
+	)
 	return room < 0
 		? Result.err({
 				kind: "btreeEntry",
-				bytes: alignUp(extent, maxAlign),
+				bytes: alignUp(alignDown(btreeMaxItemSize, maxAlign) - room, maxAlign),
 				limit: btreeMaxItemSize,
-				datums: datums.map((d) => ({ field: d.field, bytes: d.datum.bytes }))
+				datums: [
+					...bounded.value.map((d) => ({ field: d.field, bytes: d.datum.bytes })),
+					{ field: "the text", bytes: textHeader.bytes }
+				]
 			})
 		: Result.ok(room)
 }

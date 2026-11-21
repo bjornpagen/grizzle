@@ -110,7 +110,7 @@ export const foldRule = (monoid: MonoidSpec, fold: FoldTyping): RuleBreach | und
 		}
 		if (f.writing.kind !== "accumulated") {
 			return proseBreach(
-				`a fold's accumulator is an accumulated field, filled on the host; ${f.name} is written by ${f.writing.kind}`
+				`a fold's accumulator is an accumulated field, filled on the host, or a text's SHA-256 digest, a generated field Crypto.sha256(row.v) over the accumulated v; ${f.name} is written by ${f.writing.kind}`
 			)
 		}
 		const start = defined(identity[i], "a monoid's identity holds one value per plane")
