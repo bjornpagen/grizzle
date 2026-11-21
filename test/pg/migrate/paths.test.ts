@@ -126,11 +126,11 @@ export const renamedPaths = property.explore(steered(renamedCaseSteered), {
 		},
 		{
 			token: ReplayToken(
-				"test/pg/migrate/paths.test.ts#renamedPaths:-:6.u.0.g.h.g.h.h.h.f.h.h.0.g.0.0.g.0.h.0.g.0.g.h.f.g.0.f.h.g.h.f.h.0.g.f.g.g.f.g.h.g.h.3.1.4.1.2.3.9.1.6.1.3.e.3.b.2.1.3.3.d.0.2.4.0.6.0.6.h.1.0.1.0.1.1.2.l.1.1.7.1.1.0.1.9.2.2.5.1.8.1.0.8.2.a.1.3.9.2.b.2.3.f.3.c.2.b.1.6.6.0.f.0.a.0.0.2.1.2.4.3.q.1.2.a.s.0.0.1.3.0.1ado.j9g.5w.1.1.1.1.a.z2v.1b2k.fwn.g.0.0.0.hlh.pav.6a1.f.1.k.1.1.p.txw.snt.zue.c.1.1.1.0.0.1.rfp.105z.1ej6.1.1.o.1.0.1.1efj.1.7.1e4d.1ce8.v21.5.0.0.2.5.eut.2f4.a9f.m.2.p.m.1.e.zpe.3.s.p.2.9.2.1.1.a.2.e.3.a.0.5.2.7.3.3.0.a.3.d.0.7.0.0.1.n.ady.284.zxe.6.0.0.1.d.xl1.e.1ei0.q.0.1.0.1.0.5ce.5y6.fhv.v.0.0.0.0.0.4.2.0"
+				"test/pg/migrate/paths.test.ts#renamedPaths:-:0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.8.3.d.3.3.8.8.d.8.d.d.3.3.0.1.2.1.2.6.0.2.1.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.pa8.0.0.0.0.0.1.n.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
 			),
 			reason:
-				"FULLSUITE3: a handle removed from a roster whose domain types a relation the same step drops, holding the removed code (A to B, every removal a drop): the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514 (engine fix 695fe292)",
-			since: "2026-11-16"
+				"FULLSUITE3, kept again: a roster's re-pointed domain over a column of a relation the same step drops, the column holding a code the step removes: the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514 (engine fix 695fe292; the case of 2026-11-16 drew stale, so a fuzz under its kill found this one, red at 04-validate.sql statement 1)",
+			since: "2026-11-21"
 		}
 	],
 	kills: [
