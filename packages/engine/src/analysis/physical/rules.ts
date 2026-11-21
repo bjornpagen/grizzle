@@ -246,12 +246,7 @@ const labelsHeld = new WeakMap<RelNode, Map<NodeId, boolean>>()
 
 /** Records whether `node`'s subtree carries `label` (labelsHeld). */
 const recordHeld = (node: RelNode, label: NodeId, held: boolean): void => {
-	const known = labelsHeld.get(node)
-	if (known === undefined) {
-		labelsHeld.set(node, new Map([[label, held]]))
-	} else {
-		known.set(label, held)
-	}
+	labelsHeld.getOrInsertComputed(node, () => new Map()).set(label, held)
 }
 
 /** What is known of whether `node`'s subtree carries `label`: its own label, or an answer recorded. */

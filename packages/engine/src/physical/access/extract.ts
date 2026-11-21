@@ -391,14 +391,7 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 	const byClass = new Map<number, Array<SiteBinding>>()
 	for (const [at, { occurrence, facts }] of sites.entries()) {
 		for (const b of occurrence.bindings) {
-			const k = classOfVar(b.var)
-			const held = byClass.get(k)
-			const binding: SiteBinding = { at, column: b.column, facts }
-			if (held === undefined) {
-				byClass.set(k, [binding])
-			} else {
-				held.push(binding)
-			}
+			byClass.getOrInsertComputed(classOfVar(b.var), () => []).push({ at, column: b.column, facts })
 		}
 	}
 	const bindingsOf = (k: number): ReadonlyArray<SiteBinding> => byClass.get(k) ?? []
