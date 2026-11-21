@@ -490,6 +490,22 @@ const orderStage = (
 	return { kind: "order", input: stage, order: out, loc: captureLoc(label, []) }
 }
 
+/**
+ * The query `built` delivering its rows through `decoders`, a decoder of the records another query delivers whose rows
+ * `built`'s rule finds again, key for key and type for type (schema/records.ts recordsQuery, the read of a query's
+ * records through that query's own decoder): its state is `built`'s, and its phantoms are its caller's statement, as
+ * queryOf's are. A layout `decoders` cannot bind is the binding's CompileError, once per compiled program, as any
+ * decoder's is.
+ */
+export const decodedBy = <S, Head, Ev extends Evidence, P, IHead, Cx, Arms extends UnionArms>(
+	built: unknown,
+	decoders: Decoders<Head, IHead>
+): Query<S, Head, Ev, P, IHead, Carriers, Cx, Arms> =>
+	queryOf(
+		defined(queryState(built), "a query the builder made"),
+		grouped([{ kind: "decoded", decoders }])
+	)
+
 /** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>. */
 export const orderedOf = <
 	S,

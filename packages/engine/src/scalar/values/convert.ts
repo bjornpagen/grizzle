@@ -12,7 +12,7 @@ import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal, type NumericTypmod } from "#compiler/scalar/values/decimal.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
-import type { CarrierHost, SpecOf } from "#compiler/scalar/values/identity.ts"
+import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { convertCidr, convertInet } from "#compiler/scalar/values/net.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
@@ -152,29 +152,62 @@ export const convertByCarrier: {
 	exactMoney: () => (text) => Money.fromOutput(text)
 }
 
+/**
+ * Each converted carrier's spec (core/decoder.ts ConvertedCarrier): its carrier's, of no typmod, width or roster, a
+ * column's whatever its declaration's, which its conversion and its value's one text (conversionSpec) read alike.
+ */
+const conversionSpecs: { readonly [C in ConvertedCarrier]: SpecOf<C> } = {
+	int2: { carrier: "int2" },
+	int4: { carrier: "int4" },
+	int8: { carrier: "int8" },
+	numeric: { carrier: "numeric", typmod: undefined },
+	float4: { carrier: "float4" },
+	float8: { carrier: "float8" },
+	money: { carrier: "money" },
+	bool: { carrier: "bool" },
+	uuid: { carrier: "uuid" },
+	date: { carrier: "date" },
+	inet: { carrier: "inet" },
+	cidr: { carrier: "cidr" },
+	text: { carrier: "text" },
+	sha256: { carrier: "sha256" },
+	tsvector: { carrier: "tsvector" },
+	range4: { carrier: "range4", width: undefined },
+	range8: { carrier: "range8", width: undefined },
+	rangeDate: { carrier: "rangeDate", width: undefined },
+	exactInteger: { carrier: "exactInteger", typmod: undefined },
+	exactMoney: { carrier: "exactMoney" }
+}
+
 /** Each converted carrier's conversion (core/decoder.ts ConvertedCarrier), built once from its carrier's spec. */
 const converted: { readonly [C in ConvertedCarrier]: Converter<C> } = {
-	int2: convertByCarrier.int2({ carrier: "int2" }),
-	int4: convertByCarrier.int4({ carrier: "int4" }),
-	int8: convertByCarrier.int8({ carrier: "int8" }),
-	numeric: convertByCarrier.numeric({ carrier: "numeric", typmod: undefined }),
-	float4: convertByCarrier.float4({ carrier: "float4" }),
-	float8: convertByCarrier.float8({ carrier: "float8" }),
-	money: convertByCarrier.money({ carrier: "money" }),
-	bool: convertByCarrier.bool({ carrier: "bool" }),
-	uuid: convertByCarrier.uuid({ carrier: "uuid" }),
-	date: convertByCarrier.date({ carrier: "date" }),
-	inet: convertByCarrier.inet({ carrier: "inet" }),
-	cidr: convertByCarrier.cidr({ carrier: "cidr" }),
-	text: convertByCarrier.text({ carrier: "text" }),
-	sha256: convertByCarrier.sha256({ carrier: "sha256" }),
-	tsvector: convertByCarrier.tsvector({ carrier: "tsvector" }),
-	range4: convertByCarrier.range4({ carrier: "range4", width: undefined }),
-	range8: convertByCarrier.range8({ carrier: "range8", width: undefined }),
-	rangeDate: convertByCarrier.rangeDate({ carrier: "rangeDate", width: undefined }),
-	exactInteger: convertByCarrier.exactInteger({ carrier: "exactInteger", typmod: undefined }),
-	exactMoney: convertByCarrier.exactMoney({ carrier: "exactMoney" })
+	int2: convertByCarrier.int2(conversionSpecs.int2),
+	int4: convertByCarrier.int4(conversionSpecs.int4),
+	int8: convertByCarrier.int8(conversionSpecs.int8),
+	numeric: convertByCarrier.numeric(conversionSpecs.numeric),
+	float4: convertByCarrier.float4(conversionSpecs.float4),
+	float8: convertByCarrier.float8(conversionSpecs.float8),
+	money: convertByCarrier.money(conversionSpecs.money),
+	bool: convertByCarrier.bool(conversionSpecs.bool),
+	uuid: convertByCarrier.uuid(conversionSpecs.uuid),
+	date: convertByCarrier.date(conversionSpecs.date),
+	inet: convertByCarrier.inet(conversionSpecs.inet),
+	cidr: convertByCarrier.cidr(conversionSpecs.cidr),
+	text: convertByCarrier.text(conversionSpecs.text),
+	sha256: convertByCarrier.sha256(conversionSpecs.sha256),
+	tsvector: convertByCarrier.tsvector(conversionSpecs.tsvector),
+	range4: convertByCarrier.range4(conversionSpecs.range4),
+	range8: convertByCarrier.range8(conversionSpecs.range8),
+	rangeDate: convertByCarrier.rangeDate(conversionSpecs.rangeDate),
+	exactInteger: convertByCarrier.exactInteger(conversionSpecs.exactInteger),
+	exactMoney: convertByCarrier.exactMoney(conversionSpecs.exactMoney)
 }
+
+/** The spec a column's conversion reads its values by (core/decoder.ts CellConversion): its carrier's, a vector's of its dimensions. */
+export const conversionSpec = (conversion: CellConversion): CarrierSpec =>
+	conversion.carrier === "vector"
+		? { carrier: "vector", dimensions: conversion.dimensions }
+		: conversionSpecs[conversion.carrier]
 
 /** The conversion a column's data states (core/decoder.ts CellConversion): its carrier's, a vector's of its dimensions. */
 export const converterOf = (conversion: CellConversion): ((text: OutputText) => unknown) =>

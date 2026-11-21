@@ -195,9 +195,9 @@ export const vectorsRoundTripsRandomFloat32VectorsOfTheCosineDomain = property.e
 		kills: [
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: "\t\tif (value === null || value === undefined) {",
-				replacement: "\t\tif (value === null || value !== undefined) {",
-				why: "Operator mutant (comparison) at packages/engine/src/codec/scalar.ts:140 in encode: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\t\tvalue === null || value === undefined",
+				replacement: "\t\tvalue === null || value !== undefined",
+				why: "Operator mutant (comparison) in specText, the encode's exact text: `===` becomes `!==`, so every value but undefined is refused as nullValue; the property fails (lane CATCH, grizzle 0baff5d6; retargeted by lane DECODEREXPORT)."
 			}
 		]
 	}

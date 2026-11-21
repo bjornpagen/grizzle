@@ -919,7 +919,10 @@ The command line's own refusals, by stage:
   code to predict it. To key
   rows by their values, take each field's text from `codecText(field)`, bound once, never `String()` of a host value:
   one text per value under PostgreSQL's equality, a closed id's its handle and a set's its handles, the same in every
-  installation. Two
+  installation; a whole found row's text, attachments included, is `rowText(query)`'s, framed, no JSON. To store the
+  rows a query found, declare `records(stem, query, owner, ownerKey)` (its `relations` and `rules` in a level over the
+  query's: each column the query's own field), insert `recordsFacts(level, R)(entries)` (each a row beside its owner), and read them back with
+  `recordsQuery(level, R)`, whose rows are the query's own type through its own decoder; never restate the columns. Two
   declared names that
   convert alike are one name (two fields of a relation, two head fields of a derived relation or a role's query, two
   relations of a role, two logins or roles of a schema, a contract a context names beside a relation, roster or

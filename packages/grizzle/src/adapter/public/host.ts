@@ -1,5 +1,5 @@
 import type { Result } from "effect"
-import { toResult } from "#adapter/engine.ts"
+import { rowOptions, toResult } from "#adapter/engine.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import {
 	type FactsDecoder,
@@ -13,14 +13,17 @@ import {
 	type CodecFault,
 	type CompileError,
 	codecTextOver,
+	type Decoders,
+	type HeadOf,
 	type RowEvaluator,
 	rowEvaluatorOver,
+	rowTextOver,
 	type TextedField
 } from "#compiler/plan/common.ts"
 
 /**
  * Public barrel: the host's readings of a schema's values, which send no SQL: insertPreview, factsDecoder,
- * rowEvaluator and codecText. packages/grizzle/src/index.ts re-exports it. Each answers Effect's Result, the one Result a caller reads:
+ * rowEvaluator, codecText and rowText. packages/grizzle/src/index.ts re-exports it. Each answers Effect's Result, the one Result a caller reads:
  * the engine computes each answer in its own (core/result.ts) and spells it through toResult (adapter/engine.ts), the
  * PublicResult each takes, where the answer is made, so an item computed where it is first read stays so.
  */
@@ -69,3 +72,15 @@ export const rowEvaluator = <S extends AnySchema>(
 export const codecText = <V>(
 	field: TextedField<V>
 ): ((value: V) => Result.Result<string, CodecFault>) => codecTextOver(field, toResult)
+
+/**
+ * rowText(query): the one text of each row the query delivers, its decoder read once (engine program/text.ts), as a
+ * Result whose error is the CompileError of a query no builder can decode: bind `const text = rowText(q)`, then
+ * `text(row)` is a Result of the row's text, every column codecText's text of its value, every attachment's children in
+ * delivered order, each framed by its length and no JSON, so two rows have one text exactly where they are equal value
+ * for value; or the CodecFault of a value its type does not admit. A digest of it keys a found row by its content.
+ */
+export const rowText = <Q extends Decoders<unknown, unknown>>(
+	query: Q
+): Result.Result<(row: HeadOf<Q>) => Result.Result<string, CodecFault>, CompileError> =>
+	toResult(rowTextOver(query, toResult, rowOptions))

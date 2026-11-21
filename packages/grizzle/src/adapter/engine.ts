@@ -29,11 +29,23 @@ const noneOf = (): Option.None<never> => {
 	throw defect("Option.none answered a Some")
 }
 
+/** A delivered row's Option as the values it holds: a Some's one, none of a None; any other value is a defect. */
+const heldOf = (option: unknown): ReadonlyArray<unknown> => {
+	if (Option.isOption(option)) {
+		return Option.toArray(option)
+	}
+	throw defect("a delivered row's Option")
+}
+
 /**
  * How a delivered row spells an Option: Effect's Option, the public row shape (an attachment stated as an Option, a
- * get's answer). The one vocabulary every decoder the shell binds is given.
+ * get's answer), and its reading back. The one vocabulary every decoder the shell binds is given.
  */
-export const rowOptions: OptionVocabulary = Object.freeze({ some: someOf, none: noneOf() })
+export const rowOptions: OptionVocabulary = Object.freeze({
+	some: someOf,
+	none: noneOf(),
+	held: heldOf
+})
 
 /** An engine step's answer as an Effect: its value, or its refusal in the error channel. */
 export const fromEngine = <A, E>(result: EngineResult<A, E>): Effect.Effect<A, E> =>

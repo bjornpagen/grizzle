@@ -262,12 +262,15 @@ export interface Delivered<A> {
 }
 
 /**
- * How delivered rows spell an Option: the shell's constructors of Effect's Option, passed where it binds a decoder, so
- * the engine builds the public row's Option values without a runtime dependency on Effect.
+ * How delivered rows spell an Option: the shell's constructors of Effect's Option, passed where it binds a decoder, and
+ * its reading of one back (`held`: a Some's one value, none of a None), so the engine builds and reads the public row's
+ * Option values without a runtime dependency on Effect. `held` reads an Option a decoder built, a delivered row's
+ * (program/text.ts rowTextOver), so any other value there is a defect.
  */
 export interface OptionVocabulary {
 	readonly some: <A>(value: A) => Option.Some<A>
 	readonly none: Option.None<never>
+	readonly held: (option: unknown) => ReadonlyArray<unknown>
 }
 
 /**
@@ -460,26 +463,38 @@ export interface RowDecoder<out A> extends Phantom<{ readonly host: A }> {
 	readonly form: DecoderForm
 }
 
+/** A field of one heading of a decoder form: a record's own field, or an alternatives arm's attachment (`arm`). */
+export type HeadingField = FieldForm | { readonly kind: "arm"; readonly child: DecoderForm }
+
 /**
- * The key sets of the records a decoder form may decode, one per heading it delivers: a record's own keys, every
- * pairing of a merge's, both arms' of a union, and an arm's parent's each with the arm's attachment.
+ * The headings a decoder form may deliver, each its fields under their keys in the order its record fills them
+ * (runtime/read/record.ts fillsOf): a record's own; every pairing of a merge's, the first's fields then the second's;
+ * both arms' of a union; an arm's parent's each with the arm's attachment; and none of a refused decoder's.
  */
-export const formHeadings = (form: DecoderForm): ReadonlyArray<ReadonlyArray<string>> => {
+export const formFields = (
+	form: DecoderForm
+): ReadonlyArray<ReadonlyArray<readonly [string, HeadingField]>> => {
 	switch (form.kind) {
 		case "record":
-			return [form.fields.map(([key]) => key)]
+			return [form.fields]
 		case "merge": {
-			const second = formHeadings(form.second)
-			return formHeadings(form.first).flatMap((x) => second.map((y) => [...x, ...y]))
+			const second = formFields(form.second)
+			return formFields(form.first).flatMap((x) => second.map((y) => [...x, ...y]))
 		}
 		case "oneOf":
-			return [...formHeadings(form.first), ...formHeadings(form.second)]
-		case "arm":
-			return formHeadings(form.parent).map((x) => [...x, form.name])
+			return [...formFields(form.first), ...formFields(form.second)]
+		case "arm": {
+			const arm = [form.name, Object.freeze({ kind: "arm", child: form.child })] as const
+			return formFields(form.parent).map((x) => [...x, arm])
+		}
 		case "refused":
 			return []
 	}
 }
+
+/** The key sets of the records a decoder form may decode, one per heading it delivers (formFields). */
+export const formHeadings = (form: DecoderForm): ReadonlyArray<ReadonlyArray<string>> =>
+	formFields(form).map((fields) => fields.map(([key]) => key))
 
 /** The key sets of the records a decoder may decode (formHeadings). */
 export const headingsOf = (decoder: RowDecoder<unknown>): ReadonlyArray<ReadonlyArray<string>> =>

@@ -150,6 +150,10 @@ export const bindGroups = <A>(
  * - wholeEntries(relations): a full role's entries (schema/world.ts wholeEntriesOf), every relation of a schema's
  *   record under its own key but the closed relations, each kept or dropped by its kind, as its type keeps or drops it
  *   by its type: WholeEntries<Rs> (types/schema/world.ts).
+ * - recordFields(entries) and recordsInsert(root, facts): a query's records (program/records.ts), the root relation's
+ *   fields, each owner descriptor and each stored column's under its own key: RecordFields<Owner, Q>; and the insert of
+ *   found rows, under the root's name each row's fact, its owner's values and its columns under their
+ *   keys: RecordsInsert<L, R> (types/schema/records.ts), both at the type the records' caller states.
  * - levelRecord(names) and levelRecordOver(base, names): a level's record (schema/schema.ts), each relation of
  *   the list under its own name, the one declaration of each name the level's build admitted (`names`, in list order),
  *   after the base's relations for an extension, which holds a name the base declares as the base's:
@@ -342,6 +346,22 @@ export const levelRecordOver = <
 		...Object.entries(base),
 		...names.flatMap(([name, value]) => (Object.hasOwn(base, name) ? [] : [[name, value] as const]))
 	])
+
+/**
+ * A query's records' root fields (see the header): `entries` the owner's descriptors and the stored columns' under their
+ * keys, at the type its caller states.
+ */
+export const recordFields = <F>(entries: ReadonlyArray<readonly [string, unknown]>): F =>
+	assembled<F>(entries)
+
+/**
+ * The insert of found rows into a query's records (see the header): under the root's name `root`, each row's fact,
+ * assembled from its entries, at the type its caller states.
+ */
+export const recordsInsert = <A>(
+	root: string,
+	facts: ReadonlyArray<ReadonlyArray<readonly [string, unknown]>>
+): A => assembled<A>([[root, Object.freeze(facts.map((entries) => assembled<unknown>(entries)))]])
 
 /**
  * The heading of no column, at the type its caller states: a described query's or arm's public heading

@@ -119,28 +119,28 @@ export const aValuesTextIsOnePerValueAndReadsBackInEveryInstallation = property.
 		kills: [
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: "\t\treturn scalarCodec(type, emptyCodebook).encode",
+				original: "\treturn scalarCodec(type, emptyCodebook).encode",
 				replacement:
-					'\t\treturn (value: unknown) => Result.map(scalarCodec(type, emptyCodebook).encode(value), (t) => (t === "-0" ? "0" : t))',
+					'\treturn (value: unknown) => Result.map(scalarCodec(type, emptyCodebook).encode(value), (t) => (t === "-0" ? "0" : t))',
 				why: "A value's text is its key text, a float's -0 written 0 as a key compares it (scalar/values/identity.ts keyText), where its identity text keeps the zero's sign: -0 and +0, two values whose binary images PostgreSQL tells apart, share a text, and PostgreSQL reads that text as +0; the property fails over a float."
 			},
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: "\t\treturn (value) => admitSubsetHandle(value, live, only)",
+				original: "\treturn (value) => admitSubsetHandle(value, live, only)",
 				replacement:
-					'\t\treturn (value) => Result.map(admitSubsetHandle(value, live, only), (h) => String(live.rank.get(h) ?? ""))',
+					'\treturn (value) => Result.map(admitSubsetHandle(value, live, only), (h) => String(live.rank.get(h) ?? ""))',
 				why: "A closed id's text is its position in its roster's declared order, one per value still and the same in every installation, but no installation's names spell it; the read back fails over a closed id."
 			},
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: "\t\t\tjsonText([...handles].toSorted((a, b) => rankOf(a) - rankOf(b)))",
-				replacement: "\t\t\tjsonText([...handles])",
+				original: "\t\t\t[...handles].toSorted((a, b) => rankOf(a) - rankOf(b))",
+				replacement: "\t\t\t[...handles]",
 				why: "A set's text lists its handles as the caller's Set holds them, so one set held in two orders has two texts; the property fails over a set."
 			},
 			{
 				file: "packages/engine/src/codec/scalar.ts",
-				original: "\t\treturn scalarCodec(type, emptyCodebook).encode",
-				replacement: "\t\treturn (value: unknown) => Result.ok(paramText(String(value)))",
+				original: "\treturn scalarCodec(type, emptyCodebook).encode",
+				replacement: "\treturn (value: unknown) => Result.ok(paramText(String(value)))",
 				why: "A value's text is String() of its host value: every vector, span and money value writes [object Object], so unequal ones share a text; the classes fail."
 			},
 			{

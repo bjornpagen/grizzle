@@ -3766,6 +3766,35 @@ and any of them stands for it. A materialized table changes only when a refresh 
 transaction, lower levels first. A refresh of no table is a type error: narrow a list built at run time with `Array.isReadonlyArrayNonEmpty`
 first. A rule over either kind reads its definition, never the view.
 
+## Records of a query
+
+`records(stem, query, owner, ownerKey)` declares the relations that hold the rows a query found, for a level over the
+query's to list: `${stem}Row`, the owner's fields, then each column of the query's heading as the query's own field, keyed
+by `ownerKey`, a nonempty list of the owner's field names, as `relation`'s primary key takes it. A column is stored as
+the type it is declared of, its contract's brand and check, its closed id's roster, its text's patterns, so a closed id
+references the roster of the level below; a drawn, generated or accumulated field is stored as its declared type, never
+drawn again; a head literal is stored nowhere. List `R.relations` in the level and `R.rules` among its rules.
+
+```ts
+const found = records("Lessons", lessonsOf, { digest: sha256, run: RunId }, ["digest", "run"])
+export const Audit = schema.extend([School], "Audit", found.relations, found.rules)
+
+/** The insert of one run's found rows, each under its own digest. */
+const insert = recordsFacts(Audit, found)(rows.map((row) => [{ digest: digestOf(row), run }, row] as const))
+ChangeSet.empty(Audit).insertAll(insert)
+
+/** The rows stored at one owner: rows of `lessonsOf`'s own type, read through its own decoder. */
+export const storedLessons = recordsQuery(Audit, found)
+```
+
+`recordsFacts(level, records)(entries)` is the insert of found rows as `insertAll` takes it, each entry a row beside
+its owner's values, each fact the owner's values then the row's columns; an owner of several rows is entries that share
+it. `recordsQuery(level, records)` is an ordinary query over the level whose
+parameters are the owner's key fields and whose rows are the stored rows at that owner, delivered through the query's
+own decoder: `HeadOf<typeof storedLessons>` is `HeadOf<typeof lessonsOf>`, value for value. A query with an attachment,
+a union of several headings, or a head literal of several values is refused with `UnsupportedOperation`, as is a column
+of a type no stored field declares yet (a computed numeric).
+
 ## Declared functions
 
 `fn(name, { calls, args, returns, volatility, language, body })` declares a PostgreSQL function the application writes,
@@ -4668,6 +4697,15 @@ storage detail of one installation, so a text is the same in every installation,
 carrier's is the codec's own, which PostgreSQL's input function reads as the value: an integer's digits, a numeric's
 `numeric_out` text, a double's shortest round-trip decimal, `true` or `false`, a date's ISO 8601 text, a text itself.
 Key a set or a map of rows by these texts, and never by `String()` of a host value. A bytes field is a type error.
+
+`rowText(query)` reads a query's decoder once and gives the one text of each row it delivers: bind
+`const text = rowText(lessons)`, a `Result` whose failure is the `CompileError` of a query no builder can decode (one
+rebuilt from its Description), then `text(row)` is a `Result` of the row's text, or the `CodecFault` of a value its type
+does not admit. Each column's value is written as `codecText` writes it, a set's handles in declared order as a list, a
+bytes value as its SHA-256 digest, and each attachment's children in delivered order, an Option's none or one; every
+piece is framed by its length and every list by its count, with no JSON, so two rows have one text exactly where they
+are one row, value for value under each type's equality, attachments member by member. A digest of it keys a found row
+by its content ([Records of a query](#records-of-a-query)).
 
 `insertPreview(schema)` gives the rows `ChangeSet.empty(schema).insertAll(rows)` stores as the first write of an
 installation holding no row, closed relations aside, with nothing sent: bind `const preview = insertPreview(BoxOffice)`,

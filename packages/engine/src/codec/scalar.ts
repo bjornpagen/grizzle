@@ -13,7 +13,7 @@ import {
 	codecOf as rosterCodecOf
 } from "#compiler/ir/codes.ts"
 import type { Encoder } from "#compiler/ir/products.ts"
-import { baseOf, type Carrier, onlyOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, onlyOf, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	admitHandles,
@@ -23,6 +23,7 @@ import {
 	type CarrierHost,
 	type CarrierSpec,
 	canonicalText,
+	type LiveHandles,
 	type SpecOf
 } from "#compiler/scalar/values/identity.ts"
 
@@ -164,6 +165,19 @@ const parameterText = <C extends Carrier>(
 ): ParamText => paramOfText(spec, canonicalText(spec, value))
 
 /**
+ * A value's one text under `spec`: its exact parse as the spec's carrier's (values/identity.ts parseValue), NULL and
+ * undefined refused by the null ban (nullValue), and the admitted value's canonical text, one text per value under the
+ * type's equality: a codec's encode before it is a parameter text, and a found row's column's text (program/text.ts
+ * rowTextOver).
+ */
+export const specText =
+	<C extends Carrier>(spec: SpecOf<C> & CarrierSpec) =>
+	(value: unknown): Result.Result<string, CodecFault> =>
+		value === null || value === undefined
+			? Result.err("nullValue")
+			: Result.map(parseValue(spec, value), (admittedValue) => canonicalText(spec, admittedValue))
+
+/**
  * The codec of one carrier's spec: its canonical text read through the spec's own carrier, so the admitted value and
  * its text are of one host type by construction.
  */
@@ -172,15 +186,9 @@ const codecOf = <C extends Carrier>(
 	spec: SpecOf<C> & CarrierSpec
 ): ScalarCodec => {
 	const text = (value: unknown): ParamText => parameterText(spec, admitted(spec, value))
-	const encode = (value: unknown): Result.Result<ParamText, CodecFault> => {
-		if (value === null || value === undefined) {
-			return Result.err("nullValue")
-		}
-		const admittedValue = parseValue(spec, value)
-		return !admittedValue.ok
-			? Result.err(admittedValue.error)
-			: Result.ok(parameterText(spec, admittedValue.value))
-	}
+	const exact = specText(spec)
+	const encode = (value: unknown): Result.Result<ParamText, CodecFault> =>
+		Result.map(exact(value), (canonical) => paramOfText(spec, canonical))
 	return Object.freeze({ type, spec, encode, text })
 }
 
@@ -217,31 +225,61 @@ export const scalarCodec = (type: ScalarType, codes: Codebook): ScalarCodec =>
 	codecOf(type, carrierSpecOf(type, codes))
 
 /**
+ * A roster's live handles under no installation: its declared order's (ir/codes.ts declaredOrder), against which a
+ * closed id's and a set's one text admits a handle as the codec admits it (scalar/values/identity.ts LiveHandles).
+ */
+const declaredHandles = (roster: Roster): LiveHandles => ({
+	roster: roster.closed,
+	rank: declaredOrder(roster).rank
+})
+
+/**
+ * A closed id's one text under no installation: its handle, its host value, a live handle of its roster, and of `only`
+ * where the closed id holds a subset of them (admitSubsetHandle). A code is a storage detail of one installation, so no
+ * text reads one.
+ */
+export const handleText = (
+	roster: Roster,
+	only: ReadonlySet<string> | undefined
+): ((value: unknown) => Result.Result<string, CodecFault>) => {
+	const live = declaredHandles(roster)
+	return (value) => admitSubsetHandle(value, live, only)
+}
+
+/**
+ * A set's handles under no installation, its one list: each a live handle of its roster (admitHandles), in the roster's
+ * declared order.
+ */
+export const setHandles = (
+	roster: Roster
+): ((value: unknown) => Result.Result<ReadonlyArray<string>, CodecFault>) => {
+	const live = declaredHandles(roster)
+	const rankOf = (handle: string): number =>
+		defined(live.rank.get(handle), "an admitted handle's rank")
+	return (value) =>
+		Result.map(admitHandles(value, live), (handles) =>
+			[...handles].toSorted((a, b) => rankOf(a) - rankOf(b))
+		)
+}
+
+/**
  * A value's one text read under no installation (program/text.ts codecTextOver), a function of its host value alone: a
- * closed id's its handle, which is its host value; a set's its handles in its roster's declared order (ir/codes.ts
- * declaredOrder) as a JSON array, a handle holding any text but NUL; each admitted against its roster's live handles as
- * the codec admits them (scalar/values/identity.ts admitHandle, admitHandles). A code is a storage detail of one
- * installation, so neither reads one. Every other carrier's is its codec's encode, which reads no code: the exact parse
+ * closed id's its handle (handleText); a set's its handles in its roster's declared order (setHandles) as a JSON array,
+ * a handle holding any text but NUL. Every other carrier's is its codec's encode, which reads no code: the exact parse
  * of the value and its canonical text.
  */
 export const hostText = (
 	type: ScalarType
 ): ((value: unknown) => Result.Result<string, CodecFault>) => {
 	const base = baseOf(type)
-	if (base.carrier !== "code" && base.carrier !== "bits") {
-		return scalarCodec(type, emptyCodebook).encode
+	if (base.carrier === "code") {
+		return handleText(base.roster, subsetHandlesOf(type))
 	}
-	const live = { roster: base.roster.closed, rank: declaredOrder(base.roster).rank }
-	if (type.carrier === "code") {
-		const only = subsetHandlesOf(type)
-		return (value) => admitSubsetHandle(value, live, only)
+	if (base.carrier === "bits") {
+		const handles = setHandles(base.roster)
+		return (value) => Result.map(handles(value), jsonText)
 	}
-	const rankOf = (handle: string): number =>
-		defined(live.rank.get(handle), "an admitted handle's rank")
-	return (value) =>
-		Result.map(admitHandles(value, live), (handles) =>
-			jsonText([...handles].toSorted((a, b) => rankOf(a) - rankOf(b)))
-		)
+	return scalarCodec(type, emptyCodebook).encode
 }
 
 /**

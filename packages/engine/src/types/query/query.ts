@@ -787,7 +787,7 @@ export type DeliveredHeading<Head, Hc> = { readonly [K in DeliveredKeys<Head, Hc
 type Heterogeneous<Head> = [KeyOfAnyArm<Head>] extends [keyof Head] ? false : true
 
 /** The arm a rule of records Head over the carriers Hc is to a further rule. */
-type ArmOf<Head, Hc extends Carriers> = UnionArm<Hc, AttachedNames<Head, Hc>, "rule", false>
+export type ArmOf<Head, Hc extends Carriers> = UnionArm<Hc, AttachedNames<Head, Hc>, "rule", false>
 
 /**
  * A query of arms Arms, records Head and carriers Hc read as one arm, as a stage over it reads it: its one arm, or, over

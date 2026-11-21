@@ -1,3 +1,4 @@
+import { recordsBuilder, recordsFactsOver, recordsQueryOver } from "#compiler/program/records.ts"
 import {
 	derivedBuilder,
 	materializedDerived as materializedBuilder
@@ -12,6 +13,17 @@ import type {
 	RuleReadOf,
 	DerivedConstructor
 } from "#compiler/types/derived/derived.ts"
+import type { HeadOf, ImmediateHeadOf } from "#compiler/types/query/query.ts"
+import type {
+	AnyRecords,
+	OwnerFacts,
+	RecordedQuery,
+	RecordFields,
+	RecordOwner,
+	Records,
+	RecordsInsert,
+	RecordsQuery
+} from "#compiler/types/schema/records.ts"
 import type { RelationName } from "#compiler/types/schema/relation.ts"
 
 export {
@@ -63,6 +75,19 @@ export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
+export type {
+	AnyRecords,
+	OwnerFacts,
+	OwnerParams,
+	RecordedQuery,
+	RecordFields,
+	RecordOwner,
+	Records,
+	RecordsInsert,
+	RecordsQuery,
+	StoredField,
+	StoredFieldsOf
+} from "#compiler/types/schema/records.ts"
 export type {
 	AnyFunction,
 	AnyRow,
@@ -209,3 +234,46 @@ export const derived: DerivedConstructor = Object.freeze(
 		}
 	)
 )
+
+/**
+ * records(stem, query, owner, ownerKey): the relations that hold the rows `query` found, for a level over the query's to
+ * list (program/records.ts): `${stem}Row`, the owner's fields then each column of the query's heading as the query's
+ * own field, keyed by `ownerKey`, a nonempty list of the owner's field names, as relation's primary key. Its
+ * `relations` and `rules` are what the level lists; `row` is the root.
+ */
+export const records = <
+	const Stem extends string,
+	Q extends RecordedQuery,
+	const Owner extends RecordOwner,
+	const Key extends readonly [keyof Owner & string, ...Array<keyof Owner & string>]
+>(
+	stem: RelationName<Stem>,
+	query: Q,
+	owner: Owner,
+	ownerKey: Key,
+	...extra: ReadonlyArray<never>
+): Records<Stem, HeadOf<Q>, ImmediateHeadOf<Q>, RecordFields<Owner, Q>, Owner, readonly [...Key]> =>
+	recordsBuilder<Stem, Q, Owner, readonly [...Key]>(stem, query, owner, ownerKey, extra)
+
+/**
+ * recordsQuery(level, records): the rows `records` hold at one value of their owner's key, each key field a parameter
+ * of its name, as `level`, which lists the records, reads them: an ordinary query, whose rows are the records' query's
+ * own, HeadOf of it, read through that query's own decoder (program/records.ts).
+ */
+export const recordsQuery = <L, R extends AnyRecords>(
+	level: L,
+	stored: R,
+	...extra: ReadonlyArray<never>
+): RecordsQuery<L, R> => recordsQueryOver<L, R>(level, stored, extra)
+
+/**
+ * recordsFacts(level, records)(entries): the insert of found rows into `records`, which `level` lists, each entry a row
+ * under its owner's values, as `ChangeSet.insertAll` takes it: under the root's name each row's fact, its owner's values
+ * then its columns (program/records.ts). An owner of several rows is entries that share it.
+ */
+export const recordsFacts = <L, R extends AnyRecords>(
+	level: L,
+	stored: R,
+	...extra: ReadonlyArray<never>
+): ((entries: Iterable<readonly [OwnerFacts<R>, HeadOf<R>]>) => RecordsInsert<L, R>) =>
+	recordsFactsOver<L, R>(level, stored, extra)
