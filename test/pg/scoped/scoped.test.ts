@@ -408,6 +408,13 @@ export const aRoleHoldingScopedEntriesReadsAndWritesTheSchemasProgramsOverItsOwn
 				original: "\t\t\t\t\t\t\t\t\t\t],\n\t\t\t\t\t\t\t\t\t\toutside\n",
 				replacement: "\t\t\t\t\t\t\t\t\t\t],\n\t\t\t\t\t\t\t\t\t\tnot(outside)\n",
 				why: "A key probe judges a key through the owner's rows, not over every row: an assignment at a number another owner's row holds is not refused on Assignment's key, which the statement then meets at the key it cannot see."
+			},
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					'\t\t\t\t\t\tif (op !== "delete") {\n\t\t\t\t\t\t\tprecheckMember(stratum, relation, slot, target)\n\t\t\t\t\t\t}\n',
+				replacement: "",
+				why: "A counted member a scoped entry appends by its own slot is prechecked by no statement, since no action writes it: an item appended to another student's session reaches the policy, which refuses it 42501 as the write's failure where the precheck answers outsideWorld."
 			}
 		]
 	})

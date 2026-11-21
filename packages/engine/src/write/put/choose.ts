@@ -11,6 +11,7 @@ import {
 	type ActionInfo,
 	type Counterpart,
 	infoIn,
+	type MemberCheck,
 	type MemberSlot,
 	type OutsideWrite,
 	outsideIn,
@@ -86,11 +87,12 @@ export type ChosenAction =
 	| Exclude<Action<ActionInfo>, PutAction<ActionInfo>>
 	| (PutAction<ActionInfo> & { readonly choice: PutChoice })
 
-/** A stratum of the WriteIR as its statements are planned: its actions in order, each put with its choice, and the
- * additions it refuses outright. */
+/** A stratum of the WriteIR as its statements are planned: its actions in order, each put with its choice, the
+ * additions it refuses outright, and the prechecks of the facts only its family statements write. */
 export interface ChosenStratum {
 	readonly actions: ReadonlyArray<ChosenAction>
 	readonly outside: ReadonlyArray<OutsideWrite>
+	readonly checks: ReadonlyArray<MemberCheck>
 	/** Where each of the stratum's family statements runs among its actions (frontend/schedule.ts FamilyAt). */
 	readonly family: ReadonlyArray<FamilyAt>
 }
@@ -224,6 +226,7 @@ export const choosePutTargets = (frontend: WriteFrontend): ChosenTargets => {
 	const strata = strataAt(ir.strata).map(([s, stratum]): ChosenStratum =>
 		Object.freeze({
 			outside: stratum.outside,
+			checks: stratum.checks,
 			family: stratum.family,
 			actions: Object.freeze(
 				stratum.actions.map((action, a): ChosenAction => {
@@ -351,6 +354,7 @@ export const chosenIn = (
 						)
 					),
 					outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
+					checks: stratum.checks,
 					family: stratum.family
 				})
 			)

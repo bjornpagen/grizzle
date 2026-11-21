@@ -1360,7 +1360,9 @@ const optimizedPlacement = (
 				const deps = tracker.addAfter(
 					[...inputReads([step.input]), ...describedReads([step.input]), ...checkReads(step)],
 					[],
-					step.check.kind === "membership" ? actionDeps(step.check.action) : []
+					step.check.kind === "membership" && step.check.addition.kind === "action"
+						? actionDeps(step.check.addition.action)
+						: []
 				)
 				const position = placed(
 					() => buildEntryCheck(w, step.input, entryCheckOf(step, frontend, options.world)),
@@ -1372,8 +1374,8 @@ const optimizedPlacement = (
 						needs: statement.needs
 					})
 				)
-				if (step.check.kind === "membership") {
-					record(step.check.action, position)
+				if (step.check.kind === "membership" && step.check.addition.kind === "action") {
+					record(step.check.addition.action, position)
 				}
 				break
 			}

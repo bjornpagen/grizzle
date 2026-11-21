@@ -29,7 +29,11 @@ import {
 	CarrierSupply
 } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
-import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
+import type {
+	MemberCheck,
+	WriteFrontend,
+	WrittenRelation
+} from "#compiler/write/frontend/compile.ts"
 import { refuseStampedStatements } from "#compiler/write/frontend/instants.ts"
 import {
 	type FamilyAt,
@@ -75,8 +79,11 @@ export type PlannedCheck =
 	| {
 			readonly kind: "membership"
 			readonly entry: CheckedEntry
-			/** The addition it checks, which follows it. */
-			readonly action: PlanAction
+			/** The addition it checks, which follows it: an action's, or facts only a family statement writes
+			 * (write/frontend/compile.ts MemberCheck), which no action does. */
+			readonly addition:
+				| { readonly kind: "action"; readonly action: PlanAction }
+				| { readonly kind: "family" }
 			readonly relation: WrittenRelation
 			/** The unique objects it probes for a fact outside the entry: a query entry's every probe, a scoped entry's
 			 * those its owner's rows do not determine (write/frontend/compile.ts WholeCheck). */
@@ -315,7 +322,7 @@ const statementStep = (
 				check: {
 					kind: "membership",
 					entry: step.entry,
-					action: draft.at,
+					addition: { kind: "action", action: draft.at },
 					relation,
 					probes: step.probes
 				}
@@ -553,6 +560,41 @@ const sourceInput = (action: ChosenAction, evidence: PlanEvidence): WriteInput =
 		: reads.slot.input
 }
 
+/**
+ * The steps of stratum `stratum`'s family statements, each its statement after the prechecks of the facts `checks` it is
+ * the first of the stratum's to write (write/frontend/compile.ts MemberCheck): a check reads the relation its statement
+ * writes, so the statement follows it (program/artifact.ts DependencyTracker), and every earlier statement of the
+ * stratum, an owner's insert a reached entry's membership reads among them, precedes it.
+ */
+const familyStepsOf = (
+	stratum: StratumAt,
+	checks: ReadonlyArray<MemberCheck>
+): ((f: FamilyAt) => ReadonlyArray<PlanStep>) => {
+	const checked = new Set<MemberCheck>()
+	return (f) => {
+		const written = familyNodeRelations(f.node)
+		const due = checks.filter((c) => !checked.has(c) && written.includes(c.relation.name))
+		for (const c of due) {
+			checked.add(c)
+		}
+		return [
+			...due.map((c): PlanStep => ({
+				kind: "check",
+				stratum,
+				input: c.slot.input,
+				check: {
+					kind: "membership",
+					entry: c.check.entry,
+					addition: { kind: "family" },
+					relation: c.relation,
+					probes: c.check.probes
+				}
+			})),
+			{ kind: "family", stratum, node: f.node, readBacks: [] }
+		]
+	}
+}
+
 /** The steps of stratum `stratum` realized one statement after another: each shared sub-query carried from the start
  * of the stratum; each described member read inline by the one statement that reads it when no earlier statement of
  * the stratum writes a relation it reads directly, and carried from the start of the stratum otherwise; then each
@@ -561,6 +603,7 @@ const sequentialSteps = (
 	stratum: StratumAt,
 	drafted: ReadonlyArray<ActionDraft>,
 	family: ReadonlyArray<FamilyAt>,
+	familyStep: (f: FamilyAt) => ReadonlyArray<PlanStep>,
 	shares: ReadonlyArray<CarriedShare>,
 	supply: CarrierSupply,
 	evidence: PlanEvidence
@@ -624,7 +667,7 @@ const sequentialSteps = (
 				return []
 			}
 			familyPlaced.add(f)
-			return [{ kind: "family", stratum, node: f.node, readBacks: [] }]
+			return familyStep(f)
 		})
 	for (const p of placed) {
 		appendAll(steps, familySteps(p.draft.at.index))
@@ -1105,7 +1148,7 @@ export const planWrite = (
 		return seen
 	})
 
-	for (const [s, { actions, outside, family }] of strataAt(chosen.strata)) {
+	for (const [s, { actions, outside, checks, family }] of strataAt(chosen.strata)) {
 		for (const refused of outside) {
 			const reads = refused.reads
 			strata.push({
@@ -1154,6 +1197,7 @@ export const planWrite = (
 		)
 		const realization: Realization =
 			before || creates ? { kind: "sequential" } : realizationOf(drafted)
+		const familyStep = familyStepsOf(s, checks)
 		if (realization.kind === "sequential") {
 			refuseStampedStatements(
 				drafted.map((d) => ({
@@ -1175,13 +1219,10 @@ export const planWrite = (
 					),
 					readBacks: []
 				})
-				appendAll(
-					strata,
-					family.map((f): PlanStep => ({ kind: "family", stratum: s, node: f.node, readBacks: [] }))
-				)
+				appendAll(strata, family.flatMap(familyStep))
 				break
 			case "sequential":
-				appendAll(strata, sequentialSteps(s, drafted, family, shares, supply, evidence))
+				appendAll(strata, sequentialSteps(s, drafted, family, familyStep, shares, supply, evidence))
 				break
 		}
 		appendAll(

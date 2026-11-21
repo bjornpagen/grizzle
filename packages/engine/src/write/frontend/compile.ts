@@ -489,6 +489,7 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 							)
 						),
 						outside: Object.freeze(stratum.outside.map((write) => outsideIn(write, at))),
+						checks: stratum.checks,
 						family: Object.freeze(stratum.family.map((f) => familyAtIn(f, at)))
 					})
 				)
@@ -561,10 +562,23 @@ export type SourceReads =
 /** A node the write names, read in another form of the write DAG: the node standing in its place there. */
 export type Counterpart = (node: RelNode) => RelNode
 
-/** A stratum of a write: its actions, each carrying its information, and the additions it refuses outright
- * (OutsideWrite). */
+/**
+ * The facts of a relation a scoped entry writes (WholeCheck `scoped`) that no action of their stratum writes, read off
+ * their slot: a managed member's insert or put, or a stamped nesting's root, each of which its family statement writes.
+ * Its precheck is its family statement's, before the first of the stratum's that writes its relation
+ * (schedule/plan.ts familyStepsOf), as an action's is before its first statement.
+ */
+export interface MemberCheck {
+	readonly relation: WrittenRelation
+	readonly slot: MemberSlot
+	readonly check: Extract<WholeCheck, { readonly kind: "scoped" }>
+}
+
+/** A stratum of a write: its actions, each carrying its information, the additions it refuses outright
+ * (OutsideWrite), and the prechecks of the facts only its family statements write (MemberCheck). */
 export interface WriteStratum extends Stratum<ActionInfo> {
 	readonly outside: ReadonlyArray<OutsideWrite>
+	readonly checks: ReadonlyArray<MemberCheck>
 	/** Where each of the stratum's family statements runs among its actions (schedule.ts FamilyAt). */
 	readonly family: ReadonlyArray<FamilyAt>
 }
@@ -1879,6 +1893,22 @@ const compile = (
 			  }
 			| { readonly op: "nested" }
 	}> = []
+	/** Each stratum's prechecks of the slots of `edits` a scoped entry writes. */
+	const memberChecks: Array<{ readonly stratum: StratumAt; readonly check: MemberCheck }> = []
+	/** Records the precheck of `slot`'s facts of `relation`, which a family statement of `stratum` writes, where `target`
+	 * is a scoped entry's. */
+	const precheckMember = (
+		stratum: StratumAt,
+		relation: WrittenRelation,
+		slot: MemberSlot,
+		target: MemberEntry
+	): void => {
+		if (target.kind === "whole" && target.check.kind === "scoped") {
+			memberChecks.push(
+				Object.freeze({ stratum, check: Object.freeze({ relation, slot, check: target.check }) })
+			)
+		}
+	}
 	const draftsByStratum = occupied.map(([stratum, { s, members, retires }]) => {
 		const drafts: Array<Draft> = []
 		const outside: Array<OutsideDraft> = []
@@ -2095,6 +2125,9 @@ const compile = (
 								write: { op, slot: slot.slot, stamps: computed }
 							})
 						)
+						if (op !== "delete") {
+							precheckMember(stratum, relation, slot, target)
+						}
 					}
 					continue
 				}
@@ -2176,6 +2209,7 @@ const compile = (
 												write: { op: "insert", slot: slot.slot, stamps }
 											})
 										)
+										precheckMember(stratum, relation, slot, target)
 									} else {
 										draft(insert, nesting.top, slot, [], loc, [])
 									}
@@ -2977,6 +3011,7 @@ const compile = (
 				)
 			),
 			outside,
+			checks: Object.freeze(memberChecks.flatMap((c) => (c.stratum === stratum ? [c.check] : []))),
 			family: Object.freeze(schedule.family)
 		})
 	})
