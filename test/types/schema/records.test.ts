@@ -108,6 +108,14 @@ export const recordsAgree = agreement(shapeGen, {
 		},
 		{
 			file: "packages/engine/src/types/schema/records.ts",
+			original:
+				"\tPhantomOf<C> extends { readonly origin: LiteralOrigin } ? IsOneValue<ValueOfTerm<C>> : false",
+			replacement:
+				"\tPhantomOf<C> extends { readonly origin: LiteralOrigin } ? IsOneValue<C extends Carrier<infer A> ? A : ValueOfTerm<C>> : false",
+			why: "A head literal's values are read off its carrier whole (types/schema/records.ts IsHeadLiteral), as at 02a9bfab4: `Carrier<infer A>` reads A from the column, the domain and the language at once, so a books relation's `source: \"shelf\"` delivers string, no one value, and is typed as a stored field the engine stores nowhere; its fields disagree."
+		},
+		{
+			file: "packages/engine/src/types/schema/records.ts",
 			original: "\t? C extends Taken\n\t\t? Fresh<B, Taken, readonly [...Count, unknown]>\n\t\t: C",
 			replacement: "\t? C",
 			why: "A carried key field or a place is named as its base whatever the child's columns and attachments take (types/schema/records.ts Fresh), so a books relation heading `at` types its place `at`, where the engine moves it to `at2`; its key and fields disagree."

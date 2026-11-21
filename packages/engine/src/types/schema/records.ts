@@ -29,7 +29,8 @@ import type {
 	ParamType,
 	PhantomOf,
 	Simplify,
-	UnionToIntersection
+	UnionToIntersection,
+	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { DrawnField, Field, FieldBase } from "#compiler/types/fields/field.ts"
@@ -54,13 +55,12 @@ import type {
 
 /**
  * Whether a head carrier is one head literal's, which its records store nowhere, their read writing it again; head
- * literals of several values at one key, a union's, are a column (program/records.ts literalsField).
+ * literals of several values at one key, a union's, are a column (program/records.ts literalsField). Its values are its
+ * column's (ValueOfTerm): a head literal's domain and language are its JavaScript default's, `string` for "shelf", which
+ * a carrier read whole would widen its values to.
  */
 type IsHeadLiteral<C> =
-	PhantomOf<C> extends { readonly origin: LiteralOrigin } ? IsOneValue<HostOfCarrier<C>> : false
-
-/** The values a carrier delivers, its column's host type. */
-type HostOfCarrier<C> = C extends Carrier<infer A> ? A : never
+	PhantomOf<C> extends { readonly origin: LiteralOrigin } ? IsOneValue<ValueOfTerm<C>> : false
 
 /** Whether a literal type is one value: no union of values, as `boolean` is of true and false. */
 type IsOneValue<A> = [A] extends [never]
