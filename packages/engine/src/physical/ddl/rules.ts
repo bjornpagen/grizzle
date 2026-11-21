@@ -106,7 +106,12 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { printTableName, sessionTableOurs, sessionTableStands } from "#compiler/sql/print.ts"
+import {
+	printTableName,
+	sessionTableEmptied,
+	sessionTableOurs,
+	sessionTableStands
+} from "#compiler/sql/print.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/sql/transform.ts"
 
@@ -810,13 +815,13 @@ const arming = (
 /**
  * The name of a capture's variable that holds the written set its sentinel row is armed with (`arming`), read by the
  * arming INSERT in place of the deltas, so the judge that INSERT fires, inside it after SET CONSTRAINTS ALL IMMEDIATE,
- * finds no delta held open by a statement still running and may truncate each one it read (`emptied`).
+ * finds no delta held open by a statement still running and may empty each one it read (`emptied`).
  */
 const armedName = "__armed"
 
 /**
  * Marks `delta` in the transaction's written set, the sentinel row's (`writtenColumn`), where the delta holds a row:
- * every row a delta holds is the transaction's, since the judge truncates each delta it reads (`emptied`)
+ * every row a delta holds is the transaction's, since the judge empties each delta it reads (`emptied`)
  * and a rolled-back write's go with it, so the
  * set names exactly the deltas the transaction wrote a row into, each once, which the judge reads in place of every
  * delta the session holds (`addRules`).
@@ -1282,25 +1287,25 @@ const partBody = (
 }
 
 /**
- * The rows of `delta` truncated once its part has read them, where the transaction's written set names it, which a
+ * The rows of `delta` emptied once its part has read them, where the transaction's written set names it, which a
  * capture that wrote a row there marked (`marked`), so the delta stands: the delta holds the rows of one run of the
- * judge alone, and no COMMIT truncates it (`addRules`). A TRUNCATE gives the table a new file and the old one back, where
- * a DELETE kept every page of the run, which no VACUUM of the session's table records as free, so every capture after it
- * extended the heap and every statement that scanned the delta read every run's dead rows: a session's deltas grew by
- * each judged write. The invalidation it sends names the table alone: the judge's statements read the delta through its
- * reader (`readers`) and keep their plans, and the statements that read the table itself, a capture's and its marks, plan
- * their one row again. The judge runs inside no statement that holds the delta open: after SET CONSTRAINTS ALL
- * IMMEDIATE it runs at the end of the capture's arming INSERT, which reads the sentinel and the written set's variable
- * alone (`arming`).
+ * judge alone, and no COMMIT empties it (`addRules`). It is emptied as every session table is (sql/print.ts
+ * sessionTableEmptied): by DELETE, which keeps its file and sends no invalidation, while it holds its one reused page,
+ * and by TRUNCATE once it holds more, so a delta never holds more than that page past a run and its run's rows, and the
+ * relcache invalidation a TRUNCATE sends every backend of the database, each of which walks every plan it holds, is paid
+ * once a page's worth of a session's rows, where a TRUNCATE at every run paid it at every judged COMMIT. The judge's
+ * statements read the delta through its reader (`readers`), so their plans outlive a truncation. The judge runs inside
+ * no statement that holds the delta open: after SET CONSTRAINTS ALL IMMEDIATE it runs at the end of the capture's arming
+ * INSERT, which reads the sentinel and the written set's variable alone (`arming`).
  *
- *   IF __written @> '{<delta>}' THEN TRUNCATE pg_temp.<delta>; END IF
+ *   IF __written @> '{<delta>}' THEN <the delta emptied (sessionTableEmptied)> END IF
  */
 const emptied = (delta: SessionDelta): PlStatement => ({
 	kind: "if",
 	branches: [
 		{
 			condition: wrote(delta.name),
-			body: [{ kind: "truncateSessionTable", name: delta.name }]
+			body: [sessionTableEmptied(delta.name)]
 		}
 	],
 	else: []
@@ -1332,7 +1337,7 @@ const emptied = (delta: SessionDelta): PlStatement => ({
  *   column the side reads: into the side of olds, delta.removed, the rows as the statement found them; into the side of
  *   news, the transaction's net write, each image the statement put counted 1 and each it removed counted -1. Each delta
  *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT PRESERVE ROWS, so it lives
- *   as long as the session, and holds one transaction's rows: the judge truncates each delta it reads, once its part
+ *   as long as the session, and holds one transaction's rows: the judge empties each delta it reads, once its part
  *   has read them (`emptied`), and a rolled-back write's go with it. No COMMIT truncates a delta or the sentinel:
  *   PostgreSQL truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a transaction that touched a
  *   temporary relation (tablecmds.c PreCommit_on_commit_actions), whether it wrote the table or not, each truncation an
@@ -1362,9 +1367,9 @@ const emptied = (delta: SessionDelta): PlStatement => ({
  *   PostgreSQL plans for a first row a holding rule never returns: SQLSTATE 23503 for a containment, 23505 for a key and
  *   23514 for a check, naming the rule's trigger name as its constraint and
  *   the rule's table, with no DETAIL, since the writer may not see the rows. Over deltas that hold no row a rule's region
- *   is empty, so a transaction runs exactly the rules over the relations it wrote. Each part truncates each delta the
+ *   is empty, so a transaction runs exactly the rules over the relations it wrote. Each part empties each delta the
  *   written set names once its rules have read them (`emptied`), its statements reading every delta through its reader
- *   (`readers`), so their plans outlive the truncation, so a judge that runs again after SET
+ *   (`readers`), so their plans outlive a truncation, so a judge that runs again after SET
  *   CONSTRAINTS ALL IMMEDIATE reads the rows the statements since its last run wrote: each statement's rows are judged
  *   once, on the state as it stood when they were, and a later statement that breaks a rule through them writes rows of
  *   its own the rule's other side reads, which that run judges.
@@ -1626,10 +1631,10 @@ export const addRules = (
 	 *
 	 *   RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<delta> AS r1
 	 *
-	 * A plan of a statement that reads the delta through it depends on the function, never on the table, so the TRUNCATE
-	 * the judge empties the table with once it has read it (`emptied`), a new file of the table and an invalidation of
-	 * every plan that reads it, leaves the judge's plans standing for the next run, and only the reader's own SELECT is
-	 * planned again. Its EXECUTE is revoked from PUBLIC, as each part's is: only the judge's definer runs it, over a
+	 * A plan of a statement that reads the delta through it depends on the function, never on the table, so a TRUNCATE
+	 * the judge empties the table with once it has outgrown its page (`emptied`), a new file of the table and an
+	 * invalidation of every plan that reads it, leaves the judge's plans standing for the next run, and only the reader's
+	 * own SELECT is planned again. Its EXECUTE is revoked from PUBLIC, as each part's is: only the judge's definer runs it, over a
 	 * table only that definer made (`ensured`).
 	 */
 	const readers = new Map(

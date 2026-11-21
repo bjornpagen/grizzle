@@ -2,8 +2,9 @@
 
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, String as Str, Data, Effect, Formatter } from "effect"
+import { Array as Arr, String as Str, Data, Effect, Formatter, Option } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { blockSize } from "#compiler/core/page.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import {
 	type ShapeKey,
@@ -41,14 +42,41 @@ export type CommitFeature = "a whole judge's deltas" | "a probed judge's deltas"
 
 class Truncated extends Data.TaggedError("Truncated")<{ readonly message: string }> {}
 
-/** The session's temporary tables, each by its name with the bytes it holds on disk. */
+/**
+ * The session's temporary tables, each by its name with its file and the bytes its heap and its TOAST table's heap hold
+ * on disk.
+ */
 const sessionTables = (session: RawSession) =>
 	Effect.map(
 		session.values(
-			"SELECT c.relname, pg_catalog.pg_relation_size(c.oid) FROM pg_catalog.pg_class AS c WHERE c.relnamespace = pg_catalog.pg_my_temp_schema() AND c.relkind = 'r' ORDER BY c.relname",
+			"SELECT c.relname, pg_catalog.pg_relation_size(c.oid), COALESCE(pg_catalog.pg_relation_size(c.reltoastrelid), 0), pg_catalog.pg_relation_filenode(c.oid)::text FROM pg_catalog.pg_class AS c WHERE c.relnamespace = pg_catalog.pg_my_temp_schema() AND c.relkind = 'r' ORDER BY c.relname",
 			[]
 		),
-		(rows) => Arr.map(rows, (row) => ({ name: String(row[0]), bytes: Number(row[1]) }))
+		(rows) =>
+			Arr.map(rows, (row) => ({
+				name: String(row[0]),
+				bytes: Number(row[1]),
+				toast: Number(row[2]),
+				filenode: String(row[3])
+			}))
+	)
+
+/** A session table past the one page its emptying keeps, in its heap or its TOAST table (sql/print.ts sessionTableEmptied). */
+const outgrown = (t: { readonly bytes: number; readonly toast: number }): boolean =>
+	t.bytes > blockSize || t.toast > blockSize
+
+/**
+ * The predicate locks the session's transaction holds on its temporary tables: none, since PostgreSQL takes none on a
+ * relation of local buffers (REL_19_0 src/backend/storage/lmgr/predicate.c 512-516 PredicateLockingNeededForRelation),
+ * so no SERIALIZABLE transaction of another session conflicts with a judge's reads of its deltas.
+ */
+const predicateLocks = (session: RawSession) =>
+	Effect.map(
+		session.values(
+			"SELECT count(*) FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation WHERE l.mode = 'SIReadLock' AND l.pid = pg_catalog.pg_backend_pid() AND c.relnamespace = pg_catalog.pg_my_temp_schema()",
+			[]
+		),
+		(rows) => Number(rows[0]?.[0])
 	)
 
 /** Whether the session's table `name` is a delta of the judge (core/identity.ts ruleDelta's stem), not its sentinel. */
@@ -103,12 +131,16 @@ const rowsIn = (session: RawSession, name: string) =>
 	)
 
 /**
- * Writes the case's documents whole, one transaction each, in one session, and counts the work each COMMIT does on the
- * session's temporary tables: the tables the transaction wrote a row into, read before its COMMIT, each hold no row
- * after it; each delta among them holds no page, the judge having read it and truncated it (physical/ddl/rules.ts
- * emptied), where a DELETE kept every page of every run and a session's deltas grew by each write; and the sentinel,
- * whose one row the judge deletes as it starts, keeps its page, which no COMMIT truncates, where ON COMMIT DELETE ROWS
- * truncated it and every other such table the session held at every COMMIT, written or not.
+ * Writes the case's documents whole, one transaction each, in one session, then one of them again in a transaction it
+ * rolls back, and reads what each transaction leaves of the session's temporary tables. Before each COMMIT the
+ * transaction holds no predicate lock on any of them. After each COMMIT the tables the transaction wrote a row into,
+ * read before it, each hold no row; each delta among them that held its one page at most before the COMMIT, its heap
+ * and its TOAST table's, keeps its file, the judge having read it and deleted its rows, and one that held more has a
+ * new file, empty, the judge having truncated it (sql/print.ts sessionTableEmptied), so each holds its one page at
+ * most; where a TRUNCATE at every COMMIT gave each a new file, and every backend of the database walked every plan it
+ * holds for the invalidations. The sentinel, whose one row the judge deletes as it starts, keeps its page, which no
+ * COMMIT truncates, where ON COMMIT DELETE ROWS truncated it and every other such table the session held at every
+ * COMMIT, written or not. After the rollback every table holds no row and keeps its file.
  */
 export const runCommits = (
 	installed: Installed,
@@ -129,13 +161,20 @@ export const runCommits = (
 			for (const sql of statementsOf(tables, op)) {
 				yield* session.query(sql, [])
 			}
+			const before = yield* sessionTables(session)
 			const written: Array<string> = []
-			for (const t of yield* sessionTables(session)) {
+			for (const t of before) {
 				if ((yield* rowsIn(session, t.name)) > 0) {
 					written.push(t.name)
 				}
 			}
 			yield* closed(session, installed, written, where)
+			const locks = yield* predicateLocks(session)
+			if (locks > 0) {
+				return yield* new Truncated({
+					message: `the transaction holds ${locks} predicate locks on the session's tables, ${where}`
+				})
+			}
 			yield* session.commit
 			if (written.length === 0) {
 				return yield* new Truncated({ message: `the write captured no row, ${where}` })
@@ -149,19 +188,41 @@ export const runCommits = (
 					})
 				}
 			}
-			const kept = Arr.filter(
-				after,
-				(t) => written.includes(t.name) && isDelta(t.name) && t.bytes > 0
-			)
-			if (kept.length > 0) {
-				return yield* new Truncated({
-					message: `the COMMIT left pages in ${kept.length} of the deltas it wrote, ${Formatter.format(Arr.map(kept, (t) => `${t.name} ${t.bytes} B`))}, ${where}`
-				})
+			for (const t of Arr.filter(after, (t) => written.includes(t.name) && isDelta(t.name))) {
+				const was = Arr.findFirst(before, (b) => b.name === t.name)
+				if (Option.isNone(was)) {
+					return yield* new Truncated({
+						message: `the delta ${t.name} stood up at the COMMIT, ${where}`
+					})
+				}
+				const truncated = t.filenode !== was.value.filenode
+				if (truncated !== outgrown(was.value) || outgrown(t)) {
+					return yield* new Truncated({
+						message: `the COMMIT left the delta ${t.name} at ${Formatter.format(t)} from ${Formatter.format(was.value)}, where one within its page keeps its file and one past it is given a new one, each within its page after, ${where}`
+					})
+				}
 			}
 			const sentinels = Arr.filter(after, (t) => written.includes(t.name) && !isDelta(t.name))
 			if (Arr.some(sentinels, (t) => t.bytes === 0)) {
 				return yield* new Truncated({
 					message: `the COMMIT truncated the sentinel, ${Formatter.format(Arr.map(sentinels, (t) => t.name))}, ${where}`
+				})
+			}
+		}
+		const aborted = `a rolled-back unit of document ${k.dropped} in ${Formatter.format(k)}`
+		const standing = yield* sessionTables(session)
+		yield* session.begin
+		for (const sql of statementsOf(tables, { kind: "unit", doc: k.dropped, type: 1 })) {
+			yield* session.query(sql, [])
+		}
+		yield* session.rollback
+		const left = yield* sessionTables(session)
+		for (const t of left) {
+			const rows = yield* rowsIn(session, t.name)
+			const was = Arr.findFirst(standing, (b) => b.name === t.name)
+			if (rows > 0 || (Option.isSome(was) && was.value.filenode !== t.filenode)) {
+				return yield* new Truncated({
+					message: `the rollback left ${t.name} with ${rows} rows at ${Formatter.format(t)} from ${Formatter.format(was)}, ${aborted}`
 				})
 			}
 		}

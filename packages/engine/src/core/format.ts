@@ -13,7 +13,11 @@
  * anything, so `grizzle upgrade` refuses such a change by name (CONTRIBUTING.md, Settled decisions). Format 6 retyped
  * the ledger's and the proofs' digests, so no format 5 installation is rebased onto it: each is drafted afresh.
  *
- * @formatConstant grizzle's artifact format: 6. Its snapshot.json records each schema level's fingerprint over its
+ * @formatConstant grizzle's artifact format: 7. Format 7 (pin+1): a session table, a rule judge's delta (physical/ddl/rules.ts
+ * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once
+ * its heap or its TOAST table's heap holds more than its one page (sql/print.ts sessionTableEmptied), where format 6
+ * truncated each written delta at every judged COMMIT and each carrier at every use, so each judge function's body and
+ * each served carrier stand-up read the table's size before they empty it. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row
@@ -54,7 +58,7 @@
  * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
  * trusted a sealed record of 3 met shapes it never wrote; every one is refused here
  */
-export const artifactFormat = 6
+export const artifactFormat = 7
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"

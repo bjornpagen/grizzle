@@ -12,6 +12,7 @@ import { resourceBound } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { BlockLines, CommentedLines, inlineText, type Lines, textOf } from "#compiler/core/lines.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { blockSize } from "#compiler/core/page.ts"
 import { temporarySchema } from "#compiler/core/temporary.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { messageMaxBytes } from "#compiler/core/wire.ts"
@@ -100,9 +101,11 @@ import {
 	cUtf8Collation,
 	eq,
 	exists,
+	gt,
 	lit,
 	not,
 	objectName,
+	or,
 	simpleSelect,
 	types
 } from "#compiler/sql/build.ts"
@@ -1506,16 +1509,103 @@ export const sessionTableStands = (name: string): Expr =>
 	)
 
 /**
+ * The most bytes a session table's heap, and its TOAST table's heap, hold that its emptying keeps rather than gives back
+ * (`sessionTableEmptied`): one page, the page every insert into it reuses. An insert goes to the relation's target page,
+ * then to a page its free space map records, and otherwise extends it (REL_19_0 src/backend/access/heap/hio.c 577, 585,
+ * 769). Nothing writes a session table's free space map: autovacuum never processes another backend's temporary table
+ * (src/backend/postmaster/autovacuum.c 2078, 2175), and pruning on access records a page's free space only where it
+ * makes the page all-visible (src/backend/access/heap/pruneheap.c 386-413), which a page whose deleted rows left their
+ * line pointers dead never is. So the target page, the last, is the one page a later insert fills again: a table of one
+ * page holds nothing a TRUNCATE would give back, and every page of a longer one before its last is space no insert
+ * reaches again, which only a TRUNCATE gives back.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19.0
+ * @unit bytes
+ * @scope the heap of one session table, a rule judge's delta or a write's carrier, and its TOAST table's heap, each as
+ *   one of its uses ends
+ * @derivation one page: the target page every insert reuses, past which no page is reused (hio.c's choice of a page)
+ * @from {@link blockSize}
+ */
+const sessionTableKeptBytes = blockSize
+
+/**
+ * That the session's table `name` holds more than its one reused page (sessionTableKeptBytes) in its heap or in its
+ * TOAST table's heap, each as the size of its file, which pg_relation_size reads by a stat and no page: a table with no
+ * TOAST table has a reltoastrelid of 0, whose size it answers NULL, so its heap alone decides.
+ *
+ *   EXISTS (SELECT FROM pg_catalog.pg_class AS r1 WHERE r1.oid = pg_catalog.to_regclass('"pg_temp"."<name>"')
+ *     AND (pg_catalog.pg_relation_size(r1.oid) > 8192 OR pg_catalog.pg_relation_size(r1.reltoastrelid) > 8192))
+ */
+const sessionTableOvergrown = (name: string): Expr => {
+	const kept = lit.int(sessionTableKeptBytes, types.bigint)
+	return exists(
+		simpleSelect(
+			[],
+			[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r1" }],
+			and([
+				eq(col("r1", "oid"), sessionRegclass(name)),
+				or([
+					gt(builtinCall("pg_relation_size", [col("r1", "oid")]), kept),
+					gt(builtinCall("pg_relation_size", [col("r1", "reltoastrelid")]), kept)
+				])
+			])
+		)
+	)
+}
+
+/**
+ * The session's table `name` emptied of its rows, a rule judge's delta once its part has read them (physical/ddl/rules.ts
+ * emptied) or a write's carrier before its use fills it (`carrierStandUp`): by DELETE while its heap and its TOAST
+ * table's each hold one page at most (sessionTableKeptBytes), and by TRUNCATE once either holds more.
+ *
+ *   IF <it holds more than its page (sessionTableOvergrown)> THEN TRUNCATE pg_temp.<name>;
+ *   ELSE DELETE FROM pg_temp.<name> AS r1; END IF;
+ *
+ * A DELETE keeps the table's file, so it sends no invalidation: a TRUNCATE of a table made in an earlier transaction
+ * gives it, its TOAST table and that table's index each a new file (src/backend/commands/tablecmds.c 2245-2272
+ * RelationSetNewRelfilenumber), a pg_class row updated for each, and the relcache invalidations of each reach every
+ * backend of the database (src/backend/utils/cache/inval.c 88-95: a session's own table's among them), each of which
+ * then walks every plan it holds (src/backend/utils/cache/plancache.c 2131 PlanCacheRelCallback). A session of 30,000
+ * saved plans paid 86 ms of a commit that truncated five deltas, and an idle one beside it 44 ms more (SESSIONTEMP,
+ * 2026-11-21), where a DELETE cost 1 ms and the other session nothing. The rows the DELETE leaves dead take their
+ * page's space until a read prunes it, and their line pointers stay, so a table refilled use after use outgrows its one
+ * reused page, and the use that finds it so truncates it: the TRUNCATE is paid once a page's worth of rows, never at
+ * each use. Every row is gone either way: a later transaction sees none, and one that rolls back takes its rows and
+ * their emptying with it, so each use starts on an empty table.
+ */
+export const sessionTableEmptied = (name: string): PlStatement => ({
+	kind: "if",
+	branches: [
+		{ condition: sessionTableOvergrown(name), body: [{ kind: "truncateSessionTable", name }] }
+	],
+	else: [
+		{
+			kind: "modify",
+			statement: {
+				kind: "delete",
+				with: undefined,
+				table: objectName(temporarySchema, name),
+				alias: "r1",
+				using: [],
+				where: undefined,
+				returning: []
+			}
+		}
+	]
+})
+
+/**
  * A write program's carrier stood up for its use, as one DO block: made where the session holds none, ON COMMIT
- * PRESERVE ROWS, every column NOT NULL and its key its own, and truncated where it stands, so the use's fills meet no
- * row of an earlier one; a write's transaction past the session's first therefore makes and drops no relation, whose
- * catalog rows, a carrier's columns, type and key, overflowed PostgreSQL's shared invalidation queue (4096 messages) at
- * every COMMIT that dropped them and reset every cache of the session, the rule judge's cached plans among them, which
- * the next COMMIT made again. A carrier holds no row its use did not write: the use truncates it first, a transaction
- * that rolls back takes its rows and its truncation with it, and one that commits leaves its rows to the next use,
- * which truncates them. A TRUNCATE gives the old file back, where a DELETE kept every page, which no VACUUM of the
- * session's own table records as free, so every fill after it extended the heap: a session's carriers hold at most
- * one use's rows.
+ * PRESERVE ROWS, every column NOT NULL and its key its own, and emptied where it stands (`sessionTableEmptied`), so the
+ * use's fills meet no row of an earlier one; a write's transaction past the session's first therefore makes and drops
+ * no relation, whose catalog rows, a carrier's columns, type and key, overflowed PostgreSQL's shared invalidation queue
+ * (4096 messages) at every COMMIT that dropped them and reset every cache of the session, the rule judge's cached plans
+ * among them, which the next COMMIT made again. A carrier holds no row its use did not write: the use empties it first,
+ * a transaction that rolls back takes its rows and its emptying with it, and one that commits leaves its rows to the
+ * next use, which empties them. The emptying keeps the carrier's file while it holds its one reused page, so a use
+ * sends no invalidation, and gives the file back once it holds more: a session's carriers hold at most one use's rows
+ * and a page.
  */
 const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
 	declare: [],
@@ -1554,7 +1644,7 @@ const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
 					]
 				}
 			],
-			else: [{ kind: "truncateSessionTable", name: carrier.name }]
+			else: [sessionTableEmptied(carrier.name)]
 		}
 	]
 })

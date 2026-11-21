@@ -377,6 +377,7 @@ export const builtinFunctions = {
 	num_nonnulls: { reach: "row" },
 	sha256: { reach: "row" },
 	to_regclass: { reach: "row" },
+	pg_relation_size: { reach: "row" },
 	to_regprocedure: { reach: "row" },
 	pg_get_userbyid: { reach: "row" },
 	pg_my_temp_schema: { reach: "row" },
@@ -2203,11 +2204,9 @@ export type PlStatement =
 	  }
 	| {
 			/**
-			 * TRUNCATE pg_temp.<name>: a session table emptied in place of its rows before a use fills it again, a
-			 * write program's carrier (sql/print.ts carrierStandUp). PostgreSQL gives the table a new file and gives the
-			 * old one back, so the table holds no page an earlier use filled, where a DELETE left every one of them in
-			 * the heap, whose free space no VACUUM records and which every later fill therefore extends; the
-			 * invalidations it sends name that table alone, so only plans that read it are made again.
+			 * TRUNCATE pg_temp.<name>: a session table, a rule judge's delta or a write's carrier, that has outgrown its
+			 * one reused page given a new file, the old one given back (sql/print.ts sessionTableEmptied, which empties
+			 * one that has not by DELETE, keeping its file).
 			 */
 			readonly kind: "truncateSessionTable"
 			readonly name: string
