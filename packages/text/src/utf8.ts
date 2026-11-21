@@ -6,8 +6,10 @@
  * never stripped (`ignoreBOM`). U+FEFF is a scalar like any other, which a stored text, a JSON body or a token may begin
  * with, and a TextDecoder's defaults would drop it from the start of every decode, so the text read would be another
  * value than the one the bytes hold. Its one encoder, `writeUtf8`, writes a text's bytes in place, where its caller
- * counted them (`utf8Length`, by the same rule), so a text written into a larger array is copied from nowhere. It
- * imports nothing and runs wherever JavaScript does, a browser included.
+ * counted them (`utf8Length`, by the same rule), so a text written into a larger array is copied from nowhere; its one
+ * writer of a text piece by piece as bytes, `Utf8Writer`, writes each piece, a JSON value's text among them, by it into
+ * one buffer, so no text of the pieces is built. It imports nothing and runs wherever JavaScript does, a browser
+ * included.
  */
 
 declare const wellFormedBrand: unique symbol
@@ -16,8 +18,8 @@ declare const wellFormedBrand: unique symbol
  * A text of Unicode scalar values alone, no lone surrogate: a text UTF-8 writes (`writeUtf8`) and every text a decode
  * of UTF-8 reads (`utf8Text`). Minted only here: by `isWellFormedText`, the one check of a text's form, which a boundary
  * that admits a text, or holds one TypeScript cannot prove, reads; and, unchecked, where the making of a text is its
- * proof: the strict decoder's every text, JSON.stringify's (`jsonText`) and a join of well-formed texts
- * (`joinWellFormed`).
+ * proof: the strict decoder's every text, JSON.stringify's (`jsonText`) and a text written of well-formed pieces
+ * (`WellFormedWriter`).
  */
 export type WellFormedText = string & { readonly [wellFormedBrand]: true }
 
@@ -25,22 +27,13 @@ export type WellFormedText = string & { readonly [wellFormedBrand]: true }
 export const isWellFormedText = (text: string): text is WellFormedText => text.isWellFormed()
 
 /** A text well-formed by how it was made (`WellFormedText`): read by the strict decoder, written by JSON.stringify, or
- * joined of well-formed texts. Unchecked: each of its callers is the proof. */
+ * written of well-formed pieces. Unchecked: each of its callers is the proof. */
 const proved: (text: string) => asserts text is WellFormedText = () => undefined
 
 /**
- * Well-formed texts as one, in order: well-formed too, since no part ends with a high surrogate or begins with a low one,
- * so no seam pairs or parts a surrogate (`WellFormedText`). Unchecked: the parts are the proof.
- */
-export const joinWellFormed = (...parts: ReadonlyArray<WellFormedText>): WellFormedText => {
-	const text = parts.join("")
-	proved(text)
-	return text
-}
-
-/**
- * A well-formed text written piece by piece, each piece well-formed, so the whole is (`joinWellFormed`): appended in
- * place, never joined anew at each piece. Unchecked: the pieces are the proof.
+ * A well-formed text written piece by piece, each piece well-formed, so the whole is, since no piece ends with a high
+ * surrogate or begins with a low one, so no seam pairs or parts a surrogate: appended in place, never joined anew at
+ * each piece. Unchecked: the pieces are the proof.
  */
 export class WellFormedWriter {
 	#text = ""
@@ -129,38 +122,46 @@ export const utf8Length = (text: string): number => {
 }
 
 /**
+ * Writes the code point at code unit `i` of `text`, of `width` bytes (`widthAt`), into `out` from `to`: the one spelling
+ * of a code point's UTF-8, which `writeUtf8` and the JSON writer (`Utf8Writer.jsonString`) write by.
+ */
+const writePoint = (out: Uint8Array, to: number, text: string, i: number, width: Width): void => {
+	const unit = text.charCodeAt(i)
+	switch (width) {
+		case 1:
+			out[to] = unit
+			return
+		case 2:
+			out[to] = 0xc0 | (unit >> 6)
+			out[to + 1] = 0x80 | (unit & 0x3f)
+			return
+		case 3:
+			out[to] = 0xe0 | (unit >> 12)
+			out[to + 1] = 0x80 | ((unit >> 6) & 0x3f)
+			out[to + 2] = 0x80 | (unit & 0x3f)
+			return
+		case 4: {
+			const point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00) + 0x10000
+			out[to] = 0xf0 | (point >> 18)
+			out[to + 1] = 0x80 | ((point >> 12) & 0x3f)
+			out[to + 2] = 0x80 | ((point >> 6) & 0x3f)
+			out[to + 3] = 0x80 | (point & 0x3f)
+			return
+		}
+	}
+}
+
+/**
  * The one encoder of text as bytes: writes a well-formed text's UTF-8 into `out` from `at`, each code point's bytes in
- * place, as many as `widthAt` gives it, and answers the position past its last byte, `at` plus its utf8Length, which
- * `out` holds from `at` (its caller counted them): exactly the platform's UTF-8 (TextEncoder). A lone surrogate, which
- * has no UTF-8, is no WellFormedText, so it never reaches here.
+ * place, as many as `widthAt` gives it (writePoint), and answers the position past its last byte, `at` plus its
+ * utf8Length, which `out` holds from `at` (its caller counted them): exactly the platform's UTF-8 (TextEncoder). A lone
+ * surrogate, which has no UTF-8, is no WellFormedText, so it never reaches here.
  */
 export const writeUtf8 = (out: Uint8Array, at: number, text: WellFormedText): number => {
 	let to = at
 	for (let i = 0; i < text.length;) {
 		const width = widthAt(text, i)
-		const unit = text.charCodeAt(i)
-		switch (width) {
-			case 1:
-				out[to] = unit
-				break
-			case 2:
-				out[to] = 0xc0 | (unit >> 6)
-				out[to + 1] = 0x80 | (unit & 0x3f)
-				break
-			case 3:
-				out[to] = 0xe0 | (unit >> 12)
-				out[to + 1] = 0x80 | ((unit >> 6) & 0x3f)
-				out[to + 2] = 0x80 | (unit & 0x3f)
-				break
-			case 4: {
-				const point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00) + 0x10000
-				out[to] = 0xf0 | (point >> 18)
-				out[to + 1] = 0x80 | ((point >> 12) & 0x3f)
-				out[to + 2] = 0x80 | ((point >> 6) & 0x3f)
-				out[to + 3] = 0x80 | (point & 0x3f)
-				break
-			}
-		}
+		writePoint(out, to, text, i, width)
 		to += width
 		i += unitsOf(width)
 	}
@@ -172,6 +173,233 @@ export const utf8 = (text: WellFormedText): Uint8Array => {
 	const out = new Uint8Array(utf8Length(text))
 	writeUtf8(out, 0, text)
 	return out
+}
+
+/**
+ * What a `Utf8Writer` does with a piece that does not fit in its buffer: `grow` the buffer, every byte kept until the
+ * end (a text decoded whole); or `drain` it into `into` first, once it holds `chunk` bytes (a hash, which reads its
+ * message in pieces), so the buffer holds no more than a chunk and the piece being written, whatever the length of all
+ * it writes. A drained view is read at once: the writer writes over it next.
+ */
+export type Overflow =
+	| { readonly kind: "grow" }
+	| { readonly kind: "drain"; readonly chunk: number; readonly into: (bytes: Uint8Array) => void }
+
+/**
+ * The most bytes one code unit of a JSON string literal takes (`Utf8Writer.jsonString`): a control character's
+ * escape, \u00XX, the longest of a unit above ASCII's three bytes, a pair's four for two units, and an ASCII unit's one
+ * or two.
+ *
+ * @formatConstant a JSON \u escape: six characters, all ASCII
+ */
+const jsonUnitMaxBytes = 6
+
+/**
+ * The most bytes one code unit of a text's UTF-8 takes (`writeUtf8`): a unit of the Basic Multilingual Plane's three,
+ * a surrogate pair's four for its two units.
+ *
+ * @formatConstant UTF-8: three bytes a code unit of the Basic Multilingual Plane
+ */
+const utf8UnitMaxBytes = 3
+
+/** Each ASCII control character JSON.stringify writes by a two-character escape (ECMA-262 QuoteJSONString), by its
+ * code unit: backspace, tab, line feed, form feed and carriage return. */
+const shortEscapes: ReadonlyMap<number, number> = new Map([
+	[0x08, 0x62],
+	[0x09, 0x74],
+	[0x0a, 0x6e],
+	[0x0c, 0x66],
+	[0x0d, 0x72]
+])
+
+/** The lowercase hex digit of a nibble, as JSON.stringify's \u escapes write it. */
+const hexDigit = (nibble: number): number => (nibble < 10 ? 0x30 + nibble : 0x57 + nibble)
+
+/** The buffer a writer begins with, which holds nothing, so its first piece grows it: one for every writer. */
+const noBytes = new Uint8Array(0)
+
+/**
+ * Text written as UTF-8 into one byte buffer, piece by piece, each piece's bytes written in place once, with no string
+ * built: a well-formed text's (`writeUtf8`), and a JSON value's as `jsonText` spells it, a string's literal escaped
+ * and encoded in the one pass over its code units, a safe integer's digits written from its value. A full buffer
+ * grows to twice what it must hold, its bytes copied whole, or is drained (`Overflow`). It counts the UTF-16 code
+ * units of the text it has written (`units`), which is what V8's longest string bounds.
+ */
+export class Utf8Writer {
+	#bytes = noBytes
+	/** Where the next byte goes: how many bytes the buffer holds since it was last drained. */
+	#at = 0
+	/** How many bytes were drained before. */
+	#drained = 0
+	/** How many UTF-16 code units the text written so far holds. */
+	#units = 0
+	readonly #overflow: Overflow
+
+	constructor(overflow: Overflow) {
+		this.#overflow = overflow
+	}
+
+	/** How many UTF-16 code units the text written so far holds. */
+	get units(): number {
+		return this.#units
+	}
+
+	/** How many bytes were written so far, drained or held. */
+	get length(): number {
+		return this.#drained + this.#at
+	}
+
+	/** How many bytes the buffer can hold: the most it ever held at once, since it never shrinks. */
+	get capacity(): number {
+		return this.#bytes.length
+	}
+
+	/** The bytes held since the buffer was last drained, a view the next write writes over: every byte, when it grows. */
+	held(): Uint8Array {
+		return this.#bytes.subarray(0, this.#at)
+	}
+
+	/** The bytes held passed to `into`, and the buffer emptied for what is written next, its capacity kept. */
+	drain(into: (bytes: Uint8Array) => void): void {
+		into(this.held())
+		this.#drained += this.#at
+		this.#at = 0
+	}
+
+	/** A well-formed text's UTF-8 (`writeUtf8`). */
+	text(text: WellFormedText): void {
+		this.#reserve(text.length * utf8UnitMaxBytes)
+		this.#at = writeUtf8(this.#bytes, this.#at, text)
+		this.#units += text.length
+	}
+
+	/** An ASCII text's bytes, one a code unit: JSON's punctuation, literals and a number's text. */
+	ascii(text: string): void {
+		this.#reserve(text.length)
+		const out = this.#bytes
+		let to = this.#at
+		for (let i = 0; i < text.length; i++) {
+			out[to] = text.charCodeAt(i)
+			to += 1
+		}
+		this.#at = to
+		this.#units += text.length
+	}
+
+	/**
+	 * The UTF-8 of `jsonText(text)`, a string's JSON literal, in one pass over its code units: a quotation mark and a
+	 * reverse solidus escaped by a reverse solidus, the five controls of a short escape by theirs and every other control
+	 * and a lone surrogate by its lowercase \u escape, as JSON.stringify writes each (ECMA-262 QuoteJSONString), and
+	 * every other code point as its UTF-8 (`writePoint`).
+	 */
+	jsonString(text: string): void {
+		const length = text.length
+		this.#reserve(length * jsonUnitMaxBytes + 2)
+		const out = this.#bytes
+		let to = this.#at
+		/** How many more UTF-16 code units the literal holds than the text and its quotation marks: its escapes'. */
+		let escaped = 0
+		out[to] = 0x22
+		to += 1
+		for (let i = 0; i < length; i++) {
+			const unit = text.charCodeAt(i)
+			if (unit < 0x80) {
+				if (unit >= 0x20 && unit !== 0x22 && unit !== 0x5c) {
+					out[to] = unit
+					to += 1
+					continue
+				}
+				const short = unit === 0x22 || unit === 0x5c ? unit : shortEscapes.get(unit)
+				if (short !== undefined) {
+					out[to] = 0x5c
+					out[to + 1] = short
+					to += 2
+					escaped += 1
+					continue
+				}
+				to = this.#unicodeEscape(out, to, unit)
+				escaped += 5
+				continue
+			}
+			const width = widthAt(text, i)
+			if (width === 3 && unit >= 0xd800 && unit <= 0xdfff) {
+				to = this.#unicodeEscape(out, to, unit)
+				escaped += 5
+				continue
+			}
+			writePoint(out, to, text, i, width)
+			to += width
+			i += unitsOf(width) - 1
+		}
+		out[to] = 0x22
+		to += 1
+		this.#at = to
+		this.#units += length + 2 + escaped
+	}
+
+	/**
+	 * The text of `jsonText(x)` of a number, a safe integer's digits written from its value (0 for -0, as JSON writes
+	 * it), any other number's text, which is ASCII, written as it is.
+	 */
+	jsonNumber(x: number): void {
+		if (!Number.isSafeInteger(x)) {
+			this.ascii(jsonText(x))
+			return
+		}
+		let magnitude = x < 0 ? -x : x
+		let digits = 1
+		for (let rest = magnitude; rest >= 10; rest = (rest - (rest % 10)) / 10) {
+			digits += 1
+		}
+		const sign = x < 0 ? 1 : 0
+		this.#reserve(sign + digits)
+		const out = this.#bytes
+		if (sign === 1) {
+			out[this.#at] = 0x2d
+		}
+		const end = this.#at + sign + digits
+		for (let to = end - 1; to >= this.#at + sign; to--) {
+			const digit = magnitude % 10
+			out[to] = 0x30 + digit
+			magnitude = (magnitude - digit) / 10
+		}
+		this.#at = end
+		this.#units += sign + digits
+	}
+
+	/** The \u escape of a code unit, its four hex digits lowercase, written after the reverse solidus at `to`. */
+	#unicodeEscape(out: Uint8Array, to: number, unit: number): number {
+		out[to] = 0x5c
+		out[to + 1] = 0x75
+		out[to + 2] = hexDigit(unit >> 12)
+		out[to + 3] = hexDigit((unit >> 8) & 0xf)
+		out[to + 4] = hexDigit((unit >> 4) & 0xf)
+		out[to + 5] = hexDigit(unit & 0xf)
+		return to + 6
+	}
+
+	/** Room for `bytes` more bytes: the buffer drained first where it holds a chunk, and grown where they still do not fit. */
+	#reserve(bytes: number): void {
+		if (this.#at + bytes <= this.#bytes.length) {
+			return
+		}
+		const overflow = this.#overflow
+		if (overflow.kind === "drain" && this.#at > 0 && this.#at + bytes > overflow.chunk) {
+			this.drain(overflow.into)
+			if (bytes <= this.#bytes.length) {
+				return
+			}
+		}
+		const doubled = 2 * Math.max(this.#bytes.length, this.#at + bytes)
+		const grown = new Uint8Array(
+			Math.max(
+				this.#at + bytes,
+				overflow.kind === "drain" ? Math.min(doubled, overflow.chunk) : doubled
+			)
+		)
+		grown.set(this.#bytes)
+		this.#bytes = grown
+	}
 }
 
 /** A decoder that refuses a malformed sequence and keeps a byte order mark (see the header). */

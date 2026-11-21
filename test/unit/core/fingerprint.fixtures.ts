@@ -1,5 +1,6 @@
 /** What the properties of fingerprint.test.ts read: its spaces, models and helpers. */
 
+import { getHeapStatistics } from "node:v8"
 import {
 	array,
 	boolean,
@@ -13,11 +14,14 @@ import {
 	uniqueArray,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Record } from "effect"
+import { Array as Arr, Order, Record, String as Str } from "effect"
 import type { Path } from "#compiler/core/canonical.ts"
 import { type SourceLoc, sitedLoc } from "#compiler/core/loc.ts"
 import { isRecord } from "#compiler/core/record.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
+import { jsonText } from "#compiler/core/trusted.ts"
 import { isList } from "#test/support/list.ts"
+import { Exact, specified, value } from "#test/unit/core/canonical.fixtures.ts"
 
 const leaf = weighted<string | number | boolean>([
 	[1, string(codePoint(0x20, 0x7e), { min: 0, max: 4 })],
@@ -143,3 +147,91 @@ export const domainGen: Gen<
 		source.draw(string(codePoint(0x20, 0x7e), { min: 1, max: 8 })),
 		source.draw(string(codePoint(0x20, 0x7e), { min: 0, max: 4 }))
 	] as const
+
+/** The first line of every digest's frame, as the module header specifies it. */
+const formatLine = "grizzle-canonical\n"
+
+/** The bytes a digest hashes, as the module header specifies them: the frame, then the specified canonical text. */
+export const framedText = (domain: string, text: string): string =>
+	`${formatLine}${domain}\n${text}`
+
+/** SHA-256 of a text's UTF-8, its bytes the platform's encoder's, hashed by sha256Hex's bytes path, which no message
+ * writer reaches: a second implementation of a digest's writing. */
+export const platformDigest = (text: string): string => sha256Hex(new TextEncoder().encode(text))
+
+/**
+ * The identity text of a value, as identityDigest's header specifies it: the canonical text with each array and plain
+ * record it holds written as its own identity digest's tagged string, each member of a record and an array read by the
+ * specification (canonical.fixtures.ts jsonForm, rfc8785); a container's own digest is SHA-256 of its identity text.
+ */
+export const identitySpecified = (v: unknown): string => {
+	if (isList(v)) {
+		return `[${Arr.join(Arr.map(v, memberSpecified), ",")}]`
+	}
+	if (isPlainRecord(v)) {
+		const members = Arr.sort(
+			Arr.filter(Record.toEntries(v), ([, x]) => x !== undefined),
+			Order.mapInput(Order.String, ([key]: readonly [string, unknown]) => key)
+		)
+		return `{${Arr.join(
+			Arr.map(members, ([k, x]) => `${jsonText(k)}:${memberSpecified(x)}`),
+			","
+		)}}`
+	}
+	return specified(v)
+}
+
+/** A member's text in its container's identity text: a container's tagged digest, any other value's specified text. */
+const memberSpecified = (v: unknown): string =>
+	isList(v) || isPlainRecord(v)
+		? `"~identity:${platformDigest(identitySpecified(v))}"`
+		: specified(v)
+
+/** Whether a drawn value is a plain record, which the canonical model reads as a container. */
+const isPlainRecord = (v: unknown): v is Readonly<globalThis.Record<string, unknown>> =>
+	isRecord(v) && !isList(v) && !(v instanceof Exact) && !(v instanceof Float32Array)
+
+export type DigestFeature = "a container" | "a scalar" | "a container shared twice"
+
+/** A value of the canonical model drawn as canonical.test.ts draws it, a one-line domain, and whether the value is held
+ * twice by one container, which identityDigest digests once. */
+export const digestGen: Gen<readonly [unknown, string, boolean]> = (source) =>
+	[
+		source.draw(value),
+		source.draw(string(codePoint(0x21, 0x7e), { min: 1, max: 8 })),
+		source.draw(boolean)
+	] as const
+
+/**
+ * A string's scalars, repeated to 2^20 code units, a length past which a text allocated for each character would pass
+ * the heap a digest allocates for its containers.
+ */
+export const longStringGen: Gen<string> = string(
+	element(["a", "é", "€", "😀", '"', "\n", "\u0001"]),
+	{ min: 1, max: 6 }
+)
+
+/** The length of each long string a digest's allocation is measured over. */
+export const longLength = 2 ** 20
+
+/** A text of `length` code units at least, `unit` repeated, flattened so no rope is read. */
+export const longString = (length: number, unit: string): string => {
+	const text = Str.repeat(Math.ceil(length / unit.length))(unit)
+	return Arr.join(Arr.fromIterable(text), "")
+}
+
+/**
+ * The heap bytes V8 allocates for each run of `f`, averaged over eight runs after four that compile it: V8 counts what
+ * it allocates a buffer at a time, so a single run's count is the buffers it began, and an average of runs is what
+ * each allocates.
+ */
+export const allocatedBy = (f: () => unknown): number => {
+	for (let warm = 0; warm < 4; warm++) {
+		f()
+	}
+	const before = getHeapStatistics().total_allocated_bytes
+	for (let run = 0; run < 8; run++) {
+		f()
+	}
+	return (getHeapStatistics().total_allocated_bytes - before) / 8
+}

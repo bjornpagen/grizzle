@@ -18,10 +18,12 @@ import { utf8, utf8Length, writeUtf8 } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
-import { sha256Hex } from "#compiler/core/sha256.ts"
+import { Array as Arr, Effect } from "effect"
+import { Sha256Messages, sha256Hex } from "#compiler/core/sha256.ts"
 import {
 	type Feature,
+	type MessagesFeature,
+	messagesGen,
 	noteText,
 	platformBytes,
 	wellFormedTexts
@@ -75,9 +77,9 @@ export const theOneEncoderWritesAWellFormedTextsUTF8InPlaceThePlatformsBytesOfIt
 			{
 				file: "packages/text/src/utf8.ts",
 				original:
-					"\t\t\t\tconst point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00) + 0x10000",
+					"\t\t\tconst point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00) + 0x10000",
 				replacement:
-					"\t\t\t\tconst point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00)",
+					"\t\t\tconst point = ((unit - 0xd800) << 10) + (text.charCodeAt(i + 1) - 0xdc00)",
 				why: "writeUtf8 writes a supplementary code point's four bytes without its 0x10000 offset; the platform's bytes differ."
 			},
 			{
@@ -114,3 +116,63 @@ export const sha256HexHashesATextAsItsUTF8Bytes = property.explore(wellFormedTex
 		}
 	]
 })
+
+/** SHA-256 messages written one after another into one writer are each the digest of their own bytes, and none is held whole: at most a chunk, or the longest piece written, at once. */
+export const sha256MessagesWrittenOneAfterAnotherIntoOneWriterAreEachTheDigestOfTheirOwnBytesAndNoneIsHeldWhole =
+	property.explore(messagesGen, {
+		needs: {},
+		situations: [
+			"a message longer than its chunk",
+			"messages one after another",
+			"an empty message"
+		] satisfies ReadonlyArray<Reached<MessagesFeature>>,
+		check: (_, c: Case<MessagesFeature>) => (k) =>
+			Effect.sync(() => {
+				const messages = new Sha256Messages(k.chunk)
+				for (const pieces of k.messages) {
+					for (const piece of pieces) {
+						messages.out.text(piece)
+					}
+					const bytes = Uint8Array.from(Arr.flatMap(pieces, platformBytes))
+					assert.equal(messages.hex(), sha256Hex(bytes), "each message's digest is its own bytes'")
+					if (bytes.length === 0) {
+						c.note("an empty message")
+					}
+					if (bytes.length > k.chunk) {
+						c.note("a message longer than its chunk")
+					}
+				}
+				if (k.messages.length > 1) {
+					c.note("messages one after another")
+				}
+				const longest = Arr.reduce(
+					Arr.flatMap(k.messages, (m) => Arr.map(m, (p) => 3 * p.length)),
+					0,
+					(a, b) => Math.max(a, b)
+				)
+				assert.ok(
+					messages.out.capacity <= Math.max(k.chunk, longest),
+					`the writer holds ${messages.out.capacity} bytes at most, its chunk ${k.chunk} or its longest piece ${longest}`
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "sha256Hex of the platform's UTF-8 of each message, whole: the bytes path, which no message writer reaches"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/sha256.ts",
+				original:
+					'\t\tthis.out = new Utf8Writer({\n\t\t\tkind: "drain",\n\t\t\tchunk,\n\t\t\tinto: (bytes) => this.#current().update(bytes)\n\t\t})',
+				replacement: '\t\tthis.out = new Utf8Writer({ kind: "grow" })',
+				why: "Every message is held whole and hashed at its end, as a digest's text was: the writer holds a message longer than its chunk and its longest piece."
+			},
+			{
+				file: "packages/engine/src/core/sha256.ts",
+				original: '\t\tthis.#hash = undefined\n\t\treturn hash.digest("hex")',
+				replacement: '\t\treturn hash.digest("hex")',
+				why: "A message's hash goes on into the next, so the second message's digest is of both; the digests differ."
+			}
+		]
+	})

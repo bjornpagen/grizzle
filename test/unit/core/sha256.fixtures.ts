@@ -66,3 +66,17 @@ export const wellFormedTexts: Gen<WellFormedText> = map(
 		return text
 	}
 )
+
+export type MessagesFeature =
+	| "a message longer than its chunk"
+	| "messages one after another"
+	| "an empty message"
+
+/** Messages written one after another, each of drawn well-formed pieces, and the chunk their writer drains at. */
+export const messagesGen: Gen<{
+	readonly messages: ReadonlyArray<ReadonlyArray<WellFormedText>>
+	readonly chunk: number
+}> = (source) => ({
+	messages: source.draw(array(array(wellFormedTexts, { min: 0, max: 8 }), { min: 1, max: 4 })),
+	chunk: source.draw(int(1, 32))
+})

@@ -3,8 +3,64 @@
  * Fingerprints and identifier digests are pure compile-time functions, so this module reads node:crypto directly; it is
  * the one module of the engine that imports a node builtin.
  */
-import { createHash } from "node:crypto"
-import { utf8, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import { createHash, type Hash } from "node:crypto"
+import { Utf8Writer, utf8, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+
+/**
+ * How many bytes of a message a Sha256Messages writer holds before it passes them to the hash: the hash reads its
+ * message in pieces, so a message of any length is held a chunk at a time, never whole. It is the chunk Node's byte
+ * streams carry by default, on the platforms grizzle builds on, which a digest's writer is: a stream of bytes into a
+ * hash.
+ *
+ * @limitKind published
+ * @owner Node 26.13.1's streams (lib/internal/streams/state.js)
+ * @unit bytes
+ * @scope the buffer of one Sha256Messages writer, between two updates of its hash
+ * @constraint configurable default
+ * @source https://github.com/nodejs/node/blob/v26.13.1/lib/internal/streams/state.js#L12
+ * @quote let defaultHighWaterMarkBytes = process.platform === 'win32' ? 16 * 1024 : 64 * 1024;
+ * @verified 2026-11-20
+ */
+export const messageChunk = 64 * 1024
+
+/**
+ * SHA-256 messages written as UTF-8 (`out`, grizzle-text Utf8Writer) one after another, each piece's bytes written in
+ * place once and passed to the hash a chunk at a time (`chunk` bytes, Overflow drain), so no message is held whole: at
+ * most a chunk, or the longest piece written, at once. One writer serves every message, its buffer grown once.
+ */
+export class Sha256Messages {
+	/** The hash of the message being written, begun at its first byte. */
+	#hash: Hash | undefined
+	readonly out: Utf8Writer
+
+	constructor(chunk: number) {
+		this.out = new Utf8Writer({
+			kind: "drain",
+			chunk,
+			into: (bytes) => this.#current().update(bytes)
+		})
+	}
+
+	/** The digest of every byte written since the last digest, as lowercase hex: the message ends, and the next begins. */
+	hex(): string {
+		const hash = this.#current()
+		this.out.drain((bytes) => hash.update(bytes))
+		this.#hash = undefined
+		return hash.digest("hex")
+	}
+
+	/** The message being written left unread: its bytes and its hash dropped, and the next message begins. */
+	discard(): void {
+		this.out.drain(() => undefined)
+		this.#hash = undefined
+	}
+
+	#current(): Hash {
+		const hash = this.#hash ?? createHash("sha256")
+		this.#hash = hash
+		return hash
+	}
+}
 
 /** The SHA-256 digest of a message, as lowercase hex: bytes, or a well-formed text (grizzle-text WellFormedText) hashed
  * as its UTF-8 (`utf8`). */

@@ -173,8 +173,8 @@ export const theCanonicalTextIsRFC8785OverTheSpecifiedJSONFormWhateverTheKeyInse
 		kills: [
 			{
 				file: "packages/engine/src/core/canonical.ts",
-				original: "\tkeys.sort()",
-				replacement: "\tkeys.sort((a, b) => a.localeCompare(b))",
+				original: "\tsortKeys(keys)\n",
+				replacement: "\tkeys.sort((a, b) => a.localeCompare(b))\n",
 				why: "a record's keys in locale order, not UTF-16 code unit order; the text property fails."
 			}
 		]
@@ -567,7 +567,8 @@ export const canonicalComparisonIsEqualityOfSpecifiedTextSameContentsTooAndSorts
 		kills: [
 			{
 				file: "packages/engine/src/core/canonical.ts",
-				original: "\t\tkeyed.sort((x, y) => (x.text < y.text ? -1 : x.text > y.text ? 1 : 0))",
+				original:
+					"\t\tkeyed.sort(mapInput(compareStrings, (k: { readonly text: string }) => k.text))",
 				replacement: "\t\tkeyed.sort((x, y) => x.text.length - y.text.length)",
 				why: "a set sorted by its members' text length; the comparison property fails."
 			}

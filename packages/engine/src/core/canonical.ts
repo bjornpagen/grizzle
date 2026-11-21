@@ -1,7 +1,12 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { jsonText, type WellFormedText, WellFormedWriter } from "@bjornpagen/grizzle-text/utf8"
+import {
+	jsonText,
+	Utf8Writer,
+	type WellFormedText,
+	WellFormedWriter
+} from "@bjornpagen/grizzle-text/utf8"
 import {
 	type CompileError,
 	isCompileError,
@@ -11,7 +16,7 @@ import {
 	within
 } from "#compiler/core/errors.ts"
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import { compareStrings, mapInput } from "#compiler/core/order.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { compareQuoted, type TextsId, textsId, wellFormed } from "#compiler/core/text.ts"
 
@@ -887,11 +892,59 @@ class Walk {
 	}
 }
 
-/** A plain record's keys in canonical order. */
+/**
+ * A plain record's keys in canonical order, by UTF-16 code unit (core/order.ts compareStrings): the array Object.keys
+ * gives sorted in place by heapsort (sortKeys), where Array.prototype.sort copies the keys into a work array of its own
+ * for each record it sorts.
+ */
 const keysOf = (record: Readonly<Record<string, unknown>>): ReadonlyArray<string> => {
 	const keys = Object.keys(record)
-	keys.sort()
+	sortKeys(keys)
 	return keys
+}
+
+/**
+ * Distinct keys sorted in place by UTF-16 code unit (compareStrings): heapsort (J. W. J. Williams, "Algorithm 232: Heapsort", CACM 7(6),
+ * 1964), its heap built bottom-up (R. W. Floyd, "Algorithm 245: Treesort 3", CACM 7(12), 1964), n log n comparisons at
+ * most and nothing allocated. Keys are distinct, so no order of equals is asked of it, and heapsort is not stable.
+ */
+const sortKeys = (keys: Array<string>): void => {
+	for (let at = (keys.length >> 1) - 1; at >= 0; at--) {
+		siftDown(keys, at, keys.length)
+	}
+	for (let end = keys.length - 1; end > 0; end--) {
+		swapKeys(keys, 0, end)
+		siftDown(keys, 0, end)
+	}
+}
+
+/** The heap below `root`, within the keys before `end`, made a max-heap again: the root's key sunk below every greater. */
+const siftDown = (keys: Array<string>, root: number, end: number): void => {
+	for (let at = root; ;) {
+		let child = 2 * at + 1
+		if (child >= end) {
+			return
+		}
+		if (child + 1 < end && compareStrings(keyAt(keys, child), keyAt(keys, child + 1)) < 0) {
+			child += 1
+		}
+		if (compareStrings(keyAt(keys, at), keyAt(keys, child)) > 0) {
+			return
+		}
+		swapKeys(keys, at, child)
+		at = child
+	}
+}
+
+/** The key at a place a sort reads, which is below the keys' length. */
+const keyAt = (keys: ReadonlyArray<string>, at: number): string =>
+	defined(keys[at], "a sort reads a place below the keys' length")
+
+/** The keys at two places of a sort exchanged. */
+const swapKeys = (keys: Array<string>, a: number, b: number): void => {
+	const held = keyAt(keys, a)
+	keys[a] = keyAt(keys, b)
+	keys[b] = held
 }
 
 /**
@@ -959,9 +1012,87 @@ class JsonSink implements Sink {
 const canonicalTextLoc = SourceLoc("canonical text", [])
 
 /**
- * The sink that writes the canonical text, appended to one string as it is read: past V8's longest string the
- * traversal stops with ResourceBound (stringLength), measured before the text is built past it.
+ * The sink that writes the canonical text's UTF-8 into a byte writer (grizzle-text Utf8Writer) as it is read: each
+ * scalar's and key's JSON literal (Utf8Writer.jsonString, jsonNumber, the ASCII of a boolean), its punctuation and the
+ * canonical texts Walk.over writes, each byte written once, in place, with no string built. Past V8's longest string the
+ * traversal stops with ResourceBound (stringLength), the text measured in UTF-16 code units from where the sink began,
+ * after each piece is written and before anything is built of it, exactly where the text would pass it.
  */
+class ByteSink implements Sink {
+	readonly #out: Utf8Writer
+	/** How many UTF-16 code units the writer held before the canonical text, a digest's frame. */
+	readonly #start: number
+	/** Whether a value was written in the container being written, so the next item or member follows a comma. */
+	#after = false
+
+	constructor(out: Utf8Writer) {
+		this.#out = out
+		this.#start = out.units
+	}
+
+	scalar(value: string | number | boolean): void {
+		this.#separate()
+		if (typeof value === "string") {
+			this.#out.jsonString(value)
+		} else if (typeof value === "number") {
+			this.#out.jsonNumber(value)
+		} else {
+			this.#out.ascii(value ? "true" : "false")
+		}
+		this.#after = true
+		this.#bound()
+	}
+
+	/** A value whose canonical text is `text`, written as it is (Walk.over). */
+	written(text: WellFormedText): void {
+		this.#separate()
+		this.#out.text(text)
+		this.#after = true
+		this.#bound()
+	}
+
+	open(kind: ContainerKind): void {
+		this.#separate()
+		this.#out.ascii(kind === "array" ? "[" : "{")
+		this.#after = false
+		this.#bound()
+	}
+
+	key(key: string): void {
+		this.#separate()
+		this.#out.jsonString(key)
+		this.#out.ascii(":")
+		this.#after = false
+		this.#bound()
+	}
+
+	close(kind: ContainerKind): void {
+		this.#out.ascii(kind === "array" ? "]" : "}")
+		this.#after = true
+		this.#bound()
+	}
+
+	#separate(): void {
+		if (this.#after) {
+			this.#out.ascii(",")
+		}
+	}
+
+	/** Refused where the text written passes V8's longest string. */
+	#bound(): void {
+		const needed = this.#out.units - this.#start
+		if (needed > maxStringLength) {
+			throw new Refusal(
+				resourceBound(canonicalTextLoc, {
+					kind: "stringLength",
+					limit: maxStringLength,
+					needed
+				})
+			)
+		}
+	}
+}
+
 /**
  * The punctuation a canonical text holds beside its JSON scalars, each proved well-formed once, as the module loads
  * (core/text.ts wellFormed): TypeScript holds a literal as a string.
@@ -974,9 +1105,12 @@ const punctuation = {
 } as const
 
 /**
- * A canonical text as it is written: JSON.stringify's scalars and keys (grizzle-text jsonText), its punctuation and the
- * canonical texts Walk.over writes as they are, each well-formed, written in order (grizzle-text WellFormedWriter), so
- * the text is a WellFormedText with no check of it.
+ * The sink that writes the canonical text a caller reads as a string, appended to one string as it is read (grizzle-text
+ * WellFormedWriter): JSON.stringify's scalars and keys (grizzle-text jsonText), its punctuation and the canonical texts
+ * Walk.over writes as they are, each well-formed, so the text is a WellFormedText with no check of it. A text whose
+ * bytes are hashed is written as them instead (ByteSink); one a caller reads is built as the string it is, its pieces
+ * the platform's, with no bytes to decode. Past V8's longest string the traversal stops with ResourceBound
+ * (stringLength), measured before the text is built past it.
  */
 class TextSink implements Sink {
 	readonly #text = new WellFormedWriter()
@@ -994,35 +1128,31 @@ class TextSink implements Sink {
 
 	/** A value whose canonical text is `text`, written as it is (Walk.over). */
 	written(text: WellFormedText): void {
-		this.#append(this.#after ? [punctuation.comma, text] : [text])
+		this.#write(this.#after, text, false)
 		this.#after = true
 	}
 
 	open(kind: ContainerKind): void {
-		const bracket = punctuation[kind].open
-		this.#append(this.#after ? [punctuation.comma, bracket] : [bracket])
+		this.#write(this.#after, punctuation[kind].open, false)
 		this.#after = false
 	}
 
 	key(key: string): void {
-		const quoted = jsonText(key)
-		this.#append(
-			this.#after ? [punctuation.comma, quoted, punctuation.colon] : [quoted, punctuation.colon]
-		)
+		this.#write(this.#after, jsonText(key), true)
 		this.#after = false
 	}
 
 	close(kind: ContainerKind): void {
-		this.#append([punctuation[kind].close])
+		this.#write(false, punctuation[kind].close, false)
 		this.#after = true
 	}
 
-	/** `pieces` written in order, refused together where the text they make passes V8's longest string. */
-	#append(pieces: ReadonlyArray<WellFormedText>): void {
-		let needed = this.#text.length
-		for (const piece of pieces) {
-			needed += piece.length
-		}
+	/**
+	 * `piece` written, after a comma where `comma` says and before a colon where `colon` says, refused together where the
+	 * text they make passes V8's longest string, before it is built.
+	 */
+	#write(comma: boolean, piece: WellFormedText, colon: boolean): void {
+		const needed = this.#text.length + (comma ? 1 : 0) + piece.length + (colon ? 1 : 0)
 		if (needed > maxStringLength) {
 			throw new Refusal(
 				resourceBound(canonicalTextLoc, {
@@ -1032,11 +1162,46 @@ class TextSink implements Sink {
 				})
 			)
 		}
-		for (const piece of pieces) {
-			this.#text.append(piece)
+		if (comma) {
+			this.#text.append(punctuation.comma)
+		}
+		this.#text.append(piece)
+		if (colon) {
+			this.#text.append(punctuation.colon)
 		}
 	}
 }
+
+/**
+ * The canonical text of `value` under `options` written into `out` as its UTF-8 (ByteSink), after whatever `out` holds:
+ * `encode`'s text, for a digest's bytes after its frame, drained into the hash as they are written (fingerprint.ts).
+ */
+export const writeCanonical = (
+	out: Utf8Writer,
+	value: unknown,
+	options: EncodeOptions
+): Result.Result<void, CompileError> =>
+	catchRefusal(() => {
+		if (value === undefined) {
+			return refuseValue([], "a value, not undefined")
+		}
+		new Walk(options, new ByteSink(out), canonicalOf).of(value)
+	})
+
+/**
+ * The canonical text under `options` of `record` written into `out` as its UTF-8, each member `written` holds written
+ * from its text (`encodeOver`'s).
+ */
+export const writeCanonicalOver = (
+	out: Utf8Writer,
+	record: unknown,
+	options: EncodeOptions,
+	written: ReadonlyMap<string, WellFormedText>
+): Result.Result<void, CompileError> =>
+	catchRefusal(() => {
+		const sink = new ByteSink(out)
+		new Walk(options, sink, canonicalOf).over(record, written, (text) => sink.written(text))
+	})
 
 /** The JSON form of a canonical value. */
 export const toJson = (value: unknown, options: EncodeOptions): Result.Result<Json, CompileError> =>
@@ -1625,16 +1790,25 @@ export const decode = (text: string, revivers: Revivers): Result.Result<unknown,
 
 /**
  * The canonical text under `options` of a value the compiler owns, which encodes by construction: a decoded or
- * validated value, or a key built from one. The one site of the fact that such a value encodes: plain data with
- * well-formed text and no cycle, which no TypeScript type of a value carries, so a
- * failure is a defect of the compiler, never a property of its input.
+ * validated value, or a key built from one (owned).
  */
-export const ownedText = (value: unknown, options: EncodeOptions): WellFormedText => {
-	const text = encode(value, options)
-	if (!text.ok) {
-		throw defect(`an owned value encodes: ${text.error.message}`)
+export const ownedText = (value: unknown, options: EncodeOptions): WellFormedText =>
+	owned(encode(value, options))
+
+/** The canonical text of a value the compiler owns (ownedText) written into `out` as its UTF-8 (writeCanonical). */
+export const writeOwned = (out: Utf8Writer, value: unknown, options: EncodeOptions): void =>
+	owned(writeCanonical(out, value, options))
+
+/**
+ * What a canonical writer gives of a value the compiler owns: the one site of the fact that such a value encodes, plain
+ * data with well-formed text and no cycle, which no TypeScript type of a value carries, so a failure is a defect of the
+ * compiler, never a property of its input.
+ */
+const owned = <A>(written: Result.Result<A, CompileError>): A => {
+	if (!written.ok) {
+		throw defect(`an owned value encodes: ${written.error.message}`)
 	}
-	return text.value
+	return written.value
 }
 
 /** The canonical text of every property of a value the compiler owns (ownedText). */
@@ -1653,6 +1827,6 @@ export const canonicalSortKeyed = <A>(
 			const text = unwrap(Result.mapError(encode(item, options), (error) => within(error, [i])))
 			return { item, text }
 		})
-		keyed.sort((x, y) => (x.text < y.text ? -1 : x.text > y.text ? 1 : 0))
+		keyed.sort(mapInput(compareStrings, (k: { readonly text: string }) => k.text))
 		return keyed
 	})

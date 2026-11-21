@@ -1,9 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import {
-	isWellFormedText,
-	joinWellFormed,
-	type WellFormedText
-} from "@bjornpagen/grizzle-text/utf8"
+import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	arrayText,
@@ -14,13 +10,15 @@ import {
 	type EncodeOptions,
 	encode,
 	encodeOver,
-	ownedText,
 	unwrap,
-	withoutSourceLocs
+	withoutSourceLocs,
+	writeCanonical,
+	writeCanonicalOver,
+	writeOwned
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
+import { messageChunk, Sha256Messages } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 
 /**
@@ -32,8 +30,8 @@ import { wellFormed } from "#compiler/core/text.ts"
  *
  * SHA-256 over the domain-separated canonical text, as 64 lowercase hex characters. The frame's lines are proved
  * well-formed once, as the module loads (core/text.ts wellFormed), a caller's domain where it is read, and the canonical
- * text is the canonical writer's (core/canonical.ts), so the hashed text is joined of well-formed texts and never
- * checked whole.
+ * text's UTF-8 is the canonical writer's (core/canonical.ts writeCanonical), written after the frame into the message
+ * and passed to the hash as it is written (framed), so no text of it is built.
  */
 export const digest = (
 	domain: string,
@@ -43,7 +41,8 @@ export const digest = (
 	if (domain.length === 0 || domain.includes("\n") || !isWellFormedText(domain)) {
 		return Result.err(malformedArtifact("fingerprint", [], "a one-line fingerprint domain"))
 	}
-	return Result.map(encode(value, options), (text) => framedDigest(domain, text))
+	const message = framed(domain)
+	return Result.map(writeCanonical(message.out, value, options), () => message.hex())
 }
 
 declare const identityDigestBrand: unique symbol
@@ -71,48 +70,36 @@ export const identityDigest = (
  * they digest, as one value's every container is within it: a container two values hold is digested once for both.
  * Owned by the caller whose values share parts, a ChangeSet's chain of members, each of which may import what an
  * earlier one does (write/changeset/value.ts), never by a module. A frozen container's token is its content's for as
- * long as it lives; one that is not frozen is digested anew in each value that holds it.
+ * long as it lives; one that is not frozen is digested anew in each value that holds it. Every container's text is
+ * written into one writer, one after another, each finished before the next is begun (Sha256Messages).
  */
 export class IdentityDigests {
 	readonly #options: EncodeOptions
 	/** Each frozen container's text as a member of another, its digest tagged, by the container. */
 	readonly #tokens = new WeakMap<object, WellFormedText>()
+	readonly #messages = new Sha256Messages(messageChunk)
 	#digested = 0
 
 	constructor(options: EncodeOptions) {
 		this.#options = options
 	}
 
-	/** The identity digest of `value` (`identityDigest`). */
+	/** The identity digest of `value` (`identityDigest`); a refused value leaves no message half written. */
 	of(value: unknown): Result.Result<IdentityDigest, CompileError> {
-		return catchRefusal(() => {
+		const identity = catchRefusal(() => {
 			/** Each open container's token within this value. */
 			const open = new Map<object, WellFormedText>()
-			const read = canonicalOf(value)
-			return mintIdentityDigest(
-				typeof read === "object" && (read.kind === "array" || read.kind === "record")
-					? sha256Hex(this.#containerText(read, open))
-					: sha256Hex(unwrap(encode(value, this.#options)))
-			)
+			const read = containerOf(value)
+			if (read !== undefined) {
+				return mintIdentityDigest(this.#containerDigest(read, open))
+			}
+			unwrap(writeCanonical(this.#messages.out, value, this.#options))
+			return mintIdentityDigest(this.#messages.hex())
 		})
-	}
-
-	/** A member's text in its container's: a container's token, or a scalar's canonical text. */
-	#memberText(member: unknown, open: Map<object, WellFormedText>): WellFormedText {
-		const read = canonicalOf(member)
-		if (typeof read !== "object" || (read.kind !== "array" && read.kind !== "record")) {
-			return unwrap(encode(member, this.#options))
+		if (!identity.ok) {
+			this.#messages.discard()
 		}
-		const container = read.kind === "array" ? read.items : read.record
-		const tokens = Object.isFrozen(container) ? this.#tokens : open
-		const known = tokens.get(container)
-		if (known !== undefined) {
-			return known
-		}
-		const token = wellFormed(`"~${identityTag}:${sha256Hex(this.#containerText(read, open))}"`)
-		this.#digested += 1
-		tokens.set(container, token)
-		return token
+		return identity
 	}
 
 	/** How many containers these digests have digested, each its text hashed once: their work. */
@@ -120,28 +107,87 @@ export class IdentityDigests {
 		return this.#digested
 	}
 
-	/** A container's own text: its scalars as `encode` writes them, its containers as their tokens. */
-	#containerText(
-		read: Extract<CanonicalObject, { readonly kind: "array" | "record" }>,
-		open: Map<object, WellFormedText>
-	): WellFormedText {
+	/** A container's text as a member of another: its digest tagged, digested on its first read. */
+	#tokenOf(read: Container, open: Map<object, WellFormedText>): WellFormedText {
+		const container = read.kind === "array" ? read.items : read.record
+		const tokens = Object.isFrozen(container) ? this.#tokens : open
+		const known = tokens.get(container)
+		if (known !== undefined) {
+			return known
+		}
+		const token = wellFormed(`"~${identityTag}:${this.#containerDigest(read, open)}"`)
+		this.#digested += 1
+		tokens.set(container, token)
+		return token
+	}
+
+	/**
+	 * The digest of a container's own text: its scalars as `encode` writes them, its containers as their tokens, each
+	 * container's digested before the text is begun, and each member refused in order where `encode` refuses it.
+	 */
+	#containerDigest(read: Container, open: Map<object, WellFormedText>): string {
+		const out = this.#messages.out
 		if (read.kind === "array") {
-			return arrayText(read.items.map((item) => this.#memberText(item, open)))
+			const members = read.items.map((item): Member => {
+				const at = containerOf(item)
+				if (at !== undefined) {
+					return { kind: "token", token: this.#tokenOf(at, open) }
+				}
+				refuseOutside(item, this.#options)
+				return { kind: "scalar", item }
+			})
+			out.ascii("[")
+			for (const [i, member] of members.entries()) {
+				if (i > 0) {
+					out.ascii(",")
+				}
+				if (member.kind === "token") {
+					out.text(member.token)
+				} else {
+					unwrap(writeCanonical(out, member.item, this.#options))
+				}
+			}
+			out.ascii("]")
+			return this.#messages.hex()
 		}
 		const written = new Map<string, WellFormedText>()
 		for (const key of Object.keys(read.record)) {
 			const member = read.record[key]
-			const at = canonicalOf(member)
-			if (
-				typeof at === "object" &&
-				(at.kind === "array" || at.kind === "record") &&
-				!this.#options.omit(key, member, [])
-			) {
-				written.set(key, this.#memberText(member, open))
+			const at = containerOf(member)
+			if (at !== undefined && !this.#options.omit(key, member, [])) {
+				written.set(key, this.#tokenOf(at, open))
 			}
 		}
-		return unwrap(encodeOver(read.record, this.#options, written))
+		unwrap(writeCanonicalOver(out, read.record, this.#options, written))
+		return this.#messages.hex()
 	}
+}
+
+/** An array's member as its container's identity text holds it: a container's token, or a scalar written as it is. */
+type Member =
+	| { readonly kind: "token"; readonly token: WellFormedText }
+	| { readonly kind: "scalar"; readonly item: unknown }
+
+/**
+ * A value no container holds refused as `encode` refuses it, where it is outside the canonical model; any other is a
+ * scalar of the model, which encodes.
+ */
+const refuseOutside = (value: unknown, options: EncodeOptions): void => {
+	const read = canonicalOf(value)
+	if (typeof read === "object" && read.kind === "outside") {
+		unwrap(encode(value, options))
+	}
+}
+
+/** A canonical object that is a container, an array or a plain record (identityDigest). */
+type Container = Extract<CanonicalObject, { readonly kind: "array" | "record" }>
+
+/** A value read as a container by the canonical model; undefined for a scalar and a value outside it. */
+const containerOf = (value: unknown): Container | undefined => {
+	const read = canonicalOf(value)
+	return typeof read === "object" && (read.kind === "array" || read.kind === "record")
+		? read
+		: undefined
 }
 
 /** The tag of a container's identity digest in its container's text (`identityDigest`). */
@@ -151,9 +197,21 @@ const identityTag = "identity"
 const formatLine = wellFormed(`${canonicalFormat}\n`)
 const newline = wellFormed("\n")
 
+/** A message framed by its domain (`digest`): its frame written, the canonical text to follow. */
+const framed = (domain: WellFormedText): Sha256Messages => {
+	const message = new Sha256Messages(messageChunk)
+	message.out.text(formatLine)
+	message.out.text(domain)
+	message.out.text(newline)
+	return message
+}
+
 /** SHA-256 of a canonical text framed by its domain (`digest`). */
-const framedDigest = (domain: WellFormedText, text: WellFormedText): string =>
-	sha256Hex(joinWellFormed(formatLine, domain, newline, text))
+const framedDigest = (domain: WellFormedText, text: WellFormedText): string => {
+	const message = framed(domain)
+	message.out.text(text)
+	return message.hex()
+}
 
 /**
  * The domains the compiler digests the values it owns under: one-line names, each a fingerprint domain. A constant's
@@ -193,8 +251,15 @@ export type ConstantDigest<D extends ConstantDomain = ConstantDomain> = string &
  * The digest of a value the compiler owns under a domain it names, which digests by construction (canonical.ts
  * ownedText): `digest`'s bytes, its domain one of the compiler's own.
  */
-export const ownedDigest = (domain: OwnedDomain, value: unknown, options: EncodeOptions): string =>
-	framedDigest(ownedDomains[domain], ownedText(value, options))
+export const ownedDigest = (
+	domain: OwnedDomain,
+	value: unknown,
+	options: EncodeOptions
+): string => {
+	const message = framed(ownedDomains[domain])
+	writeOwned(message.out, value, options)
+	return message.hex()
+}
 
 /** Each owned domain's text, proved well-formed once, as the module loads: TypeScript holds a domain as a literal. */
 const ownedDomains: { readonly [D in OwnedDomain]: WellFormedText } = {
@@ -225,11 +290,11 @@ export type RosterDigest = string & { readonly [rosterDigestBrand]: true }
  * them too, at three times the cost of this one pass over each handle's characters.
  */
 export const rosterDigest = (handles: ReadonlyArray<string>): RosterDigest => {
-	let framed = ""
+	let lengthFramed = ""
 	for (const handle of handles) {
-		framed += `${handle.length}:${handle}`
+		lengthFramed += `${handle.length}:${handle}`
 	}
-	return nominal<string, RosterDigest>()(framedDigest(rosterDomain, wellFormed(framed)))
+	return nominal<string, RosterDigest>()(framedDigest(rosterDomain, wellFormed(lengthFramed)))
 }
 
 declare const domainDigestBrand: unique symbol
@@ -281,14 +346,18 @@ export const schemaLevel = (
 ): Result.Result<SchemaLevel, CompileError> =>
 	Result.flatMap(
 		encodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),
-		(text) =>
-			Result.map(
-				encodeOver({ content: level }, withoutSourceLocs, new Map([["content", text]])),
-				(content) => ({
-					text: mintLevelText(text),
-					fingerprint: SchemaFingerprint(framedDigest(schemaDomain, content))
-				})
+		(text) => {
+			const message = framed(schemaDomain)
+			return Result.map(
+				writeCanonicalOver(
+					message.out,
+					{ content: level },
+					withoutSourceLocs,
+					new Map([["content", text]])
+				),
+				() => ({ text: mintLevelText(text), fingerprint: SchemaFingerprint(message.hex()) })
 			)
+		}
 	)
 
 /** A schema level's digest domain and a roster's handles', proved well-formed once, as the module loads. */

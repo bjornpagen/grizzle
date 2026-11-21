@@ -17,17 +17,27 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect, Record } from "effect"
+import { Effect, Formatter, Record } from "effect"
 import { encode, everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
-import { digest, schemaLevel } from "#compiler/core/fingerprint.ts"
+import { digest, identityDigest, schemaLevel } from "#compiler/core/fingerprint.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
+import { specified } from "#test/unit/core/canonical.fixtures.ts"
 import {
 	type Change,
 	changed,
 	changes,
 	contentWith,
+	allocatedBy,
+	type DigestFeature,
+	digestGen,
 	type DomainFeature,
 	domainGen,
+	framedText,
+	identitySpecified,
+	longLength,
+	longString,
+	longStringGen,
+	platformDigest,
 	located,
 	type Parts,
 	partsGen,
@@ -130,8 +140,8 @@ export const fingerprintsSeparateTheirDomainsAndRefuseADomainOfNoSingleLine = pr
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\tsha256Hex(joinWellFormed(formatLine, domain, newline, text))",
-				replacement: "\tsha256Hex(joinWellFormed(formatLine, text))",
+				original: "\tmessage.out.text(formatLine)\n\tmessage.out.text(domain)\n",
+				replacement: "\tmessage.out.text(formatLine)\n",
 				why: "the domain left out of the hashed text; the domains property fails."
 			},
 			{
@@ -140,6 +150,87 @@ export const fingerprintsSeparateTheirDomainsAndRefuseADomainOfNoSingleLine = pr
 					'\tif (domain.length === 0 || domain.includes("\\n") || !isWellFormedText(domain)) {',
 				replacement: "\tif (domain.length === 0 || !isWellFormedText(domain)) {",
 				why: "a domain of two lines admitted; the domains property fails."
+			}
+		]
+	}
+)
+
+/** A digest is SHA-256 of its frame and the value's specified canonical text, and an identity digest SHA-256 of the identity text its header specifies, each container once. */
+export const aDigestIsSHA256OfItsFrameAndTheSpecifiedCanonicalTextAndAnIdentityDigestOfTheIdentityTextItsHeaderSpecifies =
+	property.explore(digestGen, {
+		needs: {},
+		situations: ["a container", "a scalar", "a container shared twice"] satisfies ReadonlyArray<
+			Reached<DigestFeature>
+		>,
+		check:
+			(_, c: Case<DigestFeature>) =>
+			([drawn, domain, shared]) =>
+				Effect.sync(() => {
+					const v = shared ? [drawn, drawn] : drawn
+					assert.equal(
+						succeeded(digest(domain, v, everyProperty)),
+						platformDigest(framedText(domain, specified(v))),
+						"the digest of the framed specified text"
+					)
+					assert.equal<string>(
+						succeeded(identityDigest(v, everyProperty)),
+						platformDigest(identitySpecified(v)),
+						"the identity digest of the specified identity text"
+					)
+					c.note(
+						shared ? "a container shared twice" : typeof v === "object" ? "a container" : "a scalar"
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the frame and the identity text the module's header specifies, over RFC 8785's text (canonical.fixtures.ts specified), hashed by the platform"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: '\t\t\t\t\tout.ascii(",")\n',
+				replacement: "",
+				why: "An array's members are written with no comma between them in its identity text; the identity digest differs."
+			},
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: "\tmessage.out.text(newline)\n\treturn message\n",
+				replacement: "\treturn message\n",
+				why: "The frame's domain is not ended by its newline; every digest differs."
+			}
+		]
+	})
+
+/** A digest allocates no heap for each character of the strings it encodes: each string is written as its UTF-8 in place, with no text built of it. */
+export const aDigestAllocatesNoHeapForEachCharacterOfTheStringsItEncodes = property.explore(
+	longStringGen,
+	{
+		needs: {},
+		budget: { runs: 16, steered: 0 },
+		situations: [],
+		check: () => (unit) =>
+			Effect.sync(() => {
+				const v = { s: longString(longLength, unit), t: [longString(longLength, unit)] }
+				const allocated = allocatedBy(() => digest("allocation", v, everyProperty))
+				assert.ok(
+					allocated < longLength / 2,
+					`a digest of two strings of ${longLength} code units of ${Formatter.format(unit)} allocates ${allocated} heap bytes`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a digest's heap allocation, which no character of its strings adds to"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/text/src/utf8.ts",
+				original:
+					"\t\tconst length = text.length\n\t\tthis.#reserve(length * jsonUnitMaxBytes + 2)\n",
+				replacement:
+					"\t\tconst length = text.length\n\t\tif (length > 0) {\n\t\t\tthis.text(jsonText(text))\n\t\t\treturn\n\t\t}\n\t\tthis.#reserve(length * jsonUnitMaxBytes + 2)\n",
+				why: "A string's literal is built as a text by JSON.stringify and then written as its UTF-8, as the canonical text's strings were before the writer: each string's characters are allocated again, a megabyte and more each digest."
 			}
 		]
 	}
