@@ -1,15 +1,11 @@
 import { regex } from "arkregex"
 import { Array as Arr, Brand, Option, Record, String as Str } from "effect"
+import { identifierPattern } from "#names/fold.ts"
 
 /**
  * The column limit of every printed file.
  */
 export const lineWidth = 100
-
-/**
- * A JavaScript identifier name that needs no quoting as an object key.
- */
-export const identifierPattern = regex("^[A-Za-z_$][A-Za-z0-9_$]*$", "u")
 
 /**
  * Code points never left raw in a string literal (R10): controls, format characters (bidi controls

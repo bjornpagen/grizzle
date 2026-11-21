@@ -5,7 +5,6 @@ import {
 	arrow,
 	bool,
 	call,
-	fixedIdentifier,
 	fixedMemberName,
 	fixedModuleSpecifier,
 	fixedShebang,
@@ -24,6 +23,7 @@ import {
 import type { Expr, Import, Module, Param, PrinterError, Statement } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { SecurityScheme } from "#model/entities.ts"
+import { fixedIdentifier } from "#names/fold.ts"
 import { envPrefixOf } from "#names/plan.ts"
 
 /** A named import: of values (`named`) or of types alone (`namedTypes`). */

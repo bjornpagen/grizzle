@@ -18,81 +18,12 @@ import {
 	jsDoc,
 	stringLiteral,
 	lineWidth,
-	identifierPattern,
 	keyText,
 	numberText
 } from "#emit/escape.ts"
 import type { JsDocText } from "#emit/escape.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-
-const reservedWords: ReadonlySet<string> = new Set([
-	"arguments",
-	"await",
-	"break",
-	"case",
-	"catch",
-	"class",
-	"const",
-	"continue",
-	"debugger",
-	"default",
-	"delete",
-	"do",
-	"else",
-	"enum",
-	"eval",
-	"export",
-	"extends",
-	"false",
-	"finally",
-	"for",
-	"function",
-	"if",
-	"implements",
-	"import",
-	"in",
-	"instanceof",
-	"interface",
-	"let",
-	"new",
-	"null",
-	"package",
-	"private",
-	"protected",
-	"public",
-	"return",
-	"static",
-	"super",
-	"switch",
-	"this",
-	"throw",
-	"true",
-	"try",
-	"typeof",
-	"undefined",
-	"var",
-	"void",
-	"while",
-	"with",
-	"yield"
-])
-
-/**
- * A binding name: identifier-shaped ASCII and not a reserved word. Minted only here: by `isIdentifier`, which a name
- * from the plan or the document is read through, and unchecked by `fixedIdentifier` and `path`, whose text is a
- * literal of the emitter's own source.
- */
-export type Identifier = string & Brand.Brand<"Identifier">
-
-/** Whether a text is a binding name (`Identifier`): identifier-shaped ASCII and not a reserved word. */
-export const isIdentifier = (value: string): value is Identifier =>
-	identifierPattern.test(value) && !reservedWords.has(value)
-
-/**
- * A binding name the emitter writes as a literal of its own source (`flags`, `Serialize`). Unchecked: the literal is
- * the proof, the repository's own text and never a document's or a plan's.
- */
-export const fixedIdentifier: (text: string) => Identifier = Brand.nominal<Identifier>()
+import { fixedIdentifier, type Identifier, identifierPattern } from "#names/fold.ts"
 
 /** A property name after `.`: identifier-shaped ASCII, reserved words allowed. Minted as `Identifier` is. */
 export type MemberName = string & Brand.Brand<"MemberName">

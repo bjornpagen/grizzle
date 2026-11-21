@@ -84,7 +84,7 @@ import {
 	type Statement as TsStatement,
 	type TypeNode
 } from "typescript/ast"
-import { identifierPattern, isJsDocText, lineWidth } from "#emit/escape.ts"
+import { isJsDocText, lineWidth } from "#emit/escape.ts"
 import type { JsDocText } from "#emit/escape.ts"
 import {
 	arr,
@@ -93,7 +93,6 @@ import {
 	call,
 	conditional,
 	dynamicImport,
-	fixedIdentifier,
 	fixedMemberName,
 	fixedModuleSpecifier,
 	fixedShebang,
@@ -121,7 +120,6 @@ import {
 import type {
 	Expr,
 	Field,
-	Identifier,
 	Import,
 	MemberName,
 	Module,
@@ -129,6 +127,7 @@ import type {
 	Statement,
 	TypeExpr
 } from "#emit/printer.ts"
+import { fixedIdentifier, type Identifier, identifierPattern } from "#names/fold.ts"
 
 type Keyword = Extract<TypeExpr, { readonly _tag: "TypeKeyword" }>["keyword"]
 

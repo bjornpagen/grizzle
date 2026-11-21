@@ -31,11 +31,9 @@ import {
 	bool,
 	call,
 	dynamicImport,
-	fixedIdentifier,
 	fixedMemberName,
 	fn,
 	ident,
-	isIdentifier,
 	isMemberName,
 	isModuleSpecifier,
 	member,
@@ -50,7 +48,6 @@ import {
 } from "#emit/printer.ts"
 import type {
 	Expr,
-	Identifier,
 	Import,
 	MemberName,
 	ModuleSpecifier,
@@ -67,7 +64,13 @@ import { constantOf } from "#names/constant.ts"
 import { packageImports, rootNamespaceImports, runtimeNamespaces } from "#names/domain.ts"
 import type { BodyConstant } from "#names/flatten.ts"
 import { flattenBody, isPositionalBody } from "#names/flatten.ts"
-import { foldIdentifier } from "#names/fold.ts"
+import {
+	fixedIdentifier,
+	foldIdentifier,
+	type Identifier,
+	isIdentifier,
+	type SafeIdentifier
+} from "#names/fold.ts"
 import type {
 	NamePlan,
 	PlannedCommand,
@@ -515,8 +518,8 @@ const bodyField = (operation: Operation, source: BodyFlagSource, store: FieldSto
 /** Where an operation's builder and meta live: its primary command's `api/` module (design 4.4). */
 interface Target {
 	readonly from: string
-	readonly identifier: string
-	readonly namespace: string
+	readonly identifier: SafeIdentifier
+	readonly namespace: SafeIdentifier
 }
 
 interface CommandContext extends FieldStore {
@@ -2052,9 +2055,8 @@ const commandStatement = (
 			return yield* refuse("unknown-primary", command.name)
 		}
 
-		const namespaceName = yield* identifier(target.namespace)
-		const namespace = ident(namespaceName)
-		const name = yield* identifier(command.identifier)
+		const namespace = ident(target.namespace)
+		const name = command.identifier
 		const metaName = yield* memberName(`${target.identifier}Meta`)
 		const meta = member(namespace, metaName)
 		const choices = choicesOf(command.operation)
@@ -2287,7 +2289,7 @@ const commandsOf = (
 interface ApiModule {
 	readonly commands: readonly PlannedCommand[]
 	readonly from: string
-	readonly namespace: string
+	readonly namespace: SafeIdentifier
 }
 
 /** Every api module under the namespace the names plan gave it, unique across the modules. */
@@ -2295,7 +2297,7 @@ const apiModules = (plan: NamePlan): readonly ApiModule[] => [
 	...Arr.map(plan.groups, (group) => ({
 		commands: group.commands,
 		from: `../api/${group.segment}.ts`,
-		namespace: String(group.namespace)
+		namespace: group.namespace
 	})),
 	{ commands: plan.root, from: "../api/root.ts", namespace: rootNamespace }
 ]
@@ -2340,9 +2342,7 @@ const groupFile = (
 ) =>
 	Effect.gen(function* file() {
 		const { domain, emitted, statements } = built
-		const commands = yield* Effect.forEach(emitted, (command) =>
-			Effect.map(identifier(command.identifier), ident)
-		)
+		const commands = Arr.map(emitted, (command) => ident(command.identifier))
 		const nested = yield* Effect.forEach(children, (child) =>
 			Effect.map(identifier(cliAlias(child)), (alias) =>
 				member(ident(alias), fixedMemberName("group"))
@@ -2409,8 +2409,7 @@ const authorCommands = (config: AuthorConfig) =>
 				return yield* refuse("unprintable-name", name)
 			}
 
-			const command = yield* identifier(folded.success.name)
-			names.push(command)
+			names.push(folded.success.name)
 		}
 
 		return {
@@ -2466,9 +2465,7 @@ const rootFile = (
 		const { domain, emitted, statements } = built
 		const author = yield* authorCommands(config)
 		const prefix = str(envPrefixOf(config))
-		const commands = yield* Effect.forEach(emitted, (command) =>
-			Effect.map(identifier(command.identifier), ident)
-		)
+		const commands = Arr.map(emitted, (command) => ident(command.identifier))
 		const others = [...commands, ...Arr.map(author.names, ident)]
 		const files: readonly Statement[] =
 			plan.credentials.length === 0

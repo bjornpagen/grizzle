@@ -112,13 +112,13 @@ export const foldLaws = property.explore(foldSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
-			original: "identifierPattern.test(value) && !reservedIdentifiers.has(value)",
-			replacement: "identifierPattern.test(value)",
-			why: "SafeIdentifier admits reserved words, so `class` is a generated identifier; the property fails (CATCH's evidence, mutant 5cab5d3c28)."
+			original: "isIdentifier(value) && !reservedIdentifiers.has(value)",
+			replacement: "isIdentifier(value)",
+			why: "SafeIdentifier admits the words only a generated name avoids, so a TypeScript keyword or a global such as `string` or `Array` is a generated identifier; the property fails (CATCH's evidence, mutant 5cab5d3c28, respelled where SafeIdentifier refines Identifier)."
 		},
 		{
 			file: "packages/cli-generator/src/names/fold.ts",
-			original: "identifierPattern.test(value) && !reservedIdentifiers.has(value)",
+			original: "isIdentifier(value) && !reservedIdentifiers.has(value)",
 			replacement: "false",
 			why: "SafeIdentifier admits nothing, so every identifier fold suffixes its name without end and dies; the property fails (CATCH's evidence, mutant 23ad1f75eb)."
 		},

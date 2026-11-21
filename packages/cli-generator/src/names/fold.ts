@@ -1,6 +1,6 @@
 import { regex } from "arkregex"
 import { Array as Arr, Brand, Data, Option, Result, String as Str, pipe } from "effect"
-import { reservedIdentifiers, windowsDeviceNames } from "#names/reserved.ts"
+import { reservedIdentifiers, reservedWords, windowsDeviceNames } from "#names/reserved.ts"
 
 type Casing = "kebab" | "camel" | "pascal"
 
@@ -24,7 +24,11 @@ const digitPrefix = "n"
 
 const reservedSuffix = "_"
 
-const identifierPattern = regex("^[A-Za-z_$][A-Za-z0-9_$]*$", "u")
+/**
+ * An identifier's shape in ASCII: what a binding (Identifier), a member after `.` and an object key that needs no
+ * quoting are spelled in.
+ */
+export const identifierPattern = regex("^[A-Za-z_$][A-Za-z0-9_$]*$", "u")
 
 const segmentPattern = regex("^[a-z0-9][a-z0-9-]{0,63}$", "u")
 
@@ -42,15 +46,33 @@ const deviceStem = (segment: string): string =>
 const isDeviceName = (segment: string): boolean => windowsDeviceNames.has(deviceStem(segment))
 
 /**
- * A generated identifier: ASCII, matches `^[A-Za-z_$][A-Za-z0-9_$]*$` and is not reserved. Minted only here: by
- * `isSafeIdentifier`, which every name the fold or the plan composes is read through, and unchecked by
+ * A binding name: identifier-shaped ASCII and not a reserved word (reservedWords). Minted only here: by `isIdentifier`,
+ * which a name the emitter composes is read through, and unchecked by `fixedIdentifier` and the printer's `path`, whose
+ * text is a literal of the emitter's own source. A generated name is a SafeIdentifier, one already.
+ */
+export type Identifier = string & Brand.Brand<"Identifier">
+
+/** Whether a text is a binding name (`Identifier`): identifier-shaped ASCII and not a reserved word. */
+export const isIdentifier = (value: string): value is Identifier =>
+	identifierPattern.test(value) && !reservedWords.has(value)
+
+/**
+ * A binding name the emitter writes as a literal of its own source (`flags`, `Serialize`). Unchecked: the literal is
+ * the proof, the repository's own text and never a document's or a plan's.
+ */
+export const fixedIdentifier: (text: string) => Identifier = Brand.nominal<Identifier>()
+
+/**
+ * A generated identifier: a binding name (Identifier) that is none of the further words a generated name avoids
+ * (reservedIdentifiers, design 4.4), so every SafeIdentifier is an Identifier the printer takes as it is. Minted only
+ * here: by `isSafeIdentifier`, which every name the fold or the plan composes is read through, and unchecked by
  * `fixedSafeIdentifier`, whose text is a literal of the generator's own source.
  */
-export type SafeIdentifier = string & Brand.Brand<"SafeIdentifier">
+export type SafeIdentifier = Identifier & Brand.Brand<"SafeIdentifier">
 
-/** Whether a name is a SafeIdentifier: identifier-shaped ASCII and no reserved word. */
+/** Whether a name is a SafeIdentifier: a binding name and none of the words a generated name avoids. */
 export const isSafeIdentifier = (value: string): value is SafeIdentifier =>
-	identifierPattern.test(value) && !reservedIdentifiers.has(value)
+	isIdentifier(value) && !reservedIdentifiers.has(value)
 
 /**
  * A SafeIdentifier the generator writes as a literal of its own source (`Definition`). Unchecked: the literal is the

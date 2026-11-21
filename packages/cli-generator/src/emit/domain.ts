@@ -16,11 +16,9 @@ import {
 	arrow,
 	bool,
 	call,
-	fixedIdentifier,
 	fixedMemberName,
 	fixedModuleSpecifier,
 	ident,
-	isIdentifier,
 	member,
 	num,
 	obj,
@@ -31,11 +29,12 @@ import {
 	typeKeyword,
 	typeQuery
 } from "#emit/printer.ts"
-import type { Expr, Identifier, Module, Statement, TypeExpr } from "#emit/printer.ts"
+import type { Expr, Module, Statement, TypeExpr } from "#emit/printer.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { domainNamespace } from "#names/domain.ts"
 import type { SafeIdentifier } from "#names/fold.ts"
+import { fixedIdentifier, isIdentifier, type Identifier } from "#names/fold.ts"
 import { codeGenerationCopy } from "#normalize/schemas.ts"
 
 /**

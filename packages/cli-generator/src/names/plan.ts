@@ -28,7 +28,7 @@ import { constantOf } from "#names/constant.ts"
 import { flattenBody } from "#names/flatten.ts"
 import type { BodyFlag, BodyFlagKind, SkippedProperty } from "#names/flatten.ts"
 import type { EmptyFold, FoldNote, Folded, SafeFileSegment, SafeIdentifier } from "#names/fold.ts"
-import { foldKebab, isSafeIdentifier, words } from "#names/fold.ts"
+import { fixedSafeIdentifier, foldKebab, isSafeIdentifier, words } from "#names/fold.ts"
 import { reservedFlagNames } from "#names/reserved.ts"
 import { envName, schemeSlug } from "#runtime-src/runtime/auth.ts"
 import type { MutualTlsScheme, SecurityScheme as RuntimeScheme } from "#runtime-src/runtime/auth.ts"
@@ -145,7 +145,7 @@ export interface PlannedCommand {
 /**
  * The api namespace alias of `api/root.ts`; no group's planned `namespace` takes it.
  */
-export const rootNamespace = "Root"
+export const rootNamespace: SafeIdentifier = fixedSafeIdentifier("Root")
 
 /**
  * One command group from a tag; `parent` is the parent tag of a 3.2 chain and `namespace` the api

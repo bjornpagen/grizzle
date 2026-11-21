@@ -20,11 +20,9 @@ import {
 	arrow,
 	bool,
 	call,
-	fixedIdentifier,
 	fixedMemberName,
 	fixedModuleSpecifier,
 	ident,
-	isIdentifier,
 	isMemberName,
 	member,
 	num,
@@ -43,7 +41,6 @@ import {
 import type {
 	Expr,
 	Field,
-	Identifier,
 	Import,
 	MemberName,
 	Param,
@@ -69,7 +66,7 @@ import { documentLabel } from "#model/uri.ts"
 import { constantOf } from "#names/constant.ts"
 import type { ConstantValue } from "#names/constant.ts"
 import { isPositionalBody } from "#names/flatten.ts"
-import { foldIdentifier } from "#names/fold.ts"
+import { foldIdentifier, fixedIdentifier, isIdentifier, type Identifier } from "#names/fold.ts"
 import type { SafeIdentifier } from "#names/fold.ts"
 import type {
 	NamePlan,
@@ -2069,7 +2066,6 @@ const commandStatements = (
 			...(fields.length === 0 ? [] : [{ _tag: "Interface", fields, name: inputName } as const])
 		]
 		const builderDoc = yield* docText(`Request builder for ${path}, not an HttpApi definition.`)
-		const builderName = yield* identifier(name)
 		const requirement = yield* requirementOf(operation, context.schemes)
 		const metaName = yield* identifier(`${name}Meta`)
 
@@ -2079,7 +2075,7 @@ const commandStatements = (
 				_tag: "Const",
 				doc: builderDoc,
 				exported: true,
-				name: builderName,
+				name,
 				value: builder
 			},
 			{
