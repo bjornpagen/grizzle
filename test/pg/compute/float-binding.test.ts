@@ -112,5 +112,13 @@ export const guardedFloatFormsBindTheirOperandsOncePerRowAndComputeTheReferences
 		},
 		budget: { runs: 60, steered: 60 },
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/lower/conservative/expr/lateral.ts",
+				original: "\t\tcore: (c) => bindCore(c, supply, originals),",
+				replacement:
+					"\t\tcore: ((cores: Map<SelectCore, SelectCore>) => (c: SelectCore, original: SelectCore): SelectCore => { const bound = cores.get(original) ?? bindCore(c, supply, originals); cores.set(original, bound); return bound })(new Map()),",
+				why: "A core the term shares between two operations is bound once and that one binding embedded at both, its LATERAL alias defined twice in one statement, which the conservative statement's structural audit refuses."
+			}
+		]
 	})

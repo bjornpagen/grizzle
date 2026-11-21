@@ -57,21 +57,33 @@ type Place = "row" | "branch"
 
 const bindingOrigin: NameOrigin = { kind: "internal", purpose: "an operand binding read laterally" }
 
+/**
+ * Each operand select the transform rebuilt, by its original as the lowering built it: what a core finds a binding by,
+ * so one it names several times is one binding, however many times the transform rebuilt it.
+ */
+type Originals = ReadonlyMap<OperandSelect, OperandSelect>
+
 /** The operand bindings one core's own expressions evaluate for every row, moved into its FROM, each once. */
 class CoreBinder {
 	readonly #supply: NameSupply
 	readonly #grouped: boolean
+	readonly #originals: Originals
 	readonly #bound = new Map<OperandSelect, Expr>()
 	readonly laterals: Array<FromSource> = []
 
-	constructor(supply: NameSupply, grouped: boolean) {
+	constructor(supply: NameSupply, grouped: boolean, originals: Originals) {
 		this.#supply = supply
 		this.#grouped = grouped
+		this.#originals = originals
 	}
 
-	/** The column a binding's query is read from: its LATERAL item's, the item added the first time. */
+	/**
+	 * The column a binding's query is read from: its LATERAL item's, the item added the first time the core names the
+	 * binding, by its original query (Originals).
+	 */
 	#column(query: OperandSelect): Expr {
-		const seen = this.#bound.get(query)
+		const original = this.#originals.get(query) ?? query
+		const seen = this.#bound.get(original)
 		if (seen !== undefined) {
 			return seen
 		}
@@ -79,7 +91,7 @@ class CoreBinder {
 		const column = this.#supply.column(bindingOrigin)
 		this.laterals.push({ kind: "derived", query, alias, columns: [column], lateral: true })
 		const read = col(alias, column)
-		this.#bound.set(query, read)
+		this.#bound.set(original, read)
 		return read
 	}
 
@@ -220,12 +232,12 @@ const projected = (c: SelectCore, target: (t: Target) => Target): CoreProjection
  * FROM: its WHERE's; its targets' where it does not group; and the arguments of each call over rows, an aggregate's
  * where it groups and a window call's where it does not.
  */
-const bindCore = (c: SelectCore, supply: NameSupply): SelectCore => {
+const bindCore = (c: SelectCore, supply: NameSupply, originals: Originals): SelectCore => {
 	const grouped =
 		c.groupBy.length > 0 ||
 		c.having !== undefined ||
 		c.targets.some((t) => holds(t.expr, aggregates))
-	const binder = new CoreBinder(supply, grouped)
+	const binder = new CoreBinder(supply, grouped, originals)
 	const place: Place = grouped ? "branch" : "row"
 	const projection = projected(c, (t) => {
 		const expr = binder.expr(t.expr, place)
@@ -264,29 +276,18 @@ const bindCore = (c: SelectCore, supply: NameSupply): SelectCore => {
  * operand row.
  *
  * One binding a core names several times, as an aggregate's rounded total names its sum (total.ts roundToFloat), is one
- * LATERAL item: a node the lowering shares stays shared, its query rebuilt once (`cores`, `selects`), and the core finds
- * its bindings by that query.
+ * LATERAL item: the core finds its bindings by their original queries (Originals), however many times the transform
+ * rebuilt them. A core the lowering shares between two cores, an operand two operations of a term read, is bound anew
+ * at each, its LATERAL items named afresh from the statement's supply, since a statement defines no name twice
+ * (lower/shapes/index.ts); the transform's work is the printed statement's size, which prints the shared core at each.
  */
 export const bindLaterally = (query: Select, supply: NameSupply): Select => {
-	const cores = new Map<SelectCore, SelectCore>()
-	const selects = new Map<OperandSelect, OperandSelect>()
+	const originals = new Map<OperandSelect, OperandSelect>()
 	return transformSelect(query, {
 		...identityHooks,
-		core: (c, original) => {
-			const seen = cores.get(original)
-			if (seen !== undefined) {
-				return seen
-			}
-			const bound = bindCore(c, supply)
-			cores.set(original, bound)
-			return bound
-		},
+		core: (c) => bindCore(c, supply, originals),
 		select: (s, original) => {
-			const seen = selects.get(original)
-			if (seen !== undefined) {
-				return seen
-			}
-			selects.set(original, s)
+			originals.set(s, original)
 			return s
 		}
 	})
