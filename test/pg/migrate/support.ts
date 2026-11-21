@@ -276,7 +276,7 @@ export const refusal = <A>(effect: Effect.Effect<A, MigrateError>): Effect.Effec
  * identity, as the backfill's check of a key its derivations rely on does (deploy/diff/backfill.ts keyChecks) before any
  * of them runs; none for any other failure.
  */
-export const refusedLaws = (failure: MigrateError): ReadonlyArray<string> => {
+export const migrationRefusedLaws = (failure: MigrateError): ReadonlyArray<string> => {
 	const reason = failure.reason
 	if (reason._tag === "FileCommitRefused") {
 		return reason.laws
