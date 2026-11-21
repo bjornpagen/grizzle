@@ -48,6 +48,7 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cidrValues, inetValues } from "#test/support/net-values.ts"
 import { upTo } from "#test/support/up-to.ts"
+import { printed, raw, stored } from "#test/unit/values/search-document.fixtures.ts"
 
 export type Feature =
 	| `the carrier ${Carrier}`
@@ -237,8 +238,9 @@ const valueOf =
 			case "cidr":
 				return source.draw(cidrValues)
 			case "text":
-			case "tsvector":
 				return source.draw(textGen)
+			case "tsvector":
+				return printed(stored(source.draw(raw)))
 			case "bytes":
 				return new Uint8Array(source.draw(bytes({ min: 0, max: 12 })))
 			case "sha256":

@@ -43,6 +43,11 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
 	},
 	{
+		what: "an insert of host rows stating the clock from a read's instant",
+		statement: "ChangeSet.empty(S).insert(Decision, [{ child: 1, at: readAt, seed: 2 }])",
+		verdict: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
+	},
+	{
 		what: "an insert of the rows insertAll's record types, as factsDecoder decodes them",
 		statement:
 			'ChangeSet.empty(S).insert(Decision, Result.getOrThrow(decoder.decode("Decision", [])))',
@@ -262,6 +267,7 @@ export const decisions = query(S).rule((r) => { const { child, at } = v(Decision
 export const latest = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, m: r.max(at) }) })
 export declare const decoder: FactsDecoder<typeof S>
 export declare const decided: InsertAllRowsOf<typeof S>["Decision"]
+export declare const readAt: Instant
 export const Writer = role(S, "writer", { Decision, Session, Seen }, { write: ["Decision"], refresh: [] })
 export const adding = workload(Writer, { add: ChangeSet.empty(S).insert(Decision, []) })
 `

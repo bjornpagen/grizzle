@@ -60,7 +60,7 @@ export const instants = boxAgreement(finite(word(instantsBox)), {
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original: "\t\t\t? Omit<F, InstantFieldsOf<R>>\n",
 			replacement: "\t\t\t? F\n",
-			why: "A host row may state an instant, so an insert of host rows stating the clock typechecks and its directive is unused; the program fails."
+			why: "A host row may state an instant, so an insert of host rows stating the clock from a read's instant typechecks and its directive is unused; the program fails."
 		}
 	]
 })

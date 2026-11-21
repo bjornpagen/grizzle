@@ -61,6 +61,7 @@ import {
 	isInetText
 } from "#compiler/scalar/values/net.ts"
 import { isSpanOf, type Span } from "#compiler/scalar/values/span.ts"
+import { parseSearchDocument } from "#compiler/scalar/values/tsvector.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -96,6 +97,7 @@ export const schemaGaps = [
 	"network",
 	"octets",
 	"pattern",
+	"searchDocument",
 	"spanOrder",
 	"spanWidth",
 	"vectorNorm",
@@ -112,7 +114,8 @@ export const gapsKeyword = "x-grizzle-gaps"
  * Why `parse` refused a caller's JSON: no JSON of the spelling's kind; a malformed spelling; a value outside the type's
  * range; a decimal past the type's scale; a number no binary32 is; an unknown handle; a set's member twice; a vector of
  * another dimension count, or whose norm lies outside the cosine domain; a span whose start is not before its end, or
- * of another width than its type fixes; a text PostgreSQL's text cannot hold; members other than a record's own. A
+ * of another width than its type fixes; a text PostgreSQL's text cannot hold; a text no search document is in
+ * tsvectorout's one form, or one past tsvectorin's limits; members other than a record's own. A
  * fault a schema cannot state is named as its gap is (schemaGaps), so a schema-valid value the parse refuses names one
  * of its schema's gaps.
  */
@@ -126,6 +129,7 @@ export const wireFaults = [
 	"range",
 	"repeated",
 	"scale",
+	"searchDocument",
 	"spanOrder",
 	"spanWidth",
 	"spelling",
@@ -870,15 +874,22 @@ const carrierWire: CarrierWires = {
 		decode: (json) => Vector.branded(Float32Array.from(trustedArray(json), trustedNumber)),
 		is: isVector
 	},
-	/** A search document's text as PostgreSQL prints it, delivered as it is; no input of the wire is one. */
+	/**
+	 * A search document's text as PostgreSQL prints it, delivered as it is, and read as the host door reads a stored
+	 * document (pg.tsvector): exactly a text in tsvectorout's one form within tsvectorin's limits
+	 * (scalar/values/tsvector.ts parseSearchDocument), the form and the limits its schema's gap.
+	 */
 	tsvector: {
-		schema: () => spelled(admittedText),
+		schema: () => withGaps(spelled(admittedText), ["searchDocument"]),
 		encode: (value) => value,
 		parse: (json) => {
 			if (typeof json !== "string") {
 				return Result.err("json")
 			}
-			return validateText(json).ok ? Result.ok(json) : Result.err("text")
+			if (!validateText(json).ok) {
+				return Result.err("text")
+			}
+			return parseSearchDocument(json).ok ? Result.ok(json) : Result.err("searchDocument")
 		},
 		decode: trustedString,
 		is: isString
