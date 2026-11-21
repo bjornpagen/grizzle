@@ -598,6 +598,15 @@ export class Dependencies {
 		})
 	}
 
+	/** Whether a dependency of the table reads `column`: an implication from it or at it, or a point rule from it. */
+	#reads(column: string): boolean {
+		return (
+			this.#waiting.fromColumn.has(column) ||
+			this.#waiting.atSpan.has(column) ||
+			this.#waiting.pointFrom.has(column)
+		)
+	}
+
 	#closure(start: Iterable<string>, admission: Admission): FactClosure {
 		this.#closures += 1
 		const imps = this.implications
@@ -826,13 +835,19 @@ export class Dependencies {
 	 * less demanding dependencies is one an earlier stage's closure would have found. So a narrower proof no more
 	 * demanding is one found at a stage no later than the key's, and a column's removal closes only through the key's
 	 * stage, never at a later one whose proof the reduction would refuse. The key's proof is explained once, by its
-	 * caller, where each narrower key was explained as it was taken.
+	 * caller, where each narrower key was explained as it was taken. A column no dependency reads (`#reads`) is dropped
+	 * with no closure: a fact no dependency waits on fires nothing, so the rest of the key reaches what the key reached,
+	 * at every stage and by the same derivations, and the key's proof stands for the narrower key's.
 	 */
 	#minimized(candidate: KeySet, found: Staged): { readonly key: KeySet; readonly proof: Staged } {
 		let key = candidate
 		let proof = found
 		for (let i = key.length - 1; i >= 0; i--) {
 			const without = key.toSpliced(i, 1)
+			if (!this.#reads(defined(key[i], "a column of the key"))) {
+				key = without
+				continue
+			}
 			const narrower = this.#staged(without, proof.stage)
 			if (narrower !== undefined) {
 				key = without

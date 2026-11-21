@@ -129,3 +129,67 @@ export const theKeyReductionIsTheReferencesClosesEachRemovalOnlyThroughTheKeysSt
 			}
 		]
 	})
+
+type ReadSituation = "a candidate column no dependency reads" | "every candidate column read"
+
+/**
+ * A key reduction closes only to try the columns some dependency reads (analysis/physical/fds.ts Dependencies `#reads`):
+ * a column no implication or point rule reads fires nothing, so the rest of the key reaches what the key did and the
+ * column is dropped with no closure. A reduction of a candidate whose r columns are read, proved at stage c, runs at
+ * most S + r(c + 1) closures over a table of S stages; its key and proof are the reference's, by the property above.
+ */
+export const aKeyReductionClosesOnlyToTryTheColumnsSomeDependencyReads = property.explore(specGen, {
+	needs: {},
+	situations: [
+		"a candidate column no dependency reads",
+		"every candidate column read"
+	] satisfies ReadonlyArray<Reached<ReadSituation>>,
+	check: (_, c: Case<ReadSituation>) => (s) =>
+		Effect.sync(() => {
+			const table = tableOf(s)
+			const used = new Set([
+				...Arr.map(table.implications, (i) => i.just.context),
+				...Arr.map(table.points, (p) => p.just.context)
+			])
+			const stages = Arr.filter(evidenceContexts, (x) => used.has(x))
+			const read = new Set([
+				...Arr.flatMap(table.implications, (i) => [...i.from, ...i.at]),
+				...Arr.flatMap(table.points, (p) => p.from)
+			])
+			for (const start of subsetsOf(s.heading)) {
+				const candidate = inHeadingOrder(table.columns, start)
+				const proof = table.proof(candidate)
+				if (proof === undefined) {
+					continue
+				}
+				const stage = Arr.filter(stages, (x) => lessDemanding(x, proof.context)).length
+				const reads = Arr.filter(candidate, (column) => read.has(column)).length
+				const closures = table.closures
+				table.keyAmong(start)
+				const bound = stages.length + reads * (stage + 1)
+				assert.ok(
+					table.closures - closures <= bound,
+					`the key among ${Arr.join(start, ", ")} runs ${table.closures - closures} closures, at most ${bound}`
+				)
+				c.note(
+					reads < candidate.length
+						? "a candidate column no dependency reads"
+						: "every candidate column read"
+				)
+			}
+		}),
+	oracle: {
+		kind: "universal",
+		name: "a bound: a key reduction's closures are at most the stages and, for each candidate column some dependency reads, one closure per stage through the key's"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/analysis/physical/fds.ts",
+			original:
+				'\t\t\tif (!this.#reads(defined(key[i], "a column of the key"))) {\n\t\t\t\tkey = without\n\t\t\t\tcontinue\n\t\t\t}\n',
+			replacement: "",
+			why: "Every column is tried by a closure through each stage up to the key's, read or not, as the reduction did at d422b835a: a candidate with a column no dependency reads runs past the bound, and the property fails."
+		}
+	]
+})
