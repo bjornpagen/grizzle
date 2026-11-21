@@ -1570,8 +1570,11 @@ const scripted =
 		return [...steps, ...rest]
 	}
 
-/** A generate that drafts every schema as it stands, named after its change or by --name, declaring what it needs. */
-const draftStep = (): Gen<ProjectStep> => (source) => ({
+/**
+ * A generate that drafts every schema as it stands, named after its change or by --name, declaring what it needs where
+ * `declare` holds and nothing otherwise.
+ */
+const generateStep = (declare: boolean) => (): Gen<ProjectStep> => (source) => ({
 	command: "grizzle generate",
 	parameters: {
 		advance: source.draw(element<0 | 1 | 2>([0, 1, 2])),
@@ -1582,9 +1585,15 @@ const draftStep = (): Gen<ProjectStep> => (source) => ({
 			])
 		),
 		flag: { kind: "none" },
-		declare: true
+		declare
 	}
 })
+
+/** A generate declaring what it needs (generateStep). */
+const draftStep = generateStep(true)
+
+/** A generate declaring nothing, whatever its drafts need (generateStep). */
+const undeclaredStep = generateStep(false)
 
 /** An edit of the first schema's code, built in the model's state. */
 const editStep =
@@ -1596,8 +1605,16 @@ const editStep =
 const checkStep = (): Gen<ProjectStep> =>
 	constant({ command: "grizzle check", parameters: undefined })
 
+/** A file made where the first schema's directory goes, before its first draft (blockable). */
+const blockStep = (): Gen<ProjectStep> =>
+	constant({ command: "make a file of a schema's directory", parameters: 0 })
+
 /** A handle appended to the first schema's roster. */
 const appendHandle = (): Gen<Change> => constant({ kind: "append a handle", schema: 0 })
+
+/** The first schema's first relation renamed, which its next draft declares or refuses as a drop (neededOf). */
+const renameRelation = (): Gen<Change> =>
+	constant({ kind: "rename a relation", schema: 0, relation: 0 })
 
 /** The first schema's roster's last handle moved before the one declared before it. */
 const moveLastHandle = (m: Model): Gen<Change> =>
@@ -1623,10 +1640,16 @@ const programsGen: Gen<Program<ProjectParameters>> = program(machine, programSiz
 /**
  * The programs a case runs: any program of the loop, or, for a witness while a situation is pending that a program
  * reaches only through a few steps in order, one that runs those steps first: a roster reordered and then generated or
- * checked, and a field added to a relation already drafted, drafted again and checked.
+ * checked; a field added to a relation already drafted, drafted again and checked; a relation drafted, renamed and
+ * generated declaring nothing; and a file where the first schema's directory goes, checked.
  */
 export const programSpace = aimed(programsGen, [
 	["generate refused: RosterReordered", scripted([...reorderedScript, draftStep])],
 	["check finds rosterReordered", scripted([...reorderedScript, checkStep])],
-	["check finds placeholder", scripted([draftStep, editStep(addField), draftStep, checkStep])]
+	["check finds placeholder", scripted([draftStep, editStep(addField), draftStep, checkStep])],
+	[
+		"generate refused: UndeclaredDrop",
+		scripted([draftStep, editStep(renameRelation), undeclaredStep])
+	],
+	["check finds strayEntry", scripted([blockStep, checkStep])]
 ])
