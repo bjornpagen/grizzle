@@ -162,16 +162,21 @@ const derivedReads = (
 ): ReadonlyMap<string, ReadonlySet<string>> => {
 	let derived: ReadonlyMap<string, ReadonlySet<string>> = new Map()
 	for (;;) {
-		const next = new Map(derived)
 		const grown = imports.flatMap((i) => {
 			const reads = importReads(i, { state, data, derived })
 			return reads.size === 0
 				? []
 				: i.vars.filter((v) => !data.has(v)).map((x) => [x, reads] as const)
 		})
+		/** Each variable a round grows: what it read, copied once, with what it reads now. */
+		const widened = new Map<string, Set<string>>()
 		for (const [x, reads] of grown) {
-			next.set(x, new Set([...(next.get(x) ?? []), ...reads]))
+			const into = widened.getOrInsertComputed(x, () => new Set(derived.get(x)))
+			for (const column of reads) {
+				into.add(column)
+			}
 		}
+		const next = new Map([...derived, ...widened])
 		if (readCount(next) === readCount(derived)) {
 			return derived
 		}

@@ -134,7 +134,8 @@ const noteEq = (
 
 const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 	const eq = new Map(p.eq)
-	const range = new Map(p.range)
+	/** Each column a range atom bounds: its bounds in `p`, copied once, with the atoms' added. */
+	const widened = new Map<string, Set<Bound>>()
 	const span = new Set(p.span)
 	const suffix = new Set(p.suffix)
 	const pairs = [...p.pairs]
@@ -144,7 +145,7 @@ const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 				noteEq(eq, a.column, a.with)
 				continue
 			case "range":
-				range.set(a.column, new Set([...(range.get(a.column) ?? []), a.bound]))
+				widened.getOrInsertComputed(a.column, () => new Set(p.range.get(a.column))).add(a.bound)
 				continue
 			case "span":
 				span.add(a.column)
@@ -160,14 +161,14 @@ const withAtoms = (p: Pushed, atoms: ReadonlyArray<Atom>): Pushed => {
 				continue
 		}
 	}
-	return { eq, range, span, suffix, pairs }
+	return { eq, range: new Map([...p.range, ...widened]), span, suffix, pairs }
 }
 
 /** The facts renamed through `rename`, which maps an output column to the input column it is; a fact on a column it
  * maps to nothing is dropped. */
 const mapPushed = (p: Pushed, rename: (column: string) => string | undefined): Pushed => {
 	const eq = new Map<string, "fixed" | "literal">()
-	const range = new Map<string, ReadonlySet<Bound>>()
+	const range = new Map<string, Set<Bound>>()
 	const span = new Set<string>()
 	const suffix = new Set<string>()
 	/** Two renamed columns of a pair atom, when both rename and stay two. */
@@ -186,7 +187,10 @@ const mapPushed = (p: Pushed, rename: (column: string) => string | undefined): P
 		noteEq(eq, to, k)
 	}
 	for (const [to, b] of renamed(p.range)) {
-		range.set(to, new Set([...(range.get(to) ?? []), ...b]))
+		const into = range.getOrInsertComputed(to, () => new Set())
+		for (const bound of b) {
+			into.add(bound)
+		}
 	}
 	for (const c of p.span) {
 		const to = rename(c)
@@ -488,7 +492,10 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 	}
 	for (const [column, bounds] of pushed.range) {
 		for (const b of bindingsAt(column)) {
-			b.facts.range.set(b.column, new Set([...(b.facts.range.get(b.column) ?? []), ...bounds]))
+			const into = b.facts.range.getOrInsertComputed(b.column, () => new Set())
+			for (const bound of bounds) {
+				into.add(bound)
+			}
 		}
 	}
 	for (const column of pushed.span) {
@@ -980,14 +987,15 @@ class Extractor {
 		 * ranges paired. */
 		const bound = (joined: ReadonlyArray<PartnerFacts>): Binding => {
 			const eq = new Map(o.eq)
-			const range = new Map<string, ReadonlySet<Bound>>(o.range)
+			/** Each column a partner pairs: its bounds in `o`, copied once, with "pair" added. */
+			const widened = new Map<string, Set<Bound>>()
 			const span = new Set(o.span)
 			for (const p of [...singles, ...joined]) {
 				for (const c of p.eq) {
 					eq.set(c, "fixed")
 				}
 				for (const c of p.range) {
-					range.set(c, new Set([...(range.get(c) ?? []), "pair" as const]))
+					widened.getOrInsertComputed(c, () => new Set(o.range.get(c))).add("pair")
 				}
 				for (const c of p.span) {
 					span.add(c)
@@ -997,7 +1005,7 @@ class Extractor {
 				...span,
 				...[...eq].filter(([c, k]) => k === "fixed" && isSpanColumn(heading, c)).map(([c]) => c)
 			])
-			return { eq, range, spans, suffix: o.suffix }
+			return { eq, range: new Map([...o.range, ...widened]), spans, suffix: o.suffix }
 		}
 		const classify = (b: Binding, use: "equality lookup" | "join key"): Classified => {
 			const key = keyWithin(new Set(b.eq.keys()))
