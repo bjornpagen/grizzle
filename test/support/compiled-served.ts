@@ -21,7 +21,7 @@ import { namedLogin } from "#compiler/physical/ddl/names.ts"
 import { type Installation, installationOver } from "#compiler/physical/install/compile.ts"
 import { installBasis, unserved } from "#compiler/physical/install/plan.ts"
 import {
-	compileWorkload,
+	planWorkload,
 	type ServedWorkloadPlan,
 	servedWorkload
 } from "#compiler/program/workload/compile.ts"
@@ -47,13 +47,9 @@ export const compiledInstallation = (
 		const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
 		const ownedLogin = succeeded(ownLoginOver(login, owned), "the login over its base")
 		const options = { artifacts: checking, roles: ownedLogin.roles }
-		const workload = yield* Effect.mapError(
+		const { plan: workload, frontends } = yield* Effect.mapError(
 			fromEngine(
-				compileWorkload(
-					[{ login: ownedLogin.name, workloads: login.workload }],
-					login.base,
-					options
-				)
+				planWorkload([{ login: ownedLogin.name, workloads: login.workload }], login.base, options)
 			),
 			(refused) => planRefusal({ login, owned: ownedLogin }, refused)
 		)
@@ -76,7 +72,8 @@ export const compiledInstallation = (
 							workload: login.workload,
 							named,
 							artifacts,
-							clock: transactionClock
+							clock: transactionClock,
+							planned: frontends
 						}
 					],
 					options

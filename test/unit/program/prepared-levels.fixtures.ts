@@ -10,7 +10,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
 import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
 import type { ChangeEntry, CompiledVariants } from "#compiler/program/workload/change.ts"
-import { compileWorkload } from "#compiler/program/workload/compile.ts"
+import { planWorkload } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
@@ -94,14 +94,14 @@ export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program
 	const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
 	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
 	const planned = succeeded(
-		compileWorkload([{ login: ownedLogin.name, workloads: built.workload }], built.base, {
+		planWorkload([{ login: ownedLogin.name, workloads: built.workload }], built.base, {
 			artifacts: checking,
 			roles: ownedLogin.roles
 		}),
 		"the login's workload plan"
 	)
 	const artifacts = succeeded(
-		artifactsOver(basis, { kind: "planned", types: planned.params }),
+		artifactsOver(basis, { kind: "planned", types: planned.plan.params }),
 		"the login's artifacts"
 	)
 	return {
@@ -109,7 +109,8 @@ export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program
 		workload: built.workload,
 		named: succeeded(namedLogin(ownedLogin, artifacts.names.levels), "the login named"),
 		artifacts,
-		clock: transactionClock
+		clock: transactionClock,
+		planned: planned.frontends
 	}
 }
 

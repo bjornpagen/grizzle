@@ -1862,19 +1862,28 @@ const prepare = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: PrepareWriteOptions
-): PreparedWrite => {
-	const frontend = unwrap(
-		compileChangeSet(schema, desc, {
-			claims: options.claims,
-			laws: options.laws,
-			derived: options.derived,
-			codes: options.names.codes,
-			clock: options.clock,
-			source: options.source
-		})
+): PreparedWrite =>
+	preparedOver(
+		schema,
+		unwrap(
+			compileChangeSet(schema, desc, {
+				claims: options.claims,
+				laws: options.laws,
+				derived: options.derived,
+				codes: options.names.codes,
+				clock: options.clock,
+				source: options.source
+			})
+		),
+		options
 	)
-	return new PreparedWrite(schema, options, frontend, choosePutTargets(frontend))
-}
+
+/** A write prepared over its front end `frontend`, compiled already: its put targets chosen (steps 1 and 2). */
+const preparedOver = (
+	schema: CheckedSchema,
+	frontend: WriteFrontend,
+	options: PrepareWriteOptions
+): PreparedWrite => new PreparedWrite(schema, options, frontend, choosePutTargets(frontend))
 
 /**
  * A prepared write compiled at `level`: steps 3 to 5 of compileWrite, over the front end and put targets it holds, its
@@ -1994,3 +2003,15 @@ export const prepareWrite = (
 	desc: ChangeSetDesc,
 	options: PrepareWriteOptions
 ): Result.Result<PreparedWrite, CompileError> => catchRefusal(() => prepare(schema, desc, options))
+
+/**
+ * A ChangeSet prepared over the front end another compile of it made (program/workload/compile.ts PlannedFrontends):
+ * step 2 of compileWrite alone, the front end being the one prepareWrite would compile from `options`, which reads no
+ * installed name, so a front end compiled over the same law model, role, claims and clock serves this compile's names.
+ */
+export const preparedWrite = (
+	schema: CheckedSchema,
+	frontend: WriteFrontend,
+	options: PrepareWriteOptions
+): Result.Result<PreparedWrite, CompileError> =>
+	catchRefusal(() => preparedOver(schema, frontend, options))

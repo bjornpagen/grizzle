@@ -61,12 +61,13 @@ import {
 	type RoleChanges,
 	readCommittedChanges
 } from "#compiler/program/workload/change.ts"
+import { type PlannedFrontend, PlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
-import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
+import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
 import { createsCarrier, type WriteArtifact } from "#compiler/write/program/artifact.ts"
 
@@ -152,28 +153,45 @@ type ProgramPlan = {
 	| { readonly kind: "changeSet"; readonly access: ProgramAccess }
 )
 
+/**
+ * A program's plan, and a ChangeSet's front end with the clock binding it was compiled under: the front end its served
+ * compile reads again where it is the one that compile builds (planned.ts PlannedFrontends), never the plan's, which
+ * holds no IR (ProgramPlan).
+ */
+type Planned =
+	| { readonly kind: "read"; readonly plan: ProgramPlan }
+	| {
+			readonly kind: "write"
+			readonly plan: ProgramPlan
+			readonly frontend: WriteFrontend
+			readonly clock: ClockBinding
+	  }
+
 const programPlan = (
 	name: string,
 	program: ProgramDesc,
 	reads: WorkloadReads,
 	clock: ClockBinding
-): Result.Result<ProgramPlan, CompileError> => {
+): Result.Result<Planned, CompileError> => {
 	switch (program.kind) {
 		case "query":
 		case "answered": {
 			const { kind, query } = program
-			return Result.map(queryRead(query, reads, clock), (read): ProgramPlan => {
+			return Result.map(queryRead(query, reads, clock), (read): Planned => {
 				const ir = rowsIr(read, isOrderedQuery(query))
 				const planned = { served: servedTypesOf(name, read.params, ir.roots), access: irAccess(ir) }
 				switch (kind) {
 					case "query":
 						return {
-							kind,
-							...planned,
-							footprint: footprintOf(read.dag, read.analysis, read.params)
+							kind: "read",
+							plan: {
+								kind,
+								...planned,
+								footprint: footprintOf(read.dag, read.analysis, read.params)
+							}
 						}
 					case "answered":
-						return { kind, ...planned }
+						return { kind: "read", plan: { kind, ...planned } }
 				}
 			})
 		}
@@ -186,10 +204,15 @@ const programPlan = (
 					reads,
 					clock
 				),
-				(ir): ProgramPlan => ({
-					kind: "changeSet",
-					served: servedTypesOf(name, ir.params, ir.roots),
-					access: irAccess(ir)
+				({ ir, frontend }): Planned => ({
+					kind: "write",
+					plan: {
+						kind: "changeSet",
+						served: servedTypesOf(name, ir.params, ir.roots),
+						access: irAccess(ir)
+					},
+					frontend,
+					clock
 				})
 			)
 		}
@@ -315,14 +338,15 @@ const analyzedQuery = (
 
 /**
  * A ChangeSet's IR over its checked schema, planned as if each context held its fact: an addition fills its fixed
- * fields from them.
+ * fields from them; and the front end it is read from, the one the ChangeSet's served variant in which every fill
+ * context holds a fact compiles (planned.ts PlannedFrontends).
  */
 const changeSetIr = (
 	changeSet: ChangeSetDesc,
 	read: CheckedSchema,
 	reads: WorkloadReads,
 	clock: ClockBinding
-): Result.Result<ProgramIr, CompileError> => {
+): Result.Result<{ readonly ir: ProgramIr; readonly frontend: WriteFrontend }, CompileError> => {
 	const derived = reads.artifacts.derived
 	return Result.map(
 		compileChangeSet(read, changeSet, {
@@ -347,10 +371,8 @@ const changeSetIr = (
 					use: "write target"
 				}))
 			return {
-				roots: frontend.ir.dag.roots,
-				params: frontend.params,
-				pageable: [],
-				targets
+				ir: { roots: frontend.ir.dag.roots, params: frontend.params, pageable: [], targets },
+				frontend
 			}
 		}
 	)
@@ -435,13 +457,15 @@ const baseName = (schema: SchemaInput): string =>
  * (WorkloadPlanRefused).
  */
 const loginPlans = (
+	login: string,
 	workloads: ReadonlyArray<unknown>,
 	schema: SchemaInput,
-	artifacts: SchemaArtifacts
+	artifacts: SchemaArtifacts,
+	keep: (planned: PlannedFrontend) => void
 ): Result.Result<ReadonlyArray<readonly [string, ProgramPlan]>, WorkloadPlanRefused> => {
 	const programs: Array<readonly [string, ProgramPlan]> = []
 	for (const input of workloads) {
-		const planned = workloadPlans(input, schema, artifacts)
+		const planned = workloadPlans(login, input, schema, artifacts, keep)
 		if (!planned.ok) {
 			return planned
 		}
@@ -450,11 +474,18 @@ const loginPlans = (
 	return Result.ok(programs.toSorted(([a], [b]) => compareStrings(a, b)))
 }
 
-/** Each program of one workload with its plan, in its record's order (loginPlans). */
+/**
+ * Each program of one workload with its plan, in its record's order (loginPlans), each ChangeSet's front end over the
+ * role its workload runs on handed to `keep` under its key (planned.ts FrontendKey), the one its served compile on that
+ * role reads again; a ChangeSet of a workload over a level runs on full roles alone (roles.ts programsOn),
+ * whose checked worlds its plan's front end over the base is none of, so none is kept.
+ */
 const workloadPlans = (
+	login: string,
 	input: unknown,
 	schema: SchemaInput,
-	artifacts: SchemaArtifacts
+	artifacts: SchemaArtifacts,
+	keep: (planned: PlannedFrontend) => void
 ): Result.Result<ReadonlyArray<readonly [string, ProgramPlan]>, WorkloadPlanRefused> => {
 	const workload = workloadInput(input, schema)
 	if (!workload.ok) {
@@ -478,7 +509,22 @@ const workloadPlans = (
 		if (!planned.ok) {
 			return planned
 		}
-		programs.push([name, planned.value])
+		const { value } = planned
+		const world = reads.value.world
+		if (value.kind === "write" && world.kind === "role") {
+			keep({
+				key: {
+					laws: artifacts.laws,
+					login,
+					role: world.role.name,
+					program: name,
+					clock: value.clock,
+					source: transactionClock
+				},
+				frontend: value.frontend
+			})
+		}
+		programs.push([name, value.plan])
 	}
 	return Result.ok(programs)
 }
@@ -570,13 +616,45 @@ export const compileWorkload = (
 	logins: ReadonlyArray<LoginWorkloads>,
 	schema: SchemaInput,
 	options: WorkloadOptions
+): Result.Result<WorkloadPlan, WorkloadPlanRefused> =>
+	workloadPlanned(logins, schema, options, () => undefined)
+
+/**
+ * The plan of `logins` over `schema` (compileWorkload), with the front end it compiled of each ChangeSet of a workload
+ * over a role (planned.ts PlannedFrontends): what the served compile of the logins over the same basis reads where it
+ * would compile that front end again (servedWorkload), so a generate compiles each such ChangeSet's front end once.
+ * compileWorkload keeps none, so a plan no served compile follows holds no front end past its program's plan.
+ */
+export const planWorkload = (
+	logins: ReadonlyArray<LoginWorkloads>,
+	schema: SchemaInput,
+	options: WorkloadOptions
+): Result.Result<
+	{ readonly plan: WorkloadPlan; readonly frontends: PlannedFrontends },
+	WorkloadPlanRefused
+> => {
+	const frontends: Array<PlannedFrontend> = []
+	return Result.map(
+		workloadPlanned(logins, schema, options, (planned) => {
+			frontends.push(planned)
+		}),
+		(plan) => ({ plan, frontends: new PlannedFrontends(frontends) })
+	)
+}
+
+/** The plan of `logins` over `schema`, each ChangeSet's front end over a role handed to `keep` with its key. */
+const workloadPlanned = (
+	logins: ReadonlyArray<LoginWorkloads>,
+	schema: SchemaInput,
+	options: WorkloadOptions,
+	keep: (planned: PlannedFrontend) => void
 ): Result.Result<WorkloadPlan, WorkloadPlanRefused> => {
 	const { artifacts } = options
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
 	const served: Array<ServedTypes> = []
 	for (const login of [...logins].toSorted((a, b) => compareStrings(a.login, b.login))) {
-		const programs = loginPlans(login.workloads, schema, artifacts)
+		const programs = loginPlans(login.login, login.workloads, schema, artifacts, keep)
 		if (!programs.ok) {
 			return programs
 		}

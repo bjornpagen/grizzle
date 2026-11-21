@@ -2,6 +2,7 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Unformed } from "#compiler/analysis/isolation/facts.ts"
+import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -18,6 +19,7 @@ import {
 	roleArtifacts,
 	type SchemaArtifacts
 } from "#compiler/program/schema.ts"
+import type { PlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
@@ -26,13 +28,16 @@ import {
 	parseChangeSet,
 	type ParsedChangeSet
 } from "#compiler/write/changeset/value.ts"
+import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { fillContexts } from "#compiler/write/frontend/entry.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import {
 	type CompiledWrite,
 	type PlacedWrite,
 	type PreparedWrite,
-	prepareWrite
+	type PrepareWriteOptions,
+	prepareWrite,
+	preparedWrite
 } from "#compiler/write/program/compile.ts"
 
 /**
@@ -130,10 +135,30 @@ const preparedParsed = <S extends ParamSource>(
 	claims: ReadonlySet<string>,
 	clock: ClockBinding,
 	source: ClockSource
+): Result.Result<PreparedEntry<S>, CompileError> =>
+	preparedFrom(artifacts, change, claims, clock, source, (schema, options) =>
+		prepareWrite(schema, change.desc, options)
+	)
+
+/**
+ * A parsed ChangeSet prepared against `artifacts` for the contexts `claims` holds a fact of (preparedParsed), its write
+ * prepared by `prepare` from the checked schema and options a compile of it reads: compiled from its Description, or
+ * over the front end a plan compiled of it (planned.ts PlannedFrontends).
+ */
+const preparedFrom = <S extends ParamSource>(
+	artifacts: SchemaArtifacts<S>,
+	change: ParsedChangeSet,
+	claims: ReadonlySet<string>,
+	clock: ClockBinding,
+	source: ClockSource,
+	prepare: (
+		schema: CheckedSchema,
+		options: PrepareWriteOptions
+	) => Result.Result<PreparedWrite, CompileError>
 ): Result.Result<PreparedEntry<S>, CompileError> => {
 	const world = artifacts.world
 	return Result.map(
-		prepareWrite(world.kind === "role" ? world.checked : artifacts.derived.schema, change.desc, {
+		prepare(world.kind === "role" ? world.checked : artifacts.derived.schema, {
 			names: artifacts.names,
 			reads: artifacts.reads,
 			claims: { kind: "facts", present: claims },
@@ -195,9 +220,21 @@ type PreparedVariants<S extends ParamSource> =
 	  }
 
 /**
+ * Where a form's front end comes from: compiled from its ChangeSet's Description, or the front end a workload's plan
+ * compiled under every context's claims (planned.ts PlannedFrontends), which only the form in which every fill context
+ * holds a fact reads, its claims admitting every entry the ChangeSet writes as the plan's do.
+ */
+type FrontendSource =
+	| { readonly kind: "compiled" }
+	| { readonly kind: "planned"; readonly frontend: WriteFrontend }
+
+const compiledFrontend: FrontendSource = Object.freeze({ kind: "compiled" })
+
+/**
  * The variants of `changes` for a role, its value parsed `role` over its artifacts `artifacts`, over the fill contexts
  * `undecided`, the contexts after them already decided to hold or lack a fact, `holding` those that hold one, in the
- * fill contexts' order, each form's entry prepared where it is first read (PreparedVariants).
+ * fill contexts' order, each form's entry prepared where it is first read (PreparedVariants), the form in which every
+ * context holds one over `frontend`, each other form's front end compiled.
  */
 const preparedVariants = <S extends ParamSource>(
 	role: ParsedRole,
@@ -206,13 +243,19 @@ const preparedVariants = <S extends ParamSource>(
 	clock: ClockBinding,
 	source: ClockSource,
 	undecided: ReadonlyArray<string>,
-	holding: ReadonlyArray<string>
+	holding: ReadonlyArray<string>,
+	frontend: FrontendSource
 ): PreparedVariants<S> => {
 	const context = undecided.at(-1)
 	if (context === undefined) {
+		const claims = new Set(holding)
 		const entry = once(() =>
 			Result.flatMap(parsedChange(role, changes), (change) =>
-				preparedParsed(artifacts, change, new Set(holding), clock, source)
+				frontend.kind === "planned"
+					? preparedFrom(artifacts, change, claims, clock, source, (schema, options) =>
+							preparedWrite(schema, frontend.frontend, options)
+						)
+					: preparedParsed(artifacts, change, claims, clock, source)
 			)
 		)
 		const placed = once(() => Result.flatMap(entry(), (prepared) => prepared.prepared.place()))
@@ -222,11 +265,26 @@ const preparedVariants = <S extends ParamSource>(
 	return {
 		kind: "split",
 		context,
-		holding: preparedVariants(role, artifacts, changes, clock, source, before, [
-			context,
-			...holding
-		]),
-		lacking: preparedVariants(role, artifacts, changes, clock, source, before, holding)
+		holding: preparedVariants(
+			role,
+			artifacts,
+			changes,
+			clock,
+			source,
+			before,
+			[context, ...holding],
+			frontend
+		),
+		lacking: preparedVariants(
+			role,
+			artifacts,
+			changes,
+			clock,
+			source,
+			before,
+			holding,
+			compiledFrontend
+		)
 	}
 }
 
@@ -274,6 +332,9 @@ export interface ChangeLogin<S extends ParamSource = ParamSource> {
 	/** Where its change members' readings of the clock count from: the transaction's for every served file `grizzle
 	 * generate` writes, a moved clock's for a test's (ir/clock.ts ClockSource). */
 	readonly clock: ClockSource
+	/** The front ends a workload's plan compiled beside it (planned.ts PlannedFrontends): each change member's variant
+	 * in which every fill context holds a fact reads its key's there, where its compile would build that one. */
+	readonly planned: PlannedFrontends
 }
 
 /**
@@ -353,6 +414,14 @@ const roleBase = <S extends ParamSource>(
 			if (program.kind !== "changeSet") {
 				return []
 			}
+			const planned = login.planned.everyHolding({
+				laws: artifacts.value.laws,
+				login: login.named.owned.name,
+				role: owned.name,
+				program: program.name,
+				clock: program.clock,
+				source: login.clock
+			})
 			const variants = once(() =>
 				preparedVariants(
 					input,
@@ -361,7 +430,8 @@ const roleBase = <S extends ParamSource>(
 					program.clock,
 					login.clock,
 					fillContexts(owned.writes, program.desc.changeSet),
-					[]
+					[],
+					planned === undefined ? compiledFrontend : { kind: "planned", frontend: planned }
 				)
 			)
 			return [

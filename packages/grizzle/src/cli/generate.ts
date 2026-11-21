@@ -62,7 +62,7 @@ import {
 } from "#compiler/plan/common.ts"
 import {
 	type AbandonedSchema,
-	compileWorkload,
+	planWorkload,
 	completeInstallOptions,
 	customMigration,
 	type Declarations,
@@ -309,8 +309,11 @@ export type ServedBasis =
 /**
  * The logins' workloads and their roles' write filters, planned under the configured schema's artifacts and the names
  * the installation drafted gives it, so the index requests name its vector schema (program/workload/compile.ts
- * compileWorkload), then each login's ChangeSets compiled once over the artifacts its served file compiles over
- * (servedWorkload): the configured schema's for a login over its level, and for a login over a level below, that
+ * planWorkload), then each login's ChangeSets compiled once over the artifacts its served file compiles over
+ * (servedWorkload), each over the front end the plan compiled of it where that is the one its compile builds, the
+ * variant of a ChangeSet over a role in which every fill context holds a fact, over the plan's basis, with the
+ * transaction's clock (program/workload/planned.ts PlannedFrontends), so its front end is compiled once: the configured
+ * schema's for a login over its level, and for a login over a level below, that
  * level's, compiled from the basis's derived facts as a snapshot records them (deploy/snapshot/build.ts derivedFacts,
  * adapter/served/login.ts artifactsUnder), under the draft's codes `codes`, each casting the programs' parameters to
  * the types the workload's plan declares (WorkloadPhysical.params), which the installation drafted installs and its
@@ -335,9 +338,9 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		artifacts: configuredArtifacts,
 		roles: Arr.flatMap(logins, (l) => l.owned.roles)
 	}
-	const workload = yield* Effect.mapError(
+	const { plan: workload, frontends } = yield* Effect.mapError(
 		fromEngine(
-			compileWorkload(
+			planWorkload(
 				Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
 				configured.built,
 				options
@@ -378,7 +381,8 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 					workload: l.login.workload,
 					named,
 					artifacts,
-					clock: transactionClock
+					clock: transactionClock,
+					planned: frontends
 				})),
 				options
 			)

@@ -55,6 +55,7 @@ import {
 	SourceLoc,
 	transactionClock
 } from "#compiler/plan/common.ts"
+import { noPlannedFrontends } from "#compiler/plan/migration.ts"
 import { keyQuery, templateFor } from "#compiler/plan/read.ts"
 import {
 	type CompileFacts,
@@ -495,7 +496,14 @@ export const loginChangesOver = <L extends Isolation, S extends ParamSource>(
 		Effect.mapError(
 			fromEngine(
 				loginChanges(
-					{ roles: login.roles, workload: login.workload, named, artifacts, clock },
+					{
+						roles: login.roles,
+						workload: login.workload,
+						named,
+						artifacts,
+						clock,
+						planned: noPlannedFrontends
+					},
 					level
 				)
 			),

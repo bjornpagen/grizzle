@@ -107,6 +107,7 @@ export {
 	accessDrift,
 	accessDriftText,
 	compileWorkload,
+	planWorkload,
 	type ProgramFootprints,
 	type ServedWorkloadPlan,
 	servedWorkload,
@@ -115,6 +116,7 @@ export {
 	type WorkloadPlanRefused
 } from "#compiler/program/workload/compile.ts"
 export type { Footprint, Routes } from "#compiler/logical/routes.ts"
+export { noPlannedFrontends, PlannedFrontends } from "#compiler/program/workload/planned.ts"
 export { servedRosters } from "#compiler/program/served.ts"
 export { servedDifference, servedPartingText } from "#compiler/served/difference.ts"
 export { servedText } from "#compiler/served/json.ts"
