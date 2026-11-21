@@ -10,6 +10,7 @@ import {
 	justify,
 	nodePremise,
 	type OuterColumn,
+	outerKey,
 	paramPremise,
 	type Rep,
 	resolveOuter,
@@ -237,45 +238,133 @@ const fixedFact = (e: ScalarExpr, fixed: Fixed, outer: ReadonlyArray<OuterColumn
 })
 
 /**
- * The labels of a subtree's nodes through data inputs, its root included, breadth-first: an outer column of one of them
- * is bound inside it.
+ * Per node, each label asked of it: whether a node of its subtree through data inputs, its root included, carries that
+ * label (`holdsLabel`). A node and its subtree are immutable (ir/rel.ts RelNode), so an answer holds for as long as the
+ * node lives, in every analysis that reads it.
  */
-const subtreeOf = (root: RelNode): ReadonlyArray<RelNode> => {
-	const seen = new Set<RelNode>([root])
-	const queue = [root]
-	for (const at of queue) {
-		for (const input of inputsOf(at)) {
-			if (!seen.has(input)) {
-				seen.add(input)
-				queue.push(input)
-			}
-		}
+const labelsHeld = new WeakMap<RelNode, Map<NodeId, boolean>>()
+
+/** Records whether `node`'s subtree carries `label` (labelsHeld). */
+const recordHeld = (node: RelNode, label: NodeId, held: boolean): void => {
+	const known = labelsHeld.get(node)
+	if (known === undefined) {
+		labelsHeld.set(node, new Map([[label, held]]))
+	} else {
+		known.set(label, held)
 	}
-	return queue
 }
 
-/** The labels of a subtree's nodes (subtreeOf), which the column references inside it name. */
-const subtreeLabels = (root: RelNode): ReadonlySet<NodeId> =>
-	new Set(subtreeOf(root).map((n) => n.id))
+/** What is known of whether `node`'s subtree carries `label`: its own label, or an answer recorded. */
+const heldAt = (node: RelNode, label: NodeId): boolean | undefined =>
+	node.id === label ? true : labelsHeld.get(node)?.get(label)
+
+/**
+ * A frame of the walk that asks a subtree for a label (`holdsLabel`): a node, its data inputs, and how many of them the
+ * walk has entered.
+ */
+interface HoldsFrame {
+	readonly node: RelNode
+	readonly inputs: ReadonlyArray<RelNode>
+	at: number
+}
+
+/**
+ * Whether a node of `root`'s subtree through data inputs, `root` included, carries `label`: an outer column of one of
+ * them is bound inside it. One walk, depth first, records its answer at every node it settles (labelsHeld): no at each
+ * node whose subtree it walked through without meeting the label, yes at each node on the path to it, so each node is
+ * walked once per label asked of any subtree that holds it, where collecting every subtree's labels walked each subtree
+ * whole for each node it was asked of.
+ */
+const holdsLabel = (root: RelNode, label: NodeId): boolean => {
+	const known = heldAt(root, label)
+	if (known !== undefined) {
+		return known
+	}
+	const path: Array<HoldsFrame> = [{ node: root, inputs: inputsOf(root), at: 0 }]
+	for (let top = path.at(-1); top !== undefined; top = path.at(-1)) {
+		const next = top.inputs[top.at]
+		if (next === undefined) {
+			recordHeld(top.node, label, false)
+			path.pop()
+			continue
+		}
+		top.at += 1
+		const held = heldAt(next, label)
+		if (held === true) {
+			for (const frame of path) {
+				recordHeld(frame.node, label, true)
+			}
+			return true
+		}
+		if (held === undefined) {
+			path.push({ node: next, inputs: inputsOf(next), at: 0 })
+		}
+	}
+	return false
+}
+
+/**
+ * Each node's evaluation reads (`outerOf`), for as long as the node lives: they read only its immutable subtree, so
+ * one value answers every analysis that reads the node.
+ */
+const outerReads = new WeakMap<RelNode, ReadonlyArray<OuterColumn>>()
+
+/**
+ * The columns `node`'s subtree reads of nodes outside it, each once: those its own expressions read and those its data
+ * inputs' subtrees read of nodes outside them, less those of a node the subtree holds (`holdsLabel`), its root or a node
+ * below another input. A column of a node outside the subtree is read by an expression of some node of it, the root's
+ * own or one of an input's subtree, outside which it lies too; so the subtree's reads are its inputs' and its root's,
+ * each input's computed once (outerReads), where each node's were collected by walking its whole subtree and reading
+ * every expression in it.
+ */
+const outerOf = (node: RelNode): ReadonlyArray<OuterColumn> => {
+	const pending: Array<RelNode> = [node]
+	for (let at = pending.at(-1); at !== undefined; at = pending.at(-1)) {
+		if (outerReads.has(at)) {
+			pending.pop()
+			continue
+		}
+		const inputs = inputsOf(at)
+		const unread = inputs.filter((input) => !outerReads.has(input))
+		if (unread.length > 0) {
+			appendAll(pending, unread)
+			continue
+		}
+		pending.pop()
+		const reads = new Map<string, OuterColumn>()
+		const settled = new Set<string>()
+		const read = (column: OuterColumn): void => {
+			const key = outerKey(column)
+			if (settled.has(key)) {
+				return
+			}
+			settled.add(key)
+			const inside = column.node === at.id || inputs.some((input) => holdsLabel(input, column.node))
+			if (!inside) {
+				reads.set(key, column)
+			}
+		}
+		for (const c of columnReads(exprsOf(at))) {
+			read({ node: c.node, column: c.name })
+		}
+		for (const input of inputs) {
+			for (const column of defined(
+				outerReads.get(input),
+				"an input's reads, read before its consumer's"
+			)) {
+				read(column)
+			}
+		}
+		outerReads.set(at, [...reads.values()])
+	}
+	return defined(outerReads.get(node), "the reads of the node asked")
+}
 
 /**
  * What an evaluation of a node varies with: every column of a node outside its subtree that the subtree reads (a
  * lateral source's correlation), which the region binding those columns turns into its variables.
  */
-const evaluationReads = (root: RelNode): Justification => {
-	const nodes = subtreeOf(root)
-	const inside = new Set(nodes.map((n) => n.id))
-	const outer: Array<OuterColumn> = []
-	for (const n of nodes) {
-		for (const e of exprsOf(n)) {
-			appendAll(
-				outer,
-				columnRefs(e).filter((c) => !inside.has(c.node))
-			)
-		}
-	}
-	return justify({ outer })
-}
+const evaluationReads = (root: RelNode): Justification => justify({ outer: outerOf(root) })
 
 /** The premise of a node's own computation: at most one row, a grouped key, an ordinal. It holds per evaluation. */
 const ownPremise = (node: RelNode): Justification =>
@@ -587,10 +676,9 @@ const semiProps = (
 
 const fixFromRight = (node: NodeOf<"SemiJoin">, cx: RuleContext, s: FixedState): void => {
 	const right = cx.props(node.right)
-	const inner = subtreeLabels(node)
 	for (const pair of node.on) {
 		const [first, ...others] = (right.fixed.get(pair.right) ?? []).filter(
-			(f) => resolveOuter(f.just, (n) => inner.has(n)).bound.length === 0
+			(f) => resolveOuter(f.just, (n) => holdsLabel(node, n)).bound.length === 0
 		)
 		if (first !== undefined) {
 			fixColumn(s, pair.left, first.just, first)
@@ -1093,7 +1181,6 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 	const fixVar = (v: string, fact: FixedFact): void => {
 		fixColumn({ fds, fixed }, v, fact.just, fact)
 	}
-	const inside = subtreeLabels(node)
 	/**
 	 * A fact of an occurrence's source may vary with rows of this region: a lateral source reads the region's heading
 	 * or an earlier occurrence's source. It then holds per value of the variables those columns are bound to, which
@@ -1104,7 +1191,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 	const localize = (
 		just: Justification
 	): { readonly vars: ReadonlyArray<string>; readonly just: Justification } | undefined => {
-		const r = resolveOuter(just, (n) => inside.has(n))
+		const r = resolveOuter(just, (n) => holdsLabel(node, n))
 		const vars: Array<string> = []
 		for (const o of r.bound) {
 			const v = varOf(o.node, o.column)

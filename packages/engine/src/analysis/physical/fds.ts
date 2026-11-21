@@ -59,7 +59,8 @@ export const structural: Justification = mintJustification(
 	})
 )
 
-const outerKey = (o: OuterColumn): string => `${o.node}\u0000${o.column}`
+/** An outer column's key: its node and its column, which no column name holds the separator of. */
+export const outerKey = (o: OuterColumn): string => `${o.node}\u0000${o.column}`
 
 /**
  * The normal form of the union of several groundings: every premise, reason, operator and coercion, under the most
