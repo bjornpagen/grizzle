@@ -41,9 +41,9 @@ import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
 import { extractAccess } from "#compiler/physical/access/extract.ts"
 import { uniquePaths } from "#compiler/physical/access/paths.ts"
-import { type ParamTypes, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
+import { type ServedTypes, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { namedRole, worldNames } from "#compiler/physical/ddl/names.ts"
-import type { RoleCall, RoleHold, RoleOfLogin } from "#compiler/physical/install/extension.ts"
+import type { RoleCall, RoleCarriers, RoleHold } from "#compiler/physical/install/extension.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
 	mergeStatistics,
@@ -69,7 +69,7 @@ import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { primaryKeyShape } from "#compiler/write/frontend/targets.ts"
-import { createsCarrier } from "#compiler/write/program/artifact.ts"
+import { createsCarrier, type WriteArtifact } from "#compiler/write/program/artifact.ts"
 
 interface WorkloadOptions {
 	/**
@@ -137,7 +137,11 @@ interface ProgramIr {
  * A ChangeSet over a role is the role's, whose statements write the base's tables. A parameter a member binds to the
  * database's clock reads as a parameter does: its access paths are the ones a caller's value of it plans.
  */
-type ProgramPlan = { readonly params: ReadonlyArray<ParamDecl> } & (
+type ProgramPlan = {
+	readonly params: ReadonlyArray<ParamDecl>
+	/** The roots of its checked IR, whose nodes' types name the text refinements it is served with (servedTypesOf). */
+	readonly roots: ReadonlyArray<RelNode>
+} & (
 	| { readonly kind: "query"; readonly access: ProgramAccess; readonly footprint: Footprint }
 	| { readonly kind: "instant"; readonly access: ProgramAccess }
 	| { readonly kind: "changeSet"; readonly access: ProgramAccess }
@@ -151,12 +155,16 @@ const programPlan = (
 	switch (program.kind) {
 		case "query": {
 			const ordered = isOrderedQuery(program.query)
-			return Result.map(queryRead(program.query, reads, clock), (read): ProgramPlan => ({
-				kind: "query",
-				params: read.params,
-				access: irAccess(rowsIr(read, ordered)),
-				footprint: footprintOf(read.dag, read.analysis, read.params)
-			}))
+			return Result.map(queryRead(program.query, reads, clock), (read): ProgramPlan => {
+				const ir = rowsIr(read, ordered)
+				return {
+					kind: "query",
+					params: read.params,
+					roots: ir.roots,
+					access: irAccess(ir),
+					footprint: footprintOf(read.dag, read.analysis, read.params)
+				}
+			})
 		}
 		case "changeSet": {
 			const world = reads.world
@@ -167,7 +175,12 @@ const programPlan = (
 					reads,
 					clock
 				),
-				(ir): ProgramPlan => ({ kind: "changeSet", params: ir.params, access: irAccess(ir) })
+				(ir): ProgramPlan => ({
+					kind: "changeSet",
+					params: ir.params,
+					roots: ir.roots,
+					access: irAccess(ir)
+				})
 			)
 		}
 		case "clocked":
@@ -175,7 +188,7 @@ const programPlan = (
 				switch (plan.kind) {
 					case "query":
 					case "instant":
-						return { kind: "instant", params: plan.params, access: plan.access }
+						return { kind: "instant", params: plan.params, roots: plan.roots, access: plan.access }
 					case "changeSet":
 						return plan
 				}
@@ -563,7 +576,7 @@ export const compileWorkload = (
 	const { artifacts } = options
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
-	const params: Array<ParamTypes> = []
+	const served: Array<ServedTypes> = []
 	for (const login of [...logins].toSorted((a, b) => compareStrings(a.login, b.login))) {
 		const programs = loginPlans(login.workloads, schema, artifacts)
 		if (!programs.ok) {
@@ -573,7 +586,7 @@ export const compileWorkload = (
 			programs.value.map(([name, planned]) => [name, planned.access] as const)
 		)
 		for (const [name, planned] of programs.value) {
-			params.push(paramTypesOf(name, planned.params))
+			served.push(servedTypesOf(name, planned.params, planned.roots))
 		}
 		footprints.set(
 			login.login,
@@ -610,8 +623,10 @@ export const compileWorkload = (
 		paths,
 		statistics,
 		params: {
-			domains: params.flatMap((p) => p.domains),
-			contracts: params.flatMap((p) => p.contracts)
+			domains: served.flatMap((p) => p.domains),
+			contracts: served.flatMap((p) => p.contracts),
+			typed: served.flatMap((p) => p.typed),
+			texts: served.flatMap((p) => p.texts)
 		}
 	}
 	return Result.ok({
@@ -644,7 +659,7 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	readonly certification: ReadonlyArray<RoleIsolation>
 	/** The roles whose served ChangeSets create a carrier (servedCarriers), which the installation grants TEMPORARY on the
 	 * database. */
-	readonly carriers: ReadonlyArray<RoleOfLogin>
+	readonly carriers: ReadonlyArray<RoleCarriers>
 	/** The roles whose served ChangeSets hold a retirable unit, each with the unit's header (servedHolds), which the
 	 * installation grants EXECUTE on the unit's hold function. */
 	readonly holds: ReadonlyArray<RoleHold>
@@ -654,25 +669,34 @@ export interface ServedWorkloadPlan<S extends ParamSource = ParamSource> extends
 	readonly fences: ReadonlyArray<Fence>
 }
 
-/** Whether a ChangeSet's variants may create a carrier: any variant's flight (write/program/artifact.ts
- * createsCarrier). */
-const variantsCreateCarrier = (variants: CompiledVariants): boolean =>
+/** The artifacts of a ChangeSet's variants, every form it may be served in. */
+const variantArtifacts = (variants: CompiledVariants): ReadonlyArray<WriteArtifact> =>
 	variants.kind === "form"
-		? createsCarrier(variants.entry.compiled.artifact)
-		: variantsCreateCarrier(variants.holding) || variantsCreateCarrier(variants.lacking)
+		? [variants.entry.compiled.artifact]
+		: [...variantArtifacts(variants.holding), ...variantArtifacts(variants.lacking)]
 
 /**
  * The roles of `served`, each login's ChangeSets in the forms their certificates serve them by role, any of whose served
- * ChangeSets may create a carrier, in login then role order: the roles a write may refuse for want of TEMPORARY on the
- * database (adapter TemporaryRefused).
+ * ChangeSets may create a carrier (write/program/artifact.ts createsCarrier), with the type of each column of every
+ * program carrier they create, in login then role order: the roles a write may refuse for want of TEMPORARY on the
+ * database (adapter TemporaryRefused), or of USAGE on a domain a carrier's column is typed by.
  */
 const servedCarriers = (
 	served: ReadonlyMap<string, ReadonlyMap<string, RoleChanges>>
-): ReadonlyArray<RoleOfLogin> =>
+): ReadonlyArray<RoleCarriers> =>
 	[...served].flatMap(([login, roles]) =>
-		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleOfLogin> =>
-			[...changes.members.values()].some(variantsCreateCarrier) ? [{ login, role }] : []
-		)
+		[...roles].flatMap(([role, changes]): ReadonlyArray<RoleCarriers> => {
+			const artifacts = [...changes.members.values()].flatMap(variantArtifacts)
+			return artifacts.some(createsCarrier)
+				? [
+						{
+							login,
+							role,
+							columns: artifacts.flatMap((a) => a.carriers.flatMap((c) => c.heading))
+						}
+					]
+				: []
+		})
 	)
 
 /** The headers of the retirable units a ChangeSet's variants hold: any variant's flight's holds (write/hold/statement.ts). */

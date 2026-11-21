@@ -1,6 +1,6 @@
 import { type Gen, int, map } from "@bjornpagen/testing/gen"
 import { Record as Rec } from "effect"
-import { noParamTypes } from "#compiler/physical/ddl/domains.ts"
+import { noServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstalledSource } from "#compiler/program/schema.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -16,7 +16,7 @@ import { upTo } from "#test/support/up-to.ts"
  * programs, as generate plans the artifacts its served file compiles over (cli/generate.ts plannedLogins), which here
  * are none, the box's one query declaring no parameter.
  */
-export const boxParams: InstalledSource = { kind: "planned", types: noParamTypes }
+export const boxParams: InstalledSource = { kind: "planned", types: noServedTypes }
 
 /** A head around the select list's bound: its entries, and how many of them are the left relation's fields. */
 export interface Head {

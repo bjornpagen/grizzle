@@ -80,8 +80,9 @@ export interface InstallNames extends PhysicalNames {
 	 * so contracts of one definition share one domain. Its CHECK is `identity.domainCheck` of it.
 	 */
 	readonly contractNamed: (contract: DeclaredName) => Identity<"contractDomain">
-	/** The identity of the structural text domain of a pattern the installation names, by its definition's digest. */
-	readonly textNamed: (regex: RegexRef) => Identity<"textDomain"> | undefined
+	/** The identity of the structural text domain of a pattern, by its definition's digest, where the installation
+	 * installs it, and otherwise UninstalledDomain (NamesInput `textNamed`). */
+	readonly textNamed: (regex: RegexRef) => Identity<"textDomain">
 	/** The identity of a roster's domain, which ownership minted with the roster. */
 	readonly rosterNamed: (roster: DeclaredName) => Identity<"rosterDomain">
 	/** The identity of the domain of sets over a roster, at the roster's width in the installation's codes. */
@@ -176,9 +177,12 @@ interface NamesInput {
 	/** Each level's PostgreSQL schema, root first, index for index with Owned.levels. */
 	readonly levels: NonEmptyReadonlyArray<Identity<"schema">>
 	readonly vectorSchema: string
-	/** Each pattern the installation gives a structural text domain, by its canonical key, with its domain's
-	 * definition's digest. */
-	readonly textDomains: ReadonlyMap<string, DomainDigest>
+	/**
+	 * The structural text domain of a pattern, by its definition's digest (physical/ddl/domains.ts textDomainIdentity),
+	 * where the installation installs one, and otherwise UninstalledDomain where the statement naming it is compiled
+	 * (physical/install/plan.ts ParamSource).
+	 */
+	readonly textNamed: (regex: RegexRef) => Identity<"textDomain">
 	/** Each contract the installation gives a domain by its definition, a base one, a context field's or a served
 	 * parameter's, by its declared name. */
 	readonly contracts: ReadonlyMap<DeclaredName, ContractSource>
@@ -552,11 +556,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		domains.set(contract, named)
 		return named
 	}
-	/** Each structural text domain, minted once from its definition's digest. */
-	const texts = new Map(
-		Array.from(input.textDomains, ([key, digest]) => [key, identity.textDomain(digest)] as const)
-	)
-	const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined => texts.get(regex.key)
+	const { textNamed } = input
 	const rosterNamed = (roster: DeclaredName): Identity<"rosterDomain"> =>
 		rosterOf(owned, roster).named
 	/** Each roster's bits domain at its width in the codes, minted once as the names are built. */
@@ -641,10 +641,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 		 * its definition. */
 		contractDomain: (contract) => ({ schema: types, name: identifierOf(contractNamed(contract)) }),
 		contractNamed,
-		textDomain: (regex) => {
-			const named = textNamed(regex)
-			return named === undefined ? undefined : { schema: types, name: identifierOf(named) }
-		},
+		textDomain: (regex) => ({ schema: types, name: identifierOf(textNamed(regex)) }),
 		textNamed,
 		paramDomain: (place, regex) => ({
 			schema: types,

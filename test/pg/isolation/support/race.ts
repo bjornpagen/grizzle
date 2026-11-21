@@ -33,7 +33,6 @@ import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { noLive } from "#compiler/live/notify.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallExtension,
@@ -222,7 +221,6 @@ const certifying = (
 	holds: ReadonlyArray<RoleHold>
 ): InstallExtension => ({
 	contribute: () => Result.ok(noContribution),
-	textDomainUses: noTextDomainUses,
 	params: servesNoParams,
 	certifies: roles,
 	carriers: noCarriers,

@@ -215,7 +215,7 @@ export const keyedGroup = (
 		const overload = groupAggregateOverload(agg, at)
 		const native = nativeResultType(cx, overload, shape)
 		return target(
-			castTo(aggregateCall(cx, agg, overload, shape, scope), native, cx.typeRef(c.type, at))
+			castTo(aggregateCall(cx, agg, overload, shape, scope), native, cx.typeRef(c.type))
 		)
 	})
 	const groupBy = present !== undefined ? [present] : node.keys.map((k) => columnIn(bound, k))

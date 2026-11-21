@@ -31,7 +31,7 @@ interface Source {
 }
 
 const sources: Arr.NonEmptyReadonlyArray<Source> = [
-	{ name: "a planned source", text: '{ kind: "planned", types: noParamTypes }', installed: true },
+	{ name: "a planned source", text: '{ kind: "planned", types: noServedTypes }', installed: true },
 	{
 		name: "a recorded source",
 		text: '{ kind: "recorded", installed: recordedParams }',

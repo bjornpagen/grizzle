@@ -1,4 +1,7 @@
-/** What the properties of proved-cast.test.ts read: the stored text types, the text maps over them, and each site. */
+/**
+ * What the property of persistent-text-domains.test.ts reads: the stored text types, the text maps over them, each site,
+ * and the installation it checks.
+ */
 
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Gen } from "@bjornpagen/testing/gen"
@@ -40,13 +43,13 @@ export type TextMap = (typeof textMaps)[number]
 const sites = ["containment", "generated cast"] as const
 export type Site = (typeof sites)[number]
 
-export interface ProvedCastCase {
+export interface PersistentTextCase {
 	readonly operand: Operand
 	readonly map: TextMap
 	readonly site: Site
 }
 
-export const provedCastCaseGen: Gen<ProvedCastCase> = (source) => ({
+export const persistentTextCaseGen: Gen<PersistentTextCase> = (source) => ({
 	operand: source.draw(element(operands)),
 	map: source.draw(element(textMaps)),
 	site: source.draw(element(sites))
@@ -62,7 +65,7 @@ const anyText = str.regex("^.*$", "su")
 const undeclared = str.bytes(4096, anyText)
 
 /** The case's schema, its site reading the map's image of the operand. */
-const schemaOf = (c: ProvedCastCase) => {
+const schemaOf = (c: PersistentTextCase) => {
 	switch (c.site) {
 		case "containment": {
 			const Source = relation("Source", { lex: c.operand.text, node: Id }, ["node"])
@@ -126,7 +129,7 @@ const schemaOf = (c: ProvedCastCase) => {
 }
 
 /** The installation of the case's schema, as grizzle generate compiles a fresh one. */
-export const installed = (c: ProvedCastCase): Result.Result<Installation, CompileError> => {
+export const installed = (c: PersistentTextCase): Result.Result<Installation, CompileError> => {
 	const owned = owning(schemaOf(c))
 	return compileInstallation(owned, installOptions(owned))
 }

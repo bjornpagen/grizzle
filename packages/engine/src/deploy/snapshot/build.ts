@@ -95,13 +95,12 @@ import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { LawColumnPlan } from "#compiler/laws/model/plan.ts"
 import { type LivePlan, type LiveSource, noLive } from "#compiler/live/notify.ts"
 import type { ClosedNames, NamedClosed } from "#compiler/physical/ddl/constants.ts"
-import { storedTextDomains } from "#compiler/physical/ddl/domains.ts"
+import { type TextDomainNames, textDomainNames } from "#compiler/physical/ddl/domains.ts"
 import { isolationFunctionIdent } from "#compiler/physical/ddl/isolation.ts"
 import { definitionMeanings } from "#compiler/physical/derived/meaning.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
 import { namedEdges, namedIdent } from "#compiler/physical/obligations/graph.ts"
-import type { Owned } from "#compiler/schema/own.ts"
 import {
 	addedColumn,
 	type AlterTableAction,
@@ -910,7 +909,7 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
  * indexes (snapshotTablesOf), its live source, and the types its plan casts its served parameters to
  * (InstallPlan.installedParams). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
-	...derivedFacts(installation.owned, installation.closed, installation.laws),
+	...derivedFacts(installation.closed, installation.laws, textDomainNames(installation.textPlans)),
 	tables: snapshotTablesOf(installation),
 	live: liveSourceOf(installation),
 	params: installation.installedParams
@@ -941,16 +940,23 @@ const liveSourceOf = (installation: Installation): LiveSource => {
 }
 
 /**
- * The compile facts of an installation of `owned` whose closed relations' constants are named as `closed` names
- * them, under its law model `model` (derivedOf): what a level's artifacts compile under besides its codes, from a
+ * The compile facts of an installation whose closed relations' constants are named as `closed` names them, under its
+ * law model `model`, its text domains `textDomains`: what a level's artifacts compile under besides its codes, from a
  * snapshot (adapter/served/login.ts artifactsUnder) or, before the snapshot is written, from the basis the installation
- * is compiled over, so both read the same facts.
+ * is compiled over. The snapshot records the installation's whole set of text domains (derivedOf), its served
+ * programs' and its worlds' among them; the basis holds its law model's own (physical/install/plan.ts
+ * declaredTextDomains), to which a plan over it adds the same programs' and roles' (planInstallation), so both name
+ * every refinement alike.
  */
-export const derivedFacts = (owned: Owned, closed: ClosedNames, model: LawModel): CompileFacts => ({
+export const derivedFacts = (
+	closed: ClosedNames,
+	model: LawModel,
+	textDomains: TextDomainNames
+): CompileFacts => ({
 	closed,
 	fkCycles: model.fkCycles,
 	references: model.references,
-	textDomains: storedTextDomains(owned, model.theory)
+	textDomains
 })
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the

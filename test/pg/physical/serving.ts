@@ -26,7 +26,6 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { defaultOpclass, type LawField } from "#compiler/ir/law.ts"
 import type { AccessIndexRequest, AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import { noLive } from "#compiler/live/notify.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	keyTermText,
 	type Holds,
@@ -339,7 +338,6 @@ export const drawnRequests = (specs: ReadonlyArray<RequestSpec>): InstallExtensi
 			indexRequests: Arr.map(specs, (spec, at) => requestOf(spec, at, fieldOf))
 		})
 	},
-	textDomainUses: noTextDomainUses,
 	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,

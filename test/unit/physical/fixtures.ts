@@ -2,7 +2,6 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ExprDesc, FieldDecl, FieldDesc, LiteralDesc } from "#compiler/ir/desc.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
 import { noLive } from "#compiler/live/notify.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
 	noCarriers,
@@ -19,7 +18,6 @@ import { eq, key, on, onWhere, type SchemaDesc, textDesc } from "#test/support/f
  * programs' access paths. */
 export const requesting = (requests: ReadonlyArray<IndexRequest>): InstallExtension => ({
 	contribute: () => Result.ok({ ...noContribution, indexRequests: requests }),
-	textDomainUses: noTextDomainUses,
 	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,

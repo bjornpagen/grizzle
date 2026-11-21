@@ -7,7 +7,6 @@ import { flight } from "#compiler/lower/conservative/types.ts"
 import type { FusedStatement, StatementParts } from "#compiler/lower/shapes/index.ts"
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import type { TypeRef } from "#compiler/sql/ast.ts"
-import { types } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printStatement, printType } from "#compiler/sql/print.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
@@ -28,17 +27,8 @@ const withNullPlaceholders = (text: string): string => {
 	return out + Str.slice(from)(text)
 }
 
-/**
- * The type a delivered column of `t` is claimed as: the DDL's type of a column of it (fieldColumnType), or, for a text
- * refinement outside any contract whose domain the installation does not name, its base, text.
- */
-const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef =>
-	t.contract === undefined &&
-	t.carrier === "text" &&
-	typeof t.text !== "string" &&
-	names.textDomain(t.text) === undefined
-		? types.text
-		: fieldColumnType(names, t).type
+/** The type a delivered column of `t` is claimed as: the DDL's type of a column of it (fieldColumnType). */
+const claimedType = (names: PhysicalNames, t: ScalarType): TypeRef => fieldColumnType(names, t).type
 
 /**
  * A delivered statement the type oracle judges, and where its problems are located: the relation it delivers, its

@@ -15,10 +15,9 @@ import {
 	type TypedLiteral,
 	withArgs
 } from "#compiler/ir/expr.ts"
-import { fieldColumnType, type PhysicalNames, provedCastType } from "#compiler/ir/physical.ts"
+import { fieldColumnType, type PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf, type ScalarType, spanCarrierOf } from "#compiler/ir/scalar.ts"
 import {
-	isProvedCast,
 	lowerLiteral,
 	lowerScalar,
 	printedSize,
@@ -317,8 +316,7 @@ const persistentSite = (
 					)
 			}
 		},
-		castType: (type, expr) =>
-			isProvedCast(expr) ? provedCastType(names, type) : fieldColumnType(names, type).type,
+		castType: (type) => fieldColumnType(names, type).type,
 		whole: (expr) => {
 			const planned = constants.get(expr)
 			return (

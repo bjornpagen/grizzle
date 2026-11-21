@@ -17,7 +17,11 @@ import { factSet, typedEq } from "#compiler/ir/compare.ts"
 import { type NodeScope, nodeScopes, type OuterRefs } from "#compiler/ir/dag.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import type { Fold } from "#compiler/ir/fold.ts"
-import { baseTypeRef as physicalBaseType, type PhysicalNames } from "#compiler/ir/physical.ts"
+import {
+	baseTypeRef as physicalBaseType,
+	type PhysicalNames,
+	qualifiedType
+} from "#compiler/ir/physical.ts"
 import { type FilledRows, filledRowsKey } from "#compiler/ir/products.ts"
 import {
 	exprsOf,
@@ -31,23 +35,22 @@ import {
 	unionArms,
 	type ValidDag
 } from "#compiler/ir/rel.ts"
-import { refinementText, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
+import { regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
 import { DagIndex } from "#compiler/lower/conservative/dag-index.ts"
-import {
-	judgesLaw,
-	type ArrayPart,
-	type ArraySlot,
-	type ConservativeOptions,
-	type ConservativeParamSlot,
-	type DeclaredParamSlot,
-	type MemberParamSlot,
-	type NestedRowsParamSlot,
-	type OwnParamSlot,
-	type RelationColumn,
-	type RelationParamSlot,
-	type ScalarParamSlot
+import type {
+	ArrayPart,
+	ArraySlot,
+	ConservativeOptions,
+	ConservativeParamSlot,
+	DeclaredParamSlot,
+	MemberParamSlot,
+	NestedRowsParamSlot,
+	OwnParamSlot,
+	RelationColumn,
+	RelationParamSlot,
+	ScalarParamSlot
 } from "#compiler/lower/conservative/types.ts"
 import { columnType, namedColumn } from "#compiler/runtime/lower/columns.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
@@ -1086,21 +1089,9 @@ export class LowerContext {
 		return this.#shared.scopes.of(node)
 	}
 
-	/**
-	 * The PostgreSQL type of a value of `t` (physicalTypeOf) under this lowering's subject: a law's judgement reads only
-	 * values its relations hold (types.ts judgesLaw), so it types an unnamed text refinement by its base, pg_catalog's
-	 * builtin text.
-	 */
-	physicalType(t: ScalarType): PhysicalType {
-		const p = physicalTypeOf(this.names, t)
-		return p.kind === "unnamedText" && judgesLaw(this.options.subject)
-			? { kind: "type", ref: physicalBaseType(this.names, t) }
-			: p
-	}
-
-	/** The PostgreSQL type of a value of `t` (physicalType); a refinement without a domain name is refused. */
-	typeRef(t: ScalarType, at: string): TypeRef {
-		return namedType(this.physicalType(t), at)
+	/** The PostgreSQL type of a value of `t` (physicalTypeRef). */
+	typeRef(t: ScalarType): TypeRef {
+		return physicalTypeRef(this.names, t)
 	}
 
 	/**
@@ -1112,8 +1103,7 @@ export class LowerContext {
 	paramTypeRef(t: ScalarType, place: ParamPlace): TypeRef {
 		const regex = paramPattern(t)
 		if (regex === undefined) {
-			const p = this.physicalType(t)
-			return p.kind === "type" ? p.ref : this.baseTypeRef(t)
+			return this.typeRef(t)
 		}
 		const domain = this.names.paramDomain(place, regex)
 		return { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
@@ -1210,51 +1200,20 @@ const paramPattern = (t: ScalarType): RegexRef | undefined =>
 	t.contract === undefined && t.carrier === "text" ? regexOf(t.text) : undefined
 
 /**
- * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's __text_ domain, an extension's
- * vector, or the builtin with its typmod, a closed id's smallint code and a set's bit(n) among them; or, for a regex
- * refinement whose __text_ domain the names do not name (a contract's base pattern no stored column carries), that
- * refinement. A closed id's value is no domain's: its column is its roster's domain, which checks a code where it is
+ * The PostgreSQL type of a value of `t`: a contract's domain, a regex refinement's structural text domain, which the
+ * installation holds for every refinement any artifact over it types a value by (ir/physical.ts PhysicalNames
+ * textDomain), an extension's vector, or the builtin with its typmod, a closed id's smallint code and a set's bit(n)
+ * among them. A closed id's value is no domain's: its column is its roster's domain, which checks a code where it is
  * stored, and a code computed or compared in a query is the smallint it is.
  */
-type PhysicalType =
-	| { readonly kind: "type"; readonly ref: TypeRef }
-	| { readonly kind: "unnamedText"; readonly regex: RegexRef }
-
-const physicalTypeOf = (names: PhysicalNames, t: ScalarType): PhysicalType => {
+export const physicalTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 	const { contract } = t
 	if (contract !== undefined) {
-		const domain = names.contractDomain(contract.name)
-		return {
-			kind: "type",
-			ref: { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
-		}
+		return qualifiedType(names.contractDomain(contract.name))
 	}
 	const regex = t.carrier === "text" ? regexOf(t.text) : undefined
-	if (regex !== undefined) {
-		const domain = names.textDomain(regex)
-		return domain === undefined
-			? { kind: "unnamedText", regex }
-			: {
-					kind: "type",
-					ref: { kind: "named", schema: domain.schema, name: domain.name, typmod: [], array: false }
-				}
-	}
-	return { kind: "type", ref: physicalBaseType(names, t) }
+	return regex === undefined ? physicalBaseType(names, t) : qualifiedType(names.textDomain(regex))
 }
-
-/** The type of a physical type, a refinement without a domain name refused. */
-const namedType = (p: PhysicalType, at: string): TypeRef =>
-	p.kind === "type"
-		? p.ref
-		: refuse(
-				"UnsupportedOperation",
-				at,
-				`the domain name of the text refinement ${refinementText(p.regex)}, which no stored field declares, so the installation holds no domain of it; declare a field of that refinement on a stored relation, or type the value by a refinement a stored field declares`
-			)
-
-/** The PostgreSQL type of a value of `t` (physicalTypeOf); a refinement without a domain name is refused. */
-export const physicalTypeRef = (names: PhysicalNames, t: ScalarType, at: string): TypeRef =>
-	namedType(physicalTypeOf(names, t), at)
 
 /** The output names of a heading: its columns, or the unit marker. */
 export const outputNames = (heading: Heading): NonEmptyReadonlyArray<string> =>

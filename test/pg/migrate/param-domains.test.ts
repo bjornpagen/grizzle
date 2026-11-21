@@ -233,10 +233,11 @@ export const paramDomains = property.exhaust(finite(caseGen), {
 	kept: [],
 	kills: [
 		{
-			file: "packages/engine/src/physical/ddl/domains.ts",
-			original: "\t\tconst created =\n\t\t\tknown === undefined\n",
-			replacement: "\t\tconst created =\n\t\t\tfalse\n",
-			why: "A parameter's text domain no stored field holds is never created, so its parameter domain stands over no base and the install fails."
+			file: "packages/engine/src/physical/install/plan.ts",
+			original:
+				"[...own.texts, ...fields.flatMap((f) => typeRefinements(f.type)), ...planned.texts]",
+			replacement: "[...own.texts, ...fields.flatMap((f) => typeRefinements(f.type))]",
+			why: "A parameter's text domain no stored field holds is never created, the served programs' refinements, the parameters' among them, left out of the installation's text domains, so its parameter domain stands over no base and the install fails."
 		}
 	]
 })

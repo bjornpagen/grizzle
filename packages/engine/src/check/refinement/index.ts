@@ -1,6 +1,5 @@
 import type { RefinementPlugin } from "#compiler/check/context.ts"
 import type { SchemaReading } from "#compiler/check/schema.ts"
-import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import {
 	baseOf,
@@ -135,7 +134,7 @@ export const hasConstraint = (t: ScalarType): boolean => {
 
 /**
  * Where a refined constant is declared: the closed relation, its payload field, and the key of its row, each key
- * field's literal in the relation's key order. Its diagnostics' text is refinedSiteText's.
+ * field's literal in the relation's key order.
  */
 export interface RefinedSite {
 	readonly relation: string
@@ -152,14 +151,6 @@ export interface RefinedConstant {
 	readonly type: ScalarType
 	readonly site: RefinedSite
 }
-
-/** A key literal as a refinement site names its row: a handle by itself, any other by its canonical text. */
-const keyText = (literal: TypedLiteral): string =>
-	literal.kind === "handle" ? literal.handle : canonicalTextOf(literal)
-
-/** A site as diagnostics name it: `closed Tier.label at (pro)`, its row named by its key. */
-export const refinedSiteText = (site: RefinedSite): string =>
-	`closed ${site.relation}.${site.field} at (${site.key.map(keyText).join(", ")})`
 
 /**
  * The closed relations' payload values whose fields carry a nontrivial refinement, in relation, row and heading order.

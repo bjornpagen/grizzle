@@ -1024,7 +1024,7 @@ export const nativeNames = {
  * A text refinement as diagnostics name it: its patterns, and the byte bound str.bytes cuts it to, as
  * "text ~ /^[a-z]+$/u", "text ~ /^[a-z]+$/u & /^.{0,8}$/su" or "text ~ /^.*$/su of at most 64 bytes".
  */
-export const refinementText = (regex: RegexRef): string => {
+const refinementText = (regex: RegexRef): string => {
 	const octets = octetsOf(regex.check)
 	return `text ~ ${patternsText(regex.patterns)}${octets === undefined ? "" : ` of at most ${octets} bytes`}`
 }

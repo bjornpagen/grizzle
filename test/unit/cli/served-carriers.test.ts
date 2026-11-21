@@ -119,14 +119,15 @@ export const tEMPORARYOnTheDatabaseIsGrantedToExactlyTheRolesWhoseServedWorkload
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/roles.ts",
-				original: "\tif (carriers) {",
-				replacement: "\t{",
+				original:
+					'\tif (carried !== undefined) {\n\t\tprivileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))',
+				replacement: '\t{\n\t\tprivileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))',
 				why: "Every role is granted TEMPORARY, its carriers or none."
 			},
 			{
 				file: "packages/engine/src/physical/ddl/roles.ts",
 				original:
-					'\tif (carriers) {\n\t\tprivileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))\n\t}\n',
+					'\tif (carried !== undefined) {\n\t\tprivileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))\n\t}\n',
 				replacement: "",
 				why: "No role is granted TEMPORARY."
 			},

@@ -1264,11 +1264,10 @@ const optimizedPlacement = (
 						}))
 						/** A shared sub-query's CTE lowers its own copies rather than reading itself. */
 						const fill = { ...w, start, cx: w.cx.withDispatch(sharing.filling(share)) }
-						const at = `shared sub-query ${share.node.id}`
 						const supply = new NameSupply(start)
 						const placeholders = new WriteParams()
 						fill.cx.beginWriteStatement(supply, placeholders)
-						const query = memberRows(fill, heading, share.node, at)
+						const query = memberRows(fill, heading, share.node)
 						const params = [...placeholders.slots]
 						const names = freshNames(namesPast(supply.map(), ownStatement), heading.length)
 						start = names.next
@@ -1810,7 +1809,7 @@ const compile = (
 			level: options.level,
 			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
 			shares: (members) => unwrap(planStatementShares(sharing.index, members)),
-			carrierTyping: (t, at) => lowering.w.cx.typeRef(t, at)
+			carrierTyping: (t) => lowering.w.cx.typeRef(t)
 		},
 		heldUnits(frontend),
 		retiredUnits(frontend)

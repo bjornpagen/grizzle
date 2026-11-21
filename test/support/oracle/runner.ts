@@ -65,7 +65,7 @@ import {
 	type SentStatement,
 	type StatementParts
 } from "#compiler/lower/shapes/index.ts"
-import { paramDomainIdentity, paramTypesOf } from "#compiler/physical/ddl/domains.ts"
+import { paramDomainIdentity, servedTypesOf } from "#compiler/physical/ddl/domains.ts"
 import { statementOutput, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { hexOfText, setText } from "#test/support/closed/bit-text.ts"
@@ -410,7 +410,7 @@ export const runStaged = <E>(
  * install the same installation.
  */
 const paramTypesKey = (params: ReadonlyArray<ParamDecl>): string => {
-	const types = paramTypesOf("the case's query", params)
+	const types = servedTypesOf("the case's query", params, [])
 	const sortedOnce = (names: ReadonlyArray<string>): string =>
 		Arr.join(Arr.dedupe(Arr.sort(names, Order.String)), " ")
 	return `${sortedOnce(

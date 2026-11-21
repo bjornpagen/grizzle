@@ -23,12 +23,13 @@ import {
 import type { ConstraintName, DomainName, Identifier } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
-import { predicateTree } from "#compiler/ir/expr.ts"
+import { exprClosure, predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
 import { domainBase, missing, type PhysicalNames, qualifiedType } from "#compiler/ir/physical.ts"
 import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/products.ts"
-import type { HeadingColumn } from "#compiler/ir/rel.ts"
+import { exprsOf, type HeadingColumn, type RelNode } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
 	patternsText,
@@ -119,10 +120,11 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const regex = structuralRegex(t)
 	if (regex !== undefined) {
 		const name = b.names.textDomain(regex)
-		const named = b.names.textNamed(regex)
-		if (name !== undefined && named !== undefined) {
-			use.domains.set(nameKey(name), { name, identity: named, node: b.typeNamed(name) })
-		}
+		use.domains.set(nameKey(name), {
+			name,
+			identity: b.names.textNamed(regex),
+			node: b.typeNamed(name)
+		})
 	}
 }
 
@@ -190,19 +192,15 @@ export const patternLawId = (
 ): Identifier<"patternLaw"> =>
 	identifierOf(identity.patternLaw(domain, p.relation.name, p.field.name))
 
-/** A column outside the stored relations that an installer extension types by a text refinement: a derived relation's
- * view column, a role view's, or a context field a role reads. It is planned before any domain is installed, so its
- * pattern has a domain however the view comes by it, and USAGE on that domain can be granted. `table` and `column` are
- * its place in canonical use order (`TextDomainUse`). */
+/** A column outside the stored relations that the installation types by a text refinement: a derived relation's view
+ * column, a role view's, or a context field a role reads. It is planned before any domain is installed, so its pattern
+ * has a domain however the view comes by it, and USAGE on that domain can be granted. `table` and `column` are its
+ * place in canonical use order (`TextDomainUse`). */
 export interface TextColumnUse {
 	readonly regex: RegexRef
 	readonly table: string
 	readonly column: string
 }
-
-/** The text column uses of an installer extension whose objects type no column by a refinement of their own. */
-export const noTextDomainUses = (): Result.Result<ReadonlyArray<TextColumnUse>, CompileError> =>
-	Result.ok([])
 
 /** A column a structural text domain types, by its place in canonical use order: its table's and column's identifiers,
  * a context field's context and field names as their conversions. Nothing is named by them. */
@@ -320,10 +318,12 @@ export const paramDomainUses = (params: ReadonlyArray<ParamDecl>): ReadonlyArray
 	)
 
 /**
- * A contract a served workload's declared parameter is typed by, a field's of a relation parameter's facts among them,
- * with where the parameter is declared: every placeholder of the parameter is cast to the contract's domain
- * (lower/conservative/context.ts paramTypeRef), so the installation gives the contract a domain as it gives a stored
- * field's (physical/install/plan.ts planInstallation).
+ * A contract an artifact of the installation types a value by where no stored field of the base declares it, with
+ * where: a served program's (a parameter's, a field of a relation parameter's facts among them, or any value its checked
+ * IR holds), a declared function's result's, a persistent expression's, a derived definition's or a law's. Every
+ * placeholder of a parameter is cast to its contract's domain (lower/conservative/context.ts paramTypeRef), and every
+ * read of a function's value casts it to its field's (lower/conservative/call), so the installation gives the contract
+ * a domain as it gives a stored field's (physical/install/plan.ts planInstallation).
  */
 export interface ParamContract {
 	readonly contract: ContractInfo
@@ -336,6 +336,10 @@ const innerFirstContracts = (t: ScalarType): ReadonlyArray<ContractInfo> => {
 	return contract === undefined ? [] : [...innerFirstContracts(contract.base), contract]
 }
 
+/** The contracts a value of `t` is typed by (innerFirstContracts), each placed at `loc`. */
+export const typeContracts = (t: ScalarType, loc: SourceLoc): ReadonlyArray<ParamContract> =>
+	innerFirstContracts(t).map((contract): ParamContract => ({ contract, loc }))
+
 /**
  * The contracts the declared parameters `params` of the program `program` are typed by (ParamContract): each column a
  * parameter binds (ir/products.ts paramColumns), a scalar's, a clock reading's and each field of a relation's facts,
@@ -347,29 +351,108 @@ const paramContracts = (
 ): ReadonlyArray<ParamContract> =>
 	params.flatMap((p) => {
 		const loc = SourceLoc(`parameter ${p.name} of program ${program}`, [])
-		return paramColumns(p).flatMap((c) =>
-			innerFirstContracts(c.type).map((contract): ParamContract => ({ contract, loc }))
-		)
+		return paramColumns(p).flatMap((c) => typeContracts(c.type, loc))
 	})
 
 /**
- * The types the declared parameters of the programs an installation serves are cast to, which it installs: each
- * pattern parameter's own pattern domain at its place (ParamDomainUse) and each contract a parameter is typed by
- * (ParamContract), as the programs' declarations name them.
+ * The types the programs an installation serves name, which it installs: each pattern parameter's own pattern domain at
+ * its place (ParamDomainUse); each contract a parameter is typed by (`contracts`, ParamContract), as the programs'
+ * declarations name them, each held to its name's one definition (paramContractsDefined); each contract the programs'
+ * checked IR types a value by (`typed`, dagDomains), a function's result's or a query's own cast target among them,
+ * which names the domain of its name's definition; and every structural text refinement the programs type a value by
+ * (`texts`), a parameter's, a column's of any node of theirs and an expression's (dagDomains), whose domain each
+ * statement of theirs may name (a carrier's column, a cast, a delivered value's check), so no served statement names a
+ * domain the installation lacks. A served program that types a value by a refinement or a contract new to the
+ * installation is a change of the installation, which generate drafts a migration for, as it drafts any other domain.
  */
-export interface ParamTypes {
+export interface ServedTypes {
 	readonly domains: ReadonlyArray<ParamDomainUse>
+	readonly contracts: ReadonlyArray<ParamContract>
+	readonly typed: ReadonlyArray<ParamContract>
+	readonly texts: ReadonlyArray<RegexRef>
+}
+
+/** No served type: what a plan serving no program is given. */
+export const noServedTypes: ServedTypes = { domains: [], contracts: [], typed: [], texts: [] }
+
+/** The types the program `program`, its declared parameters `params` and the nodes `roots` its plan reads, names
+ * (ServedTypes). */
+export const servedTypesOf = (
+	program: string,
+	params: ReadonlyArray<ParamDecl>,
+	roots: ReadonlyArray<RelNode>
+): ServedTypes => {
+	const held = dagDomains(SourceLoc(`program ${program}`, []), params, roots)
+	return {
+		domains: paramDomainUses(params),
+		contracts: paramContracts(program, params),
+		typed: held.contracts,
+		texts: held.texts
+	}
+}
+
+/**
+ * The structural text refinements a value of `t` is typed by down its contract chain: its own pattern where it is
+ * refined text outside any contract (structuralRegex), and each contract base's that is, which a value read at its
+ * contract's base is typed by.
+ */
+export const typeRefinements = (t: ScalarType): ReadonlyArray<RegexRef> => {
+	const own = structuralRegex(t)
+	const { contract } = t
+	return [
+		...(own === undefined ? [] : [own]),
+		...(contract === undefined ? [] : typeRefinements(contract.base))
+	]
+}
+
+/** The domains no stored field need declare that a checked DAG types its values by (dagDomains). */
+export interface DagDomains {
+	readonly texts: ReadonlyArray<RegexRef>
 	readonly contracts: ReadonlyArray<ParamContract>
 }
 
-/** No parameter type: what a plan serving no program is given. */
-export const noParamTypes: ParamTypes = { domains: [], contracts: [] }
-
-/** The types the declared parameters `params` of the program `program` are cast to (ParamTypes). */
-export const paramTypesOf = (program: string, params: ReadonlyArray<ParamDecl>): ParamTypes => ({
-	domains: paramDomainUses(params),
-	contracts: paramContracts(program, params)
-})
+/**
+ * The domains a checked DAG types a value by whatever stored field declares them, a program's, a derived definition's
+ * or a law's violation query's: each structural text refinement (typeRefinements), each pattern key once, a refinement
+ * a built-in source gives (r.tokens' token, Text.collapse's language) and a declared function's result's among them,
+ * and each contract (typeContracts) at `loc`, each name once, of each column its declared parameters `params` bind, of
+ * each column of every node `roots` reach and of each expression a node holds. Each once, its first in that order, so
+ * a workload states as many domains as its programs hold refinements and contracts, never one per typed column.
+ */
+export const dagDomains = (
+	loc: SourceLoc,
+	params: ReadonlyArray<ParamDecl>,
+	roots: ReadonlyArray<RelNode>
+): DagDomains => {
+	const texts = new Map<string, RegexRef>()
+	const contracts = new Map<string, ParamContract>()
+	const add = (t: ScalarType): void => {
+		for (const regex of typeRefinements(t)) {
+			if (!texts.has(regex.key)) {
+				texts.set(regex.key, regex)
+			}
+		}
+		for (const c of typeContracts(t, loc)) {
+			if (!contracts.has(c.contract.name)) {
+				contracts.set(c.contract.name, c)
+			}
+		}
+	}
+	for (const p of params) {
+		for (const c of paramColumns(p)) {
+			add(c.type)
+		}
+	}
+	for (const node of topoOrder({ roots })) {
+		for (const c of node.heading) {
+			add(c.type)
+		}
+		for (const e of exprClosure(exprsOf(node))) {
+			add(e.type)
+		}
+	}
+	return { texts: [...texts.values()], contracts: [...contracts.values()] }
+}
 
 /**
  * A contract outside the base whose domain an installation installs for its served parameters, in installed terms:
@@ -383,9 +466,10 @@ export interface InstalledContract {
 }
 
 /**
- * The parameter types an installation installs (ParamTypes in installed terms), as snapshot.json records them: each
- * parameter's pattern domain by its identifier, in code point order, and each contract outside the base a parameter is
- * typed by (InstalledContract), base first. A served compile under the snapshot casts a parameter only to these.
+ * The served types an installation installs (ServedTypes in installed terms, its text domains beside them in
+ * snapshot.json's derived.textDomains), as snapshot.json records them: each parameter's pattern domain by its
+ * identifier, in code point order, and each contract outside the base an artifact or a served program types a value by
+ * (InstalledContract), base first. A served compile under the snapshot casts a value only to these.
  */
 export interface InstalledParams {
 	readonly domains: ReadonlyArray<string>
@@ -416,12 +500,11 @@ export const paramDomainsOf = (
  * The pattern domains of `uses` as objects in Setup, each identity once. Every placeholder of the parameter is cast to
  * its own (ir/physical.ts paramDomain), so PostgreSQL checks the value as it binds it, and a refusal by it is the
  * parameter's (adapter ParamRejected): PostgreSQL reports the domain the value is cast to, never an ancestor of it.
- * Each is `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own (paramDomainDefinition), after
- * its pattern's structural text domain: the installation's own where a column it types holds the pattern, otherwise
- * one created here for the parameters, after the schema, as addTextDomains creates one. So no two domains of the
- * installation hold one CHECK body, and a parameter's domain has one definition wherever the pattern is stored, so its
- * name, which digests that definition, is the same in every compile over the installation. Their names, in order, a
- * text domain created here before the first parameter's domain over it.
+ * Each is `CREATE DOMAIN <schema>.<domain> AS <schema>.<text domain>` with no CHECK of its own (paramDomainDefinition),
+ * after its pattern's structural text domain, which the installation holds for every pattern its served programs'
+ * parameters name (planTextDomains). So no two domains of the installation hold one CHECK body, and a parameter's
+ * domain has one definition wherever the pattern is stored, so its name, which digests that definition, is the same in
+ * every compile over the installation. Their names, in order.
  */
 export const addParamDomains = (
 	b: InstallBuilder,
@@ -434,30 +517,11 @@ export const addParamDomains = (
 			return []
 		}
 		seen.add(named.canonical)
-		const structural = textDomainIdentity(regex)
-		const known = b.typeNamed({ schema: b.names.types, name: identifierOf(structural) })
-		const created =
-			known === undefined
-				? [
-						createDomain(
-							textDomainDefinition(regex.check),
-							{ schema: b.names.types, name: b.name(structural) },
-							() => b.name(identity.domainCheck(structural))
-						)
-					]
-				: []
-		const textNode =
-			known ??
-			b.addType(
-				"domain",
-				b.names.installation,
-				structural,
-				{
-					ddl: created,
-					reasons: [enforcement(`text refinement ${patternsText(regex.patterns)}`)]
-				},
-				[b.schemaNode]
-			)
+		const structural = b.names.textNamed(regex)
+		const textNode = defined(
+			b.typeNamed({ schema: b.names.types, name: identifierOf(structural) }),
+			"the structural text domain of a served parameter's pattern"
+		)
 		const ddl = createDomain(
 			paramDomainDefinition(structural, b.names.types),
 			{ schema: b.names.types, name: b.name(named) },
@@ -477,7 +541,7 @@ export const addParamDomains = (
 			},
 			[b.schemaNode, textNode]
 		)
-		return [...created.map((c) => c.name), ddl.name]
+		return [ddl.name]
 	})
 }
 
@@ -504,20 +568,6 @@ export interface TextDomainPlan {
 	readonly regex: RegexRef
 }
 
-/** Every structural text domain of the schema, each named at the naming door by its definition's digest
- * (textDomainIdentity), whatever columns use it, so no use renames a domain, every compilation names a pattern alike,
- * and patterns of one membership share one domain. `extra` are the other columns an installation types by a pattern (an extension's view columns, a world's view
- * columns and context fields); a pattern only they carry has a domain too.
- *
- * A text refinement that is neither a tautology nor wrapped in a contract is a structural domain shared by every field
- * whose pattern recognizes the same values: `CREATE DOMAIN <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8
- * CONSTRAINT <check> CHECK (VALUE IS NULL OR (<membership>) IS TRUE)`. A closed relation's refined text payload counts
- * as a use, which the closed facts' validation casts to its domain. A column an installer extension types by a
- * pattern, a derived relation's view column, is a use too (`TextColumnUse`). A context field an installed role reads
- * has the domain of its refined type whether a column carries it or not, since Db.open's admission validates each
- * claim against it. The domains come in the order of their first use in canonical order, a stored column's before an
- * extra's, and each CHECK is spelled from that first use, so it follows one rule whatever order the relations are met
- * in. */
 /** The installed relation a theory relation's columns are of: a closed relation's conversion, a stored one's table. */
 const theoryTable = (o: OwnedRelation): string => {
 	switch (o.kind) {
@@ -531,29 +581,44 @@ const theoryTable = (o: OwnedRelation): string => {
 	}
 }
 
+/**
+ * Every structural text domain of an installation, each named at the naming door by its definition's digest
+ * (textDomainIdentity), whatever uses it, so no use renames a domain, every compilation names a pattern alike, and
+ * patterns of one membership share one domain. One rule holds: the installation holds the domain of every refinement
+ * any artifact over it types a value by (physical/install/plan.ts artifactDomains), so every statement's cast to one
+ * names an installed domain, and no refinement needs a stored field to exist. Its uses are the stored fields of the
+ * theory's relations; `columns`, the other columns the installation types by a pattern (a derived relation's view
+ * column, a role view's, a context field a role reads); and `refinements`, the refinements its artifacts type a value
+ * by where no column is (a persistent expression's, a declared function's result's, a contract's base, a served
+ * program's), each a domain whether or not any column carries its pattern.
+ *
+ * A text refinement that is neither a tautology nor wrapped in a contract is a structural domain shared by every field
+ * whose pattern recognizes the same values: `CREATE DOMAIN <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8
+ * CONSTRAINT <check> CHECK (VALUE IS NULL OR (<membership>) IS TRUE)`. A closed relation's refined text payload counts
+ * as a use, which the closed facts' validation casts to its domain. A context field an installed role reads has the
+ * domain of its refined type, since Db.open's admission validates each claim against it. The domains a stored column
+ * carries come first, in the order of their first use in canonical order, each CHECK spelled from that first use, so
+ * it follows one rule whatever order the relations are met in; then every other, by its pattern's key.
+ */
 export const planTextDomains = (
 	owned: Owned,
 	theory: Theory,
-	/** The view columns an extension types by a refinement no stored column carries. */
-	extra: ReadonlyArray<TextColumnUse>
+	/** The columns outside the stored relations the installation types by a refinement (TextColumnUse). */
+	columns: ReadonlyArray<TextColumnUse>,
+	/** The refinements its artifacts type a value by where no column is (`TextRefinements`). */
+	refinements: ReadonlyArray<RegexRef>
 ): ReadonlyArray<TextDomainPlan> => {
-	/** Each pattern key's regex, its uses, and whether a stored column carries it. */
-	const keys = new Map<
+	/** Each pattern key a stored column carries: its regex and its stored uses. */
+	const stored = new Map<
 		string,
-		{
-			readonly regex: RegexRef
-			readonly uses: [TextDomainUse, ...Array<TextDomainUse>]
-			readonly stored: boolean
-		}
+		{ readonly regex: RegexRef; readonly uses: [TextDomainUse, ...Array<TextDomainUse>] }
 	>()
-	const use = (regex: RegexRef, u: TextDomainUse, stored: boolean): void => {
-		const known = keys.get(regex.key)
-		if (known === undefined) {
-			keys.set(regex.key, { regex, uses: [u], stored })
-		} else {
-			known.uses.push(u)
-		}
-	}
+	/** Each other pattern key: its regex and its uses, each a column outside the stored relations, none for a
+	 * refinement no column carries. */
+	const unstored = new Map<
+		string,
+		{ readonly regex: RegexRef; readonly uses: Array<TextDomainUse> }
+	>()
 	for (const [name, r] of Object.entries(theory.relations).toSorted(([a], [b]) =>
 		compareStrings(a, b)
 	)) {
@@ -568,60 +633,71 @@ export const planTextDomains = (
 				o.fields[c.name],
 				"ownership holds every field of the theory's relations"
 			)
-			use(regex, { table, column: field.column }, true)
-		}
-	}
-	for (const e of extra) {
-		const known = keys.get(e.regex.key)
-		if (known === undefined || !known.stored) {
-			use(e.regex, { table: e.table, column: e.column }, false)
-		}
-	}
-	return [...keys]
-		.map(([digest, k]) => ({ digest, ...k, uses: sortNonEmpty(k.uses, compareUses) }))
-		.toSorted((a, b) =>
-			a.stored !== b.stored
-				? a.stored
-					? -1
-					: 1
-				: a.stored
-					? compareUses(a.uses[0], b.uses[0])
-					: compareStrings(a.digest, b.digest)
-		)
-		.map(({ regex, uses }): TextDomainPlan => {
-			const named = textDomainIdentity(regex)
-			const check = identity.domainCheck(named)
-			return {
-				key: regex.key,
-				domain: {
-					digest: definitionDigest(textDomainDefinition(regex.check)),
-					named,
-					check,
-					name: identifierOf(named),
-					constraint: identifierOf(check),
-					uses
-				},
-				regex
+			const u = { table, column: field.column }
+			const known = stored.get(regex.key)
+			if (known === undefined) {
+				stored.set(regex.key, { regex, uses: [u] })
+			} else {
+				known.uses.push(u)
 			}
-		})
+		}
+	}
+	const outside = (regex: RegexRef): Array<TextDomainUse> | undefined => {
+		if (stored.has(regex.key)) {
+			return undefined
+		}
+		const known = unstored.get(regex.key)
+		if (known !== undefined) {
+			return known.uses
+		}
+		const uses: Array<TextDomainUse> = []
+		unstored.set(regex.key, { regex, uses })
+		return uses
+	}
+	for (const e of columns) {
+		outside(e.regex)?.push({ table: e.table, column: e.column })
+	}
+	for (const regex of refinements) {
+		outside(regex)
+	}
+	const plan = (regex: RegexRef, uses: ReadonlyArray<TextDomainUse>): TextDomainPlan => {
+		const named = textDomainIdentity(regex)
+		const check = identity.domainCheck(named)
+		return {
+			key: regex.key,
+			domain: {
+				digest: definitionDigest(textDomainDefinition(regex.check)),
+				named,
+				check,
+				name: identifierOf(named),
+				constraint: identifierOf(check),
+				uses
+			},
+			regex
+		}
+	}
+	return [
+		...[...stored.values()]
+			.map((k) => ({ regex: k.regex, uses: sortNonEmpty(k.uses, compareUses) }))
+			.toSorted((a, b) => compareUses(a.uses[0], b.uses[0]))
+			.map((k) => plan(k.regex, k.uses)),
+		...[...unstored]
+			.toSorted(([a], [b]) => compareStrings(a, b))
+			.map(([, k]) => plan(k.regex, k.uses.toSorted(compareUses)))
+	]
 }
 
 /**
- * Each structural text domain an installation's stored fields declare, by its pattern language's key (RegexRef.key),
- * with the digest of its domain's definition, which names it (textDomainIdentity): what every compile over the
- * installation names a refined text's domain by, whatever relations its slice reads.
+ * Each structural text domain an installation holds (planTextDomains), by its pattern language's key (RegexRef.key),
+ * with the digest of its domain's definition, which names it (textDomainIdentity): the one set every compile over the
+ * installation names a refined text's domain from, whatever relations its slice reads, which generate records in
+ * snapshot.json (deploy/snapshot/types.ts SnapshotDerived) and a Db reads there.
  */
 export type TextDomainNames = ReadonlyMap<string, DomainDigest>
 
 /** The names of planned text domains (planTextDomains), each by its pattern language's key. */
 export const textDomainNames = (plans: ReadonlyArray<TextDomainPlan>): TextDomainNames =>
 	new Map(plans.map((p) => [p.key, p.domain.digest] as const))
-
-/** The text domain names the stored fields of `theory`'s relations declare, with no other column's: the installation's
- * own over its whole schema's theory, which generate records in snapshot.json (deploy/snapshot/types.ts
- * SnapshotDerived) and a Db reads there. */
-export const storedTextDomains = (owned: Owned, theory: Theory): TextDomainNames =>
-	textDomainNames(planTextDomains(owned, theory, []))
 
 /** The structural text domains as objects in Setup, each after the schema, each definition once: their names, in
  * order. A pattern whose definition another's domain already holds adds its reason to that domain. */
@@ -792,10 +868,11 @@ type ContractFieldDesc = Extract<FieldDesc, { readonly kind: "contract" }>
 
 /** The contracts outside the base an installation gives a domain (OutsideContracts), each once with its CHECK, in
  * base-first order (a contract after the contracts its base chain names): every contract the context fields of
- * `fields` name, down each contract's base chain, then every contract a served parameter of `params` is typed by
- * (ParamContract), that the base does not declare. Each gets its domain whether a column carries it or not: Db.open's
- * admission validates each claim against a context contract's, and every placeholder of a parameter is cast to its
- * contract's. Each is named by the contract's name as a base contract's is: a declared name of the schema's one
+ * `fields` name, down each contract's base chain, then every contract `params` lists (ParamContract), each contract an
+ * artifact of the installation or a served program types a value by (physical/install/plan.ts artifactDomains,
+ * ServedTypes `contracts`), that the base does not declare. Each gets its domain whether a column carries it or not:
+ * Db.open's admission validates each claim against a context contract's, every placeholder of a parameter is cast to
+ * its contract's, and every read of a declared function's value to its field's. Each is named by the contract's name as a base contract's is: a declared name of the schema's one
  * namespace of relations, rosters and contracts, so one the declared-name rule refuses, or one converting as a base
  * relation's, roster's or contract's does, is refused (core/identity.ts DeclaredNamespace).
  *

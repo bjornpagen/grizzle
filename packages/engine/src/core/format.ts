@@ -6,10 +6,11 @@
  * `grizzle generate`. A change of what any of those files holds is a change of this format, and nothing reads the
  * format before it.
  *
- * @formatConstant grizzle's artifact format: 3, whose described laws state a Text.matches pattern as its pattern
- * value, identified by its language, and whose theory records the installation's spelling of each language it installs
+ * @formatConstant grizzle's artifact format: 4, whose snapshot.json records every structural text domain the
+ * installation holds (derived.textDomains), each refinement any artifact over it or any program it serves types a value
+ * by, and every contract outside the base they type a value by (derived.params.contracts)
  */
-export const artifactFormat = 3
+export const artifactFormat = 4
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"

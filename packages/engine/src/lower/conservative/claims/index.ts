@@ -16,11 +16,11 @@ import { col, columnDefinition, provedCore, select, target } from "#compiler/sql
  * pattern's domain (the lowering's physical type), or, for a closed id, its roster's domain, which admits a live
  * handle's code alone; else its base.
  */
-const judgedType = (cx: LowerContext, t: ScalarType, at: string): TypeRef => {
+const judgedType = (cx: LowerContext, t: ScalarType): TypeRef => {
 	const base = baseOf(t)
 	return t.contract === undefined && base.carrier === "code"
 		? qualifiedType(cx.names.rosterDomain(base.roster.closed))
-		: cx.typeRef(t, at)
+		: cx.typeRef(t)
 }
 
 /**
@@ -44,7 +44,7 @@ const lowerContext: NodeLowerer<"Context"> = (node, cx) => {
 	const columns = node.heading.map((c): ContextColumn => ({
 		field: c.name,
 		column: columnDefinition(cx.supply.column(origin), baseTypeRef(cx.names, c.type)),
-		judged: judgedType(cx, c.type, nodeLabel(node))
+		judged: judgedType(cx, c.type)
 	}))
 	if (!isNonEmpty(columns)) {
 		return refuse("MalformedDescription", nodeLabel(node), "a context of at least one field")

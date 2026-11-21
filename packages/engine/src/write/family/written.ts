@@ -148,7 +148,7 @@ export const tableAs = (w: WriteContext, relation: string, alias: string): FromS
 
 /** `value` cast into a column of `type`, as a write stores it. */
 export const written = (w: WriteContext, value: Expr, type: ScalarType): Expr =>
-	cast(value, w.cx.typeRef(type, "family write"))
+	cast(value, w.cx.typeRef(type))
 
 /** `row_number() OVER (PARTITION BY ... ORDER BY ...)`. */
 export const rowNumber = (partition: ReadonlyArray<Expr>, order: ReadonlyArray<Expr>): Expr => ({

@@ -1,10 +1,6 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import {
-	hasConstraint,
-	type RefinedConstant,
-	refinedSiteText
-} from "#compiler/check/refinement/index.ts"
+import { hasConstraint, type RefinedConstant } from "#compiler/check/refinement/index.ts"
 import { canonicalEquals, canonicalTextOf, catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
@@ -95,10 +91,9 @@ const refineFused = (cx: LowerContext, tracer: Tracer, t: Target, outer: Scope):
 				if (column === undefined || !isRefined(column.type)) {
 					return e
 				}
-				const fieldAt = `the refined field ${column.name} of the attachment ${attach.name}`
 				const claim = claimOf(cx, column)
 				const verdicts = tracer.item(rows, e.column, scope, claim)
-				const domain = castDomain(verdicts, claim, column.name, fieldAt)
+				const domain = castDomain(verdicts, claim)
 				return domain === undefined ? e : cast(e, domain)
 			}
 			case "cast": {
@@ -233,10 +228,9 @@ export const refineDelivered = (cx: LowerContext, query: Select, heading: Headin
 	const tracer = new Tracer(storedColumns(cx), cx.params.slots)
 	const casts = new Map<number, TypeRef>()
 	for (const { column, position } of refined) {
-		const at = `the refined output ${column.name}`
 		const claim = claimOf(cx, column)
 		const verdicts = tracer.select(agreed, position, emptyScope, claim)
-		const domain = castDomain(verdicts, claim, column.name, at)
+		const domain = castDomain(verdicts, claim)
 		if (domain !== undefined) {
 			casts.set(position, domain)
 		}
@@ -271,8 +265,7 @@ const constantValidations = (
 			if (!hasConstraint(c.type)) {
 				continue
 			}
-			const at = refinedSiteText(c.site)
-			const domain = physicalTypeRef(names, c.type, at)
+			const domain = physicalTypeRef(names, c.type)
 			const group = groups.find((g) => sameTypeRef(g.domain, domain))
 			const value = lowerLiteral(names, c.literal, c.type)
 			const text = canonicalTextOf(value)

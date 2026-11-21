@@ -195,9 +195,6 @@ export const derivedRelationsOnPostgreSQL19ARefinedTextLiteralColumnHasItsPatter
 									return "text"
 								}
 								const domain = installed.names.textDomain(info)
-								if (domain === undefined) {
-									return assert.fail(`the installation names no domain of ${source}`)
-								}
 								return `${domain.schema}.${domain.name}`
 							}
 							const rows = yield* owner.values(

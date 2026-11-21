@@ -122,10 +122,10 @@ export const carrierColumns = (carrier: WriteCarrier): ReadonlyArray<string> =>
 
 /**
  * The PostgreSQL type a carrier column of a value of `t` is declared with, as a stored column of its type is: a
- * contract's domain, a refinement's `__text_` domain, a roster's domain, or the builtin with its typmod
- * (lower/conservative/context.ts typeRef), `at` naming the carrier where a type is refused.
+ * contract's domain, a refinement's structural text domain, a roster's domain, or the builtin with its typmod
+ * (lower/conservative/context.ts typeRef).
  */
-export type CarrierTyping = (t: ScalarType, at: string) => TypeRef
+export type CarrierTyping = (t: ScalarType) => TypeRef
 
 /** The carriers of one program, each named by its ordinal among them and its declaration (see `WriteCarrier`). */
 export class CarrierSupply {
@@ -146,7 +146,7 @@ export class CarrierSupply {
 			)
 		)
 		const declaration: CarrierDeclaration = Object.freeze({
-			columns: Object.freeze(columns.map((c) => columnDefOf(c.column, this.#typing(c.type, at)))),
+			columns: Object.freeze(columns.map((c) => columnDefOf(c.column, this.#typing(c.type)))),
 			primaryKey:
 				key === undefined
 					? undefined
@@ -356,12 +356,7 @@ const factDifference = (w: WriteContext, left: FactsRead, right: FactsRead): Sel
  * two zeros are two facts. A member of no field is bounded under its unit
  * marker: its rows are the unit relation's, one row of no column at most.
  */
-export const memberRows = (
-	w: WriteContext,
-	heading: Heading,
-	node: RelNode,
-	at: string
-): Select => {
+export const memberRows = (w: WriteContext, heading: Heading, node: RelNode): Select => {
 	const lowered = w.cx.lower(node, emptyEnv)
 	const origin = { kind: "node", node: node.id } as const
 	const wrapped = w.cx.wrap(lowered, node.heading, origin)
@@ -369,7 +364,7 @@ export const memberRows = (
 		const value = columnIn(wrapped.map, c.name)
 		const type = columnType(node.heading, c.name)
 		return {
-			target: target(writeValue(w, value, { type, sqlType: undefined }, c.type, at)),
+			target: target(writeValue(w, value, { type, sqlType: undefined }, c.type)),
 			type: c.type,
 			keeps: writeKeeps(w, type, c.type)
 		}
@@ -385,15 +380,10 @@ export const memberRows = (
 	return select(keyedSet([], [unit.item], undefined, "a described member's row of no column"))
 }
 
-const fillQuery = (
-	w: WriteContext,
-	carrier: WriteCarrier,
-	source: CarrierSource,
-	at: string
-): Select => {
+const fillQuery = (w: WriteContext, carrier: WriteCarrier, source: CarrierSource): Select => {
 	switch (source.kind) {
 		case "member":
-			return memberRows(w, carrier.heading, source.node, at)
+			return memberRows(w, carrier.heading, source.node)
 		case "relation":
 			return select(keyedFacts(storedFacts(w, source.relation, source.names)))
 		case "difference": {
@@ -411,13 +401,12 @@ export const buildFillCarrier = (
 	carrier: WriteCarrier,
 	source: CarrierSource
 ): WriteStatement<CarrierResult> => {
-	const at = `fill ${carrier.name}`
 	return buildStatement(w, ownBuild, () => {
 		const ast: Insert = {
 			kind: "insert",
 			table: carrier.name,
 			columns: carrierColumns(carrier),
-			source: { kind: "query", query: fillQuery(w, carrier, source, at) },
+			source: { kind: "query", query: fillQuery(w, carrier, source) },
 			with: undefined,
 			alias: undefined,
 			onConflict: undefined,

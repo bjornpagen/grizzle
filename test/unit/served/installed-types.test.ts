@@ -21,8 +21,9 @@
  *   it there is refused as UninstalledDomain.
  *
  * - No two domains of the login's installation share a CHECK body: a parameter's pattern domain is a domain over its
- *   pattern's structural text domain, with no CHECK of its own, the installation's own or one created for the
- *   parameters (physical/ddl/domains.ts addParamDomains), and PostgreSQL still reports the parameter's own domain when
+ *   pattern's structural text domain, with no CHECK of its own, the installation's own, which it holds for every
+ *   pattern its served programs' parameters name (physical/ddl/domains.ts planTextDomains, addParamDomains), and
+ *   PostgreSQL still reports the parameter's own domain when
  *   it refuses.
  */
 
@@ -89,8 +90,9 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 		kills: [
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
-				original: '\t\t\t\tparams.kind === "unserved"',
-				replacement: '\t\t\t\tparams.kind === "unserved" || params.kind === "recorded"',
+				original: '\t\t\tparamNamed:\n\t\t\t\tparams.kind === "unserved"',
+				replacement:
+					'\t\t\tparamNamed:\n\t\t\t\tparams.kind === "unserved" || params.kind === "recorded"',
 				why: "A parameter's pattern domain is named under a recorded installation whatever it installs, so a missing pattern domain compiles; the oracle's property fails."
 			},
 			{
@@ -115,10 +117,10 @@ export const aServedCompileUnderASnapshotCastsAParameterOnlyToATypeTheSnapshotsI
 			},
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
-				original: "\t\tconst outside = unwrap(outsideContracts(owned, fields, planned.contracts))",
-				replacement:
-					"\t\tconst outside = unwrap(outsideContracts(owned, fields, planned.contracts.slice(0, 0)))",
-				why: "The contracts outside the base a served parameter is typed by are left out of the installation's outside contracts (physical/install/plan.ts planInstallation), so no domain of them is installed or recorded; the own-workload property fails, a login refused as UninstalledDomain under its own snapshot."
+				original:
+					"\t\t\toutsideContracts(owned, fields, [...planned.contracts, ...planned.typed, ...own.contracts])\n",
+				replacement: "\t\t\toutsideContracts(owned, fields, own.contracts)\n",
+				why: "The contracts outside the base the served programs type a value by, their parameters' among them, are left out of the installation's outside contracts (physical/install/plan.ts planInstallation), so no domain of them is installed or recorded; the own-workload property fails, a login refused as UninstalledDomain under its own snapshot."
 			}
 		]
 	})

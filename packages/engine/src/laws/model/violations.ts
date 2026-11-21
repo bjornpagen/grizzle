@@ -43,6 +43,33 @@ type Written =
 export const theoryViolations = (
 	checked: CheckedSchema,
 	theory: Theory
+): Result.Result<TheoryViolations, CompileError> => {
+	const byTheory =
+		violationsBySchema.get(checked) ??
+		new WeakMap<Theory, Result.Result<TheoryViolations, CompileError>>()
+	violationsBySchema.set(checked, byTheory)
+	const known = byTheory.get(theory)
+	if (known !== undefined) {
+		return known
+	}
+	const violations = writtenViolations(checked, theory)
+	byTheory.set(theory, violations)
+	return violations
+}
+
+/**
+ * Each schema's violation queries, by its theory, written once whatever reads them: the installation's text domains
+ * (physical/install/plan.ts artifactDomains) and the migration's law checks (deploy/snapshot/violation.ts) alike.
+ */
+const violationsBySchema = new WeakMap<
+	CheckedSchema,
+	WeakMap<Theory, Result.Result<TheoryViolations, CompileError>>
+>()
+
+/** The violation queries of `theory`'s laws, written (theoryViolations). */
+const writtenViolations = (
+	checked: CheckedSchema,
+	theory: Theory
 ): Result.Result<TheoryViolations, CompileError> =>
 	catchRefusal(() => {
 		const sides = lawSides(checked)

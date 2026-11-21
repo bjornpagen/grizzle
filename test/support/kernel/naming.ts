@@ -202,7 +202,7 @@ export const productionNames = (
 				)
 			}
 		},
-		textDomain: () => undefined,
+		textDomain: (regex) => ({ schema: types, name: identifierOf(textDomainIdentity(regex)) }),
 		paramDomain: (place, regex) => ({
 			schema: types,
 			name: identifierOf(paramDomainIdentity(place, regex))

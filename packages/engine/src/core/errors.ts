@@ -748,21 +748,24 @@ export type CompileReasonTag = CompileReason["_tag"]
 
 /**
  * A domain a statement casts a value to that its installation does not install (UninstalledDomain): the domain of the
- * contract `contract`, which no stored field, context field or served parameter of the installation is typed by; or the
- * pattern domain of the parameter `param` over `pattern`, the patterns' text, which no program of the installation's
- * served workload declares at that place.
+ * contract `contract`, or the structural text domain of `pattern`, which none of the installation's artifacts and no
+ * program of its served workload types a value by; or the pattern domain of the parameter `param` over `pattern`, the
+ * patterns' text, which no program of the installation's served workload declares at that place.
  */
 export type UninstalledType =
 	| { readonly kind: "contract"; readonly contract: string }
 	| { readonly kind: "param"; readonly param: string; readonly pattern: string }
+	| { readonly kind: "text"; readonly pattern: string }
 
 /** What an installation would need to install `domain`, and what installs it (UninstalledDomain). */
 const uninstalledText = (domain: UninstalledType): string => {
 	switch (domain.kind) {
 		case "contract":
-			return `the installation installs no domain of contract ${domain.contract}, which no stored field, context field or served parameter of it is typed by: type the value by a contract the schema declares, or serve the program from a workload of a login of the installation and run grizzle generate`
+			return `the installation installs no domain of contract ${domain.contract}, which none of its artifacts and no program of its served workload types a value by: serve the program from a workload of a login of the installation and run grizzle generate`
 		case "param":
 			return `the installation installs no pattern domain of parameter ${domain.param} over ${domain.pattern}, which no program of its served workload declares: serve the program from a workload of a login of the installation and run grizzle generate`
+		case "text":
+			return `the installation installs no text domain of ${domain.pattern}, which none of its artifacts and no program of its served workload types a value by: serve the program from a workload of a login of the installation and run grizzle generate`
 	}
 }
 

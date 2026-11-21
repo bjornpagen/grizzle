@@ -15,7 +15,6 @@ import { noLive } from "#compiler/live/notify.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { specifiedProgram } from "#compiler/lower/template.ts"
 import { workloadRequests as accessRequests } from "#compiler/physical/access/extension.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
 	noCarriers,
@@ -387,7 +386,6 @@ const workloadRequests = (programs: Readonly<Record<string, unknown>>): InstallE
 				indexRequests: Arr.filter(accessRequests(plan, "vector_ext"), (r) => r.method === "hnsw")
 			})
 		),
-	textDomainUses: noTextDomainUses,
 	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,

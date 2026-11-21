@@ -18,13 +18,7 @@ import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation } from "#compiler/ir/law.ts"
 import type { InstalledSpellings } from "#compiler/ir/pattern.ts"
 import type { ClosedIndex } from "#compiler/ir/rel.ts"
-import {
-	baseOf,
-	patternsText,
-	regexOf,
-	type RegexRef,
-	type ScalarType
-} from "#compiler/ir/scalar.ts"
+import { baseOf, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type {
 	Collation,
 	ColumnDefinition,
@@ -116,12 +110,15 @@ export interface PhysicalNames {
 		readonly name: DomainName
 	}
 	/**
-	 * The structural __text_<slug> domain of a regex refinement, or undefined when the caller has none to name; the
-	 * slug is the text package's, so the default knows none.
+	 * The structural text domain of a regex refinement: the naming door's (core/identity.ts identity.textDomain), by the
+	 * digest of its definition, which the installation holds for every refinement any artifact over it types a value by
+	 * (physical/ddl/domains.ts planTextDomains), so every refinement has one, and a name outside an installation's set
+	 * is refused as UninstalledDomain where the statement naming it is compiled.
 	 */
-	readonly textDomain: (
-		regex: RegexRef
-	) => { readonly schema: TypeSchema; readonly name: DomainName } | undefined
+	readonly textDomain: (regex: RegexRef) => {
+		readonly schema: TypeSchema
+		readonly name: DomainName
+	}
 	/**
 	 * The pattern domain of a declared parameter's place over `regex`: the naming door's (core/identity.ts
 	 * identity.paramDomain), by the place and the digest of its definition over the pattern's structural text domain,
@@ -336,7 +333,12 @@ export interface ColumnType {
 	readonly collation: Collation | undefined
 }
 
-/** The type a column or a cast of this scalar names: the contract's domain, the text refinement's domain, or the base. */
+/**
+ * The type a column or a cast of this scalar names: the contract's domain, the text refinement's structural domain, or
+ * the base. It is the one physical type of a value of `t` wherever grizzle types one: a stored or view column, a
+ * carrier's column, a cast, and a declared function's result as each read of it casts it (lower/conservative/call),
+ * that cast being the one check PostgreSQL makes of what the function's body returned.
+ */
 export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType => {
 	const { contract } = t
 	if (contract !== undefined) {
@@ -344,26 +346,9 @@ export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType
 	}
 	const regex = t.carrier === "text" ? regexOf(t.text) : undefined
 	if (regex !== undefined) {
-		const domain = names.textDomain(regex)
-		if (domain === undefined) {
-			missing(`physical: no structural text domain for ${patternsText(regex.patterns)}`)
-		}
-		return { type: qualifiedType(domain), collation: undefined }
+		return { type: qualifiedType(names.textDomain(regex)), collation: undefined }
 	}
 	return collated(refinedBase(names, t))
-}
-
-/**
- * The type a cast into `t` names in a persistent expression where a proof made its value `t`'s (a relabel or a domain
- * cast, lower/conservative/expr/index.ts isProvedCast): a cast's type (fieldColumnType), but a text refinement no stored
- * field declares, whose installation holds no domain, is its base, since every value of the refinement is one of it and
- * the proof holds it to the refinement.
- */
-export const provedCastType = (names: PhysicalNames, t: ScalarType): TypeRef => {
-	const regex = t.contract === undefined && t.carrier === "text" ? regexOf(t.text) : undefined
-	return regex !== undefined && names.textDomain(regex) === undefined
-		? baseTypeRef(names, t)
-		: fieldColumnType(names, t).type
 }
 
 /**

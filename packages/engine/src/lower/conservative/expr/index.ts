@@ -33,7 +33,7 @@ import { lowerSearchOp } from "#compiler/lower/conservative/search/index.ts"
 import { lowerSpanOp } from "#compiler/lower/conservative/span/index.ts"
 import { lowerVectorOp } from "#compiler/lower/conservative/vector/index.ts"
 import { closedLeaf } from "#compiler/runtime/write/fill.ts"
-import { binaryCoercion, isDateParse, nativeOp } from "#compiler/scalar/compute/registry.ts"
+import { isDateParse, nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
@@ -136,14 +136,6 @@ export const lowerLiteral = (
 }
 
 const exprLabel = (expr: ScalarExpr): string => `expression ${expr.id} (${expr.kind})`
-
-/**
- * Whether a cast's value is its target's by a proof: a relabel (scalar/compute/registry.ts binaryCoercion) or a domain
- * cast, whose proof the typing completed (scalar/compute/typing.ts domainCast), so its target names no check PostgreSQL
- * must make where the installation holds no domain of it (ir/physical.ts provedCastType).
- */
-export const isProvedCast = (expr: ScalarExpr): boolean =>
-	expr.kind === "domainCast" || (expr.kind === "cast" && expr.cast === binaryCoercion)
 
 /**
  * Where a scalar expression is lowered, everything its SQL varies by (lowerScalar): a query's lowering, whose leaves are
@@ -519,7 +511,7 @@ const querySite = (cx: LowerContext, env: Env): ScalarSite => ({
 				return cx.scalarParam(expr.param, expr.type, at)
 		}
 	},
-	castType: (type, expr) => cx.typeRef(type, exprLabel(expr)),
+	castType: (type) => cx.typeRef(type),
 	whole: () => undefined
 })
 
@@ -533,9 +525,7 @@ export const lowerExpr = (cx: LowerContext, expr: ScalarExpr, env: Env): Expr =>
 	const measured: ScalarSite = {
 		...site,
 		leaf: (e) =>
-			e.kind === "param"
-				? slotParam(positionalValue(0), cx.typeRef(e.type, exprLabel(e)))
-				: site.leaf(e)
+			e.kind === "param" ? slotParam(positionalValue(0), cx.typeRef(e.type)) : site.leaf(e)
 	}
 	return lowerScalar(
 		sharedExpr(expr, {

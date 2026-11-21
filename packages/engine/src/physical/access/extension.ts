@@ -7,14 +7,14 @@ import type { AccessIndexRequest, AccessPath } from "#compiler/ir/products.ts"
 import { type LivePlan, noLive } from "#compiler/live/notify.ts"
 import { pathRequest } from "#compiler/physical/access/paths.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { noTextDomainUses, type ParamTypes } from "#compiler/physical/ddl/domains.ts"
+import type { ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
 	type InstallContribution,
 	type InstallExtension,
 	loginFences,
 	type RoleHold,
-	type RoleOfLogin,
+	type RoleCarriers,
 	noCarriers,
 	noCertificates,
 	noContribution,
@@ -33,11 +33,11 @@ export interface WorkloadPhysical {
 	readonly paths: ReadonlyArray<AccessPath>
 	readonly statistics: ReadonlyArray<StatisticsRequest>
 	/**
-	 * The types its programs' declared parameters are cast to (physical/ddl/domains.ts ParamTypes): each pattern
-	 * parameter's own pattern domain and each contract a parameter is typed by, so installing the workload installs the
-	 * domains its statements name.
+	 * The types its programs name (physical/ddl/domains.ts ServedTypes): each pattern parameter's own pattern domain,
+	 * each contract a parameter is typed by and each text refinement its programs type a value by, so installing the
+	 * workload installs the domains its statements name.
 	 */
-	readonly params: ParamTypes
+	readonly params: ServedTypes
 }
 
 const kindOf = (b: InstallBuilder, relation: string): string | undefined =>
@@ -90,7 +90,6 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 		}
 		return Result.ok(contribution)
 	},
-	textDomainUses: noTextDomainUses,
 	params: () => Result.ok(workload.params),
 	certifies: noCertificates,
 	carriers: noCarriers,
@@ -111,7 +110,7 @@ export const workloadExtension = (workload: WorkloadPhysical): InstallExtension 
 export const servedWorkloadExtension = (
 	workload: WorkloadPhysical & {
 		readonly certification: ReadonlyArray<RoleIsolation>
-		readonly carriers: ReadonlyArray<RoleOfLogin>
+		readonly carriers: ReadonlyArray<RoleCarriers>
 		readonly holds: ReadonlyArray<RoleHold>
 		readonly calls: ReadonlyArray<RoleCall>
 		readonly live: LivePlan

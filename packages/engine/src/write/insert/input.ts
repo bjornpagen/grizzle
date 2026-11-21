@@ -291,13 +291,12 @@ const castInto = (
 	value: Expr,
 	from: InputColumnType,
 	to: ScalarType,
-	as: CastInto["as"],
-	at: string
+	as: CastInto["as"]
 ): { readonly value: Expr; readonly type: InputColumnType } => {
 	if (as === "write") {
 		return {
-			value: writeValue(w, value, from, to, at),
-			type: { type: to, sqlType: w.cx.typeRef(to, at) }
+			value: writeValue(w, value, from, to),
+			type: { type: to, sqlType: w.cx.typeRef(to) }
 		}
 	}
 	/** A domain value compares as its base, so only a base type or typmod that differs is cast. */
@@ -388,7 +387,7 @@ const inputColumns = (
 					return {
 						field,
 						value: col(alias, carrierField(input.carrier, field).column),
-						type: { type, sqlType: w.cx.typeRef(type, at) }
+						type: { type, sqlType: w.cx.typeRef(type) }
 					}
 				}
 			}
@@ -509,7 +508,7 @@ const readTargets = (
 	const into = options.into
 	const read = options.fields.map((field) => {
 		const r = readField(field.name)
-		return castInto(w, r.value, r.type, rowType(field), into.as, at)
+		return castInto(w, r.value, r.type, rowType(field), into.as)
 	})
 	const targets = isNonEmpty(read) ? mapNonEmpty(read, (r) => target(r.value)) : unitTargets
 	return { from, targets, types: read.map((r) => r.type) }

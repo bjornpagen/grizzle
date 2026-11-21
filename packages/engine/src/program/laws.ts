@@ -74,7 +74,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 		statements: law.statements
 	}))
 	const domains = new Map(
-		planTextDomains(model.owned, model.theory, []).map((p) => [p.key, p.domain.named] as const)
+		planTextDomains(model.owned, model.theory, [], []).map((p) => [p.key, p.domain.named] as const)
 	)
 	const stated = Map.groupBy(
 		theory.flatMap((t) => t.statements.map((statement) => ({ statement, placed: t.placed }))),

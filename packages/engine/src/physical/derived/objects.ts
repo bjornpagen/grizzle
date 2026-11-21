@@ -3,33 +3,18 @@ import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { DerivedRelationAnalysis } from "#compiler/analysis/derived/analyze.ts"
 import type { CatalogKey } from "#compiler/analysis/physical/evidence.ts"
-import {
-	type CheckedSchema,
-	type DerivedAnalysis,
-	derivedAnalysis
-} from "#compiler/analysis/schema.ts"
+import { type DerivedAnalysis, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { Theory } from "#compiler/analysis/theory/theory.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import {
-	compareIdentities,
-	type Identity,
-	identifierOf,
-	identity
-} from "#compiler/core/identity.ts"
+import { compareIdentities, type Identity, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { Premise } from "#compiler/ir/evidence.ts"
 import { fieldNames } from "#compiler/ir/law.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
-import {
-	columnDomains,
-	emptyUse,
-	structuralRegex,
-	type TextColumnUse,
-	usedNodes
-} from "#compiler/physical/ddl/domains.ts"
+import { columnDomains, emptyUse, usedNodes } from "#compiler/physical/ddl/domains.ts"
 import { lowerDefinition } from "#compiler/physical/derived/definition.ts"
 import type { InstallOptions } from "#compiler/physical/install/compile.ts"
 import {
@@ -207,29 +192,9 @@ const viewObjects = (
 	return keys.map((k) => k.key)
 }
 
-/** Every view column a regex refinement types, as a use of its structural text domain: a
- * literal or a min of refined text keeps its pattern, which may be one no stored column carries, and the view column
- * is cast to that pattern's domain, so the domain must exist. */
-const textColumnUses = (analysis: DerivedAnalysis): ReadonlyArray<TextColumnUse> => {
-	const uses: Array<TextColumnUse> = []
-	for (const a of analysis.order) {
-		appendAll(
-			uses,
-			a.heading.flatMap((c): ReadonlyArray<TextColumnUse> => {
-				const regex = structuralRegex(c.type)
-				if (regex === undefined) {
-					return []
-				}
-				return [{ regex, table: a.ident, column: identifierOf(identity.column(c.name)) }]
-			})
-		)
-	}
-	return uses
-}
-
 /** The installer extension that adds every derived relation's view and unique indexes to the obligation graph
- * and claims the relation, so the installation does not report it deferred. Its view columns' patterns join the
- * structural text domains before any name is chosen (textDomainUses), each over the installation's checked schema.
+ * and claims the relation, so the installation does not report it deferred. Its view columns' patterns are among the
+ * installation's structural text domains (physical/install/plan.ts artifactDomains).
  *
  * Each derived relation lowers to exactly these objects of the one obligation graph, through the installer's
  * extensions, so they share its install order, manifest and determinism with every native object:
@@ -273,7 +238,6 @@ const derivedRelationExtension = (): InstallExtension => {
 		})
 	return {
 		contribute: extension,
-		textDomainUses: (checked: CheckedSchema) => Result.ok(textColumnUses(derivedAnalysis(checked))),
 		params: servesNoParams,
 		certifies: noCertificates,
 		carriers: noCarriers,

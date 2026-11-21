@@ -597,10 +597,9 @@ export const writeValue = (
 	w: WriteContext,
 	value: Expr,
 	from: InputColumnType,
-	to: ScalarType,
-	at: string
+	to: ScalarType
 ): Expr => {
-	const target = w.cx.typeRef(to, at)
+	const target = w.cx.typeRef(to)
 	if (from.sqlType !== undefined) {
 		return sameTypeRef(from.sqlType, target) ? value : cast(value, target)
 	}

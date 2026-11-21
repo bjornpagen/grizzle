@@ -1,8 +1,8 @@
 import { guarantees } from "#compiler/check/refinement/index.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { Heading, HeadingColumn } from "#compiler/ir/rel.ts"
-import { isRefined, refinementText, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import { type LowerContext, refuse } from "#compiler/lower/conservative/context.ts"
+import { isRefined, regexRefOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import type { LowerContext } from "#compiler/lower/conservative/context.ts"
 import { type ConservativeParamSlot, judgesLaw } from "#compiler/lower/conservative/types.ts"
 import { CompilePatterns, type PatternReads } from "#compiler/scalar/regex/patterns.ts"
 import {
@@ -80,9 +80,8 @@ export const coreScope = (core: SelectCore, enclosing: Scope): Scope => {
 export const withScope = (select: OperandSelect, enclosing: Scope): Scope =>
 	select.with === undefined ? enclosing : { ...enclosing, ctes: [select.with, ...enclosing.ctes] }
 
-/** Whether `type` is the claim's domain: never, when the installation names none. */
-const isDomain = (type: TypeRef, claim: Claim): boolean =>
-	claim.domain !== undefined && sameTypeRef(type, claim.domain)
+/** Whether `type` is the claim's domain. */
+const isDomain = (type: TypeRef, claim: Claim): boolean => sameTypeRef(type, claim.domain)
 
 /** Whether `e` is FALSE, alone or as a conjunct of an AND. */
 const isFalse = (e: Expr): boolean =>
@@ -92,9 +91,8 @@ const isFalse = (e: Expr): boolean =>
 /**
  * Whether a text literal is a member of the claim's text pattern, decided on the host: a literal's value is fixed, so
  * PostgreSQL delivers exactly that value, and the pattern's automaton, read from `patterns`, decides its language as
- * the pattern's domain CHECK does. This is the proof for a literal whose pattern the installation names
- * no domain for, which a Closed node's query-local payload may carry. Only a text pattern is decided here: a
- * contract's predicate is the database's to evaluate, through its domain, which the installation always names.
+ * the pattern's domain CHECK does, so a literal a Closed node's query-local payload carries is delivered uncast. Only
+ * a text pattern is decided here: a contract's predicate is the database's to evaluate, through its domain.
  */
 const admittedLiteral = (
 	e: Extract<Expr, { readonly kind: "literal" }>,
@@ -109,8 +107,8 @@ const admittedLiteral = (
 /** What one refined delivered column is traced against. */
 interface Claim {
 	readonly type: ScalarType
-	/** The domain's type, or undefined when the installation names none. */
-	readonly domain: TypeRef | undefined
+	/** The refinement's domain, which the installation holds (ir/physical.ts PhysicalNames textDomain). */
+	readonly domain: TypeRef
 	readonly base: TypeRef
 }
 
@@ -390,16 +388,6 @@ export const storedColumns = (cx: LowerContext): ReadonlyMap<StoredColumnKey, Sc
 }
 
 /**
- * The named type of a refined value, or undefined when it has none: a builtin, or a text refinement whose `__text_`
- * domain the installation does not name, which the conservative context's own typeRef refuses. Every other failure
- * of the type mapping propagates.
- */
-const domainOf = (cx: LowerContext, t: ScalarType): TypeRef | undefined => {
-	const p = cx.physicalType(t)
-	return p.kind === "type" && p.ref.kind === "named" ? p.ref : undefined
-}
-
-/**
  * The delivered targets with the domain casts at `casts` (position to domain), in every arm of a set operation: a cast
  * of targets keeps a set's rows a set.
  */
@@ -431,45 +419,13 @@ const castOperand = (operand: SetOperand, casts: ReadonlyMap<number, TypeRef>): 
 /** The claim one refined column is traced against. */
 export const claimOf = (cx: LowerContext, column: HeadingColumn): Claim => ({
 	type: column.type,
-	domain: domainOf(cx, column.type),
+	domain: cx.typeRef(column.type),
 	base: cx.baseTypeRef(column.type)
 })
 
-/**
- * The domain a refined value must be cast to: none when every definition of it is proved, else its claim's domain. A
- * refinement with no domain to cast to, a text pattern no stored field declares, is refused, naming the delivered
- * column, the pattern and what the trace could not prove inside it, and saying what to do: a value the query computes,
- * or a parameter whose declared type does not guarantee the pattern, since one whose type does is proved by its bind. A
- * contract's domain is always named, so only a pattern meets the refusal.
- */
-export const castDomain = (
-	verdicts: ReadonlyArray<Verdict>,
-	claim: Claim,
-	name: string,
-	at: string
-): TypeRef | undefined => {
-	if (verdicts.every((v) => v === "proved")) {
-		return undefined
-	}
-	if (claim.domain === undefined) {
-		const t = claim.type
-		const text = regexRefOf(t)
-		const pattern = text !== undefined ? `the refinement ${refinementText(text)}` : "a refinement"
-		const parameters = [
-			...new Set(verdicts.flatMap((v) => (typeof v === "object" ? [v.name] : [])))
-		]
-		const from =
-			parameters.length === 0
-				? "a value the query computes"
-				: `the ${parameters.length === 1 ? "value of the parameter" : "values of the parameters"} ${parameters.join(", ")}`
-		return refuse(
-			"UnsupportedOperation",
-			at,
-			`${name}'s refinement, ${pattern}, which no stored field declares, so the installation holds no domain to check ${from} by as it is delivered; declare a field of that pattern on a stored relation, or type the value by a pattern a stored field declares`
-		)
-	}
-	return claim.domain
-}
+/** The domain a refined value must be cast to: none when every definition of it is proved, else its claim's domain. */
+export const castDomain = (verdicts: ReadonlyArray<Verdict>, claim: Claim): TypeRef | undefined =>
+	verdicts.every((v) => v === "proved") ? undefined : claim.domain
 
 /**
  * A conservative delivered statement with its refined outputs validated where they are delivered (see the header).
@@ -503,13 +459,11 @@ export const castDomain = (
  * refused whatever the result delivers. The conservative lowering casts every refined column of a set operation's arms
  * to its base (union/arms.ts). Every refined delivered column some definition of which is unproved is cast to its domain
  * in the outermost target list, and an ORDER BY item that is the cast column is cast alike, which SELECT DISTINCT needs
- * of an ORDER BY expression. A refined output whose domain the installation does not name cannot be validated and is
- * refused.
+ * of an ORDER BY expression.
  *
  * A law's violation probe (deploy/diff), the migration's check of a law over closed relations alone, delivers to no
  * host: its rows are declared values, which already satisfy their refinements, and the migration reads only whether one
- * exists. It claims nothing of its outputs, so it casts none of them, a contract's base pattern no domain names among
- * them.
+ * exists. It claims nothing of its outputs, so it casts none of them.
  */
 export const refineConservative = (
 	cx: LowerContext,
@@ -527,14 +481,8 @@ export const refineConservative = (
 		if (!isRefined(column.type)) {
 			continue
 		}
-		const at = `the refined output ${column.name}`
 		const claim = claimOf(cx, column)
-		const domain = castDomain(
-			tracer.select(relabeled, position, emptyScope, claim),
-			claim,
-			column.name,
-			at
-		)
+		const domain = castDomain(tracer.select(relabeled, position, emptyScope, claim), claim)
 		if (domain !== undefined) {
 			casts.set(position, domain)
 		}

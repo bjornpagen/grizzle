@@ -82,8 +82,8 @@ import {
 import type {
 	LoginFence,
 	RoleCall,
-	RoleHold,
-	RoleOfLogin
+	RoleCarriers,
+	RoleHold
 } from "#compiler/physical/install/extension.ts"
 import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
@@ -1229,14 +1229,15 @@ const roleExecutes = (
  * whose policies `addRowSecurity` adds. A roster whole entry has no view: its handles are read as codes, typed by its
  * domain, which the role uses. The filter function a policy calls, then the probes, each come
  * after every relation, type and function their statements read. TEMPORARY on the database is among its grants where
- * `carriers`, its served workload creating a carrier, and EXECUTE on each unit function of `held`: the hold of each
- * retirable unit its served workload holds, and the retirement of each unit its retire list names. */
+ * its served workload creates a carrier (`carried`), with USAGE on each domain a carrier's column is typed by, and
+ * EXECUTE on each unit function of `held`: the hold of each retirable unit its served workload holds, and the
+ * retirement of each unit its retire list names. */
 const addRole = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ theory: named, checked }: CheckedRole,
 	login: { readonly role: string; readonly object: Node<"publish"> },
-	carriers: boolean,
+	carried: RoleCarriers | undefined,
 	held: ReadonlyArray<CalledFunction>
 ): RoleOutcome => {
 	const role = checked.world.role
@@ -1392,6 +1393,9 @@ const addRole = (
 		}
 	}
 	after.push(b.refusal)
+	if (carried !== undefined) {
+		columnDomains(b, carried.columns, use)
+	}
 
 	const refreshed = role.refresh.map((f) => b.names.relation(f))
 	for (const f of role.refresh) {
@@ -1437,7 +1441,7 @@ const addRole = (
 			grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(executes, (e) => e.name) })
 		)
 	}
-	if (carriers) {
+	if (carried !== undefined) {
 		privileges.push(grant(["TEMPORARY"], { kind: "DATABASE" }))
 	}
 	if (isNonEmpty(held)) {
@@ -1467,7 +1471,7 @@ const addLogin = (
 	b: InstallBuilder,
 	cx: WorldsContext,
 	{ login, roles }: CheckedLogin,
-	carriers: ReadonlyArray<RoleOfLogin>,
+	carriers: ReadonlyArray<RoleCarriers>,
 	fenced: ReadonlyArray<string>,
 	held: (role: OwnedRole) => ReadonlyArray<CalledFunction>
 ): {
@@ -1529,7 +1533,7 @@ const addLogin = (
 				cx,
 				r,
 				{ role, object: roleObject },
-				carriers.some((c) => c.login === login.name && c.role === r.checked.world.role.name),
+				carriers.find((c) => c.login === login.name && c.role === r.checked.world.role.name),
 				held(r.checked.world.role)
 			)
 		)
@@ -1729,7 +1733,7 @@ export const addWorlds = (
 	units: ReadonlyMap<string, UnitFunctions>,
 	revocable: Revocable,
 	checkedLogins: ReadonlyArray<CheckedLogin>,
-	carriers: ReadonlyArray<RoleOfLogin>,
+	carriers: ReadonlyArray<RoleCarriers>,
 	holds: ReadonlyArray<RoleHold>,
 	calls: {
 		readonly calls: ReadonlyArray<RoleCall>

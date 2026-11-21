@@ -95,8 +95,8 @@ export const aServedLoginsClassifierClassifiesEveryRefusalARolesWritesCanRaiseEx
 			{
 				file: "packages/engine/src/program/schema.ts",
 				original:
-					"\treturn [\n\t\t...contractChain(t).map((contract) => names.contractDomain(contract).name),\n\t\t...(pattern === undefined ? [] : [pattern.name])\n\t]",
-				replacement: "\treturn [...(pattern === undefined ? [] : [pattern.name])]",
+					"\treturn [\n\t\t...contractChain(t).map((contract) => names.contractDomain(contract).name),\n\t\t...(text === undefined ? [] : [names.textDomain(text).name])\n\t]",
+				replacement: "\treturn [...(text === undefined ? [] : [names.textDomain(text).name])]",
 				why: "A cast value's contract chain is left out of the domains it meets (program/schema.ts castDomains): a context claim of a checked contract whose domain types only unwritten columns is no law of the cut."
 			},
 			{

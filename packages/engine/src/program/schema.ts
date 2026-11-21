@@ -9,7 +9,7 @@ import {
 } from "#compiler/analysis/schema.ts"
 import { catchCompileError } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, type RoleAccess } from "#compiler/core/errors.ts"
-import { type DeclaredName, type Identity, identifierOf } from "#compiler/core/identity.ts"
+import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { Lazy } from "#compiler/core/lazy.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -17,10 +17,9 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { type RegexRef, regexRefOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { regexRefOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import { compileLaws, type ConstraintLaw, type LawModel } from "#compiler/laws/model/model.ts"
-import { textDomainIdentity } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
 	roleReadNames,
@@ -29,12 +28,7 @@ import {
 	namedRole,
 	worldNames
 } from "#compiler/physical/ddl/names.ts"
-import {
-	type CheckedRole,
-	checkedRole,
-	contextFieldsOf,
-	worldTextDomainUses
-} from "#compiler/physical/ddl/roles.ts"
+import { checkedRole } from "#compiler/physical/ddl/roles.ts"
 import {
 	basisOf,
 	contractChain,
@@ -447,7 +441,7 @@ export const baseArtifacts = <S extends ParamSource>(
 	params: S
 ): Result.Result<SchemaArtifacts<S>, CompileError> =>
 	Result.map(
-		planInstallation(basis, freshPlanSettings(basis.owned), [], params),
+		planInstallation(basis, freshPlanSettings(basis.owned), params),
 		(plan): SchemaArtifacts<S> => {
 			const derived = derivedAnalysis(plan.checked)
 			return {
@@ -470,32 +464,6 @@ export const baseArtifacts = <S extends ParamSource>(
 const reality: ArtifactsWorld = Object.freeze({ kind: "reality" })
 
 /**
- * The base's installed names with the role's own text patterns no stored column carries: its query entries' view
- * columns and the context fields it reads, each a domain named by its definition (textDomainIdentity), as the
- * installation names it whatever other roles the installation holds. A pattern of neither stays unnamed.
- */
-const worldTextNames = (
-	base: InstallNames,
-	role: CheckedRole
-): Result.Result<InstallNames, CompileError> =>
-	Result.map(
-		contextFieldsOf(role.checked.world.base, [role.checked.world.role]),
-		(fields): InstallNames => {
-			const patterns = new Set(worldTextDomainUses(fields, [role]).map((u) => u.regex.key))
-			const textNamed = (regex: RegexRef): Identity<"textDomain"> | undefined =>
-				base.textNamed(regex) ?? (patterns.has(regex.key) ? textDomainIdentity(regex) : undefined)
-			return {
-				...base,
-				textDomain: (regex) => {
-					const named = textNamed(regex)
-					return named === undefined ? undefined : { schema: base.types, name: identifierOf(named) }
-				},
-				textNamed
-			}
-		}
-	)
-
-/**
  * A role's artifacts, the role named under its base's installation (names.ts namedRole): its base's (baseArtifacts),
  * which compile nothing again, read through the role's views, its world relations keyed by their definitions.
  */
@@ -509,19 +477,14 @@ export const roleArtifacts = <S extends ParamSource>(
 		return read
 	}
 	const names = worldNames(named, base.names)
-	const installed = worldTextNames(base.names, read.value)
-	if (!installed.ok) {
-		return installed
-	}
 	const reads = catchCompileError(() =>
-		roleReadNames(installed.value, names, role, read.value.checked.entries)
+		roleReadNames(base.names, names, role, read.value.checked.entries)
 	)
 	if (!reads.ok) {
 		return reads
 	}
 	const artifacts: SchemaArtifacts<S> = {
 		...base,
-		names: installed.value,
 		reads: reads.value,
 		world: { kind: "role", role, checked: read.value.checked, names }
 	}
@@ -599,10 +562,9 @@ const raisableConstraint = (
 /** The domains a value cast to `t` meets under `names`: each contract's of its chain, outermost first, and its pattern's. */
 const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> => {
 	const text = regexRefOf(t)
-	const pattern = text === undefined ? undefined : names.textDomain(text)
 	return [
 		...contractChain(t).map((contract) => names.contractDomain(contract).name),
-		...(pattern === undefined ? [] : [pattern.name])
+		...(text === undefined ? [] : [names.textDomain(text).name])
 	]
 }
 

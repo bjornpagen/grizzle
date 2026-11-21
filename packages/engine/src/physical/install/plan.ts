@@ -1,4 +1,3 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import {
 	headNonEmpty,
 	isNonEmpty,
@@ -6,7 +5,7 @@ import {
 	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { closedTableOf } from "#compiler/analysis/schema.ts"
+import { closedTableOf, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
@@ -21,8 +20,11 @@ import {
 	paramPlaceText
 } from "#compiler/core/identity.ts"
 import type { Identifier, LawId } from "#compiler/core/ids.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { FunctionTypeDesc } from "#compiler/ir/desc.ts"
+import { exprClosure } from "#compiler/ir/expr.ts"
 import type { ClosedTheoryRelation, TableRelation } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
@@ -38,10 +40,12 @@ import {
 	type DomainUse,
 	type LawModel
 } from "#compiler/laws/model/model.ts"
+import { theoryViolations } from "#compiler/laws/model/violations.ts"
 import {
 	type ClosedNames,
 	type ClosedPlan,
 	closedNames,
+	persistentExprs,
 	planClosed,
 	qualifiedClosed
 } from "#compiler/physical/ddl/constants.ts"
@@ -51,22 +55,27 @@ import {
 	type FieldPatternLaw,
 	fieldPatternLaws,
 	type InstalledParams,
-	noParamTypes,
+	noServedTypes,
 	type OutsideContract,
 	type OutsideContracts,
 	outsideContracts,
 	paramContractsDefined,
 	type ParamDomainUse,
-	type ParamTypes,
+	type ServedTypes,
 	patternLawId,
+	dagDomains,
+	type ParamContract,
 	planTextDomains,
-	storedTextDomains,
+	structuralRegex,
 	type TextColumnUse,
 	type TextDomain,
 	type TextDomainNames,
 	paramDomainIdentity,
+	textDomainIdentity,
 	textDomainNames,
-	type TextDomainPlan
+	type TextDomainPlan,
+	typeContracts,
+	typeRefinements
 } from "#compiler/physical/ddl/domains.ts"
 import { libraryCalls } from "#compiler/physical/ddl/library.ts"
 import {
@@ -84,7 +93,6 @@ import {
 	contextFieldsOf,
 	worldTextDomainUses
 } from "#compiler/physical/ddl/roles.ts"
-import type { PlanExtension } from "#compiler/physical/install/extension.ts"
 import {
 	type SpanColumn,
 	spanColumns,
@@ -98,13 +106,13 @@ import type { Law, OwnLaw } from "#compiler/types/changeset/changeset.ts"
 /**
  * What an installation's plan is compiled over (planInstallation): the owned schema's law model (compileLaws) for a
  * slice, which reads the schema alone, the installation's codes, each closed relation's constants as readers address
- * them under those codes (physical/ddl/constants.ts NamedClosed), and the text domains its stored fields declare
- * (physical/ddl/domains.ts TextDomainNames), which name a refined text's domain whatever the slice reads. A login's
- * runtime compiles its law model for its roles' writes alone (schema/reach.ts loginSlice) and reads the constants' and
- * the text domains' names from its snapshot, which recorded them when the installation was generated (planBasis);
- * generate, check and every installation compile it over every relation (everySlice), plan the foreign key cycles from
- * every law, plan the constants from the closed relations' rows and the text domains from every stored field
- * (installBasis).
+ * them under those codes (physical/ddl/constants.ts NamedClosed), and the text domains it holds (physical/ddl/domains.ts
+ * TextDomainNames), which name a refined text's domain whatever the slice reads. A login's runtime compiles its law
+ * model for its roles' writes alone (schema/reach.ts loginSlice) and reads the constants' and the text domains' names
+ * from its snapshot, which recorded the installation's whole set when it was generated (planBasis); generate, check and
+ * every installation compile it over every relation (everySlice), plan the foreign key cycles from every law, plan the
+ * constants from the closed relations' rows and the text domains from every artifact of the model
+ * (declaredTextDomains), to which a plan adds its worlds' and its served programs' (installBasis).
  */
 export interface PlanBasis {
 	readonly owned: Owned
@@ -150,6 +158,100 @@ const closedRelationsOf = (model: LawModel): ReadonlyArray<ClosedTheoryRelation>
 	)
 
 /**
+ * The domains an installation's own artifacts type a value by beyond its stored fields' (artifactDomains): the columns
+ * outside the stored relations a pattern types, the structural text refinements its artifacts type a value by where no
+ * column is, and the contracts they type a value by that no stored field of the base declares.
+ */
+interface ArtifactDomains {
+	readonly columns: ReadonlyArray<TextColumnUse>
+	readonly texts: ReadonlyArray<RegexRef>
+	readonly contracts: ReadonlyArray<ParamContract>
+}
+
+/** Each law model's ArtifactDomains, collected once whatever plans read it. */
+const modelDomains = new WeakMap<LawModel, ArtifactDomains>()
+
+/**
+ * The domains an installation's own artifacts over `model` type a value by beyond its stored fields', each of which it
+ * installs (planTextDomains, outsideContracts), one collector for every kind: `columns`, every materialized derived
+ * relation's view column a pattern types, which its definition casts to that pattern's domain (a literal or a min of
+ * refined text keeps its pattern); and, where no column is, the text refinements (`texts`) and the contracts
+ * (`contracts`) of each refinement down the contract chain of a stored field's type, a contract's base, which a value
+ * read at that base is typed by (typeRefinements); of each type of a persistent expression (physical/ddl/constants.ts
+ * persistentExprs), a generated field's, a CHECK's, a law column's, a contract predicate's, a cast's target among them;
+ * of every value a materialized definition's checked DAG types, and every one a law's checked violation query does
+ * (laws/model/violations.ts theoryViolations), which the judge of a rule and the migration's probe of a law lower, a
+ * live derived relation's computed text a rule reads through its definition and the common type a containment relabels
+ * its sides to among them; and of each field of a declared function's result, which every read of the function's value
+ * or rows casts to (lower/conservative/call calledRows, declaredCall), the one check PostgreSQL makes of what its body
+ * returned, since the function's row type holds the field at its base (ir/physical.ts rowTypeOf). So no refinement or
+ * contract any of them types a value by needs a stored field to declare it. Collected once per model (`modelDomains`).
+ */
+const artifactDomains = (model: LawModel): ArtifactDomains => {
+	const known = modelDomains.get(model)
+	if (known !== undefined) {
+		return known
+	}
+	const { checked, owned, theory } = model
+	const derived = derivedAnalysis(checked).order
+	const columns = derived.flatMap((a) =>
+		a.heading.flatMap((c): ReadonlyArray<TextColumnUse> => {
+			const regex = structuralRegex(c.type)
+			return regex === undefined
+				? []
+				: [{ regex, table: a.ident, column: identifierOf(identity.column(c.name)) }]
+		})
+	)
+	const returned = (t: FunctionTypeDesc, loc: SourceLoc): ReadonlyArray<ScalarType> => {
+		switch (t.kind) {
+			case "value":
+				return [checked.fieldType(t.type, loc)]
+			case "rows":
+			case "row":
+				return t.heading.flatMap((f) => returned(f.type, loc))
+		}
+	}
+	const persistent = SourceLoc(`the persistent expressions of schema ${owned.name}`, [])
+	const typed: ReadonlyArray<{ readonly type: ScalarType; readonly loc: SourceLoc }> = [
+		...Object.values(theory.relations).flatMap((r) =>
+			r.fields.map((c) => ({ type: c.type, loc: persistent }))
+		),
+		...exprClosure(persistentExprs(model)).map((e) => ({ type: e.type, loc: persistent })),
+		...Object.values(owned.functions).flatMap((fn) =>
+			returned(fn.desc.returns, fn.desc.loc).map((type) => ({ type, loc: fn.desc.loc }))
+		)
+	]
+	const held = [
+		...derived.map((a) => dagDomains(a.loc, [], a.query.dag.roots)),
+		dagDomains(
+			SourceLoc(`the laws of schema ${owned.name}`, []),
+			[],
+			unwrap(theoryViolations(checked, theory)).dag.roots
+		)
+	]
+	const own: ArtifactDomains = {
+		columns,
+		texts: [...typed.flatMap((t) => typeRefinements(t.type)), ...held.flatMap((h) => h.texts)],
+		contracts: [
+			...typed.flatMap((t) => typeContracts(t.type, t.loc)),
+			...held.flatMap((h) => h.contracts)
+		]
+	}
+	modelDomains.set(model, own)
+	return own
+}
+
+/**
+ * The text domains of a law model's own artifacts (artifactDomains): its stored fields', its views' and the rest its
+ * persistent expressions, derived definitions, laws and declared functions type a value by, without a served program's
+ * or a world's, which an installation's plan adds (planInstallation).
+ */
+const declaredTextDomains = (model: LawModel): TextDomainNames => {
+	const own = artifactDomains(model)
+	return textDomainNames(planTextDomains(model.owned, model.theory, own.columns, own.texts))
+}
+
+/**
  * The basis of the installations of a law model's owned schema under `codes`, over the model `model`: installBasis's
  * over the model it compiles, and a built schema's artifacts' over the one model its schema value holds
  * (program/schema.ts builtLawModel).
@@ -166,7 +268,7 @@ export const basisOf = (
 			model,
 			codes,
 			closed: closedNames(planned),
-			textDomains: storedTextDomains(owned, model.theory),
+			textDomains: declaredTextDomains(model),
 			planned
 		}
 	})
@@ -410,7 +512,7 @@ const contractSources = (
 	])
 
 /**
- * Where the types a plan's statements cast their parameters to come from (physical/ddl/domains.ts ParamTypes). One rule
+ * Where the types a plan's statements cast their parameters to come from (physical/ddl/domains.ts ServedTypes). One rule
  * holds wherever an installation stands behind the plan: the plan names a parameter's pattern domain or a contract's
  * domain outside the base exactly when that installation installs it, and refuses any other as UninstalledDomain where
  * the statement is compiled.
@@ -425,7 +527,7 @@ const contractSources = (
  *   its place and pattern, and names no contract outside the base.
  */
 export type ParamSource =
-	| { readonly kind: "planned"; readonly types: ParamTypes }
+	| { readonly kind: "planned"; readonly types: ServedTypes }
 	| { readonly kind: "recorded"; readonly installed: InstalledParams }
 	| { readonly kind: "unserved" }
 
@@ -458,6 +560,23 @@ const installedParamNamed = (
 	}
 }
 
+/**
+ * A pattern's structural text domain where the installation installs it, `installed` holding its pattern's key, and
+ * otherwise UninstalledDomain: the naming of an installation's plan (ParamSource `planned` and `recorded`), which holds
+ * the domain of every refinement any artifact over it types a value by (artifactDomains, ServedTypes `texts`), so only
+ * a statement no artifact of the installation's compiled, a program served from no workload of its, meets the refusal.
+ */
+const installedTextNamed = (
+	installed: TextDomainNames
+): ((regex: RegexRef) => Identity<"textDomain">) => {
+	return (regex) => {
+		const digest = installed.get(regex.key)
+		return digest === undefined
+			? uninstalled({ kind: "text", pattern: patternsText(regex.patterns) })
+			: identity.textDomain(digest)
+	}
+}
+
 /** `uses`, each pattern domain identity once, in their order. */
 const distinctDomains = (uses: ReadonlyArray<ParamDomainUse>): ReadonlyArray<ParamDomainUse> => {
 	const seen = new Set<string>()
@@ -473,29 +592,23 @@ const distinctDomains = (uses: ReadonlyArray<ParamDomainUse>): ReadonlyArray<Par
 
 /**
  * The plan of the installation over a basis (installBasis, planBasis) under `settings`, which its caller admitted
- * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with the text domain uses
- * `extensions` state before any name is chosen (PlanExtension), each once, and the types its served programs'
- * parameters are cast to from `params` (ParamSource): planned from the programs' declarations, each contract outside
- * the base admitted beside the context fields' (outsideContracts) and held to its name's one definition once the names
- * are read (paramContractsDefined); or recorded by a snapshot's installation, so a parameter whose domain it lacks is
- * refused where it is compiled.
+ * (physical/install/compile.ts installationOver) or made fresh (freshPlanSettings), with the domains its own artifacts
+ * type a value by (artifactDomains), its worlds' and the types its served programs name from `params` (ParamSource):
+ * planned from the programs, each contract outside the base admitted beside the context fields' (outsideContracts)
+ * and held to its name's one definition once the names are read (paramContractsDefined); or recorded by a snapshot's
+ * installation, whose whole set of domains it names, so a statement naming a domain the installation lacks is refused
+ * where it is compiled.
  */
 export const planInstallation = (
 	basis: PlanBasis,
 	settings: PlanSettings,
-	extensions: ReadonlyArray<PlanExtension>,
 	params: ParamSource
 ): Result.Result<InstallPlan, CompileError> =>
 	catchRefusal((): InstallPlan => {
 		const { owned, model, codes, closed } = basis
 		const roles = settings.logins.flatMap((l) => l.roles)
 		const checked = model.checked
-		const extraUses: Array<TextColumnUse> = []
-		for (const extension of new Set(extensions)) {
-			const uses = unwrap(extension.textDomainUses(checked))
-			appendAll(extraUses, uses)
-		}
-		const planned = params.kind === "planned" ? params.types : noParamTypes
+		const planned = params.kind === "planned" ? params.types : noServedTypes
 		const paramDomains = distinctDomains(planned.domains)
 		const fields = unwrap(contextFieldsOf(checked, roles))
 		const logins = settings.logins.map((login): CheckedLogin => ({
@@ -506,15 +619,27 @@ export const planInstallation = (
 				)
 			})
 		}))
-		appendAll(
-			extraUses,
-			worldTextDomainUses(
-				fields,
-				logins.flatMap((l) => l.roles)
-			)
+		/** A Db's plan names the domains its snapshot records, the installation's whole set, so it collects none of its
+		 * own artifacts' refinements again. */
+		const own: ArtifactDomains =
+			params.kind === "recorded"
+				? { columns: [], texts: [], contracts: [] }
+				: artifactDomains(model)
+		const textPlans = planTextDomains(
+			owned,
+			model.theory,
+			[
+				...own.columns,
+				...worldTextDomainUses(
+					fields,
+					logins.flatMap((l) => l.roles)
+				)
+			],
+			[...own.texts, ...fields.flatMap((f) => typeRefinements(f.type)), ...planned.texts]
 		)
-		const textPlans = planTextDomains(owned, model.theory, extraUses)
-		const outside = unwrap(outsideContracts(owned, fields, planned.contracts))
+		const outside = unwrap(
+			outsideContracts(owned, fields, [...planned.contracts, ...planned.typed, ...own.contracts])
+		)
 		const contracts = contractSources(model, outside)
 		const library = libraryCalls(model)
 		const recorded = params.kind === "recorded" ? params.installed.contracts : []
@@ -522,7 +647,10 @@ export const planInstallation = (
 			owned,
 			levels: settings.levels,
 			vectorSchema: settings.vectorSchema,
-			textDomains: new Map([...textDomainNames(textPlans), ...basis.textDomains]),
+			textNamed:
+				params.kind === "unserved"
+					? textDomainIdentity
+					: installedTextNamed(new Map([...textDomainNames(textPlans), ...basis.textDomains])),
 			contracts,
 			recordedContracts: new Map(recorded.map((c) => [c.name, c.digest] as const)),
 			paramNamed:

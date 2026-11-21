@@ -229,7 +229,7 @@ export const buildEntryCheck = (
 		/** A field the row states, cast into its domain as the addition's statement writes it. */
 		const written = (f: LawField): Expr => {
 			const r = read(f.name)
-			return writeValue(w, r.value, r.type, rowType(f), at)
+			return writeValue(w, r.value, r.type, rowType(f))
 		}
 		/** The row's value at a field, at its base type: one it states as it reads, and a generated one at its generation
 		 * expression over the fields it is generated from, written into their domains (insert/statement.ts

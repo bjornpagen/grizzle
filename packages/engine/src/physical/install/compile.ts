@@ -17,6 +17,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
+import type { RegexRef } from "#compiler/ir/scalar.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import { addClosedRelations, addRosters } from "#compiler/physical/ddl/constants.ts"
 import { InstallBuilder, type InstallSettings } from "#compiler/physical/ddl/context.ts"
@@ -370,8 +371,8 @@ const admittedSettings = (
 }
 
 /**
- * The types the programs `extensions` serve cast their parameters to over the installation's checked schema `checked`
- * (InstallExtension.params), every extension's once: what an installation plans from its served programs' declarations
+ * The types the programs `extensions` serve name over the installation's checked schema `checked`
+ * (InstallExtension.params), every extension's once: what an installation plans from its served programs
  * (physical/install/plan.ts ParamSource `planned`).
  */
 const servedParams = (
@@ -381,12 +382,16 @@ const servedParams = (
 	catchRefusal((): ParamSource => {
 		const domains: Array<ParamDomainUse> = []
 		const contracts: Array<ParamContract> = []
+		const typed: Array<ParamContract> = []
+		const texts: Array<RegexRef> = []
 		for (const extension of new Set(extensions)) {
 			const types = unwrap(extension.params(checked))
 			appendAll(domains, types.domains)
 			appendAll(contracts, types.contracts)
+			appendAll(typed, types.typed)
+			appendAll(texts, types.texts)
 		}
-		return { kind: "planned", types: { domains, contracts } }
+		return { kind: "planned", types: { domains, contracts, typed, texts } }
 	})
 
 /** The plan of the installation over `basis` under `settings` with `extensions`, the types their served programs cast
@@ -397,7 +402,7 @@ const servedPlan = (
 	extensions: ReadonlyArray<InstallExtension>
 ): Result.Result<InstallPlan, CompileError> =>
 	Result.flatMap(servedParams(extensions, basis.model.checked), (params) =>
-		planInstallation(basis, settings, extensions, params)
+		planInstallation(basis, settings, params)
 	)
 
 /**

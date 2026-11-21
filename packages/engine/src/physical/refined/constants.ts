@@ -2,7 +2,6 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { refinedConstants } from "#compiler/check/refinement/index.ts"
 import { noLive } from "#compiler/live/notify.ts"
 import { constantValidationObjects } from "#compiler/lower/shapes/refined/index.ts"
-import { noTextDomainUses } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallExtension,
 	noCarriers,
@@ -36,7 +35,6 @@ export const refinedConstantsExtension: InstallExtension = {
 			}
 			return noContribution
 		}),
-	textDomainUses: noTextDomainUses,
 	params: servesNoParams,
 	certifies: noCertificates,
 	carriers: noCarriers,

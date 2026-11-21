@@ -4,13 +4,10 @@ import type { Fence, RoleIsolation } from "#compiler/analysis/isolation/certify.
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { IndexRequest } from "#compiler/ir/products.ts"
+import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import {
-	noParamTypes,
-	type ParamTypes,
-	type TextColumnUse
-} from "#compiler/physical/ddl/domains.ts"
+import { noServedTypes, type ServedTypes } from "#compiler/physical/ddl/domains.ts"
 import type { StatisticsRequest } from "#compiler/physical/statistics/statistics.ts"
 
 /** What an extension contributes to the installation it runs in beyond the objects it adds to the builder: an
@@ -35,24 +32,18 @@ export const noContribution: InstallContribution = {
  * every extension has run.
  *
  * `contribute` adds the extension's objects to the builder once the native objects exist, each after the objects it
- * reads, named by their handles. An extension whose objects type a column by
- * a text refinement no stored column carries, such as a derived relation's view column, states those columns in
- * `textDomainUses`, which runs before any name is chosen, so the pattern's structural domain is planned and named with
- * the schema's others (`planTextDomains`); every other extension states `noTextDomainUses`. */
+ * reads, named by their handles. */
 export interface InstallExtension {
 	readonly contribute: (builder: InstallBuilder) => Result.Result<InstallContribution, CompileError>
-	readonly textDomainUses: (
-		checked: CheckedSchema
-	) => Result.Result<ReadonlyArray<TextColumnUse>, CompileError>
 	/**
-	 * The types the declared parameters of the programs it serves are cast to (physical/ddl/domains.ts ParamTypes), over
-	 * the installation's checked schema: each pattern parameter's own pattern domain and each contract a parameter is
-	 * typed by, which the installation reads before any name is chosen, as it reads `textDomainUses`, and installs
-	 * (physical/install/compile.ts installationOver), so it serves no statement that casts a parameter to a type it lacks:
-	 * the workload's (physical/access/extension.ts workloadExtension), from its programs' declarations
+	 * The types the programs it serves name (physical/ddl/domains.ts ServedTypes), over the installation's checked
+	 * schema: each pattern parameter's own pattern domain, each contract a parameter is typed by and each text refinement
+	 * the programs type a value by, which the installation reads before any name is chosen, and installs
+	 * (physical/install/compile.ts installationOver), so it serves no statement that names a type it lacks: the
+	 * workload's (physical/access/extension.ts workloadExtension), from its programs' checked IR
 	 * (program/workload/compile.ts compileWorkload); every other extension's, none (`servesNoParams`).
 	 */
-	readonly params: (checked: CheckedSchema) => Result.Result<ParamTypes, CompileError>
+	readonly params: (checked: CheckedSchema) => Result.Result<ServedTypes, CompileError>
 	/**
 	 * The certificates of the roles it certifies (analysis/isolation/certify.ts), which the installation reads before
 	 * it builds anything, since each table's guard follows the levels of the roles that write it: the served
@@ -62,11 +53,12 @@ export interface InstallExtension {
 	readonly certifies: ReadonlyArray<RoleIsolation>
 	/**
 	 * The roles whose served ChangeSets create a carrier, a temporary table (write/carriers/carriers.ts,
-	 * write/program/staged.ts), which the installation grants TEMPORARY on the database (physical/ddl/roles.ts
-	 * addWorlds): the served workload's, derived from the ChangeSets it serves (program/workload/compile.ts
-	 * servedWorkload); every other extension's, none (`noCarriers`).
+	 * write/program/staged.ts), with the types of its program carriers' columns (RoleCarriers), which the installation
+	 * grants TEMPORARY on the database and USAGE on each domain of those types (physical/ddl/roles.ts addWorlds): the
+	 * served workload's, derived from the ChangeSets it serves (program/workload/compile.ts servedWorkload); every other
+	 * extension's, none (`noCarriers`).
 	 */
-	readonly carriers: ReadonlyArray<RoleOfLogin>
+	readonly carriers: ReadonlyArray<RoleCarriers>
 	/**
 	 * The roles whose served ChangeSets hold a retirable unit (write/hold/statement.ts), each with the unit's header,
 	 * which the installation grants EXECUTE on the unit's hold function (physical/ddl/roles.ts addWorlds): the served
@@ -96,12 +88,9 @@ export interface InstallExtension {
 	readonly fences: ReadonlyArray<LoginFence>
 }
 
-/** What the plan of an installation reads of an extension before any name is chosen (physical/install/plan.ts
- * planInstallation): its text domain uses. */
-export type PlanExtension = Pick<InstallExtension, "textDomainUses">
-
 /** No parameter type: what an extension that serves no program states. */
-export const servesNoParams = (): Result.Result<ParamTypes, CompileError> => Result.ok(noParamTypes)
+export const servesNoParams = (): Result.Result<ServedTypes, CompileError> =>
+	Result.ok(noServedTypes)
 
 /** The relations a login fences, by their declared names, in code-unit order. */
 export interface LoginFence {
@@ -119,7 +108,17 @@ export interface RoleOfLogin {
 export const noCertificates: ReadonlyArray<RoleIsolation> = []
 
 /** No role that creates a carrier: what an extension that compiles no served workload states. */
-export const noCarriers: ReadonlyArray<RoleOfLogin> = []
+export const noCarriers: ReadonlyArray<RoleCarriers> = []
+
+/**
+ * A role of a login whose served ChangeSets create a carrier, with the type of each column of every program carrier
+ * they create (write/carriers/carriers.ts WriteCarrier), each a value's own (CarrierTyping): a domain one of them names,
+ * a function result's or a token's refinement among them, is one PostgreSQL checks USAGE on as the carrier is created,
+ * whatever the role reads or writes.
+ */
+export interface RoleCarriers extends RoleOfLogin {
+	readonly columns: ReadonlyArray<HeadingColumn>
+}
 
 /** A role of a login whose served ChangeSets hold the retirable unit headed by `header`. */
 export interface RoleHold extends RoleOfLogin {
