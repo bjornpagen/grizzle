@@ -1,4 +1,4 @@
-import { Option, Result, String as Str } from "effect"
+import { Array as Arr, Option, Result, String as Str } from "effect"
 import { Url } from "effect/http"
 
 /**
@@ -31,3 +31,38 @@ export const stripFragment = (uri: string): string => splitFragment(uri)[0]
  */
 export const retrievalBase = (retrieval: string): string =>
 	stripFragment(Option.getOrElse(resolveUri(retrieval, retrieval), () => retrieval))
+
+/**
+ * The text that stands for a document URI that does not parse, so the raw text never reaches generated output.
+ */
+const unparsedDocumentLabel = "<unparsed-document>"
+
+/**
+ * A document's label in generated output (C8), with no credentials, query or fragment: a document on the entry's
+ * origin is labelled by its path relative to the entry's directory, so no host path is written and a generation reads
+ * alike from any directory its inputs sit in; any other parsed document keeps its origin and path; one that does not
+ * parse is unparsedDocumentLabel.
+ */
+export const documentLabel = (entry: string, document: string): string =>
+	Result.match(Url.fromString(document), {
+		onFailure: () => unparsedDocumentLabel,
+		onSuccess: (target) =>
+			Result.match(Url.fromString(entry), {
+				onFailure: () => `${target.origin}${target.pathname}`,
+				onSuccess: (base) => {
+					if (base.origin !== target.origin || base.protocol !== target.protocol) {
+						return `${target.origin}${target.pathname}`
+					}
+					const from = Arr.dropRight(Str.split("/")(base.pathname), 1)
+					const to = Str.split("/")(target.pathname)
+					const common = Arr.takeWhile(
+						Arr.zip(from, Arr.dropRight(to, 1)),
+						([left, right]) => left === right
+					).length
+					return Arr.join(
+						[...Arr.map(Arr.drop(from, common), () => ".."), ...Arr.drop(to, common)],
+						"/"
+					)
+				}
+			})
+	})

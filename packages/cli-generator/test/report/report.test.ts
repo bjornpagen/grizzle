@@ -1,5 +1,6 @@
 import { Array as Arr, Effect, Exit, Option, Schema, String as Str } from "effect"
 import { describe, expect, test } from "vitest"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { isDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import {
@@ -9,6 +10,9 @@ import {
 	printGenerationReport
 } from "#report/index.ts"
 import type { GenerationReportInput } from "#report/index.ts"
+
+/** The run's entry document, which the report names every document against. */
+const entry = fixedDocumentUri("file:///spec.json")
 
 const base = {
 	document: "file:///spec.json",
@@ -57,7 +61,7 @@ const input = (diagnostics: readonly Diagnostic[]): GenerationReportInput => ({
 })
 
 const print = (diagnostics: readonly Diagnostic[]) =>
-	Effect.runSync(printGenerationReport(makeGenerationReport(input(diagnostics))))
+	Effect.runSync(printGenerationReport(makeGenerationReport(input(diagnostics)), entry))
 
 describe("generation report bytes", () => {
 	const text = print([operationRefusal, notice])
@@ -82,22 +86,23 @@ describe("generation report bytes", () => {
 		])
 	})
 
-	test("records servers, input digests in given order, version and renames", () => {
-		const report = Schema.decodeUnknownSync(GenerationReport)(parsed)
-
-		expect(report.acceptedServers).toEqual(["https://api.example.com"])
-		expect(report.generator).toEqual({ version: "0.1.0" })
-		expect(report.inputs).toEqual(inputs)
-		expect(report.inputs.map((entry) => entry.sha256)).toEqual(["a".repeat(64), "b".repeat(64)])
-		expect(report.renames).toEqual(renames)
+	test("records servers, input digests in given order, version and renames, each document by its label", () => {
+		expect(parsed).toMatchObject({
+			acceptedServers: ["https://api.example.com"],
+			generator: { version: "0.1.0" },
+			inputs: [
+				{ document: "spec.json", sha256: Str.repeat(64)("a") },
+				{ document: "other.json", sha256: Str.repeat(64)("b") }
+			],
+			renames
+		})
 	})
 
 	test("lists refusals and notices in full, split by severity, in the order given", () => {
-		const report = Schema.decodeUnknownSync(GenerationReport)(parsed)
-
-		expect(report.refusals.map((entry) => entry.code)).toEqual(["PRM-27/compound-nested"])
-		expect(report.notices.map((entry) => entry.code)).toEqual(["PRM-19/ignored-header"])
-		expect(report.refusals[0]?.message).toBe(base.message)
+		expect(parsed).toMatchObject({
+			notices: [{ code: "PRM-19/ignored-header", document: "spec.json" }],
+			refusals: [{ code: "PRM-27/compound-nested", document: "spec.json", message: base.message }]
+		})
 	})
 
 	test("a bad digest fails with a schema error", () => {
@@ -106,7 +111,7 @@ describe("generation report bytes", () => {
 			inputs: inputs.map((entry) => ({ ...entry, sha256: "xyz" }))
 		}
 
-		expect(Exit.isFailure(Effect.runSyncExit(printGenerationReport(bad)))).toBe(true)
+		expect(Exit.isFailure(Effect.runSyncExit(printGenerationReport(bad, entry)))).toBe(true)
 	})
 })
 

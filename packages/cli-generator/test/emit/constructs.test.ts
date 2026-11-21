@@ -127,9 +127,9 @@ export const constructs = property.explore(aimed(caseGen, AIMS), {
 		{
 			file: "packages/cli-generator/src/generate.ts",
 			original:
-				"[\n\t\t\tdomain,\n\t\t\t...apiFiles,\n\t\t\t...cli.files,\n\t\t\t...scaffold,\n\t\t\t{ content: yield* printGenerationReport(report), path: reportPath }\n\t\t]",
+				"[\n\t\t\tdomain,\n\t\t\t...apiFiles,\n\t\t\t...cli.files,\n\t\t\t...scaffold,\n\t\t\t{ content: yield* printGenerationReport(report, document), path: reportPath }\n\t\t]",
 			replacement:
-				"[domain, ...apiFiles, ...scaffold, { content: yield* printGenerationReport(report), path: reportPath }]",
+				"[domain, ...apiFiles, ...scaffold, { content: yield* printGenerationReport(report, document), path: reportPath }]",
 			why: "Generation writes no cli module, so a planted operation's flags are never emitted; the property fails (CATCH's evidence, mutant cc03257159)."
 		},
 		{

@@ -61,6 +61,7 @@ import type {
 	Server
 } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
+import { documentLabel } from "#model/uri.ts"
 import { constantOf } from "#names/constant.ts"
 import type { ConstantValue } from "#names/constant.ts"
 import { isPositionalBody } from "#names/flatten.ts"
@@ -457,36 +458,6 @@ const responseKey = (key: ResponseCase["key"]): string => {
 	}
 
 	return "code" in key ? String(key.code) : `${key.range}XX`
-}
-
-/**
- * The label written for a document URI that does not parse, so the raw text never reaches generated
- * source.
- */
-const documentPlaceholder = "<unparsed-document>"
-
-// A document's label, with no credentials, query or fragment (C8). A document on the entry's
-// origin is labelled by its path relative to the entry's directory, so no host path is emitted;
-// any other parsed document keeps its origin and path; an unparseable one gets the placeholder.
-const documentLabel = (entry: string, document: string): string => {
-	const target = URL.parse(document)
-	if (target === null) {
-		return documentPlaceholder
-	}
-
-	const base = URL.parse(entry)
-	if (base === null || base.origin !== target.origin || base.protocol !== target.protocol) {
-		return `${target.origin}${target.pathname}`
-	}
-
-	const from = base.pathname.split("/").slice(0, -1)
-	const to = target.pathname.split("/")
-	let common = 0
-	while (common < from.length && common < to.length - 1 && from[common] === to[common]) {
-		common += 1
-	}
-
-	return [...from.slice(common).map(() => ".."), ...to.slice(common)].join("/")
 }
 
 // The bracket convention option, `brackets: true`, for an entry the model marks (design 6.1);

@@ -1,13 +1,16 @@
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Order, Schema } from "effect"
+import { Array as Arr, Effect, Order, Predicate, Record, Schema } from "effect"
 import type { Types } from "effect"
 import { printJson } from "#emit/printer.ts"
 import { DocumentUri, JsonLiteral, JsonPointer } from "#model/brands.ts"
 import { isDiagnostic, isRefusal, pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Api, Operation, SecurityScheme } from "#model/entities.ts"
+import { isArray, isObject } from "#model/json-tree.ts"
 import type { NonStandardUse } from "#model/non-standard.ts"
 import { markedUses, nonStandardUses } from "#model/non-standard.ts"
+import type { Json } from "#model/pointer.ts"
+import { documentLabel } from "#model/uri.ts"
 import { CommandNameSource, GroupNameSource } from "#names/plan.ts"
 
 const Sha256 = Schema.String.pipe(Schema.check(Schema.isPattern(regex("^[0-9a-f]{64}$", "u"))))
@@ -214,15 +217,34 @@ export const makeGenerationReport = (input: GenerationReportInput): GenerationRe
 }
 
 /**
+ * A report's JSON with every document it names (each `document` member: an input, a command, a
+ * non-standard element, a skipped operation, a diagnostic and its related origins) written as its
+ * label against the entry (model/uri.ts documentLabel), so the file names no host path and two runs
+ * over the same inputs from different directories write the same bytes.
+ */
+const labelled = (value: Json, entry: string): Json =>
+	isArray(value)
+		? Arr.map(value, (item) => labelled(item, entry))
+		: isObject(value)
+			? Record.map(value, (member, key) =>
+					key === "document" && Predicate.isString(member)
+						? documentLabel(entry, member)
+						: labelled(member, entry)
+				)
+			: value
+
+/**
  * Prints the report file: the value is encoded through `GenerationReport`, so a bad digest fails
- * here, then written in the `docs/printer.md` JSON layout with sorted keys and a final newline.
+ * here, its documents labelled against the run's entry document (`labelled`), then written in the
+ * `docs/printer.md` JSON layout with sorted keys and a final newline.
  */
 export const printGenerationReport = (
-	report: GenerationReportValue
+	report: GenerationReportValue,
+	entry: DocumentUri
 ): Effect.Effect<string, Schema.SchemaError> =>
 	Schema.encodeEffect(GenerationReport)(report).pipe(
 		Effect.flatMap(Schema.decodeUnknownEffect(JsonLiteral)),
-		Effect.map(printJson)
+		Effect.map((json) => printJson(labelled(json, entry)))
 	)
 
 /**

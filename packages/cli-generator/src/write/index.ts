@@ -434,16 +434,19 @@ const writeUnderLock = (
 		return [...previous.notices, ...stale]
 	})
 
-const writeLocked = (
-	outputDir: string,
-	files: readonly GeneratedFile[],
-	created: boolean
+/**
+ * What a run puts in the output directory: its files in path order, and the manifest that lists
+ * each with its sha256 and size. Writing and checking both start from it, so a check compares
+ * exactly what a write would leave.
+ */
+const planned = (
+	files: readonly GeneratedFile[]
 ): Effect.Effect<
-	readonly WriteNotice[],
-	RunLockHeld | RunLockUnavailable | WriteRefused,
-	Services | Scope.Scope
+	{ readonly sorted: readonly GeneratedFile[]; readonly manifest: string },
+	WriteRefused,
+	Digest.Digest
 > =>
-	Effect.gen(function* step6() {
+	Effect.gen(function* plan() {
 		const sorted = Arr.sort(
 			files,
 			Order.mapInput(Order.String, (file: GeneratedFile) => file.path)
@@ -458,6 +461,20 @@ const writeLocked = (
 		const manifest = yield* printManifest(entries).pipe(
 			Effect.mapError(() => WriteRefused.make({ reason: "unsafe-path", subject: manifestFileName }))
 		)
+		return { sorted, manifest }
+	})
+
+const writeLocked = (
+	outputDir: string,
+	files: readonly GeneratedFile[],
+	created: boolean
+): Effect.Effect<
+	readonly WriteNotice[],
+	RunLockHeld | RunLockUnavailable | WriteRefused,
+	Services | Scope.Scope
+> =>
+	Effect.gen(function* step6() {
+		const { sorted, manifest } = yield* planned(files)
 		const lock = yield* acquireRunLock(outputDir)
 		const written = yield* Ref.make<readonly string[]>([])
 
@@ -497,4 +514,62 @@ export const writeFiles = (
 		const created = yield* ensureOutput(outputDir)
 
 		return yield* Effect.scoped(writeLocked(outputDir, files, created))
+	})
+
+/**
+ * How an output directory departs from a run's output (`generate --check`): a file the run writes
+ * that holds other bytes (`edited`) or is not there (`missing`), or a file the directory's manifest
+ * lists that the run no longer writes (`extra`). A file no manifest lists is not the generator's
+ * (an author's command module, say) and is never one.
+ */
+export interface CheckDifference {
+	readonly kind: "edited" | "extra" | "missing"
+	readonly path: string
+}
+
+/**
+ * Compares `outputDir` with what writing `files` would leave there (`planned`: the files and their
+ * manifest), writing nothing and taking no lock: each file the run writes must hold exactly its
+ * bytes, and no file the directory's manifest lists may be one the run no longer writes. The
+ * differences come back in path order; none is a passing check.
+ */
+export const checkFiles = (
+	outputDir: string,
+	files: readonly GeneratedFile[]
+): Effect.Effect<readonly CheckDifference[], WriteRefused, Services> =>
+	Effect.gen(function* check() {
+		const fs = yield* FileSystem.FileSystem
+		const path = yield* Path.Path
+		const fault = planFault(path, outputDir, files)
+
+		if (Option.isSome(fault)) {
+			return yield* fault.value
+		}
+
+		const { sorted, manifest } = yield* planned(files)
+		const expected = [...sorted, { content: manifest, path: manifestFileName }]
+		const found = yield* Effect.forEach(expected, (file) =>
+			Effect.map(
+				Effect.option(fs.readFileString(path.join(outputDir, file.path))),
+				Option.match({
+					onNone: (): readonly CheckDifference[] => [{ kind: "missing", path: file.path }],
+					onSome: (text): readonly CheckDifference[] =>
+						text === file.content ? [] : [{ kind: "edited", path: file.path }]
+				})
+			)
+		)
+		const written = new Set(Arr.map(expected, (file) => fold(file.path)))
+		const previous = yield* readPrevious(outputDir)
+		const extra = yield* Effect.filter(
+			Arr.filter(previous.entries, (entry) => !written.has(fold(entry.path))),
+			(entry) => fs.exists(path.join(outputDir, entry.path)).pipe(Effect.orElseSucceed(() => false))
+		)
+
+		return Arr.sort(
+			[
+				...Arr.flatten(found),
+				...Arr.map(extra, (entry): CheckDifference => ({ kind: "extra", path: entry.path }))
+			],
+			Order.mapInput(Order.String, (difference: CheckDifference) => difference.path)
+		)
 	})

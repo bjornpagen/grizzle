@@ -13,7 +13,13 @@ import {
 } from "effect"
 import { Argument, CliError, Command, Flag } from "effect/cli"
 import { checkSpecText } from "#check/index.ts"
-import { generate, otherDocumentPathItems, setMembers, versionRefused } from "#generate.ts"
+import {
+	checkGeneration,
+	generate,
+	otherDocumentPathItems,
+	setMembers,
+	versionRefused
+} from "#generate.ts"
 import type { GenerateError, GenerateInput, GenerateResult, SpecSource } from "#generate.ts"
 import { makeDocumentSet, parseDocumentPair } from "#load/document-set.ts"
 import type { DocumentSet } from "#load/document-set.ts"
@@ -217,7 +223,9 @@ const runGenerate = (
 
 /**
  * `generate <spec|->`: writes the package (design 3, 8.1). stderr gets one line per diagnostic;
- * `--report json` prints the generation report on stdout.
+ * `--report json` prints the generation report on stdout. `--check` writes nothing: it compares
+ * the same generation with `--out` (generate.ts checkGeneration) and exits 1 with one line per file
+ * that is edited, missing or extra, or 0 when `--out` already holds exactly this generation.
  */
 const generateCommand = Command.make(
 	"generate",
@@ -234,6 +242,12 @@ const generateCommand = Command.make(
 		strict: Flag.Boolean("strict").pipe(
 			Flag.withDefault(false),
 			Flag.withDescription("Treat any refusal as fatal.")
+		),
+		check: Flag.Boolean("check").pipe(
+			Flag.withDefault(false),
+			Flag.withDescription(
+				"Write nothing; fail unless --out already holds exactly this generation, every file included."
+			)
 		)
 	},
 	(flags) =>
@@ -247,14 +261,26 @@ const generateCommand = Command.make(
 			const documents = yield* documentSetOf(spec.document, flags.document, flags.refRoot).pipe(
 				Effect.catch(loadRefused)
 			)
-			const result: GenerateResult = yield* runGenerate(
-				{ ...spec, documents, outDir: flags.out, strict: flags.strict },
-				config
-			).pipe(Effect.catch(reportFailure))
+			const input = { ...spec, documents, outDir: flags.out, strict: flags.strict }
+			if (flags.check) {
+				const differences = yield* checkGeneration(input, config).pipe(Effect.catch(reportFailure))
+				if (Arr.isReadonlyArrayNonEmpty(differences)) {
+					return yield* exit(
+						Arr.map(
+							differences,
+							(difference) => `error: --check: ${difference.kind} ${difference.path}`
+						)
+					)
+				}
+				return
+			}
+			const result: GenerateResult = yield* runGenerate(input, config).pipe(
+				Effect.catch(reportFailure)
+			)
 
 			yield* printDiagnostics(result.diagnostics)
 			if (Option.isSome(flags.report)) {
-				const report = yield* printGenerationReport(result.report).pipe(
+				const report = yield* printGenerationReport(result.report, spec.document).pipe(
 					Effect.catch(setupFailed("the generation report cannot be printed"))
 				)
 				yield* write("stdout", report)

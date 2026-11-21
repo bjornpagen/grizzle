@@ -59,8 +59,8 @@ import type { UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
 import { diagnoseDocument } from "#validate/index.ts"
 import type { SchemaManifestError, ValidatorError } from "#validate/index.ts"
 import type { InvalidInstanceLocation } from "#validate/locations.ts"
-import { writeFiles } from "#write/index.ts"
-import type { WriteNotice, WriteRefused } from "#write/index.ts"
+import { checkFiles, writeFiles } from "#write/index.ts"
+import type { CheckDifference, WriteNotice, WriteRefused } from "#write/index.ts"
 import type { RunLockHeld, RunLockUnavailable } from "#write/lock.ts"
 
 /**
@@ -101,6 +101,13 @@ export interface GenerateConfig {
  * A written run: every diagnostic in diagnostic order, the paths written (sorted), the writer's
  * notices about previous-manifest files, and the report written as `generation-report.json`.
  */
+/** One run's output before it is written or compared: its diagnostics, files and report. */
+interface Generation {
+	readonly diagnostics: readonly Diagnostic[]
+	readonly files: readonly EmittedFile[]
+	readonly report: GenerationReportValue
+}
+
 export interface GenerateResult {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly files: readonly string[]
@@ -565,11 +572,12 @@ const analyze = (
 	})
 
 /**
- * Generates a CLI package (design 3, D-AD14): load, validate, resolve over the document set, check,
- * normalize, plan names, emit `domain/`, `api/`, `cli/` and the scaffold, then write every file and
- * `generation-report.json` in one run. A document-scope refusal stops before emission and writes
- * nothing; an operation or element refusal leaves that element out and writes the rest; under
- * `strict` any refusal writes nothing. Each operation `emitCli` refuses becomes one `EMT-1`
+ * A CLI package's generation (design 3, D-AD14): load, validate, resolve over the document set,
+ * check, normalize, plan names, emit `domain/`, `api/`, `cli/` and the scaffold, and print
+ * `generation-report.json`; `generate` writes them and `checkGeneration` compares them with what
+ * the output directory holds. A document-scope refusal stops before emission, so nothing is
+ * written; an operation or element refusal leaves that element out and keeps the rest; under
+ * `strict` any refusal stops the run. Each operation `emitCli` refuses becomes one `EMT-1`
  * diagnostic (design 8.4), so none of its commands is emitted and the report lists it; the report's
  * `commandNames` lists every emitted command with the sources of its names (design 8.1).
  *
@@ -582,12 +590,12 @@ const analyze = (
  * pairs, and it emits no command for an operation the author config skips (design 8.2), by the
  * rule the report's `skipped` entries read.
  */
-export const generate = (
+const generation = (
 	input: GenerateInput,
 	config: GenerateConfig
 ): Effect.Effect<
-	GenerateResult,
-	GenerateError,
+	Generation,
+	Exclude<GenerateError, RunLockHeld | RunLockUnavailable | WriteRefused>,
 	FileSystem.FileSystem | Path.Path | Digest.Digest
 > =>
 	Effect.gen(function* generateGen() {
@@ -679,8 +687,27 @@ export const generate = (
 			...apiFiles,
 			...cli.files,
 			...scaffold,
-			{ content: yield* printGenerationReport(report), path: reportPath }
+			{ content: yield* printGenerationReport(report, document), path: reportPath }
 		]
+		const made: Generation = { diagnostics, files, report }
+
+		return made
+	})
+
+/**
+ * Generates a CLI package (`generation`) and writes every file and `generation-report.json` into
+ * `input.outDir` in one run (write/index.ts writeFiles).
+ */
+export const generate = (
+	input: GenerateInput,
+	config: GenerateConfig
+): Effect.Effect<
+	GenerateResult,
+	GenerateError,
+	FileSystem.FileSystem | Path.Path | Digest.Digest
+> =>
+	Effect.gen(function* writeGeneration() {
+		const { diagnostics, files, report } = yield* generation(input, config)
 		const notices = yield* writeFiles(input.outDir, files)
 
 		return {
@@ -693,3 +720,18 @@ export const generate = (
 			report
 		}
 	})
+
+/**
+ * `generate --check`: the same generation (`generation`), compared with `input.outDir` instead of
+ * written there (write/index.ts checkFiles), so nothing is written and no lock is taken. The
+ * differences come back in path order, every file the run writes included, its report and
+ * manifest among them; none is a passing check.
+ */
+export const checkGeneration = (
+	input: GenerateInput,
+	config: GenerateConfig
+): Effect.Effect<
+	readonly CheckDifference[],
+	Exclude<GenerateError, RunLockHeld | RunLockUnavailable>,
+	FileSystem.FileSystem | Path.Path | Digest.Digest
+> => Effect.flatMap(generation(input, config), ({ files }) => checkFiles(input.outDir, files))
