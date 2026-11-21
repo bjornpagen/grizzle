@@ -39,7 +39,9 @@ const countProbe = testSql(
  * Each object the backend holds locked (heldLocks), named as deploy/locks/demand.ts lockTargetText names its targets:
  * a relation by its schema and name, a TOAST relation by its table's, a system catalog's by its own, a type, function,
  * constraint, schema, role or language by its names; a dropped relation or type as `transient`, which no name is left
- * of; anything else by its lock type.
+ * of; anything else by its lock type. Beside its name, the LOCKTAG's parts that keep two objects of one name apart (two
+ * transient ones), each as text, '' where the lock type has none: a session reads no NULL cell and no cell that is not
+ * text (adapter/errors/failures.ts UnreadableAnswer).
  */
 const namesProbe = testSql(`SELECT DISTINCT CASE
   WHEN "l"."locktype" = 'relation' THEN CASE
@@ -78,7 +80,7 @@ const namesProbe = testSql(`SELECT DISTINCT CASE
   WHEN "l"."locktype" = 'object' AND "l"."classid" = 'pg_catalog.pg_database'::"pg_catalog"."regclass" THEN 'database '
   WHEN "l"."locktype" = 'object' THEN 'object ' || "l"."classid"::"pg_catalog"."regclass"::"pg_catalog"."text"
   ELSE "l"."locktype" END,
-  "l"."locktype", "l"."database", "l"."relation", "l"."classid", "l"."objid", "l"."objsubid", "l"."transactionid"
+  "l"."locktype", COALESCE("l"."database"::"pg_catalog"."text", ''), COALESCE("l"."relation"::"pg_catalog"."text", ''), COALESCE("l"."classid"::"pg_catalog"."text", ''), COALESCE("l"."objid"::"pg_catalog"."text", ''), COALESCE("l"."objsubid"::"pg_catalog"."text", ''), COALESCE("l"."transactionid"::"pg_catalog"."text", '')
 ${fromLocks}
 LEFT JOIN "pg_catalog"."pg_class" AS "c" ON "l"."locktype" = 'relation' AND "c"."oid" = "l"."relation"
 LEFT JOIN "pg_catalog"."pg_namespace" AS "n" ON "n"."oid" = "c"."relnamespace"

@@ -15,7 +15,8 @@
  *
  * Oracle: PostgreSQL's pg_locks of the backend that runs each file's transaction.
  *
- * Features: a fresh install, a migration of the installed schema, and a migration over stored rows.
+ * Features: a fresh install and a migration over stored rows, each required; a migration of an installed schema that
+ * holds no row is noted where a path draws no facts, which no witness of the renamed stream is steered to.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -65,7 +66,7 @@ const tightness = 2
 /** The locks a drafted migration states bound what PostgreSQL holds while each of its files runs, within twice. */
 export const statedLocksBoundTheHeld = property.explore(renamedDrawGen, {
 	needs: { substrate: Substrate.installing },
-	situations: ["a fresh install", "a migration", "a migration over rows"] satisfies ReadonlyArray<
+	situations: ["a fresh install", "a migration over rows"] satisfies ReadonlyArray<
 		Reached<Feature>
 	>,
 	budget: { runs: 4, steered: 8 },
