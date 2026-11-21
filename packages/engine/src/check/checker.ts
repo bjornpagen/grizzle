@@ -430,9 +430,17 @@ type RowsOf = "facts" | "values"
 const rowsOf = (origin: ScopeOrigin): RowsOf =>
 	writtenTarget(origin) === undefined ? "values" : "facts"
 
+/**
+ * A stage's rows: its node, the order they carry, and the attachment names they carry (`carries`), which a stage
+ * after it in the chain reads (a second attachment of a name, a union's arm, a take): an attachment's Attach node's
+ * in the query's own scope; under an import, where an attachment builds no node a row is read from (Checker attachIn),
+ * the chain's own, never recorded on the node its rows are read from, which another chain may share (one search for
+ * one identity, check/approximate).
+ */
 interface StageOut {
 	readonly node: RelNode
 	readonly order: StageOrder
+	readonly carries: ReadonlySet<string>
 }
 
 /**
@@ -981,7 +989,10 @@ export class Checker {
 	readonly #delivered = new Map<RelNode, Heading>()
 	/**
 	 * The attachment names each node's rows carry, never empty: an Attach's and its parent's, those of the rows a node
-	 * keeps (#inherit) and those of every arm of a union. A node it holds none for carries none (#carried).
+	 * keeps (#inherit), those of every arm of a union, and under an import a rule's own node's, its attachments'
+	 * (RuleCheck run). Each is a node this check built where it records it: a stage chain's attachments under an
+	 * import travel with the chain (StageOut carries), never on the node its rows are read from. A node it holds none
+	 * for carries none (`carried`).
 	 */
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
 	/** The contracts and contexts the query declares itself, each once (DuplicateIdentity). */
@@ -1247,34 +1258,40 @@ export class Checker {
 		/** An attachment stage is located at its attach entry, whose child is below it. */
 		const here = s.kind === "attach" ? s.attach.loc : s.loc
 		switch (s.kind) {
-			case "rules":
-				return { node: this.arms(s.arms, scope, childLoc(here, "arms")), order: unordered }
-			case "recursive":
-				return { node: recursion.check(s, scope, here, this.services()), order: unordered }
+			case "rules": {
+				const node = this.arms(s.arms, scope, childLoc(here, "arms"))
+				return { node, order: unordered, carries: this.carried(node) }
+			}
+			case "recursive": {
+				const node = recursion.check(s, scope, here, this.services())
+				return { node, order: unordered, carries: this.carried(node) }
+			}
 			case "union": {
 				const input = this.stage(s.input, scope)
-				const prior = this.#unions.get(input.node)?.arms ?? [input.node]
+				const prior = this.#unions.get(input.node)?.arms
 				const added = s.arms.map((arm) => this.rule(arm, scope))
-				return {
-					node: this.union([...prior, ...added], here, rowsOf(scope.origin)),
-					order: unordered
-				}
+				/** The input's rows are an arm of their own, with the names their chain attached, where no union is below. */
+				const node = this.union(
+					[...(prior ?? [input.node]), ...added],
+					here,
+					rowsOf(scope.origin),
+					(arm) => (prior === undefined && arm === input.node ? input.carries : this.carried(arm))
+				)
+				return { node, order: unordered, carries: this.carried(node) }
 			}
 			case "attach": {
 				const input = this.stage(s.input, scope)
-				return {
-					node: this.attachIn(input.node, s.attach, scope, here),
-					order: keptOrder(input.order)
-				}
+				const attached = this.attachIn(input.node, input.carries, s.attach, scope, here)
+				return { ...attached, order: keptOrder(input.order) }
 			}
 			case "named": {
 				const input = this.stage(s.input, scope)
-				return { node: input.node, order: keptOrder(input.order) }
+				return { ...input, order: keptOrder(input.order) }
 			}
 			case "order": {
 				const input = this.stage(s.input, scope)
 				return {
-					node: input.node,
+					...input,
 					order: { kind: "ordered", stated: { keys: s.order, at: childLoc(here, "order") } }
 				}
 			}
@@ -1286,12 +1303,17 @@ export class Checker {
 				const stated = input.order.stated
 				return {
 					node: this.take(input.node, stated, s.take, scope, here),
-					order: { kind: "delivered", stated }
+					order: { kind: "delivered", stated },
+					carries: input.carries
 				}
 			}
 			case "approx": {
 				const input = this.stage(s.input, scope)
-				return { node: approximate.check(s, input.node, here, this.services()), order: unordered }
+				return {
+					node: approximate.check(s, input.node, here, this.services()),
+					order: unordered,
+					carries: carriesNone
+				}
 			}
 		}
 	}
@@ -1404,7 +1426,7 @@ export class Checker {
 	/** Rule arms as one stage: the one arm's node, or their union. */
 	arms(arms: NonEmptyReadonlyArray<ResolvedRule>, scope: Scope, loc: SourceLoc): RelNode {
 		const nodes = mapNonEmpty(arms, (arm) => this.rule(arm, scope))
-		return only(nodes) ?? this.union(nodes, loc, rowsOf(scope.origin))
+		return only(nodes) ?? this.union(nodes, loc, rowsOf(scope.origin), (arm) => this.carried(arm))
 	}
 
 	#inherit(node: RelNode, from: RelNode): void {
@@ -1419,20 +1441,37 @@ export class Checker {
 	}
 
 	/** The attachment names a node's rows carry (#attached). */
-	#carried(node: RelNode): ReadonlySet<string> {
+	carried(node: RelNode): ReadonlySet<string> {
 		return this.#attached.get(node) ?? carriesNone
 	}
 
 	/**
+	 * Records the attachment names the rows of `node`, a node this check built, carry, none recorded for none
+	 * (#attached): an Attach's, a union's, and a rule's own node's, its attachments' (RuleCheck run), which under an
+	 * import, where an attachment builds no node a row is read from (attachIn), is the rule's node.
+	 */
+	carry(node: RelNode, carries: ReadonlySet<string>): void {
+		if (carries.size > 0) {
+			this.#attached.set(node, carries)
+		}
+	}
+
+	/**
 	 * A union fact can come from several arms of one heading, so which arm's attachment it would carry is undetermined:
-	 * an arm whose rows carry an attachment (#carried), through whatever stage keeps its rows, shares its heading with no
-	 * other arm. The union's rows carry every arm's attachments.
+	 * an arm whose rows carry an attachment (its `carried`: a rule's node's, a stage's StageOut carries), through
+	 * whatever stage keeps its rows, shares its heading with no other arm. The union's rows carry every arm's
+	 * attachments.
 	 *
 	 * A union of several headings delivers each heading group only as a query's result (ir/dag.ts deliverySpine): a
 	 * take, an attachment or any stage over it has the columns its groups share for its heading, so as an arm it would
 	 * deliver those alone, and is refused.
 	 */
-	union(arms: NonEmptyReadonlyArray<RelNode>, loc: SourceLoc, setOf: RowsOf): RelNode {
+	union(
+		arms: NonEmptyReadonlyArray<RelNode>,
+		loc: SourceLoc,
+		setOf: RowsOf,
+		carried: (arm: RelNode) => ReadonlySet<string>
+	): RelNode {
 		for (const arm of arms) {
 			const ends = deliverySpine(arm).arms?.union
 			if (ends !== undefined && ends.groups.length > 1) {
@@ -1456,7 +1495,7 @@ export class Checker {
 			}
 		}
 		for (const g of groups) {
-			if (g.arms.length > 1 && g.arms.some((a) => this.#carried(a).size > 0)) {
+			if (g.arms.length > 1 && g.arms.some((a) => carried(a).size > 0)) {
 				fail(
 					"UnsupportedOperation",
 					loc,
@@ -1496,7 +1535,7 @@ export class Checker {
 		const common = commonColumns.map(({ name }) => name)
 		const widenedGroups = mapNonEmpty(targets, (g) => ({
 			arms: mapNonEmpty(g.arms, (a) => {
-				const w = this.#widenArm(a, g.target, loc)
+				const w = this.#widenArm(a, carried(a), g.target, loc)
 				if (w !== a) {
 					this.#delivered.set(w, this.deliveredOf(a))
 				}
@@ -1580,10 +1619,7 @@ export class Checker {
 			...moreWidened.flatMap((g) => g.arms)
 		]
 		this.#unions.set(node, { arms: flat, discriminant })
-		const carried = new Set(arms.flatMap((a) => [...this.#carried(a)]))
-		if (carried.size > 0) {
-			this.#attached.set(node, carried)
-		}
+		this.carry(node, new Set(arms.flatMap((a) => [...carried(a)])))
 		return node
 	}
 
@@ -1678,9 +1714,14 @@ export class Checker {
 	/**
 	 * An arm whose columns take a wider type than it delivers, rewritten by a projection that casts them; its literal
 	 * columns stay literals, retyped, so it keeps its discriminant. A projection keeps no attachment of the rows it
-	 * reads, so an arm whose rows carry one (#carried) is refused.
+	 * reads, so an arm whose rows carry one (`carried`) is refused.
 	 */
-	#widenArm(arm: RelNode, target: ReadonlyMap<string, ScalarType>, loc: SourceLoc): RelNode {
+	#widenArm(
+		arm: RelNode,
+		carried: ReadonlySet<string>,
+		target: ReadonlyMap<string, ScalarType>,
+		loc: SourceLoc
+	): RelNode {
 		const heading = arm.heading
 		const changes = heading.filter((c) => {
 			const t = target.get(c.name)
@@ -1690,7 +1731,7 @@ export class Checker {
 		if (changed === undefined) {
 			return arm
 		}
-		if (this.#carried(arm).size > 0) {
+		if (carried.size > 0) {
 			fail(
 				"UnsupportedOperation",
 				loc,
@@ -1748,10 +1789,11 @@ export class Checker {
 
 	#attach(
 		parent: RelNode,
+		carried: ReadonlySet<string>,
 		desc: ResolvedAttach,
 		scope: Scope,
 		loc: SourceLoc
-	): { readonly node: RelNode; readonly carries: ReadonlySet<string> } {
+	): RelNode {
 		/**
 		 * An attachment is part of the result type, so on a member query's own result, a stage of its
 		 * chain or an arm's Finished.attach, it adds a field the relation's heading lacks; the Attach node's heading is
@@ -1774,7 +1816,6 @@ export class Checker {
 				`an attachment name distinct from the parent's columns; ${desc.name} is a column`
 			)
 		}
-		const carried = this.#carried(parent)
 		if (carried.has(desc.name)) {
 			fail("MalformedDescription", loc, `one attachment per name; ${desc.name} is attached twice`)
 		}
@@ -1875,26 +1916,31 @@ export class Checker {
 		if (literals !== undefined) {
 			this.#literals.set(node, literals)
 		}
-		const carries = new Set([...carried, desc.name])
-		this.#attached.set(node, carries)
-		return { node, carries }
+		this.carry(node, new Set([...carried, desc.name]))
+		return node
 	}
 
 	/**
-	 * An attachment as a stage or a rule of `scope` declares it. Under an import (`scope.params.kind === "bound"`), an
-	 * attachment is no row the importer reads: it is checked as any attachment (its refusals, its parameter uses, so
-	 * the import's complete-bind check sees the child's parameters), and the parent is returned, carrying the
-	 * attachment's name so a second attachment of that name is still refused. No root reaches the Attach node it built,
-	 * so no statement delivers it and no Attach the importer reaches lies off its delivery spine (ir/dag.ts
-	 * deliverySpine); order.ts completes its stated order like any other, and nothing reads it.
+	 * An attachment as a stage or a rule of `scope` declares it over `parent`, whose rows carry the attachment names
+	 * `carried`, with the names its rows carry then (`carries`), the attachment's among them. Under an import
+	 * (`scope.params.kind === "bound"`), an attachment is no row the importer reads: it is checked as any attachment
+	 * (its refusals, its parameter uses, so the import's complete-bind check sees the child's parameters), and the parent
+	 * is returned, its chain carrying the attachment's name (StageOut carries, RuleCheck run), so a second attachment of
+	 * that name is still refused, and nothing is recorded on the parent, which another chain may share (one search for
+	 * one identity), so no other chain's attachment is ever this one's. No root reaches the Attach node it built, so no
+	 * statement delivers it and no Attach the importer reaches lies off its delivery spine (ir/dag.ts deliverySpine);
+	 * order.ts completes its stated order like any other, and nothing reads it.
 	 */
-	attachIn(parent: RelNode, desc: ResolvedAttach, scope: Scope, loc: SourceLoc): RelNode {
-		const { node, carries } = this.#attach(parent, desc, scope, loc)
-		if (scope.params.kind === "own") {
-			return node
-		}
-		this.#attached.set(parent, carries)
-		return parent
+	attachIn(
+		parent: RelNode,
+		carried: ReadonlySet<string>,
+		desc: ResolvedAttach,
+		scope: Scope,
+		loc: SourceLoc
+	): { readonly node: RelNode; readonly carries: ReadonlySet<string> } {
+		const node = this.#attach(parent, carried, desc, scope, loc)
+		const carries = new Set([...carried, desc.name])
+		return { node: scope.params.kind === "own" ? node : parent, carries }
 	}
 
 	/**
@@ -3128,9 +3174,13 @@ class RuleCheck {
 				n.correlated.get(column)
 			)
 		}
+		let carries = this.cx.carried(node)
 		for (const a of this.rule.attach) {
-			node = this.cx.attachIn(node, a, this.scope, a.loc)
+			const attached = this.cx.attachIn(node, carries, a, this.scope, a.loc)
+			node = attached.node
+			carries = attached.carries
 		}
+		this.cx.carry(node, carries)
 		return node
 	}
 
@@ -3484,7 +3534,7 @@ class RuleCheck {
 			return source
 		}
 		return this.#narrowUnion(
-			only(selected) ?? this.cx.union(selected, loc, "values"),
+			only(selected) ?? this.cx.union(selected, loc, "values", (arm) => this.cx.carried(arm)),
 			bindings,
 			loc
 		)
