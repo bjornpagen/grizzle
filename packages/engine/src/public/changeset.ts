@@ -43,7 +43,7 @@ export type {
 	LawSide,
 	Member,
 	OwnLaw,
-	Refused,
+	BrokenLaws,
 	RefusedLaw,
 	RefusingObject,
 	StatedLaw,

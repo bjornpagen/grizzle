@@ -19,7 +19,7 @@ import type { TransientTag } from "#compiler/core/errors.ts"
 import type { ParamPlace } from "#compiler/core/identity.ts"
 import type { Sqlstate } from "#compiler/core/sqlstate.ts"
 import type { KeyFields, RowKey } from "#compiler/live/key.ts"
-import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { BrokenLaws, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * Why a session's connection was not authenticated, either way (`credentialRefused`), each met again by the same call
@@ -117,7 +117,7 @@ export interface SlotValues<Row, Outcome, Failure = CallError> {
 	readonly after: RowKey | null
 	readonly outcome: Outcome
 	readonly error: Failure
-	readonly refused: Refused
+	readonly refused: BrokenLaws
 	readonly witness: Witness
 	readonly transientReason: TransientTag
 	readonly credentialReason: CredentialReason

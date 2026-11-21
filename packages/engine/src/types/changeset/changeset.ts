@@ -2094,7 +2094,7 @@ export type Witness =
  *   one of them; `unjudged`, nothing is said of them: a refusal at COMMIT, by a foreign key or a rule over a query
  *   above, a row the ChangeSet does not state, or a CHECK the host cannot evaluate there. Only `every` holds `laws`.
  */
-export type Refused =
+export type BrokenLaws =
 	| { readonly kind: "every" | "first"; readonly laws: readonly [RefusedLaw, ...Array<RefusedLaw>] }
 	| {
 			readonly kind: "some"
@@ -2130,7 +2130,7 @@ export interface RefusedLaw<L extends Law = OwnLaw> extends IdentifiedLaw<L> {
 	readonly by: RefusingObject
 }
 
-/** The law of a level above the Db's own that PostgreSQL named refusing a write (Refused `above`). */
+/** The law of a level above the Db's own that PostgreSQL named refusing a write (BrokenLaws `above`). */
 export type AboveRefusedLaw = RefusedLaw<AboveLaw>
 
 /**

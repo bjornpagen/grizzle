@@ -1372,7 +1372,7 @@ export const hostJudgement = (
 
 /**
  * What the host finds of its own levels' CHECKs on `owner`'s table when PostgreSQL refused a statement by a CHECK a
- * level above installs there, which the host holds no predicate of (types/changeset Refused `above`): `every`, every law
+ * level above installs there, which the host holds no predicate of (types/changeset BrokenLaws `above`): `every`, every law
  * of the CHECKs the first stated row of the table that breaks one breaks, each once in the theory's order, with that
  * row's witness, exactly the refusal one of them would name were the level's CHECK not installed; `none`, every row
  * the statement writes is a stated one and holds each of them; `unjudged`, the host says nothing of them.

@@ -5,7 +5,7 @@ import type {
 	ExecutionPart,
 	FamilyRowBound,
 	Law,
-	Refused,
+	BrokenLaws,
 	Unsendable,
 	Witness
 } from "#compiler/plan/change.ts"
@@ -661,7 +661,7 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 }
 
 /** How many laws `refused` names: an above refusal's laws of the levels above and, where its `own` is `every`, its own. */
-const namedLaws = (refused: Refused): number =>
+const namedLaws = (refused: BrokenLaws): number =>
 	refused.kind === "above"
 		? refused.above.length + (refused.own === "every" ? refused.laws.length : 0)
 		: refused.laws.length
@@ -673,7 +673,7 @@ const namedLaws = (refused: Refused): number =>
  * `witness` as the apply's outcome names them.
  */
 export class InputRejected extends Data.TaggedError("InputRejected")<{
-	readonly refused: Refused
+	readonly refused: BrokenLaws
 	readonly witness: Witness
 }> {
 	override get message(): string {
@@ -687,7 +687,7 @@ export class InputRejected extends Data.TaggedError("InputRejected")<{
  * `refused` names the laws the domain discharges as a write's outcome names them, each refused by the domain:
  * `every` where it discharges one, `some` where several, at least one of which the value breaks.
  */
-export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly refused: Refused }> {
+export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly refused: BrokenLaws }> {
 	override get message(): string {
 		return `PostgreSQL refused a value by ${this.refused.kind} of ${namedLaws(this.refused)} laws`
 	}

@@ -18,7 +18,7 @@ export type {
 	OwnLaw,
 	PlannedStrata,
 	RecordedLaw,
-	Refused,
+	BrokenLaws,
 	RefusedLaw,
 	RefusingObject,
 	StatedLaw,

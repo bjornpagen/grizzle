@@ -21,7 +21,12 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
-import type { Law, RecordedLaw, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
+import type {
+	Law,
+	RecordedLaw,
+	BrokenLaws,
+	RefusedLaw
+} from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { paramsOver } from "#test/support/compile.ts"
@@ -59,7 +64,7 @@ export type OutcomeWitness =
 	| { readonly kind: "unreported" }
 
 /**
- * Which laws a refusal names (Refused, changeset.ts), each read back to its LawId: every law named broken, or the
+ * Which laws a refusal names (BrokenLaws, changeset.ts), each read back to its LawId: every law named broken, or the
  * laws of the CHECK PostgreSQL tried first, or some of the several laws of one object, at least one of them broken.
  */
 export type RefusedIds =
@@ -475,7 +480,10 @@ const readsOf = (reads: unknown): Readonly<Record<string, ReadonlyArray<Fact>>> 
  * A refusal's laws read by their LawIds, each the installation's law of that identity (reportedLawId), how grizzle
  * decided them kept.
  */
-const refusedIdsOf = (described: ReadonlyMap<LawId, RecordedLaw>, refused: Refused): RefusedIds => {
+const refusedIdsOf = (
+	described: ReadonlyMap<LawId, RecordedLaw>,
+	refused: BrokenLaws
+): RefusedIds => {
 	const id = (r: RefusedLaw<Law>): LawId => reportedLawId(described, r)
 	switch (refused.kind) {
 		case "every":

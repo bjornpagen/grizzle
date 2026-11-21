@@ -649,7 +649,7 @@ const witnessSchema = <L>(witness: RoleWitness<L>, leaf: (l: L) => WireSchema): 
 	])
 
 /**
- * The JSON Schema of a refusal's laws (types/changeset Refused): how grizzle decided them, and each law with its
+ * The JSON Schema of a refusal's laws (types/changeset BrokenLaws): how grizzle decided them, and each law with its
  * identity and the object that refused it, the law's own members a gap (`lawShape`).
  */
 const refusedSchema: WireSchema = withGaps(

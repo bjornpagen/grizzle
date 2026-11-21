@@ -38,7 +38,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { candidateKeyFields, type SideDesc } from "#compiler/ir/desc.ts"
 import type { CallError } from "#compiler/live/index.ts"
-import type { Refused, Witness } from "#compiler/plan/change.ts"
+import type { BrokenLaws, Witness } from "#compiler/plan/change.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -1589,7 +1589,7 @@ const independent = (a: InserterCall, b: InserterCall): boolean => {
 interface InserterAnswer {
 	readonly answer: GrizzleAnswer
 	readonly rejection: Option.Option<{
-		readonly decided: Refused["kind"]
+		readonly decided: BrokenLaws["kind"]
 		readonly witness: Witness
 	}>
 }

@@ -15,7 +15,7 @@ import type {
 	KeyDecoder,
 	LawDetail,
 	RecordedLaw,
-	Refused,
+	BrokenLaws,
 	RefusedLaw,
 	RefusedLaws,
 	Refuser,
@@ -140,7 +140,7 @@ type ViolationFields = Pick<
 export type Violation =
 	| {
 			readonly kind: "rejected"
-			readonly refused: Refused
+			readonly refused: BrokenLaws
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside"; readonly relation: EntryName }
@@ -281,7 +281,7 @@ const nativeLaws = (
  * The laws an object's refusal names where nothing grizzle holds decides among them: its one law, decided, or `some`
  * of its several, at least one of which the row broke.
  */
-const objectRefused = (laws: Arr.NonEmptyReadonlyArray<RefusedLaw>): Refused => {
+const objectRefused = (laws: Arr.NonEmptyReadonlyArray<RefusedLaw>): BrokenLaws => {
 	const [first, ...rest] = laws
 	const [second, ...more] = rest
 	return second === undefined
@@ -295,7 +295,10 @@ const objectRefused = (laws: Arr.NonEmptyReadonlyArray<RefusedLaw>): Refused => 
  * where no stated row breaks it or the host leaves one of its table's CHECKs unjudged; and for any other refusal the
  * laws its one object discharges that the statement can break, `broken`, decided where it is one.
  */
-const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<RefusedLaw>): Refused => {
+const refusedBy = (
+	laws: RefusedLaws,
+	broken: Arr.NonEmptyReadonlyArray<RefusedLaw>
+): BrokenLaws => {
 	switch (laws.kind) {
 		case "every":
 			return { kind: "every", laws: laws.laws }
@@ -390,7 +393,7 @@ export interface ReportedNames {
  */
 export type DomainRefusal =
 	| ({ readonly kind: "param" } & ServedParamDomain)
-	| { readonly kind: "laws"; readonly refused: Refused }
+	| { readonly kind: "laws"; readonly refused: BrokenLaws }
 
 /**
  * The refusal of a 23514 PostgreSQL reports on a domain of the installation in the schemas `laws` names (DomainRefusal):

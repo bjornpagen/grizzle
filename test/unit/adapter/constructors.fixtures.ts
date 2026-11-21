@@ -280,7 +280,7 @@ type Case =
 	  }
 	| {
 			readonly kind: "rejected"
-			readonly refused: Public.Refused
+			readonly refused: Public.BrokenLaws
 			readonly witness: Public.Witness
 	  }
 	| { readonly kind: "outside"; readonly relation: string }
@@ -329,14 +329,14 @@ const aboveLawGen: Gen<Public.AboveRefusedLaw> = (source) => ({
 	by: source.draw(refusingGen)
 })
 
-const refusedGen: Gen<Public.Refused> = (source) => {
+const refusedGen: Gen<Public.BrokenLaws> = (source) => {
 	const first = source.draw(refusedLawGen)
 	const second = source.draw(refusedLawGen)
 	const rest = source.draw(array(refusedLawGen, { min: 0, max: 2 }))
 	const above = source.draw(aboveLawGen)
 	const moreAbove = source.draw(array(aboveLawGen, { min: 0, max: 1 }))
 	return source.draw(
-		element<Public.Refused>([
+		element<Public.BrokenLaws>([
 			{ kind: "every", laws: [first, ...rest] },
 			{ kind: "first", laws: [first, ...rest] },
 			{ kind: "some", laws: [first, second, ...rest] },

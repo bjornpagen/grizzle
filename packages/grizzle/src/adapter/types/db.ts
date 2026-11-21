@@ -16,7 +16,7 @@ import type {
 	ServedShape,
 	ServedValue
 } from "#compiler/live/index.ts"
-import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
+import type { AnyChangeSet, BrokenLaws, Witness } from "#compiler/plan/change.ts"
 import type {
 	AnyRole,
 	AttestedFactsOf,
@@ -210,7 +210,7 @@ export interface ChangeExplain<X> {
 /**
  * What db.apply and a compiled ChangeSet's apply answer: the ChangeSet was accepted, with each written relation's counts
  * and the read-backs; it changed nothing; laws rejected it, `refused` saying which and how grizzle decided them
- * (types/changeset Refused), with the witness; or a fact it inserts or puts lies outside the written world relation. A
+ * (types/changeset BrokenLaws), with the witness; or a fact it inserts or puts lies outside the written world relation. A
  * rejection names `every` law grizzle decides refused it: each rule of a table's CHECKs a row you stated breaks, the
  * one law of any other object grizzle's statement or PostgreSQL names, or the laws one native object discharges
  * together where it cannot tell them apart, as a family's axis foreign key does every containment merged into it; and
@@ -231,7 +231,7 @@ export type ApplyOutcome<Reads> =
 	| { readonly kind: "no-change"; readonly reads: Reads }
 	| {
 			readonly kind: "invariant-rejected"
-			readonly refused: Refused
+			readonly refused: BrokenLaws
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside-world"; readonly relation: string }
@@ -251,7 +251,7 @@ export interface ApplyOutcomeConstructor {
 	): Extract<ApplyOutcome<Reads>, { readonly kind: "accepted" | "no-change" }>
 	/** A rejected application: the laws `refused` names and how grizzle decided them, with the `witness`. */
 	invariantRejected(
-		refused: Refused,
+		refused: BrokenLaws,
 		witness: Witness
 	): Extract<ApplyOutcome<never>, { readonly kind: "invariant-rejected" }>
 	/** An application a query entry refused: a fact its addition requested lies outside the world `relation`. */

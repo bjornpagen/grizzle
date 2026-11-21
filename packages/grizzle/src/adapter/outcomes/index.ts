@@ -15,7 +15,7 @@ import {
 	type WrittenAt
 } from "#adapter/witness/classify.ts"
 import type {
-	Refused,
+	BrokenLaws,
 	StatementAt,
 	UniqueAbort,
 	Witness,
@@ -29,7 +29,7 @@ import { outcomeKind, sqlstates } from "#compiler/plan/runtime.ts"
  * Two kinds of result leave a write transaction, and they stay distinct:
  *
  * - an outcome value: `accepted` or `no-change`, with counts and reads, released only after COMMIT succeeded;
- *   `invariant-rejected` with the laws it broke, decided as types/changeset Refused says, and its witness, or `outside-world` naming
+ *   `invariant-rejected` with the laws it broke, decided as types/changeset BrokenLaws says, and its witness, or `outside-world` naming
  *   the query entry an addition wrote outside of, each reported only after the failing transaction rolled back;
  * - a failure in the error channel: TransientFailure when a concurrent transaction's work met the transaction, the
  *   one retryable error, or an operational failure: EncodingFailure, TransportFailure, ExecutionFailure, or
@@ -81,7 +81,7 @@ import { outcomeKind, sqlstates } from "#compiler/plan/runtime.ts"
 export type Classified =
 	| {
 			readonly kind: "rejected"
-			readonly refused: Refused
+			readonly refused: BrokenLaws
 			readonly witness: Witness
 	  }
 	| { readonly kind: "outside"; readonly relation: string }

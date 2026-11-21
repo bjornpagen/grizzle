@@ -61,7 +61,7 @@ import {
 	type WireJson,
 	type WireScalar
 } from "#compiler/live/wire.ts"
-import type { Refused, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { BrokenLaws, Witness } from "#compiler/types/changeset/changeset.ts"
 
 /** An own member of a value the server holds, which its shape says it has: a defect where it has none. */
 const ownMember = (value: unknown, name: string): unknown => {
@@ -723,7 +723,7 @@ const hostDoor: InputDoor<WireJson, WireJson, WireJson, WireJson, WireJson> = {
 export const encodeInput = (input: WireInput<WireScalar>, value: unknown): Read<WireJson> =>
 	walkInput(hostDoor, input, value)
 
-/** Plain data (types/changeset Refused) as JSON: strings, finite numbers, booleans, arrays and plain records. */
+/** Plain data (types/changeset BrokenLaws) as JSON: strings, finite numbers, booleans, arrays and plain records. */
 const plainJson = (value: unknown): WireJson => {
 	if (typeof value === "string" || typeof value === "boolean") {
 		return value
@@ -1089,7 +1089,7 @@ const errorDecoders = (
 	refused: (r) =>
 		callError("refused", {
 			message: messageOf(r),
-			refused: trusted<Refused>(trustedMember(r, "refused")),
+			refused: trusted<BrokenLaws>(trustedMember(r, "refused")),
 			witness: decodeWitness(witness, trustedMember(r, "witness"), options)
 		}),
 	outsideWorld: (r) =>
@@ -1151,7 +1151,7 @@ export const slotDecoders = (
 	after: (json) => (json === null ? null : decodeKey(readOf(wire).key, json)),
 	outcome: (json) => decodeOutcome(wire, json, options),
 	error: (json) => decodeError(witness, json, options),
-	refused: (json) => trusted<Refused>(json),
+	refused: (json) => trusted<BrokenLaws>(json),
 	witness: (json) => decodeWitness(witness, json, options),
 	transientReason: (json) => trusted<TransientTag>(trustedString(json)),
 	credentialReason: (json) => trusted<CredentialReason>(trustedString(json)),
