@@ -40,7 +40,7 @@ export const compute = agreement(computeAimed, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/compute/compute.test.ts#compute:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.1.3.0.0.0.0"
+				"test/types/compute/compute.test.ts#compute:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.1.3.0.0.0.0"
 			),
 			reason:
 				"a cast of Cell's id into its own type, Type.cast(cell.id, Cell.fields.id), the id the tests' Id contract over uuid since 74d2ff677: the program names the contract's host type through Cell.fields.id, where the case died drawing it, no field of Cell named as the Id contract's (NEGZERO2's replay at main)",

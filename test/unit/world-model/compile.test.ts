@@ -133,7 +133,7 @@ export const theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsI
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.1.0.9.0.0.0.0.9.9.0.0.0.9.0.0.0.0.0.0.0.0.0.9.f.0.0.0.0.0.0.1.0.1.2.3q.0.0.0.0.0.0.1.0.0.1.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.1.1.0.0.0.1"
+					"test/unit/world-model/compile.test.ts#theWorldsModelsCompileRulesCompileAWriteExactlyWhereTheModelAdmitsItPastItsCompile:-:0.1.0.1.0.0.0.0.1.1.0.0.0.1.0.0.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.1.2.3q.0.0.0.0.0.0.1.0.0.1.1.0.0.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.0.0.0.1.1.0.0.0.1"
 				),
 				reason:
 					"an insert through View0 then its delete in a stratum of its own, both sides of View0's delta read back, by a session whose claims hold no Tenant, the context View0 fills its doc from: View0 fills nothing, so grizzle writes no statement of either and compiles, where the model took the two strata's ops for the two sides of Share's delta made apart (NEGZERO2's replay at 46905a719)",

@@ -314,7 +314,7 @@ export const provedRootPushdownGraphSeedPushdownOnGeneratedCasesAppliesAnOriginF
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/lower/graph.test.ts#provedRootPushdownGraphSeedPushdownOnGeneratedCasesAppliesAnOriginFilterOfEveryVertexTypeInTheSeed:-:3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					"test/unit/lower/graph.test.ts#provedRootPushdownGraphSeedPushdownOnGeneratedCasesAppliesAnOriginFilterOfEveryVertexTypeInTheSeed:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 				),
 				reason: "an origin filter over float8",
 				since: "2026-10-29"
@@ -368,7 +368,7 @@ export const provedRootPushdownGraphSeedPushdownOnGeneratedCasesFiresOnNothingEl
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/lower/graph.test.ts#provedRootPushdownGraphSeedPushdownOnGeneratedCasesFiresOnNothingElse:-:3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
+					"test/unit/lower/graph.test.ts#provedRootPushdownGraphSeedPushdownOnGeneratedCasesFiresOnNothingElse:-:1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0"
 				),
 				reason: "walks under a minimum length",
 				since: "2026-10-29"

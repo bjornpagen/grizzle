@@ -59,7 +59,7 @@ export const aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRe
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/laws/model/probed-target.test.ts#aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRedundantPairAUniqueIndexPerReferencedSetAndNoneBeyondTheKeysAndReferencesNoMoreObjectsThanTheImpliedKeysRestatedAConstantOnlyWhereItSavesOneAndReportsAKeyEveryDuplicateBreaks:-:1.0.0.2.0.1.0.0.2.0.1.3.0.0.0.1.0.4.0.2.0.4.1.1.1.0"
+					"test/unit/laws/model/probed-target.test.ts#aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRedundantPairAUniqueIndexPerReferencedSetAndNoneBeyondTheKeysAndReferencesNoMoreObjectsThanTheImpliedKeysRestatedAConstantOnlyWhereItSavesOneAndReportsAKeyEveryDuplicateBreaks:-:1.0.0.2.0.1.0.0.2.0.1.3.0.0.0.1.0.2.0.2.0.2.1.1.1.0"
 				),
 				reason:
 					"Two targets fixing kind = 2 over (a, b), K on (a, kind) over select(T, c = 1), and probes out of K's selection over (id, a, b) and (a, b): the superkey (a, b, kind) leads the (a, b) probe, but the engine's index for the (id, a, b) probe leads with (a, b) too, so the superkey saves no B-tree and its two constants cost one more object than the targets' own columns. The choice counted each unserved probe a B-tree of its own until probeIndexes, and K alone planned 20 objects to the restated keys' 19 (rotating case 166)",
@@ -67,7 +67,7 @@ export const aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRe
 			},
 			{
 				token: ReplayToken(
-					"test/unit/laws/model/probed-target.test.ts#aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRedundantPairAUniqueIndexPerReferencedSetAndNoneBeyondTheKeysAndReferencesNoMoreObjectsThanTheImpliedKeysRestatedAConstantOnlyWhereItSavesOneAndReportsAKeyEveryDuplicateBreaks:-:0.0.0.1.0.2.1.1.0.0.1.0.0.0.2.3.0.0.1.1.1.4.2.0.0"
+					"test/unit/laws/model/probed-target.test.ts#aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRedundantPairAUniqueIndexPerReferencedSetAndNoneBeyondTheKeysAndReferencesNoMoreObjectsThanTheImpliedKeysRestatedAConstantOnlyWhereItSavesOneAndReportsAKeyEveryDuplicateBreaks:-:0.0.0.1.0.2.1.1.0.0.1.0.0.0.2.1.0.0.1.1.1.2.2.0.0"
 				),
 				reason:
 					"K on a over every row, two targets fixing kind = 1 over (a, b) and (a), one fixing kind = 0 over (b, a), and probes out of select(T, kind = 0) over (a, b) and out of every row over (b): the targets over (a, b) and (b, a) share one superkey column set, which the law model installs once, in the first target's order (a, b, kind), so it leads no (b) probe. The choice read each landing's own order, priced (b, a, kind) as serving the (b) probe, took every superkey at a tie, and K alone planned 19 objects to the restated keys' 18 (rotating case 165, TEST_SEED=20261115)",

@@ -41,7 +41,7 @@ export const attachments = agreement(attachAimed, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/evidence/attachments.test.ts#attachments:-:9.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.2.0.1.0.1.1.1.1.1.2"
+				"test/types/evidence/attachments.test.ts#attachments:-:4.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.2.0.1.0.1.1.1.1.1.2"
 			),
 			reason:
 				"a self-join parent, peer's match binding `id: own.id`, and a child stated one that counts Task at `id: p.id` under `r.le(child.account, p.peerAccount)`: the engine proves it from peer's scan, whose fact holds both p.id and p.peerAccount, where the types gave p.id an origin in own's scope alone and found the child's parent variables of two scopes (a full test/types run at 463e57274)",

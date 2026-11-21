@@ -509,7 +509,7 @@ export const relationNormalizationRefusesAColumnWhoseLiteralWouldPassTheStringBo
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/codec/recordset.test.ts#relationNormalizationRefusesAColumnWhoseLiteralWouldPassTheStringBoundNamingItAndWritesEveryLiteralWithinIt:-:0.0.5"
+					"test/unit/codec/recordset.test.ts#relationNormalizationRefusesAColumnWhoseLiteralWouldPassTheStringBoundNamingItAndWritesEveryLiteralWithinIt:-:0.0.2"
 				),
 				reason:
 					"a column's literal of no row, its braces alone, was written past a bound one short of it",

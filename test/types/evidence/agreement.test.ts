@@ -72,7 +72,7 @@ export const evidence = agreement(agreementCases, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#evidence:-:1m.2.3.a.3.b.c.4.7.8.1.a.b.7.2.6.3.d.2.g.7.0.b.1.2.6.7.5.c.e.8.1.f.2.2.4.e.a.4.8.8.7.9.1.5.d.7.h.d.2.7.f.1.h.h.d.f.3.d.8.2.d.4.6.a.1.0.0.6.3.6.3.0.0.2.1.1.2.1.0.1.0.2.6.2.0.2.0.1.0.0.0.6.2.3.1.1.2.3.2.1.2.1.1.2.5.1.1.2.4.1"
+				"test/types/evidence/agreement.test.ts#evidence:-:1m.2.1.2.1.2.2.1.1.2.0.2.2.1.0.1.1.3.0.3.1.0.2.0.0.1.1.1.2.3.2.0.3.0.0.1.3.2.1.2.2.1.2.0.1.3.1.3.3.0.1.3.0.3.3.3.3.1.3.2.2.3.1.1.2.1.0.0.4.2.4.2.0.0.1.1.1.2.1.0.1.0.1.4.2.0.1.0.1.0.0.0.6.2.1.1.1.1.3.2.1.2.1.1.2.5.0.1.1.4.1"
 			),
 			reason:
 				"a rule fixing Slot's key by a constant item and r.allen(slot.during, ALLEN.converse(ALLEN.equals), a span parameter): the engine proves get, an equality its equals mask lowers to, where the types read every mask as stating nothing (TEST_SEED=2458598146)",
@@ -80,7 +80,7 @@ export const evidence = agreement(agreementCases, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#evidence:-:13.2.6.2.6.c.3.2.1.d.6.c.1.7.h.a.6.6.8.g.8.9.f.4.2.3.3.2.b.h.f.f.9.3.a.2.4.f.9.1.f.0.6.h.g.a.a.0.9.6.a.9.c.0.6.5.e.a.9.g.2.6.h.f.h.1.0.2.1.1.0.0.4.1.0.0.0.6.4.0.3.0.0.0.1.1.3.3.0.1.0.0.1.1.2.2.1.4.3.2.1.0.0.1.1.1.1.0.2.2.4.0.0.1.0.1.2.t.1.1.9.c.1.3.1.4.0.0.a.2.2.2.0.2.2.0.0.5.1.0.1.0.0.0.0.0.1.2"
+				"test/types/evidence/agreement.test.ts#evidence:-:13.2.1.0.1.2.1.0.0.3.1.2.0.1.3.2.1.1.2.3.2.2.3.1.0.1.1.0.2.3.3.3.2.1.2.0.1.3.2.0.3.0.1.3.3.2.2.0.2.1.2.2.2.0.1.1.3.2.2.3.0.1.3.3.3.0.0.1.1.1.0.0.3.1.0.0.0.6.3.0.2.0.0.0.1.1.3.2.0.0.0.0.1.1.1.1.0.3.3.1.1.0.0.1.0.1.1.0.1.2.2.0.0.0.0.0.1.t.1.1.9.c.1.1.1.4.0.0.a.1.2.1.0.2.1.0.0.5.1.0.1.0.0.0.0.0.1.2"
 			),
 			reason:
 				"a union of three rules of constants, h0 low throughout and b y, x, x, two rules alike: the engine keys it by b, the fields its rules do not all fix alike, where the types, which required every two rules told apart, keyed it by its whole heading (TEST_SEED=1635200356)",
@@ -88,7 +88,7 @@ export const evidence = agreement(agreementCases, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#evidence:-:c.0.a.9.1.h.7.1.7.d.g.8.c.g.2.a.1.5.b.4.a.3.b.4.8.1.b.f.4.3.d.7.b.7.e.6.3.5.g.b.0.f.e.5.e.a.3.7.3.a.5.a.0.1.e.0.3.3.0.d.7.9.b.7.f.0.0.1.2.2.3.3.0.4.1.2.0.1.2.0.2.0.0"
+				"test/types/evidence/agreement.test.ts#evidence:-:c.0.0.0.0.3.0.0.0.0.2.0.0.2.2.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.2.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.2.2.3.3.0.4.1.2.0.1.2.0.2.0.0"
 			),
 			reason:
 				"a union of three rules of constants, d z, y, x and b x, z, z: the engine keeps d alone, which tells all three apart, and drops b, the first separator of two pairs that d tells apart too, so the union is keyed by d, not by b and d",
@@ -96,7 +96,7 @@ export const evidence = agreement(agreementCases, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#evidence:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.1.0.0.1.0.0"
+				"test/types/evidence/agreement.test.ts#evidence:-:0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.5.0.0.1.0.0.1.0.0"
 			),
 			reason:
 				"ToneWeight matched with a flag fixing its tone by p0 or its weight by p1, its tone in the head: the engine proves at most one row under both readings, its weights distinct, where the types, which read its declared key, the tone, prove many under the weight's; the declared class, a closed relation's column of distinct constant values (TEST_SEED=669114265)",
@@ -136,7 +136,7 @@ export const faults = agreement(faultCases, {
 	kept: [
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#faults:-:6.h.0.b.2.4.0.9.2.h.f.2.b.c.6.9.d.0.8.7.1.0.3.1.2.1.f.a.c.4.6.2.h.7.f.5.d.9.6.a.4.e.d.2.0.2.9.5.e.4.d.d.e.7.b.h.c.8.e.d.0.7.b.9.b.5.1.0.0.3.0.2.3.0.3.0.3.1.2.1.1.0.3.2.0.1.2.1.1.3.1.1.0.0"
+				"test/types/evidence/agreement.test.ts#faults:-:6.h.0.0.0.0.0.0.0.3.1.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.3.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.2.1.0.1.0.1.1.1.1.1.0.3.1.0.1.2.1.1.1.1.1.0.0"
 			),
 			reason:
 				"a union of two rules whose constant heads differ at four fields, three of them roster handles: the types keyed it by each of the four, where the engine keeps the first in heading order, d (TEST_SEED=1635200356)",
@@ -144,7 +144,7 @@ export const faults = agreement(faultCases, {
 		},
 		{
 			token: ReplayToken(
-				"test/types/evidence/agreement.test.ts#faults:7fffffff.11:0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.1.0.0.0.0.0.0"
+				"test/types/evidence/agreement.test.ts#faults:7fffffff.11:0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0"
 			),
 			reason:
 				"a Reader query over Item binding its cost, a Cents contract that declares nonnegative, to a parameter: its map's entry is ParamType of the contract's domain, its brand and declared fact with it, where the oracle wrote the plain base's, bigint, once a contract's descriptor held its carrier and contract alone (011a72711) and its domain was read off the base (test/support/agreement/heading.ts paramDomain)",

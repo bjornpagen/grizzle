@@ -88,7 +88,7 @@ export const aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEve
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/page/request.test.ts#aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor:-:0.0.0.0.1.0.0.1.0.0.1.0.1.1.0.7.0.0.0.0.0.0.0.0"
+					"test/unit/page/request.test.ts#aWindowAdmitsExactlyAnAnchorAndASizeAsItsTemplatesCallAndRefusesEveryOtherWindowByItsMembersItsSizeOrItsAnchor:-:0.0.0.0.1.0.0.1.0.0.1.0.1.1.0.2.0.0.0.0.0.0.0.0"
 				),
 				reason:
 					"a window whose key holds one value more than its comparators, which must be refused",

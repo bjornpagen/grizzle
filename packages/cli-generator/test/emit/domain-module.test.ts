@@ -99,7 +99,7 @@ export const domainModule = property.explore(caseGen, {
 	kept: [
 		{
 			token: ReplayToken(
-				"packages/cli-generator/test/emit/domain-module.test.ts#domainModule:-:0.5.4.0.0.0.0.3.0.0.3.5.0.0.3.0.0.0.0.7.0.1.0.7.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+				"packages/cli-generator/test/emit/domain-module.test.ts#domainModule:-:0.5.4.0.0.0.0.1.0.0.1.3.0.0.3.0.0.0.0.5.0.1.0.5.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
 			),
 			reason:
 				"a type alias past column 100 of a union hugging null, `ReadonlyArray<User> | null`: the formatter moves it under the `=` as it moves `ReadonlyArray<User>`, where the module printed it on the `=` line (found by the rotating stream at TEST_SEED=1484871236)",

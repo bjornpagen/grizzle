@@ -89,14 +89,14 @@ export const splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyA
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:2.0.1.0.g.0.5.0.0.0.0.0.0.0"
+					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:2.0.1.0.8.0.5.0.0.0.0.0.0.0"
 				),
 				reason: "a dollar quote tagged ß split at its semicolon",
 				since: "2026-10-29"
 			},
 			{
 				token: ReplayToken(
-					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:1.0.1.0.i.0.0.0.1.0"
+					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:1.0.1.0.9.0.0.0.1.0"
 				),
 				reason:
 					"an empty quoted identifier ends no reading: its statement ends at the semicolon after it",
@@ -104,7 +104,7 @@ export const splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyA
 			},
 			{
 				token: ReplayToken(
-					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:1.0.1.a.1.0.c.1.0.1.0.1.c.0.0.0.1.0"
+					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:1.0.1.1.1.0.6.1.0.1.0.1.c.0.0.0.1.0"
 				),
 				reason:
 					"an escape string continued across a newline reads its later segment's \\' as an escaped quote",
@@ -112,7 +112,7 @@ export const splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyA
 			},
 			{
 				token: ReplayToken(
-					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:1.0.1.0.0.3.0.0.1.1.5"
+					"test/unit/deploy/split.test.ts#splittingANoTransactionFileIntoItsStatementsGeneratedSplitsExactlyAtTheSemicolonsThatEndStatements:-:1.0.1.0.0.3.0.0.1.1.2"
 				),
 				reason:
 					"an escape string continued across a newline never closes at a quote its backslash escapes",
@@ -202,7 +202,7 @@ export const aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenI
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/deploy/split.test.ts#aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenItHoldsTheDraftsTokensEachPlaceholderFilledByABalancedRun:-:0.4.7.0.5.0.0.7.7.0.0.0.3.1"
+					"test/unit/deploy/split.test.ts#aReviewedStatementReadAgainstItsDraftIsWrittenAsDraftedExactlyWhenItHoldsTheDraftsTokensEachPlaceholderFilledByABalancedRun:-:0.4.1.0.2.0.0.1.1.0.0.0.3.1"
 				),
 				reason:
 					"an edited token the placeholders around it absorb: 1 x 1 f(a) fills them with 1 x, f and (a)",

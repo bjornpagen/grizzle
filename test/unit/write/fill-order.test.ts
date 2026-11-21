@@ -95,7 +95,7 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchema
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchemasCompileExactlyWhereTheReferenceModelAdmitsThemAndThenWrite:-:0.2.0.8.3.3.0.0.0.3.0.d.0.2.0.0.0.3.2.0.1.0.0.2.1.3.0.2.3.1.0.0.1.0.1.1.1.0.1.0.1.0.0.1.0.0.1.0"
+					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsDrawnSchemasCompileExactlyWhereTheReferenceModelAdmitsThemAndThenWrite:-:0.2.0.2.1.1.0.0.0.1.0.3.0.2.0.0.0.3.1.0.1.0.0.2.1.2.0.2.3.1.0.0.1.0.1.1.1.0.1.0.1.0.0.1.0.0.1.0"
 				),
 				reason:
 					"a follow-up the schedule refuses as UnorderableStratum, its cycle the schema's own: R1's put and R2's insert, R1 naming R2 by an immediate owner axis and R2 copying R1's drawn index and copy",
@@ -161,7 +161,7 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFi
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem:-:2.1.0.0.0.c.0.0.0.f.9.0.f.3.0.0.0.0.2.0.2.1.1.0.0.2.0.0.1.1.0.1.0.0.0.0.0.0.0.0"
+					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem:-:2.1.0.0.0.2.0.0.0.3.1.0.3.3.0.0.0.0.2.0.2.1.1.0.0.2.0.0.1.1.0.1.0.0.0.0.0.0.0.0"
 				),
 				reason:
 					"an immutable owner's family read through a generated field: R0, immutable, generates g from its count of R1's counted family, R1, immutable, copies g along the owner axis and the family's sum steps that copy; the instance's insert of R0 and R1 together compiles, and R1's put refills nothing, an immutable owner's family being fixed when its owner is inserted, where both were refused as a refill of R1's rows (StaleDerivedRead, immutable)",
@@ -169,7 +169,7 @@ export const theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFi
 			},
 			{
 				token: ReplayToken(
-					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem:-:0.2.0.0.3.d.0.0.0.d.3.0.3.2.0.0.0.4.0.0.0.0.0.0.0.0.1.0.0.0.1.1.1.3.1.2.1.0.1.0.0.0.0.0"
+					"test/unit/write/fill-order.test.ts#theFillOrderASchemaGenerateAcceptsIsOneEveryWriteOfFillsGeneratedFieldsReadingDrawnOrAccumulatedFieldsCompileExactlyWhereTheReferenceModelAdmitsThem:-:0.2.0.0.1.3.0.0.0.3.1.0.1.2.0.0.0.4.0.0.0.0.0.0.0.0.1.0.0.0.1.1.1.3.1.1.1.0.1.0.0.0.0.0"
 				),
 				reason:
 					"a mutable owner's family read through a generated field: R1, mutable, generates g from its count n3 of R2's counted family F3, R2 copies g along F3's owner axis into c0 and F3's sum s3 steps c0; an append to F3 changes c0 on every member, which F3's additions draw whole from slot 0 at the new count (ir/fill.ts AppendStart), so the instance's insert of R0, R1 and R2 together compiles, where it was refused as a recount reaching F3's own fold (StaleDerivedRead, edit)",

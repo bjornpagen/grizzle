@@ -169,7 +169,7 @@ export const generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGenerat
 			kept: [
 				{
 					token: ReplayToken(
-						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:100.8:0.2.5.1.1.1.0.d.1.0.2.0.0.0.0.4.0.0.0.1.0.2.0.1.0.2.1.1.4.3.0.7.0.0.1.1.5.6.4.0.0.1.3.1.1.4.6.9.e.3.193r.1bb7.3.6tj.5fh.2.17yx.26l.2.5nq.joz.6.qhc.qcx.5.1ebv.6"
+						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:100.8:0.2.5.1.1.1.0.d.1.0.2.0.0.0.0.1.0.0.0.1.0.2.0.1.0.2.1.1.1.3.0.2.0.0.1.1.1.6.4.0.0.1.3.1.1.4.6.9.e.3.193r.1bb7.3.6tj.5fh.2.17yx.26l.2.5nq.joz.6.qhc.qcx.5.1ebv.6"
 					),
 					reason:
 						"a counter stepping by -3 toward a bound near smallint's minimum reaches the minimum, from where its next step leaves smallint: once admitted with 131116 states per vertex, and the reference's fixpoint over them ran for an hour",
@@ -177,7 +177,7 @@ export const generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGenerat
 				},
 				{
 					token: ReplayToken(
-						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:-:g.0.0.0.0.0.0.0.0.0.5.0.1.1.1.1.0.1.0.0.0.0.0"
+						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:-:3.0.0.0.0.0.0.0.0.0.5.0.1.1.1.1.0.1.0.0.0.0.0"
 					),
 					reason:
 						"plants a fixpoint at its estimate: a counter stepping by 1 to a literal bound, with a mark switch, over a self-loop",
@@ -185,7 +185,7 @@ export const generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGenerat
 				},
 				{
 					token: ReplayToken(
-						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:10.4:0.1.0.0.0.0.0.0.0.0.4.1.0.0.0.2.0.0.0.1.0.0.1.1.0.1.0.0.0.0.0"
+						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:10.4:0.1.0.0.0.0.0.0.0.0.1.1.0.0.0.2.0.0.0.1.0.0.1.1.0.1.0.0.0.0.0"
 					),
 					reason:
 						"plants a carrier overflow at a literal bound: a counter stepping by 3 below smallint's maximum less one, which the drawn guards reach a few times a run",
@@ -193,7 +193,7 @@ export const generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGenerat
 				},
 				{
 					token: ReplayToken(
-						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:-:f.1.1.0.0.0.0.4.1.0.0.0.0.1.1.0.3.0.0.0.0.0.4.1.0.0.0.0.1.1.0.3.0.0.0.0.0.0.1.1.2.0.0.3.pa8.pa8.1.pa8.0.0.0.pa8.2.pa8.0"
+						"test/unit/recursion/certificates.test.ts#generatedRecursionsAgainstTheTerminationProofRulesGivesEveryGeneratedDefinitionTheVerdictFamilyAndEstimateTheRulesGiveItAndNoVertexMoreStatesThanTheEstimateAtTheFixpoint:-:2.1.1.0.0.0.0.1.1.0.0.0.0.1.1.0.3.0.0.0.0.0.1.1.0.0.0.0.1.1.0.3.0.0.0.0.0.0.1.1.2.0.0.3.pa8.pa8.1.pa8.0.0.0.pa8.2.pa8.0"
 					),
 					reason:
 						"two arms read an edge's cost and the cost plus one into t, and a vertex entered by edges of costs 1 and -1 holds 7 states, which the estimate, counting t's data once, puts at 6: the fixpoint compared a vertex with the data once",

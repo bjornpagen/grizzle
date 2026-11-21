@@ -249,7 +249,7 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/compute/transformed-guard.test.ts#aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenTheBoundItsOperationsProveAndTheirLanguageFitIt:-:6.5.0.0.0.1.5.0.0.0.0"
+					"test/unit/compute/transformed-guard.test.ts#aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenTheBoundItsOperationsProveAndTheirLanguageFitIt:-:1.5.0.0.0.1.2.0.0.0.0"
 				),
 				reason:
 					"qti-pie's key: lowerAscii(collapse(x)) over x of at most 2587 bytes, stored in a generated field of that type, which the collapse and the case fold each keep within x's bound",
@@ -281,7 +281,7 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 			},
 			{
 				token: ReplayToken(
-					"test/unit/compute/transformed-guard.test.ts#aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenTheBoundItsOperationsProveAndTheirLanguageFitIt:-:0.1.0.0.0.1.2.2.4.0.8.0.0.2.0.0"
+					"test/unit/compute/transformed-guard.test.ts#aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenTheBoundItsOperationsProveAndTheirLanguageFitIt:-:0.1.0.0.0.1.1.2.4.0.8.0.0.2.0.0"
 				),
 				reason:
 					'a full run\'s draw: translate(collapse(x), " a", "éa") over x of at most 1 byte of every character, whose collapse holds no space, so the translation keeps 1 byte and a cast 1 byte below it is refused; an oracle that reads the bounded collapse\'s middle where its count leaves it no room bounds it at 2 and refuses the cast into 1 byte',

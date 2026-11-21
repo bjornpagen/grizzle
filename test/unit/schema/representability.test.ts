@@ -615,7 +615,7 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 			kept: [
 				{
 					token: ReplayToken(
-						"test/unit/schema/representability.test.ts#giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsScalarKeysAndTheSpanAndRefusesAKeyWithTwoSpanFields:-:2.3.4.3.4.1.pa8.0"
+						"test/unit/schema/representability.test.ts#giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsScalarKeysAndTheSpanAndRefusesAKeyWithTwoSpanFields:-:2.1.4.1.4.1.pa8.0"
 					),
 					reason: "the span between two text fields",
 					since: "2026-10-29"

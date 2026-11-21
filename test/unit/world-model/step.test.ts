@@ -139,7 +139,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.1.0.9.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.9.9.0.1.0.0.0.0.2.0.0.0.0.1.9"
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.1.0.0.0.0.2.0.0.0.0.1.9"
 				),
 				reason:
 					"a check added on Doc under beta, which reads Doc whole: Structure adds the check NOT VALID and keeps beta's view over Doc's unchanged columns, Validate validates the check, and no Publish file follows",
@@ -147,7 +147,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 			},
 			{
 				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:4.0.f.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.0.0.0.0.1.0.0.0.0.0.1.1"
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:4.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.1.0.0.0.0.0.1.1"
 				),
 				reason:
 					"a key added on Doc beneath alpha's view of the derived OrgDocs: the derived relation's keys, its materialized view's unique indexes, change no world object, so the folder drafts the index and its comment and no Structure",
@@ -163,7 +163,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 			},
 			{
 				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:o.2.3.3.3.0.3.8.8.0.3.3.0.3.0.0.0.0.0.3.3.0.3.3.3.3.0.3.3.3.0.1.0.0.0.0.0.1.0.3.0.0.1.0.0.0.0.0.0.0.0.0.0.0.2.0.0.0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6"
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:o.2.1.1.1.0.1.2.2.0.1.1.0.1.0.0.0.0.0.1.1.0.1.1.1.1.0.1.1.1.0.1.0.0.0.0.0.1.0.3.0.0.1.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.6"
 				),
 				reason:
 					"a key added on Note(doc) under beta's query view over a Note of one literal doc: the compile now proves the arm's rows unique by it, a proof that prints nothing, so the view prints the same statement and is kept",
@@ -171,7 +171,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 			},
 			{
 				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:6.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.f.0.f.0.f.0.0.0.1.0.2.8.0.0.0.0.2.0.0.0.0.1.6"
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:6.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.1.0.0.0.1.0.1.8.0.0.0.0.1.0.0.0.0.1.6"
 				),
 				reason:
 					"a key added on Note(doc) under alpha's query view: the compile drops the view's DISTINCT by it, so the view's statement changes and Structure creates it again, which the model reads off the compiled statement",
@@ -179,7 +179,7 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 			},
 			{
 				token: ReplayToken(
-					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:k.1.0.9.0.0.9.0.0.0.0.0.0.0.0.9.0.9.0.0.0.0.0.0.c.0.0.0.9.0.0.0.1.0.0.0.0.1.0.0.0.0.0.4.0.0.f.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0"
+					"test/unit/world-model/step.test.ts#theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumberGrizzlesGenerateDraftsThem:-:k.1.0.1.0.0.1.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.0.2.0.0.0.1.0.0.0.1.0.0.0.0.1.0.0.0.0.0.4.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0"
 				),
 				reason:
 					"alpha's query view of OrgDocs reads a literal doc where it read any: Structure drops the view, creates it again and grants it right there, and no Publish file follows, alpha's other grants standing",

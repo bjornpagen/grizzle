@@ -274,7 +274,7 @@ export const computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheIm
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/compute/translate.test.ts#computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheImageOfItsOperandsLanguage:-:0.g.0.0.1.0.1.3.0.1.0.1.2.0.2.0.1"
+					"test/unit/compute/translate.test.ts#computesTranslateAndLowerAsciiTypesATranslationAsTextOfExactlyTheImageOfItsOperandsLanguage:-:0.3.0.0.1.0.1.3.0.1.0.1.2.0.2.0.1"
 				),
 				reason:
 					"a code point and a chain whose own image fits the depth measure and whose exact image, eight arcs deeper for the prefix and the suffix it writes out, passes it; the measure keeps half of PostgreSQL's measured stack edge free, so PostgreSQL itself still compiles that image: the pattern's own image types the term",

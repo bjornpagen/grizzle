@@ -85,7 +85,7 @@ export const aContainmentIntoAKeyShapedConjunctionOfStoredRelationsLowersToOneDe
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/laws/lowered-rules.test.ts#aContainmentIntoAKeyShapedConjunctionOfStoredRelationsLowersToOneDeferredForeignKeyPerMatchExactlyWhenItsDefinitionMeetsTheSevenConditionsAndTheConservativeInstallationKeepsTheRuleForTheJudgeUnderTheSameLaw:-:1.2.1.1.0.0.7.0.0.0.7.0.6.0.0.0.0"
+					"test/unit/laws/lowered-rules.test.ts#aContainmentIntoAKeyShapedConjunctionOfStoredRelationsLowersToOneDeferredForeignKeyPerMatchExactlyWhenItsDefinitionMeetsTheSevenConditionsAndTheConservativeInstallationKeepsTheRuleForTheJudgeUnderTheSameLaw:-:1.2.1.1.0.0.3.0.0.0.3.0.2.0.0.0.0"
 				),
 				reason:
 					"Two matches of R1 keyed by id, each binding id to the first head term: R1(id = x, a = y, k = v) and R1(id = x, a = v, k = 7), v fixed to a literal by a condition. Both lower to a foreign key from S into R1 over (id, a, k), from (x, y, the constant of v) and from (x, the constant of v, the constant of 7), so a match's key told by its target, its leading paired column and its referenced columns alone was either; the oracle took the first match's key for the second's and read y as its constant column (TEST_SEED=2391469403, rotating case 92)",

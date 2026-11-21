@@ -283,7 +283,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/kernel/naming.test.ts#productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlternativesExpansionCheckedContractAndTextDomainEachNamedByTheDoorsRule:-:3.2.1.0.0.1.1.0"
+					"test/unit/kernel/naming.test.ts#productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlternativesExpansionCheckedContractAndTextDomainEachNamedByTheDoorsRule:-:1.2.1.0.0.1.1.0"
 				),
 				reason:
 					"two contracts of one definition, the first column's named after the second's: the domain's CHECK names both contracts' laws, in code point order, never the first use's alone",
