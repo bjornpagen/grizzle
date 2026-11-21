@@ -20,7 +20,8 @@ import {
 	generatedTypeRule,
 	generatedVolatilityRule,
 	keyGeneratedRule,
-	rowNode
+	rowNode,
+	type UnwrittenRead
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
@@ -249,6 +250,26 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 	return new Map(
 		[...role.writes].flatMap(([name, w]) => (inside(w) ? [[name, checkedWrite(w)] as const] : []))
 	)
+}
+
+/**
+ * What a key generation may not read of the field `f` (check/generated.ts keyGeneratedRule): its writing where grizzle
+ * or the database writes it, drawn, accumulated, retirement, place or the clock's instant; none for one its caller
+ * writes, an instant it states as it read it (instant.stored) among them, whose value the caller holds as a key head,
+ * or a generated one, which generatedRule refuses first.
+ */
+const unwrittenRead = (f: OwnedField): UnwrittenRead | undefined => {
+	switch (f.writing.kind) {
+		case "drawn":
+		case "accumulated":
+		case "retirement":
+		case "place":
+		case "instant":
+			return f.writing.kind
+		case "caller":
+		case "generated":
+			return undefined
+	}
 }
 
 /** Where a generated field's refusal is: the field of its relation. */
@@ -607,29 +628,21 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		)
 		const isGenerated = (f: string): boolean => generated.has(f)
 		const keyed = new Set<string>(r.desc.primaryKey)
-		/** The writing of a field grizzle writes, which no key generation reads: none for a caller's, or a generated one,
-		 * which generatedRule refuses first. */
-		const unwritten = (field: string) => {
-			const f = r.fields[field]
-			switch (f?.writing.kind) {
-				case "drawn":
-				case "accumulated":
-				case "retirement":
-				case "place":
-				case "instant":
-					return f.writing.kind
-				case "caller":
-					return isInstantDesc(f.desc) ? "instant" : undefined
-				case "generated":
-				case undefined:
-					return undefined
-			}
-		}
+		/** Each field of r a key generation may not read, by name, with its writing (unwrittenRead); a read of any other
+		 * name is no field this rule judges. */
+		const unwritten = new Map<string, UnwrittenRead>(
+			Object.values(r.fields).flatMap((f) => {
+				const writing = unwrittenRead(f)
+				return writing === undefined ? [] : [[f.name, writing] as const]
+			})
+		)
 		for (const f of Object.values(r.fields).toSorted(mapInput(compareStrings, (x) => x.name))) {
 			const broken =
 				f.writing.kind === "generated"
 					? (generatedRule(f.writing.expr, isGenerated) ??
-						(keyed.has(f.name) ? keyGeneratedRule(f.writing.expr, unwritten) : undefined))
+						(keyed.has(f.name)
+							? keyGeneratedRule(f.writing.expr, (read) => unwritten.get(read))
+							: undefined))
 					: undefined
 			if (broken !== undefined) {
 				generatedRefused(r, f.name, broken)

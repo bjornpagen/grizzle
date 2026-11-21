@@ -121,7 +121,10 @@ export const generatedRule = (
 }
 
 /** The writings a key generation may not read: every one but its caller's, each a field grizzle writes. */
-type UnwrittenRead = Extract<GeneratedRule, { readonly kind: "keyReadsUnwritten" }>["writing"]
+export type UnwrittenRead = Extract<
+	GeneratedRule,
+	{ readonly kind: "keyReadsUnwritten" }
+>["writing"]
 
 /**
  * Why the generation expression `expr` of a field its relation's primary key holds (law.ts FieldWriting keyGenerated)
