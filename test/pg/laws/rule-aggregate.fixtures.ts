@@ -736,7 +736,9 @@ const shapeGen =
 					? s.draw(element(["matched", "under"] as const))
 					: aim === "negated"
 						? s.draw(element(["direct", "matched"] as const))
-						: s.draw(element(["direct", "matched", "under", "absent"] as const))
+						: aim === "scored" || aim === "intoFact"
+							? s.draw(element(["direct", "matched", "under"] as const))
+							: s.draw(element(["direct", "matched", "under", "absent"] as const))
 		const direct = reading === "direct"
 		const drawnNegation =
 			aim === "negated"
@@ -768,7 +770,7 @@ const shapeGen =
 				case "into":
 					return {
 						kind: "into",
-						fact: aim === "intoFact" || aim === "scored" || (keepsFold && s.draw(boolean))
+						fact: keepsFold && (aim === "intoFact" || aim === "scored" || s.draw(boolean))
 					}
 				case "out":
 					return { kind: "out" }
