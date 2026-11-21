@@ -1177,6 +1177,7 @@ const compilerRefusal = (refusal: CliError): Option.Option<CompileError> => {
 		case "SnapshotForeign":
 		case "ChainRefused":
 		case "RosterReordered":
+		case "UpgradeRefused":
 			return Option.none()
 	}
 }

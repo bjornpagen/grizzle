@@ -10,12 +10,13 @@ import {
 	type SwitchFlag,
 	type ValuedFlag
 } from "#cli/errors.ts"
-import { DeclarationRefused, noDeclarations, parseDeclarations } from "#cli/renames.ts"
+import { DeclarationRefused, parseDeclarations } from "#cli/renames.ts"
 import {
 	type Declarations,
 	type FolderNaming,
 	maxMigrationNameLength,
 	type MigrationName,
+	noDeclarations,
 	parseMigrationName
 } from "#compiler/plan/migration.ts"
 
@@ -29,6 +30,7 @@ import {
  *     grizzle check <config>
  *     grizzle migrate <config>
  *     grizzle drift <config>
+ *     grizzle upgrade <config>
  *     grizzle names <config>
  *     grizzle roles <config>
  *     grizzle uninstall <config>
@@ -67,6 +69,7 @@ type Command =
 	| { readonly kind: "check" }
 	| { readonly kind: "migrate" }
 	| { readonly kind: "drift" }
+	| { readonly kind: "upgrade" }
 	| { readonly kind: "names" }
 	| { readonly kind: "roles" }
 	| { readonly kind: "uninstall" }
@@ -87,6 +90,9 @@ export const usageText = `Usage:
       apply pending migrations
   grizzle drift <config>
       does the database match the snapshot? (applies nothing)
+  grizzle upgrade <config>
+      rebase the live installation onto this grizzle's format: its snapshot again, or an
+      upgrade migration (applies nothing)
   grizzle names <config>
       each hashed object's PostgreSQL name and what it is
   grizzle roles <config>
@@ -95,8 +101,8 @@ export const usageText = `Usage:
       drop the installation's schemas, with every row they hold, and its roles
 
 <config> is the configuration file, whose default export is defineConfig({ ... }): an absolute path, or
-one relative to the directory grizzle runs in. migrate, drift, roles and uninstall connect with the
-configuration's connection only.
+one relative to the directory grizzle runs in. migrate, drift, upgrade, roles and uninstall connect with
+the configuration's connection only.
 
 Options of generate, as --flag value or --flag=value, anywhere after the command:
   --custom          an empty folder for data steps, named by --name
@@ -291,6 +297,7 @@ export const parseArgs = (argv: ReadonlyArray<string>): Result.Result<CommandLin
 		case "check":
 		case "migrate":
 		case "drift":
+		case "upgrade":
 		case "names":
 		case "roles":
 		case "uninstall":

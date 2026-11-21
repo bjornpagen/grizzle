@@ -205,21 +205,23 @@ export const committedChain = <F extends FileText>(
 	}
 }
 
+/** A schema's committed chain read whole (wholeChain): its folders' timestamps, its folders, and what its links reach. */
+export interface WholeChain {
+	readonly timestamps: ReadonlyArray<string>
+	readonly folders: ReadonlyArray<CommittedFolder>
+	readonly reached: string
+}
+
 /**
- * The chain a draft continues, whole and reaching snapshot.json's fingerprint, or the refusal of its first break: a
- * misnamed folder before any other fault.
+ * A schema's committed chain read whole, and the fingerprint its links reach, or the refusal of its first break: a
+ * misnamed folder before any other fault. It reads each folder's meta.json alone, which records no format, so `grizzle
+ * upgrade` reads it under any committed snapshot (cli/upgrade.ts); a draft holds the fingerprint it reaches to
+ * snapshot.json's (continuedChain).
  */
-export const continuedChain = Effect.fn("continuedChain")(function* (
+export const wholeChain = Effect.fn("wholeChain")(function* (
 	schema: ConfiguredSchema,
-	tree: SchemaTree,
-	snapshot: DeploySnapshot
-): Effect.fn.Return<
-	{
-		readonly timestamps: ReadonlyArray<string>
-		readonly folders: ReadonlyArray<CommittedFolder>
-	},
-	CliError
-> {
+	tree: SchemaTree
+): Effect.fn.Return<WholeChain, CliError> {
 	const breaks = (fault: ChainBreak): CliError =>
 		cliError(
 			new ChainRefused({
@@ -244,18 +246,46 @@ export const continuedChain = Effect.fn("continuedChain")(function* (
 	const folders = Arr.flatMap(chain.folders, (f): ReadonlyArray<CommittedFolder> =>
 		f.meta.kind === "unreadable" ? [] : [{ name: f.name, meta: f.meta.meta, files: f.files }]
 	)
-	if (chain.reached !== snapshot.fingerprint) {
+	return {
+		timestamps: Arr.map(folders, (f) => folderTimestamp(f.name)),
+		folders,
+		reached: chain.reached
+	}
+})
+
+/**
+ * The chain a draft continues, whole and reaching snapshot.json's fingerprint, or the refusal of its first break: a
+ * misnamed folder before any other fault (wholeChain).
+ */
+export const continuedChain = Effect.fn("continuedChain")(function* (
+	schema: ConfiguredSchema,
+	tree: SchemaTree,
+	snapshot: DeploySnapshot
+): Effect.fn.Return<
+	{
+		readonly timestamps: ReadonlyArray<string>
+		readonly folders: ReadonlyArray<CommittedFolder>
+	},
+	CliError
+> {
+	const { timestamps, folders, reached } = yield* wholeChain(schema, tree)
+	if (reached !== snapshot.fingerprint) {
 		const newest = Arr.last(folders)
-		return yield* breaks(
-			Option.isNone(newest)
-				? { kind: "unreached", snapshot: snapshot.fingerprint }
-				: {
-						kind: "diverged",
-						folder: newest.value.name,
-						reached: chain.reached,
-						snapshot: snapshot.fingerprint
-					}
+		return yield* cliError(
+			new ChainRefused({
+				schema: schema.declared,
+				ident: schema.ident,
+				directory: tree.directory,
+				fault: Option.isNone(newest)
+					? { kind: "unreached", snapshot: snapshot.fingerprint }
+					: {
+							kind: "diverged",
+							folder: newest.value.name,
+							reached,
+							snapshot: snapshot.fingerprint
+						}
+			})
 		)
 	}
-	return { timestamps: Arr.map(folders, (f) => folderTimestamp(f.name)), folders }
+	return { timestamps, folders }
 })

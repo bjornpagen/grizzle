@@ -29,7 +29,6 @@ import {
 } from "#cli/files.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import { refusalText } from "#cli/refusals.ts"
-import { noDeclarations } from "#cli/renames.ts"
 import {
 	compileReasonText,
 	looksLikeLiteralPack,
@@ -45,6 +44,7 @@ import {
 	lossDecisions,
 	lossText,
 	namedSpelling,
+	noDeclarations,
 	noTransactionMarker,
 	orderFolderFiles,
 	type PackFault,

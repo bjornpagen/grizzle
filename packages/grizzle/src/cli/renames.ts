@@ -44,9 +44,6 @@ import {
 /** The sign a login's name follows, which no declared name holds. */
 const loginSign = "@"
 
-/** No rename and no drop declared. */
-export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: [] })
-
 /** What a declaration's text shows wrong (see the header). */
 export type DeclarationFault =
 	| {

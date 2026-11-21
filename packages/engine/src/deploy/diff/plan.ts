@@ -45,6 +45,10 @@ export interface Declarations {
 	readonly drops: ReadonlyArray<Named>
 }
 
+/** No rename and no drop declared: a draft that declares nothing, and an upgrade's, which drafts from the source the
+ * installation was deployed from. */
+export const noDeclarations: Declarations = Object.freeze({ renames: [], drops: [] })
+
 /** Where a drafted statement goes. Slots are ordered, and each names the file its steps go to (`slotFile`), which
  * consecutive slots naming one file share; `planFiles` numbers the files in slot order:
  *

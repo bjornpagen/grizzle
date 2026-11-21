@@ -257,6 +257,7 @@ const namedOf = (reason: CliError["reason"]): Named => {
 		case "RosterReordered":
 		case "DraftRefused":
 		case "ServedRefused":
+		case "UpgradeRefused":
 			return { tag: "another reason", reason: reason._tag }
 	}
 }

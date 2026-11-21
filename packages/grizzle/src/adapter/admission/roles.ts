@@ -205,6 +205,12 @@ export interface PrivilegeDifference {
 	 * privilege's column after a dot.
 	 */
 	readonly object: string
+	/**
+	 * Where the catalog holds the object: its schema and its own name, a relation's for a column's privilege, a
+	 * schema's name for a schema's, and none of either for a database's, both empty.
+	 */
+	readonly schema: string
+	readonly name: string
 	readonly privilege: string
 }
 
@@ -429,6 +435,46 @@ const heldName = (h: C.CatalogSource): C.CatalogExpr => {
 	)
 }
 
+/**
+ * Where the catalog holds a held object `h` (PrivilegeDifference schema and name): its namespace's name, or its own,
+ * by its family's catalog; a schema's own name for both; empty for the database, which lives in no schema.
+ */
+const heldWhere = (h: C.CatalogSource, part: "schema" | "name"): C.CatalogExpr => {
+	const n = C.from("pg_namespace", "n")
+	const of = (
+		catalog: "pg_class" | "pg_type" | "pg_proc",
+		namespace: string,
+		name: string
+	): C.CatalogExpr => {
+		const o = C.from(catalog, "o")
+		return C.scalar(
+			C.query(
+				[C.asText(part === "schema" ? n.col("nspname") : o.col(name))],
+				[C.join(o.item, n.item, C.eq(n.col("oid"), o.col(namespace)))],
+				C.eq(o.col("oid"), h.col("oid"))
+			)
+		)
+	}
+	const schema = (): C.CatalogExpr =>
+		C.scalar(C.query([C.asText(n.col("nspname"))], [n.item], C.eq(n.col("oid"), h.col("oid"))))
+	const relation = (): C.CatalogExpr => of("pg_class", "relnamespace", "relname")
+	return C.coalesce([
+		C.caseOf(
+			h.col("family"),
+			[
+				{ when: C.text("schema"), result: schema() },
+				{ when: C.text("table"), result: relation() },
+				{ when: C.text("column"), result: relation() },
+				{ when: C.text("sequence"), result: relation() },
+				{ when: C.text("type"), result: of("pg_type", "typnamespace", "typname") },
+				{ when: C.text("function"), result: of("pg_proc", "pronamespace", "proname") }
+			],
+			undefined
+		),
+		C.text("")
+	])
+}
+
 /** Whether `a` and `b` name one privilege: its family, object, column and type. */
 const samePrivilege = (a: C.CatalogSource, b: C.CatalogSource): C.CatalogExpr =>
 	C.and([
@@ -478,9 +524,17 @@ const privilegesSelect = (): C.CatalogSelect => {
 			),
 			C.cte(
 				"resolved",
-				["family", "object", "attname", "privilege", "oid"],
+				["family", "object", "attname", "privilege", "oid", "schema", "name"],
 				C.query(
-					[e.col("family"), e.col("object"), e.col("attname"), e.col("privilege"), resolvedOid(e)],
+					[
+						e.col("family"),
+						e.col("object"),
+						e.col("attname"),
+						e.col("privilege"),
+						resolvedOid(e),
+						e.col("schema"),
+						e.col("name")
+					],
 					[e.item],
 					undefined
 				)
@@ -506,13 +560,22 @@ const privilegesSelect = (): C.CatalogSelect => {
 						],
 						x.col("object")
 					),
-					x.col("privilege")
+					x.col("privilege"),
+					x.col("schema"),
+					x.col("name")
 				],
 				[x.item],
 				C.notExists(C.anyRow([h.item], samePrivilege(h, x)))
 			),
 			C.catalogCore(
-				[C.text("unexpected"), h.col("family"), heldName(h), h.col("privilege")],
+				[
+					C.text("unexpected"),
+					h.col("family"),
+					heldName(h),
+					h.col("privilege"),
+					heldWhere(h, "schema"),
+					heldWhere(h, "name")
+				],
 				[h.item],
 				C.notExists(C.anyRow([x.item], samePrivilege(x, h)))
 			)
@@ -524,16 +587,18 @@ const privilegesSelect = (): C.CatalogSelect => {
 export const privilegesQuery: CatalogQuery<PrivilegeDifference> = {
 	sql: emitCatalog(privilegesSelect()),
 	what: "a privilege difference",
-	row: ([kindText, familyText, object, privilege]) => {
+	row: ([kindText, familyText, object, privilege, schema, name]) => {
 		const kind =
 			kindText === "missing" ? "missing" : kindText === "unexpected" ? "unexpected" : undefined
 		const family = Arr.findFirst(privilegeFamilyNames, (f) => f === familyText)
 		return kind === undefined ||
 			Option.isNone(family) ||
 			object === undefined ||
-			privilege === undefined
+			privilege === undefined ||
+			schema === undefined ||
+			name === undefined
 			? undefined
-			: { kind, family: family.value, object, privilege }
+			: { kind, family: family.value, object, schema, name, privilege }
 	}
 }
 

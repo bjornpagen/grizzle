@@ -1693,8 +1693,21 @@ export interface DropPolicy {
  */
 export type DropObject =
 	| {
+			/**
+			 * A function among them by its name alone, which PostgreSQL drops where it is the only function of its name in
+			 * its schema, as grizzle installs every function (physical/obligations/graph.ts names a function by its name):
+			 * the drop of an installed function whose signature no record states, one `grizzle upgrade` finds departed
+			 * (deploy/diff/departed.ts). A function whose record states it is dropped by its signature (DropFunction).
+			 */
 			readonly kind: "drop"
-			readonly object: "TABLE" | "MATERIALIZED VIEW" | "VIEW" | "DOMAIN" | "STATISTICS" | "TYPE"
+			readonly object:
+				| "TABLE"
+				| "MATERIALIZED VIEW"
+				| "VIEW"
+				| "DOMAIN"
+				| "STATISTICS"
+				| "TYPE"
+				| "FUNCTION"
 			readonly name: ObjectName
 			readonly ifExists: boolean
 	  }

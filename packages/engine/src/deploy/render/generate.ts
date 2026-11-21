@@ -1,19 +1,21 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
 import { TemporaryCensus } from "#compiler/core/identity.ts"
-import type { LawId } from "#compiler/core/ids.ts"
+import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { asidesOf, setAside } from "#compiler/deploy/diff/aside.ts"
 import { applyDeclarations } from "#compiler/deploy/diff/declared.ts"
+import type { Departure } from "#compiler/deploy/diff/departed.ts"
 import { diff } from "#compiler/deploy/diff/diff.ts"
-import type {
-	AbandonedSchema,
-	Declarations,
-	MigrationPlan,
-	Swap
+import {
+	type AbandonedSchema,
+	type Declarations,
+	type MigrationPlan,
+	noDeclarations,
+	type Swap
 } from "#compiler/deploy/diff/plan.ts"
 import { fileLockSets, migrationCatalog } from "#compiler/deploy/locks/demand.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
@@ -30,6 +32,7 @@ import {
 	type MigrationName,
 	type RecordFault,
 	recordFaultText,
+	upgradeMigrationName,
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
@@ -44,7 +47,13 @@ import {
 	withAttnums,
 	withInstalledViews
 } from "#compiler/deploy/snapshot/build.ts"
-import type { DeploySnapshot, SnapshotDerived } from "#compiler/deploy/snapshot/types.ts"
+import { recordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
+import type {
+	DeploySnapshot,
+	SnapshotContent,
+	SnapshotDerived,
+	SnapshotRelation
+} from "#compiler/deploy/snapshot/types.ts"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { hashedNames } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -151,8 +160,34 @@ const recordRefusal = (fault: RecordFault): CompileError =>
  * A schema whose target equals its previous snapshot drafts nothing: the change is none, the snapshot is the previous
  * one and the folder holds no file, so the CLI can report that there is nothing to generate. */
 export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft, CompileError> =>
+	draftOver(input, () => ({ previous: input.previous, stale: noStale, departures: [] }))
+
+/** What a draft diffs the target against: the previous installation, and the objects the database holds of it beyond
+ * its record, none for a committed snapshot's draft (deploy/diff/diff.ts DiffInput stale, departures). */
+interface DraftedFrom {
+	readonly previous: DeploySnapshot
+	readonly stale: ReadonlySet<string>
+	readonly departures: ReadonlyArray<Departure>
+}
+
+/** No object the database holds otherwise: a committed snapshot is what the database holds. */
+const noStale: ReadonlySet<string> = new Set()
+
+/**
+ * The draft of the target `input` compiles, from the previous installation `from` reads off the target's content, its
+ * state before the diff: a committed snapshot's draft reads none of it, and an upgrade's previous installation is that
+ * content as the live catalog holds it (livePrevious).
+ */
+const draftOver = (
+	input: Omit<DraftInput, "previous">,
+	from: (state: SnapshotContent) => DraftedFrom
+): Result.Result<MigrationDraft, CompileError> =>
 	catchRefusal(() => {
-		const { installation, previous } = input
+		const { installation } = input
+		/** The installation's checks, written once: their digests the snapshot records, their queries the diff drafts. */
+		const checks = lawChecks(installation)
+		const state = unwrap(targetState({ installation, workload: input.workload, checks }))
+		const { previous, stale, departures } = from(state)
 		if (previous.schema !== installation.names.schema) {
 			throw new Refusal(
 				malformedArtifact(
@@ -180,9 +215,6 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				`the installation's codes of roster ${discontinued} continue the previous snapshot's: compile it under the codes drafted from them`
 			)
 		}
-		/** The installation's checks, written once: their digests the snapshot records, their queries the diff drafts. */
-		const checks = lawChecks(installation)
-		const state = unwrap(targetState({ installation, workload: input.workload, checks }))
 		/** Every hashed name that stands while the migration runs, the previous installation's and the target's, against
 		 * which each temporary it mints is censused. */
 		const temporaries = new TemporaryCensus([
@@ -203,7 +235,9 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 				asides,
 				temporaries,
 				abandoned: input.abandoned,
-				rosters
+				rosters,
+				stale,
+				departures
 			})
 		)
 		/** The target's content, its attribute numbers continuing the previous snapshot's, fingerprinted: the new
@@ -246,6 +280,125 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 			plan
 		}
 	})
+
+/**
+ * What `grizzle upgrade` reads of a live installation beside the target, the compile of the source the installation was
+ * deployed from by this grizzle (the shell's cli/upgrade.ts): the snapshot the database holds by its ledger, of
+ * whatever format its committed files are, and the target's objects as the drift check of the target against the live
+ * catalog found them.
+ */
+export interface LiveInstallation {
+	/** The ledger's latest complete target: the snapshot the database holds, which the upgrade's folder continues. */
+	readonly fingerprint: SchemaFingerprint
+	/**
+	 * Every object of the target the database holds, by identity: each PostgreSQL describes held as the target's or
+	 * defined otherwise under the target's names (`stale`), and each it does not describe whose every object it is
+	 * created after the database holds. Every other is absent, which the upgrade creates.
+	 */
+	readonly kept: ReadonlySet<string>
+	/** The kept objects the database holds under the target's names but defines otherwise (DiffInput stale). */
+	readonly stale: ReadonlySet<string>
+	/** The objects the database holds that no object of the target is, in their drop order (DiffInput departures). */
+	readonly departures: ReadonlyArray<Departure>
+	/**
+	 * The attribute numbers each table of the installation has used, by its name, as pg_attribute counts them, its
+	 * dropped columns included: each stored relation's history, which no source determines (SnapshotRelation attnums).
+	 */
+	readonly attnums: ReadonlyMap<string, number>
+}
+
+/** What an upgrade's draft is drafted from: the target's compile and workloads (DraftInput), and the live installation. */
+export interface UpgradeInput extends Omit<DraftInput, "previous" | "declared" | "abandoned"> {
+	readonly live: LiveInstallation
+}
+
+/**
+ * The previous installation an upgrade drafts from: the target's content as the live installation holds it, under the
+ * ledger's fingerprint. Its manifest is the target's objects the database holds (`kept`), each recorded as the target's,
+ * the ones it holds otherwise named as the target names them, which the database's are (`stale`), with every edge of
+ * the target to one of them, so a kept object reads through its record what the target's reads (a stale roster domain
+ * its roster's constants, the one an upgrade creates among them, deploy/diff/diff.ts domainsOf); each stored relation's attribute numbers are the table's; every other member is the target's,
+ * the codes and spellings it was compiled under the database's own (the shell's cli/upgrade.ts reads them). So the diff
+ * creates each absent object, changes each stale one by its kind's rule, and drops each departed one, with the safety
+ * of any migration, and a target the database holds whole drafts nothing but the snapshot.
+ */
+const livePrevious = (state: SnapshotContent, live: LiveInstallation): DraftedFrom => {
+	const relations = Object.fromEntries(
+		Object.entries(state.theory.relations).map(([name, r]): readonly [string, SnapshotRelation] => [
+			name,
+			r.kind === "relation"
+				? {
+						...r,
+						attnums: defined(
+							live.attnums.get(r.ident),
+							"the live installation holds every table it keeps"
+						)
+					}
+				: r
+		])
+	)
+	const content: SnapshotContent = {
+		...state,
+		theory: { ...state.theory, relations },
+		manifest: {
+			...state.manifest,
+			objects: state.manifest.objects.filter((o) => live.kept.has(o.ident)),
+			edges: state.manifest.edges.filter((e) => live.kept.has(e.to))
+		}
+	}
+	return {
+		previous: {
+			...content,
+			manifest: recordedManifest(content.manifest),
+			fingerprint: live.fingerprint
+		},
+		stale: live.stale,
+		departures: live.departures
+	}
+}
+
+/**
+ * `grizzle upgrade`'s draft as a pure function: the target drafted from the live installation it is compiled for
+ * (livePrevious), declaring nothing, as generate drafts from a committed snapshot. Its change is none where the database
+ * holds the target whole under its fingerprint: only the snapshot's files are written again, in this grizzle's format;
+ * else its folder rebases the installation's history onto the target, holding no file where only the fingerprint moved.
+ */
+export const draftUpgrade = (input: UpgradeInput): Result.Result<MigrationDraft, CompileError> =>
+	draftOver({ ...input, declared: noDeclarations, abandoned: [] }, (state) =>
+		livePrevious(state, input.live)
+	)
+
+/** `grizzle upgrade`'s draft as `grizzle upgrade` writes it: its folder named `<timestamp>_upgrade` (draftUpgrade). */
+export const generateUpgrade = (
+	input: UpgradeInput & { readonly timestamp: string }
+): Result.Result<GenerateResult, CompileError> =>
+	Result.flatMap(draftUpgrade(input), (draft) =>
+		Result.map(folderName(input.timestamp, upgradeMigrationName), (name): GenerateResult => ({
+			...draft,
+			folder: { name, ...draft.folder }
+		}))
+	)
+
+/**
+ * The snapshot of the target `input` compiles, as a fresh installation records it: what the drift check of an upgrade
+ * judges the live catalog by, before anything of the live installation is known.
+ */
+export const freshSnapshot = (
+	input: Omit<DraftInput, "previous" | "declared" | "abandoned">
+): Result.Result<DeploySnapshot, CompileError> =>
+	catchRefusal(() =>
+		unwrap(
+			finishSnapshot(
+				unwrap(
+					targetState({
+						installation: input.installation,
+						workload: input.workload,
+						checks: lawChecks(input.installation)
+					})
+				)
+			)
+		)
+	)
 
 /** The name a draft's folder is named by: the name `--name` gives, or the one derived from its change. */
 const draftName = (

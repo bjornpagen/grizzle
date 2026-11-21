@@ -225,8 +225,7 @@ export const recordedDrift = property.exhaust(caseSpace, {
 		},
 		{
 			file: "packages/grizzle/src/adapter/admission/drift.ts",
-			original:
-				"\t\t\t\tfor (const mismatch of sourceMismatches(\n\t\t\t\t\tsources,\n\t\t\t\t\tyield* installedSources.rows(first),\n\t\t\t\t\tfolders\n\t\t\t\t)) {\n\t\t\t\t\tout.push(mismatch)\n\t\t\t\t}\n",
+			original: "\t\t\t\t\t\t...Arr.map(sourced, (m) => m.mismatch),\n",
 			replacement: "",
 			why: "A PL/pgSQL function is judged by its header alone, so a source created again under its own header is admitted."
 		}

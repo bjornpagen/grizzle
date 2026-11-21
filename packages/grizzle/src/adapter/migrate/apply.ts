@@ -135,7 +135,7 @@ import {
 	statedLocks
 } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
-import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
+import type { DeploySnapshot, LedgerState, LedgerStatements } from "#compiler/plan/serve.ts"
 
 /**
  * `grizzle migrate`: the apply runner.
@@ -1115,12 +1115,32 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 	folders: ReadonlyArray<DriftFolder>
 ): Effect.fn.Return<DriftVerdict, MigrateError> {
 	const schema = snapshot.schema
-	const unchecked = (failure: DriftUnchecked["failure"]) =>
-		stopped(new DriftUnchecked({ schema, failure }))
-	const drift = yield* Effect.mapError(
-		Effect.fromResult(driftCheck(snapshot, session.installation, folders)),
-		unchecked
-	)
+	const { verdict, ledger } = yield* readDrift(session, snapshot, statements, proofs, folders)
+	/** Each mismatch is a fact of its own, which the report lists one per line. */
+	const mismatches = [...ledgerMismatches(snapshot, ledger), ...verdict.mismatches]
+	if (Arr.isReadonlyArrayNonEmpty(mismatches)) {
+		return yield* stopped(new Drifted({ schema, snapshot: snapshot.fingerprint, mismatches }))
+	}
+	return verdict
+})
+
+/**
+ * The drift check of one schema's catalog against `snapshot` as checkDrift runs it, its verdict and the ledger it read
+ * beside it, judged by neither: what checkDrift refuses drift by, and what `grizzle upgrade` reads a live installation
+ * by (cli/upgrade.ts), whose snapshot is the compile of the source it was deployed from.
+ */
+export const readDrift = Effect.fn("readDrift")(function* (
+	session: MigrationSession,
+	snapshot: DeploySnapshot,
+	statements: LedgerStatements,
+	proofs: ProofStatements,
+	folders: ReadonlyArray<DriftFolder>
+): Effect.fn.Return<
+	{ readonly verdict: DriftVerdict; readonly ledger: LedgerState },
+	MigrateError
+> {
+	const schema = snapshot.schema
+	const unchecked = uncheckedOf(schema)
 	/** Whether the ledger and the proofs exist, so the reads after name only tables the catalog holds. */
 	const present = yield* Effect.mapError(
 		session.apart([ledgerExistsRead(schema), proofsExistRead(schema)]),
@@ -1137,31 +1157,63 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 	/** The rows of each that exists, apart in front of the check's transaction: the ledger's, then the proofs'. */
 	const ledgerRows = ledger === "installed" ? [ledgerRowsRead(statements)] : []
 	const proofRows = proven === "present" ? [proofRowsRead(proofs)] : []
-	const answered = yield* Effect.mapError(
-		session.alongside(
-			[...ledgerRows, ...proofRows],
-			drift.first,
-			(alone, first) => {
-				/** No proofs' table holds no proof: everything is unproven, and the replay whole. */
-				const held: Result.Result<
-					ReadonlyMap<string, ProofRow>,
-					ServerError | CatalogRowRefused
-				> = proven === "present"
-					? heldProofs(proofs, sentAnswer(alone, ledgerRows.length))
-					: Result.succeed(new Map())
-				return Result.flatMap(held, (rows) => drift.after(rows, first))
-			},
-			driftTransaction
-		),
-		unchecked
+	const { verdict, alone } = yield* driftAlongside(
+		session,
+		snapshot,
+		folders,
+		[...ledgerRows, ...proofRows],
+		(answers) =>
+			/** No proofs' table holds no proof: everything is unproven, and the replay whole. */
+			proven === "present"
+				? heldProofs(proofs, sentAnswer(answers, ledgerRows.length))
+				: Result.succeed(new Map())
 	)
 	const read: LedgerRead =
 		ledger === "absent"
 			? { kind: "absent" }
 			: yield* Effect.mapError(
-					Effect.fromResult(installedLedger(schema, sentAnswer(answered.alone, 0))),
+					Effect.fromResult(installedLedger(schema, sentAnswer(alone, 0))),
 					unchecked
 				)
+	return { verdict, ledger: ledgerStateOf(schema, read) }
+})
+
+/** A drift check's failure to reach a verdict on `schema`'s catalog. */
+const uncheckedOf =
+	(schema: string) =>
+	(failure: DriftUnchecked["failure"]): MigrateError =>
+		stopped(new DriftUnchecked({ schema, failure }))
+
+/**
+ * The drift check of `snapshot` as one transaction over two flights (checkDrift's header), the statements `apart` sent
+ * apart in front of it, their answers read into the proofs that hold (`held`): its verdict, and the answers apart.
+ */
+const driftAlongside = Effect.fn("driftAlongside")(function* (
+	session: MigrationSession,
+	snapshot: DeploySnapshot,
+	folders: ReadonlyArray<DriftFolder>,
+	apart: ReadonlyArray<BatchStatement>,
+	held: (
+		answers: ReadonlyArray<ApartAnswer>
+	) => Result.Result<ReadonlyMap<string, ProofRow>, ServerError | CatalogRowRefused>
+): Effect.fn.Return<
+	{ readonly verdict: DriftVerdict; readonly alone: ReadonlyArray<ApartAnswer> },
+	MigrateError
+> {
+	const unchecked = uncheckedOf(snapshot.schema)
+	const drift = yield* Effect.mapError(
+		Effect.fromResult(driftCheck(snapshot, session.installation, folders)),
+		unchecked
+	)
+	const answered = yield* Effect.mapError(
+		session.alongside(
+			apart,
+			drift.first,
+			(alone, first) => Result.flatMap(held(alone), (rows) => drift.after(rows, first)),
+			driftTransaction
+		),
+		unchecked
+	)
 	const opened = yield* Effect.mapError(Effect.fromResult(answered.framed), (failure) =>
 		failure.pipe(decidingFailure, unchecked)
 	)
@@ -1172,15 +1224,44 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 		)
 	)
 	const verdict = yield* Effect.mapError(Effect.fromResult(made.value.read(second)), unchecked)
-	/** Each mismatch is a fact of its own, which the report lists one per line. */
-	const mismatches = [
-		...ledgerMismatches(snapshot, ledgerStateOf(schema, read)),
-		...verdict.mismatches
-	]
-	if (Arr.isReadonlyArrayNonEmpty(mismatches)) {
-		return yield* stopped(new Drifted({ schema, snapshot: snapshot.fingerprint, mismatches }))
+	return { verdict, alone: answered.alone }
+})
+
+/**
+ * The drift check of `snapshot` against the catalog alone, reading none of grizzle's bookkeeping, every object of it
+ * compared fact by fact: what `grizzle upgrade` judges a live installation by (cli/upgrade.ts), whose ledger and proofs
+ * may be of another format's representation than this grizzle reads, which the verdict then shows as theirs.
+ */
+export const readCatalogDrift = (
+	session: MigrationSession,
+	snapshot: DeploySnapshot
+): Effect.Effect<DriftVerdict, MigrateError> =>
+	Effect.map(
+		driftAlongside(session, snapshot, [], [], () => Result.succeed(new Map())),
+		({ verdict }) => verdict
+	)
+
+/** `schema`'s ledger as an apply reads it (ledger.ts ledgerStateOf), in a step of statements apart. */
+export const readLedger = Effect.fn("readLedger")(function* (
+	session: MigrationSession,
+	schema: string,
+	statements: LedgerStatements
+): Effect.fn.Return<LedgerState, MigrateError> {
+	const unchecked = uncheckedOf(schema)
+	const present = yield* Effect.mapError(session.apart([ledgerExistsRead(schema)]), unchecked)
+	const ledger = yield* Effect.mapError(
+		Effect.fromResult(ledgerPresence(schema, sentAnswer(present, 0))),
+		unchecked
+	)
+	if (ledger === "absent") {
+		return ledgerStateOf(schema, { kind: "absent" })
 	}
-	return verdict
+	const rows = yield* Effect.mapError(session.apart([ledgerRowsRead(statements)]), unchecked)
+	const read = yield* Effect.mapError(
+		Effect.fromResult(installedLedger(schema, sentAnswer(rows, 0))),
+		unchecked
+	)
+	return ledgerStateOf(schema, read)
 })
 
 /**

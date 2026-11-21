@@ -1,4 +1,5 @@
 import { Array as Arr, Data, Formatter, Redacted, Result } from "effect"
+import type { UpgradeFault } from "#adapter/admission/upgrade.ts"
 import { readHost } from "#adapter/engine.ts"
 import {
 	type ConnectionEnvironmentRefused,
@@ -12,6 +13,7 @@ import {
 	compileReasonText,
 	formatRefusal,
 	isCompileError,
+	jsonText,
 	nominal,
 	type RecordedFormat,
 	recordedFormatText
@@ -50,7 +52,9 @@ import {
  *   schema's folders disagree, so neither a draft nor an apply could continue the chain;
  * - `codes`: a roster declares its handles out of the order of the codes the committed snapshot records for them, so
  *   no draft could keep every stored code's meaning;
- * - `generate`: the compiler refused the schema, its logins' workloads or the draft, or a login's served workload.
+ * - `generate`: the compiler refused the schema, its logins' workloads or the draft, or a login's served workload;
+ * - `upgrade`: `grizzle upgrade` cannot rebase a live installation onto this grizzle's compile of its source
+ *   (UpgradeRefused).
  *
  * Every refusal happens before anything is written: a generate writes no folder of any schema until every configured
  * schema has drafted, and an apply hands nothing to the runner until every schema's directory reads.
@@ -70,6 +74,7 @@ export type CliStage =
 	| "format"
 	| "codes"
 	| "generate"
+	| "upgrade"
 
 /**
  * The operating system's error code a file system failure carries, as a refusal names it, or nothing. The failure is
@@ -170,6 +175,7 @@ export type CommandName =
 	| "check"
 	| "migrate"
 	| "drift"
+	| "upgrade"
 	| "names"
 	| "roles"
 	| "uninstall"
@@ -777,6 +783,74 @@ const servedRefusalText = (error: CompileError | UnservedMember | UncoveredRead)
 	}
 }
 
+/**
+ * Why `grizzle upgrade` cannot rebase a live installation onto this grizzle's compile of the source it was deployed from
+ * (cli/upgrade.ts):
+ * - `pending`: the database is not at the snapshot its committed folders reach: a folder is not applied, or partly, or
+ *   the ledger's latest target is another than the chain's, so the upgrade would rebase an installation its source does
+ *   not describe;
+ * - `rosterUnread`: a roster's codes do not read off the live database (compiler/deploy/upgrade/history.ts
+ *   RosterUnread), so no draft keeps every stored code's meaning;
+ * - `spellingUnproven`: no spelling the schema writes of a pattern language is the one an object the database holds as
+ *   the target's reads, among `tried`, so no history of it is proven;
+ * - `object`: an object the database holds as no rebase may change (adapter/admission/upgrade.ts UpgradeFault);
+ * - `undescribed`: the previous installation the upgrade drafts from does not describe the database: facts the drift
+ *   check of it finds beside the objects it changes and drops, a role's, a grant's or a setting's among them.
+ */
+export type UpgradeFaultOf =
+	| {
+			readonly kind: "pending"
+			readonly reached: string
+			readonly latest: string
+			readonly partial: string | undefined
+	  }
+	| { readonly kind: "rosterUnread"; readonly roster: string; readonly found: "none" | "several" }
+	| {
+			readonly kind: "spellingUnproven"
+			readonly language: string
+			readonly tried: ReadonlyArray<string>
+	  }
+	| { readonly kind: "object"; readonly fault: UpgradeFault }
+	| { readonly kind: "undescribed"; readonly facts: ReadonlyArray<string> }
+
+const upgradeFaultText = (fault: UpgradeFaultOf): string => {
+	switch (fault.kind) {
+		case "pending":
+			return fault.partial === undefined
+				? `the database's ledger reaches ${fault.latest}, where the committed folders reach ${fault.reached}`
+				: `the database's ledger holds folder ${fault.partial} partly applied`
+		case "rosterUnread":
+			return fault.found === "none"
+				? `no installed constant is roster ${fault.roster}'s names constant under the codes it holds`
+				: `several installed constants are roster ${fault.roster}'s names constant`
+		case "spellingUnproven":
+			return `no object the database holds as the target's reads pattern language ${fault.language} as any spelling the schema writes of it (${Arr.join(Arr.map(fault.tried, jsonText), ", ")})`
+		case "object": {
+			const f = fault.fault
+			const what = {
+				stored:
+					"holds stored rows, which no rebase drops or rewrites, and the database holds it otherwise",
+				unreplaceable: "is of a kind no draft changes, and the database defines it otherwise",
+				reshaped: "is held by the database under other keys than the target's",
+				collision: "names a key the database holds as another object"
+			}[f.kind]
+			return `object ${f.object} ${what}: ${Arr.join(f.facts, "; ")}`
+		}
+		case "undescribed":
+			return `the database differs from the installation the upgrade drafts from beside what it changes: ${Arr.join(fault.facts, "; ")}`
+	}
+}
+
+/** `grizzle upgrade` cannot rebase the installation of `schema`, for `fault` (UpgradeFaultOf). */
+export class UpgradeRefused extends Data.TaggedError("UpgradeRefused")<{
+	readonly schema: string
+	readonly fault: UpgradeFaultOf
+}> {
+	override get message(): string {
+		return upgradeFaultText(this.fault)
+	}
+}
+
 /** Why a `grizzle` command stopped before the apply runner, or outside it. */
 type CliReason =
 	| ArgumentsRefused
@@ -806,6 +880,7 @@ type CliReason =
 	| RosterReordered
 	| DraftRefused
 	| ServedRefused
+	| UpgradeRefused
 
 /** The stage each reason stops at. */
 const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
@@ -835,7 +910,8 @@ const stageOf: { readonly [Tag in CliReason["_tag"]]: CliStage } = {
 	ChainRefused: "snapshot",
 	RosterReordered: "codes",
 	DraftRefused: "generate",
-	ServedRefused: "generate"
+	ServedRefused: "generate",
+	UpgradeRefused: "upgrade"
 }
 
 /**

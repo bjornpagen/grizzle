@@ -432,6 +432,20 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
   - **Big keys are a modelling bug.** An identity is a short name, a path or a digest, never a document. A schema that
     needs a long text's identity declares its digest as a field and keys by it, in plain sight.
 
+- **A format change reaches a live installation by rebasing, and leaves stored representations alone (2026-11-21).**
+  grizzle converts no committed record of another format. `grizzle upgrade` rebases a live installation onto this
+  grizzle's compile of the source it was deployed from: it reads the live database's history (each roster's codes off
+  its names constant, each table's attribute numbers, each pattern language's spelling, every fact proven by the drift
+  check) and writes either the snapshot's files again, or a folder `grizzle migrate` applies, drafted by the normal diff
+  from the target's objects the database holds (README "Upgrading across a format"). It writes nothing to the database.
+  So, after edullm's production cutover, a format change must leave grizzle's bookkeeping tables (`__ledger`,
+  `__drift_proofs`) and every stored column's type unchanged, unless it ships an explicit carried conversion: their rows
+  are no rebase's to rewrite, and migrate reads the ledger before it applies anything. `grizzle upgrade` refuses such a
+  change by name (UpgradeRefused, an object that holds stored rows held otherwise). Main's ruling on lane UPGRADE's
+  rehearsal of format 5 to 6, which retyped the ledger's digests and could not be rebased. Why:
+  - **The database is the authority** on what its stored codes and rows mean; a converted record could disagree with it.
+  - **No migrate reads another format's ledger**, so a ledger change has no folder that could carry it.
+
 ### Rejected rules
 
 The rules rejected on purpose live in `toolchain.config.ts`: `rejected.rules` for oxlint, and `rejected.diagnostics` for

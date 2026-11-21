@@ -4423,8 +4423,8 @@ Every setting is required, and nothing else is configurable:
   over a schema no listed one holds is refused; a login not listed is not installed, nor are its roles. Login and role
   names are unique across an installation.
 - **`migrations`**: the directory, absolute or relative to the config file's directory.
-- **`connection`**: a function returning where `migrate`, `drift`, `roles` and `uninstall` connect, as the role that
-  owns the schemas. Only they call it, so `generate`, `check` and `names` read no cluster setting and no CA file, and
+- **`connection`**: a function returning where `migrate`, `drift`, `upgrade`, `roles` and `uninstall` connect, as the
+  role that owns the schemas. Only they call it, so `generate`, `check` and `names` read no cluster setting and no CA file, and
   run in CI where no cluster is reachable. Its password is a `Redacted` or an Effect evaluated for each connection
   attempt. Its `rolePrefix`, which `DbLayer.make` takes too, is the installation's own, optional: see "Two
   installations on one cluster" below.
@@ -4443,6 +4443,9 @@ grizzle migrate <config>
     apply pending migrations
 grizzle drift <config>
     does the database match the snapshot? (applies nothing)
+grizzle upgrade <config>
+    rebase the live installation onto this grizzle's format: its snapshot again, or an
+    upgrade migration (applies nothing)
 grizzle names <config>
     each hashed object's PostgreSQL name and what it is
 grizzle roles <config>
@@ -4479,9 +4482,25 @@ deploy.
   member, and `manifest.json`'s seal digests both snapshot files under it. A pair whose `snapshot.json` records another
   format, or none, is read no further: `check` reports it with the format it records and the one this grizzle reads
   and writes, and `generate`, `migrate`, `drift` and `names` refuse it at stage `format`, writing nothing. No grizzle
-  converts another format's records: an installation whose committed snapshot holds one is drafted afresh, from an
-  empty migrations directory into an empty database. A served file is written again by `grizzle generate`, and an
-  application refuses one, or a `snapshot.json`, of another format where it loads it, `ArtifactFormat`.
+  converts another format's records: a live installation is rebased onto this grizzle by `grizzle upgrade` (below),
+  and one with no database is drafted afresh, from an empty migrations directory. A served file is written again by
+  `grizzle generate`, and an application refuses one, or a `snapshot.json`, of another format where it loads it,
+  `ArtifactFormat`.
+- **Upgrading across a format** is `grizzle upgrade`, run from the commit the installation was deployed from, with the
+  new grizzle. It never reads `snapshot.json` or `manifest.json`: it compiles the source again and reads the database,
+  the one authority on what it holds. Its history comes off the live catalog: each roster's codes off the names
+  constant its domain reads, holes and renamed handles kept, never assigned by default; each table's attribute numbers;
+  each pattern language's spelling, one the schema writes of it. The drift check of the compile against the catalog
+  proves each of them. Then it writes either the snapshot's files again in this format, where the database holds the
+  compile whole, or a folder `<timestamp>_upgrade` drafted by the normal diff, from the compile's objects the database
+  holds: absent objects created, ones it holds otherwise changed by their kind's own rule (functions replaced in
+  place, keys swapped, CHECKs added `NOT VALID` and validated, triggers replaced under their table's lock), ones no
+  object of the compile is dropped at the end. It writes nothing to the database: commit what it wrote, run `grizzle
+  check`, then `grizzle migrate`, whose drift check judges the database by the new snapshot. It refuses, at stage
+  `upgrade` and by name, a database its committed folders do not reach, a roster whose codes do not read, a spelling no
+  installed object proves, a role's, grant's or setting's change, and an object holding stored rows that the database
+  holds otherwise, grizzle's own ledger and drift proofs among them: a format change after a production cutover leaves
+  those unchanged unless it ships a carried conversion.
 - **Plain SQL you may edit**, as long as the database ends where the snapshot says, and the drift check after the apply
   judges every edit by the catalog it reaches. Any text tool may read and write a drafted file back: every constant
   whose value holds a control character or a line or paragraph separator is written as an escape string (`E'\r'`, a

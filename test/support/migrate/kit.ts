@@ -117,7 +117,7 @@ const previousRosters = (
 
 /** No rename and no drop declared, as the command line states it: a draft that only adds, or whose drops a test means to
  * see refused. */
-export { noDeclarations } from "#cli/renames.ts"
+export { noDeclarations } from "#compiler/plan/migration.ts"
 
 /**
  * The codes `grizzle generate` drafts for `desc` from `previous` (cli/generate.ts draftInput): each roster's codes

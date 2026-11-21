@@ -457,6 +457,9 @@ export const initMigrationName: MigrationName = migrationName("init")
 /** The name of a migration whose change names no object. */
 export const updateMigrationName: MigrationName = migrationName("update")
 
+/** The name of `grizzle upgrade`'s folder, which rebases an installation onto a new compile of its source. */
+export const upgradeMigrationName: MigrationName = migrationName("upgrade")
+
 /** What a migration does to the object its name leads with. */
 export type ChangeVerb = "add" | "drop" | "change"
 

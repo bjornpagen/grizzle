@@ -102,6 +102,8 @@ const objectSpace = (
 			return "type"
 		case "STATISTICS":
 			return "statistics"
+		case "FUNCTION":
+			return "function"
 	}
 }
 

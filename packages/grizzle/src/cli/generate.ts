@@ -47,6 +47,8 @@ import {
 	type CompileError,
 	defect,
 	draftCodebook,
+	type PreviousRoster,
+	type RosterRenames,
 	type InstalledArtifacts,
 	type InstalledSource,
 	type Isolation,
@@ -79,6 +81,7 @@ import {
 	type ServedWorkloadPlan,
 	servedWorkload,
 	servedWorkloadExtension,
+	type Spellings,
 	writeRuntimeSnapshot,
 	writeSnapshot
 } from "#compiler/plan/migration.ts"
@@ -197,7 +200,7 @@ type SchemaWritten = Written & {
 }
 
 /** The refusal of `step` of a schema's draft, which the compiler refused. */
-const draftRefused =
+export const draftRefused =
 	(schema: string, step: DraftRefused["step"]) =>
 	(error: CompileError): CliError =>
 		cliError(new DraftRefused({ schema, step, error }))
@@ -245,7 +248,7 @@ interface LoginWrites {
 }
 
 /** What a draft does to a schema's directories of login files, by kind (files.ts loginFiles). */
-type ServedWrites = { readonly [K in LoginFileKind]: LoginWrites }
+export type ServedWrites = { readonly [K in LoginFileKind]: LoginWrites }
 
 /** A custom folder leaves the login files as they are. */
 const noServedWrites: ServedWrites = {
@@ -256,7 +259,7 @@ const noServedWrites: ServedWrites = {
 /** A schema's draft: nothing to write; snapshot.json written again, its derived facts the compile's, with no folder; an
  * empty custom folder; or a drafted folder and its new snapshot's files. Beside any of them but the custom folder, the
  * served files of the snapshot the schema's directory commits once the draft is written. */
-type SchemaDraft = (
+export type SchemaDraft = (
 	| { readonly kind: "unchanged" }
 	| { readonly kind: "rederived"; readonly snapshotFiles: SnapshotFiles }
 	| { readonly kind: "custom"; readonly folder: MigrationFolder }
@@ -416,11 +419,8 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
  * (deploy/snapshot/build.ts rosterFates), and the declared handle renames (ir/codes.ts draftCodebook), and the spellings
  * `previous` records of its pattern languages (spellingsOf), each language's history as a roster's codes are: a
  * roster's codes are its history, so a handle keeps its code, a renamed one its old one's, a removed one leaves a hole
- * and a new one takes the next, and an ordered roster declared out of its codes' order is RosterReordered.
- * The schema's basis is compiled once: the artifacts the workloads' access paths are planned against and the
- * installation the draft installs share one law model and one plan of the closed constants (physical/install/plan.ts
- * installBasis). Each login's ChangeSets are compiled once in the workload plan (plannedLogins), and its other programs
- * once the draft lays out its snapshot (servedFiles).
+ * and a new one takes the next, and an ordered roster declared out of its codes' order is RosterReordered
+ * (installationUnder).
  */
 const draftInput = Effect.fn("draftInput")(function* (
 	schema: CompiledSchema,
@@ -428,22 +428,65 @@ const draftInput = Effect.fn("draftInput")(function* (
 	abandoned: ReadonlyArray<AbandonedSchema>,
 	declared: Declarations
 ): Effect.fn.Return<{ readonly input: DraftInput; readonly served: ServedBasis }, CliError> {
-	const { configured, owned, logins } = schema
-	const rosters = rostersOf(owned)
+	const rosters = rostersOf(schema.owned)
 	const renames = yield* Effect.mapError(
 		Effect.fromResult(rosterRenames(declared, rosters)),
 		cliError
 	)
-	const drafted = draftCodebook(
-		rosterFates(
+	const compiled = yield* installationUnder(schema, {
+		previous: rosterFates(
 			previous,
 			declared,
 			Arr.map(rosters, (r) => r.closed)
 		),
 		renames,
-		rosters,
-		spellingsOf(previous)
-	)
+		spellings: spellingsOf(previous)
+	})
+	return {
+		input: {
+			previous,
+			installation: compiled.installation,
+			workload: compiled.workload,
+			abandoned,
+			declared
+		},
+		served: compiled.served
+	}
+})
+
+/**
+ * The history a schema's codes are drafted from (ir/codes.ts draftCodebook): each roster the previous installation
+ * holds with what the draft makes of it, the declared handle renames, and the spelling the history holds of each
+ * pattern language; a committed snapshot's, or the live database's (cli/upgrade.ts).
+ */
+export interface CodesFrom {
+	readonly previous: ReadonlyArray<PreviousRoster>
+	readonly renames: RosterRenames
+	readonly spellings: Spellings
+}
+
+/**
+ * A schema compiled under the codes drafted from `history` (CodesFrom): its installation with every installer extension
+ * a deployment needs, its logins' workloads' access, and what each login's served file compiles over. An ordered roster
+ * declared out of its codes' order is RosterReordered. The schema's basis is compiled once: the artifacts the workloads'
+ * access paths are planned against and the installation the draft installs share one law model and one plan of the
+ * closed constants (physical/install/plan.ts installBasis). Each login's ChangeSets are compiled once in the workload
+ * plan (plannedLogins), and its other programs once the draft lays out its snapshot (servedFiles).
+ */
+export const installationUnder = Effect.fn("installationUnder")(function* (
+	schema: CompiledSchema,
+	history: CodesFrom
+): Effect.fn.Return<
+	{
+		readonly installation: Installation
+		readonly workload: DraftInput["workload"]
+		readonly served: ServedBasis
+	},
+	CliError
+> {
+	const { configured, owned, logins } = schema
+	const rosters = rostersOf(owned)
+	const drafted = draftCodebook(history.previous, history.renames, rosters, history.spellings)
 	if (!drafted.ok) {
 		const { roster, earlier, later } = drafted.error
 		return yield* cliError(
@@ -471,20 +514,15 @@ const draftInput = Effect.fn("draftInput")(function* (
 		refusedAt("schema")
 	)
 	return {
-		input: {
-			previous,
-			installation,
-			workload:
-				planned === undefined
-					? noWorkload
-					: {
-							access: planned.plan.access,
-							accessPaths: planned.plan.requests,
-							live: planned.plan.live
-						},
-			abandoned,
-			declared
-		},
+		installation,
+		workload:
+			planned === undefined
+				? noWorkload
+				: {
+						access: planned.plan.access,
+						accessPaths: planned.plan.requests,
+						live: planned.plan.live
+					},
 		served: planned === undefined ? { kind: "noLogin" } : planned.served
 	}
 })
@@ -535,7 +573,7 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 type DraftSnapshot = Pick<MigrationDraft, "snapshot" | "derived">
 
 /** The texts of a draft's snapshot files, which generate writes. */
-const snapshotFilesOf = (
+export const snapshotFilesOf = (
 	schema: CompiledSchema,
 	draft: DraftSnapshot
 ): Effect.Effect<SnapshotFiles, CliError> =>
@@ -591,7 +629,10 @@ const loginText = (entry: ServedEntry, kind: LoginFileKind): string =>
 	kind === "served" ? entry.text : entry.openapi
 
 /** What writing `served` does to directories holding `committed`, by kind and login (ServedWrites). */
-const servedWrites = (served: ReadonlyArray<ServedEntry>, committed: LoginTexts): ServedWrites => {
+export const servedWrites = (
+	served: ReadonlyArray<ServedEntry>,
+	committed: LoginTexts
+): ServedWrites => {
 	const listed = new Set(Arr.map(served, (f) => f.login))
 	const writes = (kind: LoginFileKind): LoginWrites => ({
 		write: Arr.flatMap(served, (f) => {
@@ -715,7 +756,7 @@ const abandonedSchemas = Effect.fn("abandonedSchemas")(
 )
 
 /** Writes a draft: its folder whole, then its snapshot, then its served files and OpenAPI documents. */
-const writeDraft = Effect.fn("writeDraft")(function* (
+export const writeDraft = Effect.fn("writeDraft")(function* (
 	draft: SchemaDraft
 ): Effect.fn.Return<SchemaGenerateReport, CliError, FileSystem.FileSystem | Path.Path> {
 	const { schema } = draft

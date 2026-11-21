@@ -1,10 +1,17 @@
 /**
  * The format of every file grizzle writes and reads back: a committed snapshot's two files (snapshot.json records it,
  * and the seal manifest.json carries digests under it) and a served file. A file of any other format, or of none, is
- * refused before anything of it is read, never read in part or converted: grizzle reads exactly this format, so an
- * installation whose committed snapshot holds another is drafted afresh, and a served file is written again by
- * `grizzle generate`. A change of what any of those files holds is a change of this format, and nothing reads the
- * format before it.
+ * refused before anything of it is read, never read in part or converted: grizzle reads exactly this format, so a live
+ * installation whose committed snapshot holds another is rebased onto this grizzle's compile of its source by `grizzle
+ * upgrade`, which reads its history off the database and no committed record (the shell's cli/upgrade.ts), one with no
+ * database is drafted afresh, and a served file is written again by `grizzle generate`. A change of what any of those
+ * files holds is a change of this format, and nothing reads the format before it.
+ *
+ * After a production cutover a change of this format leaves grizzle's bookkeeping tables (the ledger and the drift
+ * proofs, deploy/ledger/ledger.ts bookkeepingTables) and every stored column's type as they are, unless it ships a
+ * carried conversion of its own: their rows are no rebase's to rewrite, and migrate reads the ledger before it applies
+ * anything, so `grizzle upgrade` refuses such a change by name (CONTRIBUTING.md, Settled decisions). Format 6 retyped
+ * the ledger's and the proofs' digests, so no format 5 installation is rebased onto it: each is drafted afresh.
  *
  * @formatConstant grizzle's artifact format: 6. Its snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
@@ -85,7 +92,7 @@ export const formatRefusal: {
 } = {
 	snapshot: {
 		problem: "snapshot.json records another format than this grizzle's",
-		fix: "draft the installation afresh with this grizzle, from an empty migrations directory into an empty database: no grizzle reads another format's records"
+		fix: "run grizzle upgrade against the live database, which rebases the installation onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh, from an empty migrations directory: no grizzle reads another format's records"
 	},
 	served: {
 		problem: "the served file records another format than this grizzle's",

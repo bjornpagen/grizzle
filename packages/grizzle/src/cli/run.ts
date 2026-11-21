@@ -29,6 +29,7 @@ import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate, roles, uninstallAll } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
+import { upgradeAll } from "#cli/upgrade.ts"
 import { metaFileName } from "#compiler/plan/migration.ts"
 
 /**
@@ -248,7 +249,7 @@ const placeParts = (place: MigrationPlace): ReadonlyArray<string> => {
 }
 
 /** A command that connects, whose refusal by the database its report names. */
-type ConnectingCommand = "migrate" | "drift" | "roles" | "uninstall"
+type ConnectingCommand = "migrate" | "drift" | "upgrade" | "roles" | "uninstall"
 
 /** A connecting command the database refused, with the command that ran, which its report names. */
 class CommandRefused extends Data.TaggedError("CommandRefused")<{
@@ -324,13 +325,13 @@ const outcomeLine = (command: ConnectingCommand, outcome: MigrateOutcome): strin
 		case "resumes":
 			return "The files before it stay applied and recorded; a rerun resumes at the failed file."
 		case "drifted":
-			return command === "drift"
-				? "Nothing was applied; the catalog differs from the snapshot."
-				: "Every folder applied, but the catalog differs from the snapshot."
+			return command === "migrate"
+				? "Every folder applied, but the catalog differs from the snapshot."
+				: "Nothing was applied; the catalog differs from the snapshot."
 		case "noVerdict":
-			return command === "drift"
-				? "Nothing was applied; the drift check reached no verdict."
-				: "Every folder applied; the drift check reached no verdict."
+			return command === "migrate"
+				? "Every folder applied; the drift check reached no verdict."
+				: "Nothing was applied; the drift check reached no verdict."
 	}
 }
 
@@ -447,6 +448,19 @@ const program = Effect.fn("program")(function* (
 		const connection = yield* migrationConnection(config)
 		const dropped = yield* Effect.mapError(uninstallAll(config, connection), refusedBy("uninstall"))
 		return ran(exitCodes.ok, renderUninstall(dropped), [])
+	}
+	if (command.kind === "upgrade") {
+		const connection = yield* migrationConnection(config)
+		const now = yield* DateTime.now
+		const reports = yield* Effect.mapError(
+			upgradeAll(config, connection, now),
+			refusedBy("upgrade")
+		)
+		return ran(
+			exitCodes.ok,
+			renderGenerate(reports, (p) => path.relative(cwd, p)),
+			[]
+		)
 	}
 	if (command.kind === "drift") {
 		const connection = yield* migrationConnection(config)

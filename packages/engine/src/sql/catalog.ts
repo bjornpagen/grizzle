@@ -237,6 +237,16 @@ export type CatalogFrom =
 			readonly columns: NonEmptyReadonlyArray<string>
 	  }
 	| {
+			/**
+			 * The elements of an installed constant of an array type, in its order: the constant called with no argument,
+			 * unnested WITH ORDINALITY, as `element` and its position from 1, `position`. `grizzle upgrade` reads a
+			 * roster's names constant so, the one installed record of its codes (the shell's adapter/admission/history.ts).
+			 */
+			readonly kind: "constantElements"
+			readonly constant: ObjectName
+			readonly alias: string
+	  }
+	| {
 			readonly kind: "join"
 			readonly left: CatalogFrom
 			readonly right: CatalogFrom
@@ -395,6 +405,10 @@ export const fromRows = (
 	alias: string,
 	columns: NonEmptyReadonlyArray<string>
 ): CatalogSource => source({ kind: "rowsFrom", calls, alias, columns }, alias)
+
+/** The elements of the installed array constant `constant`, in order, under `alias` (CatalogFrom constantElements). */
+export const fromConstantElements = (constant: ObjectName, alias: string): CatalogSource =>
+	source({ kind: "constantElements", constant, alias }, alias)
 
 /** (VALUES <rows>) under `alias`, its columns named. */
 export const fromValues = (

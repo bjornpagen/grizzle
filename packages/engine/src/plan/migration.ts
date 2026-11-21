@@ -30,8 +30,18 @@ export {
 	immutableTriggerName,
 	type InstalledGuard
 } from "#compiler/physical/ddl/immutable.ts"
-export { type GraphIdent, parseIdent } from "#compiler/physical/obligations/graph.ts"
-export type { AbandonedSchema, Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
+export {
+	type GraphIdent,
+	namedIdent,
+	parseIdent,
+	qualifiedIdent
+} from "#compiler/physical/obligations/graph.ts"
+export {
+	type AbandonedSchema,
+	type Declarations,
+	noDeclarations,
+	type Rename
+} from "#compiler/deploy/diff/plan.ts"
 export { type Named, namedSpelling } from "#compiler/core/errors.ts"
 export { decideFolder, type Redraft } from "#compiler/deploy/ledger/decide.ts"
 export { replayLocks } from "#compiler/deploy/locks/demand.ts"
@@ -60,10 +70,25 @@ export {
 	customMigration,
 	type DraftInput,
 	draftMigration,
+	draftUpgrade,
+	freshSnapshot,
 	generateMigration,
+	generateUpgrade,
 	type GenerateResult,
-	type MigrationDraft
+	type LiveInstallation,
+	type MigrationDraft,
+	type UpgradeInput
 } from "#compiler/deploy/render/generate.ts"
+export { type Departure, departureDrop } from "#compiler/deploy/diff/departed.ts"
+export { staleReplaced } from "#compiler/deploy/diff/diff.ts"
+export type { PhysicalKind } from "#compiler/ir/products.ts"
+export {
+	type LiveNames,
+	liveRosters,
+	type RosterUnread,
+	spellingReaders
+} from "#compiler/deploy/upgrade/history.ts"
+export { type Spellings, spellingsHeld } from "#compiler/ir/pattern.ts"
 export {
 	findMarkers,
 	isNoTransaction,

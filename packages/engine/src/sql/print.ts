@@ -2708,6 +2708,8 @@ const catalogFrom = (item: CatalogFrom): string => {
 			return `ROWS FROM (${item.calls.map(catalogCall).join(", ")}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
 		case "values":
 			return `(VALUES ${item.rows.map((row) => `(${catalogExprs(row)})`).join(", ")}) AS ${quoteIdent(item.alias)}(${printIdentList(item.columns)})`
+		case "constantElements":
+			return `${inCatalog("unnest")}(${printObjectName(item.constant)}()) WITH ORDINALITY AS ${quoteIdent(item.alias)}(${printIdentList(["element", "position"])})`
 		case "join": {
 			const right =
 				item.right.kind === "join" || item.right.kind === "crossJoin"

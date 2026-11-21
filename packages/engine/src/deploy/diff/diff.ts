@@ -46,6 +46,7 @@ import {
 	fillReadsOf,
 	replacedClosed
 } from "#compiler/deploy/diff/backfill.ts"
+import { type Departure, departureDrop } from "#compiler/deploy/diff/departed.ts"
 import {
 	type AbandonedSchema,
 	type Action,
@@ -189,6 +190,75 @@ interface DiffInput {
 	/** Each roster the previous snapshot records, with what the draft makes of it (snapshot/build.ts rosterFates): which
 	 * of the previous installation's domains are a roster's, and which roster of the target each continues as. */
 	readonly rosters: ReadonlyArray<PreviousRoster>
+	/**
+	 * The objects of `previous` the database holds otherwise, by identity: a committed snapshot's draft has none; an
+	 * upgrade's previous installation, read off the live catalog (render/generate.ts draftUpgrade), records each object
+	 * the database holds under the target's identity and names but defines otherwise as the target's, so its drop names
+	 * what the database holds, and each is changed as one whose record changed is: replaced, re-expressed, swapped or
+	 * created again, by its kind's own rule.
+	 */
+	readonly stale: ReadonlySet<string>
+	/**
+	 * The objects the database holds that no object of the target is (departed.ts): none for a committed snapshot's
+	 * draft; an upgrade's, in their drop order, each dropped in publish.removed after every removal of the diff's own,
+	 * once everything the target creates in their place stands, as a removed object is.
+	 */
+	readonly departures: ReadonlyArray<Departure>
+}
+
+/**
+ * Whether the diff changes an object of each kind that the database holds under the target's names but defines
+ * otherwise (DiffInput stale), every kind decided here, so a new kind is a type error until it is: one of a kind whose
+ * change the diff drafts by its kind's rule, from the target's record alone, which names what the database holds
+ * (functions replaced in place, keys swapped, CHECKs and foreign keys redefined NOT VALID and validated, indexes built
+ * and swapped in, triggers replaced under their table's lock, generated columns dropped and added again, the roles'
+ * objects and materialized views created again, domain constraints replaced, memberships and publications replaced);
+ * and none of a kind a draft never changes, or whose change the database holds in its rows (a table, the ledger), which
+ * `grizzle upgrade` refuses before anything is drafted (the shell's adapter/admission/upgrade.ts).
+ */
+export const staleReplaced: { readonly [K in PhysicalKind]: boolean } = {
+	databaseDefault: false,
+	schema: false,
+	extension: false,
+	constant: false,
+	domain: true,
+	functionOwner: false,
+	rowType: false,
+	declaredFunction: true,
+	table: false,
+	liveSecret: false,
+	replicaIdentity: false,
+	lawColumn: true,
+	primaryKey: true,
+	unique: true,
+	check: true,
+	foreignKey: true,
+	refusalFunction: true,
+	unitFunction: true,
+	isolationFunction: true,
+	snapshotGuard: true,
+	isolationTrigger: false,
+	materializedView: true,
+	uniqueIndex: true,
+	index: true,
+	statistics: true,
+	validation: false,
+	ruleJudge: true,
+	lawFunction: true,
+	lawTrigger: true,
+	immutableGuard: true,
+	immutableTrigger: true,
+	role: false,
+	decoder: false,
+	membership: true,
+	roleSchema: false,
+	view: true,
+	worldFunction: true,
+	policy: true,
+	rowSecurity: false,
+	publication: true,
+	privileges: false,
+	ledger: false
 }
 
 /** How a marker names a holder's kind. */
@@ -957,6 +1027,7 @@ class Differ {
 		)
 		const convertedTables = this.convertedTables()
 		const beneath = new Set([
+			...input.stale,
 			...this.viewDrops.map((d) => d.view.object.ident),
 			...replacedBy.keys(),
 			...convertedTables.flatMap((key) => {
@@ -1139,10 +1210,10 @@ class Differ {
 				const change =
 					now === undefined
 						? "dropped"
-						: sameRecord(p, now)
+						: this.unchanged(p, now)
 							? "kept"
 							: target?.kind === "lawColumn" &&
-								  reexpressedLawColumn(p, target.definition) !== undefined
+								  this.reexpressedAs(p, target.definition) !== undefined
 								? "reexpressed"
 								: "redefined"
 				const fate = {
@@ -1458,7 +1529,21 @@ class Differ {
 	 * target's admits (S7's n_1_sentinel, 23514). */
 	redefinedConstraint(before: RecordedObject, now: TableConstraint): TableConstraint | undefined {
 		const old = this.constraintOf(before, this.prev)
-		return canonicalEquals(old, now) ? undefined : old
+		return !this.input.stale.has(before.ident) && canonicalEquals(old, now) ? undefined : old
+	}
+
+	/** Whether the previous object `before` is the target's `now` as the database holds it: the same record (recorded.ts
+	 * sameRecord), and no object the database holds otherwise (DiffInput stale). The one reading of an object kept by its
+	 * record. */
+	unchanged(before: RecordedObject, now: ManifestObject): boolean {
+		return !this.input.stale.has(before.ident) && sameRecord(before, now)
+	}
+
+	/** The STORED generation a law column `before` is re-expressed by where only its generation changes
+	 * (reexpressedLawColumn); none for one the database holds otherwise (DiffInput stale), which is dropped and added
+	 * again, its definition there being none the record states. */
+	reexpressedAs(before: RecordedObject, definition: ColumnDef): StoredGeneration | undefined {
+		return this.input.stale.has(before.ident) ? undefined : reexpressedLawColumn(before, definition)
 	}
 
 	run(): MigrationPlan {
@@ -1561,6 +1646,7 @@ class Differ {
 			const ran = installed(before)
 			if (
 				ran.kind !== "materializedView" ||
+				this.input.stale.has(o.ident) ||
 				was.get(ran.create.name.name) !== now.get(v.create.name.name) ||
 				this.readsGone(ran.create, held)
 			) {
@@ -1811,7 +1897,7 @@ class Differ {
 					return false
 				case "uniqueIndex": {
 					const now = this.next.get(o.ident)
-					return now === undefined || !sameRecord(o, now) || revalued
+					return now === undefined || !this.unchanged(o, now) || revalued
 				}
 				case "check":
 				case "primaryKey":
@@ -1906,9 +1992,7 @@ class Differ {
 			}
 			const t = v.table
 			const c = keyOrCheckDefinition(v, this.next)
-			const before =
-				arrival.kind === "follows" ? this.constraintOf(arrival.before, this.prev) : undefined
-			if (before === undefined || !canonicalEquals(before, c)) {
+			if (arrival.kind !== "follows" || this.redefinedConstraint(arrival.before, c) !== undefined) {
 				this.attached.add(keyAfter(t, constraintColumns(c)))
 			}
 		}
@@ -1944,7 +2028,7 @@ class Differ {
 			case "refusalFunction":
 			case "isolationFunction":
 			case "snapshotGuard":
-				if (before === undefined || !sameRecord(before, o)) {
+				if (before === undefined || !this.unchanged(before, o)) {
 					this.sql("setup", o.ddl)
 				}
 				return
@@ -1953,7 +2037,7 @@ class Differ {
 			case "extension":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability:
@@ -1994,14 +2078,14 @@ class Differ {
 			case "unitFunction":
 				if (before === undefined) {
 					this.sql("structure", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					this.unitFunction(before, v.create, o.ddl)
 				}
 				return
 			case "functionOwner":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					this.sql(
 						"setup",
 						o.ddl.filter((s) => s.kind === "grant")
@@ -2016,14 +2100,14 @@ class Differ {
 			case "declaredFunction":
 				if (before === undefined) {
 					this.sql("setup", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					this.declaredFunction(before, v.create, o.ddl)
 				}
 				return
 			case "role":
 				if (before === undefined) {
 					this.roleObject(v)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					refuseUnsupported({
 						loc: SourceLoc(`object ${o.ident}`, []),
 						capability: loginRoleExchange
@@ -2052,7 +2136,7 @@ class Differ {
 			case "membership":
 				if (before === undefined) {
 					this.sql("publish.grants", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					const was = installed(before)
 					this.sql("publish.grants", [
 						...(was.kind === "membership" ? [revokeRoleOf(was.grant)] : []),
@@ -2067,14 +2151,14 @@ class Differ {
 				return
 			case "ruleJudge":
 			case "lawFunction":
-				if (before === undefined || !sameRecord(before, o)) {
+				if (before === undefined || !this.unchanged(before, o)) {
 					this.sql("validate", o.ddl)
 				}
 				return
 			case "immutableGuard":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					this.sql(
 						"validate",
 						o.ddl.filter((s) => s.kind !== "revoke")
@@ -2085,7 +2169,7 @@ class Differ {
 			case "lawTrigger":
 				if (before === undefined) {
 					this.sql("validate", o.ddl)
-				} else if (!sameRecord(before, o)) {
+				} else if (!this.unchanged(before, o)) {
 					this.sql("validate", [
 						{
 							kind: "lockTable",
@@ -2107,10 +2191,10 @@ class Differ {
 				}
 				return
 			case "publication":
-				if (before !== undefined && !sameRecord(before, o)) {
+				if (before !== undefined && !this.unchanged(before, o)) {
 					this.sql("structure.drop", [{ kind: "dropPublication", name: v.create.name }])
 				}
-				if (before === undefined || !sameRecord(before, o)) {
+				if (before === undefined || !this.unchanged(before, o)) {
 					this.sql("publish", o.ddl)
 				}
 				return
@@ -2233,7 +2317,7 @@ class Differ {
 	 * migrations directory holds any, and never changed. */
 	schemaObject(o: ManifestObject, before: RecordedObject | undefined): void {
 		if (before !== undefined) {
-			if (!sameRecord(before, o)) {
+			if (!this.unchanged(before, o)) {
 				refuseUnsupported({
 					loc: SourceLoc(`object ${o.ident}`, []),
 					capability:
@@ -2275,7 +2359,7 @@ class Differ {
 			return
 		}
 		const was = installed(before)
-		if (was.kind !== "constant" || !sameRecord(before, v.object)) {
+		if (was.kind !== "constant" || !this.unchanged(before, v.object)) {
 			refuse(before.ident, "a constant whose name digests what it installs")
 		}
 	}
@@ -2312,7 +2396,12 @@ class Differ {
 		 * every column it types. */
 		const a = was.constraint
 		const b = v.constraint
-		if (a !== undefined && b !== undefined && canonicalEquals(a, b)) {
+		if (
+			a !== undefined &&
+			b !== undefined &&
+			canonicalEquals(a, b) &&
+			!this.input.stale.has(before.ident)
+		) {
 			return
 		}
 		if (a === undefined && b === undefined) {
@@ -2385,7 +2474,7 @@ class Differ {
 				continue
 			}
 			const before = this.prev.get(o.ident)
-			const changed = before === undefined || !sameRecord(before, o)
+			const changed = before === undefined || !this.unchanged(before, o)
 			const recast = [
 				...qualifiedNames((hooks) => {
 					for (const ddl of o.ddl) {
@@ -2820,10 +2909,10 @@ class Differ {
 	): void {
 		const { object: o, table: t, column } = v
 		if (before !== undefined) {
-			if (sameRecord(before, o)) {
+			if (this.unchanged(before, o)) {
 				return
 			}
-			const generation = reexpressedLawColumn(before, v.definition)
+			const generation = this.reexpressedAs(before, v.definition)
 			if (generation !== undefined) {
 				this.alter("structure", t, [{ kind: "setExpression", column, generation }])
 				return
@@ -2971,7 +3060,8 @@ class Differ {
 			const t = v.table
 			const c = keyOrCheckDefinition(v, this.prev)
 			const now = this.next.get(o.ident)
-			if (now !== undefined && canonicalEquals(this.constraintOf(now, this.next), c)) {
+			const target = now === undefined ? undefined : this.constraintOf(now, this.next)
+			if (target !== undefined && this.redefinedConstraint(o, target) === undefined) {
 				continue
 			}
 			const targetKeys = new Set(
@@ -3050,7 +3140,7 @@ class Differ {
 				continue
 			}
 			const { table: source, constraint: fk } = v
-			if (!canonicalEquals(this.constraintOf(before, this.prev), fk)) {
+			if (this.redefinedConstraint(before, fk) !== undefined) {
 				continue
 			}
 			this.sql("publish.attach", [alter(source, [{ kind: "dropConstraint", name: fk.name }])])
@@ -3078,11 +3168,11 @@ class Differ {
 	): void {
 		const { table: t, constraint: c } = v
 		if (before !== undefined) {
-			const old = this.constraintOf(before, this.prev)
-			if (canonicalEquals(old, c)) {
+			const old = this.redefinedConstraint(before, c)
+			if (old === undefined) {
 				return
 			}
-			if (this.deferralAlone(old, c)) {
+			if (!this.input.stale.has(before.ident) && this.deferralAlone(old, c)) {
 				this.sql("publish.attach", [
 					alter(t, [{ kind: "alterConstraintDeferral", name: c.name, deferrable: c.deferrable }])
 				])
@@ -3152,7 +3242,7 @@ class Differ {
 	): void {
 		const { object: o, create } = v
 		const t = create.table
-		if (before !== undefined && sameRecord(before, o)) {
+		if (before !== undefined && this.unchanged(before, o)) {
 			return
 		}
 		if (!this.mayHoldRows(t)) {
@@ -3189,7 +3279,7 @@ class Differ {
 		before: RecordedObject | undefined
 	): void {
 		const { object: o, create } = v
-		if (before !== undefined && sameRecord(before, o)) {
+		if (before !== undefined && this.unchanged(before, o)) {
 			return
 		}
 		if (before !== undefined) {
@@ -3412,6 +3502,9 @@ class Differ {
 		)
 		for (const r of ordered) {
 			this.push("publish.removed", r.draft)
+		}
+		for (const d of this.input.departures) {
+			this.sql("publish.removed", [departureDrop(d)])
 		}
 	}
 

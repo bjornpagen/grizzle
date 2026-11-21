@@ -183,5 +183,7 @@ export const cliStageFix: Readonly<Record<CliStage, string>> = {
 	snapshot: "restore snapshot.json, manifest.json and the migration folders from git",
 	format: formatRefusal.snapshot.fix,
 	codes: appendHandles,
-	generate: "fix the schema or workload it names, then run grizzle generate again"
+	generate: "fix the schema or workload it names, then run grizzle generate again",
+	upgrade:
+		"bring the database to the snapshot its committed folders reach with the grizzle that drafted them (grizzle migrate, then grizzle drift), from the source it was deployed from; an object the refusal names is one this grizzle's format changes in a way no rebase may draft, which only a migration of that grizzle's own can carry"
 }

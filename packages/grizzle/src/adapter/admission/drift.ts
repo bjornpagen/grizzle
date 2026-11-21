@@ -10,6 +10,7 @@ import {
 	defaultPrivilegesQuery,
 	type MembershipDifference,
 	memberDifferences,
+	type PolicyDifference,
 	membershipDifferences,
 	membershipsQuery,
 	membersQuery,
@@ -83,6 +84,7 @@ import {
 	proofDigests,
 	type ProofStatements,
 	proofsTableName,
+	qualifiedIdent,
 	type RecordedSource,
 	recordedSources,
 	type ReplayedObject,
@@ -1040,7 +1042,7 @@ const descriptionSelect = (): C.CatalogSelect => {
  * A fact of a schema's description (descriptionSelect): its key, the identity of the object it describes, the identity
  * of the relation it lies in, and its description.
  */
-interface Fact {
+export interface Fact {
 	readonly key: string
 	readonly object: string
 	readonly within: string
@@ -1103,23 +1105,33 @@ const sourceMismatches = (
 	recorded: ReadonlyArray<RecordedSource>,
 	installed: ReadonlyArray<readonly [string, string, string]>,
 	folders: ReadonlyArray<DriftFolder>
-): ReadonlyArray<DriftMismatch> => {
+): ReadonlyArray<SourceMismatch> => {
 	const byName = Arr.groupBy(installed, ([schema, name]) => `${schema}.${name}`)
-	return Arr.flatMap(recorded, (r): ReadonlyArray<DriftMismatch> => {
+	return Arr.flatMap(recorded, (r): ReadonlyArray<SourceMismatch> => {
 		const held = byName[`${r.function.schema}.${r.function.name}`] ?? []
 		const [only, second] = held
 		return only === undefined || second !== undefined || only[2] === r.source
 			? []
 			: [
 					{
-						kind: "source",
-						fact: `source of function ${printObjectName(r.function)}`,
-						expected: r.source,
-						installed: only[2],
-						definedBy: definitionOf(folders, r.function)
+						object: qualifiedIdent("function", r.function.schema, r.function.name),
+						mismatch: {
+							kind: "source",
+							fact: `source of function ${printObjectName(r.function)}`,
+							expected: r.source,
+							installed: only[2],
+							definedBy: definitionOf(folders, r.function)
+						}
 					}
 				]
 	})
+}
+
+/** A recorded source the installed function does not hold (sourceMismatches): the function's manifest identity, and
+ * the mismatch the report prints. */
+interface SourceMismatch {
+	readonly object: string
+	readonly mismatch: DriftMismatch
 }
 
 /** A name as PostgreSQL prints it. */
@@ -1755,6 +1767,52 @@ export interface DriftVerdict {
 	readonly mismatches: ReadonlyArray<DriftMismatch>
 	readonly replayed: ReadonlyArray<string>
 	readonly proofs: ProofRecord
+	/** What the check found, by object and by role, as `grizzle upgrade` judges a live installation by (DriftFound). */
+	readonly found: DriftFound
+}
+
+/** A privilege of a role that differs from the snapshot's (roles.ts PrivilegeDifference), with the role. */
+export interface RolePrivilege {
+	readonly role: string
+	readonly difference: PrivilegeDifference
+}
+
+/** A policy naming a role that the snapshot creates and the database lacks, or the reverse (roles.ts PolicyDifference). */
+export interface RolePolicy {
+	readonly role: string
+	readonly difference: PolicyDifference
+}
+
+/** The facts beside the descriptions (driftCheck's `beside`): every mismatch, the report's, and the ones `grizzle
+ * upgrade` reads apart: each PL/pgSQL function whose source differs, by identity, each differing privilege and policy,
+ * by role, and every other (`others`): an extension's schema, a publication, a setting, a default privilege, and a
+ * role's attributes, memberships and members. */
+interface Beside {
+	readonly mismatches: ReadonlyArray<DriftMismatch>
+	readonly sources: ReadonlySet<string>
+	readonly privileges: ReadonlyArray<RolePrivilege>
+	readonly policies: ReadonlyArray<RolePolicy>
+	readonly others: ReadonlyArray<DriftMismatch>
+}
+
+/**
+ * What a drift check found, beside its mismatches, as `grizzle upgrade` reads it (adapter/admission/upgrade.ts): the
+ * identity of every object of the snapshot PostgreSQL describes, the ones a row of the proofs proves, and the facts
+ * compared fact by fact, the replay's renamed to the installed schemas (`expected`) and the database's (`installed`):
+ * every fact of each object no row proves, and every fact the database holds that no object of the snapshot owns
+ * (factOwner); each function whose source is not the record's; each privilege and policy naming a role that differs;
+ * and every other fact beside them that differs.
+ */
+export interface DriftFound {
+	readonly described: ReadonlySet<string>
+	readonly proven: ReadonlySet<string>
+	readonly expected: ReadonlyArray<Fact>
+	readonly installed: ReadonlyArray<Fact>
+	readonly sources: ReadonlySet<string>
+	readonly privileges: ReadonlyArray<RolePrivilege>
+	readonly policies: ReadonlyArray<RolePolicy>
+	/** Every other fact beside the descriptions that differs (Beside `others`). */
+	readonly others: ReadonlyArray<DriftMismatch>
 }
 
 /**
@@ -1883,14 +1941,11 @@ export const driftCheck = (
 		 * flight's outcomes. */
 		const beside = (first: ReadonlyArray<BatchOutcome>) =>
 			Result.gen(function* () {
+				/** Every fact beside the descriptions but a source's, a privilege's and a policy's. */
 				const out: Array<DriftMismatch> = []
-				for (const mismatch of sourceMismatches(
-					sources,
-					yield* installedSources.rows(first),
-					folders
-				)) {
-					out.push(mismatch)
-				}
+				const privileges: Array<RolePrivilege> = []
+				const policies: Array<RolePolicy> = []
+				const sourced = sourceMismatches(sources, yield* installedSources.rows(first), folders)
 				for (const { extension: x, slot } of extensionSchemas) {
 					const at = yield* slot.rows(first)
 					if (!at.includes(x.schema)) {
@@ -1929,7 +1984,7 @@ export const driftCheck = (
 						}
 					}
 					for (const d of yield* read.privileges.rows(first)) {
-						out.push(privilegeFact(d, r.role))
+						privileges.push({ role: r.role, difference: d })
 					}
 					for (const d of membershipDifferences(yield* read.memberships.rows(first), r)) {
 						for (const fact of membershipFacts(d, `role ${r.role} membership in ${d.role}`)) {
@@ -1942,13 +1997,25 @@ export const driftCheck = (
 						}
 					}
 					for (const d of policyDifferences(yield* read.policies.rows(first), r)) {
-						out.push({
-							kind: d.kind,
-							fact: `policy ${d.policy.name} on ${d.policy.table} naming role ${r.role}`
-						})
+						policies.push({ role: r.role, difference: d })
 					}
 				}
-				return out
+				const found: Beside = {
+					mismatches: [
+						...Arr.map(sourced, (m) => m.mismatch),
+						...out,
+						...Arr.map(privileges, (p) => privilegeFact(p.difference, p.role)),
+						...Arr.map(policies, (p) => ({
+							kind: p.difference.kind,
+							fact: `policy ${p.difference.policy.name} on ${p.difference.policy.table} naming role ${p.role}`
+						}))
+					],
+					sources: new Set(Arr.map(sourced, (m) => m.object)),
+					privileges,
+					policies,
+					others: out
+				}
+				return found
 			})
 		return {
 			first: flight.statements,
@@ -2037,13 +2104,26 @@ export const driftCheck = (
 									}
 								}
 							}
+							const compared = Arr.filter(installed, isCompared)
 							const verdict: DriftVerdict = {
 								mismatches: sorted([
-									...compareDescriptions(keyed(expected), keyed(Arr.filter(installed, isCompared))),
-									...besides
+									...compareDescriptions(keyed(expected), keyed(compared)),
+									...besides.mismatches
 								]),
 								replayed: Arr.map(replayed, (o) => o.ident),
-								proofs: record
+								proofs: record,
+								found: {
+									described,
+									proven: new Set(
+										Arr.flatMap(rows, (row) => (unproven.has(row.object) ? [] : [row.object]))
+									),
+									expected,
+									installed: compared,
+									sources: besides.sources,
+									privileges: besides.privileges,
+									policies: besides.policies,
+									others: besides.others
+								}
 							}
 							return verdict
 						})

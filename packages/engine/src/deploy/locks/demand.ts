@@ -1476,6 +1476,9 @@ const lockStatement = (locks: Locks, s: SqlStatement | RecordedStatement): void 
 				case "STATISTICS":
 					locks.dropped([target("statistics", named(s.name))])
 					return
+				case "FUNCTION":
+					locks.dropped([functionOf(s.name)])
+					return
 				case "ROLE":
 					locks.dropped([target("role", s.name)])
 					return

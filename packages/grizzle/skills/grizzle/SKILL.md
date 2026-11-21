@@ -449,9 +449,10 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   `snapshot.json` and each served file record grizzle's format as their `format` member, and `manifest.json`'s seal
   digests both snapshot files under it. A pair whose `snapshot.json` records another format, or none, is read no
   further: `check` says: snapshot.json records another format than this grizzle's, with the format it records and the
-  one this grizzle reads and writes; draft the installation afresh with this grizzle, from an empty migrations
-  directory into an empty database: no grizzle reads another format's records. `generate`, `migrate`, `drift` and
-  `names` refuse it at stage `format`, writing nothing. Never edit one by hand; `grizzle generate` writes a served file
+  one this grizzle reads and writes; run grizzle upgrade against the live database, which rebases the installation
+  onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh,
+  from an empty migrations directory: no grizzle reads another format's records. `generate`, `migrate`, `drift` and
+  `names` refuse it at stage `format`, writing nothing (see Upgrading across a format, below). Never edit one by hand; `grizzle generate` writes a served file
   again, and an application refuses a served file or a `snapshot.json` of another format where it loads it
   (`ArtifactFormat`).
 - `served/<login>.json`: a login's workload compiled under the snapshot beside it, which the application serves.
@@ -481,6 +482,37 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
 - The violation check of a rule over a query, in Validate: its triggers judge only the writes after it, so without it
   the migration installs a rule the stored rows already break.
 - `CONCURRENTLY` turned into a plain build: a plain build blocks every write to the table while it runs.
+
+## Upgrading across a format
+
+A new grizzle refuses a committed snapshot of another format (stage `format`). A live installation moves to the new
+format with `grizzle upgrade <config>`, run from the commit the installation was deployed from, with the new grizzle:
+
+- It reads no `snapshot.json` or `manifest.json`: only the folders' meta.json (the chain they reach) and the database.
+  It compiles the source again under the database's history: each roster's codes read off the names constant its
+  domain reads (a hole and a renamed handle's code kept), each table's attribute numbers, and each pattern language's
+  spelling, one the schema writes of it. The drift check of that compile against the catalog proves each of them.
+- Where the database holds the compile whole under its fingerprint, it writes `snapshot.json` and `manifest.json`
+  again, in the new format, and the served files: commit them, run `grizzle check`, deploy. Nothing to migrate.
+- Otherwise it drafts `<timestamp>_upgrade`, with the normal diff from the compile's objects the database holds: an
+  object it lacks is created, one it holds otherwise is changed by its kind's own rule (a function replaced in place, a
+  key swapped, a CHECK added `NOT VALID` and validated, a trigger replaced under its table's lock), and one no object of
+  the compile is dropped at the end of Publish. A folder of no SQL file only moves the ledger to the new fingerprint.
+  Review it like any draft, commit, run `grizzle check`, then `grizzle migrate`.
+- It writes nothing to the database, and reads at most the catalog, the ledger and the roster constants.
+
+It refuses, at stage `upgrade`, naming what it found:
+
+- the database's ledger reaches another snapshot than the committed folders, or holds a folder partly applied: bring
+  the database to its committed snapshot with the grizzle that drafted it first;
+- no installed constant is a roster's names constant under the codes it holds;
+- no object the database holds as the compile's reads a pattern language as any spelling the schema writes of it;
+- an object holds stored rows (a table, grizzle's ledger or drift proofs) and the database holds it otherwise: a
+  format change after a production cutover leaves those unchanged unless it ships a carried conversion;
+- an object of a kind no draft changes is defined otherwise, or held under other keys (a function under another
+  signature, a domain under other constraints), or a key names another object;
+- a role's, grant's, membership's, setting's, default privilege's, extension's or publication's difference that no
+  object the upgrade creates or drops carries.
 
 ## Custom migrations
 
@@ -520,7 +552,7 @@ schema or workload that does not compile) are `check`'s alone.
 | unconfirmed group | keep every statement below the marker as drafted, then delete the two marker lines |
 | unresolved data loss: a schema's first migration starts it empty beside a schema the configuration no longer lists, and the statement that loses that schema's rows is still commented | to start the new schema empty, uncomment the statement below its -- grizzle: data loss line; to keep the rows, keep the old schema's name and delete the folder |
 | snapshot.json and manifest.json do not decode as a snapshot, or are the snapshot of another schema | restore them from git |
-| snapshot.json records another format than this grizzle's | draft the installation afresh with this grizzle, from an empty migrations directory into an empty database: no grizzle reads another format's records |
+| snapshot.json records another format than this grizzle's | run grizzle upgrade against the live database, which rebases the installation onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh, from an empty migrations directory: no grizzle reads another format's records |
 | meta.json does not decode as a migration's meta.json, or names another schema | restore it from git |
 | broken chain: this migration does not start where the previous one ends | regenerate; never hand-edit meta.json |
 | broken chain: the newest migration does not reach snapshot.json | regenerate; never hand-edit meta.json |
@@ -537,7 +569,7 @@ Applied files, which only `migrate` can check against the ledger:
 - `<folder>/<file>` was applied but is missing; restore it from git
 - `<folder>/<file>` was added after its folder was applied; move it into a new migration (grizzle generate <config> --custom --name <name>)
 
-`migrate`, `drift`, `roles` and `uninstall` name the stage they stopped at, and its fix:
+`migrate`, `drift`, `upgrade`, `roles` and `uninstall` name the stage they stopped at, and its fix:
 
 | Stage | Fix |
 | --- | --- |
@@ -587,9 +619,10 @@ The command line's own refusals, by stage:
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json, manifest.json and the migration folders from git |
-| format | draft the installation afresh with this grizzle, from an empty migrations directory into an empty database: no grizzle reads another format's records |
+| format | run grizzle upgrade against the live database, which rebases the installation onto this grizzle's compile of the source it was deployed from; an installation with no database is drafted afresh, from an empty migrations directory: no grizzle reads another format's records |
 | codes | append new handles, since an ordered roster's order is its codes' order, or declare the roster closed.unordered where its order means nothing |
 | generate | fix the schema or workload it names, then run grizzle generate again |
+| upgrade | bring the database to the snapshot its committed folders reach with the grizzle that drafted them (grizzle migrate, then grizzle drift), from the source it was deployed from; an object the refusal names is one this grizzle's format changes in a way no rebase may draft, which only a migration of that grizzle's own can carry |
 
 ## Deploy
 

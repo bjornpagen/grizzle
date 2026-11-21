@@ -80,6 +80,7 @@ const plainCommandSet: { readonly [C in PlainCommand]: null } = {
 	check: null,
 	migrate: null,
 	drift: null,
+	upgrade: null,
 	names: null,
 	roles: null,
 	uninstall: null

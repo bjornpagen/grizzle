@@ -126,6 +126,8 @@ export {
 	codeNames,
 	draftCodebook,
 	type HandleRenames,
+	noRenames,
+	type PreviousRoster,
 	type RosterCodec,
 	type RosterRenames
 } from "#compiler/ir/codes.ts"

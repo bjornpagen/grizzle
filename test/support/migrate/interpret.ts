@@ -3375,7 +3375,28 @@ class Model {
 					refuse("42704", `the statistics object ${printObjectName(s.name)} does not exist`)
 				}
 				return
+			case "FUNCTION":
+				this.#dropFunction(s.name, s.ifExists)
+				return
 		}
+	}
+
+	/**
+	 * A function's drop, by its signature or by its name alone, one function of a name in a schema as grizzle installs
+	 * every function: refused where it does not exist and the drop is no IF EXISTS, and where a function calls it.
+	 */
+	#dropFunction(name: ObjectName, ifExists: boolean): void {
+		if (!this.#functions.has(name.name)) {
+			if (!ifExists) {
+				refuse("42883", `the dropped function ${printObjectName(name)} does not exist`)
+			}
+			return
+		}
+		const [caller] = this.#callersOf(name.name)
+		if (caller !== undefined) {
+			refuse("2BP01", `cannot drop the function ${name.name} because ${caller} depends on it`)
+		}
+		this.#functions.delete(name.name)
 	}
 
 	/** A relation a view or a world's view reads stops its drop; a policy goes with its own table. */
@@ -3835,20 +3856,9 @@ class Model {
 				this.#addFunction(s.function, { body: { kind: "packed", bits: packedBits(s) }, calls: [] })
 				return
 			case "dropFunction": {
-				if (!this.#ours(s.name)) {
-					return
+				if (this.#ours(s.name)) {
+					this.#dropFunction(s.name, s.ifExists)
 				}
-				if (!this.#functions.has(s.name.name)) {
-					if (!s.ifExists) {
-						refuse("42883", `the dropped function ${printObjectName(s.name)} does not exist`)
-					}
-					return
-				}
-				const [caller] = this.#callersOf(s.name.name)
-				if (caller !== undefined) {
-					refuse("2BP01", `cannot drop the function ${s.name.name} because ${caller} depends on it`)
-				}
-				this.#functions.delete(s.name.name)
 				return
 			}
 			case "refresh":
