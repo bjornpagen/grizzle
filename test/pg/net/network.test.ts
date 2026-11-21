@@ -6,8 +6,8 @@
  *    zeros, a mask wrapping a C int) and texts that are none: grizzle's parse of each as an inet and as a cidr
  *    (Inet.parse, Cidr.parse) is PostgreSQL's own, the same value or the same refusal, a cidr's bit right of its mask
  *    refused as such, and its value the one text inet_out and cidr_out print. Every text PostgreSQL reads is inserted
- *    through grizzle as the value it spells, as a Host's inet and a Network's cidr, and reads back as PostgreSQL's own
- *    output text of it, the value's one form.
+ *    through grizzle as the value it spells, each inet value once as a Host's key and each cidr as a Network's, and
+ *    reads back as PostgreSQL's own output text of it, the value's one form.
  * 2. Contexts. Over drawn networks and an address, a token's claim of it (Where, the nested `net` object) or the
  *    server's attestation (Origin), a Db reads the networks within which its context's address lies, Net.within in a
  *    filter, which are PostgreSQL's own `address <<= network` over the stored networks; a token that claims Origin's
@@ -155,11 +155,13 @@ export const pgInetAndPgCidrOnPostgreSQL19GrizzleReadsEveryTextAsPostgreSQLDoesA
 										`${Formatter.format(text)} as a cidr`
 									)
 									if (pgInet.kind === "value") {
-										inets.push({
-											id: at,
-											held: succeeded(admitInet(text), "an inet PostgreSQL reads"),
-											value: pgInet.text
-										})
+										if (Arr.every(inets, (i) => i.value !== pgInet.text)) {
+											inets.push({
+												id: at,
+												held: succeeded(admitInet(text), "an inet PostgreSQL reads"),
+												value: pgInet.text
+											})
+										}
 										k.note(
 											Str.includes(":")(pgInet.text) ? "an IPv6 inet stored" : "an IPv4 inet stored"
 										)

@@ -101,7 +101,12 @@ export const exclusions: Readonly<
 	 * A cidr's min and max are inet's (min(inet), max(inet)), which answer an inet: a cidr's least value is no cidr the
 	 * language types, so no aggregate of the language reads one.
 	 */
-	cidr: ["minMax"]
+	cidr: ["minMax"],
+	/**
+	 * A search document is matched by a query (textSearch, under GIN), never compared, ordered or keyed: no key, unique,
+	 * containment or comparison reads one, so neither its B-tree nor its GiST class.
+	 */
+	tsvector: ["equality", "gist", "ordering"]
 }
 
 /** The capabilities the registry claims for a carrier. */

@@ -24,13 +24,14 @@ import { generatedTemplate } from "#test/support/install-migrate.ts"
  * pg.inet and pg.cidr written and read through grizzle, and an inet context's address, from a token's claim or attested
  * by the server, filtering a cidr relation by Net.within.
  *
- * README, "Tables and types", network types, and "Contexts of a role". A Host holds an inet, a Network a cidr. The role
+ * README, "Tables and types", network types, and "Contexts of a role". A Host is keyed by its inet, which a read reads
+ * as its key's text, network_show's, and so converts to the value's one form; a Network holds a cidr. The role
  * `campus` holds both whole and declares two contexts of one field, an inet `address`: Where, a token's claim, read from
  * its nested `net` object; and Origin, attested by the server where it opens the Db, never read from a token. Its login
  * serves the inserts of hosts and networks, the reads of each, and the networks within which Where's address and
  * Origin's lie.
  */
-const Host = relation("Host", { id: pg.integer, address: pg.inet }, ["id"])
+const Host = relation("Host", { id: pg.integer, address: pg.inet }, ["address"])
 export const Network = relation("Network", { id: pg.integer, network: pg.cidr }, ["id"])
 
 /** The address a token claims, from its nested `net` object: a client's statement. */
@@ -145,7 +146,10 @@ const ipv6: Gen<string> = (s) => {
 		: spelled
 }
 
-/** A network text: an IPv4 or IPv6 address with or without a mask, a cidr's shorthand, a hexadecimal one, or none. */
+/**
+ * A network text: an IPv4 or IPv6 address with or without a mask, an IPv4-mapped or IPv4-compatible IPv6 address, a
+ * cidr's shorthand, a hexadecimal one, or none.
+ */
 const spelling: Gen<string> = weighted([
 	[5, (s) => Arr.join(s.draw(array(octet, { min: 4, max: 4 })), ".")],
 	[4, (s) => `${Arr.join(s.draw(array(octet, { min: 4, max: 4 })), ".")}/${s.draw(mask(32))}`],
@@ -159,6 +163,11 @@ const spelling: Gen<string> = weighted([
 	],
 	[5, ipv6],
 	[4, (s) => `${s.draw(ipv6)}/${s.draw(mask(128))}`],
+	[
+		2,
+		(s) =>
+			`${s.draw(element(["::ffff:", "::FFFF:", "::", "0:0:0:0:0:ffff:"]))}${Arr.join(s.draw(array(octet, { min: 4, max: 4 })), ".")}`
+	],
 	[
 		1,
 		(s) => s.draw(element(["", "::", "/8", "1.2.3.4/", "::/0", " 1.2.3.4", "1.2.3.4 ", "a.b.c.d"]))
@@ -207,7 +216,9 @@ export const contextsCases: Gen<ContextsCase> = (s) => {
 				const masked = bits === 0 ? 0 : (base >>> (32 - bits)) << (32 - bits)
 				return family === "ipv4"
 					? `${ipv4Of(masked >>> 0)}/${bits}`
-					: `2001:db8::/${t.draw(element([16, 32, 48]))}`
+					: t.draw(
+							element(["2001::/16", "2001:db8::/32", `2001:db8:${hexDigit(base >>> 16)}::/48`])
+						)
 			}
 		],
 		[2, (t) => `${ipv4Of(t.draw(int(0, 0xffff_ffff)) & 0xffff_ff00)}/24`],
