@@ -14,7 +14,8 @@
  * query's scans of Item and of Done are one each, whatever the members, the arguments or the depth; the members' reads
  * of one field of the call are one node (check/checker.ts #closedCall), every one reading the same eight argument nodes;
  * and every read of a field of the call has one evaluation key (lower/conservative/call/keys.ts EvaluationKeys), each
- * digested only where two reads are of one evaluation shape. Oracle: specification, one node per distinct closed import. Kills: the
+ * digested only where two reads are of one evaluation shape, and then once for every read of one evaluation. Oracle:
+ * specification, one node per distinct closed import. Kills: the
  * checker's memo (an import built at every occurrence), the merger's stand-ins (every member's imports its own), and the
  * one resolution of an imported query (each import a resolution of its own, its key its own).
  *
@@ -88,6 +89,12 @@ const kills = Object.freeze([
 		why: "Every read's evaluation key is digested, its evaluation shape shared or not, so a lone read is digested too."
 	},
 	{
+		file: "packages/engine/src/lower/conservative/call/keys.ts",
+		original: "\t\tconst known = this.#evaluations.get(identity)\n",
+		replacement: "\t\tconst known = undefined\n",
+		why: "Each read of a field of one call digests the evaluation it reads again, as before evaluations were digested once: the members' two reads of one evaluation are digested twice."
+	},
+	{
 		file: "packages/engine/src/ir/desc.ts",
 		original: "\t\tconst known = this.#imported.get(q)\n",
 		replacement: "\t\tconst known = undefined\n",
@@ -118,8 +125,8 @@ export const aClosedImportReadByEveryMemberOfAWriteIsOneNodeOfItsDagItsEveryRead
 				assert.equal(evaluations.size, 1, "every read of a field of the call reads one evaluation")
 				assert.equal(
 					keys.digested,
-					calls.length > 1 ? calls.length : 0,
-					"the reads' keys are digested only where two reads are of one evaluation shape"
+					calls.length > 1 ? 1 : 0,
+					"the reads' keys are digested only where two reads are of one evaluation shape, once for each evaluation they read"
 				)
 				const argumentsOf = (n: RelNode): ReadonlyArray<RelNode> =>
 					n.kind === "Call" ? Arr.flatMap(n.args, (a) => (a.kind === "rows" ? [a.rows] : [])) : []

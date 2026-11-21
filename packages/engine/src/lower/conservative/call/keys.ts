@@ -1,5 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
+import { encode, everyProperty, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { DagDigests } from "#compiler/ir/dag-digest.ts"
@@ -49,6 +49,14 @@ export class EvaluationKeys {
 	/** How many reads of the DAG are of each evaluation shape, to the second. */
 	readonly #reads = new Map<string, 1 | 2>()
 	readonly #keys = new Map<RelNode, string>()
+	/**
+	 * Each evaluation's digest by its identity (#identityOf): the reads of fields of one call at one argument tuple
+	 * evaluate one evaluation, digested once for all of them, where each read's digest normalized and encoded the whole
+	 * reach of its arguments again.
+	 */
+	readonly #evaluations = new Map<string, string>()
+	/** A number for each argument node and expression an identity names, the object itself told apart. */
+	readonly #numbers = new Map<object, number>()
 	#digested = 0
 
 	constructor(dag: RelDag) {
@@ -73,10 +81,42 @@ export class EvaluationKeys {
 		return key
 	}
 
-	/** A read's digested key, counted. */
+	/** A read's digested key: its evaluation's, digested once for every read of it, each digest counted. */
 	#digest(read: NodeOf<"Call">): string {
+		const identity = this.#identityOf(read)
+		const known = this.#evaluations.get(identity)
+		if (known !== undefined) {
+			return known
+		}
 		this.#digested += 1
-		return evaluationDigest(this.#digests, read)
+		const key = evaluationDigest(this.#digests, read)
+		this.#evaluations.set(identity, key)
+		return key
+	}
+
+	/**
+	 * What a read's evaluation is (evaluationDigest): the function it calls, by name, volatility and definition, and
+	 * per argument in order its kind, its name, its type or columns as canonical text, and the very expression or node
+	 * it passes, numbered by the object. Two reads of one identity build one evaluation, the field they read and their
+	 * own label and heading left out, so they digest alike; two that differ in any of it may still digest alike, and
+	 * are digested apart.
+	 */
+	#identityOf(read: NodeOf<"Call">): string {
+		const called = read.function
+		if (called.kind !== "field") {
+			throw defect("the evaluation identity of a read of a field of a call")
+		}
+		const args = read.args.map((a) =>
+			a.kind === "rows"
+				? `rows\u0001${a.name}\u0001${this.#number(a.rows)}\u0001${unwrap(encode(a.columns, everyProperty))}`
+				: `value\u0001${a.name}\u0001${this.#number(a.expr)}\u0001${unwrap(encode(a.type, everyProperty))}`
+		)
+		return [called.name, called.volatility, called.definition, ...args].join("\u0000")
+	}
+
+	/** The number of an argument's node or expression, given on its first read. */
+	#number(part: object): number {
+		return this.#numbers.getOrInsertComputed(part, () => this.#numbers.size)
 	}
 
 	/** How many reads' keys were digested, each a normalized, encoded reach: the keying's work. */
