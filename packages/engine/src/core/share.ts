@@ -58,11 +58,16 @@ interface Distinct {
 
 /**
  * The length of a JSON value's canonical text (core/canonical.ts writeCanonicalJson: JSON.stringify's spelling of each
- * scalar and key, no whitespace), each node `known` holds counted by its known length.
+ * scalar and key, no whitespace), each node `known` holds counted by its known length and each string's literal by the
+ * length `literals` holds of it, measured once (`literalLength`).
  */
-const canonicalLength = (json: Json, known: ReadonlyMap<object, number>): number => {
+const canonicalLength = (
+	json: Json,
+	known: ReadonlyMap<object, number>,
+	literals: Map<string, number>
+): number => {
 	if (typeof json !== "object") {
-		return JSON.stringify(json).length
+		return scalarLength(json, literals)
 	}
 	const counted = known.get(json)
 	if (counted !== undefined) {
@@ -71,15 +76,30 @@ const canonicalLength = (json: Json, known: ReadonlyMap<object, number>): number
 	if (isList(json)) {
 		let length = 1 + Math.max(json.length, 1)
 		for (const item of json) {
-			length += canonicalLength(item, known)
+			length += canonicalLength(item, known, literals)
 		}
 		return length
 	}
 	const members = Object.entries(json)
 	let length = 1 + Math.max(members.length, 1)
 	for (const [key, member] of members) {
-		length += JSON.stringify(key).length + 1 + canonicalLength(member, known)
+		length += literalLength(key, literals) + 1 + canonicalLength(member, known, literals)
 	}
+	return length
+}
+
+/** The length of a JSON scalar's text, JSON.stringify's: a string's literal (`literalLength`), a number's or a boolean's. */
+const scalarLength = (json: string | number | boolean, literals: Map<string, number>): number =>
+	typeof json === "string" ? literalLength(json, literals) : JSON.stringify(json).length
+
+/** The length of a string's JSON literal, JSON.stringify's, measured once for each string `literals` is kept for. */
+const literalLength = (text: string, literals: Map<string, number>): number => {
+	const known = literals.get(text)
+	if (known !== undefined) {
+		return known
+	}
+	const length = JSON.stringify(text).length
+	literals.set(text, length)
 	return length
 }
 
@@ -97,8 +117,9 @@ export const shareRepeated = (roots: ReadonlyArray<Json>, format: SharingFormat)
 		if (typeof node !== "object") {
 			return undefined
 		}
-		if (read.has(node)) {
-			return read.get(node)
+		const known = read.get(node)
+		if (known !== undefined || read.has(node)) {
+			return known
 		}
 		const parts = format.parts(node)
 		if (parts === undefined) {
@@ -135,6 +156,8 @@ export const shareRepeated = (roots: ReadonlyArray<Json>, format: SharingFormat)
 	const written: Array<Json> = []
 	const references: Array<Json | undefined> = []
 	const lengths = new Map<object, number>()
+	/** Each string's literal length, measured once for the file (`literalLength`). */
+	const literals = new Map<string, number>()
 	const table: Array<SharedNode> = []
 	const standing = (id: number): Json =>
 		references[id] ?? defined(written[id], "a node written before its holder")
@@ -146,11 +169,11 @@ export const shareRepeated = (roots: ReadonlyArray<Json>, format: SharingFormat)
 				return child === undefined ? slot : standing(child)
 			})
 		)
-		const length = canonicalLength(rebuilt, lengths)
+		const length = canonicalLength(rebuilt, lengths, literals)
 		let reference: Json | undefined
 		if (defined(holders[id], "a node's holder count") > 1) {
 			const candidate = format.reference(rebuilt, table.length)
-			if (length > canonicalLength(candidate, lengths)) {
+			if (length > canonicalLength(candidate, lengths, literals)) {
 				reference = candidate
 				table.push({ node: rebuilt, reference: candidate })
 			}
