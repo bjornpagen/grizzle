@@ -329,7 +329,9 @@ export const minimalKeys = <W>(
 	dependencies: ReadonlyArray<{ readonly from: Bits; readonly to: Bits }>
 ): ReadonlyArray<{ readonly key: Bits; readonly witness: W }> => {
 	const found: Array<{ readonly key: Bits; readonly witness: W }> = []
-	const contains = (set: Bits) => found.some((k) => subsetOf(k.key, set))
+	const index = keyTrie()
+	/** Whether a key found is a subset of `set`. */
+	const contains = (set: Bits) => keyWithin(index, positions(set), 0, sizeOf(set) + 1, 0)
 	const add = (candidate: Bits): void => {
 		const key = intersect(candidate, columns)
 		const proved = contains(key) ? undefined : witness(key)
@@ -347,6 +349,7 @@ export const minimalKeys = <W>(
 		}
 		if (!contains(shrunk.key)) {
 			found.push(shrunk)
+			insertKey(index, shrunk.key)
 		}
 	}
 	for (const seed of seeds) {
@@ -357,10 +360,68 @@ export const minimalKeys = <W>(
 			add(union(d.from, minus(key, d.to)))
 		}
 	}
-	const antichain = found.filter(
-		(k) => !found.some((o) => sizeOf(o.key) < sizeOf(k.key) && subsetOf(o.key, k.key))
-	)
+	const antichain = found.filter((k) => !keyWithin(index, positions(k.key), 0, sizeOf(k.key), 0))
 	return antichain.toSorted((a, b) => keyOrder(a.key, b.key))
+}
+
+/**
+ * The keys a search found, as a set-trie (Savnik, "Index Data Structure for Fast Subset and Superset Queries", CD-ARES
+ * 2013): each key the path of its positions ascending from the root, its last node marking it. Whether a key found is a
+ * subset of a set walks only the paths of the set's own positions, each node by a lookup of the set's positions after
+ * its own, so a candidate is tested in time bounded by the prefixes of keys found that the set holds, never by every key
+ * found, as a scan of them was.
+ */
+interface KeyTrie {
+	readonly next: Map<number, KeyTrie>
+	/** Whether a key found ends here: the path to this node is one. */
+	ends: boolean
+}
+
+const keyTrie = (): KeyTrie => ({ next: new Map(), ends: false })
+
+/** Adds `key` to `trie`: its positions ascending, a path from the root, its last node marked. */
+const insertKey = (trie: KeyTrie, key: Bits): void => {
+	let at = trie
+	for (const p of positions(key)) {
+		const known = at.next.get(p)
+		if (known === undefined) {
+			const added = keyTrie()
+			at.next.set(p, added)
+			at = added
+		} else {
+			at = known
+		}
+	}
+	at.ends = true
+}
+
+/**
+ * Whether a key found is a subset of the set whose positions ascending are `set`, of fewer than `fewerThan` positions:
+ * from `node`, `depth` positions below the root along positions of the set before `from`, a key ending here, or one
+ * below a child at a position of the set at `from` or after. A key of the set has as many positions as it at most, so
+ * fewer than one more than the set asks whether any key found is a subset of it, and fewer than the set's own size
+ * whether a proper subset is.
+ */
+const keyWithin = (
+	node: KeyTrie,
+	set: ReadonlyArray<number>,
+	from: number,
+	fewerThan: number,
+	depth: number
+): boolean => {
+	if (depth >= fewerThan) {
+		return false
+	}
+	if (node.ends) {
+		return true
+	}
+	for (let i = from; i < set.length; i++) {
+		const child = node.next.get(defined(set[i], "a position of the set"))
+		if (child !== undefined && keyWithin(child, set, i + 1, fewerThan, depth + 1)) {
+			return true
+		}
+	}
+	return false
 }
 
 /** A dependency of the factor search: its determinants, each once, and the positions it determines as it now stands. */

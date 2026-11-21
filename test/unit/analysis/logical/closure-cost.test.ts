@@ -5,6 +5,9 @@
  *   pass, until a pass adds nothing, so a closure that names nothing visits its dependencies at most once more than the
  *   attributes it adds: its work is bounded by its dependencies times its attributes. Oracle: the closure by brute force,
  *   and that count.
+ * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
+ *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
+ *   growth bound.
  * - Interning (logical/props.ts finish, logical/attributes.ts attributesOver, logical/closure.ts rowsOf): each node's
  *   attributes, and its dependencies over them, are interned once, where its properties are built, however many
  *   closures its own properties and its parents' read off them. Oracle: the specification, one interning a node.
@@ -16,30 +19,40 @@
  * The counts are work, never time: V8's precise coverage counts each function's calls (kernel/calls.ts callCounts), so
  * neither guard depends on the machine.
  *
- * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; one relation
- * and several joined; one query of a reading and several.
+ * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a search from
+ * n = 4 and from n = 6; one relation and several joined; one query of a reading and several.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
-import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
-import { closure, namesNothing, rowsOf } from "#compiler/logical/closure.ts"
+import {
+	attributesOver,
+	type Bits,
+	bitsAt,
+	bitsOf,
+	isEmpty,
+	namesOf
+} from "#compiler/logical/attributes.ts"
+import { closure, minimalKeys, namesNothing, rowsOf } from "#compiler/logical/closure.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { incrementsAtMostDouble } from "#test/support/growth.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	type ClosureFeature,
 	closedMask,
 	columnsIn,
 	columnsOf,
+	type CyclePoint,
 	dependenciesOf,
 	type InterningFeature,
 	interning,
+	keySearchSites,
 	type ReadingFeature,
 	readingQuery,
 	readings,
@@ -102,6 +115,69 @@ export const aClosureVisitsEachDependencyOnceAPassAndPassesAtMostOnceMoreThanThe
 				replacement:
 					"\t\tfor (let changed = true, pass = 0; changed || pass <= attributes.names.length; pass++) {",
 				why: "A round passes over the dependencies once for each attribute whatever it adds (logical/closure.ts closure); the visits property fails."
+			}
+		]
+	})
+
+/**
+ * A key search tests each candidate against the keys it found by their set-trie, never one by one: over n columns each
+ * alone a key, every one determining the next round a cycle, the search tests n candidates for each of the n keys, and
+ * its tests grow no faster than those candidates, quadratically in n, where a scan of the keys found for each grew
+ * cubically.
+ */
+export const aKeySearchTestsACandidateAgainstTheKeysFoundByTheirTrieNeverOneByOne =
+	property.exhaust(finite(int(2, 3)), {
+		needs: {},
+		situations: ["from n = 4", "from n = 6"] satisfies ReadonlyArray<Reached<CyclePoint>>,
+		check: (_, c: Case<CyclePoint>) => (half) =>
+			Effect.gen(function* () {
+				c.note(half === 2 ? "from n = 4" : "from n = 6")
+				const counted = new Map<number, number>()
+				for (const n of [2 * half, 4 * half, 6 * half]) {
+					const columns = Arr.map(indices(n), (i) => `c${i}`)
+					const attributes = attributesOver(columns, [])
+					/** Each column determines the next, the last the first: every column alone determines all. */
+					const isKey = (cs: Bits): boolean => !isEmpty(cs)
+					const [keys, counts] = yield* callCounts(
+						Effect.sync(() =>
+							minimalKeys(
+								attributes.heading,
+								[attributes.heading],
+								(cs) => (isKey(cs) ? true : undefined),
+								Arr.map(indices(n), (i) => ({
+									from: bitsAt(attributes, [i]),
+									to: bitsAt(attributes, [(i + 1) % n])
+								}))
+							)
+						),
+						keySearchSites
+					)
+					assert.deepEqual(
+						Arr.map(keys, (k) => namesOf(attributes, k.key)),
+						Arr.map(columns, (column) => [column]),
+						"every column alone, in heading order"
+					)
+					counted.set(n, counts.subsetOf + counts.keyWithin)
+				}
+				incrementsAtMostDouble(
+					(n) => defined(counted.get(n), `the tests at n = ${n}`),
+					2 * half,
+					"a key search's tests of its candidates"
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a count that grows no faster than quadratically increments by at most twice as much over its second equal step"
+		},
+		box: "n columns at 2h, 4h and 6h, h at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original:
+					"\tconst contains = (set: Bits) => keyWithin(index, positions(set), 0, sizeOf(set) + 1, 0)",
+				replacement: "\tconst contains = (set: Bits) => found.some((k) => subsetOf(k.key, set))",
+				why: "Each candidate tested against every key found (logical/closure.ts minimalKeys); the tests property fails."
 			}
 		]
 	})

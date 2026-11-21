@@ -68,6 +68,14 @@ export const steps = Object.freeze({
 	step: { file: "packages/engine/src/logical/closure.ts", name: "step" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 
+/** A key search's tests of a candidate against the keys found: a scan's subset tests, or a set-trie's node visits. */
+export const keySearchSites = Object.freeze({
+	subsetOf: { file: "packages/engine/src/logical/attributes.ts", name: "subsetOf" },
+	keyWithin: { file: "packages/engine/src/logical/closure.ts", name: "keyWithin" }
+} satisfies Readonly<Record<string, CallSite>>)
+
+export type CyclePoint = "from n = 4" | "from n = 6"
+
 /**
  * Where the analysis interns a node's attributes and its dependencies over them, beside every node's properties built
  * and every closure computed.
