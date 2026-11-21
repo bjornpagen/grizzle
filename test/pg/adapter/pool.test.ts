@@ -11,12 +11,18 @@
  *   server, its session is destroyed and its backend leaves pg_stat_activity, and the pool's next leases, its maximum
  *   at once, are other sessions on other backends.
  * - Release: exhaustively over where the one session of a stalled transport stands (idle, leased, or running a
- *   statement whose answer the tap's gate cuts after each of its first messages), releasing the layer awaits nothing
- *   and has ended the session once it returns, and a statement in flight fails, or delivers its whole answer, never a
- *   part of it.
+ *   statement whose answer the tap's gate cuts after each of its first messages), releasing the layer has ended the
+ *   session once it returns, and a statement in flight fails, or delivers its whole answer, never a part of it.
+ * - Wait: over both ends of the wait, an idle session whose backend's exit the bootstrap superuser holds (a lock on its
+ *   temporary schema) is waited for: the release has not returned while the backend waits, then returns once the hold
+ *   is let go and leaves no backend, or, interrupted, ends at once with the session destroyed.
+ * - Exit: exhaustively over one to three idle sessions, each holding no temporary table or as many as a session of
+ *   pantry's export suite did, once the layer's release returns no backend of them is left in pg_stat_activity, so a
+ *   DROP DATABASE after it finds none.
  *
  * Features: each step kind, a lease after a retirement, an idle and a new session leased; every statement in every
- * flight; every standing, a release before any answer and mid-answer.
+ * flight; every standing, a release before any answer and mid-answer; a held exit let go and a wait interrupted; one
+ * session and several, with and without temporary tables.
  */
 
 import { assert, lacks } from "@bjornpagen/testing/assert"
@@ -26,18 +32,26 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Fiber, Scope } from "effect"
 import type { Session } from "#adapter/wire/session.ts"
 import {
+	type ExitFeature,
+	exits,
 	type Held,
+	holdSchemaSql,
 	interruptedCases,
 	type InterruptedFeature,
 	lockKey,
 	longStatement,
+	oneTemporaryTableSql,
 	type PoolFeature,
 	runIn,
 	sequenceGen,
 	seriesSql,
 	situations,
 	type StalledFeature,
-	standings
+	standings,
+	temporarySchemaSql,
+	temporaryTablesSql,
+	type WaitFeature,
+	waitEnds
 } from "#test/pg/adapter/pool.fixtures.ts"
 import {
 	backendPidOf,
@@ -51,6 +65,7 @@ import {
 } from "#test/pg/adapter/support.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { pickFrom } from "#test/support/pick.ts"
+import { superuserClient } from "#test/support/substrate/shared.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { makeTap } from "#test/support/wire-tap.ts"
 
@@ -262,9 +277,9 @@ export const adapterSessionPoolStopsAnInterruptedStatementsBackendAndNeverHandsI
 	})
 
 /**
- * Adapter session pool releases a layer whose transport stalls, awaiting nothing from it.
+ * Adapter session pool releases a layer whose transport stalls, its session ended once the release returns.
  */
-export const adapterSessionPoolReleasesALayerWhoseTransportStallsAwaitingNothingFromIt =
+export const adapterSessionPoolReleasesALayerWhoseTransportStallsItsSessionEndedOnceTheReleaseReturns =
 	property.exhaust(finite(standings), {
 		needs: { substrate: Substrate.installing },
 		situations: [
@@ -307,7 +322,7 @@ export const adapterSessionPoolReleasesALayerWhoseTransportStallsAwaitingNothing
 								assert.equal(
 									session.state(),
 									"ended",
-									"the layer's release ends its session at once"
+									"the layer's release has ended its session once it returns"
 								)
 								c.note(`released ${standing.kind}`)
 								break
@@ -348,9 +363,183 @@ export const adapterSessionPoolReleasesALayerWhoseTransportStallsAwaitingNothing
 				),
 		oracle: {
 			kind: "specification",
-			name: "a layer's release awaits nothing, and a statement it cuts fails or delivers its whole answer"
+			name: "a layer's release has ended its session once it returns, and a statement it cuts fails or delivers its whole answer"
 		},
 		box: "a session idle, leased, or running a statement of up to three rows cut after each of its answer's first messages",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/wire/session.ts",
+				original: '\tclient.prependListener("end", end)',
+				replacement: '\tclient.on("end", end)',
+				why: "The session ends after the pool's own listener of its connection's end, which resumes the pool's end at once: the release of an idle session returns with the session still open."
+			}
+		]
+	})
+
+/**
+ * Adapter session pool's release waits for an idle session's backend to exit, until the release is interrupted.
+ */
+export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilTheReleaseIsInterrupted =
+	property.exhaust(finite(waitEnds), {
+		needs: { substrate: Substrate.installing },
+		situations: ["released idle, closed", "released idle, interrupted"] satisfies ReadonlyArray<
+			Reached<WaitFeature>
+		>,
+		check:
+			({ substrate }, c: Case<WaitFeature>) =>
+			(end) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const s = yield* Substrate
+						const schema = yield* s.schema(freshSchema)
+						const login = yield* substrateLogin(schema, "server", roleDefaults)
+
+						const scope = yield* Effect.scope
+						const layerScope = yield* Scope.fork(scope)
+						const pool = yield* Scope.provide(
+							poolFor(login, {
+								...defaultPool,
+								pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: 1 }
+							}),
+							layerScope
+						)
+						const leaseScope = yield* Scope.fork(scope)
+						const session = yield* Scope.provide(pool.lease, leaseScope)
+						const pid = yield* backendPidOf(session)
+						yield* rowsOn(session, oneTemporaryTableSql, [])
+						const [temporary] = yield* rowsOn(session, temporarySchemaSql, [])
+						const held = String(temporary?.[0])
+						yield* Scope.close(leaseScope, Exit.void)
+						const holder = yield* superuserClient(s.cluster, s.database, "pool exit holder")
+						yield* holder.query("BEGIN", [])
+						yield* holder.query(holdSchemaSql(held), [])
+						const releasing = yield* Effect.forkChild(Scope.close(layerScope, Exit.void), {
+							startImmediately: true
+						})
+						yield* until(
+							Effect.map(backendState(pid), (b) => b.state !== "gone" && b.waitEvent === "object")
+						)
+						assert.equal(
+							releasing.pollUnsafe(),
+							undefined,
+							"the release waits while the backend's exit is held"
+						)
+						if (end === "closed") {
+							yield* holder.query("COMMIT", [])
+							const released = yield* Fiber.await(releasing)
+							assert.ok(Exit.isSuccess(released), "the release returns once the server closes")
+							const left = yield* backendState(pid)
+							assert.equal(left.state, "gone", "no backend is left once the release returns")
+						} else {
+							const released = yield* Effect.andThen(
+								Fiber.interrupt(releasing),
+								Fiber.await(releasing)
+							)
+							assert.ok(Exit.hasInterrupts(released), "the release ends as its interruption")
+							yield* holder.query("COMMIT", [])
+							yield* until(Effect.map(backendState(pid), (b) => b.state === "gone"))
+						}
+						assert.equal(
+							session.state(),
+							"ended",
+							"the layer's release has ended its session once it returns"
+						)
+						c.note(`released idle, ${end}`)
+					}),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "PostgreSQL closes a backend's connection only once the backend has exited (REL_19_0 src/backend/libpq/pqcomm.c socket_close), and an interrupted release ends at once"
+		},
+		box: "an idle session holding a temporary table, its exit held then let go, or its release interrupted while held",
+		kept: [],
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/wire/session.ts",
+				original: "\t\t\t\tif (!sessions.has(client) || held.has(client)) {",
+				replacement: "\t\t\t\tif (wires.has(client)) {",
+				why: "The end destroys every wire, an idle session's among them, as it did before it waited (d81ee19dc): the release returns while the backend's exit is still held, where it waits for the server's close."
+			}
+		]
+	})
+
+/**
+ * Adapter session pool's release returns once no backend of its idle sessions is left, their temporary tables dropped.
+ */
+export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLeftTheirTemporaryTablesDropped =
+	property.exhaust(finite(exits), {
+		needs: { substrate: Substrate.installing },
+		situations: [
+			"one session",
+			"several sessions",
+			"no temporary table",
+			"temporary tables"
+		] satisfies ReadonlyArray<Reached<ExitFeature>>,
+		check:
+			({ substrate }, c: Case<ExitFeature>) =>
+			(k) =>
+				Effect.provideServiceEffect(
+					Effect.gen(function* () {
+						const s = yield* Substrate
+						const schema = yield* s.schema(freshSchema)
+						const login = yield* substrateLogin(schema, "server", roleDefaults)
+
+						const scope = yield* Effect.scope
+						const layerScope = yield* Scope.fork(scope)
+						const pool = yield* Scope.provide(
+							poolFor(login, {
+								...defaultPool,
+								pool: { idleTimeoutMs: testIdleTimeout, min: 1, max: k.sessions }
+							}),
+							layerScope
+						)
+						const pids = yield* Effect.scoped(
+							Effect.all(
+								Array.from({ length: k.sessions }, () =>
+									Effect.gen(function* () {
+										const session = yield* pool.lease
+										if (k.tables > 0) {
+											yield* rowsOn(session, temporaryTablesSql(k.tables), [])
+										}
+										return yield* backendPidOf(session)
+									})
+								),
+								{ concurrency: k.sessions }
+							)
+						)
+						assert.equal(new Set(pids).size, k.sessions, "each session is its own backend")
+						const { leased } = yield* pool.state
+						assert.equal(leased, 0, "every session is idle when the layer is released")
+						yield* Scope.close(layerScope, Exit.void)
+						for (const pid of pids) {
+							const left = yield* backendState(pid)
+							assert.equal(
+								left.state,
+								"gone",
+								"no backend of the pool is left once its release returns"
+							)
+						}
+						c.note(k.sessions === 1 ? "one session" : "several sessions")
+						c.note(k.tables === 0 ? "no temporary table" : "temporary tables")
+					}),
+					Substrate,
+					substrate
+				),
+		oracle: {
+			kind: "specification",
+			name: "PostgreSQL closes a backend's connection only once the backend has exited, its temporary relations dropped and the backend out of the database's (REL_19_0 src/backend/libpq/pqcomm.c socket_close)"
+		},
+		box: "one to three idle sessions, each holding no temporary table or as many as a session of pantry's export suite did",
+		kept: [],
+		kills: [
+			{
+				file: "packages/grizzle/src/adapter/wire/session.ts",
+				original: "\t\t\treturn Deferred.await(unwired).pipe(",
+				replacement: "\t\t\treturn Effect.void.pipe(",
+				why: "The end writes each idle session's Terminate and returns without waiting for its close: the backends are still dropping their temporary tables when the release returns, so pg_stat_activity still holds them, as edullm's DROP DATABASE found one (P5)."
+			}
+		]
 	})

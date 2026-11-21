@@ -79,25 +79,30 @@ export interface CarrierColumn extends HeadingColumn {
 
 /** A carrier: its declaration, each field of its heading with its column; a carrier of the unit relation has none.
  *
- * Transaction-scoped carriers filled by INSERT ... SELECT.
+ * Session carriers filled by INSERT ... SELECT, each holding one use's rows.
  *
- * A described member is a leading CTE of the statement that consumes it, or a carrier with the same ON COMMIT DROP
- * and NOT NULL shape, filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and
- * addition on an immutable relation. No carrier holds a
+ * A described member is a leading CTE of the statement that consumes it, or a carrier of the same NOT NULL shape,
+ * filled by INSERT ... SELECT, when sequential statements consume it: a same-key deletion and addition on an immutable
+ * relation. No carrier holds a
  * delta: a read-back is evaluated inside the statement that makes its delta (write/readback/deltas.ts). A carrier is a
- * temporary relation, so it lives in pg_temp and is never schema-qualified, it drops at COMMIT, and every column is NOT
- * NULL; a carrier of a relation's facts, the write oracle's state snapshot, is keyed by the relation's primary key
- * (`relationCarrier`):
+ * temporary relation, so it lives in pg_temp and is never schema-qualified, and every column is NOT NULL. It is the
+ * session's own: each use stands it up (sql/print.ts carrierStandUp), making it where the session holds none, ON
+ * COMMIT PRESERVE ROWS, and truncating it where it stands, so it holds that use's rows alone and no COMMIT drops it,
+ * and it lives until the session ends. A carrier of a relation's facts, the write oracle's state snapshot, is keyed by
+ * the relation's primary key (`relationCarrier`):
  *
- *   CREATE TEMPORARY TABLE "__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL, "c3" "work"."kind" NOT NULL)
- *     ON COMMIT DROP
- *   INSERT INTO "__carrier_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
- *   CREATE TEMPORARY TABLE "__carrier_<k>" ("c1" uuid NOT NULL, "c2" text COLLATE pg_catalog.pg_c_utf8 NOT NULL,
- *     PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE) ON COMMIT DROP
+ *   DO $$BEGIN IF NOT EXISTS (<"pg_temp"."__carrier_<k>" stands>) THEN
+ *     CREATE TEMPORARY TABLE "pg_temp"."__carrier_<k>" ("c1" uuid NOT NULL, "c2" uuid NOT NULL,
+ *       "c3" "work"."kind" NOT NULL) ON COMMIT PRESERVE ROWS;
+ *   ELSIF <it is not the role's own> THEN RAISE ... insufficient_privilege;
+ *   ELSE TRUNCATE "pg_temp"."__carrier_<k>"; END IF; END$$
+ *   INSERT INTO "pg_temp"."__carrier_<k>" ("c1", "c2", "c3") SELECT ... FROM (<member query>) AS "r0"(...)
+ *
+ * and a keyed one's CREATE ends its columns with PRIMARY KEY ("c1") DEFERRABLE INITIALLY IMMEDIATE.
  *
  * Carriers are named `__carrier_<k>_<digest>`, k the carrier's ordinal among its program's carriers from 1 and the
  * digest its declaration's, and their columns c1 to cn (sql/naming.ts CarrierName): a session keeps each served
- * statement under its text (core/prepared.ts), and PostgreSQL plans it again over the carrier its next call creates,
+ * statement under its text (core/prepared.ts), and PostgreSQL plans it again over the carrier its next call stands up,
  * so the name a text reads a carrier by fixes the carrier's declaration, its row type among it. A column
  * is typed as the value it carries is written: a contract's domain, a refinement's `__text_` domain, a
  * roster's domain, or the builtin with its typmod, a builtin text column naming pg_catalog.pg_c_utf8 like every stored column,
