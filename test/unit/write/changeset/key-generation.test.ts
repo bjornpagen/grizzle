@@ -26,7 +26,11 @@ import {
 	nestedCollidingGen,
 	type NestedKeyFeature,
 	nestingFillsFirst,
-	nettingGen
+	nettingGen,
+	treeCaseGen,
+	treeCollidingGen,
+	treeFillsFirst,
+	type TreeKeyFeature
 } from "#test/unit/write/changeset/key-generation.fixtures.ts"
 
 /**
@@ -107,3 +111,35 @@ export const aNestedInsertOverAKeyGenerationKeysEachOwnerAndItsMembersByTheFille
 			]
 		}
 	)
+
+/**
+ * A nested insert of a tree whose primary key holds a key generation, its root fields among it, generates each node's
+ * key generation from the node's own reads (INTERFACE §3 form a): it refuses exactly where two distinct trees of a
+ * stratum meet at a filled key, by the tree's primary key, and else every node holds its root's k and its own d.
+ */
+export const aNestedTreeOverAKeyGenerationGeneratesEachNodesKeyFromItsOwnReads = property.explore(
+	aimed(treeCaseGen, [["two trees at one filled key their reads tell apart", treeCollidingGen]]),
+	{
+		needs: {},
+		situations: [
+			"two strata",
+			"a tree stated twice",
+			"a node whose key generation is not its root's",
+			"two trees at one filled key their reads tell apart"
+		] satisfies ReadonlyArray<Reached<TreeKeyFeature>>,
+		check: (_, c: Case<TreeKeyFeature>) => (strata) => treeFillsFirst(strata, c),
+		oracle: {
+			kind: "specification",
+			name: "each node's key filled first: its root's k, p mod 3 of its own p, its pre-order start"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/fill.ts",
+				original: "\t\tif (laidOut) {",
+				replacement: "\t\tif (laidOut && !entries.has(columnKey(column))) {",
+				why: "A member's key generation its group holds is copied from its owner, never generated from its own reads: a tree node's d is its root's, whatever its own p (analysis/theory/fill.ts generatedAt)."
+			}
+		]
+	}
+)

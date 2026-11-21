@@ -5,7 +5,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { array, element, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import type { Source } from "@bjornpagen/testing/source"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { closedTableOf } from "#compiler/analysis/schema.ts"
@@ -17,7 +17,7 @@ import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import { Num } from "#compiler/public/compute.ts"
 import { drawn, generated, natural, pg } from "#compiler/public/fields.ts"
-import { fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
+import { fin, on, ordered, relation, schema, tree } from "#compiler/public/schema.ts"
 import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { type Normalization, normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
@@ -28,6 +28,7 @@ import type { EnumeratedInput, MemberSlot } from "#compiler/write/frontend/compi
 import { decideBinding } from "#compiler/write/program/decide.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cellAt } from "#test/support/cells.ts"
+import type { FixtureSchema } from "#test/support/compile.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import {
@@ -223,10 +224,13 @@ const withinBounds = (
 	return Engine.err(failure)
 }
 
-/** A ChangeSet compiled over Keyed and normalized with its members collected as the runtime collects them. */
-const normalizedOf = (changes: ChangeSetValue) =>
+/**
+ * A ChangeSet compiled over `schemaValue` and normalized with its members collected as the runtime collects them, with
+ * its front end and the column index its nested rows are laid out by.
+ */
+const normalizedIn = (schemaValue: FixtureSchema, changes: ChangeSetValue) =>
 	Effect.gen(function* () {
-		const frontend = compiled(Keyed, changes)
+		const frontend = compiled(schemaValue, changes)
 		const binding = decideBinding(frontend)
 		const prepared = prepareBinding(
 			binding,
@@ -237,6 +241,7 @@ const normalizedOf = (changes: ChangeSetValue) =>
 		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
 		return {
 			frontend,
+			columns: prepared.columns,
 			result: withinBounds(
 				normalizeChangeSet(
 					prepared.groups,
@@ -316,7 +321,7 @@ export const fillsFirst = (
 		}
 		const state = oracleState(oracleSchema, { Bucket: Arr.map(start, filledOf) })
 		const expected = applyAddWins(oracleSchema, state, oracleOf(strata))
-		const { frontend, result } = yield* normalizedOf(changeSetOf(strata))
+		const { frontend, result } = yield* normalizedIn(Keyed, changeSetOf(strata))
 		const normalization = succeeded(result, "a ChangeSet of admitted facts normalizes")
 		if (normalization.kind === "keyConflict") {
 			assert.equal(
@@ -481,32 +486,6 @@ const nestedChangeSetOf = (strata: ReadonlyArray<ReadonlyArray<OwnerFact>>): Cha
 	return Arr.reduce(rest, defined(first, "a first stratum"), (a, b) => ChangeSet.sequence(a, b))
 }
 
-/** A ChangeSet compiled over Lines and normalized, with the column index its nested rows are laid out by. */
-const nestedNormalizedOf = (changes: ChangeSetValue) =>
-	Effect.gen(function* () {
-		const frontend = compiled(Lines, changes)
-		const binding = decideBinding(frontend)
-		const prepared = prepareBinding(
-			binding,
-			frontend.codes,
-			closedTableOf(frontend.schema),
-			new CompilePatterns()
-		)
-		const facts = yield* collectInputs(binding.groups, parsedOf(changes).inputs)
-		return {
-			columns: prepared.columns,
-			result: withinBounds(
-				normalizeChangeSet(
-					prepared.groups,
-					{ fill: prepared.fill, codes: frontend.codes, columns: prepared.columns },
-					prepared.evaluate,
-					facts,
-					inForce(bindFrame)
-				)
-			)
-		}
-	})
-
 /** Lines in one order, by their texts. */
 const rowOrder = Order.mapInput(Order.String, (row: ReadonlyArray<unknown>) =>
 	Arr.join(Arr.map(row, String), ",")
@@ -553,7 +532,7 @@ export const nestingFillsFirst = (
 					: [{ m: generationOf(o.a), b: o.b, apart: Arr.some(at, (p) => p.a !== o.a) }]
 			})
 		)
-		const { columns, result } = yield* nestedNormalizedOf(nestedChangeSetOf(strata))
+		const { columns, result } = yield* normalizedIn(Lines, nestedChangeSetOf(strata))
 		const normalization = succeeded(result, "a nested insert of admitted facts normalizes")
 		if (normalization.kind === "keyConflict") {
 			if (Arr.some(conflicts, (k) => k.apart)) {
@@ -599,6 +578,262 @@ export const nestingFillsFirst = (
 				held,
 				expected,
 				"each Line holds its owner's filled key, copied, at its slot"
+			)
+		}
+	})
+
+/**
+ * Node(k, p, label), a tree of itself keyed by (k, d, start), d = `p mod classes` its key generation, its root fields
+ * (k, d): a self-family whose members' group holds the relation's own key generation (INTERFACE §3 form a), so each
+ * node states its own p and the walk generates its d from it, never copying its parent's; its foreign key and its
+ * key's CHECK prove the two agree, the statement's to refuse.
+ */
+const Node = relation.generated(
+	"Node",
+	{
+		k: pg.integer,
+		p: pg.integer,
+		parent: drawn(natural),
+		at: drawn(natural),
+		children: drawn(natural),
+		start: drawn(natural),
+		end: drawn(natural),
+		label: pg.integer
+	},
+	["k", "d", "start"],
+	(r) => ({ d: generated(pg.integer, Num.mod(r.p, classes)) })
+)
+
+/** The schema of the tree of Nodes. */
+const Trees = schema(
+	"Trees",
+	[Node],
+	[tree(on(Node, "parent", "at"), fin(Node, "children"), { root: ["k", "d"] })]
+)
+
+/** A node as its tree's fact states it: its p and its label, its children leaves. */
+interface StatedNode {
+	readonly p: number
+	readonly label: number
+}
+
+/** A tree as its fact states it: its root's k, p and label, and the root's children, in slot order. */
+interface TreeFact {
+	readonly k: number
+	readonly root: StatedNode
+	readonly children: ReadonlyArray<StatedNode>
+}
+
+const stated = (source: Source): StatedNode => ({
+	p: source.draw(aGen),
+	label: source.draw(smallGen)
+})
+
+const treeGen = (source: Source): TreeFact => ({
+	k: source.draw(smallGen),
+	root: source.draw(stated),
+	children: source.draw(array(stated, { min: 0, max: 2 }))
+})
+
+/** One to three strata, each one nested insert of up to three trees. */
+export const treeCaseGen = array(array(treeGen, { min: 0, max: 3 }), { min: 1, max: 3 })
+
+/** A stratum aimed at two trees at one filled root key their roots' p tell apart: a tree, and another whose root's p
+ * is the other of its class. */
+export const treeCollidingGen = (source: Source): ReadonlyArray<ReadonlyArray<TreeFact>> => {
+	const first = source.draw(treeGen)
+	const second: TreeFact = {
+		k: first.k,
+		root: { p: otherOf(first.root.p), label: source.draw(smallGen) },
+		children: source.draw(array(stated, { min: 0, max: 2 }))
+	}
+	return [[first, second]]
+}
+
+/** A row of Node as the model fills it, in pre-order: its key (k, d, start), its p, and every column the walk draws. */
+type NodeRow = {
+	readonly k: number
+	readonly d: number
+	readonly start: bigint
+	readonly p: number
+	readonly label: number
+	readonly parent: bigint
+	readonly at: bigint
+	readonly children: bigint
+	readonly end: bigint
+}
+
+/** A tree's rows as the model fills them: the root at start 0, its parent itself, each child a leaf after it, each d
+ * generated from the node's own p. */
+const treeRows = (t: TreeFact): ReadonlyArray<NodeRow> => [
+	{
+		k: t.k,
+		d: generationOf(t.root.p),
+		start: 0n,
+		p: t.root.p,
+		label: t.root.label,
+		parent: 0n,
+		at: 0n,
+		children: BigInt(t.children.length),
+		end: BigInt(t.children.length + 1)
+	},
+	...Arr.map(t.children, (c, i) => ({
+		k: t.k,
+		d: generationOf(c.p),
+		start: BigInt(i + 1),
+		p: c.p,
+		label: c.label,
+		parent: 0n,
+		at: BigInt(i),
+		children: 0n,
+		end: BigInt(i + 2)
+	}))
+]
+
+/** Whether two trees are one fact. */
+const sameTree = (f: TreeFact, g: TreeFact): boolean =>
+	f.k === g.k &&
+	f.root.p === g.root.p &&
+	f.root.label === g.root.label &&
+	f.children.length === g.children.length &&
+	Arr.every(Arr.zip(f.children, g.children), ([x, y]) => x.p === y.p && x.label === y.label)
+
+/** Whether two rows are at one key of Node's primary key. */
+const sameNodeKey = (r: NodeRow, s: NodeRow): boolean =>
+	r.k === s.k && r.d === s.d && r.start === s.start
+
+/** Whether two rows are one row: one at every column. */
+const sameRow = (r: NodeRow, s: NodeRow): boolean =>
+	sameNodeKey(r, s) &&
+	r.p === s.p &&
+	r.label === s.label &&
+	r.parent === s.parent &&
+	r.at === s.at &&
+	r.children === s.children &&
+	r.end === s.end
+
+/** The trees as a caller states a nested insert of them. */
+const statedTrees = (trees: ReadonlyArray<TreeFact>) =>
+	Arr.map(trees, (t) => ({
+		k: t.k,
+		p: t.root.p,
+		label: t.root.label,
+		children: Arr.map(t.children, (c) => ({ p: c.p, label: c.label, children: [] }))
+	}))
+
+/** The strata as one ChangeSet, a nested insert of Node's trees each. */
+const treeChangeSetOf = (strata: ReadonlyArray<ReadonlyArray<TreeFact>>): ChangeSetValue => {
+	const [first, ...rest] = Arr.map(strata, (trees) => cs(Trees).insert(Node, statedTrees(trees)))
+	return Arr.reduce(rest, defined(first, "a first stratum"), (a, b) => ChangeSet.sequence(a, b))
+}
+
+/** What a tree case reaches. */
+export type TreeKeyFeature =
+	| "two strata"
+	| "a tree stated twice"
+	| "a node whose key generation is not its root's"
+	| "two trees at one filled key their reads tell apart"
+
+/** Node's rows in one order, by their columns' texts in the order they are listed. */
+const nodeOrder = Order.mapInput(Order.String, (r: Readonly<Record<string, unknown>>) =>
+	Arr.join(Arr.map(Rec.values(r), String), ",")
+)
+
+/**
+ * The tree property over one case: each stratum's nested insert is refused, by Node's primary key, exactly where two of
+ * its distinct trees share a filled key, the root's or a node's, and their rows there differ, its witness that key; and
+ * where none do, its rows are every distinct tree's, as the model fills them, each node's d generated from its own p,
+ * and one row of two trees' that are one row, the stratum's rows a set (two such nodes under roots of other keys are
+ * the statement's to refuse, at the tree's foreign key).
+ */
+export const treeFillsFirst = (
+	strata: ReadonlyArray<ReadonlyArray<TreeFact>>,
+	c: Case<TreeKeyFeature>
+) =>
+	Effect.gen(function* () {
+		if (strata.length >= 2) {
+			c.note("two strata")
+		}
+		const distinct = Arr.map(strata, (trees) => Arr.dedupeWith(trees, sameTree))
+		if (Arr.some(Arr.zip(strata, distinct), ([trees, kept]) => trees.length > kept.length)) {
+			c.note("a tree stated twice")
+		}
+		if (
+			Arr.some(distinct, (trees) =>
+				Arr.some(trees, (t) =>
+					Arr.some(t.children, (n) => generationOf(n.p) !== generationOf(t.root.p))
+				)
+			)
+		) {
+			c.note("a node whose key generation is not its root's")
+		}
+		/**
+		 * Each row of a stratum's distinct trees that meets another tree's at its filled key where the two trees are
+		 * refused: two roots meeting, two trees whose facts differ, or two other rows that differ; and whether the rows
+		 * met there tell their reads apart.
+		 */
+		const conflicts = Arr.flatMap(distinct, (trees) => {
+			const rows = Arr.map(trees, treeRows)
+			return Arr.flatMap(rows, (mine, i) =>
+				Arr.flatMap(mine, (r) => {
+					const met = Arr.flatMap(rows, (theirs, j) =>
+						i === j ? [] : Arr.filter(theirs, (o) => sameNodeKey(r, o))
+					)
+					return met.length > 0 && (r.start === 0n || Arr.some(met, (o) => !sameRow(r, o)))
+						? [{ row: r, apart: Arr.some(met, (o) => o.p !== r.p) }]
+						: []
+				})
+			)
+		})
+		const { columns, result } = yield* normalizedIn(Trees, treeChangeSetOf(strata))
+		const normalization = succeeded(result, "a nested insert of admitted trees normalizes")
+		if (normalization.kind === "keyConflict") {
+			if (Arr.some(conflicts, (k) => k.apart)) {
+				c.note("two trees at one filled key their reads tell apart")
+			}
+			assert.equal(normalization.law, lawNamesOf(Trees).primaryKeyLaw(Node))
+			const values = normalization.witness.values
+			assert.ok(
+				Arr.some(
+					conflicts,
+					({ row }) =>
+						values["k"] === row.k && values["d"] === row.d && values["start"] === row.start
+				),
+				`the witness ${Formatter.format(values)} is a filled key two trees of one stratum meet at`
+			)
+			return
+		}
+		assertVariant(
+			normalization,
+			"kind",
+			"normalized",
+			"a key generation of a nonnull integer has a value"
+		)
+		assert.deepEqual(conflicts, [], "no two trees of one stratum meet at a filled key")
+		for (const [s, trees] of strataAt(distinct)) {
+			const rows = Arr.flatMap([...(normalization.nested.get(s) ?? [])], ([name, nodes]) =>
+				name === Node.name ? nodes : []
+			)
+			const field = (row: { readonly values: Cells }, name: string): unknown =>
+				cellAt(columns, { relation: Node.name, values: row.values }, columnKeyOf(name))
+			const held = Arr.sort(
+				Arr.map(rows, (row) => ({
+					k: field(row, "k"),
+					d: field(row, "d"),
+					start: field(row, "start"),
+					p: field(row, "p"),
+					label: field(row, "label"),
+					parent: field(row, "parent"),
+					at: field(row, "at"),
+					children: field(row, "children"),
+					end: field(row, "end")
+				})),
+				nodeOrder
+			)
+			assert.deepEqual(
+				held,
+				Arr.sort(Arr.dedupeWith(Arr.flatMap(trees, treeRows), sameRow), nodeOrder),
+				"each node holds its root's k and the d its own p generates, at its place"
 			)
 		}
 	})
