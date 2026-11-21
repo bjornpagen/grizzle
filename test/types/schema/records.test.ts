@@ -120,8 +120,9 @@ export const recordsAgree = agreement(shapeGen, {
 		},
 		{
 			file: "packages/engine/src/types/schema/records.ts",
-			original: '\t\tN in keyof At as DeliveryOf<At[N]> extends "array" ? N : never\n',
-			replacement: "\t\tN in keyof At as never\n",
+			original:
+				'\treadonly [N in keyof At & string as DeliveryOf<At[N]> extends "array" ? N : never]: DrawnField',
+			replacement: "\treadonly [N in keyof At & string as never]: DrawnField",
 			why: "An array attachment's count is no field of its parent (types/schema/records.ts CountFields), so the parent's fields disagree with the engine's and the ordered family's fin names no field."
 		}
 	]

@@ -59,6 +59,7 @@ const DICTIONARY_MINTS = [
 	"test/types/ir/semi-join.dictionary.ts",
 	"test/types/query/budget/guards.dictionary.ts",
 	"test/types/query/budget/invariance.dictionary.ts",
+	"test/types/query/budget/plain.dictionary.ts",
 	"test/types/query/budget/scaling.dictionary.ts",
 	"test/types/query/budget/sources.dictionary.ts",
 	"test/types/query/budget/unions.dictionary.ts",

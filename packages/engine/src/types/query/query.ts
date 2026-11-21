@@ -393,7 +393,7 @@ interface StatedDeliveries<out F, out Hd> {
 	readonly arm: Arm<"arm", F, Hd>
 }
 /** Any delivery an attachment states. */
-export type StatedDelivery = StatedDeliveries<string, string>[DeliveryKind]
+export type AttachmentDelivery = StatedDeliveries<string, string>[DeliveryKind]
 
 /**
  * An attachment as the relations holding its query's records read it (types/schema/records.ts): the delivery D its
@@ -406,8 +406,16 @@ interface Attachment<out D, out Hc, out At> {
 	readonly attached: At
 }
 
-/** The attachments of a query that attaches nothing: no name. */
-export type NoAttachments = Readonly<Record<never, never>>
+declare const noAttachment: unique symbol
+
+/**
+ * The attachments of a query that attaches nothing: no name. Its one key is a symbol no attachment is named by, never
+ * present, so the record is no empty object type, which any value but null and undefined would meet; readers of a
+ * query's attachments read their string keys alone.
+ */
+export interface NoAttachments {
+	readonly [noAttachment]?: never
+}
 
 /** The attachments At with the child C attached under Name, as the delivery of kind K, field F and handle Hd states. */
 type AttachedWith<

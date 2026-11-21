@@ -29,13 +29,13 @@ import type {
 	ArmNone,
 	ArmSome,
 	AttachedHeads,
+	AttachmentDelivery,
 	AttachmentName,
 	Decoders,
 	DeliveryArg,
 	DeliveryKind,
 	OneName,
 	ReadBack,
-	StatedDelivery,
 	WithChild
 } from "#compiler/types/query/query.ts"
 
@@ -79,7 +79,7 @@ export const statedDelivery = (
 	delivery: unknown,
 	parent: Heading,
 	label: string
-): StatedDelivery => {
+): AttachmentDelivery => {
 	const stated = deliveryNames.get(delivery)
 	if (stated !== undefined) {
 		return stated

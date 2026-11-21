@@ -82,7 +82,12 @@ import {
 import type { Carrier, Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import type { ArmOf, HeadOf, ImmediateHeadOf, StatedDelivery } from "#compiler/types/query/query.ts"
+import type {
+	ArmOf,
+	AttachmentDelivery,
+	HeadOf,
+	ImmediateHeadOf
+} from "#compiler/types/query/query.ts"
 import type {
 	AnyRecords,
 	OwnerFacts,
@@ -279,7 +284,7 @@ const fresh = (base: string, taken: ReadonlySet<string>): string => {
 }
 
 /** How an attachment's relation holds its child's records, by its stated delivery, an array at its place. */
-const holdingOf = (delivery: StatedDelivery, place: () => string): Holding => {
+const holdingOf = (delivery: AttachmentDelivery, place: () => string): Holding => {
 	if (typeof delivery !== "string") {
 		return { kind: "arm", field: delivery.field, handle: delivery.handle }
 	}
@@ -316,7 +321,7 @@ interface Building {
 const rosterOf = (holder: Parent, field: string, building: Building): unknown => {
 	const label = `${building.label} arm over ${field}`
 	const column = holder.relation.fields[field]?.column
-	if (column === undefined || column.kind !== "code") {
+	if (column?.kind !== "code") {
 		throw malformed(
 			label,
 			`an arm whose field is a stored closed id of its parent; ${field} is not one`
@@ -631,7 +636,7 @@ const stateOf = (records: unknown, label: string): RecordsState => {
 }
 
 /** The delivery an attachment's read states: the query's own, an array's, an option's, the one child's or the arm's. */
-const deliveryOf = (holding: Holding): StatedDelivery => {
+const deliveryOf = (holding: Holding): AttachmentDelivery => {
 	switch (holding.kind) {
 		case "array":
 		case "option":

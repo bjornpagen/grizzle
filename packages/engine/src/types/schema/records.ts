@@ -32,7 +32,7 @@ import type {
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
-import type { DrawnField, Field, FieldBase, NaturalField } from "#compiler/types/fields/field.ts"
+import type { DrawnField, Field, FieldBase } from "#compiler/types/fields/field.ts"
 import type {
 	Arm,
 	ArmOf,
@@ -238,9 +238,7 @@ type ChildrenOf<A> = A["attached" & keyof A]
 
 /** The drawn count of each array attachment of At, under the attachment's name: the field its ordered family counts. */
 type CountFields<At> = {
-	readonly [
-		N in keyof At as DeliveryOf<At[N]> extends "array" ? N : never
-	]: DrawnField<NaturalField>
+	readonly [N in keyof At & string as DeliveryOf<At[N]> extends "array" ? N : never]: DrawnField
 }
 
 /**
@@ -320,9 +318,7 @@ type ChildKey<P extends RecordsParent, A> =
 
 /** The place field of an array child A under P, drawn by its ordered family; none for any other child. */
 type PlaceField<P extends RecordsParent, A> =
-	DeliveryOf<A> extends "array"
-		? { readonly [K in PlaceOf<P, A>]: DrawnField<NaturalField> }
-		: unknown
+	DeliveryOf<A> extends "array" ? { readonly [K in PlaceOf<P, A>]: DrawnField } : unknown
 
 /** The fields of the child A under P: its carried key, its place, its stored columns and its arrays' counts. */
 type ChildFields<P extends RecordsParent, A> = Simplify<
