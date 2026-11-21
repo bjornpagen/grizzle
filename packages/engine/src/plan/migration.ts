@@ -96,8 +96,9 @@ export { leadingTokens, lex, type Token } from "#compiler/sql/lexer.ts"
 export {
 	identifierOf,
 	identity,
+	type InstallationRole,
+	installationRoleOf,
 	type InstalledRoleTooLong,
-	namespaceStem,
 	roleInSpace,
 	type RoleSpace
 } from "#compiler/core/identity.ts"

@@ -363,6 +363,11 @@ export const nameCase = (n: Names, c: Case<NameFeature>) =>
 				`${stem} set aside, ${aside}, fits under a prefix at the budget`
 			)
 		}
+		const owner = identifierOf(identity.functionOwner(identifierOf(installation)))
+		assert.ok(
+			roleInSpace(budgetSpace.value, owner).ok,
+			`the function owner, ${owner}, fits under a prefix at the budget, whatever the schema's name`
+		)
 		if (decoder.kind === "none") {
 			return
 		}

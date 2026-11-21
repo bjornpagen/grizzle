@@ -30,7 +30,7 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcessSpawner } from "effect/process"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity, installationRoleOf } from "#compiler/core/identity.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
@@ -619,9 +619,10 @@ const build = Effect.fnUntraced(function* (
 			}
 		})
 
-	/** A schema name the run holds: its finalizer drops its installation's live source, the slot a leader created, its
-	 * publication and its decoder login, then every role named `<schema>__*` and each role's schema, then the schema;
-	 * created as the owner when `create` says so. */
+	/** A schema name the run holds: its finalizer drops its installation's live source, the slot a leader created and
+	 * its publication, then every role its installation creates at its stems (core/identity.ts installationRoleOf: its
+	 * decoder login and its function owner among them), every role named `<schema>__*` and each role's schema, then the
+	 * schema; created as the owner when `create` says so. */
 	const allocated = (name: string, create: boolean) =>
 		Effect.gen(function* () {
 			yield* names.released(
@@ -639,12 +640,15 @@ const build = Effect.fnUntraced(function* (
 							[source]
 						)
 						yield* admin.query(`DROP PUBLICATION IF EXISTS ${quoteIdent(source)}`, [])
-						const decoders = yield* admin.queryValues(
-							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE rolname = $1::name",
-							[source]
+						const installed = installationRoleOf({ kind: "stems" }, new Set([name]))
+						const hashed = yield* admin.queryValues(
+							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, '__') ORDER BY rolname",
+							[]
 						)
-						for (const [decoder] of decoders) {
-							yield* releaseRole(cluster, admin, String(decoder))
+						for (const [role] of hashed) {
+							if (installed(String(role)) !== undefined) {
+								yield* releaseRole(cluster, admin, String(role))
+							}
 						}
 						const roles = yield* admin.queryValues(
 							"SELECT rolname::text FROM pg_catalog.pg_roles WHERE starts_with(rolname::text, $1::text) ORDER BY rolname",
@@ -952,10 +956,11 @@ const templateAllocations = (
 
 /**
  * What a former build of the template of digest `digest` left on the member, dropped as its bootstrap superuser before
- * the build installs: every role under its allocations (`gzt_<digest>_…`, names.ts templateSchemaName), and the live
- * source of each allocation, its installation's own among them (core/identity.ts identity.liveSource, `__live_<digest>`,
- * a decoder login and a replication slot of that name, which carry no allocation, so they are derived from it as the
- * sweep derives them, shared.ts). A role and a slot are the cluster's, not the template database's, so the toolchain's
+ * the build installs: every role under its allocations (`gzt_<digest>_…`, names.ts templateSchemaName), the replication
+ * slot of each allocation's live source (core/identity.ts identity.liveSource, `__live_<digest>`), and every role an
+ * installation at its stems on an allocation creates (installationRoleOf): its live source's decoder login and its
+ * function owner, `__owner_<digest>`, which carry no allocation, so they are read off the allocations as the sweep
+ * reads them, shared.ts. A role and a slot are the cluster's, not the template database's, so the toolchain's
  * collection, which drops a template no run declares any more (resources collect.ts), leaves them, and a later build of
  * the same digest (a tree or toolchain run again after another's) would meet them. A role that still owns an object
  * somewhere is a defect of the run, as the superuser's refusal is.
@@ -982,11 +987,19 @@ const formerBuildDropped = (
 			yield* substrate.superuser(
 				`SELECT pg_catalog.pg_drop_replication_slot(slot_name) FROM pg_catalog.pg_replication_slots WHERE slot_name = ${source}::name`
 			)
-			yield* substrate.superuser(
-				`DROP ROLE IF EXISTS ${quoteIdent(identifierOf(identity.liveSource(allocation)))}`
-			)
 		}
-		for (const role of roles) {
+		const installed = installationRoleOf({ kind: "stems" }, new Set(allocations))
+		const hashed = yield* substrate.admin.queryValues(
+			"SELECT r.rolname::text FROM pg_catalog.pg_roles AS r WHERE pg_catalog.starts_with(r.rolname::text, '__') ORDER BY 1",
+			[]
+		)
+		for (const role of [
+			...Arr.filter(
+				Arr.map(hashed, ([r]) => String(r)),
+				(r) => installed(r) !== undefined
+			),
+			...roles
+		]) {
 			yield* substrate.superuser(`DROP ROLE ${quoteIdent(role)}`)
 		}
 	})

@@ -27,9 +27,10 @@
  *   and one past it is refused where it is parsed (MalformedDescription); within it, a prefix whose longest role passes
  *   63 bytes is refused (IdentifierTooLong), and one that fills 63 exactly is not.
  * - The decoder fits: under a prefix at the budget, the longest any installation admits, the decoder login's role is
- *   named, whatever the schema's name, an allocation's included, and so is every role set aside while logins are
- *   renamed (identity.roleAside of the login's and each role's stem, as migrate fills it, core/identity.ts roleInSpace):
- *   so every prefix that fits the ordinary roles fits them too.
+ *   named, whatever the schema's name, an allocation's included, and so are every role set aside while logins are
+ *   renamed (identity.roleAside of the login's and each role's stem, as migrate fills it, core/identity.ts roleInSpace)
+ *   and the installation's function owner (identity.functionOwner of the schema's identifier): so every prefix that
+ *   fits the ordinary roles fits them too.
  *
  * Features: a prefix and none, two prefixes, a capitalized spelling, a camel-case name, a prefix at the limit and one
  * byte past, a prefix past the budget, a login that reads and one that reads nothing, an allocator's schema name, a
@@ -117,6 +118,12 @@ export const theOneRoleNameOfNamesALoginsItsRolesItsServedFilesAndItsDecoderLogi
 				original: `\t\tmint("roleAside", [role], [asideSegment], \`the role \${role} set aside\`, hashed),`,
 				replacement: `\t\tmint("roleAside", [role], [asideSegment, ...nameSegments(role)], \`the role \${role} set aside\`, hashed),`,
 				why: "A role's aside name carries its stem's segments again; the decoder-fits property fails for the roles set aside."
+			},
+			{
+				file: "packages/engine/src/core/identity.ts",
+				original: `\t\tmint("functionOwner", [root], [ownerSegment], \`function owner of \${root}\`, hashed),`,
+				replacement: `\t\tmint("functionOwner", [root], [ownerSegment, ...nameSegments(root)], \`function owner of \${root}\`, hashed),`,
+				why: "The function owner's stem carries the root's segments again, so under a prefix at the budget a long schema's owner passes 63 bytes; the decoder-fits property fails for the function owner."
 			}
 		]
 	})

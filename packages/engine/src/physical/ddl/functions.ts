@@ -137,7 +137,7 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 	if (first === undefined) {
 		return out
 	}
-	const ownerIdentity = identity.functionOwner(b.settings.levels[0])
+	const ownerIdentity = identity.functionOwner(identifierOf(b.settings.levels[0]))
 	const owner = addOwner(b, ownerIdentity)
 	const ownerRole = identifierOf(ownerIdentity)
 	const rowTypes = new Map<string, InstalledRowType>()

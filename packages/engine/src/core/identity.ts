@@ -589,7 +589,7 @@ export const roleNameForm = (name: string): RoleNameForm | undefined => {
  * migrations can create, a login's or a role's of any of its snapshots; undefined for every other role, another
  * installation's, another space's or none's. A conversion holds no `__`, so the parts are read without guessing.
  */
-export const namespaceStem = (
+const namespaceStem = (
 	space: RoleSpace,
 	levels: ReadonlySet<string>,
 	role: string
@@ -603,6 +603,47 @@ export const namespaceStem = (
 	return at > 0 && levels.has(stem.slice(0, at)) && isConversion(stem.slice(at + 2))
 		? stem
 		: undefined
+}
+
+/**
+ * A cluster role an installation creates, by what it is: a login's or a role's, by its stem (namespaceStem); the
+ * decoder login of the live source of the level whose PostgreSQL schema is `level` (identity.liveSource); or the
+ * function owner of that level (identity.functionOwner).
+ */
+export type InstallationRole =
+	| { readonly kind: "stem"; readonly stem: string }
+	| { readonly kind: "liveSource"; readonly level: string }
+	| { readonly kind: "functionOwner"; readonly level: string }
+
+/**
+ * The one reading of the roles an installation of role space `space` creates in the cluster, whose levels' PostgreSQL
+ * schemas are `levels`: a classifier of a cluster role as one of them (InstallationRole), or undefined for every other
+ * role, another installation's, another space's or none's. Every role an installation's migrations create is a stem
+ * under the space, `<level>__<conversion>`, or one of the hashed roles minted from a level's schema, its live source's
+ * decoder login and its function owner, under the space (roleInSpace); a migration's renames set a role aside only
+ * inside the migration's transaction (identity.roleAside), so no role aside outlives one. What collects an
+ * installation's roles, uninstall's and a test template's sweep, reads it, and nothing else names them.
+ */
+export const installationRoleOf = (
+	space: RoleSpace,
+	levels: ReadonlySet<string>
+): ((role: string) => InstallationRole | undefined) => {
+	const hashedRoles = new Map<string, InstallationRole>()
+	for (const level of levels) {
+		for (const [kind, minted] of [
+			["liveSource", identity.liveSource(level)],
+			["functionOwner", identity.functionOwner(level)]
+		] as const) {
+			const role = roleInSpace(space, identifierOf(minted))
+			if (role.ok) {
+				hashedRoles.set(role.value, { kind, level })
+			}
+		}
+	}
+	return (role) => {
+		const stem = namespaceStem(space, levels, role)
+		return stem === undefined ? hashedRoles.get(role) : { kind: "stem", stem }
+	}
 }
 
 /** Whether two declared names are one name: their segments agree, so the door renders both as one conversion
@@ -1642,13 +1683,15 @@ export const identity = Object.freeze({
 	rowType: (definition: RowTypeDigest): Identity<"rowType"> =>
 		mint("rowType", [definition], ["rows"], `row type of definition ${definition}`, hashed),
 	/**
-	 * The function owner of the installation whose root level is `root`: the role that owns every declared function and
-	 * holds no privilege on any table, so a declared function, which runs as its owner, reads no table. Cluster-wide
-	 * under the installation's role space (roleInSpace), hashed by the root level's identity, `__owner_<digest>`, its
-	 * stem the lead word alone, so its length is one whatever the root's (rolePrefixBytes).
+	 * The function owner of the installation whose root level's PostgreSQL schema is `root`: the role that owns every
+	 * declared function and holds no privilege on any table, so a declared function, which runs as its owner, reads no
+	 * table. Cluster-wide under the installation's role space (roleInSpace), hashed by the root's identifier, as the live
+	 * source is, so every spelling of the root's declared name that installs one schema has one owner, and the
+	 * installation's roles are read off its levels' schemas alone (installationRoleOf): `__owner_<digest>`, its stem the
+	 * lead word alone, so its length is one whatever the root's (rolePrefixBytes).
 	 */
-	functionOwner: (root: Identity<"schema">): Identity<"functionOwner"> =>
-		mint("functionOwner", [root], [ownerSegment], `function owner of ${root.display}`, hashed),
+	functionOwner: (root: string): Identity<"functionOwner"> =>
+		mint("functionOwner", [root], [ownerSegment], `function owner of ${root}`, hashed),
 	refusal: (): Identity<"refusal"> =>
 		mint("refusal", [], ["refuse"], "the refusal function", readable("__refuse")),
 	snapshotGuard: (): Identity<"snapshotGuard"> =>

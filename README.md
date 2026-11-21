@@ -1747,7 +1747,7 @@ A live source decodes the WAL, which PostgreSQL 19 does at its default `wal_leve
 
 grizzle sets no `max_slot_wal_keep_size`, since how much WAL the slot may hold while no leader runs is the operator's policy, and a slot the server invalidates fails closed: the next leader fans out `:invalidated` with the WAL position it read, which ends every live read registered over a slot that stood at or before that position, and none over the slot it then makes.
 
-The decoder login, the publication and the slot are named by the name grizzle derives for the installation's live source, and the snapshot records it. A newer grizzle may derive another one (e1c1fc23 shortened `__live_<segments>_<digest>` to `__live_<digest>`): the next `grizzle generate` then drafts the decoder login's rename in place (`ALTER ROLE ... RENAME TO`, which keeps its password and its replication right) and replaces the publication, dropping the slot of the old name. Stop the old version's leaders before you migrate: PostgreSQL refuses to drop a slot a leader streams from, and the migration fails closed until they stop. `grizzle roles` and `grizzle uninstall` read the decoder login from the grants its migrations made, whatever name derived it.
+The decoder login, the publication and the slot are named by the name grizzle derives for the installation's live source, and the snapshot records it. A newer grizzle may derive another one (e1c1fc23 shortened `__live_<segments>_<digest>` to `__live_<digest>`): the next `grizzle generate` then drafts the decoder login's rename in place (`ALTER ROLE ... RENAME TO`, which keeps its password and its replication right) and replaces the publication, dropping the slot of the old name. Stop the old version's leaders before you migrate: PostgreSQL refuses to drop a slot a leader streams from, and the migration fails closed until they stop. `grizzle roles` and `grizzle uninstall` read the decoder login by the name its level's schema derives.
 
 grizzle states no number of its own, and there is no isolation level, statement timeout or retry policy to set. A call waits for a session as long as you let it: the wait has no deadline, and interrupting the Effect, your own timeout among the ways, ends it, leaving nothing behind. Closing the layer's scope destroys every connection of its pool at once, awaiting nothing from the network.
 
@@ -4345,8 +4345,9 @@ deploy.
 - **Two installations on one cluster.** PostgreSQL roles are the cluster's, every database's, while an installation is
   one database's: two installations of one schema on one cluster need roles of their own. Give each connection its
   `rolePrefix`, used verbatim (a lowercase PostgreSQL identifier segment, `[a-z_][a-z0-9_]*`, with no `__`, not
-  starting with `pg_`, and at most 43 bytes, so the installation's decoder login, `__live_<digest>`, and a login's role
-  set aside while logins are renamed, `__aside_<digest>`, fit under it in PostgreSQL's 63; anything else is refused at
+  starting with `pg_`, and at most 43 bytes, so the installation's decoder login, `__live_<digest>`, its function owner,
+  `__owner_<digest>`, and a login's role set aside while logins are renamed, `__aside_<digest>`, fit under it in
+  PostgreSQL's 63; anything else is refused at
   stage `config`), beside its `database`, in `grizzle.config.ts` and in
   `DbLayer.make` alike. Every login's and role's PostgreSQL role is then `<rolePrefix>__<stem>`: `a__keys__dashboard`
   in one installation, `b__keys__dashboard` in the other, `keys__dashboard` in one without a prefix, the names never
@@ -4357,8 +4358,10 @@ deploy.
   records each file as written, so one folder's digest is the same in every installation. The snapshot and the served
   files hold the stems, and `check` reads no prefix.
 - **`roles` and `uninstall`.** `grizzle roles` lists the installation's roles in the cluster, one per line: every role
-  named `<rolePrefix>__<level>__<name>` (or `<level>__<name>` without a prefix) for a level of a configured schema,
-  whatever snapshot the database is at, and no other. `grizzle uninstall` destroys the installation and every row it
+  its migrations create under its role prefix (or at their stems without one) for a level of a configured schema,
+  whatever snapshot the database is at, and no other: each login's and role's, `<rolePrefix>__<level>__<name>`, and the
+  decoder login and the function owner each level's schema names, `<rolePrefix>____live_<digest>` and
+  `<rolePrefix>____owner_<digest>`. `grizzle uninstall` destroys the installation and every row it
   holds: in one transaction, it drops its schemas in the connection's database (each level's and each role's schema
   of views) with everything in them, revokes what its roles still hold there and on the database (DROP OWNED, under
   the database privilege's lock), and drops the roles. The extension's schema and every other role stay. PostgreSQL

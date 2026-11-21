@@ -131,7 +131,7 @@ export const declaredFunctions = property.explore(functionCaseSpace, {
 						assert.deepEqual(Arr.map(executed, rowText), [], "PUBLIC executes no declared function")
 						const owners = Arr.dedupe(Arr.map(installed, ([, , owner]) => String(owner)))
 						const minted = identifierOf(
-							identity.functionOwner(Arr.headNonEmpty(m.installation.names.levels))
+							identity.functionOwner(identifierOf(Arr.headNonEmpty(m.installation.names.levels)))
 						)
 						assert.ok(
 							Arr.every(owners, (o) => Str.endsWith(minted)(o)),

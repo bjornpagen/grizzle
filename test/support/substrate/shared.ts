@@ -3,7 +3,7 @@ import type { PgMember } from "@bjornpagen/testing/pg"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Exit, Option, Scope, String as Str } from "effect"
 import { Client } from "pg"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { installationRoleOf } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
@@ -425,14 +425,8 @@ const dropDatabase = (admin: PgConnection, name: string): Effect.Effect<void, Sq
  */
 const ended = (pid: number): boolean => pid === process.pid || !running(pid)
 
-/**
- * The decoder login an installation at its stems would have whose root schema is the allocation a role of `role`'s
- * names lead: `<allocation>__<name>`'s allocation, its live source's stem (core/identity.ts identity.liveSource),
- * `__live_<digest>`, which carries no allocation, so the sweep derives it from the allocation rather than reading it
- * back. A role under a prefix starts with its own allocation, so its decoder is swept by that.
- */
-const decoderOfAllocation = (role: string): string =>
-	identifierOf(identity.liveSource(Arr.headNonEmpty(Str.split("__")(role))))
+/** The allocation a role `<allocation>__<name>` is named under: its name's lead. */
+const allocationOf = (role: string): string => Arr.headNonEmpty(Str.split("__")(role))
 
 /**
  * The sweep's lock: a session-level advisory lock in the owner's own database, which each sweep holds on its session
@@ -441,8 +435,9 @@ const decoderOfAllocation = (role: string): string =>
 const sweepKey = 1735289962
 
 /**
- * Drops what ended processes left on the cluster: their gz_t_ databases, their `<schema>__<access>` roles and each
- * one's allocation's decoder login (decoderOfAllocation). A run in progress is never touched: its processes are
+ * Drops what ended processes left on the cluster: their gz_t_ databases, their `<schema>__<access>` roles and every
+ * role an installation at its stems on one of their allocations creates (core/identity.ts installationRoleOf: its live
+ * source's decoder login and its function owner, which carry no allocation, so they are read off the allocation). A run in progress is never touched: its processes are
  * running. Its callers call it only when no database of their own is in use: a bench runner when its last gate has
  * run, its own databases then ended too. The gz_shared_ databases a test file shared before every test ran on the
  * toolchain's runner are no gz_t_ name and are left as they are. Runs beside each other
@@ -479,9 +474,12 @@ export const sweep = (
 			)
 			const roles = Arr.map(rows, ([value]) => String(value))
 			const dead = Arr.filter(roles, (role) => Option.exists(allocatingPid(role), ended))
-			const deadDecoders = new Set(Arr.map(dead, decoderOfAllocation))
+			const installedByDead = installationRoleOf(
+				{ kind: "stems" },
+				new Set(Arr.map(dead, allocationOf))
+			)
 			for (const role of roles) {
-				if (deadDecoders.has(role) || Option.exists(allocatingPid(role), ended)) {
+				if (installedByDead(role) !== undefined || Option.exists(allocatingPid(role), ended)) {
 					yield* Effect.ignore(dropRole(cluster, admin, role))
 				}
 			}
