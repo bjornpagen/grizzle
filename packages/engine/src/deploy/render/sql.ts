@@ -334,9 +334,11 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 	}
 }
 
-/** One drafted file's decision record, as meta.json records it: every step it drafts, in draft order. */
-export const recordFile = (file: DraftFile): Result.Result<MetaFile, CompileError> =>
+/** One drafted file's decision record, as meta.json records it: every step it drafts, in draft order, and its lock
+ * demand, `locks` (deploy/locks/demand.ts fileLockSets). */
+export const recordFile = (file: DraftFile, locks: number): Result.Result<MetaFile, CompileError> =>
 	catchRefusal(() => ({
 		name: file.name,
-		steps: file.drafts.flatMap((d) => recordStep(d))
+		steps: file.drafts.flatMap((d) => recordStep(d)),
+		locks
 	}))

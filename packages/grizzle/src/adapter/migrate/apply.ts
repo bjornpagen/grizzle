@@ -33,8 +33,9 @@ import {
 	InputRefused,
 	LedgerUncompiled,
 	LedgerUnlocked,
-	type ServerLockTable,
 	LockTableExhausted,
+	type LockedTransaction,
+	LockTableShort,
 	LockUnread,
 	type MigrateError,
 	OwnedByAnother,
@@ -87,6 +88,12 @@ import {
 	walLevelColumn,
 	walLevelOf
 } from "#adapter/migrate/live.ts"
+import {
+	lockTableCapacity,
+	lockTableColumns,
+	lockTableOf,
+	type LockTableSettings
+} from "#adapter/migrate/locks.ts"
 import { type ApplyPlan, planApply, runFiles } from "#adapter/migrate/plan.ts"
 import {
 	apartRow,
@@ -123,7 +130,9 @@ import {
 	type InstalledGuard,
 	type ProofStatements,
 	proofStatements,
-	proofsIdent
+	proofsIdent,
+	replayLocks,
+	statedLocks
 } from "#compiler/plan/migration.ts"
 import { textParam } from "#compiler/plan/read.ts"
 import type { DeploySnapshot, LedgerStatements } from "#compiler/plan/serve.ts"
@@ -247,6 +256,8 @@ interface SessionRow {
 	readonly stackDepth: string
 	readonly walLevel: WalLevel
 	readonly grants: ReplicationGrants
+	/** The six settings that size the server's lock table (locks.ts), which the apply's largest transaction must fit. */
+	readonly lockTable: LockTableSettings
 }
 
 const sessionRead: CatalogQuery<SessionRow> = {
@@ -257,20 +268,23 @@ const sessionRead: CatalogQuery<SessionRow> = {
 				stackDepthColumn,
 				walLevelColumn,
 				attributeGrantColumn,
-				membershipGrantColumn
+				membershipGrantColumn,
+				...lockTableColumns
 			],
 			[],
 			undefined
 		)
 	),
-	what: "a role name, two settings and two privileges",
-	row: ([user, stackDepth, walLevelText, attribute, membership]) => {
+	what: "a role name, eight settings and two privileges",
+	row: ([user, stackDepth, walLevelText, attribute, membership, ...table]) => {
 		const walLevel = Option.getOrUndefined(
 			Option.flatMap(Option.fromNullishOr(walLevelText), walLevelOf)
 		)
+		const lockTable = Option.getOrUndefined(lockTableOf(table))
 		return user === undefined ||
 			stackDepth === undefined ||
 			walLevel === undefined ||
+			lockTable === undefined ||
 			(attribute !== "true" && attribute !== "false") ||
 			(membership !== "true" && membership !== "false")
 			? undefined
@@ -278,59 +292,17 @@ const sessionRead: CatalogQuery<SessionRow> = {
 					user,
 					stackDepth,
 					walLevel,
-					grants: { attribute: attribute === "true", membership: membership === "true" }
+					grants: { attribute: attribute === "true", membership: membership === "true" },
+					lockTable
 				}
 	}
 }
 
-const serverSettings = C.from("pg_settings", "s")
-
-/** A server setting as pg_settings reports it. */
-const settingColumn = (name: string): C.CatalogExpr =>
-	C.asText(
-		C.scalar(
-			C.query(
-				[serverSettings.col("setting")],
-				[serverSettings.item],
-				C.eq(serverSettings.col("name"), C.text(name))
-			)
-		)
-	)
-
-/** The settings that size the server's lock table (ServerLockTable). */
-const lockTableRead: CatalogQuery<Extract<ServerLockTable, { readonly kind: "read" }>> = {
-	sql: emitCatalog(
-		C.query(
-			[
-				settingColumn("max_locks_per_transaction"),
-				settingColumn("max_connections"),
-				settingColumn("autovacuum_worker_slots"),
-				settingColumn("max_worker_processes"),
-				settingColumn("max_wal_senders"),
-				settingColumn("max_prepared_transactions")
-			],
-			[],
-			undefined
-		)
-	),
+/** The settings that size the server's lock table (locks.ts), read after a refusal. */
+const lockTableRead: CatalogQuery<LockTableSettings> = {
+	sql: emitCatalog(C.query(lockTableColumns, [], undefined)),
 	what: "six settings",
-	row: ([locks, connections, autovacuum, workers, senders, prepared]) =>
-		locks === undefined ||
-		connections === undefined ||
-		autovacuum === undefined ||
-		workers === undefined ||
-		senders === undefined ||
-		prepared === undefined
-			? undefined
-			: {
-					kind: "read",
-					maxLocksPerTransaction: locks,
-					maxConnections: connections,
-					autovacuumWorkerSlots: autovacuum,
-					maxWorkerProcesses: workers,
-					maxWalSenders: senders,
-					maxPreparedTransactions: prepared
-				}
+	row: (cells) => Option.getOrUndefined(lockTableOf(cells))
 }
 
 /**
@@ -354,7 +326,9 @@ const refusalOf = (
 				(read) =>
 					new LockTableExhausted({
 						error,
-						table: Result.isSuccess(read) ? read.success : { kind: "unread", failure: read.failure }
+						table: Result.isSuccess(read)
+							? { kind: "read", settings: read.success }
+							: { kind: "unread", failure: read.failure }
 					})
 			)
 
@@ -623,7 +597,11 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 	session: MigrationSession,
 	checked: ReadonlyArray<Checked>
 ): Effect.fn.Return<
-	{ readonly planned: ReadonlyArray<Planned>; readonly grants: ReplicationGrants },
+	{
+		readonly planned: ReadonlyArray<Planned>
+		readonly grants: ReplicationGrants
+		readonly lockTable: LockTableSettings
+	},
 	MigrateError,
 	Scope.Scope
 > {
@@ -648,7 +626,7 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		(failure) => stopped(new SurveyFailed({ failure }))
 	)
 	/** The session's role and the server's setting concern no schema. */
-	const { user, stackDepth, walLevel, grants } = yield* Effect.fromResult(
+	const { user, stackDepth, walLevel, grants, lockTable } = yield* Effect.fromResult(
 		Result.mapError(apartRow(sessionRead, sentAnswer(answers, 0)), (failure) =>
 			stopped(new RoleUnread({ failure }))
 		)
@@ -690,8 +668,59 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 		const schemaPlan = yield* Effect.fromResult(planSchema(c, answers, at, read))
 		planned.push(schemaPlan)
 	}
-	return { planned, grants }
+	return { planned, grants, lockTable }
 })
+
+/** An apply's transaction by the locks it holds, as its folders state them (LockedTransaction). */
+interface Locked {
+	readonly schema: string
+	readonly at: LockedTransaction
+	readonly locks: number
+}
+
+/**
+ * Each transaction of a schema's plan whose locks its folders state, as deploy/locks/demand.ts counts them: each
+ * planned file's, where its folder's meta.json records the file as written (statedLocks), and the drift check's replay
+ * of a schema's first migration, which replays every object of its snapshot with no proof to spare one.
+ */
+const lockedTransactions = (p: Planned): ReadonlyArray<Locked> => [
+	...Arr.flatMap(p.plan.runs, (r) =>
+		Arr.flatMap(runFiles(r), (f): ReadonlyArray<Locked> => {
+			const locks = statedLocks(r.folder.meta, f)
+			return locks === undefined
+				? []
+				: [
+						{
+							schema: p.plan.schema,
+							at: { kind: "file", folder: r.folder.name, file: f.name },
+							locks
+						}
+					]
+		})
+	),
+	...(p.ledger === "absent"
+		? [{ schema: p.plan.schema, at: { kind: "replay" } as const, locks: replayLocks(p.snapshot) }]
+		: [])
+]
+
+/**
+ * The apply's largest transaction refused where the server's lock table cannot hold it with the session's apply locks,
+ * one per schema, which it holds through every transaction (LockTableShort): before any statement of any folder runs.
+ */
+const lockTableHolds = (
+	planned: ReadonlyArray<Planned>,
+	lockTable: LockTableSettings
+): Effect.Effect<void, MigrateError> => {
+	const largest = Arr.reduce(
+		Arr.flatMap(planned, lockedTransactions),
+		undefined,
+		(most: Locked | undefined, t: Locked) => (most === undefined || t.locks > most.locks ? t : most)
+	)
+	const held = planned.length
+	return largest === undefined || largest.locks + held <= lockTableCapacity(lockTable)
+		? Effect.void
+		: stopped(new LockTableShort({ ...largest, held, table: lockTable }))
+}
 
 /**
  * The laws a refusal of a file of a folder can break, every law the refused constraint serves, by that folder's own laws (`laws`, its meta.json's FolderLaws), which
@@ -1213,7 +1242,8 @@ const applyChecked = Effect.fn("applyChecked")(function* (
 	session: MigrationSession,
 	checked: ReadonlyArray<Checked>
 ): Effect.fn.Return<ReadonlyArray<SchemaApplyReport>, MigrateError, Scope.Scope> {
-	const { planned, grants } = yield* surveyAll(session, checked)
+	const { planned, grants, lockTable } = yield* surveyAll(session, checked)
+	yield* lockTableHolds(planned, lockTable)
 	const reports: Array<SchemaApplyReport> = []
 	for (const p of planned) {
 		const report = yield* runPlan(session, p)

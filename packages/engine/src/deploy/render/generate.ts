@@ -15,6 +15,7 @@ import type {
 	MigrationPlan,
 	Swap
 } from "#compiler/deploy/diff/plan.ts"
+import { fileLockSets, migrationCatalog } from "#compiler/deploy/locks/demand.ts"
 import { planFiles } from "#compiler/deploy/phases/files.ts"
 import {
 	type CustomMeta,
@@ -215,7 +216,14 @@ export const draftMigration = (input: DraftInput): Result.Result<MigrationDraft,
 		const changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint
 		const drafted = changed ? planFiles(plan) : []
 		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
-		const recorded = drafted.map((f) => unwrap(recordFile(f)))
+		const recorded = fileLockSets({
+			schema: installation.names.schema,
+			catalog: migrationCatalog(
+				previous,
+				state.manifest.objects.flatMap((o) => o.ddl)
+			),
+			files: drafted
+		}).map((f) => unwrap(recordFile(f.file, f.locks.size)))
 		const record = unwrap(Result.mapError(decisionRecord(recorded), recordRefusal))
 		const meta: DraftedMeta = {
 			kind: "drafted",

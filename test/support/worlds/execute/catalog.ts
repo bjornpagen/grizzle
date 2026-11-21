@@ -153,6 +153,7 @@ export const failedFolder = (error: MigrateError): Option.Option<string> => {
 		case "ConnectRefused":
 		case "SurveyFailed":
 		case "StackTooShallow":
+		case "LockTableShort":
 		case "RoleUnread":
 		case "OwnerUnread":
 		case "OwnedByAnother":

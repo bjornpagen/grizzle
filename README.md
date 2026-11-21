@@ -1412,7 +1412,7 @@ Then depend on it from your package, beside its peers:
 }
 ```
 
-Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client` and `@bjornpagen/grizzle/http`. `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
+Import it as `@bjornpagen/grizzle`, `@bjornpagen/grizzle/runtime`, `@bjornpagen/grizzle/compile`, `@bjornpagen/grizzle/dynamic`, `@bjornpagen/grizzle/client`, `@bjornpagen/grizzle/http` and `@bjornpagen/grizzle/locks`. `pnpm exec grizzle` runs the command line from `src/cli/bin.ts`, which turns on Node's compile cache before it loads the rest. To upgrade, move the submodule to a newer commit and run `pnpm install`.
 
 The agent guide is `vendor/grizzle/packages/grizzle/skills/grizzle/SKILL.md`: copy it to where your agent reads skills, and again after upgrading grizzle.
 
@@ -5312,19 +5312,34 @@ export const Work = schema(
 
 ## Deploying
 
-Size the server's lock table before a large schema's first `grizzle migrate`. A migration runs in one transaction,
-which holds one lock per object it creates or alters until it commits, and PostgreSQL 19's lock table holds exactly
+Size the server's lock table before a large schema's first `grizzle migrate`. A migration runs file by file, each file
+one transaction, which keeps every object it locks until it commits, and PostgreSQL 19's lock table holds exactly
 `max_locks_per_transaction × (max_connections + autovacuum_worker_slots + max_worker_processes + max_wal_senders + 2 +
-max_prepared_transactions)` locks, the 2 its autovacuum launcher and slot sync worker, shared by every transaction at
-once: 19 sizes it at startup with no margin past it, where 18 let a transaction run past (PostgreSQL commit 79534f906,
-which doubled the default to keep the capacity). Set `max_locks_per_transaction` (it takes a restart) so that product
-is above the number of objects the migration creates and the locks every other session holds meanwhile. Qti's first
-install holds about 15,100 locks (15,900 with the Ledger over it): a server at PostgreSQL 19's defaults holds 128 ×
-(100 + 16 + 8 + 10 + 2) = 17,408, which leaves about 1,500 for every other session while it runs, and one that keeps 18's
-default of 64 holds 8,704, about half what Qti needs. On a server too small `grizzle migrate` stops with SQLSTATE 53200,
-rolled back whole: the refusal keeps PostgreSQL's message, names `max_locks_per_transaction`, and states the six
-settings it read from the server. The drift check, which rebuilds the snapshot beside the schema in one transaction,
-needs the same.
+max_prepared_transactions)` locked objects, the 2 its autovacuum launcher and slot sync worker, shared by every
+transaction at once: 19 sizes it at startup with no margin past it, where 18 let a transaction run past (PostgreSQL
+commit 79534f906, which doubled the default to keep the capacity). `grizzle generate` counts, from the drafted
+statements, the most objects one transaction of each file locks, and records it in the file's entry of meta.json
+(`locks`) and prints it: every relation the file creates, alters or drops, with its TOAST relations and row types; every
+object a catalog row it writes depends on, which PostgreSQL 19 locks for the dependency it records (pg_depend.c
+dependencyLockAndCheckObject): a column's domain, a CHECK's function, a key's constraint, a trigger's function, an
+object's schema and owner; every object a GRANT, a REVOKE or a COMMENT names; every relation a query plans over, with
+every index of it, and what each trigger of a table it writes runs; the transient table a rewrite copies a table into,
+which outlives its drop as a lock. The count is an upper bound of what PostgreSQL holds, at most twice it on the
+generated migrations of the suite. A fresh install of edullm's QTI database (Qti, the ledger and delivery) held 539
+objects in 01-setup.sql, 2,640 in 02-structure.sql, 394 in 03-indexes.sql and 1,117 in 04-validate.sql, which a server
+at PostgreSQL 19's defaults, 128 × (100 + 16 + 8 + 10 + 2) = 17,408, holds many times over; a server that keeps 18's
+default of 64 holds 8,704. `grizzle migrate` reads the six settings in its survey, before anything runs, and refuses an
+apply whose largest transaction, with the session's apply lock of each schema it holds through every transaction, the
+table cannot hold (LockTableShort): it names the file, its count and the least max_locks_per_transaction (it takes a
+restart), or max_connections, that holds it, and nothing has run. A schema's first migration counts its drift check
+too, which replays every object of the snapshot beside the schema in one transaction, none yet proven. Every other
+session's locks share the table and are not counted: a server where several migrations or test installs run at once
+needs the count for each, and a test cluster whose workers each install the schema sizes its members by the count
+times the workers a member serves (`migrationLocks` of `@bjornpagen/grizzle/locks` reads a migrations directory's
+largest count). A file edited past its record and a custom migration's file state none, since no count read their
+statements; a statement the server still refuses for want of shared memory stops with SQLSTATE 53200, rolled
+back whole: the refusal (LockTableExhausted) keeps PostgreSQL's message, names `max_locks_per_transaction`, and states
+the six settings it read from the server.
 
 Build each `DbLayer` once per process, in module scope. Building it reads the login's served file once and rebuilds what
 runs each of its programs: the parameters' codecs, the rows' readers, the refusal classifier and the prologue, under

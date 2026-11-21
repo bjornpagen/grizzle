@@ -34,6 +34,7 @@ export { type GraphIdent, parseIdent } from "#compiler/physical/obligations/grap
 export type { AbandonedSchema, Declarations, Rename } from "#compiler/deploy/diff/plan.ts"
 export { type Named, namedSpelling } from "#compiler/core/errors.ts"
 export { decideFolder, type Redraft } from "#compiler/deploy/ledger/decide.ts"
+export { replayLocks } from "#compiler/deploy/locks/demand.ts"
 export {
 	type FolderLaws,
 	type FolderNaming,
@@ -51,6 +52,7 @@ export {
 	parseMigrationName,
 	readDecodedMeta,
 	type ReadMeta,
+	statedLocks,
 	timestampLength,
 	timestampWidths
 } from "#compiler/deploy/render/folder.ts"

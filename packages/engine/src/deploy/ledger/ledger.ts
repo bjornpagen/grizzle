@@ -522,6 +522,18 @@ const redraftUpdate = (schema: string): Update => {
 	}
 }
 
+/**
+ * The statements the apply runner sends in a file's transaction besides the file's own (adapter/migrate/apply.ts
+ * runFile), as the transaction's locks count them (deploy/locks/demand.ts): the ledger's ACCESS EXCLUSIVE first, then
+ * the folder's and the file's rows, and a redraft's re-record of its folder.
+ */
+export const runnerStatements = (
+	schema: string
+): { readonly fence: LockTable; readonly rows: ReadonlyArray<SqlStatement> } => ({
+	fence: ledgerLock(schema, "ACCESS EXCLUSIVE", "wait"),
+	rows: [insertRow(schema, "folder"), insertRow(schema, "file"), redraftUpdate(schema)]
+})
+
 /** The proofs' rows by object, each column named c1 to c3 in proofColumns order. */
 const proofRows = (schema: string): Select => {
 	const r1 = "r1"

@@ -160,9 +160,13 @@ const renderWrites = (
 			(l) => `${folderOf(r)}/${l.file}: data loss: ${l.loses}: ${refusalText.unresolvedLoss.fix}`
 		)
 	)
+	const locks = Arr.flatMap(written, (r) =>
+		Arr.isReadonlyArrayNonEmpty(r.locks) ? [locksLine(folderOf(r), r.locks)] : []
+	)
 	const custom = Arr.some(written, (r) => r.kind === "custom")
 	return [
 		...files,
+		...locks,
 		...markers,
 		...losses,
 		markers.length + losses.length > 0
@@ -173,6 +177,21 @@ const renderWrites = (
 					? "next: review the SQL, then run grizzle check"
 					: commitStep(rederived.length > 0, served.length + unserved.length > 0)
 	]
+}
+
+/**
+ * The locks a drafted folder's files state, as generate prints them: each file's, and the largest, which the server's
+ * lock table must hold beside every other session's while it runs (`grizzle migrate` refuses an apply it cannot hold).
+ */
+const locksLine = (
+	folder: string,
+	locks: Arr.NonEmptyReadonlyArray<{ readonly file: string; readonly locks: number }>
+): string => {
+	const largest = Arr.reduce(locks, locks[0], (most, f) => (f.locks > most.locks ? f : most))
+	return `${folder}: locks ${Arr.join(
+		Arr.map(locks, (f) => `${f.file} ${f.locks}`),
+		", "
+	)}; the server's lock table must hold ${largest.locks} for ${largest.file}'s transaction`
 }
 
 const renderApply = (reports: ReadonlyArray<SchemaApplyReport>): ReadonlyArray<string> =>
@@ -265,6 +284,7 @@ const reasonLines = (e: MigrateError): ReadonlyArray<string> => {
 		case "ConnectRefused":
 		case "SurveyFailed":
 		case "StackTooShallow":
+		case "LockTableShort":
 		case "RoleUnread":
 		case "OwnerUnread":
 		case "OwnedByAnother":

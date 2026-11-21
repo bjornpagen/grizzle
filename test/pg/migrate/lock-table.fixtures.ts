@@ -1,14 +1,17 @@
 /** What the properties of lock-table.test.ts read: its spaces, models and helpers. */
 
-import { element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Result } from "effect"
+import { constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import { Array as Arr, Effect, Result, String as Str } from "effect"
 import { BatchRefused, ServerError } from "#adapter/errors/failures.ts"
 import { LockTableExhausted, type MigrateError } from "#adapter/migrate/errors.ts"
+import { type LockTableSettings, specialWorkerProcesses } from "#adapter/migrate/locks.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import { emitCatalog } from "#compiler/plan/common.ts"
+import { sentSql } from "#test/support/flight/scripted.ts"
+import { outputText } from "#test/support/wire.ts"
 
 export const places = [
 	"the ledger's lock",
@@ -187,3 +190,70 @@ export const reasonAt: { readonly [P in LockPlace]: MigrateError["reason"]["_tag
 	"a ledger row": "RecordFailed",
 	"the drift check's replay": "DriftUnchecked"
 }
+
+/**
+ * `m`, whose survey reads the server's lock-table settings as `table` (adapter/migrate/locks.ts lockTableColumns, the
+ * last six cells of the survey's first row): every other answer as the server gave it.
+ */
+export const answeringLockTable = (
+	m: MigrationSession,
+	table: LockTableSettings
+): MigrationSession => ({
+	...m,
+	apart: (statements) =>
+		Effect.map(m.apart(statements), (answers) =>
+			Arr.map(answers, (answer, i) => {
+				const statement = statements[i]
+				return statement !== undefined &&
+					Str.includes("max_locks_per_transaction")(sentSql(statement))
+					? Result.map(answer, (outcome) => ({
+							...outcome,
+							rows: Arr.map(outcome.rows, (row) => [
+								...row.slice(0, -6),
+								...Arr.map(
+									[
+										table.maxLocksPerTransaction,
+										table.maxConnections,
+										table.autovacuumWorkerSlots,
+										table.maxWorkerProcesses,
+										table.maxWalSenders,
+										table.maxPreparedTransactions
+									],
+									(n) => outputText(String(n))
+								)
+							])
+						}))
+					: answer
+			})
+		)
+})
+
+/**
+ * A preflight's case: the server's max_locks_per_transaction `slots`, and its lock table sized at the apply's demand
+ * (every other setting 0 but max_connections, the least that holds it at `slots`) or one slot of backends short of it.
+ */
+export interface PreflightCase {
+	readonly slots: number
+	readonly at: "the demand" | "one below"
+}
+
+export const preflightGen: Gen<PreflightCase> = (source) => ({
+	slots: source.draw(
+		weighted([
+			[1, constant(1)],
+			[2, int(2, 64)]
+		])
+	),
+	at: source.draw(element(["the demand", "one below"] as const))
+})
+
+/** The settings a case sizes: max_connections the least whose table holds `total` at its slots, or one fewer. */
+export const caseSettings = (x: PreflightCase, total: number): LockTableSettings => ({
+	maxLocksPerTransaction: x.slots,
+	maxConnections:
+		Math.ceil(total / x.slots) - specialWorkerProcesses - (x.at === "one below" ? 1 : 0),
+	autovacuumWorkerSlots: 0,
+	maxWorkerProcesses: 0,
+	maxWalSenders: 0,
+	maxPreparedTransactions: 0
+})

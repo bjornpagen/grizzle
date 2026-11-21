@@ -17,6 +17,16 @@
  * tag and fields, never its words.
  *
  * Features: each place, the ledger's lock, a file's statement, a ledger row and the drift check's replay.
+ *
+ * Before any of that, the survey holds the server's table to the apply's largest transaction as its folders state it
+ * (lockTablePreflight): a session answers the survey's read of the six settings with a table sized at the apply's
+ * demand, max_locks_per_transaction drawn and max_connections the least that holds the largest stated transaction (a
+ * file's meta.json count, or a first install's drift replay) with the session's one apply lock, or one slot of backends
+ * short of it. The oracle is the folder's own stated counts against PostgreSQL 19's product: short, the apply is refused
+ * as LockTableShort naming the largest count, the one apply lock and the settings, and no relation of the schema
+ * exists; at the demand, it applies.
+ *
+ * Features: a table at the demand, and one slot short.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -25,6 +35,7 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
 import { applyOnSession, checkDrift } from "#adapter/migrate/apply.ts"
+import { LockTableShort } from "#adapter/migrate/errors.ts"
 import type { MigrationTarget } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { migrationSession } from "#adapter/migrate/session.ts"
@@ -32,10 +43,15 @@ import { type BatchStatement, oneShotStatement } from "#adapter/wire/batch.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { proofStatements } from "#compiler/deploy/ledger/ledger.ts"
+import { replayLocks } from "#compiler/deploy/locks/demand.ts"
+import { readDecodedMeta, statedLocks } from "#compiler/deploy/render/folder.ts"
 import type { GenerateResult } from "#compiler/deploy/render/generate.ts"
 import {
+	answeringLockTable,
 	caseGen,
+	caseSettings,
 	ledgerLockGen,
+	preflightGen,
 	exhaustedOf,
 	indexAmong,
 	outOfLocks,
@@ -179,12 +195,14 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 								exhausted.table,
 								{
 									kind: "read",
-									maxLocksPerTransaction: locks,
-									maxConnections: connections,
-									autovacuumWorkerSlots: autovacuum,
-									maxWorkerProcesses: workers,
-									maxWalSenders: senders,
-									maxPreparedTransactions: prepared
+									settings: {
+										maxLocksPerTransaction: Number(locks),
+										maxConnections: Number(connections),
+										autovacuumWorkerSlots: Number(autovacuum),
+										maxWorkerProcesses: Number(workers),
+										maxWalSenders: Number(senders),
+										maxPreparedTransactions: Number(prepared)
+									}
 								},
 								"the settings are the server's, read after the rollback"
 							)
@@ -205,11 +223,104 @@ export const lockTable = property.explore(aimed(caseGen, [["the ledger's lock", 
 	kept: [],
 	kills: [
 		{
-			file: "packages/grizzle/src/adapter/migrate/apply.ts",
-			original: "\t\t\t\t\tmaxLocksPerTransaction: locks,\n\t\t\t\t\tmaxConnections: connections,",
+			file: "packages/grizzle/src/adapter/migrate/locks.ts",
+			original:
+				"\t\tmaxLocksPerTransaction: count(cells[0]),\n\t\tmaxConnections: count(cells[1]),",
 			replacement:
-				"\t\t\t\t\tmaxLocksPerTransaction: connections,\n\t\t\t\t\tmaxConnections: locks,",
+				"\t\tmaxLocksPerTransaction: count(cells[1]),\n\t\tmaxConnections: count(cells[0]),",
 			why: "The refusal reports max_connections as max_locks_per_transaction and the other way round."
+		}
+	]
+})
+
+/**
+ * A migration whose largest transaction, as its folders state it, the server's lock table cannot hold beside the
+ * session's apply lock is refused in the survey, before anything runs, naming the transaction, its locks, the apply
+ * lock and the settings; one the table holds at exactly its demand applies.
+ */
+export const lockTablePreflight = property.explore(preflightGen, {
+	needs: { caseSubstrate: Substrate.installing },
+	situations: ["the demand", "one below"] satisfies ReadonlyArray<
+		Reached<"the demand" | "one below">
+	>,
+	budget: { runs: 6, steered: 8 },
+	check:
+		({ caseSubstrate }, c: CaseOf<"the demand" | "one below">) =>
+		(x) =>
+			Effect.provideServiceEffect(
+				Effect.scoped(
+					Effect.gen(function* () {
+						const substrate = yield* Substrate
+						const allocated = yield* substrate.schema({ create: false, label: "preflight" })
+						const schema = identifierOf(identity.schema(parsedSchemaName(allocated)))
+						const tapped = yield* tappedSession({
+							cluster: substrate.cluster,
+							database: substrate.database,
+							role: substrate.owner.role,
+							password: substrate.owner.password
+						})
+						const m = migrationSession(tapped.session, {
+							database: substrate.database,
+							roles: { kind: "stems" }
+						})
+						const [drafted] = draftChain(
+							[
+								{
+									desc: shopV1,
+									options: { schema: atName(allocated), extensions: [], codes: firstCodes },
+									declared: noDeclarations
+								}
+							],
+							fromEmpty
+						)
+						const g = defined(drafted, "the drafted folder")
+						const source = reviewedSource(g, kept)
+						const meta = succeeded(readDecodedMeta(g.folder.meta))
+						const files = Arr.map(source.files, (f) =>
+							defined(statedLocks(meta, f), `${f.name} states its locks`)
+						)
+						const largest = Arr.reduce(files, replayLocks(g.snapshot), (most, n) =>
+							Math.max(most, n)
+						)
+						const total = largest + 1
+						const settings = caseSettings(x, total)
+						c.note(x.at)
+						const outcome = yield* Effect.result(
+							applyOnSession(answeringLockTable(m, settings), [
+								parsedTarget({ snapshot: g.snapshot, folders: [source] })
+							])
+						)
+						const relations = yield* substrate.admin.queryValues(
+							"SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1",
+							[schema]
+						)
+						if (x.at === "the demand") {
+							assert.ok(outcome._tag === "Success", "a table that holds the demand applies")
+							return
+						}
+						assert.ok(outcome._tag === "Failure", "a table one slot short refuses")
+						const reason = outcome.failure.reason
+						assert.ok(reason instanceof LockTableShort, outcome.failure.message)
+						assert.equal(reason.locks, largest, "the largest stated transaction is named")
+						assert.equal(reason.held, 1, "the session's one apply lock is counted")
+						assert.deepEqual(reason.table, settings, "the settings are the survey's")
+						assert.deepEqual(relations, [["0"]], "nothing ran")
+					})
+				),
+				Substrate,
+				caseSubstrate
+			),
+	oracle: {
+		kind: "specification",
+		name: "the folders' stated locks with the apply lock, against max_locks_per_transaction × (MaxBackends + max_prepared_transactions)"
+	},
+	kept: [],
+	kills: [
+		{
+			file: "packages/grizzle/src/adapter/migrate/apply.ts",
+			original: "largest.locks + held <= lockTableCapacity(lockTable)",
+			replacement: "largest.locks <= lockTableCapacity(lockTable)",
+			why: "The preflight leaves out the apply lock the session holds through every transaction."
 		}
 	]
 })

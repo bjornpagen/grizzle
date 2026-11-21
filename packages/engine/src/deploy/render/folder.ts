@@ -80,10 +80,15 @@ export type MetaStep =
 	| { readonly kind: "loss"; readonly loses: MetaLosses; readonly statement: string }
 	| { readonly kind: "confirm"; readonly statements: NonEmptyReadonlyArray<string> }
 
-/** A drafted file's steps, in draft order. */
+/**
+ * A drafted file's steps, in draft order, and its lock demand: the most objects one transaction of it holds locked as
+ * drafted, the runner's ledger fence and rows among them, counted from its drafted statements (deploy/locks/demand.ts
+ * fileLockSets), which `grizzle migrate` holds the server's lock table to before it runs anything (statedLocks).
+ */
 export interface MetaFile {
 	readonly name: string
 	readonly steps: ReadonlyArray<MetaStep>
+	readonly locks: number
 }
 
 /**
@@ -148,6 +153,8 @@ type ReadStep =
 interface ReadFile {
 	readonly name: string
 	readonly steps: ReadonlyArray<ReadStep>
+	/** The file's lock demand as drafted (MetaFile). */
+	readonly locks: number
 }
 
 interface RecordBody {
@@ -253,7 +260,11 @@ const indistinct = (files: ReadonlyArray<ReadFile>): RecordFault | undefined => 
 export const decisionRecord = (
 	files: ReadonlyArray<MetaFile>
 ): Result.Result<DecisionRecord, RecordFault> => {
-	const read = files.map((f): ReadFile => ({ name: f.name, steps: f.steps.map(readStep) }))
+	const read = files.map((f): ReadFile => ({
+		name: f.name,
+		steps: f.steps.map(readStep),
+		locks: f.locks
+	}))
 	const fault = indistinct(read)
 	return fault === undefined ? Result.ok(proved({ files: read })) : Result.err(fault)
 }
@@ -326,6 +337,20 @@ export const recordsAsWritten = (
 		})
 	)
 }
+
+/**
+ * The lock demand of `file`, the most objects one transaction of it holds locked, as its folder's meta records it of
+ * its drafted statements (MetaFile): where the record holds the file as written (recordsAsWritten), so the statements
+ * it counted are the file's; none for a file edited past its record, whose statements no count read, or a custom
+ * migration's, which records none.
+ */
+export const statedLocks = (
+	meta: ReadMeta,
+	file: { readonly name: string; readonly text: string }
+): number | undefined =>
+	meta.kind === "drafted" && recordsAsWritten(meta, file)
+		? meta.record.files.find((f) => f.name === file.name)?.locks
+		: undefined
 
 /** A committed folder's meta.json as readMeta reads it. */
 export type ReadMeta =

@@ -605,6 +605,8 @@ export const carried = (from: Traced, to: Traced, choose: boolean): Renames =>
 interface Step {
 	readonly generated: GenerateResult
 	readonly files: ReadonlyArray<{ readonly name: string; readonly text: string }>
+	/** The installation the step drafts, compiled as `grizzle generate` compiles it. */
+	readonly installation: Installation
 }
 
 /** The complete installation of a version under `schema`, owned by `owner`, with its worlds: as `grizzle generate`
@@ -667,7 +669,7 @@ export const drafted = (
 			losses: "written",
 			value: typedValue({ plan: after, version: step.version })
 		})
-		steps.push({ generated: g.value, files: reviewed.files })
+		steps.push({ generated: g.value, files: reviewed.files, installation })
 	}
 	return Result.succeed(steps)
 }

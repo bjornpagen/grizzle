@@ -141,9 +141,10 @@
 			},
 			{
 				// What only generate, check and migrate load: drafting and rendering a migration, migrate's decision of a
-				// pending folder against the ledger (deploy/ledger/decide.ts), the installation's DDL and its indexes, the
-				// workload's access compile, and their facade (plan/migration.ts). No zone a login's runtime loads imports one,
-				// so DbLayer.make and a Db load none of them; plan/serve.ts is the runtime's facade.
+				// pending folder against the ledger (deploy/ledger/decide.ts), a migration's lock demand (deploy/locks), the
+				// installation's DDL and its indexes, the workload's access compile, and their facade (plan/migration.ts). No
+				// zone a login's runtime loads imports one, so DbLayer.make and a Db load none of them; plan/serve.ts is the
+				// runtime's facade.
 				"name": "install",
 				"patterns": [
 					"packages/engine/src/plan/migration.ts",
@@ -151,6 +152,7 @@
 					"packages/engine/src/deploy/admission/proof.ts",
 					"packages/engine/src/deploy/diff/**",
 					"packages/engine/src/deploy/ledger/decide.ts",
+					"packages/engine/src/deploy/locks/**",
 					"packages/engine/src/deploy/phases/**",
 					"packages/engine/src/deploy/render/**",
 					"packages/engine/src/laws/model/restate.ts",
@@ -173,8 +175,9 @@
 				]
 			},
 			{
-				// The shell's migration, drift and manifest readers, which only generate, check and migrate run, and the one
-				// compile of a login's workload, whose served file generate writes and check holds to it.
+				// The shell's migration, drift and manifest readers, which only generate, check and migrate run, the one compile
+				// of a login's workload, whose served file generate writes and check holds to it, and the lock demand a
+				// migrations directory states (@bjornpagen/grizzle/locks).
 				"name": "adapter-install",
 				"patterns": [
 					"packages/grizzle/src/adapter/admission/drift.ts",
@@ -182,9 +185,11 @@
 					"packages/grizzle/src/adapter/boundary/meta.ts",
 					"packages/grizzle/src/adapter/migrate/**",
 					"packages/grizzle/src/adapter/public/compile.ts",
+					"packages/grizzle/src/adapter/public/locks.ts",
 					"packages/grizzle/src/adapter/served/compile.ts",
 					"packages/grizzle/src/adapter/served/project.ts",
-					"packages/grizzle/src/compile.ts"
+					"packages/grizzle/src/compile.ts",
+					"packages/grizzle/src/locks.ts"
 				]
 			},
 			{

@@ -156,6 +156,8 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 	order: "restore the migrations directory from git, then run grizzle check",
 	marker: "resolve the markers, delete the marker lines, then run grizzle check",
 	decision: "decide each data loss as its -- grizzle: data loss line says, then run grizzle check",
+	locks:
+		"have the server's operator raise max_locks_per_transaction (a restart) or max_connections to what the refusal names, then run grizzle migrate again",
 	statement:
 		"fix the failing file (an applied file stays as it is), then run grizzle migrate again",
 	record: "run grizzle migrate again: the failed file rolled back with its ledger row",

@@ -289,14 +289,16 @@ const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
 			steps: [
 				...(lossDrawn ? [abandonedLoss(`CREATE SCHEMA "repro${n}"`)] : []),
 				{ kind: "statement", statement: fresh("ADD COLUMN") }
-			]
+			],
+			locks: 1
 		},
 		{
 			name: fileNames[1],
 			steps: [
 				{ kind: "statement", statement: fresh("OWNER") },
 				{ kind: "confirm", statements: [fresh("RENAME ASIDE"), fresh("RENAME ASIDE")] }
-			]
+			],
+			locks: 1
 		}
 	]
 }
@@ -406,7 +408,7 @@ export const missed = (
 	const [top, ...rest] = files
 	return statement === undefined || top === undefined
 		? undefined
-		: [{ name: top.name, steps: [...top.steps, { kind: "statement", statement }] }, ...rest]
+		: [{ ...top, steps: [...top.steps, { kind: "statement", statement }] }, ...rest]
 }
 
 export const recordMisses: Arr.NonEmptyReadonlyArray<RecordMiss> = [

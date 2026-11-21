@@ -182,7 +182,8 @@ export default defineConfig({
    CompileError, naming the role and the program.
 2. Run `grizzle generate grizzle.config.ts`, declaring what became of every name the schema no longer holds: a
    `--rename <old>=<new>` for each rename and a `--drop <old>` for each drop ([Renames and drops](#renames-and-drops)).
-   It prints one line per written file, then each marker to resolve as `<file>:<line>: <kind>: <what to do>`, its
+   It prints one line per written file, then each drafted folder's lock demand as `<folder>: locks <file> <n>, …; the
+   server's lock table must hold <n> for <file>'s transaction`, then each marker to resolve as `<file>:<line>: <kind>: <what to do>`, its
    kind `placeholder` or `confirm`, then each loss to decide as `<file>: data loss: <what it loses>: <what to do>`,
    then `next: resolve the markers, then run grizzle check`. With no change it writes nothing and prints `no changes`,
    unless the derived facts snapshot.json records are out of date or missing, or `manifest.json` is not the record the
@@ -465,8 +466,9 @@ as PostgreSQL's scanner reads it: whitespace, comments and the case of unquoted 
   which writes the OpenAPI document again.
 - `meta.json`: it records the folder's place in the chain, the renames and drops it was drafted under, every
   drafted statement of every file in its place, its confirmed groups and data losses among them, which `check` reads
-  every reviewed file against, and the law of each constraint the folder installs, by which `migrate` names the law a
-  refused statement of the folder breaks. `check` says: meta.json does not decode as a
+  every reviewed file against, the law of each constraint the folder installs, by which `migrate` names the law a
+  refused statement of the folder breaks, and each file's lock demand, the most objects one transaction of it locks as
+  drafted, which `migrate` holds the server's lock table to before anything runs. `check` says: meta.json does not decode as a
   migration's meta.json, or names another schema; restore it from git, or broken chain: this migration does not start
   where the previous one ends; regenerate; never hand-edit meta.json.
 - An applied migration: the database ran exactly that text, and the ledger holds its digest. `migrate` says
@@ -550,6 +552,7 @@ Applied files, which only `migrate` can check against the ledger:
 | order | restore the migrations directory from git, then run grizzle check |
 | marker | resolve the markers, delete the marker lines, then run grizzle check |
 | decision | decide each data loss as its -- grizzle: data loss line says, then run grizzle check |
+| locks | have the server's operator raise max_locks_per_transaction (a restart) or max_connections to what the refusal names, then run grizzle migrate again |
 | statement | fix the failing file (an applied file stays as it is), then run grizzle migrate again |
 | record | run grizzle migrate again: the failed file rolled back with its ledger row |
 | commit | run grizzle migrate again: the ledger tells whether the file committed |
@@ -601,6 +604,13 @@ The command line's own refusals, by stage:
   guard trigger. A table some role writes, every writer of which is certified READ COMMITTED and holds only INSERT and
   SELECT on it, has no guard: a direct writer there meets its role's grants and the table's constraints alone. A
   migration that changes whether a table qualifies drops or creates its guard.
+- Size the server's lock table, `max_locks_per_transaction × (max_connections + autovacuum_worker_slots +
+  max_worker_processes + max_wal_senders + 2 + max_prepared_transactions)` objects (a server-start setting), above the
+  largest lock demand `grizzle generate` prints, plus what every other session locks while a migration runs. `migrate`
+  reads those settings before anything runs and refuses at the stage locks an apply whose largest transaction (a
+  file's demand as its meta.json states it, or the drift check of a schema's first migration, which replays every
+  object of the snapshot) the table cannot hold, naming the least `max_locks_per_transaction` or `max_connections` that
+  holds it. A file edited past its record, or a custom migration's, states no demand.
 - Set `max_pred_locks_per_transaction = 2048` on the server (a server-start setting): under load PostgreSQL may
   report 53200, out of shared memory, with a HINT to raise it, and that failure is not retryable. Keep transactions
   short everywhere on the cluster: a committed write's and a plain read's locks are held until every older transaction

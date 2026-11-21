@@ -4,8 +4,8 @@
  * so its fix names the setting or the right it found wanting, and what the database holds as the report's outcome says.
  *
  * Over drawn refusals of each such reason (refusalGen): the server's max_stack_depth below the default the pattern
- * limits were measured at, its wal_level minimal under a live source, and a decoder login with no replication right
- * once every folder applied. Oracle: the specification each arm states beside its reason: the server's setting or the
+ * limits were measured at, its wal_level minimal under a live source, a decoder login with no replication right once
+ * every folder applied, and a lock table smaller than the apply's largest transaction's lock demand. Oracle: the specification each arm states beside its reason: the server's setting or the
  * role's right it names, and the outcome of the stage it stops at.
  */
 
@@ -19,6 +19,7 @@ import {
 	DecoderUnreplicated,
 	MigrateError,
 	type MigrateOutcome,
+	LockTableShort,
 	StackTooShallow,
 	stageOutcome,
 	WalLevelMinimal
@@ -26,7 +27,7 @@ import {
 import { migrateStageFix } from "#cli/refusals.ts"
 
 /** A reason a superuser fixes on the server, by its tag. */
-type ServerReason = "StackTooShallow" | "WalLevelMinimal" | "DecoderUnreplicated"
+type ServerReason = "StackTooShallow" | "WalLevelMinimal" | "DecoderUnreplicated" | "LockTableShort"
 
 /**
  * A refused migrate whose reason a superuser fixes on the server, beside the specification of it: the reason, what its
@@ -87,6 +88,30 @@ const refusalGen: Gen<Refused> = weighted<Refused>([
 			names: "REPLICATION",
 			outcome: "noVerdict"
 		})
+	],
+	[
+		1,
+		(source) => ({
+			error: new MigrateError({
+				reason: new LockTableShort({
+					schema: source.draw(identifierGen),
+					at: { kind: "replay" },
+					locks: source.draw(int(1, 100_000)),
+					held: 1,
+					table: {
+						maxLocksPerTransaction: source.draw(int(10, 128)),
+						maxConnections: source.draw(int(1, 100)),
+						autovacuumWorkerSlots: 16,
+						maxWorkerProcesses: 8,
+						maxWalSenders: 10,
+						maxPreparedTransactions: 0
+					}
+				})
+			}),
+			found: "LockTableShort",
+			names: "max_locks_per_transaction",
+			outcome: "nothingRan"
+		})
 	]
 ])
 
@@ -97,7 +122,8 @@ export const aRefusedMigratesFixNamesTheServerSettingOrRightItsReasonFoundWantin
 		situations: [
 			"StackTooShallow",
 			"WalLevelMinimal",
-			"DecoderUnreplicated"
+			"DecoderUnreplicated",
+			"LockTableShort"
 		] satisfies ReadonlyArray<Reached<ServerReason>>,
 		check:
 			(_, c: Case<ServerReason>) =>
@@ -128,6 +154,12 @@ export const aRefusedMigratesFixNamesTheServerSettingOrRightItsReasonFoundWantin
 				original: '\tDecoderUnreplicated: "replication",',
 				replacement: '\tDecoderUnreplicated: "drift",',
 				why: "A decoder login with no replication right stops at the drift stage, whose fix and outcome speak of a catalog that differs from the snapshot, where no drift check ran."
+			},
+			{
+				file: "packages/grizzle/src/adapter/migrate/errors.ts",
+				original: '\tLockTableShort: "locks",',
+				replacement: '\tLockTableShort: "stack",',
+				why: "A lock table too small stops at the stack depth's stage, whose fix tells a superuser to raise max_stack_depth."
 			}
 		]
 	})

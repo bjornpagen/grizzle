@@ -10,6 +10,13 @@ import type {
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
+	type LockTableSettings,
+	lockTableText,
+	maxConnectionsFor,
+	maxLocksPerTransactionFor,
+	specialWorkerProcesses
+} from "#adapter/migrate/locks.ts"
+import {
 	catalogDeparted,
 	type CompileError,
 	compileReasonText,
@@ -33,7 +40,8 @@ import type { findMarkers, VariableFault } from "#compiler/plan/migration.ts"
  *
  * - Before any statement of any folder ran: `connect`, `stack` (the server's max_stack_depth below the default the
  *   pattern limits were measured at), `wal` (the server's wal_level minimal, which no live source decodes at),
- *   `owner`, `input`, `busy`, `ledger`, `edited`, `order`, `marker` and `decision`. Nothing was written; the ledger and
+ *   `owner`, `input`, `busy`, `ledger`, `edited`, `order`, `marker`, `decision` and `locks` (the server's lock table
+ *   smaller than the apply's largest transaction as its folders state it). Nothing was written; the ledger and
  *   the catalog are as they were. `edited` is an applied
  *   file whose text is no longer the one its ledger row's digest records, or one deleted from or added to an applied
  *   folder: the database ran another text than the repository holds, so the repository must be restored.
@@ -65,6 +73,7 @@ export type MigrateStage =
 	| "order"
 	| "marker"
 	| "decision"
+	| "locks"
 	| "statement"
 	| "record"
 	| "commit"
@@ -92,6 +101,7 @@ export const stageOutcome: { readonly [S in MigrateStage]: MigrateOutcome } = {
 	order: "nothingRan",
 	marker: "nothingRan",
 	decision: "nothingRan",
+	locks: "nothingRan",
 	statement: "resumes",
 	record: "resumes",
 	commit: "resumes",
@@ -124,49 +134,20 @@ const serverSaid = (e: ServerError): string =>
 	`SQLSTATE ${e.sqlstate}${e.constraint === undefined ? "" : ` (constraint ${e.constraint})`}: ${e.message}`
 
 /**
- * The server processes PostgreSQL counts in its backends beside the ones its settings name, the autovacuum launcher and
- * the slot sync worker, each a backend that can lock (postinit.c InitializeMaxBackends adds them to MaxBackends).
- *
- * @limitKind published
- * @owner PostgreSQL 19.0
- * @unit server processes
- * @scope the backends PostgreSQL adds to max_connections, autovacuum_worker_slots, max_worker_processes and
- *   max_wal_senders in MaxBackends, which sizes the shared lock table (lock.c NLOCKENTS)
- * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/storage/proc.h#L520
- * @quote #define NUM_SPECIAL_WORKER_PROCS	2
- * @verified 2026-11-20
- */
-const specialWorkerProcesses = 2
-
-/**
- * The server's lock table as its settings size it, read in the migration's session once the refused transaction rolled
- * back: max_locks_per_transaction × (MaxBackends + max_prepared_transactions) locks, MaxBackends being max_connections,
- * autovacuum_worker_slots, max_worker_processes, max_wal_senders and the special workers (specialWorkerProcesses), which
- * every transaction of the server shares and PostgreSQL 19 sizes exactly, with no margin past it (lock.c NLOCKENTS,
- * postinit.c InitializeMaxBackends, both at REL_19_0); or the read's own failure, when that session could not answer
- * it.
+ * The server's lock table as its settings size it (adapter/migrate/locks.ts), read in the migration's session once the
+ * refused transaction rolled back; or the read's own failure, when that session could not answer it.
  */
 export type ServerLockTable =
-	| {
-			readonly kind: "read"
-			readonly maxLocksPerTransaction: string
-			readonly maxConnections: string
-			readonly autovacuumWorkerSlots: string
-			readonly maxWorkerProcesses: string
-			readonly maxWalSenders: string
-			readonly maxPreparedTransactions: string
-	  }
+	| { readonly kind: "read"; readonly settings: LockTableSettings }
 	| { readonly kind: "unread"; readonly failure: ReadFailure }
 
 /** The lock table's size, as a refusal states it. */
-const lockTableText = (table: ServerLockTable): string => {
-	const formula = `max_locks_per_transaction × (max_connections + autovacuum_worker_slots + max_worker_processes + max_wal_senders + ${specialWorkerProcesses} + max_prepared_transactions)`
+const serverLockTableText = (table: ServerLockTable): string => {
 	switch (table.kind) {
 		case "read":
-			return `${formula} = ${table.maxLocksPerTransaction} × (${table.maxConnections} + ${table.autovacuumWorkerSlots} + ${table.maxWorkerProcesses} + ${table.maxWalSenders} + ${specialWorkerProcesses} + ${table.maxPreparedTransactions}) locks`
+			return lockTableText(table.settings)
 		case "unread":
-			return `${formula} locks (its settings could not be read: ${failureText(table.failure)})`
+			return `max_locks_per_transaction × (max_connections + autovacuum_worker_slots + max_worker_processes + max_wal_senders + ${specialWorkerProcesses} + max_prepared_transactions) locks (its settings could not be read: ${failureText(table.failure)})`
 	}
 }
 
@@ -182,7 +163,41 @@ export class LockTableExhausted extends Data.TaggedError("LockTableExhausted")<{
 	readonly table: ServerLockTable
 }> {
 	override get message(): string {
-		return `the server ran out of shared memory for locks (${serverSaid(this.error)}): a migration's transaction holds one lock per object it creates or alters until it ends, and the server's lock table holds ${lockTableText(this.table)} for every transaction at once; raise max_locks_per_transaction (a server restart) until it holds more than the objects the migration creates, then run grizzle migrate again`
+		return `the server ran out of shared memory for locks (${serverSaid(this.error)}): a migration's transaction holds one lock per object it creates or alters until it ends, and the server's lock table holds ${serverLockTableText(this.table)} for every transaction at once; raise max_locks_per_transaction (a server restart) until it holds more than the objects the migration creates, then run grizzle migrate again`
+	}
+}
+
+/**
+ * The transaction of an apply that holds the most locks, as its folders state them: a file's, by its folder's meta.json
+ * (deploy/locks/demand.ts fileLockSets), or the drift check's replay of a schema's first migration, which replays every
+ * object of its snapshot, none yet proven.
+ */
+export type LockedTransaction =
+	| { readonly kind: "file"; readonly folder: string; readonly file: string }
+	| { readonly kind: "replay" }
+
+/**
+ * The server's lock table, `table`, holds fewer objects locked at once than the apply's largest transaction, `at` of
+ * `schema`, states it holds (`locks`), with the apply locks the session holds through every transaction (`held`, one
+ * per schema): refused in the survey, before any statement of any folder ran, where the transaction would have run out
+ * of the table and rolled back with 53200 (LockTableExhausted). The fix is the server's max_locks_per_transaction (a
+ * restart), or its max_connections, each stated at the least that holds the transaction; other sessions' locks share
+ * the table, and are not counted.
+ */
+export class LockTableShort extends Data.TaggedError("LockTableShort")<{
+	readonly schema: string
+	readonly at: LockedTransaction
+	readonly locks: number
+	readonly held: number
+	readonly table: LockTableSettings
+}> {
+	override get message(): string {
+		const total = this.locks + this.held
+		const where =
+			this.at.kind === "file"
+				? `${this.at.folder}/${this.at.file}'s transaction holds ${this.locks} locks, as its meta.json states`
+				: `the drift check of its first migration replays every object of the snapshot, ${this.locks} locks`
+		return `the server's lock table holds ${lockTableText(this.table)} for every transaction at once, and in ${this.schema} ${where}, ${total} with the ${this.held} apply lock${this.held === 1 ? "" : "s"} the session holds: set max_locks_per_transaction to ${maxLocksPerTransactionFor(total, this.table)} or more (a server restart), or max_connections to ${maxConnectionsFor(total, this.table)} or more, then run grizzle migrate again; nothing ran`
 	}
 }
 
@@ -905,6 +920,7 @@ export type MigrateReason =
 	| ConnectRefused
 	| SurveyFailed
 	| StackTooShallow
+	| LockTableShort
 	| RoleUnread
 	| OwnerUnread
 	| OwnedByAnother
@@ -939,6 +955,7 @@ const stageOf: { readonly [Tag in MigrateReason["_tag"]]: MigrateStage } = {
 	ConnectRefused: "connect",
 	SurveyFailed: "owner",
 	StackTooShallow: "stack",
+	LockTableShort: "locks",
 	RoleUnread: "owner",
 	OwnerUnread: "owner",
 	OwnedByAnother: "owner",
@@ -992,6 +1009,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "NamespaceUnread":
 			case "UninstallRefused":
 				return undefined
+			case "LockTableShort":
 			case "OwnerUnread":
 			case "OwnedByAnother":
 			case "InputRefused":
@@ -1052,6 +1070,10 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "RecordFailed":
 			case "FileCommitLost":
 				return reason.at
+			case "LockTableShort":
+				return reason.at.kind === "file"
+					? { kind: "file", folder: reason.at.folder, file: reason.at.file }
+					: directory
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
@@ -1096,6 +1118,7 @@ export class MigrateError extends Data.TaggedError("MigrateError")<{
 			case "ConnectRefused":
 			case "SurveyFailed":
 			case "StackTooShallow":
+			case "LockTableShort":
 			case "RoleUnread":
 			case "OwnerUnread":
 			case "OwnedByAnother":

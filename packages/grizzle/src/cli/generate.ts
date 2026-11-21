@@ -192,6 +192,8 @@ type SchemaWritten = Written & {
 	readonly markers: ReadonlyArray<DraftMarker>
 	/** Each loss of stored data the folder drafts, by file, with what it loses. */
 	readonly losses: ReadonlyArray<DraftLoss>
+	/** The most locks one transaction of each drafted file holds, as its meta.json records it (deploy/locks/demand.ts). */
+	readonly locks: ReadonlyArray<{ readonly file: string; readonly locks: number }>
 }
 
 /** The refusal of `step` of a schema's draft, which the compiler refused. */
@@ -747,7 +749,13 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 ): Effect.fn.Return<SchemaWritten, CliError, FileSystem.FileSystem | Path.Path> {
 	const { schema } = draft
 	if (draft.kind === "unchanged") {
-		const unchanged: SchemaWritten = { kind: "unchanged", files: [], markers: [], losses: [] }
+		const unchanged: SchemaWritten = {
+			kind: "unchanged",
+			files: [],
+			markers: [],
+			losses: [],
+			locks: []
+		}
 		return unchanged
 	}
 	if (draft.kind === "rederived") {
@@ -760,7 +768,8 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 			),
 			files: [],
 			markers: [],
-			losses: []
+			losses: [],
+			locks: []
 		}
 		return rederived
 	}
@@ -779,6 +788,10 @@ const writeSchemaDraft = Effect.fn("writeSchemaDraft")(function* (
 							s.kind === "loss" ? [{ file: f.name, loses: lossText(s.loses) }] : []
 						)
 					)
+				: [],
+		locks:
+			folder.meta.kind === "drafted"
+				? Arr.map(folder.meta.files, (f) => ({ file: f.name, locks: f.locks }))
 				: []
 	}
 	if (draft.kind === "custom") {

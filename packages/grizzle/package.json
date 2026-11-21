@@ -21,6 +21,7 @@
 		"./client": "./src/client.ts",
 		"./compile": "./src/compile.ts",
 		"./dynamic": "./src/dynamic.ts",
+		"./locks": "./src/locks.ts",
 		"./http": "./src/http/index.ts",
 		"./package.json": "./package.json"
 	},
