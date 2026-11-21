@@ -6,7 +6,7 @@ import { compareStrings } from "#compiler/core/order.ts"
 import type { CoercionIdentity, ElisionReason } from "#compiler/ir/certificate.ts"
 import type { EvidenceContext, Grounds, Premise } from "#compiler/ir/evidence.ts"
 import { evidenceContexts, lessDemanding, premiseText, strongest } from "#compiler/ir/evidence.ts"
-import { type OpId, sortedOps } from "#compiler/ir/expr.ts"
+import { type OpId, sortedOps, sortedUnique } from "#compiler/ir/expr.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import { inHeadingOrder } from "#compiler/logical/closure.ts"
 
@@ -60,9 +60,6 @@ export const structural: Justification = mintJustification(
 )
 
 const outerKey = (o: OuterColumn): string => `${o.node}\u0000${o.column}`
-
-const sortedUnique = <A extends string>(items: Iterable<A>): ReadonlyArray<A> =>
-	[...new Set(items)].toSorted()
 
 /**
  * The normal form of the union of several groundings: every premise, reason, operator and coercion, under the most
@@ -233,6 +230,15 @@ export interface FactClosure {
 	readonly points: ReadonlyMap<string, Step>
 }
 
+/**
+ * A start's strongest proof before it is explained: the index, among a table's stages, of the least demanding one whose
+ * closure of the start holds the row, and that closure (Dependencies proof).
+ */
+interface Staged {
+	readonly stage: number
+	readonly closure: FactClosure
+}
+
 /** A fact a derivation reads: an attribute's value, or a point of a span. */
 type Fact =
 	| { readonly kind: "column"; readonly column: string }
@@ -394,7 +400,7 @@ const indexed = (imps: ReadonlyArray<Implication>, points: ReadonlyArray<PointRu
  * A fragment's dependency table: its heading's columns, the implications and point rules over them and the attributes
  * it carries beyond them (the hidden attributes of what it embeds, and a rule region's variables it does not deliver,
  * which an embedding of the table hides in turn), and the index a closure reads them through. Built once by a draft's
- * freeze, it never changes.
+ * freeze, it never changes but for the counts of its work (closures, explanations).
  *
  * A closure is linear in the table (Beeri and Bernstein): each implication counts the facts it still waits on, and a
  * fact, once learned, decrements the count of every implication and point rule waiting on it, which fires at zero.
@@ -406,6 +412,10 @@ export class Dependencies {
 	readonly #waiting: Waiting
 	/** The evidence contexts the table's justifications hold in, least demanding first, one of each demand. */
 	readonly #stages: ReadonlyArray<EvidenceContext>
+	/** How many closures the table has run. */
+	#closures = 0
+	/** How many derivations the table has explained. */
+	#explanations = 0
 
 	private constructor(
 		columns: ReadonlyArray<string>,
@@ -531,7 +541,18 @@ export class Dependencies {
 		return this.#closure(start, everything)
 	}
 
+	/** How many closures the table has run: the work of its questions, which a property bounds. */
+	get closures(): number {
+		return this.#closures
+	}
+
+	/** How many derivations the table has explained (explain): the work of its proofs, which a property bounds. */
+	get explanations(): number {
+		return this.#explanations
+	}
+
 	#closure(start: Iterable<string>, admit: Admit): FactClosure {
+		this.#closures += 1
 		const imps = this.implications
 		const rules = this.points
 		const columns = new Map<string, Step>()
@@ -629,6 +650,7 @@ export class Dependencies {
 	 * and, for each region identification on it, which of its occurrences the start identified itself (annotateJoin).
 	 */
 	explain(closure: FactClosure, targets: Iterable<string>): Justification {
+		this.#explanations += 1
 		const usedImplications = new Map<number, Implication>()
 		const usedPoints = new Map<number, PointRule>()
 		const seen = new Set<string>()
@@ -697,13 +719,28 @@ export class Dependencies {
 	 * key alone, never through a deferrable one it also determines.
 	 */
 	proof(start: ReadonlyArray<string>): Justification | undefined {
-		for (const stage of this.#stages) {
-			const staged = this.#closure(start, (j) => !lessDemanding(stage, j.context))
-			if (staged.columns.has(rowAttribute)) {
-				return this.explain(staged, [rowAttribute])
+		const found = this.#staged(start, this.#stages.length - 1)
+		return found === undefined ? undefined : this.#explained(found)
+	}
+
+	/**
+	 * The least demanding stage, among the first `last + 1`, whose closure of the start holds the row, with that closure:
+	 * the start's strongest proof among those stages, not yet explained.
+	 */
+	#staged(start: ReadonlyArray<string>, last: number): Staged | undefined {
+		for (let stage = 0; stage <= last; stage++) {
+			const context = defined(this.#stages[stage], "a stage the table holds")
+			const closure = this.#closure(start, (j) => !lessDemanding(context, j.context))
+			if (closure.columns.has(rowAttribute)) {
+				return { stage, closure }
 			}
 		}
 		return undefined
+	}
+
+	/** The justification of a staged proof: the derivation of the row in its closure (explain). */
+	#explained(found: Staged): Justification {
+		return this.explain(found.closure, [rowAttribute])
 	}
 
 	/**
@@ -712,11 +749,11 @@ export class Dependencies {
 	 */
 	identification(start: Iterable<string>): Identification | undefined {
 		const candidate = inHeadingOrder(this.columns, start)
-		const just = this.proof(candidate)
-		if (just === undefined) {
+		const found = this.#staged(candidate, this.#stages.length - 1)
+		if (found === undefined) {
 			return undefined
 		}
-		return { just, key: this.#minimized(candidate, just).columns }
+		return { just: this.#explained(found), key: this.#minimized(candidate, found).key }
 	}
 
 	/**
@@ -728,22 +765,34 @@ export class Dependencies {
 	 */
 	keyAmong(columns: Iterable<string>): JustifiedKey | undefined {
 		const candidate = inHeadingOrder(this.columns, columns)
-		const just = this.proof(candidate)
-		return just === undefined ? undefined : this.#minimized(candidate, just)
+		const found = this.#staged(candidate, this.#stages.length - 1)
+		if (found === undefined) {
+			return undefined
+		}
+		const minimal = this.#minimized(candidate, found)
+		return { columns: minimal.key, just: this.#explained(minimal.proof) }
 	}
 
-	#minimized(candidate: KeySet, just: Justification): JustifiedKey {
+	/**
+	 * The greedy reduction of keyAmong, from a candidate proved at `found`. A proof's stage orders proofs as their
+	 * contexts do: the proof a stage's closure explains rests on that stage's context exactly, since a derivation by only
+	 * less demanding dependencies is one an earlier stage's closure would have found. So a narrower proof no more
+	 * demanding is one found at a stage no later than the key's, and a column's removal closes only through the key's
+	 * stage, never at a later one whose proof the reduction would refuse. The key's proof is explained once, by its
+	 * caller, where each narrower key was explained as it was taken.
+	 */
+	#minimized(candidate: KeySet, found: Staged): { readonly key: KeySet; readonly proof: Staged } {
 		let key = candidate
-		let proof = just
+		let proof = found
 		for (let i = key.length - 1; i >= 0; i--) {
 			const without = key.toSpliced(i, 1)
-			const narrower = this.proof(without)
-			if (narrower !== undefined && !lessDemanding(proof.context, narrower.context)) {
+			const narrower = this.#staged(without, proof.stage)
+			if (narrower !== undefined) {
 				key = without
 				proof = narrower
 			}
 		}
-		return { columns: key, just: proof }
+		return { key, proof }
 	}
 }
 

@@ -72,11 +72,9 @@ export const everyPhysicalClaimHoldsOnTheDeliveredRowsGeneratedCasesPlainRealiza
 		kills: [
 			{
 				file: "packages/engine/src/analysis/physical/fds.ts",
-				original:
-					"\t\t\tif (narrower !== undefined && !lessDemanding(proof.context, narrower.context)) {",
-				replacement:
-					"\t\t\tif (narrower === undefined && !lessDemanding(proof.context, narrower.context)) {",
-				why: "Operator mutant fa08c4e02c at packages/engine/src/analysis/physical/fds.ts:692 in <module>: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+				original: "\t\t\tif (narrower !== undefined) {",
+				replacement: "\t\t\tif (narrower === undefined) {",
+				why: "Operator mutant fa08c4e02c at packages/engine/src/analysis/physical/fds.ts:790 in #minimized: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
 			}
 		]
 	})

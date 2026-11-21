@@ -155,9 +155,9 @@ export const aFragmentsDependencyTableClosesIdentifiesAndKeysExactlyAsTheBruteFo
 		kills: [
 			{
 				file: "packages/engine/src/analysis/physical/fds.ts",
-				original: "\t\tfor (const stage of this.#stages) {",
-				replacement: "\t\tfor (const stage of this.#stages.toReversed()) {",
-				why: "A start's proof sought in the most demanding context first, so it is not the strongest (analysis/physical/fds.ts proof); the tables fail."
+				original: "\t\tfor (let stage = 0; stage <= last; stage++) {",
+				replacement: "\t\tfor (let stage = last; stage >= 0; stage--) {",
+				why: "A start's proof sought in the most demanding context first, so it is not the strongest (analysis/physical/fds.ts #staged); the tables fail."
 			}
 		]
 	})
