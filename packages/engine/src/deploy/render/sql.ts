@@ -114,11 +114,25 @@ interface Spelled {
  */
 const spelledText = (s: Spelled): string => filed(statementText(spelledLoc, s.write))
 
-const spelledLines = (out: Lines, s: Spelled): void => {
+/**
+ * One statement an action drafts, spelled once for its file and its record (spellFile): the comment lines above it and
+ * its text from its first token (spelledText), which meta.json records and the file writes, its last line ending in its
+ * terminator.
+ */
+interface SpelledStatement {
+	readonly above: ReadonlyArray<string>
+	readonly text: string
+}
+
+/** A spelled statement as its file holds it: the lines above it, then its text's lines, the last ending in `;`. */
+const spelledLines = (out: Lines, s: SpelledStatement): void => {
 	for (const line of s.above) {
 		out.line(line)
 	}
-	terminated(out, s.write)
+	const lines = s.text.split("\n")
+	for (const [i, line] of lines.entries()) {
+		out.line(i === lines.length - 1 ? `${line};` : line)
+	}
 }
 
 /** `statement`'s commands as the file spells them (commandsOf), the comment lines `above` its first. */
@@ -290,17 +304,61 @@ const spellAction = (action: Action): NonEmptyReadonlyArray<Spelled> => {
 	}
 }
 
-const renderDraft = (out: Lines, draft: Draft): void => {
+/**
+ * A draft spelled for its file and its record (spellFile): an action's statements, each spelled once
+ * (SpelledStatement), which the file writes and meta.json records alike; a confirm or a loss as drafted, which each
+ * writes in its own form.
+ */
+type SpelledDraft =
+	| { readonly kind: "spelled"; readonly statements: NonEmptyReadonlyArray<SpelledStatement> }
+	| {
+			readonly kind: "drafted"
+			readonly draft: Extract<Draft, { readonly kind: "confirm" | "loss" }>
+	  }
+
+/** A draft spelled (SpelledDraft): an action's statements each printed and filed once. */
+const spellDraft = (draft: Draft): SpelledDraft => {
 	switch (draft.kind) {
 		case "statement":
 		case "alteration":
 		case "fill":
 		case "violation":
 		case "zones":
-			for (const s of spellAction(draft)) {
-				spelledLines(out, s)
+			return {
+				kind: "spelled",
+				statements: mapNonEmpty(spellAction(draft), (x) => ({
+					above: x.above,
+					text: spelledText(x)
+				}))
 			}
-			return
+		case "confirm":
+		case "loss":
+			return { kind: "drafted", draft }
+	}
+}
+
+/**
+ * A drafted file spelled once for its text and its decision record (renderFile, recordFile): each draft's statements
+ * printed and filed once, where the file and meta.json each printed and filed every statement.
+ */
+export interface SpelledFile {
+	readonly file: DraftFile
+	readonly drafts: ReadonlyArray<SpelledDraft>
+}
+
+/** A drafted file spelled (SpelledFile); a statement past PostgreSQL's longest message refused as meta.json refuses it. */
+export const spellFile = (file: DraftFile): Result.Result<SpelledFile, CompileError> =>
+	catchRefusal(() => ({ file, drafts: file.drafts.map(spellDraft) }))
+
+const renderDraft = (out: Lines, spelledDraft: SpelledDraft): void => {
+	if (spelledDraft.kind === "spelled") {
+		for (const s of spelledDraft.statements) {
+			spelledLines(out, s)
+		}
+		return
+	}
+	const draft = spelledDraft.draft
+	switch (draft.kind) {
 		case "confirm":
 			out.line(`${confirmMarker}: ${draft.note}.`)
 			out.line(`-- ${draft.instruction}.`)
@@ -336,10 +394,10 @@ const renderDraft = (out: Lines, draft: Draft): void => {
  *
  * Statements end with `;` and are separated by a blank line. A no-transaction file's first line is the marker. A file
  * past V8's longest string is refused as ResourceBound (stringLength). */
-export const renderFile = (file: DraftFile): Result.Result<string, CompileError> =>
+export const renderFile = (file: SpelledFile): Result.Result<string, CompileError> =>
 	catchRefusal(() =>
-		sqlText(SourceLoc("drafted file", [file.name]), (out) => {
-			if (!file.transaction) {
+		sqlText(SourceLoc("drafted file", [file.file.name]), (out) => {
+			if (!file.file.transaction) {
 				out.line(noTransactionMarker)
 				out.line("")
 			}
@@ -355,14 +413,12 @@ export const renderFile = (file: DraftFile): Result.Result<string, CompileError>
 
 /** A drafted step as meta.json records it, every statement it drafts in its place, as the file spells it from its first
  * token: an action's statements one by one; a loss with what it loses; a confirmed group. */
-const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
+const recordStep = (spelledDraft: SpelledDraft): ReadonlyArray<MetaStep> => {
+	if (spelledDraft.kind === "spelled") {
+		return spelledDraft.statements.map((x): MetaStep => ({ kind: "statement", statement: x.text }))
+	}
+	const d = spelledDraft.draft
 	switch (d.kind) {
-		case "statement":
-		case "alteration":
-		case "fill":
-		case "violation":
-		case "zones":
-			return spellAction(d).map((x): MetaStep => ({ kind: "statement", statement: spelledText(x) }))
 		case "confirm":
 			return [
 				{
@@ -379,9 +435,12 @@ const recordStep = (d: Draft): ReadonlyArray<MetaStep> => {
 
 /** One drafted file's decision record, as meta.json records it: every step it drafts, in draft order, and its lock
  * demand, `locks` (deploy/locks/demand.ts fileLockSets). */
-export const recordFile = (file: DraftFile, locks: number): Result.Result<MetaFile, CompileError> =>
+export const recordFile = (
+	file: SpelledFile,
+	locks: number
+): Result.Result<MetaFile, CompileError> =>
 	catchRefusal(() => ({
-		name: file.name,
+		name: file.file.name,
 		steps: file.drafts.flatMap((d) => recordStep(d)),
 		locks
 	}))

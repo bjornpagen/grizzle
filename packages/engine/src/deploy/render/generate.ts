@@ -36,7 +36,7 @@ import {
 	writeMeta
 } from "#compiler/deploy/render/folder.ts"
 import { derivedMigrationName } from "#compiler/deploy/render/naming.ts"
-import { recordFile, renderFile } from "#compiler/deploy/render/sql.ts"
+import { recordFile, renderFile, type SpelledFile, spellFile } from "#compiler/deploy/render/sql.ts"
 import {
 	derivedOf,
 	discontinuedRoster,
@@ -249,7 +249,11 @@ const draftOver = (
 		const snapshot = unwrap(finishSnapshot(content))
 		const changed = plan.steps.length > 0 || snapshot.fingerprint !== previous.fingerprint
 		const drafted = changed ? planFiles(plan) : []
-		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(f)) }))
+		/** Each drafted file's statements, each printed and filed once for its text and for meta.json. */
+		const spelled = new Map(drafted.map((f) => [f, unwrap(spellFile(f))] as const))
+		const spelledOf = (f: (typeof drafted)[number]): SpelledFile =>
+			defined(spelled.get(f), "a drafted file is spelled")
+		const files = drafted.map((f) => ({ name: f.name, text: unwrap(renderFile(spelledOf(f))) }))
 		const recorded = fileLockSets({
 			schema: installation.names.schema,
 			catalog: migrationCatalog(
@@ -257,7 +261,7 @@ const draftOver = (
 				state.manifest.objects.flatMap((o) => o.ddl)
 			),
 			files: drafted
-		}).map((f) => unwrap(recordFile(f.file, f.locks.size)))
+		}).map((f) => unwrap(recordFile(spelledOf(f.file), f.locks.size)))
 		const record = unwrap(Result.mapError(decisionRecord(recorded), recordRefusal))
 		const meta: DraftedMeta = {
 			kind: "drafted",
