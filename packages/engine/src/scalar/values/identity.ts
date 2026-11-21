@@ -2,6 +2,7 @@ import { firstIndex } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { sha256Text, toSha256 } from "#compiler/core/digest.ts"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { isPlainRecord } from "#compiler/core/record.ts"
@@ -111,6 +112,8 @@ export interface CarrierHost {
 	readonly text: string
 	/** A bytes value's host value is its bytes with their digest (values/bytes.ts AdmittedBytes). */
 	readonly bytes: AdmittedBytes
+	/** A digest's host value is its 32 bytes (values/sha256.ts Sha256), a copy its admission made. */
+	readonly sha256: Uint8Array
 	/** A closed id's host value is its handle. */
 	readonly code: string
 	/** A set's host value is its handles. */
@@ -147,6 +150,7 @@ interface SpecExtras {
 	readonly cidr: unknown
 	readonly text: unknown
 	readonly bytes: unknown
+	readonly sha256: unknown
 	readonly code: { readonly roster: RosterCodec; readonly only: ReadonlySet<string> | undefined }
 	readonly bits: { readonly roster: RosterCodec }
 	readonly vector: { readonly dimensions: number }
@@ -203,6 +207,7 @@ interface OrderExtras {
 	readonly cidr: unknown
 	readonly text: unknown
 	readonly bytes: unknown
+	readonly sha256: unknown
 	readonly code: { readonly roster: HandleOrder }
 	readonly bits: { readonly roster: HandleOrder }
 	readonly vector: unknown
@@ -349,6 +354,7 @@ const coercions: Admitters = {
 	cidr: (value) => admitCidr(value),
 	text: (value) => validateText(value),
 	bytes: (value) => admitBytes(value),
+	sha256: (value) => Result.map(toSha256(value), (digest) => Uint8Array.from(digest)),
 	code: (value, spec) => admitSubsetHandle(value, spec.roster, spec.only),
 	bits: (value, spec) => admitHandles(value, spec.roster),
 	range4: (value, spec) => admitSpan("int4", value, spec.width),
@@ -392,6 +398,7 @@ export const unreadableOf: { readonly [C in Carrier]: () => ValueFault } = {
 	cidr: () => "cidrSyntax",
 	text: () => "textType",
 	bytes: () => "bytesType",
+	sha256: () => "sha256Value",
 	code: () => "codeHandle",
 	bits: () => "bitsType",
 	range4: () => "spanType",
@@ -456,6 +463,7 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	cidr: (value): value is Cidr => admitCidr(value).ok,
 	text: isString,
 	bytes: isAdmittedBytes,
+	sha256: (value) => value instanceof Uint8Array,
 	code: isString,
 	bits: isStringSet,
 	range4: isSpanOf(isNumber),
@@ -491,6 +499,7 @@ const canonicalTexts: CanonicalTexts = {
 	cidr: (v) => v,
 	text: (v) => v,
 	bytes: (v) => v.digest,
+	sha256: (v) => sha256Text(v),
 	code: (v, spec) => String(codeOf(spec.roster, v)),
 	bits: (v, spec) => handlesText(spec.roster, v),
 	range4: (v) => spanText(v),
@@ -607,6 +616,7 @@ const comparators: Comparators = {
 	cidr: (x, y) => compareNet(netValueOf(x, "cidr"), netValueOf(y, "cidr")),
 	text: (x, y) => compareCodePoints(x, y),
 	bytes: (x, y) => compareBytes(x.bytes, y.bytes),
+	sha256: (x, y) => compareBytes(x, y),
 	code: (x, y, order) => sign(rankOf(order.roster, x) - rankOf(order.roster, y)),
 	bits: (x, y, order) => compareSets(x, y, order.roster),
 	range4: (x, y) => compareSpan(x, y),
@@ -623,7 +633,7 @@ const comparators: Comparators = {
  * one host value, so two values are equal exactly where they are one host value (compareValues's 0 of them): an
  * integer, a boolean, a uuid's, a date's, an inet's and a cidr's text, a text and a search document's printed text, whose order compares
  * code points, and a closed id's handle, whose order ranks it in its roster. A numeric's and money's are objects; a double's NaN is equal to itself in
- * PostgreSQL's order and to no value in the host's identity; bytes, a set, a span and a vector are objects; so each of
+ * PostgreSQL's order and to no value in the host's identity; bytes, a digest, a set, a span and a vector are objects; so each of
  * those is equal by its order. Each carrier states it here, so a new one is a case to decide.
  */
 export const equalByIdentity: { readonly [C in Carrier]: boolean } = {
@@ -641,6 +651,7 @@ export const equalByIdentity: { readonly [C in Carrier]: boolean } = {
 	cidr: true,
 	text: true,
 	bytes: false,
+	sha256: false,
 	code: true,
 	bits: false,
 	range4: false,
@@ -829,6 +840,7 @@ const sameExtras: { readonly [C in Carrier]: (a: SpecOf<C>, b: CarrierSpec) => b
 	cidr: (_, b) => b.carrier === "cidr",
 	text: (_, b) => b.carrier === "text",
 	bytes: (_, b) => b.carrier === "bytes",
+	sha256: (_, b) => b.carrier === "sha256",
 	code: (a, b) => b.carrier === "code" && sameCodes(a.roster, b.roster),
 	bits: (a, b) => b.carrier === "bits" && sameCodes(a.roster, b.roster),
 	range4: (a, b) => b.carrier === "range4" && a.width === b.width,
@@ -986,7 +998,7 @@ const partOf = (spec: CarrierSpec, value: HostValue | Uint8Array): string =>
  * which any number of writes may take from one read; or one a write takes again from the read ("again"): a bytes
  * value, the caller's array, which a read checks and keeps unread (values/bytes.ts checkBytes); a set's, the copy its
  * read made in a Set, which no freeze fixes (admitHandles); a vector's, the copy its read made in a Float32Array
- * (admitVector).
+ * (admitVector); a digest's, the copy its read made of its bytes (toSha256).
  */
 const heldAs: { readonly [C in Carrier]: "shared" | "again" } = {
 	int2: "shared",
@@ -1003,6 +1015,7 @@ const heldAs: { readonly [C in Carrier]: "shared" | "again" } = {
 	cidr: "shared",
 	text: "shared",
 	bytes: "again",
+	sha256: "again",
 	code: "shared",
 	bits: "again",
 	range4: "shared",

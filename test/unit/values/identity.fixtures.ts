@@ -21,6 +21,7 @@ import { regex } from "arkregex"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { rosterCodec } from "#compiler/ir/codes.ts"
+import { Sha256 } from "#compiler/public/fields.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
 import {
@@ -77,6 +78,13 @@ const smallInteger = (carrier: "int2" | "int4", bits: number): Carrier => ({
 })
 
 const hyphenated = regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", "i")
+
+/** SHA-256's digest length, the bytes a digest of no bytes holds. */
+const digestLength = Sha256.ofBytes(new Uint8Array()).length
+
+/** `length` drawn bytes. */
+const bytesOf = (length: number): Gen<Uint8Array<ArrayBuffer>> =>
+	map(array(int(0, 0xff), { min: length, max: length }), (bytes) => Uint8Array.from(bytes))
 
 const handles: Arr.NonEmptyReadonlyArray<string> = ["draft", "paid", "Ünïcode"]
 
@@ -191,6 +199,22 @@ export const carriers: Arr.NonEmptyReadonlyArray<Carrier> = [
 			typeof value === "string" && hyphenated.test(value)
 				? { stored: Str.toLowerCase(value) }
 				: { fault: "uuidSyntax" }
+	},
+	{
+		spec: { carrier: "sha256" },
+		live: oneOf<unknown>([
+			bytesOf(digestLength),
+			map(int(0, 2 * digestLength), (length) => new Uint8Array(length)),
+			element<unknown>([
+				Uint8Array.from({ length: digestLength }, (_, i) => i).toHex(),
+				Array.from({ length: digestLength }, () => 0),
+				new Uint16Array(digestLength)
+			])
+		]),
+		judge: (value) =>
+			value instanceof Uint8Array && value.length === digestLength
+				? { stored: Uint8Array.from(value) }
+				: { fault: "sha256Value" }
 	},
 	{
 		spec: { carrier: "code", roster: handleCodec, only: undefined },
@@ -498,3 +522,24 @@ export const malformations: Arr.NonEmptyReadonlyArray<Malformed> = [
 	"an amount past the scale",
 	"a heading naming a field twice"
 ]
+
+/**
+ * Two digests a key compares: the second a copy of the first's bytes in an array of its own, or the first with one
+ * byte, at a drawn place, another value.
+ */
+export interface DigestPair {
+	readonly first: Uint8Array<ArrayBuffer>
+	readonly second: Uint8Array<ArrayBuffer>
+}
+
+export type DigestFeature = "one digest in two arrays" | "digests one byte apart"
+
+export const digestPairs: Gen<DigestPair> = (s) => {
+	const first = s.draw(bytesOf(digestLength))
+	const second = Uint8Array.from(first)
+	if (s.draw(boolean)) {
+		const at = s.draw(int(0, digestLength - 1))
+		second[at] = ((second[at] ?? 0) + s.draw(int(1, 0xff))) & 0xff
+	}
+	return { first, second }
+}

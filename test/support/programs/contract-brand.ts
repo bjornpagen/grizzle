@@ -4,17 +4,5 @@
  * them, and Effect Schema's types through `effect`, since the program reads a schema's type alone.
  */
 export type { Schema } from "effect"
-export {
-	closed,
-	closedId,
-	contract,
-	date,
-	Logic,
-	natural,
-	pg,
-	sha256,
-	span,
-	str,
-	uuid
-} from "#index.ts"
+export { closed, closedId, contract, date, Logic, natural, pg, span, str, uuid } from "#index.ts"
 export type { Infer } from "#index.ts"

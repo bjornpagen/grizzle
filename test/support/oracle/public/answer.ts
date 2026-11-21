@@ -354,6 +354,7 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 		case "text":
 		case "code":
 			return typeof host === "string" ? Result.succeed(host) : wrong()
+		case "sha256":
 		case "bytes":
 		case "tsvector":
 			return wrong()

@@ -1,5 +1,7 @@
 import { Array as Arr, Data, Effect, Option, pipe, Record, Result, String as Str } from "effect"
+import type { ResultStep } from "#compiler/codec/scalar.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { bytesWireAlphabet } from "#compiler/core/wire.ts"
 import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
 
 import { regex } from "arkregex"
@@ -27,11 +29,15 @@ const trimStatement = (sql: string): string =>
 	Str.trimEnd(pipe(Str.trim(sql), Str.replace(regex(";$"), "")))
 
 /**
- * The casts that make one output column's result text, as the outermost SELECT of an executable statement applies
- * them (lower/template.ts): codec resultTextCasts of a heading column's type, money through numeric, and text for a
- * fused attachment's array.
+ * The steps that make one output column's result text, as the outermost SELECT of an executable statement applies
+ * them (lower/delivery.ts resultCast): codec resultTextCasts of a heading column's type, money through numeric, a
+ * digest as its bytes' wire text, and text for a fused attachment's array.
  */
-export type ColumnCasts = ReadonlyArray<"numeric" | "text">
+export type ColumnCasts = ReadonlyArray<ResultStep>
+
+/** One result step over the SQL of a value `e` (codec/scalar.ts ResultStep): a cast, or the bytes' wire text. */
+const stepSql = (e: string, step: ResultStep): string =>
+	step === "wire" ? `pg_catalog.encode(${e}, '${bytesWireAlphabet}')` : `(${e})::pg_catalog.${step}`
 
 /**
  * How many rows a capture reads of a statement's answer: every row; or at most `rows`, one past the most a comparison
@@ -65,11 +71,7 @@ const captureSql = (sql: string, columns: ReadonlyArray<ColumnCasts>, bound: Row
 	const names = Arr.map(columns, (_, i) => quoteIdent(`c${i + 1}`))
 	const targets = Arr.map(columns, (casts, i) => {
 		const n = quoteIdent(`c${i + 1}`)
-		const cast = Arr.join(
-			Arr.map(casts, (c) => `::pg_catalog.${c}`),
-			""
-		)
-		return `pg_catalog.format('%L', ("r".${n})${cast}) AS ${n}`
+		return `pg_catalog.format('%L', ${Arr.reduce(casts, `"r".${n}`, stepSql)}) AS ${n}`
 	})
 	return `SELECT ${Arr.join(targets, ", ")} FROM (${inner}) AS "r"(${Arr.join(names, ", ")})${limitClause(bound)}`
 }

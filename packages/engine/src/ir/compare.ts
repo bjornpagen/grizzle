@@ -47,6 +47,7 @@ export const operatorSchemaOf = (
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":

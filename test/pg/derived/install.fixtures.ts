@@ -158,6 +158,7 @@ export const typmodOf = (desc: InferredFieldDesc): number => {
 		case "pg":
 		case "exact":
 		case "bytes":
+		case "sha256":
 		case "uuid":
 		case "text":
 		case "pattern":

@@ -626,6 +626,7 @@ export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebo
 		case "bool":
 			return literal.value ? "true" : "false"
 		case "text":
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":

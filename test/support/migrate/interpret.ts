@@ -2294,6 +2294,7 @@ class Model {
 					? { kind: "bits", value: v.value }
 					: { kind: "text", value: v.value }
 			}
+			case "sha256":
 			case "uuid":
 			case "date":
 			case "inet":

@@ -195,6 +195,7 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 		case "text":
 		case "tsvector":
 			return { kind: "text" }
+		case "sha256":
 		case "bytes":
 			return { kind: "bytes" }
 		case "code":

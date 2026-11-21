@@ -1450,7 +1450,7 @@ export const compute = Object.freeze({
 	isXsdPattern: (x: unknown) => plain(checks.isXsdPattern(x, []), "boolean"),
 	parseDouble: (x: unknown) => plain(checks.parseDouble(x, []), "double precision"),
 	parseDecimal: (x: unknown) => plain(checks.parseDecimal(x, []), "numeric"),
-	sha256: (x: unknown) => plain(checks.sha256(x, []), "text"),
+	sha256: (x: unknown) => plain(checks.sha256(x, []), "sha256"),
 	floatBits: <S extends FloatSql>(x: OfSql<S>) => plain(checks.floatBits(x, []), "bigint"),
 	pattern: admittedPattern,
 	xsdPattern: xsdAdmittedPattern,

@@ -769,8 +769,8 @@ The command line's own refusals, by stage:
   `Logic.cond(C.has(k…), C.at(field, k…), d)`. Every closed read is NULL where a key value is NULL.
 - A `bytes` field, a `Uint8Array`, is written and read back whole and nothing more: never in a key, a rule's side, a
   filter, a parameter, a contract, a generated or accumulated field, or a scalar term but `Crypto.sha256(x)`, its
-  SHA-256 digest as 64 lowercase hex digits. Store a digest PostgreSQL computes from the bytes, never one the caller
-  sends: `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.content))`. A value holds at most 1,073,741,819
+  SHA-256 digest, a `sha256` value of 32 bytes (`Sha256` on the host), never a hex text. Store a digest PostgreSQL
+  computes from the bytes, never one the caller sends: `generated(sha256, Crypto.sha256(row.content))`. A value holds at most 1,073,741,819
   bytes (`bytesMaxLength`), PostgreSQL's longest bytea, and is read back in chunks, one round trip still; a write reads
   back only its SHA-256 digest. grizzle copies a value once, as the call is sent; one changed
   before then is `bytesChanged`. An attachment whose rows hold one is a statement of its own, so under rows that read
@@ -778,7 +778,9 @@ The command line's own refusals, by stage:
 - A key, a UNIQUE, a family's axis and a reference's target hold each column as itself, never by a digest grizzle
   makes: one whose widest entry, in any order of its columns, could pass PostgreSQL's 2,704-byte B-tree limit is
   UnrepresentableKey when the schema compiles. Give each text in it a byte bound, `str.bytes(n, …)`, each numeric its
-  precision, or key by a digest field you declare, `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.body))`.
+  precision, or key by a digest field you declare, `generated(sha256, Crypto.sha256(row.body))`, whose 32 bytes every
+  key holds. A digest the host states is `Sha256.ofText(text)` or `Sha256.ofBytes(bytes)`; one of any other length is
+  refused where it is passed (`sha256Value`).
   A lookup's index holds only the columns that fit its entry: an equality on a text of no byte bound is a filter beside
   it, which the index's comment names, so bound a text a program looks rows up by.
 - A call's flight, every byte the driver writes for its one round trip, is at most 1,908,342,784 bytes

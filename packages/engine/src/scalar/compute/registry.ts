@@ -1,5 +1,4 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import type { PreconditionKind } from "#compiler/core/errors.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import type { ComputeFn } from "#compiler/ir/desc.ts"
@@ -139,14 +138,12 @@ type Owner = "catalog" | "vector"
  * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with, and its infix test at a start one of substring,
  * char_length and text's =, `substring(a, start, char_length(b)) = b`; a double's parse is a reading of its text's digits
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
- * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Type.cast's cast nodes; a
- * bytes value's digest is its SHA-256 written as lowercase hex, `encode(sha256(x), 'hex')`; a text's UTF-16 code units
+ * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Type.cast's cast nodes; a text's UTF-16 code units
  * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`;
  * a text's ASCII case fold is lower under the C collation, collated back as every text is,
  * `lower(x COLLATE "C") COLLATE pg_c_utf8` (textLowerAscii); a reference's resolution against a base is a call of the
  * installation's own function of grizzle's library (ir/physical.ts LibraryFn), `<schema>.<fn>(base, reference)`
- * (textResolveReference); a text's digest is the library's textDigest of it written as lowercase hex,
- * `encode(<schema>.<textDigest>(x), 'hex')` (textSha256); a part of a search document is its text parsed under the
+ * (textResolveReference), a text's digest among them, `<schema>.<textDigest>(x)` (textSha256); a part of a search document is its text parsed under the
  * document's configuration and labelled by its weight, `setweight(to_tsvector('<configuration>'::regconfig, x), w)`
  * (searchPart, lower/conservative/search); and a match or a rank of a document reads a query's text parsed under the
  * document's own configuration, `d @@ websearch_to_tsquery('<configuration>'::regconfig, q)` and
@@ -173,24 +170,22 @@ type SqlForm =
 				| "endsWith"
 				| "parseDouble"
 				| "parseDecimal"
-				| "sha256"
 				| "collapse"
 				| "lowerAscii"
 				| "utf16Length"
 	  }
 	| { readonly kind: "floatBits"; readonly from: "float4" | "float8" }
 	| { readonly kind: "library"; readonly fn: LibraryFn }
-	| { readonly kind: "textSha256" }
 	| { readonly kind: "searchPart" }
 	| { readonly kind: "textSearch"; readonly read: TextSearchRead; readonly parser: TextQueryParser }
 	| { readonly kind: "canonicalZero"; readonly carrier: "float4" | "float8" }
 
 /**
  * The library function a node's SQL calls (ir/physical.ts LibraryFn), which its installation installs: a library
- * call's own, and a text's digest's `textDigest`, which its hex encoding wraps (textSha256); none for any other form.
+ * call's own; none for any other form.
  */
 export const libraryOf = (sql: SqlForm): LibraryFn | undefined =>
-	sql.kind === "library" ? sql.fn : sql.kind === "textSha256" ? "textDigest" : undefined
+	sql.kind === "library" ? sql.fn : undefined
 
 /**
  * The catalog object that implements the node, as PostgreSQL's catalog names it. Every type it names is a carrier's
@@ -1128,25 +1123,17 @@ const textParseDecimal: FixedOverload = frozen({
 })
 
 /**
- * The language of a SHA-256 digest as `encode(sha256(x), 'hex')` writes it, Crypto.sha256's: 64 lowercase hex digits,
- * under the flags "u", the pattern `str.regex("^[0-9a-f]{64}$")` declares.
- */
-export const digestText: PatternSource = Object.freeze({ source: "^[0-9a-f]{64}$", flags: "u" })
-
-/**
- * A bytes value's SHA-256 digest as 64 lowercase hex digits, `encode(sha256(x), 'hex')`, the one operation that reads
- * a bytes value, read whole: sha256(bytea) reads a bytea of any length and encode(bytea, text) writes its 32 bytes as
- * two lowercase digits each, so it is defined on every value, and both are IMMUTABLE in pg_proc, so it is one value
- * wherever it stands, a generated column among them. Neither is a scalar operation, so it uses no entry here. Its text
- * is digestText's language (typing.ts sha256), and it is the digest a bytes value's identity is
- * (scalar/values/bytes.ts BytesDigest).
+ * A bytes value's SHA-256 digest, its 32 bytes, PostgreSQL's `sha256(x)`, the one operation that reads a bytes value,
+ * read whole: sha256(bytea) reads a bytea of any length and returns its digest, so it is defined on every value, and it
+ * is IMMUTABLE in pg_proc, so it is one value wherever it stands, a generated column among them. Its result is a digest
+ * (ir/scalar.ts DigestType), bytea of exactly 32 bytes, which the digest domain admits.
  */
 const bytesDigest: FixedOverload = frozen({
 	fn: "sha256",
 	operands: positional(["bytes"]),
-	result: "text",
-	sql: { kind: "sha256" },
-	catalog: { kind: "construct", uses: [] },
+	result: "sha256",
+	sql: { kind: "function", name: "sha256", owner: "catalog" },
+	catalog: { kind: "function", name: "sha256", args: ["bytea"], result: "bytea", owner: "catalog" },
 	volatility: "immutable",
 	totality: total,
 	reads: "value"
@@ -1175,17 +1162,17 @@ const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
 	})
 
 /**
- * A text's SHA-256 digest as 64 lowercase hex digits, the digest of its UTF-8 bytes, as Crypto.sha256 reads a bytes
- * value's: `encode(<schema>.<textDigest>(x), 'hex')`, the installation's library function (physical/ddl/library.ts
- * textDigest, `sha256(convert_to(x, 'UTF8'))`), IMMUTABLE, STRICT and defined on every text, so it stands in a query,
- * a CHECK and a generated field alike, so a generated field of it is a digest a key may be declared over (README
- * "Keys and indexes"). Its text is digestText's language (typing.ts sha256).
+ * A text's SHA-256 digest, the digest of its UTF-8 bytes, as Crypto.sha256 reads a bytes value's: a call of the
+ * installation's library function (physical/ddl/library.ts textDigest, `sha256(convert_to(x, 'UTF8'))`),
+ * `<schema>.<textDigest>(x)`, IMMUTABLE, STRICT and defined on every text, so it stands in a query, a CHECK and a
+ * generated field alike, and a generated field of it is a digest a key may be declared over (README "Keys and
+ * indexes"). It reads no catalog object a scalar operation is, so it uses no entry here.
  */
 const textSha256: FixedOverload = frozen({
 	fn: "sha256",
 	operands: positional(["text"]),
-	result: "text",
-	sql: { kind: "textSha256" },
+	result: "sha256",
+	sql: { kind: "library", fn: "textDigest" },
 	catalog: { kind: "construct", uses: [] },
 	volatility: "immutable",
 	totality: total,
@@ -1711,6 +1698,20 @@ const catalogOverloads = {
 	byteaeq: comparison("eq", "bytes"),
 	byteane: comparison("ne", "bytes"),
 	/**
+	 * A digest's comparisons, bytea's operators over its 32 bytes (ir/scalar.ts DigestType): its equality and bytea's
+	 * order, the bytes compared one by one, which bytea_ops for B-tree and a key's index read.
+	 */
+	"sha256:byteaeq": comparison("eq", "sha256"),
+	"sha256:byteane": comparison("ne", "sha256"),
+	"sha256:bytealt": comparison("lt", "sha256"),
+	"sha256:byteale": comparison("le", "sha256"),
+	"sha256:byteagt": comparison("gt", "sha256"),
+	"sha256:byteage": comparison("ge", "sha256"),
+	"between:sha256": between("sha256", opId("sha256:byteage"), opId("sha256:byteale")),
+	"in:sha256": membership("sha256", opId("sha256:byteaeq")),
+	"least:sha256": extreme("least", "sha256", opId("sha256:bytealt")),
+	"greatest:sha256": extreme("greatest", "sha256", opId("sha256:byteagt")),
+	/**
 	 * tsvector's equality and inequality, which no scalar call reaches either, since a search document has no equality
 	 * capability: they stand as its native equality (equalities).
 	 */
@@ -2165,6 +2166,7 @@ const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
 	cidr: comparisonId("cidr:network_eq"),
 	text: comparisonId("texteq"),
 	bytes: comparisonId("byteaeq"),
+	sha256: comparisonId("sha256:byteaeq"),
 	tsvector: comparisonId("tsvector_eq"),
 	code: comparisonId("code:int2eq"),
 	bits: comparisonId("biteq"),

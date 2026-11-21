@@ -389,6 +389,7 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 		case "vector":
 		case "bits":
 		case "bytes":
+		case "sha256":
 		case "tsvector":
 			break
 	}

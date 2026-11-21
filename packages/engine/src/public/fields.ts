@@ -13,8 +13,10 @@ import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { pgDescriptors } from "#compiler/scalar/pg.ts"
 import { bareEnv, carrierSql, defineField } from "#compiler/scalar/registry.ts"
 import { searchDescriptor } from "#compiler/scalar/search.ts"
+import { sha256Descriptor } from "#compiler/scalar/sha256.ts"
 import { spanColumn, spanParts } from "#compiler/scalar/span.ts"
 import { uuidDescriptor } from "#compiler/scalar/uuid.ts"
+import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import {
 	accumulatedField,
@@ -103,6 +105,8 @@ export { Uuid } from "#compiler/scalar/values/uuid.ts"
 export { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 /** pgvector's carrier, a branded Float32Array. */
 export { Vector } from "#compiler/scalar/values/vector.ts"
+/** A SHA-256 digest, its 32 bytes, and its digests of bytes and of a text (Sha256.ofBytes, Sha256.ofText). */
+export { Sha256 } from "#compiler/scalar/values/sha256.ts"
 export type {
 	AccumulatedField,
 	BitsField,
@@ -159,10 +163,10 @@ export type {
 } from "#compiler/types/search/search.ts"
 
 /**
- * Public barrel: Scalar field descriptors: uuid, natural, date, bytes, exactInteger, exactMoney, pg, contract, span and
- * closedId, the runtime values of
+ * Public barrel: Scalar field descriptors: uuid, sha256, natural, date, bytes, exactInteger, exactMoney, pg, contract, span
+ * and closedId, the runtime values of
  * packages/engine/src/scalar bound to their public signatures (types/fields), with the exact carriers Decimal and Money,
- * the uuid host value Uuid and pgvector's carrier Vector. str.regex is the text barrel's.
+ * the uuid host value Uuid, the digest Sha256 and pgvector's carrier Vector. str.regex is the text barrel's.
  *
  * The runtime descriptors carry their literal SQL names, their members and their columns (scalar/registry.ts
  * defineField), so each binding has its public type by construction: a descriptor's host type is its column's. A
@@ -172,6 +176,13 @@ export type {
  * admission cores refuse.
  */
 export const uuid: Field<Uuid, "uuid"> = uuidDescriptor
+
+/**
+ * sha256: a SHA-256 digest, exactly 32 bytes, its host value a Sha256 (scalar/sha256.ts): what Crypto.sha256 yields, so
+ * `generated(sha256, Crypto.sha256(row.text))` is a digest field, and a key, a unique, a family axis or a reference may
+ * hold one, where the text itself may be too long for any index entry.
+ */
+export const sha256: Field<Sha256, "sha256"> = sha256Descriptor
 
 /** natural: a bigint never below zero, the builtin contract over pg.bigint that pred reads (scalar/natural.ts). */
 export const natural: NaturalField = naturalDescriptor

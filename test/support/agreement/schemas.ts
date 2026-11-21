@@ -2544,6 +2544,7 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return desc.carrier === "exactInteger" ? "bigint" : "Fi.Money"
 		case "uuid":
 			return "Fi.Uuid"
+		case "sha256":
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
 		case "pattern":
@@ -2715,6 +2716,7 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 						),
 						" & "
 					)
+		case "sha256":
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
 		case "code":
@@ -5493,6 +5495,7 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return desc.carrier === "exactInteger" ? "Fi.ExactIntegerField" : "Fi.ExactMoneyField"
 		case "uuid":
 			return 'Fi.Field<Fi.Uuid, "uuid">'
+		case "sha256":
 		case "bytes":
 			return "Fi.BytesField"
 		case "text":
@@ -5544,6 +5547,7 @@ const literalType = (
 			return pgLiteral[desc.type]
 		case "exact":
 		case "bytes":
+		case "sha256":
 		case "uuid":
 		case "text":
 		case "pattern":

@@ -248,6 +248,7 @@ const orderedCarriers: ReadonlySet<Carrier> = new Set<Carrier>([
 	"money",
 	"uuid",
 	"text",
+	"sha256",
 	"code"
 ])
 

@@ -237,6 +237,7 @@ export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 			return ["value", asMoney(v).minorUnits]
 		case "bool":
 			return ["value", v === true]
+		case "sha256":
 		case "bytes":
 			throw referenceUnsupported("a bytes value, which is stored only")
 		case "tsvector":
@@ -293,6 +294,7 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 			return v instanceof Money ? valueIdentity(v, type) : undefined
 		case "bool":
 			return typeof v === "boolean" ? valueIdentity(v, type) : undefined
+		case "sha256":
 		case "bytes":
 		case "tsvector":
 			return undefined
@@ -468,6 +470,7 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "money", value: asMoney(v) }
 		case "bool":
 			return { kind: "bool", value: asBoolean(v) }
+		case "sha256":
 		case "bytes":
 			throw referenceUnsupported("a bytes value, which is stored only")
 		case "tsvector":

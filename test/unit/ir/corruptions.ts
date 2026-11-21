@@ -1898,6 +1898,7 @@ const expressions: ReadonlyArray<DagCorruption> = [
 					case "money":
 					case "span":
 					case "uuid":
+					case "sha256":
 					case "date":
 					case "inet":
 					case "cidr":

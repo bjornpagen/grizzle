@@ -3,6 +3,7 @@ import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
+import { sha256Octets } from "#compiler/core/digest.ts"
 import type { EntryRole } from "#compiler/core/identity.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
@@ -667,6 +668,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 		case "exact":
 		case "uuid":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "pattern":
 		case "span":
@@ -743,7 +745,7 @@ const rangeBytes = (endpoint: number): number =>
 
 /**
  * The largest index datum of a field, declared or inferred; undefined for bytes and for text whose pattern proves no
- * byte bound.
+ * byte bound. A digest is a bytea of sha256Octets bytes (core/sha256.ts), at its longest header, bytea's int alignment.
  */
 export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 	switch (desc.kind) {
@@ -756,6 +758,8 @@ export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 			return pgDatumBound(desc.type)
 		case "uuid":
 			return fixed(typlens.uuid, 1, "uuid")
+		case "sha256":
+			return fixed(varlenaHeaderBytes + sha256Octets, 4, "bytea")
 		case "closedId":
 			return fixed(typlens.int2, 2, "code")
 		case "bits":

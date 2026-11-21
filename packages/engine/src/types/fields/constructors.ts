@@ -31,6 +31,7 @@ import type {
 	Infer,
 	NamedId,
 	NoWriting,
+	NotDigest,
 	NotInstant,
 	NotStoredOnly,
 	NumericField,
@@ -107,6 +108,7 @@ export type ContractConstructor = <
 		NoWriting &
 		NotStoredOnly<B["sql"]> &
 		NotExactBase<B["sql"]> &
+		NotDigest<B["sql"]> &
 		NotInstantBase<B> &
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,

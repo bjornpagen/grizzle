@@ -133,6 +133,7 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "tsvector":
 		case "exactMoney":
 			return { carrier: type.carrier }
@@ -260,13 +261,45 @@ export const paramEncoder = (type: ScalarType, slot: string, codes: Codebook): E
 }
 
 /**
- * The casts the outermost SELECT applies to a result column of this type so the driver delivers its text form:
- * money through numeric, every other type straight to text. The names are built-in type names. A bytes value has no
- * result text: it travels in chunks (lower/delivery.ts), so a cast of one is a defect, and no reader ever meets one.
+ * One step of a value's result text (lower/delivery.ts resultCast): a cast to the built-in type numeric or text, or
+ * `wire`, a bytes value's wire text, the one encoding bytes travel in (core/wire.ts bytesWireAlphabet).
  */
-export const resultTextCasts = (type: ScalarType): ReadonlyArray<"numeric" | "text"> => {
-	if (type.carrier === "bytes") {
-		throw defect("a bytes value travels in chunks, never as its result text")
+export type ResultStep = "numeric" | "text" | "wire"
+
+/**
+ * The steps the outermost SELECT applies to a result column of this type so the driver delivers its text form: money
+ * through numeric, a digest as its bytes' wire text, every other type straight to text. A bytes value has no result
+ * text: it travels in chunks (lower/delivery.ts), so a cast of one is a defect, and no reader ever meets one.
+ */
+export const resultTextCasts = (type: ScalarType): ReadonlyArray<ResultStep> => {
+	switch (baseOf(type).carrier) {
+		case "bytes":
+			throw defect("a bytes value travels in chunks, never as its result text")
+		case "money":
+			return ["numeric", "text"]
+		case "sha256":
+			return ["wire"]
+		case "inet":
+		case "cidr":
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "code":
+		case "bits":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "vector":
+		case "tsvector":
+		case "exactInteger":
+		case "exactMoney":
+			return ["text"]
 	}
-	return type.carrier === "money" ? ["numeric", "text"] : ["text"]
 }

@@ -406,6 +406,10 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			assert.equal(exactDigitsOf(t), numericMaxIntegerDigits, at)
 			assert.deepEqual(capsOf(t), capabilitiesOf(desc.carrier), at)
 			return
+		case "sha256":
+			assert.equal(t.carrier, "sha256", at)
+			assert.deepEqual(capsOf(t), capabilitiesOf("sha256"), at)
+			return
 		case "uuid":
 			plain(t, "uuid", at)
 			return
@@ -495,6 +499,8 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "exact", carrier: desc.carrier, digits: numericMaxIntegerDigits }
 		case "bytes":
 			return { kind: "bytes" }
+		case "sha256":
+			return { kind: "plain", carrier: "sha256" }
 		case "uuid":
 			return { kind: "plain", carrier: "uuid" }
 		case "text":

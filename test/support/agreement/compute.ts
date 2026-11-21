@@ -22,7 +22,7 @@ import {
 	Type,
 	Xml
 } from "#compiler/public/compute.ts"
-import { Bits, bytes, Decimal, Money } from "#compiler/public/fields.ts"
+import { Bits, bytes, Decimal, Money, sha256 } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { lexicalForm, str } from "#compiler/public/text.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
@@ -35,7 +35,6 @@ import { admitMatch } from "#compiler/scalar/regex/admit.ts"
 import { Pattern } from "#compiler/scalar/regex/pattern.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
-import type { FieldBase } from "#compiler/types/fields/field.ts"
 import {
 	AsTyped,
 	Cell,
@@ -378,18 +377,11 @@ const byteNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<ByteNote> 
 }
 
 /**
- * What a digest case reached, by the engine's verdict on its schema: a digest stored uncast, admitted by both, since a
- * value enters its column at its carrier and the column's domain judges its pattern, the pantry's declaration among
- * them; a digest cast into a text type whose language holds every digest, admitted with no guard; one cast into a type
- * whose language lacks a digest, a decided language, which the types admit since a pattern is no type; and the digest
- * of a text, the SHA-256 of its UTF-8 bytes, which both admit.
+ * What a digest case reached, by the engine's verdict on its schema: the digest of bytes stored in a digest field, the
+ * pantry's declaration `generated(sha256, Crypto.sha256(row.content))`, and the digest of a text, the SHA-256 of its
+ * UTF-8 bytes, each admitted by both.
  */
-const digestNotes = [
-	"a digest stored uncast",
-	"a digest cast into a type that holds it",
-	"a digest cast into a type that lacks it",
-	"a digest of a text"
-] as const
+const digestNotes = ["a digest of bytes", "a digest of a text"] as const
 type DigestNote = (typeof digestNotes)[number]
 
 /**
@@ -459,17 +451,10 @@ const digestNotesOf = (spec: CaseSpec, verdict: Verdict): ReadonlyArray<DigestNo
 	if (spec.kind !== "digest") {
 		return []
 	}
-	if (spec.operand !== "content") {
-		return verdict.kind === "admitted" ? ["a digest of a text"] : []
+	if (verdict.kind !== "admitted") {
+		return []
 	}
-	if (!spec.cast) {
-		return verdict.kind === "admitted" ? ["a digest stored uncast"] : []
-	}
-	return verdict.kind === "admitted"
-		? ["a digest cast into a type that holds it"]
-		: verdict.kind === "decided" && verdict.note === engineDecides.language
-			? ["a digest cast into a type that lacks it"]
-			: []
+	return spec.operand === "content" ? ["a digest of bytes"] : ["a digest of a text"]
 }
 
 /**
@@ -727,53 +712,10 @@ type CaseSpec =
 	| {
 			readonly kind: "digest"
 			readonly operand: "content" | TextField
-			readonly target: DigestTarget
-			readonly cast: boolean
 	  }
 
 /** A text field of Cell a byte guard's case reads. */
 type TextField = (typeof families.text)[number]
-
-/** A text type a digest case's generated field is of: as the program spells it, and as the engine builds it. */
-interface DigestTarget {
-	readonly text: string
-	readonly field: FieldBase
-}
-
-/** The pantry's digest type, `^[0-9a-f]{64}$`, whose language is every digest's. */
-const lowerHex: DigestTarget = {
-	text: 'str.regex("^[0-9a-f]{64}$")',
-	field: str.regex("^[0-9a-f]{64}$")
-}
-
-/** Uppercase hex of 64 digits, whose language holds no digest with a letter. */
-const upperHex: DigestTarget = {
-	text: 'str.regex("^[0-9A-F]{64}$")',
-	field: str.regex("^[0-9A-F]{64}$")
-}
-
-/**
- * The text types a digest case stores into, a dictionary of the languages the inclusion branches on: those holding
- * every digest (the digest's own, hex of any length, letters and digits of at most 64, any text, any text of at most 64
- * bytes) and those lacking some (uppercase hex, 63 hex digits, decimal digits, any text of at most 63 bytes).
- */
-const digestTargets: Arr.NonEmptyReadonlyArray<DigestTarget> = [
-	lowerHex,
-	upperHex,
-	{ text: 'str.regex("^[0-9a-f]*$")', field: str.regex("^[0-9a-f]*$") },
-	{ text: 'str.regex("^[0-9a-z]{1,64}$")', field: str.regex("^[0-9a-z]{1,64}$") },
-	{ text: 'str.regex("^[0-9a-f]{63}$")', field: str.regex("^[0-9a-f]{63}$") },
-	{ text: 'str.regex("^[0-9]{64}$")', field: str.regex("^[0-9]{64}$") },
-	{ text: 'str.regex("^.*$", "su")', field: str.regex("^.*$", "su") },
-	{
-		text: 'str.bytes(64, str.regex("^.*$", "su"))',
-		field: str.bytes(64, str.regex("^.*$", "su"))
-	},
-	{
-		text: 'str.bytes(63, str.regex("^.*$", "su"))',
-		field: str.bytes(63, str.regex("^.*$", "su"))
-	}
-]
 
 /**
  * The fields of Cell Tuning (./compute-schema.ts) holds a payload of at each tone, of one type each: its integers, its
@@ -2089,32 +2031,22 @@ const bytesSchema = (spec: Extract<CaseSpec, { readonly kind: "bytes" }>): Fixtu
 	)
 }
 
-/**
- * A digest a generated field stores, Crypto.sha256 of the row's bytes three times in four and otherwise of one of its
- * text fields, into a text type of the dictionary (digestTargets), uncast a third of the time and otherwise cast into
- * it, which the engine proves by the digest's language alone.
- */
+/** A digest a generated sha256 field stores, Crypto.sha256 of the row's bytes three times in four and otherwise of one of its text fields. */
 const digestOf = (d: Drawing): CaseSpec => ({
 	kind: "digest",
-	operand: d.from([0, 1, 2, 3]) < 3 ? "content" : d.from(families.text),
-	target: d.from(digestTargets),
-	cast: d.from([false, true, true])
+	operand: d.from([0, 1, 2, 3]) < 3 ? "content" : d.from(families.text)
 })
 
 /**
- * A digest case's schema: Media, whose bytes `content` and Cell's text fields are written, and whose generated field
- * is the case's digest, cast into its type or not.
+ * A digest case's schema: Media, whose bytes `content` and Cell's text fields are written, and whose generated sha256
+ * field is the case's digest.
  */
-const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string => {
-	const digest = `Crypto.sha256(r.${spec.operand})`
-	const term = spec.cast ? `Type.cast(${digest}, ${spec.target.text})` : digest
-	return `schema("Digests", [relation.generated("Media", { id: Id, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(${spec.target.text}, ${term}) }))], [])`
-}
+const digestSchemaText = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): string =>
+	`schema("Digests", [relation.generated("Media", { id: Id, content: bytes, text: Cell.fields.text, word: Cell.fields.word, body: Cell.fields.body }, ["id"], (r) => ({ stored: generated(sha256, Crypto.sha256(r.${spec.operand})) }))], [])`
 
 /** The engine's reading of a digest case: the same schema, built by the public constructors and the scalar core. */
-const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): FixtureSchema => {
-	const target = spec.target.field
-	return schema(
+const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): FixtureSchema =>
+	schema(
 		"Digests",
 		[
 			relation.generated(
@@ -2127,21 +2059,11 @@ const digestSchema = (spec: Extract<CaseSpec, { readonly kind: "digest" }>): Fix
 					body: Cell.fields.body
 				},
 				["id"],
-				(r) => {
-					const digest = computeCore.sha256(r[spec.operand])
-					return {
-						stored: generatedField(
-							target,
-							spec.cast ? computeCore.cast(digest, target) : digest,
-							[]
-						)
-					}
-				}
+				(r) => ({ stored: generatedField(sha256, computeCore.sha256(r[spec.operand]), []) })
 			)
 		],
 		[]
 	)
-}
 
 /**
  * A cast of a value over Tuning's payload at the row's tone into an integer or the numeric, a generated field's term,
@@ -2780,6 +2702,7 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 			throw new Error(`no agreement compute draws a ${t.carrier} term`)
 		case "text":
 			return "string"
+		case "sha256":
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
 		case "range4":
@@ -4101,7 +4024,7 @@ const expressionOf = (rendering: Rendering, spec: CaseSpec): string => {
 /**
  * The situations the drawn cases reach beside the verdicts, Refusals, decisions and inferences: every construct, each
  * admitted but a literal standing first, and each refused but the byte guard, whose casts the types always admit, and
- * the digest, Crypto.sha256 reading a text as it reads bytes, so a digest is admitted or its cast's language decided;
+ * the digest, Crypto.sha256 reading a text as it reads bytes into a digest field, which both admit;
  * and a column read through a heading both ways. The kept cases reach the rest (computeKeptRequired).
  */
 const computeRequired: ReadonlyArray<Reached<ComputeNote>> = [
@@ -4187,7 +4110,7 @@ const constructsOf: { readonly [N in ComputeNote]?: ReadonlyArray<ComputeFeature
 	"a guarded parameter": ["when"],
 	"decided: a contract": ["cast"],
 	"decided: a lexical form": ["cast"],
-	"decided: a language": ["byte guard", "digest"],
+	"decided: a language": ["byte guard"],
 	"decided: a power's range": ["power", "when"],
 	"decided: a text function's place": ["octetLength", "replaceWhitespace", "charLength", "concat"],
 	"decided: a decimal's digits": ["quot", "rem", "Decimal.of"],
@@ -4316,15 +4239,12 @@ const mapKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "ter
 
 /**
  * One digest case per digest note, so the floor reaches each by construction, whatever its draws: the pantry's
- * declaration, its digest of an Entry's bytes stored uncast into `^[0-9a-f]{64}$`, which both admit; that digest cast
- * into its own type, which compilation proves with no guard; cast into uppercase hex, which the engine refuses by the
- * digest's language while the types admit it; and the digest of a text stored uncast, which both admit.
+ * declaration, its digest of an Entry's bytes stored into a sha256 field, and the digest of a text, each of which both
+ * admit.
  */
 const digestKept: Arr.NonEmptyReadonlyArray<Extract<CaseSpec, { readonly kind: "digest" }>> = [
-	{ kind: "digest", operand: "content", target: lowerHex, cast: false },
-	{ kind: "digest", operand: "content", target: lowerHex, cast: true },
-	{ kind: "digest", operand: "content", target: upperHex, cast: true },
-	{ kind: "digest", operand: "text", target: lowerHex, cast: false }
+	{ kind: "digest", operand: "content" },
+	{ kind: "digest", operand: "text" }
 ]
 
 /**

@@ -341,6 +341,7 @@ export const roleReadNames = (
 	selectionKeys: () => [],
 	rosterDomain: names.rosterDomain,
 	bitsDomain: names.bitsDomain,
+	digestDomain: names.digestDomain,
 	contractDomain: names.contractDomain,
 	textDomain: names.textDomain,
 	paramDomain: names.paramDomain,
@@ -522,6 +523,7 @@ export const installNames = (input: NamesInput): InstallNames => {
 			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(rosterNamed(roster))
 		}),
+		digestDomain: { schema: types, name: identifierOf(identity.digestDomain()) },
 		bitsDomain: (roster) => ({
 			schema: installationTypes(levelOf(roster)),
 			name: identifierOf(bitsNamed(roster))

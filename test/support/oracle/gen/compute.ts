@@ -418,6 +418,7 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "inet":
 		case "cidr":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "code":
 		case "bits":

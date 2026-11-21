@@ -94,6 +94,7 @@ export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "tsvector":
 			return { carrier: type.carrier }
 		case "numeric":

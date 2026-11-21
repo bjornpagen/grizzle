@@ -35,15 +35,6 @@ export { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
 export { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 export { type JoinedHost, type RegexText, str } from "#compiler/text/field.ts"
 
-/**
- * sha256: the lowercase hexadecimal spelling of a SHA-256 digest, 64 digits, str.regex("^[0-9a-f]{64}$"): content's one
- * identity, so a row keyed by the digest of the bytes it records is one row for equal bytes in every database that
- * holds it (README "Identity: natural keys"). It is text, not bytea: one spelling with the digests written
- * everywhere else (Effect's digestHex, pantry's Sha256Hex, which is this declaration and so this domain), and read in
- * SQL as it is.
- */
-export const sha256: RegexText<string> = regexField<string>("^[0-9a-f]{64}$", [])
-
 /** The SQL types a text parses into, those with a lexical form (scalar/lexical.ts). */
 type ParseSql =
 	| "smallint"

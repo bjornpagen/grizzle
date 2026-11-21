@@ -28,6 +28,7 @@ import {
 	transportJson
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
+import { isSha256Text } from "#compiler/core/digest.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import { type IdentityDigest, IdentityDigests, identityDigest } from "#compiler/core/fingerprint.ts"
 import {
@@ -79,7 +80,7 @@ import {
  * literal. A Money is its owned value (Money.of), carried as "~m:"; a Vector, a caller's mutable Float32Array, is the
  * frozen snapshot of its components Vector.canonical takes, carried as "~v:". Spans and the float special values are
  * wrapped so that no literal is mistaken for a record. A set over a roster is its handles in the roster's declared order,
- * each once; none is the empty set. A Text.matches pattern is its pattern value (ir/pattern.ts PatternValue), its
+ * each once; none is the empty set. A digest is its one text (core/sha256.ts sha256Text), wrapped as `{ sha256 }`. A Text.matches pattern is its pattern value (ir/pattern.ts PatternValue), its
  * language's key and its spelling, the spelling no part of its identity, so two spellings of one language are one
  * description.
  */
@@ -97,6 +98,7 @@ export type LiteralDesc =
 	  }
 	| { readonly float: FloatSpecialName }
 	| { readonly handles: ReadonlyArray<string> }
+	| { readonly sha256: string }
 	| PatternValue
 
 /** The pattern value a literal is (ir/pattern.ts PatternValue), the one literal that holds a spelling; undefined for any other. */
@@ -139,6 +141,7 @@ export type FieldDesc =
 	| { readonly kind: "exact"; readonly carrier: ExactValueCarrier }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "bytes" }
+	| { readonly kind: "sha256" }
 	| {
 			readonly kind: "text"
 			/** The text's patterns as declared: one for str.regex, the members of each text str.and joins. */
@@ -1081,6 +1084,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 		case "exact":
 		case "pattern":
 		case "bytes":
+		case "sha256":
 		case "span":
 		case "bits":
 		case "vector":
@@ -2496,6 +2500,9 @@ export const literalDescShape: S.Shape<LiteralDesc> = S.unionShape(
 	S.struct({ span: S.struct({ start: spanEndpointShape, end: spanEndpointShape }) }),
 	S.struct({ float: S.literalsShape(floatSpecialNames) }),
 	S.struct({ handles: S.uniqueStrings("a set's handles", S.nonEmptyString) }),
+	S.struct({
+		sha256: S.refine(S.string, isSha256Text, "a SHA-256 digest's one text, \\x and 64 hex digits")
+	}),
 	patternValueShape
 )
 
@@ -2748,6 +2755,7 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 	exact: S.struct({ carrier: S.literalsShape(exactValueCarriers) }),
 	uuid: S.struct({}),
 	bytes: S.struct({}),
+	sha256: S.struct({}),
 	text: S.refine(
 		S.structStated(
 			{ patterns: patternsShape, language: textLanguageShape },
@@ -3171,6 +3179,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 			return desc.name !== "instant" && closedFieldAdmits(desc.base)
 		case "exact":
 		case "bytes":
+		case "sha256":
 		case "span":
 		case "bits":
 		case "vector":

@@ -129,6 +129,11 @@ export interface PhysicalNames {
 		place: ParamPlace,
 		regex: RegexRef
 	) => { readonly schema: TypeSchema; readonly name: DomainName }
+	/**
+	 * The installation's digest domain (core/identity.ts identity.digestDomain), bytea of exactly 32 bytes, what a
+	 * digest column is typed by; a digest's cast and parameter are bytea, its length held at the door.
+	 */
+	readonly digestDomain: { readonly schema: TypeSchema; readonly name: DomainName }
 	/** The schema the vector extension lives in (`vector_ext` on the local cluster), the schema of its vector type. */
 	readonly vectorSchema: TypeSchema
 	/**
@@ -304,6 +309,7 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 		case "text":
 			return types.text
 		case "bytes":
+		case "sha256":
 			return types.bytea
 		case "range4":
 			return types.int4range
@@ -353,13 +359,39 @@ export const fieldColumnType = (names: PhysicalNames, t: ScalarType): ColumnType
 
 /**
  * The type a value of `t` is stored and cast as once its contract and text refinement are set aside: a closed id's
- * roster domain, its codes' range proof, or the base type.
+ * roster domain, its codes' range proof; a digest's domain, its length's; or the base type.
  */
 const refinedBase = (names: PhysicalNames, t: ScalarType): TypeRef => {
 	const b = baseOf(t)
-	return b.carrier === "code"
-		? qualifiedType(names.rosterDomain(b.roster.closed))
-		: baseTypeRef(names, t)
+	switch (b.carrier) {
+		case "code":
+			return qualifiedType(names.rosterDomain(b.roster.closed))
+		case "sha256":
+			return qualifiedType(names.digestDomain)
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "bool":
+		case "uuid":
+		case "date":
+		case "text":
+		case "bytes":
+		case "bits":
+		case "inet":
+		case "cidr":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "vector":
+		case "tsvector":
+		case "exactInteger":
+		case "exactMoney":
+			return baseTypeRef(names, t)
+	}
 }
 
 /** A column type of `type`, with the fixed collation when it is builtin text. */

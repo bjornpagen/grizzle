@@ -120,6 +120,7 @@ export const carrierSql = {
 	cidr: "cidr",
 	text: "text",
 	bytes: "bytea",
+	sha256: "sha256",
 	code: "code",
 	bits: "bits",
 	range4: "range",
@@ -615,6 +616,10 @@ const scalarAt = (
 			return Result.ok(
 				Object.freeze({ carrier: "bytes", caps: capabilitiesOf("bytes"), contract: undefined })
 			)
+		case "sha256":
+			return Result.ok(
+				Object.freeze({ carrier: "sha256", caps: capabilitiesOf("sha256"), contract: undefined })
+			)
 		case "pattern":
 			return Result.ok(
 				Object.freeze({
@@ -749,6 +754,8 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 			return capabilitiesOf("uuid")
 		case "bytes":
 			return capabilitiesOf("bytes")
+		case "sha256":
+			return capabilitiesOf("sha256")
 		case "text":
 		case "pattern":
 			return capabilitiesOf("text")
@@ -876,6 +883,14 @@ const contractOver = (
 				loc,
 				"equality",
 				`${typeLabel(base)} is stored only, so no predicate reads it; no contract is over bytes`
+			)
+		)
+	}
+	if (base.carrier === "sha256") {
+		return Result.err(
+			unsupported(
+				loc,
+				`contractBase: ${typeLabel(base)} is a digest, whose one predicate is its length, which its domain holds; no contract is over one`
 			)
 		)
 	}

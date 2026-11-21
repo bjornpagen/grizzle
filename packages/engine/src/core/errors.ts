@@ -1312,6 +1312,7 @@ export const valueFaultWords = [
 	"bytesCollision",
 	"bytesChanged",
 	"bytesLiteral",
+	"sha256Value",
 	"codeHandle",
 	"codeSubset",
 	"bitsType",

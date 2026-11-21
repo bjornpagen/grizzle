@@ -77,6 +77,7 @@ export const castInjective = (from: ScalarType, to: ScalarType): boolean => {
 			case "exactInteger":
 			case "exactMoney":
 			case "bytes":
+			case "sha256":
 				return true
 		}
 	}

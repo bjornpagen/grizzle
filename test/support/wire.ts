@@ -4,12 +4,21 @@
  * a test that fabricates one says so by name; grizzle's own code mints none but at the wire and its encoders.
  *
  * `echoed` is the tests' model of what PostgreSQL answers for a value it read from a parameter text: the output text
- * of that value as a reader tells it, the text itself for every carrier whose input and output forms coincide, and a
- * set's X and hex digits as bit_out's 0s and 1s, one per bit of the hex digits.
+ * of that value as a reader tells it, the text itself for every carrier whose input and output forms coincide, a
+ * set's X and hex digits as bit_out's 0s and 1s, one per bit of the hex digits, and a digest's `\x` and hex digits as
+ * its bytes' wire text, the base64url its delivery writes (core/wire.ts bytesWireAlphabet).
  */
 import { Array as Arr, String as Str } from "effect"
 import { nominal } from "#compiler/core/brand.ts"
-import type { OutputRows, OutputText, Param, ParamBinary, ParamText } from "#compiler/core/wire.ts"
+import { sha256FromText } from "#compiler/core/digest.ts"
+import {
+	bytesWireAlphabet,
+	type OutputRows,
+	type OutputText,
+	type Param,
+	type ParamBinary,
+	type ParamText
+} from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /** A text a test states PostgreSQL wrote. */
@@ -48,4 +57,8 @@ const digitBits = (digit: string): string =>
 export const echoed = (type: ScalarType, text: ParamText): OutputText =>
 	type.carrier === "bits"
 		? outputText(Arr.join(Arr.map(Str.split("")(Str.slice(1)(text)), digitBits), ""))
-		: outputText(text)
+		: type.carrier === "sha256"
+			? outputText(
+					sha256FromText(text).toBase64({ alphabet: bytesWireAlphabet, omitPadding: true })
+				)
+			: outputText(text)

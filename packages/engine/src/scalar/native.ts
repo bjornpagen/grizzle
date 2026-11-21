@@ -109,6 +109,11 @@ export const nativeCapabilities = {
 	 * back whole, so no key, rule, computation, parameter or filter reads one.
 	 */
 	bytes: ["storage"],
+	/**
+	 * A digest is bytea of exactly 32 bytes: bytea_ops for B-tree, its hash class, and btree_gist's gist_bytea_ops, which
+	 * compare its bytes; PostgreSQL has no min(bytea) or max(bytea).
+	 */
+	sha256: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	/** A closed id is its code, a smallint under its roster's domain, ordered by code: int2's classes and order. */
 	code: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
 	/**
@@ -172,6 +177,7 @@ export type PlainCarrier =
 	| "date"
 	| "inet"
 	| "cidr"
+	| "sha256"
 
 /** The plain result type of a carrier, frozen: no contract. */
 export const plainType = (carrier: PlainCarrier): ScalarType =>

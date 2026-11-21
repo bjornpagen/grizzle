@@ -185,6 +185,7 @@ export const productionNames = (
 			schema: types,
 			name: identifierOf(identity.rosterDomain(roster))
 		}),
+		digestDomain: { schema: types, name: identifierOf(identity.digestDomain()) },
 		bitsDomain: (roster) => {
 			const codec = codes.rosters.get(roster)
 			if (codec === undefined) {

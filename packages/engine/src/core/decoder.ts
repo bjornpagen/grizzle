@@ -24,6 +24,7 @@ export type ConvertedCarrier =
 	| "inet"
 	| "cidr"
 	| "text"
+	| "sha256"
 	| "tsvector"
 	| "range4"
 	| "range8"

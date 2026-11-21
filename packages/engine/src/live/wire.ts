@@ -27,6 +27,7 @@ import {
 	isFloatSpecialName,
 	type Json
 } from "#compiler/core/canonical.ts"
+import { sha256Octets } from "#compiler/core/digest.ts"
 import { isList, isPlainRecord } from "#compiler/core/record.ts"
 import { validateText } from "#compiler/core/text.ts"
 import { int2Max, int2Min, int4Min, int8Max, int8Min } from "#compiler/ir/carriers.ts"
@@ -164,6 +165,7 @@ interface WireExtras {
 	readonly cidr: unknown
 	readonly text: unknown
 	readonly bytes: unknown
+	readonly sha256: unknown
 	readonly code: { readonly handles: ReadonlyArray<string> }
 	readonly bits: { readonly handles: ReadonlyArray<string> }
 	readonly range4: { readonly width: WireWidth }
@@ -203,6 +205,7 @@ interface WireHost {
 	readonly cidr: Cidr
 	readonly text: string
 	readonly bytes: Uint8Array<ArrayBuffer>
+	readonly sha256: Uint8Array
 	readonly code: string
 	readonly bits: ReadonlySet<string>
 	readonly range4: Span<number>
@@ -235,6 +238,34 @@ const spelled = (language: RegexNode): WireSchema => ({
 	type: "string",
 	pattern: patternOf(language)
 })
+
+/**
+ * The schema of bytes on the wire, their base64 text (RFC 4648 §4), of at most `most` bytes: a bytes value's, of any
+ * length a bytea holds, and, at least as long as its 32 bytes' text, a digest's.
+ */
+const bytesSchema = (most: number): WireSchema => ({
+	...spelled(base64Texts(most)),
+	contentEncoding: "base64"
+})
+
+/**
+ * The bytes a caller's JSON spells on the wire, its base64 text, of `least` to `most` bytes: a JSON string (json),
+ * of base64 (spelling), of so many bytes (range).
+ */
+const bytesOf = (
+	json: unknown,
+	least: number,
+	most: number
+): Result.Result<Uint8Array<ArrayBuffer>, WireFaultKind> => {
+	if (typeof json !== "string") {
+		return Result.err("json")
+	}
+	const bytes = base64Bytes(json)
+	if (bytes === undefined) {
+		return Result.err("spelling")
+	}
+	return bytes.length < least || bytes.length > most ? Result.err("range") : Result.ok(bytes)
+}
 
 /** The greatest magnitude of a binary32 number: a float4's, and a vector component's, JSON number. */
 const binary32Greatest = binary32Max
@@ -732,24 +763,22 @@ const carrierWire: CarrierWires = {
 		is: isString
 	},
 	bytes: {
-		schema: () => ({
-			...spelled(base64Texts(bytesMaxLength)),
-			contentEncoding: "base64"
-		}),
+		schema: () => bytesSchema(bytesMaxLength),
 		encode: (value) => value.toBase64(),
-		parse: (json) => {
-			if (typeof json !== "string") {
-				return Result.err("json")
-			}
-			const bytes = base64Bytes(json)
-			if (bytes === undefined) {
-				return Result.err("spelling")
-			}
-			return bytes.length > bytesMaxLength ? Result.err("range") : Result.ok(bytes)
-		},
+		parse: (json) => bytesOf(json, 0, bytesMaxLength),
 		decode: (json) => Uint8Array.fromBase64(trustedString(json)),
 		is: (value): value is Uint8Array<ArrayBuffer> =>
 			value instanceof Uint8Array && value.buffer instanceof ArrayBuffer
+	},
+	sha256: {
+		schema: () => ({
+			...bytesSchema(sha256Octets),
+			minLength: new Uint8Array(sha256Octets).toBase64().length
+		}),
+		encode: (value) => value.toBase64(),
+		parse: (json) => bytesOf(json, sha256Octets, sha256Octets),
+		decode: (json) => Uint8Array.fromBase64(trustedString(json)),
+		is: (value): value is Uint8Array => value instanceof Uint8Array && value.length === sha256Octets
 	},
 	code: {
 		schema: (spec) => ({ type: "string", enum: [...spec.handles] }),

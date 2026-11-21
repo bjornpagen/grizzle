@@ -161,6 +161,7 @@ export const keyValueGen = (
 		case "float8":
 		case "money":
 		case "bool":
+		case "sha256":
 		case "bytes":
 		case "date":
 		case "inet":

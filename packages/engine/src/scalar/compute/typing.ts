@@ -134,7 +134,6 @@ import {
 	type CommonTypeOp,
 	commonTypeOf,
 	computeSpecs,
-	digestText,
 	type FixedFn,
 	type FixedOp,
 	type IeeeOp,
@@ -876,6 +875,7 @@ const carrierBounds = (t: PlainType): Bounds | undefined => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -1048,6 +1048,7 @@ const literalNumber = (
 		case "bool":
 		case "text":
 		case "uuid":
+		case "sha256":
 		case "date":
 		case "inet":
 		case "cidr":
@@ -1370,6 +1371,7 @@ export const withinGuards = (carrier: Carrier): boolean => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -3025,14 +3027,11 @@ class Typing<R extends Refs> {
 	}
 
 	/**
-	 * Crypto.sha256(x): the SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
-	 * `encode(sha256(x), 'hex')` and `encode(<textDigest>(x), 'hex')` (registry.ts bytesDigest, textSha256). It is the
-	 * one operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so
-	 * a bytes operand is a bytes reference, a row's field or a variable; a text operand is any text term. The node
-	 * computes text; the term is text of digestText's language (registry.ts), whose pattern bounds it at 64 bytes, so a
-	 * cast into a text type whose language holds it is proved, and a literal opposite it is judged by it; unanalyzed,
-	 * text of no pattern. Its SQL allocates 64 characters whatever x's length, so it stands in a query as in a check or
-	 * a generated field.
+	 * Crypto.sha256(x): the SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, its 32 bytes, `sha256(x)` and
+	 * `<textDigest>(x)` (registry.ts bytesDigest, textSha256), a digest (ir/scalar.ts DigestType). It is the one
+	 * operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so a
+	 * bytes operand is a bytes reference, a row's field or a variable; a text operand is any text term. Its SQL
+	 * allocates 32 bytes whatever x's length, so it stands in a query as in a check or a generated field.
 	 */
 	sha256(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.whole(subjectDesc, childLoc(at, 0))
@@ -3045,16 +3044,7 @@ class Typing<R extends Refs> {
 			)
 		}
 		const op = this.overload("sha256", [x.actual], at)
-		const node = this.native(op, [x], wildcardText, undefined, at, spelling.sha256)
-		const analysis = this.env.analysis
-		return analysis.kind === "unanalyzed"
-			? node
-			: this.restate(
-					node,
-					this.textWithin([digestText], undefined, analysis.lookup, at),
-					node.actual,
-					node.facts
-				)
+		return this.native(op, [x], plainType("sha256"), undefined, at, spelling.sha256)
 	}
 
 	/**
@@ -4502,6 +4492,7 @@ class Typing<R extends Refs> {
 			case "cidr":
 			case "text":
 			case "bytes":
+			case "sha256":
 			case "code":
 			case "bits":
 			case "range4":
@@ -4743,6 +4734,7 @@ const roundingScale = (target: ScalarType): number => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -4786,6 +4778,7 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -4951,6 +4944,7 @@ const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":

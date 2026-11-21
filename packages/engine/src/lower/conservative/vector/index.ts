@@ -157,11 +157,9 @@ export const lowerVectorOp = (
 		case "lowerAscii":
 		case "parseDouble":
 		case "parseDecimal":
-		case "sha256":
 		case "floatBits":
 		case "utf16Length":
 		case "library":
-		case "textSha256":
 		case "canonicalZero":
 		case "searchPart":
 		case "textSearch":

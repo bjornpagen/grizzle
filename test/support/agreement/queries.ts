@@ -3583,6 +3583,7 @@ const keyValueText = (type: ScalarType): string => {
 		case "inet":
 		case "cidr":
 		case "text":
+		case "sha256":
 		case "bytes":
 		case "bits":
 		case "range8":

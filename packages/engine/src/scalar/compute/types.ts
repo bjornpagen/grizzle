@@ -121,6 +121,7 @@ export const exactNumericBound = (t: ScalarType): NumericBound | undefined => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -163,6 +164,7 @@ export const familyDigits = (t: ScalarType): number | undefined => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -359,6 +361,7 @@ export const exactFamily = (t: ScalarType): "exactInteger" | "exactMoney" | unde
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":

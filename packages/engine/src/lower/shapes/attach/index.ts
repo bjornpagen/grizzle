@@ -30,6 +30,7 @@ import {
 	partialOrder
 } from "#compiler/lower/conservative/take/order.ts"
 import type { DeliveredBreach } from "#compiler/lower/conservative/types.ts"
+import { resultCast } from "#compiler/lower/delivery.ts"
 import { attachmentRead } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { keyedGroup } from "#compiler/lower/shapes/aggregate/index.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
@@ -40,7 +41,6 @@ import type { Expr, OperandSelect, OrderItem, Select, Target } from "#compiler/s
 import {
 	asc,
 	call,
-	cast,
 	conjunction,
 	countStar,
 	distinctCore,
@@ -106,10 +106,6 @@ const childRows = (
 	)
 }
 
-/** A value as its exact result text (codec resultTextCasts): money through numeric. */
-const asText = (e: Expr, castTypes: ReadonlyArray<"numeric" | "text">): Expr =>
-	castTypes.reduce<Expr>((acc, t) => cast(acc, t === "numeric" ? types.numeric : types.text), e)
-
 /**
  * The fused attachment column: ARRAY(SELECT <text> FROM (<child rows>) AS r(...) [ORDER BY ...]). The
  * child reads the delivered parent row through `parentMap`, the columns of the parent statement's derived table, so the
@@ -129,8 +125,8 @@ const fusedAttachment = (
 	/** The element's fields are columns of the child's heading. */
 	const fields = fusedElement(fusedLayout(attach, child.heading, attach.parent.heading))
 	const texts: NonEmptyReadonlyArray<Expr> = isNonEmpty(fields)
-		? mapNonEmpty(fields, (c) => asText(columnIn(wrapped.map, c.name), resultTextCasts(c.type)))
-		: [asText(lit.bool(true), ["text"])]
+		? mapNonEmpty(fields, (c) => resultCast(columnIn(wrapped.map, c.name), resultTextCasts(c.type)))
+		: [resultCast(lit.bool(true), ["text"])]
 	const element: Expr = texts.length === 1 ? texts[0] : call("to_jsonb", [row(texts)])
 	const orderBy: ReadonlyArray<OrderItem> =
 		attach.order === undefined || child.heading.length === 0

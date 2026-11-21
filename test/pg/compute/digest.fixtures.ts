@@ -3,25 +3,25 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
-import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Order } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
-import { Crypto, Type } from "#compiler/public/compute.ts"
+import { Crypto } from "#compiler/public/compute.ts"
 import {
 	accumulated,
 	bytes,
 	drawn as drawnField,
 	generated,
-	natural
+	natural,
+	Sha256,
+	sha256
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, fin, on, ordered, relation, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
 import { compiledExpr } from "#compiler/scalar/compute/evaluate.ts"
 import type { Lowered } from "#compiler/scalar/compute/lower.ts"
-import { CompilePatterns, ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
@@ -134,18 +134,7 @@ const lowered = (mode: "check" | "query"): Lowered =>
 		`Crypto.sha256 lowers in a ${mode}`
 	).root
 
-/** The digests' spelling, 64 lowercase hex digits, as encode's 'hex' writes 32 bytes: the stated language's oracle. */
-export const digestSpelling = regex("^[0-9a-f]{64}$")
-
-/** A digest's neighbours outside the spelling, or in it where they happen to be: uppercase, a digit short, one more, a non-hex digit first. */
-export const neighbours = (digest: string): ReadonlyArray<string> => [
-	Str.toUpperCase(digest),
-	Str.slice(1)(digest),
-	`${digest}0`,
-	`g${Str.slice(1)(digest)}`
-]
-
-/** The host evaluator's value of a lowered term over a bytes value, as a write admits it. */
+/** The host evaluator's value of a lowered term over a bytes value, as a write admits it: its bytes, as hex. */
 export const hostDigest = (term: Lowered, body: Uint8Array<ArrayBuffer>): string => {
 	const table = predicateTable(term.expr)
 	const admitted = new AdmittedBytes(body)
@@ -156,41 +145,44 @@ export const hostDigest = (term: Lowered, body: Uint8Array<ArrayBuffer>): string
 		),
 		"the host evaluates the digest"
 	)
-	if (typeof value !== "string") {
-		return assert.fail(`the host's digest is a text, not ${Formatter.format(value)}`)
+	if (!(value instanceof Uint8Array)) {
+		return assert.fail(`the host's digest is its bytes, not ${Formatter.format(value)}`)
 	}
-	return value
+	return value.toHex()
 }
 
 /** A byte array's hex text, which the batch's SQL decodes. */
 export const hexOf = (body: Uint8Array<ArrayBuffer>): string => Buffer.from(body).toString("hex")
 
-/** The patterns membership in a term's stated language is read by, parsed as the compile parses them. */
-export const patterns = new CompilePatterns()
-
-/** Every value's digest, row by row: the check's rendered SQL, the query's, and PostgreSQL's own encode(sha256(v), 'hex'). */
+/**
+ * Every value's digest, row by row, each as hex beside its length: the check's rendered SQL, the query's, and
+ * PostgreSQL's own sha256(v), so the three are compared as bytes.
+ */
 export const digestsSql = (check: Lowered, read: Lowered): string =>
-	`SELECT (${renderSql(check.expr, plainRender)})::text, (${renderSql(read.expr, plainRender)})::text, pg_catalog.encode(pg_catalog.sha256(r0.v), 'hex') FROM unnest($1::text[]) WITH ORDINALITY AS h(hex, ord) CROSS JOIN LATERAL (SELECT pg_catalog.decode(h.hex, 'hex') AS v) AS r0 ORDER BY h.ord`
+	`SELECT pg_catalog.encode(${renderSql(check.expr, plainRender)}, 'hex'), pg_catalog.encode(${renderSql(read.expr, plainRender)}, 'hex'), pg_catalog.encode(pg_catalog.sha256(r0.v), 'hex'), (pg_catalog.octet_length(${renderSql(check.expr, plainRender)}) = pg_catalog.octet_length(pg_catalog.sha256(r0.v)))::text FROM unnest($1::text[]) WITH ORDINALITY AS h(hex, ord) CROSS JOIN LATERAL (SELECT pg_catalog.decode(h.hex, 'hex') AS v) AS r0 ORDER BY h.ord`
 
-/** The pantry's digest type: 64 lowercase hex digits, every digest's language. */
-const Digest = str.regex("^[0-9a-f]{64}$")
+/**
+ * The start a page's copy holds at its axis's base, which no page reaches: its owner axis copies every page's owner. A
+ * digest literal, any digest's, the empty value's here.
+ */
+const noDigest = Sha256.ofBytes(new Uint8Array())
 
-/** The start a page's copy holds at its axis's base, which no page reaches: its owner axis copies every page's owner. */
-const noDigest = Str.repeat(64)("0")
-
+/**
+ * An entry stores its bytes `content` and generates `digest`, a sha256 field of their SHA-256, the pantry's
+ * declaration `generated(sha256, Crypto.sha256(row.content))`.
+ */
 export const Entry = relation.generated(
 	"Entry",
 	{ id: Id, content: bytes, pages: drawnField(natural) },
 	["id"],
 	(row) => ({
-		digest: generated(Digest, Crypto.sha256(row.content)),
-		proved: generated(Digest, Type.cast(Crypto.sha256(row.content), Digest))
+		digest: generated(sha256, Crypto.sha256(row.content))
 	})
 )
 
 const Page = relation(
 	"Page",
-	{ id: Id, entry: Id, at: drawnField(natural), entryDigest: accumulated(Digest, noDigest) },
+	{ id: Id, entry: Id, at: drawnField(natural), entryDigest: accumulated(sha256, noDigest) },
 	["id"]
 )
 
@@ -211,14 +203,12 @@ export const Media = schema(
 export const programs = Object.freeze({
 	insertEntries: ChangeSet.empty(Media).insert(Entry, []),
 	entries: query(Media).rule((r) => {
-		const { id, digest, proved } = v(Entry, "e")
-		return r.match(Entry, { id, digest, proved }).find({ id, digest, proved })
+		const { id, digest } = v(Entry, "e")
+		return r.match(Entry, { id, digest }).find({ id, digest })
 	}),
 	computed: query(Media).rule((r) => {
 		const { id, content } = v(Entry, "e")
-		return r
-			.match(Entry, { id, content })
-			.find({ id, computed: Type.cast(Crypto.sha256(content), Digest) })
+		return r.match(Entry, { id, content }).find({ id, computed: Crypto.sha256(content) })
 	}),
 	pages: query(Media).rule((r) => {
 		const { id, entry, entryDigest } = v(Page, "p")

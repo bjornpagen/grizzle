@@ -1,6 +1,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { floatSpecials, isFloatSpecialName, taggedValueOf } from "#compiler/core/canonical.ts"
+import { isSha256Text, sha256FromText, sha256Octets, sha256Text } from "#compiler/core/digest.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { floatLiteral, VectorText, vectorTag } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, dateOfDayNumber, dayNumber, toCalendarDate } from "#compiler/ir/date.ts"
@@ -325,6 +326,15 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			return typeof value === "string" ? Result.ok({ kind: "text", value }) : Result.err("a string")
 		case "bytes":
 			return Result.err("no literal: a bytes value is written and read back whole")
+		case "sha256": {
+			const text =
+				isRecord(value) && Object.hasOwn(value, "sha256") && "sha256" in value
+					? value.sha256
+					: undefined
+			return typeof text === "string" && isSha256Text(text)
+				? Result.ok({ kind: "sha256", value: text })
+				: Result.err(`a SHA-256 digest: a Uint8Array of exactly ${sha256Octets} bytes`)
+		}
 		case "tsvector":
 			return Result.err("no literal: a search document is PostgreSQL's parse of its row's texts")
 		case "code":
@@ -443,6 +453,8 @@ export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValu
 		case "inet":
 		case "cidr":
 			return literal.value
+		case "sha256":
+			return sha256FromText(literal.value)
 		case "handle":
 			return literal.handle
 		case "handles":
@@ -491,6 +503,8 @@ export const literalOfHost = (value: HostValue, type: ScalarType): TypedLiteral 
 			return { kind: "text", value: hostOf("text", value) }
 		case "uuid":
 			return { kind: "uuid", value: hostOf("uuid", value) }
+		case "sha256":
+			return { kind: "sha256", value: sha256Text(hostOf("sha256", value)) }
 		case "date":
 			return { kind: "date", value: hostOf("date", value) }
 		case "inet":

@@ -27,6 +27,7 @@ export const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, str
 	money: "money",
 	bool: "bool",
 	uuid: "uuid",
+	sha256: "bytea",
 	date: "date",
 	inet: "inet",
 	cidr: "cidr",

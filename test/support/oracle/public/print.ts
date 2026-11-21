@@ -47,6 +47,7 @@ const literal = (l: TypedLiteral): string => {
 		case "bool":
 			return `${l.value}`
 		case "text":
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":

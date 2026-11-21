@@ -20,6 +20,7 @@ import {
 import { bigint, double, uuid } from "@bjornpagen/testing/values"
 import { Array as Arr, Record as Rec, String as Str } from "effect"
 import { int4Max } from "#compiler/core/canonical.ts"
+import { sha256Octets } from "#compiler/core/digest.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
 import { trusted } from "#compiler/core/trusted.ts"
@@ -92,6 +93,7 @@ const specOf =
 			case "cidr":
 			case "text":
 			case "bytes":
+			case "sha256":
 			case "tsvector":
 				return { carrier }
 			case "numeric":
@@ -239,6 +241,8 @@ const valueOf =
 				return source.draw(textGen)
 			case "bytes":
 				return new Uint8Array(source.draw(bytes({ min: 0, max: 12 })))
+			case "sha256":
+				return new Uint8Array(source.draw(bytes({ min: sha256Octets, max: sha256Octets })))
 			case "code":
 				return source.draw(element(nonEmpty(spec.handles, "a drawn closed id's roster's handles")))
 			case "bits": {
@@ -460,6 +464,7 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 		case "inet":
 		case "cidr":
 		case "text":
+		case "sha256":
 		case "tsvector":
 		case "exactMoney":
 			return { carrier: spec.carrier }

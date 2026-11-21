@@ -198,6 +198,7 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 			throw new Error(
 				`a compute case of a ${c} is compared under its roster's codes, which an evaluation case does not carry`
 			)
+		case "sha256":
 		case "bytes":
 			throw new Error("no compute case reads bytes, which are stored only")
 		case "tsvector":

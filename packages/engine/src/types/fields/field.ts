@@ -99,6 +99,11 @@ export type NotStoredOnly<Sql> = [Sql] extends [StoredOnlySql]
 	? Refusal<"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them">
 	: unknown
 
+/** A contract's base that is no digest, whose one predicate is its length, which its domain holds (ir/scalar.ts DigestType). */
+export type NotDigest<Sql> = [Sql] extends ["sha256"]
+	? Refusal<"a digest is never a contract's base: its one predicate is its length, which its domain holds">
+	: unknown
+
 /**
  * Whether a column's type is a bare uuid: of SQL type uuid, its values every Uuid, with no brand, which a contract over
  * uuid gives them (Contract), so no contract names whose id it holds.

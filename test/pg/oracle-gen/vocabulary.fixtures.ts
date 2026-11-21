@@ -107,6 +107,8 @@ export const sqlLiteral = (literal: TypedLiteral, type: ScalarType, schema: stri
 			return literal.value ? "TRUE" : "FALSE"
 		case "text":
 			return `${quoteString(literal.value)}::text`
+		case "sha256":
+			return `${quoteString(literal.value)}::bytea`
 		case "uuid":
 			return `${quoteString(literal.value)}::uuid`
 		case "date":

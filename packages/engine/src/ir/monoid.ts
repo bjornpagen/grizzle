@@ -190,6 +190,7 @@ const summable = (t: ScalarType): boolean => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -240,6 +241,7 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -287,6 +289,7 @@ const leastOf = (t: ScalarType): TypedLiteral | undefined => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "bits":
 		case "range4":
 		case "range8":

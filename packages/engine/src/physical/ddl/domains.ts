@@ -75,7 +75,9 @@ export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
  * creates one. */
 export interface UsedType {
 	readonly name: ObjectName
-	readonly identity: Identity<"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain">
+	readonly identity: Identity<
+		"contractDomain" | "textDomain" | "rosterDomain" | "bitsDomain" | "digestDomain"
+	>
 	readonly node: Node<"setup"> | undefined
 }
 
@@ -88,7 +90,7 @@ export interface TypeUse {
 export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 
 /** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
- * refinement's, a closed id's roster domain and a set's bits domain. */
+ * refinement's, a closed id's roster domain, a set's bits domain and a digest's domain. */
 const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const { contract } = t
 	if (contract !== undefined) {
@@ -115,6 +117,14 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 			name,
 			identity: b.names.bitsNamed(t.roster.closed),
 			node: b.typeNamed(name)
+		})
+	}
+	if (t.carrier === "sha256") {
+		const name = b.names.digestDomain
+		use.domains.set(nameKey(name), {
+			name,
+			identity: identity.digestDomain(),
+			node: b.digestDomain
 		})
 	}
 	const span = spanOf(t)

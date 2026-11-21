@@ -11,6 +11,7 @@ import {
 	Refusal
 } from "#compiler/core/canonical.ts"
 import type { DecimalParts } from "#compiler/core/decimal.ts"
+import { isSha256Text } from "#compiler/core/digest.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
 import type { FunctionVolatility } from "#compiler/core/function.ts"
@@ -305,6 +306,11 @@ export type TypedLiteral =
 	| { readonly kind: "bool"; readonly value: boolean }
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "uuid"; readonly value: string }
+	| {
+			readonly kind: "sha256"
+			/** The digest's one text, `\x` and two lowercase hex digits a byte (scalar/values/sha256.ts sha256Text). */
+			readonly value: string
+	  }
 	| { readonly kind: "date"; readonly value: CalendarDate }
 	| { readonly kind: "inet"; readonly value: Inet }
 	| { readonly kind: "cidr"; readonly value: Cidr }
@@ -350,6 +356,7 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "floatSpecial":
 		case "money":
 		case "uuid":
+		case "sha256":
 		case "date":
 		case "inet":
 		case "cidr":
@@ -950,6 +957,7 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 		case "bool":
 		case "text":
 		case "uuid":
+		case "sha256":
 		case "date":
 		case "inet":
 		case "cidr":
@@ -1018,6 +1026,13 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 				return `a uuid literal is not a ${carrier} value`
 			}
 			return isUuidText(literal.value) ? undefined : "a uuid literal is lowercase 8-4-4-4-12 hex"
+		case "sha256":
+			if (carrier !== "sha256") {
+				return `a digest literal is not a ${carrier} value`
+			}
+			return isSha256Text(literal.value)
+				? undefined
+				: "a digest literal is \\x and 64 lowercase hex digits"
 		case "date":
 			if (carrier !== "date") {
 				return `a date literal is not a ${carrier} value`

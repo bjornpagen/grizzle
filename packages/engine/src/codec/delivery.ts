@@ -13,7 +13,7 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { bytesValueOf, rowCell, rowText } from "#compiler/core/decoder.ts"
-import type { AssembledRows, Cell, OutputRows } from "#compiler/core/wire.ts"
+import { type AssembledRows, type Cell, intoWire, type OutputRows } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 /**
@@ -166,9 +166,7 @@ const assembleChunks = (
 		}
 		const offset = Number(rowText(row, chunkAt)) * chunkLength
 		for (const at of bytes) {
-			bytesValueOf(rowCell(into.cells, at))
-				.subarray(offset)
-				.setFromBase64(rowText(row, cellsFrom + at), { alphabet: "base64url" })
+			intoWire(bytesValueOf(rowCell(into.cells, at)).subarray(offset), rowText(row, cellsFrom + at))
 		}
 	}
 	return Array.from(byOrd.values())

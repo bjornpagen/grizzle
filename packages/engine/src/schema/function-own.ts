@@ -38,7 +38,7 @@ export interface OwnedFunction {
  * is, a closed id, passed as its code, which the call casts to its roster's domain where it reads the function's value,
  * or a contract or a refined text over one; never money, whose text is the session's locale's, an exact value of any
  * size, whose integers or scale only a stored column's CHECK holds and no cast of a function's value checks, bytes, a
- * set, a span, a vector or a search document.
+ * digest, a set, a span, a vector or a search document.
  */
 const signatureType = (t: FieldDesc): boolean => {
 	switch (t.kind) {
@@ -53,6 +53,7 @@ const signatureType = (t: FieldDesc): boolean => {
 			return signatureType(t.base)
 		case "exact":
 		case "bytes":
+		case "sha256":
 		case "pattern":
 		case "span":
 		case "bits":

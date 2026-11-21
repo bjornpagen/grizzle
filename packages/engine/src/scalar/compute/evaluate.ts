@@ -6,7 +6,7 @@ import { resolveReference } from "@bjornpagen/grizzle-text/uri"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { regexTextMaxBytes } from "#compiler/core/errors.ts"
 import type { ExprId } from "#compiler/core/ids.ts"
-import { sha256Hex } from "#compiler/core/sha256.ts"
+import { sha256Digest } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
 import { declaredOrder } from "#compiler/ir/codes.ts"
 import { dayNumber } from "#compiler/ir/date.ts"
@@ -171,6 +171,7 @@ export const evaluatorOrder = (type: ScalarType): OrderSpec => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "vector":
 		case "tsvector":
 		case "range4":
@@ -297,6 +298,7 @@ const integerOf = (c: Carrier): ((v: HostValue) => bigint) => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -336,6 +338,7 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -491,6 +494,7 @@ const arithmetic = (
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -547,6 +551,7 @@ const signed = (fn: "neg" | "abs" | "sign", c: Carrier, type: ScalarType): Unary
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":
@@ -572,9 +577,9 @@ type Apply = (args: ReadonlyArray<HostValue>, patterns: PatternReads) => SqlResu
  * IEEE 754, comparisons, BETWEEN and IN by the type's order (comparison), NOT, char_length, a text's UTF-16 code units
  * (String.length, within the bytes PostgreSQL's regex engine reads), a text's concatenation, prefix and suffix tests,
  * regex match (by the pattern's automaton) and translation (by code points, as PostgreSQL's translate reads them), a
- * double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, worked out by
- * core/sha256.ts sha256Hex where the value was admitted (scalar/values/bytes.ts AdmittedBytes), and a text's, the
- * digest of its UTF-8 as sha256Hex hashes a well-formed text, which every text a check reads is, span endpoints, LEAST
+ * double's parse from its decimal text, a decimal's from its text, a bytes value's SHA-256 digest, its bytes read off
+ * the hex digest worked out where the value was admitted (scalar/values/bytes.ts AdmittedBytes), and a text's, the
+ * digest of its UTF-8 as core/sha256.ts sha256Digest hashes a well-formed text, which every text a check reads is, span endpoints, LEAST
  * and GREATEST by the type's order, and a set's union, intersection, difference, cardinality, subset and
  * disjointness, and a set with one more handle, over its handles. Each case reads its operands as the host values of
  * the carriers its overload takes (identity.ts hostOf); the IR's typing guarantees them, so another is a defect. `and`,
@@ -673,8 +678,8 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(xsdPattern(hostOf("text", a(args))).ok)
 		case "sha256":
 			return c === "bytes"
-				? (args) => Result.ok(hostOf("bytes", a(args)).digest)
-				: (args) => Result.ok(sha256Hex(wellFormed(hostOf("text", a(args)))))
+				? (args) => Result.ok(Uint8Array.fromHex(hostOf("bytes", a(args)).digest))
+				: (args) => Result.ok(sha256Digest(wellFormed(hostOf("text", a(args)))))
 		case "floatBits": {
 			const carrier =
 				baseOf(defined(argTypes[0], "floatBits's operand")).carrier === "float4"

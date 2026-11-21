@@ -247,6 +247,7 @@ export const family = (t: ScalarType): Family => {
 		case "range8":
 		case "rangeDate":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "uuid":
 		case "date":

@@ -2406,6 +2406,7 @@ const hostText = (t: ScalarType): string => {
 						),
 						" & "
 					)
+		case "sha256":
 		case "bytes":
 			return "Uint8Array<ArrayBuffer>"
 		case "code":

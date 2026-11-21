@@ -49,6 +49,7 @@ export type IdentityKind =
 	| "rosterConstant"
 	| "rosterLive"
 	| "bitsDomain"
+	| "digestDomain"
 	| "closedConstant"
 	| "libraryFunction"
 	| "rowFunction"
@@ -161,11 +162,11 @@ export type ConstraintName = Identifier<
 /** A non-unique access index the index engine creates. */
 export type IndexName = Identifier<"accessIndex">
 /**
- * A contract's domain, a structural text domain, a parameter's pattern domain, a roster's domain, or a set's domain over
- * a roster.
+ * A contract's domain, a structural text domain, a parameter's pattern domain, a roster's domain, a set's domain over a
+ * roster, or the installation's digest domain.
  */
 export type DomainName = Identifier<
-	"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain"
+	"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain" | "digestDomain"
 >
 export type SchemaFingerprint = string & { readonly [schemaFingerprintBrand]: true }
 

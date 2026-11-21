@@ -120,6 +120,7 @@ export const lowerLiteral = (
 			return lit.bool(literal.value)
 		case "text":
 		case "uuid":
+		case "sha256":
 		case "date":
 		case "inet":
 		case "cidr":

@@ -133,6 +133,7 @@ export const refusals = [
 	"arms of different headings share a field that holds a different constant in each",
 	"bind the query's parameters before matching it or passing it as rows: Q.bind({ ... })",
 	"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them",
+	"a digest is never a contract's base: its one predicate is its length, which its domain holds",
 	"clocked binds at least one parameter of the program to the database's clock",
 	"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it",
 	"deferrable takes a read: a query, an ordered query, a paged one, a relation's key, an answered one or a clocked one",

@@ -355,6 +355,11 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		reason:
 			"a bytes value is stored only, so no query compares, orders or computes one; its round trip is judged on its own installation (test/pg/fields/bytes.test.ts)"
 	},
+	sha256: {
+		kind: "undrawn",
+		reason:
+			"a digest is Crypto.sha256's value or a host's Sha256, which the differential reference does not compute; its round trip, key, parameter and door are judged on its own installation (test/pg/fields/sha256.test.ts, test/pg/compute/digest.test.ts)"
+	},
 	tsvector: {
 		kind: "undrawn",
 		reason:
@@ -487,6 +492,7 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 		case "bool":
 			return literal.value
 		case "text":
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":
@@ -864,6 +870,7 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	cidr: canonicalOnly,
 	text: canonicalOnly,
 	bytes: canonicalOnly,
+	sha256: canonicalOnly,
 	tsvector: canonicalOnly,
 	code: canonicalOnly,
 	bits: canonicalOnly,

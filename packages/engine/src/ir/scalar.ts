@@ -23,7 +23,9 @@ import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
  * with its network's mask and a network (scalar/values/net.ts); bytes is bytea, a value stored and read back whole (BytesType); tsvector
  * is a search document, a value PostgreSQL alone computes and matches (SearchType); there is
  * no timestamp, interval, JSON or array carrier. exactInteger and exactMoney are the exact arithmetic carriers
- * (ExactType), and a field of any size of each holds what that arithmetic delivers.
+ * (ExactType), and a field of any size of each holds what that arithmetic delivers. sha256 is a SHA-256 digest, 32 bytes
+ * of bytea under the installation's digest domain (DigestType), the newest carrier and so the last, every other's place
+ * among them kept.
  */
 export const carriers = [
 	"int2",
@@ -48,7 +50,8 @@ export const carriers = [
 	"vector",
 	"tsvector",
 	"exactInteger",
-	"exactMoney"
+	"exactMoney",
+	"sha256"
 ] as const
 export type Carrier = (typeof carriers)[number]
 
@@ -79,6 +82,7 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	cidr: false,
 	text: false,
 	bytes: false,
+	sha256: false,
 	code: true,
 	bits: false,
 	range4: false,
@@ -114,6 +118,7 @@ export const routable: Readonly<Record<Carrier, boolean>> = {
 	cidr: false,
 	text: true,
 	bytes: false,
+	sha256: false,
 	code: true,
 	bits: false,
 	range4: true,
@@ -604,6 +609,19 @@ interface BytesType {
 	readonly contract: undefined
 }
 
+/**
+ * sha256: a SHA-256 digest, exactly sha256Octets bytes (core/sha256.ts), stored as bytea under the installation's digest
+ * domain, whose CHECK holds its length (physical/ddl/context.ts digestDomain), and held on the host as its bytes
+ * (scalar/values/sha256.ts Sha256). It is what Crypto.sha256 yields, and, unlike bytes, a value of bounded length that
+ * bytea's B-tree and hash classes compare by its bytes, so a key, a reference and a comparison read it. No contract is
+ * over one: its one predicate is its length, which its domain holds.
+ */
+interface DigestType {
+	readonly carrier: "sha256"
+	readonly caps: CapabilitySet
+	readonly contract: undefined
+}
+
 interface SpanType {
 	readonly carrier: SpanCarrier
 	readonly caps: CapabilitySet
@@ -660,6 +678,7 @@ export type PlainType =
 	| BareType
 	| TextType
 	| BytesType
+	| DigestType
 	| CodeType
 	| BitsType
 	| SpanType
@@ -669,9 +688,9 @@ export type PlainType =
 
 /**
  * The plain value domains a contract is over at its last level: every value type a field declares but an exact value, a
- * set, bytes and a search document.
+ * set, bytes, a digest and a search document.
  */
-type ContractedType = Exclude<PlainType, ExactType | BitsType | BytesType | SearchType>
+type ContractedType = Exclude<PlainType, ExactType | BitsType | BytesType | DigestType | SearchType>
 
 /** The carriers a contract is over. */
 export type ContractCarrier = ContractedType["carrier"]
@@ -700,11 +719,11 @@ export type ContractBase = ContractedType | ContractTypes
 
 /**
  * What a field descriptor declares (scalar/registry.ts scalarTypeOf): a value domain a contract may be over, a set over
- * a roster, bytes, a search document, or an exact value at numeric's own limit (ExactType). An exact value's narrower
- * digit bound and a computed numeric's narrower bound are a value's making, which no declaration states. How a field is
- * written, by its sequence among the ways, is the field's writing, never its type.
+ * a roster, bytes, a digest, a search document, or an exact value at numeric's own limit (ExactType). An exact value's
+ * narrower digit bound and a computed numeric's narrower bound are a value's making, which no declaration states. How a
+ * field is written, by its sequence among the ways, is the field's writing, never its type.
  */
-export type DeclaredType = ContractBase | BitsType | BytesType | SearchType | ExactType
+export type DeclaredType = ContractBase | BitsType | BytesType | DigestType | SearchType | ExactType
 
 /** A date: a calendar day, or a contract over one, as a span's endpoint, a closed id's payload or a field. */
 export type DateType = (BareType & { readonly carrier: "date" }) | ContractType<"date">
@@ -948,6 +967,7 @@ const samePlain = (a: PlainType, b: PlainType): boolean => {
 		case "inet":
 		case "cidr":
 		case "bytes":
+		case "sha256":
 			return true
 	}
 }
@@ -1046,6 +1066,7 @@ export const nativeNames = {
 	cidr: "cidr",
 	text: "text",
 	bytes: "bytea",
+	sha256: "bytea",
 	code: "smallint",
 	bits: "bit",
 	range4: "int4range",
@@ -1116,6 +1137,8 @@ export const typeLabel = (t: ScalarType): string => {
 		case "range8":
 		case "rangeDate":
 			return nativeNames[t.carrier]
+		case "sha256":
+			return "sha256 digest"
 		case "exactInteger":
 			return `exact integer of ${t.digits} digits`
 		case "exactMoney":

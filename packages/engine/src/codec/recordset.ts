@@ -227,6 +227,7 @@ const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm }
 	cidr: literalArray,
 	text: textBinaryArray,
 	bytes: () => binaryArray,
+	sha256: literalArray,
 	code: literalArray,
 	bits: literalArray,
 	range4: literalArray,

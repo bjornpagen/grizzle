@@ -129,6 +129,8 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return numericColumn(desc)
 		case "exact":
 			return carrierColumn(desc.carrier)
+		case "sha256":
+			return plainColumns.sha256
 		case "uuid":
 			return plainColumns.uuid
 		case "text":
@@ -607,6 +609,7 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 			return { kind: "literal", value: { kind: "bool", value: literal.value }, type }
 		case "text":
 		case "uuid":
+		case "sha256":
 		case "date":
 		case "inet":
 		case "cidr":

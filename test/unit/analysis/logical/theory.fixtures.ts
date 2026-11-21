@@ -109,6 +109,7 @@ export const identityOf = (desc: FieldDesc): string => {
 		case "numeric":
 		case "exact":
 		case "bytes":
+		case "sha256":
 		case "uuid":
 		case "text":
 		case "pattern":
@@ -147,6 +148,7 @@ export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 			case "numeric":
 			case "exact":
 			case "bytes":
+			case "sha256":
 			case "uuid":
 			case "text":
 			case "pattern":
@@ -187,6 +189,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 					case "pg":
 					case "exact":
 					case "bytes":
+					case "sha256":
 					case "uuid":
 					case "pattern":
 					case "contract":

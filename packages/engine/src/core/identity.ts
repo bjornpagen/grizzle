@@ -1191,6 +1191,12 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
+	 * The installation's digest domain, bytea of exactly 32 bytes, which every SHA-256 digest column is typed by: one per
+	 * installation, its definition fixed by SHA-256's length.
+	 */
+	digestDomain: (): Identity<"digestDomain"> =>
+		mint("digestDomain", [], ["sha256"], "the SHA-256 digest domain", readable("__sha256")),
+	/**
 	 * A closed relation's or a side's constant, named by the digest of its content alone: two of equal content are one
 	 * function, and a changed one is a new function.
 	 */
@@ -1430,10 +1436,18 @@ export const identity = Object.freeze({
 			`closed id subset check of ${relation}.${field}`,
 			hashed
 		),
-	/** A contract's, text domain's, roster's or set's domain's CHECK, `check` in its domain's constraint namespace. */
+	/**
+	 * A contract's, text domain's, roster's, set's or digest domain's CHECK, `check` in its domain's constraint
+	 * namespace.
+	 */
 	domainCheck: (
 		domain: Identity<
-			"contractDomain" | "textDomain" | "paramDomain" | "rosterDomain" | "bitsDomain"
+			| "contractDomain"
+			| "textDomain"
+			| "paramDomain"
+			| "rosterDomain"
+			| "bitsDomain"
+			| "digestDomain"
 		>
 	): Identity<"domainCheck"> =>
 		mint(

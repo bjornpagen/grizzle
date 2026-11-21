@@ -233,6 +233,7 @@ export const modelLiteral = (literal: TypedLiteral): ModelValue => {
 		case "bool":
 			return literal.value
 		case "text":
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":
@@ -538,6 +539,7 @@ export const compareCarried = (
 			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
 		case "inet":
 		case "cidr":
+		case "sha256":
 		case "bytes":
 		case "tsvector":
 			return undefined

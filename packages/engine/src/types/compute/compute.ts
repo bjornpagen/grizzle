@@ -19,6 +19,7 @@ import type {
 import type { guarded } from "#compiler/scalar/compute/term.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
+import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import type {
 	Admitted,
@@ -1329,18 +1330,15 @@ export interface XmlApi {
 /** The Crypto namespace: a value's SHA-256 digest. */
 export interface CryptoApi {
 	/**
-	 * The SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
-	 * `encode(sha256(x), 'hex')`, the one operation that reads a bytes value, read whole: text of the language
-	 * `^[0-9a-f]{64}$`, which compilation reads, so a cast into a text type whose language holds it,
-	 * `str.regex("^[0-9a-f]{64}$")` among them, needs no guard, a cast into one whose language lacks it is
-	 * PartialOperation, and a literal opposite it is judged by it. IMMUTABLE and defined on every value, it stands in row
-	 * checks, selections, generated fields and queries: `generated(str.regex("^[0-9a-f]{64}$"), Crypto.sha256(row.content))`
-	 * is a field whose every value PostgreSQL computes from the bytes it stores, and `Crypto.sha256(row.body)` the
-	 * digest of a text's UTF-8.
+	 * The SHA-256 digest of a bytes value, or of a text's UTF-8 bytes: its 32 bytes, a sha256 value (public/fields.ts
+	 * sha256, Sha256), `sha256(x)`, the one operation that reads a bytes value, read whole. IMMUTABLE and defined on every
+	 * value, it stands in row checks, selections, generated fields and queries: `generated(sha256, Crypto.sha256(row.body))`
+	 * is a field whose every value PostgreSQL computes from the text it stores, which a key may hold where the text is
+	 * past any index entry, and `Crypto.sha256(row.content)` the digest of a bytes value.
 	 */
 	sha256<A extends TermBase | FirstValue, X, PA, OA>(
 		x: A & WholeTerm<A> & InputTerm<X, PA, OA, "bytea" | "text">
-	): Admitted<TakesFirst<A, "bytea" | "text">, Term<string, PA, ComputedOrigin<OA>, "text">>
+	): Admitted<TakesFirst<A, "bytea" | "text">, Term<Sha256, PA, ComputedOrigin<OA>, "sha256">>
 }
 
 /** The Distance namespace: the distance between two vectors. */

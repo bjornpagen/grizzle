@@ -1,3 +1,4 @@
+import { sha256Octets } from "#compiler/core/digest.ts"
 import {
 	type CompileError,
 	EncodingFailure,
@@ -261,6 +262,7 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 		"bytes whose SHA-256 digest no other bytes value of the write shares: two different values of one digest are a SHA-256 collision, refused rather than taken as one",
 	bytesLiteral:
 		"bytes in no literal: a bytes value is written and read back whole, never a rule's or a query's constant",
+	sha256Value: `a SHA-256 digest: a Uint8Array of exactly ${sha256Octets} bytes`,
 	codeHandle: "a handle of the closed relation's roster",
 	codeSubset: "a handle of the subset of its roster the closed id holds",
 	bitsType: "a set of handles: a Set whose members are strings",

@@ -110,6 +110,7 @@ const hostOf = (literal: TypedLiteral): Value => {
 		case "floatSpecial":
 		case "money":
 		case "bool":
+		case "sha256":
 		case "uuid":
 		case "date":
 		case "inet":

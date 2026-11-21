@@ -91,13 +91,11 @@ export const lowerSearchOp = (
 		case "endsWith":
 		case "parseDouble":
 		case "parseDecimal":
-		case "sha256":
 		case "collapse":
 		case "lowerAscii":
 		case "utf16Length":
 		case "floatBits":
 		case "library":
-		case "textSha256":
 		case "canonicalZero":
 			return refuseAt(
 				"UnsupportedOperation",

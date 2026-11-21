@@ -23,7 +23,7 @@ import type { Perturbation } from "#test/support/oracle/perturb.ts"
  */
 type DrawnCarrier = Exclude<
 	StorageCarrier,
-	"bits" | "bytes" | "date" | "rangeDate" | "tsvector" | "inet" | "cidr"
+	"bits" | "bytes" | "sha256" | "date" | "rangeDate" | "tsvector" | "inet" | "cidr"
 >
 
 /**
@@ -36,7 +36,8 @@ type DrawnCarrier = Exclude<
  * (pg.vector(3)), whose -0 components are its twin spellings. A field's recorded pick names an index of fieldKinds,
  * these kinds in this record's order, so a kind joins at the end and every kept pick keeps its kind. A set over a
  * roster is no drawn kind, and neither is bytes, which the reference's equality and order never read, nor inet and cidr,
- * whose values, order and containment test/pg/net holds to PostgreSQL's own (DrawnCarrier).
+ * whose values, order and containment test/pg/net holds to PostgreSQL's own, nor a digest, which the reference computes
+ * none of (DrawnCarrier).
  */
 const drawnKinds = {
 	int4: ["int4"],

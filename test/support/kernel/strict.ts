@@ -1,10 +1,13 @@
 import { maxOf } from "@bjornpagen/grizzle-text/base/array"
+import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Result, String as Str } from "effect"
 import { toResult } from "#adapter/engine.ts"
 import type { Delivery } from "#compiler/codec/delivery.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
+import { sha256Octets } from "#compiler/core/digest.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { validateText } from "#compiler/core/text.ts"
+import { bytesWireAlphabet } from "#compiler/core/wire.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type Codebook, emptyCodebook, type RosterCodec } from "#compiler/ir/codes.ts"
 import { toCalendarDate } from "#compiler/ir/date.ts"
@@ -480,6 +483,18 @@ const readBytes = (text: string): Result.Result<Uint8Array<ArrayBuffer>, StrictF
 	return Result.succeed(Uint8Array.fromHex(Str.slice(2)(text)))
 }
 
+/** The base64url alphabet, RFC 4648 §5, and its padding: a digest's output text, its bytes' wire text. */
+const base64urlText = regex("^[A-Za-z0-9_-]+=*$")
+
+/** A digest's output text read strictly: base64url (core/wire.ts bytesWireAlphabet) of exactly its 32 bytes. */
+const readDigest = (text: string): Result.Result<Uint8Array, StrictFault> => {
+	if (!base64urlText.test(text)) {
+		return Result.fail("sha256Value")
+	}
+	const bytes = Uint8Array.fromBase64(text, { alphabet: bytesWireAlphabet })
+	return bytes.length === sha256Octets ? Result.succeed(bytes) : Result.fail("sha256Value")
+}
+
 const readers: {
 	readonly [C in Carrier]: (
 		spec: SpecOf<C>
@@ -499,6 +514,7 @@ const readers: {
 	cidr: () => (text) => toResult(admitCidr(text)),
 	text: () => (text) => toResult(validateText(text)),
 	bytes: () => (text) => Result.map(readBytes(text), (bytes) => new AdmittedBytes(bytes)),
+	sha256: () => readDigest,
 	code: (spec) => readCode(spec.roster),
 	bits: (spec) => readBits(spec.roster),
 	range4: () => readSpan("int4"),

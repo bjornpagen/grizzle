@@ -4,7 +4,7 @@
 import { element, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { Crypto, Logic, Text, Xml } from "#compiler/public/compute.ts"
-import { Bits, bits, closedId, pg } from "#compiler/public/fields.ts"
+import { Bits, bits, closedId, pg, sha256 } from "#compiler/public/fields.ts"
 import { check, closed, key, login, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { generatedField } from "#compiler/schema/relation.ts"
@@ -73,7 +73,7 @@ const librarySchemaOf = (use: LibraryUse) => {
 				}))
 			: use === "Crypto.sha256 in a generated field"
 				? relation.generated("R", fields, ["id"], (r) => ({
-						digest: generatedField(text, Crypto.sha256(r.body), [])
+						digest: generatedField(sha256, Crypto.sha256(r.body), [])
 					}))
 				: relation("R", fields, ["id"])
 	const statements =

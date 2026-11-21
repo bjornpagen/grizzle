@@ -96,6 +96,7 @@ const restatedLiteral = (
 		case "floatSpecial":
 		case "money":
 		case "uuid":
+		case "sha256":
 		case "date":
 		case "inet":
 		case "cidr":
@@ -137,6 +138,7 @@ const descRoster = (t: FieldDesc): string | undefined => {
 		case "exact":
 		case "uuid":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "pattern":
 		case "span":
@@ -267,6 +269,7 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 		case "exact":
 		case "uuid":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "pattern":
 		case "vector":

@@ -910,8 +910,8 @@ export type ArgumentOf<X> = X extends { readonly language: infer L } ? L : X
 
 /**
  * A value a parameter may hold: a scalar parameter's host value (a field's host type, a contract
- * over one, or a closed handle), or a relation parameter's facts, an array or a Stream with no error or requirement
- * channel. Every argument a ParamsOf map's entries take is one of these, so every ParamArg is.
+ * over one, a closed handle, or a digest's 32 bytes), or a relation parameter's facts, an array or a Stream with no
+ * error or requirement channel. Every argument a ParamsOf map's entries take is one of these, so every ParamArg is.
  */
 export type ParamValue =
 	| string
@@ -921,6 +921,7 @@ export type ParamValue =
 	| Decimal
 	| Money
 	| Vector
+	| Uint8Array
 	| Span<number>
 	| Span<bigint>
 	| ReadonlyArray<unknown>

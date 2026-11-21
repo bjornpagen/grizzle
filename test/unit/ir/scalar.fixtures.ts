@@ -271,8 +271,11 @@ const handlesGen = map(
 const canonicalInets = ["1.2.3.4", "10.0.0.0/8", "::1", "2001:db8::/32", "::ffff:1.2.3.4"] as const
 const canonicalCidrs = ["10.0.0.0/8", "::/0", "1.2.3.4/32", "2001:db8::/32"] as const
 
-/** The literal kinds the literals property draws: every kind but a date, which no type it tries a literal at holds. */
-type DrawnKind = Exclude<TypedLiteral["kind"], "date">
+/**
+ * The literal kinds the literals property draws: every kind but a date and a digest, which no type it tries a literal
+ * at holds.
+ */
+type DrawnKind = Exclude<TypedLiteral["kind"], "date" | "sha256">
 
 /** Each drawn kind's literals: the arms literalGen draws among, and the literals of a case aimed at that kind. */
 const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
@@ -469,6 +472,8 @@ export const admits = (literal: TypedLiteral, outer: ScalarType): boolean => {
 			return c === "bool"
 		case "text":
 			return c === "text" && literal.value.isWellFormed() && !Str.includes("\u0000")(literal.value)
+		case "sha256":
+			return c === "sha256"
 		case "uuid":
 			return (
 				c === "uuid" &&

@@ -8,6 +8,7 @@ import {
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { type QueryColumns, queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
+import { sha256Octets } from "#compiler/core/digest.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -57,6 +58,7 @@ import {
 	type TableConstraint,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
+import { call, eq, lit, types } from "#compiler/sql/build.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	type AstHooks,
@@ -276,6 +278,8 @@ export class InstallBuilder {
 	readonly library: ReadonlyArray<LibraryFn>
 	/** The snapshot guard every Db transaction and Db.open call behind the ledger's fence. */
 	readonly snapshotGuard: Node<"setup">
+	/** The digest domain every SHA-256 digest column is typed by (ir/physical.ts PhysicalNames digestDomain). */
+	readonly digestDomain: Node<"setup">
 	readonly #named: Array<Identity<IdentityKind>> = []
 	readonly #providers = new Map<Capability, Node<"setup">>()
 	/** Each domain the installation creates, by its name's key (sql/ast.ts nameKey). */
@@ -361,6 +365,33 @@ export class InstallBuilder {
 				ddl: snapshotGuardDdl(this.schema),
 				reasons: [enforcement(`the snapshot every Db of schema ${input.owned.name} runs against`)],
 				phase: "setup"
+			},
+			[this.schemaNode]
+		)
+		const digestNamed = identity.digestDomain()
+		this.digestDomain = this.addType(
+			"domain",
+			this.names.installation,
+			digestNamed,
+			{
+				ddl: [
+					{
+						kind: "createDomain",
+						name: { schema: this.schema, name: this.name(digestNamed) },
+						base: types.bytea,
+						collation: undefined,
+						constraints: [
+							{
+								name: this.name(identity.domainCheck(digestNamed)),
+								predicate: eq(
+									call("octet_length", [{ kind: "domainValue" }]),
+									lit.int(sha256Octets, types.integer)
+								)
+							}
+						]
+					}
+				],
+				reasons: [enforcement("the length of every SHA-256 digest, 32 bytes")]
 			},
 			[this.schemaNode]
 		)

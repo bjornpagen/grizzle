@@ -5,7 +5,7 @@ import {
 	convertColumn,
 	type ConvertedCarrier
 } from "#compiler/core/decoder.ts"
-import type { OutputText } from "#compiler/core/wire.ts"
+import { ofWire, type OutputText } from "#compiler/core/wire.ts"
 import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
@@ -108,6 +108,7 @@ const convertBits =
  * | money | money::numeric | Money.fromOutput, the minor-unit count |
  * | bool | `true`/`false` (bool::text), `t`/`f` (boolout) | the first letter is t |
  * | uuid, text | uuid_out, the string | the text itself |
+ * | sha256 | its bytes' wire text, `encode(x, 'base64url')` (core/wire.ts bytesWireAlphabet) | a fresh Uint8Array of them, the column's Sha256 |
  * | tsvector | tsvectorout, its lexemes in order with their positions and weights | the text itself |
  * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
  * | inet | network_show, its mask always stated | read and printed as inet_out prints it, a whole mask omitted |
@@ -139,6 +140,7 @@ export const convertByCarrier: {
 	inet: () => convertInet,
 	cidr: () => convertCidr,
 	text: () => identity,
+	sha256: () => ofWire,
 	code: (spec) => convertCode(spec.roster),
 	bits: (spec) => convertBits(spec.roster),
 	range4: () => convertSpan(Number),
@@ -165,6 +167,7 @@ const converted: { readonly [C in ConvertedCarrier]: Converter<C> } = {
 	inet: convertByCarrier.inet({ carrier: "inet" }),
 	cidr: convertByCarrier.cidr({ carrier: "cidr" }),
 	text: convertByCarrier.text({ carrier: "text" }),
+	sha256: convertByCarrier.sha256({ carrier: "sha256" }),
 	tsvector: convertByCarrier.tsvector({ carrier: "tsvector" }),
 	range4: convertByCarrier.range4({ carrier: "range4", width: undefined }),
 	range8: convertByCarrier.range8({ carrier: "range8", width: undefined }),

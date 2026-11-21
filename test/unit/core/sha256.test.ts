@@ -19,7 +19,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
-import { Sha256Messages, sha256Hex } from "#compiler/core/sha256.ts"
+import { Sha256Messages, sha256Digest, sha256Hex } from "#compiler/core/sha256.ts"
 import {
 	type Feature,
 	type MessagesFeature,
@@ -100,6 +100,11 @@ export const sha256HexHashesATextAsItsUTF8Bytes = property.explore(wellFormedTex
 	check: (_, c: Case<Feature>) => (text) =>
 		Effect.sync(() => {
 			assert.equal(sha256Hex(text), sha256Hex(Uint8Array.from(platformBytes(text))))
+			assert.equal(
+				sha256Digest(text).toHex(),
+				sha256Hex(text),
+				"the digest's bytes are its hex digest's"
+			)
 			noteText(text, c)
 		}),
 	oracle: {
@@ -110,9 +115,9 @@ export const sha256HexHashesATextAsItsUTF8Bytes = property.explore(wellFormedTex
 	kills: [
 		{
 			file: "packages/engine/src/core/sha256.ts",
-			original: '\t\t.update(typeof input === "string" ? utf8(input) : input)',
-			replacement: '\t\t.update(typeof input === "string" ? utf8(input).subarray(1) : input)',
-			why: "sha256Hex hashes a text's bytes past its first; the digest's differential property fails."
+			original: '\ttypeof input === "string" ? utf8(input) : input',
+			replacement: '\ttypeof input === "string" ? utf8(input).subarray(1) : input',
+			why: "A message's text is hashed past its first byte, by sha256Hex and sha256Digest alike; the digest's differential property fails."
 		}
 	]
 })

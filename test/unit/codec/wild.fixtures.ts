@@ -27,6 +27,7 @@ import { bigint, double, float, uuid } from "@bjornpagen/testing/values"
 import { Array as Arr, DateTime, Option, Record } from "effect"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
+import { sha256Octets } from "#compiler/core/digest.ts"
 import type { CodecFault, ValueFault } from "#compiler/core/errors.ts"
 import { parseDeclaredName } from "#compiler/core/identity.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
@@ -204,6 +205,13 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 			label: "bytes",
 			type: { carrier: "bytes", caps },
 			live: map(byteValues({ min: 0, max: 16 }), (b) => Uint8Array.from(b))
+		}
+	],
+	sha256: [
+		{
+			label: "sha256",
+			type: { carrier: "sha256", caps },
+			live: map(byteValues({ min: sha256Octets, max: sha256Octets }), (b) => Uint8Array.from(b))
 		}
 	],
 	code: [

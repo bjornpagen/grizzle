@@ -1,9 +1,10 @@
-import { type Column, textColumn } from "#compiler/core/decoder.ts"
+import { type Column, convertColumn, textColumn } from "#compiler/core/decoder.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
 import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
 import type { Cidr, Inet } from "#compiler/scalar/values/net.ts"
+import type { Sha256 } from "#compiler/scalar/values/sha256.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 
 /** The unbranded host value of each SQL type a plain result can have. */
@@ -21,6 +22,7 @@ export interface PlainHost {
 	readonly inet: Inet
 	readonly cidr: Cidr
 	readonly text: string
+	readonly sha256: Sha256
 	readonly "exact integer": bigint
 	readonly "exact money": Money
 }
@@ -56,6 +58,7 @@ export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = 
 	inet: carrierColumn("inet"),
 	cidr: carrierColumn("cidr"),
 	text: carrierColumn("text"),
+	sha256: convertColumn<Sha256>({ carrier: "sha256" }),
 	"exact integer": carrierColumn("exactInteger"),
 	"exact money": carrierColumn("exactMoney")
 })

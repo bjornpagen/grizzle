@@ -1055,6 +1055,7 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "cidr":
 		case "text":
 		case "bytes":
+		case "sha256":
 		case "code":
 		case "bits":
 		case "range4":

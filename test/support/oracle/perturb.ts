@@ -156,6 +156,7 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 		case "float8":
 		case "money":
 		case "bool":
+		case "sha256":
 		case "bytes":
 		case "text":
 		case "code":

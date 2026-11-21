@@ -511,6 +511,7 @@ export const unrefined = (t: ScalarType): ScalarType => {
 		case "inet":
 		case "cidr":
 		case "bytes":
+		case "sha256":
 		case "bits":
 		case "range4":
 		case "range8":

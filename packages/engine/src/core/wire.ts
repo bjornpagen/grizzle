@@ -186,3 +186,21 @@ export type Cell = OutputText | Uint8Array<ArrayBuffer>
 
 /** A statement's rows as its delivery assembles them: each row's cells, in its statement's output order. */
 export type AssembledRows = ReadonlyArray<ReadonlyArray<Cell>>
+
+/**
+ * The one text bytes travel in from PostgreSQL to the host: RFC 4648's base64url alphabet, which PostgreSQL's
+ * `encode(x, 'base64url')` writes (lower/delivery.ts bytesWireText) and the host's base64 decoder reads (`intoWire`,
+ * `ofWire`), unpadded and with no line breaks. A bytes column's chunks and a digest's result text are both of it.
+ *
+ * @formatConstant PostgreSQL 19's encode format name and the TC39 base64 decoder's alphabet option, RFC 4648 §5
+ */
+export const bytesWireAlphabet = "base64url"
+
+/** Writes the bytes a wire text spells (`bytesWireAlphabet`) into `into` from its start: a bytes value's chunk. */
+export const intoWire = (into: Uint8Array, text: string): void => {
+	into.setFromBase64(text, { alphabet: bytesWireAlphabet })
+}
+
+/** The bytes a wire text spells (`bytesWireAlphabet`), in a fresh array over its own buffer: a digest's result text. */
+export const ofWire = (text: string): Uint8Array<ArrayBuffer> =>
+	Uint8Array.fromBase64(text, { alphabet: bytesWireAlphabet })

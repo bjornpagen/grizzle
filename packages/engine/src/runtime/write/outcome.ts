@@ -1,6 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import { scalarReader } from "#compiler/codec/read.ts"
+import { detailValue } from "#compiler/codec/read.ts"
 import type { RoleRelationName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { TextsId } from "#compiler/core/text.ts"
 import type { OutputText } from "#compiler/core/wire.ts"
@@ -360,9 +360,9 @@ export const witnessDecoder = (context: WitnessRelations): KeyDecoder => {
 			}
 			/**
 			 * Every carrier's host value but a vector's, a set's and bytes' is a key value: ownership refuses a key over a
-			 * set or bytes.
+			 * set or bytes. The text is PostgreSQL's output of the value, which detailValue reads.
 			 */
-			const value = scalarReader(column.type, context.codes).convert(text)
+			const value = detailValue(column.type, context.codes, text)
 			if (isVector(value) || isSet(value) || isAdmittedBytes(value)) {
 				return undefined
 			}

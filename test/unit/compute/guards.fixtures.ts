@@ -293,6 +293,7 @@ export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => 
 			return ["nonzero", "nonnegative", "positive", "isFinite", "within"]
 		case "text":
 			return ["matches", "octets", "typed"]
+		case "sha256":
 		case "bytes":
 			return []
 		case "bool":

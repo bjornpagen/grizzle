@@ -4,7 +4,8 @@
  */
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { type CellKind, type Delivery, deliveryOf } from "#compiler/codec/delivery.ts"
-import { resultTextCasts } from "#compiler/codec/scalar.ts"
+import { type ResultStep, resultTextCasts } from "#compiler/codec/scalar.ts"
+import { bytesWireAlphabet } from "#compiler/core/wire.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { Expr, FromSource, Select, SetCore, Target } from "#compiler/sql/ast.ts"
 import {
@@ -23,10 +24,10 @@ import {
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 
-/** A text column: the casts that make its result text. */
+/** A text column: the steps that make its result text (codec/scalar.ts ResultStep). */
 export interface TextDelivered {
 	readonly kind: "text"
-	readonly casts: ReadonlyArray<"numeric" | "text">
+	readonly casts: ReadonlyArray<ResultStep>
 }
 
 /** One delivered column: a text column with the casts that make its result text, or a bytes column. */
@@ -61,9 +62,28 @@ const kindOf = (column: DeliveredColumn): CellKind => column.kind
 export const deliveryOfColumns = (columns: ReadonlyArray<DeliveredColumn>): Delivery =>
 	deliveryOf(columns.map(kindOf))
 
-/** `e` cast to its result text by `casts`, in order. */
-const resultCast = (e: Expr, casts: ReadonlyArray<"numeric" | "text">): Expr =>
-	casts.reduce<Expr>((acc, t) => cast(acc, t === "numeric" ? types.numeric : types.text), e)
+/**
+ * The wire text of a bytes value `e`, `encode(e, 'base64url')`, the one text bytes travel in (core/wire.ts
+ * bytesWireAlphabet): a bytes column's chunk and a digest's result text.
+ */
+const bytesWireText = (e: Expr): Expr =>
+	call("encode", [e, lit.text(bytesWireAlphabet, types.text)])
+
+/** One step of a result text over `e` (codec/scalar.ts ResultStep): a cast to numeric or text, or the bytes' wire text. */
+const resultStep = (e: Expr, step: ResultStep): Expr => {
+	switch (step) {
+		case "numeric":
+			return cast(e, types.numeric)
+		case "text":
+			return cast(e, types.text)
+		case "wire":
+			return bytesWireText(e)
+	}
+}
+
+/** `e` made its result text by `casts`, in order: the outermost SELECT's and a fused attachment's element's. */
+export const resultCast = (e: Expr, casts: ReadonlyArray<ResultStep>): Expr =>
+	casts.reduce<Expr>(resultStep, e)
 
 /** A plain set core: no DISTINCT, so a target joins it in place. */
 export type PlainCore = Extract<SetCore, { readonly distinct: false }>
@@ -187,14 +207,13 @@ export const deliveredRows = (
 		expr:
 			column.kind === "text"
 				? onFirst(resultCast(valueAt(at), column.casts))
-				: call("encode", [
+				: bytesWireText(
 						call("substring", [
 							valueAt(at),
 							binary("+", binary("*", chunk, size), lit.int(1, types.integer)),
 							size
-						]),
-						lit.text("base64url", types.text)
-					])
+						])
+					)
 	}))
 	const lengths = bytes.map((at) =>
 		targetAs(onFirst(cast(length(at), types.text)), supply.column(internal("delivered length")))

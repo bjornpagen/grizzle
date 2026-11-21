@@ -69,6 +69,7 @@ const sqlTypeOf = (type: ScalarType, plan: InstallPlan): TypeRef => {
 			return types.cidr
 		case "text":
 			return types.text
+		case "sha256":
 		case "bytes":
 			return types.bytea
 		case "tsvector":
@@ -129,6 +130,7 @@ const valueExpr = (
 		case "bool":
 			return literal.value ? lit.bool(true) : lit.bool(false)
 		case "text":
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":

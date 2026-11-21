@@ -346,6 +346,7 @@ const hashable = (c: PlannedColumn): boolean => {
 		case "inet":
 		case "cidr":
 		case "text":
+		case "sha256":
 		case "code":
 		case "range4":
 		case "range8":

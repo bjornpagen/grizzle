@@ -126,6 +126,7 @@ const familyOf = (name: string): Family => {
 			return "span"
 		case "bytes":
 			return "bytes"
+		case "sha256":
 		case "inet":
 		case "cidr":
 			return "net"
@@ -210,7 +211,7 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	collapse: { result: "text", args: ["text"] },
 	parseDouble: { result: "float", args: ["text"] },
 	parseDecimal: { result: "numeric", args: ["text"] },
-	sha256: { result: "text", args: ["bytes"] },
+	sha256: { result: "other", args: ["bytes"] },
 	floatBits: { result: "integer", args: ["float"] },
 	cosineDistance: { result: "float", args: ["other", "other"] },
 	textDocument: { result: "other", args: ["text"] },

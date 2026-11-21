@@ -37,6 +37,7 @@ export const printLiteral = (literal: TypedLiteral, type: ScalarType): string =>
 			return `${literal.value}::${label}`
 		case "text":
 			return `${Formatter.format(literal.value)}::${label}`
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":

@@ -13,7 +13,7 @@ import { boxAgreement } from "#test/types/batch/agreement.ts"
 
 /** A contract's value type is its base's host type and Effect's Brand.Brand of its name, as Schema.brand types it. */
 export const contractBrand = boxAgreement(finite(word(contractBrandBox)), {
-	box: "every kind of base a contract is over: each pg type, numeric at scale 0 and at another, uuid, natural, date, sha256, a pattern of infinite language, of finite language and of a fixed prefix, a pattern held to its bytes, two patterns intersected, a closed id of an ordered roster, of an unordered one and of a subset, a span, a vector, another contract, and a contract that checks and proves",
+	box: "every kind of base a contract is over: each pg type, numeric at scale 0 and at another, uuid, natural, date, a pattern of infinite language, of finite language and of a fixed prefix, a pattern held to its bytes, two patterns intersected, a closed id of an ordered roster, of an unordered one and of a subset, a span, a vector, another contract, and a contract that checks and proves",
 	situations: [],
 	notes: () => [],
 	checking: "armed",

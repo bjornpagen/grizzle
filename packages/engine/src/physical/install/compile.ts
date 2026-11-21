@@ -450,6 +450,7 @@ export const installationOver = (
 				addClosedRelations(b, planned)
 				addLibrary(b)
 				const domains = [
+					b.names.digestDomain,
 					...rosters.flatMap((r) =>
 						r.bits === undefined ? [r.domain.name] : [r.domain.name, r.bits.domain.name]
 					),

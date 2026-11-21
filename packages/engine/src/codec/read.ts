@@ -24,6 +24,7 @@
  * | inet, cidr | network_show text, its mask always stated, read into inet_out's and cidr_out's |
  * | text | the string |
  * | bytes | no text: the cell is the value its delivery assembled (codec/delivery.ts), its one text its SHA-256 digest |
+ * | sha256 | its bytes' wire text, `encode(x, 'base64url')` (core/wire.ts bytesWireAlphabet) |
  * | code | int2out text, read as the handle the code names |
  * | bits | bit_out text, read as the set of handles |
  * | range4, range8, rangeDate | range_out of a bounded half-open range |
@@ -38,11 +39,12 @@
  */
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { bytesValueOf, outputTextOf } from "#compiler/core/decoder.ts"
+import { sha256FromText, sha256Text } from "#compiler/core/digest.ts"
 import { bitInputText, hexOfBitText } from "#compiler/core/hex.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
-import type { Cell } from "#compiler/core/wire.ts"
+import { type Cell, ofWire, type OutputText } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { Carrier, ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, type ScalarType } from "#compiler/ir/scalar.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import {
 	type Converter,
@@ -148,6 +150,7 @@ const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string
 	inet: convertInet,
 	cidr: itself,
 	text: itself,
+	sha256: (cell) => sha256Text(ofWire(cell)),
 	code: itself,
 	bits: bitsCellText,
 	range4: itself,
@@ -176,6 +179,19 @@ const textReaderOf = <C extends TextCarrier>(
 		keyText: (cell: Cell) => keyText(spec, text(outputTextOf(cell)))
 	})
 }
+
+/**
+ * The value PostgreSQL's own output text of a value of `type` spells, as an error's DETAIL prints a key: the reader's
+ * conversion of a delivered cell (`scalarReader`), whose text is that output text for every carrier but a digest's,
+ * which its delivery sends as its bytes' wire text and a DETAIL prints as byteaout's hex, `\x` and two digits a byte,
+ * under the bytea_output every role runs with (physical/ddl/roles.ts): its one text (core/digest.ts sha256FromText).
+ */
+export const detailValue = (
+	type: ScalarType,
+	codes: Codebook,
+	text: OutputText
+): CarrierHost[Carrier] =>
+	baseOf(type).carrier === "sha256" ? sha256FromText(text) : scalarReader(type, codes).convert(text)
 
 /** The reader of a descriptor under an installation's codes: every descriptor has one, its carrier's. */
 export const scalarReader = (type: ScalarType, codes: Codebook): ScalarReader => {

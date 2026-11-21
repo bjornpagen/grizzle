@@ -60,6 +60,7 @@ import {
 	searchDocument,
 	select,
 	settled,
+	type Sha256,
 	sha256,
 	span,
 	str,
@@ -1731,7 +1732,7 @@ export const webWithoutVerify = DbLayer.make({
 
 /** The gallery's types, as its prose states them. */
 export type OrgKeysHead = Expect<
-	Equals<HeadOf<typeof orgKeys>, { readonly digest: string; readonly name: string }>
+	Equals<HeadOf<typeof orgKeys>, { readonly digest: Sha256; readonly name: string }>
 >
 
 /** The dashboard login's committed workload, served as its type. */

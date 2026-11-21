@@ -92,6 +92,7 @@ const carrierHost = (descriptor: ScalarType): string => {
 			return `SearchDocument<${jsonText(type.configuration)}>`
 		case "date":
 			return "CalendarDate"
+		case "sha256":
 		case "bytes":
 		case "bits":
 		case "inet":
@@ -266,6 +267,7 @@ const paramDomain = (descriptor: ScalarType): string => {
 		case "inet":
 		case "cidr":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "code":
 		case "bits":

@@ -364,6 +364,9 @@ const narrowContract = (t: WireScalarType, contract: WireContract): ScalarType |
 	if (base.carrier === "bytes") {
 		return "bytes are never a contract's base"
 	}
+	if (base.carrier === "sha256") {
+		return "a digest is never a contract's base"
+	}
 	if (base.carrier === "tsvector") {
 		return "a search document is never a contract's base"
 	}
@@ -525,6 +528,7 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 			}
 			return Object.freeze({ carrier, caps, contract, roster: t.roster })
 		case "bytes":
+		case "sha256":
 			return Object.freeze({ carrier, caps, contract })
 		case "range4":
 		case "range8":

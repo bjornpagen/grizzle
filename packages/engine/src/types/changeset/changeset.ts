@@ -1968,7 +1968,10 @@ export interface ChangeSetConstructor {
 	>
 }
 
-/** A key value a witness may carry: a vector field may be a key field. */
+/**
+ * A key value a witness may carry: a vector field may be a key field, and a digest's 32 bytes (public/fields.ts Sha256),
+ * which a key holds by content, its key text its one text (core/digest.ts sha256Text).
+ */
 export type KeyHost =
 	| string
 	| number
@@ -1980,6 +1983,7 @@ export type KeyHost =
 	| Span<bigint>
 	| Span<CalendarDate>
 	| Vector
+	| Uint8Array
 
 /**
  * What a law's refusal names: the violating fact's key, or why it names none.

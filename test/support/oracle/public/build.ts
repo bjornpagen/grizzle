@@ -175,6 +175,7 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return pg.cidr
 		case "code":
 			return closedId(roster)
+		case "sha256":
 		case "bytes":
 			throw new Error("a parameter of bytes, which no parameter is")
 		case "tsvector":
@@ -328,6 +329,7 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 			return floatSpecials[literal.value]
 		case "bool":
 		case "text":
+		case "sha256":
 		case "uuid":
 		case "inet":
 		case "cidr":

@@ -5,6 +5,7 @@
  */
 import { createHash, type Hash } from "node:crypto"
 import { Utf8Writer, utf8, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import { sha256Octets } from "#compiler/core/digest.ts"
 
 /**
  * How many bytes of a message a Sha256Messages writer holds before it passes them to the hash: the hash reads its
@@ -62,22 +63,30 @@ export class Sha256Messages {
 	}
 }
 
-/** The SHA-256 digest of a message, as lowercase hex: bytes, or a well-formed text (grizzle-text WellFormedText) hashed
- * as its UTF-8 (`utf8`). */
+/** A message's bytes: bytes, or a well-formed text (grizzle-text WellFormedText) as its UTF-8 (`utf8`). */
+const messageBytes = (input: Uint8Array | WellFormedText): Uint8Array =>
+	typeof input === "string" ? utf8(input) : input
+
+/**
+ * The SHA-256 digest of a message, its sha256Octets bytes in a fresh array over its own buffer: bytes, or a well-formed
+ * text hashed as its UTF-8, as PostgreSQL's `sha256(convert_to(x, 'UTF8'))` hashes a text of a UTF8 database.
+ */
+export const sha256Digest = (input: Uint8Array | WellFormedText): Uint8Array<ArrayBuffer> =>
+	Uint8Array.from(createHash("sha256").update(messageBytes(input)).digest())
+
+/** The SHA-256 digest of a message, as lowercase hex: bytes, or a well-formed text hashed as its UTF-8. */
 export const sha256Hex = (input: Uint8Array | WellFormedText): string =>
-	createHash("sha256")
-		.update(typeof input === "string" ? utf8(input) : input)
-		.digest("hex")
+	createHash("sha256").update(messageBytes(input)).digest("hex")
 
 /** RFC 4648's base32 alphabet, lowercase. */
 const base32 = "abcdefghijklmnopqrstuvwxyz234567"
 
 /**
- * The bits of a SHA-256 digest.
+ * The bits one byte holds.
  *
- * @formatConstant SHA-256's digest: 256 bits
+ * @formatConstant a byte: 8 bits
  */
-const digestBits = 256
+const byteBits = 8
 
 /**
  * The bits one base32 character holds.
@@ -86,34 +95,25 @@ const digestBits = 256
  */
 const base32Bits = 5
 
-/**
- * The bits one hex digit holds.
- *
- * @formatConstant a hex digit: 4 bits
- */
-const hexBits = 4
-
 /** The characters of a whole SHA-256 digest in base32 (sha256Base32), all ASCII. */
-export const sha256Base32Chars = Math.ceil(digestBits / base32Bits)
+export const sha256Base32Chars = Math.ceil((sha256Octets * byteBits) / base32Bits)
 
 /**
  * The whole SHA-256 digest of a message in lowercase RFC 4648 base32, unpadded, its last character's low bits zero: a
- * name two messages share only where SHA-256 collides. A text is hashed as its UTF-8 (`sha256Hex`).
+ * name two messages share only where SHA-256 collides. A text is hashed as its UTF-8 (`sha256Digest`).
  */
 export const sha256Base32 = (input: Uint8Array | WellFormedText): string => {
-	const hex = sha256Hex(input)
 	let out = ""
 	let held = 0
 	let bits = 0
-	for (let at = 0; at < hex.length; at++) {
-		held = (held << hexBits) | Number.parseInt(hex.charAt(at), 16)
-		bits += hexBits
-		if (bits < base32Bits) {
-			continue
+	for (const byte of sha256Digest(input)) {
+		held = (held << byteBits) | byte
+		bits += byteBits
+		while (bits >= base32Bits) {
+			bits -= base32Bits
+			out += base32.charAt(held >> bits)
+			held &= (1 << bits) - 1
 		}
-		bits -= base32Bits
-		out += base32.charAt(held >> bits)
-		held &= (1 << bits) - 1
 	}
 	return bits > 0 ? out + base32.charAt(held << (base32Bits - bits)) : out
 }

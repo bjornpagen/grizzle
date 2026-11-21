@@ -11,7 +11,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * type, and no cast stands between them, whichever module declares the schema.
  *
  * The box is every kind of base a contract is over, each its own carrier (a base the engine refuses, a set over a
- * roster or bytes, is none): each pg type, numeric at scale 0 and at another, uuid, natural, date, sha256, a pattern of
+ * roster, bytes or a digest, is none): each pg type, numeric at scale 0 and at another, uuid, natural, date, a pattern of
  * infinite language, of finite language and of a fixed prefix, a pattern held to its bytes, two patterns intersected, a
  * closed id of an ordered roster, of an unordered one and of a subset, a span, a vector, another contract, and a contract
  * that checks its values and proves a fact of them. Each cell's lines declare the contract over its base and the type
@@ -37,7 +37,6 @@ const bases = {
 	uuid: ["uuid", ""],
 	natural: ["natural", ""],
 	date: ["date", ""],
-	sha256: ["sha256", ""],
 	"a pattern of infinite language": ['str.regex("^[a-z]{1,8}$")', ""],
 	"a pattern of finite language": ['str.regex("^(yes|no)$")', ""],
 	"a pattern of a fixed prefix": ['str.regex("^user_[0-9a-z]{1,8}$")', ""],
@@ -71,7 +70,6 @@ export const contractBrandBoxItems: Arr.NonEmptyReadonlyArray<Base> = [
 	"uuid",
 	"natural",
 	"date",
-	"sha256",
 	"a pattern of infinite language",
 	"a pattern of finite language",
 	"a pattern of a fixed prefix",

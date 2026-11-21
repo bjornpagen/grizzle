@@ -519,6 +519,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			case "text":
 			case "pattern":
 				return builtin(builtinType("text"), { kind: "text" })
+			case "sha256":
+				return builtin(builtinType("bytea"), { kind: "bytes" })
 			case "bytes":
 				return builtin(builtinType("bytea"), { kind: "bytes" })
 			case "search":

@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { sha256Text, toSha256 } from "#compiler/core/digest.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -127,6 +128,8 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			return validateText(value)
 		case "bytes":
 			return Result.err("bytesLiteral")
+		case "sha256":
+			return Result.map(toSha256(value), (digest) => ({ sha256: sha256Text(digest) }))
 		case "tsvector":
 			return Result.err("textType")
 		case "code":

@@ -268,6 +268,7 @@ const catalogName = (t: ScalarType): string => {
 		case "text":
 			return "text"
 		case "bytes":
+		case "sha256":
 			return "bytea"
 		case "code":
 			return "smallint"

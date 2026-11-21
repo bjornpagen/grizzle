@@ -12,7 +12,13 @@
  *   holds among them; a heading naming a field twice admits no fact. Oracle: the heading's shape and each carrier's
  *   faults as a checker.
  *
- * Features: each carrier stored and refused; each rewrite and each change; each malformation.
+ * - A digest's key: two digests are one key, the key text a same-key refusal and a fact's identity read, exactly where
+ *   their bytes are one, whatever arrays hold them, and order as their bytes do, the first byte that differs first, as
+ *   bytea's B-tree orders them; the admitted value is a copy, so a caller's change to its array after admission moves
+ *   no key. Oracle: the bytes themselves, compared one by one.
+ *
+ * Features: each carrier stored and refused; each rewrite and each change; each malformation; one digest in two
+ * arrays and digests one byte apart.
  */
 
 import * as Result from "@bjornpagen/grizzle-text/base/result"
@@ -26,7 +32,14 @@ import type { CodecFault } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
-import { factIdentity, type HeadingField, parseValue } from "#compiler/scalar/values/identity.ts"
+import {
+	admittedText,
+	compareValues,
+	factIdentity,
+	type HeadingField,
+	keyText,
+	parseValue
+} from "#compiler/scalar/values/identity.ts"
 import { Uuid } from "#compiler/scalar/values/uuid.ts"
 import { faulted, succeeded } from "#test/support/assert.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -35,6 +48,8 @@ import {
 	admissionSpace,
 	amountType,
 	carriers,
+	type DigestFeature,
+	digestPairs,
 	type FactChange,
 	factChanges,
 	factGen,
@@ -90,6 +105,12 @@ export const parseValueStoresEveryValueOfEachCarrierAsItsHostTypeAndRangeSayAndR
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/core/digest.ts",
+				original: "\tvalue instanceof Uint8Array && value.length === sha256Octets",
+				replacement: "\tvalue instanceof Uint8Array",
+				why: "The door admits a digest of any length, so a value the digest domain would refuse is stored as a digest where it is sha256Value."
+			},
 			{
 				file: "packages/engine/src/scalar/values/uuid.ts",
 				original: "\treturn Result.ok(upper ? value.toLowerCase() : value)",
@@ -272,3 +293,73 @@ export const factIdentityRefusesFactsThatAreNotExactlyTheHeadingNamingTheFieldWh
 			]
 		}
 	)
+
+/** The sign of the first byte at which `a` and `b`, of one length, differ, 0 where none does: bytea's order. */
+const byteOrder = (a: Uint8Array, b: Uint8Array): -1 | 0 | 1 => {
+	const at = a.findIndex((byte, i) => byte !== b[i])
+	const x = a[at]
+	const y = b[at]
+	return x === undefined || y === undefined ? 0 : x < y ? -1 : 1
+}
+
+/**
+ * Two digests are one key exactly where their bytes are one, order as their bytes do, and keep the key their bytes
+ * had at admission.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const twoDigestsAreOneKeyExactlyWhereTheirBytesAreOneAndOrderAsTheirBytesDo =
+	property.explore(digestPairs, {
+		needs: {},
+		situations: ["one digest in two arrays", "digests one byte apart"] satisfies ReadonlyArray<
+			Reached<DigestFeature>
+		>,
+		check: (_, c: Case<DigestFeature>) => (pair) =>
+			Effect.sync(() => {
+				const spec = { carrier: "sha256" } as const
+				const one = byteOrder(pair.first, pair.second) === 0
+				c.note(one ? "one digest in two arrays" : "digests one byte apart")
+				const first = succeeded(parseValue(spec, pair.first))
+				const second = succeeded(parseValue(spec, pair.second))
+				const keyOf = (value: unknown): string => keyText(spec, admittedText(spec, value))
+				const firstKey = keyOf(first)
+				assert.equal(
+					firstKey === keyOf(second),
+					one,
+					"two digests share a key exactly where their bytes are one"
+				)
+				assert.equal(
+					compareValues(spec, first, second),
+					byteOrder(pair.first, pair.second),
+					"two digests order as their bytes do"
+				)
+				pair.first.fill(pair.first[0] === 0 ? 1 : 0)
+				assert.equal(keyOf(first), firstKey, "a caller's change after admission moves no key")
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the digests' bytes, compared one by one"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\tsha256: (v) => sha256Text(v),",
+				replacement: "\tsha256: (v) => sha256Text(v.subarray(1)),",
+				why: "A digest's key text drops its first byte, so digests apart in their first byte share a key."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: "\tsha256: (x, y) => compareBytes(x, y),",
+				replacement: "\tsha256: (x, y) => compareBytes(y, x),",
+				why: "Digests order against their bytes, so a witness's and a B-tree's order disagree."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original:
+					"\tsha256: (value) => Result.map(toSha256(value), (digest) => Uint8Array.from(digest)),",
+				replacement: "\tsha256: (value) => toSha256(value),",
+				why: "Admission keeps the caller's array, so the caller's change after admission moves its key."
+			}
+		]
+	})

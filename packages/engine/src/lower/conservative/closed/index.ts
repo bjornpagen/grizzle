@@ -4,6 +4,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { exactParts } from "#compiler/core/decimal.ts"
+import { sha256Octets, sha256Text } from "#compiler/core/digest.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { floatLiteral } from "#compiler/ir/carriers.ts"
 import { firstCalendarDate } from "#compiler/ir/date.ts"
@@ -56,6 +57,8 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			return lit.text("", cx.baseTypeRef(base))
 		case "bytes":
 			return lit.text("\\x", cx.baseTypeRef(base))
+		case "sha256":
+			return lit.text(sha256Text(new Uint8Array(sha256Octets)), cx.baseTypeRef(base))
 		case "code":
 			return lit.int(0n, cx.baseTypeRef(base))
 		case "bits":

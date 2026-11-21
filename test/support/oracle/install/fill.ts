@@ -120,6 +120,7 @@ const lawColumnType = (type: ScalarType): ColumnType | undefined => {
 		case "inet":
 		case "cidr":
 		case "bytes":
+		case "sha256":
 		case "text":
 		case "code":
 		case "bits":

@@ -229,16 +229,6 @@ const collapseText = (args: ReadonlyArray<Expr>): Expr | undefined => {
 }
 
 /**
- * A bytes value's SHA-256 digest as lowercase hex (scalar/compute/registry.ts bytesDigest), `encode(sha256(x), 'hex')`.
- */
-const bytesDigest = (args: ReadonlyArray<Expr>): Expr | undefined => {
-	const [x] = args
-	return args.length === 1 && x !== undefined
-		? call("encode", [call("sha256", [x]), lit.text("hex", types.text)])
-		: undefined
-}
-
-/**
  * A text's UTF-16 code units (scalar/compute/registry.ts textUtf16Length), JavaScript's String.length: its code points
  * and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`, the class an
  * ARE writes with its own eight-digit escapes, which reads code points in a UTF8 database.
@@ -355,20 +345,12 @@ const registryForm = (
 			return args.length === 1 && first !== undefined ? parseDoubleForm(first) : undefined
 		case "parseDecimal":
 			return args.length === 1 && first !== undefined ? cast(first, types.numeric) : undefined
-		case "sha256":
-			return bytesDigest(args)
 		case "utf16Length":
 			return utf16Units(args)
 		case "library": {
 			const fn = library(sql.fn)
 			return admitsArity(native.operands, args.length)
 				? qualifiedCall(fn.schema, fn.name, args)
-				: undefined
-		}
-		case "textSha256": {
-			const [x] = args
-			return args.length === 1 && x !== undefined
-				? call("encode", [textDigestForm(library, x), lit.text("hex", types.text)])
 				: undefined
 		}
 		case "canonicalZero":
@@ -379,15 +361,6 @@ const registryForm = (
 		case "textSearch":
 			return undefined
 	}
-}
-
-/**
- * A text's SHA-256 digest, the 32 bytes of its UTF-8's: `<textDigest>(x)`, the installation's library function
- * `library` names (physical/ddl/library.ts textDigest), which Crypto.sha256 of a text writes as hex.
- */
-const textDigestForm = (library: PhysicalNames["library"], x: Expr): Expr => {
-	const fn = library("textDigest")
-	return qualifiedCall(fn.schema, fn.name, [x])
 }
 
 /**
