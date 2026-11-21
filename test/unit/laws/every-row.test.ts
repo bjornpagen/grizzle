@@ -2,7 +2,7 @@
  * A rule's check over every row, the one the migration that adds a rule over a query runs (deploy/snapshot/violation.ts
  * lawChecks), is its judge over the transaction that writes every row into an installation that holds none: of a
  * probed rule, the probe of the facts each arm of its breaking side adds, held at the arm's first match of a stored
- * relation, its region every row of that relation (analysis/theory/query.ts everyRowProbes). Read by the reference
+ * relation, its region every row of that relation (analysis/theory/query.ts everyRowProbe). Read by the reference
  * evaluator, it finds a row exactly where the rule's violation query does, and the same facts where the two state one
  * heading.
  *
@@ -36,8 +36,8 @@ export const aRulesCheckOverEveryRowFindsExactlyTheFactsItsViolationQueryHolds =
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original: "\tflatMapNonEmpty(breakingArms(rule), (arm) => {",
-				replacement: "\tflatMapNonEmpty([breakingArms(rule)[0]], (arm) => {",
+				original: "\t\tmapNonEmpty(breakingArms(rule), (arm): ProbeRow => {",
+				replacement: "\t\tmapNonEmpty([breakingArms(rule)[0]], (arm): ProbeRow => {",
 				why: "The check over every row reads the first arm of the breaking side alone, so a fact only a later arm derives is never found, and the migration installs a rule the stored rows break."
 			}
 		]

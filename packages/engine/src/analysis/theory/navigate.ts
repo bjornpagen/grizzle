@@ -141,7 +141,7 @@ const scalarBinds = (
 
 /**
  * What a read reads: a stored or closed relation, or the delta of one, the rows a transaction wrote of it, which a rule
- * probe over its region matches (analysis/theory/query.ts probes); or an import the rule's unfolding reads more than
+ * probe over its region matches (analysis/theory/query.ts probe); or an import the rule's unfolding reads more than
  * once that joins (`sharedImports`), which the step that reads it reads whole, as the checker builds it once for every
  * read and the lowering computes it once per unit (lower/optimize/cte-policy).
  */
@@ -950,7 +950,7 @@ class Navigator {
 
 	/**
 	 * The reads of `flat` as one chain of steps, at nesting `depth`: its region first, the rows a transaction wrote that a
-	 * rule probe over its region starts from (analysis/theory/query.ts probes), then its reads of relations in their
+	 * rule probe over its region starts from (analysis/theory/query.ts probe), then its reads of relations in their
 	 * order (module doc). Each condition is placed inside the first step after which every variable it reads is bound; a
 	 * condition no variable of which a step binds stays the rule's own; the relational filters are left to `rule`.
 	 *

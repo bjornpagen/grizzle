@@ -34,7 +34,7 @@ import { ownedInput } from "#test/support/policy.ts"
  * A schema's artifacts with its laws' violation queries written, each rule over a query's checked against the checked
  * schema (laws/model/violations.ts theoryViolations), as generate writes them into the snapshot, and its installation
  * compiled as generate drafts it (physical/install/compile.ts compileInstallation over the complete install options),
- * every probe of each rule over a query among it (analysis/theory/query.ts probes, each navigated and checked as a
+ * every probe of each rule over a query among it (analysis/theory/query.ts probe, each navigated and checked as a
  * query over its region).
  */
 export const compiledOf = (schema: FixtureSchema): Result.Result<SchemaArtifacts, CompileError> =>

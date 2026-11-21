@@ -24,9 +24,12 @@ import {
 	type ContainmentReached,
 	containmentGen,
 	type EveryRowReached,
+	type NestedReached,
+	nestedGen,
 	everyRowGen,
 	judged,
 	judgedContainment,
+	judgedNested,
 	judgedUnions,
 	type Reached,
 	readsDeltasThroughReaders,
@@ -275,3 +278,36 @@ export const aWholeRulesStatementsReadEveryDeltaThroughItsReader = property.exha
 		]
 	}
 )
+
+/**
+ * A probed containment into a target that negates levels of definitions, each negating the one below, is judged by one
+ * statement for each relation and side, and each statement spells the target once, each level's definition once, however
+ * deep and wide (analysis/theory/query.ts probe, absentsOf): edullm's ledger judged its servable rule, a containment in
+ * Servable whose leaves negate definitions that match unions and negate in turn, by 1083 probes of about 800 KB each,
+ * the judge's two hours.
+ */
+export const aProbedContainmentIntoNestedNegationsSpellsItsTargetOnceInOneStatementPerBlock =
+	property.exhaust(finite(nestedGen), {
+		needs: {},
+		situations: [
+			"two rules a level",
+			"three rules a level",
+			"four levels deep"
+		] satisfies ReadonlyArray<ReachedOf<NestedReached>>,
+		check: (_, c: Case<NestedReached>) => (nested) =>
+			Effect.sync(() => judgedNested(nested, c.note)),
+		oracle: {
+			kind: "specification",
+			name: "the description: one statement per relation and side, and the target's Node read once for the root and once for each rule of each level"
+		},
+		box: "every containment of Session's doc in Servable, the docs whose root no level holds, one to four levels, each one rule matching a union of two or three rules over Node and negating the level below",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original: "\tn.arms.length > 1\n",
+				replacement: "\tn.arms.length > 1 && n.arms.length < 1\n",
+				why: "A negation of several arms is an anti-join of each arm, as before, each spelling the arm's unfolding, so the target spells each level once per arm of the level that negates it, Node read 1 + w + w² + … times; the property fails."
+			}
+		]
+	})

@@ -46,7 +46,13 @@
  * law's or a rule's (physical/install/plan.ts artifactObjects), where format 6 created the text domain of every
  * contract's refined base and of every persistent and law term's refined type, and granted a role USAGE on its
  * contracts' base text domains: those CREATE DOMAINs, their COMMENTs, PUBLIC revokes and USAGE grants go, and
- * snapshot.json's derived.textDomains holds them no more. Format 6's snapshot.json records each schema level's fingerprint over its
+ * snapshot.json's derived.textDomains holds them no more. A probed rule's judge block over one side of a table is one
+ * statement: the rule's meeting part, a containment's negation of its target, a key's other fact or a check's
+ * predicate, read once over the union of every row the write may break the rule at, each over its region
+ * (analysis/theory/query.ts probe), and a negation of a definition of several arms is one anti-join of the definition as
+ * declared (absentsOf), where format 6 compiled a statement for each occurrence of the touched relation, each spelling
+ * the whole target again, and spelled a negated definition once for each arm of its flattening, the product of the
+ * widths of the unions it matches at every depth. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row

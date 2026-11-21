@@ -11,11 +11,11 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery, Navigation, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import {
-	everyRowProbes,
+	everyRowProbe,
 	type LawSide,
 	type ProbedRule,
 	type ProbeSide,
-	probes,
+	probe,
 	type QueryRule,
 	type RuleLaw,
 	touchedOn,
@@ -23,7 +23,7 @@ import {
 } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
-import { canonicalEquals, canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
+import { canonicalTextOf, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -95,8 +95,6 @@ import {
 	not,
 	notExists,
 	objectName,
-	operandSelect,
-	operandUnionAll,
 	or,
 	provedCore,
 	provedSelect,
@@ -123,28 +121,6 @@ import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/s
 interface Compiled {
 	readonly statement: OperandSelect
 	readonly requests: ReadonlyArray<IndexRequest>
-}
-
-/**
- * The statements a guarded block of the judge runs, each once, in the order its first probe compiled: a set under
- * canonical equality (core/canonical.ts canonicalEquals), so a probe that compiles to a statement the block holds adds
- * nothing, and the block keeps the statement first compiled. Two occurrences of the touched relation that hold nothing
- * of its row apart (two arms of a derived relation that read it alike) are two probes of one statement, which a COMMIT
- * would otherwise run twice. A block holds a few probes, so asking each held statement is a short walk where a text of
- * every probe would encode each whole. A probe's index requests are its statement's chain's, so two probes of one
- * statement request the same indexes.
- */
-const probeStatements = (
-	compiled: NonEmptyReadonlyArray<Compiled>
-): NonEmptyReadonlyArray<OperandSelect> => {
-	const [first, ...rest] = compiled
-	const held: [OperandSelect, ...Array<OperandSelect>] = [first.statement]
-	for (const p of rest) {
-		if (!held.some((s) => canonicalEquals(s, p.statement))) {
-			held.push(p.statement)
-		}
-	}
-	return held
 }
 
 /** The SQLSTATE condition a rule's kind raises under. */
@@ -179,11 +155,11 @@ const columnsOf = (relation: RelationInfo, fields: ReadonlyArray<string>): Reado
 	fields.flatMap((name) => relation.fields.flatMap((f) => (f.name === name ? [f.column] : [])))
 
 /**
- * A probe over its region (analysis/theory/query.ts probes), the rows the transaction wrote of `relation` on one side,
- * navigated, checked and lowered as every query the judge reads is (`judgedStatement`), with the index requests of the
- * chain that runs.
+ * A block's probe (analysis/theory/query.ts probe), the rule's meeting part over every row the transaction's write of
+ * `relation` on one side may break the rule at, navigated, checked and lowered as every query the judge reads is
+ * (`judgedStatement`), with the index requests of the chains that run.
  *
- * Navigation makes the probe one chain of steps from its region, each a lookup of one relation by the columns the steps
+ * Navigation makes each row of the probe one chain of steps from its region, each a lookup of one relation by the columns the steps
  * before it bound, so no estimate PostgreSQL makes, with statistics or none, turns it into a join of every relation the
  * probe reads, and planning it costs a plan of each step. Its index requests are that chain's access paths
  * (`requestsOf`): each step's lookup by the columns it is bound at, so the indexes requested are exactly those the
@@ -194,7 +170,7 @@ const compileProbe = (
 	catalog: ReturnType<typeof evidenceCatalog>,
 	rule: RuleTrigger,
 	relation: RelationInfo,
-	probe: InferredQuery,
+	query: InferredQuery,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
 	heads: ReadonlyMap<string, Cte>
 ): Compiled =>
@@ -202,7 +178,7 @@ const compileProbe = (
 		b,
 		catalog,
 		rule,
-		probe,
+		query,
 		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
@@ -1355,7 +1331,7 @@ const emptied = (delta: SessionDelta): PlStatement => ({
  *
  * - of a table the rule's breaking side reads (a containment's source, a key's or a check's relation), the rows an
  *   INSERT or an UPDATE of a column it reads leaves and that stand at COMMIT, whose probes of the added side
- *   (analysis/theory/query.ts probes) read the side's facts each row derives from its image in the delta, never from the
+ *   (analysis/theory/query.ts probe) read the side's facts each row derives from its image in the delta, never from the
  *   table again;
  * - of a table a containment's target reads, the rows a DELETE or such an UPDATE found, whose probes of the removed side
  *   read the target tuples each row may have withdrawn and the source tuples that needed them;
@@ -1478,7 +1454,7 @@ export const addRules = (
 	}
 	/**
 	 * The judge's blocks of a probed rule over one table it reads: one per side of the table its touches name, each
-	 * probe of it (analysis/theory/query.ts probes), read over that side's delta.
+	 * probe of it (analysis/theory/query.ts probe), read over that side's delta.
 	 */
 	const probedBlocks = (
 		rule: RuleTrigger,
@@ -1498,23 +1474,20 @@ export const addRules = (
 				return []
 			}
 			const delta = deltaOf(t, side)
-			const compiled = probes(probed, relation.name, side, rule.law.loc).map((probe) =>
-				compileProbe(b, catalog, rule, relation, probe, deltas, heads)
-			)
-			appendAll(
-				requests,
-				compiled.flatMap((p) => p.requests)
-			)
-			return delta === undefined || !isNonEmpty(compiled)
+			const query = probe(probed, relation.name, side, rule.law.loc)
+			if (query === undefined) {
+				return []
+			}
+			const compiled = compileProbe(b, catalog, rule, relation, query, deltas, heads)
+			appendAll(requests, compiled.requests)
+			return delta === undefined
 				? []
 				: [
 						{
 							rule,
 							order: identifierOf(rule.named),
 							reads: [delta],
-							body: mapNonEmpty(probeStatements(compiled), (statement) =>
-								whenFound(statement, [raise])
-							)
+							body: [whenFound(compiled.statement, [raise])]
 						}
 					]
 		}
@@ -1590,7 +1563,7 @@ export const addRules = (
 	 * The check of `rule` over every row, the one the migration that adds the rule, or changes it or a definition it
 	 * reads, runs once (deploy/snapshot/violation.ts lawChecks): the judge's own statements over the transaction that
 	 * writes every row into an installation that holds none (`everyRow`), a probed rule's the probes of the facts its
-	 * breaking side's arms add (analysis/theory/query.ts everyRowProbes), a whole rule's its violation query itself, every
+	 * breaking side's arms add (analysis/theory/query.ts everyRowProbe), a whole rule's its violation query itself, every
 	 * unit being written (WholeRule `everyRow`), each lowered as the judge lowers its statements (`judgedStatement`): one
 	 * chain of lookups from the rows it starts at, every lookup one the judge's statements request an index for, so no
 	 * estimate PostgreSQL makes, with statistics or none, turns the check into a join of derived relations it plans apart
@@ -1613,23 +1586,17 @@ export const addRules = (
 				new Map(),
 				"every"
 			)
-		const compiled: NonEmptyReadonlyArray<Compiled> =
+		const compiled = lowered(
 			r.kind === "whole"
-				? [lowered(r.everyRow)]
-				: mapNonEmpty(
-						everyRowProbes(
-							r,
-							(name) => rule.tables.some((t) => t.relation.name === name),
-							rule.law.loc
-						),
-						lowered
+				? r.everyRow
+				: everyRowProbe(
+						r,
+						(name) => rule.tables.some((t) => t.relation.name === name),
+						rule.law.loc
 					)
-		appendAll(
-			requests,
-			compiled.flatMap((c) => c.requests)
 		)
-		const [first, second, ...more] = probeStatements(compiled)
-		return second === undefined ? first : operandSelect(operandUnionAll([first, second, ...more]))
+		appendAll(requests, compiled.requests)
+		return compiled.statement
 	}
 	const checks = new Map(b.model.rules.map((rule) => [rule.law.id, everyRowCheck(rule)] as const))
 	/** The judge's blocks that hold `rule`, by the one strategy its kind states. */

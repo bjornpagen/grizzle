@@ -2,7 +2,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
-import { Formatter } from "effect"
+import { Array as Arr, Formatter, String as Str } from "effect"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -12,7 +12,7 @@ import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
-import { judgedStatementsOf } from "#test/support/judge.ts"
+import { judgedDeltaReadsOf, judgedStatementsOf } from "#test/support/judge.ts"
 import { owning } from "#test/support/policy.ts"
 
 /**
@@ -936,6 +936,139 @@ export const judgedContainment = (c: Containment, note: (r: ContainmentReached) 
 		assert.ok(
 			reads <= bound,
 			`${Formatter.format(c)}: a statement of the containment reads Node ${reads} times, where the leaf's restrictions, each spelled once, read it ${bound} times`
+		)
+	}
+}
+
+/**
+ * One case of the nested box: a containment of Session's doc in Servable, the docs whose root Node no level of `depth`
+ * holds, each level one rule matching a union of `width` rules of Node, each of kinds of its own, and negating the level
+ * below at the node's (doc, start), the lowest the union of `width` kinds of Node read whole. Flattened (the theory's
+ * arms), a level is one arm per rule of its union, each negating the level below.
+ */
+export interface Nested {
+	readonly width: 2 | 3
+	readonly depth: 1 | 2 | 3 | 4
+}
+
+export const nestedGen: Gen<Nested> = (s) => ({
+	width: s.draw(element<Nested["width"]>([2, 3])),
+	depth: s.draw(element<Nested["depth"]>([1, 2, 3, 4]))
+})
+
+export type NestedReached = "two rules a level" | "three rules a level" | "four levels deep"
+
+const NestNode = relation("Node", { doc: pg.integer, start: pg.integer, kind: pg.integer }, [
+	"doc",
+	"start"
+])
+const Doc = relation("Doc", { doc: pg.integer, root: pg.integer }, ["doc"])
+const Session = relation("Session", { id: pg.integer, doc: pg.integer }, ["id"])
+const NestBase = schema("judge_nested", [NestNode, Doc, Session], [])
+
+/** A rule reading Node at `kind`. */
+const nodeAt = (kind: number) => (r: Rule<typeof NestBase>) => {
+	const { doc, start } = v(NestNode, "n")
+	return r.match(NestNode, { doc, start, kind }).find({ doc, start })
+}
+
+/** The unions of the lowest level, two kinds or three. */
+const leaf2 = query(NestBase).rule(nodeAt(0)).rule(nodeAt(1))
+const leaf3 = query(NestBase).rule(nodeAt(0)).rule(nodeAt(1)).rule(nodeAt(2))
+
+/** The lowest level: the union of two kinds or three, read whole. */
+const match2Leaf = query(NestBase).rule((r) => {
+	const { doc, start } = v(leaf2, "u")
+	return r.match(leaf2, { doc, start }).find({ doc, start })
+})
+const match3Leaf = query(NestBase).rule((r) => {
+	const { doc, start } = v(leaf3, "u")
+	return r.match(leaf3, { doc, start }).find({ doc, start })
+})
+type Match2 = typeof match2Leaf
+type Match3 = typeof match3Leaf
+
+/** Level `d`: one rule matching a union of two kinds or three and negating the level below once. */
+const match2 = (lower: Match2, d: number): Match2 => {
+	const union = query(NestBase)
+		.rule(nodeAt(d * 10))
+		.rule(nodeAt(d * 10 + 1))
+	return query(NestBase).rule((r) => {
+		const { doc, start } = v(union, "u")
+		return r.match(union, { doc, start }).where(r.not(lower, { doc, start })).find({ doc, start })
+	})
+}
+const match3 = (lower: Match3, d: number): Match3 => {
+	const union = query(NestBase)
+		.rule(nodeAt(d * 10))
+		.rule(nodeAt(d * 10 + 1))
+		.rule(nodeAt(d * 10 + 2))
+	return query(NestBase).rule((r) => {
+		const { doc, start } = v(union, "u")
+		return r.match(union, { doc, start }).where(r.not(lower, { doc, start })).find({ doc, start })
+	})
+}
+
+/** The top level of a case, its levels each over the one below from the lowest up. */
+const topOf = (c: Nested): Match2 | Match3 => {
+	const levels = Array.from({ length: c.depth }, (_, i) => i + 1)
+	return c.width === 2
+		? Arr.reduce(levels, match2Leaf, match2)
+		: Arr.reduce(levels, match3Leaf, match3)
+}
+
+/** The nested box's schema (`Nested`): Servable over the case's top level, and Session's containment in it. */
+const nestedSchemaOf = (c: Nested): FixtureSchema => {
+	const top = topOf(c)
+	const Servable = derived(
+		"Servable",
+		query(NestBase).rule((r) => {
+			const { doc, root: start } = v(Doc, "d")
+			return r
+				.match(Doc, { doc, root: start })
+				.match(NestNode, { doc, start })
+				.where(r.not(top, { doc, start }))
+				.find({ doc })
+		})
+	)
+	return schema.extend(
+		[NestBase],
+		"judge_nested_top",
+		[Servable],
+		[contained(on(Session, "doc"), on(Servable, "doc"))]
+	)
+}
+
+/**
+ * Judges the nested box's judge: one statement for each relation the rule reads and each side, eight at most, however
+ * deep and wide the levels (physical/ddl/rules.ts sideBlock, analysis/theory/query.ts probe), and each statement over
+ * Doc's delta, whose one occurrence is the root's, spells the target once, each level's definition once: it reads Node
+ * once for the root and once for each rule of each level, the lowest's among them, 1 + (depth + 1) × width times (analysis/theory/query.ts absentsOf).
+ * Before, a block held a statement for every occurrence of the touched relation, each spelling the whole target, and the
+ * target spelled each negated level once per arm of the level negating it: a negation of a union of w rules was w
+ * anti-joins, each spelling the level below again, w to the depth.
+ */
+export const judgedNested = (c: Nested, note: (r: NestedReached) => void): void => {
+	const owned = owning(nestedSchemaOf(c))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	note(c.width === 2 ? "two rules a level" : "three rules a level")
+	if (c.depth === 4) {
+		note("four levels deep")
+	}
+	const reads = judgedDeltaReadsOf(installation)
+	assert.ok(
+		reads.length <= 8,
+		`${Formatter.format(c)}: the judge holds ${reads.length} statements, past one for each of the rule's four relations and each side`
+	)
+	const overDoc = Arr.filter(reads, (r) => Arr.some([...r.deltas], Str.includes("_doc_")))
+	assert.ok(overDoc.length > 0, `${Formatter.format(c)}: a statement over Doc's delta`)
+	const bound = 1 + (c.depth + 1) * c.width
+	for (const { statement } of overDoc) {
+		const nodes = nodeReadsOf(statement.query)
+		assert.equal(
+			nodes,
+			bound,
+			`${Formatter.format(c)}: a statement over Doc's delta reads Node ${nodes} times, where the target spelled once reads it ${bound} times`
 		)
 	}
 }

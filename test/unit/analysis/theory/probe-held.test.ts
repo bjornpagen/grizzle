@@ -1,5 +1,5 @@
 /**
- * A rule's probe of the rows a transaction adds reads them from its net write (analysis/theory/query.ts probes,
+ * A rule's probe of the rows a transaction adds reads them from its net write (analysis/theory/query.ts probeRows,
  * physical/ddl/rules.ts addRules): each probe is one rule whose first match is the touched relation's delta.added,
  * binding each field the occurrence it holds reads to a variable of its own, and that occurrence is replaced by the
  * region, so the probe never reads the row again from its table, where without statistics an index of a strict subset

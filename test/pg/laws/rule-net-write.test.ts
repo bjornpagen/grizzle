@@ -2,7 +2,7 @@
  * A rule over a query reads the rows a transaction adds as its net write (physical/ddl/rules.ts addRules): each
  * statement counts the images it puts and removes on the touched table's side of news, the judge nets them to the
  * images the transaction leaves that it did not find, and a probe of the facts a row adds reads the row there, never
- * from its table again (analysis/theory/query.ts probes). On PostgreSQL 19, over NetWrite
+ * from its table again (analysis/theory/query.ts probe). On PostgreSQL 19, over NetWrite
  * (rule-net-write.fixtures.ts): A keyed as a qti attribute is, by (package, path, start, name), two rules over its
  * facts, and an index of (governor, name, package) beside its key that grizzle plans for the second rule's deletes.
  *

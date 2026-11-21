@@ -4,7 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { exact } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { probes } from "#compiler/analysis/theory/query.ts"
+import { probeRows } from "#compiler/analysis/theory/query.ts"
 import type { InferredExpr, InferredQuery, InferredRule } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -167,14 +167,6 @@ const heldMatches = (
 			: []
 	)
 
-/** The one rule of a probe, whose first match reads its region. */
-const ruleOf = (probe: InferredQuery): InferredRule => {
-	const stage = probe.stage
-	return stage.kind === "rules" && stage.arms.length === 1
-		? defined(stage.arms[0], "a probe's one rule")
-		: assert.fail("a probe of one rule")
-}
-
 /** Judges every probe of the added side of every rule trigger's table of `shape`'s schema. */
 export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 	const artifacts = succeeded(testArtifacts(schemaOf(shape), testCompile))
@@ -185,9 +177,9 @@ export const judged = (shape: Shape, note: (f: Feature) => void): void => {
 		const read =
 			table.touches.kind === "removed"
 				? []
-				: probes(probedRule(rule.rule), rel.name, "added", rule.law.loc)
-		for (const probe of read) {
-			const within = ruleOf(probe)
+				: probeRows(probedRule(rule.rule), rel.name, "added", rule.law.loc)
+		for (const within of read) {
+			const probe: InferredQuery = { stage: { kind: "rules", arms: [within], loc: within.loc } }
 			const region = defined(within.matches[0], "a probe's region, its first match")
 			assert.deepEqual(
 				region.source,

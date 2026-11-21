@@ -186,6 +186,29 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 )
 
 /**
+ * A kill of the shapes whose judge negates (`negating`): their probes' negations read the target keyed by each row's
+ * terms, the key's and tagged's read none.
+ */
+const decorrelated = Object.freeze({
+	file: "packages/engine/src/analysis/theory/navigate.ts",
+	original:
+		'\t\t\t\t\treturn this.rule({ ...arm, where: [...arm.where, ...at] }, depth + 1, keptOf(arm))\n\t\t\t\t})\n\t\t\t\treturn {\n\t\t\t\t\tkind: a.kind,\n\t\t\t\t\tsource: {\n\t\t\t\t\t\tkind: "query",\n\t\t\t\t\t\tquery: { stage: { kind: "rules", arms: navigated, loc: stage.loc } },\n\t\t\t\t\t\tbind: Object.fromEntries(passing.bind)\n\t\t\t\t\t},\n\t\t\t\t\tbindings: {}\n\t\t\t\t}',
+	replacement:
+		'\t\t\t\t\treturn this.rule(at.length < 0 ? arm : arm, depth + 1, keptOf(arm))\n\t\t\t\t})\n\t\t\t\treturn {\n\t\t\t\t\tkind: a.kind,\n\t\t\t\t\tsource: {\n\t\t\t\t\t\tkind: "query",\n\t\t\t\t\t\tquery: { stage: { kind: "rules", arms: navigated, loc: stage.loc } },\n\t\t\t\t\t\tbind: Object.fromEntries(passing.bind)\n\t\t\t\t\t},\n\t\t\t\t\tbindings: Object.fromEntries(Object.entries(a.bindings).map(([field, outer]) => [field, passing.expr(atColumn(pinned(outer), field, columns))]))\n\t\t\t\t}',
+	why: "A negation's arms are read whole, the target's facts at every key, and anti-joined with the row's terms after, where each arm is restricted by them inside: a probe's negation of the target reads every key's rows for one key's write, and takes their SIRead locks; the property fails."
+})
+
+/** The shapes whose judge reads a negation: every shape but key's and tagged's, which negate nothing. */
+const negating: ReadonlySet<string> = new Set([
+	"titles",
+	"viewed",
+	"deep",
+	"standing",
+	"lifted",
+	"budget"
+])
+
+/**
  * Read the same rows and take the same SIRead locks beside hundreds more keys, none on a whole relation, one property
  * for each shape, each case on the worker's seat of its shape's schema.
  *
@@ -246,7 +269,8 @@ export const readTheSameRowsAndTakeTheSameSireadLocksBesideHundredsMoreKeys = fa
 						original: "\t\t\tpinned.push(equal(e, value))",
 						replacement: "\t\t\tvoid equal(e, value)",
 						why: "A probe whose touched row binds a variable another match binds, held to its region by no pin: it reads every candidate the rule's whole check reads, so it judges the same and reads every key's rows."
-					}
+					},
+					...(negating.has(shape) ? [decorrelated] : [])
 				]
 			})
 		])

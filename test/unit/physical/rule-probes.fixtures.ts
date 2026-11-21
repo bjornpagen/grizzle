@@ -3,7 +3,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import { probes as probesOf } from "#compiler/analysis/theory/query.ts"
+import { probe, probeKey, probeRows } from "#compiler/analysis/theory/query.ts"
+import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -29,7 +30,7 @@ export const shapeGen: Gen<Shape> = (s) => ({
 	joined: s.draw(boolean)
 })
 
-export type Reached = "a block whose probes outnumber its statements" | "a block of two statements"
+export type Reached = "a probe of several rows" | "a probe whose rows outnumber its arms"
 
 /** The schema of a shape: T, U and S on a base level, D over them and S's containment in it above. */
 const schemaOf = (shape: Shape) => {
@@ -75,34 +76,46 @@ const blocksOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<Block> =>
 			: []
 	)
 
-/** Judges the judge of `shape`'s installation. */
+/** The arms of a probe's rows: its meeting part's one match, the union of its rows, or the probe's one row itself. */
+const rowArmsOf = (q: InferredQuery): number => {
+	const stage = q.stage
+	const first = stage.kind === "rules" ? stage.arms[0].matches[0] : undefined
+	return first?.source.kind === "query" && first.source.query.stage.kind === "rules"
+		? first.source.query.stage.arms.length
+		: 1
+}
+
+/** Judges the judge of `shape`'s installation and the probe of each removed side. */
 export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const built = schemaOf(shape)
 	const owned = owning(built)
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
-	/** The probes of the removed side of every rule trigger's table, each occurrence of the touched relation one. */
-	const probes = Arr.reduce(succeeded(testArtifacts(built, testCompile)).laws.rules, 0, (n, rule) =>
-		Arr.reduce(rule.tables, n, (m, table) =>
-			table.touches.kind === "added"
-				? m
-				: m + probesOf(probedRule(rule.rule), table.relation.name, "removed", rule.law.loc).length
-		)
-	)
-	let statements = 0
-	for (const block of blocksOf(judgeBodiesOf(installation))) {
-		assert.equal(
-			new Set(block.statements).size,
-			block.statements.length,
-			"the judge: each probe statement once in its guarded block"
-		)
-		if (block.statements.length >= 2) {
-			note("a block of two statements")
-		}
-		if (block.olds) {
-			statements += block.statements.length
+	for (const rule of succeeded(testArtifacts(built, testCompile)).laws.rules) {
+		for (const table of rule.tables) {
+			if (table.touches.kind === "added") {
+				continue
+			}
+			const probed = probedRule(rule.rule)
+			const rows = probeRows(probed, table.relation.name, "removed", rule.law.loc)
+			const read = probe(probed, table.relation.name, "removed", rule.law.loc)
+			const distinct = new Set(Arr.map(rows, probeKey)).size
+			assert.equal(
+				read === undefined ? 0 : rowArmsOf(read),
+				distinct,
+				`the probe of ${table.relation.name}'s removed rows reads each of its ${rows.length} rows once, one arm of each key`
+			)
+			if (distinct >= 2) {
+				note("a probe of several rows")
+			}
+			if (rows.length > distinct) {
+				note("a probe whose rows outnumber its arms")
+			}
 		}
 	}
-	if (probes > statements) {
-		note("a block whose probes outnumber its statements")
+	for (const block of blocksOf(judgeBodiesOf(installation))) {
+		assert.ok(
+			block.statements.length <= 1,
+			"the judge: one probe statement in each guarded block, none in a tamper check's"
+		)
 	}
 }

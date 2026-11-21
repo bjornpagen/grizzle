@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
-import { everyRowProbes } from "#compiler/analysis/theory/query.ts"
+import { everyRowProbe, type ProbedRule } from "#compiler/analysis/theory/query.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { noClock } from "#compiler/ir/clock.ts"
@@ -67,7 +67,9 @@ const overEveryRow = (probe: InferredQuery): InferredQuery => {
 	const match = (m: InferredMatch): InferredMatch =>
 		m.source.kind === "delta" && m.source.side === "added"
 			? { ...m, source: { kind: "relation", name: m.source.relation } }
-			: m
+			: m.source.kind === "query"
+				? { ...m, source: { ...m.source, query: overEveryRow(m.source.query) } }
+				: m
 	return {
 		...probe,
 		stage: {
@@ -77,8 +79,19 @@ const overEveryRow = (probe: InferredQuery): InferredQuery => {
 	}
 }
 
+/** `rule` with its breaking side's first arm alone: what reads a fact of that arm only. */
+const firstArmOf = (rule: ProbedRule): ProbedRule => {
+	switch (rule.kind) {
+		case "contained":
+			return { ...rule, from: { ...rule.from, arms: [rule.from.arms[0]] } }
+		case "key":
+		case "check":
+			return { ...rule, side: { ...rule.side, arms: [rule.side.arms[0]] } }
+	}
+}
+
 /**
- * One case: the rule's check over every row (analysis/theory/query.ts everyRowProbes), its region every row of its
+ * One case: the rule's check over every row (analysis/theory/query.ts everyRowProbe), its region every row of its
  * anchor, read by the reference evaluator, finds a row exactly where the rule's violation query does, and the same
  * rows where the two are of one heading.
  */
@@ -92,11 +105,8 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 		return assert.fail("a Forbid node")
 	}
 	const meant = referenceRows(theory, violations.dag, forbid.violation, c.facts)
-	const probes = everyRowProbes(
-		probedRule(rule.rule),
-		(name) => Arr.some(rule.tables, (t) => t.relation.name === name),
-		rule.law.loc
-	)
+	const probed = probedRule(rule.rule)
+	const stored = (name: string): boolean => Arr.some(rule.tables, (t) => t.relation.name === name)
 	const heading = Arr.join(
 		Arr.sort(
 			Arr.map(forbid.violation.heading, (h) => h.name),
@@ -104,9 +114,9 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 		),
 		","
 	)
-	const found = Arr.map(probes, (probe) => {
+	const foundBy = (r: ProbedRule) => {
 		const checked = succeeded(
-			checkQuery(artifacts.laws.checked, overEveryRow(probe), {
+			checkQuery(artifacts.laws.checked, overEveryRow(everyRowProbe(r, stored, rule.law.loc)), {
 				read: "region",
 				clock: noClock,
 				label: "the check over every row",
@@ -124,23 +134,23 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 			),
 			rows: referenceRows(theory, checked.dag, root, c.facts)
 		}
-	})
-	const any = Arr.some(found, (f) => f.rows.size > 0)
-	const [firstArm] = found
+	}
+	const found = foundBy(probed)
+	const any = found.rows.size > 0
 	assert.equal(
 		any,
 		meant.size > 0,
 		`the check over every row finds ${any ? "a row" : "none"} where the violation query finds ${meant.size}`
 	)
-	if (Arr.every(found, (f) => f.heading === heading)) {
+	if (found.heading === heading) {
 		assert.deepEqual(
-			new Set(Arr.flatMap(found, (f) => Arr.fromIterable(f.rows))),
+			new Set(found.rows),
 			new Set(meant),
 			"the check over every row finds the violation query's facts"
 		)
 	}
 	note(any ? "a check that finds a row" : "a check that finds none")
-	if (any && firstArm.rows.size === 0) {
+	if (any && foundBy(firstArmOf(probed)).rows.size === 0) {
 		note("a fact only a later arm derives")
 	}
 	note(c.law === "contained" ? "a containment" : c.law === "check" ? "a row check" : "a key")

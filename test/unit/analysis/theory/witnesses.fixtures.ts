@@ -3,7 +3,7 @@
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import {
-	type NegatedArm,
+	type Negation,
 	type QueryRule,
 	type RuleSide,
 	type SideArm,
@@ -85,14 +85,18 @@ const conjunctiveOf = (relations: Arr.NonEmptyReadonlyArray<number>, prefix: str
 
 const sideArmOf = (arm: ArmPlan, prefix: string): SideArm => ({
 	...conjunctiveOf(arm.matches, `${prefix}m`),
-	negated: Arr.map(arm.negated, (n, j): NegatedArm => ({
-		arm: {
-			...conjunctiveOf(n.matches, `${prefix}n${j}.`),
-			negated: Arr.map(n.negated, (inner, i): NegatedArm => ({
-				arm: conjunctiveOf(inner, `${prefix}n${j}.n${i}.`),
-				bindings: { f: { kind: "var", var: `${prefix}n${j}.0` } }
-			}))
-		},
+	negated: Arr.map(arm.negated, (n, j): Negation => ({
+		source: { kind: "relation", name: nameOf(n.matches[0]) },
+		arms: [
+			{
+				...conjunctiveOf(n.matches, `${prefix}n${j}.`),
+				negated: Arr.map(n.negated, (inner, i): Negation => ({
+					source: { kind: "relation", name: nameOf(inner[0]) },
+					arms: [conjunctiveOf(inner, `${prefix}n${j}.n${i}.`)],
+					bindings: { f: { kind: "var", var: `${prefix}n${j}.0` } }
+				}))
+			}
+		],
 		bindings: { f: { kind: "var", var: `${prefix}m0` } }
 	})),
 	terms: [{ kind: "var", var: `${prefix}m0` }]
