@@ -79,9 +79,10 @@ const isRefusal = (stage: string): stage is MigrationRefusal => refusals.has(sta
 
 /**
  * A MigrateError as the observation of the refusal it is: drift, as the action that ran meets it (`drifted` of the
- * mismatches: a drift run's report, a migrate's refusal at stage drift); a file's statement PostgreSQL refused (a law the
- * data breaks, installed by its index or constraint), refused with its SQLSTATE; a refusal stage the model names; or a
- * defect for any other.
+ * mismatches: a drift run's report, a migrate's refusal at stage drift); a file's statement PostgreSQL refused: a law the
+ * data breaks, installed by its index or constraint; an object the catalog lacks or holds, which the report says the
+ * installation may have drifted over (StatementFailed drifted); or any other, refused with its SQLSTATE; a refusal stage
+ * the model names; or a defect for any other.
  */
 export const migrationRefused = (
 	error: MigrateError,
@@ -103,10 +104,10 @@ export const migrationRefused = (
 				refusedWith(
 					Option.match(law, {
 						onSome: (refused): Observation => ({ kind: "migration-law-refused", laws: [refused] }),
-						onNone: (): Observation => ({
-							kind: "refused",
-							sqlstate: sqlStateOf(server.error.sqlstate)
-						})
+						onNone: (): Observation =>
+							reason._tag === "StatementFailed" && reason.drifted
+								? { kind: "migration-drifted" }
+								: { kind: "refused", sqlstate: sqlStateOf(server.error.sqlstate) }
 					}),
 					error
 				)

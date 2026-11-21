@@ -821,6 +821,14 @@ export type ActionOutcome =
 			 */
 			readonly laws: Arr.NonEmptyReadonlyArray<LawId>
 	  }
+	| {
+			/**
+			 * A migration stopped at a statement over an object the catalog lacks or already holds, which a change outside
+			 * any migration dropped or made (adapter/migrate/errors.ts StatementFailed drifted), its file rolled back and its
+			 * report telling the operator the installation may have drifted, with `grizzle drift` to see what changed.
+			 */
+			readonly kind: "migration-drifted"
+	  }
 	| { readonly kind: "handle-refused" }
 	| { readonly kind: "stale-snapshot"; readonly reason: ModelStaleReason }
 	| { readonly kind: "ok" }

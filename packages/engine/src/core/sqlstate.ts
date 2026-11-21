@@ -113,6 +113,19 @@ export const sqlstates = {
 	internalError: brand("XX000"),
 	deadlockDetected: brand("40P01"),
 	undefinedTable: brand("42P01"),
+	/** Class 42's statements over an object the catalog lacks: any object's, a function's and a column's. */
+	undefinedObject: brand("42704"),
+	undefinedFunction: brand("42883"),
+	undefinedColumn: brand("42703"),
+	/** Class 42's statements over an object the catalog already holds: any object's, a table's, a function's, a
+	 * schema's and a column's. */
+	duplicateObject: brand("42710"),
+	duplicateTable: brand("42P07"),
+	duplicateFunction: brand("42723"),
+	duplicateSchema: brand("42P06"),
+	duplicateColumn: brand("42701"),
+	/** A DROP RESTRICT of an object another depends on, a privilege on a table among them for a role's. */
+	dependentObjectsStillExist: brand("2BP01"),
 	invalidSchemaName: brand("3F000"),
 	objectNotInPrerequisiteState: brand("55000"),
 	/** A lock NOWAIT could not take: the fence's LOCK of the ledger while a migration holds or awaits it. */
@@ -135,6 +148,27 @@ export const sqlstates = {
 	grizzleMigrating: brand("55Z02"),
 	grizzleMigrated: brand("55Z01")
 } as const
+
+/**
+ * The conditions of a statement over an object the catalog lacks or already holds, a table, a column, a function, a
+ * schema or any other object (class 42's undefined_ and duplicate_ conditions), or whose DROP another object depends on
+ * (class 2B's dependent_objects_still_exist): what a migration's statement meets where the installation departs from
+ * the snapshot its folders were drafted against, an object dropped or created outside any migration, or a privilege
+ * granted outside one to a role it drops, since a folder drops, alters and creates exactly the objects its snapshot
+ * states and drops them RESTRICT.
+ */
+export const catalogDeparted: ReadonlySet<Sqlstate> = new Set([
+	sqlstates.undefinedTable,
+	sqlstates.undefinedObject,
+	sqlstates.undefinedFunction,
+	sqlstates.undefinedColumn,
+	sqlstates.duplicateObject,
+	sqlstates.duplicateTable,
+	sqlstates.duplicateFunction,
+	sqlstates.duplicateSchema,
+	sqlstates.duplicateColumn,
+	sqlstates.dependentObjectsStillExist
+])
 
 /** The class of a SQLSTATE: its first two characters. */
 export const sqlstateClass = (state: Sqlstate): string => state.slice(0, sqlstateClassLength)

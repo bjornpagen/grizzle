@@ -493,38 +493,66 @@ const perturbedObject = (
 export const sameNames = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
 	a.length === b.length && Arr.every(a, (x) => b.includes(x))
 
-/** Whether a role installs the same grants and memberships in two installations: its entries, write and refresh lists. */
-const sameRole = (a: RoleSpec | undefined, b: RoleSpec | undefined): boolean =>
-	a === undefined || b === undefined
-		? a === b
-		: samePlain(a.entries, b.entries) &&
-			sameNames(a.write, b.write) &&
-			sameNames(a.refresh, b.refresh)
+/**
+ * Whether a migration's grants and revokes take a grant made by hand from a role (packages/engine/src/deploy/diff/
+ * privileges.ts: one privilege of one grantee on one object at a time): a REVOKE of the table's privilege, which runs
+ * where the previous installation holds it and the new one does not and takes each column grant of it as well, or, for a
+ * column grant, a REVOKE of that column's grant, which runs where the previous installation holds it and the new one does
+ * not; or the table dropped, which takes its privileges with it. A privilege both installations hold is neither revoked
+ * nor granted, so a grant made by hand beside one outlives the migration.
+ */
+const handGrantTaken = (
+	from: InstallSpec,
+	to: InstallSpec,
+	p: Extract<CatalogPerturbation, { readonly kind: "extra-grant" | "extra-column-grant" }>
+): boolean =>
+	(holdsTable(from, p.role, p.relation, p.privilege) &&
+		!holdsTable(to, p.role, p.relation, p.privilege)) ||
+	(p.kind === "extra-column-grant" &&
+		holdsColumn(from, p.role, p.relation, p.field, p.privilege) &&
+		!holdsColumn(to, p.role, p.relation, p.field, p.privilege)) ||
+	relationSpecOf(to.base, p.relation) === undefined
 
 /**
- * Whether a migration replaces a role's grants (packages/engine/src/deploy/diff/diff.ts grants): the role stands in both
- * installations, and its privileges change (its entries, write or refresh list) or name a view or world function the
- * folder drops or creates again. Publish then revokes every previous grant of the role, a column grant as its table's
- * grant of that privilege, and grants every grant of the new installation.
+ * Whether a role's DROP ROLE finds no grant made by hand left: the migration revokes each privilege the role held in the
+ * previous installation first (privileges.ts), so a table grant made beside the table's privilege, or a column grant
+ * beside the table's privilege or that column's, goes with it, and any other outlives the revokes.
  */
-const grantsReplaced = (from: InstallSpec, to: InstallSpec, role: string): boolean => {
-	const before = roleOf(from, role)
-	const after = roleOf(to, role)
-	return (
-		before !== undefined &&
-		after !== undefined &&
-		(!sameRole(before, after) ||
-			Arr.some(
-				[...worldObjects(from, role)],
-				([identity, o]) => o.kind !== "policy" && rewritten(from, to, role, identity)
-			))
-	)
+const handGrantRevokedForDrop = (
+	from: InstallSpec,
+	p: Extract<CatalogPerturbation, { readonly kind: "extra-grant" | "extra-column-grant" }>
+): boolean =>
+	holdsTable(from, p.role, p.relation, p.privilege) ||
+	(p.kind === "extra-column-grant" && holdsColumn(from, p.role, p.relation, p.field, p.privilege))
+
+/**
+ * Whether a migration grants back every privilege a REVOKE made by hand took that the new installation holds: it grants
+ * only what the previous installation did not hold (privileges.ts), so a privilege the revoke took from the previous
+ * installation's grants stays revoked, and only one the new installation holds anew is granted after it.
+ */
+const handRevokeGrantedBack = (
+	from: InstallSpec,
+	to: InstallSpec,
+	p: Extract<CatalogPerturbation, { readonly kind: "grant-revoked" }>
+): boolean => {
+	const privilege = p.privilege
+	const tableKept =
+		holdsTable(from, p.role, p.relation, privilege) && holdsTable(to, p.role, p.relation, privilege)
+	const columnKept =
+		(privilege === "SELECT" || privilege === "INSERT" || privilege === "UPDATE") &&
+		Arr.some(
+			relationSpecOf(to.base, p.relation)?.fields ?? [],
+			(f) =>
+				holdsColumn(from, p.role, p.relation, f.name, privilege) &&
+				holdsColumn(to, p.role, p.relation, f.name, privilege)
+		)
+	return !tableKept && !columnKept
 }
 
 /**
  * Whether a REVOKE of a privilege on a relation's table takes a grant from a role: a table grant of it, or a column grant
  * of it on a field of the relation, since PostgreSQL's REVOKE on a table revokes the privilege on each of its columns as
- * well. Publish's revoke of a role's previous grants and a tamper's revoke of one privilege both take exactly these.
+ * well. A tamper's revoke of one privilege takes exactly these.
  */
 const revokedWith = (
 	install: InstallSpec,
@@ -596,10 +624,12 @@ export const keyShown = (
 /**
  * Whether a migration from one installation to another rewrites what a perturbation changed, so the catalog holds the
  * new contract there again (packages/engine/src/deploy/diff/diff.ts): its folder drops a role's world object the perturbation
- * changed, or creates it again under a new definition (a policy, a view, a filter function or key probe); enables row
+ * changed, or creates it again under a new definition (a view, a filter function or key probe, an edited policy), never
+ * one the perturbation removed, a dropped policy, whose DROP stops the run (departedAt); enables row
  * security on a table the new installation is the first to narrow, which a disabled or enabled
- * state then no longer departs from (ENABLE leaves FORCE as it was); replaces the role's grants (grantsReplaced),
- * which revokes an extra grant its previous grants covered (revokedWith) and grants a revoked one again; or moves a
+ * state then no longer departs from (ENABLE leaves FORCE as it was); revokes a privilege a grant made by hand stands
+ * beside, or drops its table (handGrantTaken), or grants anew every privilege a revoke made by hand took that the new
+ * installation holds (handRevokeGrantedBack), one privilege at a time (deploy/diff/privileges.ts); or moves a
  * role to another login, which revokes it from its old login, options and all. Every other perturbation outlives the
  * migration, a PUBLIC grant on a stored relation's table among them, since a migration revokes from PUBLIC only on what
  * no previous revoke took (revokesAnew), so the drift check that ends the run refuses it: grizzle
@@ -614,15 +644,17 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 			return p.state !== "forced" && !rowSecured(from, p.relation) && rowSecured(to, p.relation)
 		case "extra-grant":
 		case "extra-column-grant":
-			return grantsReplaced(from, to, p.role) && revokedWith(from, p.role, p.relation, p.privilege)
+			return handGrantTaken(from, to, p)
 		case "grant-revoked":
-			return grantsReplaced(from, to, p.role)
+			return handRevokeGrantedBack(from, to, p)
 		case "membership-admin":
 		case "membership-inherit": {
 			const moved = loginHolding(to, p.role)
 			return roleOf(from, p.role) !== undefined && moved !== undefined && moved.name !== p.login
 		}
 		case "public-grant":
+			return false
+		case "policy-dropped":
 			return false
 		case "membership-revoked":
 		case "membership-extra":
@@ -631,7 +663,6 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 		case "role-setting":
 		case "database-setting":
 		case "inherited-grant":
-		case "policy-dropped":
 		case "policy-edited":
 		case "view-redefined":
 		case "function-redefined":
@@ -646,6 +677,64 @@ export const healedBy = (from: InstallSpec, to: InstallSpec, p: CatalogPerturbat
 			const object = perturbedObject(from, p)
 			return object !== undefined && rewritten(from, to, object.role, object.identity)
 		}
+	}
+}
+
+/** A file of a folder a statement over a departed catalog stops in (departedAt): Structure or Publish. */
+export type DepartedFile = "structure" | "publish"
+
+/**
+ * The file of a migration from one installation to another that runs a statement over what a perturbation removed or
+ * made, which PostgreSQL refuses, so the run stops there, its file rolled back (adapter/migrate/errors.ts
+ * StatementFailed drifted): Structure, where its folder drops a world object a dropped policy was or creates it again
+ * under a new definition, each by its DROP (42704, the object gone); Publish, where it drops a role a privilege was
+ * granted to by hand that no revoke of the role's previous grants takes (handGrantRevokedForDrop), by its DROP ROLE (2BP01, the
+ * privilege depending on the role). None for every other perturbation, which leaves what a folder names in place or
+ * changes what no statement of a folder refuses: a membership goes with its role.
+ */
+export const departedAt = (
+	from: InstallSpec,
+	to: InstallSpec,
+	p: CatalogPerturbation
+): DepartedFile | undefined => {
+	switch (p.kind) {
+		case "policy-dropped": {
+			const object = perturbedObject(from, p)
+			return object !== undefined && rewritten(from, to, object.role, object.identity)
+				? "structure"
+				: undefined
+		}
+		case "extra-grant":
+		case "extra-column-grant":
+			return roleOf(from, p.role) !== undefined &&
+				roleOf(to, p.role) === undefined &&
+				!handGrantRevokedForDrop(from, p)
+				? "publish"
+				: undefined
+		case "row-security":
+		case "grant-revoked":
+		case "membership-admin":
+		case "membership-inherit":
+		case "public-grant":
+		case "membership-revoked":
+		case "membership-extra":
+		case "member-extra":
+		case "role-attribute":
+		case "role-setting":
+		case "database-setting":
+		case "inherited-grant":
+		case "policy-edited":
+		case "view-redefined":
+		case "function-redefined":
+		case "search-path-altered":
+		case "default-privileges":
+		case "column-default":
+		case "not-null-dropped":
+		case "extra-index":
+		case "extra-table":
+		case "rewrite-rule":
+		case "trigger-disabled":
+			return undefined
 	}
 }
 

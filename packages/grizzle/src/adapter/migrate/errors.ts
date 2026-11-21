@@ -10,6 +10,7 @@ import type {
 	UnreadableAnswer
 } from "#adapter/errors/failures.ts"
 import {
+	catalogDeparted,
 	type CompileError,
 	compileReasonText,
 	type LawId,
@@ -675,10 +676,23 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	readonly failure: StatementFailure
 	readonly law: LawId | undefined
 }> {
+	/**
+	 * Whether the statement met an object it names missing from the catalog or already in it (core/sqlstate.ts
+	 * catalogDeparted): the installation may have drifted from its snapshot, an object dropped or created outside any
+	 * migration, which `grizzle drift` reports. The file's transaction rolled back, so nothing of it applied.
+	 */
+	get drifted(): boolean {
+		return this.failure._tag === "ServerError" && catalogDeparted.has(this.failure.sqlstate)
+	}
+
 	override get message(): string {
-		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.law)}: ${failureText(this.failure)}${rowsFix(this.failure)}`
+		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.law)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${rowsFix(this.failure)}`
 	}
 }
+
+/** What a statement over an object the catalog departs in tells the operator (StatementFailed drifted). */
+const driftedFix =
+	"; the installation may have drifted from its snapshot, an object this statement names dropped, created or depended on outside any migration: run grizzle drift to see what changed, undo it, then run grizzle migrate again"
 
 /**
  * The fix of a domain's new CHECK refused by rows a column holds, PostgreSQL's VALIDATE of it (a check_violation naming

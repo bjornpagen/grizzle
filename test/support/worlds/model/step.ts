@@ -542,6 +542,7 @@ const matched = (expected: ActionOutcome, observed: ActionOutcome): boolean => {
 		case "resource-bound":
 		case "commit-unknown":
 		case "interrupted":
+		case "migration-drifted":
 		case "handle-refused":
 		case "ok":
 			return observed.kind === expected.kind

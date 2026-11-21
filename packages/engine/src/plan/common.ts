@@ -110,7 +110,7 @@ export type { Isolation } from "#compiler/core/isolation.ts"
 export type { Result } from "@bjornpagen/grizzle-text/base/result"
 export { sha256Hex } from "#compiler/core/sha256.ts"
 export { wellFormed } from "#compiler/core/text.ts"
-export { Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
+export { catalogDeparted, Sqlstate, sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 export { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 export type {
 	AssembledRows,
