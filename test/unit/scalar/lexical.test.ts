@@ -208,9 +208,9 @@ export const aFieldsLexicalFormIsItsDeclaredTypesWhateverKindOfFieldItIs = prope
 			{
 				file: "packages/engine/src/schema/relation.ts",
 				original:
-					'\tfieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })',
-				replacement: "",
-				why: "drawn(natural) records no declared type, so the one reading of a field as its declared type (describeDeclared) reads a drawn field as itself, which no builder registered: lexicalForm and lexical refuse it (MalformedDescription) though its type, a bigint's, admits it."
+					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })\n\tregisterWrittenField(value, type)\n',
+				replacement: '\tfieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })\n',
+				why: "drawn(natural) registers no type its values are of (scalar/registry.ts registerWrittenField), so the one reading of a field as its declared type (describeDeclared) reads none for a drawn field: lexicalForm and lexical refuse it (MalformedDescription) though its type, a bigint's, admits it."
 			}
 		]
 	}

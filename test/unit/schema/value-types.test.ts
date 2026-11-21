@@ -106,7 +106,8 @@ export const everyAdmissionOfAValueTypeRefusesAFieldAFieldBuilderMadeByItsOwnRea
 			kills: [
 				{
 					file: "packages/engine/src/schema/relation.ts",
-					original: '\tif (entry?.kind === "written" || entry?.kind === "generated") {',
+					original:
+						'\tif (entry?.kind === "written" || entry?.kind === "instant" || entry?.kind === "generated") {',
 					replacement: "\tif (false) {",
 					why: "No admission takes the first step: every written field is refused as no descriptor, by no admission's reason."
 				},

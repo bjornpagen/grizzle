@@ -343,9 +343,9 @@ export const aFamilyDrawnOverAContractOverAnIntegerCountsAndIndexesByItsTypeAndI
 			{
 				file: "packages/engine/src/schema/relation.ts",
 				original:
-					'\tfieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })',
+					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })\n\tregisterWrittenField(value, type)\n',
 				replacement:
-					'\tfieldEntries.set(value, { kind: "written", type: naturalDescriptor, writing: { kind: "drawn" } })',
+					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })\n\tregisterWrittenField(value, naturalDescriptor)\n',
 				why: "drawn(c) is installed as natural, an int8 column of natural's domain whatever c: a test of a contract's number is refused in a containment with the drawn numbers, the sides' field types differing, so the schema installs no template and no case runs."
 			},
 			{

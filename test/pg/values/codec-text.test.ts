@@ -151,10 +151,11 @@ export const aValuesTextIsOnePerValueAndReadsBackInEveryInstallation = property.
 			},
 			{
 				file: "packages/engine/src/schema/relation.ts",
-				original: '\t\tcase "written":\n\t\t\treturn entry.type',
+				original:
+					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "accumulated", start: literal } })\n\tregisterWrittenField(value, type)\n',
 				replacement:
-					'\t\tcase "written":\n\t\t\treturn entry.writing.kind === "accumulated" ? value : entry.type',
-				why: "An accumulated field is read from its accumulated(type, start) value, not from its declared type, the one its column is stored and read with: the value is no descriptor a builder registered, so it is refused, every other kind still read as its declared type; the property fails over an accumulated field."
+					'\tfieldEntries.set(value, { kind: "written", writing: { kind: "accumulated", start: literal } })\n',
+				why: "An accumulated field registers no type its values are of (scalar/registry.ts registerWrittenField), so it is read as no declared type, not the one its column is stored and read with: it is refused, every other kind still read as its declared type; the property fails over an accumulated field."
 			}
 		]
 	}

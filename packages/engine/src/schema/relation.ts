@@ -75,7 +75,8 @@ import {
 	isOwnedDescriptor,
 	registerWrittenField,
 	type ScalarEnv,
-	scalarTypeOf
+	scalarTypeOf,
+	writtenTypeOf
 } from "#compiler/scalar/registry.ts"
 import { RosterSet } from "#compiler/scalar/values/bits.ts"
 import { handleMaxBytes } from "#compiler/schema/own.ts"
@@ -183,20 +184,23 @@ const describedFields = (
 }
 
 /**
- * What a field builder recorded for the field value it made, beside the descriptor of its declared type: slot(type, fin)
- * the fin whose slots its codes are; drawn(type), accumulated(type, start) and retirement how it is written; and
- * generated(type, term) its declared type as the registry reads it and the term its value is.
+ * What a field builder recorded for the field value it made: slot(type, fin) its declared type and the fin whose slots
+ * its codes are; drawn(type), accumulated(type, start), place(…) and retirement how it is written, the descriptor its
+ * values are of registered with the registry, its one record (scalar/registry.ts registerWrittenField, writtenTypeOf);
+ * the clock's instant its declared type, `stored`, the field of its type its caller writes, which the registry does not
+ * hold, since where a field descriptor is asked of the instant it is one itself; and generated(type, term) its declared
+ * type as the registry reads it and the term its value is.
  */
 type FieldEntry =
 	| { readonly kind: "slot"; readonly type: unknown; readonly slots: SlotsDesc }
 	| {
 			readonly kind: "written"
-			readonly type: unknown
 			readonly writing: Extract<
 				Writing,
-				{ readonly kind: "drawn" | "accumulated" | "retirement" | "place" | "instant" }
+				{ readonly kind: "drawn" | "accumulated" | "retirement" | "place" }
 			>
 	  }
+	| { readonly kind: "instant"; readonly stored: object }
 	| { readonly kind: "generated"; readonly type: Described; readonly term: unknown }
 
 /**
@@ -230,12 +234,12 @@ const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 /**
  * The first step of every admission of a field its caller writes (a context's field, a heading's or a signature's, an
  * accumulated or a generated field's type, a closed relation's field), taken before the field is described: a field
- * grizzle writes, a drawn, accumulated, generated or retirement field, is refused by `refusal`, which names why, where
- * its description would refuse it as no descriptor. A slot's codes are its caller's, so a slot passes.
+ * grizzle writes, a drawn, accumulated, generated, retirement or instant field, is refused by `refusal`, which names why,
+ * where its description would refuse it as no descriptor. A slot's codes are its caller's, so a slot passes.
  */
 const refuseWritten = (value: unknown, refusal: () => CompileError): void => {
 	const entry = fieldEntryOf(value)
-	if (entry?.kind === "written" || entry?.kind === "generated") {
+	if (entry?.kind === "written" || entry?.kind === "instant" || entry?.kind === "generated") {
 		throw refusal()
 	}
 }
@@ -254,11 +258,23 @@ export const valueTypeOf = (
  * caller otherwise, instant.stored among them. */
 export const writingOf = (value: unknown): Writing => {
 	const recorded = fieldEntryOf(value)
-	return recorded?.kind === "written" ? recorded.writing : callerWriting
+	switch (recorded?.kind) {
+		case "written":
+			return recorded.writing
+		case "instant":
+			return instantWriting
+		case "slot":
+		case "generated":
+		case undefined:
+			return callerWriting
+	}
 }
 
 /** How a caller's field is written. */
 const callerWriting: Writing = Object.freeze({ kind: "caller" })
+
+/** How the clock's instant is written. */
+const instantWriting: Writing = Object.freeze({ kind: "instant" })
 
 /**
  * drawn(type): a value of `type` grizzle draws from the nested arrays its caller writes, a family's index or count or a
@@ -284,7 +300,7 @@ export const drawnField = <F extends FieldBase>(
 		column: type.column,
 		sql: type.sql
 	})
-	fieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })
+	fieldEntries.set(value, { kind: "written", writing: { kind: "drawn" } })
 	registerWrittenField(value, type)
 	return value
 }
@@ -296,7 +312,7 @@ export const drawnField = <F extends FieldBase>(
  * the field of that type its caller writes as it is.
  */
 export const clockInstant = <F extends { readonly stored: object }>(value: F): F => {
-	fieldEntries.set(value, { kind: "written", type: value.stored, writing: { kind: "instant" } })
+	fieldEntries.set(value, { kind: "instant", stored: value.stored })
 	return value
 }
 
@@ -317,11 +333,7 @@ const placeMembers = {
  * (analysis/theory/instants.ts).
  */
 const placed = <F extends PlaceField>(value: F, order: PlaceOrderDesc): F => {
-	fieldEntries.set(value, {
-		kind: "written",
-		type: naturalDescriptor,
-		writing: { kind: "place", order }
-	})
+	fieldEntries.set(value, { kind: "written", writing: { kind: "place", order } })
 	registerWrittenField(value, naturalDescriptor)
 	return value
 }
@@ -366,7 +378,7 @@ export const retirementField = (type: Field<boolean, "boolean">): RetirementFiel
 		column: type.column,
 		sql: type.sql
 	})
-	fieldEntries.set(value, { kind: "written", type, writing: { kind: "retirement" } })
+	fieldEntries.set(value, { kind: "written", writing: { kind: "retirement" } })
 	registerWrittenField(value, type)
 	return value
 }
@@ -405,11 +417,7 @@ export const accumulatedField = <F extends FieldBase>(
 		column: type.column,
 		sql: type.sql
 	})
-	fieldEntries.set(value, {
-		kind: "written",
-		type,
-		writing: { kind: "accumulated", start: literal }
-	})
+	fieldEntries.set(value, { kind: "written", writing: { kind: "accumulated", start: literal } })
 	registerWrittenField(value, type)
 	return value
 }
@@ -431,6 +439,7 @@ export const slotField = <F extends ClosedIdField<AnyRoster>, Fi>(
 	if (
 		described.desc.kind !== "closedId" ||
 		fieldEntryOf(type)?.kind === "written" ||
+		fieldEntryOf(type)?.kind === "instant" ||
 		isSlot(type)
 	) {
 		throw malformed("slot", "a closed id, closedId(roster), whose codes number the slots")
@@ -1327,17 +1336,19 @@ export const fieldRoster = (
 	rel.kind === "closed" && field === "id" ? rel.roster : rosterOfField(rel.descriptors[field])
 
 /**
- * The descriptor a field value was built from: its own, or a drawn, accumulated, retirement, slot or generated field's
- * declared type's.
+ * The descriptor a field value was built from: its own, or a slot's or the clock instant's declared type's, or the one a
+ * drawn, accumulated, place, retirement or generated field's values are of, as the registry holds it (FieldEntry).
  */
 const declaredDescriptorOf = (value: unknown): unknown => {
 	const entry = fieldEntryOf(value)
 	switch (entry?.kind) {
 		case "slot":
-		case "written":
 			return entry.type
+		case "instant":
+			return entry.stored
+		case "written":
 		case "generated":
-			return hasProperties(value) ? value["type"] : value
+			return writtenTypeOf(value)
 		case undefined:
 			return value
 	}
