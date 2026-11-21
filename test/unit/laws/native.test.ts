@@ -28,8 +28,8 @@
  *   as the family model runs them.
  * - Span box: every span rule over at most two rows of Visit and of Shift, keys WITHOUT OVERLAPS over fields and law
  *   columns and PERIOD foreign keys from and into selected sides.
- * - Pairs: two laws over selections of one relation kept apart, each refused by its own constraint, and a rule stated
- *   in both orientations installed as one law.
+ * - Pairs: two laws over selections of one relation kept apart, each refused by its own constraint but a key whose
+ *   every violation breaks the other too, and a rule stated in both orientations installed as one law.
  *
  * Features: each suite's rule kinds, verdicts and variants (RuleFeature, ExploredFeature, FinFeature, FamilyFeature,
  * SpanFeature, PairFeature), the vocabularies its coverage requires.

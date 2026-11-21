@@ -36,7 +36,7 @@ import {
 	type SchemaDesc
 } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf } from "#test/support/kernel/naming.ts"
-import { violations } from "#test/support/laws/model.ts"
+import { type HostFact, type HostValue, violations } from "#test/support/laws/model.ts"
 import {
 	type Explored,
 	exploredGen,
@@ -1006,10 +1006,11 @@ const pairLiteral = (p: Pair): string => {
 	return `${p.stated}: ${Arr.join(rules, " | ")}: ${Formatter.format(p.state)}`
 }
 
-/** One statement of a schema: its text in canonical form, and the law the compiler gives it. */
+/** One statement of a schema: its text in canonical form, the law the compiler gives it, and the law as stated. */
 interface Held {
 	readonly form: string
 	readonly law: LawId
+	readonly stated: Law
 }
 
 /**
@@ -1025,8 +1026,99 @@ const heldOf = (
 		const forms = lawForms(law)
 		const ids = installed.schema.statementLaws[from + i] ?? []
 		assert.equal(ids.length, forms.length, `the compiler gives each statement of ${forms[0]} a law`)
-		return Arr.zipWith(forms, ids, (form, id): Held => ({ form, law: id }))
+		return Arr.zipWith(forms, ids, (form, id): Held => ({ form, law: id, stated: law }))
 	})
+
+/**
+ * Whether every state that breaks `law` breaks `other` too: two keys at one side's terms, every fact `law` selects one
+ * `other` selects (selectedWithin), so two facts `law` holds apart are two facts `other` holds apart. No state breaks
+ * such a law alone, so none needs a constraint of its own: its UNIQUE reports the key it implies beside it
+ * (laws/model/model.ts #implyingKey). Two laws of any other kind are never so judged.
+ */
+const breaksWith = (law: Law, other: Law): boolean =>
+	law.kind === "key" &&
+	other.kind === "key" &&
+	law.side.relation === other.side.relation &&
+	law.side.terms.length === other.side.terms.length &&
+	Arr.every(
+		Arr.zip(law.side.terms, other.side.terms),
+		([t, u]) => t.kind === u.kind && t.field === u.field
+	) &&
+	Option.match(other.side.where, {
+		onNone: () => true,
+		onSome: (wider) =>
+			Option.match(law.side.where, {
+				onNone: () => Arr.every(factsOf([wider]), (fact) => phiHolds(wider, fact)),
+				onSome: (narrower) => selectedWithin(narrower, wider)
+			})
+	})
+
+/** Whether every fact `narrower` holds of `wider` holds of too, over every fact of the fields they read (factsOf). */
+const selectedWithin = (narrower: Phi, wider: Phi): boolean =>
+	Arr.every(
+		factsOf([narrower, wider]),
+		(fact) => !phiHolds(narrower, fact) || phiHolds(wider, fact)
+	)
+
+/** The fields a selection reads as numbers and as booleans, and the literals it compares a number with. */
+interface SelectionReads {
+	readonly numbers: ReadonlyArray<string>
+	readonly booleans: ReadonlyArray<string>
+	readonly literals: ReadonlyArray<number>
+}
+
+/** What `phi` reads (SelectionReads). */
+const selectionReads = (phi: Phi): SelectionReads => {
+	switch (phi.kind) {
+		case "compare":
+		case "literalFirst":
+			return { numbers: [phi.field], booleans: [], literals: [phi.value] }
+		case "fields":
+			return { numbers: [phi.left, phi.right], booleans: [], literals: [] }
+		case "is":
+			return { numbers: [], booleans: [phi.field], literals: [] }
+		case "between":
+			return { numbers: [phi.field], booleans: [], literals: [phi.low, phi.high] }
+		case "in":
+			return { numbers: [phi.field], booleans: [], literals: phi.values }
+		case "and":
+		case "or": {
+			const left = selectionReads(phi.left)
+			const right = selectionReads(phi.right)
+			return {
+				numbers: [...left.numbers, ...right.numbers],
+				booleans: [...left.booleans, ...right.booleans],
+				literals: [...left.literals, ...right.literals]
+			}
+		}
+		case "not":
+			return selectionReads(phi.arg)
+	}
+}
+
+/**
+ * Every fact over the fields `phis` read, each number field over the integers from k below the least literal to k
+ * above the greatest (0 among them), k the number fields' count, and each boolean field either way: every order of the
+ * number fields among themselves and the literals is one of these facts', so a selection holds of some integer fact
+ * exactly when it holds of one of these.
+ */
+const factsOf = (phis: ReadonlyArray<Phi>): ReadonlyArray<HostFact> => {
+	const reads = Arr.map(phis, selectionReads)
+	const numbers = Arr.dedupe(Arr.flatMap(reads, (r) => r.numbers))
+	const booleans = Arr.dedupe(Arr.flatMap(reads, (r) => r.booleans))
+	const literals = Arr.flatMap(reads, (r) => r.literals)
+	const low = Arr.reduce(literals, 0, (a, b) => Math.min(a, b)) - numbers.length
+	const high = Arr.reduce(literals, 0, (a, b) => Math.max(a, b)) + numbers.length
+	const values: ReadonlyArray<HostValue> = Array.from({ length: high - low + 1 }, (_, i) => low + i)
+	const domains: ReadonlyArray<readonly [string, ReadonlyArray<HostValue>]> = [
+		...Arr.map(numbers, (field) => [field, values] as const),
+		...Arr.map(booleans, (field) => [field, [false, true]] as const)
+	]
+	const none: ReadonlyArray<HostFact> = [{}]
+	return Arr.reduce(domains, none, (facts, [field, domain]) =>
+		Arr.flatMap(facts, (fact) => Arr.map(domain, (v): HostFact => ({ ...fact, [field]: v })))
+	)
+}
 
 /** The names of an installation's constraints, sorted. */
 const constraintNames = (installed: Installed): ReadonlyArray<string> =>
@@ -1051,8 +1143,9 @@ export const PAIR_ORACLE: Oracle = {
 /**
  * A pair of rules of one kind over selections of one relation, judged on their schema. Two statements are one law
  * exactly when they are one in canonical form; each two distinct laws the pair's positions pair are each discharged by
- * a constraint of its own, which a state breaking it alone is refused by; a rule restated installs the constraints of
- * the rule alone; and the schema accepts a state, and each order of its writes, exactly when its laws hold.
+ * a constraint of its own, which a state breaking it alone is refused by, but a law no state breaks alone (breaksWith),
+ * which a constraint discharges; a rule restated installs the constraints of the rule alone; and the schema accepts a
+ * state, and each order of its writes, exactly when its laws hold.
  */
 export const judgePair = (p: Pair, c: Case<PairFeature>): void => {
 	const { on, first, second } = pairLaws(p)
@@ -1076,14 +1169,21 @@ export const judgePair = (p: Pair, c: Case<PairFeature>): void => {
 		[a.law, b.law] as const,
 		[b.law, a.law] as const
 	])
-	for (const [law, other] of directions) {
-		assert.ok(
-			Arr.some(
-				installed.installation.constraints,
-				(k) => k.laws.includes(law) && !k.laws.includes(other)
-			),
-			`the law ${law} has no constraint of its own beside ${other}'s: ${Arr.join(constraintNames(installed), ", ")}`
-		)
+	for (const [a, b] of Arr.flatMap(apart, ([a, b]) => [[a, b] as const, [b, a] as const])) {
+		if (breaksWith(a.stated, b.stated)) {
+			assert.ok(
+				Arr.some(installed.installation.constraints, (k) => k.laws.includes(a.law)),
+				`the law ${a.law}, which no state breaks without ${b.law}, has no constraint: ${Arr.join(constraintNames(installed), ", ")}`
+			)
+		} else {
+			assert.ok(
+				Arr.some(
+					installed.installation.constraints,
+					(k) => k.laws.includes(a.law) && !k.laws.includes(b.law)
+				),
+				`the law ${a.law} has no constraint of its own beside ${b.law}'s: ${Arr.join(constraintNames(installed), ", ")}`
+			)
+		}
 	}
 	c.note(p.kind)
 	switch (p.stated) {
