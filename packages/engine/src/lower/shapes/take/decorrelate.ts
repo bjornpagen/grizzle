@@ -55,7 +55,12 @@ interface Candidate {
 }
 
 /** The take in `cell` as a candidate, or undefined when the rewrite's conditions do not all hold. */
-const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
+const candidateAt = (
+	ed: DagEditor,
+	cell: Cell,
+	/** One reader through one input position (DagEditor.readersIn): a region matching the take twice reads it twice. */
+	readers: (cell: Cell) => ReadonlyArray<Cell>
+): Candidate | undefined => {
 	const take = cell.current
 	if (take.kind !== "Take" || ed.isRoot(cell)) {
 		return undefined
@@ -63,8 +68,6 @@ const candidateAt = (ed: DagEditor, cell: Cell): Candidate | undefined => {
 	if (take.correlation.some((c) => columnReads([c.expr]).length > 0)) {
 		return undefined
 	}
-	/** One reader through one input position (DagEditor.readers): a region matching the take twice reads it twice. */
-	const readers = DagEditor.readers(ed.topoOrder())
 	const [consumer, ...others] = readers(cell)
 	if (consumer === undefined || others.length > 0) {
 		return undefined
@@ -243,13 +246,16 @@ export const everyParentTakes = <Q extends LogicalQuery>(
 		catchRefusal(() => {
 			const ed = new DagEditor(query.dag)
 			let changed = false
+			/** The readers of the cells as they stand now: worked out again after each rewrite, which changes them. */
+			let readers = DagEditor.readersIn(ed.topoOrder())
 			for (const cell of ed.topoOrder()) {
-				const candidate = candidateAt(ed, cell)
+				const candidate = candidateAt(ed, cell, readers)
 				if (candidate === undefined) {
 					continue
 				}
 				rewrite(ed, candidate)
 				changed = true
+				readers = DagEditor.readersIn(ed.topoOrder())
 			}
 			if (!changed) {
 				return Result.ok({ query, node: unchanged })

@@ -54,6 +54,7 @@ import {
 	semanticSimplification
 } from "#compiler/lower/optimize/demand/phases.ts"
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
+import { sharedPushdownPass } from "#compiler/lower/optimize/pushdown/shared.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
@@ -76,6 +77,8 @@ import {
 	type FrameFeature,
 	type PotentialFeature,
 	potentialSites,
+	type ReadersFeature,
+	readersSites,
 	type RedirectFeature,
 	freshCopy,
 	passesNeed,
@@ -722,3 +725,63 @@ export const theSimplificationPotentialReadsEachFilterOnceWhileItsInputHoldsOneN
 			}
 		]
 	})
+
+/**
+ * A rewrite reads each state's readers off the state's cells, worked out at most once a state (lower/optimize/demand/
+ * editor.ts CellState readers): over generated queries, the relational rewrites and the shared restriction work out the
+ * readers of the cells (DagEditor.readersIn) no more often than they work out a state of the cells (cellState, a
+ * driver's or a rule's own), where the shared restriction worked them out over every cell again at each cell it weighed.
+ *
+ * Oracle: one reader map a state at most (a specification), by V8's call counts.
+ *
+ * Budget: 120 runs and 120 steered cases, the structure property's.
+ */
+export const aRewriteReadsEachStatesReadersOffItsCellsWorkedOutAtMostOnceAState = property.explore(
+	queryCaseGen(defaultGenConfig),
+	{
+		needs: {},
+		budget: { runs: 120, steered: 120 },
+		situations: [
+			"a state whose readers a rule read",
+			"a state the shared restriction weighed several cells of"
+		] satisfies ReadonlyArray<Reached<ReadersFeature>>,
+		check: (_, c: Case<ReadersFeature>) => (generated) =>
+			Effect.gen(function* () {
+				const [, counts] = yield* callCounts(
+					Effect.sync(() =>
+						succeeded(
+							runPasses(
+								caseQuery(generated),
+								[relationalRewrites, sharedPushdownPass],
+								passContext({ catalog: genCatalog(generated.schema), evidence: "snapshot" })
+							)
+						)
+					),
+					readersSites
+				)
+				if (counts.readers > 0) {
+					c.note("a state whose readers a rule read")
+				}
+				if (counts.restrictable > counts.cellState) {
+					c.note("a state the shared restriction weighed several cells of")
+				}
+				assert.ok(
+					counts.readers <= counts.cellState,
+					`${counts.readers} reader maps over ${counts.cellState} states`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "at most one reader map a state of the cells, in the relational rewrites and the shared restriction"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/pushdown/shared.ts",
+				original: "\t\tconst readers = state.readers\n",
+				replacement: "\t\tconst readers = DagEditor.readersIn(state.order)\n",
+				why: "The shared restriction works out the readers of every cell again at each cell it weighs (pushdown/shared.ts sharedPushRule), as before the state carried them: the reader maps outnumber the states."
+			}
+		]
+	}
+)

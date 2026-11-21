@@ -105,10 +105,10 @@ const intersectKept = (holds: ReadonlyArray<Kept>): Kept => {
  */
 const keptRows = (
 	order: ReadonlyArray<Cell>,
+	readers: (cell: Cell) => ReadonlyArray<Cell>,
 	values: Values,
 	isRoot: (cell: Cell) => boolean
 ): ((cell: Cell) => Kept) => {
-	const readers = DagEditor.readers(order)
 	const kept = new Map<Cell, Kept>()
 	const keptOf = (cell: Cell): Kept => kept.get(cell) ?? nothingKept
 	/** What reader `r` keeps of `cell`'s rows, one hold for each place `r` reads it at. */
@@ -356,7 +356,7 @@ const sharedPushRule: Rule = {
 	name: "pushdown",
 	at: (cell, cx) => {
 		const state = cx.cells
-		const readers = DagEditor.readers(state.order)
+		const readers = state.readers
 		const isRoot = (c: Cell): boolean => cx.editor.isRoot(c)
 		if (!restrictable(cell, state, readers, isRoot)) {
 			return false
@@ -364,7 +364,7 @@ const sharedPushRule: Rule = {
 		return overPhysical(({ physical }) => {
 			const ed = cx.editor
 			const values = valuesOf(physical, state.order)
-			const kept = keptRows(state.order, values, isRoot)
+			const kept = keptRows(state.order, readers, values, isRoot)
 			const held = (c: Cell): ReadonlyArray<Held> => heldOf(c, state.order, readers, values, kept)
 			const pushable = (c: Cell): boolean =>
 				restrictable(c, state, readers, isRoot) && held(c).length > 0
@@ -423,7 +423,7 @@ const sharedPushRule: Rule = {
  * leaves the node one reader, its filter, which reads the unit's outer columns.
  */
 const sharedPotential: Potential = (cx) => {
-	const readers = DagEditor.readers(cx.cells.order)
+	const readers = cx.cells.readers
 	return cx.cells.order.filter((cell) =>
 		restrictable(cell, cx.cells, readers, (c) => cx.editor.isRoot(c))
 	).length

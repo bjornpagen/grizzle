@@ -122,11 +122,11 @@ const groups = (region: Region, occurrences: ReadonlyArray<Occurrence>): number 
  * The relations of the semi- and anti-joins stacked over `region`: the chain of single readers above it through
  * filters, projections and the left side of each semi- or anti-join, each of whose right sides counts its occurrences
  * (one relation when it is no region). It stops at a shared node (two references, from one reader or two;
- * DagEditor.readers), a root, or any other reader.
+ * DagEditor.readersIn), a root, or any other reader.
  */
 const stacked = (cx: RewriteCx, region: Cell): number => {
 	const ed = cx.editor
-	const readers = DagEditor.readers(cx.cells.order)
+	const readers = cx.cells.readers
 	let count = 0
 	for (let at = region; !ed.isRoot(at);) {
 		const [above, ...more] = readers(at)

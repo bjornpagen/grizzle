@@ -3,7 +3,7 @@ import { analyzeDemand } from "#compiler/analysis/demand/demand.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
 import type { Cell, EditNode, EditRefs, Heading, KindOver } from "#compiler/ir/rel.ts"
-import { DagEditor, restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
+import { restrictMeta } from "#compiler/lower/optimize/demand/editor.ts"
 import {
 	type CellDemand,
 	cellDemand,
@@ -19,7 +19,7 @@ const pruneRule = "prune.heading"
  */
 const prunePinned = (cx: RewriteCx): ReadonlySet<NodeId> => {
 	const ed = cx.editor
-	const readers = DagEditor.readers(cx.cells.order)
+	const readers = cx.cells.readers
 	const pinned = new Set<NodeId>()
 	for (const cell of cx.cells.order) {
 		if (

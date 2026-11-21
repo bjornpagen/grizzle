@@ -307,6 +307,11 @@ export interface CellState {
 	 * an occurrence's source of, names it, so moving or replacing it would change what that reference names.
 	 */
 	readonly lateral: (cell: Cell) => boolean
+	/**
+	 * The readers of each cell through data inputs, one per input position (DagEditor.readersIn), worked out once for the
+	 * state the first time a rule asks, so a rule asking at every cell reads the one map.
+	 */
+	readonly readers: (cell: Cell) => ReadonlyArray<Cell>
 }
 
 export class DagEditor<R extends Roots = Roots> {
@@ -515,11 +520,16 @@ export class DagEditor<R extends Roots = Roots> {
 			(cell) => scopeExprs(cell.current),
 			(cell) => cell.id
 		)
+		let readers: ((cell: Cell) => ReadonlyArray<Cell>) | undefined
 		return {
 			order,
 			feedback: feedbackReadsOf(cellGraph, order),
 			references: (cell) => structure.references(cell.id),
-			lateral: (cell) => structure.lateral(cell.id)
+			lateral: (cell) => structure.lateral(cell.id),
+			readers: (cell) => {
+				readers ??= DagEditor.readersIn(order)
+				return readers(cell)
+			}
 		}
 	}
 
@@ -528,7 +538,7 @@ export class DagEditor<R extends Roots = Roots> {
 	 * reachable cells that read it, a cell that reads it twice (a semi-join on both sides, a region matching it twice)
 	 * listed twice, as the lowering emits it twice; none for a cell no reachable cell reads.
 	 */
-	static readers(order: ReadonlyArray<Cell>): (cell: Cell) => ReadonlyArray<Cell> {
+	static readersIn(order: ReadonlyArray<Cell>): (cell: Cell) => ReadonlyArray<Cell> {
 		const out = new Map<Cell, Array<Cell>>()
 		for (const cell of order) {
 			for (const input of edgesOf(cell.current)) {
@@ -538,7 +548,7 @@ export class DagEditor<R extends Roots = Roots> {
 		return (cell) => out.get(cell) ?? []
 	}
 
-	/** How many references a cell has: its readers, one per input position (readers), plus the roots at it. */
+	/** How many references a cell has: its readers, one per input position (readersIn), plus the roots at it. */
 	refCount(cell: Cell, readers: (cell: Cell) => ReadonlyArray<Cell>): number {
 		return readers(cell).length + this.roots.filter((r) => r === cell).length
 	}

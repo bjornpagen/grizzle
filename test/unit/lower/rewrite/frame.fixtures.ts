@@ -97,3 +97,22 @@ export const potentialSites = Object.freeze({
 export type PotentialFeature =
 	| "a simplification that rewrote"
 	| "a filter read again over its input's new node"
+
+/**
+ * What the readers property counts: each state of the cells worked out (editor.ts DagEditor cellState), a driver's for
+ * its rules or a rule's for its own edit, each reader map worked out over one (DagEditor.readersIn), and each cell the
+ * shared restriction weighs (pushdown/shared.ts restrictable), at each of which it reads one.
+ */
+export const readersSites = Object.freeze({
+	cellState: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "cellState" },
+	readers: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "readersIn" },
+	restrictable: {
+		file: "packages/engine/src/lower/optimize/pushdown/shared.ts",
+		name: "restrictable"
+	}
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/** What the readers property reaches: a state whose readers a rule read, and the shared restriction at several cells. */
+export type ReadersFeature =
+	| "a state whose readers a rule read"
+	| "a state the shared restriction weighed several cells of"
