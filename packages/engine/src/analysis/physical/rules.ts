@@ -333,18 +333,26 @@ const outerOf = (node: RelNode): ReadonlyArray<OuterColumn> => {
 		pending.pop()
 		const reads = new Map<string, OuterColumn>()
 		const settled = new Set<string>()
+		/** Whether the subtree holds the node of label `label`: the node itself, or one below an input. */
+		const holds = (label: NodeId): boolean =>
+			label === at.id || inputs.some((input) => holdsLabel(input, label))
 		const read = (column: OuterColumn): void => {
 			const key = outerKey(column)
 			if (settled.has(key)) {
 				return
 			}
 			settled.add(key)
-			const inside = column.node === at.id || inputs.some((input) => holdsLabel(input, column.node))
-			if (!inside) {
+			if (!holds(column.node)) {
 				reads.set(key, column)
 			}
 		}
-		for (const c of columnReads(exprsOf(at))) {
+		/**
+		 * The node's own expressions that read a node outside its subtree: an expression's dependencies name every node
+		 * a column of its tree reads (ir/expr.ts builtExpr `deps`), so one whose nodes the subtree all holds reads none
+		 * outside it, and its tree is never walked.
+		 */
+		const reaching = exprsOf(at).filter((e) => !e.deps.nodes.every(holds))
+		for (const c of columnReads(reaching)) {
 			read({ node: c.node, column: c.name })
 		}
 		for (const input of inputs) {
