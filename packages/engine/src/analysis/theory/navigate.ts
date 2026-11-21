@@ -20,13 +20,13 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
-import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
-import { identityDigest } from "#compiler/core/fingerprint.ts"
+import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { deepFreeze } from "#compiler/core/record.ts"
 import {
 	type Channel,
-	descIdentity,
+	descIdentities,
 	exprChildren,
 	type InferredBindings,
 	type InferredExpr,
@@ -200,26 +200,6 @@ export type RegionExtent = "units" | "every"
 type Binds = ReadonlyMap<string, InferredExpr>
 
 /**
- * The key two reads of an import in one rule's unfolding share exactly when they read the same rows: the semantic
- * identity of its query and of the terms its bind map binds its parameters to, as the outermost rule reads them, so two
- * matches of one query at one parameter's values, a whole rule's unit channels among them, share it, and one bound to a
- * variable of an inlined rule, renamed apart at each inlining, shares it with none. It is their identity digest
- * (core/fingerprint.ts identityDigest), each query the import reads digested once however many of its rules read it,
- * where their canonical text spelled each read of a query again: a chain of unions each rule of which reads the level
- * below spells its leaf the product of the unions' widths times.
- */
-const importKey = (query: InferredQuery, bind: Binds): string => {
-	const key = identityDigest(
-		[query, [...bind].toSorted(([a], [b]) => compareStrings(a, b))],
-		withoutSourceLocs
-	)
-	if (!key.ok) {
-		throw defect(`an import's key encodes: ${key.error.message}`)
-	}
-	return key.value
-}
-
-/**
  * One statement's navigation: each query it reads navigated once for its identity (ir/desc.ts descIdentity), and what
  * it reads of each rule (`reads`), computed once for the rule. Every read of a query of one identity is the one
  * navigation of it, one object, so the checker, which keys an import by its query's place (check/session.ts
@@ -231,6 +211,13 @@ const importKey = (query: InferredQuery, bind: Binds): string => {
  * between statements.
  */
 class Interned {
+	/**
+	 * The identity digests of what this navigation reads (ir/desc.ts descIdentities): each query's every part digested
+	 * once for every identity and import key of it, where each was digested anew for each. A query is frozen before it is
+	 * digested (core/record.ts deepFreeze, which walks only what is not frozen yet), as every Description is, so the
+	 * queries navigation builds, restricted inside an import and navigated, keep their tokens as the declared ones do.
+	 */
+	readonly #digests = descIdentities()
 	/** The navigation of the first query of each identity this navigation read, by the identity. */
 	readonly #navigations = new Map<string, InferredQuery>()
 	/** What navigation reads of each rule this navigation asked about (`reads`), by the rule. */
@@ -244,7 +231,7 @@ class Interned {
 		query: InferredQuery,
 		navigate: (query: InferredQuery) => InferredQuery
 	): InferredQuery {
-		const identity = identityOf(query)
+		const identity = this.identity(query)
 		const known = this.#navigations.get(identity)
 		if (known !== undefined) {
 			return known
@@ -252,6 +239,32 @@ class Interned {
 		const navigated = navigate(query)
 		this.#navigations.set(identity, navigated)
 		return navigated
+	}
+
+	/** A navigated query's identity (ir/desc.ts descIdentity), which every query a navigation reads encodes. */
+	identity(query: InferredQuery): string {
+		const identity = this.#digests.of(deepFreeze(query))
+		if (!identity.ok) {
+			throw defect(`a navigated query encodes: ${identity.error.message}`)
+		}
+		return identity.value
+	}
+
+	/**
+	 * The key two reads of an import in one rule's unfolding share exactly when they read the same rows: the semantic
+	 * identity of its query and of the terms its bind map binds its parameters to, as the outermost rule reads them, so
+	 * two matches of one query at one parameter's values, a whole rule's unit channels among them, share it, and one
+	 * bound to a variable of an inlined rule, renamed apart at each inlining, shares it with none. It is their identity
+	 * digest (core/fingerprint.ts identityDigest), each query's frozen parts digested once for the whole navigation
+	 * however many reads and identities of it are asked, where their canonical text spelled each read of a query again:
+	 * a chain of unions each rule of which reads the level below spells its leaf the product of the unions' widths times.
+	 */
+	importKey(query: InferredQuery, bind: Binds): string {
+		const key = this.#digests.of([query, [...bind].toSorted(([a], [b]) => compareStrings(a, b))])
+		if (!key.ok) {
+			throw defect(`an import's key encodes: ${key.error.message}`)
+		}
+		return key.value
 	}
 
 	/**
@@ -268,15 +281,6 @@ class Interned {
 		this.#reads.set(rule, reads)
 		return reads
 	}
-}
-
-/** A navigated query's identity (ir/desc.ts descIdentity), which every query a navigation reads encodes. */
-const identityOf = (desc: InferredQuery): string => {
-	const identity = descIdentity(desc)
-	if (!identity.ok) {
-		throw defect(`a navigated query encodes: ${identity.error.message}`)
-	}
-	return identity.value
 }
 
 /**
@@ -366,7 +370,7 @@ const sharedWithin = (
 			stage.kind === "rules" &&
 			stage.arms.length === 1
 		) {
-			unrestricted.add(importKey(r.source.query, scalarBinds(r.source.bind) ?? new Map()))
+			unrestricted.add(interned.importKey(r.source.query, scalarBinds(r.source.bind) ?? new Map()))
 			return r
 		}
 		return {
@@ -420,7 +424,7 @@ const sharedImports = (rules: ReadonlyArray<InferredRule>, interned: Interned): 
 					continue
 				}
 				const top = new Map([...binds].map(([name, e]) => [name, toTop(e)] as const))
-				const key = importKey(source.query, top)
+				const key = interned.importKey(source.query, top)
 				if (stage.arms.length > 1) {
 					unions.add(key)
 					continue
@@ -795,7 +799,7 @@ class Navigator {
 				continue
 			}
 			const top = new Map([...binds].map(([name, e]) => [name, toTop(e)] as const))
-			if (shared.has(importKey(source.query, top))) {
+			if (shared.has(this.#interned.importKey(source.query, top))) {
 				reads.push({ source, bindings: m.bindings, loc: m.loc })
 				continue
 			}

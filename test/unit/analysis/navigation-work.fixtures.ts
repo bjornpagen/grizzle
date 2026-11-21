@@ -154,6 +154,54 @@ const navigationWork = (c: Chain, depth: number): Effect.Effect<number> =>
 		([, counts]) => Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)
 	)
 
+/** The identity digests' modules (core/fingerprint.ts), whose calls are the work of digesting what navigation reads. */
+const isDigesting = (file: string): boolean => Str.endsWith("core/fingerprint.ts")(file)
+
+/**
+ * The calls of the identity digests' functions navigating case `c`'s read at `depth`: the digesting of every identity
+ * and import key navigation asks of what it reads, counted, never timed.
+ */
+const digestWork = (c: Chain, depth: number): Effect.Effect<number> =>
+	Effect.map(
+		everyCallCount(
+			Effect.sync(() =>
+				navigateQuery(readAt(c, depth), loc, columns, {
+					kind: "perStatement",
+					extent: c.read === "whole" ? "every" : "units"
+				})
+			),
+			isDigesting
+		),
+		([, counts]) => Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)
+	)
+
+/**
+ * Judges case `c`'s digesting: navigating its chain `depth` deep digests what its chain two deep does and, for each level
+ * more, what the third level added to the second, each level's frozen parts digested once for every identity and import
+ * key of it; where each identity and key digested its query anew, every level digested the whole chain below it again.
+ */
+export const digestedChain = (c: Chain, note: (r: Reached) => void): Effect.Effect<void> =>
+	Effect.gen(function* () {
+		note(
+			c.reads === 1 ? "a level reading the one below once" : "a level reading the one below twice"
+		)
+		note(c.read === "whole" ? "a chain read whole" : "a chain read at a document")
+		if (c.depth === 16) {
+			note("a chain sixteen deep")
+		}
+		const two = yield* digestWork(c, 2)
+		const three = yield* digestWork(c, 3)
+		assert.ok(three > two, "a level more digests more")
+		const work = yield* digestWork(c, c.depth)
+		if (c.depth >= 2) {
+			assert.equal(
+				work,
+				two + (c.depth - 2) * (three - two),
+				`navigating the chain ${c.depth} deep, each level reading the one below ${c.reads === 1 ? "once" : "twice"}, ${c.read}, digests what two levels and ${c.depth - 2} levels more of what the third added do`
+			)
+		}
+	})
+
 /**
  * Judges case `c`: navigating its chain `depth` deep works what its chain two deep does and, for each level more, what
  * the third level added to the second, every level over a union below it navigated alike, once for each set of values

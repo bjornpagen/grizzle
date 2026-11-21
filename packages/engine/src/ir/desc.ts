@@ -15,17 +15,16 @@ import { allenMaskMax } from "#compiler/core/allen.ts"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	type Canonicalizable,
-	type EncodeOptions,
 	encode,
 	encodeOver,
 	everyProperty,
 	type FloatSpecialName,
 	floatSpecialNames,
 	type Json,
-	omitSourceLocs,
 	type StandIn,
 	standInTag,
-	transportJson
+	transportJson,
+	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
 import { isSha256Text } from "#compiler/core/digest.ts"
@@ -4085,24 +4084,22 @@ export const declaredNameAt = (
 export const descToJson = (desc: unknown): Result.Result<Json, CompileError> =>
 	transportJson(desc, everyProperty)
 
-const identityOptions: EncodeOptions = { omit: omitSourceLocs }
-
 /** The canonical identity text: the canonical serialization without source locations. */
 export const descText = (desc: unknown): Result.Result<WellFormedText, CompileError> =>
-	encode(desc, identityOptions)
+	encode(desc, withoutSourceLocs)
 
 /**
  * The identity digest of `desc` (core/fingerprint.ts identityDigest): one exactly when descText is one, computed once
  * for each part the Description shares, where descText is the size of the tree its sharing expands into.
  */
 export const descIdentity = (desc: unknown): Result.Result<IdentityDigest, CompileError> =>
-	identityDigest(desc, identityOptions)
+	identityDigest(desc, withoutSourceLocs)
 
 /**
  * Identity digests of Descriptions (descIdentity) that keep each frozen part's token across the Descriptions they digest
  * (core/fingerprint.ts IdentityDigests): one owner's, a ChangeSet chain's, whose members share the queries they import.
  */
-export const descIdentities = (): IdentityDigests => new IdentityDigests(identityOptions)
+export const descIdentities = (): IdentityDigests => new IdentityDigests(withoutSourceLocs)
 
 /**
  * The canonical identity text of `desc`, a plain record each of whose members `written` holds has the identity text it
@@ -4112,4 +4109,4 @@ export const descIdentities = (): IdentityDigests => new IdentityDigests(identit
 export const descTextOver = (
 	desc: unknown,
 	written: ReadonlyMap<string, WellFormedText>
-): Result.Result<WellFormedText, CompileError> => encodeOver(desc, identityOptions, written)
+): Result.Result<WellFormedText, CompileError> => encodeOver(desc, withoutSourceLocs, written)

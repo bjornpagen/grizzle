@@ -237,9 +237,9 @@ export const descriptionsKeepsTheOrderOfAQuerysCombinatorsTwoChainsAreOneDescrip
 			kills: [
 				{
 					file: "packages/engine/src/ir/desc.ts",
-					original: "const identityOptions: EncodeOptions = { omit: omitSourceLocs }",
+					original: "encode(desc, withoutSourceLocs)",
 					replacement:
-						'const identityOptions: EncodeOptions = { omit: (key, value) => omitSourceLocs(key, value) || key === "k" }',
+						'encode(desc, { omit: (key, value) => withoutSourceLocs.omit(key, value) || key === "k" })',
 					why: "The identity text omits a take's count, so take(2) and take(5) are one description; the combinators property fails."
 				}
 			]
