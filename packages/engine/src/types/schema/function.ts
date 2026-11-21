@@ -71,8 +71,8 @@ export type AnyFunction = DeclaredFunction<
 
 /**
  * Whether a field is a type a declared function's signature takes: a value of a base type PostgreSQL passes as it is, a
- * closed id, or a contract or refined text over one, never a serial or other field of a writing of its own, money, an
- * exact value, bytes, a set, a span or a vector.
+ * closed id, a digest, or a contract or refined text over one, never a serial or other field of a writing of its own,
+ * money, an exact value, bytes, a set, a span or a vector.
  */
 type SignatureRefused<F> = F extends
 	| { readonly writing: WritingTag }
@@ -91,7 +91,7 @@ type SignatureRefused<F> = F extends
 
 /** The refusal of a field no signature takes (SignatureRefused). */
 type SignatureRefusal =
-	Refusal<"a declared function takes and returns values of a base type, a closed id, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector">
+	Refusal<"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector">
 
 /**
  * A signature's type, or a heading's field: rows or a row of a heading, already checked where rows() built it, or a

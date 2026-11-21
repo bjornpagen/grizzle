@@ -25,7 +25,7 @@ export const refusals = [
 	"a counted family's side is its owner's key",
 	"a search document is PostgreSQL's parse of texts, which a field holds as a read delivered it: no parameter or contract is of its type",
 	"an argument the function declares",
-	"a declared function takes and returns values of a base type, a closed id, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector",
+	"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector",
 	"a declared name: ASCII letters, digits and underscores, a letter first",
 	"a derived definition has at least one field",
 	"a derived definition has one heading: a materialized view stores one heading group",

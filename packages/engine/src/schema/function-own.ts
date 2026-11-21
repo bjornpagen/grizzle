@@ -36,9 +36,11 @@ export interface OwnedFunction {
 /**
  * Whether a declared function's signature takes a field of this type: a value of a base type PostgreSQL passes as it
  * is, a closed id, passed as its code, which the call casts to its roster's domain where it reads the function's value,
- * or a contract or a refined text over one; never money, whose text is the session's locale's, an exact value of any
- * size, whose integers or scale only a stored column's CHECK holds and no cast of a function's value checks, a computed
- * numeric's bound, which no function's body is held to, bytes, a digest, a set, a span, a vector or a search document.
+ * a digest, passed as its bytea, which the call casts to the installation's digest domain where it reads the value, so
+ * the domain's CHECK holds its 32 octets, or a contract or a refined text over one; never money, whose text is the
+ * session's locale's, an exact value of any size, whose integers or scale only a stored column's CHECK holds and no
+ * cast of a function's value checks, a computed numeric's bound, which no function's body is held to, bytes, a set, a
+ * span, a vector or a search document.
  */
 const signatureType = (t: FieldDesc): boolean => {
 	switch (t.kind) {
@@ -48,13 +50,13 @@ const signatureType = (t: FieldDesc): boolean => {
 		case "uuid":
 		case "text":
 		case "closedId":
+		case "sha256":
 			return true
 		case "contract":
 			return signatureType(t.base)
 		case "exact":
 		case "computedNumeric":
 		case "bytes":
-		case "sha256":
 		case "pattern":
 		case "span":
 		case "bits":
@@ -77,7 +79,7 @@ const headingsOf = (t: FunctionTypeDesc): ReadonlyArray<HeadingDesc> =>
 const signatureRefused = (loc: SourceLoc): CompileError =>
 	ruleRefused(
 		loc,
-		"a declared function takes and returns values of a base type, a closed id, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector"
+		"a declared function takes and returns values of a base type, a closed id, a digest, a contract or a refined text over one: no serial, money, exact value, bytes, set, span or vector"
 	)
 
 /**
