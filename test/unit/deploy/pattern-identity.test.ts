@@ -14,16 +14,20 @@
  * An installation keeps one spelling of each language it installs (ir/pattern.ts installedSpellings), its history as a
  * roster's codes are, so a draft that only spells a pattern again in its language drafts nothing: no rename, no
  * rewrite, no VALIDATE, no index built and no rule checked again, its installation reading the ARE of the spelling the
- * installation holds; a spelling of another language is a change.
+ * installation holds; a spelling of another language is a change. A language its history does not spell takes the least
+ * of the spellings the schema holds of it, by code unit, whatever order they are held in.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Order } from "effect"
+import { compareStrings } from "#compiler/core/order.ts"
+import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import {
 	fieldRenamedOver,
+	heldSpellingsGen,
 	identityOf,
 	installedOf,
 	installsAreOf,
@@ -98,9 +102,8 @@ export const twoSpellingsOfAPatternInstallOneIdentityExactlyWhenTheySpellOneLang
 			},
 			{
 				file: "packages/engine/src/ir/pattern.ts",
-				original:
-					"\t\tconst spelled = table.get(p.pattern) ?? history.get(p.pattern) ?? p.spelling",
-				replacement: "\t\tconst spelled = table.get(p.pattern) ?? p.spelling",
+				original: "[pattern, history.get(pattern) ?? spelled] as const",
+				replacement: "[pattern, spelled] as const",
 				why: "The spellings table not read: a draft installs each language by the schema's spelling, so a re-spelling in one language moves every CHECK, generated column and index predicate that reads it, a rewrite, a VALIDATE and an index build where nothing changed."
 			}
 		]
@@ -166,3 +169,85 @@ export const aDeclaredFieldRenameRenamesTheLawColumnsOverItByTheirDefinitions = 
 		]
 	}
 )
+
+type SpellingFeature =
+	| "a language of four spellings"
+	| "two languages"
+	| "a language its history spells"
+	| "spellings held in another order"
+
+/**
+ * An installation spells each language it installs by its history, else by the least of the spellings it holds, by code
+ * unit, whatever order they are held in (ir/pattern.ts installedSpellings): over one or two languages, each a pattern
+ * and three respellings of its own language, held in two drawn orders, the two tables are one, each language spelled by
+ * its history's spelling or its least, and each held spelling installs as its language's. The order a schema holds its
+ * patterns in is its owned statements' order, which no meaning fixes, so a first spelling met moved with it.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const anInstallationSpellsEachLanguageByItsHistoryElseItsLeastSpellingWhateverOrderItsSpellingsAreHeldIn =
+	property.explore(heldSpellingsGen, {
+		needs: {},
+		situations: [
+			"a language of four spellings",
+			"two languages",
+			"a language its history spells",
+			"spellings held in another order"
+		] satisfies ReadonlyArray<Reached<SpellingFeature>>,
+		check: (_, k: Case<SpellingFeature>) => (drawn) =>
+			Effect.sync(() => {
+				const installed = installedSpellings(drawn.history, drawn.held)
+				const reordered = installedSpellings(drawn.history, drawn.reordered)
+				const byLanguage = Order.mapInput(
+					Order.String,
+					([language]: readonly [string, string]) => language
+				)
+				assert.deepEqual(
+					Arr.sort([...reordered.table], byLanguage),
+					Arr.sort([...installed.table], byLanguage),
+					"the spellings are one whatever order they are held in"
+				)
+				for (const language of drawn.languages) {
+					const [one] = language
+					const least = Arr.reduce(language, one.spelling, (min, p) =>
+						compareStrings(p.spelling, min) < 0 ? p.spelling : min
+					)
+					const spelled = drawn.history.get(one.pattern) ?? least
+					assert.equal(
+						installed.table.get(one.pattern),
+						spelled,
+						`a language is spelled by its history, else by its least spelling, of ${language.length}`
+					)
+					for (const p of language) {
+						assert.equal(
+							installed.of(p.spelling),
+							spelled,
+							`${p.spelling} installs as its language's`
+						)
+					}
+					if (drawn.history.has(one.pattern)) {
+						k.note("a language its history spells")
+					}
+				}
+				k.note("a language of four spellings")
+				if (drawn.languages.length > 1) {
+					k.note("two languages")
+				}
+				if (Arr.some(drawn.held, (p, i) => drawn.reordered[i] !== p)) {
+					k.note("spellings held in another order")
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "each language's spelling its history's, else the least of its held spellings by code unit, in every order"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/pattern.ts",
+				original: "compareStrings(p.spelling, spelled) < 0 ? p.spelling : spelled",
+				replacement: "spelled",
+				why: "Each language spelled by the first of its spellings met, so two orders of one schema's patterns install two spellings of a language: the order its statements stand in spells it."
+			}
+		]
+	})

@@ -5,7 +5,15 @@
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
-import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
+import {
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	shuffled,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { WholeRule } from "#compiler/analysis/theory/query.ts"
@@ -588,18 +596,11 @@ export const wholeRuleInOrder = (t: TestTheory, order: ReadonlyArray<number>): W
 	)
 }
 
-/** A permutation of `n` places, each drawn from those left. */
-export const permutationGen =
-	(n: number): Gen<ReadonlyArray<number>> =>
-	(s) => {
-		const left = Array.from({ length: n }, (_, i) => i)
-		const order: Array<number> = []
-		while (left.length > 0) {
-			const [taken] = left.splice(s.draw(int(0, left.length - 1)), 1)
-			order.push(defined(taken, "a place left"))
-		}
-		return order
-	}
+/** A permutation of `n` places (gen.ts shuffled, every place drawn). */
+export const permutationGen = (n: number): Gen<ReadonlyArray<number>> => {
+	const places = Array.from({ length: n }, (_, i) => i)
+	return shuffled(places, { min: n, max: n })
+}
 
 /** The region's reads as the judge reads them, each rule by the relation and side of its delta and whether it reads
  * only rows that replace one (`regionRulesOf`): what the proofs decide. */

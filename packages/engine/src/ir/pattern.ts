@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type CanonicalDfa,
@@ -18,6 +19,7 @@ import {
 	type RegexFlags
 } from "@bjornpagen/grizzle-text/regex/parse"
 import type { RegexSpaceMeasure } from "#compiler/core/errors.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import { pastCompileSpace } from "#compiler/ir/pattern-space.ts"
 import { languageKey, type RegexKey } from "#compiler/ir/scalar.ts"
 
@@ -205,17 +207,26 @@ export interface InstalledSpellings {
 
 /**
  * The spellings of an installation of the schema `held`, whose installation held `history` before: each language of a
- * pattern value `held` holds that `history` spells keeps that spelling, and each other takes the first spelling of it
- * `held` holds. A language `held` no longer holds leaves the table.
+ * pattern value `held` holds that `history` spells keeps that spelling, and each other takes the least of the spellings
+ * of it `held` holds, by code unit, a choice of the spellings alone, so the order a schema states its patterns in
+ * spells none of them. A language `held` no longer holds leaves the table.
  */
 export const installedSpellings = (history: Spellings, held: unknown): InstalledSpellings => {
-	const table = new Map<string, string>()
-	const authored = new Map<string, string>()
-	for (const p of patternsIn(held)) {
-		const spelled = table.get(p.pattern) ?? history.get(p.pattern) ?? p.spelling
-		table.set(p.pattern, spelled)
-		authored.set(p.spelling, spelled)
+	const patterns = patternsIn(held)
+	/** Each language's least spelling `held` holds. */
+	const least = new Map<string, string>()
+	for (const p of patterns) {
+		const spelled = least.get(p.pattern) ?? p.spelling
+		least.set(p.pattern, compareStrings(p.spelling, spelled) < 0 ? p.spelling : spelled)
 	}
+	const table: Spellings = new Map(
+		[...least].map(([pattern, spelled]) => [pattern, history.get(pattern) ?? spelled] as const)
+	)
+	const authored = new Map(
+		patterns.map(
+			(p) => [p.spelling, defined(table.get(p.pattern), "a held pattern's language")] as const
+		)
+	)
 	return Object.freeze({
 		table,
 		of: (spelling: string): string => authored.get(spelling) ?? spelling

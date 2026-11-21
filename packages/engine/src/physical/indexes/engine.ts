@@ -46,7 +46,7 @@ import type {
 	InstallBuilder,
 	TargetField
 } from "#compiler/physical/ddl/context.ts"
-import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
+import type { KeyIndex, KeyRole } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
 import {
 	type DatumBound,
@@ -1061,50 +1061,51 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  *
  * A served request adds its justification to the serving object's reasons; a constraint index can serve it (a primary
  * key serves the reverse lookup of a self-reference, a span key's GiST index the reverse probe of a PERIOD foreign
- * key). Of the indexes that serve a request, it lands on a key or enforcement index before a created one, then on one of
- * its own access method before one standing in for it, then on the first planned (`hostOrder`). An unserved request
- * becomes a new index `<table>__ix__<col>[__<col>...]`, wider requests first, so a narrower one lands on a wider index
- * that serves it. The index is drafted (`draftFor`): it starts as the request's own placement and its method, and is
- * refined, in the plan's order, by the placements of each later request no planned index serves yet, as long as one
- * index still holds them all: placements of its method, in one order. So an equality lookup on `{account, created}`
- * planned before a range on `created` then `account` creates `(created, account)`, which serves both, a wider equality
- * lookup takes the order a narrower range or order over its columns fixes, and a GiST index leads with a column of many
- * values a later request fixes (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`,
- * which serves both). A led or placed placement narrows the columns that may lead the draft to those among its leads,
- * never to one of them (Draft `leaders`), so a column stays one a later request may lead with until a request refuses
- * it, and the one the request states first among those left leads: a span predicate on `(a, b, c, span)` beside one on
- * `(b, c, span)` and an equality lookup on `(c)` creates `(c, ...)`, which serves all three, where choosing `b` at the
- * second would have refused the third. The requests whose placements the draft took are those its order answers to
- * (PlannedIndex `answers`); the serving judge reads them, by the leads every request's placements state
- * (`requestLeads`), to tell a sweep of the index that no order of its keys avoids from one the engine should have.
- * The draft is refined too, after those, by every other request of its relation it can serve that another index
- * already serves, the requests of its own access method first, since PostgreSQL may read such a request through it. It costs a GiST scan by the selectivity of all its conditions whatever their
- * columns' places (genericcostestimate), so it may read a request through any GiST index that holds its columns, and
- * on PostgreSQL 19 it reads a span predicate on `(span)` through `(fixed, span)`, which it sweeps, rather than through
- * the `(span, other)` it is planned on.
- * Within a block the columns keep the request's own order. Since the draft looks ahead, the plan's order only fixes the outcome:
- * it is canonical, so the plan does not depend on the order requests arrive in.
- * A created B-tree is held to the units of the whole rules that read its relation (`confined`): when a lookup of one
- * unit (ir/law.ts LawIndexRequest `reads`) binds every key of the drafted B-tree by equality, the fields of its unit the
- * keys lack follow them, so PostgreSQL, which may read the lookup through any index whose keys it binds, reads one unit
- * through this one too whatever it estimates. It prices every index whose keys the lookup binds at one row alike
- * (selfuncs.c btcostestimate) and takes the smaller: on PostgreSQL 19, a whole rule's lookup of one node by (package, path,
- * start, kind, governor) read through a law's (package, kind, start), 47 rows of other documents filtered for each of
- * 24,991 lookups, 1.38 s, and with path appended, 0.36 s through the unit's key. Appending never unseats a placement:
- * a created index is never unique, and every placement it took is a run of its leading keys. A B-tree some of whose
- * keys the lookup binds, a prefix, is left to PostgreSQL's estimate of the rows it reads.
- * Its keys are canonical under reversal: a key no ordered request directs takes the first key's direction, and an index
- * whose first key descends is created reversed, so an order and its exact reverse are one index. Its identity is its
- * columns, the canonical directions and each key's operator class, which serving requires equal, and its access method;
- * the name marks a method other than the B-tree, the descending keys and the classes beyond the default, each part of
- * its identity at the naming door (identity.accessIndex). Uniqueness is
- * never traded: a request never turns into or replaces a unique constraint, and enforcement objects (keys) stay
- * separate from access-path indexes. The index's key entry must fit its access method, like a key's, in any order of its
- * columns (schema/representability.ts btreeEntryBytes): a B-tree holds a column as itself or not at all, never by an
- * image. Where its keys could outgrow BTMaxItemSize, it leaves out the columns its requests bind by equality, the
- * widest first and a column of no byte bound widest of all, until the rest fits, each left out a filter its reads
- * apply beside the index; a column it orders by or matches a prefix of stays, and an entry those still overfill is
- * refused naming them (schema/representability.ts lookupEntry, KeyFault `orderedColumns`).
+ * key). Of the indexes that serve a request, it lands on a key or enforcement index before a created one, then on one
+ * of its own access method before one standing in for it, then on its relation's primary key before another key, then
+ * on the key of fewest keys, then by its keys and name, what it is and not where its statement stands, and of created
+ * indexes on the first the plan created (`hostOrder`). An unserved request becomes a new index
+ * `<table>__ix__<col>[__<col>...]`, wider requests first, so a narrower one lands on a wider index that serves it. The
+ * index is drafted (`draftFor`): it starts as the request's own placement and its method, and is refined, in the plan's
+ * order, by the placements of each later request no planned index serves yet, as long as one index still holds them
+ * all: placements of its method, in one order. So an equality lookup on `{account, created}` planned before a range on
+ * `created` then `account` creates `(created, account)`, which serves both, a wider equality lookup takes the order a
+ * narrower range or order over its columns fixes, and a GiST index leads with a column of many values a later request
+ * fixes (a span predicate on `(fixed, span)` beside one on `(span)` creates `(span, fixed)`, which serves both). A led
+ * or placed placement narrows the columns that may lead the draft to those among its leads, never to one of them (Draft
+ * `leaders`), so a column stays one a later request may lead with until a request refuses it, and the one the request
+ * states first among those left leads: a span predicate on `(a, b, c, span)` beside one on `(b, c, span)` and an
+ * equality lookup on `(c)` creates `(c, ...)`, which serves all three, where choosing `b` at the second would have
+ * refused the third. The requests whose placements the draft took are those its order answers to (PlannedIndex
+ * `answers`); the serving judge reads them, by the leads every request's placements state (`requestLeads`), to tell a
+ * sweep of the index that no order of its keys avoids from one the engine should have. The draft is refined too, after
+ * those, by every other request of its relation it can serve that another index already serves, the requests of its own
+ * access method first, since PostgreSQL may read such a request through it. It costs a GiST scan by the selectivity of
+ * all its conditions whatever their columns' places (genericcostestimate), so it may read a request through any GiST
+ * index that holds its columns, and on PostgreSQL 19 it reads a span predicate on `(span)` through `(fixed, span)`,
+ * which it sweeps, rather than through the `(span, other)` it is planned on. Within a block the columns keep the
+ * request's own order. Since the draft looks ahead, the plan's order only fixes the outcome: it is canonical, so the
+ * plan does not depend on the order requests arrive in. A created B-tree is held to the units of the whole rules that
+ * read its relation (`confined`): when a lookup of one unit (ir/law.ts LawIndexRequest `reads`) binds every key of the
+ * drafted B-tree by equality, the fields of its unit the keys lack follow them, so PostgreSQL, which may read the
+ * lookup through any index whose keys it binds, reads one unit through this one too whatever it estimates. It prices
+ * every index whose keys the lookup binds at one row alike (selfuncs.c btcostestimate) and takes the smaller: on
+ * PostgreSQL 19, a whole rule's lookup of one node by (package, path, start, kind, governor) read through a law's
+ * (package, kind, start), 47 rows of other documents filtered for each of 24,991 lookups, 1.38 s, and with path
+ * appended, 0.36 s through the unit's key. Appending never unseats a placement: a created index is never unique, and
+ * every placement it took is a run of its leading keys. A B-tree some of whose keys the lookup binds, a prefix, is left
+ * to PostgreSQL's estimate of the rows it reads. Its keys are canonical under reversal: a key no ordered request
+ * directs takes the first key's direction, and an index whose first key descends is created reversed, so an order and
+ * its exact reverse are one index. Its identity is its columns, the canonical directions and each key's operator class,
+ * which serving requires equal, and its access method; the name marks a method other than the B-tree, the descending
+ * keys and the classes beyond the default, each part of its identity at the naming door (identity.accessIndex).
+ * Uniqueness is never traded: a request never turns into or replaces a unique constraint, and enforcement objects
+ * (keys) stay separate from access-path indexes. The index's key entry must fit its access method, like a key's, in any
+ * order of its columns (schema/representability.ts btreeEntryBytes): a B-tree holds a column as itself or not at all,
+ * never by an image. Where its keys could outgrow BTMaxItemSize, it leaves out the columns its requests bind by
+ * equality, the widest first and a column of no byte bound widest of all, until the rest fits, each left out a filter
+ * its reads apply beside the index; a column it orders by or matches a prefix of stays, and an entry those still
+ * overfill is refused naming them (schema/representability.ts lookupEntry, KeyFault `orderedColumns`).
  *
  * A derived relation's materialized view takes indexes like a table: the derived relation
  * extension registers the view's fields and inherited key indexes with the builder (`addIndexedView`),
@@ -1132,12 +1133,14 @@ export const planIndexes = (
 					relation: view.relation,
 					method: "btree" as const,
 					columns: u.columns.map((field): IndexColumn => ({ kind: "field", field })),
-					unique: true as const
+					unique: true as const,
+					role: "unique" as const
 				}))
 			)
 		]
 		/** Each key index's keys ascending under the default class, over every row. */
 		const candidates: Array<Candidate> = installed.map((k) => ({
+			standing: { kind: k.role },
 			index: {
 				index: { kind: "installed", name: k.name },
 				relation: k.relation,
@@ -1261,7 +1264,11 @@ export const planIndexes = (
 					unitReads(relationPlan),
 					relationPlan
 				)
-				const created = { index, requests: [entry.request] }
+				const created: Candidate = {
+					standing: { kind: "created", at: candidates.length },
+					index,
+					requests: [entry.request]
+				}
 				candidates.push(created)
 				hold(created)
 			}
@@ -1271,9 +1278,17 @@ export const planIndexes = (
 
 /** A planned index and the requests it serves, in the plan's order. */
 interface Candidate {
+	readonly standing: Standing
 	readonly index: PlannedIndex
 	readonly requests: Array<IndexRequest>
 }
+
+/**
+ * What a planned index stands as: its relation's primary key's or another key's or enforcement's, which the schema's
+ * statements state, or one the engine created, `at` its place among the candidates when it was created, the plan's
+ * canonical order (`canonical`).
+ */
+type Standing = { readonly kind: KeyRole } | { readonly kind: "created"; readonly at: number }
 
 /** The plan's order: by relation, wider requests first, then a fixed order, so the plan does not depend on request
  * order; each index's requests and reasons are merged in it. */
@@ -1288,11 +1303,18 @@ const canonical: Comparator<Planned> = combineAll([
 
 /** The serving indexes a request lands on first (see `planIndexes`): a key or enforcement index before a created one, so
  * a request a key serves adds nothing; then one of the request's own access method before one standing in for it; then
- * the first planned. */
+ * its relation's primary key before another key; then of created indexes the first the plan created, and of keys by what
+ * the key is, never by the order its statement stands in: the fewest keys, then its keys (listOrder), then its name,
+ * which its content mints. */
 const hostOrder = (entry: Planned): Comparator<Candidate> =>
 	combineAll([
-		mapInput(compareBooleans, (c: Candidate) => c.index.index.kind === "created"),
-		mapInput(compareBooleans, (c: Candidate) => c.index.method !== ownMethod(entry))
+		mapInput(compareBooleans, (c: Candidate) => c.standing.kind === "created"),
+		mapInput(compareBooleans, (c: Candidate) => c.index.method !== ownMethod(entry)),
+		mapInput(compareBooleans, (c: Candidate) => c.standing.kind !== "primary"),
+		mapInput(compareNumbers, (c: Candidate) => (c.standing.kind === "created" ? c.standing.at : 0)),
+		mapInput(compareNumbers, (c: Candidate) => c.index.keys.length),
+		mapInput(listOrder(keyOrder), (c: Candidate) => c.index.keys),
+		mapInput(compareStrings, (c: Candidate) => c.index.index.name)
 	])
 
 /** The requests the draft of the index created for the unserved `plan[at]` reads ahead (see `planIndexes`): the later

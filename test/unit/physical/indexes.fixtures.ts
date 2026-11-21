@@ -23,7 +23,7 @@ import type { AccessUse, IndexRequest } from "#compiler/ir/products.ts"
 import { keyTermText, type PlannedIndex } from "#compiler/physical/indexes/engine.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { indexMaxKeys } from "#compiler/schema/representability.ts"
-import { contained, f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
+import { contained, f, key, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { lawNamesOf, wild } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
 import { requesting } from "#test/unit/physical/fixtures.ts"
@@ -399,3 +399,80 @@ const twoClassesGen: Gen<EngineSketch> = (source) => {
 export const engineSpace: Aimed<EngineSketch, IndexFeature> = aimed(engineGen, [
 	["two indexes on one column list", twoClassesGen]
 ])
+
+/** The columns a shelf's second key field is drawn from (`shelfGen`). */
+const shelfColumns = ["c", "d", "e", "f", "g", "h", "i", "j"] as const
+
+/**
+ * A shelf: Shelf, with two keys of two fields, b then a drawn column of `shelfColumns` each, stated in a drawn order,
+ * and an equality lookup on b, which each key's index serves. Its primary key is id, or, where `primary`, the key of the
+ * greater column, the other its one key besides.
+ */
+export interface Shelf {
+	readonly seconds: readonly [string, string]
+	readonly flipped: boolean
+	readonly primary: boolean
+}
+
+export const shelfGen: Gen<Shelf> = (source) => {
+	const [first, second] = source.draw(shuffled(shelfColumns, { min: 2, max: 2 }))
+	return {
+		seconds: [defined(first, "a drawn column"), defined(second, "a drawn column")],
+		flipped: source.draw(boolean),
+		primary: source.draw(boolean)
+	}
+}
+
+/** The shelf's key of the lesser and of the greater drawn column. */
+export const shelfColumnsOf = (
+	shelf: Shelf
+): { readonly lesser: string; readonly greater: string } => {
+	const [first, second] = shelf.seconds
+	return first < second ? { lesser: first, greater: second } : { lesser: second, greater: first }
+}
+
+/** The shelf's equality lookup on b. */
+export const shelfLookup: IndexRequest = {
+	relation: "Shelf",
+	keys: [{ expr: "b", dir: "asc", opclass: defaultOpclass }],
+	method: "btree",
+	fixed: 1,
+	role: "access",
+	use: "equality lookup"
+}
+
+/** The shelf's installation, its keys stated in the order drawn, with its lookup requested. */
+export const installShelf = (shelf: Shelf) => {
+	const { greater } = shelfColumnsOf(shelf)
+	const keys = Arr.map(
+		Arr.filter(shelf.seconds, (second) => !shelf.primary || second !== greater),
+		(second) => key(on("Shelf", ["b", second]))
+	)
+	const owned = owning({
+		name: "Shelved",
+		relations: [
+			relation(
+				"Shelf",
+				{
+					id: f.uuid,
+					b: f.uuid,
+					c: f.uuid,
+					d: f.uuid,
+					e: f.uuid,
+					f: f.uuid,
+					g: f.uuid,
+					h: f.uuid,
+					i: f.uuid,
+					j: f.uuid
+				},
+				shelf.primary ? ["b", greater] : ["id"]
+			)
+		],
+		statements: shelf.flipped ? Arr.reverse(keys) : keys,
+		bases: []
+	})
+	return compileInstallation(owned, {
+		...installOptions(owned),
+		extensions: [requesting([shelfLookup])]
+	})
+}

@@ -333,7 +333,10 @@ type NativePlan =
 
 /** A key index before its object is added, with what it holds apart, by which a reference finds it (`keyObjectOf`):
  * a scalar key's B-tree or a span key's GiST index, one per KeyColumnSet of its relation. */
-type KeyShape = Omit<KeyIndex, "object"> & { readonly key: KeyColumnSet }
+type KeyShape = Omit<KeyIndex, "object" | "role"> & { readonly key: KeyColumnSet }
+
+/** A key index's place among its relation's keys: its primary key's, or another unique key's. */
+export type KeyRole = "primary" | "unique"
 
 /** A native reference object: its own ALTER TABLE ... ADD CONSTRAINT, after its table and the objects in `after`. */
 const addReference = (
@@ -391,6 +394,8 @@ interface PlacedNatives {
 /** A key's index, which holds every row: one whose column is null holds it too, under NULLS DISTINCT. */
 export interface KeyIndex {
 	readonly object: Node<"structure">
+	/** Whether it is its relation's primary key's index or another key's. */
+	readonly role: KeyRole
 	readonly name: ConstraintName
 	readonly relation: string
 	readonly method: "btree" | "gist"
@@ -882,7 +887,11 @@ const addNatives = (
 					[b.table(p.relation), ...(p.gist ? [b.provider("btree_gist")] : [])]
 				)
 				if (p.key !== undefined) {
-					keyIndexes.push({ ...p.key, object })
+					keyIndexes.push({
+						...p.key,
+						object,
+						role: p.object === "primaryKey" ? "primary" : "unique"
+					})
 					keys.set(keyTuple(p.key.key), object)
 				}
 				continue
@@ -928,7 +937,7 @@ const addNatives = (
 						...(p.gist ? [b.provider("btree_gist")] : [])
 					]
 				)
-				keyIndexes.push({ ...p.key, object })
+				keyIndexes.push({ ...p.key, object, role: "unique" })
 				keys.set(keyTuple(p.key.key), object)
 				continue
 			}

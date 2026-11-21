@@ -1,13 +1,13 @@
 /** What the property of pattern-identity.test.ts reads: its patterns, their spellings, its schema and its snapshots. */
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
-import { element, type Gen } from "@bjornpagen/testing/gen"
+import { boolean, element, type Gen, int, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str, Struct } from "effect"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { type ExprDesc, guardedExpr } from "#compiler/ir/desc.ts"
-import type { PatternValue } from "#compiler/ir/pattern.ts"
+import type { PatternValue, Spellings } from "#compiler/ir/pattern.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -87,6 +87,49 @@ export const spellingCases: Gen<SpellingCase> = (source) => {
 	const pattern = source.draw(admittedPatternOver(alphabet))
 	const respelling = source.draw(element(respellings))
 	return { first: spelled(pattern), second: spelled(respelled(pattern, respelling)), respelling }
+}
+
+/**
+ * A case of an installation's spellings (ir/pattern.ts installedSpellings): the spellings of one or two languages, each
+ * a pattern over a family's alphabet and its three respellings of its own language (a group, beside an empty piece, an
+ * alternation of itself), held in a drawn order and in another, and a history that spells the first language by one of
+ * its spellings, or none.
+ */
+export interface HeldSpellings {
+	readonly languages: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<PatternValue>>
+	readonly held: ReadonlyArray<PatternValue>
+	readonly reordered: ReadonlyArray<PatternValue>
+	readonly history: Spellings
+}
+
+/** The spellings of one language: a pattern and each respelling of its own language. */
+const languageSpellingsGen: Gen<Arr.NonEmptyReadonlyArray<PatternValue>> = (source) => {
+	const { alphabet } = source.draw(element(families))
+	const pattern = source.draw(admittedPatternOver(alphabet))
+	return [
+		spelled(pattern),
+		...Arr.map(
+			Arr.filter(respellings, (r) => r !== "another language"),
+			(r) => spelled(respelled(pattern, r))
+		)
+	]
+}
+
+export const heldSpellingsGen: Gen<HeldSpellings> = (source) => {
+	const first = source.draw(languageSpellingsGen)
+	const languages: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<PatternValue>> = source.draw(
+		boolean
+	)
+		? [first, source.draw(languageSpellingsGen)]
+		: [first]
+	const all = Arr.flatten(languages)
+	const kept = source.draw(boolean) ? first[source.draw(int(0, first.length - 1))] : undefined
+	return {
+		languages,
+		held: source.draw(shuffled(all, { min: all.length, max: all.length })),
+		reordered: source.draw(shuffled(all, { min: all.length, max: all.length })),
+		history: kept === undefined ? new Map() : new Map([[kept.pattern, kept.spelling]])
+	}
 }
 
 const t = field("t")

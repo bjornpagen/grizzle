@@ -38,10 +38,14 @@ import {
 	expectedRefusal,
 	type IndexFeature,
 	install,
+	installShelf,
 	keyField,
 	plantedRequests,
 	requestOf,
 	sameColumns,
+	shelfColumnsOf,
+	shelfGen,
+	shelfLookup,
 	valueClass
 } from "#test/unit/physical/indexes.fixtures.ts"
 
@@ -257,6 +261,83 @@ export const theIndexRequestEngineLandsEveryRequestOnExactlyOneIndexPlansAlikeIn
 				original: "\t\tconst plan = requests\n",
 				replacement: '\t\tconst plan = requests.filter((r) => r.role !== "lawMaintenance")\n',
 				why: "The engine plans no law probe index: a law's request lands on no index. Moved here from test/pg/bench/gates.test.ts's write and law gates, which left the test tiers for `pnpm bench`."
+			}
+		]
+	})
+
+type ShelfFeature =
+	| "the lesser key stated first"
+	| "the lesser key stated second"
+	| "a primary key beside a lesser key"
+
+/**
+ * A request two key indexes serve alike lands on the one its content puts first (physical/indexes/engine.ts hostOrder),
+ * its relation's primary key before another key, then the fewest keys, then its keys by name, whichever order the keys'
+ * statements stand in: over a shelf's two keys of b and a drawn column, stated in either order, its equality lookup on
+ * b lands on the key of the lesser column, or on the primary key where the key of the greater column is the shelf's
+ * primary key, and the installation is one in both orders. Where the keys stand among the owned statements is their
+ * identity digests' order, which no meaning fixes, so a request that took the first serving key moved with it.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aRequestTwoKeysServeLandsOnTheKeyItsContentPutsFirstWhicheverOrderTheirStatementsStandIn =
+	property.explore(shelfGen, {
+		needs: {},
+		situations: [
+			"the lesser key stated first",
+			"the lesser key stated second",
+			"a primary key beside a lesser key"
+		] satisfies ReadonlyArray<Reached<ShelfFeature>>,
+		check: (_, c: Case<ShelfFeature>) => (shelf) =>
+			Effect.sync(() => {
+				const installation = succeeded(installShelf(shelf))
+				const [first, second] = shelf.seconds
+				const { lesser, greater } = shelfColumnsOf(shelf)
+				const host = shelf.primary ? greater : lesser
+				const hosts = Arr.filter(installation.indexes, (x) =>
+					Arr.some(
+						x.requests,
+						(r) => r.relation === shelfLookup.relation && r.role === shelfLookup.role
+					)
+				)
+				assert.deepEqual(
+					Arr.map(hosts, (x) => Arr.map(x.keys, keyField)),
+					[["b", host]],
+					`the lookup on b lands on the key (b, ${host}) of (b, ${first}) and (b, ${second}), the primary key (b, ${greater}) where it is one`
+				)
+				const again = succeeded(installShelf({ ...shelf, flipped: !shelf.flipped }))
+				assert.deepEqual(again.statements, installation.statements)
+				assert.deepEqual(
+					Arr.map(again.indexes, (x) => [x.object, x.keys, x.requests.length]),
+					Arr.map(installation.indexes, (x) => [x.object, x.keys, x.requests.length])
+				)
+				c.note(
+					shelf.primary
+						? "a primary key beside a lesser key"
+						: (lesser === first) !== shelf.flipped
+							? "the lesser key stated first"
+							: "the lesser key stated second"
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the serving primary key, else the serving key of the lesser column, and one installation in either order of the keys' statements"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original:
+					"\t\tmapInput(compareNumbers, (c: Candidate) => c.index.keys.length),\n\t\tmapInput(listOrder(keyOrder), (c: Candidate) => c.index.keys),\n\t\tmapInput(compareStrings, (c: Candidate) => c.index.index.name)\n",
+				replacement: "",
+				why: "The request lands on the first serving key in the order the keys' statements stand in, their identity digests', so which of two keys hosts it is no matter of what either is."
+			},
+			{
+				file: "packages/engine/src/physical/indexes/engine.ts",
+				original:
+					'\t\tmapInput(compareBooleans, (c: Candidate) => c.standing.kind !== "primary"),\n',
+				replacement: "",
+				why: "A relation's primary key ranks as any other key, so a lookup its primary key and a narrower-named key both serve lands on the other key, and every law reason a primary key held moves onto a secondary key of its width."
 			}
 		]
 	})
