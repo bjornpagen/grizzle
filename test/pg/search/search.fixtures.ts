@@ -4,6 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
+import { planNodes } from "#bench/harness/explain.ts"
 import { Search } from "#compiler/public/compute.ts"
 import { pg, searchDocument } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -369,12 +370,6 @@ export const byKey = (
 		Order.mapInput(Order.Number, (row: ReadonlyArray<string>) => Number(row[0]))
 	)
 
-/** Every node of an executed plan, depth first. */
-const planNodes = (plan: ExecutedPlan): ReadonlyArray<ExecutedPlan> => [
-	plan,
-	...Arr.flatMap(plan.children, planNodes)
-]
-
 /** What an executed member's plans say of its reads of Lesson: the GIN index's scans, any other read, and the buffers. */
 export interface LessonReads {
 	readonly statements: number
@@ -392,7 +387,7 @@ export const lessonReads = (
 	statements: ReadonlyArray<ExecutedStatement>
 ): LessonReads => {
 	const gin = namesOf(installed).accessIndex(Lesson, ["search"])
-	const nodes = Arr.flatMap(statements, (s) => planNodes(s.plan))
+	const nodes = Arr.flatMap(statements, (s) => [...planNodes(s.plan)])
 	return {
 		statements: statements.length,
 		gin: Arr.filter(

@@ -12,6 +12,7 @@ import {
 } from "#adapter/types/db.ts"
 import { type Prologue } from "#adapter/wire/batch.ts"
 import { type Session, type SessionPool } from "#adapter/wire/session.ts"
+import { planNodes } from "#bench/harness/explain.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn as drawnField, natural } from "#compiler/public/fields.ts"
@@ -36,11 +37,6 @@ import { makeTap, type Tap, type WireWindow } from "#test/support/wire-tap.ts"
  * A schema no Db of the suite opens, holding Work's TaskNote: a ChangeSet over it is over no level of any role here.
  */
 export const Elsewhere = schema("Elsewhere", [W.TaskNote], [])
-
-/** Every node of a plan tree, depth first. */
-export const nodes = <N extends { readonly children: ReadonlyArray<N> }>(
-	plan: N
-): ReadonlyArray<N> => [plan, ...Arr.flatMap(plan.children, (child) => nodes(child))]
 
 /** The members a node's target holds by its kind, so a target holds exactly its kind's. */
 const targetKeys: { readonly [K in PlanTarget["kind"]]: ReadonlyArray<string> } = {
@@ -77,14 +73,14 @@ const planShape = (plan: Plan, keys: ReadonlyArray<string>, extra: ReadonlyArray
 
 /** An estimate-only Plan: every node of exactly a Plan's fields (planShape). */
 export const estimateOnly = (plan: Plan): void => {
-	for (const node of nodes(plan)) {
+	for (const node of planNodes(plan)) {
 		planShape(node, Rec.keys(node), [])
 	}
 }
 
 /** An executed plan: every node a Plan's fields and its actuals and buffers, each a finite number. */
 export const executedShape = (plan: ExecutedPlan): void => {
-	for (const node of nodes(plan)) {
+	for (const node of planNodes(plan)) {
 		planShape({ ...node, children: [] }, Rec.keys(node), ["actual", "buffers"])
 		assert.deepEqual(
 			Arr.filter(
@@ -131,7 +127,7 @@ export const readsWithin = (
 	tableOf: (relation: string) => { readonly schema: string; readonly name: string },
 	indexes: ReadonlySet<string>
 ): void => {
-	for (const node of nodes(plan)) {
+	for (const node of planNodes(plan)) {
 		const on = node.on
 		if (on.kind === "relation" || on.kind === "index") {
 			assert.ok(footprint.has(on.relation), `${on.relation}, a relation of the footprint`)

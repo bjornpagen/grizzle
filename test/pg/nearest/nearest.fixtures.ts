@@ -4,6 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { array, element, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
 import type { ExecutedPlan, ExecutedStatement } from "#adapter/types/db.ts"
+import { planNodes } from "#bench/harness/explain.ts"
 import { Distance } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -248,12 +249,6 @@ export const analyzed = (installed: Installed) =>
 		)
 	)
 
-/** Every node of an executed plan, depth first. */
-const planNodes = (plan: ExecutedPlan): ReadonlyArray<ExecutedPlan> => [
-	plan,
-	...Arr.flatMap(plan.children, planNodes)
-]
-
 /**
  * The nodes of a member's executed statements that read Lesson through the HNSW index its searches requested, as the
  * served file names it, and whether the member sent one statement.
@@ -266,7 +261,7 @@ export const hnswScans = (
 	return {
 		statements: statements.length,
 		scans: Arr.filter(
-			Arr.flatMap(statements, (s) => planNodes(s.plan)),
+			Arr.flatMap(statements, (s) => [...planNodes(s.plan)]),
 			(n) => n.on.kind === "index" && n.on.relation === "Lesson" && n.on.index.name === hnsw
 		)
 	}

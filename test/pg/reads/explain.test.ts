@@ -50,6 +50,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result as EffectResult } from "effect"
 import { memberExplains, memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
+import { planNodes } from "#bench/harness/explain.ts"
 import { type ParamMap } from "#compiler/plan/common.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -77,7 +78,6 @@ import {
 	footprintOf,
 	labels,
 	laterStratum,
-	nodes,
 	observe,
 	ofTheServed,
 	plannedStatements,
@@ -387,7 +387,7 @@ export const explainsADrawnChangeSetItsApplysPlannableStatementsByNameAndTextWit
 									assert.deepEqual(
 										Arr.filter(
 											Arr.flatMap(plans.value, (p) =>
-												naming.has(p.statement) ? [] : nodes(p.plan)
+												naming.has(p.statement) ? [] : [...planNodes(p.plan)]
 											),
 											(n) => n.on.kind === "carrier"
 										),
