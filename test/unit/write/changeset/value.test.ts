@@ -10,7 +10,10 @@
  * - every value is sealed: no step changes an earlier value, and an array's facts are copied when it is added;
  * - a member, a read-back, a union and a sequence are over a level: a query over a higher level, a relation of a
  *   higher level, and two levels neither of which is a level of the other are refused;
- * - read-back names are distinct across the whole ChangeSet;
+ * - a ChangeSet's read-backs are one set by name across the whole ChangeSet, read once after it: a read, a union, a
+ *   sequence or a fork that brings two of one name over one query together (one shape, bound alike) makes them one,
+ *   and one name over two queries is refused; the outcome's decoder of them is one record in name order, the same
+ *   whatever order they were built or combined in, as a served file holds it;
  * - bind closes every free parameter with a value, no more and no NULL, and a bound parameter leaves the namespace: a
  *   parameter of its name added later, or brought by a combined ChangeSet, is free and separate.
  *
@@ -98,6 +101,7 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 				"a free parameter spelled like a private name",
 				"a union over a higher level",
 				"a union of more strata on one side",
+				"a read-back repeated over one query",
 				...Arr.map(rules, (rule): AlgebraFeature => `refused: ${rule}`),
 				...Arr.map(faults, (fault): AlgebraFeature => `fault: ${fault}`)
 			] satisfies ReadonlyArray<Reached<AlgebraFeature>>,
@@ -112,6 +116,19 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 					original: "\tconst n = Math.max(x.strata.length, y.strata.length)",
 					replacement: "\tconst n = Math.min(x.strata.length, y.strata.length)",
 					why: "union combines strata only up to the shorter ChangeSet's, dropping the longer one's later strata."
+				},
+				{
+					file: "packages/engine/src/write/changeset/value.ts",
+					original: "\t\t} else if (held.identity !== r.identity) {",
+					replacement: "\t\t} else {",
+					why: "the read-back set refuses every repeated name again, two read-backs of one name over one query among them, where the model makes them one (metis's showItem, two programs that each read standing over one query, composed by sequence)."
+				},
+				{
+					file: "packages/engine/src/write/changeset/value.ts",
+					original: "\tdecoderOf<Rd>(recordOf(reads.map((r) => new Named(r.name, r.field))).form)",
+					replacement:
+						"\tdecoderOf<Rd>(recordOf(reads.toReversed().map((r) => new Named(r.name, r.field))).form)",
+					why: "the outcome's decoder of the read-backs leaves name order, so its record, which a served file holds, no longer follows from the set alone; the Description, sorted by name, is unchanged."
 				}
 			]
 		}

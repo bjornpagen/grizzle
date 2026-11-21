@@ -98,10 +98,10 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheW
 				{
 					file: "packages/engine/src/write/changeset/value.ts",
 					original:
-						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads, ...y.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, x.identities, decoder)",
+						"\t\tcanonicalStrata([...x.strata, ...y.strata]),\n\t\t[...x.reads, ...y.reads],\n\t\tbound,",
 					replacement:
-						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, x.identities, decoder)",
-					why: "Operator mutant (element) at packages/engine/src/write/changeset/value.ts:1250 in sequenceOf: `[...x.reads, ...y.reads]` becomes `[...x.reads]`; the property fails (lane CATCH, grizzle 0baff5d6)."
+						"\t\tcanonicalStrata([...x.strata, ...y.strata]),\n\t\t[...x.reads],\n\t\tbound,",
+					why: "Operator mutant (element) in sequenceOf: `[...x.reads, ...y.reads]` becomes `[...x.reads]`, so a sequence drops its second ChangeSet's read-backs; the property fails (lane CATCH, grizzle 0baff5d6, its original requoted at the read-back set, lane READBACK)."
 				}
 			]
 		}

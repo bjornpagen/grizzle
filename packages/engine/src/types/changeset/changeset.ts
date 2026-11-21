@@ -869,16 +869,18 @@ export interface ChangeSetOf<
 	/**
 	 * A query over the post-change state and the change's own delta, delivered in the outcome under `name`. It runs
 	 * before COMMIT, so its rows are typed by immediate-constraint evidence only: they are the records its immediate
-	 * decoder assembles.
+	 * decoder assembles. A read-back is read once, after the whole ChangeSet, so a name reads one query: a read of a
+	 * name the ChangeSet already reads over the same query is that read-back, and over another query is refused (the
+	 * types refuse one whose rows are of another type; the builder, one whose query is another).
 	 */
 	read<const Name extends string, Q extends QueryAt<LevelsOf<S>> | OrderedAt<LevelsOf<S>>, IHead>(
-		name: ReadName<Name, Reads>,
+		name: ReadName<Name, Reads, IHead>,
 		readBack: (delta: Delta<S>) => Q & Decoders<unknown, IHead>
 	): ChangeSetOf<
 		S,
 		JointParams<Params, ParamsOf<Q>>,
 		Writes,
-		Simplify<Reads & { readonly [K in Name]: ReadonlyArray<IHead> }>,
+		JointReads<Reads, { readonly [K in Name]: ReadonlyArray<IHead> }>,
 		Cx | ContextsOf<Q>,
 		Done,
 		Last,
@@ -1879,18 +1881,36 @@ type LevelCheck<H> = [H] extends [never]
 	? Refusal<"the ChangeSets' schemas are not levels of one another">
 	: unknown
 
+/** Whether two read-backs' rows are of one type: each assignable to the other. */
+type SameRows<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
+
 /**
- * Read-back names are distinct across a whole ChangeSet, its strata and unions included: a read whose name is already
- * a read-back, and a union or sequence of ChangeSets that share one, are type errors.
+ * A read-back name reads one query across a whole ChangeSet, its strata and unions included, the builder's read-back
+ * set (write/changeset/value.ts readBackSet): a read of a name the ChangeSet already reads, and a union or sequence of
+ * ChangeSets that read one name, are one read-back where the queries are one. The types see a query's rows, never its
+ * identity, so they refuse one name over rows of two types; the builder refuses one name over two queries.
  */
-type ReadNameCheck<Name extends string, Reads> = Name extends keyof Reads
-	? Refusal<"read-back names are distinct: this ChangeSet already has a read-back of this name">
+type ReadNameCheck<Name extends string, Reads, IHead> = Name extends keyof Reads
+	? SameRows<Reads[Name], ReadonlyArray<IHead>> extends true
+		? unknown
+		: Refusal<"a read-back name reads one query: this ChangeSet already reads this name, over rows of another type">
 	: unknown
-/** A read-back's name: one literal, the key of its rows in the outcome's record, and no read-back's name already. */
-export type ReadName<Name extends string, Reads> = OneName<Name> & ReadNameCheck<Name, Reads>
-type DisjointReads<A, B> = [keyof A & keyof B] extends [never]
+/** A read-back's name: one literal, the key of its rows in the outcome's record, and a name the ChangeSet reads already
+ * only over rows of the same type. */
+export type ReadName<Name extends string, Reads, IHead> = OneName<Name> &
+	ReadNameCheck<Name, Reads, IHead>
+/**
+ * The read-backs of two ChangeSets, or of a ChangeSet and one read, as one set: every name either reads, a name both
+ * read once, at the first's rows, which are the second's (ReadNameCheck, OneQueryReads).
+ */
+export type JointReads<A, B> = Simplify<A & Omit<B, keyof A>>
+/** The names two ChangeSets both read whose rows are of two types. */
+type ClashingReads<A, B> = {
+	readonly [K in keyof A & keyof B]: SameRows<A[K], B[K]> extends true ? never : K
+}[keyof A & keyof B]
+type OneQueryReads<A, B> = [ClashingReads<A, B>] extends [never]
 	? unknown
-	: Refusal<"read-back names are distinct: the ChangeSets share a read-back name">
+	: Refusal<"a read-back name reads one query: the ChangeSets read one name over rows of two types">
 
 export interface ChangeSetConstructor {
 	empty<S extends AnySchema | AnyFragment | AnyRole>(
@@ -1918,14 +1938,14 @@ export interface ChangeSetConstructor {
 		a: ChangeSetOf<SA, P1, W1, R1, C1, D1, L1, A1>,
 		b: ChangeSetOf<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
-			DisjointReads<R1, R2> &
+			OneQueryReads<R1, R2> &
 			UnionEdits<D1, L1, D2, L2> &
 			UnionDoomed<D1, L1, D2, L2>
 	): ChangeSetOf<
 		HigherLevel<SA, SB>,
 		JointParams<P1, P2>,
 		W1 | W2,
-		Simplify<R1 & R2>,
+		JointReads<R1, R2>,
 		C1 | C2,
 		Leading<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
 		Final<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
@@ -1956,13 +1976,13 @@ export interface ChangeSetConstructor {
 		a: ChangeSetOf<SA, P1, W1, R1, C1, D1, L1, A1>,
 		b: ChangeSetOf<SB, P2, W2, R2, C2, D2, L2, A2> &
 			LevelCheck<HigherLevel<SA, SB>> &
-			DisjointReads<R1, R2> &
+			OneQueryReads<R1, R2> &
 			EditsRefusal<[EditsIn<D1, L1>, EditsIn<D2, L2>] extends [true, true] ? true : false>
 	): ChangeSetOf<
 		HigherLevel<SA, SB>,
 		JointParams<P1, P2>,
 		W1 | W2,
-		Simplify<R1 & R2>,
+		JointReads<R1, R2>,
 		C1 | C2,
 		readonly [...D1, L1, ...D2],
 		L2,

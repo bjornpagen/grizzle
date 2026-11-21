@@ -167,6 +167,14 @@ export const bindGroups = <A>(
  */
 export const record = <const Ps extends ReadonlyArray<Part>>(
 	...parts: Ps
+): RowDecoder<Decoded<Ps>> => recordOf(parts)
+
+/**
+ * record(...parts) over a list of parts as one value, for a list whose length its builder knows only at run time (a
+ * ChangeSet's read-backs, write/changeset/value.ts readsDecoder), which a spread would put on the call stack.
+ */
+export const recordOf = <const Ps extends ReadonlyArray<Part>>(
+	parts: Ps
 ): RowDecoder<Decoded<Ps>> =>
 	decoderOf(
 		Object.freeze({

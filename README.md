@@ -3497,7 +3497,11 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   instead, and an insert through a query entry states every field.
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion
-  met](#rows-an-insertion-met)). A read-back name used twice in one ChangeSet is a type error.
+  met](#rows-an-insertion-met)). A ChangeSet's read-backs are one set by name, each run once after the whole change,
+  so a name read again, by `read`, `ChangeSet.union` or `ChangeSet.sequence`, over the same query is the same
+  read-back: two programs that each end in `.read("standing", () => standing)` compose into one that reads it once.
+  One name over another query is refused: by the types where its rows are of another type, and by the builder
+  (`MalformedDescription`, naming both read-backs) where only the query differs.
 - **Where a read-back runs.** The rows a statement returns exist only inside it, so a read-back that reads a delta
   runs inside the one statement that makes it: that statement makes every side the read-back reads whole, and no
   statement at or after it writes a table the read-back reads. A stratum runs the writes of tables whose deltas a

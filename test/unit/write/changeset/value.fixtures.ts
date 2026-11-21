@@ -28,6 +28,7 @@ import type { WildKind } from "@bjornpagen/testing/lsw"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, Record as Rec, Stream } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
+import type { DecoderForm, FieldForm } from "#compiler/core/decoder.ts"
 import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
 import { builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties } from "#compiler/core/record.ts"
@@ -252,6 +253,21 @@ const readReferences: ReadonlyArray<readonly [ReadShape, Reference]> = Arr.map(
 	]
 )
 
+/**
+ * Each read-back shape's field in the outcome's record of read-backs: the one field of the record a ChangeSet of that
+ * read-back alone decodes.
+ */
+const readFields: ReadonlyArray<readonly [ReadShape, FieldForm]> = Arr.map(
+	readShapes,
+	(shape): readonly [ReadShape, FieldForm] => {
+		const form = ChangeSet.empty(Ext).read("r", readBack(shape, Ext)).reads.form
+		const [only, ...rest] = form.kind === "record" ? form.fields : []
+		return only !== undefined && rest.length === 0 && only[0] === "r"
+			? [shape, only[1]]
+			: assert.fail("one read-back's decoder: one record of its one field")
+	}
+)
+
 const paramsOf = (shape: ReadShape): ReadonlyArray<string> =>
 	defined(
 		Arr.findFirst(readReferences, ([s]) => s === shape).pipe(Option.getOrUndefined),
@@ -397,7 +413,7 @@ const malformedTag: Refusal = "MalformedDescription"
 /** The rule a refused step breaks, as its feature names it. */
 type Rule =
 	| "unrelated levels"
-	| "a repeated read-back name"
+	| "one read-back name over two queries"
 	| "an extra value"
 	| "a NULL value"
 	| "a query over a higher level"
@@ -433,10 +449,45 @@ const writeRule = (m: Model, p: Params["write"]): Rule | undefined => {
 			: undefined
 }
 
+/** Whether two bindings of one shape bind its parameters alike: both free, or both to the same values. */
+const sameBinding = (a: Binding, b: Binding): boolean =>
+	a.kind === "free"
+		? b.kind === "free"
+		: b.kind === "bound" &&
+			a.values.length === b.values.length &&
+			Arr.every(Arr.zip(a.values, b.values), ([x, y]) => x === y)
+
+/** Whether two read-backs are one: one name over one query, a query being its shape and its binding. */
+const sameRead = (a: ModelRead, b: ModelRead): boolean =>
+	a.name === b.name && a.shape === b.shape && sameBinding(a.binding, b.binding)
+
+/** Whether read-backs of `b` read a name of `a`'s over another query. */
+const clashingReads = (a: ReadonlyArray<ModelRead>, b: ReadonlyArray<ModelRead>): boolean =>
+	Arr.some(a, (r) => Arr.some(b, (q) => q.name === r.name && !sameRead(r, q)))
+
+/**
+ * The read-backs of `a` and `b` as one set (write/changeset/value.ts readBackSet): `a`'s, then each of `b`'s whose name
+ * `a` does not read, a read-back of one name over one query being one read-back, read once after the whole ChangeSet.
+ */
+const joinReads = (
+	a: ReadonlyArray<ModelRead>,
+	b: ReadonlyArray<ModelRead>
+): ReadonlyArray<ModelRead> => [
+	...a,
+	...Arr.filter(b, (q) => !Arr.some(a, (r) => r.name === q.name))
+]
+
+/** A read-back `p` adds to its handle: its name and shape, free. */
+const readOfStep = (p: Params["read"]): ModelRead => ({
+	name: p.name,
+	shape: p.shape,
+	binding: free
+})
+
 const readRule = (m: Model, p: Params["read"]): Rule | undefined => {
 	const c = handleOf(m, p.handle)
-	return Arr.some(c.reads, (r) => r.name === p.name)
-		? "a repeated read-back name"
+	return clashingReads(c.reads, [readOfStep(p)])
+		? "one read-back name over two queries"
 		: c.level === "Work" && p.shape === "addedExtra"
 			? "a delta outside the level"
 			: c.level === "Work" && p.over === "Ext"
@@ -459,10 +510,16 @@ const combineRule = (m: Model, p: Params["union"]): Rule | undefined => {
 	const b = handleOf(m, p.b)
 	return higherLevel(a.level, b.level) === undefined
 		? "unrelated levels"
-		: Arr.some(a.reads, (r) => Arr.some(b.reads, (q) => q.name === r.name))
-			? "a repeated read-back name"
+		: clashingReads(a.reads, b.reads)
+			? "one read-back name over two queries"
 			: undefined
 }
+
+/** The rule a fork breaks: the read-backs of its two bindings, one name over two queries. */
+const forkRule = (c: ModelChangeSet, p: Params["fork"]): Rule | undefined =>
+	clashingReads(bound(c, p.first).reads, bound(c, p.second).reads)
+		? "one read-back name over two queries"
+		: undefined
 
 /** The binding a free member or read-back of `shape` takes from bind's values. */
 const boundBy = (
@@ -502,13 +559,13 @@ const unionOf = (a: ModelChangeSet, b: ModelChangeSet): ModelChangeSet => ({
 		...(a.strata[i] ?? []),
 		...(b.strata[i] ?? [])
 	]),
-	reads: [...a.reads, ...b.reads]
+	reads: joinReads(a.reads, b.reads)
 })
 
 const sequenceOf = (a: ModelChangeSet, b: ModelChangeSet): ModelChangeSet => ({
 	level: defined(higherLevel(a.level, b.level), "related levels"),
 	strata: [...a.strata, ...b.strata],
-	reads: [...a.reads, ...b.reads]
+	reads: joinReads(a.reads, b.reads)
 })
 
 /** The verdict of a step whose rule, when it has one, refuses it. */
@@ -571,21 +628,29 @@ const bindHandle = (m: Model): Gen<number> => {
 }
 
 /**
- * A handle to fork: as bindHandle draws one, or as often one of no read-back whose free parameters name one it has
- * bound, so the two bindings put members of one shape beside a private parameter one of them shares.
+ * A handle to fork: as bindHandle draws one; as often one of no read-back whose free parameters name one it has
+ * bound, so the two bindings put members of one shape beside a private parameter one of them shares; and as often one
+ * with a read-back, so the two bindings meet at each of its names, one read-back where they bind its query alike and
+ * refused where they do not.
  */
 const forkHandle = (m: Model): Gen<number> => {
 	const meeting = Arr.flatMap(m.handles, (c, i) => {
 		const bound = boundNamesOf(c)
 		return c.reads.length === 0 && Arr.some([...freeNames(c)], (name) => bound.has(name)) ? [i] : []
 	})
-	return meeting.length === 0 ? bindHandle(m) : oneOf([pickOf(meeting), bindHandle(m)])
+	const reading = Arr.flatMap(m.handles, (c, i) => (c.reads.length > 0 ? [i] : []))
+	return oneOf([
+		bindHandle(m),
+		...(meeting.length === 0 ? [] : [pickOf(meeting)]),
+		...(reading.length === 0 ? [] : [pickOf(reading)])
+	])
 }
 
 /**
- * A fork's second binding of the free parameters `names` of the ChangeSet `c`: drawn as its first is, or, where `c`
- * has bound one of them, as often the first with that name's other value, so the two members of one shape it binds tie
- * beside the private parameter one of them shares.
+ * A fork's second binding of the free parameters `names` of the ChangeSet `c`: drawn as its first is; where `c` has
+ * bound one of them, as often the first with that name's other value, so the two members of one shape it binds tie
+ * beside the private parameter one of them shares; and where `c` has a read-back, as often the first itself, so each
+ * of its read-backs meets itself bound alike.
  */
 const secondOf = (
 	c: ModelChangeSet,
@@ -594,19 +659,19 @@ const secondOf = (
 ): Gen<ReadonlyArray<BindEntry>> => {
 	const bound = boundNamesOf(c)
 	const shared = Arr.filter(names, (name) => bound.has(name))
-	return Arr.isReadonlyArrayNonEmpty(shared)
-		? oneOf([
-				valuesGen(names),
+	const apart: ReadonlyArray<Gen<ReadonlyArray<BindEntry>>> = Arr.isReadonlyArrayNonEmpty(shared)
+		? [
 				(s) => {
-					const apart = s.draw(element(shared))
+					const name = s.draw(element(shared))
 					return Arr.map(first, (e): BindEntry =>
-						e.name === apart && e.value.kind === "value"
-							? { name: apart, value: { kind: "value", value: otherValue(apart, e.value.value) } }
+						e.name === name && e.value.kind === "value"
+							? { name, value: { kind: "value", value: otherValue(name, e.value.value) } }
 							: e
 					)
 				}
-			])
-		: valuesGen(names)
+			]
+		: []
+	return oneOf([valuesGen(names), ...apart, ...(c.reads.length === 0 ? [] : [constant(first)])])
 }
 
 /** A member's shape, those with parameters most often, so bound and free parameters of one name meet. */
@@ -796,20 +861,22 @@ export const machine: Machine<Model, Params, Refusal> = {
 		read: {
 			weight: 2,
 			applies: (m) => writableHandles(m).length > 0,
-			parameters: (m) => (s) => ({
-				handle: s.draw(pickOf(writableHandles(m))),
-				name: s.draw(element(readNames)),
-				shape: s.draw(readShapeGen),
-				over: s.draw(element(["Work", "Ext"] as const))
-			}),
+			parameters: (m) => (s) => {
+				const handle = s.draw(pickOf(writableHandles(m)))
+				const again = Arr.filter(handleOf(m, handle).reads, (r) => r.binding.kind === "free")
+				const fresh: Gen<Pick<ModelRead, "name" | "shape">> = (t) => ({
+					name: t.draw(element(readNames)),
+					shape: t.draw(readShapeGen)
+				})
+				const { name, shape } = s.draw(
+					Arr.isReadonlyArrayNonEmpty(again) ? oneOf([fresh, element(again)]) : fresh
+				)
+				return { handle, name, shape, over: s.draw(element(["Work", "Ext"] as const)) }
+			},
 			judge: (m, p) =>
 				judged(readRule(m, p), () => {
 					const c = handleOf(m, p.handle)
-					return made(
-						m,
-						{ ...c, reads: [...c.reads, { name: p.name, shape: p.shape, binding: free }] },
-						m.streams
-					)
+					return made(m, { ...c, reads: joinReads(c.reads, [readOfStep(p)]) }, m.streams)
 				})
 		},
 		bind: {
@@ -836,7 +903,7 @@ export const machine: Machine<Model, Params, Refusal> = {
 			},
 			judge: (m, p) => {
 				const c = handleOf(m, p.handle)
-				return judged(c.reads.length > 0 ? "a repeated read-back name" : undefined, () =>
+				return judged(forkRule(c, p), () =>
 					made(m, unionOf(bound(c, p.first), bound(c, p.second)), m.streams)
 				)
 			}
@@ -951,6 +1018,28 @@ const runsOf = <A>(
 	}
 	return runs
 }
+
+/** The model's read-backs in name order. */
+const readsInOrder = (c: ModelChangeSet): ReadonlyArray<ModelRead> =>
+	Arr.sort(
+		c.reads,
+		Order.mapInput(Order.String, (r: ModelRead) => r.name)
+	)
+
+/**
+ * The decoder of the model's outcome record of read-backs, as a served file holds it: one record, in name order, each
+ * read-back's field under its name (readFields), whatever order its read-backs were read, combined or bound in.
+ */
+const readsForm = (c: ModelChangeSet): DecoderForm => ({
+	kind: "record",
+	fields: Arr.map(readsInOrder(c), (r): readonly [string, FieldForm] => [
+		r.name,
+		defined(
+			Arr.findFirst(readFields, ([shape]) => shape === r.shape).pipe(Option.getOrUndefined),
+			"a shape's field"
+		)[1]
+	])
+})
 
 /** The model's ChangeSet in canonical form (see the header). */
 const canonOf = (c: ModelChangeSet): Canon => ({
@@ -1288,6 +1377,7 @@ export type AlgebraFeature =
 	| "a free parameter spelled like a private name"
 	| "a union over a higher level"
 	| "a union of more strata on one side"
+	| "a read-back repeated over one query"
 	| `refused: ${Rule}`
 	| `fault: ${Fault}`
 
@@ -1530,15 +1620,36 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 			valueText(value),
 			"the Description of the normal form in model order"
 		)
+		const drawn = normalForm(expected, streams, c.draw(drawnOrder(expected)))
 		assert.equal(
-			valueText(normalForm(expected, streams, c.draw(drawnOrder(expected)))),
+			valueText(drawn),
 			valueText(value),
 			"the Description of the normal form in a drawn order"
+		)
+		assert.deepEqual(
+			value.reads.form,
+			readsForm(expected),
+			"the read-backs' decoder: one record of the model's read-backs, in name order"
+		)
+		assert.deepEqual(
+			drawn.reads.form,
+			value.reads.form,
+			"the read-backs' decoder of the normal form in a drawn order"
 		)
 		c.noteAll(shapeFeatures(expected))
 		values.push(value)
 		texts.push(valueText(value))
 		return took
+	}
+	/** A step admitted that brings read-backs of one name together, each pair one query: one read-back. */
+	const repeated = (
+		a: ReadonlyArray<ModelRead>,
+		b: ReadonlyArray<ModelRead>,
+		rule: Rule | undefined
+	): void => {
+		if (rule === undefined && Arr.some(a, (r) => Arr.some(b, (q) => q.name === r.name))) {
+			c.note("a read-back repeated over one query")
+		}
 	}
 	const algebra: Real<Model, Params, Refusal, never, never> = {
 		begin: (p, _before, after, verdict) =>
@@ -1591,8 +1702,9 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 				}
 			}),
 		read: (p, before, after, verdict) =>
-			Effect.sync(() =>
-				settle(
+			Effect.sync(() => {
+				repeated(handleOf(before, p.handle).reads, [readOfStep(p)], readRule(before, p))
+				return settle(
 					catchCompileError(() =>
 						real(p.handle).read(p.name, readBack(p.shape, levelValues[p.over]))
 					),
@@ -1600,7 +1712,7 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 					verdict,
 					readRule(before, p)
 				)
-			),
+			}),
 		bind: (p, before, after, verdict) =>
 			Effect.sync(() =>
 				settle(
@@ -1612,6 +1724,8 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 			),
 		fork: (p, before, after, verdict) =>
 			Effect.sync(() => {
+				const forked = handleOf(before, p.handle)
+				repeated(bound(forked, p.first).reads, bound(forked, p.second).reads, forkRule(forked, p))
 				const target = real(p.handle)
 				return settle(
 					catchCompileError(() =>
@@ -1619,7 +1733,7 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 					),
 					after,
 					verdict,
-					handleOf(before, p.handle).reads.length > 0 ? "a repeated read-back name" : undefined
+					forkRule(handleOf(before, p.handle), p)
 				)
 			}),
 		union: (p, before, after, verdict) =>
@@ -1635,6 +1749,7 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 				) {
 					c.note("a union of more strata on one side")
 				}
+				repeated(handleOf(before, p.a).reads, handleOf(before, p.b).reads, combineRule(before, p))
 				return settle(
 					catchCompileError(() => ChangeSet.union(real(p.a), real(p.b))),
 					after,
@@ -1643,14 +1758,15 @@ export const algebraOf = (c: Case<AlgebraFeature>): Real<Model, Params, Refusal,
 				)
 			}),
 		sequence: (p, before, after, verdict) =>
-			Effect.sync(() =>
-				settle(
+			Effect.sync(() => {
+				repeated(handleOf(before, p.a).reads, handleOf(before, p.b).reads, combineRule(before, p))
+				return settle(
 					catchCompileError(() => ChangeSet.sequence(real(p.a), real(p.b))),
 					after,
 					verdict,
 					combineRule(before, p)
 				)
-			),
+			}),
 		fault: (p, _before, after, verdict) =>
 			Effect.sync(() => {
 				c.note(`fault: ${p.fault}`)
@@ -1678,7 +1794,7 @@ export const commandNames = [
 
 export const rules: ReadonlyArray<Rule> = [
 	"unrelated levels",
-	"a repeated read-back name",
+	"one read-back name over two queries",
 	"an extra value",
 	"a NULL value",
 	"a query over a higher level",

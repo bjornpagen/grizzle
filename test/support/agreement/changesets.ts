@@ -95,7 +95,8 @@ import {
  * one key the two are two rows at that key, which it refuses on the key before any SQL (README Families).
  *
  * A case is a valid ChangeSet by construction with at most one planted fault, so the one line the case is written on
- * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence, a
+ * raises at most the one diagnostic its directive names: a read-back name repeated by read, union or sequence over
+ * rows of another type (otherRows), a
  * closed or derived relation written, a read-back of a derived relation's delta, a described member's head that is no
  * fact of its relation or writes an exact value into a plain field, a member fact with a field its relation lacks,
  * missing a field or holding a value outside one, two facts an addition, a deletion or a put lists
@@ -320,6 +321,19 @@ const conflictShapes = ["a key conflict beside a fact no literal keys"] as const
 const callConflicts = ["a key conflict at the application's call"] as const
 
 /**
+ * Two read-backs of one name over one query, which the engine makes one read-back (write/changeset/value.ts
+ * readBackSet) and the types one name over rows of one type: read twice in one ChangeSet, or read by both ChangeSets a
+ * union or a sequence combines, each a read of the state, which no statement's place refuses. A case reaches one only
+ * where it is aimed at it, so a kept case's tape draws as it did. One name over two queries whose rows are of one type
+ * the engine refuses and no type sees, since a type holds a query's rows and never its identity: the agreement draws
+ * none, a repeated name's second query delivering rows of another type (otherRows).
+ */
+const sharedReads = [
+	"a read-back read twice over one query",
+	"a read-back shared by a union or sequence"
+] as const
+
+/**
  * Where a stratum's put of a mutable ordered owner and its insert with its members nested meet: at one key, two rows
  * at that key, since the put leaves the owner's sequence as it is and the insert states it (README Families), which
  * the engine refuses on the key before any SQL; or at different keys, each written.
@@ -421,14 +435,19 @@ const swarmedFeatures = [
  * where it is aimed at them or a plain choice of the fault's own draws them (conflictShapes), which no swarm weighs, so
  * a kept case's tape draws the same swarm whatever shapes a fault gains.
  */
-const changeSetFeatures = [...swarmedFeatures, ...conflictShapes, ...callConflicts] as const
+const changeSetFeatures = [
+	...swarmedFeatures,
+	...conflictShapes,
+	...callConflicts,
+	...sharedReads
+] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
 
 /** The Refusals the ChangeSet facade, its compilation and its binding name, by the engine's reason (claimOf). */
 const refusalNotes = {
-	"read-back names are distinct: this ChangeSet already has a read-back of this name":
+	"a read-back name reads one query: this ChangeSet already reads this name, over rows of another type":
 		"refused: a read name",
-	"read-back names are distinct: the ChangeSets share a read-back name":
+	"a read-back name reads one query: the ChangeSets read one name over rows of two types":
 		"refused: a shared read name",
 	"a ChangeSet writes only the ordinary relations of its schema and the world relations its role writes":
 		"refused: an ordinary relation",
@@ -1558,9 +1577,17 @@ const builtOf = (
 	const names = Arr.map(ordinals(readCount), (i) =>
 		i === 1 && readName !== undefined ? readName : repeated && i === 2 ? "r0" : d.readName()
 	)
-	const reads = Arr.map(names, (name, i) =>
+	const drawn = Arr.map(names, (name, i) =>
 		readOf(d, name, written, i === 0 && folded ? fault : undefined)
 	)
+	const [first] = drawn
+	const planted = repeated && first !== undefined ? [first, otherRows(first)] : drawn
+	const twice = !repeated && d.aimed("a read-back read twice over one query")
+	if (twice) {
+		d.note("a read-back read twice over one query")
+	}
+	const again = twice ? [stateRead(d)] : []
+	const reads = [...planted, ...again, ...again]
 	const built: BuiltSpec = { kind: "built", level, members, grouped, reads, bind: undefined }
 	if (Arr.some(callsOf(built), (call) => call.kind === "insertAll")) {
 		d.note("insertAll")
@@ -1572,6 +1599,49 @@ const builtOf = (
 	return Arr.isReadonlyArrayNonEmpty(values) && !unbound && d.keep("bind")
 		? { ...built, bind: { kind: "record", entries: values } }
 		: built
+}
+
+/**
+ * A read-back of `read`'s name whose rows are of another type than its: a keyed fold's count where it delivers the
+ * relation's fields, the fields where it counts, so a repeated name's two read-backs are refused by the types as by the
+ * engine. The relation's key fields hold a keyed fold's facts apart, as readOf's do.
+ */
+const otherRows = (read: ReadSpec): ReadSpec => {
+	if (read.kind === "derived") {
+		return {
+			kind: "relation",
+			name: read.name,
+			source: "state",
+			relation: "Task",
+			fold: "none",
+			fields: Arr.map(fieldsOf.Task, (f) => f.name)
+		}
+	}
+	const fields = fieldsOf[read.relation]
+	const keys = Arr.map(
+		Arr.filter(fields, (f) => f.key),
+		(f) => f.name
+	)
+	return read.fold === "keyed"
+		? { ...read, fold: "none", fields: Arr.map(fields, (f) => f.name) }
+		: {
+				...read,
+				fold: "keyed",
+				fields: Arr.isReadonlyArrayNonEmpty(keys) ? keys : [Arr.headNonEmpty(fields).name]
+			}
+}
+
+/** A read-back of every fact of a relation as it stands after the change, which no statement's place refuses. */
+const stateRead = (d: Drawing): ReadSpec => {
+	const relation = d.from(relNames)
+	return {
+		kind: "relation",
+		name: d.readName(),
+		source: "state",
+		relation,
+		fold: "none",
+		fields: Arr.map(fieldsOf[relation], (f) => f.name)
+	}
 }
 
 /** A described member whose key is a parameter, which a case leaves unbound. */
@@ -1641,10 +1711,18 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 		fault === "a read-back name repeated by sequence"
 	) {
 		const name = d.readName()
+		const a = builtOf(d, level(), undefined, name, clean)
+		const b = builtOf(d, level(), undefined, name, clean)
+		const first = Arr.findFirst(a.reads, (r) => r.name === name)
 		return {
 			kind: fault === "a read-back name repeated by union" ? "union" : "sequence",
-			a: builtOf(d, level(), undefined, name, clean),
-			b: builtOf(d, level(), undefined, name, clean)
+			a,
+			b: {
+				...b,
+				reads: Arr.map(b.reads, (r) =>
+					r.name === name && Option.isSome(first) ? otherRows(first.value) : r
+				)
+			}
 		}
 	}
 	if (fault === "ChangeSets over unrelated schemas") {
@@ -1674,6 +1752,16 @@ const changeOf = (d: Drawing, fault: ChangeSetFault | undefined): ChangeSpec => 
 			kind: "sequence",
 			a: builtOf(d, level(), fault, undefined, clean),
 			b: builtOf(d, level(), fault, undefined, clean)
+		}
+	}
+	if (d.aimed("a read-back shared by a union or sequence")) {
+		d.note("a read-back shared by a union or sequence")
+		const shared = stateRead(d)
+		const reading = (b: BuiltSpec): BuiltSpec => ({ ...b, reads: [...b.reads, shared] })
+		return {
+			kind: d.choose(["union", "sequence"] as const),
+			a: reading(builtOf(d, level(), undefined, undefined, clean)),
+			b: reading(builtOf(d, level(), undefined, undefined, clean))
 		}
 	}
 	const combined = d.keep("union") ? "union" : d.keep("sequence") ? "sequence" : undefined
@@ -2243,13 +2331,13 @@ const claimOf = (reason: CompileReason, spec: CaseSpec): Claim => {
 		return { kind: "refusal", refusal: reason.refusal }
 	}
 	if (reason._tag === "MalformedDescription") {
-		return Str.includes("distinct read-back names")(reason.what)
+		return Str.startsWith("one query under each read-back name")(reason.what)
 			? {
 					kind: "refusal",
 					refusal:
 						spec.change.kind === "built"
-							? "read-back names are distinct: this ChangeSet already has a read-back of this name"
-							: "read-back names are distinct: the ChangeSets share a read-back name"
+							? "a read-back name reads one query: this ChangeSet already reads this name, over rows of another type"
+							: "a read-back name reads one query: the ChangeSets read one name over rows of two types"
 				}
 			: Str.includes("closed relation")(reason.what) ||
 				  Str.includes("derived relation")(reason.what)
