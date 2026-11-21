@@ -1360,8 +1360,11 @@ export const edgesOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
 	}
 }
 
-/** The data inputs of a node, in structural order without repeats. */
-export const inputsOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => [...new Set(edgesOf(n))]
+/** The data inputs of a node, in structural order without repeats: its edges themselves where it has one or none. */
+export const inputsOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
+	const edges = edgesOf(n)
+	return edges.length < 2 ? edges : [...new Set(edges)]
+}
 
 /** The expressions a node holds itself, in structural order (mapNode's), repeats kept. */
 export const exprsOf = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {

@@ -13,7 +13,6 @@ import {
 	type EditRefs,
 	edgesOf,
 	type Heading,
-	inputsOf,
 	type KindOver,
 	keptRowsOf,
 	type VarDecl
@@ -633,25 +632,51 @@ interface Standing {
 	readonly equated: number
 }
 
-const standingOf = (cx: RewriteCx): Standing => {
+/**
+ * What the potential reads of one filter node: whether its predicate folds (boolean.ts folds) and whether a conjunct of
+ * it equates two of its region's own variables (variableEquality), with the node its input cell held when it was read.
+ * Both are functions of the filter node, its input cell and that cell's node alone, each a value no rewrite changes in
+ * place, so a reading holds while the input cell holds the same node.
+ */
+interface FilterReading {
+	readonly input: EditNode
+	readonly unfolded: boolean
+	readonly equated: boolean
+}
+
+/** The reading of `node`, a filter whose input cell holds `input` now (FilterReading). */
+const filterReading = (node: KindOver<"Filter", EditRefs>, input: EditNode): FilterReading => ({
+	input,
+	unfolded: folds(node.pred, noColumns),
+	equated:
+		input.kind === "MatchRegion" &&
+		conjuncts(node.pred).some((c) => variableEquality(node.input.id, input, c) !== undefined)
+})
+
+/**
+ * The standing of the reachable DAG (Standing), each filter read once while its input cell holds the node it held then:
+ * `readings` keeps every filter node's reading the pass has taken, keyed by the node, which the pass's potential holds
+ * for as long as the pass runs.
+ */
+const standingOf = (cx: RewriteCx, readings: Map<EditNode, FilterReading>): Standing => {
 	let shape = 0
 	let unfolded = 0
 	let equated = 0
 	for (const cell of cx.cells.order) {
 		const node = cell.current
-		shape += 1 + (inputsOf(node).length > 0 ? 1 : 0) + edgesOf(node).length
+		const edges = edgesOf(node).length
+		shape += 1 + (edges > 0 ? 1 : 0) + edges
 		if (node.kind !== "Filter") {
 			continue
 		}
-		if (folds(node.pred, noColumns)) {
+		const input = node.input.current
+		const known = readings.get(node)
+		const reading = known?.input === input ? known : filterReading(node, input)
+		readings.set(node, reading)
+		if (reading.unfolded) {
 			unfolded++
 		}
-		const regionCell = node.input
-		const region = regionCell.current
-		if (
-			region.kind === "MatchRegion" &&
-			conjuncts(node.pred).some((c) => variableEquality(regionCell.id, region, c) !== undefined)
-		) {
+		if (reading.equated) {
 			equated++
 		}
 	}
@@ -673,8 +698,9 @@ const standingOf = (cx: RewriteCx): Standing => {
  */
 export const simplificationPotential = (start: RewriteCx): Potential => {
 	const weight = start.cells.order.filter((c) => c.current.kind === "Filter").length + 1
+	const readings = new Map<EditNode, FilterReading>()
 	return (cx) => {
-		const now = standingOf(cx)
+		const now = standingOf(cx, readings)
 		return weight * (now.shape + now.unfolded) + now.equated
 	}
 }

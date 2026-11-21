@@ -77,3 +77,23 @@ export const structureSites = Object.freeze({
 export type StructureFeature =
 	| "a simplification that rewrote"
 	| "a simplification that changed nothing"
+
+/** What the redirection property reaches: a reader through either kind of reference, a root moved, a cell left as it was. */
+export type RedirectFeature =
+	| "a reader through a data edge"
+	| "a reader through a column reference"
+	| "a root moved"
+	| "a cell left as it was"
+
+/** What the potential property counts: each reading of a filter the simplification potential takes (rules.ts filterReading). */
+export const potentialSites = Object.freeze({
+	filterReading: {
+		file: "packages/engine/src/lower/optimize/simplify/rules.ts",
+		name: "filterReading"
+	}
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/** What the potential property reaches: a simplification that rewrote, and a filter whose input cell changed node. */
+export type PotentialFeature =
+	| "a simplification that rewrote"
+	| "a filter read again over its input's new node"

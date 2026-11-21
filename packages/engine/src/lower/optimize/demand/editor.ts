@@ -11,7 +11,6 @@ import {
 } from "#compiler/ir/dag.ts"
 import {
 	builtExpr,
-	columnReads,
 	type ColumnRef,
 	exprClosure,
 	type ExprOf,
@@ -137,7 +136,7 @@ export const subtreeOf = <V>(g: Graph<V>, root: V): ReadonlySet<V> => {
 export const readsOutside = <V>(g: Graph<V>, inside: ReadonlySet<V>): boolean => {
 	const labels = new Set([...inside].map((v) => g.label(v)))
 	for (const v of inside) {
-		if (columnReads(exprsOf(g.node(v))).some((r) => !labels.has(r.node))) {
+		if (exprsOf(g.node(v)).some((e) => e.deps.nodes.some((node) => !labels.has(node)))) {
 			return true
 		}
 	}
@@ -195,6 +194,54 @@ interface FreshSupplies {
 	readonly var: FreshIds
 	readonly occ: FreshIds
 	readonly scope: FreshIds
+}
+
+/**
+ * The cells that read each cell, kept as every cell's node changes (DagEditor #readers): through a data edge, by the
+ * cell read, and through a column reference an expression of the node makes, by the label it names. Every cell the
+ * editor holds is in it, those no root reaches any more included, under its creation index, which orders them.
+ */
+class Readers {
+	readonly #byEdge = new Map<Cell, Set<Cell>>()
+	readonly #byColumn = new Map<NodeId, Set<Cell>>()
+	readonly #created = new Map<Cell, number>()
+
+	/** `cell`, created now, reading what its node reads. */
+	created(cell: Cell): void {
+		this.#created.set(cell, this.#created.size)
+		this.#reads(cell.current, (readers) => readers.add(cell))
+	}
+
+	/** `cell`, whose node was `before`, reading what its node reads now instead. */
+	changed(cell: Cell, before: EditNode): void {
+		this.#reads(before, (readers) => readers.delete(cell))
+		this.#reads(cell.current, (readers) => readers.add(cell))
+	}
+
+	/** Every cell whose node reads `cell`, through a data edge or a column reference, in creation order. */
+	of(cell: Cell): ReadonlyArray<Cell> {
+		const readers = new Set([
+			...(this.#byEdge.get(cell) ?? []),
+			...(this.#byColumn.get(cell.id) ?? [])
+		])
+		return [...readers].toSorted((a, b) => this.#index(a) - this.#index(b))
+	}
+
+	#index(cell: Cell): number {
+		return defined(this.#created.get(cell), "a cell the editor holds")
+	}
+
+	/** Each reader set a cell whose node is `node` belongs in, given to `visit`. */
+	#reads(node: EditNode, visit: (readers: Set<Cell>) => void): void {
+		for (const input of edgesOf(node)) {
+			visit(this.#byEdge.getOrInsertComputed(input, () => new Set()))
+		}
+		for (const e of exprsOf(node)) {
+			for (const read of e.deps.nodes) {
+				visit(this.#byColumn.getOrInsertComputed(read, () => new Set()))
+			}
+		}
+	}
 }
 
 /** The copy of `e` with each column reference `remap` replaces, its argument copies first: `e` itself when none changes. */
@@ -263,8 +310,11 @@ export interface CellState {
 }
 
 export class DagEditor<R extends Roots = Roots> {
-	/** Every cell, in creation order: the base's, each after its inputs, then each one a rewrite added. */
-	readonly #cells: Array<Cell> = []
+	/**
+	 * The cells that read each cell, kept as each cell's node changes: what a redirection rewrites (Readers). It holds
+	 * every cell in creation order: the base's, each after its inputs, then each one a rewrite added.
+	 */
+	readonly #readers = new Readers()
 	/** The cell of each node of the base, made when the editor starts. */
 	readonly #cellOf: ReadonlyMap<RelNode, Cell>
 	/**
@@ -293,11 +343,13 @@ export class DagEditor<R extends Roots = Roots> {
 
 	constructor(dag: ValidDag<R>) {
 		this.base = dag
+		const cells: Array<Cell> = []
 		this.#cellOf = cellTable(dag.roots, (cell) => {
-			this.#cells.push(cell)
+			cells.push(cell)
+			this.#readers.created(cell)
 			this.#note(cell.id, cell.current)
 		})
-		for (const e of exprClosure(this.#cells.flatMap((c) => exprsOf(c.current)))) {
+		for (const e of exprClosure(cells.flatMap((c) => exprsOf(c.current)))) {
 			this.#fresh.expr.note(e.id)
 		}
 	}
@@ -385,7 +437,7 @@ export class DagEditor<R extends Roots = Roots> {
 	/** A new cell of `node` under a fresh label. */
 	add(node: EditNode): Cell {
 		const cell: Cell = { id: NodeId(this.#fresh.node.take()), current: node }
-		this.#cells.push(cell)
+		this.#readers.created(cell)
 		this.#note(cell.id, node)
 		this.#changed()
 		return cell
@@ -393,7 +445,9 @@ export class DagEditor<R extends Roots = Roots> {
 
 	/** Redefines `cell` as `node` in place: every reader holding the cell reads the new node. */
 	set(cell: Cell, node: EditNode): void {
+		const before = cell.current
 		cell.current = node
+		this.#readers.changed(cell, before)
 		this.#note(cell.id, node)
 		this.#changed()
 	}
@@ -540,22 +594,17 @@ export class DagEditor<R extends Roots = Roots> {
 	/** redirect, leaving the cells in `except` reading `from`. */
 	redirectExcept(from: Cell, to: Cell, except: ReadonlySet<Cell>): void {
 		const remap = this.retarget(from, to)
-		for (const cell of this.#cells) {
+		for (const cell of this.#readers.of(from)) {
 			if (cell === to || except.has(cell)) {
 				continue
 			}
 			const node = cell.current
-			if (
-				!edgesOf(node).includes(from) &&
-				!columnReads(exprsOf(node)).some((r) => r.node === from.id)
-			) {
-				continue
-			}
 			const copy = this.copier(remap)
 			cell.current = drive(
 				mapNode<EditRefs, EditRefs>(node, { ...keptRefs, expr: (e) => copy.of(e) }),
 				(input) => (input === from ? to : input)
 			)
+			this.#readers.changed(cell, node)
 		}
 		for (const root of this.base.roots) {
 			if (this.#rootCell(root) === from) {

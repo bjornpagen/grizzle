@@ -35,10 +35,20 @@ import {
 	unplaced
 } from "#compiler/analysis/physical/analyze.ts"
 import { encode, everyProperty } from "#compiler/core/canonical.ts"
-import { type Cell, conservativeMeta, type Rooted } from "#compiler/ir/rel.ts"
+import { makeCertificate } from "#compiler/ir/certificate.ts"
+import { columnReads } from "#compiler/ir/expr.ts"
+import {
+	type Cell,
+	conservativeMeta,
+	type EditNode,
+	edgesOf,
+	exprsOf,
+	type Rooted
+} from "#compiler/ir/rel.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import type { RewriteCx } from "#compiler/lower/optimize/demand/frame.ts"
 import {
 	relationalRewrites,
 	semanticSimplification
@@ -47,6 +57,10 @@ import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
+import {
+	simplificationPotential,
+	simplificationRules
+} from "#compiler/lower/optimize/simplify/rules.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
@@ -60,6 +74,9 @@ import {
 	chainNeed,
 	type FinishFeature,
 	type FrameFeature,
+	type PotentialFeature,
+	potentialSites,
+	type RedirectFeature,
 	freshCopy,
 	passesNeed,
 	type RootPosition,
@@ -474,6 +491,234 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 				replacement:
 					"\tcx.editor.cellState().references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)",
 				why: "Exclusivity works out the cells' structure again at every rule that asks (lower/optimize/simplify/rules.ts exclusive); the structure property fails."
+			}
+		]
+	})
+
+/**
+ * A redirection rewrites exactly the cells that read the redirected cell (lower/optimize/demand/editor.ts redirect),
+ * each found by the editor's index of readers, which it keeps as every cell's node changes: over generated queries, each
+ * cell of the DAG redirected to a copy of itself and back, every cell that read it, through a data edge or a column
+ * reference, reads the copy in its place, its column references to it retargeted in their order, then the cell again;
+ * every other cell keeps its very node; and a root at it moves with it.
+ *
+ * Oracle: the redirection's statement, every cell's reading of the redirected cell worked out by a scan of its node
+ * (a specification).
+ *
+ * Budget: 120 runs and 120 steered cases, the frame-determinism suite's.
+ */
+export const aRedirectionRewritesExactlyTheCellsThatReadTheRedirectedCellAndLeavesEveryOtherCellsNodeAsItWas =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		budget: { runs: 120, steered: 120 },
+		situations: [
+			"a reader through a data edge",
+			"a reader through a column reference",
+			"a root moved",
+			"a cell left as it was"
+		] satisfies ReadonlyArray<Reached<RedirectFeature>>,
+		check: (_, c: Case<RedirectFeature>) => (q) =>
+			Effect.sync(() => {
+				const editor = new DagEditor(caseQuery(q).dag)
+				const cells = editor.topoOrder()
+				const known: Array<Cell> = [...cells]
+				/** `from` redirected to `to`, every cell `known` holds checked against the redirection's statement. */
+				const redirected = (from: Cell, to: Cell): void => {
+					const before = new Map(Arr.map(known, (cell) => [cell, cell.current] as const))
+					const roots = editor.roots
+					const columnsOf = (node: EditNode) => columnReads(exprsOf(node))
+					editor.redirect(from, to)
+					for (const cell of known) {
+						const old = defined(before.get(cell), "a cell's node before the redirection")
+						const throughEdge = edgesOf(old).includes(from)
+						const throughColumn = Arr.some(columnsOf(old), (r) => r.node === from.id)
+						if (cell === to || !(throughEdge || throughColumn)) {
+							assert.equal(cell.current, old, `${cell.id} keeps its node`)
+							c.note("a cell left as it was")
+							continue
+						}
+						if (throughEdge) {
+							c.note("a reader through a data edge")
+						}
+						if (throughColumn) {
+							c.note("a reader through a column reference")
+						}
+						assert.deepEqual(
+							edgesOf(cell.current),
+							Arr.map(edgesOf(old), (input) => (input === from ? to : input)),
+							`${cell.id} reads ${to.id} in place of ${from.id}`
+						)
+						assert.deepEqual(
+							Arr.map(columnsOf(cell.current), (r) => [r.node, r.name]),
+							Arr.map(columnsOf(old), (r) => [r.node === from.id ? to.id : r.node, r.name]),
+							`${cell.id}'s column references to ${from.id} name ${to.id}`
+						)
+					}
+					assert.deepEqual(
+						editor.roots,
+						Arr.map(roots, (root) => (root === from ? to : root))
+					)
+					if (roots.includes(from)) {
+						c.note("a root moved")
+					}
+				}
+				for (const from of cells) {
+					const to = editor.add(from.current)
+					known.push(to)
+					redirected(from, to)
+					redirected(to, from)
+				}
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a redirection's statement: every cell's reading of the redirected cell worked out from its node"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original: "		return [...readers].toSorted((a, b) => this.#index(a) - this.#index(b))\n",
+				replacement: "		return [...this.#created.keys()]\n",
+				why: "A redirection rewrites every cell the editor holds, as the scan of every cell it replaced did, reading or not: a cell that reads nothing redirected is rebuilt, and keeps no node of its own."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original: "			this.#readers.changed(cell, node)\n",
+				replacement: "",
+				why: "A redirection leaves the index of readers as it was: a cell it moved onto the copy is no reader of the copy there, so the redirection back misses it, and it still reads the copy."
+			}
+		]
+	})
+
+/**
+ * The simplification potential reads each filter once while its input cell holds one node (lower/optimize/simplify/
+ * rules.ts standingOf): over generated queries simplified rule by rule as the rewrite frame applies them (the first rule
+ * that fires at the first cell in order), the first filter's input cell given a copy of its node at each state, the
+ * potential the pass holds, which keeps its readings from state to state, is
+ * at every state the potential read afresh, and reads a filter again only at a state where its input cell holds another
+ * node than at the last, where every state read every filter again.
+ *
+ * Oracle: the potential computed afresh at each state, a reading of every filter (a second implementation: the old
+ * algorithm), weighed by the pass's start, and the count of states at which a filter's input cell holds another node
+ * than at the last.
+ *
+ * Budget: 120 runs and 120 steered cases, the frame suites'.
+ */
+export const theSimplificationPotentialReadsEachFilterOnceWhileItsInputHoldsOneNodeAndIsAtEveryStateThePotentialReadAfresh =
+	property.explore(queryCaseGen(defaultGenConfig), {
+		needs: {},
+		budget: { runs: 120, steered: 120 },
+		situations: [
+			"a simplification that rewrote",
+			"a filter read again over its input's new node"
+		] satisfies ReadonlyArray<Reached<PotentialFeature>>,
+		check: (_, c: Case<PotentialFeature>) => (q) =>
+			Effect.gen(function* () {
+				const editor = new DagEditor(caseQuery(q).dag)
+				const ctx = passContext({ catalog: genCatalog(q.schema), evidence: "snapshot" })
+				const cxOf = (): RewriteCx => ({
+					editor,
+					ctx,
+					pass: "simplify",
+					catalog: ctx.catalog,
+					cells: editor.cellState(),
+					certify: (input) => {
+						ctx.certificates.record(succeeded(makeCertificate(input)))
+					}
+				})
+				/** Each filter node the states reach, with the node its input cell held at the last of them. */
+				const last = new Map<EditNode, EditNode>()
+				let keptReadings = 0
+				let freshReadings = 0
+				const [values, counts] = yield* callCounts(
+					Effect.sync(() => {
+						let cx = cxOf()
+						const kept = simplificationPotential(cx)
+						const startWeight =
+							Arr.filter(cx.cells.order, (cell) => cell.current.kind === "Filter").length + 1
+						const out: Array<readonly [unknown, unknown]> = []
+						for (let fired = true; fired;) {
+							for (const cell of cx.cells.order) {
+								const node = cell.current
+								if (node.kind !== "Filter") {
+									continue
+								}
+								const before = last.get(node)
+								if (before !== node.input.current) {
+									keptReadings++
+									if (before !== undefined) {
+										c.note("a filter read again over its input's new node")
+									}
+								}
+								last.set(node, node.input.current)
+								freshReadings++
+							}
+							/**
+							 * The potential afresh is W × (shape + unfolded) + equated with W one more than the filters the
+							 * state holds, and equated below W, so it gives shape + unfolded and equated, which the pass's
+							 * potential weighs by its own W, the filters the pass started with and one.
+							 */
+							const weight =
+								Arr.filter(cx.cells.order, (cell) => cell.current.kind === "Filter").length + 1
+							const fresh = simplificationPotential(cx)(cx)
+							/** The pass's potential read twice at one state: the second read takes no reading again. */
+							const twice: readonly [unknown, unknown] = [kept(cx), kept(cx)]
+							out.push(twice)
+							out.push([
+								kept(cx),
+								typeof fresh === "number"
+									? startWeight * Math.floor(fresh / weight) + (fresh % weight)
+									: fresh
+							])
+							/** The first filter's input cell given a copy of its node: the same content, another node. */
+							const [first] = Arr.filter(cx.cells.order, (cell) => cell.current.kind === "Filter")
+							const filter = first?.current
+							if (filter?.kind === "Filter") {
+								editor.set(filter.input, { ...filter.input.current })
+							}
+							fired = Arr.some(
+								cx.cells.order,
+								(cell) =>
+									!cx.cells.feedback.has(cell) &&
+									Arr.some(simplificationRules, (rule) => rule.at(cell, cx) === true)
+							)
+							if (fired) {
+								c.note("a simplification that rewrote")
+								cx = cxOf()
+							}
+						}
+						return out
+					}),
+					potentialSites
+				)
+				for (const [held, fresh] of values) {
+					assert.deepEqual(held, fresh, "the potential the pass holds is the potential read afresh")
+				}
+				assert.equal(
+					counts.filterReading,
+					keptReadings + freshReadings,
+					`${counts.filterReading} filter readings, ${keptReadings} by the pass's potential and ${freshReadings} afresh`
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the potential read afresh at every state, and a filter read again only over its input's new node"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/simplify/rules.ts",
+				original:
+					"\t\tconst reading = known?.input === input ? known : filterReading(node, input)\n",
+				replacement: "\t\tconst reading = filterReading(node, input)\n",
+				why: "The potential reads every filter again at every state, as before its readings were kept: the pass's readings outnumber the states at which a filter's input changed node."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/simplify/rules.ts",
+				original:
+					"\t\tconst reading = known?.input === input ? known : filterReading(node, input)\n",
+				replacement: "\t\tconst reading = known ?? filterReading(node, input)\n",
+				why: "A filter's reading is kept whatever node its input cell holds: a filter whose input changed node is not read again."
 			}
 		]
 	})

@@ -76,15 +76,13 @@ export interface DemandAnalysis {
  */
 /**
  * How the vertices a graph's roots reach are read, by the label of each: its references, one per input position that
- * names it plus each root naming it, and the columns its scope expressions read (rel.ts scopeExprs), each naming the
- * vertex it reads laterally. A finished DAG's nodes and an editor's cells (lower/optimize/demand/editor.ts CellState)
- * are both read so, one node a cell, labelled alike.
+ * names it plus each root naming it, and whether a scope expression (rel.ts scopeExprs) reads it laterally, naming it in
+ * a column reference. A finished DAG's nodes and an editor's cells (lower/optimize/demand/editor.ts CellState) are both
+ * read so, one node a cell, labelled alike.
  */
 export interface Structure {
 	readonly references: (id: NodeId) => number
 	readonly lateral: (id: NodeId) => boolean
-	/** The columns the graph's scope expressions read, in order. */
-	readonly lateralReads: ReadonlyArray<ColumnRef>
 }
 
 /**
@@ -106,22 +104,31 @@ export const structureOf = <V>(
 		count(label(r))
 	}
 	const lateral = new Set<NodeId>()
-	const lateralReads: Array<ColumnRef> = []
 	for (const vertex of order) {
 		for (const input of edges(vertex)) {
 			count(label(input))
 		}
-		for (const ref of columnReads(scope(vertex))) {
-			lateral.add(ref.node)
-			lateralReads.push(ref)
+		for (const e of scope(vertex)) {
+			for (const node of e.deps.nodes) {
+				lateral.add(node)
+			}
 		}
 	}
 	return {
 		references: (id) => references.get(id) ?? 0,
-		lateral: (id) => lateral.has(id),
-		lateralReads
+		lateral: (id) => lateral.has(id)
 	}
 }
+
+/**
+ * The columns the scope expressions (rel.ts scopeExprs) of the vertices `order` read, vertex by vertex in that order,
+ * each vertex's in columnReads's order: each names the vertex it reads laterally, which demands the column whatever its
+ * readers need.
+ */
+const lateralReadsOf = <V>(
+	order: ReadonlyArray<V>,
+	scope: (vertex: V) => ReadonlyArray<ScalarExpr>
+): ReadonlyArray<ColumnRef> => order.flatMap((vertex) => columnReads(scope(vertex)))
 
 /** The columns of `input` the expression trees `roots` read (ir/expr.ts columnReads). */
 const exprColumns = (roots: ReadonlyArray<ScalarExpr>, input: NodeId): ReadonlyArray<string> =>
@@ -264,7 +271,7 @@ export const analyzeDemand = (dag: RelDag, pinned: Pinned): DemandAnalysis => {
 		}
 		demanded.set(id, set)
 	}
-	for (const ref of structure.lateralReads) {
+	for (const ref of lateralReadsOf(order, (node) => scopeExprs(node))) {
 		add(ref.node, [ref.name])
 	}
 	for (const r of dag.roots) {
