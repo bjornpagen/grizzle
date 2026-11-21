@@ -1,16 +1,17 @@
 /**
  * A query's records on PostgreSQL 19 (program/records.ts records, recordsFacts and recordsQuery): each case installs a
  * base of Item, a relation holding a field of every type a stored column may be (test/unit/program/records.fixtures.ts),
- * and over it a level listing the records of three queries: one rule finding every column beside a head literal, one
- * rule of a drawn subset of the columns beside a drawn literal or none, and a union of two rules of one heading, each a
- * literal of its own at one key, which the records store as a column of exactly those literals. Item's facts are written, each query read
+ * and over it a level listing the records of four queries: one rule finding every column beside a head literal, one
+ * rule of a drawn subset of the columns beside a drawn literal or none, a union of two rules of one heading, each a
+ * literal of its own at one key, which the records store as a column of exactly those literals, and one rule of a drawn
+ * subset beside a computed numeric, which the records store as numeric within its bound. Item's facts are written, each query read
  * through the full role's Db, and each row it found inserted into its records under an owner of its own (recordsFacts),
  * then read back by recordsQuery at that owner: exactly the row the query found, value for value, through the query's
  * own decoder.
  *
  * Oracle: the query's own read of Item, which the records' read must give again.
  *
- * Features: each column stored, and each kind of head literal written again.
+ * Features: each column stored, each kind of head literal written again, and a computed numeric stored.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -76,6 +77,9 @@ export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = pr
 								}
 								if (cell.kind === "union") {
 									c.note(`stores a union's ${typeof cell.literals[0]} literals`)
+								}
+								if (cell.kind === "sum") {
+									c.note("stores a computed numeric")
 								}
 								const found = yield* readOnce(member(served, `q${i}`))({ params: {}, facts: {} })
 								const records = rebuilt.found[i]

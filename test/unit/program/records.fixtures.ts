@@ -12,6 +12,7 @@ import type { BindContext, Layout } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
+import { Num } from "#compiler/public/compute.ts"
 import {
 	bits,
 	bytes,
@@ -19,9 +20,11 @@ import {
 	contract,
 	date,
 	Decimal,
+	instant,
 	Money,
 	natural,
 	pg,
+	searchDocument,
 	span,
 	uuid
 } from "#compiler/public/fields.ts"
@@ -52,9 +55,10 @@ const Cents = contract("Cents", pg.bigint)
 /**
  * A field of every type a stored column may be: each pg integer, a numeric of a scale, of scale 0 and of no typmod,
  * both floats, money, a boolean, a date, a contract over uuid and over bigint, two refined texts, a closed id of the roster
- * and of a subset of it, a set over it, a span over integer, bigint and date, a vector, bytes and natural.
+ * and of a subset of it, a set over it, a span over integer, bigint and date, a vector, bytes, natural, an instant of
+ * the database's clock, its clock of child `id`, and a search document PostgreSQL parses from `word`.
  */
-export const Item = relation(
+export const Item = relation.generated(
 	"Item",
 	{
 		id: pg.integer,
@@ -81,17 +85,20 @@ export const Item = relation(
 		days: span(date),
 		vec: pg.vector(3),
 		blob: bytes,
-		count: natural
+		count: natural,
+		stamped: instant
 	},
-	["id"]
+	["id", "stamped"],
+	(r) => ({ search: searchDocument("simple", ["A", r.word]) })
 )
 
 /** The schema the box's queries are over. */
 export const Rec = schema("Rec", [Tier, Item], [])
 
 /**
- * Item's columns a query's records store: every one but `num`, a numeric of no typmod, whose column's type is a computed
- * numeric's bound (ir/scalar.ts NumericValueType), which no stored field declares until FIELDS-B's stored numeric.
+ * Item's columns a query's records store: every one, `num`, a numeric of no typmod at numeric's own limits, stored as
+ * pg.numeric, `stamped`, the database's instant, stored as a stored instant (instant.stored), and `search`, a generated
+ * search document, stored as pg.tsvector, among them.
  */
 export const itemColumns = [
 	"id",
@@ -100,6 +107,7 @@ export const itemColumns = [
 	"big",
 	"dec",
 	"whole",
+	"num",
 	"real",
 	"dbl",
 	"cash",
@@ -117,7 +125,9 @@ export const itemColumns = [
 	"days",
 	"vec",
 	"blob",
-	"count"
+	"count",
+	"stamped",
+	"search"
 ] as const
 
 export type ItemColumn = (typeof itemColumns)[number]
@@ -133,8 +143,9 @@ export const literals: Arr.NonEmptyReadonlyArray<HeadValue> = [
 ]
 
 /**
- * One cell of the box: one rule finding columns of Item and the head literal beside them, if any; or a union of two
- * rules of one heading finding the same columns, each a literal of its own under `lit`.
+ * One cell of the box: one rule finding columns of Item and the head literal beside them, if any; a union of two rules
+ * of one heading finding the same columns, each a literal of its own under `lit`; or one rule finding columns of Item
+ * beside `dec` added to itself under `total`, a computed numeric (sumKey).
  */
 export type RecordsCell =
 	| {
@@ -147,6 +158,7 @@ export type RecordsCell =
 			readonly columns: Arr.NonEmptyReadonlyArray<ItemColumn>
 			readonly literals: readonly [HeadValue, HeadValue]
 	  }
+	| { readonly kind: "sum"; readonly columns: Arr.NonEmptyReadonlyArray<ItemColumn> }
 
 /**
  * The literal pairs a union's rules write at one key that a field holds exactly: texts, two of them spelled with the
@@ -210,7 +222,10 @@ const auditedColumns: Arr.NonEmptyReadonlyArray<Exclude<ItemColumn, "blob">> = [
 	)
 ]
 
-/** The box: each column alone, every column, and every column beside a head literal of each type. */
+/**
+ * The box: each column alone, every column, every column beside a head literal of each type, every column beside each
+ * pair of a union's literals, and a column beside a computed numeric.
+ */
 export const recordsBox: Arr.NonEmptyReadonlyArray<RecordsCell> = [
 	...Arr.map(auditedColumns, (column): RecordsCell => ({
 		kind: "find",
@@ -227,11 +242,22 @@ export const recordsBox: Arr.NonEmptyReadonlyArray<RecordsCell> = [
 		kind: "union",
 		columns: auditedColumns,
 		literals: pair
-	}))
+	})),
+	{ kind: "sum", columns: ["id"] }
 ]
 
 /** The key the head literal is found under. */
 export const literalKey = "lit"
+
+/** The key a sum cell finds `dec + dec` under, a computed numeric. */
+export const sumKey = "total"
+
+/**
+ * The bound `dec + dec` is proved within, its column's type: numeric(10, 2)'s two values of 8 integer and 2 fraction
+ * digits each, so a sum of 9 integer digits at scale 2 (ir/scalar.ts NumericBound), the descriptor the records of a sum
+ * cell store `total` as (pg.numeric.within(9, 2)).
+ */
+export const sumBound = { digits: 9, scale: 2 } as const
 
 /** One rule over Item, its variables `mint`'s, finding `columns` and `literal` under `lit`, if any. */
 const ruleOf =
@@ -261,6 +287,14 @@ export const cellQueryOver = (level: AnySchema, cell: RecordsCell): QueryValue =
 			return queryOver(level)
 				.rule(ruleOf(cell.columns, cell.literals[0], () => v(Item, "first")))
 				.rule(ruleOf(cell.columns, cell.literals[1], () => v(Item, "second")))
+		case "sum":
+			return queryOver(level).rule((r: RuleValue) => {
+				const item = v(Item, "item")
+				return r.match(Item, item).find({
+					...Rcd.fromEntries(Arr.map(cell.columns, (c) => [c, item[c]] as const)),
+					[sumKey]: Num.add(item.dec, item.dec)
+				})
+			})
 	}
 }
 

@@ -5,13 +5,15 @@
  *
  * - records(stem, query, owner, ownerKey): the root relation `${stem}Row`, the owner's fields, then one stored field per
  *   column of the query's heading, then a drawn count under the name of each array attachment, keyed by the owner's
- *   key. A column's field is its declared type's (analysis/derived declaredDescOf over the column's ScalarType, the one
- *   reading of a column's type as a declaration, a derived relation's among its readers), its column the query's own
- *   (core/decoder.ts Column), so a contract column is the schema's own declaration of the contract, brand and check, a
- *   closed id a closed id of its roster, resolved by name in the level that lists the records, and a refined text the
- *   text of its patterns. A head literal is stored nowhere: the read writes it again; head literals of several values at
- *   one key, a union's, are a column whose values are exactly them (literalsField). A union of several headings or a
- *   column of a type no stored field declares is refused, each naming what it lacks.
+ *   key. A column's field is its type's (analysis/derived fieldDescOf over the column's ScalarType, the one reading of a
+ *   column's type as a field's, a derived relation's among its readers), its column the query's own (core/decoder.ts
+ *   Column), so a contract column is the schema's own declaration of the contract, brand and check, a closed id a closed
+ *   id of its roster, resolved by name in the level that lists the records, a refined text the text of its patterns, a
+ *   computed numeric numeric within its bound (pg.numeric.within), numeric of no typmod at numeric's own limits
+ *   pg.numeric, an instant a stored instant (instant.stored), which the database draws nothing of, and a search
+ *   document a stored one (pg.tsvector). A head literal is stored nowhere: the read writes it again; head literals of
+ *   several values at one key, a union's, are a column whose values are exactly them (literalsField). A union of several
+ *   headings or a column of a contract the schema does not declare is refused, each naming what it lacks.
  * - Each attachment's relation (types/schema/records.ts types each): `${stem}${Capitalize<name>}`, or its
  *   parent's name followed by `Capitalize<name>` where that name is another attachment's or the root's `Row`; its fields
  *   its parent's key carried, each name fresh beside its own columns and attachments, its place `at` for an array, its
@@ -30,12 +32,11 @@
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { declaredDescOf } from "#compiler/analysis/derived/fields.ts"
+import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { decoderOf, headingsOf } from "#compiler/core/decoder.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
-import { isNumericValue, typeLabel } from "#compiler/ir/scalar.ts"
 import { arm } from "#compiler/query/build/attach.ts"
 import {
 	decodedBy,
@@ -207,13 +208,7 @@ const headColumn = (
 	}
 	const { scalar } = typing
 	const column = typing.carrier.column
-	if (isNumericValue(scalar)) {
-		throw unsupported(
-			SourceLoc(at, []),
-			`a stored field of the computed numeric ${typeLabel(scalar)}`
-		)
-	}
-	const desc = declaredDescOf(scalar, owned.contracts)
+	const desc = fieldDescOf(scalar, owned.contracts)
 	if (!desc.ok) {
 		throw unsupported(
 			SourceLoc(at, []),

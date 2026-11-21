@@ -27,17 +27,22 @@ export type RecordsFeature =
 	| `stores ${(typeof itemColumns)[number]}`
 	| `writes a ${string} literal`
 	| `stores a union's ${string} literals`
-
-/** Every column is stored in every case: its first query finds them all. */
-export const recordsSituations: ReadonlyArray<RecordsFeature> = Arr.map(
-	itemColumns,
-	(column): RecordsFeature => `stores ${column}`
-)
+	| "stores a computed numeric"
 
 /**
- * A case: three queries over Item: the first one rule finding every column beside a drawn head literal, the second one
+ * Every column is stored in every case, its first query finding them all, and so is a computed numeric, its fourth
+ * query's.
+ */
+export const recordsSituations: ReadonlyArray<RecordsFeature> = [
+	...Arr.map(itemColumns, (column): RecordsFeature => `stores ${column}`),
+	"stores a computed numeric"
+]
+
+/**
+ * A case: four queries over Item: the first one rule finding every column beside a drawn head literal, the second one
  * rule of a drawn nonempty subset of the columns beside a drawn literal or none, the third a union of two rules of one
- * heading, a drawn subset each, writing a drawn pair of literals a field holds exactly (two texts or both booleans).
+ * heading, a drawn subset each, writing a drawn pair of literals a field holds exactly (two texts or both booleans), the
+ * fourth one rule of a drawn subset beside `dec + dec`, a computed numeric.
  */
 export const recordsCaseGen: Gen<Arr.NonEmptyReadonlyArray<RecordsCell>> = (source) => {
 	const subset = (): Arr.NonEmptyReadonlyArray<ItemColumn> => {
@@ -47,7 +52,8 @@ export const recordsCaseGen: Gen<Arr.NonEmptyReadonlyArray<RecordsCell>> = (sour
 	return [
 		{ kind: "find", columns: itemColumns, literal: source.draw(element(literals)) },
 		{ kind: "find", columns: subset(), literal: source.draw(element([undefined, ...literals])) },
-		{ kind: "union", columns: subset(), literals: source.draw(element(heldPairs)) }
+		{ kind: "union", columns: subset(), literals: source.draw(element(heldPairs)) },
+		{ kind: "sum", columns: subset() }
 	]
 }
 
@@ -83,7 +89,8 @@ export const levelsOf = (name: string, cells: Arr.NonEmptyReadonlyArray<RecordsC
  * Item's facts: a row of each type's edges (the least smallint, the greatest integer, the least bigint, a negative
  * numeric at its scale, NaN, a large double, negative money, a leap day, a set of two handles, wide spans, a vector of
  * three components, bytes holding 0 and 255), and a row of zeros, empties and the other edges (Infinity, the first and
- * last days, the empty set, the empty name and bytes, the greatest natural).
+ * last days, the empty set, the empty name and bytes, the greatest natural). Neither states `stamped` or `search`: the
+ * database stamps the one and PostgreSQL generates the other.
  */
 export const itemFacts: ReadonlyArray<Readonly<Record<string, unknown>>> = [
 	{

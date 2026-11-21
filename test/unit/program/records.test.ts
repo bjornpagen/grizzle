@@ -1,13 +1,16 @@
 /**
  * A query's records (program/records.ts records and recordsQuery) over a box of flat queries: each column of a relation
- * holding a field of every type a column may be stored as, alone; every column; and every column beside a head literal
- * of each JavaScript type. The records' root `FoundRow` holds the owner's field, then one field per column the query
- * finds, each the column's own field, its declaration and its column the query's, and no head literal, keyed by the
- * owner's key; and recordsQuery over a level listing the records reads them through the query's own decoder, which
- * binds the read's compiled program in either artifact.
+ * holding a field of every type a column may be stored as, alone; every column; every column beside a head literal of
+ * each JavaScript type; every column beside a union's literals; and a column beside a computed numeric. The records'
+ * root `FoundRow` holds the owner's field, then one field per column the query finds, each the column's own field, its
+ * declaration and its column the query's (the database's instant a stored instant, a generated search document a
+ * stored one, both of one declaration), a computed numeric stored as numeric within its bound, and no head literal,
+ * keyed by the owner's key; and recordsQuery over a level listing the records reads them through the query's own
+ * decoder, which binds the read's compiled program in either artifact.
  *
  * Oracle: the relation the query reads, each stored field's declaration its own field's (schema/relation.ts
- * describeDeclared), and its column's form the query's decoder's.
+ * describeDeclared), a computed numeric's the bound its operands' types prove (sumBound), and its column's form the
+ * query's decoder's.
  *
  * Features: none; the box is exhausted.
  */
@@ -36,7 +39,9 @@ import {
 	programOf,
 	Rec,
 	type RecordsCell,
-	recordsBox
+	recordsBox,
+	sumBound,
+	sumKey
 } from "#test/unit/program/records.fixtures.ts"
 
 /** The declaration a field holds (schema/relation.ts describeDeclared). */
@@ -81,7 +86,12 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 					const row = found.row
 					assert.equal(row.name, "FoundRow", what)
 					const fields: Readonly<Record<string, Columned<unknown> | undefined>> = row.fields
-					const stored = cell.kind === "union" ? [...cell.columns, literalKey] : cell.columns
+					const stored =
+						cell.kind === "union"
+							? [...cell.columns, literalKey]
+							: cell.kind === "sum"
+								? [...cell.columns, sumKey]
+								: cell.columns
 					assert.deepEqual<ReadonlyArray<string>>(
 						Arr.sort(Rcd.keys(fields), Str.Order),
 						Arr.sort(["at", ...stored], Str.Order),
@@ -102,6 +112,13 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 							declaration(fields[column], column),
 							declaration(Item.fields[column], column),
 							`${what}: ${column} is stored as its own field`
+						)
+					}
+					if (cell.kind === "sum") {
+						assert.deepEqual(
+							declaration(fields[sumKey], sumKey),
+							{ kind: "computedNumeric", bound: sumBound },
+							`${what}: a computed numeric is stored as numeric within its bound`
 						)
 					}
 					if (cell.kind === "union") {
@@ -126,7 +143,7 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 				kind: "second-implementation",
 				name: "the relation the query reads: each stored field's declaration its own field's, its column the query's decoder's"
 			},
-			box: "each column of a relation of every stored type alone, every column, and every column beside a head literal of each JavaScript type",
+			box: "each column of a relation of every stored type alone (the database's instant and a generated search document among them), every column, every column beside a head literal of each JavaScript type and beside each pair of a union's literals, and a column beside a computed numeric",
 			kept: [],
 			kills: [
 				{
@@ -135,6 +152,14 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 					replacement:
 						"\t\t\t\tseq([start, new RegexBuilder().alt(texts.slice(0, 1).map(literal)), end]),",
 					why: "A union's text literals are stored as a text of the first literal's pattern alone, which refuses the second: the column does not hold exactly its literals."
+				},
+				{
+					file: "packages/engine/src/analysis/derived/fields.ts",
+					original:
+						"\tisNumericValue(type) ? Result.ok(numericBoundDesc(type.bound)) : declaredDescOf(type, contracts)",
+					replacement:
+						'\tisNumericValue(type) ? Result.ok({ kind: "pg", type: "numeric" }) : declaredDescOf(type, contracts)',
+					why: "A computed numeric is stored as numeric of no typmod at numeric's own limits, its bound lost: `total` is no numeric within the bound its operands prove."
 				},
 				{
 					file: "packages/engine/src/program/records.ts",
