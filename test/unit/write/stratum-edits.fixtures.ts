@@ -56,7 +56,6 @@ const frontendOptions: FrontendOptions = {
 	claims: reality.claims,
 	laws: reality.laws,
 	derived: reality.derived,
-	world: reality.world,
 	codes: artifacts.names.codes,
 	clock: reality.clock,
 	source: transactionClock

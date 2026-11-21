@@ -171,7 +171,6 @@ const writeSteps = (
 		claims: reality.claims,
 		laws: reality.laws,
 		derived: reality.derived,
-		world: reality.world,
 		codes: installed.names.codes,
 		clock: noClock,
 		source: transactionClock
@@ -184,7 +183,8 @@ const writeSteps = (
 		reads: reality.reads,
 		share: new StatementShare(),
 		level: "serializable",
-		carrierScope: carrierScope(undefined)
+		carrierScope: carrierScope(undefined),
+		world: reality.world
 	})
 	if (!realized.ok) {
 		throw new Error(realized.error.message)

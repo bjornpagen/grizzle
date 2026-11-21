@@ -29,7 +29,6 @@ import {
 	CarrierSupply
 } from "#compiler/write/carriers/carriers.ts"
 import { type DeleteAnchor, deleteAnchor } from "#compiler/write/delete/anchor.ts"
-import type { CheckNames } from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import { refuseStampedStatements } from "#compiler/write/frontend/instants.ts"
 import {
@@ -76,8 +75,6 @@ export type PlannedCheck =
 	| {
 			readonly kind: "membership"
 			readonly entry: CheckedEntry
-			/** The role's names its checks call. */
-			readonly names: CheckNames
 			/** The addition it checks, which follows it. */
 			readonly action: PlanAction
 			readonly relation: WrittenRelation
@@ -203,7 +200,6 @@ type DraftStep =
 	| {
 			readonly op: "precheck"
 			readonly entry: CheckedEntry
-			readonly names: CheckNames
 			readonly probes: ReadonlyArray<OutsideProbe>
 	  }
 
@@ -319,7 +315,6 @@ const statementStep = (
 				check: {
 					kind: "membership",
 					entry: step.entry,
-					names: step.names,
 					action: draft.at,
 					relation,
 					probes: step.probes
@@ -377,7 +372,6 @@ const precheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 				{
 					op: "precheck",
 					entry: entry.entry,
-					names: entry.names,
 					probes: action.info.relation.uniques.probes
 				}
 			]
@@ -387,7 +381,6 @@ const precheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 						{
 							op: "precheck",
 							entry: entry.check.entry,
-							names: entry.check.names,
 							probes: entry.check.probes
 						}
 					]

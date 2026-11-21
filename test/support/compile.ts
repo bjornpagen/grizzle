@@ -184,7 +184,6 @@ export const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => 
 		claims: { kind: "every" },
 		laws: artifacts.laws,
 		derived: artifacts.derived,
-		world: { kind: "reality" },
 		codes: artifacts.names.codes,
 		clock: noClock,
 		source: transactionClock

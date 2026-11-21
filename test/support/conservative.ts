@@ -25,6 +25,7 @@ import {
 import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
+import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
 import type { CarrierScope } from "#compiler/sql/naming.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
@@ -149,7 +150,11 @@ export const conservativeChange = (
 		role.programArtifacts({ kind: "changeSet", changeSet: entry.change.desc }),
 		({ artifacts }) =>
 			Result.map(
-				conservativeWrite(entry.compiled, { names: entry.names, reads: artifacts.reads }),
+				conservativeWrite(entry.compiled, {
+					names: entry.names,
+					reads: artifacts.reads,
+					world: writeWorldOf(artifacts.world, artifacts.laws)
+				}),
 				(program) => ({
 					...entry,
 					program: flightOf(program, entry.names.codes),
@@ -271,12 +276,13 @@ const conservativeArtifact = (
  */
 export const conservativeWrite = (
 	program: CompiledWrite,
-	options: Pick<CompileWriteOptions, "names" | "reads">
+	options: Pick<CompileWriteOptions, "names" | "reads" | "world">
 ): Result.Result<CompiledWrite, CompileError> =>
 	Result.flatMap(
 		realizeConservative(program.frontend, {
 			names: options.names,
 			reads: options.reads,
+			world: options.world,
 			share: new StatementShare(),
 			level: program.level,
 			carrierScope: program.plan.carrierScope

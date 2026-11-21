@@ -64,7 +64,6 @@ import {
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { workloadState } from "#compiler/program/workload/value.ts"
 import { inlineWorlds } from "#compiler/program/workload/world.ts"
-import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { ownBuiltRole, type OwnedRole } from "#compiler/schema/own.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
@@ -325,14 +324,11 @@ const changeSetIr = (
 	clock: ClockBinding
 ): Result.Result<ProgramIr, CompileError> => {
 	const derived = reads.artifacts.derived
-	const world = reads.world
-	const writeWorld = writeWorldOf(world, reads.artifacts.laws)
 	return Result.map(
 		compileChangeSet(read, changeSet, {
 			claims: { kind: "every" },
 			laws: reads.artifacts.laws,
 			derived,
-			world: writeWorld,
 			codes: reads.artifacts.names.codes,
 			clock,
 			source: transactionClock

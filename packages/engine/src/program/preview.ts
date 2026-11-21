@@ -230,7 +230,6 @@ const previewWrite = (
 			claims: { kind: "facts", present: new Set() },
 			laws: model,
 			derived: derivedAnalysis(model.checked),
-			world: { kind: "reality" },
 			codes,
 			clock: noClock,
 			source: transactionClock

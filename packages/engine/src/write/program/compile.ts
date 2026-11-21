@@ -1363,7 +1363,7 @@ const optimizedPlacement = (
 					step.check.kind === "membership" ? actionDeps(step.check.action) : []
 				)
 				const position = placed(
-					() => buildEntryCheck(w, step.input, entryCheckOf(step, frontend)),
+					() => buildEntryCheck(w, step.input, entryCheckOf(step, frontend, options.world)),
 					deps,
 					(statement) => ({
 						kind: "check",
@@ -1738,16 +1738,23 @@ const writeFacts = (
 	return { facts, certificates }
 }
 
-/** The check a planned check of a query entry builds: its membership against the base, under
- * the role's names, or the refusal of a whole addition. A membership check exists only in a role's compilation, whose
- * frontend wrote a query entry. */
+/** The check a planned check of a query entry builds: its membership against the base, under the role's names, which
+ * the write is compiled as (`world`), or the refusal of a whole addition. A membership check exists only in a role's
+ * compilation, whose frontend wrote a query entry: the frontend reads no installed name, so the names are the
+ * compile's, never its frontend's. */
 const entryCheckOf = (
 	step: Extract<PlanStep, { readonly kind: "check" }>,
-	frontend: WriteFrontend
+	frontend: WriteFrontend,
+	world: WriteWorld
 ): EntryCheck => {
 	const check = step.check
 	if (check.kind === "outside") {
 		return check
+	}
+	if (world.kind !== "role") {
+		throw defect(
+			`the check of the query entry ${check.entry.entry} in a write compiled as reality's, not its role's`
+		)
 	}
 	const { relation } = check
 	return {
@@ -1757,7 +1764,7 @@ const entryCheckOf = (
 		probes: check.probes,
 		base: frontend.schema.definitions(),
 		catalog: evidenceCatalog(frontend),
-		world: check.names
+		world: world.names
 	}
 }
 
@@ -1861,7 +1868,6 @@ const prepare = (
 			claims: options.claims,
 			laws: options.laws,
 			derived: options.derived,
-			world: options.world,
 			codes: options.names.codes,
 			clock: options.clock,
 			source: options.source

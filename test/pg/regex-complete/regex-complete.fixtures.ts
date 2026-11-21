@@ -682,7 +682,6 @@ const articleInsert = (name: string, installation: Installation) => {
 				claims: reality.claims,
 				laws: reality.laws,
 				derived: reality.derived,
-				world: reality.world,
 				codes: installation.names.codes,
 				clock: noClock,
 				source: transactionClock
@@ -696,7 +695,8 @@ const articleInsert = (name: string, installation: Installation) => {
 			reads: reality.reads,
 			share: new StatementShare(),
 			level: "serializable",
-			carrierScope: carrierScope(undefined)
+			carrierScope: carrierScope(undefined),
+			world: reality.world
 		}),
 		"realize"
 	)

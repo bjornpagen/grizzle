@@ -83,7 +83,6 @@ import { determines } from "#compiler/schema/scope.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
-import type { CheckNames, WriteWorld } from "#compiler/write/entry/precheck.ts"
 import { deltaSources, GlueBuilder, QueryMerger, substitute } from "#compiler/write/frontend/dag.ts"
 import {
 	type EntryClaims,
@@ -152,8 +151,6 @@ export interface FrontendOptions {
 	/** The derived analysis of the schema every written relation is an ordinary relation of, reality's own or the
 	 * role's base (`SchemaArtifacts.derived`). */
 	readonly derived: DerivedAnalysis
-	/** The world the compilation's statements are named in: a role's names its query entries' checks call. */
-	readonly world: WriteWorld
 	/** The installation's codes, which every member's normalizer admits a closed id's and a set's values by. */
 	readonly codes: Codebook
 	/** Each parameter bound to the database's clock (check/clock.ts clockParams), the binding of the clocked member the
@@ -414,13 +411,12 @@ export type WholeCheck =
 	| {
 			readonly kind: "scoped"
 			readonly entry: CheckedEntry
-			readonly names: CheckNames
 			readonly probes: ReadonlyArray<OutsideProbe>
 	  }
 
 export type ActionEntry =
 	| { readonly kind: "whole"; readonly check: WholeCheck }
-	| { readonly kind: "entry"; readonly entry: CheckedEntry; readonly names: CheckNames }
+	| { readonly kind: "entry"; readonly entry: CheckedEntry }
 
 const noCheck: WholeCheck = Object.freeze({ kind: "none" })
 
@@ -773,7 +769,6 @@ type MemberEntry =
 	| {
 			readonly kind: "entry"
 			readonly entry: CheckedEntry
-			readonly names: CheckNames
 			readonly member: MemberRelation
 			readonly fillable: boolean
 	  }
@@ -834,7 +829,6 @@ type DraftEntry =
 	| {
 			readonly kind: "entry"
 			readonly entry: CheckedEntry
-			readonly names: CheckNames
 			readonly fill: RelNode
 	  }
 
@@ -1340,24 +1334,11 @@ const compile = (
 		if (write.kind === "whole") {
 			return wholeTarget(name, loc, noCheck)
 		}
-		const writeWorld = options.world
-		if (writeWorld.kind !== "role") {
-			throw new Refusal(
-				CompileError.make(
-					prose(
-						"MalformedDescription",
-						loc,
-						`a write into the entry ${write.name} of the role ${role.name} compiled in that role's world`
-					)
-				)
-			)
-		}
 		if (write.kind === "scoped") {
 			const scope = write.scope
 			return wholeTarget(name, loc, {
 				kind: "scoped",
 				entry: write.writable,
-				names: writeWorld.names,
 				probes: scopedProbes(writtenOf(name, loc).uniques, (fields) => determines(scope, fields))
 			})
 		}
@@ -1375,7 +1356,6 @@ const compile = (
 			entry: {
 				kind: "entry",
 				entry,
-				names: writeWorld.names,
 				member,
 				fillable: entryFillable(entry, options.claims)
 			},
@@ -2049,7 +2029,7 @@ const compile = (
 						relation,
 						carried,
 						reads,
-						entry: { kind: "entry", entry: target.entry, names: target.names, fill },
+						entry: { kind: "entry", entry: target.entry, fill },
 						loc: site,
 						computed
 					})
@@ -2372,10 +2352,7 @@ const compile = (
 					loc,
 					computed
 				),
-				entry:
-					entry.kind === "entry"
-						? Object.freeze({ kind: "entry", entry: entry.entry, names: entry.names })
-						: entry
+				entry: entry.kind === "entry" ? Object.freeze({ kind: "entry", entry: entry.entry }) : entry
 			})
 			return { action: { ...act, relation: relation.name, source: read.source }, info, loc }
 		})

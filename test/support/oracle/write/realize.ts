@@ -26,7 +26,11 @@ import {
 	relationCarrier
 } from "#compiler/write/carriers/carriers.ts"
 import { buildDisplacingDelete, buildExactDelete } from "#compiler/write/delete/exact.ts"
-import { buildEntryCheck, type EntryCheck } from "#compiler/write/entry/precheck.ts"
+import {
+	buildEntryCheck,
+	type EntryCheck,
+	type WriteWorld
+} from "#compiler/write/entry/precheck.ts"
 import type { WriteFrontend, WrittenRelation } from "#compiler/write/frontend/compile.ts"
 import type { FamilyNode } from "#compiler/write/frontend/schedule.ts"
 import { payloadOf } from "#compiler/write/frontend/targets.ts"
@@ -112,6 +116,9 @@ interface ConservativeWriteOptions {
 	readonly level: Isolation
 	/** Whose session tables its carriers are, the compiled write's (write/schedule/plan.ts WritePlan `carrierScope`). */
 	readonly carrierScope: CarrierScope
+	/** What the write is compiled as, the compiled write's (write/program/compile.ts PrepareWriteOptions `world`): a
+	 * role's, whose names a query entry's check calls. */
+	readonly world: WriteWorld
 }
 
 /** Who runs the realization's UPDATEs: reality, or the role whose checked schema the frontend was compiled over, with the
@@ -245,6 +252,11 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 			const precheck = () => {
 				const entry = action.info.entry
 				if (entry.kind === "entry") {
+					if (options.world.kind !== "role") {
+						throw new Error(
+							`the check of the query entry ${entry.entry.entry} in a write realized as reality's`
+						)
+					}
 					check(input, {
 						kind: "membership",
 						entry: entry.entry,
@@ -252,7 +264,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 						probes: relation.uniques.probes,
 						base: frontend.schema.definitions(),
 						catalog: evidenceCatalog(frontend),
-						world: entry.names
+						world: options.world.names
 					})
 				}
 			}

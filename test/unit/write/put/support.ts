@@ -176,7 +176,7 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 		 * of the installation that serves it. */
 		conservative: (program: CompiledWrite) =>
 			Result.flatMap(names(program.frontend.params), (installed) =>
-				conservativeWrite(program, { names: installed, reads: installed })
+				conservativeWrite(program, { names: installed, reads: installed, world: { kind: "reality" } })
 			)
 	}
 }
