@@ -1486,11 +1486,54 @@ export const redrawCaseGen: Gen<RedrawCase> = redrawCaseOf(
 	"drawn"
 )
 
+/**
+ * A counted family's group change that empties a family: two owners, every member under owner 1 at g and under owner 2
+ * at h, its rows as drawn (no second field alike its first), so owner 1 holds members under g and none under h.
+ */
+const emptiedByRegroup: Gen<RedrawCase> = (source) => {
+	const shape = source.draw(shapeGen(["counted"]))
+	const total = source.draw(int(1, 3))
+	const keys = source.draw(shuffled(keyRange, { min: total, max: total }))
+	return {
+		change: {
+			shape,
+			change: "group",
+			stored: [
+				{
+					relation: "Owner",
+					rows: Arr.map([1, 2], (id) => ({
+						id,
+						tag: source.draw(valueGen),
+						tag2: source.draw(valueGen)
+					}))
+				},
+				{
+					relation: "Member",
+					rows: Arr.map(keys, (member) => ({
+						member,
+						g: 1,
+						h: 2,
+						x: source.draw(valueGen),
+						y: source.draw(valueGen),
+						kind: source.draw(codeGen)
+					}))
+				},
+				source.draw(spareRows)
+			],
+			regroup: Option.none()
+		},
+		alike: "drawn",
+		foldsCopy: false
+	}
+}
+
 /** The cases each required situation the plain draw reaches too rarely is aimed at while it is pending (aimed): a
- * tree's change, and a copy target's change under a fold that steps over the copy. */
+ * tree's change, a copy target's change under a fold that steps over the copy, and a group change that empties a
+ * family. */
 export const redrawAims: ReadonlyArray<Aim<RedrawCase, RedrawFeature>> = [
 	["tree", redrawCaseOf(["fold step", "copy target", "fold added", "weights"], ["tree"], "drawn")],
-	["a fold over the copy", redrawCaseOf(["copy target"], kinds, "always")]
+	["a fold over the copy", redrawCaseOf(["copy target"], kinds, "always")],
+	["a family emptied by its regroup", emptiedByRegroup]
 ]
 
 export type RedrawFeature =
