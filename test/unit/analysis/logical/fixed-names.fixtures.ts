@@ -1,7 +1,8 @@
 /** What fixed-names.test.ts reads: its schema and the query of a case, a chain of equalities naming its columns. */
 
+import { defined } from "@bjornpagen/testing/assert"
 import { type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import { checkQuery } from "#compiler/check/index.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -48,4 +49,33 @@ export const chainQuery = (chain: Chain): LogicalQuery => {
 		throw new Error("a chain's query is a query value")
 	}
 	return succeeded(checkQuery(checking(Chains), desc, checkOptions("query")))
+}
+
+/**
+ * A query over a relation of m columns, c0 to c(m − 1), each equal to the next and each a parameter of its own: every
+ * column holds every parameter's name, each reached through the equalities from its own column, so a column is offered
+ * each of m names by each equality it is read through.
+ */
+export const namedChainQuery = (m: number): LogicalQuery => {
+	const columns = Array.from({ length: m }, (_, i) => `c${i}`)
+	const W = relation("W", Rec.fromEntries(Arr.map(columns, (c) => [c, pg.bigint] as const)), ["c0"])
+	const Named = schema("Named", [W], [])
+	const q = query(Named).rule((r) => {
+		const vars = v(W, "w")
+		const at = (c: string) => defined(vars[c], "a column's variable")
+		const linked = Arr.reduce(
+			Arr.zip(columns, columns.slice(1)),
+			r.match(W, vars),
+			(match, [x, y]) => match.where(r.eq(at(x), at(y)))
+		)
+		const named = Arr.reduce(columns, linked, (match, c, j) =>
+			match.where(r.eq(at(c), r.param(`p${j}`, pg.bigint)))
+		)
+		return named.find(vars)
+	})
+	const desc = queryValueDesc(q)
+	if (desc === undefined) {
+		throw new Error("a named chain's query is a query value")
+	}
+	return succeeded(checkQuery(checking(Named), desc, checkOptions("query")))
 }

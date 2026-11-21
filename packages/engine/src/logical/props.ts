@@ -653,6 +653,43 @@ type Offers =
 			}>
 	  }
 
+/** A name's identity, as fixedEqual compares two names: a literal by its key, a parameter by its id, an outer column. */
+const nameKey = (name: Named): string => {
+	switch (name.kind) {
+		case "literal":
+			return `l${name.key}`
+		case "param":
+			return `p${name.param}`
+		case "outer":
+			return `o${name.node}\u0000${name.column}`
+	}
+}
+
+/**
+ * The names a fixed column holds so far (FixedNames), in the order they were added, and their identities (nameKey): an
+ * offer of a name the column holds is found in one lookup, where it was compared with every name held.
+ */
+class HeldNames {
+	readonly list: Array<NamedValue>
+	readonly #keys: Set<string>
+
+	constructor(first: ReadonlyArray<NamedValue>) {
+		this.list = [...first]
+		this.#keys = new Set(first.map((v) => nameKey(v.name)))
+	}
+
+	has(name: Named): boolean {
+		return this.#keys.has(nameKey(name))
+	}
+
+	add(values: ReadonlyArray<NamedValue>): void {
+		for (const v of values) {
+			this.list.push(v)
+			this.#keys.add(nameKey(v.name))
+		}
+	}
+}
+
 /**
  * A step of a node that fixes `column`, a column its closure of nothing reaches, as the names it offers the column
  * (`FixedNames`): its own value's, or each name of the column an equality reads, of the input column a rule carries, or
@@ -666,21 +703,18 @@ type Offers =
 class Fixing {
 	readonly column: string
 	/** The names `column` holds so far, which the step's offers are added to. */
-	readonly held: Array<NamedValue>
+	readonly held: HeldNames
 	readonly #reached: Closure<Named>
 	readonly #row: Row
 	readonly #offers: Offers
 	#made = 0
-	/** The derivation steps that reach the step's determinants, once an offer has needed them. */
-	#determinants: ReadonlyArray<Dependency> | undefined
+	/**
+	 * The derivation steps that reach the step's determinants, and whether one of them reaches the column, once an offer
+	 * has needed them: every offer but an equality's reads them.
+	 */
+	#determinants: { readonly steps: ReadonlyArray<Dependency>; readonly reach: boolean } | undefined
 
-	constructor(
-		column: string,
-		held: Array<NamedValue>,
-		reached: Closure<Named>,
-		row: Row,
-		offers: Offers
-	) {
+	constructor(column: string, held: HeldNames, reached: Closure<Named>, row: Row, offers: Offers) {
 		this.column = column
 		this.held = held
 		this.#reached = reached
@@ -700,14 +734,14 @@ class Fixing {
 		const added: Array<NamedValue> = []
 		for (let i = made; i < count; i++) {
 			const name = this.#nameAt(i)
-			if (this.held.some((h) => fixedEqual(h.name, name))) {
+			if (this.held.has(name)) {
 				continue
 			}
-			const steps = this.#beforeAt(i)
-			if (steps.some((step) => step.to.includes(this.column))) {
+			const before = this.#beforeAt(i)
+			if (before.reach) {
 				continue
 			}
-			added.push({ name, derivation: implication([], [...steps, this.#stepAt(i)]) })
+			added.push({ name, derivation: implication([], [...before.steps, this.#stepAt(i)]) })
 		}
 		return added
 	}
@@ -730,12 +764,19 @@ class Fixing {
 			: defined(offers.names[i], "an offer the step counts").name
 	}
 
-	#beforeAt(i: number): ReadonlyArray<Dependency> {
+	/** The steps before the step an offer makes, and whether one of them reaches the column. */
+	#beforeAt(i: number): { readonly steps: ReadonlyArray<Dependency>; readonly reach: boolean } {
 		const offers = this.#offers
+		const reaching = (steps: ReadonlyArray<Dependency>) => ({
+			steps,
+			reach: steps.some((step) => step.to.includes(this.column))
+		})
 		if (offers.kind === "column") {
-			return defined(offers.names[i], "a name the equality's column holds").derivation.steps
+			return reaching(
+				defined(offers.names[i], "a name the equality's column holds").derivation.steps
+			)
 		}
-		this.#determinants ??= derivation(this.#reached, positions(this.#row.from)).steps
+		this.#determinants ??= reaching(derivation(this.#reached, positions(this.#row.from)).steps)
 		return this.#determinants
 	}
 
@@ -759,7 +800,7 @@ const fixingOf = (
 	reached: Closure<Named>,
 	row: Row,
 	column: string,
-	held: Array<NamedValue>,
+	held: HeldNames,
 	namesOf: (column: string) => ReadonlyArray<NamedValue>,
 	source: StepSource
 ): Fixing => {
@@ -810,15 +851,17 @@ export class FixedNames {
 	readonly offered: number
 
 	constructor(props: Table, reached: Closure<Named>) {
-		const names = new Map<string, Array<NamedValue>>()
+		const names = new Map<string, HeldNames>()
 		for (const p of reached.sequence) {
 			const first = reached.named.get(p)
 			names.set(
 				attributeAt(props.stated.attributes, p),
-				first === undefined ? [] : [{ name: first, derivation: derivation(reached, [p]) }]
+				new HeldNames(
+					first === undefined ? [] : [{ name: first, derivation: derivation(reached, [p]) }]
+				)
 			)
 		}
-		const namesOf = (c: string): ReadonlyArray<NamedValue> => names.get(c) ?? []
+		const namesOf = (c: string): ReadonlyArray<NamedValue> => names.get(c)?.list ?? []
 		const fixings: Array<Fixing> = []
 		for (const { row, targets } of props.sources) {
 			if (!subsetOf(row.from, reached.reached)) {
@@ -840,11 +883,11 @@ export class FixedNames {
 				const before = fixing.made
 				const added = fixing.fresh()
 				made += fixing.made - before
-				appendAll(fixing.held, added)
+				fixing.held.add(added)
 				changed = changed || added.length > 0
 			}
 		}
-		this.names = names
+		this.names = new Map([...names].map(([column, held]) => [column, held.list]))
 		this.rounds = rounds
 		this.made = made
 		this.offered = fixings.reduce((n, fixing) => n + fixing.offered, 0)

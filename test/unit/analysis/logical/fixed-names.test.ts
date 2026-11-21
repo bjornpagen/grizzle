@@ -18,18 +18,31 @@
  * where built from the table they held every row's sources, each input source's closure with it, for as long as the
  * analysis lived. Per node of the same box: its properties hold no `sources`. Kill: the properties spread the table.
  *
- * Features: names settled in one round, names given in a later round.
+ * And an offered name is found among those its column holds by its identity, in one lookup (logical/props.ts
+ * HeldNames): over a relation of m columns, each equal to the next and each a parameter of its own, whose columns each
+ * hold m names offered by every step that fixes them, the identities the analysis reads are one for each offer made and
+ * one for each name held, every node's names worked out again from its properties to count them, where each offer was
+ * compared with every name its column held. Box: m at 4, 8 and 12. Oracle: specification. Kill: an offer compared with
+ * every name held.
+ *
+ * Features: names settled in one round, names given in a later round; a chain of 4, 8 and 12.
  */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
+import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { analyzeLogical, everyNode } from "#compiler/logical/annotate.ts"
 import { type FixedNames, fixedNamesOf } from "#compiler/logical/props.ts"
-import { chainGen, chainQuery } from "#test/unit/analysis/logical/fixed-names.fixtures.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
+import {
+	chainGen,
+	chainQuery,
+	namedChainQuery
+} from "#test/unit/analysis/logical/fixed-names.fixtures.ts"
 
 type Feature = "names settled in one round" | "names given in a later round"
 
@@ -116,3 +129,65 @@ export const aNodesPropertiesHoldNoStepSourcesTheyAreWorkedOutAndReadInFinishAlo
 			}
 		]
 	})
+
+/** Where a column's offered name is told apart from the names it holds (logical/props.ts Fixing fresh, HeldNames). */
+const nameChecks = Object.freeze({
+	fixedEqual: { file: "packages/engine/src/logical/props.ts", name: "fixedEqual" },
+	nameKey: { file: "packages/engine/src/logical/props.ts", name: "nameKey" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+type ChainPoint = "m = 4" | "m = 8" | "m = 12"
+
+const chainEnv = { context: "transaction", containments: [], keyedViews: false } as const
+
+/**
+ * An offered name is found among the names its column holds in one lookup: over a relation of m columns, each equal to
+ * the next and each a parameter of its own, the identities read as the analysis works out its names are one for each
+ * offer its steps make and one for each name they give, where each offer was compared with every name its column held.
+ */
+export const anOfferedNameIsFoundAmongTheNamesItsColumnHoldsInOneLookup = property.exhaust(
+	finite(int(1, 3)),
+	{
+		needs: {},
+		situations: ["m = 4", "m = 8", "m = 12"] satisfies ReadonlyArray<Reached<ChainPoint>>,
+		check: (_, c: Case<ChainPoint>) => (k) =>
+			Effect.gen(function* () {
+				const m = 4 * k
+				c.note(k === 1 ? "m = 4" : k === 2 ? "m = 8" : "m = 12")
+				const { dag } = namedChainQuery(m)
+				const [, counts] = yield* callCounts(
+					Effect.sync(() => analyzeLogical(dag, chainEnv, everyNode)),
+					nameChecks
+				)
+				const analysis = succeeded(analyzeLogical(dag, chainEnv, everyNode), "the chain analyzes")
+				let offers = 0
+				let names = 0
+				for (const node of topoOrder(dag)) {
+					const fixed = fixedNamesOf(
+						defined(analysis.props.get(node), "the node's properties, kept")
+					)
+					offers += fixed.made
+					names += Arr.reduce([...fixed.names.values()], 0, (n, held) => n + held.length)
+				}
+				assert.equal(
+					counts.fixedEqual + counts.nameKey,
+					offers + names,
+					`the identities read at m = ${m}: one an offer, one a name`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "one identity read for each offer made and each name given"
+		},
+		box: "a chain of m columns, m = 4k, k at 1, 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\tif (this.held.has(name)) {",
+				replacement: "\t\t\tif (this.held.list.some((h) => fixedEqual(h.name, name))) {",
+				why: "Each offer is compared with every name its column holds (logical/props.ts Fixing fresh); the identities read outnumber the offers and names."
+			}
+		]
+	}
+)
