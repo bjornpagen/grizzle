@@ -428,6 +428,135 @@ const indexed = (imps: ReadonlyArray<Implication>, points: ReadonlyArray<PointRu
 }
 
 /**
+ * One closure of a table (Dependencies closure): the facts it has learned, each with the step that reached it, in the
+ * order learned, and each implication's and point rule's facts still awaited. Each implication that fires reaches all
+ * its targets by one step, the same data for each of them.
+ */
+class FactClosing {
+	readonly #imps: ReadonlyArray<Implication>
+	readonly #rules: ReadonlyArray<PointRule>
+	readonly #waitingOn: Waiting
+	readonly #columns = new Map<string, Step>()
+	readonly #points = new Map<string, Step>()
+	readonly #waiting: Int32Array
+	readonly #pointWaiting: Int32Array
+	/** The spans of `at` each implication has already counted as pointed, once one has been. */
+	#pointedAt: Map<number, Set<string>> | undefined
+	/** The facts learned, in the order learned: each one's name, a column or a span, and whether it is a point. */
+	readonly #queue: Array<string> = []
+	readonly #queuedPoints: Array<boolean> = []
+
+	constructor(table: Dependencies, waitingOn: Waiting, counts: Counts) {
+		this.#imps = table.implications
+		this.#rules = table.points
+		this.#waitingOn = waitingOn
+		this.#waiting = counts.implications.slice()
+		this.#pointWaiting = counts.points.slice()
+	}
+
+	/** What `start`, among `heading`, determines: every fact learned, the queue read in order until it ends. */
+	closed(start: Iterable<string>, heading: ReadonlySet<string>): FactClosure {
+		for (const c of start) {
+			if (heading.has(c)) {
+				this.#learn(c, fromStart)
+			}
+		}
+		for (let i = 0; i < this.#waiting.length; i++) {
+			if (this.#waiting[i] === 0) {
+				this.#fire(i)
+			}
+		}
+		for (let i = 0; i < this.#pointWaiting.length; i++) {
+			if (this.#pointWaiting[i] === 0) {
+				this.#firePoint(i)
+			}
+		}
+		const queue = this.#queue
+		for (let q = 0; q < queue.length; q++) {
+			const name = defined(queue[q], "a learned fact is queued")
+			if (this.#queuedPoints[q] !== true) {
+				for (const i of this.#waitingOn.fromColumn.get(name) ?? []) {
+					if (this.#waitingFor(i) > 0) {
+						this.#count(i)
+					}
+				}
+				for (const i of this.#waitingOn.pointFrom.get(name) ?? []) {
+					const pending = defined(this.#pointWaiting[i], indexedPoint)
+					if (pending <= 0) {
+						continue
+					}
+					this.#pointWaiting[i] = pending - 1
+					if (pending === 1) {
+						this.#firePoint(i)
+					}
+				}
+			}
+			for (const i of this.#waitingOn.atSpan.get(name) ?? []) {
+				this.#countAt(i, name)
+			}
+		}
+		return { columns: this.#columns, points: this.#points }
+	}
+
+	#learn(column: string, step: Step): void {
+		if (this.#columns.has(column)) {
+			return
+		}
+		this.#columns.set(column, step)
+		this.#queue.push(column)
+		this.#queuedPoints.push(false)
+	}
+
+	#learnPoint(span: string, step: Step): void {
+		if (this.#columns.has(span) || this.#points.has(span)) {
+			return
+		}
+		this.#points.set(span, step)
+		this.#queue.push(span)
+		this.#queuedPoints.push(true)
+	}
+
+	#fire(i: number): void {
+		const implication = defined(this.#imps[i], indexedImplication)
+		const step: Step = { kind: "implication", index: i, implication }
+		for (const t of implication.to) {
+			this.#learn(t, step)
+		}
+	}
+
+	#firePoint(i: number): void {
+		const rule = defined(this.#rules[i], indexedPoint)
+		this.#learnPoint(rule.span, { kind: "point", index: i, rule })
+	}
+
+	#waitingFor(i: number): number {
+		return defined(this.#waiting[i], indexedImplication)
+	}
+
+	#count(i: number): void {
+		const left = this.#waitingFor(i) - 1
+		this.#waiting[i] = left
+		if (left === 0) {
+			this.#fire(i)
+		}
+	}
+
+	#countAt(i: number, span: string): void {
+		if (this.#waitingFor(i) < 0) {
+			return
+		}
+		this.#pointedAt ??= new Map()
+		const seen = this.#pointedAt.get(i) ?? new Set<string>()
+		if (seen.has(span)) {
+			return
+		}
+		seen.add(span)
+		this.#pointedAt.set(i, seen)
+		this.#count(i)
+	}
+}
+
+/**
  * A fragment's dependency table: its heading's columns, the implications and point rules over them and the attributes
  * it carries beyond them (the hidden attributes of what it embeds, and a rule region's variables it does not deliver,
  * which an embedding of the table hides in turn), and the index a closure reads them through. Built once by a draft's
@@ -623,97 +752,10 @@ export class Dependencies {
 
 	#closure(start: Iterable<string>, admission: Admission): FactClosure {
 		this.#closures += 1
-		const imps = this.implications
-		const rules = this.points
-		const columns = new Map<string, Step>()
-		const points = new Map<string, Step>()
-		const counts = this.#counts(admission)
-		const waiting = counts.implications.slice()
-		const pointWaiting = counts.points.slice()
-		/** The spans of `at` each implication has already counted as pointed. */
-		const pointedAt = new Map<number, Set<string>>()
-		const queue: Array<Fact> = []
-		const learn = (column: string, step: Step): void => {
-			if (!columns.has(column)) {
-				columns.set(column, step)
-				queue.push({ kind: "column", column })
-			}
-		}
-		const learnPoint = (span: string, step: Step): void => {
-			if (!columns.has(span) && !points.has(span)) {
-				points.set(span, step)
-				queue.push({ kind: "point", span })
-			}
-		}
-		const fire = (i: number): void => {
-			const imp = defined(imps[i], indexedImplication)
-			for (const t of imp.to) {
-				learn(t, { kind: "implication", index: i, implication: imp })
-			}
-		}
-		const firePoint = (i: number): void => {
-			const rule = defined(rules[i], indexedPoint)
-			learnPoint(rule.span, { kind: "point", index: i, rule })
-		}
-		const waitingOn = (i: number): number => defined(waiting[i], indexedImplication)
-		const count = (i: number): void => {
-			const left = waitingOn(i) - 1
-			waiting[i] = left
-			if (left === 0) {
-				fire(i)
-			}
-		}
-		const countAt = (i: number, span: string): void => {
-			if (waitingOn(i) < 0) {
-				return
-			}
-			const seen = pointedAt.get(i) ?? new Set<string>()
-			if (seen.has(span)) {
-				return
-			}
-			seen.add(span)
-			pointedAt.set(i, seen)
-			count(i)
-		}
-		for (const c of start) {
-			if (this.#heading.has(c)) {
-				learn(c, fromStart)
-			}
-		}
-		for (const [i, n] of waiting.entries()) {
-			if (n === 0) {
-				fire(i)
-			}
-		}
-		for (const [i, n] of pointWaiting.entries()) {
-			if (n === 0) {
-				firePoint(i)
-			}
-		}
-		for (const fact of queue) {
-			if (fact.kind === "column") {
-				for (const i of this.#waiting.fromColumn.get(fact.column) ?? []) {
-					if (waitingOn(i) > 0) {
-						count(i)
-					}
-				}
-				for (const i of this.#waiting.pointFrom.get(fact.column) ?? []) {
-					const pending = defined(pointWaiting[i], indexedPoint)
-					if (pending <= 0) {
-						continue
-					}
-					pointWaiting[i] = pending - 1
-					if (pending === 1) {
-						firePoint(i)
-					}
-				}
-			}
-			const span = fact.kind === "column" ? fact.column : fact.span
-			for (const i of this.#waiting.atSpan.get(span) ?? []) {
-				countAt(i, span)
-			}
-		}
-		return { columns, points }
+		return new FactClosing(this, this.#waiting, this.#counts(admission)).closed(
+			start,
+			this.#heading
+		)
 	}
 
 	/**
@@ -1037,14 +1079,28 @@ export class DependencyDraft {
 	embed(table: Dependencies, embedding: Embedding): void {
 		const heading = new Set(table.columns)
 		const ns = embedding.namespace
-		const rename = (a: string): string => (a === rowAttribute ? embedding.row : hiddenIn(ns, a))
+		/** Each attribute's name in the embedding, made once for every implication and point rule that reads it. */
+		const renamed = new Map<string, string>()
+		const rename = (a: string): string =>
+			a === rowAttribute ? embedding.row : renamed.getOrInsertComputed(a, () => hiddenIn(ns, a))
 		const read = (a: string): Rep => {
 			const first = heading.has(a) ? embedding.column(a)[0] : undefined
 			return first ?? { column: rename(a), just: structural }
 		}
-		const written = (a: string): ReadonlyArray<string> => {
-			const reps = heading.has(a) ? embedding.column(a) : []
-			return reps.length === 0 ? [rename(a)] : reps.map((r) => r.column)
+		/** The names `to` is written under in the embedding, each target's in turn. */
+		const written = (to: ReadonlyArray<string>): ReadonlyArray<string> => {
+			const out: Array<string> = []
+			for (const a of to) {
+				const reps = heading.has(a) ? embedding.column(a) : []
+				if (reps.length === 0) {
+					out.push(rename(a))
+				} else {
+					for (const r of reps) {
+						out.push(r.column)
+					}
+				}
+			}
+			return out
 		}
 		for (const imp of table.implications) {
 			const local = embedding.localize(imp.just)
@@ -1056,7 +1112,7 @@ export class DependencyDraft {
 			this.#add(
 				[...from.map((r) => r.column), ...local.from],
 				at.map((r) => r.column),
-				imp.to.flatMap(written),
+				written(imp.to),
 				joinJustifications([local.just, ...from.map((r) => r.just), ...at.map((r) => r.just)]),
 				[ns, ...imp.origin],
 				imp.join.map((o) => ({ row: rename(o.row), origin: [ns, ...o.origin] }))

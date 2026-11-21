@@ -315,9 +315,11 @@ class Closing<V> {
 	/** Each row's determinants not reached yet. */
 	readonly #missing: Int32Array
 	readonly #due: PassQueue
-	/** The positions a visit adds, and those it names: one visit's at a time. */
+	/**
+	 * The positions a visit adds, one visit's at a time: in the round of namings, each one it names, since a visit there
+	 * adds only a target it names.
+	 */
 	readonly #added: Array<number> = []
-	readonly #namedHere: Array<number> = []
 
 	constructor(rows: Rows, start: Bits) {
 		const { attributes, readersAt, readers } = rows
@@ -372,9 +374,7 @@ class Closing<V> {
 		const marks = this.#marks
 		const missing = this.#missing
 		const added = this.#added
-		const namedHere = this.#namedHere
 		added.length = 0
-		namedHere.length = 0
 		let unreached = 0
 		const targets = row.to
 		for (let j = 0; j < targets.length; j++) {
@@ -397,7 +397,6 @@ class Closing<V> {
 			if (value !== undefined) {
 				this.#named ??= new Map()
 				this.#named.set(p, value)
-				namedHere.push(p)
 				added.push(p)
 			}
 		}
@@ -422,7 +421,7 @@ class Closing<V> {
 			}
 		}
 		if (admission.kind === "named") {
-			for (const p of namedHere) {
+			for (const p of added) {
 				for (let r = admission.copiersAt[p] ?? 0; r < (admission.copiersAt[p + 1] ?? 0); r++) {
 					const j = admission.copiers[r] ?? 0
 					marks[j] = (marks[j] ?? 0) & ~askedMark
@@ -458,20 +457,23 @@ class Closing<V> {
  */
 class PassQueue {
 	readonly #words: number
-	#now: Uint32Array
-	#later: Uint32Array
+	/** This pass's due rows and the next pass's, `#words` words each, at `#now` and `#later` in one array. */
+	readonly #bits: Uint32Array
+	#now = 0
+	#later: number
 	#at = -1
 
 	constructor(size: number) {
 		this.#words = (size + 31) >>> 5
-		this.#now = new Uint32Array(this.#words)
-		this.#later = new Uint32Array(this.#words)
+		this.#bits = new Uint32Array(2 * this.#words)
+		this.#later = this.#words
 	}
 
 	/** Holds the row at `i` due: in this pass after the row visited, else in the next. */
 	add(i: number): void {
 		const into = i > this.#at ? this.#now : this.#later
-		into[i >>> 5] = (into[i >>> 5] ?? 0) | (1 << (i & 31))
+		const w = into + (i >>> 5)
+		this.#bits[w] = (this.#bits[w] ?? 0) | (1 << (i & 31))
 	}
 
 	/** The next due row in the passes' order, none when no row is due. */
@@ -494,15 +496,16 @@ class PassQueue {
 		this.#at = -1
 	}
 
-	/** The least row of `bits` at `from` or after, clearing it; none when it holds none there. */
-	#take(bits: Uint32Array, from: number): number | undefined {
+	/** The least row of the pass at `base` at `from` or after, clearing it; none when it holds none there. */
+	#take(base: number, from: number): number | undefined {
+		const bits = this.#bits
 		for (let w = from >>> 5; w < this.#words; w++) {
-			const word = (bits[w] ?? 0) & (w === from >>> 5 ? ~0 << (from & 31) : ~0)
+			const word = (bits[base + w] ?? 0) & (w === from >>> 5 ? ~0 << (from & 31) : ~0)
 			if (word === 0) {
 				continue
 			}
 			const bit = 31 - Math.clz32(word & -word)
-			bits[w] = (bits[w] ?? 0) & ~(1 << bit)
+			bits[base + w] = (bits[base + w] ?? 0) & ~(1 << bit)
 			return (w << 5) + bit
 		}
 		return undefined
