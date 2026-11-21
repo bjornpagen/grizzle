@@ -13,6 +13,7 @@ import {
 } from "#compiler/analysis/derived/analyze.ts"
 import { analyzeWorld, type WorldAnalysis } from "#compiler/analysis/derived/world.ts"
 import { closedReads, closedReadsAmong } from "#compiler/check/closed.ts"
+import { DeclarationTable } from "#compiler/check/declarations.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
 import {
 	closedReadNames,
@@ -845,7 +846,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				`a closed read of a closed relation of this level or below; ${above} is declared above`
 			)
 		}
-		const seen = new Map<string, { text: string; loc: SourceLoc }>()
+		const declarations = new DeclarationTable()
 		const lowered = (desc: ExprDesc) => {
 			const emit = exprEmitter(`generated ${r.name}.${field}`)
 			const term = unwrap(
@@ -863,7 +864,8 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 						return Result.ok(storedColumn(rowNode, d.field, type))
 					},
 					params: noParams,
-					fieldType: (d, l) => catchRefusal(() => this.queryFieldType(d, l, seen, patterns)),
+					fieldType: (d, l) =>
+						catchRefusal(() => this.queryFieldType(d, l, declarations, patterns)),
 					closed: row.closed,
 					patterns,
 					patternLanguage: textLookup
@@ -881,7 +883,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		 * two its source spells. */
 		const operand =
 			expr.kind === "cast" &&
-			sameScalarType(this.queryFieldType(expr.to, loc, seen, patterns), declared)
+			sameScalarType(this.queryFieldType(expr.to, loc, declarations, patterns), declared)
 				? lowered(expr.arg)
 				: undefined
 		const { desc, emit, term } =
@@ -1170,13 +1172,13 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 
 	/**
 	 * A descriptor a query carries. Its closedIds name the schema's rosters, and a contract it names is the schema's
-	 * contract of that name, or one the same query declares once (`seen`), with one descriptor; typed by `patterns`, the
-	 * admitted patterns of the caller's compile.
+	 * contract of that name, or one the same query declares once (`declarations`, check/declarations.ts), with one
+	 * descriptor; typed by `patterns`, the admitted patterns of the caller's compile.
 	 */
 	queryFieldType(
 		desc: FieldDesc,
 		loc: SourceLoc,
-		seen: Map<string, { text: string; loc: SourceLoc }>,
+		declarations: DeclarationTable,
 		patterns: PatternAutomata
 	): ScalarType {
 		nestedFields(desc, (d) => {
@@ -1198,16 +1200,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				}
 				return
 			}
-			const prior = seen.get(d.name)
-			if (prior === undefined) {
-				seen.set(d.name, { text, loc })
-			} else if (prior.text !== text) {
-				failWith({
-					_tag: "DuplicateIdentity",
-					at: loc,
-					duplicate: { kind: "contract", name: d.name, earlier: prior.loc }
-				})
-			}
+			declarations.declare("contract", d.name, { text, loc })
 		})
 		return this.#typeOf(desc, loc, patterns)
 	}

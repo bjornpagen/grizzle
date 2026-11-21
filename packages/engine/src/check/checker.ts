@@ -3,6 +3,7 @@ import { allenExpr } from "#compiler/check/allen.ts"
 import { approximate } from "#compiler/check/approximate/index.ts"
 import { completeStated } from "#compiler/check/complete.ts"
 import type { CheckedNodeSpec, ScopedServices, StageScope } from "#compiler/check/context.ts"
+import { DeclarationTable } from "#compiler/check/declarations.ts"
 import { only } from "#compiler/check/defined.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
 import {
@@ -17,7 +18,6 @@ import {
 import type { StatedOrder } from "#compiler/check/order.ts"
 import type {
 	ParamCell,
-	ParamTable,
 	Resolved,
 	ResolvedAttach,
 	ResolvedBound,
@@ -964,7 +964,6 @@ export class Checker {
 	readonly schema: SchemaReading
 	readonly options: CheckOptions
 	readonly b: DagBuilder
-	readonly params: ParamTable
 	/**
 	 * The literal head columns of every arm node, for typing a bare one by its position in a union, for discriminants
 	 * and for narrowing a matched union.
@@ -985,8 +984,8 @@ export class Checker {
 	 * keeps (#inherit) and those of every arm of a union. A node it holds none for carries none (#carried).
 	 */
 	readonly #attached = new Map<RelNode, ReadonlySet<string>>()
-	/** Contracts the query declares itself, for DuplicateIdentity. */
-	readonly #contracts = new Map<string, { text: string; loc: SourceLoc }>()
+	/** The contracts and contexts the query declares itself, each once (DuplicateIdentity). */
+	readonly #declarations = new DeclarationTable()
 	/**
 	 * The query's closed imports, each built once by its key (`importedKey`): every import of one query whose bind map
 	 * binds each of its parameters to a parameter or a constant reads the same rows wherever it stands, so it is one node,
@@ -1011,8 +1010,6 @@ export class Checker {
 	 * CheckSession patterns): each parsed, and minimized where a proof compares it, once for every check of the compile.
 	 */
 	readonly patterns: CompilePatterns
-	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
-	readonly #contexts = new Map<string, { text: string; loc: SourceLoc }>()
 	/**
 	 * The order the user stated for each Take, OrderedResult and ordered Attach, completed once the DAG is built
 	 * (order.ts).
@@ -1025,28 +1022,11 @@ export class Checker {
 	/** The approximate searches built, by the identity of their sealed source, score and bound (approximate/). */
 	readonly #searches = new Map<string, RelNode>()
 
-	/**
-	 * The closed relations a rule's filter applies: the schema's (SchemaReading.closedReads) with every text payload field
-	 * the query's Text.matches patterns read admitted, the query's lowering batch (scalar/compute/typing.ts admittedReads).
-	 */
-	readonly #closedReads: ClosedRelations
-
-	/**
-	 * `params` are the cells of the resolved description the checker checks (params.ts resolveQuery), and `closedReads`
-	 * the schema's closed relations as its query's lowering batch admitted them (`#closedReads`).
-	 */
-	constructor(
-		schema: SchemaReading,
-		options: CheckOptions,
-		params: ParamTable,
-		closedReads: ClosedRelations
-	) {
+	constructor(schema: SchemaReading, options: CheckOptions) {
 		this.schema = schema
 		this.options = options
 		this.patterns = options.session.patterns
 		this.b = new DagBuilder(makeIdSupply())
-		this.params = params
-		this.#closedReads = closedReads
 	}
 
 	/** Records an expression, built over its arguments with its effects (ir/expr.ts builtExpr). */
@@ -1172,7 +1152,7 @@ export class Checker {
 	}
 
 	fieldType(desc: FieldDesc, loc: SourceLoc): ScalarType {
-		return this.schema.queryFieldType(desc, loc, this.#contracts, this.patterns)
+		return this.schema.queryFieldType(desc, loc, this.#declarations, this.patterns)
 	}
 
 	/**
@@ -2377,7 +2357,7 @@ export class Checker {
 		return this.schema.queryFieldType(
 			{ kind: "text", patterns: [tokenPattern], bytes: languageOctets(language), language },
 			loc,
-			this.#contracts,
+			this.#declarations,
 			this.patterns
 		)
 	}
@@ -2467,16 +2447,7 @@ export class Checker {
 				})
 			}
 		}
-		const prior = this.#contexts.get(context.name)
-		if (prior === undefined) {
-			this.#contexts.set(context.name, { text, loc })
-		} else if (prior.text !== text) {
-			failWith({
-				_tag: "DuplicateIdentity",
-				at: loc,
-				duplicate: { kind: "context", name: context.name, earlier: prior.loc }
-			})
-		}
+		this.#declarations.declare("context", context.name, { text, loc })
 		const heading: Heading = entries(context.fields).map(([name, d]) => ({
 			name,
 			type: this.fieldType(d, childLoc(loc, name))
@@ -2724,7 +2695,7 @@ export class Checker {
 		return {
 			mode: "query",
 			loc,
-			closed: reads === "filter" ? this.#closedReads : deliveredValue,
+			closed: reads === "filter" ? this.schema.closedReads : deliveredValue,
 			functions: (name) => this.schema.owned.functions[name],
 			emit: (spec) => this.emit(spec),
 			leaf: (desc, at) =>
@@ -2738,7 +2709,7 @@ export class Checker {
 					catchRefusal(() => this.#paramUse(param, at, scope, node, paramColumn))
 			},
 			fieldType: (desc, at) =>
-				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#contracts, this.patterns)),
+				catchRefusal(() => this.schema.queryFieldType(desc, at, this.#declarations, this.patterns)),
 			patterns: this.patterns,
 			patternLanguage: textLookup,
 			extension: (desc, at, lower) => catchRefusal(() => this.#extension(desc, lower, at))

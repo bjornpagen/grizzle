@@ -1,3 +1,4 @@
+import type { DeclarationTable } from "#compiler/check/declarations.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc, LiteralDesc, SchemaRelationDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -108,13 +109,13 @@ export interface SchemaReading {
 		meeting: LiteralMeeting
 	): boolean
 	/**
-	 * A descriptor a query carries, its contracts the schema's or declared once by the same query (`seen`), typed by the
-	 * admitted patterns of the caller's compile.
+	 * A descriptor a query carries, its contracts the schema's or declared once by the same query (`declarations`),
+	 * typed by the admitted patterns of the caller's compile.
 	 */
 	queryFieldType(
 		desc: FieldDesc,
 		loc: SourceLoc,
-		seen: Map<string, { text: string; loc: SourceLoc }>,
+		declarations: DeclarationTable,
 		patterns: PatternAutomata
 	): ScalarType
 }

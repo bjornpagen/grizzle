@@ -52,10 +52,8 @@ export const admitQuery = (
 
 /**
  * One check of a decoded description: every parameter is of its declared type, so one pass types them all. The
- * admission rule is a property of the whole query, refused here so that both lowerings accept the same programs. The
- * query is its own lowering batch: the text payload fields its Text.matches patterns read, through every rule,
- * import, negation and attachment (schema/walk.ts queryPatternReads), are admitted once for it (scalar/compute/lower.ts
- * admittedReads).
+ * admission rule is a property of the whole query, refused here so that both lowerings accept the same programs. A
+ * rule's filter applies the schema's closed relations as the schema reads them (SchemaReading closedReads).
  */
 const run = (
 	schema: SchemaReading,
@@ -65,11 +63,7 @@ const run = (
 	role: RootRole
 ): AdmittedQuery => {
 	const resolved = resolveQuery(desc, options.session)
-	const dag = new Checker(schema, options, resolved.params, schema.closedReads).root(
-		resolved.query,
-		loc,
-		role
-	)
+	const dag = new Checker(schema, options).root(resolved.query, loc, role)
 	return admit({ dag, params: resolved.params.decls(loc) }, loc)
 }
 
