@@ -45,12 +45,41 @@ type Occurrence = OccurrenceOver<Cell, ScalarExpr, VarDecl>
 const regionReads = (region: Cell, o: Occurrence): ReadonlySet<string> => {
 	const out = new Set<string>()
 	for (const c of DagEditor.subtree(o.source)) {
-		for (const r of columnReads(exprsOf(c.current)).filter((ref) => ref.node === region.id)) {
-			out.add(r.name)
+		const reading = exprsOf(c.current).filter((e) => readsNode(e, region.id))
+		if (isNonEmpty(reading)) {
+			regionColumns(reading, region.id, out)
 		}
 	}
 	return out
 }
+
+/** Adds to `out` the name of each column of `node` the expression trees `reading` read. */
+const regionColumns = (
+	reading: NonEmptyReadonlyArray<ScalarExpr>,
+	node: NodeId,
+	out: Set<string>
+): void => {
+	for (const r of columnReads(reading)) {
+		if (r.node === node) {
+			out.add(r.name)
+		}
+	}
+}
+
+/** The variables of the region an occurrence binds without reading them (regionReads), by id: a binder in scope for
+ * every other occurrence. */
+const unreadBindings = (region: Cell, o: Occurrence): ReadonlySet<VarId> => {
+	const reads = regionReads(region, o)
+	return new Set(o.bindings.filter((b) => !reads.has(b.var.name)).map((b) => b.var.id))
+}
+
+/**
+ * Whether the expression tree `e` reads a column of `node`: its dependencies hold every node a column of its closure
+ * reads (ir/expr.ts builtExpr), so an expression that reads none of the region's is never walked for its columns, where
+ * every expression of every cell below every occurrence was (qti's write compile at hub f1bf91a2f: their closures took
+ * 72 s of 661 s of its readback lowering).
+ */
+const readsNode = (e: ScalarExpr, node: NodeId): boolean => e.deps.nodes.includes(node)
 
 /**
  * The existence-only occurrences of a region as its cells say, which no lateral read may name. A variable
@@ -63,19 +92,23 @@ const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArr
 	if (region.occurrences.length < 2 || cx.cells.feedback.has(cell)) {
 		return []
 	}
-	/** Each occurrence with the region's variables it reads. */
-	const scanned = region.occurrences.map((x) => ({
-		occurrence: x,
-		reads: regionReads(cell, x)
-	}))
-	return region.occurrences.filter((o) => {
-		const others = scanned.filter((x) => x.occurrence.id !== o.id)
-		const elsewhere = new Set(
-			others.flatMap((x) =>
-				x.occurrence.bindings.filter((b) => !x.reads.has(b.var.name)).map((b) => b.var.id)
-			)
-		)
-		if (!o.bindings.every((b) => elsewhere.has(b.var.id))) {
+	/** Each occurrence's variables it binds without reading them, index for index. */
+	const binds = region.occurrences.map((x) => unreadBindings(cell, x))
+	/**
+	 * How many occurrences bind each variable without reading it: one binds it elsewhere for an occurrence when more do
+	 * than the occurrence itself, so each occurrence asks a count, where it gathered every other occurrence's bindings
+	 * again, quadratic in the region's occurrences (qti's write compile at hub f1bf91a2f: 74 s of 661 s of its readback
+	 * lowering). The occurrences of a region are told apart by their places, their ids being fresh.
+	 */
+	const binders = new Map<VarId, number>()
+	for (const vars of binds) {
+		for (const v of vars) {
+			binders.set(v, (binders.get(v) ?? 0) + 1)
+		}
+	}
+	return region.occurrences.filter((o, at) => {
+		const own = defined(binds[at], "an occurrence's bindings, index for index")
+		if (!o.bindings.every((b) => (binders.get(b.var.id) ?? 0) > (own.has(b.var.id) ? 1 : 0))) {
 			return false
 		}
 		if (columnReads(o.constants.map((c) => c.expr)).length > 0) {
