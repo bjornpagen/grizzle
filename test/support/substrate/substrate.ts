@@ -31,7 +31,6 @@ import {
 import { ChildProcessSpawner } from "effect/process"
 import { identifierOf, identity, installationRoleOf } from "#compiler/core/identity.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { trusted } from "#compiler/core/trusted.ts"
 import { advisoryKey } from "#compiler/sql/catalog.ts"
 import { InitializedCluster, lentPlace, lentVariable } from "#test/support/cluster.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
@@ -52,7 +51,6 @@ import {
 	type PgConnection,
 	type RawAnswer,
 	SqlError,
-	sqlErrorOf,
 	type PgStatement
 } from "#test/support/pg.ts"
 import { memberBudget, sqlNeedFailed, WorkerBudgets } from "#test/support/runner.ts"
@@ -409,7 +407,7 @@ const asSuperuser = (
 			Effect.gen(function* () {
 				const client = yield* superuserClient(cluster, database, "grizzle-substrate superuser")
 				for (const sql of statements) {
-					yield* Effect.tryPromise({ try: () => client.query(sql), catch: sqlErrorOf })
+					yield* client.query(sql, [])
 				}
 			})
 		)
@@ -445,16 +443,7 @@ const asSuperuserRead = <A, E>(
 			const client = yield* Effect.orDie(
 				superuserClient(cluster, database, "grizzle-substrate stored read")
 			)
-			const rows = (sql: string): Effect.Effect<TextRows> =>
-				Effect.orDie(
-					Effect.map(
-						Effect.tryPromise({
-							try: () => client.query({ text: sql, rowMode: "array" }),
-							catch: sqlErrorOf
-						}),
-						(result) => trusted<TextRows>(result.rows)
-					)
-				)
+			const rows = (sql: string): Effect.Effect<TextRows> => Effect.orDie(client.query(sql, []))
 			yield* rows("BEGIN ISOLATION LEVEL SERIALIZABLE READ ONLY")
 			const value = yield* read(rows)
 			yield* rows("COMMIT")

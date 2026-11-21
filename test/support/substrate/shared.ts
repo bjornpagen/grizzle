@@ -7,6 +7,7 @@ import { trusted } from "#compiler/core/trusted.ts"
 import { InitializedCluster, lentVariable } from "#test/support/cluster.ts"
 import { adminUrl } from "#test/support/env.ts"
 import {
+	awaitingPostgres,
 	devSession,
 	type PgConnection,
 	type SqlError,
@@ -123,53 +124,58 @@ const asText = (text: string): string => text
 /** Every column as its text: pg's parsers bypassed. */
 const textTypes = { getTypeParser: (): ((text: string) => string) => asText } as const
 
+/** A bootstrap superuser's connection (superuserClient): its statements, each answering its rows, every column its text. */
+export interface SuperuserClient {
+	/** One statement and its parameters, its answer awaited as a declared wait on PostgreSQL (pg.ts awaitingPostgres). */
+	readonly query: (
+		sql: string,
+		params: ReadonlyArray<string>
+	) => Effect.Effect<ReadonlyArray<ReadonlyArray<string | null>>, SqlError>
+}
+
 /**
  * A connection to `database` as the bootstrap superuser, the account's own user, over the member's socket, which trusts
  * it (env.ts adminUrl); the TLS sessions of test/support/pg.ts reach no superuser. It lives for the scope, drawing one
- * of its budget's permits; a connection refused is a failure its caller makes a defect of the run.
+ * of its budget's permits; a connection refused is a failure its caller makes a defect of the run. Its connect and every
+ * statement await PostgreSQL as declared waits (pg.ts awaitingPostgres): what the substrate's superuser statements and
+ * reads (substrate.ts asSuperuser, asSuperuserRead) and the toolchain's resources (runner.ts superuserSession) send.
  */
 export const superuserClient = (
 	cluster: BudgetedCluster,
 	database: string,
 	applicationName: string
-) =>
-	cluster.budget.opened(
-		Effect.acquireRelease(
-			Effect.suspend(() => {
-				const c = new Client({
-					connectionString: adminUrl(cluster, database),
-					application_name: applicationName,
-					types: textTypes
-				})
-				return Effect.as(Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf }), c)
-			}),
-			(c) => Effect.promise(() => c.end())
-		)
-	)
-
-/**
- * The bootstrap superuser's statements in `database` of `cluster` (superuserClient), each answering its rows, every
- * column the server's text: what the toolchain's resources ask of a superuser's session (PgClusterSpec superuser), its
- * connection drawing one of the budget's permits for the scope.
- */
-export const superuserStatements = (
-	cluster: BudgetedCluster,
-	database: string,
-	applicationName: string
-) =>
-	Effect.map(superuserClient(cluster, database, applicationName), (client) => ({
-		query: (
-			sql: string,
-			params: ReadonlyArray<string>
-		): Effect.Effect<ReadonlyArray<ReadonlyArray<unknown>>, SqlError> =>
-			Effect.map(
-				Effect.tryPromise({
-					try: () => client.query({ text: sql, values: [...params], rowMode: "array" }),
-					catch: sqlErrorOf
+): Effect.Effect<SuperuserClient, SqlError, Scope.Scope> =>
+	Effect.map(
+		cluster.budget.opened(
+			Effect.acquireRelease(
+				Effect.suspend(() => {
+					const c = new Client({
+						connectionString: adminUrl(cluster, database),
+						application_name: applicationName,
+						types: textTypes
+					})
+					return Effect.as(
+						awaitingPostgres(`connect as the superuser to ${database}`)(
+							Effect.tryPromise({ try: () => c.connect(), catch: sqlErrorOf })
+						),
+						c
+					)
 				}),
-				(result) => trusted<ReadonlyArray<ReadonlyArray<unknown>>>(result.rows)
+				(c) => Effect.promise(() => c.end())
 			)
-	}))
+		),
+		(c): SuperuserClient => {
+			const answer = (sql: string, params: ReadonlyArray<string>) =>
+				Effect.map(
+					Effect.tryPromise({
+						try: () => c.query({ text: sql, values: [...params], rowMode: "array" }),
+						catch: sqlErrorOf
+					}),
+					(result) => trusted<ReadonlyArray<ReadonlyArray<string | null>>>(result.rows)
+				)
+			return { query: (sql, params) => awaitingPostgres(sql)(answer(sql, params)) }
+		}
+	)
 
 /**
  * A child process's place, lent by a case (substrate.ts Substrate.lentLayer): `width` of the permits of the case's

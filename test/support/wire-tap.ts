@@ -12,7 +12,6 @@ import {
 	type Scope,
 	String as Str
 } from "effect"
-import pgDriver from "pg"
 import type { ConnectRefusal } from "#adapter/errors/failures.ts"
 import type { Transport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
@@ -24,7 +23,7 @@ import {
 	tlsMaterial,
 	unreachableConnection
 } from "#test/support/memory-tls.ts"
-import { parsedConnection } from "#test/support/pg.ts"
+import { parsedConnection, testDriver } from "#test/support/pg.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -1043,7 +1042,7 @@ export const tappedSession = (
 			connectSession({
 				...parsedConnection(
 					{
-						driver: pgDriver,
+						driver: testDriver,
 						transport: tap.transport,
 						database: options.database,
 						password: options.password

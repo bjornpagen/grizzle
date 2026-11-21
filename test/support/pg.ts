@@ -1,11 +1,14 @@
 import { Buffer } from "node:buffer"
 import net, { connect as netConnect } from "node:net"
 import { checkServerIdentity, type PeerCertificate, connect as tlsConnect } from "node:tls"
+import { waitingOn } from "@bjornpagen/testing/live"
 import {
 	Array as Arr,
 	Data,
 	DateTime,
+	Deferred,
 	Effect,
+	Exit,
 	Function,
 	Option,
 	pipe,
@@ -21,6 +24,7 @@ import pgDriver, { Client, DatabaseError } from "pg"
 import { type ParsedConnection, parseConnection, roleSettings } from "#adapter/connection/config.ts"
 import { BatchRefused, type CredentialError } from "#adapter/errors/failures.ts"
 import type { MigrationConnectionConfig } from "#adapter/types/config.ts"
+import type { PgClientConfig, PgDriver, PgQueryConfig } from "#adapter/types/driver.ts"
 import type { DbConnection, PoolBounds, Transport } from "#adapter/types/layer.ts"
 import {
 	type ApartFailure,
@@ -51,6 +55,75 @@ import { servedSession } from "#compiler/program/served.ts"
  * refuses it.
  */
 export const noPassword: Redacted.Redacted = Redacted.make("")
+
+/** How many of a statement's first words name the declared wait on its answer (awaitingPostgres): what a report shows. */
+const waitNameWords = 6
+
+/**
+ * `effect`, which awaits PostgreSQL's answer to `sql`, as a declared wait of this process on work the server does
+ * (@bjornpagen/testing/live waitingOn): the server is no process of a case's tree, so a case's guard would read the wall
+ * time a statement spends in flight, its CPU unmoved, as a stall, and judge a case hung that waits on a statement a loaded
+ * server is slow to answer. Every place test support hands work to PostgreSQL awaits its answer through this: a raw
+ * session's exchange and connect (connectOnce), the adapter's statements under test (testDriver), the bootstrap
+ * superuser's (substrate/shared.ts superuserClient) and a psql writer's (substrate/psql.ts). It is named by the
+ * statement's first words, so a verdict reached while it is open names the statement.
+ */
+export const awaitingPostgres = (sql: string) =>
+	waitingOn(
+		`PostgreSQL: ${Arr.join(Arr.take(Str.split(Str.trim(sql), regex("\\s+")), waitNameWords), " ")}`
+	)
+
+/**
+ * pg's Query, as grizzle's adapter submits each statement of a flight (types/driver.ts PgDriver Query, wire/session.ts
+ * submitConfig), awaiting PostgreSQL's answer (awaitingPostgres) from its construction, right before the adapter submits
+ * it, to the end or the error pg reports for it: pg reports one of the two for every query it was given, a query of a
+ * connection that ended included (Client _errorAllQueries).
+ */
+class AwaitedQuery extends pgDriver.Query {
+	constructor(config: PgQueryConfig) {
+		super(config)
+		const answered = Deferred.makeUnsafe<void>()
+		Effect.runFork(awaitingPostgres(config.text)(Deferred.await(answered)))
+		const settle = (): void => {
+			Deferred.doneUnsafe(answered, Exit.void)
+		}
+		this.once("end", settle)
+		this.once("error", settle)
+	}
+}
+
+/**
+ * pg's Client, as grizzle's adapter extends it for every session and pg's Pool builds it (types/driver.ts PgDriver
+ * Client, wire/session.ts sessionClient), awaiting PostgreSQL's answer to its login (awaitingPostgres) from its
+ * construction, which the adapter and pg's Pool follow at once with its connect, to the first ReadyForQuery of its
+ * connection, or its end or error: a connection that never stood ends, and pg reports its end (Client _connect).
+ */
+class AwaitedClient extends pgDriver.Client {
+	constructor(config: PgClientConfig) {
+		super(config)
+		const ready = Deferred.makeUnsafe<void>()
+		Effect.runFork(
+			awaitingPostgres(`connect as ${config.user} to ${config.database}`)(Deferred.await(ready))
+		)
+		const settle = (): void => {
+			Deferred.doneUnsafe(ready, Exit.void)
+		}
+		this.connection.once("readyForQuery", settle)
+		this.once("end", settle)
+		this.once("error", settle)
+	}
+}
+
+/**
+ * The pg module as test support hands it to grizzle's adapter (DbConnection.driver): pg's own classes, each login and
+ * each statement awaiting PostgreSQL's answer as a declared wait (AwaitedClient, AwaitedQuery).
+ */
+export const testDriver: PgDriver = {
+	Client: AwaitedClient,
+	Pool: pgDriver.Pool,
+	Query: AwaitedQuery,
+	DatabaseError: pgDriver.DatabaseError
+}
 /**
  * The fields of a PostgreSQL ErrorResponse that tests assert on: `code` is the SQLSTATE; the fields PostgreSQL may omit
  * are decoded once, none where it sent none; `where` is the CONTEXT lines, where in a function or trigger the error was
@@ -593,14 +666,16 @@ const connectOnce = (
 			}
 		})
 		yield* Effect.acquireRelease(
-			Effect.callback<void, SqlError>((resume) => {
-				client.connect((error: unknown) => {
-					resume(
-						error === null || error === undefined ? Effect.void : Effect.fail(sqlErrorOf(error))
-					)
+			awaitingPostgres(`connect as ${options.username} to ${options.database}`)(
+				Effect.callback<void, SqlError>((resume) => {
+					client.connect((error: unknown) => {
+						resume(
+							error === null || error === undefined ? Effect.void : Effect.fail(sqlErrorOf(error))
+						)
+					})
+					return Effect.sync(() => client.connection.stream.destroy())
 				})
-				return Effect.sync(() => client.connection.stream.destroy())
-			}),
+			),
 			() => Effect.ignore(Effect.tryPromise({ try: () => client.end(), catch: sqlErrorOf }))
 		)
 		const processId = numberOf(client, "processID")
@@ -626,7 +701,7 @@ const connectOnce = (
 		 * the submissions, so they leave together. pg answers them in the order they were sent, so the exchange ends at
 		 * the last one's answer, and when interrupted it is cancelled until then.
 		 */
-		const exchange: Exchange = (statements) =>
+		const flight: Exchange = (statements) =>
 			Effect.callback((resume) => {
 				const earlier: Array<Result.Result<RawAnswer, SqlError>> = []
 				let finished = false
@@ -650,6 +725,9 @@ const connectOnce = (
 				stream.uncork()
 				return cancelUntil(() => finished)
 			})
+		/** A flight, its answers awaited as a declared wait on PostgreSQL (awaitingPostgres). */
+		const exchange: Exchange = (statements) =>
+			awaitingPostgres(Arr.headNonEmpty(statements).sql)(flight(statements))
 		/** The connection as a pinned scope holds it: its statements take no turn, and pinning it again is itself. */
 		const pinned = exchanging(processId, exchange)
 		return {
@@ -714,14 +792,15 @@ export const clusterTransport = (cluster: BudgetedCluster): Transport =>
 
 /**
  * A connection to the local cluster's `database` as a plain Node caller writes one, on grizzle's public path: the real
- * pg module as the driver, the cluster's transport and `password`.
+ * pg module's classes as the driver, each statement awaiting PostgreSQL as a declared wait (testDriver), the cluster's
+ * transport and `password`.
  */
 export const clusterConnection = (
 	cluster: BudgetedCluster,
 	database: string,
 	password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
 ): DbConnection => ({
-	driver: pgDriver,
+	driver: testDriver,
 	transport: clusterTransport(cluster),
 	database,
 	password

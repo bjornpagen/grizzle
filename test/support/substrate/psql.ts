@@ -21,7 +21,7 @@ import { ChildProcess, type ChildProcessSpawner } from "effect/process"
 import { pgPin } from "#test/support/env.ts"
 import { type ClientBackend, ownBackendOf, ownBackendQuery } from "#test/support/kernel/sanitize.ts"
 import { messageOf } from "#test/support/message.ts"
-import { reportedConstraintOf } from "#test/support/pg.ts"
+import { awaitingPostgres, reportedConstraintOf } from "#test/support/pg.ts"
 import {
 	type PgErrorFields,
 	PsqlProcessError,
@@ -872,7 +872,7 @@ export const openPsql = Effect.fnUntraced(function* (
 		)
 
 	/** Queues one statement and waits for its outcome; `canceler` cancels it if its fiber is interrupted. */
-	const send = (
+	const sent = (
 		sql: string,
 		answer: Answer,
 		canceler: Canceler
@@ -886,6 +886,17 @@ export const openPsql = Effect.fnUntraced(function* (
 				)
 			})
 		)
+
+	/**
+	 * One statement queued and its outcome awaited (sent), which is psql's and PostgreSQL's work: a declared wait on
+	 * PostgreSQL (pg.ts awaitingPostgres), every statement of a writer, its startup read included, going through it.
+	 */
+	const send = (
+		sql: string,
+		answer: Answer,
+		canceler: Canceler
+	): Effect.Effect<Completed, PsqlProcessError> =>
+		awaitingPostgres(sql)(sent(sql, answer, canceler))
 
 	const complete = (
 		sql: string,

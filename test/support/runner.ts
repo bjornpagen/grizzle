@@ -14,7 +14,7 @@ import { pgCluster } from "#test/support/env.ts"
 import { type PgConnection, type SqlError, textSession } from "#test/support/pg.ts"
 import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
-import { superuserStatements } from "#test/support/substrate/shared.ts"
+import { superuserClient } from "#test/support/substrate/shared.ts"
 
 /**
  * grizzle's services for the toolchain's runner (`toolchain-test`, test.config.ts): its local cluster (pg.config.ts) as
@@ -139,7 +139,7 @@ const ownerSession =
 
 /**
  * A session as the member's bootstrap superuser, the account, in `database` on `member` (shared.ts
- * superuserStatements), drawing one of the worker's budget's permits (from `budgets`) for its life: what the toolchain
+ * superuserClient), drawing one of the worker's budget's permits (from `budgets`) for its life: what the toolchain
  * remakes in a clone that only a superuser may be sure to make.
  */
 const superuserSession =
@@ -148,7 +148,7 @@ const superuserSession =
 		Effect.gen(function* () {
 			const cluster = yield* budgets.on(member)
 			const statements = yield* Effect.mapError(
-				superuserStatements(cluster, database, "grizzle-resources superuser"),
+				superuserClient(cluster, database, "grizzle-resources superuser"),
 				clusterFailed(`a superuser's session in ${database} on member ${member.name}`)
 			)
 			return {
