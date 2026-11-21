@@ -319,9 +319,31 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 	}
 }
 
-/** A row's identity on `heading`: its values' identities in column order, each self-delimiting. */
+/**
+ * A value's identity as a set's member: its identity under native equality (valueIdentity), a float's with its zero's
+ * sign besides, since -0 and +0 are two values of one class (c067533e8). A set holds two values of one class apart only
+ * where no operation took one of them for the other: wherever one may, the IR the reference evaluates delivers the
+ * canonical zero (check/merge.ts), so the rows such a merge meets are identical, while a parameter relation's two facts
+ * that differ in a zero's sign alone stay two rows, as every lowering delivers them.
+ */
+const memberIdentity = (v: Value, type: ScalarType): ValueIdentity => {
+	const identity = valueIdentity(v, type)
+	const { carrier } = baseOf(type)
+	return (carrier === "float4" || carrier === "float8") && typeof v === "number"
+		? [...identity, Object.is(v, -0)]
+		: identity
+}
+
+/** How a row's values are told apart: under native equality (valueIdentity), or as a set's members (memberIdentity). */
+type IdentityOf = (v: Value, type: ScalarType) => ValueIdentity
+
+/** A row's identity on `heading` by `identityOf`: its values' identities in column order, each self-delimiting. */
+const rowIdentityBy = (identityOf: IdentityOf, row: Row, heading: Heading): ValueIdentity =>
+	Arr.flatMap(heading, (c, i) => identityOf(valueAt(row, i), c.type))
+
+/** A row's identity on `heading` under native equality: its values' identities in column order, each self-delimiting. */
 export const rowIdentity = (row: Row, heading: Heading): ValueIdentity =>
-	Arr.flatMap(heading, (c, i) => valueIdentity(valueAt(row, i), c.type))
+	rowIdentityBy(valueIdentity, row, heading)
 
 /**
  * The identity of each row on `heading`, interned in `identities`, where the reference decides it: two rows that agree
@@ -335,8 +357,17 @@ export const decidedKeys = (
 	heading: Heading,
 	at: string,
 	identities: Identities
+): ReadonlyArray<Interned> => decidedKeysBy(valueIdentity, rows, heading, at, identities)
+
+/** The identity of each row on `heading` by `identityOf`, where the reference decides it (decidedKeys). */
+const decidedKeysBy = (
+	identityOf: IdentityOf,
+	rows: ReadonlyArray<Row>,
+	heading: Heading,
+	at: string,
+	identities: Identities
 ): ReadonlyArray<Interned> => {
-	const keys = Arr.map(rows, (row) => identities.of(rowIdentity(row, heading)))
+	const keys = Arr.map(rows, (row) => identities.of(rowIdentityBy(identityOf, row, heading)))
 	const open = new Set(
 		Arr.filter(indices(heading.length), (i) => Arr.some(rows, (row) => declined(valueAt(row, i))))
 	)
@@ -348,7 +379,7 @@ export const decidedKeys = (
 	for (const [r, row] of rows.entries()) {
 		const partial = partials.of(
 			Arr.flatMap(heading, (c, i): ValueIdentity =>
-				open.has(i) ? ["open"] : valueIdentity(valueAt(row, i), c.type)
+				open.has(i) ? ["open"] : identityOf(valueAt(row, i), c.type)
 			)
 		)
 		const key = elementOf(keys, r)
@@ -362,8 +393,9 @@ export const decidedKeys = (
 }
 
 /**
- * The set of `rows`: the first of each class of natively equal rows, in input order, where the reference decides
- * equality (decidedKeys). Natively equal rows are identical, so the first stands for every one.
+ * The set of `rows`: each row once, in input order, by its values' identities as a set's members (memberIdentity),
+ * where the reference decides them (decidedKeys). Rows of one identity are identical, so the first stands for every
+ * one; two rows natively equal and apart only in a float zero's sign are two values, which no merge took one of.
  */
 export const distinctRows = (
 	rows: ReadonlyArray<Row>,
@@ -371,7 +403,7 @@ export const distinctRows = (
 	at: string,
 	identities: Identities
 ): ReadonlyArray<Row> => {
-	const keys = decidedKeys(rows, heading, at, identities)
+	const keys = decidedKeysBy(memberIdentity, rows, heading, at, identities)
 	const seen = new Set<Interned>()
 	const out: Array<Row> = []
 	for (const [r, row] of rows.entries()) {

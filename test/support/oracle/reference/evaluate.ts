@@ -728,10 +728,12 @@ const isClosed = (root: RelNode): boolean => {
  * The brute-force reference evaluator: the meaning of a checked query DAG over a case's facts, computed by
  * definition on the host with set semantics.
  *
- * It shares nothing with any lowering: no SQL, no names, no plan. Every node denotes the set of its heading's tuples
- * under native equality, computed by nested loops over the facts, so it is slow and obviously right:
+ * It shares nothing with any lowering: no SQL, no names, no plan. Every node denotes the set of its heading's tuples,
+ * each once by its values (values.ts distinctRows: a float's -0 and +0 two values), compared under native equality,
+ * computed by nested loops over the facts, so it is slow and obviously right:
  *
- * - Base is the stored facts, Closed the declared ground facts, InputSet the parameter's rows deduplicated on entry;
+ * - Base is the stored facts, Closed the declared ground facts, InputSet the parameter's facts, each once, two that
+ *   differ in a zero's sign alone two rows (scalar/values/identity.ts);
  * - MatchRegion enumerates every combination of its occurrences' tuples, keeps those whose bindings agree, whose
  *   constants hold and whose equated variables are equal, and returns the set of complete variable bindings: unbound
  *   columns are existential witnesses and never contribute;
