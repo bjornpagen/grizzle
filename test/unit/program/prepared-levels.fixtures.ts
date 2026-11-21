@@ -1,0 +1,121 @@
+/** What the properties of prepared-levels.test.ts read: their logins, the change compile they are held to, and walks. */
+
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined } from "@bjornpagen/testing/assert"
+import { array, type Gen, subset } from "@bjornpagen/testing/gen"
+import { Array as Arr, Record as Rec } from "effect"
+import { artifactsOver, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
+import { transactionClock } from "#compiler/ir/clock.ts"
+import { firstCodebook } from "#compiler/ir/codes.ts"
+import { namedLogin } from "#compiler/physical/ddl/names.ts"
+import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
+import type { ChangeEntry, CompiledVariants } from "#compiler/program/workload/change.ts"
+import { compileWorkload } from "#compiler/program/workload/compile.ts"
+import { workload } from "#compiler/program/workload/value.ts"
+import { ChangeSet } from "#compiler/public/changeset.ts"
+import { pg, span } from "#compiler/public/fields.ts"
+import {
+	login,
+	mutable,
+	relation,
+	role,
+	schema,
+	wholeEntriesOf,
+	writableNamesOf
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
+import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
+import { everySlice } from "#compiler/schema/reach.ts"
+import { succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
+
+const note = str.regex("^[a-z]{1,8}$")
+
+/** A span primary key: its insert and its put have no READ COMMITTED form (write/schedule/plan.ts formedAt). */
+const Room = relation("Room", { room: Id, during: span(pg.bigint), guest: Id }, ["room", "during"])
+
+/** Room's mutable twin, whose put is the DELETE-then-insert pair, which has none either. */
+const Hold = relation("Hold", { room: Id, during: span(pg.bigint), note }, ["room", "during"])
+
+/** A scalar primary key: its insert and its put have a READ COMMITTED form. */
+const Plain = relation("Plain", { id: Id, note }, ["id"])
+
+const Levels = schema("PreparedLevels", [Room, Hold, Plain], [mutable(Hold), mutable(Plain)])
+
+/** The programs a role's workload may hold, by whether each has a READ COMMITTED form. */
+export const programs = {
+	insertRoom: { formed: false, value: () => ChangeSet.empty(Levels).insert(Room, []) },
+	putHold: { formed: false, value: () => ChangeSet.empty(Levels).put(Hold, []) },
+	insertPlain: { formed: true, value: () => ChangeSet.empty(Levels).insert(Plain, []) },
+	putPlain: { formed: true, value: () => ChangeSet.empty(Levels).put(Plain, []) }
+} as const
+
+export type Program = keyof typeof programs
+
+const names: readonly [Program, ...Array<Program>] = [
+	"insertRoom",
+	"putHold",
+	"insertPlain",
+	"putPlain"
+]
+
+const roleGen: Gen<ReadonlyArray<Program>> = subset(names, { min: 1, max: names.length })
+
+/** A login's roles, one to three, each its workload's programs, one to all four. */
+export const rolesGen: Gen<NonEmptyReadonlyArray<ReadonlyArray<Program>>> = (source) => [
+	source.draw(roleGen),
+	...source.draw(array(roleGen, { min: 0, max: 2 }))
+]
+
+/**
+ * The login of `drawn` as its change members compile (ChangeLogin): one role per drawn workload, each writing every
+ * relation, its programs named apart by the role's index, compiled with no database over the artifacts its served
+ * file compiles over, as generate compiles it (test/support/compiled-served.ts compiledInstallation).
+ */
+export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program>>) => {
+	const roles = Arr.map(drawn, (_, i) =>
+		role(Levels, `writer${i}`, wholeEntriesOf(Levels), { write: writableNamesOf(Levels) })
+	)
+	const value = login(Levels, "app", roles, {
+		workload: Arr.map(drawn, (held, i) =>
+			workload(
+				defined(roles[i], "a drawn role"),
+				Rec.fromEntries(Arr.map(held, (p) => [`${p}${i}`, programs[p].value()] as const))
+			)
+		)
+	})
+	const built = defined(builtLogin(value), "a login built by login(...)")
+	const owned = succeeded(ownBuilt(built.base), "the login's base")
+	const basis = succeeded(
+		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
+		"the base's basis"
+	)
+	const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
+	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
+	const planned = succeeded(
+		compileWorkload([{ login: ownedLogin.name, workloads: built.workload }], built.base, {
+			artifacts: checking,
+			roles: ownedLogin.roles
+		}),
+		"the login's workload plan"
+	)
+	const artifacts = succeeded(
+		artifactsOver(basis, { kind: "planned", types: planned.params }),
+		"the login's artifacts"
+	)
+	return {
+		roles: built.roles,
+		workload: built.workload,
+		named: succeeded(namedLogin(ownedLogin, artifacts.names.levels), "the login named"),
+		artifacts,
+		clock: transactionClock
+	}
+}
+
+/** The entries of `variants`, every form of its splits, in order. */
+export const entriesOf = <S extends ParamSource>(
+	variants: CompiledVariants<S>
+): ReadonlyArray<ChangeEntry<S>> =>
+	variants.kind === "form"
+		? [variants.entry]
+		: [...entriesOf(variants.lacking), ...entriesOf(variants.holding)]

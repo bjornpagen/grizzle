@@ -6,6 +6,7 @@ import type { RowDecoder } from "#compiler/core/decoder.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { once } from "#compiler/core/lazy.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
@@ -26,7 +27,11 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import { fillContexts } from "#compiler/write/frontend/entry.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
-import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
+import {
+	type CompiledWrite,
+	type PreparedWrite,
+	prepareWrite
+} from "#compiler/write/program/compile.ts"
 
 /**
  * A ChangeSet compiled for a role: its write program as it compiled, the value parsed whole, the parameters its member
@@ -35,9 +40,18 @@ import { type CompiledWrite, compileWrite } from "#compiler/write/program/compil
  * SchemaArtifacts `params`), which only an InstalledSource lets run. What a served file projects of it
  * (served/project.ts), and what the shell's runtime entry is built over.
  */
-export interface ChangeEntry<S extends ParamSource = ParamSource> {
-	readonly params: S
+export interface ChangeEntry<S extends ParamSource = ParamSource> extends PreparedEntry<S> {
 	readonly compiled: CompiledWrite
+}
+
+/**
+ * A ChangeSet prepared for a role, before its level: what its entry at every level is compiled from (ChangeEntry), its
+ * write prepared once (write/program/compile.ts PreparedWrite), which reads no level.
+ */
+interface PreparedEntry<S extends ParamSource> {
+	readonly params: S
+	/** The write its entries compile from at each level, made once (write/program/compile.ts prepareWrite). */
+	readonly prepared: PreparedWrite
 	readonly change: ParsedChangeSet
 	readonly clock: ClockBinding
 	/** Where its readings of the clock count from (write/program/compile.ts CompileWriteOptions `source`), which a
@@ -97,23 +111,35 @@ export const compileParsed = <S extends ParamSource>(
 	level: Isolation,
 	clock: ClockBinding,
 	source: ClockSource
-): Result.Result<ChangeEntry<S>, CompileError> => {
+): Result.Result<ChangeEntry<S>, CompileError> =>
+	Result.flatMap(preparedParsed(artifacts, change, claims, clock, source), (prepared) =>
+		entryAt(prepared, level)
+	)
+
+/** A parsed ChangeSet prepared against `artifacts` for the contexts `claims` holds a fact of (compileParsed's, before
+ * its level). */
+const preparedParsed = <S extends ParamSource>(
+	artifacts: SchemaArtifacts<S>,
+	change: ParsedChangeSet,
+	claims: ReadonlySet<string>,
+	clock: ClockBinding,
+	source: ClockSource
+): Result.Result<PreparedEntry<S>, CompileError> => {
 	const world = artifacts.world
 	return Result.map(
-		compileWrite(world.kind === "role" ? world.checked : artifacts.derived.schema, change.desc, {
+		prepareWrite(world.kind === "role" ? world.checked : artifacts.derived.schema, change.desc, {
 			names: artifacts.names,
 			reads: artifacts.reads,
 			claims: { kind: "facts", present: claims },
 			world: writeWorldOf(world, artifacts.laws),
 			laws: artifacts.laws,
 			derived: artifacts.derived,
-			level,
 			clock,
 			source
 		}),
-		(compiled): ChangeEntry<S> => ({
+		(prepared): PreparedEntry<S> => ({
 			params: artifacts.params,
-			compiled,
+			prepared,
 			change,
 			clock,
 			source,
@@ -123,43 +149,104 @@ export const compileParsed = <S extends ParamSource>(
 	)
 }
 
+/** A prepared ChangeSet's entry at `level`: its prepared write compiled at it (write/program/compile.ts PreparedWrite). */
+const entryAt = <S extends ParamSource>(
+	entry: PreparedEntry<S>,
+	level: Isolation
+): Result.Result<ChangeEntry<S>, CompileError> =>
+	Result.map(entry.prepared.compile(level), (compiled): ChangeEntry<S> => ({
+		params: entry.params,
+		prepared: entry.prepared,
+		change: entry.change,
+		clock: entry.clock,
+		source: entry.source,
+		schema: entry.schema,
+		names: entry.names,
+		compiled
+	}))
+
+/**
+ * The variants of a workload ChangeSet (CompiledVariants) before their level: each form's entry prepared where it is
+ * first compiled, at the first level its role reads it at, and held for every level after (PreparedEntry), so a
+ * member's front end compiles once for each set of its fill contexts whatever the levels, where each level compiled it
+ * again from its value.
+ */
+type PreparedVariants<S extends ParamSource> =
+	| {
+			readonly kind: "form"
+			readonly entry: () => Result.Result<PreparedEntry<S>, CompileError>
+			readonly decoder: RowDecoder<unknown>
+	  }
+	| {
+			readonly kind: "split"
+			readonly context: string
+			readonly holding: PreparedVariants<S>
+			readonly lacking: PreparedVariants<S>
+	  }
+
 /**
  * The variants of `changes` for a role, its value parsed `role` over its artifacts `artifacts`, over the fill contexts
  * `undecided`, the contexts after them already decided to hold or lack a fact, `holding` those that hold one, in the
- * fill contexts' order. The last undecided context splits first and each split compiles its lacking side first, so the
- * entries compile in the order of the subsets of the fill contexts counted with the first context as the lowest digit.
+ * fill contexts' order, each form's entry prepared where it is first read (PreparedVariants).
  */
-const changeVariants = <S extends ParamSource>(
+const preparedVariants = <S extends ParamSource>(
 	role: ParsedRole,
 	artifacts: SchemaArtifacts<S>,
 	changes: ChangeSetValue,
 	clock: ClockBinding,
 	source: ClockSource,
-	level: Isolation,
 	undecided: ReadonlyArray<string>,
 	holding: ReadonlyArray<string>
-): Result.Result<CompiledVariants<S>, CompileError> => {
+): PreparedVariants<S> => {
 	const context = undecided.at(-1)
 	if (context === undefined) {
-		return Result.map(
-			Result.flatMap(parsedChange(role, changes), (change) =>
-				compileParsed(artifacts, change, new Set(holding), level, clock, source)
+		return {
+			kind: "form",
+			entry: once(() =>
+				Result.flatMap(parsedChange(role, changes), (change) =>
+					preparedParsed(artifacts, change, new Set(holding), clock, source)
+				)
 			),
-			(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: changes.reads })
-		)
+			decoder: changes.reads
+		}
 	}
 	const before = undecided.slice(0, -1)
-	return Result.flatMap(
-		changeVariants(role, artifacts, changes, clock, source, level, before, holding),
-		(lacking) =>
-			Result.map(
-				changeVariants(role, artifacts, changes, clock, source, level, before, [
-					context,
-					...holding
-				]),
-				(held): CompiledVariants<S> => ({ kind: "split", context, holding: held, lacking })
+	return {
+		kind: "split",
+		context,
+		holding: preparedVariants(role, artifacts, changes, clock, source, before, [
+			context,
+			...holding
+		]),
+		lacking: preparedVariants(role, artifacts, changes, clock, source, before, holding)
+	}
+}
+
+/**
+ * Prepared variants compiled at `level`: each split compiles its lacking side first, so the entries compile in the
+ * order of the subsets of the fill contexts counted with the first context as the lowest digit, each form's entry
+ * prepared, where it is not yet, just before it compiles, and the first refusal in that order refuses them all.
+ */
+const variantsCompiledAt = <S extends ParamSource>(
+	variants: PreparedVariants<S>,
+	level: Isolation
+): Result.Result<CompiledVariants<S>, CompileError> => {
+	switch (variants.kind) {
+		case "form":
+			return Result.map(
+				Result.flatMap(variants.entry(), (prepared) => entryAt(prepared, level)),
+				(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: variants.decoder })
 			)
-	)
+		case "split":
+			return Result.flatMap(variantsCompiledAt(variants.lacking, level), (lacking) =>
+				Result.map(variantsCompiledAt(variants.holding, level), (held): CompiledVariants<S> => ({
+					kind: "split",
+					context: variants.context,
+					holding: held,
+					lacking
+				}))
+			)
+	}
 }
 
 /**
@@ -207,7 +294,8 @@ export interface ChangeRefused {
 /**
  * One role of `login` before its change members compile: its value parsed, its owned role as the installation named it,
  * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, compiled at a level by
- * `compile`, its variants over its fill contexts.
+ * `compile`, its variants over its fill contexts, each prepared once for every level its role compiles it at
+ * (PreparedVariants).
  */
 interface RoleBase<S extends ParamSource> {
 	readonly input: ParsedRole
@@ -251,26 +339,28 @@ const roleBase = <S extends ParamSource>(
 		input,
 		named,
 		artifacts: artifacts.value,
-		programs: running.value.flatMap((program) =>
-			program.kind === "changeSet"
-				? [
-						{
-							name: program.name,
-							compile: (level: Isolation) =>
-								changeVariants(
-									input,
-									artifacts.value,
-									program.value,
-									program.clock,
-									login.clock,
-									level,
-									fillContexts(owned.writes, program.desc.changeSet),
-									[]
-								)
-						}
-					]
-				: []
-		)
+		programs: running.value.flatMap((program) => {
+			if (program.kind !== "changeSet") {
+				return []
+			}
+			const variants = once(() =>
+				preparedVariants(
+					input,
+					artifacts.value,
+					program.value,
+					program.clock,
+					login.clock,
+					fillContexts(owned.writes, program.desc.changeSet),
+					[]
+				)
+			)
+			return [
+				{
+					name: program.name,
+					compile: (level: Isolation) => variantsCompiledAt(variants(), level)
+				}
+			]
+		})
 	})
 }
 
@@ -401,46 +491,34 @@ export const readCommittedChanges = <S extends ParamSource>(
 	return Result.ok(roles)
 }
 
-/** `variants` compiled again at `level`, each form's ChangeSet for the contexts its split path holds a fact of. */
+/** `variants` compiled again at `level`, each form's entry from the write it was prepared as (PreparedEntry), holding
+ * side first. */
 const variantsAt = <S extends ParamSource>(
-	artifacts: SchemaArtifacts<S>,
 	variants: CompiledVariants<S>,
-	holding: ReadonlyArray<string>,
 	level: Isolation
 ): Result.Result<CompiledVariants<S>, CompileError> => {
 	switch (variants.kind) {
 		case "form":
-			return Result.map(
-				compileParsed(
-					artifacts,
-					variants.entry.change,
-					new Set(holding),
-					level,
-					variants.entry.clock,
-					variants.entry.source
-				),
-				(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: variants.decoder })
-			)
+			return Result.map(entryAt(variants.entry, level), (entry): CompiledVariants<S> => ({
+				kind: "form",
+				entry,
+				decoder: variants.decoder
+			}))
 		case "split":
-			return Result.flatMap(
-				variantsAt(artifacts, variants.holding, [variants.context, ...holding], level),
-				(held) =>
-					Result.map(
-						variantsAt(artifacts, variants.lacking, holding, level),
-						(lacking): CompiledVariants<S> => ({
-							kind: "split",
-							context: variants.context,
-							holding: held,
-							lacking
-						})
-					)
+			return Result.flatMap(variantsAt(variants.holding, level), (held) =>
+				Result.map(variantsAt(variants.lacking, level), (lacking): CompiledVariants<S> => ({
+					kind: "split",
+					context: variants.context,
+					holding: held,
+					lacking
+				}))
 			)
 	}
 }
 
 /**
- * `role`, its change members compiled again at `level` (RoleChanges), each from the ChangeSet it parsed, for the contexts
- * its variant holds a fact of.
+ * `role`, its change members compiled again at `level` (RoleChanges), each from the write its entry was prepared as,
+ * for the contexts its variant holds a fact of.
  */
 export const changesAt = <L extends Isolation, S extends ParamSource>(
 	role: RoleChanges<Isolation, S>,
@@ -448,7 +526,7 @@ export const changesAt = <L extends Isolation, S extends ParamSource>(
 ): Result.Result<RoleChanges<L, S>, CompileError> => {
 	const members = new Map<string, CompiledVariants<S>>()
 	for (const [name, variants] of role.members) {
-		const lowered = variantsAt(role.artifacts, variants, [], level)
+		const lowered = variantsAt(variants, level)
 		if (!lowered.ok) {
 			return lowered
 		}

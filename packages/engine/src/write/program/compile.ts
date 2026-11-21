@@ -179,7 +179,12 @@ import {
 	singleStatement
 } from "#compiler/write/program/single.ts"
 import { withStagedSlots } from "#compiler/write/program/slot-carriers.ts"
-import { choosePutTargets, chosenIn, type PutChoice } from "#compiler/write/put/choose.ts"
+import {
+	choosePutTargets,
+	type ChosenTargets,
+	chosenIn,
+	type PutChoice
+} from "#compiler/write/put/choose.ts"
 import {
 	buildMerge,
 	buildUpdateFrom,
@@ -205,7 +210,11 @@ import {
 	type WritePlan
 } from "#compiler/write/schedule/plan.ts"
 
-export interface CompileWriteOptions {
+/**
+ * What a write's compile reads before its isolation level: every option but the level (`CompileWriteOptions`). The
+ * prepared write (`PreparedWrite`) is made under these alone, so no step of it can read a level.
+ */
+export interface PrepareWriteOptions {
 	/** The installed names the statements write (`InstallNames`, `schemaArtifacts`). */
 	readonly names: WriteNames
 	/** The names the members and read-backs read their relations under: reality's own, or a role's views
@@ -218,14 +227,17 @@ export interface CompileWriteOptions {
 	/** The schema's law model and its base's derived analysis (`SchemaArtifacts.laws`, `.derived`). */
 	readonly laws: LawModel
 	readonly derived: DerivedAnalysis
-	/** The isolation the write runs at, which decides how its inserts meet stored rows (insert/protocol.ts
-	 * Arbitration): a role's level, SERIALIZABLE wherever none is proved. */
-	readonly level: Isolation
 	/** Each parameter bound to the database's clock (write/frontend/compile.ts FrontendOptions `clock`), whose statements
 	 * print it as the reading itself. */
 	readonly clock: ClockBinding
 	/** Where its readings of the clock count from (write/frontend/compile.ts FrontendOptions `source`). */
 	readonly source: ClockSource
+}
+
+export interface CompileWriteOptions extends PrepareWriteOptions {
+	/** The isolation the write runs at, which decides how its inserts meet stored rows (insert/protocol.ts
+	 * Arbitration): a role's level, SERIALIZABLE wherever none is proved. */
+	readonly level: Isolation
 }
 
 export interface CompiledWrite extends ProgramArtifacts<WriteParamSlot> {
@@ -1757,11 +1769,55 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
 	return [check.entry.target.name, ...read].map((r) => `relation:${r}`)
 }
 
-const compile = (
+/**
+ * A write compiled up to its isolation level: what its compile reads the same at every level, made once for each
+ * ChangeSet and set of claims and compiled at each level a role reads it at (`compile`).
+ *
+ * It holds the write front end, the ChangeSetDesc checked against the schema and grouped into the WriteIR's actions
+ * (compileChangeSet), and each put's target (choosePutTargets), which read the schema, the claims, the laws and the
+ * clock but no level: `prepare` is given PrepareWriteOptions, which hold none. Everything that reads the level is
+ * `compile`'s: the schedule, whose forms refuse an insert with no form at READ COMMITTED (schedule/plan.ts
+ * formedAt) and whose puts choose their statements by it (putOps), the lowering's write context, and the statements
+ * built over them. So is everything a compile appends to as it lowers, made afresh at each level and never held here:
+ * the facts whose certificates the lowering records (writeFacts), the statement share, the shape state and the share
+ * index's memo. A prepared write holds no analysis beyond what its compiled write holds (`frontend`, the put choices).
+ */
+export class PreparedWrite {
+	readonly schema: CheckedSchema
+	readonly options: PrepareWriteOptions
+	readonly frontend: WriteFrontend
+	readonly chosen: ChosenTargets
+	#compiles = 0
+
+	constructor(
+		schema: CheckedSchema,
+		options: PrepareWriteOptions,
+		frontend: WriteFrontend,
+		chosen: ChosenTargets
+	) {
+		this.schema = schema
+		this.options = options
+		this.frontend = frontend
+		this.chosen = chosen
+	}
+
+	/** How many levels it was compiled at (`compile`): the back ends its one front end fed, the work it saved them. */
+	get compiles(): number {
+		return this.#compiles
+	}
+
+	/** The write compiled at `level` (compileWrite's steps 3 to 5): the WriteProgram compileWrite makes at it. */
+	compile(level: Isolation): Result.Result<CompiledWrite, CompileError> {
+		this.#compiles += 1
+		return catchRefusal(() => compileAt(this, level))
+	}
+}
+
+const prepare = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
-	options: CompileWriteOptions
-): CompiledWrite => {
+	options: PrepareWriteOptions
+): PreparedWrite => {
 	const frontend = unwrap(
 		compileChangeSet(schema, desc, {
 			claims: options.claims,
@@ -1773,7 +1829,13 @@ const compile = (
 			source: options.source
 		})
 	)
-	const chosen = choosePutTargets(frontend)
+	return new PreparedWrite(schema, options, frontend, choosePutTargets(frontend))
+}
+
+/** A prepared write compiled at `level`: steps 3 to 5 of compileWrite, over the front end and put targets it holds. */
+const compileAt = (prepared: PreparedWrite, level: Isolation): CompiledWrite => {
+	const { schema, frontend, chosen } = prepared
+	const options: CompileWriteOptions = { ...prepared.options, level }
 	/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs each
 	 * the restated node standing in its place, and each put its choice; the conservative realization lowers the checked
 	 * one. */
@@ -1869,4 +1931,18 @@ export const compileWrite = (
 	schema: CheckedSchema,
 	desc: ChangeSetDesc,
 	options: CompileWriteOptions
-): Result.Result<CompiledWrite, CompileError> => catchRefusal(() => compile(schema, desc, options))
+): Result.Result<CompiledWrite, CompileError> =>
+	catchRefusal(() => {
+		const { level, ...prepareOptions } = options
+		return compileAt(prepare(schema, desc, prepareOptions), level)
+	})
+
+/**
+ * A ChangeSet's Description prepared against a checked schema (PreparedWrite): steps 1 and 2 of compileWrite, which
+ * read no level, for PreparedWrite.compile to compile at each level it is read at.
+ */
+export const prepareWrite = (
+	schema: CheckedSchema,
+	desc: ChangeSetDesc,
+	options: PrepareWriteOptions
+): Result.Result<PreparedWrite, CompileError> => catchRefusal(() => prepare(schema, desc, options))
