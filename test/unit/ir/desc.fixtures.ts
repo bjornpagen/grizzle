@@ -981,9 +981,10 @@ export const queried = nonEmpty(
  * struct of its kind's properties only; a literal no JavaScript NaN, a money, vector or decimal tagged; take only
  * after an order; a rules stage with an arm; on an Ordered only take, each other stage over it a rule of its own, so
  * that every one is reached; a union over a query, not over the builder's rules, which are one stage; each order
- * column once; a primary key nonempty and among the fields, filled by its writer; a relation's, a field's and a
- * program's name storable text; a closed relation's rows each of every field, one per key, keyed by closed ids; an
- * Allen mask of thirteen bits; a numeric precision 1-1000; each variable id once.
+ * column once; a primary key nonempty and among the fields, filled by its writer (its caller, its family's draw, its
+ * insert's place or its row's generation, never an accumulation, which a family fills from the row the key names); a
+ * relation's, a field's and a program's name storable text; a closed relation's rows each of every field, one per key,
+ * keyed by closed ids; an Allen mask of thirteen bits; a numeric precision 1-1000; each variable id once.
  */
 export type DescRule =
 	| "no part is null"
@@ -1174,10 +1175,7 @@ export const descCorruptions: Arr.NonEmptyReadonlyArray<DescCorruption> = [
 								...fields,
 								[key]: {
 									type: Reflect.get(keyed, "type"),
-									writing: {
-										kind: "generated",
-										expr: { kind: "literal", value: 1 }
-									}
+									writing: { kind: "accumulated", start: 0n }
 								}
 							}
 						}
