@@ -23,7 +23,7 @@
 			"outputs": ["types/**"]
 		},
 		"@bjornpagen/grizzle-cli-generator#typecheck": {
-			"description": "The generator's typecheck, through its ratchet (scripts/ratchet.ts), checks with the root's noEmit: it writes nothing, so there is no output.",
+			"description": "The generator's typecheck checks with the root's noEmit: it writes nothing, so there is no output.",
 			"dependsOn": ["^typecheck"],
 			"outputs": []
 		},

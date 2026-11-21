@@ -26,12 +26,11 @@
 		"node": ">=26"
 	},
 	"scripts": {
-		"typecheck": "node scripts/ratchet.ts typecheck -- -p tsconfig.json",
-		"oxlint": "node scripts/ratchet.ts oxlint",
+		"typecheck": "toolchain-typecheck -p tsconfig.json",
+		"oxlint": "toolchain-oxlint",
 		"runtime-gate": "node scripts/runtime-gate.ts",
 		"benchmark": "node corpus/tools/benchmark.ts",
-		"corpus": "node corpus/tools/run.ts --check",
-		"ratchet:lower": "node scripts/ratchet.ts typecheck --lower -- -p tsconfig.json && node scripts/ratchet.ts oxlint --lower"
+		"corpus": "node corpus/tools/run.ts --check"
 	},
 	"dependencies": {
 		"@bjornpagen/grizzle-text": "workspace:*",

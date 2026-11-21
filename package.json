@@ -23,8 +23,7 @@
 		"#pg/*": "./packages/pg/src/*",
 		"#pg.config.ts": "./pg.config.ts",
 		"#oxlint.config.ts": "./oxlint.config.ts",
-		"#toolchain.config.ts": "./toolchain.config.ts",
-		"#cli-generator/*": "./packages/cli-generator/*"
+		"#toolchain.config.ts": "./toolchain.config.ts"
 	},
 	"scripts": {
 		"prepare": "effect-tsgo patch",
