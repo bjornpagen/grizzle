@@ -29,7 +29,7 @@ import {
 } from "#compiler/core/canonical.ts"
 import { clockUnits } from "#compiler/core/clock.ts"
 import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
-import { type IdentityDigest, identityDigest } from "#compiler/core/fingerprint.ts"
+import { type IdentityDigest, IdentityDigests, identityDigest } from "#compiler/core/fingerprint.ts"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
@@ -3783,6 +3783,12 @@ export const descText = (desc: unknown): Result.Result<WellFormedText, CompileEr
  */
 export const descIdentity = (desc: unknown): Result.Result<IdentityDigest, CompileError> =>
 	identityDigest(desc, identityOptions)
+
+/**
+ * Identity digests of Descriptions (descIdentity) that keep each frozen part's token across the Descriptions they digest
+ * (core/fingerprint.ts IdentityDigests): one owner's, a ChangeSet chain's, whose members share the queries they import.
+ */
+export const descIdentities = (): IdentityDigests => new IdentityDigests(identityOptions)
 
 /**
  * The canonical identity text of `desc`, a plain record each of whose members `written` holds has the identity text it

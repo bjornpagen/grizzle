@@ -15,6 +15,12 @@
  * (ir/desc.ts descText, the second implementation). Kill: the identity digest over the canonical text whole, which no
  * process writes at 32 levels.
  *
+ * And a ChangeSet's chain of members digests each part they share once (ir/desc.ts descIdentities, core/fingerprint.ts
+ * IdentityDigests, owned by the chain): over the same chains, eight inserts each reading the top of one chain digest,
+ * beyond one insert, only their own parts, as many at every depth, where each member digested the whole chain again.
+ * Oracle: specification, a part one member digested is never digested again. Kill: every container's token kept for
+ * one member's digest alone.
+ *
  * Features: a shallow chain and a deep one.
  */
 
@@ -22,9 +28,18 @@ import { assert } from "@bjornpagen/testing/assert"
 import { finite, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import type { IdentityDigests } from "#compiler/core/fingerprint.ts"
 import { descText } from "#compiler/ir/desc.ts"
-import { changeSetDesc, changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
-import { chainVariantWriteOf, chainWriteOf } from "#test/unit/write/shared-imports.fixtures.ts"
+import {
+	changeSetDesc,
+	changeSetOver as ChangeSet,
+	changeSetState
+} from "#compiler/write/changeset/value.ts"
+import {
+	chainReadersOf,
+	chainVariantWriteOf,
+	chainWriteOf
+} from "#test/unit/write/shared-imports.fixtures.ts"
 
 /** The depths of the box: 2, 8 and 32, each four times the one before. */
 const depthGen: Gen<number> = map(int(0, 2), (i) => 2 * 4 ** i)
@@ -71,9 +86,44 @@ export const aMembersIdentityIsItsDescriptionsIdentityDigestEqualMembersOneAndEv
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\t\t\t? sha256Hex(containerText(read))\n",
-				replacement: "\t\t\t\t? sha256Hex(unwrap(encode(value, options)))\n",
+				original: "\t\t\t\t\t? sha256Hex(this.#containerText(read, open))\n",
+				replacement: "\t\t\t\t\t? sha256Hex(unwrap(encode(value, this.#options)))\n",
 				why: "The identity digest is the canonical text's, written whole: at 32 levels the text is past the longest string a process holds, so the member is refused where the property builds it."
+			}
+		]
+	})
+
+/** The containers a ChangeSet's chain of members digested for their identities. */
+const digestedBy = (value: unknown): number => {
+	const identities: IdentityDigests | undefined = changeSetState(value)?.identities
+	return identities === undefined ? 0 : identities.digested
+}
+
+/** A ChangeSet's chain of members digests each part they share once, so members past the first digest only their own parts, as many at every depth. */
+export const aChangeSetsChainOfMembersDigestsEachPartTheyShareOnceSoMembersPastTheFirstDigestOnlyTheirOwnPartsAsManyAtEveryDepth =
+	property.exhaust(finite(depthGen), {
+		needs: {},
+		situations: ["a shallow chain", "a deep chain"],
+		check: (_, k) => (depth) =>
+			Effect.sync(() => {
+				k.note(depth === 2 ? "a shallow chain" : "a deep chain")
+				const own = (d: number) =>
+					digestedBy(chainReadersOf(d, 8)) - digestedBy(chainReadersOf(d, 1))
+				assert.equal(
+					own(depth),
+					own(2),
+					`the members past the first digest as many parts at depth ${depth} as at 2`
+				)
+			}),
+		oracle: { kind: "specification", name: "a part one member digested is never digested again" },
+		box: "one and eight inserts each reading the top of one chain of 2, 8 and 32 bound queries, each level two rules reading the one below",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: "\t\tconst tokens = Object.isFrozen(container) ? this.#tokens : open\n",
+				replacement: "\t\tconst tokens = open\n",
+				why: "Each member's digest keeps its containers' tokens for itself alone, so every member digests the whole chain again and the parts members past the first digest grow with the depth."
 			}
 		]
 	})

@@ -64,53 +64,85 @@ const mintIdentityDigest = nominal<string, IdentityDigest>()
 export const identityDigest = (
 	value: unknown,
 	options: EncodeOptions
-): Result.Result<IdentityDigest, CompileError> =>
-	catchRefusal(() => {
-		/** Each container's text as a member of another, its digest tagged, by the container. */
-		const tokens = new Map<object, WellFormedText>()
-		/** A member's text in its container's: a container's token, or a scalar's canonical text. */
-		const memberText = (member: unknown): WellFormedText => {
-			const read = canonicalOf(member)
-			if (typeof read !== "object" || (read.kind !== "array" && read.kind !== "record")) {
-				return unwrap(encode(member, options))
-			}
-			const container = read.kind === "array" ? read.items : read.record
-			const known = tokens.get(container)
-			if (known !== undefined) {
-				return known
-			}
-			const token = wellFormed(`"~${identityTag}:${sha256Hex(containerText(read))}"`)
-			tokens.set(container, token)
-			return token
+): Result.Result<IdentityDigest, CompileError> => new IdentityDigests(options).of(value)
+
+/**
+ * Identity digests under one EncodeOptions (`identityDigest`), each frozen container's token kept across every value
+ * they digest, as one value's every container is within it: a container two values hold is digested once for both.
+ * Owned by the caller whose values share parts, a ChangeSet's chain of members, each of which may import what an
+ * earlier one does (write/changeset/value.ts), never by a module. A frozen container's token is its content's for as
+ * long as it lives; one that is not frozen is digested anew in each value that holds it.
+ */
+export class IdentityDigests {
+	readonly #options: EncodeOptions
+	/** Each frozen container's text as a member of another, its digest tagged, by the container. */
+	readonly #tokens = new WeakMap<object, WellFormedText>()
+	#digested = 0
+
+	constructor(options: EncodeOptions) {
+		this.#options = options
+	}
+
+	/** The identity digest of `value` (`identityDigest`). */
+	of(value: unknown): Result.Result<IdentityDigest, CompileError> {
+		return catchRefusal(() => {
+			/** Each open container's token within this value. */
+			const open = new Map<object, WellFormedText>()
+			const read = canonicalOf(value)
+			return mintIdentityDigest(
+				typeof read === "object" && (read.kind === "array" || read.kind === "record")
+					? sha256Hex(this.#containerText(read, open))
+					: sha256Hex(unwrap(encode(value, this.#options)))
+			)
+		})
+	}
+
+	/** A member's text in its container's: a container's token, or a scalar's canonical text. */
+	#memberText(member: unknown, open: Map<object, WellFormedText>): WellFormedText {
+		const read = canonicalOf(member)
+		if (typeof read !== "object" || (read.kind !== "array" && read.kind !== "record")) {
+			return unwrap(encode(member, this.#options))
 		}
-		/** A container's own text: its scalars as `encode` writes them, its containers as their tokens. */
-		const containerText = (
-			read: Extract<CanonicalObject, { readonly kind: "array" | "record" }>
-		): WellFormedText => {
-			if (read.kind === "array") {
-				return arrayText(read.items.map(memberText))
-			}
-			const written = new Map<string, WellFormedText>()
-			for (const key of Object.keys(read.record)) {
-				const member = read.record[key]
-				const at = canonicalOf(member)
-				if (
-					typeof at === "object" &&
-					(at.kind === "array" || at.kind === "record") &&
-					!options.omit(key, member, [])
-				) {
-					written.set(key, memberText(member))
-				}
-			}
-			return unwrap(encodeOver(read.record, options, written))
+		const container = read.kind === "array" ? read.items : read.record
+		const tokens = Object.isFrozen(container) ? this.#tokens : open
+		const known = tokens.get(container)
+		if (known !== undefined) {
+			return known
 		}
-		const read = canonicalOf(value)
-		return mintIdentityDigest(
-			typeof read === "object" && (read.kind === "array" || read.kind === "record")
-				? sha256Hex(containerText(read))
-				: sha256Hex(unwrap(encode(value, options)))
-		)
-	})
+		const token = wellFormed(`"~${identityTag}:${sha256Hex(this.#containerText(read, open))}"`)
+		this.#digested += 1
+		tokens.set(container, token)
+		return token
+	}
+
+	/** How many containers these digests have digested, each its text hashed once: their work. */
+	get digested(): number {
+		return this.#digested
+	}
+
+	/** A container's own text: its scalars as `encode` writes them, its containers as their tokens. */
+	#containerText(
+		read: Extract<CanonicalObject, { readonly kind: "array" | "record" }>,
+		open: Map<object, WellFormedText>
+	): WellFormedText {
+		if (read.kind === "array") {
+			return arrayText(read.items.map((item) => this.#memberText(item, open)))
+		}
+		const written = new Map<string, WellFormedText>()
+		for (const key of Object.keys(read.record)) {
+			const member = read.record[key]
+			const at = canonicalOf(member)
+			if (
+				typeof at === "object" &&
+				(at.kind === "array" || at.kind === "record") &&
+				!this.#options.omit(key, member, [])
+			) {
+				written.set(key, this.#memberText(member, open))
+			}
+		}
+		return unwrap(encodeOver(read.record, this.#options, written))
+	}
+}
 
 /** The tag of a container's identity digest in its container's text (`identityDigest`). */
 const identityTag = "identity"

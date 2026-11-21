@@ -13,7 +13,7 @@ import {
 	type Outside
 } from "#compiler/core/canonical.ts"
 import { attachment, merge, type RecordField, type RowDecoder } from "#compiler/core/decoder.ts"
-import type { IdentityDigest } from "#compiler/core/fingerprint.ts"
+import type { IdentityDigest, IdentityDigests } from "#compiler/core/fingerprint.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
@@ -23,7 +23,7 @@ import { type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import {
 	type ChangeSetDesc,
 	decodeDesc,
-	descIdentity,
+	descIdentities,
 	type EqualedDesc,
 	equalParamNames,
 	type MemberDesc,
@@ -188,6 +188,11 @@ interface ChangeSetState {
 	readonly desc: ChangeSetDesc
 	/** The array and Stream inputs, by the slot their member's Description names. */
 	readonly inputs: ReadonlyMap<string, ChangeSetInput>
+	/**
+	 * The identity digests of its members' Descriptions (ir/desc.ts descIdentities), carried from the ChangeSet it was
+	 * built from: a member that imports what an earlier member does digests each shared part once for the chain.
+	 */
+	readonly identities: IdentityDigests
 }
 
 /** The host input of one array or Stream member, by slot. */
@@ -489,13 +494,14 @@ const equalState = (
 	op: WriteOp,
 	relation: string,
 	fields: Readonly<Record<string, EqualedDesc>>,
-	loc: SourceLoc
+	loc: SourceLoc,
+	identities: IdentityDigests
 ): Extract<MemberState, { readonly kind: "equal" }> => ({
 	kind: "equal",
 	op,
 	relation,
 	fields,
-	identity: identityOf(fields),
+	identity: identityOf(identities, fields),
 	params: equalParamNames(fields),
 	desc: Object.freeze({ op, relation, member: Object.freeze({ kind: "equal", fields }), loc })
 })
@@ -576,7 +582,7 @@ const describe = (
 }
 
 /** The part of a state that holds parameters. */
-type Scope = Pick<ChangeSetState, "strata" | "reads" | "bound">
+type Scope = Pick<ChangeSetState, "strata" | "reads" | "bound" | "identities">
 
 /** Every parameter name the members and read-backs use, free or private, in canonical walk order. */
 const usedParams = (scope: Pick<Scope, "strata" | "reads">): ReadonlySet<string> => {
@@ -622,21 +628,25 @@ const freshName = (origin: string, taken: ReadonlySet<string>): string => {
 const renamedQuery = (query: QueryDesc, rename: ReadonlyMap<string, string>): QueryDesc =>
 	orThrow(decodeDesc("query", renameQueryParams(query, rename)))
 
-const renameMember = (m: MemberState, rename: ReadonlyMap<string, string>): MemberState => {
+const renameMember = (
+	m: MemberState,
+	rename: ReadonlyMap<string, string>,
+	identities: IdentityDigests
+): MemberState => {
 	if (!isDescribed(m) || ![...m.params].some((p) => rename.has(p))) {
 		return m
 	}
 	if (m.kind === "equal") {
-		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc)
+		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc, identities)
 	}
 	if (m.kind === "computed") {
-		return computedState(m.relation, renamedQuery(m.query, rename), m.desc.loc)
+		return computedState(m.relation, renamedQuery(m.query, rename), m.desc.loc, identities)
 	}
 	const query = renamedQuery(m.query, rename)
 	return {
 		...m,
 		query,
-		identity: identityOf(query),
+		identity: identityOf(identities, query),
 		params: queryParamNames(query),
 		desc: queryMemberDesc(m.op, m.relation, query, m.desc.loc)
 	}
@@ -667,11 +677,12 @@ const renameScope = (scope: Scope, rename: ReadonlyMap<string, string>): Scope =
 	}
 	return {
 		strata: scope.strata.map((stratum) => {
-			const renamed = stratum.map((m) => renameMember(m, rename))
+			const renamed = stratum.map((m) => renameMember(m, rename, scope.identities))
 			return renamed.every((m, i) => m === stratum[i]) ? stratum : canonicalStratum(renamed)
 		}),
 		reads: scope.reads.map((r) => renameRead(r, rename)),
-		bound
+		bound,
+		identities: scope.identities
 	}
 }
 
@@ -735,7 +746,10 @@ const canonicalBindings = (scope: Scope): Scope => {
 			merges.set(name, same)
 		}
 	}
-	const merged = renameScope({ strata: scope.strata, reads: scope.reads, bound: kept }, merges)
+	const merged = renameScope(
+		{ strata: scope.strata, reads: scope.reads, bound: kept, identities: scope.identities },
+		merges
+	)
 	const taken = new Set(freeParams(merged))
 	const canonical = new Map<string, string>()
 	for (const [name, param] of [...merged.bound].toSorted(
@@ -776,9 +790,10 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 	strata: ReadonlyArray<ReadonlyArray<MemberState>>,
 	reads: ReadonlyArray<ReadBackState>,
 	boundParams: ReadonlyMap<string, BoundParam>,
+	identities: IdentityDigests,
 	decoder: RowDecoder<Rd>
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
-	const scope = canonicalBindings({ strata, reads, bound: boundParams })
+	const scope = canonicalBindings({ strata, reads, bound: boundParams, identities })
 	const canonical = Object.freeze(scope.strata)
 	const bound: ReadonlyMap<string, BoundParam> = scope.bound
 	const { desc, inputs } = describe(canonical, scope.reads, bound)
@@ -792,7 +807,8 @@ const make = <S, P, W extends string, Rd, Done extends Strata, Last extends Stra
 			.flatMap(([name, param]) => (param.key.kind === "opaque" ? [name] : []))
 			.toSorted(Order.compareStrings),
 		desc,
-		inputs
+		inputs,
+		identities
 	})
 	const value: ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember = {
 		...builtMark,
@@ -860,8 +876,11 @@ const heldFacts = (facts: ReadonlyArray<unknown>): ReadonlyArray<unknown> =>
 	isDecoded(facts) ? facts : Object.freeze(facts.map(frozenFact))
 
 /** The identity digest of a decoded part of a member's Description: a query, or a field-equality member's fields. */
-const identityOf = (desc: QueryDesc | Readonly<Record<string, EqualedDesc>>): IdentityDigest => {
-	const identity = descIdentity(desc)
+const identityOf = (
+	identities: IdentityDigests,
+	desc: QueryDesc | Readonly<Record<string, EqualedDesc>>
+): IdentityDigest => {
+	const identity = identities.of(desc)
 	if (!identity.ok) {
 		throw identity.error
 	}
@@ -918,7 +937,7 @@ const memberState = (
 		}
 		requireLevel(built.schema.over, state.over, label)
 		const query = publicDesc(built, label)
-		const identity = identityOf(query)
+		const identity = identityOf(state.identities, query)
 		return {
 			kind: "query",
 			op,
@@ -940,7 +959,8 @@ const scopeWith = (scope: Scope, member: MemberState): Scope => {
 	return {
 		strata: released.strata.map((s, i) => (i === last ? withMember(s, i, member) : s)),
 		reads: released.reads,
-		bound: released.bound
+		bound: released.bound,
+		identities: released.identities
 	}
 }
 
@@ -955,7 +975,7 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 	const name = memberRelation(relation, state.over, label)
 	const member = memberState(state, op, name, captureLoc(`${op} ${name}`, []), facts, label)
 	const scope = scopeWith(state, member)
-	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
+	return make(state.over, scope.strata, scope.reads, scope.bound, scope.identities, decoder)
 }
 
 /** An insert's computed fields on `relation`, its query and its location kept: its state, its identity digest ordering
@@ -963,13 +983,14 @@ const addMember = <S, P, W extends string, Rd, Done extends Strata, Last extends
 const computedState = (
 	relation: string,
 	query: QueryDesc,
-	loc: SourceLoc
+	loc: SourceLoc,
+	identities: IdentityDigests
 ): Extract<MemberState, { readonly kind: "computed" }> => ({
 	kind: "computed",
 	op: "insert",
 	relation,
 	query,
-	identity: identityOf(query),
+	identity: identityOf(identities, query),
 	params: queryParamNames(query),
 	desc: Object.freeze({
 		op: "insert",
@@ -1024,8 +1045,11 @@ const addInsertComputed = <
 		),
 		label
 	)
-	const scope = scopeWith(scopeWith(state, member), computedState(name, query, keptLoc(loc)))
-	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
+	const scope = scopeWith(
+		scopeWith(state, member),
+		computedState(name, query, keptLoc(loc), state.identities)
+	)
+	return make(state.over, scope.strata, scope.reads, scope.bound, scope.identities, decoder)
 }
 
 /** A record from a JavaScript caller, read once through hostRead: its own string keys and their values, in its order.
@@ -1066,7 +1090,7 @@ const addInserts = <S, P, W extends string, Rd, Done extends Strata, Last extend
 		},
 		state
 	)
-	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
+	return make(state.over, scope.strata, scope.reads, scope.bound, scope.identities, decoder)
 }
 
 /**
@@ -1118,10 +1142,16 @@ const addDeletesWhere = <S, P, W extends string, Rd, Done extends Strata, Last e
 		)
 		return scopeWith(
 			at,
-			equalState("delete", name, equaled, keptLoc(captureLoc(`delete ${name}`, [])))
+			equalState(
+				"delete",
+				name,
+				equaled,
+				keptLoc(captureLoc(`delete ${name}`, [])),
+				state.identities
+			)
 		)
 	}, state)
-	return make(state.over, scope.strata, scope.reads, scope.bound, decoder)
+	return make(state.over, scope.strata, scope.reads, scope.bound, scope.identities, decoder)
 }
 
 /** The records of the read-backs before it and of this one, under its name: the rows of its query's immediate decoder,
@@ -1170,6 +1200,7 @@ const addRead = <
 		scope.strata,
 		[...scope.reads, { name, query, params, loc, desc: Object.freeze({ name, query }) }],
 		scope.bound,
+		scope.identities,
 		merge(
 			decoder,
 			record(
@@ -1292,7 +1323,7 @@ const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends S
 			throw malformed(label, `a value for every parameter of the ChangeSet; ${name} is missing`)
 		}
 	}
-	return make(state.over, state.strata, state.reads, bound, decoder)
+	return make(state.over, state.strata, state.reads, bound, state.identities, decoder)
 }
 
 const stateOf = (value: unknown, label: string): ChangeSetState => {
@@ -1350,6 +1381,7 @@ const emptyOf = <S, Done extends Strata, Last extends Stratum>(
 		[[]],
 		[],
 		new Map<string, BoundParam>(),
+		descIdentities(),
 		record({})
 	)
 }
@@ -1389,7 +1421,7 @@ const unionOf = <S, P, W extends string, R1, R2, Done extends Strata, Last exten
 		indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
 	)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])
-	return make(top, strata, reads, bound, decoder)
+	return make(top, strata, reads, bound, x.identities, decoder)
 }
 
 /** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's. */
@@ -1401,7 +1433,7 @@ const sequenceOf = <S, P, W extends string, R1, R2, Done extends Strata, Last ex
 	const label = "ChangeSet.sequence"
 	const { top, x, y, bound, decoder } = combined(label, a, b, extra)
 	const reads = distinctReads(label, [...x.reads, ...y.reads])
-	return make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, decoder)
+	return make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, x.identities, decoder)
 }
 
 /** The constructor namespace, the public value itself: each constructor implemented under its

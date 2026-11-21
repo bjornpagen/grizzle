@@ -98,9 +98,9 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheW
 				{
 					file: "packages/engine/src/write/changeset/value.ts",
 					original:
-						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads, ...y.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, decoder)",
+						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads, ...y.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, x.identities, decoder)",
 					replacement:
-						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, decoder)",
+						"\tconst { top, x, y, bound, decoder } = combined(label, a, b, extra)\n\tconst reads = distinctReads(label, [...x.reads])\n\treturn make(top, canonicalStrata([...x.strata, ...y.strata]), reads, bound, x.identities, decoder)",
 					why: "Operator mutant (element) at packages/engine/src/write/changeset/value.ts:1250 in sequenceOf: `[...x.reads, ...y.reads]` becomes `[...x.reads]`; the property fails (lane CATCH, grizzle 0baff5d6)."
 				}
 			]

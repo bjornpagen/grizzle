@@ -162,3 +162,21 @@ export const chainVariantWriteOf = (depth: number): unknown =>
 			return r.match(top, { k, v: x }).where(r.ge(x, 2n)).find({ session, k, v: x })
 		})
 	)
+
+/** The members of a ChangeSet of the chain's box (identity.test.ts): one insert, or eight. */
+export type ChainReaders = 1 | 8
+
+/** `members` inserts, each into a relation of its own, all reading the top of one chain of `depth` levels. */
+export const chainReadersOf = (depth: number, members: ChainReaders): unknown => {
+	const chain = chainOf(depth)
+	return Arr.reduce(Arr.take(outs, members), ChangeSet.empty(Shared), (cs, [relation]) =>
+		cs.insert(
+			relation,
+			query(Shared).rule((r) => {
+				const top = chain.bind({ session })
+				const { k, v: x } = v(top, "top")
+				return r.match(top, { k, v: x }).find({ session, k, v: x })
+			})
+		)
+	)
+}
