@@ -20,14 +20,14 @@ import { checking } from "#test/support/policy.ts"
 import { descOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /** Doc(id, nodes drawn): the owner of a counted family of Node. */
-export const Doc = relation("Doc", { id: Id, nodes: drawn(natural) }, ["id"])
+const Doc = relation("Doc", { id: Id, nodes: drawn(natural) }, ["id"])
 
 /** Shelf(id, nodes drawn): the owner of a second counted family of Node. */
-export const Shelf = relation("Shelf", { id: Id, nodes: drawn(natural) }, ["id"])
+const Shelf = relation("Shelf", { id: Id, nodes: drawn(natural) }, ["id"])
 
 /** Node: a tree's node, keyed by its root and its pre-order start, and a member of Doc's and Shelf's counted families,
  * as edullm's Instance is its assembly's tree's node and a member of TestDocument.instances. */
-export const Node = relation(
+const Node = relation(
 	"Node",
 	{
 		root: Id,
@@ -45,7 +45,7 @@ export const Node = relation(
 
 /** Node a member of three families: its tree, the sequence that nests its rows, and two counted ones, whose owners are
  * mutable so a tree may be inserted under stored ones. */
-export const Picked = schema(
+const Picked = schema(
 	"Picked",
 	[Doc, Shelf, Node],
 	[
@@ -63,7 +63,7 @@ const artifacts = succeeded(testArtifacts(Picked, testCompile))
 export const stated: ReadonlyArray<Family> = artifacts.laws.families
 
 /** Every order of the law model's families: each a permutation of them (gen.ts shuffled). */
-export const familyOrderGen: Gen<ReadonlyArray<Family>> = shuffled(stated, {
+const familyOrderGen: Gen<ReadonlyArray<Family>> = shuffled(stated, {
 	min: stated.length,
 	max: stated.length
 })
@@ -87,7 +87,7 @@ const lawsInOrder = (order: ReadonlyArray<Family>): LawModel => {
 }
 
 /** A shape of ChangeSet over the box: a tree inserted alone, or beside the owners of both its counted families. */
-export const shapes = ["a tree alone", "a tree beside its counted owners"] as const
+const shapes = ["a tree alone", "a tree beside its counted owners"] as const
 export type Shape = (typeof shapes)[number]
 
 /** A ChangeSet of `shape`: one tree of a root and two children, under one Doc and one Shelf. The program depends on its
