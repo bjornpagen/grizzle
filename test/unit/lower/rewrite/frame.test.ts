@@ -488,6 +488,11 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 					`${counts.cellState} states of the cells over ${counts.rewriteCx} the driver worked out`
 				)
 				assert.equal(counts.structureOf, 0, "no structure worked out of the cells")
+				assert.equal(
+					counts.feedbackReadsOf,
+					0,
+					"no walk of the cells for their recursive steps beside the state's own"
+				)
 				assert.equal(counts.analyzeDemand, 0, "no demand of the DAG's columns")
 			}),
 		oracle: {
@@ -503,6 +508,13 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
 				replacement:
 					"\tcx.editor.cellState().references(cell) === 1 && !cx.editor.isRoot(cell) && !cx.cells.lateral(cell)",
 				why: "Exclusivity takes a state of the cells again at every rule that asks (lower/optimize/simplify/rules.ts exclusive); the structure property fails."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/demand/editor.ts",
+				original: "\t\tconst { order, feedback } = this.#walk()\n",
+				replacement:
+					"\t\tconst { order } = this.#walk()\n\t\tconst feedback = feedbackReadsOf(cellGraph, order)\n",
+				why: "A state works out its cells' recursive steps in a walk of its own after its order, each cell's edges read again, as before the walk found them as it ended each cell."
 			}
 		]
 	})
@@ -514,7 +526,9 @@ export const aRewriteReadsHowEachCellIsReadOffTheStatesCellsWorkedOutOnceAStateA
  * cell's node put back), every state of the cells reads each cell's references and lateral reads as analysis/demand
  * structureOf works them out of the cells as they were when it was taken, read then and again after every later edit;
  * taking a state moves no count; and an edit moves at most twice the edges of the reached nodes it set and of the cells
- * it brought into reach or took out of it, and two a root it moved, never the whole DAG's.
+ * it brought into reach or took out of it, and two a root it moved, never the whole DAG's; and after each edit a cell's
+ * set version is past the one before the edit exactly when the edit set its node, and its moved version is past it
+ * wherever its references or lateral reads changed.
  *
  * Oracle: a second implementation, structureOf over each state's own cells as they were, and the cells reached before
  * and after each edit walked from its roots for its bound.
@@ -585,6 +599,7 @@ export const howEachCellIsReadIsTheEditorsReachKeptAsEveryEditMovesItAndAStateRe
 						const order = editor.topoOrder()
 						const cell = defined(order[edit.at % order.length], "a reached cell")
 						const before = reachedOf(editor.roots)
+						const versionBefore = editor.version
 						const nodes = new Map(Arr.map([...known], (k) => [k, k.current] as const))
 						const roots = editor.roots
 						const back = Arr.head([...emptied])
@@ -615,6 +630,22 @@ export const howEachCellIsReadIsTheEditorsReachKeptAsEveryEditMovesItAndAStateRe
 							reachSites
 						)
 						const after = reachedOf(editor.roots)
+						const now = editor.cellState()
+						const previous = defined(states.at(-1), "the state before the edit").state
+						for (const k of known) {
+							const was = nodes.get(k)
+							assert.equal(
+								now.set(k) > versionBefore,
+								was === undefined || was !== k.current,
+								`${k.id}'s node was set by the edit exactly when the edit set it`
+							)
+							if (
+								previous.references(k) !== now.references(k) ||
+								previous.lateral(k) !== now.lateral(k)
+							) {
+								assert.ok(now.moved(k) > versionBefore, `${k.id}'s reach moved with the edit`)
+							}
+						}
 						const edges = (k: Cell): number => edgesOf(k.current).length
 						const set = Arr.filter(
 							[...nodes],
@@ -672,6 +703,12 @@ export const howEachCellIsReadIsTheEditorsReachKeptAsEveryEditMovesItAndAStateRe
 					original: "\t\tif (epoch !== undefined && !log(epoch).has(key)) {\n",
 					replacement: "\t\tif (epoch !== undefined && epoch === epoch.next) {\n",
 					why: "A change records nothing of what it moves: a state read after a later edit reads the counts as they are now, not as they were when it was taken."
+				},
+				{
+					file: "packages/engine/src/lower/optimize/demand/editor.ts",
+					original: "\t\t\tthis.#movedAt.set(cell, this.#version)\n",
+					replacement: "",
+					why: "A change stamps no cell whose references it moved: a reader keeping a cell's verdict while its reach stood keeps it past an edit that moved it."
 				}
 			]
 		}
@@ -958,7 +995,7 @@ export const aRewriteReadsEachStatesReadersOffItsCellsWorkedOutAtMostOnceAState 
 			{
 				file: "packages/engine/src/lower/optimize/pushdown/shared.ts",
 				original: "\t\tconst readers = state.readers\n",
-				replacement: "\t\tconst readers = DagEditor.readersIn(state.order)\n",
+				replacement: "\t\tconst readers = cx.editor.readersIn(state.order)\n",
 				why: "The shared restriction works out the readers of every cell again at each cell it weighs (pushdown/shared.ts sharedPushRule), as before the state carried them: the reader maps outnumber the states."
 			}
 		]

@@ -67,12 +67,17 @@ export const passesNeed = {
 /**
  * What the structure property counts: each state's cells worked out for its rules (frame.ts rewriteCx), each state of
  * the cells taken (editor.ts DagEditor cellState), how a finished DAG's nodes are read worked out whole (analysis/demand
- * structureOf), and the demand of the DAG's columns (analyzeDemand).
+ * structureOf), a finished DAG's recursive steps worked out in a walk of their own (editor.ts feedbackReadsOf), and the
+ * demand of the DAG's columns (analyzeDemand).
  */
 export const structureSites = Object.freeze({
 	rewriteCx: { file: "packages/engine/src/lower/optimize/demand/frame.ts", name: "rewriteCx" },
 	cellState: { file: "packages/engine/src/lower/optimize/demand/editor.ts", name: "cellState" },
 	structureOf: { file: "packages/engine/src/analysis/demand/demand.ts", name: "structureOf" },
+	feedbackReadsOf: {
+		file: "packages/engine/src/lower/optimize/demand/editor.ts",
+		name: "feedbackReadsOf"
+	},
 	analyzeDemand: { file: "packages/engine/src/analysis/demand/demand.ts", name: "analyzeDemand" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 

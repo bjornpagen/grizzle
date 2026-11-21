@@ -247,7 +247,7 @@ export const everyParentTakes = <Q extends LogicalQuery>(
 			const ed = new DagEditor(query.dag)
 			let changed = false
 			/** The readers of the cells as they stand now: worked out again after each rewrite, which changes them. */
-			let readers = DagEditor.readersIn(ed.topoOrder())
+			let readers = ed.readersIn(ed.topoOrder())
 			for (const cell of ed.topoOrder()) {
 				const candidate = candidateAt(ed, cell, readers)
 				if (candidate === undefined) {
@@ -255,7 +255,7 @@ export const everyParentTakes = <Q extends LogicalQuery>(
 				}
 				rewrite(ed, candidate)
 				changed = true
-				readers = DagEditor.readersIn(ed.topoOrder())
+				readers = ed.readersIn(ed.topoOrder())
 			}
 			if (!changed) {
 				return Result.ok({ query, node: unchanged })
