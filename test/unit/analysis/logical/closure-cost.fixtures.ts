@@ -6,6 +6,7 @@ import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type Dependency, implication, projectionCloses } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type DeclaredKey, type ValidDag } from "#compiler/ir/rel.ts"
+import { attributesOver, bitsOf } from "#compiler/logical/attributes.ts"
 import {
 	type NameSource,
 	type Naming,
@@ -265,6 +266,40 @@ export const keySearchSites = Object.freeze({
 } satisfies Readonly<Record<string, CountedFunction>>)
 
 export type CyclePoint = "from n = 4" | "from n = 6"
+
+/** The factor search's firing of a dependency (logical/closure.ts factorClosures). */
+export const factorSites = Object.freeze({
+	fire: { file: "packages/engine/src/logical/closure.ts", name: "fire" }
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/**
+ * A factor search over m dependencies {a_i, b_i} → c_i, each made redundant by a_i → c_i, beside m dependencies of no
+ * determinant each fixing a column g_j: columns a_0, b_0, c_0, a_1, …, then g_0, …, each its own position. The minimal
+ * keys are every a_i and b_i, so its factors are each of them alone, in that order.
+ */
+export const redundantTable = (m: number) => {
+	const columns = [
+		...Arr.flatMap(indices(m), (i) => [`a${i}`, `b${i}`, `c${i}`]),
+		...Arr.map(indices(m), (j) => `g${j}`)
+	]
+	const attributes = attributesOver(columns, [])
+	const at = (names: ReadonlyArray<string>) => bitsOf(attributes, names)
+	const position = (name: string) => defined(attributes.at.get(name), `the position of ${name}`)
+	return {
+		attributes,
+		columns: attributes.heading,
+		stated: [
+			...Arr.flatMap(indices(m), (i) => [
+				{ from: at([`a${i}`, `b${i}`]), to: [position(`c${i}`)] },
+				{ from: at([`a${i}`]), to: [position(`c${i}`)] }
+			]),
+			...Arr.map(indices(m), (j) => ({ from: at([]), to: [position(`g${j}`)] }))
+		],
+		factors: Arr.flatMap(indices(m), (i) => [[`a${i}`], [`b${i}`]])
+	}
+}
+
+export type FactorPoint = "from m = 4" | "from m = 6"
 
 /**
  * Where the analysis interns a node's attributes and its dependencies over them, beside every node's properties built

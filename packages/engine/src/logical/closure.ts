@@ -601,78 +601,176 @@ const keyWithin = (
 	return false
 }
 
-/** A dependency of the factor search: its determinants, each once, and the positions it determines as it now stands. */
-interface FactorRow {
-	readonly from: ReadonlyArray<number>
-	to: ReadonlyArray<number>
+/**
+ * The dependencies of the factor search, indexed as a closure reads them (as Rows are, for Beeri and Bernstein's
+ * counters): each one's determinants, each once, and their count; each position's dependencies reading it, packed:
+ * position p's are `readers` from `readersAt[p]` to `readersAt[p + 1]`; the dependencies of no determinant, which every
+ * closure fires; and the positions each determines as it now stands, which irredundant shrinks.
+ */
+interface FactorTable {
+	/** A set of the table's positions, whose words every set of them takes. */
+	readonly like: Bits
+	readonly from: ReadonlyArray<ReadonlyArray<number>>
+	readonly to: Array<ReadonlyArray<number>>
+	readonly determinants: Int32Array
+	readonly readersAt: Int32Array
+	readonly readers: Int32Array
+	readonly given: ReadonlyArray<number>
 }
 
-/** Each position's dependencies reading it. */
-const readersOf = (
-	rows: ReadonlyArray<FactorRow>
-): ReadonlyMap<number, ReadonlyArray<FactorRow>> => {
-	const readers = new Map<number, Array<FactorRow>>()
-	for (const row of rows) {
-		for (const c of row.from) {
-			const reading = readers.get(c)
-			if (reading === undefined) {
-				readers.set(c, [row])
-			} else {
-				reading.push(row)
-			}
+/** The factor table of `dependencies`, over positions whose sets take the words of `like`. */
+const factorTable = (
+	like: Bits,
+	dependencies: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
+): FactorTable => {
+	const size = like.length * 32
+	const from = dependencies.map((d) => positions(d.from))
+	const determinants = new Int32Array(from.length)
+	const readersAt = new Int32Array(size + 1)
+	from.forEach((f, i) => {
+		determinants[i] = f.length
+		for (const p of f) {
+			readersAt[p + 1] = (readersAt[p + 1] ?? 0) + 1
 		}
+	})
+	for (let p = 0; p < size; p++) {
+		readersAt[p + 1] = (readersAt[p + 1] ?? 0) + (readersAt[p] ?? 0)
 	}
-	return readers
+	const readers = new Int32Array(readersAt[size] ?? 0)
+	const filled = readersAt.slice(0, size)
+	from.forEach((f, i) => {
+		for (const p of f) {
+			const at = filled[p] ?? 0
+			readers[at] = i
+			filled[p] = at + 1
+		}
+	})
+	return {
+		like,
+		from,
+		to: dependencies.map((d) => d.to),
+		determinants,
+		readersAt,
+		readers,
+		given: from.flatMap((f, i) => (f.length === 0 ? [i] : []))
+	}
 }
 
 /**
- * A closure that grows: what the positions added so far determine under `rows` but `skipped`. Each dependency fires once
- * its last determinant is known, so the closure of everything ever added is linear in the table's size.
+ * Closures over one factor table, one at a time, each firing a dependency once its last determinant is known (Beeri and
+ * Bernstein's LINCLOSURE) and sharing the table's counters: a counter is set again the first time a closure reads it,
+ * by its closure's mark, and a closure's positions are cleared from the set it holds when the next begins, so a
+ * closure costs what it reaches, never the table's size.
+ *
+ * A closure begins with nothing known but `skipped` left out (begin), grows with the positions added (add), and fires
+ * the dependencies of no determinant once what was added determines no more. Where it is asked for some positions
+ * (want), it stops as soon as it holds every one: a closure that reaches them near its start reads no more of the table.
  */
-const growing = (
-	like: Bits,
-	rows: ReadonlyArray<FactorRow>,
-	readers: ReadonlyMap<number, ReadonlyArray<FactorRow>>,
-	skipped: FactorRow | undefined
-): { readonly known: Bits; readonly add: (columns: Iterable<number>) => void } => {
-	const known = emptyLike(like)
+interface FactorClosures {
+	readonly known: Bits
+	readonly begin: (skipped: number) => void
+	readonly want: (targets: ReadonlyArray<number>) => void
+	readonly add: (columns: Iterable<number>) => void
+}
+
+const factorClosures = (table: FactorTable): FactorClosures => {
+	const known = emptyLike(table.like)
+	const wanted = emptyLike(table.like)
+	const missing = new Int32Array(table.from.length)
+	/** The closure that last set each counter, by its number: a counter of another is unset in this one. */
+	const setBy = new Int32Array(table.from.length)
+	let current = 0
+	let skipped = -1
+	let givenFired = false
+	/** The wanted positions not held yet, and whether any is wanted. */
+	let open = 0
+	let wanting = false
+	const touched: Array<number> = []
+	const wantedAt: Array<number> = []
 	const queue: Array<number> = []
-	const missing = new Map<FactorRow, number>()
 	const reach = (c: number): void => {
-		if (!holdsAt(known, c)) {
-			addTo(known, c)
-			queue.push(c)
+		if (holdsAt(known, c)) {
+			return
+		}
+		addTo(known, c)
+		touched.push(c)
+		queue.push(c)
+		if (holdsAt(wanted, c)) {
+			open--
 		}
 	}
-	const fire = (row: FactorRow): void => {
-		if (row !== skipped) {
-			row.to.forEach(reach)
+	const fire = (row: number): void => {
+		if (row === skipped) {
+			return
+		}
+		for (const t of table.to[row] ?? []) {
+			reach(t)
 		}
 	}
+	const done = (): boolean => wanting && open === 0
 	const drain = (): void => {
-		for (let c = queue.pop(); c !== undefined; c = queue.pop()) {
-			for (const row of readers.get(c) ?? []) {
-				const left = (missing.get(row) ?? row.from.length) - 1
-				missing.set(row, left)
+		for (let c = queue.pop(); c !== undefined && !done(); c = queue.pop()) {
+			for (let r = table.readersAt[c] ?? 0; r < (table.readersAt[c + 1] ?? 0); r++) {
+				const row = table.readers[r] ?? 0
+				if (setBy[row] !== current) {
+					setBy[row] = current
+					missing[row] = table.determinants[row] ?? 0
+				}
+				const left = (missing[row] ?? 0) - 1
+				missing[row] = left
 				if (left === 0) {
 					fire(row)
 				}
 			}
 		}
 	}
-	for (const row of rows) {
-		if (row.from.length === 0) {
-			fire(row)
-		}
-	}
-	drain()
 	return {
 		known,
+		begin: (leftOut) => {
+			for (const c of touched) {
+				dropFrom(known, c)
+			}
+			for (const c of wantedAt) {
+				dropFrom(wanted, c)
+			}
+			touched.length = 0
+			wantedAt.length = 0
+			queue.length = 0
+			current++
+			skipped = leftOut
+			givenFired = false
+			open = 0
+			wanting = false
+		},
+		want: (targets) => {
+			wanting = true
+			for (const t of targets) {
+				if (holdsAt(wanted, t)) {
+					continue
+				}
+				addTo(wanted, t)
+				wantedAt.push(t)
+				if (!holdsAt(known, t)) {
+					open++
+				}
+			}
+		},
 		add: (columns) => {
 			for (const c of columns) {
 				reach(c)
 			}
 			drain()
+			if (givenFired) {
+				return
+			}
+			givenFired = true
+			for (const row of table.given) {
+				if (done()) {
+					return
+				}
+				fire(row)
+				drain()
+			}
 		}
 	}
 }
@@ -685,23 +783,41 @@ const growing = (
  * A dependency of one determinant joins nothing its targets do not: what it reaches through the others, it reaches
  * through dependencies its determinant stands in.
  *
- * One closure per dependency of several determinants.
+ * One closure per dependency of several determinants, asked for the targets it judges, so it reads the table only
+ * until it holds them: a target no other dependency determines, nor its determinants hold, is reached by none but the
+ * one judged, so it is not asked for, and a dependency with no other target is judged by no closure at all.
  */
-const irredundant = (
-	like: Bits,
-	dependencies: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
-): ReadonlyArray<FactorRow> => {
-	const rows: ReadonlyArray<FactorRow> = dependencies.map((d) => ({
-		from: positions(d.from),
-		to: d.to
-	}))
-	const readers = readersOf(rows)
-	for (const judged of rows.filter((row) => row.from.length > 1)) {
-		const closed = growing(like, rows, readers, judged)
-		closed.add(judged.from)
-		judged.to = judged.to.filter((c) => !holdsAt(closed.known, c))
+const irredundant = (table: FactorTable, closures: FactorClosures): void => {
+	/** How many dependencies determine each position, as they now stand. */
+	const targeted = new Int32Array(table.like.length * 32)
+	for (const to of table.to) {
+		for (const t of to) {
+			targeted[t] = (targeted[t] ?? 0) + 1
+		}
 	}
-	return rows.filter((row) => row.to.length > 0)
+	table.from.forEach((from, judged) => {
+		if (from.length < 2) {
+			return
+		}
+		const to = table.to[judged] ?? []
+		const asked = to.filter((t) => from.includes(t) || (targeted[t] ?? 0) > 1)
+		if (asked.length === 0) {
+			return
+		}
+		closures.begin(judged)
+		closures.want(asked)
+		closures.add(from)
+		const kept = to.filter((c) => !holdsAt(closures.known, c))
+		if (kept.length === to.length) {
+			return
+		}
+		for (const c of to) {
+			if (holdsAt(closures.known, c)) {
+				targeted[c] = (targeted[c] ?? 0) - 1
+			}
+		}
+		table.to[judged] = kept
+	})
 }
 
 /** A strongly connected set of positions, and the sets it leans on: each with a position a dependency reaching it reads. */
@@ -765,10 +881,11 @@ export const independentFactors = (
 	columns: Bits,
 	stated: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
 ): ReadonlyArray<Bits> => {
-	const rows = irredundant(columns, stated)
-	const readers = readersOf(rows)
-	const before = growing(columns, rows, readers, undefined)
-	const factors: Array<Bits> = []
+	const table = factorTable(columns, stated)
+	const closures = factorClosures(table)
+	irredundant(table, closures)
+	/** Each dependency's targets among `columns`, as irredundant left them. */
+	const among = table.to.map((to) => to.filter((t) => holdsAt(columns, t)))
 	/** What the dependencies reading each position determine among `columns`, read once a position. */
 	const nexts = new Map<number, ReadonlyArray<number>>()
 	const next = (c: number): ReadonlyArray<number> => {
@@ -776,19 +893,25 @@ export const independentFactors = (
 		if (read !== undefined) {
 			return read
 		}
-		const out = (readers.get(c) ?? []).flatMap((row) => row.to.filter((t) => holdsAt(columns, t)))
+		const out: Array<number> = []
+		for (let r = table.readersAt[c] ?? 0; r < (table.readersAt[c + 1] ?? 0); r++) {
+			appendAll(out, among[table.readers[r] ?? 0] ?? [])
+		}
 		nexts.set(c, out)
 		return out
 	}
+	closures.begin(-1)
+	closures.add([])
+	const factors: Array<Bits> = []
 	for (const set of connectedSets(positions(columns), next)) {
-		if (isNonEmpty(set) && !set.every((c) => holdsAt(before.known, c))) {
+		if (isNonEmpty(set) && !set.every((c) => holdsAt(closures.known, c))) {
 			const factor = emptyLike(columns)
 			for (const c of set) {
 				addTo(factor, c)
 			}
 			factors.push(factor)
 		}
-		before.add(set)
+		closures.add(set)
 	}
 	return factors
 }

@@ -8,6 +8,9 @@
  *   those counts.
  * - A naming closure (logical/closure.ts closure): it names, reaches and fires as the passes' round of namings and then
  *   of every row would, a row asked again once a value it copies is named. Oracle: the passes.
+ * - The factor search's judging closures (logical/closure.ts irredundant, factorClosures): each stops as soon as it
+ *   holds the targets it judges, so over m redundant dependencies beside m of no determinant its firings grow as m,
+ *   never m². Oracle: that growth bound, and the factors each a_i and b_i alone.
  * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
  *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
  *   growth bound.
@@ -24,7 +27,7 @@
  *
  * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a row asked
  * again once a value is named, a value named and a column reached by a row that names nothing; a search from n = 4 and
- * from n = 6; one relation and several joined; one query of a reading and several.
+ * from n = 6; a factor search from m = 4 and from m = 6; one relation and several joined; one query of a reading and several.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
@@ -43,9 +46,15 @@ import {
 	isEmpty,
 	namesOf
 } from "#compiler/logical/attributes.ts"
-import { closure, minimalKeys, namesNothing, rowsOf } from "#compiler/logical/closure.ts"
+import {
+	closure,
+	independentFactors,
+	minimalKeys,
+	namesNothing,
+	rowsOf
+} from "#compiler/logical/closure.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { incrementsAtMostDouble } from "#test/support/growth.ts"
+import { incrementsAtMostDouble, incrementsDoNotGrow } from "#test/support/growth.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	type ClosureFeature,
@@ -53,6 +62,8 @@ import {
 	columnsIn,
 	columnsOf,
 	type CyclePoint,
+	factorSites,
+	type FactorPoint,
 	dependenciesOf,
 	type InterningFeature,
 	interning,
@@ -64,6 +75,7 @@ import {
 	type ReadingFeature,
 	readingQuery,
 	readings,
+	redundantTable,
 	taskReading,
 	sizeOfMask,
 	startedGen,
@@ -289,6 +301,55 @@ export const aKeySearchTestsACandidateAgainstTheKeysFoundByTheirTrieNeverOneByOn
 					"\tconst contains = (set: Bits) => keyWithin(index, positions(set), 0, sizeOf(set) + 1, 0)",
 				replacement: "\tconst contains = (set: Bits) => found.some((k) => subsetOf(k.key, set))",
 				why: "Each candidate tested against every key found (logical/closure.ts minimalKeys); the tests property fails."
+			}
+		]
+	})
+
+/**
+ * The factor search judges a dependency of several determinants by a closure that stops as soon as it holds the targets
+ * it judges, and fires the dependencies of no determinant only where its start alone does not reach them: over m
+ * dependencies {a_i, b_i} → c_i each made redundant by a_i → c_i, beside m dependencies of no determinant, its firings
+ * grow no faster than m, where every judging closure fired every dependency of no determinant, m² of them.
+ */
+export const theFactorSearchJudgesADependencyByAClosureThatStopsAtItsTargetsFiringsLinearInTheTable =
+	property.exhaust(finite(int(2, 3)), {
+		needs: {},
+		situations: ["from m = 4", "from m = 6"] satisfies ReadonlyArray<Reached<FactorPoint>>,
+		check: (_, c: Case<FactorPoint>) => (half) =>
+			Effect.gen(function* () {
+				c.note(half === 2 ? "from m = 4" : "from m = 6")
+				const counted = new Map<number, number>()
+				for (const m of [2 * half, 4 * half, 6 * half]) {
+					const table = redundantTable(m)
+					const [factors, counts] = yield* callCounts(
+						Effect.sync(() => independentFactors(table.columns, table.stated)),
+						factorSites
+					)
+					assert.deepEqual(
+						Arr.map(factors, (f) => namesOf(table.attributes, f)),
+						table.factors,
+						"each a_i and b_i alone, in heading order"
+					)
+					counted.set(m, counts.fire)
+				}
+				incrementsDoNotGrow(
+					(m) => defined(counted.get(m), `the firings at m = ${m}`),
+					half,
+					"the factor search's firings"
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a count that grows no faster than linearly increments no more over its second equal step than over its first"
+		},
+		box: "m redundant dependencies at 2h, 4h and 6h, h at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\t\t\tif (done()) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tfire(row)",
+				replacement: "\t\t\t\tfire(row)",
+				why: "Every judging closure fires every dependency of no determinant, as each closure of the search did (logical/closure.ts factorClosures); the firings grow as m²."
 			}
 		]
 	})
