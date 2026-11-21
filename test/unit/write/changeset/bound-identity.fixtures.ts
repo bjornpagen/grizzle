@@ -30,6 +30,34 @@ export const count = 7
 
 export const lengths = [4, Math.floor(maxStringLength / count) + 1] as const
 
+/**
+ * How long one case of the past-the-longest-string property may run: its four cases past V8's longest string build
+ * seven bodies of 76,695,842 units each and key two ChangeSets' bindings by their canonical tokens, honest work the
+ * bound itself sets (core/canonical.ts maxStringLength), which a full suite's load stretches past the runner's minute.
+ *
+ * @limitKind measured
+ * @owner test/unit/write/changeset/bound-identity.test.ts, the past-the-longest-string property's cases
+ * @unit milliseconds of a case's CPU, and of its stall window
+ * @scope one case of that property, on one small-stack worker of toolchain-test's pool
+ * @evidence alone: `toolchain-test run` of the property by id (~/.cache/grizzle/unitreds-logs/bound1.log), its eight
+ *   cases; under the full suite: trunk@grizzle's runs at f6182478 (the case held its worker 105 s of wall time) and at
+ *   52ab3f572 (its guard read 60.7 s of CPU against the 60 s budget), ~/.local/state/trunk/grizzle/runs/
+ * @observed 2026-11-21: alone 18:1x UTC; trunk 17:0x and 21:3x UTC
+ * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, every other session's runs on the machine; Node 26.13.1,
+ *   toolchain 620084d (alone) and b15c24f (the 52ab3f572 run, whose watchdog names the leg it ends a case by)
+ * @workload the property's eight cases, four at a body of 4 units and four past the longest string
+ * @result alone 3.0 s of CPU a case on average, about 6 s for each case past the longest string, 1.2 GB of memory at
+ *   most; under the full suite one such case spent 60.7 s of CPU, about ten times its own. Contention for cores alone
+ *   stretches a case's wall time, not its CPU: a tenfold CPU points at memory pressure in that worker, its collector
+ *   thrashing over the bodies' half gigabyte or its pages faulted back in, which TOOLCHAIN6's memory-pressure item
+ *   carries (~/.cache/grizzle-release/handoff/TOOLCHAIN6/HANDOVER.md)
+ * @decision five minutes: fifty times the 6 s a case past the longest string spends alone and five times the most a
+ *   full suite was seen to stretch it to, so a case still running at five minutes is hung, not slow
+ * @revalidate a change to a ChangeSet's binding or keying of bound values (write/changeset/value.ts), to canonical
+ *   tokens (core/canonical.ts), or to the length bound; a different machine; a run that loses this property's worker
+ */
+export const pastLongestStringDeadline = 300_000
+
 export interface BoundCase {
 	readonly length: (typeof lengths)[number]
 	readonly values: "equal" | "different"

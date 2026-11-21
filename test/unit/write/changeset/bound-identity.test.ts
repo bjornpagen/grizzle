@@ -32,7 +32,8 @@ import {
 	inserted,
 	lastLetter,
 	lengths,
-	notesOf
+	notesOf,
+	pastLongestStringDeadline
 } from "#test/unit/write/changeset/bound-identity.fixtures.ts"
 import { descOf, parsedOf } from "#test/unit/write/changeset/fixtures.ts"
 
@@ -88,6 +89,7 @@ export const aChangeSetsBoundValuesAreOneParameterWhenEqualAndTwoNamedInTheirCan
 				name: "bound values are one parameter when equal, and otherwise named in their canonical texts' order"
 			},
 			box: "seven notes at a body length of 4 and at the least whose seven bodies pass the longest string, bound to equal or different values, combined in either order",
+			caseDeadline: pastLongestStringDeadline,
 			kept: [],
 			kills: [
 				{
