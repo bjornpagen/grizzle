@@ -1,15 +1,17 @@
 /**
  * A call's facts past one share are drawn, bound and sent a share at a time (adapter/apply/shares.ts callShares and
- * eachShare), so the host holds one share's bound facts and its statements' parameters, never every fact's: the heap one
- * call holds beyond its facts, collected and read after each share's executions are built, is the same at four and at
- * sixteen shares' worth of facts as at one, where binding every share before sending any held it sixteen times over
- * (edullm's learning-commons split its release across child processes, a whole release in one call past the 4 GiB heap).
+ * eachShare), so the host holds one share's bound facts and its statements' parameters, never every fact's: a call of
+ * one, four and sixteen shares' worth of facts binds one share at a time, the next only once the last is sent and its
+ * executions built, each share within one share's bytes, and the shares together every fact once, where binding every
+ * share before sending any held them all at once (edullm's learning-commons split its release across child processes, a
+ * whole release in one call past the 4 GiB heap). It counts the binder's own work, the shares bound and not yet sent
+ * and each one's facts and bytes, never a collected heap's reading, whose timing the machine's load moves.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
+import { writeBatching } from "#compiler/runtime/write/transport.ts"
 import {
-	boundOf,
 	type Drawn,
 	drawnGen,
 	type Feature,
@@ -27,7 +29,7 @@ const byRelation = Order.mapInput(
 )
 
 /**
- * A call of many shares' worth of facts holds on the host what a call of one share holds, within a share's slack.
+ * A call of many shares' worth of facts holds on the host what a call of one share holds: one share bound at a time.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -38,19 +40,30 @@ export const aCallOfManySharesOfFactsHoldsOnTheHostWhatACallOfOneShareHolds = pr
 		situations: ["a narrow body", "a wide body"] satisfies ReadonlyArray<Feature>,
 		check: (_, c: Case<Feature>) => (d: Drawn) =>
 			Effect.map(runShares(d, c), ({ one, four, sixteen }) => {
-				const most = boundOf(one)
 				assert.ok(
 					sixteen.shares >= 16 && four.shares >= 4,
 					`${Formatter.format(d)}: the calls are drawn in ${four.shares} and ${sixteen.shares} shares`
 				)
-				assert.ok(
-					four.peak <= most && sixteen.peak <= most,
-					`${Formatter.format(d)}: beyond its facts the call holds ${one.peak} bytes at one share, ${four.peak} at four and ${sixteen.peak} at sixteen, past ${most}`
-				)
+				for (const call of [one, four, sixteen]) {
+					assert.equal(
+						call.most,
+						1,
+						`${Formatter.format(d)}: a call of ${call.shares} shares binds ${call.most} at once`
+					)
+					assert.ok(
+						Arr.every(call.held, (share) => share.bytes <= writeBatching.bytes),
+						`${Formatter.format(d)}: a share of a call of ${call.shares} holds past one share's bytes: ${Formatter.format(call.held)}`
+					)
+					assert.equal(
+						Arr.reduce(call.held, 0, (sum, share) => sum + share.facts),
+						call.facts,
+						`${Formatter.format(d)}: the shares of a call of ${call.shares} hold every fact once`
+					)
+				}
 			}),
 		oracle: {
 			kind: "universal",
-			name: "bound: the heap a call of four and of sixteen shares' facts holds beyond them is within three times one share's, and two shares' bytes"
+			name: "bound: every call binds one share at a time, each within one share's bytes, the shares every fact once"
 		},
 		kept: [],
 		kills: [

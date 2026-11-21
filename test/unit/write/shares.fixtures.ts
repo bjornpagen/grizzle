@@ -1,11 +1,10 @@
 /** What shares.test.ts reads: its schema, its space, and each case's run. */
 
-import { setFlagsFromString } from "node:v8"
-import { runInNewContext } from "node:vm"
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { collectInputs } from "#adapter/apply/collect.ts"
+import type { HostCall } from "#adapter/apply/run.ts"
 import { callShares, eachShare, sendsAlone, valueBytes } from "#adapter/apply/shares.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { drawn, natural, pg } from "#compiler/public/fields.ts"
@@ -43,18 +42,6 @@ export const drawnGen: Gen<Drawn> = (s) => ({ body: s.draw(int(100, 300)) })
 
 export type Feature = "a narrow body" | "a wide body"
 
-/** The engine's collector, which V8 exposes once asked to (node:v8 setFlagsFromString), so a heap read is what lives. */
-const collect = (): (() => void) => {
-	setFlagsFromString("--expose-gc")
-	const gc: unknown = runInNewContext("gc")
-	if (typeof gc !== "function") {
-		throw new Error("V8 exposes no collector")
-	}
-	return () => {
-		Reflect.apply(gc, undefined, [])
-	}
-}
-
 /** Fact `i` of a case. */
 const factOf = (c: Drawn, i: number) => ({
 	doc: BigInt(i % 7),
@@ -63,14 +50,27 @@ const factOf = (c: Drawn, i: number) => ({
 	body: `${Str.repeat(c.body)("b")}${String(i)}`
 })
 
+/** The facts a call holds and their bytes, as a share counts them (adapter/apply/shares.ts valueBytes). */
+const heldBy = (call: HostCall): { readonly facts: number; readonly bytes: number } => {
+	let facts = 0
+	let bytes = 0
+	for (const given of call.members.values()) {
+		for (const fact of Arr.isArray(given) ? given : Arr.fromIterable(given)) {
+			facts += 1
+			bytes += valueBytes(fact)
+		}
+	}
+	return { facts, bytes }
+}
+
 /**
- * The most heap one call of `shares` shares' worth of facts holds beyond its facts themselves, bound share by share
- * (`eachShare`), each share's statements' executions built as the write sends them: after each share's executions are
- * built, the heap is collected and read, less what it held with the call's facts alone.
+ * What one call of `shares` shares' worth of facts binds at once, drawn share by share (`callShares`) and bound and sent
+ * a share at a time (`eachShare`), each share's statements' executions built as the write sends them: the most shares
+ * bound and not yet sent at any moment, which the work of binding and building holds, and each share's facts and bytes.
+ * It counts the binder's own work, so its verdict is the program's and no collection's timing reads into it.
  */
-const peakOf = (c: Drawn, shares: number) =>
+const sharesOf = (c: Drawn, shares: number) =>
 	Effect.gen(function* () {
-		const gc = collect()
 		const perShare = Math.floor(writeBatching.bytes / valueBytes(factOf(c, 0)))
 		const facts = Arr.map(
 			Array.from({ length: shares * perShare }, (_, i) => i),
@@ -82,23 +82,22 @@ const peakOf = (c: Drawn, shares: number) =>
 		const members = yield* collectInputs(program.binding.groups, parsedOf(change).inputs)
 		const call = { params: {}, bound: new Map(), members }
 		const drawn = callShares(write, call, writeBatching.bytes, false) ?? [call]
-		/**
-		 * Every fact read once by a whole bind before the heap is read, so V8's flattening of their texts, which the
-		 * first read of a concatenated text makes in place, is the caller's facts' growth, never the call's.
-		 */
-		const warmed = bindWrite(write, { members, params: {}, transport: inForce(bindFrame) })
-		if (!warmed.ok) {
-			return yield* Effect.die(new Error("the call's facts bind whole"))
-		}
-		gc()
-		const base = process.memoryUsage().heapUsed
-		let peak = 0
+		const held: Array<{ readonly facts: number; readonly bytes: number }> = []
+		let pending = 0
+		let most = 0
 		const sent = yield* eachShare(
 			drawn,
-			(call) =>
-				Effect.sync(() =>
-					bindWrite(write, { members: call.members, params: {}, transport: inForce(bindFrame) })
-				),
+			(share) =>
+				Effect.sync(() => {
+					pending += 1
+					most = Math.max(most, pending)
+					held.push(heldBy(share))
+					return bindWrite(write, {
+						members: share.members,
+						params: {},
+						transport: inForce(bindFrame)
+					})
+				}),
 			(bound) =>
 				Effect.sync(() => {
 					if (!bound.ok || bound.value.kind !== "bound") {
@@ -109,35 +108,26 @@ const peakOf = (c: Drawn, shares: number) =>
 							bound.value.kind === "bound" ? bound.value.chunks(s, inForce(bindFrame)) : undefined
 						return built?.ok === true ? built.value : []
 					})
-					gc()
-					peak = Math.max(peak, process.memoryUsage().heapUsed - base)
+					pending -= 1
 					return executions.length
 				})
 		)
-		return { peak, shares: sent.length, facts: facts.length }
+		return { most, held, shares: sent.length, facts: facts.length }
 	})
 
 /**
- * One case: the heap one call holds beyond its facts, at one share's worth of facts and at sixteen. Drawn and bound a
- * share at a time, the call of sixteen shares holds what the call of one holds, within a share's slack, never sixteen
- * times it.
+ * One case: what one call binds at once, at one share's worth of facts, at four and at sixteen. Drawn and bound a share
+ * at a time, every call binds one share at a time, each share within one share's bytes, the shares together every fact
+ * once.
  */
 export const runShares = (c: Drawn, k: Case<Feature>) =>
 	Effect.gen(function* () {
-		const one = yield* peakOf(c, 1)
-		const four = yield* peakOf(c, 4)
-		const sixteen = yield* peakOf(c, 16)
+		const one = yield* sharesOf(c, 1)
+		const four = yield* sharesOf(c, 4)
+		const sixteen = yield* sharesOf(c, 16)
 		k.note(c.body < 200 ? "a narrow body" : "a wide body")
 		return { one, four, sixteen }
 	})
-
-/**
- * The most the heap of a call of many shares may hold beyond its facts: three times what one share's call holds, and
- * two shares' bytes besides, so a collection's timing or the index of a drawn call never reads as a share held twice, and
- * sixteen shares held at once always does.
- */
-export const boundOf = (one: { readonly peak: number }): number =>
-	3 * one.peak + 2 * writeBatching.bytes
 
 /**
  * learning-commons' families in one schema: an owner and its ordered members, nested in its fact, as Standard and
