@@ -37,7 +37,7 @@ import {
 	offlineConnection,
 	offlineOwner
 } from "#test/pg/cli/support.ts"
-import { callCounts, type CallSite } from "#test/support/kernel/calls.ts"
+import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterPool } from "#test/support/pg.ts"
@@ -74,7 +74,7 @@ const sites = Object.freeze({
 		file: "packages/grizzle/src/adapter/migrate/session.ts",
 		name: "openMigrationSession"
 	}
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 type Site = keyof typeof sites
 

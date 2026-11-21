@@ -5,7 +5,7 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
  * A function whose calls a count reads: the module it is declared in, by its path from the repository's root, and its
  * name as V8 reports it, the name of the declaration or of the constant an arrow function is assigned to.
  */
-export interface CallSite {
+export interface CountedFunction {
 	readonly file: string
 	readonly name: string
 }
@@ -63,7 +63,7 @@ const restart = Effect.flatMap(counting, (session) =>
  */
 export const callCounts = <A, E, R, K extends string>(
 	effect: Effect.Effect<A, E, R>,
-	sites: Readonly<Record<K, CallSite>>
+	sites: Readonly<Record<K, CountedFunction>>
 ): Effect.Effect<readonly [A, Readonly<Record<K, number>>], E, R> =>
 	Effect.gen(function* () {
 		yield* restart

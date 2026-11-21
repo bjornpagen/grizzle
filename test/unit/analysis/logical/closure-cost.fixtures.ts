@@ -7,7 +7,7 @@ import { type Dependency, implication, projectionCloses } from "#compiler/ir/key
 import { conservativeMeta, type DeclaredKey, type ValidDag } from "#compiler/ir/rel.ts"
 import { Ir, type SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
-import type { CallSite } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/calls.ts"
 import { type Table, tableGen } from "#test/unit/analysis/logical/keys.fixtures.ts"
 
 /** A drawn dependency table (keys.fixtures.ts tableGen) and a start, the mask of the columns its closure starts from. */
@@ -66,7 +66,7 @@ export type ClosureFeature =
 /** A closure's one visit of a dependency in a pass (logical/closure.ts closure). */
 export const steps = Object.freeze({
 	step: { file: "packages/engine/src/logical/closure.ts", name: "step" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 /**
  * Where the analysis interns a node's attributes and its dependencies over them, beside every node's properties built
@@ -77,7 +77,7 @@ export const interning = Object.freeze({
 	attributesOver: { file: "packages/engine/src/logical/attributes.ts", name: "attributesOver" },
 	rowsOf: { file: "packages/engine/src/logical/closure.ts", name: "rowsOf" },
 	closure: { file: "packages/engine/src/logical/closure.ts", name: "closure" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 export type InterningFeature = "one relation" | "several relations"
 
@@ -86,7 +86,7 @@ export const readings = Object.freeze({
 	finish: { file: "packages/engine/src/logical/props.ts", name: "finish" },
 	baseProps: { file: "packages/engine/src/analysis/physical/rules.ts", name: "baseProps" },
 	deltaProps: { file: "packages/engine/src/analysis/physical/rules.ts", name: "deltaProps" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 export type ReadingFeature = "one query of a reading" | "several queries of a reading"
 

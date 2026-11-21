@@ -7,7 +7,7 @@ import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
 import { conservativeMeta, type ValidDag, type VarDecl } from "#compiler/ir/rel.ts"
 import { plainType } from "#compiler/scalar/native.ts"
-import type { CallSite } from "#test/support/kernel/calls.ts"
+import type { CountedFunction } from "#test/support/kernel/calls.ts"
 
 const int4 = plainType("int4")
 
@@ -15,7 +15,7 @@ const int4 = plainType("int4")
 export const sites = Object.freeze({
 	closure: { file: "packages/engine/src/logical/closure.ts", name: "closure" },
 	minimalKeys: { file: "packages/engine/src/logical/closure.ts", name: "minimalKeys" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 /** k relations R0.. of columns a and b, each its own key, matched in one region delivering every variable. */
 export const productOf = (k: number): ValidDag => {

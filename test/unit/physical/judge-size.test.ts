@@ -52,7 +52,7 @@ export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnc
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst known = this.#by.get(identity.value)",
+				original: "\t\tconst known = this.#navigations.get(identity)",
 				replacement: "\t\tconst known = undefined",
 				why: "Every read of an import a navigation keeps whole is an object of its own, so the checker, which keys an import by its query's place (check/session.ts), builds a node at every read, and a chain two deep of two reads per level reads Node four times; the property fails."
 			},
@@ -102,14 +102,14 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original:
-					'\t\t\tcase "perStatement":\n\t\t\t\treturn navigate(rule, loc, columns, sharing, keptOf(rule), interned)',
+					'\t\t\t\tcase "perStatement":\n\t\t\t\t\treturn navigate(rule, loc, columns, sharing, keptOf(rule), interned)',
 				replacement:
-					'\t\t\tcase "perStatement":\n\t\t\t\treturn flatMapNonEmpty(conjunctions([rule], columns), (conjunction) => navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned))',
+					'\t\t\t\tcase "perStatement":\n\t\t\t\t\treturn flatMapNonEmpty(conjunctions([rule], columns), (conjunction) => navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned))',
 				why: "A whole rule's statement is distributed into its conjunctions before navigation reads it, as a write member's is, so every union it reads is read once in each conjunction; the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tconst known = this.#by.get(identity.value)",
+				original: "\t\tconst known = this.#navigations.get(identity)",
 				replacement: "\t\tconst known = undefined",
 				why: "Every read of a union a navigation keeps whole is an object of its own, so the checker, which keys an import by its query's place (check/session.ts), builds a node at every read, and the rule over two reads of a union of two rules reads Node four times; the property fails."
 			},

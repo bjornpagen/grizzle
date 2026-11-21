@@ -26,7 +26,7 @@ import { Effect } from "effect"
 import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	installed,
-	installedReadingUnion,
+	installedReaders,
 	type Use,
 	uses
 } from "#test/unit/analysis/literal-heads.fixtures.ts"
@@ -67,7 +67,7 @@ export const aColumnARulesHeadFixesAtALiteralCompilesWhereverANavigatedRuleReads
 					file: "packages/engine/src/physical/ddl/rules.ts",
 					original: "\t\t\t(query) => b.columns(unit.definitionOf(query)),\n",
 					replacement: "\t\t\tb.columns,\n",
-					why: "A whole rule's statement over its units reads the heading of the walked copy of the union it splits, checked alone, where the copy's recursive import reads the document's channel, which only its import types: refused as a channel bound to a column, as pantry's assembledPartRows was (tests.ts:1040)."
+					why: "A whole rule's statement over its units reads the heading of the walked copy of the union it selects at a literal, checked alone, where the copy's recursive import reads the document's channel, which only its import types: refused as a channel bound to a column, as pantry's assembledPartRows was (tests.ts:1040)."
 				},
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -86,18 +86,18 @@ const headingChecks = {
 } as const
 
 /**
- * A union's heading is checked once per installation however many statements navigation reads it in: the installation
- * holds one QueryColumns (physical/ddl/context.ts InstallBuilder.columns), every law reads the union in its violation
- * as one live query (analysis/theory/query.ts liveReading), and a whole rule's statement over its units reads a walked
- * copy's heading at the definition it was walked from (WholeRule `definitionOf`), so every statement the judge
- * navigates reads the one union's, and three checked derived relations reading it, each with its own judge statements
- * that split it, check its heading as often as one does.
+ * An import's heading is checked once per installation however many statements navigation reads it in: the
+ * installation holds one QueryColumns (physical/ddl/context.ts InstallBuilder.columns), every law reads the import in
+ * its violation as one live query (analysis/theory/query.ts liveReading), and a whole rule's statement over its units
+ * reads a walked copy's heading at the definition it was walked from (WholeRule `definitionOf`), so every statement the
+ * judge navigates reads the one import's, and three checked derived relations reading `fixed`, each with its own judge
+ * statements that inline it and type its head literal at its heading, check its heading as often as one does.
  */
-export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigateIt =
+export const anImportsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigateIt =
 	property.exhaust(
 		finite((source) => source.draw(element(["one reader", "three readers"] as const))),
 		{
-			box: "an installation of one and of three derived relations reading a literal-headed union",
+			box: "an installation of one and of three derived relations reading a query whose head fixes a literal",
 			needs: {},
 			situations: ["one reader", "three readers"] satisfies ReadonlyArray<
 				Reached<"one reader" | "three readers">
@@ -106,18 +106,18 @@ export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigate
 				Effect.gen(function* () {
 					c.note(readers)
 					const [one, once] = yield* callCounts(
-						Effect.sync(() => installedReadingUnion("one reader")),
+						Effect.sync(() => installedReaders("one reader")),
 						headingChecks
 					)
 					const [read, counted] = yield* callCounts(
-						Effect.sync(() => installedReadingUnion(readers)),
+						Effect.sync(() => installedReaders(readers)),
 						headingChecks
 					)
 					assert.ok(one.ok && read.ok, "both installations compile")
-					assert.ok(once.check > 0, "the union's heading is checked")
+					assert.ok(once.check > 0, "the import's heading is checked")
 					assert.ok(
 						counted.check === once.check,
-						`${readers} check the union's heading ${counted.check} times, one reader ${once.check}`
+						`${readers} check the import's heading ${counted.check} times, one reader ${once.check}`
 					)
 				}),
 			oracle: {
@@ -132,13 +132,13 @@ export const aUnionsHeadingIsCheckedOncePerInstallationHoweverManyProbesNavigate
 						'\t\tthis.columns = queryColumns(input.checked, SourceLoc("the installation", []))\n',
 					replacement:
 						'\t\tthis.columns = (query) => queryColumns(input.checked, SourceLoc("the installation", []))(query)\n',
-					why: "Each statement navigation reads gets a QueryColumns of its own, so the union's heading is checked again for every probe that splits it: three readers check it more often than one."
+					why: "Each statement navigation reads gets a QueryColumns of its own, so the import's heading is checked again for every probe that inlines it: three readers check it more often than one."
 				},
 				{
 					file: "packages/engine/src/analysis/theory/query.ts",
 					original: "\t\t\tconst found = known.get(query)\n",
 					replacement: "\t\t\tconst found = known.get({ ...query })\n",
-					why: "Each law reads its own live copy of every query its violation imports, so the judge's statements of three laws meet three unions, each one's heading checked apart."
+					why: "Each law reads its own live copy of every query its violation imports, so the judge's statements of three laws meet three imports, each one's heading checked apart."
 				}
 			]
 		}
@@ -150,16 +150,16 @@ const walkCopies = {
 } as const
 
 /**
- * A whole rule's walk copies only the queries it changes: over checked readers of a union of stored relations, each
+ * A whole rule's walk copies only the queries it changes: over checked readers of a query of a stored relation, each
  * law's walk per unit copies its violation, whose outermost rule it reads per unit, and nothing the violation imports,
- * neither the reader's live definition nor the union, which it leaves as they were (analysis/theory/unit.ts Walked), so
+ * neither the reader's live definition nor the query, which it leaves as they were (analysis/theory/unit.ts Walked), so
  * an installation of one reader makes one copy and of three readers three, where a walk that copied all it read made a
  * copy of every query below each violation, and of each again in every walk that decides a unit.
  */
 export const aWholeRulesWalkCopiesOnlyTheQueriesItChanges = property.exhaust(
 	finite((source) => source.draw(element(["one reader", "three readers"] as const))),
 	{
-		box: "an installation of one and of three checked derived relations reading a union of stored relations",
+		box: "an installation of one and of three checked derived relations reading a query of a stored relation",
 		needs: {},
 		situations: ["one reader", "three readers"] satisfies ReadonlyArray<
 			Reached<"one reader" | "three readers">
@@ -168,7 +168,7 @@ export const aWholeRulesWalkCopiesOnlyTheQueriesItChanges = property.exhaust(
 			Effect.gen(function* () {
 				c.note(readers)
 				const [read, counted] = yield* callCounts(
-					Effect.sync(() => installedReadingUnion(readers)),
+					Effect.sync(() => installedReaders(readers)),
 					walkCopies
 				)
 				assert.ok(read.ok, "the installation compiles")
@@ -185,7 +185,7 @@ export const aWholeRulesWalkCopiesOnlyTheQueriesItChanges = property.exhaust(
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original: "\t\tquery: read.stage === query.stage ? query : copied(query, read.stage, w),\n",
 				replacement: "\t\tquery: copied(query, read.stage, w),\n",
-				why: "The walk copies every query it reads, changed or not: the reader's live definition and the union below each violation, in each law's walk per unit and in every walk that decides its unit, more copies than laws."
+				why: "The walk copies every query it reads, changed or not: the reader's live definition and the query below each violation, in each law's walk per unit and in every walk that decides its unit, more copies than laws."
 			}
 		]
 	}

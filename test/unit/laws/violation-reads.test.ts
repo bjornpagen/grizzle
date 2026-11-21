@@ -354,9 +354,8 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original:
-					'\t\tif (m === undefined || source?.kind !== "query" || stage?.kind !== "rules") {',
-				replacement: "\t\tif (true) {",
+				original: "\treturn { one, most, every, filtersJoin }",
+				replacement: "\treturn { one, most: one, every: one, filtersJoin }",
 				why: "A filter of a rule over an import of several rules is read as written, Two's two rules over ops each a core of the three reads ops joins, derived whole and anti-joined to Known by PostgreSQL's estimates; it fails the containment's case."
 			},
 			{
@@ -367,14 +366,16 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\t\t!splits(rule) ||",
-				replacement: "\t\t\ttrue ||",
+				original: "\t\t\tif (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {",
+				replacement: "\t\t\tif (true || !someConjunctionJoins(interned.reads(rule))) {",
 				why: "A rule over Either, a union of Op's and Item's rows, is read as written beside its negation of Two, which is derived whole and anti-joined to it; it fails the union's case."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tfor (const rule of conjunctionsOf(stage.arms, columns)) {",
-				replacement: "\t\tfor (const rule of stage.arms) {",
+				original:
+					"\t\t\t\t(n, arm) => (arm.most === undefined ? n : Math.max(n ?? arm.most, arm.most)),",
+				replacement:
+					"\t\t\t\t(n, arm) => (arm.one === undefined ? n : Math.max(n ?? arm.one, arm.one)),",
 				why: "Conjunctions split an import of several rules matched directly alone, so Either, one rule over the query either of two, is no union to them, and its rule is read as written beside its negation of Two; it fails the union's case."
 			}
 		]

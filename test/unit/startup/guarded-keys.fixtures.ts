@@ -26,7 +26,7 @@ import {
 } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
-import { callCounts, type CallSite } from "#test/support/kernel/calls.ts"
+import { callCounts, type CountedFunction } from "#test/support/kernel/calls.ts"
 import { offlineDecoders, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterPool } from "#test/support/pg.ts"
 import { ownedInput } from "#test/support/policy.ts"
@@ -44,7 +44,7 @@ const sites = Object.freeze({
 	specialize: { file: "packages/engine/src/laws/model/model.ts", name: "run" },
 	compileLaws: { file: "packages/engine/src/laws/model/model.ts", name: "compileLaws" },
 	encode: { file: "packages/engine/src/core/canonical.ts", name: "encode" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 type Counts = Readonly<Record<keyof typeof sites, number>>
 
@@ -128,7 +128,7 @@ export const keysGen = int(1, 2)
 const orderSites = Object.freeze({
 	push: { file: "packages/engine/src/physical/obligations/graph.ts", name: "push" },
 	readyFirst: { file: "packages/engine/src/physical/obligations/graph.ts", name: "readyFirst" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 /**
  * ReadyHeap's bound on its comparisons over `pushes` pushes and as many pops: one comparison a level of a push's sift-up,

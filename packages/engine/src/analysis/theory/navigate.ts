@@ -20,7 +20,8 @@ import {
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
-import { canonicalEquals, ownedText, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { canonicalEquals, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { identityDigest } from "#compiler/core/fingerprint.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import {
@@ -185,33 +186,80 @@ type Binds = ReadonlyMap<string, InferredExpr>
  * The key two reads of an import in one rule's unfolding share exactly when they read the same rows: the semantic
  * identity of its query and of the terms its bind map binds its parameters to, as the outermost rule reads them, so two
  * matches of one query at one parameter's values, a whole rule's unit channels among them, share it, and one bound to a
- * variable of an inlined rule, renamed apart at each inlining, shares it with none.
+ * variable of an inlined rule, renamed apart at each inlining, shares it with none. It is their identity digest
+ * (core/fingerprint.ts identityDigest), each query the import reads digested once however many of its rules read it,
+ * where their canonical text spelled each read of a query again: a chain of unions each rule of which reads the level
+ * below spells its leaf the product of the unions' widths times.
  */
-const importKey = (query: InferredQuery, bind: Binds): string =>
-	ownedText([query, [...bind].toSorted(([a], [b]) => compareStrings(a, b))], withoutSourceLocs)
+const importKey = (query: InferredQuery, bind: Binds): string => {
+	const key = identityDigest(
+		[query, [...bind].toSorted(([a], [b]) => compareStrings(a, b))],
+		withoutSourceLocs
+	)
+	if (!key.ok) {
+		throw defect(`an import's key encodes: ${key.error.message}`)
+	}
+	return key.value
+}
 
 /**
- * The imports one statement's navigation reads whole, each by its identity (ir/desc.ts descIdentity): every read of one
- * import at one set of values is one object, so the checker, which keys an import by its query's identity (check/
- * session.ts CheckSession place), builds one node for all of them, where each read navigated apart was an object of
- * its own, a node of its own. One per call of `navigateQuery`, never shared between statements.
+ * One statement's navigation: each query it reads navigated once for its identity (ir/desc.ts descIdentity), and what
+ * it reads of each rule (`reads`), computed once for the rule. Every read of a query of one identity is the one
+ * navigation of it, one object, so the checker, which keys an import by its query's place (check/session.ts
+ * CheckSession), builds one node for all of them, where each read navigated apart was an object of its own, a node of
+ * its own; and a chain of unions, each rule of a level reading the level below, navigates each level once for each set
+ * of values its rules read it at, where navigated at each read apart, every level was navigated once for every path
+ * down the chain to it, the product of the unions' widths at every depth above it. Its work is linear in the queries
+ * and rules its statement reads, never in the paths through them. One per call of `navigateQuery`, never shared
+ * between statements.
  */
 class Interned {
-	readonly #by = new Map<string, Imported>()
+	/** The navigation of the first query of each identity this navigation read, by the identity. */
+	readonly #navigations = new Map<string, InferredQuery>()
+	/** What navigation reads of each rule this navigation asked about (`reads`), by the rule. */
+	readonly #reads = new Map<InferredRule, RuleReads>()
 
-	/** The one import of `source`'s identity this navigation read first, `source` itself where none was. */
-	of(source: Imported): Imported {
-		const identity = descIdentity(source)
-		if (!identity.ok) {
-			throw defect(`a navigated import encodes: ${identity.error.message}`)
-		}
-		const known = this.#by.get(identity.value)
+	/**
+	 * `query` navigated by `navigate`: the navigation of the first query of its identity this navigation read, that
+	 * query itself where its navigation changes nothing.
+	 */
+	navigated(
+		query: InferredQuery,
+		navigate: (query: InferredQuery) => InferredQuery
+	): InferredQuery {
+		const identity = identityOf(query)
+		const known = this.#navigations.get(identity)
 		if (known !== undefined) {
 			return known
 		}
-		this.#by.set(identity.value, source)
-		return source
+		const navigated = navigate(query)
+		this.#navigations.set(identity, navigated)
+		return navigated
 	}
+
+	/**
+	 * What navigation reads of `rule` (`RuleReads`), read once for each rule however many reads of its import ask: the
+	 * rules of a chain of unions, each rule of a level reading the level below, are each read once, where each read of
+	 * a union read its rules again, once for every path down the chain to them.
+	 */
+	reads(rule: InferredRule): RuleReads {
+		const known = this.#reads.get(rule)
+		if (known !== undefined) {
+			return known
+		}
+		const reads = ruleReads(rule, (r) => this.reads(r))
+		this.#reads.set(rule, reads)
+		return reads
+	}
+}
+
+/** A navigated query's identity (ir/desc.ts descIdentity), which every query a navigation reads encodes. */
+const identityOf = (desc: InferredQuery): string => {
+	const identity = descIdentity(desc)
+	if (!identity.ok) {
+		throw defect(`a navigated query encodes: ${identity.error.message}`)
+	}
+	return identity.value
 }
 
 /**
@@ -302,10 +350,7 @@ const sharedWithin = (
 		}
 		return {
 			...r,
-			source: interned.of({
-				...inside,
-				query: navigatedQuery(inside.query, loc, columns, sharing, interned)
-			})
+			source: { ...inside, query: navigatedQuery(inside.query, loc, columns, sharing, interned) }
 		}
 	})
 	return { flat: { ...flat, reads }, unrestricted }
@@ -338,7 +383,7 @@ const noImports: KeptImports = { kept: new Set(), unions: new Set() }
  * inlining leaves it: a read inside an import navigation keeps whole is that import's own, so the shallowest imports
  * read more than once are kept first, and the rest counted again without the rows they hold.
  */
-const sharedImports = (rules: ReadonlyArray<InferredRule>, columns: QueryColumns): KeptImports => {
+const sharedImports = (rules: ReadonlyArray<InferredRule>, interned: Interned): KeptImports => {
 	const shared = new Set<string>()
 	const unions = new Set<string>()
 	for (;;) {
@@ -383,7 +428,7 @@ const sharedImports = (rules: ReadonlyArray<InferredRule>, columns: QueryColumns
 			visit(rule, (e) => e, 0)
 		}
 		const joined = [...counts].flatMap(([key, c]) => {
-			const reads = c.n > 1 && !shared.has(key) ? readsOfRule(c.rule, columns) : undefined
+			const reads = c.n > 1 && !shared.has(key) ? interned.reads(c.rule).one : undefined
 			return reads !== undefined && reads > 1 ? [{ key, depth: c.depth }] : []
 		})
 		if (!isNonEmpty(joined)) {
@@ -440,9 +485,10 @@ const conjunctions = (
 }
 
 /**
- * The conjunctions of `arms` (`conjunctions`), one at a time, each built only when it is read: whether one of them
- * joins is known at the first that does, where the union of them all is the product of the widths of the unions they
- * read, at any depth.
+ * The conjunctions of `arms` (`conjunctions`), one at a time: the product of the widths of the unions they read, at any
+ * depth, which only a consumer of every conjunction builds, a write member's navigation (`perRead`) or a union read
+ * whole that no parameter restricts (`Navigator.rule`). Whether one of them joins, or navigation reads every one, is read
+ * off the rules of the unions they choose from, never off the conjunctions (`RuleReads`).
  */
 function* conjunctionsOf(
 	arms: Iterable<InferredRule>,
@@ -504,16 +550,6 @@ const splits = (rule: InferredRule): boolean =>
 			m.source.query.stage.kind === "rules" &&
 			(m.source.query.stage.arms.length > 1 || m.source.query.stage.arms.some(splits))
 	)
-
-/** Whether some value `values` yields holds `test`, read no further than the first that does. */
-const someOf = <A>(values: Iterable<A>, test: (a: A) => boolean): boolean => {
-	for (const a of values) {
-		if (test(a)) {
-			return true
-		}
-	}
-	return false
-}
 
 /** `rule` with each bare literal of its head typed at the column of the union it is a rule of (`union`): itself where none is. */
 const headAtUnion = (rule: InferredRule, union: ColumnTypes): InferredRule => {
@@ -632,7 +668,7 @@ class Navigator {
 		while (within.unrestricted.size > 0) {
 			if ([...within.unrestricted].some((key) => imports.unions.has(key))) {
 				const split = conjunctions([rule], this.#columns)
-				const kept = sharedImports(split, this.#columns)
+				const kept = sharedImports(split, this.#interned)
 				return flatMapNonEmpty(split, (conjunction) => this.rule(conjunction, depth, kept))
 			}
 			for (const key of within.unrestricted) {
@@ -1072,7 +1108,7 @@ class Navigator {
 				const arms =
 					this.#sharing === "perRead" ? conjunctions(stage.arms, this.#columns) : stage.arms
 				const keptOf = (arm: InferredRule): KeptImports =>
-					this.#sharing === "perRead" ? noImports : sharedImports([arm], this.#columns)
+					this.#sharing === "perRead" ? noImports : sharedImports([arm], this.#interned)
 				const navigated = flatMapNonEmpty(arms, (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
@@ -1131,45 +1167,86 @@ const filtersBelow = (e: InferredExpr): boolean =>
 	isFiltered(e) || exprChildren(e).some((c) => filtersBelow(c.term))
 
 /**
- * The stored and closed relations and the deltas `rule` reads once its imports are inlined (`Navigator.#inline`), or
- * undefined where navigation reads no such rule: one with interiors, attachments or a folded or produced head, a match of
- * anything but a stored or closed relation, a delta or an imported query of one such rule binding no parameter, a
- * relational filter below a scalar expression, a filter of anything but a stored or closed relation or an imported
- * query whose conjunctions (`conjunctions`) are such rules. A filter, a negation or an existence, is no read the count holds: it keeps or drops a row the
- * reads deliver, so a rule that reads one relation beside a filter is one lookup, and a filter of a delta, which no step
- * reads by an index, leaves the rule as written, where PostgreSQL hashes the delta once per statement.
+ * What navigation reads of a rule (`ruleReads`): `one`, the stored and closed relations and the deltas the rule reads
+ * once its imports are inlined (`Navigator.#inline`), undefined where navigation reads no such rule: one with
+ * interiors, attachments or a folded or produced head, a match of anything but a stored or closed relation, a delta or
+ * an imported query of one such rule binding no parameter, a relational filter below a scalar expression, a filter of
+ * anything but a stored or closed relation or an imported query whose conjunctions (`conjunctions`) are such rules. A
+ * filter, a negation or an existence, is no read the count holds: it keeps or drops a row the reads deliver, so a rule
+ * that reads one relation beside a filter is one lookup, and a filter of a delta, which no step reads by an index,
+ * leaves the rule as written, where PostgreSQL hashes the delta once per statement.
+ *
+ * And the same over the rule's conjunctions, never built: `most`, the most relations a conjunction navigation reads
+ * reads, undefined where it reads none of them, and `every`, the most where it reads every one of them, undefined where
+ * it reads some one not. A conjunction is a choice of one rule at each read of an import of several rules, at any
+ * depth, each read's choice its own, so the most a conjunction reads is the sum of the most each read's rules read; and
+ * `filtersJoin`, whether the rule filters by a query a conjunction of which joins (`someConjunctionJoins`), as every
+ * conjunction of the rule filters as it does. Each import's rules are read once (Interned `reads`), where its
+ * conjunctions are the product of the unions' widths at every depth.
  */
-const readsOfRule = (rule: InferredRule, columns: QueryColumns): number | undefined => {
+interface RuleReads {
+	readonly one: number | undefined
+	readonly most: number | undefined
+	readonly every: number | undefined
+	readonly filtersJoin: boolean
+}
+
+/** A rule navigation reads no part of, nor any conjunction of (`RuleReads`). */
+const unread: RuleReads = { one: undefined, most: undefined, every: undefined, filtersJoin: false }
+
+/** The sum of two counts of reads, none where either is none. */
+const plus = (a: number | undefined, b: number | undefined): number | undefined =>
+	a === undefined || b === undefined ? undefined : a + b
+
+/** The reads of `rule` (`RuleReads`), each rule of an import it matches or filters by read by `of`. */
+const ruleReads = (rule: InferredRule, of: (rule: InferredRule) => RuleReads): RuleReads => {
 	if (rule.interiors.length > 0 || rule.attach.length > 0) {
-		return undefined
+		return unread
 	}
 	if (Object.values(rule.head).some((h) => h.kind === "aggregate" || h.kind === "producer")) {
-		return undefined
+		return unread
 	}
-	let reads = 0
+	let one: number | undefined = 0
+	let most: number | undefined = 0
+	let every: number | undefined = 0
 	for (const m of rule.matches) {
 		const source = m.source
 		if (source.kind === "relation" || source.kind === "delta") {
-			reads += 1
+			one = plus(one, 1)
+			most = plus(most, 1)
+			every = plus(every, 1)
 			continue
 		}
-		if (source.kind !== "query" || scalarBinds(source.bind) === undefined) {
-			return undefined
+		if (
+			source.kind !== "query" ||
+			scalarBinds(source.bind) === undefined ||
+			source.query.stage.kind !== "rules"
+		) {
+			return unread
 		}
-		const stage = source.query.stage
-		const inner =
-			stage.kind === "rules" && stage.arms.length === 1
-				? readsOfRule(stage.arms[0], columns)
-				: undefined
-		if (inner === undefined) {
-			return undefined
-		}
-		reads += inner
+		const arms = mapNonEmpty(source.query.stage.arms, of)
+		one = plus(one, arms.length === 1 ? arms[0].one : undefined)
+		most = plus(
+			most,
+			arms.reduce<number | undefined>(
+				(n, arm) => (arm.most === undefined ? n : Math.max(n ?? arm.most, arm.most)),
+				undefined
+			)
+		)
+		every = plus(
+			every,
+			arms.reduce<number | undefined>(
+				(n, arm) =>
+					n === undefined || arm.every === undefined ? undefined : Math.max(n, arm.every),
+				0
+			)
+		)
 	}
+	let filtersJoin = false
 	for (const w of rule.where) {
 		if (!isFiltered(w)) {
 			if (filtersBelow(w)) {
-				return undefined
+				return unread
 			}
 			continue
 		}
@@ -1180,45 +1257,40 @@ const readsOfRule = (rule: InferredRule, columns: QueryColumns): number | undefi
 		if (
 			source.kind !== "query" ||
 			Object.keys(source.bind).length > 0 ||
-			source.query.stage.kind !== "rules" ||
-			conjunctions(source.query.stage.arms, columns).some(
-				(arm) => readsOfRule(arm, columns) === undefined
-			)
+			source.query.stage.kind !== "rules"
 		) {
-			return undefined
+			return unread
 		}
+		const arms = mapNonEmpty(source.query.stage.arms, of)
+		if (arms.some((arm) => arm.every === undefined)) {
+			return unread
+		}
+		filtersJoin ||= arms.some(someConjunctionJoins)
 	}
-	return reads
+	return { one, most, every, filtersJoin }
 }
 
 /**
- * Whether navigation reads `rule` and it joins: it reads two stored or closed relations or more once its imports are
- * inlined (`readsOfRule`), or it filters by a query a rule of which joins (`filtersJoin`). A rule that reads one
- * relation and filters by no join is one lookup already; one navigation reads no part of is no join it reads.
+ * Whether navigation reads a rule and it joins (`RuleReads`): it reads two stored or closed relations or more once its
+ * imports are inlined, or it filters by a query a conjunction of which joins. A rule that reads one relation and
+ * filters by no join is one lookup already; one navigation reads no part of is no join it reads. A filter by a query
+ * that joins, read as written, is the query's join under the terms it is filtered at, which bind only the relations
+ * whose columns the query's head delivers: qti's "Dependency target" negates DependencyResolved at a dependency's
+ * (package, path, start), a join of Node and ResourceId at (package, path) under it, ResourceId bound by the
+ * dependency's ref alone, which only the dependency's row holds. Navigated, each relation the query reads is a step
+ * bound by the terms and the steps before it.
  */
-const joins = (rule: InferredRule, columns: QueryColumns): boolean => {
-	const reads = readsOfRule(rule, columns)
-	return reads !== undefined && (reads > 1 || rule.where.some((w) => filtersJoin(w, columns)))
-}
+const joins = (reads: RuleReads): boolean =>
+	reads.one !== undefined && (reads.one > 1 || reads.filtersJoin)
 
-/**
- * Whether a condition filters by a query, negated or existing, a rule of which joins (`joins`). Read as written, such
- * a filter is the query's join under the terms it is filtered at, which bind only the relations whose columns the
- * query's head delivers: qti's
- * "Dependency target" negates DependencyResolved at a dependency's (package, path, start), a join of Node and
- * ResourceId at (package, path) under it, ResourceId bound by the dependency's ref alone, which only the dependency's
- * row holds. Navigated, each relation the query reads is a step bound by the terms and the steps before it.
- */
-const filtersJoin = (w: InferredExpr, columns: QueryColumns): boolean =>
-	isFiltered(w) &&
-	w.source.kind === "query" &&
-	w.source.query.stage.kind === "rules" &&
-	conjunctions(w.source.query.stage.arms, columns).some((arm) => joins(arm, columns))
+/** Whether some conjunction of a rule joins (`joins`, `conjunctions`), never built (`RuleReads` `most`). */
+const someConjunctionJoins = (reads: RuleReads): boolean =>
+	reads.most !== undefined && (reads.most > 1 || reads.filtersJoin)
 
 /**
  * `rule` navigated where it joins (`joins`); one that does not, with the query each of its steps and imports reads
  * navigated where it joins (`navigateQuery`); itself where nothing in it joins. An aggregate's rule, which navigation
- * reads no part of (`readsOfRule`), counts or folds the facts of the query it imports, read per unit inside a whole
+ * reads no part of (`RuleReads`), counts or folds the facts of the query it imports, read per unit inside a whole
  * rule's step: navigated, each relation that query joins is a lookup by every key column the steps before it bound,
  * where read as written PostgreSQL plans the join by its estimates of one unit's rows, a nested loop over a range of
  * the unit for each row of another, the unit's rows squared.
@@ -1231,7 +1303,7 @@ const navigatedRule = (
 	imports: KeptImports,
 	interned: Interned
 ): NonEmptyReadonlyArray<InferredRule> => {
-	if (joins(rule, columns)) {
+	if (joins(interned.reads(rule))) {
 		return navigate(rule, loc, columns, sharing, imports, interned)
 	}
 	const fixed = fixedTerms(rule)
@@ -1246,7 +1318,7 @@ const navigatedRule = (
 		}
 		const inside = boundInside(source, m.bindings, fixed, columns)
 		const query = navigatedQuery(inside.query, loc, columns, sharing, interned)
-		return query === source.query ? m : { ...m, source: interned.of({ ...inside, query }) }
+		return query === source.query ? m : { ...m, source: { ...inside, query } }
 	})
 	return [matches.every((m, i) => m === rule.matches[i]) ? rule : { ...rule, matches }]
 }
@@ -1375,7 +1447,10 @@ export const navigateQuery = (
 	sharing: ImportSharing
 ): InferredQuery => navigatedQuery(query, loc, columns, sharing, new Interned())
 
-/** `navigateQuery` within one statement's navigation, its imports read whole interned in `interned`. */
+/**
+ * `navigateQuery` within one statement's navigation, its imports read whole interned in `interned`, each query of one
+ * identity navigated once (Interned `navigated`).
+ */
 const navigatedQuery = (
 	query: InferredQuery,
 	loc: SourceLoc,
@@ -1383,30 +1458,29 @@ const navigatedQuery = (
 	sharing: ImportSharing,
 	interned: Interned
 ): InferredQuery => {
-	const stage = query.stage
-	if (stage.kind !== "rules") {
-		return query
-	}
-	const keptOf = (rule: InferredRule): KeptImports =>
-		sharing === "perRead" ? noImports : sharedImports([rule], columns)
-	const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
-		if (
-			!splits(rule) ||
-			!someOf(conjunctionsOf([rule], columns), (conjunction) => joins(conjunction, columns))
-		) {
-			return navigatedRule(rule, loc, columns, sharing, keptOf(rule), interned)
+	return interned.navigated(query, () => {
+		const stage = query.stage
+		if (stage.kind !== "rules") {
+			return query
 		}
-		switch (sharing) {
-			case "perUnit":
-			case "perStatement":
-				return navigate(rule, loc, columns, sharing, keptOf(rule), interned)
-			case "perRead":
-				return flatMapNonEmpty(conjunctions([rule], columns), (conjunction) =>
-					navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned)
-				)
-		}
+		const keptOf = (rule: InferredRule): KeptImports =>
+			sharing === "perRead" ? noImports : sharedImports([rule], interned)
+		const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
+			if (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {
+				return navigatedRule(rule, loc, columns, sharing, keptOf(rule), interned)
+			}
+			switch (sharing) {
+				case "perUnit":
+				case "perStatement":
+					return navigate(rule, loc, columns, sharing, keptOf(rule), interned)
+				case "perRead":
+					return flatMapNonEmpty(conjunctions([rule], columns), (conjunction) =>
+						navigatedRule(conjunction, loc, columns, sharing, keptOf(conjunction), interned)
+					)
+			}
+		})
+		return arms.length === stage.arms.length && arms.every((rule, i) => rule === stage.arms[i])
+			? query
+			: { ...query, stage: { ...stage, arms } }
 	})
-	return arms.length === stage.arms.length && arms.every((rule, i) => rule === stage.arms[i])
-		? query
-		: { ...query, stage: { ...stage, arms } }
 }

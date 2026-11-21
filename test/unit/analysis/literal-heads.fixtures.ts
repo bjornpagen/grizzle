@@ -33,7 +33,8 @@ export const uses = [
 	"a union's literal compared with a natural column",
 	"a check over a union's literal",
 	"a write member's query over a union's literal",
-	"a union's literal beside a channel-bound recursive import"
+	"a union's literal beside a channel-bound recursive import",
+	"a union selected at its literal beside a channel-bound recursive import"
 ] as const
 export type Use = (typeof uses)[number]
 
@@ -47,7 +48,11 @@ type UnionUse = Extract<
 type WriteUse = Extract<Use, "a write member's query over a union's literal">
 
 /** The use whose union a whole rule's walk binds to its unit's channels. */
-type WalkUse = Extract<Use, "a union's literal beside a channel-bound recursive import">
+type WalkUse = Extract<
+	Use,
+	| "a union's literal beside a channel-bound recursive import"
+	| "a union selected at its literal beside a channel-bound recursive import"
+>
 
 /** The uses that read the one-rule query `fixed`. */
 type PlainUse = Exclude<Use, UnionUse | WriteUse | WalkUse>
@@ -136,8 +141,9 @@ const unionReadOf = (use: UnionUse) =>
  * the refusal it meets.
  */
 export const installed = (use: Use): Result.Result<unknown, CompileError> =>
-	use === "a union's literal beside a channel-bound recursive import"
-		? installedOverWalk()
+	use === "a union's literal beside a channel-bound recursive import" ||
+	use === "a union selected at its literal beside a channel-bound recursive import"
+		? installedOverWalk(use)
 		: use === "a write member's query over a union's literal"
 			? writtenOverUnion()
 			: use === "a union's literal compared with a natural column" ||
@@ -239,18 +245,14 @@ const installedAs = (desk: {
 	)
 }
 
-/** A derived relation reading the union `scoped` beside Node by `scope = start`, checked by a check of its own. */
+/** A derived relation reading `fixed`, whose head fixes `scope` at 0n, beside Node by `id`, checked by a check of its own. */
 const readerOf = <const Name extends string>(name: RelationName<Name>) =>
 	derived(
 		name,
 		query(Base).rule((r) => {
-			const { id, scope } = v(scoped, "scoped")
+			const { id, scope } = v(fixed, "fixed")
 			const { start } = v(Node, "node")
-			return r
-				.match(scoped, { id, scope })
-				.match(Node, { id, start })
-				.where(r.eq(scope, start))
-				.find({ id, start, scope })
+			return r.match(fixed, { id, scope }).match(Node, { id, start }).find({ id, start, scope })
 		})
 	)
 
@@ -259,10 +261,11 @@ const Read1 = readerOf("Read1")
 const Read2 = readerOf("Read2")
 
 /**
- * An installation of one or of three derived relations, each reading the union `scoped` and checked, so a writer of
- * Node probes each reader's check and navigation splits the union once for each: compiled, or the refusal it meets.
+ * An installation of one or of three derived relations, each reading `fixed` and checked, so a writer of Item and Node
+ * probes each reader's check, and navigation inlines `fixed` in each and types its head literal at `fixed`'s heading:
+ * compiled, or the refusal it meets.
  */
-export const installedReadingUnion = (
+export const installedReaders = (
 	readers: "one reader" | "three readers"
 ): Result.Result<unknown, CompileError> => {
 	if (readers === "one reader") {
@@ -356,20 +359,42 @@ const leveled = query(Parts)
 const Leveled = derived("Leveled", leveled)
 
 /**
- * The installation of a check over Leveled, a whole rule judged per document: its walk reads the recursion at the
- * document's channels, so the union it splits is a copy that reads them, whose heading navigation reads at the union's
- * definition: compiled, or the refusal it meets.
+ * The parts Leveled holds at level 0n, a document's roots: a selection of the union at the literal its first rule's head
+ * fixes, as qti's statements of one required fact select a union at the literal one of its rules fixes. A whole rule's
+ * statement over it reads the union's walked copy, which reads the recursion at the document's channels, at the
+ * literal, typed at the column it binds (analysis/theory/navigate.ts boundInside), the union's.
  */
-const installedOverWalk = (): Result.Result<unknown, CompileError> => {
+const Roots = derived(
+	"Roots",
+	query(Parts).rule((r) => {
+		const { doc, part } = v(leveled, "leveled")
+		return r.match(leveled, { doc, part, level: 0n }).find({ doc, part })
+	})
+)
+
+/**
+ * The installation of a check over Leveled or Roots, a whole rule judged per document: its walk reads the recursion at
+ * the document's channels, so each query it reads that reads the recursion is a copy that reads them, which only its
+ * import types. Over Leveled the statement reads the union's copy whole; over Roots it reads the copy at level 0n and
+ * types the literal at the copy's heading, read at the union the copy was walked from (WholeRule `definitionOf`):
+ * compiled, or the refusal it meets.
+ */
+const installedOverWalk = (use: WalkUse): Result.Result<unknown, CompileError> => {
+	const writer = { write: ["Part", "Level"], refresh: [] }
+	if (use === "a union's literal beside a channel-bound recursive import") {
+		const top = schema.extend(
+			[Parts],
+			"LiteralHeadsWalked",
+			[Leveled],
+			[check("Shallow", Leveled, (x) => x.lt(x.level, 5n))]
+		)
+		return installedAs(login(top, "desk", [role(top, "writer", { Part, Level }, writer)]))
+	}
 	const top = schema.extend(
 		[Parts],
-		"LiteralHeadsWalked",
-		[Leveled],
-		[check("Shallow", Leveled, (x) => x.lt(x.level, 5n))]
+		"LiteralHeadsRoots",
+		[Roots],
+		[check("Placed", Roots, (x) => x.lt(x.part, 1000))]
 	)
-	return installedAs(
-		login(top, "desk", [
-			role(top, "writer", { Part, Level }, { write: ["Part", "Level"], refresh: [] })
-		])
-	)
+	return installedAs(login(top, "desk", [role(top, "writer", { Part, Level }, writer)]))
 }
