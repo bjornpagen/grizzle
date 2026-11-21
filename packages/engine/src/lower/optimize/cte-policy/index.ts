@@ -1,5 +1,8 @@
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { analyzeDemand, noPins } from "#compiler/analysis/demand/demand.ts"
+import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
 import {
@@ -22,12 +25,7 @@ import {
 	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
-import {
-	feedbackReadsOf,
-	nodeGraph,
-	readsOutside,
-	subtreeOf
-} from "#compiler/lower/optimize/demand/editor.ts"
+import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
 
 export type CteStrategy = "inline" | "notMaterialized" | "materialized" | "recursive"
 
@@ -94,25 +92,45 @@ const expensiveKinds: ReadonlyArray<RelKind> = [
 	"Call"
 ]
 
+/** The cost class of a node's own stage alone (costClass), its inputs' aside. */
+const ownCost = (node: RelNode): CostClass =>
+	expensiveKinds.includes(node.kind)
+		? "expensive"
+		: (node.kind === "MatchRegion" && node.occurrences.length > 1) ||
+			  node.kind === "SemiJoin" ||
+			  node.kind === "AntiJoin"
+			? "join"
+			: "scan"
+
+/** The cost classes from the cheapest: a subtree's is its dearest stage's. */
+const costRank: Readonly<Record<CostClass, number>> = { scan: 0, join: 1, expensive: 2 }
+
+/**
+ * Each node's cost class (costClass), for as long as the node lives: it reads only the node's immutable subtree, so one
+ * value answers every reader of the node, and a node's is its own stage's and its inputs' dearest.
+ */
+const costs = new WeakMap<RelNode, CostClass>()
+
 /**
  * The cost class of a node's subtree: expensive when any stage folds, sorts, bounds, recurses or compares sets; a join
- * when it matches several sources or tests existence; otherwise a scan of one source.
+ * when it matches several sources or tests existence; otherwise a scan of one source. The dearest of the node's own
+ * stage's and its inputs' classes, each input's worked out once (costs), deepest first, where each node's walked its
+ * whole subtree.
  */
 export const costClass = (root: RelNode): CostClass => {
-	let join = false
-	for (const node of subtreeOf(nodeGraph, root)) {
-		if (expensiveKinds.includes(node.kind)) {
-			return "expensive"
-		}
-		if (
-			(node.kind === "MatchRegion" && node.occurrences.length > 1) ||
-			node.kind === "SemiJoin" ||
-			node.kind === "AntiJoin"
-		) {
-			join = true
-		}
+	const known = costs.get(root)
+	if (known !== undefined) {
+		return known
 	}
-	return join ? "join" : "scan"
+	for (const node of postorder([root], (n) => inputsOf(n).filter((input) => !costs.has(input)))) {
+		let cost = ownCost(node)
+		for (const input of inputsOf(node)) {
+			const below = defined(costs.get(input), "an input's cost class, worked out first")
+			cost = costRank[below] > costRank[cost] ? below : cost
+		}
+		costs.set(node, cost)
+	}
+	return defined(costs.get(root), "the cost class of the node asked")
 }
 
 /** A shared node and the policy's decision for it. */
@@ -357,7 +375,7 @@ const ctePlan = (dag: ValidDag, reads: CteSubject): ReadonlyArray<Decided> => {
 		} else if (feedback.has(node)) {
 			decision = decide("inline", "feedback", statementScope)
 		} else if (
-			readsOutside(nodeGraph, subtreeOf(nodeGraph, node)) ||
+			outerOf(node).length > 0 ||
 			freeVars(labels, scopes.of(node)).length > 0 ||
 			d.lateral(node)
 		) {

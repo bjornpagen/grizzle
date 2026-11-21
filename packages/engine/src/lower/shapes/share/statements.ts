@@ -2,6 +2,7 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
+import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -28,12 +29,7 @@ import {
 	withLeading
 } from "#compiler/lower/conservative/context.ts"
 import { costClass } from "#compiler/lower/optimize/cte-policy/index.ts"
-import {
-	feedbackReadsOf,
-	nodeGraph,
-	readsOutside,
-	subtreeOf
-} from "#compiler/lower/optimize/demand/editor.ts"
+import { feedbackReadsOf, nodeGraph } from "#compiler/lower/optimize/demand/editor.ts"
 import { shareKeyIn } from "#compiler/lower/shapes/share/index.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { col, core, operandSelect, target } from "#compiler/sql/build.ts"
@@ -151,7 +147,7 @@ export class ShareIndex {
 			freeVars(this.#labels, this.#scopes.of(node)).length === 0 &&
 			!this.#demand.lateral(node) &&
 			!this.#feedback.has(node) &&
-			!readsOutside(nodeGraph, subtreeOf(nodeGraph, node)) &&
+			outerOf(node).length === 0 &&
 			costClass(node) === "expensive"
 		this.#eligible.set(node.id, eligible)
 		return eligible

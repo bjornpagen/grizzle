@@ -270,7 +270,7 @@ interface HoldsFrame {
  * walked once per label asked of any subtree that holds it, where collecting every subtree's labels walked each subtree
  * whole for each node it was asked of.
  */
-const holdsLabel = (root: RelNode, label: NodeId): boolean => {
+export const holdsLabel = (root: RelNode, label: NodeId): boolean => {
 	const known = heldAt(root, label)
 	if (known !== undefined) {
 		return known
@@ -315,7 +315,7 @@ const noOuterReads: ReadonlyArray<OuterColumn> = Object.freeze([])
  * each input's computed once (outerReads), where each node's were collected by walking its whole subtree and reading
  * every expression in it.
  */
-const outerOf = (node: RelNode): ReadonlyArray<OuterColumn> => {
+export const outerOf = (node: RelNode): ReadonlyArray<OuterColumn> => {
 	const pending: Array<RelNode> = [node]
 	for (let at = pending.at(-1); at !== undefined; at = pending.at(-1)) {
 		if (outerReads.has(at)) {
