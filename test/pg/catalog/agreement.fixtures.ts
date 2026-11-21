@@ -473,15 +473,48 @@ const keptAims: ReadonlyArray<readonly [Reached<AgreementFeature>, Gen<Agreement
 	)
 
 /**
+ * The facts with student 1's sittings one, on `day`, its score -0: a group of one score, which a percentile selects at
+ * its one ordinal whatever its fraction, so a native form that took no canonical zero delivers -0 there
+ * (selectsNegativeZero).
+ */
+const withNegativeZeroAlone = (f: Facts, day: number): Facts => ({
+	...f,
+	sittings: [[999, 1, day, -0], ...Arr.filter(f.sittings, ([, student]) => student !== 1)]
+})
+
+/**
  * A case as the generator draws it: an entry and the facts it runs over, aimed at a delivered row while no witness has
  * delivered one (Steered): for an entry that delivers a row on most facts (mayDeliverNone), half its cases, by a draw of
- * their own, are priced for their first sitting (withPricedSitting); a rotating case is drawn unaimed.
+ * their own, are priced for their first sitting (withPricedSitting); and at R29 or R30 selecting -0 while none has, which
+ * the drawn facts seldom meet, half its cases are a discrete percentile read at its ordinal (R29) or a continuous one
+ * (R30) over facts whose student 1 holds one sitting at -0 (withNegativeZeroAlone); a rotating case is drawn unaimed.
  */
 const agreementCaseOf =
 	(steering: Option.Option<Pending<AgreementFeature>>): Gen<AgreementCase> =>
 	(source) => {
-		const entry = source.draw(entryGen)
 		const facts = source.draw(factsGen)
+		const pendingZero = Arr.filter(["R29 selecting -0", "R30 selecting -0"] as const, (feature) =>
+			Option.exists(steering, (pending) => pending.has(feature))
+		)
+		if (Arr.isReadonlyArrayNonEmpty(pendingZero) && source.draw(boolean)) {
+			const zeroFacts = withNegativeZeroAlone(facts, source.draw(int(1, 12)))
+			if (source.draw(element(pendingZero)) === "R29 selecting -0") {
+				return {
+					entry: {
+						kind: "discrete percentile",
+						fractions: [source.draw(admittedFraction)],
+						stage: "ordinal"
+					},
+					facts: zeroFacts
+				}
+			}
+			const j = source.draw(int(0, 3))
+			return {
+				entry: { kind: "continuous percentile", p: source.draw(int(0, 2 ** j)) / 2 ** j },
+				facts: zeroFacts
+			}
+		}
+		const entry = source.draw(entryGen)
 		return {
 			entry,
 			facts:
