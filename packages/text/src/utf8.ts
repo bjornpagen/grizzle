@@ -8,11 +8,10 @@
  * value than the one the bytes hold. Its one encoder, `writeUtf8`, writes a text's bytes in place, where its caller
  * counted them (`utf8Length`, by the same rule), so a text written into a larger array is copied from nowhere; its one
  * writer of a text piece by piece as bytes, `Utf8Writer`, writes each piece, a JSON value's text among them, by it into
- * one buffer, so no text of the pieces is built. It imports nothing but grizzle-text's invariants and runs wherever
- * JavaScript does, a browser included.
+ * one buffer, so no text of the pieces is built. It imports nothing and runs wherever JavaScript does, a browser
+ * included: the CLI generator carries it into every package it emits as the generated runtime's UTF-8 codec
+ * (packages/cli-generator/src/emit/runtime.ts), where no other module of grizzle-text is.
  */
-
-import { defined } from "#text/base/invariant.ts"
 
 declare const wellFormedBrand: unique symbol
 
@@ -278,9 +277,11 @@ const asciiEscaped = Uint8Array.from(asciiEscapes, (escape) => (escape === undef
 export const jsonEscape = (unit: number): string | undefined =>
 	unit < 0x80 ? asciiEscapes[unit] : undefined
 
-/** The escape of an ASCII code unit JSON escapes (`asciiEscaped` holds 1 for it), which `asciiEscapes` holds. */
-const escapeOf = (unit: number): string =>
-	defined(asciiEscapes[unit], "an ASCII unit asciiEscaped marks has an escape")
+/**
+ * An ASCII code unit's text inside a JSON string literal: its escape where `asciiEscapes` holds one, which is every unit
+ * `asciiEscaped` marks, else the unit itself, as JSON writes a unit it does not escape.
+ */
+const escapeOf = (unit: number): string => asciiEscapes[unit] ?? String.fromCharCode(unit)
 
 /** An ASCII text's bytes written into `out` from `to`, one a code unit, and the position past them. */
 const writeAscii = (out: Uint8Array, to: number, text: string): number => {
