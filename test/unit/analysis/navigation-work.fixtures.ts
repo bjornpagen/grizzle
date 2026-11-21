@@ -22,8 +22,8 @@ const depths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const
 /**
  * One case: a chain of unions `depth` deep over Node, each level two rules, the nodes of kind 0 and of any other kind,
  * each reading the level below `reads` times, as judge-size.fixtures.ts union1 and twiceUnion1 do at every level; read
- * whole, as a whole rule's check over every row reads it, or at one document, a parameter, as the judge reads a whole
- * rule's violation at its units' channels, both as every rule statement reads its imports (`perStatement`).
+ * whole, as a whole rule's check over every row reads it (RegionExtent `every`), or at one document, a parameter, as the
+ * judge reads a whole rule's violation at its units' channels (RegionExtent `units`).
  */
 export interface Chain {
 	readonly reads: 1 | 2
@@ -143,7 +143,12 @@ const isNavigation = (file: string): boolean => Str.endsWith("analysis/theory/na
 const navigationWork = (c: Chain, depth: number): Effect.Effect<number> =>
 	Effect.map(
 		everyCallCount(
-			Effect.sync(() => navigateQuery(readAt(c, depth), loc, columns, "perStatement")),
+			Effect.sync(() =>
+				navigateQuery(readAt(c, depth), loc, columns, {
+					kind: "perStatement",
+					extent: c.read === "whole" ? "every" : "units"
+				})
+			),
 			isNavigation
 		),
 		([, counts]) => Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)

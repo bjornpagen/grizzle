@@ -176,11 +176,25 @@ const originOf = (
  * (lower/optimize/cte-policy): restricted by the unit, inside the region it is read in, computed once per unit (rule
  * 3b), and restricted by nothing, once in the statement (rules 5 and 6); `perRead`, inlined at each read and
  * distributed into the rule's conjunctions, as a write member's query reads it, whose checker builds an import at
- * every read. Every rule statement, the judge's and a check over every row alike, reads `perStatement`: navigation
- * never distributes a rule into the conjunctions of a union it reads, the product of the unions' widths at every
- * depth, nor inlines an import again at every read.
+ * every read. Every rule statement, the judge's and a check over every row alike, reads `perStatement`, over its region
+ * (`RegionExtent`): navigation never distributes a rule into the conjunctions of a union it reads, the product of the
+ * unions' widths at every depth.
  */
-export type ImportSharing = "perStatement" | "perRead"
+export type ImportSharing =
+	| { readonly kind: "perStatement"; readonly extent: RegionExtent }
+	| { readonly kind: "perRead" }
+
+/**
+ * What a rule statement's region holds: the units a transaction wrote (`units`), a probe's or a whole rule's unit
+ * statement, or every row (`every`), a rule's check over every row, which the migration that adds the rule runs. Over
+ * the units, an import of one rule no parameter restricts, which read whole reads every unit's rows, is read at each
+ * read instead, a step of the chain keyed by the steps before it (`Navigator.rule`): a probe of the assembled catalog
+ * read qti's attribute rows of one name and kinds for every package, the import whole at the chain's head, where read
+ * at each read it reads the delta's package's. Over every row, it is read whole, once: the check reads every unit
+ * anyway, and at each read it was read again for every row of every read before it (test/unit/physical/judge-size).
+ * An import of several rules stays whole over either.
+ */
+export type RegionExtent = "units" | "every"
 
 /** An import's bind map, its terms in the scope of the rule the unfolding reads it in. */
 type Binds = ReadonlyMap<string, InferredExpr>
@@ -273,7 +287,8 @@ const identityOf = (desc: InferredQuery): string => {
  * bindings each read's own, a join of its rows. Of a union, the rules whose head fixes a field the read binds to
  * another literal are dropped (`armsAt`): no row of theirs meets the read, so a selection of one rule of a union by the
  * literal its head fixes, qti's statements of one required fact (`select(PackageFact, fact = author)`), computes that
- * rule alone.
+ * rule alone. The keys of the imports of one rule no parameter restricts over the units a transaction wrote
+ * (`unrestricted`, RegionExtent `units`): `Navigator.rule` reads those at each read again, keyed by the steps before.
  */
 /**
  * `source`, an import read at `bindings`, with each rule of its union whose head fixes a field the read binds to another
@@ -321,7 +336,7 @@ const sharedWithin = (
 	columns: QueryColumns,
 	sharing: ImportSharing,
 	interned: Interned
-): Flat => {
+): { readonly flat: Flat; readonly unrestricted: ReadonlySet<string> } => {
 	const fixed = fixedTerms({
 		vars: flat.vars,
 		matches: [],
@@ -336,18 +351,30 @@ const sharedWithin = (
 		const held = fixed(term)
 		return held !== undefined && leavesOf(held).params.length > 0 ? held : undefined
 	}
+	const unrestricted = new Set<string>()
 	const reads = flat.reads.map((r): Read => {
 		if (r.source.kind !== "query") {
 			return r
 		}
 		const read = armsAt(r.source, r.bindings, fixed)
 		const inside = boundInside(read, r.bindings, byParameter, columns)
+		const stage = r.source.query.stage
+		if (
+			inside === read &&
+			sharing.kind === "perStatement" &&
+			sharing.extent === "units" &&
+			stage.kind === "rules" &&
+			stage.arms.length === 1
+		) {
+			unrestricted.add(importKey(r.source.query, scalarBinds(r.source.bind) ?? new Map()))
+			return r
+		}
 		return {
 			...r,
 			source: { ...inside, query: navigatedQuery(inside.query, loc, columns, sharing, interned) }
 		}
 	})
-	return { ...flat, reads }
+	return { flat: { ...flat, reads }, unrestricted }
 }
 
 /** The imports a rule's navigation reads whole, each one read of one node, by key (`importKey`). */
@@ -673,14 +700,23 @@ class Navigator {
 		depth: number,
 		imports: KeptImports
 	): NonEmptyReadonlyArray<InferredRule> {
-		const within = sharedWithin(
-			this.#defined(this.#inline(rule, imports, (e) => e)),
-			this.#loc,
-			this.#columns,
-			this.#sharing,
-			this.#interned
-		)
-		const chain = this.#chain(within, depth)
+		const whole = new Set(imports)
+		const within = (): ReturnType<typeof sharedWithin> =>
+			sharedWithin(
+				this.#defined(this.#inline(rule, whole, (e) => e)),
+				this.#loc,
+				this.#columns,
+				this.#sharing,
+				this.#interned
+			)
+		let read = within()
+		while (read.unrestricted.size > 0) {
+			for (const key of read.unrestricted) {
+				whole.delete(key)
+			}
+			read = within()
+		}
+		const chain = this.#chain(read.flat, depth)
 		const kept = Object.fromEntries(chain.vars.map((v, i) => [`k${i}`, varRef(v.id)] as const))
 		const gates = chain.filters.filter(readsNoVariable)
 		let current: InferredRule = {
@@ -1139,9 +1175,9 @@ class Navigator {
 				}
 				const columns = this.#columns(source.query)
 				const arms =
-					this.#sharing === "perRead" ? conjunctions(stage.arms, this.#columns) : stage.arms
+					this.#sharing.kind === "perRead" ? conjunctions(stage.arms, this.#columns) : stage.arms
 				const keptOf = (arm: InferredRule): KeptImports =>
-					this.#sharing === "perRead" ? noImports : sharedImports([arm], this.#interned)
+					this.#sharing.kind === "perRead" ? noImports : sharedImports([arm], this.#interned)
 				const navigated = flatMapNonEmpty(arms, (arm) => {
 					const at: Array<InferredExpr> = []
 					for (const [field, outer] of Object.entries(a.bindings)) {
@@ -1500,12 +1536,12 @@ const navigatedQuery = (
 			return query
 		}
 		const keptOf = (rule: InferredRule): KeptImports =>
-			sharing === "perRead" ? noImports : sharedImports([rule], interned)
+			sharing.kind === "perRead" ? noImports : sharedImports([rule], interned)
 		const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
 			if (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {
 				return navigatedRule(rule, loc, columns, sharing, keptOf(rule), interned)
 			}
-			switch (sharing) {
+			switch (sharing.kind) {
 				case "perStatement":
 					return navigate(rule, loc, columns, sharing, keptOf(rule), interned)
 				case "perRead":

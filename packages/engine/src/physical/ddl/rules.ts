@@ -9,7 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
-import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbes,
 	type LawSide,
@@ -190,7 +190,8 @@ const compileProbe = (
 		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
-		deltas
+		deltas,
+		"units"
 	)
 
 /**
@@ -215,10 +216,11 @@ const judgedStatement = (
 	columns: QueryColumns,
 	label: string,
 	loc: SourceLoc,
-	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
+	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
+	extent: RegionExtent
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc, columns, "perStatement"), {
+		checkQuery(b.checked, navigateQuery(query, loc, columns, { kind: "perStatement", extent }), {
 			read: "region",
 			label,
 			clock: noClock,
@@ -1332,7 +1334,8 @@ export const addRules = (
 			(query) => b.columns(unit.definitionOf(query)),
 			label,
 			rule.law.loc,
-			deltas
+			deltas,
+			"units"
 		)
 		appendAll(requests, lowered.requests)
 		const holder = defined(
@@ -1391,7 +1394,17 @@ export const addRules = (
 		const r = rule.rule
 		const label = `rule ${rule.law.named.display} over every row`
 		const lowered = (query: InferredQuery): Compiled =>
-			judgedStatement(b, catalog, rule, query, b.columns, label, rule.law.loc, everyRow(rule))
+			judgedStatement(
+				b,
+				catalog,
+				rule,
+				query,
+				b.columns,
+				label,
+				rule.law.loc,
+				everyRow(rule),
+				"every"
+			)
 		const compiled: NonEmptyReadonlyArray<Compiled> =
 			r.kind === "whole"
 				? [lowered(r.everyRow)]
