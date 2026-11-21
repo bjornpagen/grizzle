@@ -4,8 +4,14 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
+import { assembledDag } from "#compiler/ir/dag.ts"
 import { type Dependency, implication, projectionCloses } from "#compiler/ir/keys.ts"
-import { conservativeMeta, type DeclaredKey, type ValidDag } from "#compiler/ir/rel.ts"
+import {
+	conservativeMeta,
+	type DeclaredKey,
+	type RelNode,
+	type ValidDag
+} from "#compiler/ir/rel.ts"
 import { attributesOver, bitsOf } from "#compiler/logical/attributes.ts"
 import {
 	type NameSource,
@@ -341,6 +347,83 @@ export const indexedReading = (m: number): ValidDag => {
 		)
 	).dag
 }
+
+/**
+ * Two queries of one compile reading one shared sub-DAG of n nodes, as a compile's queries read one closed import: a
+ * chain of n projections over the tasks, each keeping their columns, and each query its own account with its tasks
+ * attached; built by one builder, so the queries read the one chain node and hold their own nodes under labels apart.
+ * `inner` is the node the chain's last projection reads, a node of the chain no attachment revises.
+ */
+export const sharedChain = (
+	n: number
+): {
+	readonly shared: RelNode
+	readonly inner: RelNode
+	readonly queries: readonly [ValidDag, ValidDag]
+} => {
+	const q = new Ir(workModel())
+	let inner = q.base("Task")
+	let shared = inner
+	for (const _ of indices(n)) {
+		inner = shared
+		shared = q.project(
+			shared,
+			[
+				["id", "id"],
+				["account", "account"],
+				["kind", "kind"]
+			],
+			conservativeMeta
+		)
+	}
+	const query = (name: string): ValidDag =>
+		q.build(q.attach(q.base("Account"), shared, name, [["id", "account"]], "array", undefined)).dag
+	return { shared, inner, queries: [query("tasks"), query("work")] }
+}
+
+/**
+ * A shared node S over a correlated attachment A whose child only A reads, under an unshared filter, and three DAGs over
+ * them: the filter's own, the filter's with A's child a root too, which gives the child a second reader, and one rooted
+ * at A and S, which reaches A inside S's record both through S and as a root of its own (logical/annotate.ts
+ * SharedAnalyses readers). `width` is how many columns of the tasks the child keeps.
+ */
+export const insideRecord = (
+	width: number
+): {
+	readonly shared: RelNode
+	readonly dags: readonly [ValidDag, ValidDag, ValidDag]
+} => {
+	const q = new Ir(workModel())
+	const columns = Arr.take(["id", "account", "kind"] as const, width)
+	const child = q.project(
+		q.base("Task"),
+		Arr.map(["account", ...Arr.filter(columns, (c) => c !== "account")], (c) => [c, c] as const),
+		conservativeMeta
+	)
+	const attached = q.attach(
+		q.base("Account"),
+		child,
+		"tasks",
+		[["id", "account"]],
+		"array",
+		undefined
+	)
+	const shared = q.project(
+		attached,
+		[
+			["id", "id"],
+			["name", "name"]
+		],
+		conservativeMeta
+	)
+	const top = q.filter(shared, q.eq(q.col(shared, "id"), q.col(shared, "id")))
+	return {
+		shared,
+		dags: [assembledDag([top]), assembledDag([top, child]), assembledDag([attached, shared])]
+	}
+}
+
+export type SharedPoint = "from n = 4" | "from n = 6"
 
 export type ReadingPoint = "from m = 8" | "from m = 12"
 

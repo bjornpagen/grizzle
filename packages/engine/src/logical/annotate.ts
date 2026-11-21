@@ -1,4 +1,4 @@
-import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -6,9 +6,9 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import {
 	assembledDag,
 	edgeValues,
-	nodeScopes,
+	type NodeScope,
 	relNode,
-	topoOrder,
+	scopesOver,
 	unchangedEdges
 } from "#compiler/ir/dag.ts"
 import { strongest, type TemplateContext } from "#compiler/ir/evidence.ts"
@@ -133,18 +133,197 @@ const claimsOf = (props: Props): MetaSpec => ({
 const withClaims = (node: RelNode, meta: MetaSpec): RelNode =>
 	sameMeta(node.meta, meta) ? node : relNode(node.id, { ...node, meta })
 
-/** Every node's readers, counting the roots as readers: one per distinct input of each node the roots reach. */
-const readers = (dag: RelDag): ReadonlyMap<RelNode, number> => {
-	const count = new Map<RelNode, number>()
-	for (const r of dag.roots) {
-		count.set(r, (count.get(r) ?? 0) + 1)
+/**
+ * How one analysis of a compile judged the attachments among the nodes it recorded of a shared sub-DAG (SharedAnalyses),
+ * the nodes no earlier analysis had recorded: each child it held exclusive, the attachment its only reader, with the
+ * child's revision relative to it, and each child it held read elsewhere too. The rest of a node's annotation is its
+ * sub-DAG's and the environment's alone (a node's scope is a bottom-up fold, ir/dag.ts nodeScopes), so another analysis
+ * reads the record's annotations exactly where it judges these children alike and reads the records below alike.
+ *
+ * The records partition the nodes recorded, each node its first record's: a record's own nodes are its root's sub-DAG
+ * but the nodes of the records below it, which its own nodes read. So the readers of a node among the recorded nodes
+ * of a DAG are the sum, over the records its recorded roots reach, of the readers each record's own nodes are (`reads`),
+ * which no analysis walks the recorded nodes again to count.
+ */
+interface SharedRecord {
+	readonly root: RelNode
+	readonly exclusive: ReadonlyMap<RelNode, Annotated>
+	readonly shared: ReadonlyArray<RelNode>
+	/** How many of the record's own nodes read each node they read. */
+	readonly reads: ReadonlyMap<RelNode, number>
+	readonly below: ReadonlyArray<SharedRecord>
+}
+
+/** A recorded node: its annotation and scope as the analysis that recorded it computed them, and its record. */
+interface SharedEntry {
+	readonly annotated: Annotated
+	readonly scope: NodeScope
+	readonly record: SharedRecord
+}
+
+/**
+ * A DAG's readers (SharedAnalyses readers): how many nodes of the DAG, or roots, read each node, and whether the DAG
+ * holds every own node of a record.
+ */
+interface DagReaders {
+	readonly count: (node: RelNode) => number
+	readonly whole: (record: SharedRecord) => boolean
+}
+
+/**
+ * One compile's logical analyses of the sub-DAGs its queries share, under one environment: made by the compile and
+ * passed to every analysis it runs under that environment (analyzeLogical), never held by a module, so it is dropped
+ * with the compile. The compile names the nodes it shares (`shares`), the roots of its closed imports, which its
+ * queries read as one node each: the first analysis that reaches such a node records the annotation of every node of
+ * its sub-DAG, and each later one reads them where it judges the sub-DAG's attachments as that analysis did
+ * (SharedRecord), and walks none of them, where each analysis annotated every one of them again. An annotation is a
+ * function of the node, the environment and those judgments, so the entry a node holds is the annotation any analysis
+ * of the compile makes of it there. Every other node is the analysis's own, kept as long as it runs.
+ */
+export class SharedAnalyses {
+	readonly env: LogicalEnv
+	readonly #shares: (node: RelNode) => boolean
+	readonly #entries = new WeakMap<RelNode, SharedEntry>()
+
+	constructor(env: LogicalEnv, shares: (node: RelNode) => boolean) {
+		this.env = env
+		this.#shares = shares
 	}
-	for (const n of topoOrder(dag)) {
-		for (const i of inputsOf(n)) {
-			count.set(i, (count.get(i) ?? 0) + 1)
+
+	/** The annotation an analysis of the compile recorded for `node`, none for a node no shared sub-DAG holds. */
+	entry(node: RelNode): SharedEntry | undefined {
+		return this.#entries.get(node)
+	}
+
+	/**
+	 * Records each node the compile shares among those an analysis annotated itself (`annotated`, inputs first), each
+	 * with the nodes of its sub-DAG no record holds: their annotations (`of`) and scopes (`scope`), the analysis's
+	 * judgments of their attachments, a child revised (`revised`) exclusive, and the records below, each one the analysis
+	 * read as recorded (`agreed`). Inputs come first, so a shared node inside another is recorded under its own record.
+	 * A sub-DAG is not recorded where it reads a recorded node the analysis annotated again, whose annotation there is
+	 * not the recorded one, or a recorded node inside a record, not its root, whose record holds nodes outside the
+	 * sub-DAG.
+	 */
+	record(
+		annotated: ReadonlyArray<RelNode>,
+		of: (node: RelNode) => Annotated,
+		scope: (node: RelNode) => NodeScope,
+		revised: ReadonlyMap<RelNode, Annotated>,
+		agreed: ReadonlyMap<SharedRecord, boolean>
+	): void {
+		for (const root of annotated) {
+			if (!this.#shares(root) || this.#entries.has(root)) {
+				continue
+			}
+			const own = new Set<RelNode>()
+			const below = new Set<SharedRecord>()
+			const pending = [root]
+			let recordable = true
+			for (let node = pending.pop(); node !== undefined && recordable; node = pending.pop()) {
+				const entry = this.#entries.get(node)
+				if (entry !== undefined) {
+					recordable = entry.record.root === node && agreed.get(entry.record) === true
+					below.add(entry.record)
+				} else if (!own.has(node)) {
+					own.add(node)
+					appendAll(pending, inputsOf(node))
+				}
+			}
+			if (!recordable) {
+				continue
+			}
+			const exclusive = new Map<RelNode, Annotated>()
+			const shared: Array<RelNode> = []
+			const reads = new Map<RelNode, number>()
+			for (const node of own) {
+				if (node.kind === "Attach") {
+					const revision = revised.get(node.child)
+					if (revision === undefined) {
+						shared.push(node.child)
+					} else {
+						exclusive.set(node.child, revision)
+					}
+				}
+				for (const input of inputsOf(node)) {
+					reads.set(input, (reads.get(input) ?? 0) + 1)
+				}
+			}
+			const record: SharedRecord = { root, exclusive, shared, reads, below: [...below] }
+			for (const node of own) {
+				this.#entries.set(node, { annotated: of(node), scope: scope(node), record })
+			}
 		}
 	}
-	return count
+
+	/**
+	 * Every node's readers in `dag`, counting the roots as readers: one per distinct input of each node the roots reach;
+	 * and the records `dag` holds whole, those of the recorded roots it reaches and the records below them. The nodes a
+	 * recorded root reaches are counted by their records (SharedRecord reads), never walked: the walk stops at a recorded
+	 * root and goes through a recorded node inside a record, whose reads it counts as its own unless the walk reached
+	 * its record's root too, whose record counts them.
+	 */
+	readers(dag: RelDag): DagReaders {
+		const walked = new Map<RelNode, number>()
+		const met = new Set<RelNode>()
+		const reached = new Set<SharedRecord>()
+		const inside: Array<{ readonly node: RelNode; readonly record: SharedRecord }> = []
+		const pending = [...dag.roots]
+		for (const r of dag.roots) {
+			walked.set(r, (walked.get(r) ?? 0) + 1)
+		}
+		for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+			if (met.has(node)) {
+				continue
+			}
+			met.add(node)
+			const entry = this.#entries.get(node)
+			if (entry?.record.root === node) {
+				reached.add(entry.record)
+				continue
+			}
+			if (entry !== undefined) {
+				inside.push({ node, record: entry.record })
+			}
+			for (const input of inputsOf(node)) {
+				walked.set(input, (walked.get(input) ?? 0) + 1)
+				pending.push(input)
+			}
+		}
+		const records: Array<SharedRecord> = []
+		const counted = new Set<SharedRecord>()
+		const open = [...reached]
+		for (let record = open.pop(); record !== undefined; record = open.pop()) {
+			if (counted.has(record)) {
+				continue
+			}
+			counted.add(record)
+			records.push(record)
+			appendAll(open, record.below)
+		}
+		for (const { node, record } of inside) {
+			if (counted.has(record)) {
+				for (const input of inputsOf(node)) {
+					walked.set(input, (walked.get(input) ?? 0) - 1)
+				}
+			}
+		}
+		const known = new Map<RelNode, number>()
+		return {
+			count: (node) => {
+				const memo = known.get(node)
+				if (memo !== undefined) {
+					return memo
+				}
+				const n = records.reduce(
+					(sum, record) => sum + (record.reads.get(node) ?? 0),
+					walked.get(node) ?? 0
+				)
+				known.set(node, n)
+				return n
+			},
+			whole: (record) => counted.has(record)
+		}
+	}
 }
 
 /**
@@ -200,17 +379,18 @@ const reviseChild = (
 
 class Annotator<R extends Roots> {
 	readonly dag: ValidDag<R>
-	readonly env: LogicalEnv
+	readonly shared: SharedAnalyses
 
-	constructor(dag: ValidDag<R>, env: LogicalEnv) {
+	constructor(dag: ValidDag<R>, shared: SharedAnalyses) {
 		this.dag = dag
-		this.env = env
+		this.shared = shared
 	}
 
 	run(): LogicalAnalysis<R> {
-		const { env } = this
-		const count = readers(this.dag)
-		const scopes = nodeScopes()
+		const { shared } = this
+		const { env } = shared
+		const { count, whole } = shared.readers(this.dag)
+		const scopes = scopesOver((node) => shared.entry(node)?.scope)
 		const propsEnv: PropsEnv = {
 			scope: (node) => scopes.of(node),
 			keyedViews: env.keyedViews
@@ -221,9 +401,46 @@ class Annotator<R extends Roots> {
 		 * properties `of` reports for it. Traversal state of this one analysis, as the fold's memo is.
 		 */
 		const revised = new Map<RelNode, Annotated>()
-		/** Each node's properties and annotated node, from its inputs' (ir/fold.ts). */
+		/**
+		 * Whether this DAG holds a record whole and judges its attachments and those of the records below it as their
+		 * recordings did (SharedRecord): each child held exclusive read by one node, its attachment, which the DAG holds
+		 * with the rest of the record, and each held read elsewhere read by more, once per record. Where it does, the
+		 * revisions of the exclusive ones are this analysis's. A DAG reading a recorded node inside a record whose root it
+		 * does not reach annotates the node itself: an attachment of the record may stand outside the DAG, and its
+		 * child's one reader there be another node.
+		 */
+		const agreed = new Map<SharedRecord, boolean>()
+		const agrees = (record: SharedRecord): boolean => {
+			const known = agreed.get(record)
+			if (known !== undefined) {
+				return known
+			}
+			const holds =
+				whole(record) &&
+				[...record.exclusive.keys()].every((child) => count(child) === 1) &&
+				record.shared.every((child) => count(child) !== 1) &&
+				record.below.every(agrees)
+			if (holds) {
+				for (const [child, revision] of record.exclusive) {
+					revised.set(child, revision)
+				}
+			}
+			agreed.set(record, holds)
+			return holds
+		}
+		/** The nodes this analysis annotated itself, inputs first: those the compile may record (SharedAnalyses record). */
+		const annotated: Array<RelNode> = []
+		/**
+		 * Each node's properties and annotated node, from its inputs' (ir/fold.ts): the compile's recorded annotation
+		 * where this DAG judges its sub-DAG alike, which reads no input.
+		 */
 		const fold = new Fold<RelNode, Annotated>(function* (node) {
+			const entry = shared.entry(node)
+			if (entry !== undefined && agrees(entry.record)) {
+				return entry.annotated
+			}
 			const values = yield* edgeValues<Annotated>(node)
+			annotated.push(node)
 			const reading: PropsReading = drive(
 				replacedEdges<ValueRefs<Annotated>, Props>(values),
 				(a) => a.props
@@ -256,7 +473,7 @@ class Annotator<R extends Roots> {
 				context: env.context,
 				containments: env.containments
 			})
-			const exclusive = (count.get(node.child) ?? 0) === 1
+			const exclusive = count(node.child) === 1
 			const childMeta = exclusive ? d.relative : reading.child
 			const keyBound = childMeta.keys.some(
 				(k) => keyIn(k, (c) => node.correlation.some((p) => p.child === c)) !== undefined
@@ -291,25 +508,39 @@ class Annotator<R extends Roots> {
 		})
 		const dag = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).node))
 		const judged = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).judged))
+		shared.record(
+			annotated,
+			(node) => fold.of(node),
+			(node) => scopes.of(node),
+			revised,
+			agreed
+		)
 		return { dag, judged, of: (node) => revised.get(node) ?? fold.of(node) }
 	}
 }
 
 /**
- * The DAG with every node's logical metadata computed and every attachment's delivered type judged; or the first refusal
- * (a derived relation's definition the environment's key provider refuses).
+ * The DAG with every node's logical metadata computed and every attachment's delivered type judged, under `env` alone or
+ * under the environment of the compile's shared analyses, reading and recording theirs (SharedAnalyses); or the first
+ * refusal (a derived relation's definition the environment's key provider refuses).
  */
 export const analyzeLogical = <R extends Roots>(
 	dag: ValidDag<R>,
-	env: LogicalEnv
+	env: LogicalEnv | SharedAnalyses
 ): Result.Result<LogicalAnalysis<R>, CompileError> =>
-	catchRefusal(() => new Annotator(dag, env).run())
+	catchRefusal(() =>
+		new Annotator(
+			dag,
+			env instanceof SharedAnalyses ? env : new SharedAnalyses(env, () => false)
+		).run()
+	)
 
 /**
  * `dag` with every node carrying the metadata `analysis` (of `dag`) computed for it, and the body `bodyOf` gives it: its
  * own, or the checker's completion of a stated order (check/order.ts). No other judgment of the analysis is taken, an
  * attachment's delivered type among them, so a reader of the logical metadata (a node's keys and cardinality) reads the
  * DAG it was given.
+
  */
 export const withLogicalMeta = <R extends Roots>(
 	dag: ValidDag<R>,

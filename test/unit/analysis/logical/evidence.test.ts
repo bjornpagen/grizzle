@@ -24,6 +24,9 @@
  *   target's spans, where a bare child would find none (a kept case).
  * - Idempotence (generated cases, and the proving shapes' bare children): annotating an annotated DAG states what the
  *   first annotation did, node for node. Oracle: universal.
+ * - Shared analyses (generated cases): a compile's analyses under one environment reading the annotations of the
+ *   sub-DAGs it shares (logical/annotate.ts SharedAnalyses), over DAGs sharing a case's nodes in three orders, each
+ *   annotate every node as an analysis of its DAG alone does. Oracle: that analysis, a second implementation.
  *
  * Features: each claim checked (EvidenceFeature), each execution and containment context, an orphaned containment and
  * a span coverage's fact covered apart from its target's spans; each claim and delivered type for idempotence.
@@ -37,6 +40,7 @@ import {
 	narrowedProvingCases,
 	orphanedCases,
 	provingCases,
+	sharedOn,
 	sketchedCases
 } from "#test/unit/analysis/logical/evidence.fixtures.ts"
 
@@ -250,3 +254,46 @@ export const theLogicalAnalysisIsIdempotentAnnotatingTwiceStatesWhatAnnotatingOn
 			}
 		]
 	})
+
+/**
+ * A compile's shared analyses annotate as a fresh analysis does: every analysis reading the annotations an earlier one
+ * of the compile recorded, over DAGs sharing a case's nodes in three orders, annotates every node of its DAG as an
+ * analysis of that DAG alone does.
+ */
+export const aCompilesSharedAnalysesAnnotateEveryNodeAsAnAnalysisOfItsDagAloneDoesInEveryOrder =
+	sharedOn(
+		sketchedCases({
+			...defaultGenConfig,
+			query: {
+				...defaultGenConfig.query,
+				roots: {
+					...defaultGenConfig.query.roots,
+					plain: 1,
+					attach: 2,
+					hetero: 1
+				}
+			}
+		}),
+		{
+			situations: [
+				"a recorded annotation read again",
+				"a shared sub-DAG holding an attachment",
+				"a DAG rooted inside a shared sub-DAG"
+			],
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original: "\t\t\t\t[...record.exclusive.keys()].every((child) => count(child) === 1) &&",
+					replacement: "\t\t\t\t[...record.exclusive.keys()].length >= 0 &&",
+					why: "A record is read wherever the DAG gives a child its recording held exclusive another reader (logical/annotate.ts agrees), so the attachment reads the child's revision there; the property fails."
+				},
+				{
+					file: "packages/engine/src/logical/annotate.ts",
+					original: "\t\t\t\trecord.shared.every((child) => count(child) !== 1) &&",
+					replacement: "\t\t\t\trecord.shared.length >= 0 &&",
+					why: "A record is read wherever the DAG leaves a child its recording held read elsewhere one reader (logical/annotate.ts agrees), so the attachment keeps the child unrevised there; the property fails."
+				}
+			]
+		}
+	)

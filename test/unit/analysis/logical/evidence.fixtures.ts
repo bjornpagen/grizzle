@@ -23,6 +23,7 @@ import {
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import { DagBuilder } from "#compiler/ir/builder.ts"
+import { assembledDag, topoOrder } from "#compiler/ir/dag.ts"
 import type { EvidenceContext, TemplateContext } from "#compiler/ir/evidence.ts"
 import { type ScalarExpr, storedColumn } from "#compiler/ir/expr.ts"
 import {
@@ -31,11 +32,14 @@ import {
 	type HeadingColumn,
 	headingOrder,
 	type RelNode,
+	type ValidDag,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { typeLabel } from "#compiler/ir/scalar.ts"
-import { analyzeLogical, type LogicalEnv } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, type LogicalEnv, SharedAnalyses } from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
+import { fixedColumns, type Props } from "#compiler/logical/props.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { toTable } from "#test/support/dag.ts"
 import { validateDag } from "#test/support/oracle/dag-validate.ts"
 import {
@@ -578,6 +582,16 @@ type IdempotenceFeature =
 	| "delivered one"
 
 /**
+ * What a shared-analyses case reaches: an analysis reading an annotation an earlier one recorded, a recorded sub-DAG
+ * holding an attachment, read where its child has another reader too or none, and a DAG rooted at a recorded node
+ * inside a shared node's sub-DAG.
+ */
+type SharedFeature =
+	| "a recorded annotation read again"
+	| "a shared sub-DAG holding an attachment"
+	| "a DAG rooted inside a shared sub-DAG"
+
+/**
  * The budget each property of evidence.test.ts searches with, holdsOn's and idempotentOn's alike: what its suite
  * stated before it became a property, 1500 runs and as many steered cases (test/unit/analysis/logical/evidence.test.ts:93
  * at 8cad5bce, `const runs = 1500`, which every search read as its runs and as its coverage's cases).
@@ -669,6 +683,99 @@ export const holdsOn = <S>(
 		oracle: {
 			kind: "second-implementation",
 			name: "the reference evaluator's every evaluation of every node, each claim judged on every relation it denoted"
+		},
+		kept: stated.kept,
+		kills: stated.kills
+	})
+
+/**
+ * What an analysis claims of a node, besides its annotated node: the properties a reader of the analysis reads of it,
+ * each a value, never a function or the node itself.
+ */
+const claimsOf = (props: Props) => ({
+	columns: props.columns,
+	keys: props.keys,
+	card: props.card,
+	context: props.context,
+	discriminant: props.discriminant,
+	classes: [...props.classes],
+	fixed: fixedColumns(props),
+	outer: [...props.outer],
+	whole: props.whole()
+})
+
+/**
+ * Every case of `draw` analyzed as a compile analyzes its queries under one environment (logical/annotate.ts
+ * SharedAnalyses): three DAGs over the case's nodes, the case's own, the case with every attachment's child a root too,
+ * which gives each such child another reader, and one rooted at drawn nodes of the case, analyzed in each of three
+ * orders by one SharedAnalyses sharing drawn nodes. Every analysis annotates every node as an analysis of its DAG alone
+ * does: the same annotated and judged DAGs, and the same claims of each node.
+ */
+export const sharedOn = <S>(draw: CaseDraw<S>, stated: Stated<SharedFeature>): Property =>
+	property.explore(draw.generator, {
+		needs: {},
+		budget: evidenceBudget,
+		situations: stated.situations,
+		check:
+			(_, c: Case<SharedFeature>) =>
+			([drawnSketch, sketch]) =>
+				Effect.sync(() => {
+					const generated = c.draw(draw.resolve(drawnSketch))
+					const env = envOf(contexted(generated, sketch))
+					const own = generated.query.dag
+					const nodes = topoOrder(own)
+					const size = { min: nodes.length, max: nodes.length }
+					const sharedMarks = c.draw(array(boolean, size))
+					const rootMarks = c.draw(array(boolean, size))
+					const shared = new Set(Arr.filter(nodes, (_, i) => sharedMarks[i] === true))
+					const children = Arr.flatMap(nodes, (n) => (n.kind === "Attach" ? [n.child] : []))
+					const dags: readonly [ValidDag, ValidDag, ValidDag] = [
+						own,
+						assembledDag([...own.roots, ...children]),
+						assembledDag(Arr.filter(nodes, (_, i) => rootMarks[i] === true))
+					]
+					const below = (root: RelNode): ReadonlyArray<RelNode> => topoOrder(assembledDag([root]))
+					const inside = new Set(Arr.flatMap([...shared], (n) => Arr.dropRight(below(n), 1)))
+					if (Arr.some([...shared], (n) => Arr.some(below(n), (m) => m.kind === "Attach"))) {
+						c.note("a shared sub-DAG holding an attachment")
+					}
+					if (Arr.some(dags[2].roots, (n) => inside.has(n) && !shared.has(n))) {
+						c.note("a DAG rooted inside a shared sub-DAG")
+					}
+					for (const sequence of [
+						[0, 1, 2, 0],
+						[1, 0, 2, 1],
+						[2, 0, 1, 2]
+					] as const) {
+						const analyses = new SharedAnalyses(env, (n) => shared.has(n))
+						const read = new Set<Props>()
+						for (const at of sequence) {
+							const dag = dags[at]
+							const reading = succeeded(analyzeLogical(dag, analyses), "a shared analysis")
+							const alone = succeeded(analyzeLogical(dag, env), "an analysis of the DAG alone")
+							assert.deepEqual(toTable(reading.dag), toTable(alone.dag), "the annotated DAG")
+							assert.deepEqual(toTable(reading.judged), toTable(alone.judged), "the judged DAG")
+							const order = topoOrder(dag)
+							for (const node of order) {
+								const props = reading.of(node).props
+								if (read.has(props)) {
+									c.note("a recorded annotation read again")
+								}
+								assert.deepEqual(
+									claimsOf(props),
+									claimsOf(alone.of(node).props),
+									`${node.id} (${node.kind}) claimed alike`
+								)
+							}
+							for (const node of order) {
+								read.add(reading.of(node).props)
+							}
+						}
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "an analysis of each DAG alone, which reads no other analysis"
 		},
 		kept: stated.kept,
 		kills: stated.kills

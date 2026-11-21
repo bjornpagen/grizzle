@@ -488,8 +488,21 @@ const scopeOf = (
  * node, such as the input of a parent that computes its own rows, or a node below a semi-join's left, which the
  * lowering does not map, or one reaching the binding node from its other input, is not bound there.
  */
-export const nodeScopes = (): Fold<RelNode, NodeScope> =>
+export const nodeScopes = (): Fold<RelNode, NodeScope> => scopesOver(() => undefined)
+
+/**
+ * The scope of every node as nodeScopes folds it, but for the nodes whose scope a caller already holds (`recorded`): the
+ * fold reads such a node's scope as it is, and none of its inputs. A scope is a function of the node and the nodes it
+ * reaches alone, so a scope recorded of one fold is the scope of the node in every other.
+ */
+export const scopesOver = (
+	recorded: (node: RelNode) => NodeScope | undefined
+): Fold<RelNode, NodeScope> =>
 	new Fold<RelNode, NodeScope>(function* (node) {
+		const known = recorded(node)
+		if (known !== undefined) {
+			return known
+		}
 		const inputs: Array<{ readonly input: RelNode; readonly scope: NodeScope }> = []
 		for (const input of inputsOf(node)) {
 			const scope: NodeScope = yield input

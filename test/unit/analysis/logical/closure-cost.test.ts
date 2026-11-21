@@ -14,6 +14,13 @@
  * - A node's steps' sources (logical/props.ts readingIndex, stepSource) and a source column's class (regionProps):
  *   read off its reading indexed once and the source's classes, so over m bindings and outputs with a step of m
  *   targets each the analysis's calls are affine in m. Oracle: that growth.
+ * - A compile's later analysis of a shared sub-DAG (logical/annotate.ts SharedAnalyses): an analysis reading a sub-DAG
+ *   an earlier analysis of the compile recorded annotates and walks none of its nodes, so over a shared chain of n
+ *   nodes the later query's analysis makes the same calls at every n. Oracle: that count, constant in n.
+ * - A DAG reaching a recorded node inside its record both through the record's root and as a root of its own
+ *   (logical/annotate.ts SharedAnalyses readers): its readers are counted once, so an attachment there whose child it
+ *   alone reads revises the child as an analysis of the DAG alone does, in every order of three DAGs. Oracle: that
+ *   analysis.
  * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
  *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
  *   growth bound.
@@ -30,7 +37,8 @@
  *
  * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a row asked
  * again once a value is named, a value named and a column reached by a row that names nothing; a search from n = 4 and
- * from n = 6; a factor search from m = 4 and from m = 6; one relation and several joined; one query of a reading and several.
+ * from n = 6; a factor search from m = 4 and from m = 6; one relation and several joined; one query of a reading and several;
+ * a shared chain from n = 4 and from n = 6; a child of one column kept beside its correlated one and of two.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
@@ -40,7 +48,8 @@ import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
-import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
+import { topoOrder } from "#compiler/ir/dag.ts"
+import { analyzeLogical, checkerEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
 import {
 	attributesOver,
 	type Bits,
@@ -56,6 +65,7 @@ import {
 	namesNothing,
 	rowsOf
 } from "#compiler/logical/closure.ts"
+import { fixedColumns } from "#compiler/logical/props.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { affine, incrementsAtMostDouble, incrementsDoNotGrow } from "#test/support/growth.ts"
 import { callCounts, everyCallCount as callCountsIn } from "#test/support/kernel/calls.ts"
@@ -81,6 +91,9 @@ import {
 	readingQuery,
 	readings,
 	redundantTable,
+	insideRecord,
+	type SharedPoint,
+	sharedChain,
 	taskReading,
 	sizeOfMask,
 	startedGen,
@@ -529,6 +542,148 @@ export const aRelationsReadingIsAnalyzedOnceHoweverManyQueriesReadIt = property.
 				original: "\t\t\tconst known = byText.get(reading.text)\n",
 				replacement: "\t\t\tconst known: PhysicalProps | undefined = undefined\n",
 				why: "Every Base and every Delta builds its reading's physical properties again (analysis/physical/rules.ts leafProps); the reading property fails."
+			}
+		]
+	}
+)
+
+/**
+ * The modules a walk over a DAG's nodes runs in: its folds (ir/fold.ts), its edges (ir/rel.ts inputsOf) and its
+ * traversals and scopes (ir/dag.ts). A key proof's grounding walks its derivation, not the DAG (ir/keys.ts
+ * groundImplication), so an attachment's proof over a chain of n projections grounds n steps of it however the nodes
+ * are analyzed.
+ */
+const walks = ["engine/src/ir/fold.ts", "engine/src/ir/rel.ts", "engine/src/ir/dag.ts"] as const
+
+/**
+ * A compile's later analysis of a sub-DAG it shares reads its record: over two queries reading one shared chain of n
+ * nodes, the second query's analysis, under the compile's shared analyses after the first recorded the chain, makes the
+ * same calls in logical/** and in the modules a walk over nodes runs in at n, 2n and 3n, so it annotates none of the
+ * chain's nodes, walks none to count their readers and folds no scope of theirs, where it annotated and walked every
+ * one of them again.
+ */
+export const aCompilesLaterAnalysisOfASharedSubDagReadsItsRecordAndWalksNoneOfItsNodes =
+	property.exhaust(finite(int(2, 3)), {
+		needs: {},
+		situations: ["from n = 4", "from n = 6"] satisfies ReadonlyArray<Reached<SharedPoint>>,
+		check: (_, c: Case<SharedPoint>) => (step) =>
+			Effect.gen(function* () {
+				c.note(step === 2 ? "from n = 4" : "from n = 6")
+				const counted = new Map<number, number>()
+				for (const n of [2 * step, 4 * step, 6 * step]) {
+					const { shared, inner, queries } = sharedChain(n)
+					const analyses = new SharedAnalyses(checkerEvidence, (node) => node === shared)
+					const first = succeeded(
+						analyzeLogical(queries[0], analyses),
+						"the first query's analysis"
+					)
+					const [analysis, counts] = yield* callCountsIn(
+						Effect.sync(() =>
+							succeeded(analyzeLogical(queries[1], analyses), "the second query's")
+						),
+						(file) =>
+							Str.includes("engine/src/logical/")(file) ||
+							Arr.some(walks, (module) => Str.endsWith(module)(file))
+					)
+					assert.equal(
+						analysis.of(inner).props,
+						first.of(inner).props,
+						"the second query reads the chain's annotation the first recorded"
+					)
+					counted.set(
+						n,
+						Arr.reduce([...counts.values()], 0, (m, k) => m + k)
+					)
+				}
+				const at = (n: number): number => defined(counted.get(n), `the calls at n = ${n}`)
+				assert.equal(at(4 * step), at(2 * step), "the second query's calls at 2n as at n")
+				assert.equal(at(6 * step), at(2 * step), "the second query's calls at 3n as at n")
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a later analysis's calls, constant in the shared sub-DAG's size"
+		},
+		box: "a chain of n nodes at 2s, 4s and 6s, s at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/annotate.ts",
+				original:
+					"\t\t\tenv instanceof SharedAnalyses ? env : new SharedAnalyses(env, () => false)",
+				replacement:
+					"\t\t\tnew SharedAnalyses(env instanceof SharedAnalyses ? env.env : env, () => false)",
+				why: "Every analysis annotates every node again (logical/annotate.ts analyzeLogical), the compile's records unread; the second query's calls grow with n."
+			},
+			{
+				file: "packages/engine/src/logical/annotate.ts",
+				original: "\t\t\tif (entry?.record.root === node) {",
+				replacement: "\t\t\tif (entry?.record.root === node && pending.length < 0) {",
+				why: "The readers' walk goes through a recorded root (logical/annotate.ts SharedAnalyses readers), counting the chain node by node; the second query's calls grow with n."
+			},
+			{
+				file: "packages/engine/src/logical/annotate.ts",
+				original: "\t\tconst scopes = scopesOver((node) => shared.entry(node)?.scope)",
+				replacement: "\t\tconst scopes = scopesOver(() => undefined)",
+				why: "The scope fold folds the chain again (logical/annotate.ts run), reading no recorded scope; the second query's calls grow with n."
+			}
+		]
+	})
+
+export type InsideFeature = "a child of one column besides its correlated one" | "a child of two"
+
+/**
+ * A DAG reaching a recorded node inside its record both through the record's root and as a root of its own counts its
+ * readers once: over a shared node S above a correlated attachment A whose child only A reads, three DAGs analyzed in
+ * each of three orders by one SharedAnalyses sharing S, the one rooted at A and S among them, each analysis fixes every
+ * node's columns as an analysis of its DAG alone does, so A revises its child there relative to itself.
+ */
+export const aDagReachingARecordedNodeInsideItsRecordCountsItsReadersOnce = property.exhaust(
+	finite(int(2, 3)),
+	{
+		needs: {},
+		situations: [
+			"a child of one column besides its correlated one",
+			"a child of two"
+		] satisfies ReadonlyArray<Reached<InsideFeature>>,
+		check: (_, c: Case<InsideFeature>) => (width) =>
+			Effect.sync(() => {
+				c.note(width === 2 ? "a child of one column besides its correlated one" : "a child of two")
+				const { shared, dags } = insideRecord(width)
+				for (const sequence of [
+					[0, 1, 2, 0],
+					[1, 0, 2, 1],
+					[2, 0, 1, 2]
+				] as const) {
+					const analyses = new SharedAnalyses(checkerEvidence, (node) => node === shared)
+					for (const at of sequence) {
+						const dag = dags[at]
+						const reading = succeeded(analyzeLogical(dag, analyses), "a shared analysis")
+						const alone = succeeded(
+							analyzeLogical(dag, checkerEvidence),
+							"the DAG's analysis alone"
+						)
+						for (const node of topoOrder(dag)) {
+							assert.deepEqual(
+								fixedColumns(reading.of(node).props),
+								fixedColumns(alone.of(node).props),
+								`${node.id} (${node.kind}) in DAG ${at} of ${Arr.join(
+									Arr.map(sequence, (i) => `${i}`),
+									""
+								)}`
+							)
+						}
+					}
+				}
+			}),
+		oracle: { kind: "second-implementation", name: "an analysis of each DAG alone" },
+		box: "a child keeping its correlated column and one or two more, the three DAGs in three orders",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/annotate.ts",
+				original: "\t\t\t\t\twalked.set(input, (walked.get(input) ?? 0) - 1)",
+				replacement: "\t\t\t\t\twalked.set(input, walked.get(input) ?? 0)",
+				why: "A recorded node inside a record, reached by the walk, is counted again where its record counts it (logical/annotate.ts SharedAnalyses readers), so the attachment's child has two readers and stays unrevised; the property fails."
 			}
 		]
 	}
