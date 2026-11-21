@@ -81,10 +81,8 @@ export const theUTF8WriterWritesJSONStringifysTextOfEveryStringAndNumberAndEvery
 		kills: [
 			{
 				file: "packages/text/src/utf8.ts",
-				original:
-					"const hexDigit = (nibble: number): number => (nibble < 10 ? 0x30 + nibble : 0x57 + nibble)",
-				replacement:
-					"const hexDigit = (nibble: number): number => (nibble < 10 ? 0x30 + nibble : 0x37 + nibble)",
+				original: `\t\`\\\\u\${unit.toString(16).padStart(unicodeEscapeDigits, "0")}\``,
+				replacement: `\t\`\\\\u\${unit.toString(16).toUpperCase().padStart(unicodeEscapeDigits, "0")}\``,
 				why: "A \\u escape's hex digits are written uppercase, where JSON.stringify writes them lowercase: a control's or a lone surrogate's escape differs."
 			},
 			{
@@ -95,7 +93,8 @@ export const theUTF8WriterWritesJSONStringifysTextOfEveryStringAndNumberAndEvery
 			},
 			{
 				file: "packages/text/src/utf8.ts",
-				original: "\t\t\t\tescaped += 5\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tconst width",
+				original:
+					"\t\t\t\tescaped += escape.length - 1\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tconst width",
 				replacement: "\t\t\t\tescaped += 1\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\tconst width",
 				why: "A control's \\u escape counts two code units, where it is six: the units counted are not the text's length."
 			},

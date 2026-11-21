@@ -1,7 +1,7 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
-import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import { isWellFormedText, jsonEscape, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { inOrder } from "#compiler/core/order.ts"
@@ -46,42 +46,11 @@ export const wellFormed = (text: string): WellFormedText => {
 }
 
 /**
- * The hex digits of a JSON `\u` escape, as ECMA-262's UnicodeEscape (https://tc39.es/ecma262/#sec-unicodeescape)
- * writes them: "Let hex be the String representation of n, formatted as a lowercase hexadecimal number", then "Return
- * the string-concatenation of the code unit 0x005C (REVERSE SOLIDUS), "u", and StringPad(hex, 4, "0", start)."
- *
- * @formatConstant a JSON \u escape: four lowercase hex digits
- */
-const unicodeEscapeDigits = 4
-
-/** The JSON escape of one UTF-16 code unit inside a string literal, none for a unit JSON writes as itself. */
-const escapeOf = (unit: number): string | undefined => {
-	switch (unit) {
-		case 0x22:
-			return '\\"'
-		case 0x5c:
-			return "\\\\"
-		case 0x08:
-			return "\\b"
-		case 0x09:
-			return "\\t"
-		case 0x0a:
-			return "\\n"
-		case 0x0c:
-			return "\\f"
-		case 0x0d:
-			return "\\r"
-		default:
-			return unit < 0x20 ? `\\u${unit.toString(16).padStart(unicodeEscapeDigits, "0")}` : undefined
-	}
-}
-
-/**
  * What a JSON string literal of `text` holds where `text` holds the unit at `i`: that unit's escape, the unit itself,
  * or, past the text's end, the literal's closing quote.
  */
 const quotedAt = (text: string, i: number): string =>
-	i >= text.length ? '"' : (escapeOf(text.charCodeAt(i)) ?? text.charAt(i))
+	i >= text.length ? '"' : (jsonEscape(text.charCodeAt(i)) ?? text.charAt(i))
 
 /**
  * The order `units` gives two well-formed texts' JSON string literals (JSON.stringify), without spelling them: the

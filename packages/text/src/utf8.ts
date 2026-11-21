@@ -202,18 +202,66 @@ const jsonUnitMaxBytes = 6
  */
 const utf8UnitMaxBytes = 3
 
-/** Each ASCII control character JSON.stringify writes by a two-character escape (ECMA-262 QuoteJSONString), by its
- * code unit: backspace, tab, line feed, form feed and carriage return. */
-const shortEscapes: ReadonlyMap<number, number> = new Map([
-	[0x08, 0x62],
-	[0x09, 0x74],
-	[0x0a, 0x6e],
-	[0x0c, 0x66],
-	[0x0d, 0x72]
-])
+/**
+ * The hex digits of a JSON `\u` escape, as ECMA-262's UnicodeEscape (https://tc39.es/ecma262/#sec-unicodeescape)
+ * writes them: "Let hex be the String representation of n, formatted as a lowercase hexadecimal number", then "Return
+ * the string-concatenation of the code unit 0x005C (REVERSE SOLIDUS), "u", and StringPad(hex, 4, "0", start)."
+ *
+ * @formatConstant a JSON \u escape: four lowercase hex digits
+ */
+const unicodeEscapeDigits = 4
 
-/** The lowercase hex digit of a nibble, as JSON.stringify's \u escapes write it. */
-const hexDigit = (nibble: number): number => (nibble < 10 ? 0x30 + nibble : 0x57 + nibble)
+/** A code unit's JSON `\u` escape (ECMA-262 UnicodeEscape): a control's, and a lone surrogate's. */
+const unicodeEscape = (unit: number): string =>
+	`\\u${unit.toString(16).padStart(unicodeEscapeDigits, "0")}`
+
+/**
+ * The escape JSON.stringify writes each unit it escapes by (ECMA-262 QuoteJSONString): the quotation mark's and the
+ * reverse solidus's, the five controls' two-character escapes, and every other control's `\u` escape.
+ */
+const escapedUnit = (unit: number): string | undefined => {
+	switch (unit) {
+		case 0x22:
+			return '\\"'
+		case 0x5c:
+			return "\\\\"
+		case 0x08:
+			return "\\b"
+		case 0x09:
+			return "\\t"
+		case 0x0a:
+			return "\\n"
+		case 0x0c:
+			return "\\f"
+		case 0x0d:
+			return "\\r"
+		default:
+			return unit < 0x20 ? unicodeEscape(unit) : undefined
+	}
+}
+
+/** The escape of each ASCII code unit, by unit: none for a unit JSON writes as itself. */
+const asciiEscapes: ReadonlyArray<string | undefined> = Array.from({ length: 0x80 }, (_, unit) =>
+	escapedUnit(unit)
+)
+
+/**
+ * The JSON escape of one UTF-16 code unit inside a string literal, as JSON.stringify writes it (escapedUnit), read from
+ * the escapes made once as the module loads, so no escape is spelled again for each unit; none for a unit JSON writes
+ * as itself, a surrogate among them, which is escaped only where it is lone (Utf8Writer.jsonString). The one spelling
+ * of JSON's escapes: the writer's, and the order of two literals without their texts (engine core/text.ts
+ * compareQuoted).
+ */
+export const jsonEscape = (unit: number): string | undefined =>
+	unit < 0x80 ? asciiEscapes[unit] : undefined
+
+/** An ASCII text's bytes written into `out` from `to`, one a code unit, and the position past them. */
+const writeAscii = (out: Uint8Array, to: number, text: string): number => {
+	for (let i = 0; i < text.length; i++) {
+		out[to + i] = text.charCodeAt(i)
+	}
+	return to + text.length
+}
 
 /** The buffer a writer begins with, which holds nothing, so its first piece grows it: one for every writer. */
 const noBytes = new Uint8Array(0)
@@ -287,21 +335,14 @@ export class Utf8Writer {
 	/** An ASCII text's bytes, one a code unit: JSON's punctuation, literals and a number's text. */
 	ascii(text: string): void {
 		this.#reserve(text.length)
-		const out = this.#bytes
-		let to = this.#at
-		for (let i = 0; i < text.length; i++) {
-			out[to] = text.charCodeAt(i)
-			to += 1
-		}
-		this.#at = to
+		this.#at = writeAscii(this.#bytes, this.#at, text)
 		this.#units += text.length
 	}
 
 	/**
-	 * The UTF-8 of `jsonText(text)`, a string's JSON literal, in one pass over its code units: a quotation mark and a
-	 * reverse solidus escaped by a reverse solidus, the five controls of a short escape by theirs and every other control
-	 * and a lone surrogate by its lowercase \u escape, as JSON.stringify writes each (ECMA-262 QuoteJSONString), and
-	 * every other code point as its UTF-8 (`writePoint`).
+	 * The UTF-8 of `jsonText(text)`, a string's JSON literal, in one pass over its code units: each unit JSON escapes by
+	 * its escape (`jsonEscape`), a lone surrogate by its `\u` escape, as JSON.stringify writes each (ECMA-262
+	 * QuoteJSONString), and every other code point as its UTF-8 (`writePoint`).
 	 */
 	jsonString(text: string): void {
 		const length = text.length
@@ -315,27 +356,21 @@ export class Utf8Writer {
 		for (let i = 0; i < length; i++) {
 			const unit = text.charCodeAt(i)
 			if (unit < 0x80) {
-				if (unit >= 0x20 && unit !== 0x22 && unit !== 0x5c) {
+				const escape = jsonEscape(unit)
+				if (escape === undefined) {
 					out[to] = unit
 					to += 1
 					continue
 				}
-				const short = unit === 0x22 || unit === 0x5c ? unit : shortEscapes.get(unit)
-				if (short !== undefined) {
-					out[to] = 0x5c
-					out[to + 1] = short
-					to += 2
-					escaped += 1
-					continue
-				}
-				to = this.#unicodeEscape(out, to, unit)
-				escaped += 5
+				to = writeAscii(out, to, escape)
+				escaped += escape.length - 1
 				continue
 			}
 			const width = widthAt(text, i)
 			if (width === 3 && unit >= 0xd800 && unit <= 0xdfff) {
-				to = this.#unicodeEscape(out, to, unit)
-				escaped += 5
+				const escape = unicodeEscape(unit)
+				to = writeAscii(out, to, escape)
+				escaped += escape.length - 1
 				continue
 			}
 			writePoint(out, to, text, i, width)
@@ -376,17 +411,6 @@ export class Utf8Writer {
 		}
 		this.#at = end
 		this.#units += sign + digits
-	}
-
-	/** The \u escape of a code unit, its four hex digits lowercase, written after the reverse solidus at `to`. */
-	#unicodeEscape(out: Uint8Array, to: number, unit: number): number {
-		out[to] = 0x5c
-		out[to + 1] = 0x75
-		out[to + 2] = hexDigit(unit >> 12)
-		out[to + 3] = hexDigit((unit >> 8) & 0xf)
-		out[to + 4] = hexDigit((unit >> 4) & 0xf)
-		out[to + 5] = hexDigit(unit & 0xf)
-		return to + 6
 	}
 
 	/** Room for `bytes` more bytes: the buffer drained first where it holds a chunk, and grown where they still do not fit. */
