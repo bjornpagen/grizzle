@@ -6,14 +6,42 @@
  * `grizzle generate`. A change of what any of those files holds is a change of this format, and nothing reads the
  * format before it.
  *
- * @formatConstant grizzle's artifact format: 5, whose snapshot.json records the library functions the installation
- * installs (derived.library), each one any artifact over it or any program it serves calls, beside every structural
- * text domain it holds (derived.textDomains), each refinement any artifact or served program types a value by, and every
- * contract outside the base they type a value by (derived.params.contracts). Format 3's files were written in several
- * shapes, changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a
- * reader that trusted a sealed record of 3 met shapes it never wrote; every one is refused here
+ * @formatConstant grizzle's artifact format: 6. Its snapshot.json records each schema level's fingerprint over its
+ * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
+ * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
+ * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row
+ * functions are named by their bodies over positional parameters (physical/ddl/row-functions.ts called), so no declared
+ * rename of a column one reads names it anew, where format 5 named each parameter by its caller's column; each roster's
+ * live-codes constant by its live codes, which its domain's CHECK reads, so a rename of its handles replaces its names
+ * constant alone (physical/ddl/constants.ts rosterConstants); each judge function by the digest of a source whose rule
+ * statements read every import a rule's unfolding multiplies whole, one node, never inlined again at each read nor
+ * distributed into the rule's conjunctions (analysis/theory/navigate.ts ImportSharing), each occurrence a whole rule's
+ * region proves by its least-reading witness, a key's before a root's (analysis/theory/unit.ts witnessOrder); the
+ * installation's function owner by the installed identifier of its root (identity.functionOwner); and each constraint
+ * by every law it serves, a set in code point order (deploy/snapshot/types.ts ConstraintLaws), where format 5 kept the
+ * one law its statement order met last, as the served file's constraints above and meta.json's folder laws do. Its
+ * served file records each role's context by its source (ir/desc.ts ContextFactSource), a token's with the claim object
+ * its fields are read from or one its server attests, where format 5 recorded the claim object alone; its files may
+ * hold the network types inet and cidr, their literals and their containment (scalar/values/net.ts); it records how
+ * each read is called (served/forms.ts ServedReadLive): `answered`, at its call's instant alone and never live, an
+ * answered(...) or a clocked member, beside a live read's `constant` or `routed`, where format 5 served a clocked read
+ * as a member of a kind of its own (`instant`) and its answer's shape as `instantSet` or `instantList`, now
+ * `answeredSet` or `answeredList`; each paged member's window at a position (its page's `at` request, whose statement's
+ * offset placeholder is an `offset` page fill) beside its four keyset windows; a read's bytes columns delivered in
+ * chunks from a derived table whose column list alone names the read's columns, its targets unnamed inside it
+ * (lower/delivery.ts deliveredRows), where format 5's named each inner target by its public name as well; and each
+ * write program's carriers named by the role the program runs as beside their declaration (sql/naming.ts carrierScope),
+ * each stand-up refusing a session table of its name that CURRENT_USER does not own. A SHA-256 digest is a carrier of
+ * its own, 32 bytes of bytea under the installation's __sha256 domain, which every Setup creates and grizzle's ledger
+ * and drift proofs type their digests by; Crypto.sha256 yields it, where format 5 held 64 hex digits as text. Format
+ * 5's snapshot.json first recorded the library functions the installation installs (derived.library), each one any
+ * artifact over it or any program it serves calls, beside every structural text domain it holds (derived.textDomains),
+ * each refinement any artifact or served program types a value by, and every contract outside the base they type a
+ * value by (derived.params.contracts). Format 3's files were written in several shapes, changes of what they hold
+ * riding its number (a constant recorded with no language before 56f26ca01), so a reader that trusted a sealed record
+ * of 3 met shapes it never wrote; every one is refused here
  */
-export const artifactFormat = 5
+export const artifactFormat = 6
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"
