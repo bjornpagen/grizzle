@@ -9,6 +9,8 @@ import { boolean, constant, element, type Gen, int, weighted } from "@bjornpagen
 import { Array as Arr, Formatter, Option, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { WholeRule } from "#compiler/analysis/theory/query.ts"
+import { wholeRule } from "#compiler/analysis/theory/unit.ts"
+import { SourceLoc } from "#compiler/core/loc.ts"
 import type {
 	InferredExpr,
 	InferredQuery,
@@ -37,6 +39,7 @@ import {
 import {
 	drawnNatural,
 	type HostFacts,
+	relationsOf,
 	type TestTheory,
 	theoryOf,
 	violates
@@ -320,9 +323,9 @@ export const wholeReads = (box: NodeBox): number => {
 
 /**
  * The fields at which the region reads the rows T lost, to find the gained rows that replace one (WholeRule `replaced`):
- * those of each proof of an occurrence of T, a key where its witness binds a key of T alike, else a tree's root, doc,
- * where it binds doc alike, its first witness in order the tree's own axis, a containment the schema states, then T's
- * identity.
+ * those of each proof of an occurrence of T, a key where a witness binds a key of T alike, else a tree's root, doc,
+ * where one binds doc alike, its witness the one that reads least (unit.ts witnessOrder): two nodes at one key in a tree,
+ * which its own axis witnesses at doc and its identity at the key, are proved at the key.
  */
 export const replacedFields = (box: NodeBox): ReadonlyArray<ReadonlyArray<string>> => {
 	const tree = box.nodes === "tree"
@@ -335,7 +338,7 @@ export const replacedFields = (box: NodeBox): ReadonlyArray<ReadonlyArray<string
 		case "a node beside its kind":
 			return tree ? [["doc"]] : []
 		case "two nodes at one key":
-			return [tree ? ["doc"] : key]
+			return [key]
 		case "a tag beside its node":
 		case "a false tag beside its node":
 			return box.tagged === "true" ? [] : [key]
@@ -480,15 +483,10 @@ const nodeRuleOf = (shape: Shape): AuthoredRelationDesc => {
 	}
 }
 
-/** The node box's schema with its rule, a check over D refusing its value at 1, and the theory of both. */
-export const nodeTheoryOf = (box: NodeBox): TestTheory => {
-	const drawnOrNot = box.nodes === "tree" ? drawnNatural : f.natural
-	const tagged = (b: boolean) =>
-		contained(
-			onWhere("Tag", ["doc", "start"], eq(field("b"), literal(b))),
-			on("T", ["doc", "start"])
-		)
-	const base: SchemaDesc = {
+/** The nodes' schema: T, a tree of root doc or a plain relation, Tag and K, with `statements` after T's tree. */
+const nodeSchemaOf = (nodes: Nodes, statements: SchemaDesc["statements"]): SchemaDesc => {
+	const drawnOrNot = nodes === "tree" ? drawnNatural : f.natural
+	return {
 		name: "Nodes",
 		relations: [
 			relation(
@@ -511,7 +509,7 @@ export const nodeTheoryOf = (box: NodeBox): TestTheory => {
 			relation("K", { doc: f.natural, kind: f.natural }, ["doc", "kind"])
 		],
 		statements: [
-			...(box.nodes === "tree"
+			...(nodes === "tree"
 				? [
 						{
 							kind: "tree" as const,
@@ -521,17 +519,101 @@ export const nodeTheoryOf = (box: NodeBox): TestTheory => {
 						}
 					]
 				: []),
-			...(box.tagged === "every"
-				? [contained(on("Tag", ["doc", "start"]), on("T", ["doc", "start"]))]
-				: box.tagged === "true"
-					? [tagged(true)]
-					: [tagged(true), tagged(false)]),
-			contained(on("K", ["doc", "kind"]), on("T", ["doc", "kind"]))
+			...statements
 		],
 		bases: []
 	}
+}
+
+/** The node box's schema with its rule, a check over D refusing its value at 1, and the theory of both. */
+export const nodeTheoryOf = (box: NodeBox): TestTheory => {
+	const tagged = (b: boolean) =>
+		contained(
+			onWhere("Tag", ["doc", "start"], eq(field("b"), literal(b))),
+			on("T", ["doc", "start"])
+		)
+	const base = nodeSchemaOf(box.nodes, [
+		...(box.tagged === "every"
+			? [contained(on("Tag", ["doc", "start"]), on("T", ["doc", "start"]))]
+			: box.tagged === "true"
+				? [tagged(true)]
+				: [tagged(true), tagged(false)]),
+		contained(on("K", ["doc", "kind"]), on("T", ["doc", "kind"]))
+	])
 	return theoryOf(judgedOver(base, nodeRuleOf(box.shape)))
 }
+
+/**
+ * The order box's theory: the nodes' schema, each tag contained in T at (doc, start), T's key, and at (doc, mark) in T
+ * at (doc, kind), its mark a kind of a node of its document, and a rule over a tag of its node's kind beside its node,
+ * the kind its value. T's occurrence has two witnesses beside the tag's: the first containment at T's key and, where T
+ * is a tree, the second at its root, doc, which reads every gained node of a document that lost one; the key's reads
+ * least, so it proves the node whatever order the containments stand in.
+ */
+export const orderTheoryOf = (nodes: Nodes): TestTheory =>
+	theoryOf(
+		judgedOver(
+			nodeSchemaOf(nodes, [
+				contained(on("Tag", ["doc", "start"]), on("T", ["doc", "start"])),
+				contained(on("Tag", ["doc", "mark"]), on("T", ["doc", "kind"]))
+			]),
+			derivedOf(
+				[
+					{ relation: "Tag", bindings: { doc: "doc", start: "start", mark: "kind" } },
+					{ relation: "T", bindings: { doc: "doc", start: "start", kind: "kind" } }
+				],
+				[],
+				{ doc: "doc", start: "start", value: "kind" }
+			)
+		)
+	)
+
+/** The fields at which the order box's region reads the rows T lost (WholeRule `replaced`): T's key, its witness's. */
+export const orderReplacedFields: ReadonlyArray<ReadonlyArray<string>> = [["doc", "start"]]
+
+const loc = SourceLoc("region-proofs", [])
+
+/**
+ * `t`'s whole rule decided again over its containments in `order`, a permutation of their places (unit.ts wholeRule
+ * over RegionFacts), the containments its region's proofs read standing in that order.
+ */
+export const wholeRuleInOrder = (t: TestTheory, order: ReadonlyArray<number>): WholeRule => {
+	const { rule } = wholeRuleOf(t)
+	const containments = Arr.map(order, (at) =>
+		defined(t.regionFacts.containments[at], "a place of the theory's containments")
+	)
+	return defined(
+		wholeRule(rule.law, rule.everyRow, relationsOf(t), { ...t.regionFacts, containments }, loc),
+		"the rule is whole whatever order its containments stand in"
+	)
+}
+
+/** A permutation of `n` places, each drawn from those left. */
+export const permutationGen =
+	(n: number): Gen<ReadonlyArray<number>> =>
+	(s) => {
+		const left = Array.from({ length: n }, (_, i) => i)
+		const order: Array<number> = []
+		while (left.length > 0) {
+			const [taken] = left.splice(s.draw(int(0, left.length - 1)), 1)
+			order.push(defined(taken, "a place left"))
+		}
+		return order
+	}
+
+/** The region's reads as the judge reads them, each rule by the relation and side of its delta and whether it reads
+ * only rows that replace one (`regionRulesOf`): what the proofs decide. */
+export const regionReadsOf = (
+	rule: WholeRule
+): ReadonlyArray<{
+	readonly relation: string
+	readonly side: string
+	readonly replaced: boolean
+}> =>
+	Arr.map(regionRulesOf(rule.judged), (r) => {
+		const read = deltaRead(r)
+		return { relation: read.relation, side: read.side, replaced: readsReplaced(r) }
+	})
 
 /** A kind or a count of 0, 1 or 2, 1 the likeliest, the value each rule refuses. */
 const smallGen: Gen<bigint> = weighted([

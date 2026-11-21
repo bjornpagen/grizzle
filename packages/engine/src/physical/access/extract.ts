@@ -11,6 +11,7 @@ import {
 	compareNumbers,
 	compareStrings,
 	flip,
+	listOrder,
 	mapInput,
 	thenBy
 } from "#compiler/core/order.ts"
@@ -108,26 +109,10 @@ const pushedKey = (p: Pushed): string =>
 			.join("\u0001")
 	].join("\u0000")
 
-/** The order of two statistics shapes' column lists: column by column by code unit, and of two lists one of which
- * begins the other, the longer first. */
-const columnsOrder: Comparator<ReadonlyArray<string>> = (a, b) => {
-	for (const [i, x] of a.entries()) {
-		const y = b[i]
-		if (y === undefined) {
-			break
-		}
-		const order = compareStrings(x, y)
-		if (order !== 0) {
-			return order
-		}
-	}
-	return compareNumbers(b.length, a.length)
-}
-
 /** The order of the statistics shapes: by relation, then column list, then use. */
 const statisticsOrder: Comparator<StatisticsShape> = combineAll([
 	mapInput(compareStrings, (s: StatisticsShape) => s.relation),
-	mapInput(columnsOrder, (s: StatisticsShape) => s.columns),
+	mapInput(listOrder(compareStrings), (s: StatisticsShape) => s.columns),
 	mapInput(compareStrings, (s: StatisticsShape) => s.use)
 ])
 

@@ -3,6 +3,7 @@ import {
 	type Comparator,
 	compareNumbers,
 	compareStrings,
+	listOrder,
 	mapInput,
 	thenBy
 } from "#compiler/core/order.ts"
@@ -31,24 +32,10 @@ const keyOrder: Comparator<AccessKey> = thenBy(
 	mapInput(compareStrings, (k: AccessKey) => k.dir)
 )
 
-const keysOrder: Comparator<ReadonlyArray<AccessKey>> = (a, b) => {
-	for (const [i, x] of a.entries()) {
-		const y = b[i]
-		if (y === undefined) {
-			break
-		}
-		const order = keyOrder(x, y)
-		if (order !== 0) {
-			return order
-		}
-	}
-	return compareNumbers(b.length, a.length)
-}
-
 const pathOrder: Comparator<AccessPath> = combineAll([
 	mapInput(compareStrings, (p: AccessPath) => p.relation),
 	mapInput(compareStrings, (p: AccessPath) => p.method),
-	mapInput(keysOrder, (p: AccessPath) => p.keys),
+	mapInput(listOrder(keyOrder), (p: AccessPath) => p.keys),
 	mapInput(compareNumbers, (p: AccessPath) => p.fixed),
 	mapInput(compareStrings, (p: AccessPath) => p.use)
 ])

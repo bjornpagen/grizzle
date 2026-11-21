@@ -59,7 +59,14 @@ import {
 } from "#compiler/analysis/theory/query.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
-import { compareStrings } from "#compiler/core/order.ts"
+import {
+	combineAll,
+	type Comparator,
+	compareNumbers,
+	compareStrings,
+	listOrder,
+	mapInput
+} from "#compiler/core/order.ts"
 import {
 	type ExprDesc,
 	exprChildren,
@@ -1275,6 +1282,37 @@ const finiteDomain = (t: ScalarType): ReadonlyArray<LiteralDesc> | undefined =>
 	t.carrier === "bool" ? [true, false] : t.carrier === "code" ? rosterOf(t)?.handles : undefined
 
 /**
+ * What a witness fixes N's rows at (`witnessesOf`): `key`, the fields its two occurrences bind alike, a key of N among
+ * them, or `roots`, N's tree's root fields, which they bind alike, no key among them.
+ */
+interface FixedAt {
+	readonly by: "key" | "roots"
+	readonly fields: NonEmptyReadonlyArray<string>
+}
+
+/** A witness of an occurrence (`witnessesOf`): what it fixes N's rows at, and the place of the occurrence beside it the
+ * proof rests on. */
+interface Witness extends FixedAt {
+	readonly beside: number
+}
+
+/** A key's witness before a root's (`witnessOrder`). */
+const fixedRank = { key: 0, roots: 1 } as const satisfies Record<FixedAt["by"], number>
+
+/**
+ * The order of an occurrence's witnesses (`witnessesOf`), the one that reads least first, a total order over what each
+ * witness is and none over where the schema states its containment: a key's before a root's, since at a key the region
+ * reads a gained row only where the one row of N at the key's values was lost, and at a root wherever any row of its
+ * tree was; then the fields by name, element by element, the longer first where one begins the other (core/order.ts
+ * listOrder); then the occurrence beside, in the walk's order.
+ */
+const witnessOrder: Comparator<Witness> = combineAll([
+	mapInput(compareNumbers, (w: Witness) => fixedRank[w.by]),
+	mapInput(listOrder(compareStrings), (w: Witness) => w.fields),
+	mapInput(compareNumbers, (w: Witness) => w.beside)
+])
+
+/**
  * The witnesses that may prove an occurrence `r` of a holder N needs no unit of a row N gained beyond those of the rows
  * it gained where it lost one at the fields the witness names (`proofsOf`), each the place of the occurrence beside it
  * the proof rests on and those fields of N: `r` positive, matched beside an occurrence of E at its polarity, a
@@ -1287,16 +1325,16 @@ const finiteDomain = (t: ScalarType): ReadonlyArray<LiteralDesc> | undefined =>
  * the containment holds over: its conditions imply its selection (`implies`), or the selections of every containment
  * of E into N that witnesses at that occurrence and those fields together hold every row its conditions admit
  * (`covers`), each such row of E in one of them, which proves it at the same fields. Every such occurrence beside
- * `r`: those whose one containment's selection its conditions imply, by containment, each the schema states or
- * composes in order, then the identity; then those the union of their containments' selections covers alone; none
- * where `r` is not positive.
+ * `r`, those whose one containment's selection its conditions imply and those the union of their containments'
+ * selections covers alone, in the order of what each reads (`witnessOrder`), least first, so the order the schema
+ * states its containments in decides no proof; none where `r` is not positive.
  */
 const witnessesOf = (
 	r: RegionRead,
 	regions: ReadonlyArray<RegionRead>,
 	facts: RegionFacts,
 	relations: ReadonlyMap<string, TheoryRelation>
-): ReadonlyArray<{ readonly beside: number; readonly fields: NonEmptyReadonlyArray<string> }> => {
+): ReadonlyArray<Witness> => {
 	const n = relations.get(r.relation)
 	if (r.polarity !== "positive" || n?.kind !== "relation") {
 		return []
@@ -1304,13 +1342,11 @@ const witnessesOf = (
 	const root = facts.roots.get(n.name)
 	/** The fields among `alike` at which a row of N standing fixes N's rows: themselves where a key of N is among them,
 	 * N's tree's root fields where they are among them. */
-	const fixedAt = (
-		alike: NonEmptyReadonlyArray<string>
-	): NonEmptyReadonlyArray<string> | undefined =>
+	const fixedAt = (alike: NonEmptyReadonlyArray<string>): FixedAt | undefined =>
 		[n.primaryFields, ...n.keyFields].some((key) => key.every((f) => alike.includes(f.name)))
-			? alike
+			? { by: "key", fields: alike }
 			: root?.every((f) => alike.includes(f)) === true
-				? root
+				? { by: "roots", fields: root }
 				: undefined
 	const identity: FieldContainment = {
 		from: n.name,
@@ -1330,8 +1366,8 @@ const witnessesOf = (
 				const v = r.bound[p.to]
 				return v !== undefined && v === e.bound[p.from] ? [p.to] : []
 			})
-			const fields = isNonEmpty(alike) ? fixedAt(alike) : undefined
-			return fields === undefined ? [] : [{ beside, fields, selection: c.selection }]
+			const fixed = isNonEmpty(alike) ? fixedAt(alike) : undefined
+			return fixed === undefined ? [] : [{ ...fixed, beside, selection: c.selection }]
 		})
 	)
 	const where = (beside: number): ReadonlyArray<InferredExpr> =>
@@ -1355,18 +1391,21 @@ const witnessesOf = (
 			)
 		)
 	})
-	return [...implied, ...united].map(({ beside, fields }) => ({ beside, fields }))
+	return [...implied, ...united]
+		.map(({ by, beside, fields }) => ({ by, beside, fields }))
+		.toSorted(witnessOrder)
 }
 
 /**
  * Each occurrence of the walk `regions` a witness proves needs the rows N gained only where they replace a row N lost
  * at the fields the witness names (`regionOf`), by its place, with those fields: the proofs made at generate time,
  * once, as one assignment. The assignment takes the occurrences fewer conditions restrict first, then in the walk's
- * order, each proved by its first witness (`witnessesOf`) whose chain does not reach back to it: following each proved
- * occurrence to the occurrence its witness rests on, every chain ends at an occurrence the assignment proves of
- * nothing, which reads every row its relation gained that its conditions admit. A proof spares the region the rows its
- * occurrence's relation gained, and an occurrence its conditions restrict reads fewer of them where it stands unproved,
- * so where occurrences prove each other, the one its conditions restrict most is the one read.
+ * order, each proved by its first witness in the order of what each reads (`witnessesOf`, `witnessOrder`) whose chain
+ * does not reach back to it: following each proved occurrence to the occurrence its witness rests on, every chain ends
+ * at an occurrence the assignment proves of nothing, which reads every row its relation gained that its conditions
+ * admit. A proof spares the region the rows its occurrence's relation gained, and an occurrence its conditions restrict
+ * reads fewer of them where it stands unproved, so where occurrences prove each other, the one its conditions restrict
+ * most is the one read.
  *
  * The proof. Let `r` be a positive occurrence of N matched beside an occurrence of E, a containment of E into N, one
  * the schema states or composes or N's identity, holding over the rows of E its selection admits, the occurrence of E

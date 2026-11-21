@@ -21,6 +21,7 @@ import {
 	compareNumbers,
 	compareStrings,
 	flip,
+	listOrder,
 	mapInput,
 	type Direction,
 	opposite
@@ -934,23 +935,7 @@ const keysOf = (draft: Draft, rank: Rank, columns: Columns): NonEmptyReadonlyArr
 }
 
 /** The plan's fixed orders compare structurally: strings by code unit; lists elementwise, the longer first on a common
- * prefix; a key's default operator class after any named one. */
-const listOrder =
-	<A extends object | string>(item: Comparator<A>): Comparator<ReadonlyArray<A>> =>
-	(a, b) => {
-		for (const [i, x] of a.entries()) {
-			const y = b[i]
-			if (y === undefined) {
-				break
-			}
-			const order = item(x, y)
-			if (order !== 0) {
-				return order
-			}
-		}
-		return compareNumbers(b.length, a.length)
-	}
-
+ * prefix (core/order.ts listOrder); a key's default operator class after any named one. */
 const opclassOrder: Comparator<IndexOpclass> = (a, b) =>
 	a.kind === "default"
 		? b.kind === "default"

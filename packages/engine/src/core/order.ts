@@ -52,6 +52,23 @@ export const flip =
 	(a, b) =>
 		compare(b, a)
 
+/** Lists element by element by `item`, and of two lists one of which begins the other, the longer first. */
+export const listOrder =
+	<A>(item: Comparator<A>): Comparator<ReadonlyArray<A>> =>
+	(a, b) => {
+		for (const [i, x] of a.entries()) {
+			const y = b[i]
+			if (y === undefined) {
+				break
+			}
+			const order = item(x, y)
+			if (order !== 0) {
+				return order
+			}
+		}
+		return compareNumbers(b.length, a.length)
+	}
+
 /** Whether `items` already stand in `compare`'s order: no item after one it comes before. */
 export const inOrder = <A>(items: ReadonlyArray<A>, compare: Comparator<A>): boolean => {
 	for (let i = 1; i < items.length; i += 1) {

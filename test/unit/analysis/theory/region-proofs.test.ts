@@ -9,11 +9,13 @@
  * each document's rows after the transition, the state before it holding every law, so every document it finds broken
  * holds a fact the transition opened, which the judge must read: the region holds it. And the proofs are counted: the
  * region reads every gained row of exactly the occurrences the box says no proof spares (`wholeReads`), and on a
- * publish, which loses no row, a proved occurrence reads none.
+ * publish, which loses no row, a proved occurrence reads none. And each proof takes its occurrence's least-reading
+ * witness whatever order the schema's containments stand in (`wholeRuleInOrder`).
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { type Case, type Kill, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import {
@@ -31,13 +33,19 @@ import {
 	nodeBoxGen,
 	nodeTheoryOf,
 	nodeTransitionGen,
+	type Nodes,
+	orderReplacedFields,
+	orderTheoryOf,
+	permutationGen,
 	readsReplaced,
 	regionOf,
+	regionReadsOf,
 	regionRulesOf,
 	type Shape,
 	replacedFields,
 	type Transition,
 	wholeReads,
+	wholeRuleInOrder,
 	wholeRuleOf
 } from "#test/unit/analysis/theory/region-proofs.fixtures.ts"
 import type { TestTheory } from "#test/unit/analysis/theory/support.ts"
@@ -218,9 +226,9 @@ export const aWholeRuleOverAParentAndItsChildReadsEveryDocumentATransitionBreaks
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
-					"\t\t\t: root?.every((f) => alike.includes(f)) === true\n\t\t\t\t? root\n\t\t\t\t: undefined",
+					'\t\t\t: root?.every((f) => alike.includes(f)) === true\n\t\t\t\t? { by: "roots", fields: root }\n\t\t\t\t: undefined',
 				replacement:
-					"\t\t\t: alike.includes(n.primaryFields[0].name)\n\t\t\t\t? [n.primaryFields[0].name]\n\t\t\t\t: undefined",
+					'\t\t\t: alike.includes(n.primaryFields[0].name)\n\t\t\t\t? { by: "roots", fields: [n.primaryFields[0].name] }\n\t\t\t\t: undefined',
 				why: "A relation's rows are taken as fixed at its key's leading field by any one of them standing, a tree's or not, so a plain T's parent is proved by its child in their document, and a parent gained under a child that stood before, which no tree law forbids a plain T, is never judged."
 			},
 			{
@@ -277,8 +285,8 @@ export const aWholeRuleOverATagAndItsNodeReadsEveryDocumentATransitionBreaksItIn
 		[
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\treturn [...implied, ...united].map(",
-				replacement: "\treturn [...implied].map(",
+				original: "\treturn [...implied, ...united]\n",
+				replacement: "\treturn [...implied]\n",
 				why: "Containments of tags of b true and of b false together into T prove no node beside a tag of either b, which every tag's b makes one of them, so the region reads every gained node there."
 			},
 			{
@@ -306,8 +314,8 @@ export const aWholeRuleOverANodeAndItsKindReadsEveryDocumentATransitionBreaksItI
 		[
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
-				original: "\t\t\t\t? root\n\t\t\t\t: undefined",
-				replacement: "\t\t\t\t? alike\n\t\t\t\t: undefined",
+				original: '\t\t\t\t? { by: "roots", fields: root }\n\t\t\t\t: undefined',
+				replacement: '\t\t\t\t? { by: "roots", fields: alike }\n\t\t\t\t: undefined',
 				why: "A node proved through its tree's root is read only where a row of every field its witness binds alike was lost, its kind among them, where only a row of its document need be: a node whose kind is drawn anew to one K lists for another node of its document is never judged."
 			}
 		]
@@ -365,3 +373,111 @@ export const aWholeRuleOverAChainOfKeyedRelationsReadsEveryDocumentATransitionBr
 			}
 		]
 	})
+
+/** A box of the order property: a node box, or the order box over T, a tree or plain (region-proofs.fixtures.ts
+ * orderTheoryOf). */
+type OrderedBox =
+	| { readonly kind: "nodes"; readonly box: NodeBox }
+	| { readonly kind: "order"; readonly nodes: Nodes }
+
+type OrderFeature =
+	| "a node box"
+	| "a node proved at T's key beside a witness at its root"
+	| "a node proved at its key in no tree"
+	| "containments in another order"
+
+const shapes: Arr.NonEmptyReadonlyArray<Shape> = [
+	"parent beside child",
+	"child beside its parent's tag",
+	"two nodes at one key",
+	"two nodes of one kind",
+	"a tag beside its node",
+	"a false tag beside its node",
+	"a node beside its kind"
+]
+
+const orderedBoxGen: Gen<OrderedBox> = (s) =>
+	s.draw(element(["nodes", "order"] as const)) === "nodes"
+		? { kind: "nodes", box: s.draw(nodeBoxGen(shapes)) }
+		: { kind: "order", nodes: s.draw(element(["tree", "plain"] as const)) }
+
+/**
+ * A whole rule's proofs are the same whatever order its schema's containments stand in (analysis/theory/unit.ts
+ * witnessesOf, witnessOrder): over every node box and the order box, whose node has two witnesses beside its tag, at
+ * T's key and, in a tree, at its root, the rule decided again over its containments in a drawn order reads the rows T
+ * lost at the fields the box's least-reading witness fixes T's rows at, and its region reads as the theory's own does.
+ * The containments come in the order the owned schema states its statements in, which no meaning fixes, so a proof
+ * that took its first witness in that order read a tree's whole document where it could read one node.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const aWholeRulesProofsAreItsLeastReadingWitnessesWhateverOrderItsSchemasContainmentsStandIn =
+	property.explore(
+		(s) => {
+			const box = s.draw(orderedBoxGen)
+			const t = box.kind === "nodes" ? nodeTheoryOf(box.box) : orderTheoryOf(box.nodes)
+			return { box, order: s.draw(permutationGen(t.regionFacts.containments.length)) }
+		},
+		{
+			needs: {},
+			situations: [
+				"a node box",
+				"a node proved at T's key beside a witness at its root",
+				"a node proved at its key in no tree",
+				"containments in another order"
+			] satisfies ReadonlyArray<Reached<OrderFeature>>,
+			check: (_, k: Case<OrderFeature>) => (drawn) =>
+				Effect.sync(() => {
+					const t =
+						drawn.box.kind === "nodes"
+							? nodeTheoryOf(drawn.box.box)
+							: orderTheoryOf(drawn.box.nodes)
+					const own = wholeRuleOf(t).rule
+					const ordered = wholeRuleInOrder(t, drawn.order)
+					const fields: ReadonlyArray<ReadonlyArray<string>> = Arr.flatMap(ordered.replaced, (r) =>
+						r.relation === "T" ? [r.fields] : []
+					)
+					assert.deepEqual(
+						fields,
+						drawn.box.kind === "nodes" ? replacedFields(drawn.box.box) : orderReplacedFields,
+						`the rule over its containments in the order ${Formatter.format(drawn.order)} reads the nodes lost at the fields its least-reading witness fixes T's rows at, in ${Formatter.format(drawn.box)}`
+					)
+					assert.deepEqual(
+						regionReadsOf(ordered),
+						regionReadsOf(own),
+						`the rule's region reads as the theory's own over its containments in the order ${Formatter.format(drawn.order)}, in ${Formatter.format(drawn.box)}`
+					)
+					if (drawn.box.kind === "nodes") {
+						k.note("a node box")
+					} else {
+						k.note(
+							drawn.box.nodes === "tree"
+								? "a node proved at T's key beside a witness at its root"
+								: "a node proved at its key in no tree"
+						)
+					}
+					if (Arr.some(drawn.order, (at, i) => at !== i)) {
+						k.note("containments in another order")
+					}
+				}),
+			oracle: {
+				kind: "specification",
+				name: "the least-reading witness of each box's node, a key's before a root's, and the theory's own region, whatever order its containments stand in"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/analysis/theory/unit.ts",
+					original: "\t\t.toSorted(witnessOrder)\n",
+					replacement: "",
+					why: "Each node proved by its first witness in the order its containments stand in: in a tree, the order box's tag at its node's kind, stated or composed before its tag at its node's key, proves the node at its root, so the region reads every gained node of a document that lost one, where it read the one that replaced a node."
+				},
+				{
+					file: "packages/engine/src/analysis/theory/unit.ts",
+					original: "const fixedRank = { key: 0, roots: 1 } as const",
+					replacement: "const fixedRank = { key: 1, roots: 0 } as const",
+					why: "A root's witness taken before a key's: in a tree, the order box's node is proved at its document, doc, and two nodes at one key at doc, so the region reads every gained node of a document that lost one, where it read the one that replaced a node."
+				}
+			]
+		}
+	)
