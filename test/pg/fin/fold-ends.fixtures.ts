@@ -27,6 +27,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
+import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
@@ -977,11 +978,12 @@ export const judgedMemberRows = (o: JudgedOwnerState): ReadonlyArray<ModelRow> =
 	Arr.map(o.members, (m) => ({ id: m.id, o: o.id, x: flagSet(m.x), n: m.n }))
 
 /** A row CHECK of the judged owner as a law: the owner's relation and the check's declared name. */
-const checkLaw = (statement: { readonly name: string }): Law => ({
-	kind: "check",
-	relation: JudgedOwner.name,
-	name: statement.name
-})
+const checkLaw = (statement: { readonly name: string }): Law =>
+	derivedLaw({
+		kind: "check",
+		relation: JudgedOwner.name,
+		name: statement.name
+	})
 
 /** The laws an owner breaks as the model folds its ends: each CHECK whose end is not its declared value. */
 export const brokenBy = (o: JudgedOwnerState): ReadonlyArray<Law> => [

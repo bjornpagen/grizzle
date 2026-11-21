@@ -8,7 +8,7 @@ import { predicateTable } from "#compiler/ir/expr.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { HostChecks, HostKey, HostKeyField } from "#compiler/runtime/write/normalize.ts"
-import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
 /** A key field of the relation's facts, by its name, with its type, and a key generation with the table of its
@@ -56,7 +56,7 @@ export const hostChecks = (
 	keyLaws: ReadonlyArray<{
 		readonly fields: ReadonlyArray<LawField>
 		readonly law: LawId
-		readonly described: OwnLaw
+		readonly described: RecordedLaw
 	}>,
 	uniques: RelationUniques,
 	stamped: ReadonlyArray<Stamped>

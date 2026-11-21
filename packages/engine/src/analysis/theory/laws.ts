@@ -118,6 +118,7 @@ import { accumulations, type CombineFn, combine, monoidSpecs } from "#compiler/i
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { conservativeMeta, type HeadingColumn } from "#compiler/ir/rel.ts"
 import { baseOf, type ContractInfo, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
+import type { StatedEntry } from "#compiler/runtime/law-entry.ts"
 import { countOverload, unaryOverload } from "#compiler/scalar/aggregate.ts"
 import { irLiteral, oppositeLiteral } from "#compiler/scalar/compute/literal.ts"
 import { type LowerEnv, lowerPredicate, lowerTerm } from "#compiler/scalar/compute/lower.ts"
@@ -427,11 +428,16 @@ export interface TheoryLaw extends NormalizedLaw {
 	readonly named: Identity<"law">
 	readonly statements: ReadonlyArray<number>
 	readonly detail: LawDetail
+	/**
+	 * The catalog entry its statements' author declares for it, merged over every statement that states it
+	 * (runtime/law-entry.ts mergedEntry), or none, so its entry is derived: no part of its identity.
+	 */
+	readonly entry: StatedEntry
 }
 
-/** What a law's identity is computed from: everything but its id, its location and its detail as written, its detail as
- * stated. */
-export type LawIdentity = Omit<TheoryLaw, "id" | "named" | "loc" | "detail"> & {
+/** What a law's identity is computed from: everything but its id, its location, its catalog entry and its detail as
+ * written, its detail as stated. */
+export type LawIdentity = Omit<TheoryLaw, "id" | "named" | "loc" | "detail" | "entry"> & {
 	readonly detail: StatedDetail
 }
 

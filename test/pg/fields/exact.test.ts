@@ -20,6 +20,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Layer, Option, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { Money } from "#compiler/public/fields.ts"
+import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import {
 	Exact,
 	exactInstall,
@@ -169,7 +170,7 @@ export const anExactFieldStoresAndReadsBackEveryDrawnValueBitExactlyItsExactSums
 									}
 									assert.deepEqual(
 										refusedLaws(one.refused),
-										[{ kind: "check", relation: "Doubled", name: "NotOne" }],
+										[derivedLaw({ kind: "check", relation: "Doubled", name: "NotOne" })],
 										"the count's refusal names NotOne, the row check over the exact field"
 									)
 									c.note("a count refused by its row check")

@@ -24,6 +24,7 @@ import {
 	select
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import { numericMaxPrecision, numericMaxScale } from "#compiler/scalar/values/fault.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -258,7 +259,7 @@ export const clashesOf = (constraints: ReadonlyArray<TableConstraintLaw>): Reado
 	)
 
 /** The law a constraint or trigger reports, its first, as an outcome names it. */
-const reportedOf = (constraint: TableConstraintLaw): Law => constraint.laws[0].described
+const reportedOf = (constraint: TableConstraintLaw): Law => namedLaw(constraint.laws[0].described)
 
 /**
  * How a derived relation's two arms deliver its head literal: one in both, or one each, the union's discriminant. Both

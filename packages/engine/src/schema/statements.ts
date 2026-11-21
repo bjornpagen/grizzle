@@ -29,6 +29,7 @@ import {
 	malformed,
 	orThrow,
 	ownedDesc,
+	ownedCopy,
 	ownedEntry,
 	ownedKind,
 	ownValue,
@@ -37,8 +38,9 @@ import {
 	requireName,
 	requireNames
 } from "#compiler/schema/protocol.ts"
+import type { DeclaredEntry } from "#compiler/types/changeset/changeset.ts"
 
-import { canonicalStatementOf } from "#compiler/schema/own.ts"
+import { type CanonicalStatement, canonicalStatementOf } from "#compiler/schema/own.ts"
 import {
 	fieldRoster,
 	finOf,
@@ -863,4 +865,62 @@ export const foldBuilder = <Fa, M, S, E>(
 		loc: builderLoc(`fold ${stepSide.relation}`, [stepSide.relation, "fold", name])
 	})
 	return ownedStatement({ kind: "fold", family, monoid, step, end }, desc)
+}
+
+/** What law(...) takes for a catalog entry. */
+const anEntry = "a catalog entry { name, source }, each a nonempty storable text, and nothing else"
+
+/** A catalog entry its author declares, read once, here: a plain record of a name and a source, nonempty texts. */
+const admitEntry = (entry: unknown): DeclaredEntry => {
+	if (!isPlainRecord(entry) || Object.keys(entry).length !== 2) {
+		throw malformed("law", anEntry)
+	}
+	const name = entry["name"]
+	const source = entry["source"]
+	if (!isName(name) || !isName(source)) {
+		throw malformed("law", anEntry)
+	}
+	return Object.freeze({ kind: "declared", name, source })
+}
+
+/** A statement's canonical form with the entry its author declares, refused where law(...) already gave it one. */
+const declaredIn = (canonical: CanonicalStatement, entry: DeclaredEntry): CanonicalStatement => {
+	if (canonical.entry.kind === "declared") {
+		throw malformed("law", "a statement no law(...) has given a catalog entry")
+	}
+	return Object.freeze({ ...canonical, entry })
+}
+
+/**
+ * law({ name, source }, statement): the statement with the catalog entry its author declares for every law it states
+ * (types/changeset LawEntry `declared`): a key's, a check's, a containment's, a family's, a tree's and a fold's one law,
+ * a mirrors' two containments, an alternatives' and a retirable's containments. The entry is outside the statement's
+ * identity: the statement means what it meant, and the value given is unchanged, law(...) returning a copy of it owned
+ * with the entry. A mutable or a race states no law, and a statement given an entry already is refused
+ * (MalformedDescription).
+ */
+export const lawBuilder = <S extends object>(entry: unknown, statement: S): S => {
+	const declared = admitEntry(entry)
+	const expansion = ownedEntry(statement, "expansion")
+	if (expansion !== undefined) {
+		const [left, right] = expansion.content.canonical
+		return ownedCopy(statement, {
+			...expansion,
+			content: {
+				...expansion.content,
+				canonical: [declaredIn(left, declared), declaredIn(right, declared)]
+			}
+		})
+	}
+	const stated = ownedEntry(statement, "statement")
+	if (stated === undefined || stated.desc.kind === "mutable" || stated.desc.kind === "race") {
+		throw malformed(
+			"law",
+			"a statement that states a law: one built by key, check, contained, mirrors, alternatives, retirable, ordered, counted, tree or fold"
+		)
+	}
+	return ownedCopy(statement, {
+		...stated,
+		content: { ...stated.content, canonical: declaredIn(stated.content.canonical, declared) }
+	})
 }

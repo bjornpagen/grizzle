@@ -80,7 +80,7 @@ import {
 } from "#compiler/runtime/write/fill.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
-import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
 import type { CheckNames, WriteWorld } from "#compiler/write/entry/precheck.ts"
 import { deltaSources, GlueBuilder, QueryMerger, substitute } from "#compiler/write/frontend/dag.ts"
@@ -338,7 +338,7 @@ export const stratumLayouts = (
 export interface KeyLaw {
 	readonly fields: NonEmptyReadonlyArray<LawField>
 	readonly law: LawId
-	readonly described: OwnLaw
+	readonly described: RecordedLaw
 }
 
 /** A relation the ChangeSet writes: its checked information, its declared keys with their laws, the primary key's first,

@@ -1,5 +1,5 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { LawIdentity, ResolvedSide } from "#compiler/analysis/theory/laws.ts"
+import type { LawIdentity, ResolvedSide, TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { LawSide, QueryRule, RuleLaw } from "#compiler/analysis/theory/query.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { GeneratedLawId } from "#compiler/core/ids.ts"
@@ -13,17 +13,24 @@ import {
 	type LawField,
 	type TableRelation
 } from "#compiler/ir/law.ts"
-import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import { recordedLaw } from "#compiler/runtime/law-entry.ts"
+import type { RecordedLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
- * The public description of a law (types/changeset Law): what an `invariant-rejected` outcome names, built from the
- * law's identity, so two laws of one schema have the same description exactly when they are one law (theory.ts
- * lawStatement states the same parts as the naming door's identity). It is frozen, shared by every outcome that names
- * the law.
- *
- * A side names its terms and its selection's conjuncts, each as its Description states it.
+ * The description of a law as grizzle's artifacts record it (types/changeset RecordedLaw): what the law states, which an
+ * `invariant-rejected` outcome names, built from the law's identity, so two laws of one schema have the same description
+ * exactly when they are one law (theory.ts lawStatement states the same parts as the naming door's identity), with the
+ * catalog entry its statements' author declares beside it, where one does (runtime/law-entry.ts recordedLaw). It is
+ * frozen, shared by every outcome that names the law, which names it with its entry (namedLaw).
  */
-export const lawDescription = (law: LawIdentity): OwnLaw => {
+export const lawDescription = (law: LawIdentity & Pick<TheoryLaw, "entry">): RecordedLaw =>
+	recordedLaw(statedLaw(law), law.entry)
+
+/**
+ * What a law states (types/changeset StatedLaw), from its identity. A side names its terms and its selection's
+ * conjuncts, each as its Description states it.
+ */
+const statedLaw = (law: LawIdentity): StatedLaw => {
 	const side = sideOf
 	const d = law.detail
 	switch (d.kind) {
@@ -96,7 +103,7 @@ export const lawDescription = (law: LawIdentity): OwnLaw => {
  * A rule over a query as an outcome names it, as the same rule over stored relations is: a containment by its sides, a
  * key by its side, a check by its relation and name, a side's relation the derived relation it reads.
  */
-const ruleDescription = (rule: QueryRule): OwnLaw => {
+const ruleDescription = (rule: QueryRule): StatedLaw => {
 	switch (rule.kind) {
 		case "contained":
 		case "key":
@@ -108,7 +115,7 @@ const ruleDescription = (rule: QueryRule): OwnLaw => {
 }
 
 /** A rule over a query's law as an outcome names it (`ruleDescription`). */
-const ruleLawDescription = (law: RuleLaw<LawSide>): OwnLaw => {
+const ruleLawDescription = (law: RuleLaw<LawSide>): StatedLaw => {
 	switch (law.kind) {
 		case "contained":
 			return Object.freeze({
@@ -127,7 +134,7 @@ const ruleLawDescription = (law: RuleLaw<LawSide>): OwnLaw => {
 const ruleSideOf = (side: LawSide): SideDesc => sideDesc(side, [...side.selection.conjuncts])
 
 /** A contract's law, wherever its domain is installed (theory.ts contractLawIdentity): its name. */
-export const contractLaw = (contract: string): OwnLaw =>
+export const contractLaw = (contract: string): StatedLaw =>
 	Object.freeze({ kind: "contract", contract })
 
 /**

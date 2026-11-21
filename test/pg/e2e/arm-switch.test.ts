@@ -6,6 +6,7 @@ import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { quoteString } from "#compiler/core/text.ts"
 import { sameLaw } from "#compiler/public/changeset.ts"
+import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import {
 	automaticArm,
 	automaticOf,
@@ -244,11 +245,11 @@ export const theWorkedExamplesArmSwitchEndToEndBothFormsOfTheSwitchAgreeWithItsM
 									}
 									assert.ok(outcome.kind === "refused", outcome.kind)
 									assert.deepEqual(refusedLaws(outcome.refused), [
-										{
+										derivedLaw({
 											kind: "primaryKey",
 											relation: "ManualTask",
 											fields: ["task"]
-										}
+										})
 									])
 									assert.deepEqual(outcome.witness, {
 										kind: "key",

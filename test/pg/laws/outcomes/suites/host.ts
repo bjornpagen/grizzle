@@ -20,6 +20,7 @@ import { Logic, Type } from "#compiler/public/compute.ts"
 import { closedId, contract, generated, pg, Uuid, Vector } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
@@ -87,23 +88,23 @@ const programs = {
 
 /** Every law a stated account can break, as an outcome names it. */
 const lawOf = {
-	positive: { kind: "check", relation: "Account", name: "Positive" },
-	withinRate: { kind: "check", relation: "Account", name: "WithinRate" },
-	distinct: { kind: "check", relation: "Account", name: "Distinct" },
-	units: { kind: "contract", contract: "Units" },
-	code: {
+	positive: derivedLaw({ kind: "check", relation: "Account", name: "Positive" }),
+	withinRate: derivedLaw({ kind: "check", relation: "Account", name: "WithinRate" }),
+	distinct: derivedLaw({ kind: "check", relation: "Account", name: "Distinct" }),
+	units: derivedLaw({ kind: "contract", contract: "Units" }),
+	code: derivedLaw({
 		kind: "pattern",
 		relation: "Account",
 		field: "code",
 		patterns: [{ source: codeSource, flags: "u" }]
-	},
-	alias: {
+	}),
+	alias: derivedLaw({
 		kind: "pattern",
 		relation: "Account",
 		field: "alias",
 		patterns: [{ source: codeSource, flags: "u" }]
-	},
-	rate: { kind: "generated", relation: "Account", field: "rate" }
+	}),
+	rate: derivedLaw({ kind: "generated", relation: "Account", field: "rate" })
 } as const satisfies Readonly<Record<string, Law>>
 type Broken = keyof typeof lawOf
 

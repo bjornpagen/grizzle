@@ -26,6 +26,7 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import type { ConstraintLawOf, DomainUse } from "#compiler/laws/model/model.ts"
+import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import {
 	closedIndexOf,
 	closedLeaf,
@@ -58,9 +59,9 @@ import {
 } from "#compiler/scalar/values/identity.ts"
 import type {
 	KeyHost,
-	OwnLaw,
 	RefusedLaw,
 	RefusingObject,
+	StatedLaw,
 	Witness
 } from "#compiler/types/changeset/changeset.ts"
 
@@ -1095,13 +1096,13 @@ const refusedLaws = (
 }
 
 /** A law a law CHECK states, with the CHECK's installed name. */
-interface StatedLaw {
+interface CheckedLaw {
 	readonly law: ConstraintLawOf
 	readonly check: ConstraintName
 }
 
 /** The laws `check` states, each with its name. */
-const statedLaws = (check: LawCheck): NonEmptyReadonlyArray<StatedLaw> =>
+const statedLaws = (check: LawCheck): NonEmptyReadonlyArray<CheckedLaw> =>
 	mapNonEmpty(check.laws, (law) => ({ law, check: check.name }))
 
 /**
@@ -1117,7 +1118,7 @@ const brokenLaws = (
 	const order = (law: LawId): number =>
 		defined(w.data.lawOrder.get(law), `the place of law ${law} in the theory's order`)
 	const [head, ...rest] = concatNonEmpty(broken.flatMap(statedLaws), statedLaws(refusing))
-	const once: NonEmptyReadonlyArray<StatedLaw> = [
+	const once: NonEmptyReadonlyArray<CheckedLaw> = [
 		head,
 		...rest.filter(
 			(l, i) => l.law.law !== head.law.law && rest.findIndex((m) => m.law.law === l.law.law) === i
@@ -1126,7 +1127,7 @@ const brokenLaws = (
 	return mapNonEmpty(
 		sortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),
 		({ law, check }) => ({
-			law: law.described,
+			law: namedLaw(law.described),
 			id: law.law,
 			by: { kind: "constraint", table: relation.ident, name: check }
 		})
@@ -1138,7 +1139,7 @@ const brokenLaws = (
  * law, and the column's structural text level, which no contract wraps, its field's pattern law. No other law is a
  * type level's.
  */
-const levelStates = (level: ScalarType, law: OwnLaw): boolean => {
+const levelStates = (level: ScalarType, law: StatedLaw): boolean => {
 	switch (law.kind) {
 		case "contract":
 			return level.contract?.name === law.contract
@@ -1236,7 +1237,10 @@ const domainRow = (
 	const by: RefusingObject = { kind: "domain", domain: refuser.domain, name: refuser.name }
 	return {
 		kind: "breaks",
-		laws: { kind: "every", laws: mapNonEmpty(once, (l) => ({ law: l.described, id: l.law, by })) }
+		laws: {
+			kind: "every",
+			laws: mapNonEmpty(once, (l) => ({ law: namedLaw(l.described), id: l.law, by }))
+		}
 	}
 }
 

@@ -358,6 +358,28 @@ export const ownValue = <E extends AnyOwnedEntry>(entry: E): E["value"] => {
 }
 
 /**
+ * A copy of an owned statement or mirrors `value`, owned as `entry`: law(...)'s value (statements.ts lawBuilder), its
+ * entry the one `value` is owned as but for its content, which holds the catalog entry its author declares. The copy
+ * holds `value`'s own members, so every reader of a statement reads it as it reads `value`, and `value` stays as it
+ * was: its entry's `value` is `value` itself, whose members are the copy's.
+ */
+export const ownedCopy = <S extends object>(
+	value: S,
+	entry: OwnedEntries["statement"] | OwnedEntries["expansion"]
+): S => {
+	const copy: S = { ...value }
+	Object.defineProperty(copy, "desc", {
+		value: entry.desc,
+		enumerable: false,
+		writable: false,
+		configurable: false
+	})
+	Object.freeze(copy)
+	owned.set(copy, entry)
+	return copy
+}
+
+/**
  * Registers a query value the builder made (query/build/query.ts defineDesc): the schema or role it is over, its
  * Description, read where it is asked for, and its heading as the builder typed it. The builder defines the value's
  * `desc` and freezes it.

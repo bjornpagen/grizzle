@@ -37,7 +37,7 @@ import type {
 	ServedSpine
 } from "#compiler/served/read.ts"
 import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
-import type { AboveLaw, Law } from "#compiler/types/changeset/changeset.ts"
+import type { AboveLaw, RecordedLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 
 /**
@@ -240,7 +240,7 @@ export type ServedLive =
 export interface ServedAbove {
 	readonly schemas: ReadonlyArray<string>
 	readonly constraints: ConstraintLaws
-	readonly laws: ReadonlyMap<LawId, AboveLaw>
+	readonly laws: ReadonlyMap<LawId, AboveLaw<RecordedLaw>>
 }
 
 /** The directory, beside snapshot.json, that holds a schema's served files. */
@@ -492,7 +492,7 @@ export interface ServedKeyLaws {
 	readonly generated: ReadonlyArray<{
 		readonly table: RelationIdent
 		readonly column: ColumnIdent
-		readonly law: Extract<Law, { readonly kind: "generated" }>
+		readonly law: Extract<StatedLaw, { readonly kind: "generated" }>
 		readonly id: GeneratedLawId
 	}>
 }

@@ -62,7 +62,7 @@ import { ownedEntry } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import type { FragmentDesc } from "#compiler/schema/schema.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
-import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * What a schema contributes to compiling its queries: the owned schema and its fingerprint, the physical names of its
@@ -109,7 +109,7 @@ export interface SchemaArtifacts<S extends ParamSource = ParamSource> {
 	/** Every law of the theory with its description (physical/install InstallPlan). */
 	readonly theoryLaws: InstallPlan["theoryLaws"]
 	/** Every law a violation can report, by its LawId, as an outcome names it (physical/install InstallPlan). */
-	readonly described: ReadonlyMap<LawId, OwnLaw>
+	readonly described: ReadonlyMap<LawId, RecordedLaw>
 }
 
 /**

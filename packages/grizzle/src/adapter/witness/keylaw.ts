@@ -1,5 +1,5 @@
 import * as Arr from "effect/Array"
-import type { AboveLaw, OwnLaw, RefusedLaw } from "#compiler/plan/change.ts"
+import type { AboveLaw, RecordedLaw, RefusedLaw } from "#compiler/plan/change.ts"
 import type {
 	Codebook,
 	ColumnIdent,
@@ -13,7 +13,7 @@ import type {
 	RosterCodec,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
-import { defect, lawsOfConstraint } from "#compiler/plan/runtime.ts"
+import { defect, derivedLaw, lawsOfConstraint, namedLaw } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
@@ -104,7 +104,7 @@ export type HostRefusal =
 			readonly kind: "key"
 			readonly relation: StoredRelationName
 			readonly law: LawId
-			readonly described: OwnLaw
+			readonly described: RecordedLaw
 	  }
 	| { readonly kind: "generated"; readonly relation: StoredRelationName; readonly field: string }
 
@@ -123,12 +123,12 @@ export type NativeLaws =
 	| { readonly kind: "domain"; readonly uses: Arr.NonEmptyReadonlyArray<DomainUse> }
 	| {
 			readonly kind: "aboveCheck"
-			readonly law: DescribedLaw<LawId, AboveLaw>
+			readonly law: DescribedLaw<LawId, AboveLaw<RecordedLaw>>
 			readonly table: RelationIdent
 	  }
 	| {
 			readonly kind: "above"
-			readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw<LawId, AboveLaw>>
+			readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw<LawId, AboveLaw<RecordedLaw>>>
 	  }
 
 /**
@@ -151,7 +151,7 @@ export interface RosterDomain {
 export interface LawsAbove {
 	readonly schemas: ReadonlyArray<string>
 	readonly constraints: ConstraintLaws
-	readonly laws: ReadonlyMap<LawId, AboveLaw>
+	readonly laws: ReadonlyMap<LawId, AboveLaw<RecordedLaw>>
 }
 
 /**
@@ -173,7 +173,7 @@ export const lawsAbove = (
 	constraints: snapshot.constraintToLaw,
 	laws: new Map(
 		Arr.flatMap(snapshot.above, (level) =>
-			Arr.map(level.laws, ({ law, described }): readonly [LawId, AboveLaw] => [
+			Arr.map(level.laws, ({ law, described }): readonly [LawId, AboveLaw<RecordedLaw>] => [
 				law,
 				{ kind: "above", level: level.name, law: described }
 			])
@@ -239,7 +239,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 	const generated = new Map<RelationIdent, Map<ColumnIdent, RefusedLaw>>()
 	const generatedFields = new Map<string, Map<string, RefusedLaw>>()
 	for (const { table, column, law, id } of data.generated) {
-		const refused: RefusedLaw = { law, id, by: { kind: "notNull", table, column } }
+		const refused: RefusedLaw = { law: derivedLaw(law), id, by: { kind: "notNull", table, column } }
 		ownedBy(generated, table).set(column, refused)
 		ownedBy(generatedFields, law.relation).set(law.field, refused)
 	}
@@ -256,10 +256,13 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		owner: ConstraintOwner,
 		ids: Arr.NonEmptyReadonlyArray<LawId>
 	): NativeLaws | undefined => {
-		const laws = Arr.flatMap(ids, (id): ReadonlyArray<DescribedLaw<LawId, AboveLaw>> => {
-			const described = above.laws.get(id)
-			return described === undefined ? [] : [{ law: id, described }]
-		})
+		const laws = Arr.flatMap(
+			ids,
+			(id): ReadonlyArray<DescribedLaw<LawId, AboveLaw<RecordedLaw>>> => {
+				const described = above.laws.get(id)
+				return described === undefined ? [] : [{ law: id, described }]
+			}
+		)
 		if (!Arr.isReadonlyArrayNonEmpty(laws)) {
 			return undefined
 		}
@@ -289,7 +292,11 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 						`the installation installs a constraint of ${table} for its key law ${refusal.law}`
 					)
 				}
-				return { law: refusal.described, id: refusal.law, by: { kind: "constraint", table, name } }
+				return {
+					law: namedLaw(refusal.described),
+					id: refusal.law,
+					by: { kind: "constraint", table, name }
+				}
 			}
 			case "generated": {
 				const refused = generatedFields.get(refusal.relation)?.get(refusal.field)

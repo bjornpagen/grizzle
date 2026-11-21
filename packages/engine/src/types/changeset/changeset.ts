@@ -2146,7 +2146,8 @@ export type RefusingObject =
 	| { readonly kind: "notNull"; readonly table: string; readonly column: string }
 
 /**
- * A law as the schema states it, which an `invariant-rejected` outcome names: an application matches on it directly.
+ * What a law states, as the schema states it: its identity, which an application matches on directly, and which OwnLaw
+ * names with its catalog entry (LawEntry).
  *
  * - `primaryKey`: a relation's primary key, by its fields (a span field makes it a nonoverlap key);
  * - `key`: a key statement, key(side), by its side: a candidate key of the relation when the side reads every fact
@@ -2172,10 +2173,9 @@ export type RefusingObject =
  * - `generated`: a generated field, by its relation and field: its term has a value at every row, which a closed read
  *   `C.at` at a key its closed relation holds no row at does not, so PostgreSQL refuses the row by the column's NOT NULL.
  *
- * Every law of a schema S is one of `lawsOf(S)`. A Db over S names these as its own; a law of a level above S, it names
- * as an AboveLaw.
+ * Two laws of one schema state the same exactly when they are one law.
  */
-export type OwnLaw =
+export type StatedLaw =
 	| {
 			readonly kind: "primaryKey"
 			readonly relation: string
@@ -2214,14 +2214,52 @@ export type OwnLaw =
 	| { readonly kind: "generated"; readonly relation: string; readonly field: string }
 
 /**
- * A law of `level`, a level above the schema a Db is over, as that level states it (`law`): a Db over a lower level holds
- * none of the code of the levels above it, so a refusal by one of their laws, a row check over one of its relations, a
- * foreign key into its relations or a rule over a query reading them, names the level that states it.
+ * A law's catalog entry: the name an application calls the law by and the source its statement comes from, a required
+ * part of every law, outside its identity: its LawId, the schema's fingerprint and the installation read none of it, so
+ * an entry changed is no migration, only the artifacts that record it written again.
+ *
+ * - `declared`: the schema's author states it at the law's statement, `law({ name, source }, statement)`, each text as
+ *   written: a catalog's name for the law, say, and the specification section it reads;
+ * - `derived`: the schema's author states none, and grizzle derives both from the law's declaration as its statement
+ *   states it (runtime/law-entry.ts derivedEntry): `name` the law as grizzle names it, a check and a contract by their
+ *   own names, and `source` the statement that states it, as grizzle spells it.
  */
-export interface AboveLaw {
+export interface LawEntry {
+	readonly kind: "declared" | "derived"
+	readonly name: string
+	readonly source: string
+}
+
+/** A catalog entry the schema's author declares (LawEntry `declared`). */
+export type DeclaredEntry = LawEntry & { readonly kind: "declared" }
+
+/**
+ * A law as the schema states it and names it, which an `invariant-rejected` outcome names: what it states (StatedLaw),
+ * which an application matches on directly, and its catalog entry (`entry`), the same arm shape for every kind.
+ *
+ * Every law of a schema S is one of `lawsOf(S)`, with the same entry. A Db over S names these as its own; a law of a
+ * level above S, it names as an AboveLaw.
+ */
+export type OwnLaw = StatedLaw & { readonly entry: LawEntry }
+
+/**
+ * A law as grizzle's artifacts record it, snapshot.json's level laws and a served file's key laws: what it states, with
+ * its entry only where its schema's author declares one. A derived entry is derived again wherever the law
+ * is read (runtime/law-entry.ts namedLaw) and never written, so a schema whose author declares none records its laws
+ * exactly as they state themselves.
+ */
+export type RecordedLaw = StatedLaw | (StatedLaw & { readonly entry: DeclaredEntry })
+
+/**
+ * A law of `level`, a level above the schema a Db is over, as that level states and names it (`law`): a Db over a lower
+ * level holds none of the code of the levels above it, so a refusal by one of their laws, a row check over one of its
+ * relations, a foreign key into its relations or a rule over a query reading them, names the level that states it. A
+ * served file records it with the law as recorded (`L` RecordedLaw), and an outcome names it with its entry.
+ */
+export interface AboveLaw<L extends RecordedLaw = OwnLaw> {
 	readonly kind: "above"
 	readonly level: string
-	readonly law: OwnLaw
+	readonly law: L
 }
 
 /** A law an outcome names: one of the Db's own levels' (OwnLaw), or one of a level above them (AboveLaw). */

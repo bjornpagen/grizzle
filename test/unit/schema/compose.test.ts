@@ -352,9 +352,9 @@ export const composingRelationsIntoASchemaRefusesTwoDeclarationsOfOneNameDifferi
 				{
 					file: "packages/engine/src/schema/own.ts",
 					original:
-						"\t\tconst seen = new Set<string>()\n\t\tfor (const [level, statements] of this.#written.entries()) {",
+						"\t\tconst at = new Map<string, number>()\n\t\tfor (const [level, statements] of this.#written.entries()) {",
 					replacement:
-						"\t\tfor (const [level, statements] of this.#written.entries()) {\n\t\t\tconst seen = new Set<string>()",
+						"\t\tfor (const [level, statements] of this.#written.entries()) {\n\t\t\tconst at = new Map<string, number>()",
 					why: "A statement held at every level that states it."
 				}
 			]

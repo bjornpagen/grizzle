@@ -14,6 +14,7 @@ import type {
 	HostJudgement,
 	KeyDecoder,
 	LawDetail,
+	RecordedLaw,
 	Refused,
 	RefusedLaw,
 	RefusedLaws,
@@ -33,6 +34,8 @@ import type {
 import {
 	defect,
 	jsonText,
+	namedAbove,
+	namedLaw,
 	readChangeDetail,
 	readLawDetail,
 	sqlstateClass,
@@ -220,7 +223,7 @@ const refusalRejection = (
 				kind: "rejected",
 				refused: {
 					kind: "every",
-					laws: [{ law: law.described, id: law.law, by: byStatement }]
+					laws: [{ law: namedLaw(law.described), id: law.law, by: byStatement }]
 				},
 				witness
 			}
@@ -260,7 +263,7 @@ const nativeLaws = (
 	written: ReadonlySet<RelationIdent>,
 	by: RefusingObject
 ): Arr.NonEmptyReadonlyArray<RefusedLaw> => {
-	const refused = (l: DescribedLaw): RefusedLaw => ({ law: l.described, id: l.law, by })
+	const refused = (l: DescribedLaw): RefusedLaw => ({ law: namedLaw(l.described), id: l.law, by })
 	switch (native.kind) {
 		case "object":
 			return Arr.map(native.laws, refused)
@@ -304,8 +307,11 @@ const refusedBy = (laws: RefusedLaws, broken: Arr.NonEmptyReadonlyArray<RefusedL
 }
 
 /** The law of a level above PostgreSQL named, refused by the object `by` that reported it. */
-const aboveRefused = (law: DescribedLaw<LawId, AboveLaw>, by: RefusingObject): AboveRefusedLaw => ({
-	law: law.described,
+const aboveRefused = (
+	law: DescribedLaw<LawId, AboveLaw<RecordedLaw>>,
+	by: RefusingObject
+): AboveRefusedLaw => ({
+	law: namedAbove(law.described),
 	id: law.law,
 	by
 })

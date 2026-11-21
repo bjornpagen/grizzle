@@ -42,6 +42,7 @@ export {
 	fn,
 	fragment,
 	key,
+	law,
 	Monoid,
 	mirrors,
 	mutable,

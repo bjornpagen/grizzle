@@ -6,6 +6,7 @@ import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type {
 	Law,
+	RecordedLaw,
 	RefusedLaw,
 	Witness as GrizzleWitness
 } from "#compiler/types/changeset/changeset.ts"
@@ -186,7 +187,7 @@ interface RefusingTable {
  * Installation.constraintLaws), which a refusing object is read back by.
  */
 export interface RefusalReader {
-	readonly described: ReadonlyMap<LawId, Law>
+	readonly described: ReadonlyMap<LawId, RecordedLaw>
 	readonly tables: ReadonlyMap<string, RefusingTable>
 }
 

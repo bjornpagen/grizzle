@@ -39,12 +39,14 @@ export type {
 	InsertAllRowsOf,
 	KeyHost,
 	Law,
+	LawEntry,
 	LawSide,
 	Member,
 	OwnLaw,
 	Refused,
 	RefusedLaw,
 	RefusingObject,
+	StatedLaw,
 	Witness,
 	WritableOf
 } from "#compiler/types/changeset/changeset.ts"

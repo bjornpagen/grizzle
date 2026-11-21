@@ -70,6 +70,7 @@ import {
 	lawsByStatement,
 	lawsOf
 } from "#compiler/public/schema.ts"
+import { derivedEntry, derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
@@ -231,11 +232,13 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					),
 					Order.mapInput(Order.String, (r: AnyRelation) => r.name)
 				)
-				const primaryKeys = Arr.map(relations, (r): OwnLaw => ({
-					kind: "primaryKey",
-					relation: r.name,
-					fields: r.primaryKey
-				}))
+				const primaryKeys = Arr.map(relations, (r): OwnLaw =>
+					derivedLaw({
+						kind: "primaryKey",
+						relation: r.name,
+						fields: r.primaryKey
+					})
+				)
 				const domainAt = (relation: string, field: string) =>
 					Arr.findFirst(names.installation.textDomains, (d) =>
 						Arr.some(
@@ -250,17 +253,17 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					relation: string,
 					field: string,
 					pattern: Spelled
-				): ReadonlyArray<PatternLaw> =>
-					Option.isSome(domainAt(relation, field))
-						? [
-								{
-									kind: "pattern",
-									relation,
-									field,
-									patterns: [{ source: pattern.source, flags: pattern.flags }]
-								}
-							]
+				): ReadonlyArray<PatternLaw> => {
+					const stated = {
+						kind: "pattern",
+						relation,
+						field,
+						patterns: [{ source: pattern.source, flags: pattern.flags }]
+					} as const
+					return Option.isSome(domainAt(relation, field))
+						? [{ ...stated, entry: derivedEntry(stated) }]
 						: []
+				}
 				const coreAt = (name: string) =>
 					Arr.findFirstIndex(c.core.fill.relations, (_, i) => relationName(i) === name)
 				const patterns = Arr.flatMap(relations, (r) =>
@@ -283,16 +286,14 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 					const core = Arr.findFirst(c.core.fill.relations, (_, i) => relationName(i) === r.name)
 					return Option.isSome(core)
 						? core.value.generated.kind !== "none"
-							? [{ kind: "generated", relation: r.name, field: "g" }]
+							? [derivedLaw({ kind: "generated", relation: r.name, field: "g" })]
 							: []
 						: Option.match(tableAt(r.name), {
 								onNone: () => [],
 								onSome: (t) =>
-									Arr.map(t.generated, ([field]): OwnLaw => ({
-										kind: "generated",
-										relation: r.name,
-										field
-									}))
+									Arr.map(t.generated, ([field]): OwnLaw =>
+										derivedLaw({ kind: "generated", relation: r.name, field })
+									)
 							})
 				})
 				const middle = Arr.drop(
@@ -307,10 +308,9 @@ export const lawsOfListsExactlyTheLawsTheInstallationCanReportEachOnceInTheSchem
 				const contracts = Arr.flatMap(middle, (l) => (l.kind === "contract" ? [l.contract] : []))
 				assert.deepEqual(
 					Arr.drop(middle, middle.length - contracts.length),
-					Arr.map(Arr.sort(contracts, Order.String), (contract): OwnLaw => ({
-						kind: "contract",
-						contract
-					})),
+					Arr.map(Arr.sort(contracts, Order.String), (contract): OwnLaw =>
+						derivedLaw({ kind: "contract", contract })
+					),
 					"every contract's law follows every statement's, by contract name"
 				)
 				const twin = subjectOf(c, (items) => reordered(items, c.reorder))

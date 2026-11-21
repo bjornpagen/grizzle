@@ -38,7 +38,7 @@ import {
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
-import { type CompileError, ruleRefused } from "#compiler/core/errors.ts"
+import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
 import {
 	type Identity,
 	identifierOf,
@@ -80,6 +80,7 @@ import type { CheckedTheory } from "#compiler/ir/products.ts"
 import type { HeadingColumn, KeySet, RelNode, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, type ContractInfo, Roster, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
+import { derivedStatement, mergedEntry, type StatedEntry } from "#compiler/runtime/law-entry.ts"
 import { contractPredicateTable } from "#compiler/scalar/compute/total.ts"
 import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import {
@@ -620,7 +621,14 @@ class Builder {
 			)
 		)
 		const write = (k: KeptLaw): TheoryLaw => {
-			const law = { id: identifierOf(k.named), named: k.named, ...k.identity, loc: k.loc }
+			const stated = k.identity
+			const law = {
+				id: identifierOf(k.named),
+				named: k.named,
+				...stated,
+				loc: k.loc,
+				entry: this.#entryOf(stated.statements, k)
+			}
 			const writing = k.draft.write
 			switch (writing.kind) {
 				case "built":
@@ -643,6 +651,32 @@ class Builder {
 			dag: new LabelSupply(built).dag(built.roots),
 			families: resolved.families
 		}
+	}
+
+	/**
+	 * The catalog entry of the law `k` its statements state (`statements`, indices into the owned schema's): the one their
+	 * author declares, merged over them (runtime/law-entry.ts mergedEntry), or none, so the law's is derived. Two
+	 * statements of one law whose authors declare two entries are refused (MalformedDescription), since one law has one
+	 * name.
+	 */
+	#entryOf(statements: ReadonlyArray<number>, k: KeptLaw): StatedEntry {
+		let entry: StatedEntry = derivedStatement
+		for (const s of statements) {
+			const merged = mergedEntry(
+				entry,
+				defined(this.owned.statementEntries[s], "a law's statement is a statement of its schema")
+			)
+			if (merged === undefined) {
+				throw new Refusal(
+					malformedDescription(
+						k.loc,
+						`two catalog entries for the law ${k.named.display}, which statements of the schema state: one law has one entry`
+					)
+				)
+			}
+			entry = merged
+		}
+		return entry
 	}
 
 	/**

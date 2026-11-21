@@ -48,6 +48,7 @@ import { codeOf } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { generatedLaw } from "#compiler/plan/change.ts"
+import { namedGenerated } from "#compiler/runtime/law-entry.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import {
@@ -127,10 +128,12 @@ export const dependentKeysOnPostgreSQLEveryReaderReadsEachKeysOwnCellAndASlotCod
 							lawNames.described(lawNames.lawOf(built.laws.projected))
 						)
 						const atRefused = rejected(
-							generatedLaw(
-								defined(compiled.checked.relations.get("AtProbe"), "AtProbe, the probe relation")
-									.name,
-								"w"
+							namedGenerated(
+								generatedLaw(
+									defined(compiled.checked.relations.get("AtProbe"), "AtProbe, the probe relation")
+										.name,
+									"w"
+								)
 							)
 						)
 						const block = blockOf(c.shape)

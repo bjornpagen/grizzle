@@ -4800,8 +4800,21 @@ the `eq` with it) and canonical order; a side that reads every row has none.
 
 </details>
 
+Every rule carries its catalog entry, `entry: { kind, name, source }`, the same shape whatever its kind and no part of
+what it is: `sameLaw` reads it, but its identity, the schema's fingerprint and the installation do not, so a changed entry
+drafts no migration and only rewrites the snapshot's record and the served files. Declare one at a statement with
+`law({ name, source }, statement)`, any two nonempty texts (a catalog's name for the rule and the specification section it
+reads, say): every rule the statement states carries it as `{ kind: "declared", name, source }`, in `lawsOf`, in
+`lawsByStatement` and in every refusal that names it, a refusal by a rule of a level above included. A rule none of whose
+statements declares one carries `{ kind: "derived", name, source }`: a check and a contract by their own names, any other
+rule by its shape as grizzle names it (`key Grant(id)`, `Grant(owner) in Owner(id)`), and its source the statement that
+states it, as grizzle spells it. A primary key's, a pattern's and a generated field's rule are always derived. One rule
+takes one entry: two statements of it, or two copies of one statement, that declare two entries are refused as
+`MalformedDescription`, and so is `law(...)` of a `mutable` or `race`, which states no rule, or of a statement already
+given one.
+
 `lawsOf(schema)` lists every rule the schema states, each once, as `{ law, id }`: `law` exactly as an outcome names
-it, so every rule an outcome over the schema names is one of them, and `id` the one a refusal names it by, a refused
+it, its entry included, so every rule an outcome over the schema names is one of them, and `id` the one a refusal names it by, a refused
 law's own. Name the rules you handle by their ids once, then read a refusal's `laws` by `id`, with no search and no
 table of ids of your own. In order, however you declared the schema: each table's primary key, by table
 name; the rules of the schema's statements in canonical order, one for a key, check, containment, family, tree or fold,

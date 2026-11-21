@@ -14,6 +14,7 @@ import { generatedLaw } from "#compiler/plan/change.ts"
 import { bits, closedId, generated, natural, slot } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { closed, contained, fin, on, relation, schema } from "#compiler/public/schema.ts"
+import { namedGenerated, namedLaw } from "#compiler/runtime/law-entry.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import {
@@ -495,7 +496,9 @@ const reportedLaws = (
 			stored.fields,
 			(f) => f.writing.kind === "generated" && Option.contains(fields.column, f.column)
 		)
-		return Option.toArray(Option.map(generatedField, (f) => generatedLaw(stored.name, f.name)))
+		return Option.toArray(
+			Option.map(generatedField, (f) => namedGenerated(generatedLaw(stored.name, f.name)))
+		)
 	}
 	const ids =
 		fields.code === sqlstates.checkViolation && fields.constraint !== undefined
@@ -506,7 +509,7 @@ const reportedLaws = (
 				) ?? [])
 			: []
 	return Arr.flatMap(ids, (id) =>
-		Option.toArray(Option.fromUndefinedOr(installation.described.get(id)))
+		Option.toArray(Option.map(Option.fromUndefinedOr(installation.described.get(id)), namedLaw))
 	)
 }
 

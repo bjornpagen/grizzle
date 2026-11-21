@@ -35,6 +35,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
+import { derivedEntry } from "#compiler/runtime/law-entry.ts"
 import type { Predicate } from "#compiler/types/core/phantom.ts"
 import type { RowScalars } from "#compiler/types/schema/statements.ts"
 import { levelNameAt } from "#test/support/compile.ts"
@@ -198,11 +199,10 @@ const statementsOf = (checks: ReadonlyArray<Stated>): Array<Statement> =>
 	Arr.map(checks, (c) => check(c.name, Attribute, (a) => build(c.pred, a)))
 
 /** A check of Attribute as an outcome names it. */
-export const checkLaw = (name: string): Extract<Law, { readonly kind: "check" }> => ({
-	kind: "check",
-	relation: "Attribute",
-	name
-})
+export const checkLaw = (name: string): Extract<Law, { readonly kind: "check" }> => {
+	const stated = { kind: "check", relation: "Attribute", name } as const
+	return { ...stated, entry: derivedEntry(stated) }
+}
 
 /**
  * The two levels under `name`, the upper one under its allocated name (levelNameAt): Base with Attribute and its own

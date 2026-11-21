@@ -21,7 +21,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { factIdentity } from "#compiler/scalar/values/identity.ts"
-import type { Law, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
+import type { Law, RecordedLaw, Refused, RefusedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { AmbientSession } from "#test/support/ambient.ts"
 import { paramsOver } from "#test/support/compile.ts"
@@ -475,7 +475,7 @@ const readsOf = (reads: unknown): Readonly<Record<string, ReadonlyArray<Fact>>> 
  * A refusal's laws read by their LawIds, each the installation's law of that identity (reportedLawId), how grizzle
  * decided them kept.
  */
-const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): RefusedIds => {
+const refusedIdsOf = (described: ReadonlyMap<LawId, RecordedLaw>, refused: Refused): RefusedIds => {
 	const id = (r: RefusedLaw<Law>): LawId => reportedLawId(described, r)
 	switch (refused.kind) {
 		case "every":
@@ -501,7 +501,10 @@ const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): Ref
  * The apply outcome as plain values: the runtime's, its laws read back to its LawId through the installation's
  * described laws, its read-back rows checked as records.
  */
-const outcomeOf = (described: ReadonlyMap<LawId, Law>, o: ApplyOutcome<unknown>): WriteOutcome => {
+const outcomeOf = (
+	described: ReadonlyMap<LawId, RecordedLaw>,
+	o: ApplyOutcome<unknown>
+): WriteOutcome => {
 	switch (o.kind) {
 		case "invariant-rejected":
 			return {

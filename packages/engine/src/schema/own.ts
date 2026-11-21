@@ -1,4 +1,4 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	lastNonEmpty,
@@ -89,6 +89,7 @@ import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
+import { derivedStatement, mergedEntry, type StatedEntry } from "#compiler/runtime/law-entry.ts"
 import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
@@ -294,6 +295,11 @@ export interface Owned extends OwnedSchema {
 	 * states it and so every law it states (deploy/snapshot/build.ts levelsOf).
 	 */
 	readonly statementLevels: ReadonlyArray<number>
+	/**
+	 * Each statement's catalog entry, by its index in `statements`: the entry its author declares for the laws it states
+	 * (law(...)), or none, so each law's is derived (runtime/law-entry.ts StatedEntry).
+	 */
+	readonly statementEntries: ReadonlyArray<StatedEntry>
 	readonly contracts: Readonly<Record<string, OwnedContract>>
 	/** Every function a level declares, by its declared name (schema/function-own.ts). */
 	readonly functions: Readonly<Record<string, OwnedFunction>>
@@ -727,6 +733,8 @@ interface StatementEntry {
 	readonly text: string
 	/** The statement's identity digest (ir/desc.ts descIdentities): its place in a level's canonical order. */
 	readonly identity: IdentityDigest
+	/** The catalog entry its author declares for its laws, each written copy's merged (mergedEntry), or none. */
+	readonly entry: StatedEntry
 }
 
 /** The entries of a map in name order, as `[...map.keys()].sort()` orders the names. */
@@ -1004,7 +1012,8 @@ const canonicalizer = (): Canonicalizer => {
 
 	return Object.freeze({
 		selection: (s: SelectionDesc) => selection(s).form,
-		statement: (s: StatementDesc) => Object.freeze(canonicalStatement(s))
+		statement: (s: StatementDesc) =>
+			Object.freeze({ ...canonicalStatement(s), entry: derivedStatement })
 	})
 }
 
@@ -1016,14 +1025,18 @@ export const canonicalSelection = everyRule.selection
 
 /**
  * A statement in canonical form and that form's canonical text: equal statements, however written, have one, and a
- * schema keeps one statement of each (Owner's collectStatements, schema/levels.ts levelContent).
+ * schema keeps one statement of each (Owner's collectStatements, schema/levels.ts levelContent). Beside them, outside
+ * both and so outside the statement's identity, the catalog entry its author declares for the laws it states
+ * (law(...), statements.ts lawBuilder), or none, so each law's is derived (runtime/law-entry.ts StatedEntry).
  */
 export interface CanonicalStatement {
 	readonly form: StatementDesc
 	readonly text: string
+	readonly entry: StatedEntry
 }
 
-/** A statement's canonical form and text (CanonicalStatement), read once where the statement is built or enters. */
+/** A statement's canonical form and text (CanonicalStatement), read once where the statement is built or enters, with
+ * no entry declared. */
 export const canonicalStatementOf = everyRule.statement
 
 /** The row's fields an expression references, added to `out`; a variable, value, parameter or literal holds none. */
@@ -1278,7 +1291,7 @@ class Owner {
 		const statements = this.#statements.map((s) => {
 			const statement = this.#checkStatement(s)
 			this.#checkLevels(s)
-			return { text: s.text, identity: s.identity, level: s.level, statement }
+			return { text: s.text, identity: s.identity, level: s.level, entry: s.entry, statement }
 		})
 		this.#checkRaces(statements.map((s) => s.statement))
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
@@ -1304,6 +1317,7 @@ class Owner {
 			statements: ordered.map((s) => s.statement),
 			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
 			statementLevels: ordered.map((s) => s.level),
+			statementEntries: ordered.map((s) => s.entry),
 			contracts,
 			functions,
 			fieldIds
@@ -1627,20 +1641,37 @@ class Owner {
 		)
 	}
 
-	/** Each statement a level writes, in its canonical form, kept once however many levels state it. */
+	/**
+	 * Each statement a level writes, in its canonical form, kept once however many levels or lists write it, at the
+	 * lowest level that does, with the catalog entry any copy's author declares: two copies whose authors declare two
+	 * entries are refused (MalformedDescription), since one statement's laws have one name.
+	 */
 	#collectStatements(): void {
-		const seen = new Set<string>()
+		const at = new Map<string, number>()
 		for (const [level, statements] of this.#written.entries()) {
-			for (const { form, text } of statements) {
-				if (!seen.has(text)) {
-					seen.add(text)
+			for (const { form, text, entry } of statements) {
+				const known = at.get(text)
+				if (known === undefined) {
+					at.set(text, this.#statements.length)
 					this.#statements.push({
 						desc: form,
 						level,
 						text,
-						identity: unwrap(this.#identities.of(form))
+						identity: unwrap(this.#identities.of(form)),
+						entry
 					})
+					continue
 				}
+				const first = defined(this.#statements[known], "a statement kept is at its index")
+				const merged = mergedEntry(first.entry, entry)
+				if (merged === undefined) {
+					fail(
+						"MalformedDescription",
+						form.loc,
+						`${statementLabel(form)} written twice, with two catalog entries: one statement's laws have one entry`
+					)
+				}
+				this.#statements[known] = { ...first, entry: merged }
 			}
 		}
 	}

@@ -43,6 +43,7 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { type CompiledSchema, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { namedGenerated, namedLaw } from "#compiler/runtime/law-entry.ts"
 import { bindRows, type HostBinding, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -323,7 +324,7 @@ export const previewThrough = (
 	const members = insertAllSlots(insertableNamesOf(schema))
 	const every: EveryMember = { members, relations: new Set(members.map((m) => m.relation)) }
 	const names: ReadonlyArray<string> = writableNamesOf(schema)
-	/** A counted family's law as lawsOf lists it (analysis/theory/description.ts lawDescription). */
+	/** A counted family's law as lawsOf lists it (analysis/theory/description.ts lawDescription), with its entry. */
 	const ownerAbsent = (
 		family: CountedFamily
 	): Extract<PreviewRefusal, { readonly _tag: "OwnerAbsent" }> => {
@@ -336,7 +337,7 @@ export const previewThrough = (
 			),
 			`the law of the counted family ${family.owner}.${family.count}`
 		)
-		const described = lawDescription(law)
+		const described = namedLaw(lawDescription(law))
 		if (described.kind !== "family") {
 			throw defect(`the law of the counted family ${family.owner}.${family.count}, a family's`)
 		}
@@ -366,11 +367,15 @@ export const previewThrough = (
 		const write = bound.value
 		switch (write.kind) {
 			case "invariant-rejected":
-				return Result.err({ _tag: "KeyConflict", law: write.described, witness: write.witness })
+				return Result.err({
+					_tag: "KeyConflict",
+					law: namedLaw(write.described),
+					witness: write.witness
+				})
 			case "generated-rejected":
 				return Result.err({
 					_tag: "GeneratedNull",
-					law: write.rejection.law,
+					law: namedGenerated(write.rejection.law),
 					witness: write.rejection.witness
 				})
 			case "bound":

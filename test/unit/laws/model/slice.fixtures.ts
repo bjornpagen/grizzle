@@ -34,6 +34,7 @@ import { namedRole, selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
 import { roleArtifacts, type SchemaArtifacts, type SchemaInput } from "#compiler/program/schema.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
+import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import { fullRoleDesc, type OwnedLogin, type OwnedRole, ownLogin } from "#compiler/schema/own.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
@@ -952,7 +953,7 @@ export const heldOver = (
 	writes: ReadonlySet<string>
 ): ReadonlyArray<{ readonly whole: NamedNative; readonly held: NamedNative }> => {
 	const laws = new Map<LawId, OwnLaw>(
-		Arr.map(whole.theoryLaws, (l) => [l.law, l.described] as const)
+		Arr.map(whole.theoryLaws, (l) => [l.law, namedLaw(l.described)] as const)
 	)
 	const described = (law: LawId): OwnLaw => defined(laws.get(law), `${law} is described`)
 	const keyLaws = keyLawsOf(whole.laws)

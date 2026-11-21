@@ -31,6 +31,7 @@ import {
 	schema,
 	type Statement
 } from "#compiler/public/schema.ts"
+import { namedAbove, namedLaw } from "#compiler/runtime/law-entry.ts"
 import {
 	generatedField,
 	generatedRelation,
@@ -643,7 +644,9 @@ export const reportsCheckAs = (
 		kind: "table",
 		name: installation.names.relation(law.relation).name
 	})
-	return found?.kind === "object" && Arr.some(found.laws, (l) => sameLaw(l.described, law))
+	return (
+		found?.kind === "object" && Arr.some(found.laws, (l) => sameLaw(namedLaw(l.described), law))
+	)
 }
 
 /**
@@ -664,13 +667,13 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 		}
 		switch (found.kind) {
 			case "object":
-				return Arr.map(found.laws, (l) => ({ law: l.described, id: l.law }))
+				return Arr.map(found.laws, (l) => ({ law: namedLaw(l.described), id: l.law }))
 			case "domain":
-				return Arr.map(found.uses, (u) => ({ law: u.law.described, id: u.law.law }))
+				return Arr.map(found.uses, (u) => ({ law: namedLaw(u.law.described), id: u.law.law }))
 			case "aboveCheck":
-				return [{ law: found.law.described, id: found.law.law }]
+				return [{ law: namedAbove(found.law.described), id: found.law.law }]
 			case "above":
-				return Arr.map(found.laws, (l) => ({ law: l.described, id: l.law }))
+				return Arr.map(found.laws, (l) => ({ law: namedAbove(l.described), id: l.law }))
 		}
 	}
 	const ofTable = (table: ObjectName, constraint: string): ReadonlyArray<IdentifiedLaw> =>
@@ -795,7 +798,7 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 	})
 	return [
 		...created,
-		...Arr.map([...map.raised.values()], (l) => ({ law: l.described, id: l.law }))
+		...Arr.map([...map.raised.values()], (l) => ({ law: namedLaw(l.described), id: l.law }))
 	]
 }
 
@@ -827,9 +830,11 @@ export const statedBy = (
 			Arr.map(
 				Arr.filter(theory.laws, (law) => Arr.some(law.statements, (i) => indices.includes(i))),
 				(law) =>
-					defined(
-						installation.described.get(law.id),
-						`the installation describes the law ${law.id}`
+					namedLaw(
+						defined(
+							installation.described.get(law.id),
+							`the installation describes the law ${law.id}`
+						)
 					)
 			)
 		)

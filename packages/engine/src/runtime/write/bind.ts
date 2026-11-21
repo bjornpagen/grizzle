@@ -112,7 +112,7 @@ import {
 } from "#compiler/runtime/write/witness.ts"
 import { hostOfLiteral } from "#compiler/scalar/compute/literal.ts"
 import { admitted, compareValues } from "#compiler/scalar/values/identity.ts"
-import type { OwnLaw, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { RecordedLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import type { SingleAct } from "#compiler/write/frontend/compile.ts"
 import type { Proposal } from "#compiler/write/insert/statement.ts"
 
@@ -269,7 +269,7 @@ type Rejected =
 			readonly kind: "invariant-rejected"
 			readonly relation: StoredRelationName
 			readonly law: LawId
-			readonly described: OwnLaw
+			readonly described: RecordedLaw
 			readonly witness: Witness
 	  }
 	| { readonly kind: "generated-rejected"; readonly rejection: GeneratedRejection }

@@ -31,6 +31,7 @@ import {
 	type MessageBound
 } from "#compiler/plan/common.ts"
 import { CompileError, EncodingFailure, Sqlstate } from "#compiler/public/errors.ts"
+import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import * as Public from "#index.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 
@@ -289,14 +290,14 @@ const countGen: Gen<bigint> = oneOf([constant(0n), bigint(1n, 3n), bigint(1n << 
 const lawGen: Gen<Public.OwnLaw> = oneOf<Public.OwnLaw>([
 	map(
 		(source) => ({ relation: source.draw(nameGen), name: source.draw(nameGen) }),
-		(l): Public.OwnLaw => ({ kind: "check", relation: l.relation, name: l.name })
+		(l): Public.OwnLaw => derivedLaw({ kind: "check", relation: l.relation, name: l.name })
 	),
 	map(
 		(source) => ({
 			relation: source.draw(nameGen),
 			fields: source.draw(array(nameGen, { min: 1, max: 2 }))
 		}),
-		(l): Public.OwnLaw => ({ kind: "primaryKey", relation: l.relation, fields: l.fields })
+		(l): Public.OwnLaw => derivedLaw({ kind: "primaryKey", relation: l.relation, fields: l.fields })
 	)
 ])
 

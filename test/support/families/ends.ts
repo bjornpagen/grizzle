@@ -34,6 +34,7 @@ import type { Law } from "#compiler/public/changeset.ts"
 import { bits, closedId, natural, pg } from "#compiler/public/fields.ts"
 import { schema, type Statement } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { describeFieldOrThrow } from "#compiler/scalar/registry.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -150,12 +151,13 @@ const ruleSpelling: Readonly<
 }
 
 /** A field's law under a refined cell's rule, as an outcome names it: the field's own pattern law. */
-const ruleLaw = (rule: CellRule, relation: string, field: string): Law => ({
-	kind: "pattern",
-	relation,
-	field,
-	patterns: [ruleSpelling[rule]]
-})
+const ruleLaw = (rule: CellRule, relation: string, field: string): Law =>
+	derivedLaw({
+		kind: "pattern",
+		relation,
+		field,
+		patterns: [ruleSpelling[rule]]
+	})
 
 /** The most bytes a refined cell's piece holds. */
 const pieceBytes = 3

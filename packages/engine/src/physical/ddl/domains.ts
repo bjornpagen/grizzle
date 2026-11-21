@@ -65,7 +65,7 @@ import {
 import { and } from "#compiler/sql/build.ts"
 import { Transform } from "#compiler/sql/transform.ts"
 import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
-import type { Law } from "#compiler/types/changeset/changeset.ts"
+import type { StatedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /** The regex of a column that a structural text domain types: refined text outside any contract. */
 export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
@@ -166,7 +166,7 @@ export interface FieldPatternLaw {
 	readonly relation: TableRelation
 	readonly field: LawField
 	readonly regex: RegexRef
-	readonly law: Extract<Law, { readonly kind: "pattern" }>
+	readonly law: Extract<StatedLaw, { readonly kind: "pattern" }>
 }
 
 /**

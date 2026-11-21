@@ -30,6 +30,7 @@ import {
 	schema,
 	select
 } from "#compiler/public/schema.ts"
+import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import type { ColumnDefinition, PlStatement } from "#compiler/sql/ast.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { seatOfInstalled } from "#test/pg/fin/installed.ts"
@@ -1596,7 +1597,7 @@ export const judgedIn = (taken: SubstrateCase<Installed>, label: string) =>
 				) ?? []
 			return Arr.flatMap(laws, (law) => {
 				const described = installation.described.get(law)
-				const rule = described === undefined ? undefined : ruleOf(described)
+				const rule = described === undefined ? undefined : ruleOf(namedLaw(described))
 				return rule === undefined ? [] : [rule]
 			})
 		}

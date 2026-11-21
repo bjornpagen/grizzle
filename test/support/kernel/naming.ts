@@ -84,13 +84,14 @@ import {
 	schema,
 	type Statement
 } from "#compiler/public/schema.ts"
+import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import { naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
 import { storedColumns } from "#compiler/sql/stored.ts"
-import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, Law, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
@@ -1011,18 +1012,19 @@ const sameList = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =
 
 /**
  * The LawId of a law an outcome names (types/changeset RefusedLaw), read by its own identity: the installation describes
- * exactly one law under it (physical/install Installation.described), and that law is the one the outcome describes, as
- * sameLaw compares two laws; anything else is a defect.
+ * exactly one law under it (physical/install Installation.described), and that law, with its entry, is the one the
+ * outcome describes, as sameLaw compares two laws; anything else is a defect.
  */
 export const reportedLawId = (
-	described: ReadonlyMap<LawId, Law>,
+	described: ReadonlyMap<LawId, RecordedLaw>,
 	refused: IdentifiedLaw
 ): LawId => {
-	const [id, law] = single(
+	const [id, recorded] = single(
 		Arr.filter([...described], ([id]) => id === refused.id),
 		(count) =>
 			`${count} of the installation's laws have the identity ${refused.id} of the reported ${refused.law.kind} law`
 	)
+	const law = namedLaw(recorded)
 	if (!sameLaw(law, refused.law)) {
 		throw new Error(
 			`the installation describes ${id} as ${Formatter.format(law)}, where the outcome describes it as ${Formatter.format(refused.law)}`
@@ -1079,7 +1081,7 @@ const namesOver = (installation: Installation, schema: string): Names => {
 			if (found === undefined) {
 				throw new Error(`the test names the law ${law}, which the installation does not describe`)
 			}
-			return found
+			return namedLaw(found)
 		},
 		reported: (law) => reportedLawId(installation.described, law),
 		schema,

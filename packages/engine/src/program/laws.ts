@@ -1,15 +1,15 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { generatedFieldLaws, lawDescription } from "#compiler/analysis/theory/description.ts"
-import { sameContent } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { captureLoc } from "#compiler/core/loc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { builtLawModel, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
+import { derivedLaw, namedLaw } from "#compiler/runtime/law-entry.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { statementTextsOf } from "#compiler/schema/statements.ts"
-import type { IdentifiedLaw, OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { IdentifiedLaw, OwnLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema, StatementsOf } from "#compiler/types/schema/schema.ts"
 
 /** A law at its position in lawsOf's list. */
@@ -69,7 +69,7 @@ const schemaLaws = (schema: AnySchema, operation: string): SchemaLaws => {
  */
 const derivedLaws = (model: LawModel): SchemaLaws => {
 	const theory = model.theory.laws.map((law, position) => ({
-		placed: Object.freeze({ position, law: lawDescription(law) }),
+		placed: Object.freeze({ position, law: namedLaw(lawDescription(law)) }),
 		id: law.id,
 		statements: law.statements
 	}))
@@ -85,7 +85,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 			...theory.map((t): IdentifiedLaw<OwnLaw> => Object.freeze({ law: t.placed.law, id: t.id })),
 			...fieldPatternLaws(model).map((p): IdentifiedLaw<OwnLaw> =>
 				Object.freeze({
-					law: p.law,
+					law: derivedLaw(p.law),
 					id: patternLawId(
 						defined(
 							domains.get(p.regex.key),
@@ -96,7 +96,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 				})
 			),
 			...generatedFieldLaws([...model.relations.values()].map((r) => r.relation)).map(
-				(g): IdentifiedLaw<OwnLaw> => Object.freeze({ law: g.law, id: g.id })
+				(g): IdentifiedLaw<OwnLaw> => Object.freeze({ law: derivedLaw(g.law), id: g.id })
 			)
 		]),
 		byStatement: new Map(
@@ -106,18 +106,20 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 			])
 		),
 		checks: model.constraints.flatMap((c) =>
-			c.laws.flatMap((l): ReadonlyArray<CheckName> =>
-				l.described.kind === "check" ? [{ law: l.described, name: c.name }] : []
-			)
+			c.laws.flatMap((l): ReadonlyArray<CheckName> => {
+				const law = namedLaw(l.described)
+				return law.kind === "check" ? [{ law, name: c.name }] : []
+			})
 		)
 	}
 }
 
 /**
  * lawsOf(schema): every law a schema built by schema(...) or schema.extend states, each once, with its identity
- * (types/changeset IdentifiedLaw): `law` exactly as an `invariant-rejected` outcome names it (types/changeset Law), so
- * `sameLaw` holds of a law here and a law an outcome names exactly when they are one law, and every law an outcome over
- * the schema names is one of these; and `id`, the one a refusal's RefusedLaw names it by: a theory law's LawId, a
+ * (types/changeset IdentifiedLaw): `law` exactly as an `invariant-rejected` outcome names it (types/changeset Law), its
+ * catalog entry (`entry`) included, the one its statements' author declares (law(...)) or the one grizzle derives
+ * (runtime/law-entry.ts derivedEntry), so `sameLaw` holds of a law here and a law an outcome names exactly when they
+ * are one law, and every law an outcome over the schema names is one of these; and `id`, the one a refusal's RefusedLaw names it by: a theory law's LawId, a
  * stored field's pattern law's LawId under the text domain its pattern is installed as, and a generated field's
  * GeneratedLawId. An application that names the laws it handles keys its names by these ids and reads a refusal's laws
  * by their ids, with no search and no table of ids of its own.
@@ -193,7 +195,8 @@ export const lawsByStatement = <S extends AnySchema>(
 /**
  * constraintNamesOf(schema): the name PostgreSQL holds each check of a schema built by schema(...) or schema.extend
  * under, compiled once, as a lookup: `const constraintNameOf = constraintNamesOf(schema)`, then `constraintNameOf(law)`
- * is the name a direct SQL writer's refusal by the check `law` names (SQLSTATE 23514): a row check's CHECK constraint,
+ * is the name a direct SQL writer's refusal by the check `law` names (SQLSTATE 23514), the check its relation and name
+ * are, as lawsOf lists it or as it states itself, its entry aside: a row check's CHECK constraint,
  * its declared name converted (`E1_derived` installs as `e_1_derived`), and a check over a derived relation's facts
  * the constraint triggers that hold it on every table its definition reads, named from its law, since its own name is
  * unique in no table's namespace. It is the name the schema's law model gives the one constraint or trigger that
@@ -205,11 +208,13 @@ export const lawsByStatement = <S extends AnySchema>(
  */
 export const constraintNamesOf = (
 	schema: AnySchema
-): ((law: Extract<OwnLaw, { readonly kind: "check" }>) => string) => {
+): ((law: Extract<StatedLaw, { readonly kind: "check" }>) => string) => {
 	const { checks } = schemaLaws(schema, "constraintNamesOf")
 	return (law) => {
 		const [name, ...others] = new Set(
-			checks.flatMap((c) => (sameContent(c.law, law) ? [c.name] : []))
+			checks.flatMap((c) =>
+				c.law.relation === law.relation && c.law.name === law.name ? [c.name] : []
+			)
 		)
 		if (name === undefined || others.length > 0) {
 			throw malformed("constraintNamesOf", "a check the schema states, discharged under one name")

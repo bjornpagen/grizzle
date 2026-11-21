@@ -16,6 +16,7 @@ import {
 	finBuilder,
 	foldBuilder,
 	keyBuilder,
+	lawBuilder,
 	mirrorsBuilder,
 	monoids,
 	mutableBuilder,
@@ -783,6 +784,18 @@ export const fold = <
 		) &
 		FoldEnd<Fa, M, EC, EK, E["terms"], SC, S["terms"]>
 ): Fold<Fa, M, S, E> => foldBuilder<Fa, M, S, E>(family, monoid, step, end)
+
+/**
+ * law({ name, source }, statement): the statement, with the catalog entry its author declares for every law it states,
+ * which lawsOf and every outcome that names one of those laws carry as the law's `entry` (types/changeset LawEntry
+ * `declared`), where a law whose statement declares none carries the entry grizzle derives. `name` and `source` are any
+ * nonempty texts: a catalog's name for the law, say, and the specification section it reads. The entry is no part of
+ * the law's identity, so a changed entry is no migration. One statement or one law stated twice takes one entry.
+ */
+export const law = <const S extends Exclude<Statement, Mutable<unknown> | Race<unknown>>>(
+	entry: { readonly name: string; readonly source: string },
+	statement: S
+): S => lawBuilder<S>(entry, statement)
 
 /** The closed set of monoids a fold combines by: count, sum, or, twos (two planes) and max. */
 export const Monoid: { readonly [M in MonoidName]: MonoidOf<M> } = monoids

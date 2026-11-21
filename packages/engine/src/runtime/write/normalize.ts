@@ -75,7 +75,7 @@ import {
 	type CarrierSpec
 } from "#compiler/scalar/values/identity.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
-import type { KeyHost, OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { KeyHost, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { SingleAct, SlotFacts } from "#compiler/write/frontend/compile.ts"
 
 /** A slot's normal facts (ir/products.ts NormalFacts): the distinct admitted facts, in canonical order of their
@@ -171,7 +171,7 @@ interface KeyRefusal {
 	readonly kind: "keyConflict"
 	readonly relation: StoredRelationName
 	readonly law: LawId
-	readonly described: OwnLaw
+	readonly described: RecordedLaw
 	readonly witness: KeyWitness
 }
 
@@ -467,7 +467,7 @@ export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<{
 		readonly law: LawId
-		readonly described: OwnLaw
+		readonly described: RecordedLaw
 		readonly equal: ReadonlyArray<HostKeyField>
 		readonly span: { readonly field: string; readonly type: SpanType }
 	}>
@@ -476,7 +476,7 @@ export interface HostChecks {
 /** A declared key the host compares a relation's additions at: its law and its fields. */
 export interface HostKey {
 	readonly law: LawId
-	readonly described: OwnLaw
+	readonly described: RecordedLaw
 	readonly fields: ReadonlyArray<HostKeyField>
 }
 
@@ -489,7 +489,7 @@ interface KeySpec {
 /** A declared key as the host compares facts at it (`HostKey`), each field by its spec. */
 interface CheckedKey {
 	readonly law: LawId
-	readonly described: OwnLaw
+	readonly described: RecordedLaw
 	readonly fields: ReadonlyArray<KeySpec>
 }
 
@@ -499,7 +499,7 @@ interface CheckedKeys {
 	readonly keys: ReadonlyArray<CheckedKey>
 	readonly spans: ReadonlyArray<{
 		readonly law: LawId
-		readonly described: OwnLaw
+		readonly described: RecordedLaw
 		readonly equal: ReadonlyArray<KeySpec>
 		readonly span: {
 			readonly field: string
@@ -707,7 +707,7 @@ const conflictOf = <E>(
 	value: EntryReading<E>["value"],
 	entry: E,
 	fields: ReadonlyArray<KeySpec>,
-	law: { readonly law: LawId; readonly described: OwnLaw }
+	law: { readonly law: LawId; readonly described: RecordedLaw }
 ): KeyRefusal => ({
 	kind: "keyConflict",
 	relation: facts.relation,

@@ -10,6 +10,7 @@ import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type ConstraintName, type LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
+import { derivedLaw, namedLaw } from "#compiler/runtime/law-entry.ts"
 import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
 import type { StatementAt } from "#compiler/runtime/write/witness.ts"
 import type { Law, RefusingObject, Witness } from "#compiler/types/changeset/changeset.ts"
@@ -362,7 +363,7 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 					const hostWitness = (refuser: string): Witness =>
 						at === undefined ? { kind: "unreported" } : hostWitnessOf(at, refuser)
 					const described = (law: LawId): Law =>
-						defined(artifacts.described.get(law), "a described law")
+						namedLaw(defined(artifacts.described.get(law), "a described law"))
 					/** The rules, restated. */
 					const meaning = ((): Meaning => {
 						const state = reported.sqlstate
@@ -460,7 +461,9 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 								? { kind: "execution" }
 								: {
 										kind: "rejected",
-										laws: [{ kind: "generated", relation: relation.name, field: field.name }],
+										laws: [
+											derivedLaw({ kind: "generated", relation: relation.name, field: field.name })
+										],
 										witness: hostWitness(`generated ${table}.${field.column}`)
 									}
 						}
@@ -511,7 +514,7 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 								n.kind === "domainConstraint"
 									? usesLaws(coercing.length > 0 ? coercing : n.uses)
 									: n.laws,
-								(l) => l.described
+								(l) => namedLaw(l.described)
 							),
 							witness: hostWitness(
 								isTableConstraint(n)

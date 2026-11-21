@@ -17,9 +17,11 @@ export type {
 	Law,
 	OwnLaw,
 	PlannedStrata,
+	RecordedLaw,
 	Refused,
 	RefusedLaw,
 	RefusingObject,
+	StatedLaw,
 	Witness,
 	WritesOf
 } from "#compiler/types/changeset/changeset.ts"

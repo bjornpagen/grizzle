@@ -27,7 +27,7 @@ import { prepareBinding } from "#compiler/runtime/write/binding.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { hostJudgement, type StatedRows } from "#compiler/runtime/write/witness.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
-import type { Law, Witness } from "#compiler/types/changeset/changeset.ts"
+import type { StatedLaw, Witness } from "#compiler/types/changeset/changeset.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
@@ -229,7 +229,7 @@ export const caseGen: Gen<StopCase> = (source) => ({
 /** What a write comes to: accepted, refused on a law with its witness, or anything else, by what it is. */
 export type Outcome =
 	| { readonly kind: "accepted" }
-	| { readonly kind: "invariant-rejected"; readonly law: Law; readonly witness: Witness }
+	| { readonly kind: "invariant-rejected"; readonly law: StatedLaw; readonly witness: Witness }
 	| { readonly kind: "other"; readonly what: string }
 
 export const accepted: Outcome = { kind: "accepted" }
