@@ -4,6 +4,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Pending } from "@bjornpagen/testing/features"
 import { boolean, element, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { readLedger } from "#adapter/migrate/apply.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import type { MigrationSession } from "#adapter/migrate/session.ts"
 import { identity } from "#compiler/core/identity.ts"
@@ -37,7 +38,6 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { readLedger } from "#test/support/migrate/ledger.ts"
 import {
 	draftActions,
 	draftFiles,

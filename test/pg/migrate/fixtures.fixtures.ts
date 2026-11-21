@@ -5,6 +5,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Layer, Option, Record as Rec } from "effect"
+import { readLedger } from "#adapter/migrate/apply.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import { compileServed } from "#adapter/public/compile.ts"
@@ -56,7 +57,6 @@ import {
 	fromSnapshot,
 	generate
 } from "#test/support/migrate/kit.ts"
-import { readLedger } from "#test/support/migrate/ledger.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import { clusterConnection, clusterPool } from "#test/support/pg.ts"

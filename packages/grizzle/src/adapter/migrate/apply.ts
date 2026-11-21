@@ -49,6 +49,7 @@ import {
 	StackTooShallow,
 	StatementFailed,
 	type StatementFailure,
+	LedgerUnread,
 	stopped,
 	TransactionFailed
 } from "#adapter/migrate/errors.ts"
@@ -1243,25 +1244,31 @@ export const readCatalogDrift = (
 		({ verdict }) => verdict
 	)
 
-/** `schema`'s ledger as an apply reads it (ledger.ts ledgerStateOf), in a step of statements apart. */
-export const readLedgerState = Effect.fn("readLedgerState")(function* (
+/**
+ * `schema`'s ledger as an apply reads it (ledger.ts ledgerStateOf), in steps of statements apart: whether the ledger
+ * exists, then, only where it does, its rows. A step the server does not answer is LedgerUnread.
+ */
+export const readLedger = Effect.fn("readLedger")(function* (
 	session: MigrationSession,
 	schema: string,
 	statements: LedgerStatements
 ): Effect.fn.Return<LedgerState, MigrateError> {
-	const unchecked = uncheckedOf(schema)
-	const present = yield* Effect.mapError(session.apart([ledgerExistsRead(schema)]), unchecked)
+	const apart = (read: readonly [BatchStatement, ...Array<BatchStatement>]) =>
+		Effect.mapError(session.apart(read), (failure) =>
+			stopped(new LedgerUnread({ schema, failure }))
+		)
+	const present = yield* apart([ledgerExistsRead(schema)])
 	const ledger = yield* Effect.mapError(
 		Effect.fromResult(ledgerPresence(schema, sentAnswer(present, 0))),
-		unchecked
+		stopped
 	)
 	if (ledger === "absent") {
 		return ledgerStateOf(schema, { kind: "absent" })
 	}
-	const rows = yield* Effect.mapError(session.apart([ledgerRowsRead(statements)]), unchecked)
+	const rows = yield* apart([ledgerRowsRead(statements)])
 	const read = yield* Effect.mapError(
 		Effect.fromResult(installedLedger(schema, sentAnswer(rows, 0))),
-		unchecked
+		stopped
 	)
 	return ledgerStateOf(schema, read)
 })

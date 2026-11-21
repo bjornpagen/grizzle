@@ -14,7 +14,7 @@ import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
-import { applyLockKey, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
+import { applyLockKey, readLedger, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
 	MigrateError,
@@ -71,7 +71,6 @@ import {
 	noDeclarations,
 	parsedMigrationName
 } from "#test/support/migrate/kit.ts"
-import { readLedger } from "#test/support/migrate/ledger.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"

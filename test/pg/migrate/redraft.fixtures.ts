@@ -5,6 +5,7 @@ import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { boolean, constant, type Gen, int, weighted } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { readLedger } from "#adapter/migrate/apply.ts"
 import type { AppliedEdit, MigrateError } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
@@ -55,7 +56,6 @@ import {
 	noDeclarations,
 	type Previous
 } from "#test/support/migrate/kit.ts"
-import { readLedger } from "#test/support/migrate/ledger.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { shopV1, shopV2, shopV3, shopV3Declared, shopV4 } from "#test/unit/deploy/schemas.ts"
 
