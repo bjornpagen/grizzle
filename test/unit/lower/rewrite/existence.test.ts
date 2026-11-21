@@ -14,18 +14,23 @@
  * scoped shapes and a scoped occurrence that stayed.
  */
 
-import { assert, contains } from "@bjornpagen/testing/assert"
+import { assert, contains, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import type { CertificateRule } from "#compiler/ir/certificate.ts"
+import { type CertificateRule, makeCertificate } from "#compiler/ir/certificate.ts"
 import { nodesByLabel } from "#compiler/ir/dag.ts"
-import { conservativeMeta } from "#compiler/ir/rel.ts"
+import { type Cell, conservativeMeta, type EditNode } from "#compiler/ir/rel.ts"
+import { DagEditor } from "#compiler/lower/optimize/demand/editor.ts"
+import type { RewriteCx } from "#compiler/lower/optimize/demand/frame.ts"
 import { relationalRewrites } from "#compiler/lower/optimize/demand/phases.ts"
-import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
+import { existencePass, existencePotential } from "#compiler/lower/optimize/existence/index.ts"
 import { prunePass } from "#compiler/lower/optimize/prune/index.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { genCatalog } from "#test/support/evidence.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
+import { defaultGenConfig, queryCaseGen } from "#test/support/oracle/gen/case.ts"
 import {
 	Account as AccountRelation,
 	Posting,
@@ -43,10 +48,14 @@ import {
 	type PostingSource,
 	type Reader,
 	rewritten,
+	type RegionShapeFeature,
+	regionShapeSites,
 	shapes
 } from "#test/unit/lower/rewrite/existence.fixtures.ts"
+import { reachEdits } from "#test/unit/lower/rewrite/frame.fixtures.ts"
 import { guardSearch, scopedStay } from "#test/unit/lower/rewrite/guarded.ts"
 import {
+	caseQuery,
 	deliversAlikeOn,
 	ledgerCatalog,
 	passContext,
@@ -231,3 +240,131 @@ export const scopeAnOccurrenceOverACorrelatedSourceOrWhoseSourceAnotherOccurrenc
 			}
 		]
 	})
+
+/**
+ * The existence pass works a region's existence-only occurrences out again only where an edit reached its subtree
+ * (lower/optimize/existence/index.ts shapedOf): over generated queries and edits at their reached cells (a cell
+ * redirected to a copy of itself, a cell emptied to a closed relation of its heading, an emptied cell restored), each
+ * measure of the pass's potential at a state works out exactly the regions of the state whose node or a node of whose
+ * subtree an edit set since their last, a node set back to what it was among them, and the first time each region is
+ * met; the potential is a number at every state.
+ *
+ * Oracle: a specification, the edit after which each reached cell's node was last set, against each region's subtree
+ * at its last working out.
+ *
+ * Budget: 120 runs and 120 steered cases, the frame-determinism suite's.
+ */
+export const theExistencePassWorksARegionsShapeOutAgainOnlyWhereAnEditReachedItsSubtree =
+	property.explore(
+		(s) => ({ query: s.draw(queryCaseGen(defaultGenConfig)), edits: s.draw(reachEdits) }),
+		{
+			needs: {},
+			budget: { runs: 120, steered: 120 },
+			situations: [
+				"a region an edit reached",
+				"a region an edit left as it was"
+			] satisfies ReadonlyArray<Reached<RegionShapeFeature>>,
+			check: (_, c: Case<RegionShapeFeature>) => (drawn) =>
+				Effect.gen(function* () {
+					const editor = new DagEditor(caseQuery(drawn.query).dag)
+					const ctx = passContext({ catalog: genCatalog(drawn.query.schema), evidence: "snapshot" })
+					const cxOf = (): RewriteCx => ({
+						editor,
+						ctx,
+						pass: "existence",
+						catalog: ctx.catalog,
+						cells: editor.cellState(),
+						certify: (input) => {
+							ctx.certificates.record(succeeded(makeCertificate(input)))
+						}
+					})
+					/**
+					 * The node each cell the states reached held when last reached, the edit after which it was last set, and
+					 * the edits so far: a cell an edit takes out of reach and another brings back holds the node it held.
+					 */
+					const seen = new Map(Arr.map(editor.topoOrder(), (k) => [k, k.current] as const))
+					const setAt = new Map<Cell, number>()
+					let edits = 0
+					/** The edit count at which each region was last worked out. */
+					const last = new Map<Cell, number>()
+					const measured = Effect.gen(function* () {
+						const cx = cxOf()
+						const regions = Arr.filter(
+							cx.cells.order,
+							(cell) => cell.current.kind === "MatchRegion"
+						)
+						const due = Arr.filter(regions, (cell) => {
+							const at = last.get(cell)
+							return (
+								at === undefined ||
+								Arr.some([...DagEditor.subtree(cell)], (k) => (setAt.get(k) ?? 0) > at)
+							)
+						})
+						const [value, counts] = yield* callCounts(
+							Effect.sync(() => existencePotential(cx)),
+							regionShapeSites
+						)
+						assert.ok(typeof value === "number", "the existence potential is a number")
+						assert.equal(
+							counts.shapedExistence,
+							due.length,
+							`${counts.shapedExistence} regions worked out at a state where ${due.length} of ${regions.length} were reached`
+						)
+						if (due.length > 0 && last.size > 0) {
+							c.note("a region an edit reached")
+						}
+						if (Arr.some(regions, (cell) => last.has(cell) && !due.includes(cell))) {
+							c.note("a region an edit left as it was")
+						}
+						for (const cell of due) {
+							last.set(cell, edits)
+						}
+					})
+					const emptied = new Map<Cell, EditNode>()
+					yield* measured
+					for (const edit of drawn.edits) {
+						const order = editor.topoOrder()
+						const cell = defined(order[edit.at % order.length], "a reached cell")
+						edits += 1
+						const back = Arr.head([...emptied])
+						if (edit.kind === "restored" && back._tag === "Some") {
+							const [at, node] = back.value
+							emptied.delete(at)
+							editor.set(at, node)
+						} else if (edit.kind === "redirected to a copy") {
+							editor.redirect(cell, editor.add(cell.current))
+						} else {
+							emptied.set(cell, cell.current)
+							editor.set(cell, {
+								kind: "Closed",
+								closed: "_reach",
+								rows: [],
+								heading: cell.current.heading,
+								meta: cell.current.meta,
+								loc: cell.current.loc
+							})
+						}
+						for (const k of editor.topoOrder()) {
+							if (seen.get(k) !== k.current) {
+								setAt.set(k, edits)
+								seen.set(k, k.current)
+							}
+						}
+						yield* measured
+					}
+				}),
+			oracle: {
+				kind: "specification",
+				name: "the edit after which each reached cell's node was last set, against each region's subtree at its last working out"
+			},
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/lower/optimize/existence/index.ts",
+					original: "\tif (known?.node === region && known.at >= cx.cells.stamp(cell)) {\n",
+					replacement: "\tif (known?.node === region && known.at > Number.MAX_SAFE_INTEGER) {\n",
+					why: "Every measure of the potential works out every region's existence-only occurrences again, as it did at every state before regions kept them."
+				}
+			]
+		}
+	)

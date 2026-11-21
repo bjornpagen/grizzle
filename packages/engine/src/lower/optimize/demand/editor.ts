@@ -1,5 +1,5 @@
 import { postorder } from "@bjornpagen/grizzle-text/base/graph"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defined, invariant } from "@bjornpagen/grizzle-text/base/invariant"
 import { unwrap } from "#compiler/core/canonical.ts"
 import { ExprId, NodeId, OccurrenceId, type ParamId, ScopeId, VarId } from "#compiler/core/ids.ts"
 import { cellTable, type FinishedCells, type FoldedCell, finishCells } from "#compiler/ir/dag.ts"
@@ -306,6 +306,12 @@ export interface CellState {
 	 * state the first time a rule asks, so a rule asking at every cell reads the one map.
 	 */
 	readonly readers: (cell: Cell) => ReadonlyArray<Cell>
+	/**
+	 * The editor's version at which a cell's subtree last changed: the latest change of the node of the cell or of a cell
+	 * it reaches through data inputs (DagEditor #changedAt), worked out over the state's cells the first time a reader
+	 * asks, so what a reader keeps of a cell at a version stands while the cell's stamp is no later.
+	 */
+	readonly stamp: (cell: Cell) => number
 }
 
 /** What a node of a cell reads: its data edges, one per input position, and the labels its scope expressions name. */
@@ -481,6 +487,8 @@ export class DagEditor<R extends Roots = Roots> {
 		scope: new FreshIds("sw", [])
 	}
 	#version = 0
+	/** The version each cell's node was set at, by the change that set it; a cell of the base was set at 0. */
+	readonly #changedAt = new Map<Cell, number>()
 	/** What the last finish folded each cell into, which the next one keeps where the cell is as it was (finishCells). */
 	#folded: ReadonlyMap<Cell, FoldedCell> = new Map()
 
@@ -591,7 +599,7 @@ export class DagEditor<R extends Roots = Roots> {
 		const cell: Cell = { id: NodeId(this.#fresh.node.take()), current: node }
 		this.#readers.created(cell)
 		this.#note(cell.id, node)
-		this.#changed()
+		this.#changed([cell])
 		return cell
 	}
 
@@ -602,7 +610,7 @@ export class DagEditor<R extends Roots = Roots> {
 		this.#readers.changed(cell, before)
 		this.#reach.changed(cell, this.#shapeOf(before), this.#shapeOf(node))
 		this.#note(cell.id, node)
-		this.#changed()
+		this.#changed([cell])
 	}
 
 	/**
@@ -678,6 +686,8 @@ export class DagEditor<R extends Roots = Roots> {
 		const order = this.topoOrder()
 		const read = this.#reach.taken()
 		let readers: ((cell: Cell) => ReadonlyArray<Cell>) | undefined
+		let stamps: ReadonlyMap<Cell, number> | undefined
+		const version = this.#version
 		return {
 			order,
 			feedback: feedbackReadsOf(cellGraph, order),
@@ -686,8 +696,30 @@ export class DagEditor<R extends Roots = Roots> {
 			readers: (cell) => {
 				readers ??= DagEditor.readersIn(order)
 				return readers(cell)
+			},
+			stamp: (cell) => {
+				stamps ??= this.#stampsIn(order, version)
+				return stamps.get(cell) ?? 0
 			}
 		}
+	}
+
+	/**
+	 * The stamp of each cell of `order`, a state's cells taken at `version` (CellState stamp): the latest version its node
+	 * or a node it reaches through data inputs was set at, each cell's after its inputs'. Worked out at the state's
+	 * version alone: the nodes a later edit set are another state's.
+	 */
+	#stampsIn(order: ReadonlyArray<Cell>, version: number): ReadonlyMap<Cell, number> {
+		invariant(this.#version === version, "a state's stamps read before the next edit")
+		const stamps = new Map<Cell, number>()
+		for (const cell of order) {
+			let at = this.#changedAt.get(cell) ?? 0
+			for (const input of this.#shapeOf(cell.current).edges) {
+				at = Math.max(at, stamps.get(input) ?? 0)
+			}
+			stamps.set(cell, at)
+		}
+		return stamps
 	}
 
 	/**
@@ -761,10 +793,12 @@ export class DagEditor<R extends Roots = Roots> {
 	/** redirect, leaving the cells in `except` reading `from`. */
 	redirectExcept(from: Cell, to: Cell, except: ReadonlySet<Cell>): void {
 		const remap = this.retarget(from, to)
+		const rewritten: Array<Cell> = []
 		for (const cell of this.#readers.of(from)) {
 			if (cell === to || except.has(cell)) {
 				continue
 			}
+			rewritten.push(cell)
 			const node = cell.current
 			const copy = this.copier(remap)
 			cell.current = drive(
@@ -782,12 +816,15 @@ export class DagEditor<R extends Roots = Roots> {
 			this.#reach.reached(to, 1)
 			this.#reach.reached(from, -1)
 		}
-		this.#changed()
+		this.#changed(rewritten)
 	}
 
-	/** A change: the version moves on. */
-	#changed(): void {
+	/** A change: the version moves on, and each cell whose node it set was set at it. */
+	#changed(set: ReadonlyArray<Cell>): void {
 		this.#version++
+		for (const cell of set) {
+			this.#changedAt.set(cell, this.#version)
+		}
 	}
 
 	/**

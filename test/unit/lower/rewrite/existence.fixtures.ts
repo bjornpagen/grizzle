@@ -16,6 +16,7 @@ import {
 } from "#compiler/ir/rel.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { keyConstraintName } from "#test/support/evidence.ts"
+import type { CountedFunction } from "#test/support/kernel/calls.ts"
 import {
 	Account as AccountRelation,
 	type OccurrenceSpec,
@@ -281,3 +282,14 @@ export const existenceOnlyOverCorrelated = (dag: RelDag): boolean => {
 		})
 	})
 }
+
+/** What the shape property counts: each working out of a region's existence-only occurrences (existence/index.ts). */
+export const regionShapeSites = Object.freeze({
+	shapedExistence: {
+		file: "packages/engine/src/lower/optimize/existence/index.ts",
+		name: "shapedExistence"
+	}
+} satisfies Readonly<Record<string, CountedFunction>>)
+
+/** What the shape property reaches: a region an edit reached, and one it left as it was. */
+export type RegionShapeFeature = "a region an edit reached" | "a region an edit left as it was"

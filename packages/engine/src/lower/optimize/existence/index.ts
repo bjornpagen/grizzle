@@ -118,6 +118,41 @@ const shapedExistence = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArr
 	})
 }
 
+/** A region's existence-only occurrences (shapedExistence) as worked out at an editor version, for its node then. */
+interface Shaped {
+	readonly node: Region
+	readonly at: number
+	readonly occurrences: ReadonlyArray<Occurrence>
+}
+
+/**
+ * Each editor's regions' existence-only occurrences, by cell (shapedOf): what a region's shape reads, its node, its
+ * sources' subtrees and whether they read a recursion's feedback, is all of the region's subtree, so it stands for as
+ * long as no node of that subtree is set again (CellState stamp).
+ */
+const shapes = new WeakMap<DagEditor, Map<Cell, Shaped>>()
+
+/**
+ * A region's existence-only occurrences (shapedExistence), kept by the editor until a node of the region's subtree is
+ * set again, so the potential the driver measures at every state and the rule's scan work them out again for the
+ * regions an edit reached alone, where both worked out every region at every state (qti's write compile at hub
+ * f1bf91a2f: about 34M of them in its read-backs' rewrite passes).
+ */
+const shapedOf = (cx: RewriteCx, cell: Cell, region: Region): ReadonlyArray<Occurrence> => {
+	let kept = shapes.get(cx.editor)
+	if (kept === undefined) {
+		kept = new Map()
+		shapes.set(cx.editor, kept)
+	}
+	const known = kept.get(cell)
+	if (known?.node === region && known.at >= cx.cells.stamp(cell)) {
+		return known.occurrences
+	}
+	const occurrences = shapedExistence(cx, cell, region)
+	kept.set(cell, { node: region, at: cx.editor.version, occurrences })
+	return occurrences
+}
+
 /**
  * The number of groups `occurrences` form, two occurrences in one group when a chain of shared variables joins them; a
  * region equality makes its two variables one.
@@ -327,7 +362,7 @@ const existenceRule: Rule = {
 		if (node.kind !== "MatchRegion") {
 			return false
 		}
-		const shaped = shapedExistence(cx, cell, node)
+		const shaped = shapedOf(cx, cell, node)
 		if (shaped.length === 0 || !withinCollapse(cx, cell, node)) {
 			return false
 		}
@@ -419,13 +454,13 @@ const setComparison: Rule = {
 	}
 }
 
-const existencePotential: Potential = (cx) => {
+export const existencePotential: Potential = (cx) => {
 	let comparisons = 0
 	const shaped: Array<Occurrence> = []
 	for (const cell of cx.cells.order) {
 		const node = cell.current
 		if (node.kind === "MatchRegion") {
-			appendAll(shaped, shapedExistence(cx, cell, node))
+			appendAll(shaped, shapedOf(cx, cell, node))
 		}
 		if (node.kind === "Intersect" || node.kind === "Difference") {
 			comparisons++
