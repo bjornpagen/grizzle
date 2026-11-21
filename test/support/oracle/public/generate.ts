@@ -1246,6 +1246,35 @@ export const orderedCaseSketchGen: Gen<CaseSketch> = (decisions) =>
 		decisions.draw(directedSwarm([...deliveredOn, "ordered"], deliveredOff))
 	)(decisions)
 
+/** The least pick that reads as its upper half (upper): a sketch's yes to a gate drawn as a pick. */
+const upperHalf = pickOf(1, 2)
+
+/**
+ * A case sketch of the form-directed population aimed at a negated import bound to an outer variable beside a filter:
+ * its swarm holds a negation at full weight beside the forms the population turns on (formsOn: an import, one bound
+ * to a root's variable, a comparison), the negation being the one gate the population leaves to a free draw, and each
+ * read takes every gate that form is drawn through, each a pick of its upper half: it binds its first key field to a
+ * parameter so a later read may import it (importable), its root matches an import bound to its own variable
+ * (bindImport), and its negation reads that import (the negation's source). What the public suite aims at while that
+ * form is pending (test/pg/oracle/public/suite.ts aims), where a drawn case reaches it about once in a hundred and
+ * fifty.
+ */
+export const negatedImportCaseSketchGen: Gen<CaseSketch> = (decisions) => {
+	const sketch = caseSketchOf(
+		"forms",
+		decisions.draw(directedSwarm([...formsOn, "negation"], formsOff))
+	)(decisions)
+	return {
+		...sketch,
+		reads: Arr.map(sketch.reads, (read) => ({
+			...read,
+			importable: upperHalf,
+			bindImport: upperHalf,
+			rule: { ...read.rule, negation: { ...read.rule.negation, source: upperHalf } }
+		}))
+	}
+}
+
 /** A case sketch of `population` under `swarm`, every other part of it drawn. */
 const caseSketchOf =
 	(population: DrawnPopulation, swarm: Swarm<SwarmFeature>): Gen<CaseSketch> =>

@@ -12,6 +12,7 @@ import {
 	type CaseSketch,
 	caseSketchGen,
 	mixedForms,
+	negatedImportCaseSketchGen,
 	plantedNameCount,
 	type Population,
 	type ProgramFeature,
@@ -247,11 +248,18 @@ const publicSketchGen =
 	(source) => ({ ...source.draw(caseSketchGen), readsRun })
 
 /**
- * The situation a drawn case seldom reaches, with the case aimed at it: a witness whose turn aims at a get of no row
- * draws a case reading a key its facts leave out (aimed), the case it runs, prints and keeps.
+ * The situations a drawn case seldom reaches, each with the case aimed at it, which a witness whose turn aims at it
+ * draws (aimed), runs, prints and keeps: a get of no row, a case reading a key its facts leave out; and a negated
+ * import bound to an outer variable beside a filter, a form-directed case whose swarm holds a negation too and whose
+ * reads take every gate that form is drawn through (negatedImportCaseSketchGen), where a drawn case reaches it about
+ * once in a hundred and fifty, so the suite's fixed witnesses met none.
  */
 const aims: ReadonlyArray<readonly [PublicFeature, Gen<PublicSketch>]> = [
-	["get none", publicSketchGen("a key left out")]
+	["get none", publicSketchGen("a key left out")],
+	[
+		"a negated import bound to an outer variable beside a filter",
+		(source) => ({ ...source.draw(negatedImportCaseSketchGen), readsRun: "sketched" })
+	]
 ]
 
 /**
