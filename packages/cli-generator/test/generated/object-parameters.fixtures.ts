@@ -1,5 +1,4 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	boolean,
@@ -1085,7 +1084,7 @@ export const observedRun = (
 	})
 
 /** Every JSON input of the box, by its operation and the name its help row begins with. */
-const JSON_INPUTS: Arr.NonEmptyReadonlyArray<readonly [operation: string, left: string]> =
+export const JSON_INPUTS: Arr.NonEmptyReadonlyArray<readonly [operation: string, left: string]> =
 	Arr.appendAll(
 		Arr.map(PATH_TARGETS, (target): readonly [string, string] => [target.operation, "o"]),
 		[
@@ -1123,11 +1122,6 @@ export const shownOf = ({ built, commands }: Opened, operation: string, left: st
 		}
 		return shown
 	})
-
-/** Every JSON input of the box, each a case of the help property. */
-export const jsonInputs: FiniteSpace<readonly [operation: string, left: string]> = finite(
-	word(dictionary(JSON_INPUTS))
-)
 
 /** Every JSON input kind, given text that is not JSON. */
 export const notJsonCases: FiniteSpace<Readonly<{ target: NotJsonTarget; text: string }>> = finite(

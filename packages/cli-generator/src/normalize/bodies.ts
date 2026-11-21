@@ -24,7 +24,14 @@ import {
 import type { HeaderName, MediaRange, WireName } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
-import type { Body, DiscriminatorHint, EncodingRule, Origin, RowId } from "#model/entities.ts"
+import type {
+	Body,
+	DiscriminatorHint,
+	EncodingRule,
+	Origin,
+	RowId,
+	StyleName
+} from "#model/entities.ts"
 import { childPointer, formatPointer, isPointerWithin } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
@@ -52,7 +59,7 @@ import {
 	scalarCover,
 	typeNames
 } from "#normalize/parameters.ts"
-import type { ScalarCover, StyleName } from "#normalize/parameters.ts"
+import type { ScalarCover } from "#normalize/parameters.ts"
 import { appliesDynamicKeyword, schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
@@ -256,11 +263,7 @@ const schemaObject: Read.Reader<SchemaNodeValue> = (value) =>
 				prefixItems: optional(object, "prefixItems", Read.array(Read.anything)),
 				properties: optional(object, "properties", Read.members),
 				required: optional(object, "required", Read.anything),
-				type: optional(
-					object,
-					"type",
-					Read.union<string | ReadonlyArray<string>>([Read.string, Read.array(Read.string)])
-				)
+				type: optional(object, "type", Read.union([Read.string, Read.array(Read.string)]))
 			},
 			Read.anything
 		)

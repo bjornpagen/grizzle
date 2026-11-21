@@ -3,7 +3,7 @@
  * declarations, implicit connections and `$self` collisions, each with what the specification says its resolution is.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	type Aimed,
 	aimed,
@@ -30,15 +30,22 @@ import {
 	referenceAt,
 	resolve
 } from "#resolve/index.ts"
+import { specLines } from "#test/model/spec-section.dictionary.ts"
+import {
+	type CollisionFeature,
+	collisionFeatures,
+	type Declaration,
+	declarations,
+	type Home,
+	homes,
+	idLines
+} from "#test/resolve/document-set.dictionary.ts"
 
 /** The entry document's retrieval URI. */
 const ENTRY: DocumentUri = fixedDocumentUri("file:///spec/openapi.json")
 
 /** The `$self` a 3.2 entry may declare, which moves its base off its retrieval URI. */
 const SELF = "https://api.example.com/v1/openapi.json"
-
-/** Where a set's members live: beside the entry's retrieval URI, or beside the `$self` it may declare. */
-export type Home = "retrieval" | "self"
 
 /** The directory each home names, as a reference relative to it resolves. */
 const DIRECTORY: Readonly<Record<Home, string>> = {
@@ -191,7 +198,7 @@ const endOf =
 		return s.draw(oneOf(ends))
 	}
 
-export const chains: Gen<Chain> = (s) => {
+const chains: Gen<Chain> = (s) => {
 	const line = s.draw(element(LINES))
 	const members = s.draw(int(0, NAMES.length))
 	const hops = members === 0 ? [] : s.draw(hopsAcross(members))
@@ -665,7 +672,7 @@ export const aimedChains: Aimed<Chain, ChainFeature> = aimed(chains, [
 /** A schema cycle across the set's first two members: each `/S<i>` of one holds `allOf` of two references to the other's next level. */
 export type SchemaCycle = Readonly<{ line: SpecLine; home: Home; levels: number }>
 
-export const schemaCycles: Gen<SchemaCycle> = (s) => ({
+const schemaCycles: Gen<SchemaCycle> = (s) => ({
 	line: s.draw(element(LINES)),
 	home: s.draw(element<Home>(["retrieval", "self"])),
 	levels: s.draw(
@@ -768,12 +775,6 @@ export const aimedCycles: Aimed<SchemaCycle, CycleFeature> = aimed(schemaCycles,
 	]
 ])
 
-/** Where an unreached member declares the URI the entry's one schema references: an `$id` or an `$anchor`. */
-export type Declaration =
-	| "a fragment's $id"
-	| "an OpenAPI document's component $id"
-	| "an $anchor under its root $id"
-
 /** An unreached member's declaration, on a line that has `$id`, and whether the entry declares the same `$id` too. */
 export type Indexed = Readonly<{
 	line: "3.1" | "3.2"
@@ -786,18 +787,12 @@ const ID = "https://example.com/schemas/pet"
 
 const ANCHORED = "https://example.com/s.json"
 
-const DECLARATIONS = dictionary<Declaration>([
-	"a fragment's $id",
-	"an OpenAPI document's component $id",
-	"an $anchor under its root $id"
-])
-
 /** Every declaration, under each line and home, with the entry's duplicate where the declaration is an `$id`. */
 export const indexedSpace: FiniteSpace<Indexed> = finite((s) => {
-	const declaration = word(DECLARATIONS)(s)
+	const declaration = word(declarations)(s)
 	return {
-		line: word(dictionary<"3.1" | "3.2">(["3.1", "3.2"]))(s),
-		home: word(dictionary<Home>(["retrieval", "self"]))(s),
+		line: word(idLines)(s),
+		home: word(homes)(s),
 		declaration,
 		duplicate: declaration !== "an $anchor under its root $id" && boolean(s)
 	}
@@ -915,8 +910,8 @@ export type Connections = Readonly<{
 }>
 
 export const connectionsSpace: FiniteSpace<Connections> = finite((s) => ({
-	line: word(dictionary(LINES))(s),
-	home: word(dictionary<Home>(["retrieval", "self"]))(s),
+	line: word(specLines)(s),
+	home: word(homes)(s),
 	entryScheme: boolean(s),
 	entryOperation: boolean(s)
 }))
@@ -1012,13 +1007,9 @@ export const connectionFeatures = (connections: Connections): ReadonlyArray<Conn
 /** Which document a 3.2 member's `$self` names: the entry, a member before it, or a member after it. */
 export type Collision = Readonly<{ named: CollisionFeature; home: Home }>
 
-export type CollisionFeature = "the entry" | "a member before it" | "a member after it"
-
 export const collisionSpace: FiniteSpace<Collision> = finite((s) => ({
-	named: word(
-		dictionary<CollisionFeature>(["the entry", "a member before it", "a member after it"])
-	)(s),
-	home: word(dictionary<Home>(["retrieval", "self"]))(s)
+	named: word(collisionFeatures)(s),
+	home: word(homes)(s)
 }))
 
 /**

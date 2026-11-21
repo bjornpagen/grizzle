@@ -7,7 +7,6 @@ import {
 	Predicate,
 	Result,
 	Record as Rec,
-	Schema,
 	Stream,
 	String as Str
 } from "effect"

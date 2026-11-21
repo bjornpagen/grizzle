@@ -204,13 +204,5 @@ export const droppedService = property.explore(commandedCaseGen, {
 	},
 	kept: [],
 	budget: { runs: 8, steered: 0 },
-	caseDeadline: 120_000,
-	kills: [
-		{
-			file: "packages/cli-generator/src/emit/domain.ts",
-			original: 'expression = { _tag: "Member", name: this.next().text, object: expression }',
-			replacement: "{}",
-			why: "The domain module's expression parser drops every member access, so what the root's services layer reads is not what it names; the property fails (CATCH's evidence, mutant 0426fcc96b)."
-		}
-	]
+	kills: []
 })

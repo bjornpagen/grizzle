@@ -22,7 +22,7 @@ export const diagnosticScopes = ["document", "operation", "element", "field"] as
 export type DiagnosticScope = (typeof diagnosticScopes)[number]
 
 /** Whether a diagnostic stops what it covers from being generated (`refusal`) or only reports (`notice`). */
-const diagnosticSeverities = ["refusal", "notice"] as const
+export const diagnosticSeverities = ["refusal", "notice"] as const
 
 export type DiagnosticSeverity = (typeof diagnosticSeverities)[number]
 

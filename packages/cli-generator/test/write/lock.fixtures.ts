@@ -4,10 +4,11 @@
  */
 
 import { failureOf } from "@bjornpagen/testing/assert"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { awaitFact } from "@bjornpagen/testing/fact"
 import { boolean, finite, type FiniteSpace, int, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, Cause, Effect, Exit, FileSystem, Option, Order, Path, Ref } from "effect"
+import { type Ending, endings } from "#test/write/lock.dictionary.ts"
 import { acquireRunLock, runLockFileName } from "#write/lock.ts"
 
 /**
@@ -93,11 +94,6 @@ export const expectedRace = (lockPath: string, claimants: number): Race => ({
 	leftover: false
 })
 
-/** How a holder's scope ends. */
-export type Ending = "succeeds" | "fails" | "is interrupted"
-
-const ENDINGS = dictionary<Ending>(["succeeds", "fails", "is interrupted"])
-
 /**
  * One holder: the temp siblings it registers, the files beside them it does not register, whether another claim is
  * made while it holds the lock, and how its scope ends.
@@ -114,7 +110,7 @@ export const holdSpace: FiniteSpace<HoldCase> = finite((source) => ({
 	temps: source.draw(subarray([".a.tmp", ".b.tmp"])),
 	unregistered: source.draw(subarray(["keep.txt"])),
 	claimedWhileHeld: source.draw(boolean),
-	ending: source.draw(word(ENDINGS))
+	ending: source.draw(word(endings))
 }))
 
 export type HoldFeature =

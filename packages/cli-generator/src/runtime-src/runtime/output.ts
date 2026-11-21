@@ -87,7 +87,6 @@ import {
 } from "#runtime/client.ts"
 import type { RetryDecision } from "#runtime/client.ts"
 import { asCliError, printStderr } from "#runtime/input.ts"
-import { jsonText } from "#runtime/json.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
 import { accept as acceptValue, dispatchResponse } from "#runtime/negotiate.ts"
 import type { ScrubEntry } from "#runtime/redact.ts"
@@ -115,7 +114,7 @@ import {
 } from "#runtime/sequential.ts"
 import type { EventContract, EventFailed, EventTable, StopAt } from "#runtime/sse.ts"
 import { eventStream, hasLifecycle, openContract, readsState, StopPoint } from "#runtime/sse.ts"
-import { utf8Chunks, utf8Text } from "#runtime/utf8.ts"
+import { jsonText, utf8Chunks, utf8Text } from "#runtime/utf8.ts"
 
 /**
  * The default of `--max-record-bytes` (runtime/output.ts MaxRecordBytes): the most UTF-8 bytes one record of a
@@ -784,7 +783,7 @@ export interface RunRecordState {
  * applies: format `text` (or, in `finalCatch`, `<PREFIX>_ERROR_FORMAT`) and no retry hint.
  */
 export class RunRecord extends Context.Service<RunRecord, Ref.Ref<RunRecordState>>()(
-	"effect-openapi-cli-generator/runtime-src/runtime/output/RunRecord"
+	"@bjornpagen/grizzle-cli-generator/runtime-src/runtime/output/RunRecord"
 ) {}
 
 /**
@@ -1191,7 +1190,7 @@ export interface HelpNotes {
  * The `Command.annotate` key under which a generated command carries its help notes.
  */
 export class Help extends Context.Service<Help, HelpNotes>()(
-	"effect-openapi-cli-generator/runtime-src/runtime/output/Help"
+	"@bjornpagen/grizzle-cli-generator/runtime-src/runtime/output/Help"
 ) {}
 
 const helpBase = CliOutput.defaultFormatter({ colors: false, globalFlags: "summary" })
@@ -1431,7 +1430,7 @@ export class ClientPolicy extends Context.Service<
 		readonly binName: string
 		readonly version: string
 	}
->()("effect-openapi-cli-generator/runtime-src/runtime/output/ClientPolicy") {}
+>()("@bjornpagen/grizzle-cli-generator/runtime-src/runtime/output/ClientPolicy") {}
 
 const displayName = (meta: OperationMeta): string =>
 	meta.operationId ?? `${meta.method} ${meta.pathTemplate}`

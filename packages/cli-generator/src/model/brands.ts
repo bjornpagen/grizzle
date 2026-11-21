@@ -77,19 +77,9 @@ export const WireName = pattern(wireNamePattern).pipe(Schema.brand("WireName"))
 export const HeaderName = pattern(tokenPattern).pipe(Schema.brand("HeaderName"))
 
 /**
- * An RFC 6265 cookie name.
- */
-export const CookieName = pattern(tokenPattern).pipe(Schema.brand("CookieName"))
-
-/**
  * An RFC 9110 8.3.1 media type, parameters allowed, no wildcards.
  */
 export const MediaType = pattern(mediaTypePattern).pipe(Schema.brand("MediaType"))
-
-/**
- * An RFC 9110 8.3.1 media range, wildcards allowed.
- */
-export const MediaRange = pattern(mediaRangePattern).pipe(Schema.brand("MediaRange"))
 
 /**
  * An OpenAPI 3.2.1 path template: absolute, with balanced non-empty expressions, no dot segments
@@ -101,11 +91,6 @@ export const PathTemplate = pattern(pathPattern).pipe(
 )
 
 /**
- * A server URL template with balanced non-empty variables.
- */
-export const ServerTemplate = pattern(serverPattern).pipe(Schema.brand("ServerTemplate"))
-
-/**
  * An RFC 9110 method token a request is sent with, exactly as spelled: any token but `CONNECT`,
  * which asks for a tunnel instead of a response.
  */
@@ -113,19 +98,6 @@ export const MethodToken = pattern(tokenPattern).pipe(
 	Schema.check(Schema.makeFilter((method: string) => method !== "CONNECT")),
 	Schema.brand("MethodToken")
 )
-
-/**
- * Help-safe plain text: no controls except LF and TAB, no format, separator or lone surrogate
- * characters.
- */
-export const SafeText = pattern(safeTextPattern).pipe(Schema.brand("SafeText"))
-
-/**
- * Source text made safe whatever its length: removes exactly the characters of the categories
- * `SafeText` rejects, so the result is always `SafeText`.
- */
-export const stripUnsafeText = (text: string): SafeText =>
-	SafeText.make(Str.replaceAll(unsafeCharacter, "")(text))
 
 /**
  * An absolute URI with ASCII characters only.
@@ -149,16 +121,6 @@ export const JsonLiteral = Schema.Json.pipe(Schema.brand("JsonLiteral"))
  * A SHA-256 digest as 64 lowercase hexadecimal digits.
  */
 export const Sha256Hex = pattern(regex("^[0-9a-f]{64}$", "u"))
-
-/**
- * The OpenAPI component-name pattern: the key grammar every Components Object map shares.
- */
-export const componentNamePattern = regex("^[a-zA-Z0-9.\\-_]+$", "u")
-
-/**
- * A Components Object key that matches the component-name pattern.
- */
-export const ComponentName = pattern(componentNamePattern)
 
 /**
  * A parameter, property or field name exactly as the specification spells it: no control and no lone surrogate.
@@ -232,6 +194,13 @@ export type SafeText = string & Brand.Brand<"SafeText">
 /** Whether a text is SafeText. */
 export const isSafeText = (text: string): text is SafeText => safeTextPattern.test(text)
 
+/**
+ * Source text made safe whatever its length: removes exactly the characters of the categories SafeText rejects, so
+ * the result is SafeText by construction.
+ */
+export const stripUnsafeText = (text: string): SafeText =>
+	Brand.nominal<SafeText>()(Str.replaceAll(unsafeCharacter, "")(text))
+
 /** An absolute URI with ASCII characters only. */
 export type DocumentUri = string & Brand.Brand<"DocumentUri">
 
@@ -243,6 +212,9 @@ export type NonEmptyText = string & Brand.Brand<"NonEmptyText">
 
 /** Whether a text is NonEmptyText. */
 export const isNonEmptyText = (text: string): text is NonEmptyText => !Str.isEmpty(text)
+
+/** The OpenAPI component-name pattern: the key grammar every Components Object map shares. */
+export const componentNamePattern = regex("^[a-zA-Z0-9.\\-_]+$", "u")
 
 /** Whether a text is a Components Object key: it matches the component-name pattern. */
 export const isComponentName = (text: string): boolean => componentNamePattern.test(text)

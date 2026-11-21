@@ -42,9 +42,7 @@ export const markedUses = (element: Markable): readonly NonStandardUse[] => [
  * 6.1, D-OQ1), one per marker: a `style` serialization's own, or each marked form Encoding rule's
  * of `content` (a 3.2 `querystring` parameter). Empty when nothing is marked.
  */
-export const nonStandardUses = (
-	serialization: Serialization
-): readonly NonStandardUse[] =>
+export const nonStandardUses = (serialization: Serialization): readonly NonStandardUse[] =>
 	serialization.kind === "content"
 		? Arr.flatMap(serialization.encoding, markedUses)
 		: markedUses(serialization)

@@ -29,8 +29,6 @@ import {
 } from "effect"
 import { JsonNumber, jsonNull } from "#runtime-src/runtime/input.ts"
 import type * as Multipart from "#runtime-src/runtime/multipart.ts"
-import * as Serialize from "#runtime-src/runtime/serialize.ts"
-import type { Json, Nested } from "#runtime-src/runtime/serialize.ts"
 import {
 	allOf,
 	anything,
@@ -51,6 +49,8 @@ import {
 	type Reader,
 	string
 } from "#runtime-src/runtime/read.ts"
+import * as Serialize from "#runtime-src/runtime/serialize.ts"
+import type { Json, Nested } from "#runtime-src/runtime/serialize.ts"
 import {
 	type HeaderCase,
 	headerModel,

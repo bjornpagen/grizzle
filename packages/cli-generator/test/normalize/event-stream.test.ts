@@ -101,8 +101,8 @@ export const eventContract = property.explore(itemSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/normalize/event-stream.ts",
-			original: 'literal("ready")])\n\t\t\t\t\t)\n\t\t\t\t},\n\t\t\t\tfalse',
-			replacement: 'literal("ready")])\n\t\t\t\t\t)\n\t\t\t\t},\n\t\t\t\tanything',
+			original: 'literal("ready")]))\n\t\t\t\t},\n\t\t\t\tfalse',
+			replacement: 'literal("ready")]))\n\t\t\t\t},\n\t\t\t\tanything',
 			why: "A bare role admits members beside it, so an `x-stream` holding a member no form names (an `extra`, or a `retryWhen` on a ready role) reads as that role instead of being refused as malformed; the property fails."
 		},
 		{

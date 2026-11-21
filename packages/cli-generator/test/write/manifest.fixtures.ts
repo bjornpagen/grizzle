@@ -3,7 +3,8 @@
  * them, and that text spoiled by one flaw, each read back as a later run reads the manifest it finds.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	type Aimed,
@@ -18,53 +19,18 @@ import { Array as Arr, Effect, Order, Result, String as Str } from "effect"
 import type { Schema } from "effect"
 import { Digest } from "effect/crypto"
 import { sha256Hex } from "#model/digest.ts"
-import { jsonText } from "#runtime/json.ts"
+import {
+	type EntryFlaw,
+	entryFlaws,
+	type WholeFlaw,
+	wholeFlaws
+} from "#test/write/manifest.dictionary.ts"
 import {
 	decodeManifest,
 	type ManifestEntry,
 	manifestFileName,
 	printManifest
 } from "#write/manifest.ts"
-
-/** How a manifest text as a whole departs from the manifest's shape, or `none` for the text the writer prints. */
-type WholeFlaw =
-	| "none"
-	| "no JSON text"
-	| "a list for the manifest"
-	| "a member beside files"
-	| "files that are no list"
-
-/** How the first entry of a manifest text departs from an entry's shape, or repeats its path. */
-type EntryFlaw =
-	| "a member beside an entry's three"
-	| "an entry without its size"
-	| "an empty path"
-	| "a sha256 in capitals"
-	| "a sha256 a digit short"
-	| "a fractional size"
-	| "a negative size"
-	| "a size written as text"
-	| "a repeated path"
-
-const WHOLE_FLAWS = dictionary<WholeFlaw>([
-	"none",
-	"no JSON text",
-	"a list for the manifest",
-	"a member beside files",
-	"files that are no list"
-])
-
-const ENTRY_FLAWS = dictionary<EntryFlaw>([
-	"a member beside an entry's three",
-	"an entry without its size",
-	"an empty path",
-	"a sha256 in capitals",
-	"a sha256 a digit short",
-	"a fractional size",
-	"a negative size",
-	"a size written as text",
-	"a repeated path"
-])
 
 /** One generated file: its path in the package and its text, ASCII, so its size in bytes is its length. */
 type File = Readonly<{ path: string; content: string }>
@@ -118,13 +84,13 @@ export const manifestFeaturesOf = (c: ManifestCase): ReadonlyArray<ManifestFeatu
 
 /** Manifests of every flaw, aimed at each, and at a clean one of several files. */
 export const manifestSpace: Aimed<ManifestCase, ManifestFeature> = aimed(
-	oneOf([wholeCase(word(WHOLE_FLAWS), 0), entryCase(word(ENTRY_FLAWS))]),
+	oneOf([wholeCase(word(wholeFlaws), 0), entryCase(word(entryFlaws))]),
 	[
-		...Arr.map(WHOLE_FLAWS, (flaw): readonly [ManifestFeature, Gen<ManifestCase>] => [
+		...Arr.map(wholeFlaws, (flaw): readonly [ManifestFeature, Gen<ManifestCase>] => [
 			flaw,
 			wholeCase(constant(flaw), 0)
 		]),
-		...Arr.map(ENTRY_FLAWS, (flaw): readonly [ManifestFeature, Gen<ManifestCase>] => [
+		...Arr.map(entryFlaws, (flaw): readonly [ManifestFeature, Gen<ManifestCase>] => [
 			flaw,
 			entryCase(constant(flaw))
 		]),
@@ -213,7 +179,7 @@ type Read = Result.Result<
  * What a case comes to: the manifest the writer prints for its files handed in reverse order, and what a later run reads
  * from the case's text.
  */
-export type Outcome = Readonly<{ reversed: string; read: Read }>
+type Outcome = Readonly<{ reversed: string; read: Read }>
 
 const read = (text: string) =>
 	decodeManifest(text).pipe(

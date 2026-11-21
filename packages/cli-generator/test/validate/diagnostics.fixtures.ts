@@ -5,15 +5,21 @@
  * methods as `additionalOperations` keys.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { array, finite, type FiniteSpace, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record, String as Str } from "effect"
 import { Digest } from "effect/crypto"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { fixedMethods, queryMethod } from "#model/path-item.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { documentAt, entryUri, lineGen } from "#test/support/normalizing.ts"
+import {
+	methods,
+	type Spelling,
+	spellings,
+	type Unit,
+	units
+} from "#test/validate/diagnostics.dictionary.ts"
 import { rewriteDialect } from "#validate/dialect.ts"
 import { type Diagnosis, diagnoseDocument } from "#validate/index.ts"
 
@@ -369,9 +375,7 @@ const seenOf = (diagnostic: Diagnostic): DiagnosticSeen => ({
 /** What diagnoseDocument answers for `document`, read under the Digest service a check is given, as it is compared. */
 const diagnosisOf = (document: Json, digest: typeof Digest.Digest.Service) =>
 	Effect.map(
-		Effect.flatMap(entryUri, (uri) =>
-			diagnoseDocument(document, uri).pipe(Effect.provideService(Digest.Digest, digest))
-		),
+		diagnoseDocument(document, entryUri).pipe(Effect.provideService(Digest.Digest, digest)),
 		(diagnosis: Diagnosis): DiagnosisSeen => ({
 			notices: Arr.sort(Arr.map(diagnosis.notices, seenOf), byPlace),
 			refusals: Arr.sort(
@@ -486,11 +490,6 @@ export const diagnosisFeaturesOf = (planted: Planted): ReadonlyArray<DiagnosisFe
 	)
 }
 
-/** The UTF-16 code units a property name is spelled in: a letter, and the two halves of U+1F600. */
-const UNITS = ["letter", "high surrogate", "low surrogate"] as const
-
-type Unit = (typeof UNITS)[number]
-
 const textOf: Readonly<Record<Unit, string>> = {
 	letter: "a",
 	"high surrogate": "\uD83D",
@@ -514,7 +513,7 @@ export type Named = Readonly<{
 /** Every line, every name of one to three code units, with no construct beside it or each one alone. */
 export const namedSpace: FiniteSpace<Named> = finite((source) => ({
 	line: source.draw(lineGen),
-	name: source.draw(array(word(dictionary(UNITS)), { min: 1, max: 3 })),
+	name: source.draw(array(word(units), { min: 1, max: 3 })),
 	plants: source.draw(subset(PLANTS, { min: 0, max: 1 }))
 }))
 
@@ -790,11 +789,6 @@ export const dialectFeaturesOf = (dialected: Dialected): ReadonlyArray<DialectFe
 	)
 }
 
-/** How a method name is spelled as a key: as the Path Item Object's field, in capitals, or capitalized. */
-const SPELLINGS = ["lowercase", "uppercase", "capitalized"] as const
-
-type Spelling = (typeof SPELLINGS)[number]
-
 const spelledAs: Readonly<Record<Spelling, (method: string) => string>> = {
 	lowercase: (method) => method,
 	uppercase: Str.toUpperCase,
@@ -806,8 +800,8 @@ export type MethodKey = Readonly<{ method: string; spelling: Spelling }>
 
 /** Every fixed method of the 3.2 Path Item Object, in every spelling. */
 export const methodKeySpace: FiniteSpace<MethodKey> = finite((source) => ({
-	method: source.draw(word(dictionary([...fixedMethods, queryMethod]))),
-	spelling: source.draw(word(dictionary(SPELLINGS)))
+	method: source.draw(word(methods)),
+	spelling: source.draw(word(spellings))
 }))
 
 export type MethodKeyFeature = `a ${Spelling} key`

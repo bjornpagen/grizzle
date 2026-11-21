@@ -32,8 +32,11 @@
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
+import { refusedEvents } from "#test/generated/event-stream.dictionary.ts"
 import {
 	bodyOf,
 	cutCases,
@@ -55,7 +58,6 @@ import {
 	outcomeText,
 	readArgs,
 	readBody,
-	refusedCases,
 	type RefusedData,
 	refusedText,
 	resetText,
@@ -263,7 +265,7 @@ export const streamFailure = property.exhaust(failureCases, {
 })
 
 /** An event whose data its contentSchema refuses ends the run with exit 5 (invalidData), printing nothing of it. */
-export const streamRefusedData = property.exhaust(refusedCases, {
+export const streamRefusedData = property.exhaust(finite(word(refusedEvents)), {
 	box: "the read sent one event of each type whose data its contentSchema refuses",
 	needs: { fixture: streamFixture, checkout: Checkout.dir },
 	situations: ["reset", "upsert", "remove", "ready", "error"],

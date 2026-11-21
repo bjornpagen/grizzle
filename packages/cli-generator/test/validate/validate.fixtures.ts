@@ -5,8 +5,9 @@
  * where it can reach no network.
  */
 
+import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import type { CheckoutDir } from "@bjornpagen/testing/checkout"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	characterOf,
 	constant,
@@ -22,7 +23,6 @@ import {
 	unicodeScalar,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Effect,
@@ -39,11 +39,17 @@ import { fixedDocumentUri } from "#model/brands.ts"
 import { foldJson } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
 import { patchVersion, type SpecLine } from "#model/spec-section.ts"
+import { specLines } from "#test/model/spec-section.dictionary.ts"
+import {
+	type Location,
+	locations,
+	type SchemaType,
+	schemaTypes,
+	UNLISTED_LOCATIONS,
+	UNLISTED_TYPES
+} from "#test/validate/validate.dictionary.ts"
 import type { ReadSchema } from "#validate/index.ts"
 import { manifest } from "#validate/schemas/manifest.ts"
-
-/** Every line the generator reads. */
-const LINES = ["3.0", "3.1", "3.2"] as const satisfies ReadonlyArray<SpecLine>
 
 /**
  * The dated official schema each line validates against (design 3.2): `schema-base` for 3.1 and 3.2, whose plain
@@ -54,22 +60,6 @@ const DATED_SCHEMA: Readonly<Record<SpecLine, string>> = {
 	"3.1": "https://spec.openapis.org/oas/3.1/schema-base/2026-08-03",
 	"3.2": "https://spec.openapis.org/oas/3.2/schema-base/2026-08-30"
 }
-
-/** The parameter locations every line lists for a parameter with a schema (the Parameter Object's `in`). */
-const LISTED_LOCATIONS = ["query", "header", "cookie"] as const
-
-/** OpenAPI 2.0's parameter locations, which no 3.x line lists. */
-const UNLISTED_LOCATIONS = ["body", "formData"] as const
-
-type Location = (typeof LISTED_LOCATIONS)[number] | (typeof UNLISTED_LOCATIONS)[number]
-
-/** JSON Schema's simple types a Schema Object's `type` may name on every line. */
-const LISTED_TYPES = ["object", "string", "integer", "number", "boolean"] as const
-
-/** A misspelt type and OpenAPI 2.0's `file`, which no dialect lists. */
-const UNLISTED_TYPES = ["strng", "file"] as const
-
-type SchemaType = (typeof LISTED_TYPES)[number] | (typeof UNLISTED_TYPES)[number]
 
 const isUnlistedLocation = (location: Location): boolean =>
 	Arr.some(UNLISTED_LOCATIONS, (unlisted) => unlisted === location)
@@ -82,14 +72,14 @@ export type LineCase = Readonly<{ line: SpecLine; location: Location; type: Sche
 
 /** Every line, with every listed and unlisted parameter location and schema type. */
 export const lineSpace: FiniteSpace<LineCase> = finite((source) => ({
-	line: source.draw(word(dictionary(LINES))),
-	location: source.draw(word(dictionary([...LISTED_LOCATIONS, ...UNLISTED_LOCATIONS]))),
-	type: source.draw(word(dictionary([...LISTED_TYPES, ...UNLISTED_TYPES])))
+	line: source.draw(word(specLines)),
+	location: source.draw(word(locations)),
+	type: source.draw(word(schemaTypes))
 }))
 
 /** Every line's valid document: its parameter in the query, its schema an object. */
 export const offlineSpace: FiniteSpace<LineCase> = finite((source) => ({
-	line: source.draw(word(dictionary(LINES))),
+	line: source.draw(word(specLines)),
 	location: "query",
 	type: "object"
 }))
@@ -378,7 +368,7 @@ export const unreadableFailure = new PlatformError.BadArgument({
 })
 
 /** The bytes of a vendored schema, from the validator's own schemas directory. */
-export const vendoredBytes: ReadSchema = Effect.fnUntraced(function* vendoredBytes(file: string) {
+const vendoredBytes: ReadSchema = Effect.fnUntraced(function* vendoredBytes(file: string) {
 	const fs = yield* FileSystem.FileSystem
 	const path = yield* Path.Path
 	const target = yield* path.fromFileUrl(

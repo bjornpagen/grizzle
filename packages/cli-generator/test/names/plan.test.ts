@@ -100,12 +100,6 @@ export const namePlan = property.explore(planSpace, {
 			why: "A group's commands import every body schema but their multipart ones, so a group namespace may take the name of a multipart body's schema its own module imports; the property fails (CATCH's evidence, mutant 6338b80dc2)."
 		},
 		{
-			file: "packages/cli-generator/src/emit/domain.ts",
-			original: "\t\treturn !this.failed && this.position >= this.tokens.length",
-			replacement: "\t\treturn this.failed && this.position >= this.tokens.length",
-			why: "The domain emitter reads every printed schema as failed, so an imported domain name is not exported; the property fails (CATCH's evidence, mutant 4ea4629990)."
-		},
-		{
 			file: "packages/cli-generator/src/names/index.ts",
 			original: "byName.get(entry.container) ?? new Map<string, Named[]>()",
 			replacement: "byName.get(entry.container)",

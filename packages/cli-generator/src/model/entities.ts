@@ -37,16 +37,20 @@ export type SchemaRef = Readonly<{ key: string }>
 
 type Rows = ReadonlyArray<RowId>
 
-/** The serialization styles of the Parameter and Encoding Objects. */
-export type StyleName =
-	| "cookie"
-	| "deepObject"
-	| "form"
-	| "label"
-	| "matrix"
-	| "pipeDelimited"
-	| "simple"
-	| "spaceDelimited"
+/** The eight serialization styles a Parameter, Header or Encoding Object may declare. */
+export const styleNames = [
+	"cookie",
+	"deepObject",
+	"form",
+	"label",
+	"matrix",
+	"pipeDelimited",
+	"simple",
+	"spaceDelimited"
+] as const
+
+/** One of the {@link styleNames}. */
+export type StyleName = (typeof styleNames)[number]
 
 /**
  * The non-standard serializations the author config opted into for one entry (design 6.1, D-OQ1 (b)), one marker

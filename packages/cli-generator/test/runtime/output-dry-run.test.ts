@@ -240,14 +240,14 @@ export const printedBodies = property.explore(aimedBodies, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: "out.push(...this.text.push(bytes))",
-			replacement: "out.push(bytes)",
+			original: "for (const piece of this.text.push(bytes)) {",
+			replacement: "for (const piece of [Result.succeed(bytes)]) {",
 			why: "A multipart text part prints unscrubbed, so the recorded value and the credential show; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: "? line(scrubValues(new TextDecoder().decode(body.body), recorded))",
-			replacement: "? line(new TextDecoder().decode(body.body))",
+			original: "onSome: (text) => line(scrubValues(text, recorded))",
+			replacement: "onSome: (text) => line(text)",
 			why: "A text body in memory prints unscrubbed, so a recorded secret-file value shows; the property fails."
 		}
 	]
@@ -304,7 +304,7 @@ export const printedRedactedNames = property.explore(aimedDecorations, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: "UrlParams.isRedactedName(decodedQueryName(part.slice(0, equals)), names)",
+			original: "UrlParams.isRedactedName(decodedQueryName(Str.slice(0, equals)(part)), names)",
 			replacement: "false",
 			why: "A query value under a redacted name prints as it is; the property fails."
 		}

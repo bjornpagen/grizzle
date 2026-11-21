@@ -4,20 +4,16 @@
  * second document of the set, and what the specification finds of each.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { element, finite, type FiniteSpace, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { checkSpecText } from "#check/index.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import { resolve } from "#resolve/index.ts"
+import { type Site, sites } from "#test/check/document-set.dictionary.ts"
 
-/** Where a referenced component sits: the entry document, or the second document of the set. */
-const SITES = ["entry", "second"] as const
-
-export type Site = (typeof SITES)[number]
-
-const siteGen: Gen<Site> = word(dictionary(SITES))
+const siteGen: Gen<Site> = word(sites)
 
 const entry = fixedDocumentUri("file:///spec/openapi.json")
 

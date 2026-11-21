@@ -5,9 +5,9 @@
  * each.
  */
 
+import { type Json, jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { element, finite, type FiniteSpace } from "@bjornpagen/testing/gen"
 import { syntaxOf } from "@bjornpagen/testing/syntax"
-import { type Json, jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, FileSystem, Option, Order, Path, Predicate, Record } from "effect"
 import { HttpClientRequest } from "effect/http"
 import {

@@ -12,13 +12,13 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
+import type { CollisionFeature } from "#test/resolve/document-set.dictionary.ts"
 import {
 	aimedChains,
 	aimedCycles,
 	type ChainFeature,
 	chainFeatures,
 	chainResolved,
-	type CollisionFeature,
 	collisionResolved,
 	collisionSpace,
 	type ConnectionFeature,

@@ -154,21 +154,21 @@ const platformFailure = PlatformError.badArgument({ module: "FileSystem", method
 export const failureSpace: Space<FailureCase> = oneOf([
 	(source) =>
 		whole(
-			RunLockHeld.make({ lockPath: source.draw(text) }),
+			new RunLockHeld({ lockPath: source.draw(text) }),
 			"the lock line",
 			"error: another run holds the output directory's lock"
 		),
 	(source) => {
 		const reason = source.draw(element(["io", "symlink", "unsafe-path"] as const))
 		return whole(
-			WriteRefused.make({ reason, subject: source.draw(subject) }),
+			new WriteRefused({ reason, subject: source.draw(subject) }),
 			"a refused write",
 			`error: the output was not written (${reason})`
 		)
 	},
 	(source) =>
 		withSubject(
-			PrinterError.make({
+			new PrinterError({
 				reason: source.draw(element(["duplicate-key", "unbreakable-line"] as const)),
 				subject: source.draw(subject)
 			})
@@ -189,11 +189,11 @@ export const failureSpace: Space<FailureCase> = oneOf([
 		),
 	(source) =>
 		reasonAlone(
-			DomainEmitError.make({
-				reason: source.draw(element(["import-failed", "reference-cycle"] as const))
+			new DomainEmitError({
+				reason: source.draw(element(["identifier-mismatch", "unresolved-reference"] as const))
 			})
 		),
-	() => reasonAlone(PackageEmitError.make({ reason: "unprintable-package" })),
+	() => reasonAlone(new PackageEmitError({ reason: "unprintable-package" })),
 	(source) =>
 		reasonAlone(
 			new SchemaManifestError({
@@ -201,12 +201,12 @@ export const failureSpace: Space<FailureCase> = oneOf([
 				reason: source.draw(element(["unreadable", "sha256-mismatch"] as const))
 			})
 		),
-	(source) => neither(InvalidInstanceLocation.make({ location: source.draw(text) })),
+	(source) => neither(new InvalidInstanceLocation({ location: source.draw(text) })),
 	(source) =>
-		neither(SchemaImportDefect.make({ key: source.draw(text), message: source.draw(subject) })),
+		neither(new SchemaImportDefect({ key: source.draw(text), message: source.draw(subject) })),
 	(source) => neither(new ValidatorError({ cause: source.draw(subject) })),
 	(source) =>
-		neither(RunLockUnavailable.make({ lockPath: source.draw(text), cause: platformFailure }))
+		neither(new RunLockUnavailable({ lockPath: source.draw(text), cause: platformFailure }))
 ])
 
 /**

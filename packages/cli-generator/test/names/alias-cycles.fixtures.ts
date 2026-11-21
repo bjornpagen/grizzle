@@ -3,7 +3,7 @@
  * pipeline's answer for it (resolve, normalize and the names plan, in process) and the specification's.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { boolean, finite, type FiniteSpace, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
@@ -12,15 +12,13 @@ import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"
-
-/** How one schema of the chain reaches the next. */
-type Link = "$ref" | "allOf" | "anyOf" | "oneOf"
+import { type Entry, entries, type Link, links } from "#test/names/alias-cycles.dictionary.ts"
 
 /** One case: the chain's links in order, whether its last link returns to its first schema, and how the body reaches it. */
 export type ChainCase = Readonly<{
 	links: Arr.NonEmptyReadonlyArray<Link>
 	closed: boolean
-	entry: "direct" | "property"
+	entry: Entry
 }>
 
 export type ChainFeature =
@@ -174,19 +172,13 @@ export const featuresOf = (chain: ChainCase): readonly ChainFeature[] => {
 	]
 }
 
-/** The applicators a link is written with: JSON Schema's own, a bare reference or a one-member composition. */
-const LINKS = dictionary<Link>(["$ref", "allOf", "anyOf", "oneOf"])
-
-/** How the request body reaches the chain: pointing straight at its first schema, or through one property. */
-const ENTRIES = dictionary<ChainCase["entry"]>(["direct", "property"])
-
 /**
  * Every chain of one to four links, each link any applicator, closed back onto its first schema or ended in an object,
  * reached directly or through a property: 1,360 cases.
  */
 export const chainSpace: FiniteSpace<ChainCase> = finite((s) => {
 	const length = s.draw(int(1, 4))
-	const first = s.draw(word(LINKS))
-	const rest = Array.from({ length: length - 1 }, () => s.draw(word(LINKS)))
-	return { links: [first, ...rest], closed: s.draw(boolean), entry: s.draw(word(ENTRIES)) }
+	const first = s.draw(word(links))
+	const rest = Array.from({ length: length - 1 }, () => s.draw(word(links)))
+	return { links: [first, ...rest], closed: s.draw(boolean), entry: s.draw(word(entries)) }
 })

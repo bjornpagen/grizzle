@@ -3,7 +3,7 @@
  * documents whose `paths` hold drawn path items, inline or by reference, with what the specification says of each.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	type Aimed,
@@ -22,12 +22,12 @@ import { fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { resolve } from "#resolve/index.ts"
+import { type Holding, holdings } from "#test/check/path-items.dictionary.ts"
+import { specLines } from "#test/model/spec-section.dictionary.ts"
 
 const entry = fixedDocumentUri("file:///spec/openapi.json")
 
-/** The lines the generator reads, each with its latest patch release. */
-const LINES = dictionary<SpecLine>(["3.0", "3.1", "3.2"])
-
+/** Each line the generator reads with its latest patch release. */
 const VERSIONS: Readonly<Record<SpecLine, string>> = {
 	"3.0": "3.0.4",
 	"3.1": "3.1.2",
@@ -113,7 +113,7 @@ const sectionsGen =
 		])
 
 const keysGen: Gen<KeysCase> = (source) => {
-	const line = source.draw(word(LINES))
+	const line = source.draw(word(specLines))
 	return { line, sections: source.draw(sectionsGen(line)) }
 }
 
@@ -188,9 +188,9 @@ export const keyFeaturesOf = (c: KeysCase): ReadonlyArray<KeyFeature> => {
 
 /** Keys of every map, aimed at an admitted key, a refused one, the empty key and refusals in the later lines' maps. */
 export const keysSpace: Aimed<KeysCase, KeyFeature> = aimed(keysGen, [
-	["a key the grammar admits", keyed(word(LINES), "schemas", constant("Pet.v1-x_y"))],
-	["a key the grammar refuses", keyed(word(LINES), "schemas", constant("bad key"))],
-	["the empty key", keyed(word(LINES), "responses", constant(""))],
+	["a key the grammar admits", keyed(word(specLines), "schemas", constant("Pet.v1-x_y"))],
+	["a key the grammar refuses", keyed(word(specLines), "schemas", constant("bad key"))],
+	["the empty key", keyed(word(specLines), "responses", constant(""))],
 	["a refused key under pathItems", keyed(element(["3.1", "3.2"]), "pathItems", constant("a/b"))],
 	["a refused key under mediaTypes", keyed(constant("3.2"), "mediaTypes", constant("$x"))]
 ])
@@ -228,9 +228,6 @@ export const expectedKeyDiagnostics = (c: KeysCase): ReadonlyArray<Stated> =>
 		)
 	)
 
-/** How a `paths` entry holds its Path Item Object: inline, by reference to a component, or by a chain of two. */
-type Holding = "inline" | "referenced" | "chained"
-
 /** One `paths` entry: its key and how it holds its item. */
 type PathEntry = Readonly<{ key: string; holding: Holding }>
 
@@ -243,9 +240,7 @@ const pathKeyGen: Gen<string> = (source) =>
 
 /** How an entry of `line` holds its item: inline on 3.0, whose Components Object holds no path items. */
 const holdingGen = (line: SpecLine): Gen<Holding> =>
-	line === "3.0"
-		? constant("inline")
-		: word(dictionary<Holding>(["inline", "referenced", "chained"]))
+	line === "3.0" ? constant("inline") : word(holdings)
 
 const itemsGen =
 	(line: Gen<SpecLine>, holding: (line: SpecLine) => Gen<Holding>): Gen<ItemsCase> =>
@@ -290,32 +285,35 @@ export const itemFeaturesOf = (c: ItemsCase): ReadonlyArray<ItemFeature> => {
 const laterLines = element<SpecLine>(["3.1", "3.2"])
 
 /** Path items of every holding, aimed at each holding, an escaped `~` and several entries. */
-export const itemsSpace: Aimed<ItemsCase, ItemFeature> = aimed(itemsGen(word(LINES), holdingGen), [
-	["an inline path item", itemsGen(word(LINES), () => constant("inline"))],
-	["a referenced path item", itemsGen(laterLines, () => constant("referenced"))],
-	["a chain of references", itemsGen(laterLines, () => constant("chained"))],
+export const itemsSpace: Aimed<ItemsCase, ItemFeature> = aimed(
+	itemsGen(word(specLines), holdingGen),
 	[
-		"a key a pointer escapes ~ in",
-		(source) => {
-			const drawn = source.draw(itemsGen(laterLines, holdingGen))
-			return { ...drawn, entries: [{ key: "/x~", holding: "referenced" }, ...drawn.entries] }
-		}
-	],
-	[
-		"several path items",
-		(source) => {
-			const drawn = source.draw(itemsGen(laterLines, holdingGen))
-			return {
-				...drawn,
-				entries: [
-					{ key: "/z", holding: "inline" },
-					{ key: "/y", holding: "chained" },
-					...drawn.entries
-				]
+		["an inline path item", itemsGen(word(specLines), () => constant("inline"))],
+		["a referenced path item", itemsGen(laterLines, () => constant("referenced"))],
+		["a chain of references", itemsGen(laterLines, () => constant("chained"))],
+		[
+			"a key a pointer escapes ~ in",
+			(source) => {
+				const drawn = source.draw(itemsGen(laterLines, holdingGen))
+				return { ...drawn, entries: [{ key: "/x~", holding: "referenced" }, ...drawn.entries] }
 			}
-		}
+		],
+		[
+			"several path items",
+			(source) => {
+				const drawn = source.draw(itemsGen(laterLines, holdingGen))
+				return {
+					...drawn,
+					entries: [
+						{ key: "/z", holding: "inline" },
+						{ key: "/y", holding: "chained" },
+						...drawn.entries
+					]
+				}
+			}
+		]
 	]
-])
+)
 
 const inlineItem: Json = { get: { responses: {} } }
 

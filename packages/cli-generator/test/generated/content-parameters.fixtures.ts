@@ -1,5 +1,5 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	array,
@@ -17,6 +17,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Duration, Effect, Option, Record as Rec, String as Str } from "effect"
 import type { Json } from "#model/pointer.ts"
+import { jsonContentFlags } from "#test/generated/content-parameters.dictionary.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -339,7 +340,7 @@ export const runs = aimed(
 )
 
 /** The flags whose content is JSON, each a case of the help property. */
-export const jsonFlags: FiniteSpace<string> = finite(word(dictionary(["--coordinates", "--tags"])))
+export const jsonFlags: FiniteSpace<string> = finite(word(jsonContentFlags))
 
 /** The suite's fixture, once per worker: the capture server, the package built against it, and its command. */
 export const contentFixture = workerFixture(

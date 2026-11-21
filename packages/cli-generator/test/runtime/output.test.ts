@@ -226,7 +226,7 @@ export const finalCatchOthers = property.exhaust(others, {
 		},
 		{
 			file: "packages/cli-generator/src/runtime-src/runtime/output.ts",
-			original: 'isDescribed(squashed) ? defectMessage(squashed) : "unknown failure"',
+			original: 'Option.getOrElse(defectMessage(Cause.squash(cause)), () => "unknown failure")',
 			replacement: '"unknown failure"',
 			why: "A defect's own message is never printed; the property fails."
 		},

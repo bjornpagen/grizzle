@@ -17,7 +17,7 @@ import {
 	option,
 	uniqueKeys
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Record, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Record, Result, String as Str } from "effect"
 import { emitDomainSchemas } from "#emit/domain.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import {

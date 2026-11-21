@@ -100,6 +100,35 @@ const DICTIONARY_MINTS = [
 	"test/unit/world-model/generate.dictionary.ts"
 ] as const
 
+/**
+ * The CLI generator's dictionary doors (packages/cli-generator), by their path in its package, whose import map names
+ * them `#test/...`: each beside its test module, as DICTIONARY_MINTS are beside grizzle's.
+ */
+const GENERATOR_DICTIONARY_MINTS = [
+	"test/check/document-set.dictionary.ts",
+	"test/check/path-items.dictionary.ts",
+	"test/generated/content-parameters.dictionary.ts",
+	"test/generated/event-stream.dictionary.ts",
+	"test/generated/lazy-root.dictionary.ts",
+	"test/generated/object-parameters.dictionary.ts",
+	"test/generated/printed-requests.dictionary.ts",
+	"test/model/spec-section.dictionary.ts",
+	"test/names/alias-cycles.dictionary.ts",
+	"test/names/reserved-namespaces.dictionary.ts",
+	"test/resolve/document-set.dictionary.ts",
+	"test/runtime/sequential-media-parity.dictionary.ts",
+	"test/validate/diagnostics.dictionary.ts",
+	"test/validate/validate.dictionary.ts",
+	"test/write/lock.dictionary.ts",
+	"test/write/manifest.dictionary.ts"
+] as const
+
+/** Every dictionary door, by its path from the repository root: grizzle's and the CLI generator's. */
+const DICTIONARY_MINT_FILES = [
+	...DICTIONARY_MINTS,
+	...Arr.map(GENERATOR_DICTIONARY_MINTS, (path) => `packages/cli-generator/${path}` as const)
+] as const
+
 /** DICTIONARY_MINTS as the package's import map names them. */
 const DICTIONARY_MINTS_SPECIFIERS = Arr.map(DICTIONARY_MINTS, (path) => `#${path}` as const)
 
@@ -116,7 +145,8 @@ const DICTIONARY_DOORS = [
 	"#test/support/kernel/dict.ts",
 	"#test/support/oracle/gen/domain.ts",
 	"#test/support/worlds/invalid/kinds.ts",
-	...DICTIONARY_MINTS_SPECIFIERS
+	...DICTIONARY_MINTS_SPECIFIERS,
+	...Arr.map(GENERATOR_DICTIONARY_MINTS, (path) => `#${path}` as const)
 ] as const
 
 /** The engine's clock and scheduling ban, one message for every global it names. */
@@ -456,9 +486,9 @@ export default defineConfig(
 					{
 						module: "@bjornpagen/testing/dictionary",
 						guards: { kind: "exports", names: ["dictionary"] },
-						doors: DICTIONARY_MINTS,
+						doors: DICTIONARY_MINT_FILES,
 						message:
-							"A dictionary is minted in a dictionary door beside its test module, <name>.dictionary.ts, listed in oxlint.config.ts DICTIONARY_MINTS: a vocabulary that is the domain itself, never cases a person chose."
+							"A dictionary is minted in a dictionary door beside its test module, <name>.dictionary.ts, listed in oxlint.config.ts DICTIONARY_MINTS (GENERATOR_DICTIONARY_MINTS for the CLI generator): a vocabulary that is the domain itself, never cases a person chose."
 					}
 				]
 			},

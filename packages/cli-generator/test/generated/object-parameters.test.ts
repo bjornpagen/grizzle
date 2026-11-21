@@ -23,8 +23,11 @@
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option } from "effect"
+import { jsonInputs } from "#test/generated/object-parameters.dictionary.ts"
 import {
 	HEADER_FEATURES,
 	headerArgs,
@@ -32,7 +35,6 @@ import {
 	headerExpected,
 	type HeaderFeature,
 	headerFeatures,
-	jsonInputs,
 	NOT_JSON_TARGETS,
 	notJsonCases,
 	notJsonInvocation,
@@ -58,7 +60,7 @@ import {
 } from "#test/generated/object-parameters.fixtures.ts"
 
 /** Each object positional and flag, and the JSON body field flag, shows json as its value in --help. */
-export const objectJsonHelp = property.exhaust(jsonInputs, {
+export const objectJsonHelp = property.exhaust(finite(word(jsonInputs)), {
 	box: "every JSON input of the box: each path style's positional, the three query flags, the two header flags and the JSON body field flag",
 	needs: { fixture: objectFixture, checkout: Checkout.dir },
 	situations: [],

@@ -88,7 +88,7 @@ export type Event = Readonly<{ event: string; data: Json }>
  * A value grizzle's handler or the CLI answered that the tier cannot read: what it was, and why, its text no JSON text
  * or the places it breaks the tier's reader of it.
  */
-export class Unreadable extends Data.TaggedError("Unreadable")<{
+class Unreadable extends Data.TaggedError("Unreadable")<{
 	readonly what: string
 	readonly why: InvalidJsonText | ReadIssues
 }> {

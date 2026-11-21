@@ -20,8 +20,11 @@
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
+import { word } from "@bjornpagen/testing/dictionary"
+import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
+import { failures } from "#test/generated/printed-requests.dictionary.ts"
 import {
 	answered,
 	expectedRendered,
@@ -29,7 +32,6 @@ import {
 	type Failure,
 	failureRun,
 	FAILURES,
-	failures,
 	keysOf,
 	MARKER,
 	operationOfRequest,
@@ -142,7 +144,7 @@ export const printedRequests = property.explore(requests, {
 })
 
 /** Every failure renders as one JSON object with its error's keys, nothing on stdout, and its exit code. */
-export const jsonErrors = property.exhaust(failures, {
+export const jsonErrors = property.exhaust(finite(word(failures)), {
 	box: "every failure the suite lists: API errors with and without a request id, a refused connection, a missing credential, a usage error and a Retry-After past the timeout",
 	needs: { fixture: printedFixture, checkout: Checkout.dir },
 	situations: FAILURES,

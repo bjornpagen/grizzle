@@ -11,7 +11,7 @@ import {
 	Result,
 	String as Str
 } from "effect"
-import type { AuthorConfig } from "#model/author-config.ts"
+import type { AuthorConfig, ConfigAlias, OperationOverride } from "#model/author-config.ts"
 import { defsKeyOf } from "#model/defs-ref.ts"
 import type {
 	MediaAlternative,
@@ -114,7 +114,7 @@ export type CommandNameSource = (typeof commandNameSources)[number]
  * Where a command's group name came from (design 8.1 `commandNames`): the first tag, or `none` for
  * a root command. `operationId` and `route` name commands only, so a group never carries them.
  */
-export const groupNameSources = ["config", "none", "tag", "x-fern", "x-forge"] as const
+const groupNameSources = ["config", "none", "tag", "x-fern", "x-forge"] as const
 
 export type GroupNameSource = (typeof groupNameSources)[number]
 
@@ -201,10 +201,6 @@ export type CredentialNames =
 			readonly slug: string
 	  }
 
-export type OperationOverride = NonNullable<
-	NonNullable<NonNullable<AuthorConfig["naming"]>["operations"]>[string]
->
-
 /**
  * The author-config entry for one operation: `operations[<operationId>]`, or `byPointer[<pointer>]`
  * only when the operation has no `operationId` (design D-AD11). `configKey` is the entry's path
@@ -244,8 +240,6 @@ export const overrideSite = (config: AuthorConfig, operation: Operation): Overri
 }
 
 const templateExpression = regex("\\{(?<name>[^{}]+)\\}", "gu")
-
-export type ConfigAlias = NonNullable<OperationOverride["aliases"]>[number]
 
 /**
  * Who names one planned command: the operation itself, through the author config and its own

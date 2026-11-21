@@ -21,10 +21,11 @@ import {
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
 import { checkGrammar } from "#check/grammar.ts"
 import { checkSpecText } from "#check/index.ts"
+import { pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
-import { documentAt, lineGen, pointerOrder, resolvedAt, token } from "#test/support/normalizing.ts"
+import { documentAt, lineGen, resolvedAt, token } from "#test/support/normalizing.ts"
 
 /** The members a document holds beside its info and its declared version. */
 type Members = Rec.ReadonlyRecord<string, Json>

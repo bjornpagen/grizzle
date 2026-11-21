@@ -4,7 +4,7 @@
  */
 
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	type Aimed,
@@ -14,11 +14,12 @@ import {
 	type Gen,
 	oneOf
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, FileSystem, JsonPointer, Option, Order, Path, Stream } from "effect"
+import { Array as Arr, Effect, FileSystem, JsonPointer, Option, Path, Stream } from "effect"
 import type { Schema } from "effect"
 import { generate } from "#generate.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import { reservedCommandNames, reservedFlagNames } from "#names/reserved.ts"
+import { reservedCommands, reservedFlags } from "#test/names/reserved-namespaces.dictionary.ts"
 
 /**
  * Where the drawn name sits: the operation's command name, its group (tag), a query parameter, a JSON body field, or a
@@ -38,21 +39,10 @@ export type NameCase = Readonly<{
 	renamed: boolean
 }>
 
-/** The sorted members of a reserved set behind `first`, the member a counterexample shrinks to. */
-const membersAfter = (
-	first: string,
-	names: ReadonlySet<string>
-): Arr.NonEmptyReadonlyArray<string> => Arr.prepend(Arr.sort([...names], Order.String), first)
-
-/** The reserved sets are the generator's own vocabulary of what it holds back, read as dictionaries. */
-const FLAG_NAMES = dictionary(membersAfter("follow", reservedFlagNames))
-
-const COMMAND_NAMES = dictionary(membersAfter("help", reservedCommandNames))
-
 const ordinary = element(["limit", "owner", "page-size"])
 
 /** A name of each kind as often as the others: ordinary, a reserved flag name (`follow` first) or a reserved command. */
-const nameGen: Gen<string> = oneOf([ordinary, word(FLAG_NAMES), word(COMMAND_NAMES)])
+const nameGen: Gen<string> = oneOf([ordinary, word(reservedFlags), word(reservedCommands)])
 
 const caseGen =
 	(site: Gen<Site>): Gen<NameCase> =>
@@ -259,13 +249,13 @@ const positional =
 /** Name cases, aimed at each site admitting and refusing and at the namespaces' edges. */
 export const nameSpace: Aimed<NameCase, NamespaceFeature> = aimed(caseGen(anySite), [
 	["command admitted", at("command", ordinary)],
-	["command refused", at("command", word(COMMAND_NAMES))],
+	["command refused", at("command", word(reservedCommands))],
 	["group admitted", at("group", ordinary)],
-	["group refused", at("group", word(COMMAND_NAMES))],
+	["group refused", at("group", word(reservedCommands))],
 	["parameter admitted", at("parameter", ordinary)],
-	["parameter refused", at("parameter", word(FLAG_NAMES))],
+	["parameter refused", at("parameter", word(reservedFlags))],
 	["body admitted", at("body", ordinary)],
-	["body refused", at("body", word(FLAG_NAMES))],
+	["body refused", at("body", word(reservedFlags))],
 	["positional admitted", positional("none", false)],
 	["positional refused", positional("same name", false)],
 	["a runtime flag's name as a command", at("command", constant("follow"))],

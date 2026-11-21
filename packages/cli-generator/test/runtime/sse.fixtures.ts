@@ -25,7 +25,6 @@ import {
 	Exit,
 	Option,
 	Record as Rec,
-	Schema,
 	String as Str,
 	Stream
 } from "effect"

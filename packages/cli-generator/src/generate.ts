@@ -98,7 +98,7 @@ export interface GenerateConfig {
 interface Generation {
 	readonly diagnostics: readonly Diagnostic[]
 	readonly files: readonly EmittedFile[]
-	readonly report: GenerationReportValue
+	readonly report: GenerationReport
 }
 
 export interface GenerateResult {

@@ -40,7 +40,7 @@ import {
 	MediaType,
 	MethodToken,
 	PathTemplate,
-	SafeText,
+	type SafeText,
 	stripUnsafeText,
 	WireName
 } from "#model/brands.ts"

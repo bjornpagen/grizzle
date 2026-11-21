@@ -18,9 +18,9 @@ import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Path, String as Str } from "effect"
+import type { InvocationFeature } from "#test/generated/lazy-root.dictionary.ts"
 import {
 	importsOf,
-	type InvocationFeature,
 	invocationKinds,
 	invocationsOf,
 	KEY,

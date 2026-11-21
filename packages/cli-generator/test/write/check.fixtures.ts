@@ -6,8 +6,7 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, type FiniteSpace, finite, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, FileSystem, Order, Path } from "effect"
-import type { Digest } from "effect/crypto"
+import { Array as Arr, Effect, FileSystem, Order, Path, String as Str } from "effect"
 import { checkGeneration, generate } from "#generate.ts"
 import { isDocumentUri } from "#model/brands.ts"
 import { writeFiles } from "#write/index.ts"
@@ -91,7 +90,7 @@ export const generatedUnder = (root: string, layout: Layout) =>
 	})
 
 /** Whether a text names a host path of `root`, as a path or inside a file URL. */
-export const namesRoot = (text: string, root: string): boolean => text.includes(root)
+export const namesRoot = (text: string, root: string): boolean => Str.includes(root)(text)
 
 /** A fault an output directory carries against a fresh generation, at one of its files where it names one. */
 export type Fault =
@@ -124,6 +123,9 @@ export type CheckFeature =
 	| "the manifest edited"
 	| "the manifest missing"
 
+/** What a fault leaves an output directory carrying against a fresh generation, and the situation it reaches. */
+type Faulted = Readonly<{ expected: readonly CheckDifference[]; feature: CheckFeature }>
+
 /** One file a fault names, and the situation it reaches. */
 const faulted = (written: readonly string[], at: number, kind: "edited" | "missing") => {
 	const file = defined(written[at % written.length], "the generation wrote a file there")
@@ -144,19 +146,18 @@ export const checkedAfter = (root: string, fault: Fault) =>
 		const { input, config } = yield* inputsUnder(root, Arr.headNonEmpty(LAYOUTS))
 		const result = yield* generate(input, config)
 		const written = [...result.files, manifestFileName]
-		const left = (): Effect.Effect<
-			Readonly<{ expected: readonly CheckDifference[]; feature: CheckFeature }>,
-			unknown,
-			FileSystem.FileSystem | Path.Path | Digest.Digest
-		> => {
+		const left = () => {
 			switch (fault.kind) {
 				case "none":
-					return Effect.succeed({ expected: [], feature: "a fresh generation passes" })
+					return Effect.succeed<Faulted>({ expected: [], feature: "a fresh generation passes" })
 				case "edited": {
 					const { file, feature } = faulted(written, fault.at, "edited")
 					return Effect.as(
 						fs.writeFileString(path.join(input.outDir, file), "edited\n", { flag: "a" }),
-						{ expected: [{ kind: "edited", path: file }], feature }
+						{
+							expected: [{ kind: "edited", path: file }],
+							feature
+						} satisfies Faulted
 					)
 				}
 				case "missing": {
@@ -164,7 +165,7 @@ export const checkedAfter = (root: string, fault: Fault) =>
 					return Effect.as(fs.remove(path.join(input.outDir, file)), {
 						expected: [{ kind: "missing", path: file }],
 						feature
-					})
+					} satisfies Faulted)
 				}
 				case "extra":
 					return Effect.flatMap(
@@ -183,7 +184,7 @@ export const checkedAfter = (root: string, fault: Fault) =>
 										{ kind: "extra", path: STALE }
 									],
 									feature: "an extra file the manifest lists"
-								}
+								} satisfies Faulted
 							)
 					)
 			}

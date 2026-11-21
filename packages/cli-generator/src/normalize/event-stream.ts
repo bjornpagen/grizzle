@@ -113,11 +113,7 @@ const retryWhen: Reader<RetryWhen> = (value) =>
 		struct(
 			object,
 			{
-				equals: member(
-					object,
-					"equals",
-					union<string | number | boolean>([string, number, boolean])
-				),
+				equals: member(object, "equals", union([string, number, boolean])),
 				pointer: member(object, "pointer", refine(string, isJsonPointer, "a JSON Pointer"))
 			},
 			false
@@ -125,7 +121,7 @@ const retryWhen: Reader<RetryWhen> = (value) =>
 	)
 
 /** An `x-stream` read as one of its forms, each closed. */
-const streamRole: Reader<StreamRole> = union<StreamRole>([
+const streamRole: Reader<StreamRole> = union([
 	(value) =>
 		Result.flatMap(members(value), (object) =>
 			struct(
@@ -150,11 +146,7 @@ const streamRole: Reader<StreamRole> = union<StreamRole>([
 			struct(
 				object,
 				{
-					role: member(
-						object,
-						"role",
-						union<"end" | "error" | "ready">([literal("end"), literal("error"), literal("ready")])
-					)
+					role: member(object, "role", union([literal("end"), literal("error"), literal("ready")]))
 				},
 				false
 			)

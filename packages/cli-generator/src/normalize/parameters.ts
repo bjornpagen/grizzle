@@ -14,7 +14,13 @@ import { isCookieName, isMediaType, isWireName, stripUnsafeText } from "#model/b
 import type { MediaType, WireName } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticOperation } from "#model/diagnostic.ts"
-import type { Origin, Parameter, RowId } from "#model/entities.ts"
+import {
+	type Origin,
+	type Parameter,
+	type RowId,
+	type StyleName,
+	styleNames
+} from "#model/entities.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { docsOf } from "#normalize/docs.ts"
@@ -79,25 +85,6 @@ export class ParameterNotReadable extends Data.TaggedError("ParameterNotReadable
 		| "path-not-required"
 		| "schema-xor-content"
 }> {}
-
-/**
- * The eight `style` values a Parameter, Header or Encoding Object may declare.
- */
-export const styleNames = [
-	"cookie",
-	"deepObject",
-	"form",
-	"label",
-	"matrix",
-	"pipeDelimited",
-	"simple",
-	"spaceDelimited"
-] as const
-
-/**
- * One of the {@link styleNames}.
- */
-export type StyleName = (typeof styleNames)[number]
 
 /**
  * Whether a value is one of the {@link styleNames}.

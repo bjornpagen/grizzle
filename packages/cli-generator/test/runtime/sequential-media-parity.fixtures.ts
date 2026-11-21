@@ -4,37 +4,23 @@
  * use, the codec the generator assigns a declared response key, and the codec the runtime frames a body by.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { boolean, finite, type FiniteSpace } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Sink, Stdio, Stream, String as Str } from "effect"
 import { DocumentUri } from "#model/brands.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
 import { resolve } from "#resolve/index.ts"
 import { Force, OutputPath, writeResponse } from "#runtime-src/runtime/output.ts"
-import { type SequentialCodec, sequentialMediaTypes } from "#runtime-src/runtime/sequential.ts"
+import type { SequentialCodec } from "#runtime-src/runtime/sequential.ts"
+import { essences } from "#test/runtime/sequential-media-parity.dictionary.ts"
 import { holding } from "#test/runtime/serialize.fixtures.ts"
-
-/** The runtime's sequential media table's types, its JSON-seq type first. */
-const TABLE = Arr.dedupe(
-	Arr.prepend(Arr.fromIterable(sequentialMediaTypes.keys()), "application/json-seq")
-)
-
-/**
- * The media types a case is drawn from: every type of the table, each type's `+json-seq` suffix form (RFC 8091: any
- * such type is JSON-seq), and each type with a `+xml` suffix, which neither side reads as sequential.
- */
-const ESSENCES = dictionary([
-	...TABLE,
-	...Arr.map(TABLE, (type) => `${type}+json-seq`),
-	...Arr.map(TABLE, (type) => `${type}+xml`)
-])
 
 /** A response media type as drawn: an essence and its spelling, upper-cased or not, with a parameter or not. */
 export type MediaCase = Readonly<{ essence: string; upper: boolean; parameter: boolean }>
 
 /** Every media type of the table and its suffix forms, in all four spellings. */
 export const mediaSpace: FiniteSpace<MediaCase> = finite((source) => ({
-	essence: word(ESSENCES)(source),
+	essence: word(essences)(source),
 	upper: boolean(source),
 	parameter: boolean(source)
 }))

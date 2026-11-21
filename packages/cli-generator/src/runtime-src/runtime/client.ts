@@ -181,7 +181,7 @@ export class Transport extends Context.Service<
 		certified: Option.Option<PathClients>
 		plain: PathClients
 	}>
->()("effect-openapi-cli-generator/runtime-src/runtime/client/Transport") {}
+>()("@bjornpagen/grizzle-cli-generator/runtime-src/runtime/client/Transport") {}
 
 /**
  * The per-hop client-certificate decision (design 6.5 `mutualTLS` row and Origin binding): whether
@@ -665,7 +665,7 @@ export const retryBudget: Effect.Effect<RetryBudget> = Effect.gen(function* make
  * and a caller that provides none simply records nothing.
  */
 export class RetryAfterCap extends Context.Service<RetryAfterCap, Ref.Ref<Option.Option<number>>>()(
-	"effect-openapi-cli-generator/runtime-src/runtime/client/RetryAfterCap"
+	"@bjornpagen/grizzle-cli-generator/runtime-src/runtime/client/RetryAfterCap"
 ) {}
 
 /**

@@ -79,7 +79,7 @@ const soundOf = (c: GroupCase): ReadonlyArray<Sound> =>
 const keywordOf = (index: number): string => `k${index}`
 
 /** The error units of a case, each keyword naming its place in the report. */
-export const unitsOf = (c: GroupCase): ReadonlyArray<ErrorUnit> =>
+const unitsOf = (c: GroupCase): ReadonlyArray<ErrorUnit> =>
 	Arr.map(c.locations, (location, index) => ({
 		absoluteKeywordLocation: `https://example.com/s#/${keywordOf(index)}`,
 		instanceLocation: textOf(location),

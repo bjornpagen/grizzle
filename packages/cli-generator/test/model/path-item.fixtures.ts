@@ -1,12 +1,13 @@
 /** What the property of path-item.test.ts reads: the specification lines, and each line's Path Item Object fields. */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { finite, type FiniteSpace } from "@bjornpagen/testing/gen"
 import { methodMembers } from "#model/path-item.ts"
-import { SpecLine } from "#model/spec-section.ts"
+import type { SpecLine } from "#model/spec-section.ts"
+import { specLines } from "#test/model/spec-section.dictionary.ts"
 
 /** Every line the generator reads: the specification's own list. */
-export const lineSpace: FiniteSpace<SpecLine> = finite(word(dictionary(SpecLine.literals)))
+export const lineSpace: FiniteSpace<SpecLine> = finite(word(specLines))
 
 export type Feature = `line ${SpecLine}`
 

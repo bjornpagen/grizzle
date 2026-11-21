@@ -130,7 +130,7 @@ const printOf = (requestLine: string, headers: ReadonlyArray<string>): string =>
 	`${Arr.join(Arr.prepend(headers, requestLine), "\n")}\n\n`
 
 /** The lines of a text. */
-export const linesOf = (text: string): ReadonlyArray<string> => Str.split("\n")(text)
+const linesOf = (text: string): ReadonlyArray<string> => Str.split("\n")(text)
 
 /** What a dry run prints after its blank line: the body. */
 export const bodyOf = (stdout: string): Option.Option<string> =>
@@ -380,7 +380,7 @@ const segmentText =
 	(stretch: Segment): string =>
 		`${Option.match(stretch.secret, { onNone: () => "", onSome: (secret) => spelled[secret] })}${stretch.plain}`
 
-export const textOf = (text: Text): string => Arr.join(Arr.map(text, segmentText(SECRET_TEXT)), "")
+const textOf = (text: Text): string => Arr.join(Arr.map(text, segmentText(SECRET_TEXT)), "")
 
 /** A text as a dry run prints it (redact.ts scrub): each secret its placeholder. */
 const shownText = (text: Text): string =>
@@ -1193,7 +1193,7 @@ const fieldOf = <A>(
 const isAnything = (field: unknown): field is unknown => field !== undefined
 
 /** The error a JSON error line holds, read from its parsed value: none when the value is not one. */
-export const errorFieldsOf = (parsed: unknown): Option.Option<ErrorFields> =>
+const errorFieldsOf = (parsed: unknown): Option.Option<ErrorFields> =>
 	Option.flatMap(fieldOf(parsed, "error", isAnything), (error) =>
 		Option.all({
 			body: fieldOf(error, "body", Predicate.isString),

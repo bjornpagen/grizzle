@@ -1178,7 +1178,7 @@ export const grizzleFollowsLiveReadsAlone = property.explore(
 						env: {},
 						stdin: new Uint8Array(0)
 					})
-					const help = `${decoder.decode(run.stdout)}${decoder.decode(run.stderr)}`
+					const help = `${yield* chunkText(run.stdout)}${yield* chunkText(run.stderr)}`
 					notes.note(live ? "a live read's command" : "an answered read's command")
 					assert.equal(
 						Str.includes("--follow")(help),

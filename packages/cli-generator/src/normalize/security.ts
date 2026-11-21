@@ -555,14 +555,14 @@ const buildScheme = (resolution: Resolution, name: string, pointer: JsonPointer)
  * What author-supplied security needs: the author config and the document it was read from
  * (D-OQ3 (b)).
  */
-export interface AuthorSecurity {
+export interface AuthorConfigSource {
 	readonly config: AuthorConfig
 	readonly configDocument: DocumentUri
 }
 
 const addRequirementPointer = formatPointer(["security", "add", "requirement"])
 
-const collision = (author: AuthorSecurity, name: string): Finding => ({
+const collision = (author: AuthorConfigSource, name: string): Finding => ({
 	anchor: "security-scheme-object",
 	code: "CFG-1/scheme-name-collision",
 	document: author.configDocument,
@@ -584,7 +584,7 @@ interface Added {
  */
 const addedSchemes = (
 	declared: ReadonlySet<string>,
-	author: AuthorSecurity | undefined,
+	author: AuthorConfigSource | undefined,
 	line: SpecLine
 ): Added => {
 	const entries = Record.toEntries(author?.config.security?.add?.schemes ?? {})
@@ -631,7 +631,7 @@ const unresolvedCodes: ReadonlySet<string> = new Set([
  */
 export const normalizeSecuritySchemes = Effect.fnUntraced(function* normalizeSecuritySchemes(
 	resolution: Resolution,
-	author: AuthorSecurity | undefined,
+	author: AuthorConfigSource | undefined,
 	checkFindings: readonly Diagnostic[]
 ): Effect.fn.Return<SchemeNormalization> {
 	const schemes = { document: resolution.document, pointer: "/components/securitySchemes" }

@@ -16,6 +16,8 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Scratch } from "@bjornpagen/testing/resources"
 import { Array as Arr, Effect, Path } from "effect"
+import { Digest } from "effect/crypto"
+import { digestService } from "#test/support/digest.ts"
 import {
 	type CheckFeature,
 	checkedAfter,
@@ -31,18 +33,27 @@ import {
  */
 export const relocatedAlike = property.exhaust(layouts, {
 	box: "the golden package's spec and author config in three layouts, each generated under two roots",
-	needs: { dir: Scratch.dir },
+	needs: { dir: Scratch.dir, digest: digestService },
 	situations: ["a layout generated under two roots"],
 	check:
-		({ dir }, c: Case<"a layout generated under two roots">) =>
+		({ dir, digest }, c: Case<"a layout generated under two roots">) =>
 		(layout) =>
 			Effect.gen(function* () {
+				const service = yield* digest
 				const path = yield* Path.Path
 				const root = yield* dir
 				const first = path.join(root, "first")
 				const second = path.join(root, "second", "deeper")
-				const left = yield* generatedUnder(first, layout)
-				const right = yield* generatedUnder(second, layout)
+				const left = yield* Effect.provideService(
+					generatedUnder(first, layout),
+					Digest.Digest,
+					service
+				)
+				const right = yield* Effect.provideService(
+					generatedUnder(second, layout),
+					Digest.Digest,
+					service
+				)
 				c.note("a layout generated under two roots")
 				assert.deepEqual(left, right, "the same inputs write the same files with the same bytes")
 				assert.deepEqual(
@@ -78,7 +89,7 @@ export const relocatedAlike = property.exhaust(layouts, {
  */
 export const checkVerdicts = property.exhaust(faults, {
 	box: "no fault, an extra listed file, and an edited or a missing file at each of the first eight files a generation writes",
-	needs: { dir: Scratch.dir },
+	needs: { dir: Scratch.dir, digest: digestService },
 	situations: [
 		"a fresh generation passes",
 		"an extra file the manifest lists",
@@ -88,11 +99,16 @@ export const checkVerdicts = property.exhaust(faults, {
 		"the manifest missing"
 	] satisfies ReadonlyArray<Reached<CheckFeature>>,
 	check:
-		({ dir }, c: Case<CheckFeature>) =>
+		({ dir, digest }, c: Case<CheckFeature>) =>
 		(fault) =>
 			Effect.gen(function* () {
 				const root = yield* dir
-				const { expected, feature, found } = yield* checkedAfter(root, fault)
+				const service = yield* digest
+				const { expected, feature, found } = yield* Effect.provideService(
+					checkedAfter(root, fault),
+					Digest.Digest,
+					service
+				)
 				c.note(feature)
 				assert.deepEqual(
 					found,

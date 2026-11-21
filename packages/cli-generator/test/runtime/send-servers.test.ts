@@ -67,14 +67,15 @@ export const boundSends = property.exhaust(sends, {
 		},
 		{
 			file: "packages/cli-generator/src/emit/api.ts",
-			original: 'if (operation.servers.some((server) => server.level !== "root")) {',
-			replacement: 'if (operation.servers.some((server) => server.level === "operation")) {',
+			original: 'if (Arr.some(operation.servers, (server) => server.level !== "root")) {',
+			replacement: 'if (Arr.some(operation.servers, (server) => server.level === "operation")) {',
 			why: "An operation whose servers are its path item's emits no table of its own, so it sends to the root's server by the root's set; the property fails."
 		},
 		{
 			file: "packages/cli-generator/src/emit/api.ts",
-			original: "if (accepted !== -1) {",
-			replacement: "if (accepted > 0) {",
+			original: 'onSome: (accepted) => [["defaultServer", num(accepted)] as const]',
+			replacement:
+				'onSome: (accepted) => (accepted > 0 ? [["defaultServer", num(accepted)] as const] : [])',
 			why: "A table whose first server is accepted emits no default, so a run with no --server is refused where it sends to that server; the property fails."
 		},
 		{

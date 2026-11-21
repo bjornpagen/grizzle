@@ -1,7 +1,7 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, JsonPointer, Option, Predicate, Record, String as Str } from "effect"
-import { SafeText, stripUnsafeText } from "#model/brands.ts"
+import { type SafeText, stripUnsafeText } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { DiscriminatorHint, Operation, Parameter, SecurityScheme } from "#model/entities.ts"

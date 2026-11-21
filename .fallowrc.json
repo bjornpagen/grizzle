@@ -1205,12 +1205,15 @@
 			},
 			{
 				// grizzle's public entries, as fallow reads an import of one: the zones each re-exports from (the index's engine
-				// authoring API and shell, the runtime entry's served layer, the client and http entries), and the suites' support.
+				// authoring API and shell, the runtime entry's served layer, the client and http entries), the suites' support,
+				// and the generator's model and runtime, whose JSON trees, pointers and readers the tier's twins compare against.
 				"from": "cli-generator-grizzle-tier",
 				"allow": [
 					"grizzle-text",
 					"cli-generator",
 					"cli-generator-suites",
+					"cli-generator-model",
+					"cli-generator-runtime",
 					"index",
 					"runtime-entry",
 					"client",

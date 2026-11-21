@@ -136,8 +136,8 @@ const bareRules = standard(
 /** The emitted package's lint: oxlint's own categories off, and the shared bans alone, as oxlint's JSON configuration. */
 const emittedLint = Effect.fromOption(
 	Option.all([
-		importBans(restrictedImports({ paths: [], patterns: [] })),
-		propertyBans(restrictedProperties([]))
+		importBans(bareRules?.["eslint/no-restricted-imports"]),
+		propertyBans(bareRules?.["eslint/no-restricted-properties"])
 	])
 ).pipe(
 	Effect.mapBoth({

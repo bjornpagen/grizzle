@@ -1,4 +1,4 @@
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import { constant, element, finite, type FiniteSpace, type Gen, int } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import {
@@ -12,6 +12,7 @@ import {
 	Path,
 	String as Str
 } from "effect"
+import { type InvocationFeature, invocationFeatures } from "#test/generated/lazy-root.dictionary.ts"
 import {
 	type CaptureServer,
 	captureServer,
@@ -203,35 +204,8 @@ export const topLevelGroups = (
 /** An invocation the differential runs, by what it names. */
 type Invocation = Readonly<{ kind: InvocationFeature; args: ReadonlyArray<string> }>
 
-/** What an invocation names. */
-export type InvocationFeature =
-	| "the root's help"
-	| "no arguments"
-	| "--describe"
-	| "--completions bash"
-	| "an unknown group"
-	| "a group alone"
-	| "a group's help"
-	| "an unknown command in a group"
-	| "a command's help"
-
-/** Every kind of invocation, in the order the differential lists them. */
-const INVOCATION_KINDS: Arr.NonEmptyReadonlyArray<InvocationFeature> = [
-	"the root's help",
-	"no arguments",
-	"--describe",
-	"--completions bash",
-	"an unknown group",
-	"a group alone",
-	"a group's help",
-	"an unknown command in a group",
-	"a command's help"
-]
-
 /** The differential's cases: each kind of invocation, every invocation of that kind the package has. */
-export const invocationKinds: FiniteSpace<InvocationFeature> = finite(
-	word(dictionary(INVOCATION_KINDS))
-)
+export const invocationKinds: FiniteSpace<InvocationFeature> = finite(word(invocationFeatures))
 
 /** The invocations at the root. */
 const ROOT_INVOCATIONS: Arr.NonEmptyReadonlyArray<Invocation> = [

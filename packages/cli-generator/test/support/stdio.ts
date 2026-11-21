@@ -21,7 +21,7 @@ const someText = (text: string): ReadonlyArray<string> => (text === "" ? [] : [t
  * between two chunks is handed on whole, with the chunk that ends it, and a chunk that only begins one hands on
  * nothing. A sequence still cut when a text is written or the stream ends is no UTF-8, and dies.
  */
-const receiving = (onText: (text: string) => void) => () =>
+export const receiving = (onText: (text: string) => void) => () =>
 	Sink.suspend(() => {
 		const reader = utf8Chunks()
 		const read = (chunk: string | Uint8Array): Effect.Effect<ReadonlyArray<string>> =>
@@ -45,7 +45,7 @@ export const appendingTo = (into: Array<string>) =>
 	})
 
 /** A live stream whose bytes are no UTF-8 text, which ends its reading. */
-export class StreamNotUtf8 extends Data.TaggedError("StreamNotUtf8") {}
+class StreamNotUtf8 extends Data.TaggedError("StreamNotUtf8") {}
 
 /**
  * The text a live stream's bytes carry, read as they arrive: decoded across chunk boundaries, so a character two

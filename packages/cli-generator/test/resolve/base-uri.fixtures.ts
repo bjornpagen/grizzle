@@ -5,7 +5,7 @@
  * its href at the first `#`, and a fragment from the reference's text split at every `#`.
  */
 
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
+import { word } from "@bjornpagen/testing/dictionary"
 import {
 	array,
 	constant,
@@ -19,13 +19,14 @@ import {
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import { Url } from "effect/http"
 import type { Json } from "#model/pointer.ts"
-import { SpecLine } from "#model/spec-section.ts"
+import type { SpecLine } from "#model/spec-section.ts"
+import { specLines } from "#test/model/spec-section.dictionary.ts"
 
 /** A member read for a base URI: absent, or holding a text. */
 export type Member = Readonly<{ kind: "absent" }> | Readonly<{ kind: "text"; text: string }>
 
 /** Every line the generator reads: the specification's own list. */
-const lineGen: Gen<SpecLine> = word(dictionary(SpecLine.literals))
+const lineGen: Gen<SpecLine> = word(specLines)
 
 const memberGen = (texts: ReadonlyArray<string> & Readonly<{ 0: string }>): Gen<Member> =>
 	oneOf<Member>([

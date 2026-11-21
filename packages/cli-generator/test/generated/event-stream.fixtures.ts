@@ -1,5 +1,4 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	array,
@@ -563,11 +562,6 @@ export const feeds = aimed(
 
 /** Every pairing of the error event's verdict, a --retries budget or none, and the read or the write. */
 export const failureCases: FiniteSpace<FailureCase> = finite(failureCase)
-
-/** One event of each type a read sends whose data its contentSchema refuses. */
-export const refusedCases: FiniteSpace<RefusedData> = finite(
-	word(dictionary<RefusedData>(["reset", "upsert", "remove", "ready", "error"]))
-)
 
 /** The read and the write, each cut before its terminal event, with a --retries budget or none. */
 export const cutCases: FiniteSpace<CutCase> = finite(cutCase)

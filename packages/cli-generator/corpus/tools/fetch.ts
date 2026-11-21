@@ -177,11 +177,7 @@ const corpusEntryReader: Reader<CorpusEntry> = (value) =>
 				license: member(object, "license", nonEmptyReader),
 				licenseSha256: optionalMember(object, "licenseSha256", sha256Reader),
 				sha256: member(object, "sha256", sha256Reader),
-				source: member(
-					object,
-					"source",
-					union<Committed | Fetched>([fetchedReader, committedReader])
-				),
+				source: member(object, "source", union([fetchedReader, committedReader])),
 				tier: member(object, "tier", union(Arr.map(tiers, literal)))
 			},
 			false

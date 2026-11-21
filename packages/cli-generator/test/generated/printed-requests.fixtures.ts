@@ -1,13 +1,10 @@
 import { createServer } from "node:net"
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
-import { dictionary, word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
 	characterOf,
 	constant,
 	element,
-	finite,
-	type FiniteSpace,
 	type Gen,
 	int,
 	map,
@@ -601,6 +598,3 @@ export const requests = aimed(
 	unsteered,
 	Arr.map(SHOWN_FEATURES, (feature) => [feature, requestFor(Option.some(feature))] as const)
 )
-
-/** Every failure the suite lists. */
-export const failures: FiniteSpace<Failure> = finite(word(dictionary(FAILURES)))

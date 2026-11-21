@@ -1146,12 +1146,12 @@ export const invalidKeyActual = (
 		)
 		const diagnostics = yield* generate(
 			{
-				document: yield* entryUri,
+				document: entryUri,
 				outDir: path.join(scratch, "out"),
 				source: { _tag: "File", path: spec },
 				strict: false
 			},
-			{ document: yield* configUri, path: config }
+			{ document: configUri, path: config }
 		).pipe(
 			Effect.provideService(Digest.Digest, digest),
 			Effect.map((result) => result.diagnostics),

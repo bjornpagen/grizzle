@@ -15,7 +15,7 @@ import {
 	option,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Effect, Option, Order, Record, Result, Schema, String as Str } from "effect"
+import { Array as Arr, Effect, Option, Order, Record, Result, String as Str } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { fixedDocumentUri, MethodToken, PathTemplate, stripUnsafeText } from "#model/brands.ts"
 import type { Api, Naming, NamingAlias, NamingHint, Operation, Origin } from "#model/entities.ts"
