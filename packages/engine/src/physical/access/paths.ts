@@ -41,7 +41,7 @@ const pathOrder: Comparator<AccessPath> = combineAll([
 ])
 
 /**
- * A path a read asks for and the lookups through it (physical/access/extract.ts extractLookups): each lookup the columns
+ * A path a read asks for and the lookups through it (physical/access/extract.ts extractJudgedReads): each lookup the columns
  * its probe context fixes by equality, its own facts' and its partners', in code point order, each set once; none for a
  * path no probe context asks for, an ordered or a vector one.
  */

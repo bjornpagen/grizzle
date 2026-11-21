@@ -50,7 +50,7 @@ import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { withLeading } from "#compiler/lower/conservative/context.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
-import { extractLookups, extractSuffixSeeks } from "#compiler/physical/access/extract.ts"
+import { extractJudgedReads, type JudgedReads } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
@@ -396,10 +396,10 @@ const requestsOf = (
 	b: InstallBuilder,
 	rule: RuleTrigger,
 	root: RelNode
-): ReadonlyArray<IndexRequest> => [
-	...lookupRequestsOf(b, rule, root),
-	...seekRequestsOf(b, rule, root)
-]
+): ReadonlyArray<IndexRequest> => {
+	const reads = extractJudgedReads([root], { pageable: [] })
+	return [...lookupRequestsOf(b, rule, reads), ...seekRequestsOf(b, rule, reads)]
+}
 
 /**
  * The requests of a judged query's suffix seeks (physical/access/extract.ts SuffixSeek): a B-tree whose first block is
@@ -409,9 +409,9 @@ const requestsOf = (
 const seekRequestsOf = (
 	b: InstallBuilder,
 	rule: RuleTrigger,
-	root: RelNode
+	reads: JudgedReads
 ): ReadonlyArray<IndexRequest> =>
-	extractSuffixSeeks([root], { pageable: [] }).flatMap((seek): ReadonlyArray<IndexRequest> => {
+	reads.seeks.flatMap((seek): ReadonlyArray<IndexRequest> => {
 		const target = b.model.relations.get(seek.relation)?.relation
 		const text = target?.fields.find((f) => f.name === seek.column)
 		if (target === undefined || text === undefined) {
@@ -449,48 +449,46 @@ const seekRequestsOf = (
 const lookupRequestsOf = (
 	b: InstallBuilder,
 	rule: RuleTrigger,
-	root: RelNode
+	reads: JudgedReads
 ): ReadonlyArray<IndexRequest> =>
-	extractLookups([root], { pageable: [] }).flatMap(
-		({ path, binds }): ReadonlyArray<IndexRequest> => {
-			const target = b.model.relations.get(path.relation)?.relation
-			if (
-				target === undefined ||
-				path.method === "hnsw" ||
-				path.method === "gin" ||
-				path.use === "network containment" ||
-				path.derived
-			) {
-				return []
-			}
-			const keys = path.keys.flatMap((k) =>
-				target.fields.flatMap((f) =>
-					f.name === k.field
-						? [
-								{
-									column: { kind: "field" as const, field: f },
-									dir: k.dir,
-									opclass: defaultOpclass
-								}
-							]
-						: []
-				)
-			)
-			const lead = isNonEmpty(keys) ? unitLead(rule, target, keys, binds) : undefined
-			return lead === undefined
-				? []
-				: [
-						{
-							relation: target.name,
-							...lead,
-							method: path.method,
-							role: "lawMaintenance",
-							use: "rule probe",
-							justification: { kind: "law", law: rule.law.id }
-						}
-					]
+	reads.lookups.flatMap(({ path, binds }): ReadonlyArray<IndexRequest> => {
+		const target = b.model.relations.get(path.relation)?.relation
+		if (
+			target === undefined ||
+			path.method === "hnsw" ||
+			path.method === "gin" ||
+			path.use === "network containment" ||
+			path.derived
+		) {
+			return []
 		}
-	)
+		const keys = path.keys.flatMap((k) =>
+			target.fields.flatMap((f) =>
+				f.name === k.field
+					? [
+							{
+								column: { kind: "field" as const, field: f },
+								dir: k.dir,
+								opclass: defaultOpclass
+							}
+						]
+					: []
+			)
+		)
+		const lead = isNonEmpty(keys) ? unitLead(rule, target, keys, binds) : undefined
+		return lead === undefined
+			? []
+			: [
+					{
+						relation: target.name,
+						...lead,
+						method: path.method,
+						role: "lawMaintenance",
+						use: "rule probe",
+						justification: { kind: "law", law: rule.law.id }
+					}
+				]
+	})
 
 /**
  * The blocks of a judged read's request over `relation` by `keys`, and what each lookup of it reads (ir/law.ts

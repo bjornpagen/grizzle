@@ -1633,24 +1633,28 @@ export interface SuffixSeek {
 }
 
 /** The suffix seeks of a walk of `roots` (`SuffixSeek`), each once, in their walk's order. */
-export const extractSuffixSeeks = (
-	roots: ReadonlyArray<RelNode>,
-	options: ExtractOptions
-): ReadonlyArray<SuffixSeek> => {
-	const once = new Map<string, SuffixSeek>()
-	for (const seek of extracted(roots, options).seeks) {
-		const key = [seek.relation, seek.column, ...seek.fixed].join("\u0000")
-		once.getOrInsert(key, seek)
-	}
-	return [...once.values()]
+/**
+ * What a judged read reads by index, read off one walk of its DAG (physical/ddl/rules.ts requestsOf): the paths of
+ * `extractAccess`, each with the lookups through it (paths.ts Lookup), and its suffix seeks, each once by its relation,
+ * column and fixed columns, where the lookups and the seeks were each read off a walk of their own.
+ */
+export interface JudgedReads {
+	readonly lookups: ReadonlyArray<Lookup>
+	readonly seeks: ReadonlyArray<SuffixSeek>
 }
 
-/** The paths of `extractAccess`, each with the lookups through it (paths.ts Lookup): what a judged read's index requests
- * read (physical/ddl/rules.ts requestsOf). */
-export const extractLookups = (
+/** The JudgedReads of `roots`, one walk (`extracted`). */
+export const extractJudgedReads = (
 	roots: ReadonlyArray<RelNode>,
 	options: ExtractOptions
-): ReadonlyArray<Lookup> => uniqueLookups(extracted(roots, options).lookups)
+): JudgedReads => {
+	const x = extracted(roots, options)
+	const once = new Map<string, SuffixSeek>()
+	for (const seek of x.seeks) {
+		once.getOrInsert([seek.relation, seek.column, ...seek.fixed].join("\u0000"), seek)
+	}
+	return { lookups: uniqueLookups(x.lookups), seeks: [...once.values()] }
+}
 
 /** The walk of `roots` (see `extractAccess`). */
 const extracted = (roots: ReadonlyArray<RelNode>, options: ExtractOptions): Extractor => {
