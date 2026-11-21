@@ -452,8 +452,8 @@ export const normalizationGivesTheRegionTheFiltersEvidenceWhenEveryConjunctBecom
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/simplify/rules.ts",
-					original: "\t\t\ted.set(regionCell, { ...region, equalities, meta: filter.meta })",
-					replacement: "\t\t\ted.set(regionCell, { ...region, equalities })",
+					original: "\t\ted.set(regionCell, { ...region, equalities, meta: filter.meta })",
+					replacement: "\t\ted.set(regionCell, { ...region, equalities })",
 					why: "Equality propagation leaves the region its own metadata, not the filter's evidence it takes over; the simplify-equality search fails."
 				}
 			]

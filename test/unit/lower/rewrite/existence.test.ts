@@ -182,8 +182,8 @@ export const setComparisonsNeedAPhysicallyUniqueLeftInputAKeyedLeftInputAdmitsTh
 			kills: [
 				{
 					file: "packages/engine/src/lower/optimize/existence/index.ts",
-					original: "\t\t\t\t\t\t\tphysical.of(left).props,",
-					replacement: "\t\t\t\t\t\t\tphysical.of(right).props,",
+					original: "\t\t\t\t\t\tphysical.of(left).props,",
+					replacement: "\t\t\t\t\t\tphysical.of(right).props,",
 					why: "A set comparison is rewritten on the uniqueness of its right input rather than its left; the existence-set-comparison search fails."
 				}
 			]
