@@ -60,6 +60,7 @@ import {
 	row,
 	rows,
 	schema,
+	scopedEntriesOf,
 	Search,
 	searchDocument,
 	select,
@@ -951,6 +952,49 @@ export const flowsApp = login(Flows, "flows_app", [Runner, Janitor], {
 		workload(Janitor, { retire: ChangeSet.empty(Flows).retire(Flow, []) })
 	]
 })
+
+/**
+ * README: "Scoped entries": a level of the tables a sitting writes, each person a Clerk account signs in as, each
+ * assignment rooted by its student, each test session by its child, each event of an assignment reached through its
+ * number, and the tables a student writes.
+ */
+const PersonId = str.regex("^p_[a-z0-9]{1,24}$", "u")
+const Person = relation("Person", { person: PersonId }, ["person"])
+const ClerkAccount = relation("ClerkAccount", { clerk: ClerkUser, person: PersonId }, ["clerk"])
+const Assignment = relation("Assignment", { number: pg.bigint, student: PersonId }, ["number"])
+const TestSession = relation("TestSession", { child: PersonId, stage: natural }, ["child", "stage"])
+const SittingEvent = relation("SittingEvent", { number: pg.bigint, step: natural }, [
+	"number",
+	"step"
+])
+const Sittings = schema(
+	"Sittings",
+	[Person, ClerkAccount, Assignment, TestSession, SittingEvent],
+	[
+		contained(on(ClerkAccount, "person"), on(Person, "person")),
+		contained(on(Assignment, "student"), on(Person, "person")),
+		contained(on(TestSession, "child"), on(Person, "person")),
+		contained(on(SittingEvent, "number"), on(Assignment, "number"))
+	]
+)
+const studentWriteNames = ["SittingEvent"] as const
+
+/** The persons the signed-in Clerk user is: the owner, read from the token and the sign-in it names. */
+const persons = query(Sittings).rule((r) => {
+	const { sub } = v(Session, "session")
+	const { person } = v(ClerkAccount, "account")
+	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, person }).find({ person })
+})
+
+/** Each assignment rooted by its student, each test session by its child. */
+const roots = { Assignment: "student", TestSession: "child" } as const
+
+export const Student = role(
+	Sittings,
+	"student",
+	scopedEntriesOf(Sittings, { owner: persons, roots }),
+	{ contexts: [Session], write: studentWriteNames }
+)
 
 /** README: "Queries". */
 /** Comments per author on published posts. */

@@ -3010,22 +3010,24 @@ declares, and nothing else makes a context available:
 `wholeEntriesOf(S)` with every such table held as a scoped entry. A scoped entry holds its table under the table's own
 name and whole heading, so a role holding them holds every table of `S` and runs `S`'s queries and ChangeSets, such as
 qti-pie's `sittingProgramsOf`, unchanged. No program binds an ownership guard: PostgreSQL holds each one to the
-owner's rows.
+owner's rows. Below, `Sittings` is a level of the tables a sitting writes, `ClerkAccount` among them, and `Session` the
+context of the token's claims above.
 
 ```ts
-const Session = context("Session", { sub: ClerkUser })
-
 /** The persons the signed-in Clerk user is: the owner, read from the token and the sign-in it names. */
-const persons = query(Sitting).rule((r) => {
+const persons = query(Sittings).rule((r) => {
 	const { sub } = v(Session, "session")
 	const { person } = v(ClerkAccount, "account")
 	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, person }).find({ person })
 })
 
+/** Each assignment rooted by its student, each test session by its child. */
+const roots = { Assignment: "student", TestSession: "child" } as const
+
 export const Student = role(
-	Sitting,
+	Sittings,
 	"student",
-	scopedEntriesOf(Sitting, { owner: persons, roots: { Assignment: "student", TestSession: "child" } }),
+	scopedEntriesOf(Sittings, { owner: persons, roots }),
 	{ contexts: [Session], write: studentWriteNames }
 )
 ```
