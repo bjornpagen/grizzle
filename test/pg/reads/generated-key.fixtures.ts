@@ -4,10 +4,10 @@ import { array, element, type Gen, int, uniqueKeys } from "@bjornpagen/testing/g
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Crypto } from "#compiler/public/compute.ts"
-import { generated, pg } from "#compiler/public/fields.ts"
+import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { key, on, relation, schema } from "#compiler/public/schema.ts"
-import { sha256, str } from "#compiler/public/text.ts"
+import { str } from "#compiler/public/text.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 
 /**

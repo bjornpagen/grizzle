@@ -30,7 +30,7 @@ const written = ["id", ...texts, "n", ...floats] as const
 
 /**
  * A generated field's generation, by what it reads:
- * - `digest`: the SHA-256 of its texts concatenated in order, a hex text of 64 digits, the digest a QTI schema keys by;
+ * - `digest`: the SHA-256 of its texts concatenated in order, the 32-byte SHA-256 carrier, the digest a QTI schema keys by;
  * - `float`: the negation of one float, or the sum of two;
  * - `mixed`: a digest of its texts or of their reverse, by the sign of a float, which it reads too;
  * - `money`: the integer converted to money, a stable conversion (lc_monetary), which PostgreSQL never generates a
@@ -174,8 +174,8 @@ export const featuresOf = (c: GeneratedCase): ReadonlyArray<GeneratedFeature> =>
 	})
 }
 
-/** The 64 hex digits of a SHA-256 digest, the language Crypto.sha256 is of. */
-const hexDigest: FieldDesc = f.regex("^[0-9a-f]{64}$", "u")
+/** A SHA-256 digest, the 32-byte carrier Crypto.sha256 yields. */
+const digest: FieldDesc = { kind: "sha256" }
 const doublePrecision: FieldDesc = f.pg("double precision")
 
 const compute = (
@@ -199,7 +199,7 @@ const digestOf = (parts: Arr.NonEmptyReadonlyArray<string>): ExprDesc => {
 const generatedDecl = (g: Generation) => {
 	switch (g.kind) {
 		case "digest":
-			return f.generated(hexDigest, digestOf(g.texts))
+			return f.generated(digest, digestOf(g.texts))
 		case "float": {
 			const [x, y] = g.floats
 			return f.generated(
@@ -208,7 +208,7 @@ const generatedDecl = (g: Generation) => {
 			)
 		}
 		case "mixed":
-			return f.generated(hexDigest, {
+			return f.generated(digest, {
 				kind: "cond",
 				pred: {
 					kind: "compare",
