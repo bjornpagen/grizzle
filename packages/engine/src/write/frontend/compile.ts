@@ -691,7 +691,7 @@ const carriedColumn = (c: MemberColumn): HeadingColumn => ({
  * (write/normalize), then each key generation's reads not already among them, at their columns in `facts`, the fields a
  * member of `relation` states: a tree's units named by root fields holding one state its reads.
  */
-const headsOf = (relation: RelationInfo, heading: Heading, facts: Heading): Heading =>
+const keyHeading = (relation: RelationInfo, heading: Heading, facts: Heading): Heading =>
 	keyHeads(
 		relation,
 		heading.flatMap((c) => relation.fields.filter((f) => f.name === c.name))
@@ -1924,7 +1924,7 @@ const compile = (
 							act,
 							slot,
 							members: memberNames,
-							admitted: headsOf(relation, admitted, facts),
+							admitted: keyHeading(relation, admitted, facts),
 							starts: Object.freeze(starts)
 						})
 					)
