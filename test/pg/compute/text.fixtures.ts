@@ -17,6 +17,7 @@ import { closedId, pg } from "#compiler/public/fields.ts"
 import { check, closed, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { judged, probe } from "#test/pg/physical/checks.ts"
+import { spelled } from "#test/support/fixtures/ir/scalar.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
@@ -44,7 +45,14 @@ const boolColumn: LeafBinding = { kind: "column", type: testPg.boolean.scalar }
 
 export const variable = (name: string): ExprDesc => ({ kind: "var", var: name })
 
-export const text = (value: string): ExprDesc => ({ kind: "literal", value })
+/**
+ * A Text.matches pattern literal of `spelling`, admitted (test/support/fixtures/ir/scalar.ts spelled): the one literal a
+ * match reads as its pattern since 8b0332f84, where a text literal is refused there.
+ */
+export const patternLiteral = (spelling: string): ExprDesc => ({
+	kind: "literal",
+	value: spelled(spelling)
+})
 
 export const compute = (
 	fn: "matches" | "concat" | "startsWith" | "endsWith",

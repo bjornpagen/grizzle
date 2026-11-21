@@ -33,11 +33,11 @@ import {
 	textInstallation,
 	judgeDictionary,
 	lowered,
+	patternLiteral,
 	printed,
 	type Probe,
 	sqlCase,
 	type SqlFeature,
-	text,
 	variable
 } from "#test/pg/compute/text.fixtures.ts"
 import { installationSql } from "#test/support/compile.ts"
@@ -73,12 +73,12 @@ export const computesTextTermsOnPostgreSQLMatchPrefixSuffixConcatenationAndEquat
 						const [first, second] = c.sources
 						const pattern =
 							second === undefined
-								? text(first)
+								? patternLiteral(first)
 								: {
 										kind: "cond" as const,
 										pred: variable("p"),
-										onTrue: text(first),
-										onFalse: text(second)
+										onTrue: patternLiteral(first),
+										onFalse: patternLiteral(second)
 									}
 						const match = lowered(
 							"match",
