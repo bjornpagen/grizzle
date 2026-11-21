@@ -34,7 +34,6 @@ import { fillContexts } from "#compiler/write/frontend/entry.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import {
 	type CompiledWrite,
-	type PlacedWrite,
 	type PreparedWrite,
 	type PrepareWriteOptions,
 	prepareWrite,
@@ -298,9 +297,6 @@ type PreparedVariants<S extends ParamSource> =
 	| {
 			readonly kind: "form"
 			readonly entry: () => Result.Result<PreparedEntry<S>, CompileError>
-			/** Its entry's write placed (PreparedWrite.place), made where it first compiles and held, beside the entry, by
-			 * the role's compiles alone: no entry holds the analysis a placement reads. */
-			readonly placed: () => Result.Result<PlacedWrite, CompileError>
 			readonly decoder: RowDecoder<unknown>
 	  }
 	| {
@@ -349,8 +345,7 @@ const preparedVariants = <S extends ParamSource>(
 					: preparedParsed(artifacts, change, claims, clock, source)
 			)
 		)
-		const placed = once(() => Result.flatMap(entry(), (prepared) => prepared.prepared.place()))
-		return { kind: "form", entry, placed, decoder: changes.reads }
+		return { kind: "form", entry, decoder: changes.reads }
 	}
 	const before = undecided.slice(0, -1)
 	return {
@@ -382,7 +377,11 @@ const preparedVariants = <S extends ParamSource>(
 /**
  * Prepared variants compiled at `level`: each split compiles its lacking side first, so the entries compile in the
  * order of the subsets of the fill contexts counted with the first context as the lowest digit, each form's entry
- * prepared, where it is not yet, just before it compiles, and the first refusal in that order refuses them all.
+ * prepared, where it is not yet, just before it compiles, and the first refusal in that order refuses them all. Each
+ * compile places its write itself (write/program/compile.ts PreparedWrite.compile), so its placement, the deduplication
+ * plan and the physical analysis of the write's whole DAG its facts read, dies with the compile: a role's compile held
+ * every member's placement until its last member compiled, for a second level only an unformed role reaches
+ * (edullm's qti: the learner role's decideStage placement alone ~1.1 GB, every earlier member's beside it).
  */
 const variantsCompiledAt = <S extends ParamSource>(
 	variants: PreparedVariants<S>,
@@ -392,7 +391,7 @@ const variantsCompiledAt = <S extends ParamSource>(
 		case "form":
 			return Result.map(
 				Result.flatMap(variants.entry(), (prepared) =>
-					Result.flatMap(variants.placed(), (placed) => entryOf(prepared, placed.compile(level)))
+					entryOf(prepared, prepared.prepared.compile(level))
 				),
 				(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: variants.decoder })
 			)
@@ -583,6 +582,33 @@ export type ReadCommittedRole<S extends ParamSource = ParamSource> =
 
 /** One role of `login` compiled for READ COMMITTED (ReadCommittedRole), each ChangeSet's compile a phase reported to
  * `phases` (`changeSet`). */
+/**
+ * A role's member compiled for READ COMMITTED (readCommittedRole): its variants; or, where it has no READ COMMITTED form,
+ * the relation and the reason alone, the refusal that said so dropped here, in this frame, with the stack it captured,
+ * whose frames' closures held its compile's placement, the physical analysis of its write's whole DAG, for as long as
+ * the role's loop held the refusal (edullm's qti: the learner role's decideStage, ~1.1 GB, alive through the next
+ * member's compile); or any other refusal, which refuses the role.
+ */
+const readCommittedMember = <S extends ParamSource>(program: {
+	readonly name: string
+	readonly compile: (level: Isolation) => Result.Result<CompiledVariants<S>, CompileError>
+}):
+	| { readonly kind: "formed"; readonly variants: CompiledVariants<S> }
+	| { readonly kind: "unformed"; readonly unformed: Unformed }
+	| { readonly kind: "refused"; readonly error: CompileError } => {
+	const variants = program.compile("readCommitted")
+	if (variants.ok) {
+		return { kind: "formed", variants: variants.value }
+	}
+	const reason = variants.error.reason
+	return reason._tag === "NoReadCommittedForm"
+		? {
+				kind: "unformed",
+				unformed: { member: program.name, relation: reason.relation, why: reason.why }
+			}
+		: { kind: "refused", error: variants.error }
+}
+
 const readCommittedRole = <S extends ParamSource>(
 	name: string,
 	value: unknown,
@@ -593,19 +619,18 @@ const readCommittedRole = <S extends ParamSource>(
 		const members = new Map<string, CompiledVariants<S>>()
 		const unformed: Array<Unformed> = []
 		for (const program of base.programs) {
-			const variants = phased(phases, { name: "changeSet", of: [name, program.name] }, () =>
-				program.compile("readCommitted")
+			const compiled = phased(phases, { name: "changeSet", of: [name, program.name] }, () =>
+				readCommittedMember(program)
 			)
-			if (variants.ok) {
-				members.set(program.name, variants.value)
-			} else if (variants.error.reason._tag === "NoReadCommittedForm") {
-				unformed.push({
-					member: program.name,
-					relation: variants.error.reason.relation,
-					why: variants.error.reason.why
-				})
-			} else {
-				return Result.err({ role: name, program: program.name, error: variants.error })
+			switch (compiled.kind) {
+				case "formed":
+					members.set(program.name, compiled.variants)
+					break
+				case "unformed":
+					unformed.push(compiled.unformed)
+					break
+				case "refused":
+					return Result.err({ role: name, program: program.name, error: compiled.error })
 			}
 		}
 		return isNonEmpty(unformed)

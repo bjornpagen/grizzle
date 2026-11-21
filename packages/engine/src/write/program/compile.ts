@@ -1830,9 +1830,9 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
  * formedAt) and whose puts choose their statements by it (putOps), the lowering's write context, and the statements
  * built over them. So is everything a compile appends to as it lowers, made afresh at each level and never held here:
  * the facts whose certificates the lowering records (writeFacts), the statement share, the shape state and the share
- * index's memo. Its placement (`place`), which reads no level but holds the physical analysis its facts read, is the
- * placed write's, which the compiles of one role hold. A prepared write holds no analysis beyond what its compiled
- * write holds (`frontend`, the put choices).
+ * index's memo, and its placement (`#place`), which reads no level but holds the physical analysis of the write's
+ * whole DAG its facts read: each compile places the write for itself and drops the placement as it returns. A prepared
+ * write holds no analysis beyond what its compiled write holds (`frontend`, the put choices).
  */
 export class PreparedWrite {
 	readonly schema: CheckedSchema
@@ -1859,17 +1859,17 @@ export class PreparedWrite {
 		return this.#compiles
 	}
 
-	/** How many times it was placed (`place`): the placements its compiles read, one for every compile of one role. */
+	/** How many times it was placed (`#place`): one for every compile, which reads its placement alone. */
 	get placements(): number {
 		return this.#placements
 	}
 
 	/**
 	 * The write placed (PlacedWrite): its restated front end and the placement of its deduplication over the restated
-	 * DAG (writeFacts), which read no level either, for each level `compile`s from. A placement holds the physical
-	 * analysis its facts read, so the placed write is held only by the compiles of one role and never by an entry.
+	 * DAG (writeFacts), which read no level either. A placement holds the physical analysis its facts read, so the
+	 * placed write is its one compile's and held by nothing past it (`compile`).
 	 */
-	place(): Result.Result<PlacedWrite, CompileError> {
+	#place(): Result.Result<PlacedWrite, CompileError> {
 		this.#placements += 1
 		return catchRefusal(() => {
 			/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs
@@ -1886,14 +1886,14 @@ export class PreparedWrite {
 		})
 	}
 
-	/** The write compiled at `level` (compileWrite's steps 3 to 5), placed for this compile alone (`place`). */
+	/** The write compiled at `level` (compileWrite's steps 3 to 5), placed for this compile alone (`#place`). */
 	compile(level: Isolation): Result.Result<CompiledWrite, CompileError> {
-		return Result.flatMap(this.place(), (placed) => placed.compile(level))
+		return Result.flatMap(this.#place(), (placed) => placed.compile(level))
 	}
 }
 
-/** A prepared write placed (PreparedWrite.place): compiled at each level from its one placement. */
-export interface PlacedWrite {
+/** A prepared write placed (PreparedWrite #place): compiled at a level from its placement. */
+interface PlacedWrite {
 	readonly compile: (level: Isolation) => Result.Result<CompiledWrite, CompileError>
 }
 
