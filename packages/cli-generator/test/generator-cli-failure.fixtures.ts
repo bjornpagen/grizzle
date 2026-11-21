@@ -58,6 +58,7 @@ type Shape =
 
 export type Feature =
 	| Shape
+	| `the ${LineFailure["_tag"]} line`
 	| "a character JSON escapes"
 	| "a character only the sanitizer escapes"
 	| "a lone surrogate"
@@ -259,7 +260,7 @@ export const readSubject = (field: string): Option.Option<string> =>
 			)
 		: Option.none()
 
-/** What a drawn failure reaches: the shape of its line, and the characters of its subject. */
+/** What a drawn failure reaches: the shape of its line, its class, and the characters of its subject. */
 export const featuresOf = (drawn: FailureCase): ReadonlyArray<Feature> => {
 	const characters = Option.match(
 		drawn.expected.kind === "generation" ? drawn.expected.subject : Option.none(),
@@ -268,6 +269,7 @@ export const featuresOf = (drawn: FailureCase): ReadonlyArray<Feature> => {
 	const subjectText = Arr.join(characters, "")
 	return [
 		drawn.shape,
+		`the ${drawn.failure._tag} line`,
 		...(Arr.some(
 			characters,
 			(character) => jsonEscaped.test(character) || loneSurrogate.test(character)

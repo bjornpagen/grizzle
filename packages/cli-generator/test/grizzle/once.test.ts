@@ -36,6 +36,7 @@
  */
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
+import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
 	aimed,
@@ -941,7 +942,7 @@ export const grizzleOnce = property.explore(
 		Arr.map(FEATURES, (feature) => [feature, caseFor(feature)] as const)
 	),
 	{
-		needs: { twins: twinsNeed },
+		needs: { twins: twinsNeed, checkout: Checkout.dir },
 		situations: FEATURES satisfies ReadonlyArray<Reached<Feature>>,
 		check:
 			({ twins: twinsOf }, notes: Case<Feature>) =>

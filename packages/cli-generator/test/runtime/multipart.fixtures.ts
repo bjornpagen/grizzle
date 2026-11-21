@@ -1014,8 +1014,21 @@ export const mixedFeatures = (mixed: MixedCase): ReadonlyArray<MixedFeature> => 
 	])
 }
 
-/** A positional body, as drawn. */
-export const mixedSpace: Gen<MixedCase> = mixedDrawn
+/**
+ * A positional body, aimed at a required body of no parts, which a plain draw reaches rarely: no bodies, the body
+ * required, and no minParts above none.
+ */
+export const mixedSpace = aimed<MixedCase, MixedFeature>(mixedDrawn, [
+	[
+		"required with no part",
+		(source) => ({
+			...mixedDrawn(source),
+			bodies: [],
+			minParts: Option.none(),
+			required: true
+		})
+	]
+])
 
 /** What a part's schema asks of it: text, a three-letter code, a whole number, one of two words, a list of texts, a non-empty file, a JSON record, one positional file. */
 export type PartKind = "text" | "code" | "count" | "choice" | "tags" | "file" | "meta" | "pages"
