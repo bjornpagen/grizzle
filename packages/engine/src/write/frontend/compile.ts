@@ -1453,7 +1453,13 @@ const compile = (
 					{
 						op: "insert",
 						relation: computedHeading,
-						query: navigateQuery(m.member.query, loc, columns, { kind: "perRead" }),
+						query: navigateQuery(
+							m.member.query,
+							loc,
+							columns,
+							{ kind: "perRead" },
+							laws.theory.regionFacts
+						),
 						loc
 					},
 					{ label: `insert ${relation.name}'s computed fields`, clock, session }
@@ -1655,7 +1661,13 @@ const compile = (
 					{
 						op: member.op,
 						relation: written,
-						query: navigateQuery(describedQuery, loc, columns, { kind: "perRead" }),
+						query: navigateQuery(
+							describedQuery,
+							loc,
+							columns,
+							{ kind: "perRead" },
+							laws.theory.regionFacts
+						),
 						loc
 					},
 					{ label: `${member.op} ${member.relation}`, clock, session }

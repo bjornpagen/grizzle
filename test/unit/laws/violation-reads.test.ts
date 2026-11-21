@@ -57,10 +57,16 @@ import {
 	blocksReads,
 	caseGen,
 	type Feature,
+	firstRead,
 	keyedBy,
 	migrationCaseGen,
 	type MigrationFeature,
 	negations,
+	orderCaseGen,
+	orderExpected,
+	type OrderFeature,
+	orderFeatureOf,
+	orderSchemaOf,
 	schemaOf,
 	tableKey,
 	looseJoins,
@@ -156,8 +162,8 @@ export const aRulesCheckOverEveryRowReadsEachStoredTableNeverAViewInOneChainOfLo
 			{
 				file: "packages/engine/src/physical/ddl/rules.ts",
 				original:
-					'\t\tcheckQuery(b.checked, navigateQuery(query, loc, columns, { kind: "perStatement", extent }), {\n',
-				replacement: "\t\tcheckQuery(b.checked, query, {\n",
+					'\t\t\tnavigateQuery(\n\t\t\t\tquery,\n\t\t\t\tloc,\n\t\t\t\tcolumns,\n\t\t\t\t{ kind: "perStatement", extent },\n\t\t\t\tb.model.theory.regionFacts\n\t\t\t),\n',
+				replacement: "\t\t\tquery,\n",
 				why: "The judge reads its queries as written, a join of every relation a probe reads, which PostgreSQL may plan as a product it filters; it fails the first box by its loose joins."
 			}
 		]
@@ -381,3 +387,92 @@ export const aUnitLocalRulesJudgeAndCheckReadEachStepByWhatTheStepsBeforeItBound
 			}
 		]
 	})
+
+/**
+ * A rule's check over every row starts its chain at a read contained in another that reads every row of its relation:
+ * Marked, Item joined to Rare at (doc, at), reads Rare first where the schema states Rare's rows contained in Item's at
+ * its key, over every row, and the rule reads every item, each rare mark beside an item the chain reads, whichever its
+ * rule matches first; and the first declared where it states none, one over a selection of Rare alone, which says
+ * nothing of the rows outside it, or one at fields of Rare the rule binds to no variable of Item's, or where the rule
+ * reads Item at a literal or beside a condition of its own, which may leave fewer items than marks: qti's `q` elements
+ * are few, every node's first child many. With no statistics PostgreSQL plans each step of the chain as it stands, so a
+ * chain that starts at the first declared of two reads alike reads every item where the few rare marks would do, as
+ * follow-up 4's checks over a field's typed value beside its node read every node (field_value_text_check, 7.8 ms
+ * drafted, 1,459 ms navigated, VALIDCOST's job 8).
+ */
+export const aRulesCheckOverEveryRowStartsAtAReadContainedInAnother = property.exhaust(
+	finite(orderCaseGen),
+	{
+		needs: {},
+		situations: [
+			"a read contained in another, declared after it, first",
+			"a read contained in another, declared first, first",
+			"a containment into a read a literal restricts, the first declared first",
+			"a containment into a read a condition restricts, the first declared first",
+			"no containment, the first declared first",
+			"a containment over a selection, the first declared first",
+			"a containment at other fields, the first declared first"
+		] satisfies ReadonlyArray<Reached<OrderFeature>>,
+		check: (_, k: CaseOf<OrderFeature>) => (c) =>
+			Effect.sync(() => {
+				const installation = installed(orderSchemaOf(c))
+				const checked = Arr.filter(lawChecks(installation).rules, (r) => r.meaning === "defined")
+				assert.equal(checked.length, 1, "the box's one check over a query, Marked's")
+				for (const rule of checked) {
+					assert.equal(
+						firstRead(rule.query),
+						tableKey(installation.names.relation(orderExpected(c))),
+						"the chain's first read"
+					)
+				}
+				k.note(orderFeatureOf(c))
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the containments the schema states: the read contained in another over every row at the variables both bind first, else the first declared"
+		},
+		box: "Marked = Item ⋈ Rare at (doc, at), either matched first, Item read whole, at a literal or beside a condition of its own, Rare contained in Item at its key over every row, over a selection, at other fields, or not",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\t\t\t\t(!narrower(held, at) &&\n\t\t\t\t\t\tthis.#interned.within(r, current) &&\n\t\t\t\t\t\treadsAll(current, values, seeks))",
+				replacement: "\t\t\t\t\tfalse",
+				why: "A chain starts at the first declared of two reads alike, Item, every item read where Rare's few marks, each beside an item, would do; it fails the case of Item read whole and matched first beside Rare contained in it."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\tfacts.containments.filter((c) => c.selection.length === 0),",
+				replacement: "\t\t\tfacts.containments,",
+				why: "A containment over a selection orders a chain over every row of its source, as if each row outside the selection were beside a row of the target; it fails the case of a selection of Rare contained in Item."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: '\t\t\t\t\treturn x?.kind === "var" && y?.kind === "var" && x.var === y.var',
+				replacement: "\t\t\t\t\treturn true",
+				why: "A containment orders a chain whatever its fields bind, so Rare at (doc, mark), which the rule reads beside no item at mark, goes before Item; it fails the case of a containment at other fields."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\t\t\t\t\tthis.#interned.within(r, current) &&\n\t\t\t\t\t\treadsAll(current, values, seeks))",
+				replacement: "\t\t\t\t\t\tthis.#interned.within(r, current))",
+				why: "A read contained in another goes first however the rule restricts the other, so Rare goes before Item read at a parent literal, as qti's every first child went before its few `q` elements (quotation_end's third rule); it fails the cases of Item read at a literal or beside a condition."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: '\t\t\t\t\te.kind !== "var" ||\n',
+				replacement: "",
+				why: "A literal binding counts as a variable of the read's own, so Item read at a parent literal reads every row of it, and Rare goes first; it fails the case of Item read at a literal."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original:
+					"\t\t\treturn pending.every((c) => ![...readsOf(c)].every((id) => own.has(id) || known.has(id)))",
+				replacement: "\t\t\treturn true",
+				why: "A condition of the read's own variables restricts nothing, so Item beside a condition of its kind reads every row of it, and Rare goes first; it fails the case of Item beside a condition."
+			}
+		]
+	}
+)

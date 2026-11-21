@@ -298,10 +298,13 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 	const checked = succeeded(
 		checkQuery(
 			artifacts.laws.checked,
-			navigateQuery(rule.rule.everyRow, loc, queryColumns(artifacts.laws.checked, loc), {
-				kind: "perStatement",
-				extent: "every"
-			}),
+			navigateQuery(
+				rule.rule.everyRow,
+				loc,
+				queryColumns(artifacts.laws.checked, loc),
+				{ kind: "perStatement", extent: "every" },
+				theory.regionFacts
+			),
 			{
 				read: "region",
 				clock: noClock,

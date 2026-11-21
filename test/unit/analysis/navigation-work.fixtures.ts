@@ -6,6 +6,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -136,6 +137,9 @@ const loc = SourceLoc("navigation work", [])
 /** The columns of each query the chains import, over Base. */
 const columns = queryColumns(checking(Base), loc)
 
+/** The containments Base's theory holds, which order a chain (analysis/theory/navigate.ts Interned `within`). */
+const facts = succeeded(buildTheory(checking(Base))).regionFacts
+
 /** Every function of navigation's module, whose calls are its work (analysis/theory/navigate.ts). */
 const isNavigation = (file: string): boolean => Str.endsWith("analysis/theory/navigate.ts")(file)
 
@@ -144,10 +148,13 @@ const navigationWork = (c: Chain, depth: number): Effect.Effect<number> =>
 	Effect.map(
 		everyCallCount(
 			Effect.sync(() =>
-				navigateQuery(readAt(c, depth), loc, columns, {
-					kind: "perStatement",
-					extent: c.read === "whole" ? "every" : "units"
-				})
+				navigateQuery(
+					readAt(c, depth),
+					loc,
+					columns,
+					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
+					facts
+				)
 			),
 			isNavigation
 		),
@@ -165,10 +172,13 @@ const digestWork = (c: Chain, depth: number): Effect.Effect<number> =>
 	Effect.map(
 		everyCallCount(
 			Effect.sync(() =>
-				navigateQuery(readAt(c, depth), loc, columns, {
-					kind: "perStatement",
-					extent: c.read === "whole" ? "every" : "units"
-				})
+				navigateQuery(
+					readAt(c, depth),
+					loc,
+					columns,
+					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
+					facts
+				)
 			),
 			isDigesting
 		),

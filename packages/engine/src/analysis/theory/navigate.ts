@@ -19,6 +19,7 @@ import {
 	varRef,
 	varsOf
 } from "#compiler/analysis/theory/leaves.ts"
+import type { FieldContainment, RegionFacts } from "#compiler/analysis/theory/unit.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -53,11 +54,14 @@ import {
  * the variable's column, which stands wherever the variable stood, first among them. The matches are then read in an order of their own (`#chain`): from the values the
  * rule holds, its parameters and literals, each next match the one with the most columns keyed so far, bound to a
  * parameter or to a variable the steps placed bound, directly or by an equality with them, then the one with the most
- * columns bound at all, literals among them, the earliest declared among equals: a literal alone is no key, a constant
- * every key's rows may share, so a read a literal alone binds never goes before one a key binds. That is how a rule's
- * probe starts from the row its write touched, and how a member walks a qti package: from the package's documents by
- * its own key, down to a node's children by (package, path, parent), and up to a node's parent by its primary key,
- * never by (package, path) alone while a narrower lookup is left.
+ * columns bound at all, literals among them, then one whose every row is beside a row of another that reads every row
+ * of its relation (Interned `within`: a containment the schema states of its relation into the other's over every
+ * row, at the variables both bind; #chain `readsAll`), then the earliest declared among equals: a literal alone is no
+ * key, a constant every key's rows may share, so a read a literal alone binds never goes before one a key binds. That
+ * is how a rule's probe starts from the row its write touched; how a member walks a qti package: from the package's
+ * documents by its own key, down to a node's children by (package, path, parent), and up to a node's parent by its
+ * primary key, never by (package, path) alone while a narrower lookup is left; and how a check over every row of a
+ * relation whose rows each sit beside a row of another starts at its rows, never at every row of the other.
  *
  * Each match is its own step: an import of one rule over its relation, every column a variable the steps before it bound
  * read through a channel (ir/desc.ts Channel) its bind map binds to that variable, every parameter of the rule passed in
@@ -208,7 +212,7 @@ type Binds = ReadonlyMap<string, InferredExpr>
  * of values its rules read it at, where navigated at each read apart, every level was navigated once for every path
  * down the chain to it, the product of the unions' widths at every depth above it. Its work is linear in the queries
  * and rules its statement reads, never in the paths through them. One per call of `navigateQuery`, never shared
- * between statements.
+ * between statements; with the containments its chains are ordered by (`within`).
  */
 class Interned {
 	/**
@@ -222,6 +226,44 @@ class Interned {
 	readonly #navigations = new Map<string, InferredQuery>()
 	/** What navigation reads of each rule this navigation asked about (`reads`), by the rule. */
 	readonly #reads = new Map<InferredRule, RuleReads>()
+	/**
+	 * The containments the schema states over every row of their source (RegionFacts `containments`, no selection), by
+	 * the source: a containment over the rows a selection admits says nothing of the rows a read of the whole relation
+	 * reads.
+	 */
+	readonly #containments: ReadonlyMap<string, ReadonlyArray<FieldContainment>>
+
+	constructor(facts: RegionFacts) {
+		this.#containments = Map.groupBy(
+			facts.containments.filter((c) => c.selection.length === 0),
+			(c) => c.from
+		)
+	}
+
+	/**
+	 * Whether every row read `a` reads is beside a row of the relation read `b` reads: both read stored relations, and
+	 * the schema states a's relation contained in b's over every row (`#containments`), each pair of fields one variable
+	 * both reads bind. A law every committed state holds, it orders a chain and never what the chain derives: where `b`
+	 * reads every row of its relation (Navigator #chain `readsAll`), a chain that starts at `a` reads a's rows, each of
+	 * which meets a row of `b` by the variables it binds, where one that starts at `b` reads every row of b's relation,
+	 * each beside few of a's rows or none, as a check over every row of qti's typed field values, each beside its node,
+	 * read every node.
+	 */
+	within(a: Read, b: Read): boolean {
+		if (a.source.kind !== "relation" || b.source.kind !== "relation") {
+			return false
+		}
+		const to = b.source.name
+		return (this.#containments.get(a.source.name) ?? []).some(
+			(c) =>
+				c.to === to &&
+				c.pairs.every((p) => {
+					const x = a.bindings[p.from]
+					const y = b.bindings[p.to]
+					return x?.kind === "var" && y?.kind === "var" && x.var === y.var
+				})
+		)
+	}
 
 	/**
 	 * `query` navigated by `navigate`: the navigation of the first query of its identity this navigation read, that
@@ -1008,6 +1050,33 @@ class Navigator {
 			}
 			return { keyed, bound }
 		}
+		/**
+		 * Whether read `r` reads every row of its relation: each of its columns bound to a variable of its own, at that
+		 * column alone, which no step placed, no equality still pending fixes (`values`) and no suffix test seeks
+		 * (`seeks`), and no condition still pending reads its variables alone, with values the steps placed. A read a
+		 * literal, a value or a condition of its own restricts may hold fewer rows than a read contained in its relation:
+		 * qti's `q` elements are few, the first children of every node many.
+		 */
+		const readsAll = (
+			r: Read,
+			values: ReadonlyMap<string, boolean>,
+			seeks: ReadonlySet<string>
+		): boolean => {
+			const own = new Set<string>()
+			for (const e of Object.values(r.bindings)) {
+				if (
+					e.kind !== "var" ||
+					own.has(e.var) ||
+					known.has(e.var) ||
+					values.has(e.var) ||
+					seeks.has(e.var)
+				) {
+					return false
+				}
+				own.add(e.var)
+			}
+			return pending.every((c) => ![...readsOf(c)].every((id) => own.has(id) || known.has(id)))
+		}
 		const vars: Array<VarDesc> = []
 		const matches: Array<InferredMatch> = []
 		for (const read of flat.reads) {
@@ -1099,9 +1168,16 @@ class Navigator {
 			let best = 0
 			for (const [i, r] of reads.entries()) {
 				const current = reads[best]
+				if (current === undefined) {
+					continue
+				}
+				const at = lookupOf(r, values, seeks)
+				const held = lookupOf(current, values, seeks)
 				if (
-					current !== undefined &&
-					narrower(lookupOf(r, values, seeks), lookupOf(current, values, seeks))
+					narrower(at, held) ||
+					(!narrower(held, at) &&
+						this.#interned.within(r, current) &&
+						readsAll(current, values, seeks))
 				) {
 					best = i
 				}
@@ -1529,14 +1605,16 @@ const boundInside = (
  * statistics or none, reads a join the judge reads as a product it filters afterwards. A rule over an imported query of
  * several rules, where one of its conjunctions (`conjunctions`) joins, is navigated with each such import read whole
  * under `perStatement`, every rule statement's, one node, each of its rules navigated inside it (`sharedImports`), and
- * as the union of its conjunctions, each navigated, under `perRead`.
+ * as the union of its conjunctions, each navigated, under `perRead`. Each chain is ordered by the containments `facts`
+ * holds, the schema's theory's (Interned `within`).
  */
 export const navigateQuery = (
 	query: InferredQuery,
 	loc: SourceLoc,
 	columns: QueryColumns,
-	sharing: ImportSharing
-): InferredQuery => navigatedQuery(query, loc, columns, sharing, new Interned())
+	sharing: ImportSharing,
+	facts: RegionFacts
+): InferredQuery => navigatedQuery(query, loc, columns, sharing, new Interned(facts))
 
 /**
  * `navigateQuery` within one statement's navigation, its imports read whole interned in `interned`, each query of one

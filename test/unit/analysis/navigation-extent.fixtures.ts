@@ -5,6 +5,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Formatter } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { navigateQuery, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
+import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -113,6 +114,9 @@ const queryOf = (c: Extent): InferredQuery => {
 const loc = SourceLoc("navigation extent", [])
 const columns = queryColumns(checking(Base), loc)
 
+/** The containments Base's theory holds, which order a chain (analysis/theory/navigate.ts Interned `within`). */
+const facts = succeeded(buildTheory(checking(Base))).regionFacts
+
 /** The reads of an import a navigated query keeps, each a match of a query source, at any depth. */
 const importReads = (q: InferredQuery): number =>
 	q.stage.kind === "rules"
@@ -132,10 +136,13 @@ const importReads = (q: InferredQuery): number =>
  * stays whole; over every row it stays whole at every read; and a union stays whole over either.
  */
 export const navigatedOver = (c: Extent, note: (r: Reached) => void): void => {
-	const navigated = navigateQuery(queryOf(c), loc, columns, {
-		kind: "perStatement",
-		extent: c.extent
-	})
+	const navigated = navigateQuery(
+		queryOf(c),
+		loc,
+		columns,
+		{ kind: "perStatement", extent: c.extent },
+		facts
+	)
 	note(
 		c.import === "one rule"
 			? c.extent === "units"

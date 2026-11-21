@@ -663,3 +663,149 @@ export const unitSchemaOf = (c: UnitCase): AnySchema => {
 		}
 	}
 }
+
+/** A rare mark at an item: a few of the items, keyed as they are. */
+const Rare = relation(
+	"Rare",
+	{ doc: pg.integer, at: pg.integer, mark: pg.integer, note: pg.integer },
+	["doc", "at"]
+)
+
+const orderFirsts = ["Item", "Rare"] as const
+
+/**
+ * What the ordering box's schema states of Rare into Item: nothing; Rare at (doc, at) contained in Item at its key,
+ * over every row; the same over the rows of a selection of Rare alone; or Rare at (doc, mark), fields the rule binds to
+ * no variable of Item's.
+ */
+const orderContainments = ["none", "every row", "a selection", "other fields"] as const
+
+/**
+ * How Marked's rule reads Item: every row of it, by fresh variables; at a parent literal, beside Rare at a note
+ * literal, so both reads stay alike; or every row beside a condition of its kind alone.
+ */
+const orderItems = ["every row", "a literal", "a condition"] as const
+
+/**
+ * The ordering box: which of Item and Rare Marked's rule matches first, what the schema states of Rare into Item, and
+ * how the rule reads Item.
+ */
+export interface OrderCase {
+	readonly first: (typeof orderFirsts)[number]
+	readonly containment: (typeof orderContainments)[number]
+	readonly item: (typeof orderItems)[number]
+}
+
+export const orderCaseGen: Gen<OrderCase> = (s) => ({
+	first: s.draw(element(orderFirsts)),
+	containment: s.draw(element(orderContainments)),
+	item: s.draw(element(orderItems))
+})
+
+export type OrderFeature =
+	| "a read contained in another, declared after it, first"
+	| "a read contained in another, declared first, first"
+	| "a containment into a read a literal restricts, the first declared first"
+	| "a containment into a read a condition restricts, the first declared first"
+	| "no containment, the first declared first"
+	| "a containment over a selection, the first declared first"
+	| "a containment at other fields, the first declared first"
+
+/** The situation a case of the ordering box whose schema states Rare contained in Item over every row reaches. */
+const containedFeatureOf = (c: OrderCase): OrderFeature => {
+	switch (c.item) {
+		case "every row":
+			return c.first === "Item"
+				? "a read contained in another, declared after it, first"
+				: "a read contained in another, declared first, first"
+		case "a literal":
+			return "a containment into a read a literal restricts, the first declared first"
+		case "a condition":
+			return "a containment into a read a condition restricts, the first declared first"
+	}
+}
+
+/** The situation a case of the ordering box reaches by its schema alone. */
+export const orderFeatureOf = (c: OrderCase): OrderFeature => {
+	switch (c.containment) {
+		case "every row":
+			return containedFeatureOf(c)
+		case "none":
+			return "no containment, the first declared first"
+		case "a selection":
+			return "a containment over a selection, the first declared first"
+		case "other fields":
+			return "a containment at other fields, the first declared first"
+	}
+}
+
+/**
+ * The relation the chain of a check over every row of Marked starts at, by the box's specification: Rare where the
+ * schema states it contained in Item over every row at the variables both reads bind and the rule reads every row of
+ * Item, each rare mark then beside an item the chain reads, and the first declared otherwise.
+ */
+export const orderExpected = (c: OrderCase): (typeof orderFirsts)[number] =>
+	c.containment === "every row" && c.item === "every row" ? "Rare" : c.first
+
+/**
+ * The ordering box's schema: Item (the unit box's) and Rare, a containment of Rare into Item as the case states, and a
+ * check over Marked, Item joined to Rare at (doc, at), matched in the case's order and read as the case reads Item.
+ */
+export const orderSchemaOf = (c: OrderCase): AnySchema => {
+	const statements = (() => {
+		switch (c.containment) {
+			case "none":
+				return []
+			case "every row":
+				return [contained(on(Rare, "doc", "at"), on(Item, "doc", "at"))]
+			case "a selection":
+				return [
+					contained(
+						on(
+							select(Rare, (r) => r.ne(r.mark, 0)),
+							"doc",
+							"at"
+						),
+						on(Item, "doc", "at")
+					)
+				]
+			case "other fields":
+				return [contained(on(Rare, "doc", "mark"), on(Item, "doc", "at"))]
+		}
+	})()
+	const Base = schema("OrderBox", [Item, Rare], statements)
+	const Marked = derived(
+		"Marked",
+		query(Base).rule((r) => {
+			const { doc, at, kind } = v(Item, "i")
+			const { mark } = v(Rare, "r")
+			const item = c.item === "a literal" ? { doc, at, kind, parent: 1 } : { doc, at, kind }
+			const rare = c.item === "a literal" ? { doc, at, mark, note: 2 } : { doc, at, mark }
+			const matched =
+				c.first === "Item"
+					? r.match(Item, item).match(Rare, rare)
+					: r.match(Rare, rare).match(Item, item)
+			const kept = c.item === "a condition" ? matched.where(r.ne(kind, 0)) : matched
+			return kept.find({ doc, at, kind, mark })
+		})
+	)
+	return schema.extend(
+		[Base],
+		"OrderBox_1",
+		[Marked],
+		[check("M", Marked, (m) => m.ne(m.mark, m.kind))]
+	)
+}
+
+/** The table a query's chain reads first: the table its first core's first source ends at, a derived table's first. */
+export const firstRead = (query: OperandSelect): string | undefined => {
+	const core = bodyCores(query.body)[0]
+	const first = core === undefined ? undefined : sourcesOf(core)[0]
+	return first === undefined
+		? undefined
+		: first.kind === "table"
+			? tableKey(first.table)
+			: first.kind === "derived"
+				? firstRead(first.query)
+				: undefined
+}

@@ -230,12 +230,17 @@ const judgedStatement = (
 	extent: RegionExtent
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc, columns, { kind: "perStatement", extent }), {
-			read: "region",
-			label,
-			clock: noClock,
-			session: new CheckSession()
-		})
+		checkQuery(
+			b.checked,
+			navigateQuery(
+				query,
+				loc,
+				columns,
+				{ kind: "perStatement", extent },
+				b.model.theory.regionFacts
+			),
+			{ read: "region", label, clock: noClock, session: new CheckSession() }
+		)
 	)
 	const requests = requestsOf(b, rule, checked.dag.roots[0])
 	const lowered = unwrap(
