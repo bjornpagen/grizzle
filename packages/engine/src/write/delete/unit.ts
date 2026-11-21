@@ -106,7 +106,8 @@ import {
 	atKeyset,
 	keysetHolds,
 	type Flagged,
-	flaggedKeys,
+	flaggedRows,
+	flaggedRowsAt,
 	type Hop,
 	type KeyArm,
 	type Keyset,
@@ -116,7 +117,6 @@ import {
 	type RowArm,
 	type RowKeyset,
 	reachedRows,
-	reachFrom,
 	rowAt,
 	rowKeysetOf,
 	rowOf,
@@ -432,7 +432,8 @@ export const unitSql = (
 	/**
 	 * The rows of `flagged`, rows of `relation` each flagged where it is in the stratum's base of rows it would keep, at
 	 * which `broken`, a window over them read with their stored rows (`s`), is false: `SELECT <key>, <tid> FROM (SELECT
-	 * <key>, s.ctid, <broken> FROM <flagged> AS f JOIN <relation> AS s ON <key>) AS o WHERE NOT o.<broken>`.
+	 * <key>, s.ctid, <broken> FROM <flagged> AS f JOIN <relation> AS s ON s.ctid = f.<tid>) AS o WHERE NOT o.<broken>`,
+	 * each stored row fetched at its tid (keyset.ts flaggedRowsAt).
 	 */
 	const unbroken = (
 		relation: RelationInfo,
@@ -455,12 +456,7 @@ export const unitSql = (
 					targetAs(rowOf(s), tid),
 					targetAs(broken(col(f, flagged.flag), s), at)
 				],
-				[
-					reachFrom(w, supply, {
-						held: { cte: flagged.name, alias: f },
-						hops: [atKeyset(f, flagged, s)]
-					})
-				],
+				[flaggedRowsAt(w, supply, flagged, f, s)],
 				undefined
 			)
 		)
@@ -496,10 +492,10 @@ export const unitSql = (
 		index: LawField,
 		base: RowKeyset
 	): RowKeyset => {
-		const touched = keysetFrom({ kind: "key", relation }, [
+		const touched = rowsFrom(relation, [
 			membersOf(relation, family, groupsOf(relation, family, base))
 		])
-		return unbroken(relation, flaggedKeys(supply, ctes, touched, base), (inBase, s) =>
+		return unbroken(relation, flaggedRows(supply, ctes, touched, base), (inBase, s) =>
 			over(
 				"bool_or",
 				not(inBase),
@@ -524,7 +520,7 @@ export const unitSql = (
 		base: RowKeyset
 	): RowKeyset => {
 		const index = shape.index.field
-		const flagged = flaggedKeys(supply, ctes, doomedKeys, base)
+		const flagged = flaggedRows(supply, ctes, doomedKeys, base)
 		const f = supply.relation(internal(`flagged node of ${relation.name}`))
 		const x = supply.relation(internal(`judged node of ${relation.name}`))
 		const n = supply.relation(internal(`locally broken node of ${relation.name}`))
@@ -561,12 +557,7 @@ export const unitSql = (
 						local
 					)
 				],
-				[
-					reachFrom(w, supply, {
-						held: { cte: flagged.name, alias: f },
-						hops: [atKeyset(f, flagged, x)]
-					})
-				],
+				[flaggedRowsAt(w, supply, flagged, f, x)],
 				undefined
 			)
 		)

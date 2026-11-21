@@ -441,42 +441,64 @@ export const rowsWhere = (
 	return { name, access: first.access, columns, row }
 }
 
-/** A keyset whose every key carries whether another keyset holds it, in its column `flag`. */
-export interface Flagged extends Keyset {
+/** A row keyset whose every row carries whether another row keyset holds it, in its column `flag`. */
+export interface Flagged extends RowKeyset {
 	readonly flag: string
 }
 
 /**
- * Each key of `of` with whether `holds`, a keyset of some of its keys at its access path, holds it, by one GROUP BY
- * over the two (`tagged`), its CTE pushed onto `ctes`, materialized.
+ * Each row of `of` with whether `holds`, a row keyset of some of its rows, holds it, by one GROUP BY over the two at
+ * their keys and tids (`tagged`), its CTE pushed onto `ctes`, materialized: each row keeps its tid, so a read of the
+ * row it flags fetches it there (`flaggedRowsAt`), never at its key.
  */
-export const flaggedKeys = (
+export const flaggedRows = (
 	supply: NameSupply,
 	ctes: Array<Cte>,
-	of: Keyset,
-	holds: Keyset
+	of: RowKeyset,
+	holds: RowKeyset
 ): Flagged => {
-	const name = supply.relation(internal("flagged keys"))
+	const name = supply.relation(internal("flagged rows"))
 	const columns = mapNonEmpty(of.columns, () => supply.column(internal("flagged key")))
+	const row = supply.column(internal("flagged row"))
 	const flag = supply.column(internal("flag"))
 	ctes.push({
 		...cte(
 			name,
-			[...columns, flag],
-			tagged(
-				supply,
-				[of, holds],
-				(k) => k.columns,
-				(held, key) => ({
-					targets: [...key.map((e) => target(e)), target(held(1))],
-					having: undefined
-				})
-			)
+			[...columns, row, flag],
+			tagged(supply, [of, holds], rowColumns, (held, key) => ({
+				targets: [...key.map((e) => target(e)), target(held(1))],
+				having: undefined
+			}))
 		),
 		materialized: "MATERIALIZED"
 	})
-	return { name, access: of.access, columns, flag }
+	return { name, access: of.access, columns, row, flag }
 }
+
+/**
+ * The rows of a flagged row keyset, read as `f`, with the stored row each was read from, under `s`, at its tid: `<flagged>
+ * AS f JOIN <relation> AS s ON s.ctid = f.row AND s.ctid = ANY (ARRAY(SELECT DISTINCT row FROM <flagged>))`, a TID scan
+ * of one heap fetch a row whatever PostgreSQL estimates the flagged rows at (`RowKeyset`), never a read through an index
+ * over the key, which it may take for a shallower one that binds only a prefix of it and filter the rest over every row
+ * of that prefix.
+ */
+export const flaggedRowsAt = (
+	w: WriteContext,
+	supply: NameSupply,
+	flagged: Flagged,
+	f: string,
+	s: string
+): FromItem => ({
+	kind: "joins",
+	first: cteRefAs(flagged.name, f),
+	steps: [
+		{
+			kind: "on",
+			source: tableAs(w, flagged.access.relation.name, s),
+			on: and([rowAt(f, flagged, s), rowsAmong(supply, flagged, s)])
+		}
+	]
+})
 
 /**
  * The column of a keyset holding the field named as `field` is, by name: a family's group names its owner's key fields

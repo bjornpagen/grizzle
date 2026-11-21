@@ -19,7 +19,9 @@
  * row's group, its earlier siblings or its path once per row grows by more, and so does a read of the groups the
  * members are in that hops to each stored member for a group its keyset already holds (write/delete/unit.ts groupArm),
  * which PostgreSQL, with no statistics, reaches through the family's predecessor key binding the group alone, half the
- * group for each member; and so does a family additions statement
+ * group for each member; and so does a kept judgement that reads each judged row again at its key, not at the tid it
+ * was read with (write/family/keyset.ts flaggedRowsAt), which PostgreSQL, estimating the judged rows at two, may read
+ * through that same key, a sequence's lines and a tree's nodes alike; and so does a family additions statement
  * that finds each node it inserts again among its siblings by reading them: the tree's sibling key is a UNIQUE over
  * the node's law column of its parent, which a probe reaches by binding that column (laws/model/uniques.ts
  * GuardedReach), and a probe that binds a stored row's other columns beside its key lets PostgreSQL, holding no
@@ -104,6 +106,13 @@ export const theCostOfReplacingAStoredUnitTheRowsItReadsAtMostDoubleWithEachDoub
 				original: "\t\tif (family.group.every((g) => keysetHolds(keys, g.member))) {\n",
 				replacement: "\t\tif (family.group.every((g) => keysetHolds(keys, g.member)) && false) {\n",
 				why: "The groups a family's members are in are read by hopping from the keyset to each stored member at its key, for a group its key already holds: with no statistics PostgreSQL reaches each member through the family's predecessor key, which binds the group alone, and reads half the group for every member, so the unit delete reads n² / 2 rows a family."
+			},
+			{
+				file: "packages/engine/src/write/family/keyset.ts",
+				original: "\t\t\ton: and([rowAt(f, flagged, s), rowsAmong(supply, flagged, s)])\n",
+				replacement:
+					"\t\t\ton: and([keyedAt(w, f, flagged, s), ...keysetAmong(w, supply, flagged, s)])\n",
+				why: "A kept judgement reads each judged row at its key, not its tid: with no statistics PostgreSQL estimates the flagged rows at two, prices the key's index for the array over its second field, and reads each line through the ordered family's (doc, pred, at) key, which binds the document alone, filtering `at` over every line of the document for every line, so the unit delete reads n² / 2 rows once the hash join's cost passes the nested loop's."
 			}
 		]
 	})
