@@ -107,13 +107,24 @@ export type RecordChildren<Stem extends string, Owner, Key, Q> = AttachedRelatio
 	AttachedOf<Q>
 >
 
-/** The laws of a query Q's attachments, at any depth (AttachedLaws). */
-export type RecordLaws<Stem extends string, Owner, Key, Q> = AttachedLaws<
-	Stem,
-	RecordsPaths<AttachedOf<Q>>,
-	RootOf<Stem, Owner, Key, Q>,
-	AttachedOf<Q>
->
+/** The laws of a query Q's attachments, at any depth (AttachedLaws), as LawsHeld holds them. */
+export type RecordLaws<Stem extends string, Owner, Key, Q> = LawsHeld<Stem, Owner, Key, Q>["laws"]
+
+/**
+ * The laws records hold, collected (Collected), and read only once Q is a query: over a query's type parameter the
+ * conditional waits, so no reader of records' generic signature holds the laws' union half made over a tree no
+ * recursion ends, which an instantiation for a query would instantiate again, the whole tree. Every guard-free form
+ * holds that half-made union (TS2589 at a fragment of nested records and their rules). A member of an interface, so
+ * records(...)'s public signature and its builder's read one union for one records' arguments, which two conditional
+ * aliases would make twice and relate member by member (TS2589 at records(...) itself).
+ */
+interface LawsHeld<Stem extends string, Owner, Key, Q> {
+	readonly laws: Q extends unknown
+		? Collected<
+				AttachedLaws<Stem, RecordsPaths<AttachedOf<Q>>, RootOf<Stem, Owner, Key, Q>, AttachedOf<Q>>
+			>
+		: never
+}
 
 /** The relations of Q's attachments an insert states apart from the root (ApartRelations). */
 export type RecordApart<Stem extends string, Owner, Key, Q> = ApartRelations<
@@ -122,6 +133,15 @@ export type RecordApart<Stem extends string, Owner, Key, Q> = ApartRelations<
 	RootOf<Stem, Owner, Key, Q>,
 	AttachedOf<Q>
 >
+
+/**
+ * The members of a union collected again, a union of its own, each law as itself. The union a recursive alias builds
+ * (AttachedLaws) keeps the references it was built from, a child's law, the laws under it, each over the tree below,
+ * and the checker instantiates those again, the whole tree, at every instantiation of a type that holds the union, as a
+ * statement list holding the records' laws does. Collected, it holds the laws themselves, each instantiated as the plain
+ * type it is.
+ */
+type Collected<U> = U extends unknown ? U : never
 
 /** The root of records of Q as its attachments read it: Records' own `row`. */
 type RootOf<Stem extends string, Owner, Key, Q> =

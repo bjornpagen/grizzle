@@ -83,13 +83,20 @@ const step = 10
  *   whose assertion states the instantiations a unit of each shape adds (served-r1.log, flat records; served-r2.log,
  *   records of an array of options; served1.log and served2.log the same over hub main 3ebd933), and the probes of den's shape, one unit served in a login (probes/, the probe*.sh that
  *   check them as measured.ts checks a program: tsgo --checkers 1 --extendedDiagnostics), under the login's mapped
- *   checks (variants.log, g.log, g2.log) and under its verdicts (g3.log, fix.log)
- * @observed 2026-11-21, 17:40 to 18:52 UTC
+ *   checks (variants.log, g.log, g2.log) and under its verdicts (g3.log, fix.log); and since records collect their laws
+ *   (types/schema/records.ts LawsHeld), ~/.cache/grizzle-release/PERF-TYPES-tools/rf-*.log, this test with each bound
+ *   at 0 over each form of the laws tried
+ * @observed 2026-11-21, 17:40 to 18:52 UTC; the collected laws 21:00 to 23:00 UTC
  * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, load 180 to 270 from other sessions; Node 26.13.1, TypeScript
  *   7.1.0-beta (tsgo); grizzle at hub main 5f4199b4f with the verdicts (lane recordson)
  * @workload a schema of three relations; 10 and 20 units of each shape, each program checked alone
- * @result per added unit: flat records 12,237 instantiations, records of an array of options 60,002 (13,295 and 60,051
- *   over 3ebd933, before the query facade's evidence cut); every program clean. One unit of records of an array of options served in a login: 2,724,435 instantiations and TS2589 at the
+ * @result per added unit: flat records 12,256 instantiations, records of an array of options 48,979, once records
+ *   collect their laws (12,237 and 60,002 before, the laws the alias union of the attachment tree, TS2589 at a fragment
+ *   holding nested records' laws; 13,295 and 60,051 over 3ebd933, before the query facade's evidence cut); every program
+ *   clean. The 19 a flat unit adds are the guard that reads the laws only once the query is known: every guard-free form
+ *   of the laws tried brings TS2589 back at that fragment (collected unguarded, 12,239; collected at each level; a
+ *   wrapper alias) or costs more (a short circuit on a query that attaches nothing, 12,263; the public signature typed
+ *   off the builder's, 12,311). One unit of records of an array of options served in a login: 2,724,435 instantiations and TS2589 at the
  *   login under its mapped checks, 1,461,803 and clean under the verdicts; flat records 1,418,610 and 1,410,160; types
  *   are not read (the checker interns them)
  * @decision the bound is the verdicts' own cost, exactly: a change that makes a login's check of a served read of
@@ -99,8 +106,8 @@ const step = 10
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in ServedShape]: number } = {
-	"flat records": 12237,
-	"records of an array of options": 60002
+	"flat records": 12256,
+	"records of an array of options": 48979
 }
 
 /** How a shape prints. */

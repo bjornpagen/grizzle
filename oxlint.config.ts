@@ -78,6 +78,7 @@ const DICTIONARY_MINTS = [
 	"test/types/schema/budget/invariance.dictionary.ts",
 	"test/types/schema/budget/levels.dictionary.ts",
 	"test/types/schema/budget/logins.dictionary.ts",
+	"test/types/schema/budget/records-fragment.dictionary.ts",
 	"test/types/schema/budget/roles.dictionary.ts",
 	"test/types/schema/budget/scaling.dictionary.ts",
 	"test/types/schema/budget/served-records.dictionary.ts",

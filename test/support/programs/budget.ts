@@ -33,6 +33,7 @@ export {
 	generated,
 	natural,
 	pg,
+	retirement,
 	uuid
 } from "#compiler/public/fields.ts"
 export type { Infer, Uuid } from "#compiler/public/fields.ts"
@@ -55,6 +56,7 @@ export {
 	fin,
 	fn,
 	fold,
+	fragment,
 	key,
 	login,
 	Monoid,
@@ -64,6 +66,7 @@ export {
 	records,
 	recordsQuery,
 	relation,
+	retirable,
 	role,
 	row,
 	rows,
