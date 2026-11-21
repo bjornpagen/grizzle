@@ -9,17 +9,24 @@
  *   relation's among its readers), its column the query's own (core/decoder.ts Column), so a contract column is the
  *   schema's own declaration of the contract, brand and check, a closed id a closed id of its roster, resolved by name
  *   in the level that lists the records, and a refined text the text of its patterns. A head literal is stored
- *   nowhere: the read writes it again. A query with an attachment, a union of several headings, a head literal of
- *   several values or a column of a type no stored field declares is refused, each naming what it lacks.
+ *   nowhere: the read writes it again; head literals of several values at one key, a union's, are a column whose values
+ *   are exactly them (literalsField). A query with an attachment, a union of several headings or a column of a type no
+ *   stored field declares is refused, each naming what it lacks.
  * - recordsQuery(level, records): the rows stored at one value of the owner's key, each key field a parameter of its
  *   name, read by one rule over the root and delivered through the query's own decoders (query/build/query.ts
  *   decodedBy): the one decoder, whose form is the query's, so its rows are the query's under either reading.
  * - recordsFacts(level, records): the insert of one owner's found rows, under the root's name each row's fact, the
  *   owner's values then the row's stored columns, as ChangeSet.insertAll takes it.
  */
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { end, RegexBuilder, seq, start } from "@bjornpagen/grizzle-text/regex/ir"
+import { printSource } from "@bjornpagen/grizzle-text/regex/print"
+import { sourceFlags } from "@bjornpagen/grizzle-text/regex/source"
+import { literal } from "@bjornpagen/grizzle-text/regex/words"
 import { declaredDescOf } from "#compiler/analysis/derived/fields.ts"
-import { decoderOf } from "#compiler/core/decoder.ts"
+import { type CellConversion, decoderOf } from "#compiler/core/decoder.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isList, isRecord } from "#compiler/core/record.ts"
@@ -39,7 +46,8 @@ import {
 	requireName
 } from "#compiler/schema/protocol.ts"
 import { recordFields, recordsInsert } from "#compiler/schema/record.ts"
-import { relationBuilder } from "#compiler/schema/relation.ts"
+import { describeDeclared, relationBuilder } from "#compiler/schema/relation.ts"
+import { regexField } from "#compiler/text/field.ts"
 import type { Carrier, Carriers } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
@@ -106,14 +114,11 @@ const headColumn = (
 ): HeadColumn => {
 	const at = `${label} field ${name}`
 	if (carrier !== undefined && carrier.column.kind === "constant") {
-		const [value, ...others] = carrier.column.values
-		if (others.length > 0) {
-			throw unsupported(
-				SourceLoc(at, []),
-				"records of a head literal of one value; a union's literals at one key are a later cut"
-			)
-		}
-		return { kind: "literal", name, value }
+		const { values, conversion } = carrier.column
+		const [value, ...others] = values
+		return others.length === 0
+			? { kind: "literal", name, value }
+			: { kind: "stored", name, field: literalsField(values, conversion, carrier, env, at) }
 	}
 	if (typing.kind === "untyped") {
 		throw malformed(at, "a column the builder typed: records of a query over typed sources")
@@ -137,6 +142,69 @@ const headColumn = (
 		kind: "stored",
 		name,
 		field: defineField({}, typing.carrier.sql, desc.value, { column }, builderLoc(at, []), env)
+	}
+}
+
+/**
+ * The stored field of head literals of several values at one key, a union's arms each writing its own (core/decoder.ts
+ * unionColumn): a field whose values are exactly the literals, over the literals' column, so the read delivers the
+ * stored literal's text and the query's decoder reads it as the literal it is. Text literals are a text of the pattern
+ * of exactly them (`^(?:a|b)$`, printed from their alternation by grizzle's own grammar, text/regex print.ts
+ * printSource); boolean literals, which are both values, are a boolean. A literal of any other type has no field whose
+ * values are exactly the literals, so it is refused.
+ */
+const literalsField = (
+	values: NonEmptyReadonlyArray<unknown>,
+	conversion: CellConversion,
+	carrier: Carrier,
+	env: ScalarEnv,
+	at: string
+): FieldBase => {
+	const loc = builderLoc(at, [])
+	switch (conversion.carrier) {
+		case "text": {
+			const texts = values.map((value) => {
+				if (typeof value !== "string") {
+					throw defect("a text literal is a string")
+				}
+				return value
+			})
+			const source = printSource(
+				seq([start, new RegexBuilder().alt(texts.map(literal)), end]),
+				(set) => set
+			)
+			const { desc } = describeDeclared(regexField<string>(source, [sourceFlags]), loc)
+			return defineField({}, carrier.sql, desc, { column: carrier.column }, loc, env)
+		}
+		case "bool":
+			return defineField(
+				{},
+				carrier.sql,
+				{ kind: "pg", type: "boolean" },
+				{ column: carrier.column },
+				loc,
+				env
+			)
+		case "int2":
+		case "int4":
+		case "int8":
+		case "numeric":
+		case "float4":
+		case "float8":
+		case "money":
+		case "uuid":
+		case "date":
+		case "tsvector":
+		case "range4":
+		case "range8":
+		case "rangeDate":
+		case "exactInteger":
+		case "exactMoney":
+		case "vector":
+			throw unsupported(
+				SourceLoc(at, []),
+				`a stored field whose values are exactly the ${conversion.carrier} literals ${values.map(String).join(", ")}`
+			)
 	}
 }
 

@@ -3,7 +3,7 @@
  * records.fixtures.ts) and over it a level listing the records of each of the case's queries, its facts of Item, and
  * the space of its queries.
  */
-import type { Gen } from "@bjornpagen/testing/gen"
+import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { recordsBuilder } from "#compiler/program/records.ts"
 import { Bits, Decimal, Money, Vector } from "#compiler/public/fields.ts"
@@ -13,7 +13,9 @@ import type { QueryValue } from "#compiler/query/build/query.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import {
 	cellQueryOver,
+	heldPairs,
 	Item,
+	type ItemColumn,
 	itemColumns,
 	literals,
 	type RecordsCell,
@@ -21,7 +23,10 @@ import {
 } from "#test/unit/program/records.fixtures.ts"
 
 /** Each column a case's queries store, and each kind of head literal they write again. */
-export type RecordsFeature = `stores ${(typeof itemColumns)[number]}` | `writes a ${string} literal`
+export type RecordsFeature =
+	| `stores ${(typeof itemColumns)[number]}`
+	| `writes a ${string} literal`
+	| `stores a union's ${string} literals`
 
 /** Every column is stored in every case: its first query finds them all. */
 export const recordsSituations: ReadonlyArray<RecordsFeature> = Arr.map(
@@ -30,20 +35,19 @@ export const recordsSituations: ReadonlyArray<RecordsFeature> = Arr.map(
 )
 
 /**
- * A case: three queries over Item, the first finding every column beside a drawn head literal, each other a drawn
- * nonempty subset of the columns beside a drawn literal or none.
+ * A case: three queries over Item: the first one rule finding every column beside a drawn head literal, the second one
+ * rule of a drawn nonempty subset of the columns beside a drawn literal or none, the third a union of two rules of one
+ * heading, a drawn subset each, writing a drawn pair of literals a field holds exactly (two texts or both booleans).
  */
 export const recordsCaseGen: Gen<Arr.NonEmptyReadonlyArray<RecordsCell>> = (source) => {
-	const literalAt = (at: number) => literals[at]
-	const drawn = (): RecordsCell => {
-		const first = itemColumns[source.pick(0, itemColumns.length - 1)] ?? "id"
-		const rest = Arr.filter(itemColumns, (c) => c !== first && source.pick(0, 1) === 1)
-		return { columns: [first, ...rest], literal: literalAt(source.pick(0, literals.length)) }
+	const subset = (): Arr.NonEmptyReadonlyArray<ItemColumn> => {
+		const first = source.draw(element(itemColumns))
+		return [first, ...Arr.filter(itemColumns, (c) => c !== first && source.pick(0, 1) === 1)]
 	}
 	return [
-		{ columns: itemColumns, literal: literalAt(source.pick(0, literals.length - 1)) },
-		drawn(),
-		drawn()
+		{ kind: "find", columns: itemColumns, literal: source.draw(element(literals)) },
+		{ kind: "find", columns: subset(), literal: source.draw(element([undefined, ...literals])) },
+		{ kind: "union", columns: subset(), literals: source.draw(element(heldPairs)) }
 	]
 }
 

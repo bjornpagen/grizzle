@@ -15,6 +15,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rcd, String as Str } from "effect"
+import { catchCompileError } from "#compiler/core/canonical.ts"
 import {
 	type Columned,
 	columnForm,
@@ -28,6 +29,8 @@ import { bindGroups } from "#compiler/schema/record.ts"
 import { describeDeclared } from "#compiler/schema/relation.ts"
 import {
 	cellQuery,
+	heldExactly,
+	holdsExactly,
 	Item,
 	literalKey,
 	programOf,
@@ -66,31 +69,49 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 				Effect.sync(() => {
 					const what = `the records of ${Formatter.format(cell)}`
 					const q = cellQuery(cell)
+					if (cell.kind === "union" && !heldExactly(cell.literals)) {
+						const refused = catchCompileError(() => records("Found", q, { at: natural }, ["at"]))
+						assert.ok(
+							!refused.ok && refused.error.reason._tag === "UnsupportedOperation",
+							`${what}: literals no field holds exactly are refused`
+						)
+						return
+					}
 					const found = records("Found", q, { at: natural }, ["at"])
 					const row = found.row
 					assert.equal(row.name, "FoundRow", what)
 					const fields: Readonly<Record<string, Columned<unknown> | undefined>> = row.fields
+					const stored = cell.kind === "union" ? [...cell.columns, literalKey] : cell.columns
 					assert.deepEqual<ReadonlyArray<string>>(
 						Arr.sort(Rcd.keys(fields), Str.Order),
-						Arr.sort(["at", ...cell.columns], Str.Order),
+						Arr.sort(["at", ...stored], Str.Order),
 						`${what}: the root's fields`
 					)
 					assert.deepEqual<ReadonlyArray<string>>(row.primaryKey, ["at"], `${what}: the root's key`)
 					const forms = formColumns(q.rows.form)
-					for (const column of cell.columns) {
-						const stored = defined(fields[column], `${what}: the stored ${column}`)
+					for (const column of stored) {
+						const field = defined(fields[column], `${what}: the stored ${column}`)
 						assert.deepEqual(
-							declaration(stored, column),
-							declaration(Item.fields[column], column),
-							`${what}: ${column} is stored as its own field`
-						)
-						assert.deepEqual(
-							columnForm(stored.column),
+							columnForm(field.column),
 							defined(forms.get(column), `${what}: the query's ${column}`),
 							`${what}: ${column}'s column is the query's`
 						)
 					}
-					assert.ok(!Rcd.has(fields, literalKey), `${what}: a head literal is stored nowhere`)
+					for (const column of cell.columns) {
+						assert.deepEqual(
+							declaration(fields[column], column),
+							declaration(Item.fields[column], column),
+							`${what}: ${column} is stored as its own field`
+						)
+					}
+					if (cell.kind === "union") {
+						assert.ok(
+							holdsExactly(declaration(fields[literalKey], literalKey), cell.literals),
+							`${what}: the literals' column holds exactly its literals`
+						)
+					} else {
+						assert.ok(!Rcd.has(fields, literalKey), `${what}: a head literal is stored nowhere`)
+					}
 					const level = schema.extend([Rec], "Den", found.relations, found.rules)
 					const read = recordsQuery(level, found)
 					assert.ok(read.rows.form === q.rows.form, `${what}: the read's decoder is the query's`)
@@ -108,6 +129,19 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 			box: "each column of a relation of every stored type alone, every column, and every column beside a head literal of each JavaScript type",
 			kept: [],
 			kills: [
+				{
+					file: "packages/engine/src/program/records.ts",
+					original: "\t\t\t\tseq([start, new RegexBuilder().alt(texts.map(literal)), end]),",
+					replacement:
+						"\t\t\t\tseq([start, new RegexBuilder().alt(texts.slice(0, 1).map(literal)), end]),",
+					why: "A union's text literals are stored as a text of the first literal's pattern alone, which refuses the second: the column does not hold exactly its literals."
+				},
+				{
+					file: "packages/engine/src/program/records.ts",
+					original: "\t\treturn others.length === 0",
+					replacement: "\t\treturn others.length >= 0",
+					why: "Head literals of several values are taken as one literal, the first, stored nowhere: the union's `lit` is no column of the root, and its read writes the first literal for every row."
+				},
 				{
 					file: "packages/engine/src/program/records.ts",
 					original:

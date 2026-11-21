@@ -14,7 +14,8 @@ import type {
 	LiteralOrigin,
 	ParamType,
 	PhantomOf,
-	Simplify
+	Simplify,
+	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
 import type { Evidence } from "#compiler/types/evidence/evidence.ts"
 import type { Field, FieldBase } from "#compiler/types/fields/field.ts"
@@ -27,8 +28,22 @@ import type {
 } from "#compiler/types/query/query.ts"
 import type { Fact, Relation } from "#compiler/types/schema/relation.ts"
 
-/** Whether a head carrier is a head literal's, which its records store nowhere: their read writes it again. */
-type IsHeadLiteral<C> = PhantomOf<C> extends { readonly origin: LiteralOrigin } ? true : false
+/**
+ * Whether a head carrier is one head literal's, which its records store nowhere, their read writing it again; head
+ * literals of several values at one key, a union's, are a column (program/records.ts literalsField).
+ */
+type IsHeadLiteral<C> =
+	PhantomOf<C> extends { readonly origin: LiteralOrigin } ? IsOneValue<HostOfCarrier<C>> : false
+
+/** The values a carrier delivers, its column's host type. */
+type HostOfCarrier<C> = C extends Carrier<infer A> ? A : never
+
+/** Whether a literal type is one value: no union of values, as `boolean` is of true and false. */
+type IsOneValue<A> = [A] extends [never]
+	? false
+	: [A] extends [UnionToIntersection<A>]
+		? true
+		: false
 
 /**
  * The stored field of a head column: a field of the column's host type, SQL type, domain, facts and language, so a

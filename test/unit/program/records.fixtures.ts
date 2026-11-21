@@ -7,6 +7,7 @@ import { rowOptions } from "#adapter/engine.ts"
 import { readProgram } from "#adapter/reader/run.ts"
 import type { BindContext, Layout } from "#compiler/core/decoder.ts"
 import { codeNames } from "#compiler/ir/codes.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import {
 	bits,
@@ -119,7 +120,7 @@ export const itemColumns = [
 export type ItemColumn = (typeof itemColumns)[number]
 
 /** A head literal of every JavaScript type a head holds: a string, a number, a bigint, a boolean, a Decimal, a Money. */
-export const literals: ReadonlyArray<HeadValue> = [
+export const literals: Arr.NonEmptyReadonlyArray<HeadValue> = [
 	"found",
 	7,
 	7n,
@@ -128,10 +129,66 @@ export const literals: ReadonlyArray<HeadValue> = [
 	Money.of(350n)
 ]
 
-/** One cell of the box: the columns its query finds of Item, and the head literal it finds beside them, if any. */
-export interface RecordsCell {
-	readonly columns: Arr.NonEmptyReadonlyArray<ItemColumn>
-	readonly literal: HeadValue | undefined
+/**
+ * One cell of the box: one rule finding columns of Item and the head literal beside them, if any; or a union of two
+ * rules of one heading finding the same columns, each a literal of its own under `lit`.
+ */
+export type RecordsCell =
+	| {
+			readonly kind: "find"
+			readonly columns: Arr.NonEmptyReadonlyArray<ItemColumn>
+			readonly literal: HeadValue | undefined
+	  }
+	| {
+			readonly kind: "union"
+			readonly columns: Arr.NonEmptyReadonlyArray<ItemColumn>
+			readonly literals: readonly [HeadValue, HeadValue]
+	  }
+
+/**
+ * The literal pairs a union's rules write at one key that a field holds exactly: texts, two of them spelled with the
+ * pattern grammar's syntax characters, and both booleans, each a column of exactly its literals.
+ */
+export const heldPairs: Arr.NonEmptyReadonlyArray<readonly [HeadValue, HeadValue]> = [
+	["draft", "final"],
+	["a|b", "(c)*"],
+	[true, false]
+]
+
+/** Every literal pair the box's unions write: the held ones, and two numbers, which no stored field holds exactly yet. */
+export const literalPairs: Arr.NonEmptyReadonlyArray<readonly [HeadValue, HeadValue]> = [
+	...heldPairs,
+	[1, 2]
+]
+
+/** Whether a union's literal pair has a field of exactly its values: two texts, or both booleans. */
+export const heldExactly = (pair: readonly [HeadValue, HeadValue]): boolean =>
+	(typeof pair[0] === "string" && typeof pair[1] === "string") ||
+	(typeof pair[0] === "boolean" && typeof pair[1] === "boolean")
+
+/**
+ * Whether a declaration's values are exactly a literal pair: a text of one pattern its two texts match, as ECMA-262 reads
+ * it under `u`, and none of their concatenation, a text beside them, or an empty text; or a boolean, both its values.
+ */
+export const holdsExactly = (desc: FieldDesc, pair: readonly [HeadValue, HeadValue]): boolean => {
+	if (desc.kind === "pg") {
+		return desc.type === "boolean" && typeof pair[0] === "boolean"
+	}
+	if (desc.kind !== "text" || typeof pair[0] !== "string" || typeof pair[1] !== "string") {
+		return false
+	}
+	const [only, ...more] = desc.patterns
+	if (more.length > 0) {
+		return false
+	}
+	const pattern = new RegExp(only.source, "u")
+	return (
+		pattern.test(pair[0]) &&
+		pattern.test(pair[1]) &&
+		!pattern.test(`${pair[0]}${pair[1]}`) &&
+		!pattern.test(`${pair[0]}x`) &&
+		!pattern.test("")
+	)
 }
 
 /**
@@ -150,24 +207,57 @@ export const auditedColumns: Arr.NonEmptyReadonlyArray<Exclude<ItemColumn, "blob
 
 /** The box: each column alone, every column, and every column beside a head literal of each type. */
 export const recordsBox: Arr.NonEmptyReadonlyArray<RecordsCell> = [
-	...Arr.map(auditedColumns, (column): RecordsCell => ({ columns: [column], literal: undefined })),
-	{ columns: auditedColumns, literal: undefined },
-	...Arr.map(literals, (literal): RecordsCell => ({ columns: auditedColumns, literal }))
+	...Arr.map(auditedColumns, (column): RecordsCell => ({
+		kind: "find",
+		columns: [column],
+		literal: undefined
+	})),
+	{ kind: "find", columns: auditedColumns, literal: undefined },
+	...Arr.map(literals, (literal): RecordsCell => ({
+		kind: "find",
+		columns: auditedColumns,
+		literal
+	})),
+	...Arr.map(literalPairs, (pair): RecordsCell => ({
+		kind: "union",
+		columns: auditedColumns,
+		literals: pair
+	}))
 ]
 
 /** The key the head literal is found under. */
 export const literalKey = "lit"
 
-/** A cell's query over `level`, a level listing Item: one rule over Item finding its columns, and its literal under `lit`. */
-export const cellQueryOver = (level: AnySchema, cell: RecordsCell): QueryValue =>
-	queryOver(level).rule((r: RuleValue) => {
-		const item: Readonly<Record<string, unknown>> = v(Item, "item")
+/** One rule over Item, its variables `mint`'s, finding `columns` and `literal` under `lit`, if any. */
+const ruleOf =
+	(
+		columns: ReadonlyArray<ItemColumn>,
+		literal: HeadValue | undefined,
+		mint: () => Readonly<Record<string, unknown>>
+	) =>
+	(r: RuleValue) => {
+		const item = mint()
 		const head = Rcd.fromEntries([
-			...Arr.map(cell.columns, (c) => [c, item[c]] as const),
-			...(cell.literal === undefined ? [] : [[literalKey, cell.literal] as const])
+			...Arr.map(columns, (c) => [c, item[c]] as const),
+			...(literal === undefined ? [] : [[literalKey, literal] as const])
 		])
 		return r.match(Item, item).find(head)
-	})
+	}
+
+/**
+ * A cell's query over `level`, a level listing Item: its one rule, or its union of two rules of one heading, each
+ * finding its literal under `lit`.
+ */
+export const cellQueryOver = (level: AnySchema, cell: RecordsCell): QueryValue => {
+	switch (cell.kind) {
+		case "find":
+			return queryOver(level).rule(ruleOf(cell.columns, cell.literal, () => v(Item, "item")))
+		case "union":
+			return queryOver(level)
+				.rule(ruleOf(cell.columns, cell.literals[0], () => v(Item, "first")))
+				.rule(ruleOf(cell.columns, cell.literals[1], () => v(Item, "second")))
+	}
+}
 
 /** A cell's query over Rec (cellQueryOver). */
 export const cellQuery = (cell: RecordsCell): QueryValue => cellQueryOver(Rec, cell)

@@ -3773,7 +3773,10 @@ query's to list: `${stem}Row`, the owner's fields, then each column of the query
 by `ownerKey`, a nonempty list of the owner's field names, as `relation`'s primary key takes it. A column is stored as
 the type it is declared of, its contract's brand and check, its closed id's roster, its text's patterns, so a closed id
 references the roster of the level below; a drawn, generated or accumulated field is stored as its declared type, never
-drawn again; a head literal is stored nowhere. List `R.relations` in the level and `R.rules` among its rules.
+drawn again; a head literal is stored nowhere, its read writing it again, but a union's rules that write literals of
+several values at one key (`kind: "draft"` in one, `kind: "final"` in the other) store that key as a column whose values
+are exactly them: a text of the pattern of just those texts, or a boolean. List `R.relations` in the level and
+`R.rules` among its rules.
 
 ```ts
 const found = records("Lessons", lessonsOf, { digest: sha256, run: RunId }, ["digest", "run"])
@@ -3791,9 +3794,10 @@ export const storedLessons = recordsQuery(Audit, found)
 its owner's values, each fact the owner's values then the row's columns; an owner of several rows is entries that share
 it. `recordsQuery(level, records)` is an ordinary query over the level whose
 parameters are the owner's key fields and whose rows are the stored rows at that owner, delivered through the query's
-own decoder: `HeadOf<typeof storedLessons>` is `HeadOf<typeof lessonsOf>`, value for value. A query with an attachment,
-a union of several headings, or a head literal of several values is refused with `UnsupportedOperation`, as is a column
-of a type no stored field declares yet (a computed numeric).
+own decoder: `HeadOf<typeof storedLessons>` is `HeadOf<typeof lessonsOf>`, value for value. A query with an attachment
+or a union of several headings is refused with `UnsupportedOperation`, as is a column of a type no stored field
+declares yet (a computed numeric) and a union's literals of another type than text or boolean, which no field holds
+exactly.
 
 ## Declared functions
 

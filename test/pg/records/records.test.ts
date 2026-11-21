@@ -1,8 +1,9 @@
 /**
  * A query's records on PostgreSQL 19 (program/records.ts records, recordsFacts and recordsQuery): each case installs a
  * base of Item, a relation holding a field of every type a stored column may be (test/unit/program/records.fixtures.ts),
- * and over it a level listing the records of three queries, the first finding every column beside a head literal and
- * each other a drawn subset of the columns beside a drawn literal or none. Item's facts are written, each query read
+ * and over it a level listing the records of three queries: one rule finding every column beside a head literal, one
+ * rule of a drawn subset of the columns beside a drawn literal or none, and a union of two rules of one heading, each a
+ * literal of its own at one key, which the records store as a column of exactly those literals. Item's facts are written, each query read
  * through the full role's Db, and each row it found inserted into its records under an owner of its own (recordsFacts),
  * then read back by recordsQuery at that owner: exactly the row the query found, value for value, through the query's
  * own decoder.
@@ -70,8 +71,11 @@ export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = pr
 								for (const column of cell.columns) {
 									c.note(`stores ${column}`)
 								}
-								if (cell.literal !== undefined) {
+								if (cell.kind === "find" && cell.literal !== undefined) {
 									c.note(`writes a ${typeof cell.literal} literal`)
+								}
+								if (cell.kind === "union") {
+									c.note(`stores a union's ${typeof cell.literals[0]} literals`)
 								}
 								const found = yield* readOnce(member(served, `q${i}`))({ params: {}, facts: {} })
 								const records = rebuilt.found[i]
