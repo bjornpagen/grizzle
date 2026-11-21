@@ -23,18 +23,32 @@
  * implementation, the served compile that compiles every front end itself. Kill: the plan keeps one front end for every
  * program of a role, so a role of two programs serves one program's front end for the other.
  *
+ * Property 3, per case: the footprints a served file compiled over a snapshot routes its live reads by
+ * (program/workload/compile.ts loginFootprints) are the workload plan's (compileWorkload `footprints`), read with no
+ * ChangeSet's front end compiled: the analyses made under the laws' evidence, read once by each write analysis, are
+ * none, where the plan made one for each ChangeSet (adapter/served/compile.ts snapshotCompiled planned the whole
+ * workload to read its footprints, the login's ChangeSets compiled already). Oracle: a second implementation, the
+ * workload plan. Kill: the footprint plan compiles each ChangeSet's front end, as the whole plan did.
+ *
  * Features: one program, several programs of a role.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { noClock } from "#compiler/ir/clock.ts"
 import { type ChangeEntry, readCommittedChanges } from "#compiler/program/workload/change.ts"
+import { compileWorkload, loginFootprints } from "#compiler/program/workload/compile.ts"
 import { noPlannedFrontends } from "#compiler/program/workload/planned.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { changeLoginOf, entriesOf, rolesGen } from "#test/unit/program/prepared-levels.fixtures.ts"
+import {
+	changeLoginOf,
+	entriesOf,
+	footprintsLoginOf,
+	rolesGen
+} from "#test/unit/program/prepared-levels.fixtures.ts"
 
 type Situation = "one program" | "several programs of a role"
 
@@ -144,3 +158,68 @@ export const aLoginServedOverItsPlansFrontEndsCompilesWhatItCompilesWithNone = p
 		]
 	}
 )
+
+/** A login's footprints, read as its workload's plan reads them, compile no ChangeSet's front end. */
+export const aLoginsFootprintsReadAsItsWorkloadsPlanReadsThemCompileNoChangeSetsFrontEnd =
+	property.explore(rolesGen, {
+		needs: {},
+		situations: ["one program", "several programs of a role"] satisfies ReadonlyArray<
+			Reached<Situation>
+		>,
+		check: (_, c: Case<Situation>) => (drawn) =>
+			Effect.sync(() => {
+				c.note(
+					Arr.some(drawn, (held) => held.length > 1) ? "several programs of a role" : "one program"
+				)
+				const { built, artifacts, owned } = footprintsLoginOf(drawn)
+				let analyses = 0
+				const { theory } = artifacts.laws
+				const watched = {
+					...artifacts,
+					laws: {
+						...artifacts.laws,
+						theory: {
+							...theory,
+							get evidence() {
+								analyses += 1
+								return theory.evidence
+							}
+						}
+					}
+				}
+				const footprints = succeeded(
+					Result.mapError(loginFootprints(built.workload, built.base, watched), (r) => r.error),
+					"the login's footprints"
+				)
+				assert.equal(analyses, 0, "no ChangeSet's front end compiled for the footprints")
+				const plan = succeeded(
+					Result.mapError(
+						compileWorkload([{ login: owned.name, workloads: built.workload }], built.base, {
+							artifacts: watched,
+							roles: []
+						}),
+						(r) => r.error
+					),
+					"the workload's plan"
+				)
+				assert.ok(analyses >= drawn.flat().length, "the plan compiles every ChangeSet's front end")
+				const planned = plan.footprints.get(owned.name)
+				assert.ok(planned !== undefined, "the plan's footprints of the login")
+				assert.deepEqual(
+					[...footprints],
+					[...planned],
+					"the plan's footprints, program for program"
+				)
+			}),
+		oracle: { kind: "second-implementation", name: "the workload plan's footprints" },
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/program/workload/compile.ts",
+				original: '\t\tcase "answered":\n\t\tcase "changeSet":\n\t\t\treturn Result.ok([])\n',
+				replacement:
+					'\t\tcase "answered":\n\t\t\treturn Result.ok([])\n\t\tcase "changeSet":\n\t\t\treturn Result.map(changeSetIr(program.changeSet, reads.world.kind === "role" ? reads.world.checked : reads.artifacts.derived.schema, reads, clock), () => [])\n',
+				why: "The footprint plan compiles each ChangeSet's front end, as the whole workload plan did for the footprints it read, so the footprints' analyses are one per ChangeSet, and the search fails."
+			}
+		]
+	})

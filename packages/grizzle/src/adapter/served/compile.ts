@@ -20,7 +20,6 @@ import {
 import {
 	type ClockSource,
 	type CompileError,
-	defect,
 	Engine,
 	type InstalledArtifacts,
 	type InstalledSource,
@@ -32,7 +31,7 @@ import {
 	transactionClock
 } from "#compiler/plan/common.ts"
 import {
-	compileWorkload,
+	loginFootprints,
 	type ProgramFootprints,
 	servedText,
 	type UnservedMember,
@@ -230,8 +229,8 @@ export const servedEntry = (
  * The compile of `login` under `snapshot` alone, no installation compiled beside it: the installation's artifacts
  * compiled from what the snapshot records (its codes, its closed relations' constant names, its text domains, its
  * foreign key graph's cycles and the types it casts its served parameters to) over every relation, the law model
- * generate compiles from the schema, then the login over them (compileServed), its query programs' footprints its
- * workload's plan's (compileWorkload), every reading of the clock its clocked reads and ChangeSets make counting from
+ * generate compiles from the schema, then the login over them (compileServed), its query programs' footprints as its
+ * workload's plan reads them (loginFootprints, which plans no ChangeSet: the login's compile compiled them), every reading of the clock its clocked reads and ChangeSets make counting from
  * `clock`: its roles, each with its workload's programs compiled, which a test reads beside the file they project (a
  * change form's compiled entry, its put choices among it). A program that casts a parameter to a type the snapshot's
  * installation does not install is refused at its role and program as UninstalledDomain.
@@ -259,20 +258,10 @@ export const snapshotCompiled = Effect.fn("snapshotCompiled")(function* (
 		loginChangesOver(login.login, login.owned, artifacts, "serializable", clock),
 		atRole
 	)
-	const name = login.login.desc.name
-	const planned = yield* Effect.mapError(
-		fromEngine(
-			compileWorkload([{ login: name, workloads: login.login.workload }], login.login.base, {
-				artifacts,
-				roles: []
-			})
-		),
+	const footprints = yield* Effect.mapError(
+		fromEngine(loginFootprints(login.login.workload, login.login.base, artifacts)),
 		(refused) => planRefusal(login, refused)
 	)
-	const footprints = planned.footprints.get(name)
-	if (footprints === undefined) {
-		throw defect(`the footprints of login ${name}, the one login its workload plan plans`)
-	}
 	return yield* compileServed(login, snapshot, artifacts, changes, footprints, clock)
 })
 

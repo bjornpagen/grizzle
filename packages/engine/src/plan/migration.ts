@@ -107,6 +107,7 @@ export {
 	accessDrift,
 	accessDriftText,
 	compileWorkload,
+	loginFootprints,
 	planWorkload,
 	type ProgramFootprints,
 	type ServedWorkloadPlan,

@@ -530,6 +530,68 @@ const workloadPlans = (
 }
 
 /**
+ * The footprint of a program's query, read as its plan reads it (programPlan, logical/routes.ts footprintOf): a query's
+ * or a clocked query's, under its clock binding; none for an answered read or a ChangeSet, which no live read routes.
+ */
+const programFootprint = (
+	program: ProgramDesc,
+	reads: WorkloadReads,
+	clock: ClockBinding
+): Result.Result<ReadonlyArray<Footprint>, CompileError> => {
+	switch (program.kind) {
+		case "query":
+			return Result.map(queryRead(program.query, reads, clock), (read) => [
+				footprintOf(read.dag, read.analysis, read.params)
+			])
+		case "answered":
+		case "changeSet":
+			return Result.ok([])
+		case "clocked":
+			return programFootprint(program.program, reads, program.clock)
+	}
+}
+
+/**
+ * The footprint of each query program of `login`'s workloads over `schema` (ProgramFootprints), under `artifacts`, as
+ * its plan reads them (compileWorkload's `footprints`): what a served file compiled over a snapshot routes its live
+ * reads by (adapter/served/compile.ts), whose ChangeSets that compile compiles itself, so no ChangeSet's front end is
+ * compiled for its plan, where the whole workload plan compiled each a second time to read no footprint of it. A
+ * program the checker refuses is refused as the plan refuses it (WorkloadPlanRefused).
+ */
+export const loginFootprints = (
+	workloads: ReadonlyArray<unknown>,
+	schema: SchemaInput,
+	artifacts: SchemaArtifacts
+): Result.Result<ProgramFootprints, WorkloadPlanRefused> => {
+	const footprints = new Map<string, Footprint>()
+	for (const input of workloads) {
+		const workload = workloadInput(input, schema)
+		if (!workload.ok) {
+			return Result.err(planRefused(workload.error))
+		}
+		const reads = workloadReads(workload.value.schema, artifacts)
+		if (!reads.ok) {
+			return Result.err(planRefused(reads.error))
+		}
+		for (const [name, program] of Object.entries(workload.value.desc.programs)) {
+			const read = programFootprint(program, reads.value, noClock)
+			if (!read.ok) {
+				return Result.err({
+					kind: "program",
+					workload: input,
+					program: name,
+					error: within(read.error, ["programs", name])
+				})
+			}
+			for (const footprint of read.value) {
+				footprints.set(name, footprint)
+			}
+		}
+	}
+	return Result.ok(new Map([...footprints].toSorted(([a], [b]) => compareStrings(a, b))))
+}
+
+/**
  * The access of one role's write filter: the filter query planned over the base as a program of its own, read as a
  * membership, so its row is the one fact it is (schema/entry.ts) and binds every probe of what it joins.
  */

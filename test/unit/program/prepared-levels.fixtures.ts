@@ -14,6 +14,7 @@ import { planWorkload } from "#compiler/program/workload/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg, span } from "#compiler/public/fields.ts"
+import { query, v } from "#compiler/public/query.ts"
 import {
 	login,
 	mutable,
@@ -129,3 +130,40 @@ export const workOf = (
 	compiles: prepared.compiles,
 	placements: prepared.placements
 })
+
+/** A read of every Plain fact: the query program each workload of footprintsLoginOf's login holds beside its ChangeSets. */
+const plainRead = () =>
+	query(Levels).rule((r) => {
+		const { id, note: n } = v(Plain, "plain")
+		return r.match(Plain, { id, note: n }).find({ id, note: n })
+	})
+
+/**
+ * The login of `drawn` as a served file's footprint plan reads it (program/workload/compile.ts loginFootprints): one
+ * role per drawn workload, each workload its drawn ChangeSets and a read of Plain (`read<i>`), with the base's
+ * artifacts over unserved parameter types, the login's name and its owned roles.
+ */
+export const footprintsLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program>>) => {
+	const roles = Arr.map(drawn, (_, i) =>
+		role(Levels, `writer${i}`, wholeEntriesOf(Levels), { write: writableNamesOf(Levels) })
+	)
+	const value = login(Levels, "app", roles, {
+		workload: Arr.map(drawn, (held, i) =>
+			workload(defined(roles[i], "a drawn role"), {
+				...Rec.fromEntries(Arr.map(held, (p) => [`${p}${i}`, programs[p].value()] as const)),
+				[`read${i}`]: plainRead()
+			})
+		)
+	})
+	const built = defined(builtLogin(value), "a login built by login(...)")
+	const owned = succeeded(ownBuilt(built.base), "the login's base")
+	const basis = succeeded(
+		installBasis(owned, firstCodebook(rostersOf(owned)), everySlice(owned)),
+		"the base's basis"
+	)
+	return {
+		built,
+		artifacts: succeeded(artifactsOver(basis, unserved), "the base's artifacts"),
+		owned: succeeded(ownLoginOver(built, owned), "the login over its base")
+	}
+}
