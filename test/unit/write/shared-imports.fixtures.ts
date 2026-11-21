@@ -164,13 +164,12 @@ export const chainVariantWriteOf = (depth: number): unknown =>
 		})
 	)
 
-/** The members of a ChangeSet of the chain's box (identity.test.ts): one insert, or eight. */
-export type ChainReaders = 1 | 8
+/** A chain of `depth` levels over Shared, each two rules reading the level below (`chainOf`), for ChangeSets to share. */
+export const sharedChain = (depth: number): ReturnType<typeof first> => chainOf(depth)
 
-/** `members` inserts, each into a relation of its own, all reading the top of one chain of `depth` levels. */
-export const chainReadersOf = (depth: number, members: ChainReaders): unknown => {
-	const chain = chainOf(depth)
-	return Arr.reduce(Arr.take(outs, members), ChangeSet.empty(Shared), (cs, [relation]) =>
+/** A ChangeSet over Shared of `members` inserts, each reading the top of `chain` (`chainReadersOf`, over a chain given). */
+export const chainReadersOn = (chain: ReturnType<typeof first>, members: ChainReaders): unknown =>
+	Arr.reduce(Arr.take(outs, members), ChangeSet.empty(Shared), (cs, [relation]) =>
 		cs.insert(
 			relation,
 			query(Shared).rule((r) => {
@@ -180,7 +179,13 @@ export const chainReadersOf = (depth: number, members: ChainReaders): unknown =>
 			})
 		)
 	)
-}
+
+/** The members of a ChangeSet of the chain's box (identity.test.ts): one insert, or eight. */
+export type ChainReaders = 1 | 8
+
+/** `members` inserts, each into a relation of its own, all reading the top of one chain of `depth` levels. */
+export const chainReadersOf = (depth: number, members: ChainReaders): unknown =>
+	chainReadersOn(chainOf(depth), members)
 
 /** A session's latest item: its pending item of the greatest v, the least k among equals, an import with a take. */
 const latest = query(Shared)

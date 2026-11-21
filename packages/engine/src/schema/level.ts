@@ -1,4 +1,5 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import type { IdentityDigests } from "#compiler/core/fingerprint.ts"
 import { heldRelation, type SchemaDesc } from "#compiler/ir/desc.ts"
 import { isLevelOf, type SchemaContent, sameLevel, sameRoleLevel } from "#compiler/schema/levels.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"
@@ -13,7 +14,7 @@ import type { AnyRole } from "#compiler/types/schema/world.ts"
  * relation of the levels below it, whole or scoped under its own name (RoleLevel.whole), and every fragment of its base
  * whose relations it holds so (`unheldOf`): programs over such a level run on it unchanged, a full role's base's among
  * them, each over its scoped relations' owner's rows (program/slice.ts). */
-export type Level =
+export type Level = (
 	| {
 			readonly kind: "schema"
 			readonly value: AnySchema
@@ -27,6 +28,13 @@ export type Level =
 			readonly content: SchemaContent
 	  }
 	| ({ readonly kind: "role"; readonly value: AnyRole } & RoleLevel)
+) & {
+	/**
+	 * The identity digests of what is written over the level, made where it was built (schema/protocol.ts LevelEntry):
+	 * every ChangeSet over it digests its members' queries in them, each frozen part once for the level.
+	 */
+	readonly identities: IdentityDigests
+}
 
 /** The first relation of a fragment of content `fragment` that the role `role` does not hold whole or scoped under its
  * own name, a relation no role holds (ir/desc.ts heldRelation) aside: a program over the fragment reads or writes it, so
@@ -81,13 +89,25 @@ export const highestLevel = <L extends Level>(levels: NonEmptyReadonlyArray<L>):
 export const levelOf = (value: unknown): Level | undefined => {
 	const entry = ownedEntryOf(value)
 	if (entry?.kind === "role") {
-		return { kind: "role", value: entry.value, ...entry.content }
+		return { kind: "role", value: entry.value, identities: entry.identities, ...entry.content }
 	}
 	if (entry?.kind === "fragment") {
-		return { kind: "fragment", value: entry.value, desc: entry.desc, content: entry.content.level }
+		return {
+			kind: "fragment",
+			value: entry.value,
+			desc: entry.desc,
+			content: entry.content.level,
+			identities: entry.identities
+		}
 	}
 	if (entry?.kind === "schema") {
-		return { kind: "schema", value: entry.value, desc: entry.desc, content: entry.content }
+		return {
+			kind: "schema",
+			value: entry.value,
+			desc: entry.desc,
+			content: entry.content,
+			identities: entry.identities
+		}
 	}
 	return undefined
 }

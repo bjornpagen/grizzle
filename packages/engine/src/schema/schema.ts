@@ -7,6 +7,7 @@ import { hasProperties, isList } from "#compiler/core/record.ts"
 import {
 	type AdmittedClosedRelation,
 	builtNode,
+	descIdentities,
 	type FieldDesc,
 	type FunctionDesc,
 	type RelationDesc,
@@ -498,7 +499,8 @@ const rootSchema = <
 			bases: []
 		},
 		desc: admitted.desc,
-		content: admitted.content
+		content: admitted.content,
+		identities: descIdentities()
 	})
 }
 
@@ -708,7 +710,8 @@ const extend = <
 			bases: [base]
 		},
 		desc: admitted.desc,
-		content: admitted.content
+		content: admitted.content,
+		identities: descIdentities()
 	})
 }
 
@@ -819,7 +822,8 @@ export const fragmentBuilder = <
 			statements: frozenTuple(read)
 		},
 		desc: admitted.desc,
-		content: admitted.content
+		content: admitted.content,
+		identities: descIdentities()
 	})
 }
 

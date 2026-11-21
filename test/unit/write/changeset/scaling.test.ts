@@ -98,9 +98,9 @@ export const aChangeSetBuilderStepReadsOnlyWhatItAddsAssemblesTheDescriptionTheW
 				{
 					file: "packages/engine/src/write/changeset/value.ts",
 					original:
-						"\t\tcanonicalStrata([...x.strata, ...y.strata]),\n\t\t[...x.reads, ...y.reads],\n\t\tbound,",
+						"\t\tcanonicalStrata([...x.strata, ...y.strata]),\n\t\t[...x.reads, ...y.reads],\n\t\tbound\n",
 					replacement:
-						"\t\tcanonicalStrata([...x.strata, ...y.strata]),\n\t\t[...x.reads],\n\t\tbound,",
+						"\t\tcanonicalStrata([...x.strata, ...y.strata]),\n\t\t[...x.reads],\n\t\tbound\n",
 					why: "Operator mutant (element) in sequenceOf: `[...x.reads, ...y.reads]` becomes `[...x.reads]`, so a sequence drops its second ChangeSet's read-backs; the property fails (lane CATCH, grizzle 0baff5d6, its original requoted at the read-back set, lane READBACK)."
 				}
 			]

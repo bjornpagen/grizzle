@@ -15,21 +15,24 @@
  * (ir/desc.ts descText, the second implementation). Kill: the identity digest over the canonical text whole, which no
  * process writes at 32 levels.
  *
- * And a ChangeSet's chain of members digests each part they share once (ir/desc.ts descIdentities, core/fingerprint.ts
- * IdentityDigests, owned by the chain): over the same chains, eight inserts each reading the top of one chain digest,
- * beyond one insert, only their own parts, as many at every depth, where each member digested the whole chain again.
- * Oracle: specification, a part one member digested is never digested again. Kill: every container's token kept for
- * one member's digest alone.
+ * And the ChangeSets over a level digest each part they share once for the level (core/fingerprint.ts IdentityDigests,
+ * owned by the level: schema/level.ts Level identities): over the same chains, eight inserts each reading the top of one
+ * chain digest, beyond one insert, only their own parts, as many at every depth, where each member digested the whole
+ * chain again; and a second ChangeSet of eight inserts over the very chain a first one read digests only its own
+ * members' queries, as many at every depth, where each ChangeSet digested the whole chain again. Oracle: specification,
+ * a part one member of a level digested is never digested again. Kills: every container's token kept for one member's
+ * digest alone; each ChangeSet digesting in a table of its own.
  *
  * Features: a shallow chain and a deep one.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
+import { defined } from "@bjornpagen/testing/assert"
 import { finite, type Gen, int, map } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
-import type { IdentityDigests } from "#compiler/core/fingerprint.ts"
 import { descText } from "#compiler/ir/desc.ts"
+import { levelOf } from "#compiler/schema/level.ts"
 import {
 	changeSetDesc,
 	changeSetOver as ChangeSet,
@@ -37,8 +40,11 @@ import {
 } from "#compiler/write/changeset/value.ts"
 import {
 	chainReadersOf,
+	chainReadersOn,
 	chainVariantWriteOf,
-	chainWriteOf
+	chainWriteOf,
+	Shared,
+	sharedChain
 } from "#test/unit/write/shared-imports.fixtures.ts"
 
 /** The depths of the box: 2, 8 and 32, each four times the one before. */
@@ -94,10 +100,16 @@ export const aMembersIdentityIsItsDescriptionsIdentityDigestEqualMembersOneAndEv
 		]
 	})
 
-/** The containers a ChangeSet's chain of members digested for their identities. */
-const digestedBy = (value: unknown): number => {
-	const identities: IdentityDigests | undefined = changeSetState(value)?.identities
-	return identities === undefined ? 0 : identities.digested
+/**
+ * The containers digested for the identities of the ChangeSet `build` builds over Shared: its level's identity digests
+ * (the ChangeSet's own over its level), counted before it is built and after. The level is warmed first by one ChangeSet
+ * over it, so what every ChangeSet over Shared reads alike, its relations' parts, is digested before any count begins.
+ */
+const digestedBuilding = (build: () => unknown): number => {
+	chainReadersOf(2, 1)
+	const before = defined(levelOf(Shared), "Shared is a level").identities.digested
+	const built = defined(changeSetState(build()), "a ChangeSet over Shared")
+	return built.over.identities.digested - before
 }
 
 /** A ChangeSet's chain of members digests each part they share once, so members past the first digest only their own parts, as many at every depth. */
@@ -109,7 +121,8 @@ export const aChangeSetsChainOfMembersDigestsEachPartTheyShareOnceSoMembersPastT
 			Effect.sync(() => {
 				k.note(depth === 2 ? "a shallow chain" : "a deep chain")
 				const own = (d: number) =>
-					digestedBy(chainReadersOf(d, 8)) - digestedBy(chainReadersOf(d, 1))
+					digestedBuilding(() => chainReadersOf(d, 8)) -
+					digestedBuilding(() => chainReadersOf(d, 1))
 				assert.equal(
 					own(depth),
 					own(2),
@@ -125,6 +138,43 @@ export const aChangeSetsChainOfMembersDigestsEachPartTheyShareOnceSoMembersPastT
 				original: "\t\tconst digests = Object.isFrozen(container) ? this.#digests : open\n",
 				replacement: "\t\tconst digests = open\n",
 				why: "Each member's digest keeps its containers' tokens for itself alone, so every member digests the whole chain again and the parts members past the first digest grow with the depth."
+			}
+		]
+	})
+
+/** A second ChangeSet over a level, reading the very chain a first one read, digests only its own members' queries, as many at every depth: the level digested the chain once. */
+export const aSecondChangeSetOverALevelReadingTheChainAFirstOneReadDigestsOnlyItsOwnMembersQueriesAsManyAtEveryDepth =
+	property.exhaust(finite(depthGen), {
+		needs: {},
+		situations: ["a shallow chain", "a deep chain"],
+		check: (_, k) => (depth) =>
+			Effect.sync(() => {
+				k.note(depth === 2 ? "a shallow chain" : "a deep chain")
+				const second = (d: number) => {
+					const chain = sharedChain(d)
+					digestedBuilding(() => chainReadersOn(chain, 8))
+					return digestedBuilding(() => chainReadersOn(chain, 8))
+				}
+				assert.equal(
+					second(depth),
+					second(2),
+					`a second ChangeSet over the chain digests as many parts at depth ${depth} as at 2`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "a part a ChangeSet over a level digested is never digested again for that level"
+		},
+		box: "two ChangeSets of eight inserts each reading the top of one chain of 2, 8 and 32 bound queries, each level two rules reading the one below",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/changeset/value.ts",
+				original:
+					'import { type BuiltOver, builtOverOf } from "#compiler/write/changeset/levels.ts"\n',
+				replacement:
+					'import { type BuiltOver, builtOverOf as levelOverOf } from "#compiler/write/changeset/levels.ts"\nimport { descIdentities as chainIdentities } from "#compiler/ir/desc.ts"\nconst builtOverOf = (value: unknown): BuiltOver | undefined => {\n\tconst over = levelOverOf(value)\n\treturn over === undefined ? over : { ...over, identities: chainIdentities() }\n}\n',
+				why: "Each ChangeSet digests in a table of its own, as each chain did before the level owned one: a second ChangeSet over the chain digests the whole chain again, more at every depth."
 			}
 		]
 	})

@@ -22,6 +22,7 @@ import {
 	decodeRoleOver,
 	type FieldDesc,
 	heldRelation,
+	descIdentities,
 	type LoginDesc,
 	levelChain,
 	type QueryDesc,
@@ -805,7 +806,8 @@ export const roleBuilder = <
 			retire: options?.retire === undefined ? noNames : frozenTuple(options.retire)
 		},
 		desc: admitted.desc,
-		content: admitted.level
+		content: admitted.level,
+		identities: descIdentities()
 	})
 	recordStem(value, roleStem(admitted.desc))
 	return value
