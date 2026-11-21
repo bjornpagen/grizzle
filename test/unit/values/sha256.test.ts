@@ -27,12 +27,12 @@ import {
 	type HexForm,
 	hexCases,
 	hexForms,
-	hexOf,
 	Pair,
 	type PairForm,
 	Pairs,
 	pairForms
 } from "#test/unit/values/sha256.fixtures.ts"
+import { hexOf } from "#test/unit/values/support.ts"
 
 /**
  * A digest's hex is its bytes, two lowercase hex digits a byte, and fromHex reads back exactly the text toHex writes.

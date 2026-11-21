@@ -11,34 +11,11 @@ import {
 	unicodeScalar
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
-import { Array as Arr, String as Str } from "effect"
+import { String as Str } from "effect"
 import { sha256Octets } from "#compiler/core/digest.ts"
 import { pg, Sha256, sha256 } from "#compiler/public/fields.ts"
 import { check, relation, schema } from "#compiler/public/schema.ts"
-
-/**
- * A digest's bytes as hex, written byte by byte, the oracle's own: each byte's two lowercase hex digits, as PostgreSQL's
- * `encode(<digest>, 'hex')` writes them.
- */
-export const hexOf = (digest: Uint8Array): string =>
-	Arr.join(
-		Array.from(digest, (byte) => Str.padStart(hexDigitsPerByte, "0")(byte.toString(hexRadix))),
-		""
-	)
-
-/**
- * The radix of a hex digit.
- *
- * @formatConstant hexadecimal: base 16
- */
-const hexRadix = 16
-
-/**
- * The hex digits that write one byte.
- *
- * @formatConstant hexadecimal: 4 bits a digit, 8 a byte
- */
-const hexDigitsPerByte = 2
+import { hexDigitsPerByte, hexOf } from "#test/unit/values/support.ts"
 
 /** The length of every digest's hex: two digits for each of its bytes. */
 const hexLength = sha256Octets * hexDigitsPerByte

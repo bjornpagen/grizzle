@@ -62,6 +62,7 @@ import {
 	type Malformed,
 	reordered
 } from "#test/unit/values/identity.fixtures.ts"
+import { hexOf } from "#test/unit/values/support.ts"
 
 /** ParseValue stores every value of each carrier as its host type and range say, and refuses every other by its fault, never throwing; Uuid.parse admits exactly as the uuid carrier does. Its budget is its suite's before it was a property (test/unit/values/identity.test.ts at 4ca3036a): 3000 runs and 3000 steered cases. */
 export const parseValueStoresEveryValueOfEachCarrierAsItsHostTypeAndRangeSayAndRefusesEveryOtherByItsFaultNeverThrowingUuidParseAdmitsExactlyAsTheUuidCarrierDoes =
@@ -322,6 +323,11 @@ export const twoDigestsAreOneKeyExactlyWhereTheirBytesAreOneAndOrderAsTheirBytes
 				const first = succeeded(parseValue(spec, pair.first))
 				const second = succeeded(parseValue(spec, pair.second))
 				const keyOf = (value: unknown): string => keyText(spec, admittedText(spec, value))
+				assert.equal(
+					admittedText(spec, first),
+					`\\x${hexOf(pair.first)}`,
+					"a digest's key text is byteain's hex input of its bytes, each written"
+				)
 				const firstKey = keyOf(first)
 				assert.equal(
 					firstKey === keyOf(second),

@@ -11,7 +11,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { passed, type Wild, type WildKind, wild } from "@bjornpagen/testing/lsw"
-import { Array as Arr, Option, Order } from "effect"
+import { Array as Arr, Option, Order, String as Str } from "effect"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -192,3 +192,27 @@ export type PlantedFeature =
 
 export const plantedFeature = (t: PlantedText): PlantedFeature =>
 	t.kind === "live" || t.kind === "not a string" ? t.kind : `${t.kind} ${t.at}`
+
+/**
+ * A digest's bytes as hex, written byte by byte, the oracle's own: each byte's two lowercase hex digits, as PostgreSQL's
+ * `encode(<digest>, 'hex')` writes them.
+ */
+export const hexOf = (digest: Uint8Array): string =>
+	Arr.join(
+		Array.from(digest, (byte) => Str.padStart(hexDigitsPerByte, "0")(byte.toString(hexRadix))),
+		""
+	)
+
+/**
+ * The radix of a hex digit.
+ *
+ * @formatConstant hexadecimal: base 16
+ */
+const hexRadix = 16
+
+/**
+ * The hex digits that write one byte.
+ *
+ * @formatConstant hexadecimal: 4 bits a digit, 8 a byte
+ */
+export const hexDigitsPerByte = 2
