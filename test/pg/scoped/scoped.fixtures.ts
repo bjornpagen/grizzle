@@ -50,8 +50,8 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 
 const Name = str.regex("^[a-z]{1,8}$")
 
-export const Person = relation("Person", { person: Name }, ["person"])
-export const ClerkAccount = relation("ClerkAccount", { clerk: Name, person: Name }, ["clerk"])
+const Person = relation("Person", { person: Name }, ["person"])
+const ClerkAccount = relation("ClerkAccount", { clerk: Name, person: Name }, ["clerk"])
 export const Assignment = relation("Assignment", { number: pg.bigint, student: Name, test: Name }, [
 	"number"
 ])
@@ -79,9 +79,9 @@ export const ItemSession = relation("ItemSession", { child: Name, stage: pg.bigi
 	"stage",
 	"item"
 ])
-export const Content = relation("Content", { pkg: Name, title: Name }, ["pkg"])
+const Content = relation("Content", { pkg: Name, title: Name }, ["pkg"])
 
-export const Session = context("Session", { sub: Name })
+const Session = context("Session", { sub: Name })
 
 /** The roots: each relation of one owner a field names, the rest reached along declared containments. */
 const roots = {
@@ -208,7 +208,7 @@ export const scopedTemplate = migratedOnceTemplate({
 	}
 })
 
-export const people = ["ann", "bob"] as const
+const people = ["ann", "bob"] as const
 export type Person = (typeof people)[number]
 /** Each person's one Clerk user. */
 export const clerkOf: Readonly<Record<Person, string>> = { ann: "cann", bob: "cbob" }

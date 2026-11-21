@@ -32,7 +32,7 @@ import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 
 const Name = str.regex("^[a-z]{1,8}$")
 
-export const Account = relation("Account", { clerk: Name, person: Name }, ["clerk"])
+const Account = relation("Account", { clerk: Name, person: Name }, ["clerk"])
 export const Session = context("Session", { sub: Name })
 
 /** A relation's key: its `id`; its `id` and `step`; or its `person` and `step`, a key that holds a root's field. */
@@ -55,7 +55,7 @@ export interface ScopeShape {
 export const relationName = (i: number): string => `R${i}`
 const toField = (j: number): string => `to${j}`
 
-export const keyFields = (k: KeyKind): readonly [string, ...Array<string>] => {
+const keyFields = (k: KeyKind): readonly [string, ...Array<string>] => {
 	switch (k) {
 		case "id":
 			return ["id"]
@@ -67,7 +67,7 @@ export const keyFields = (k: KeyKind): readonly [string, ...Array<string>] => {
 }
 
 /** The fields of an edge's containment, its left side's and its right side's, paired by position. */
-export const edgeFields = (
+const edgeFields = (
 	e: Edge,
 	keys: ScopeShape["keys"]
 ): {
@@ -78,7 +78,7 @@ export const edgeFields = (
 	return { left: e.left === "own" ? right : [toField(e.into)], right }
 }
 
-export const shapeGen: Gen<ScopeShape> = (s) => {
+const shapeGen: Gen<ScopeShape> = (s) => {
 	const n = s.draw(int(2, 4))
 	const indices = Array.from({ length: n }, (_, i) => i)
 	const keys = Arr.map(indices, () => s.draw(element(["id", "idStep", "personStep"] as const)))
@@ -145,7 +145,7 @@ export type Database = ReadonlyArray<ReadonlyArray<Row>>
 
 const persons = ["ann", "bob"] as const
 /** The owner: the session signs in as ann. */
-export const owners: ReadonlySet<string> = new Set(["ann"])
+const owners: ReadonlySet<string> = new Set(["ann"])
 
 /** A row as a failure names it: each field and its value. */
 export const rowText = (row: Row): string =>
@@ -164,7 +164,7 @@ const rowKey = (row: Row, fields: ReadonlyArray<string>): string =>
  * A database of `shape`: each relation's rows over ids and steps of 1 and 2, persons ann and bob, references of 1 and
  * 2, each key's once; then every row a containment refuses dropped, until none is.
  */
-export const databaseGen =
+const databaseGen =
 	(shape: ScopeShape): Gen<Database> =>
 	(s) => {
 		const drawn = Arr.map(shape.keys, (k, i) => {

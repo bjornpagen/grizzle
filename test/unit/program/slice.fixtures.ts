@@ -64,24 +64,23 @@ import { schemaDescOf } from "#compiler/schema/schema.ts"
 
 const Name = str.regex("^[a-z]{1,8}$")
 
-export const Person = relation("Person", { person: Name }, ["person"])
-export const ClerkAccount = relation("ClerkAccount", { clerk: Name, person: Name }, ["clerk"])
-export const Assignment = relation("Assignment", { number: pg.bigint, student: Name, test: Name }, [
+const Person = relation("Person", { person: Name }, ["person"])
+const ClerkAccount = relation("ClerkAccount", { clerk: Name, person: Name }, ["clerk"])
+const Assignment = relation("Assignment", { number: pg.bigint, student: Name, test: Name }, [
 	"number"
 ])
-export const SittingEvent = relation(
-	"SittingEvent",
-	{ number: pg.bigint, step: pg.bigint, kind: Name },
-	["number", "step"]
-)
-export const Note = relation("Note", { id: pg.bigint, number: pg.bigint, text: Name }, ["id"])
-export const TestSession = relation("TestSession", { child: Name, stage: pg.bigint, pkg: Name }, [
+const SittingEvent = relation("SittingEvent", { number: pg.bigint, step: pg.bigint, kind: Name }, [
+	"number",
+	"step"
+])
+const Note = relation("Note", { id: pg.bigint, number: pg.bigint, text: Name }, ["id"])
+const TestSession = relation("TestSession", { child: Name, stage: pg.bigint, pkg: Name }, [
 	"child",
 	"stage"
 ])
-export const Content = relation("Content", { pkg: Name, title: Name }, ["pkg"])
+const Content = relation("Content", { pkg: Name, title: Name }, ["pkg"])
 
-export const Slices = schema(
+const Slices = schema(
 	"Slices",
 	[Person, ClerkAccount, Assignment, SittingEvent, Note, TestSession, Content],
 	[
@@ -92,16 +91,16 @@ export const Slices = schema(
 	]
 )
 
-export const Session = context("Session", { sub: Name })
+const Session = context("Session", { sub: Name })
 
 /** The persons the session's Clerk user signs in as: the owner. */
-export const persons = query(Slices).rule((r) => {
+const persons = query(Slices).rule((r) => {
 	const { sub } = v(Session, "session")
 	const { person } = v(ClerkAccount, "account")
 	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, person }).find({ person })
 })
 
-export const Student = role(
+const Student = role(
 	Slices,
 	"student",
 	scopedEntriesOf(Slices, {
@@ -128,10 +127,7 @@ export const studentRole: ParsedRole = defined(
 	roleOf(studentInput),
 	"the student role parses as a role"
 )
-export const slicesDesc: SchemaDesc = defined(
-	schemaDescOf(Slices),
-	"the Slices schema's Description"
-)
+const slicesDesc: SchemaDesc = defined(schemaDescOf(Slices), "the Slices schema's Description")
 
 /** A field's class: the values it holds, and the variables, parameter and literal a program binds it to. */
 type Class = "num" | "step" | "person" | "text"
@@ -218,7 +214,7 @@ const atomGen =
 	}
 
 /** The variables a program's positive matches bind, each once, in their order. */
-export const boundVars = (
+const boundVars = (
 	atoms: ReadonlyArray<Atom>
 ): ReadonlyArray<Extract<Term, { readonly kind: "var" }>> => {
 	const seen = new Map<string, Extract<Term, { readonly kind: "var" }>>()

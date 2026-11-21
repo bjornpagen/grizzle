@@ -109,7 +109,7 @@ export type Scope =
 	  }
 
 /** The relations of a schema through every level it extends, by name, a level's own first. */
-export const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
+const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 	const out = new Map<string, RelationDesc>()
 	for (const level of levelChain(schema).toReversed()) {
 		for (const relation of level.relations) {
@@ -198,7 +198,7 @@ const reachKey = (r: Reach): string =>
  * whose left fields the walk's relation has from T, into fields that are a key of an ordinary relation, reaches it at
  * that key; the reached relation has from T exactly that key's fields. `relation` itself is never reached.
  */
-export const reachesOf = (
+const reachesOf = (
 	schema: SchemaDesc,
 	relation: string,
 	fields: ReadonlyArray<string>
