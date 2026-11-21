@@ -180,149 +180,155 @@ interface DagReaders {
  * function of the node, the environment and those judgments, so the entry a node holds is the annotation any analysis
  * of the compile makes of it there. Every other node is the analysis's own, kept as long as it runs.
  */
+/** What a compile's shared analyses hold: the nodes the compile shares, and each recorded node's entry. */
+interface SharedState {
+	readonly shares: (node: RelNode) => boolean
+	readonly entries: WeakMap<RelNode, SharedEntry>
+}
+
 export class SharedAnalyses {
 	readonly env: LogicalEnv
-	readonly #shares: (node: RelNode) => boolean
-	readonly #entries = new WeakMap<RelNode, SharedEntry>()
+	/** The compile's records, which this module's analyses alone read and write (SharedState). */
+	readonly state: SharedState
 
 	constructor(env: LogicalEnv, shares: (node: RelNode) => boolean) {
 		this.env = env
-		this.#shares = shares
+		this.state = { shares, entries: new WeakMap() }
 	}
+}
 
-	/** The annotation an analysis of the compile recorded for `node`, none for a node no shared sub-DAG holds. */
-	entry(node: RelNode): SharedEntry | undefined {
-		return this.#entries.get(node)
-	}
+/** The annotation an analysis of the compile recorded for `node`, none for a node no shared sub-DAG holds. */
+const entryOf = (state: SharedState, node: RelNode): SharedEntry | undefined =>
+	state.entries.get(node)
 
-	/**
-	 * Records each node the compile shares among those an analysis annotated itself (`annotated`, inputs first), each
-	 * with the nodes of its sub-DAG no record holds: their annotations (`of`) and scopes (`scope`), the analysis's
-	 * judgments of their attachments, a child revised (`revised`) exclusive, and the records below, each one the analysis
-	 * read as recorded (`agreed`). Inputs come first, so a shared node inside another is recorded under its own record.
-	 * A sub-DAG is not recorded where it reads a recorded node the analysis annotated again, whose annotation there is
-	 * not the recorded one, or a recorded node inside a record, not its root, whose record holds nodes outside the
-	 * sub-DAG.
-	 */
-	record(
-		annotated: ReadonlyArray<RelNode>,
-		of: (node: RelNode) => Annotated,
-		scope: (node: RelNode) => NodeScope,
-		revised: ReadonlyMap<RelNode, Annotated>,
-		agreed: ReadonlyMap<SharedRecord, boolean>
-	): void {
-		for (const root of annotated) {
-			if (!this.#shares(root) || this.#entries.has(root)) {
-				continue
-			}
-			const own = new Set<RelNode>()
-			const below = new Set<SharedRecord>()
-			const pending = [root]
-			let recordable = true
-			for (let node = pending.pop(); node !== undefined && recordable; node = pending.pop()) {
-				const entry = this.#entries.get(node)
-				if (entry !== undefined) {
-					recordable = entry.record.root === node && agreed.get(entry.record) === true
-					below.add(entry.record)
-				} else if (!own.has(node)) {
-					own.add(node)
-					appendAll(pending, inputsOf(node))
-				}
-			}
-			if (!recordable) {
-				continue
-			}
-			const exclusive = new Map<RelNode, Annotated>()
-			const shared: Array<RelNode> = []
-			const reads = new Map<RelNode, number>()
-			for (const node of own) {
-				if (node.kind === "Attach") {
-					const revision = revised.get(node.child)
-					if (revision === undefined) {
-						shared.push(node.child)
-					} else {
-						exclusive.set(node.child, revision)
-					}
-				}
-				for (const input of inputsOf(node)) {
-					reads.set(input, (reads.get(input) ?? 0) + 1)
-				}
-			}
-			const record: SharedRecord = { root, exclusive, shared, reads, below: [...below] }
-			for (const node of own) {
-				this.#entries.set(node, { annotated: of(node), scope: scope(node), record })
-			}
+/**
+ * Records each node the compile shares among those an analysis annotated itself (`annotated`, inputs first), each
+ * with the nodes of its sub-DAG no record holds: their annotations (`of`) and scopes (`scope`), the analysis's
+ * judgments of their attachments, a child revised (`revised`) exclusive, and the records below, each one the analysis
+ * read as recorded (`agreed`). Inputs come first, so a shared node inside another is recorded under its own record.
+ * A sub-DAG is not recorded where it reads a recorded node the analysis annotated again, whose annotation there is
+ * not the recorded one, or a recorded node inside a record, not its root, whose record holds nodes outside the
+ * sub-DAG.
+ */
+const recordInto = (
+	state: SharedState,
+	annotated: ReadonlyArray<RelNode>,
+	of: (node: RelNode) => Annotated,
+	scope: (node: RelNode) => NodeScope,
+	revised: ReadonlyMap<RelNode, Annotated>,
+	agreed: ReadonlyMap<SharedRecord, boolean>
+): void => {
+	for (const root of annotated) {
+		if (!state.shares(root) || state.entries.has(root)) {
+			continue
 		}
-	}
-
-	/**
-	 * Every node's readers in `dag`, counting the roots as readers: one per distinct input of each node the roots reach;
-	 * and the records `dag` holds whole, those of the recorded roots it reaches and the records below them. The nodes a
-	 * recorded root reaches are counted by their records (SharedRecord reads), never walked: the walk stops at a recorded
-	 * root and goes through a recorded node inside a record, whose reads it counts as its own unless the walk reached
-	 * its record's root too, whose record counts them.
-	 */
-	readers(dag: RelDag): DagReaders {
-		const walked = new Map<RelNode, number>()
-		const met = new Set<RelNode>()
-		const reached = new Set<SharedRecord>()
-		const inside: Array<{ readonly node: RelNode; readonly record: SharedRecord }> = []
-		const pending = [...dag.roots]
-		for (const r of dag.roots) {
-			walked.set(r, (walked.get(r) ?? 0) + 1)
-		}
-		for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
-			if (met.has(node)) {
-				continue
-			}
-			met.add(node)
-			const entry = this.#entries.get(node)
-			if (entry?.record.root === node) {
-				reached.add(entry.record)
-				continue
-			}
+		const own = new Set<RelNode>()
+		const below = new Set<SharedRecord>()
+		const pending = [root]
+		let recordable = true
+		for (let node = pending.pop(); node !== undefined && recordable; node = pending.pop()) {
+			const entry = state.entries.get(node)
 			if (entry !== undefined) {
-				inside.push({ node, record: entry.record })
+				recordable = entry.record.root === node && agreed.get(entry.record) === true
+				below.add(entry.record)
+			} else if (!own.has(node)) {
+				own.add(node)
+				appendAll(pending, inputsOf(node))
+			}
+		}
+		if (!recordable) {
+			continue
+		}
+		const exclusive = new Map<RelNode, Annotated>()
+		const shared: Array<RelNode> = []
+		const reads = new Map<RelNode, number>()
+		for (const node of own) {
+			if (node.kind === "Attach") {
+				const revision = revised.get(node.child)
+				if (revision === undefined) {
+					shared.push(node.child)
+				} else {
+					exclusive.set(node.child, revision)
+				}
 			}
 			for (const input of inputsOf(node)) {
-				walked.set(input, (walked.get(input) ?? 0) + 1)
-				pending.push(input)
+				reads.set(input, (reads.get(input) ?? 0) + 1)
 			}
 		}
-		const records: Array<SharedRecord> = []
-		const counted = new Set<SharedRecord>()
-		const open = [...reached]
-		for (let record = open.pop(); record !== undefined; record = open.pop()) {
-			if (counted.has(record)) {
-				continue
+		const record: SharedRecord = { root, exclusive, shared, reads, below: [...below] }
+		for (const node of own) {
+			state.entries.set(node, { annotated: of(node), scope: scope(node), record })
+		}
+	}
+}
+
+/**
+ * Every node's readers in `dag`, counting the roots as readers: one per distinct input of each node the roots reach;
+ * and the records `dag` holds whole, those of the recorded roots it reaches and the records below them. The nodes a
+ * recorded root reaches are counted by their records (SharedRecord reads), never walked: the walk stops at a recorded
+ * root and goes through a recorded node inside a record, whose reads it counts as its own unless the walk reached
+ * its record's root too, whose record counts them.
+ */
+const readersIn = (state: SharedState, dag: RelDag): DagReaders => {
+	const walked = new Map<RelNode, number>()
+	const met = new Set<RelNode>()
+	const reached = new Set<SharedRecord>()
+	const inside: Array<{ readonly node: RelNode; readonly record: SharedRecord }> = []
+	const pending = [...dag.roots]
+	for (const r of dag.roots) {
+		walked.set(r, (walked.get(r) ?? 0) + 1)
+	}
+	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+		if (met.has(node)) {
+			continue
+		}
+		met.add(node)
+		const entry = state.entries.get(node)
+		if (entry?.record.root === node) {
+			reached.add(entry.record)
+			continue
+		}
+		if (entry !== undefined) {
+			inside.push({ node, record: entry.record })
+		}
+		for (const input of inputsOf(node)) {
+			walked.set(input, (walked.get(input) ?? 0) + 1)
+			pending.push(input)
+		}
+	}
+	const records: Array<SharedRecord> = []
+	const counted = new Set<SharedRecord>()
+	const open = [...reached]
+	for (let record = open.pop(); record !== undefined; record = open.pop()) {
+		if (counted.has(record)) {
+			continue
+		}
+		counted.add(record)
+		records.push(record)
+		appendAll(open, record.below)
+	}
+	for (const { node, record } of inside) {
+		if (counted.has(record)) {
+			for (const input of inputsOf(node)) {
+				walked.set(input, (walked.get(input) ?? 0) - 1)
 			}
-			counted.add(record)
-			records.push(record)
-			appendAll(open, record.below)
 		}
-		for (const { node, record } of inside) {
-			if (counted.has(record)) {
-				for (const input of inputsOf(node)) {
-					walked.set(input, (walked.get(input) ?? 0) - 1)
-				}
+	}
+	const known = new Map<RelNode, number>()
+	return {
+		count: (node) => {
+			const memo = known.get(node)
+			if (memo !== undefined) {
+				return memo
 			}
-		}
-		const known = new Map<RelNode, number>()
-		return {
-			count: (node) => {
-				const memo = known.get(node)
-				if (memo !== undefined) {
-					return memo
-				}
-				const n = records.reduce(
-					(sum, record) => sum + (record.reads.get(node) ?? 0),
-					walked.get(node) ?? 0
-				)
-				known.set(node, n)
-				return n
-			},
-			whole: (record) => counted.has(record)
-		}
+			const n = records.reduce(
+				(sum, record) => sum + (record.reads.get(node) ?? 0),
+				walked.get(node) ?? 0
+			)
+			known.set(node, n)
+			return n
+		},
+		whole: (record) => counted.has(record)
 	}
 }
 
@@ -389,8 +395,8 @@ class Annotator<R extends Roots> {
 	run(): LogicalAnalysis<R> {
 		const { shared } = this
 		const { env } = shared
-		const { count, whole } = shared.readers(this.dag)
-		const scopes = scopesOver((node) => shared.entry(node)?.scope)
+		const { count, whole } = readersIn(shared.state, this.dag)
+		const scopes = scopesOver((node) => entryOf(shared.state, node)?.scope)
 		const propsEnv: PropsEnv = {
 			scope: (node) => scopes.of(node),
 			keyedViews: env.keyedViews
@@ -435,7 +441,7 @@ class Annotator<R extends Roots> {
 		 * where this DAG judges its sub-DAG alike, which reads no input.
 		 */
 		const fold = new Fold<RelNode, Annotated>(function* (node) {
-			const entry = shared.entry(node)
+			const entry = entryOf(shared.state, node)
 			if (entry !== undefined && agrees(entry.record)) {
 				return entry.annotated
 			}
@@ -508,7 +514,8 @@ class Annotator<R extends Roots> {
 		})
 		const dag = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).node))
 		const judged = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).judged))
-		shared.record(
+		recordInto(
+			shared.state,
 			annotated,
 			(node) => fold.of(node),
 			(node) => scopes.of(node),

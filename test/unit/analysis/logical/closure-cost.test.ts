@@ -616,13 +616,13 @@ export const aCompilesLaterAnalysisOfASharedSubDagReadsItsRecordAndWalksNoneOfIt
 			},
 			{
 				file: "packages/engine/src/logical/annotate.ts",
-				original: "\t\t\tif (entry?.record.root === node) {",
-				replacement: "\t\t\tif (entry?.record.root === node && pending.length < 0) {",
+				original: "\t\tif (entry?.record.root === node) {",
+				replacement: "\t\tif (entry?.record.root === node && pending.length < 0) {",
 				why: "The readers' walk goes through a recorded root (logical/annotate.ts SharedAnalyses readers), counting the chain node by node; the second query's calls grow with n."
 			},
 			{
 				file: "packages/engine/src/logical/annotate.ts",
-				original: "\t\tconst scopes = scopesOver((node) => shared.entry(node)?.scope)",
+				original: "\t\tconst scopes = scopesOver((node) => entryOf(shared.state, node)?.scope)",
 				replacement: "\t\tconst scopes = scopesOver(() => undefined)",
 				why: "The scope fold folds the chain again (logical/annotate.ts run), reading no recorded scope; the second query's calls grow with n."
 			}
@@ -681,8 +681,8 @@ export const aDagReachingARecordedNodeInsideItsRecordCountsItsReadersOnce = prop
 		kills: [
 			{
 				file: "packages/engine/src/logical/annotate.ts",
-				original: "\t\t\t\t\twalked.set(input, (walked.get(input) ?? 0) - 1)",
-				replacement: "\t\t\t\t\twalked.set(input, walked.get(input) ?? 0)",
+				original: "\t\t\t\twalked.set(input, (walked.get(input) ?? 0) - 1)",
+				replacement: "\t\t\t\twalked.set(input, walked.get(input) ?? 0)",
 				why: "A recorded node inside a record, reached by the walk, is counted again where its record counts it (logical/annotate.ts SharedAnalyses readers), so the attachment's child has two readers and stays unrevised; the property fails."
 			}
 		]
