@@ -117,7 +117,7 @@ const lateFetchPlans = (
 				carried.set(c.name, [c, col])
 			}
 		}
-		const props = physical.of(o.source).props
+		const props = physical.props(o.source)
 		const narrowCarried = [...carried].flatMap(([name, [c]]) => (widePayload(c.type) ? [] : [name]))
 		/**
 		 * The key the narrow take sorts (keyAmong): one among the narrow carried columns, so every wide one is payload

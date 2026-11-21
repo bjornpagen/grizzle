@@ -30,7 +30,6 @@ import { Array as Arr, Effect } from "effect"
 import { structureOf, type Structure } from "#compiler/analysis/demand/demand.ts"
 import {
 	analyzePhysical,
-	analyzePhysicalUnder,
 	type PhysicalEnv,
 	propsUnder,
 	unplaced
@@ -344,8 +343,9 @@ export const determinismAPassComputedColdFromAFreshCopyOfADAGEqualsThePassComput
  * each position of a generated query's topological order redefined under another cardinality claim, a finish reads
  * structure and never its claims' truth, so the editor's finish is the
  * DAG a finish with no memory of the last gives, the redefined cell and every cell above it fold into new nodes, every
- * other cell into the very node the last finish built, and the physical analysis of the new DAG read through the
- * properties the old one's was (analysis/physical/analyze.ts PropsUnder) is the analysis computed from scratch.
+ * other cell into the very node the last finish built, and each node's physical properties in the new DAG read through
+ * the properties the old one's were (analysis/physical/analyze.ts PropsUnder), as a rewrite pass reads its states'
+ * cells (lower/optimize/demand/frame.ts physicalAnalyses), are the properties computed from scratch.
  *
  * Budget: 120 runs and 120 steered cases, the frame-determinism suite's.
  */
@@ -383,7 +383,9 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 					const editor = new DagEditor(query.dag)
 					const before = editor.finished()
 					const props = propsUnder(env)
-					analyzePhysicalUnder(before.dag, props)
+					for (const n of analyzePhysical(before.dag, env).order) {
+						props.of(n)
+					}
 					const redefined = edited(editor)
 					const after = editor.finished()
 					const fresh = new DagEditor(query.dag)
@@ -406,13 +408,11 @@ export const aFinishAfterAnEditKeepsTheNodeOfEveryCellTheEditLeftAsItWasAndFolds
 							c.note("a cell an edit kept")
 						}
 					}
-					const shared = analyzePhysicalUnder(after.dag, props)
 					const scratch = analyzePhysical(after.dag, env)
 					assert.deepEqual(
-						Arr.map(shared.order, (n) => shared.of(n)),
-						Arr.map(scratch.order, (n) => scratch.of(n))
+						Arr.map(scratch.order, (n) => props.of(n)),
+						Arr.map(scratch.order, (n) => scratch.of(n).props)
 					)
-					assert.deepEqual(shared.obligations, scratch.obligations)
 				}
 			}),
 		oracle: {

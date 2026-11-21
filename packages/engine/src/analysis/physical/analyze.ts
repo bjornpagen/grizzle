@@ -116,7 +116,9 @@ const noneKept: ReadonlyMap<RelNode, PhysicalProps> = new Map()
  * Each node's physical properties under one env, its inputs' first, each computed once for as long as its holder holds
  * it: a node's properties read its own realization, its inputs' properties and, for a SelfRef, its Recursive's
  * realization (rules.ts), so one value answers every DAG under `env` that holds the node, whichever state of an edit
- * it is read in (analyzePhysicalUnder). A node `kept` holds carries the properties it holds there.
+ * it is read in: a rewrite pass reads the cells of every state of its edited DAG through one (lower/optimize/demand/frame.ts
+ * physicalAnalyses), so a node an edit kept (ir/dag.ts finishCells) is computed once for the pass. A node `kept` holds
+ * carries the properties it holds there.
  */
 export class PropsUnder {
 	readonly env: PhysicalEnv
@@ -213,14 +215,6 @@ const nodeAnalysisOf =
 
 /** Each node's physical properties under `env`, none carried (PropsUnder). */
 export const propsUnder = (env: PhysicalEnv): PropsUnder => new PropsUnder(env, noneKept)
-
-/**
- * The analysis of `dag` under `under`'s env, every node's properties `under`'s: a rewrite pass reads every state of its
- * edited DAG through one, so a node an edit kept (ir/dag.ts finishCells) is computed once for the pass. It is the
- * analysis analyzePhysical computes under that env.
- */
-export const analyzePhysicalUnder = (dag: RelDag, under: PropsUnder): PhysicalAnalysis =>
-	analysisOver(dag, topoOrder(dag), under)
 
 /**
  * The analysis of `previous`'s DAG under `env`, whose realization differs from the one `previous` was computed under at

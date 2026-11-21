@@ -1,13 +1,7 @@
 import { invariant } from "@bjornpagen/grizzle-text/base/invariant"
 import type { DemandAnalysis } from "#compiler/analysis/demand/demand.ts"
-import {
-	analyzePhysicalUnder,
-	type PhysicalAnalysis,
-	type PhysicalNode,
-	type PropsUnder,
-	propsUnder,
-	unplaced
-} from "#compiler/analysis/physical/analyze.ts"
+import { type PropsUnder, propsUnder, unplaced } from "#compiler/analysis/physical/analyze.ts"
+import type { PhysicalProps } from "#compiler/analysis/physical/props.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type Certificate, makeCertificate } from "#compiler/ir/certificate.ts"
 import type { FinishedCells } from "#compiler/ir/dag.ts"
@@ -38,10 +32,10 @@ export const cellDemand = (
 	liveVars: (cell) => analysis.liveVars(snapshot.node(cell))
 })
 
-/** The physical analysis (analysis/physical) of one snapshot of the editor, read cell by cell. */
+/** The physical properties (analysis/physical) of one snapshot of the editor's cells, read cell by cell: each cell's
+ * node's, computed when a decision first reads them and once for the pass (PropsUnder). */
 export interface CellPhysical {
-	readonly analysis: PhysicalAnalysis
-	readonly of: (cell: Cell) => PhysicalNode
+	readonly props: (cell: Cell) => PhysicalProps
 }
 
 /** What a rule sees while it decides and rewrites, at one state of the edited DAG. */
@@ -152,11 +146,17 @@ export const finishedAnalyses = (editor: DagEditor): FinishedAnalyses => ({
 	dag: editor.finished()
 })
 
-/** The finished DAG `finished`, with its physical analysis through the pass's properties `props`. */
-const physicalAnalyses = (finished: FinishedAnalyses, props: PropsUnder): PhysicalAnalyses => {
-	const analysis = analyzePhysicalUnder(finished.dag.dag, props)
-	return { ...finished, physical: { analysis, of: (cell) => analysis.of(finished.dag.node(cell)) } }
-}
+/**
+ * The finished DAG `finished`, each cell's physical properties read off the pass's properties `props` at the cell's node
+ * there, when a decision first reads them: a decision reads the properties of the cells it weighs and of nothing else,
+ * where each state computed the analysis of its whole DAG (analysis/physical analysisOver: every node's edges classified
+ * and every observed input's properties computed, its observed nodes and its obligations), the spine above every edit
+ * among them, which no decision read (qti's write compile at hub 7a0902e41: 64.5 s of 961 s of its readback lowering).
+ */
+const physicalAnalyses = (finished: FinishedAnalyses, props: PropsUnder): PhysicalAnalyses => ({
+	...finished,
+	physical: { props: (cell) => props.of(finished.dag.node(cell)) }
+})
 
 /**
  * The analyses of one state of the edited DAG its driver has computed, each once: none yet, the demand analyses, or the

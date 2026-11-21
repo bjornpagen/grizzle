@@ -43,7 +43,7 @@ interface Values {
 const valuesOf = (physical: CellPhysical, order: ReadonlyArray<Cell>): Values => {
 	const byId = new Map(order.map((c) => [c.id, c] as const))
 	const fixedTo = (cell: Cell, column: string): ReadonlyArray<Outer> =>
-		(physical.of(cell).props.fixed.get(column) ?? []).flatMap((f) =>
+		(physical.props(cell).fixed.get(column) ?? []).flatMap((f) =>
 			f.fixed.kind === "outer" ? [{ node: f.fixed.node, column: f.fixed.column }] : []
 		)
 	const canonical = (outer: Outer): Outer => {

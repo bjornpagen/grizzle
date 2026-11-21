@@ -244,7 +244,7 @@ const unkeyedFirst = (
 	connected: NonEmptyReadonlyArray<Occurrence>
 ): Occurrence => {
 	const keyed = (o: Occurrence): boolean => {
-		const source = physical.of(o.source).props
+		const source = physical.props(o.source)
 		const key = keyedBy(source, [
 			...o.bindings.map((b) => b.column),
 			...o.constants.map((c) => c.column)
@@ -417,7 +417,7 @@ const setComparison: Rule = {
 			: overPhysical(({ physical }) => {
 					const equality = node.heading.map((c) => carrierEquality(baseOf(c.type).carrier))
 					const unique = keyedBy(
-						physical.of(left).props,
+						physical.props(left),
 						node.heading.map((c) => c.name)
 					)
 					if (unique === undefined || unique.just.outer.length > 0) {

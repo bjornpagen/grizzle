@@ -128,7 +128,7 @@ const eliminationProof = (
 	physical: CellPhysical,
 	way: EliminationWay
 ): Elimination | undefined => {
-	const key = keyAmong(physical.of(way.occurrence.source).props, way.containment.to.fields)
+	const key = keyAmong(physical.props(way.occurrence.source), way.containment.to.fields)
 	if (key === undefined) {
 		return undefined
 	}
@@ -284,7 +284,7 @@ const keyJoinFold: Rule = {
 		return overPhysical(({ physical }) => {
 			const join = keyJoinOf(
 				node,
-				(o, _source, shared) => keyAmong(physical.of(o.source).props, shared),
+				(o, _source, shared) => keyAmong(physical.props(o.source), shared),
 				admits
 			)
 			if (join === undefined) {
