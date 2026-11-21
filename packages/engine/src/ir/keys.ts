@@ -1,4 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -627,90 +629,65 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 	}
 }
 
-/** What a proof object rests on, collected once per object. */
-interface Collected {
-	readonly premises: Map<string, Premise>
-	readonly contexts: Array<EvidenceContext>
-	readonly seen: Set<object>
+/**
+ * What a derivation rests on: the premises its rules state and those of every derivation and proof they carry, by their
+ * canonical text (premiseText), and the strongest context its rules and those proofs hold in, the least demanding one
+ * where none states any (strongest).
+ */
+interface Grounding {
+	readonly premises: ReadonlyMap<string, Premise>
+	readonly context: EvidenceContext
 }
 
-const groundImplication = (g: Collected, at: Implication): void => {
-	if (g.seen.has(at)) {
-		return
-	}
-	g.seen.add(at)
-	for (const step of at.steps) {
-		groundRule(g, step.rule)
-	}
+/**
+ * Each derivation's grounds, worked out once from those of the derivations it carries and read by every proof that rests
+ * on it, for as long as the derivation lives: a derivation is immutable (implication freezes it and its steps, each
+ * dependency frozen), so its grounds are its own, and a derivation many proofs carry, a relation's reading's or an
+ * input's, is grounded once, where each proof walked every derivation below it again.
+ */
+const groundings = new WeakMap<Implication, Grounding>()
+
+/** What a rule carries that a proof resting on it rests on too: derivations, and proofs, at the nodes it reads. */
+interface Carried {
+	readonly implications: ReadonlyArray<Implication>
+	readonly proofs: ReadonlyArray<KeyProof>
 }
 
-const groundProof = (g: Collected, proof: KeyProof): void => {
-	if (g.seen.has(proof)) {
-		return
-	}
-	g.seen.add(proof)
-	for (const p of proof.premises) {
-		g.premises.set(premiseText(p), p)
-	}
-	g.contexts.push(proof.context)
-}
+const carriesNothing: Carried = { implications: [], proofs: [] }
 
-const groundRule = (g: Collected, rule: Rule): void => {
-	const context = ruleContext(rule)
-	if (context !== undefined) {
-		g.contexts.push(context)
-	}
+/** The derivations and proofs `rule` carries (Carried). */
+const carriedBy = (rule: Rule): Carried => {
 	switch (rule.rule) {
-		case "declared":
-		case "viewAlternative":
-			for (const p of rule.premises) {
-				g.premises.set(premiseText(p), p)
-			}
-			return
 		case "fixed":
-			if (rule.witness.kind === "semiJoinPair") {
-				groundImplication(g, rule.witness.right)
-			}
-			return
+			return rule.witness.kind === "semiJoinPair"
+				? { implications: [rule.witness.right], proofs: [] }
+				: carriesNothing
 		case "equal":
-			if (rule.witness.kind === "arms") {
-				for (const arm of rule.witness.arms) {
-					groundImplication(g, arm)
-				}
-			}
-			if (rule.witness.kind === "lateralFixed") {
-				groundImplication(g, rule.witness.fixed)
-			}
-			return
+			return rule.witness.kind === "arms"
+				? { implications: rule.witness.arms, proofs: [] }
+				: rule.witness.kind === "lateralFixed"
+					? { implications: [rule.witness.fixed], proofs: [] }
+					: carriesNothing
 		case "match":
-			groundImplication(g, rule.source)
-			return
+			return { implications: [rule.source], proofs: [] }
 		case "projection":
 		case "grouped":
 		case "kept":
 		case "intersected":
-			groundImplication(g, rule.input)
-			return
+			return { implications: [rule.input], proofs: [] }
 		case "produced":
-			groundProof(g, rule.input)
-			return
+			return { implications: [], proofs: [rule.input] }
 		case "agreed":
-			for (const arm of rule.arms) {
-				groundImplication(g, arm)
-			}
-			return
+			return { implications: rule.arms, proofs: [] }
 		case "unionKey":
-			groundProof(g, rule.proof)
-			return
+			return { implications: [], proofs: [rule.proof] }
 		case "separated":
-			for (const arm of rule.arms) {
-				groundImplication(g, arm)
+			return {
+				implications: [...rule.arms, ...rule.separations.flatMap((s) => s.fixed)],
+				proofs: []
 			}
-			for (const s of rule.separations) {
-				groundImplication(g, s.fixed[0])
-				groundImplication(g, s.fixed[1])
-			}
-			return
+		case "declared":
+		case "viewAlternative":
 		case "correlated":
 		case "generated":
 		case "group":
@@ -718,8 +695,94 @@ const groundRule = (g: Collected, rule: Rule): void => {
 		case "distinct":
 		case "ranked":
 		case "numbered":
-			return
+			return carriesNothing
 	}
+}
+
+/** The premises a rule states itself: a declared key's and a view alternative's, its definition's grounds. */
+const statedPremises = (rule: Rule): ReadonlyArray<Premise> =>
+	rule.rule === "declared" || rule.rule === "viewAlternative" ? rule.premises : []
+
+/** The derivations `at` carries through its steps' rules, each a derivation its grounds read. */
+const carriedImplications = (at: Implication): ReadonlyArray<Implication> =>
+	at.steps.flatMap((step) => carriedBy(step.rule).implications)
+
+/** Grounds being gathered: premises by text, and the contexts they hold in. */
+class GroundsOf {
+	readonly premises = new Map<string, Premise>()
+	readonly #contexts: Array<EvidenceContext> = []
+
+	premise(p: Premise): void {
+		this.premises.set(premiseText(p), p)
+	}
+
+	context(context: EvidenceContext): void {
+		this.#contexts.push(context)
+	}
+
+	/** A derivation's grounds, taken whole. */
+	derived(g: Grounding): void {
+		for (const [text, p] of g.premises) {
+			this.premises.set(text, p)
+		}
+		this.context(g.context)
+	}
+
+	/** A proof's grounds, taken whole: its premises and its context. */
+	proof(proof: KeyProof): void {
+		for (const p of proof.premises) {
+			this.premise(p)
+		}
+		this.context(proof.context)
+	}
+
+	done(): Grounding {
+		return { premises: this.premises, context: strongest(this.#contexts) }
+	}
+}
+
+/**
+ * The grounds of `at` from its steps' rules: each rule's own context and premises, and the grounds of every derivation
+ * and proof it carries, each derivation's already worked out (groundingOf).
+ */
+const implicationGrounding = (at: Implication): Grounding => {
+	const g = new GroundsOf()
+	for (const step of at.steps) {
+		const rule = step.rule
+		const context = ruleContext(rule)
+		if (context !== undefined) {
+			g.context(context)
+		}
+		for (const p of statedPremises(rule)) {
+			g.premise(p)
+		}
+		const carried = carriedBy(rule)
+		for (const below of carried.implications) {
+			g.derived(defined(groundings.get(below), "a carried derivation's grounds, worked out first"))
+		}
+		for (const proof of carried.proofs) {
+			g.proof(proof)
+		}
+	}
+	return g.done()
+}
+
+/**
+ * The grounds of `at` (Grounding), worked out where they are not yet: the derivations it carries first, the deepest
+ * first, each once (a postorder that enters no derivation already grounded), so a chain of any depth is grounded with no
+ * deeper call stack.
+ */
+const groundingOf = (at: Implication): Grounding => {
+	const known = groundings.get(at)
+	if (known !== undefined) {
+		return known
+	}
+	for (const below of postorder([at], (d) =>
+		carriedImplications(d).filter((c) => !groundings.has(c))
+	)) {
+		groundings.set(below, implicationGrounding(below))
+	}
+	return defined(groundings.get(at), "the grounds of the derivation asked")
 }
 
 /** A proof of `key` on `basis`, with its members, its premises and context those of their derivations. */
@@ -729,38 +792,41 @@ const proved = (
 	members: ReadonlyArray<KeyMember>,
 	factors: ReadonlyArray<KeyFactor>
 ): KeyProof => {
-	const g: Collected = { premises: new Map(), contexts: [], seen: new Set() }
+	const g = new GroundsOf()
 	for (const m of members) {
-		groundImplication(g, m.determines)
+		g.derived(groundingOf(m.determines))
 	}
 	for (const f of factors) {
 		for (const a of f.alternatives) {
-			groundImplication(g, a.determines)
+			g.derived(groundingOf(a.determines))
 		}
 	}
 	switch (basis.kind) {
 		case "rows":
-			groundImplication(g, basis.implication)
+			g.derived(groundingOf(basis.implication))
 			break
 		case "union":
 			for (const arm of basis.arms) {
-				groundProof(g, arm)
+				g.proof(arm)
 			}
 			for (const s of basis.separations) {
-				groundImplication(g, s.fixed[0])
-				groundImplication(g, s.fixed[1])
+				g.derived(groundingOf(s.fixed[0]))
+				g.derived(groundingOf(s.fixed[1]))
 			}
 			break
 		case "within":
-			groundImplication(g, basis.implication)
-			groundProof(g, basis.inner)
+			g.derived(groundingOf(basis.implication))
+			g.proof(basis.inner)
 			break
 	}
-	const premises = [...g.premises].toSorted(([a], [b]) => compareStrings(a, b)).map(([, p]) => p)
+	const grounds = g.done()
+	const premises = [...grounds.premises]
+		.toSorted(([a], [b]) => compareStrings(a, b))
+		.map(([, p]) => p)
 	return Object.freeze({
 		key: Object.freeze([...key]),
 		premises: Object.freeze(premises),
-		context: strongest(g.contexts),
+		context: grounds.context,
 		basis,
 		members: Object.freeze([...members]),
 		factors: Object.freeze([...factors])
