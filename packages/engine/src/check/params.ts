@@ -202,7 +202,7 @@ export type ResolvedExpr = ExprDesc<Located, Resolved>
  * namespace (ir/desc.ts mapQueryParams), which queryParamNames reads too, so the declared parameters are exactly the
  * description's.
  */
-export class ParamTable {
+class ParamTable {
 	readonly #cells: ReadonlyArray<ParamCell>
 	readonly size: number
 
