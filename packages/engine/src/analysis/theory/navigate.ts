@@ -1658,6 +1658,66 @@ export const navigateQuery = (
 	navigation: Navigation
 ): InferredQuery => navigatedQuery(query, loc, columns, sharing, navigation)
 
+/** The name an aggregating rule's body delivers its `i`-th variable under (`foldedOverBody`). */
+const boundName = (i: number): string => `b${i}`
+
+/**
+ * An aggregating rule whose body joins (`joins`) as a fold over its body: the rule's matches and conditions an import of
+ * one rule, its head every variable they bind, which navigation reads as a chain of steps as it reads any join
+ * (`navigatedQuery`), the rule matching that import at each variable and folding its head over it. A rule's fold
+ * reads the complete binding of its matches (check/checker.ts Group), each distinct binding once, and the import
+ * delivers exactly those bindings, each once, so the fold is the same; read as written, the body is one join
+ * PostgreSQL orders by its estimates, which flip with the tables' sizes, where every step of a chain reads one relation
+ * by what the steps before it bound, a grouped read's group fields first (`boundInside`). The rule itself where its
+ * head folds nothing, its body reads one relation, or it matches one import alone, whose query navigation reads as a
+ * query of its own already (`navigatedRule`), the fold over its body's import among them.
+ */
+const foldedOverBody = (rule: InferredRule, interned: Navigation): InferredRule => {
+	const [only, ...more] = rule.matches
+	if (
+		!Object.values(rule.head).some((h) => h.kind === "aggregate") ||
+		(only?.source.kind === "query" && more.length === 0)
+	) {
+		return rule
+	}
+	const ids = [
+		...new Set(
+			rule.matches.flatMap((m) =>
+				Object.values(m.bindings).flatMap((e) => (e.kind === "var" ? [e.var] : []))
+			)
+		)
+	]
+	const body: InferredRule = {
+		...rule,
+		head: Object.fromEntries(ids.map((id, i) => [boundName(i), varRef(id)] as const))
+	}
+	if (!joins(interned.reads(body))) {
+		return rule
+	}
+	const passed = ruleLeaves(body, true).params.flatMap((p) =>
+		p.kind === "param" ? [[p.name, p] as const] : []
+	)
+	return {
+		vars: rule.vars.filter((v) => ids.includes(v.id)),
+		matches: [
+			{
+				source: {
+					kind: "query",
+					query: { stage: { kind: "rules", arms: [body], loc: rule.loc } },
+					bind: Object.fromEntries(passed)
+				},
+				bindings: Object.fromEntries(ids.map((id, i) => [boundName(i), varRef(id)] as const)),
+				loc: rule.loc
+			}
+		],
+		where: [],
+		head: rule.head,
+		interiors: [],
+		attach: [],
+		loc: rule.loc
+	}
+}
+
 /**
  * `navigateQuery` within one statement's navigation, its imports read whole interned in `interned`, each query of one
  * identity navigated once (Navigation `navigated`).
@@ -1676,7 +1736,8 @@ const navigatedQuery = (
 		}
 		const keptOf = (rule: InferredRule): KeptImports =>
 			sharing.kind === "perRead" ? noImports : sharedImports([rule], interned)
-		const arms = flatMapNonEmpty(stage.arms, (rule): NonEmptyReadonlyArray<InferredRule> => {
+		const arms = flatMapNonEmpty(stage.arms, (arm): NonEmptyReadonlyArray<InferredRule> => {
+			const rule = foldedOverBody(arm, interned)
 			if (!splits(rule) || !someConjunctionJoins(interned.reads(rule))) {
 				return navigatedRule(rule, loc, columns, sharing, keptOf(rule), interned)
 			}

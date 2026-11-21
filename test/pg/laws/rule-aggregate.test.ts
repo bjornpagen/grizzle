@@ -43,6 +43,7 @@ import {
 	caseGen,
 	type Feature,
 	keptCases,
+	keptLocality,
 	localityGen,
 	runHistory,
 	runLocality
@@ -131,7 +132,7 @@ export const aRuleOverAnAggregatingDerivedRelationCommitsExactlyTheWritesWhoseSt
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
 export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem =
-	property.explore(localityGen, {
+	property.explore(recorded(localityGen, keptLocality), {
 		needs: { substrate: Substrate.installing },
 		situations: ["measured"] satisfies ReadonlyArray<Reached<"measured">>,
 		check:
@@ -147,7 +148,16 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 			name: "invariance: each judged statement handles the same rows for a write of one group beside a few hundred untouched groups and beside a thousand"
 		},
 		show: Formatter.format,
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/pg/laws/rule-aggregate.test.ts#aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroupsStandBesideThem:-:1"
+				),
+				reason:
+					"a count grouped by n and Topic's topic beside 200 groups and then 800, whose fold's join of Attempt and Topic PostgreSQL ordered one way and then the other while its body was read as written (14 rows, then 15, at 95abc7176), so no planner choice of join order is left inside a grouped read",
+				since: "2026-11-21"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -155,6 +165,12 @@ export const aProbeOfTheGroupsAWriteTouchedReadsThoseGroupsAloneHoweverManyGroup
 					"\t\tconst inside = boundInside(source, bindings, fixedTerms(step), this.#columns)",
 				replacement: "\t\tconst inside = source",
 				why: "The step that reads a touched group's fact folds every group, unbound to the touched group's keys, so a write of one group reads every group stored beside it."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\t\tconst rule = foldedOverBody(arm, interned)",
+				replacement: "\t\t\tconst rule = arm",
+				why: "An aggregating rule's body is read as written, one join PostgreSQL orders by its estimates: a group of n and topic folds Attempt and Topic in one order beside a few hundred groups and in the other beside a thousand, so its probe handles a row more."
 			}
 		]
 	})

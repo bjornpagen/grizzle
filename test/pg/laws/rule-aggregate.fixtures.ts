@@ -1370,6 +1370,31 @@ export const localityGen: Gen<LocalityCase> = (s) => ({
 	more: s.draw(int(600, 900))
 })
 
+/**
+ * The kept locality case (gen.ts recorded): a count grouped by n and the topic Topic joins in, read directly under a
+ * check, beside 200 groups and then 800, where PostgreSQL ordered the fold's join of Attempt and Topic one way at the
+ * first count and the other at the second (14 rows, then 15: LOCALITY's and AGGRULE's runs at 95abc7176 with the
+ * probes picked through their readers), while its body was read as written.
+ */
+export const keptLocality: Arr.NonEmptyReadonlyArray<LocalityCase> = [
+	{
+		shape: {
+			groups: ["n", "topic"],
+			fold: "count",
+			join: true,
+			negation: "none",
+			reading: "direct",
+			aggregate: "query",
+			keepsFold: true,
+			union: "none",
+			laws: [{ kind: "check", bound: 9 }],
+			mutable: false
+		},
+		before: 200,
+		more: 600
+	}
+]
+
 /** The planner settings of a table large beside one group's rows (rule-seeding.fixtures.ts largeTables). */
 const largeTables = [
 	"SET enable_seqscan = off",

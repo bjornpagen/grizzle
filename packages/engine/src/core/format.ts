@@ -25,7 +25,10 @@
  * 6 spelled such a definition again at each read inside the negation of the met side. A judge's delta whose relation's
  * every field has a bound and whose widest row fits one heap tuple holds every value in its row, each column STORAGE
  * PLAIN, with no TOAST table (physical/ddl/rules.ts deltaStorage, sql/ast.ts SessionTableStorage), and a delta's name
- * digests its storage beside its columns, so every delta's name moves. Format 6's snapshot.json records each schema level's fingerprint over its
+ * digests its storage beside its columns, so every delta's name moves. A fold whose body joins is read, by each judge
+ * function and each served write program, over an import of its body's every bound variable, which navigation reads
+ * as a chain of steps (analysis/theory/navigate.ts foldedOverBody), where format 6 left the fold's join as written for
+ * PostgreSQL to order. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row
