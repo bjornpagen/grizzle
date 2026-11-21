@@ -100,7 +100,7 @@ LEFT JOIN "pg_catalog"."pg_namespace" AS "krn" ON "krn"."oid" = "kr"."relnamespa
 LEFT JOIN "pg_catalog"."pg_type" AS "kd" ON "kd"."oid" = "k"."contypid"
 LEFT JOIN "pg_catalog"."pg_namespace" AS "kdn" ON "kdn"."oid" = "kd"."typnamespace"
 LEFT JOIN "pg_catalog"."pg_namespace" AS "s" ON "l"."classid" = 'pg_catalog.pg_namespace'::"pg_catalog"."regclass" AND "s"."oid" = "l"."objid"
-LEFT JOIN "pg_catalog"."pg_authid" AS "r" ON "l"."classid" = 'pg_catalog.pg_authid'::"pg_catalog"."regclass" AND "r"."oid" = "l"."objid"
+LEFT JOIN "pg_catalog"."pg_roles" AS "r" ON "l"."classid" = 'pg_catalog.pg_authid'::"pg_catalog"."regclass" AND "r"."oid" = "l"."objid"
 LEFT JOIN "pg_catalog"."pg_language" AS "g" ON "l"."classid" = 'pg_catalog.pg_language'::"pg_catalog"."regclass" AND "g"."oid" = "l"."objid"
 LEFT JOIN "pg_catalog"."pg_attrdef" AS "ad" ON "l"."classid" = 'pg_catalog.pg_attrdef'::"pg_catalog"."regclass" AND "ad"."oid" = "l"."objid"
 LEFT JOIN "pg_catalog"."pg_class" AS "adc" ON "adc"."oid" = "ad"."adrelid"

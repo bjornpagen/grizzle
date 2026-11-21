@@ -291,7 +291,7 @@ export const lockTablePreflight = property.explore(preflightGen, {
 							])
 						)
 						const relations = yield* substrate.admin.queryValues(
-							"SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1",
+							"SELECT count(*)::text FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = $1",
 							[schema]
 						)
 						if (x.at === "the demand") {

@@ -247,13 +247,21 @@ export const preflightGen: Gen<PreflightCase> = (source) => ({
 	at: source.draw(element(["the demand", "one below"] as const))
 })
 
-/** The settings a case sizes: max_connections the least whose table holds `total` at its slots, or one fewer. */
-export const caseSettings = (x: PreflightCase, total: number): LockTableSettings => ({
-	maxLocksPerTransaction: x.slots,
-	maxConnections:
-		Math.ceil(total / x.slots) - specialWorkerProcesses - (x.at === "one below" ? 1 : 0),
-	autovacuumWorkerSlots: 0,
-	maxWorkerProcesses: 0,
-	maxWalSenders: 0,
-	maxPreparedTransactions: 0
-})
+/**
+ * The settings a case sizes: max_locks_per_transaction its slots, at most a quarter of `total`, and max_connections the
+ * least whose table holds `total` at them, or one fewer. A quarter keeps that least at 2 or more beside the special
+ * workers, so one fewer is still a server's max_connections, at least 1: more slots would size the demand's table at
+ * max_connections 0 or below, which no server holds and the survey reads as no setting.
+ */
+export const caseSettings = (x: PreflightCase, total: number): LockTableSettings => {
+	const slots = Math.min(x.slots, Math.floor(total / 4))
+	return {
+		maxLocksPerTransaction: slots,
+		maxConnections:
+			Math.ceil(total / slots) - specialWorkerProcesses - (x.at === "one below" ? 1 : 0),
+		autovacuumWorkerSlots: 0,
+		maxWorkerProcesses: 0,
+		maxWalSenders: 0,
+		maxPreparedTransactions: 0
+	}
+}
