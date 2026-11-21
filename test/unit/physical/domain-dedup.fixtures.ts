@@ -125,11 +125,13 @@ export const featuresOf = (p: Pair): ReadonlyArray<DedupFeature> => [
 ]
 
 /** The contract domains a case's installation creates: every CREATE DOMAIN but the roster and text ones, which this
- * schema has none of. */
+ * schema has none of, and the digest domain (ir/physical.ts PhysicalNames digestDomain), which every Setup creates. */
 export const domainsOf = (
 	i: Installation
 ): ReadonlyArray<Extract<SqlStatement, { readonly kind: "createDomain" }>> =>
 	Arr.filter(
 		i.statements,
-		(s): s is Extract<SqlStatement, { readonly kind: "createDomain" }> => s.kind === "createDomain"
+		(s): s is Extract<SqlStatement, { readonly kind: "createDomain" }> =>
+			s.kind === "createDomain" &&
+			!(s.name.schema === i.names.digestDomain.schema && s.name.name === i.names.digestDomain.name)
 	)
