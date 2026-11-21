@@ -364,8 +364,17 @@ class DirectiveUnreadable extends Data.TaggedError("DirectiveUnreadable")<{
 }
 
 /**
+ * The ambient declarations the repository's packages state for the modules their sources import, each its package's
+ * tsconfig includes with its sources: packages/grizzle's `grizzle:config`, the configuration file the command line
+ * imports (packages/grizzle/src/cli/main.ts). A program that reaches such a source, as one whose test support reaches
+ * the command line does, reads the declaration as the package's own check does.
+ */
+const ambientDeclarations = ["packages/grizzle/src/cli/config-module.d.ts"] as const
+
+/**
  * Writes `program` into `dir`, checked as `checking` says: its modules, a package.json that makes them modules, its
- * node_modules (the repository root's), and its tsconfig over its modules, extending the root's base configuration.
+ * node_modules (the repository root's), and its tsconfig over its modules and the packages' ambient declarations
+ * (ambientDeclarations), extending the root's base configuration.
  */
 const place = (root: string, dir: string, program: Program, checking: Checking) =>
 	Effect.gen(function* () {
@@ -383,7 +392,10 @@ const place = (root: string, dir: string, program: Program, checking: Checking) 
 					noErrorTruncation: true,
 					plugins: []
 				},
-				files: Arr.map(program, (module) => module.file)
+				files: [
+					...Arr.map(program, (module) => module.file),
+					...Arr.map(ambientDeclarations, (file) => path.relative(dir, path.join(root, file)))
+				]
 			})
 		)
 		const written = yield* Effect.forEach(program, (module) =>
