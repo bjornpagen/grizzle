@@ -329,9 +329,9 @@ export const eachNodesAttributesAndDependenciesAreInternedOnceHoweverManyClosure
 			{
 				file: "packages/engine/src/logical/props.ts",
 				original:
-					"const coverOf = (props: Table, start: Bits): Closure<never> =>\n\tclosure<never>(props.stated, start, namesNothing)",
+					'const coverOf = (props: Pick<Table, "stated">, start: Bits): Closure<never> =>\n\tclosure<never>(props.stated, start, namesNothing)',
 				replacement:
-					"const coverOf = (props: Table, start: Bits): Closure<never> =>\n\tclosure<never>(\n\t\trowsOf(\n\t\t\tattributesOver(props.columns, props.stated.attributes.hidden),\n\t\t\tprops.stated.rows.map((row) => row.dependency)\n\t\t),\n\t\tstart,\n\t\tnamesNothing\n\t)",
+					'const coverOf = (props: Pick<Table, "stated">, start: Bits): Closure<never> =>\n\tclosure<never>(\n\t\trowsOf(\n\t\t\tattributesOver(props.columns, props.stated.attributes.hidden),\n\t\t\tprops.stated.rows.map((row) => row.dependency)\n\t\t),\n\t\tstart,\n\t\tnamesNothing\n\t)',
 				why: "Each closure interns its node's attributes and dependencies again, sets built per closure (logical/props.ts coverOf); the interning property fails."
 			}
 		]

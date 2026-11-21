@@ -459,11 +459,13 @@ interface Table {
 	readonly outer: OuterRefs
 	readonly columns: ReadonlyArray<string>
 	readonly stated: Rows
+	/** Where each row's step reads the value it fixes each of its targets to, in the row's target order (sourcesOf). */
+	readonly sources: StepSources
 	readonly naming: Naming<Named>
 }
 
-/** What a node's steps are read against: its table but the naming they make (namingOf). */
-type Steps = Omit<Table, "naming">
+/** What a node's steps are read against: its table but what they are read into (sourcesOf, namingOf). */
+type Steps = Omit<Table, "naming" | "sources">
 
 /** A node's attributes: its heading, then its hidden attributes. */
 const attributesOf = (props: Pick<Table, "stated">): Attributes => props.stated.attributes
@@ -499,14 +501,14 @@ const namedOf = (v: ValueAt): Named | undefined => {
  * does: the derivation a rule stores, and a fixed column's value, are read off it, so they name the value wherever a
  * step names it.
  */
-const closureOf = (props: Table, start: Bits): Closure<Named> =>
+const closureOf = (props: Pick<Table, "stated" | "naming">, start: Bits): Closure<Named> =>
 	closure(props.stated, start, props.naming)
 
 /**
  * What `start` determines at a node, each column reached by the first step to fire: what a key determines, whose
  * derivation holds only the steps the key needs to determine the heading, whatever values they name.
  */
-const coverOf = (props: Table, start: Bits): Closure<never> =>
+const coverOf = (props: Pick<Table, "stated">, start: Bits): Closure<never> =>
 	closure<never>(props.stated, start, namesNothing)
 
 /**
@@ -576,35 +578,194 @@ const namesAt = (
 const fixedOver = (
 	props: Table,
 	reached: Closure<Named>
-): ReadonlyMap<string, ReadonlyArray<NamedValue>> => {
-	const names = new Map<string, Array<NamedValue>>()
-	for (const p of reached.sequence) {
-		const first = reached.named.get(p)
-		names.set(
-			attributeAt(props.stated.attributes, p),
-			first === undefined ? [] : [{ name: first, derivation: derivation(reached, [p]) }]
-		)
+): ReadonlyMap<string, ReadonlyArray<NamedValue>> => new FixedNames(props, reached).names
+
+/**
+ * A name a step offers the column it fixes (`Fixing`): with the derivation steps before the step, those that reach its
+ * determinants or, for a name an equality reads, the name's own, and the step that gives it.
+ */
+interface Offer {
+	readonly name: Named
+	readonly before: () => ReadonlyArray<Dependency>
+	readonly step: () => Dependency
+}
+
+/**
+ * A step of a node that fixes `column`, a column its closure of nothing reaches, as the names it offers the column
+ * (`FixedNames`): its own value's, or each name of the column an equality reads, of the input column a rule carries, or
+ * that a union's arms agree on, where it reads them worked out once (stepSource). An equality offers its column's
+ * names as FixedNames gives them, a list that only grows; every other step's offers are fixed when it is made. Each
+ * offer is made once (`fresh`): one made adds nothing when made again, its name held from then on or its derivation
+ * reaching the column before its last step for good.
+ */
+class Fixing {
+	readonly column: string
+	/** The names `column` holds so far, which the step's offers are added to. */
+	readonly held: Array<NamedValue>
+	readonly #count: () => number
+	readonly #at: (i: number) => Offer
+	#made = 0
+
+	constructor(
+		column: string,
+		held: Array<NamedValue>,
+		count: () => number,
+		at: (i: number) => Offer
+	) {
+		this.column = column
+		this.held = held
+		this.#count = count
+		this.#at = at
 	}
-	const namesOf = (c: string): ReadonlyArray<NamedValue> => names.get(c) ?? []
-	for (let changed = true; changed;) {
-		changed = false
-		for (const row of props.stated.rows) {
-			if (!subsetOf(row.from, reached.reached)) {
-				continue
-			}
-			for (const c of row.dependency.to) {
-				const held = names.get(c)
-				if (held === undefined) {
-					continue
+
+	/** The offers the step makes now, those it has not made, each made once from now on. */
+	fresh(): ReadonlyArray<Offer> {
+		const made = this.#made
+		const count = this.#count()
+		this.#made = count
+		return Array.from({ length: count - made }, (_, k) => this.#at(made + k))
+	}
+
+	/** How many offers the step offers now. */
+	get offered(): number {
+		return this.#count()
+	}
+}
+
+/** The step `row` of a node whose closure of nothing is `reached`, fixing `column`, as a Fixing. */
+const fixingOf = (
+	props: Table,
+	reached: Closure<Named>,
+	row: Row,
+	column: string,
+	held: Array<NamedValue>,
+	namesOf: (column: string) => ReadonlyArray<NamedValue>,
+	source: StepSource
+): Fixing => {
+	const d = row.dependency
+	const determinants = () => derivation(reached, positions(row.from)).steps
+	const listed = (offers: ReadonlyArray<Offer>): Fixing =>
+		new Fixing(
+			column,
+			held,
+			() => offers.length,
+			(i) => defined(offers[i], "an offer the step counts")
+		)
+	switch (source.kind) {
+		case "own":
+			return listed(
+				source.name === undefined
+					? []
+					: [{ name: source.name, before: determinants, step: () => d }]
+			)
+		case "column": {
+			const names = namesOf(source.column)
+			return new Fixing(
+				column,
+				held,
+				() => names.length,
+				(i) => {
+					const v = defined(names[i], "a name the equality's column holds")
+					return { name: v.name, before: () => v.derivation.steps, step: () => d }
 				}
-				for (const v of stepNames(props, reached, row, c, namesOf, held)) {
-					held.push(v)
-					changed = true
-				}
+			)
+		}
+		case "input":
+			return listed(
+				namesAt(props, source.input, source.column).map((v) => ({
+					name: v.name,
+					before: determinants,
+					step: () => source.over(v.derivation)
+				}))
+			)
+		case "arms":
+			return listed(
+				commonNames(source.arms, column).map((v) => ({
+					name: v.name,
+					before: determinants,
+					step: () => armsAgree(column, v.arms)
+				}))
+			)
+	}
+}
+
+/**
+ * The name `offer` gives the column `fixing` fixes beside the names it holds, with its derivation: the steps before the
+ * step, then the step. None for a name the column holds, or whose derivation reaches the column before its last step,
+ * which names it by that earlier step.
+ */
+const offeredName = (fixing: Fixing, offer: Offer): ReadonlyArray<NamedValue> => {
+	if (fixing.held.some((h) => fixedEqual(h.name, offer.name))) {
+		return []
+	}
+	const steps = offer.before()
+	return steps.some((s) => s.to.includes(fixing.column))
+		? []
+		: [{ name: offer.name, derivation: implication([], [...steps, offer.step()]) }]
+}
+
+/**
+ * The names of the fixed columns of the node `props` are of, worked out again from its properties (FixedNames), its steps'
+ * sources with them: what a reader that holds the node's properties, not its table, reads the work of.
+ */
+export const fixedNamesOf = (props: Props): FixedNames =>
+	new FixedNames({ ...props, sources: sourcesOf(props) }, props.nothing)
+
+/**
+ * The names of each column a node's closure of nothing `reached` reaches (fixedOver), worked out semi-naively: each
+ * step that fixes a reached column from reached determinants is a Fixing, made once, its source worked out once; each
+ * round makes every step's fresh offers, in the node's step order, its names added after the step's offers are read,
+ * until a round adds none. A step's offers once made add nothing again, so the names are those every round re-reading
+ * every step's every offer gave, in the same order, where each round worked out every step's source and made every
+ * offer again.
+ */
+export class FixedNames {
+	readonly names: ReadonlyMap<string, ReadonlyArray<NamedValue>>
+	/** The rounds it ran, the last adding no name. */
+	readonly rounds: number
+	/** The offers it made, each once. */
+	readonly made: number
+	/** The offers its steps offer when it is done: as many as it made. */
+	readonly offered: number
+
+	constructor(props: Table, reached: Closure<Named>) {
+		const names = new Map<string, Array<NamedValue>>()
+		for (const p of reached.sequence) {
+			const first = reached.named.get(p)
+			names.set(
+				attributeAt(props.stated.attributes, p),
+				first === undefined ? [] : [{ name: first, derivation: derivation(reached, [p]) }]
+			)
+		}
+		const namesOf = (c: string): ReadonlyArray<NamedValue> => names.get(c) ?? []
+		const fixings = props.sources.flatMap(({ row, targets }) =>
+			subsetOf(row.from, reached.reached)
+				? targets.flatMap(({ column, source }) => {
+						const held = names.get(column)
+						return held === undefined
+							? []
+							: [fixingOf(props, reached, row, column, held, namesOf, source)]
+					})
+				: []
+		)
+		let made = 0
+		let rounds = 0
+		for (let changed = true; changed;) {
+			changed = false
+			rounds += 1
+			for (const fixing of fixings) {
+				const offers = fixing.fresh()
+				made += offers.length
+				const added = offers.flatMap((offer) => offeredName(fixing, offer))
+				appendAll(fixing.held, added)
+				changed = changed || added.length > 0
 			}
 		}
+		this.names = names
+		this.rounds = rounds
+		this.made = made
+		this.offered = fixings.reduce((n, fixing) => n + fixing.offered, 0)
 	}
-	return names
 }
 
 /**
@@ -622,6 +783,19 @@ type StepSource =
 			readonly over: (derivation: Implication) => Dependency
 	  }
 	| { readonly kind: "arms"; readonly arms: NonEmptyReadonlyArray<Props> }
+
+/**
+ * Each row of a node's table with where its step reads the value it fixes each of its targets to (sourcesOf): the
+ * target's position and column, in the row's target order, rows in table order.
+ */
+type StepSources = ReadonlyArray<{
+	readonly row: Row
+	readonly targets: ReadonlyArray<{
+		readonly at: number
+		readonly column: string
+		readonly source: StepSource
+	}>
+}>
 
 /** A step's own value, by the name it gives it (namedOf). */
 const own = (value: ValueAt): StepSource => ({ kind: "own", name: namedOf(value) })
@@ -821,67 +995,13 @@ const commonNames = (
 	})
 
 /**
- * The names beside `held` that step `d` gives `column` of a node whose closure of nothing is `reached`, given the names
- * `namesOf` holds of its columns so far, each with its derivation: the closure's derivation of the step's determinants,
- * then the step, or the step like it over the input's derivation of each name it carries. A derivation that reaches the
- * column before its last step names it by that earlier step, and gives no name here.
- */
-const stepNames = (
-	props: Table,
-	reached: Closure<Named>,
-	row: Row,
-	column: string,
-	namesOf: (column: string) => ReadonlyArray<NamedValue>,
-	held: ReadonlyArray<NamedValue>
-): ReadonlyArray<NamedValue> => {
-	const d = row.dependency
-	const named = (
-		name: Named,
-		before: () => ReadonlyArray<Dependency>,
-		step: () => Dependency
-	): ReadonlyArray<NamedValue> => {
-		if (held.some((h) => fixedEqual(h.name, name))) {
-			return []
-		}
-		const steps = before()
-		return steps.some((s) => s.to.includes(column))
-			? []
-			: [{ name, derivation: implication([], [...steps, step()]) }]
-	}
-	const determinants = () => derivation(reached, positions(row.from)).steps
-	const source = stepSource(props, d, column)
-	switch (source.kind) {
-		case "own": {
-			return source.name === undefined ? [] : named(source.name, determinants, () => d)
-		}
-		case "column":
-			return namesOf(source.column).flatMap((v) =>
-				named(
-					v.name,
-					() => v.derivation.steps,
-					() => d
-				)
-			)
-		case "input":
-			return namesAt(props, source.input, source.column).flatMap((v) =>
-				named(v.name, determinants, () => source.over(v.derivation))
-			)
-		case "arms":
-			return commonNames(source.arms, column).flatMap((v) =>
-				named(v.name, determinants, () => armsAgree(column, v.arms))
-			)
-	}
-}
-
-/**
  * Where a step reads the name of the value it fixes `column` to at a node: a literal, a parameter or an outer column of
  * its own, or none for a computation. A rule that carries the column from an input reads the name its input's closure of
  * nothing gives it, read at the node (firstNameAt), as the derivation the rule carries does; a union's agreement reads
  * the first name its arms share, as its derivations do; an equality reads the name its other column holds when the
  * closure names one (a copy), none for a column the node lacks.
  */
-const nameSourceOf = (props: Steps, d: Dependency, column: string): NameSource<Named> => {
-	const source = stepSource(props, d, column)
+const nameSourceOf = (props: Steps, source: StepSource, column: string): NameSource<Named> => {
 	const value = (name: Named | undefined): NameSource<Named> =>
 		name === undefined ? namesNone : { kind: "value", value: name }
 	switch (source.kind) {
@@ -899,15 +1019,24 @@ const nameSourceOf = (props: Steps, d: Dependency, column: string): NameSource<N
 }
 
 /** The naming of a node's steps (Props.naming): each row's source of the name it gives each target, in its order. */
-const namingOf = (props: Steps): Naming<Named> =>
+const namingOf = (props: Steps, sources: StepSources): Naming<Named> =>
 	namingOver(
 		props.stated,
-		props.stated.rows.map((row) =>
-			row.to.map((p) =>
-				nameSourceOf(props, row.dependency, attributeAt(props.stated.attributes, p))
-			)
-		)
+		sources.map(({ targets }) => targets.map((t) => nameSourceOf(props, t.source, t.column)))
 	)
+
+/**
+ * Where each row of a node reads the value its step fixes each target to (stepSource), in the row's target order: worked
+ * out once per node, here alone, and read by its naming (namingOf) and by the names of its fixed columns (FixedNames).
+ */
+const sourcesOf = (props: Steps): StepSources =>
+	props.stated.rows.map((row) => ({
+		row,
+		targets: row.to.map((at) => {
+			const column = attributeAt(props.stated.attributes, at)
+			return { at, column, source: stepSource(props, row.dependency, column) }
+		})
+	}))
 
 /**
  * The value a fixed column holds by the witness that fixed it at the node `props` are of, a witness of the node's own: a
@@ -1420,7 +1549,8 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		columns,
 		stated: rowsOf(attributes, dependencies)
 	}
-	const table: Table = { ...steps, naming: namingOf(steps) }
+	const sources = sourcesOf(steps)
+	const table: Table = { ...steps, sources, naming: namingOf(steps, sources) }
 	const forest = forestOf(columns, rest.equal)
 	const classes = classesIn(columns, forest)
 	/**
