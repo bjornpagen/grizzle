@@ -84,7 +84,7 @@ import type {
 	StoredOnlySql,
 	TextField
 } from "#compiler/types/fields/field.ts"
-import type { BoundSource, ContextsOf, Finished } from "#compiler/types/query/query.ts"
+import type { ContextsOf, Finished, InteriorSource } from "#compiler/types/query/query.ts"
 import type {
 	Aggregate,
 	BindingParams,
@@ -266,7 +266,8 @@ type LevelOfPhantom<S, B> = "schema" extends keyof B
 		: Refusal<"the query is not over a level of this query's schema">
 	: unknown
 
-type RequireBound<R> =
+/** A parameterized query is bound before it stands for rows: matched, or bound to an import's relation parameter. */
+export type RequireBound<R> =
 	R extends Phantom<{ readonly params: infer QP }>
 		? [keyof QP] extends [never]
 			? unknown
@@ -593,7 +594,7 @@ type RuleInterior = <
 >(
 	this: Rule<S, Params, Sole, Facts, Cx>,
 	rule: (r: Rule<S>) => Finished<Head, Ev, P2, S, IHead, Hc, Cx2>
-) => BoundSource<S, Head, P2, Hc, Cx2, Ev, never>
+) => InteriorSource<S, Head, P2, Hc, Cx2, Ev>
 
 /** Rule.relation: a relation parameter of the rule it is called on (Rule), over a relation of its schema or a heading. */
 type RuleRelation = <

@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { Array as Arr, Predicate, Record as Rec, String as Str } from "effect"
 import { catchCompileError } from "#compiler/core/canonical.ts"
@@ -16,6 +17,12 @@ import { computeCore, handleTerm } from "#compiler/scalar/compute/builders.ts"
 import { check } from "#compiler/schema/api.ts"
 import { closedIdOf } from "#compiler/schema/relation.ts"
 import {
+	changeSetDesc,
+	changeSetOver,
+	type ChangeSetValue
+} from "#compiler/write/changeset/value.ts"
+import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
+import {
 	Agree,
 	AgreeAbove,
 	Apart,
@@ -26,8 +33,14 @@ import {
 	Shade,
 	Tone
 } from "#test/support/agreement/schema.ts"
-import { compileTemplate, testArtifacts, testCompile } from "#test/support/compile.ts"
+import {
+	compileTemplate,
+	frontendOptions,
+	testArtifacts,
+	testCompile
+} from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
+import { checking } from "#test/support/policy.ts"
 import { type PreludeAt, preludeModule } from "#test/support/prelude.ts"
 import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
 
@@ -1358,6 +1371,21 @@ type MatchedForm = (typeof matchedForms)[number]
 const relationSources = ["relationParam", "query", "boundQuery", "interior"] as const
 type RelationSource = (typeof relationSources)[number]
 
+/**
+ * The levels of a binding cell: the import's, the bound query's and the importing rule's. All three over Agree ("own");
+ * the bound query over AgreeAbove, a schema the import's is a level of, and the rule over it ("above"); the import over
+ * AgreeAbove and the bound query over Agree, a level of the import's ("below"); the bound query over Apart, of which
+ * Agree is no level nor it one of Agree, and the rule over it ("apart"); the bound query over AgreeAbove and the rule
+ * over Agree, which matches the bound import, over AgreeAbove, a level above its own ("aboveRule"). A relation
+ * parameter of the importing rule and an interior stage are bound at "own" alone: they are of no level of their own.
+ */
+const bindLevels = ["own", "above", "below", "apart", "aboveRule"] as const
+type BindLevel = (typeof bindLevels)[number]
+
+/** The levels a source of a relation parameter is bound at (bindLevels): a query's every one, any other's its own. */
+const bindLevelsOf = (source: RelationSource): Arr.NonEmptyReadonlyArray<BindLevel> =>
+	source === "query" || source === "boundQuery" ? bindLevels : ["own"]
+
 /** A schema of the scope cells: its name in the program, and its value. */
 interface Over {
 	readonly source: string
@@ -1412,22 +1440,57 @@ const matchedOf = (
 	}
 }
 
-/** Cell's ids keyed by a relation parameter of ids, the query whose parameter the relation cells bind. */
-const byIdsSource =
-	'export const byIds = query(Agree).rule((r) => { const ids = r.relation("ids", { id: Id }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })'
-const byIds = (): QueryValue =>
-	queryOver(Agree).rule((r: RuleValue) => {
+/**
+ * Cell's ids keyed by a relation parameter of ids, over a schema: the query whose parameter the relation cells bind,
+ * `byIds` over Agree and `byIdsAbove` over AgreeAbove, each stated once in the program, a batch's own.
+ */
+interface ByIds {
+	readonly name: string
+	readonly over: Over
+}
+const byIdsAgree: ByIds = { name: "byIds", over: agreeOver }
+const byIdsAbove: ByIds = { name: "byIdsAbove", over: aboveOver }
+
+/** A ByIds query's statement in the program. */
+const byIdsSource = (q: ByIds): string =>
+	`export const ${q.name} = query(${q.over.source}).rule((r) => { const ids = r.relation("ids", { id: Id }); const { id } = v(Cell, "cell"); return r.match(ids, { id }).match(Cell, { id }).find({ id }) })`
+
+/** A ByIds query's value, as its statement builds it. */
+const byIdsValue = (q: ByIds): QueryValue =>
+	queryOver(q.over.value).rule((r: RuleValue) => {
 		const ids = r.relation("ids", { id: Id })
 		const vars = varsOver(Cell, "cell")
 		return r.match(ids, { id: vars["id"] }).match(Cell, { id: vars["id"] }).find({ id: vars["id"] })
 	})
 
-/** What a relation parameter is bound to, inside the importing rule: its source, and its value under that rule. */
+/** The schemas of a binding cell at a level (bindLevels): the import's, the bound query's and the importing rule's. */
+const bindOversOf = (
+	level: BindLevel
+): { readonly imported: ByIds; readonly bound: Over; readonly rule: Over } => {
+	switch (level) {
+		case "own":
+			return { imported: byIdsAgree, bound: agreeOver, rule: agreeOver }
+		case "above":
+			return { imported: byIdsAgree, bound: aboveOver, rule: aboveOver }
+		case "below":
+			return { imported: byIdsAbove, bound: agreeOver, rule: aboveOver }
+		case "apart":
+			return { imported: byIdsAgree, bound: apartOver, rule: apartOver }
+		case "aboveRule":
+			return { imported: byIdsAgree, bound: aboveOver, rule: agreeOver }
+	}
+}
+
+/**
+ * What a relation parameter is bound to, inside the importing rule: its source, and its value under that rule, a
+ * query's over `over`.
+ */
 const relationSourceOf = (
-	source: RelationSource
+	source: RelationSource,
+	over: Over
 ): { readonly source: string; readonly value: (r: RuleValue) => unknown } => {
-	const cellIds = matchedOf(agreeOver, "query")
-	const boundIds = matchedOf(agreeOver, "bound")
+	const cellIds = matchedOf(over, "query")
+	const boundIds = matchedOf(over, "bound")
 	switch (source) {
 		case "relationParam":
 			return {
@@ -1451,6 +1514,125 @@ const relationSourceOf = (
 	}
 }
 
+/**
+ * What ChangeSet.bind binds a write's parameter to, the write axis: its relation parameter `ids` to a query or a bound
+ * query of its rows; to a query whose own parameter `p` joins the write's `p` at its type (joiningQuery) or clashes
+ * with it at another (clashingQuery); to a query delivering a field beside the parameter's heading (widerQuery); or the
+ * write's scalar parameter `p` to a query (scalar).
+ */
+const writeBounds = [
+	"query",
+	"boundQuery",
+	"joiningQuery",
+	"clashingQuery",
+	"widerQuery",
+	"scalar"
+] as const
+type WriteBound = (typeof writeBounds)[number]
+
+/**
+ * The levels of a write cell: the write's and the bound query's. Both over Agree ("own"); the query over AgreeAbove
+ * ("above"), the bound write then over it; the write over AgreeAbove and the query over Agree, a level of it ("below");
+ * the query over Apart, neither a level of the other ("apart").
+ */
+const writeLevels = ["own", "above", "below", "apart"] as const
+type WriteLevel = (typeof writeLevels)[number]
+
+/** The levels a write cell binds at (writeLevels): a query's and a bound query's every one, any other's its own. */
+const writeLevelsOf = (bound: WriteBound): Arr.NonEmptyReadonlyArray<WriteLevel> =>
+	bound === "query" || bound === "boundQuery" ? writeLevels : ["own"]
+
+/**
+ * A write whose rule matches the relation parameter `ids` and compares Note's k with its scalar parameter `p`, over a
+ * schema: `idsWrite` over Agree and `idsWriteAbove` over AgreeAbove, each stated once in the program, a batch's own.
+ */
+interface IdsWrite {
+	readonly name: string
+	readonly over: Over
+}
+const idsWriteAgree: IdsWrite = { name: "idsWrite", over: agreeOver }
+const idsWriteAbove: IdsWrite = { name: "idsWriteAbove", over: aboveOver }
+
+/** An IdsWrite's statement in the program. */
+const idsWriteSource = (w: IdsWrite): string =>
+	`export const ${w.name} = ChangeSet.empty(${w.over.source}).delete(Note, query(${w.over.source}).rule((r) => { const ids = r.relation("ids", { id: Id }); const { id } = v(ids, "ids"); const { k } = v(Note, "note"); return r.match(ids, { id }).match(Note, { item: id, k }).where(r.eq(k, r.param("p", Cell.fields.integer))).find({ item: id, k }) }))`
+
+/** An IdsWrite's value, as its statement builds it. */
+const idsWriteValue = (w: IdsWrite): ChangeSetValue =>
+	changeSetOver.empty(w.over.value).delete(
+		Note,
+		queryOver(w.over.value).rule((r: RuleValue) => {
+			const ids = r.relation("ids", { id: Id })
+			const i = varsOver(ids, "ids")
+			const note = varsOver(Note, "note")
+			return r
+				.match(ids, { id: i["id"] })
+				.match(Note, { item: i["id"], k: note["k"] })
+				.where(r.eq(note["k"], r.param("p", Cell.fields.integer)))
+				.find({ item: i["id"], k: note["k"] })
+		})
+	)
+
+/** The schemas of a write cell at a level (writeLevels): the write's and the bound query's. */
+const writeOversOf = (level: WriteLevel): { readonly write: IdsWrite; readonly bound: Over } => {
+	switch (level) {
+		case "own":
+			return { write: idsWriteAgree, bound: agreeOver }
+		case "above":
+			return { write: idsWriteAgree, bound: aboveOver }
+		case "below":
+			return { write: idsWriteAbove, bound: agreeOver }
+		case "apart":
+			return { write: idsWriteAgree, bound: apartOver }
+	}
+}
+
+/** Cell's ids over `over`, `p` a parameter of its own at the field `field` of Cell. */
+const ownParamIds = (
+	over: Over,
+	field: "integer" | "text"
+): { readonly source: string; readonly value: () => unknown } => ({
+	source: `query(${over.source}).rule((r) => { const { id } = v(Cell, "cell"); return r.match(Cell, { id, ${field}: r.param("p", Cell.fields.${field}) }).find({ id }) })`,
+	value: () =>
+		queryOver(over.value).rule((r: RuleValue) => {
+			const vars = varsOver(Cell, "cell")
+			return r
+				.match(Cell, { id: vars["id"], [field]: r.param("p", Cell.fields[field]) })
+				.find({ id: vars["id"] })
+		})
+})
+
+/** What a write cell binds and to what: the parameter's name, and the query's source and value over `over`. */
+const writeBoundOf = (
+	bound: WriteBound,
+	over: Over
+): { readonly param: string; readonly source: string; readonly value: () => unknown } => {
+	switch (bound) {
+		case "query":
+			return { param: "ids", ...matchedOf(over, "query") }
+		case "boundQuery":
+			return { param: "ids", ...matchedOf(over, "bound") }
+		case "joiningQuery":
+			return { param: "ids", ...ownParamIds(over, "integer") }
+		case "clashingQuery":
+			return { param: "ids", ...ownParamIds(over, "text") }
+		case "widerQuery":
+			return {
+				param: "ids",
+				source: `query(${over.source}).rule((r) => { const { id, integer } = v(Cell, "cell"); return r.match(Cell, { id, integer }).find({ id, integer }) })`,
+				value: () =>
+					queryOver(over.value).rule((r: RuleValue) => {
+						const vars = varsOver(Cell, "cell")
+						return r
+							.match(Cell, { id: vars["id"], integer: vars["integer"] })
+							.find({ id: vars["id"], integer: vars["integer"] })
+					})
+			}
+		case "scalar":
+			return { param: "p", ...matchedOf(over, "query") }
+	}
+}
+
 /** One cell of the scope axis: what it reaches, the engine's verdict, and its lines. */
 interface ScopeCell {
 	readonly what: string
@@ -1460,17 +1642,27 @@ interface ScopeCell {
 
 /**
  * The engine's verdict on a scope cell's statement, built and compiled as the runtime does, and the refusal the types
- * name for its reason: a query over no level of the rule's schema (ForeignLevel), and a relation parameter bound to
- * anything but the importing rule's own (Query.bind's UnsupportedOperation). Any other refusal is the generator's
- * defect.
+ * name for its reason: a query over no level of the rule's schema (ForeignLevel), the level axis's and a binding's
+ * whose bound import stands above its rule; and a relation parameter's binding the engine refuses by a named rule
+ * (Refused): no relation-valued term, or a query over a level apart from the import's. Any other refusal is the
+ * generator's defect.
  */
 const scopeVerdict = (
 	axis: ScopeAxis,
 	what: string,
 	build: () => unknown
 ): { readonly admitted: true } | { readonly admitted: false; readonly refusal: Refused } => {
-	const compiled = Result.flatMap(catchCompileError(build), (q) =>
-		compileTemplate(q, undefined, { ...testCompile, read: "rows" })
+	const compiled = Result.flatMap(catchCompileError(build), (built) =>
+		axis === "write"
+			? Result.map(
+					compileChangeSet(
+						checking(AgreeAbove),
+						defined(changeSetDesc(built), "a write cell builds a ChangeSet"),
+						frontendOptions(AgreeAbove)
+					),
+					() => built
+				)
+			: compileTemplate(built, undefined, { ...testCompile, read: "rows" })
 	)
 	if (compiled.ok) {
 		return { admitted: true }
@@ -1483,11 +1675,25 @@ const scopeVerdict = (
 			}
 			break
 		case "binding":
-			if (reason._tag === "UnsupportedOperation" && reason.at.label === "Query.bind") {
+			if (reason._tag === "ForeignLevel") {
+				return { admitted: false, refusal: "the query is not over a level of this query's schema" }
+			}
+			if (reason._tag === "Refused") {
+				return { admitted: false, refusal: reason.refusal }
+			}
+			break
+		case "write":
+			if (reason._tag === "Refused") {
+				return { admitted: false, refusal: reason.refusal }
+			}
+			if (
+				reason._tag === "MalformedDescription" &&
+				Str.startsWith("compatible uses of parameter")(reason.what)
+			) {
 				return {
 					admitted: false,
 					refusal:
-						"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)"
+						"a bound query's parameter is the ChangeSet's parameter of its name, at its one type"
 				}
 			}
 			break
@@ -1506,7 +1712,7 @@ const scopeVerdict = (
 }
 
 /** What a scope cell holds to the engine's reason: a match's level, a relation binding, a negation's place. */
-type ScopeAxis = "level" | "binding" | "negation"
+type ScopeAxis = "level" | "binding" | "write" | "negation"
 
 /**
  * Where a relational negation stands in a rule's filters: alone, in a conjunction there, the rule's or Logic's, in a
@@ -1620,16 +1826,27 @@ const scopeLines = (cell: ScopeKey, id: string): ReadonlyArray<string> => {
 					}
 				)
 			}
+			case "write": {
+				const overs = writeOversOf(cell.level)
+				const bound = writeBoundOf(cell.bound, overs.bound)
+				return scopeCellOf(
+					"write",
+					`a write's ${bound.param} bound by ChangeSet.bind to: ${cell.bound} at ${cell.level}`,
+					`export const w${id} = ${overs.write.name}.bind({ ${bound.param}: ${bound.source} })`,
+					() => idsWriteValue(overs.write).bind({ [bound.param]: bound.value() })
+				)
+			}
 			case "binding": {
-				const bound = relationSourceOf(cell.source)
+				const overs = bindOversOf(cell.level)
+				const bound = relationSourceOf(cell.source, overs.bound)
 				return scopeCellOf(
 					"binding",
-					`a relation parameter bound to: ${cell.source}`,
-					`export const b${id} = query(Agree).rule((r) => { const m = byIds.bind({ ids: ${bound.source} }); const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
+					`a relation parameter bound to: ${cell.source} at ${cell.level}`,
+					`export const b${id} = query(${overs.rule.source}).rule((r) => { const m = ${overs.imported.name}.bind({ ids: ${bound.source} }); const { id } = v(m, "m"); return r.match(m, { id }).find({ id }) })`,
 					() => {
-						const imported = byIds()
-						return queryOver(Agree).rule((r: RuleValue) => {
-							const m = imported.bind({ ids: bound.value(r) })
+						const q = byIdsValue(overs.imported)
+						return queryOver(overs.rule.value).rule((r: RuleValue) => {
+							const m = q.bind({ ids: bound.value(r) })
 							const vars = varsOver(m, "m")
 							return r.match(m, { id: vars["id"] }).find({ id: vars["id"] })
 						})
@@ -1663,7 +1880,8 @@ const scopeLines = (cell: ScopeKey, id: string): ReadonlyArray<string> => {
 /** A cell of the scope axis, by the axis it closes and its place on it. */
 type ScopeKey =
 	| Readonly<{ axis: "level"; level: MatchedLevel; form: MatchedForm }>
-	| Readonly<{ axis: "binding"; source: RelationSource }>
+	| Readonly<{ axis: "binding"; source: RelationSource; level: BindLevel }>
+	| Readonly<{ axis: "write"; bound: WriteBound; level: WriteLevel }>
 	| Readonly<{ axis: "negation"; place: NegationPlace }>
 
 /**
@@ -1696,10 +1914,18 @@ export const admissionBoxItems: Arr.NonEmptyReadonlyArray<AdmissionCell> = [
 			cell: { axis: "level", level, form }
 		}))
 	),
-	...Arr.map(relationSources, (source): AdmissionCell => ({
-		axis: "scope",
-		cell: { axis: "binding", source }
-	})),
+	...Arr.flatMap(relationSources, (source) =>
+		Arr.map(bindLevelsOf(source), (level): AdmissionCell => ({
+			axis: "scope",
+			cell: { axis: "binding", source, level }
+		}))
+	),
+	...Arr.flatMap(writeBounds, (bound) =>
+		Arr.map(writeLevelsOf(bound), (level): AdmissionCell => ({
+			axis: "scope",
+			cell: { axis: "write", bound, level }
+		}))
+	),
 	...Arr.map(negationPlaces, (place): AdmissionCell => ({
 		axis: "scope",
 		cell: { axis: "negation", place }
@@ -1732,7 +1958,16 @@ export const admissionProgram = (
 		"// Generated by test/support/agreement/admission.ts: the admission agreement over every position and constant kind.",
 		at,
 		[
-			{ owner: batchOwned, lines: [byIdsSource, ""] },
+			{
+				owner: batchOwned,
+				lines: [
+					byIdsSource(byIdsAgree),
+					byIdsSource(byIdsAbove),
+					idsWriteSource(idsWriteAgree),
+					idsWriteSource(idsWriteAbove),
+					""
+				]
+			},
 			...Arr.map(cells, (cell, i) => ({
 				owner: caseOwned(i),
 				lines: [...cellLines(cell, `${i}`), ""]

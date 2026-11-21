@@ -33,6 +33,7 @@ import {
 	type InferredQuery,
 	type InferredRule,
 	type InferredSource,
+	mapBindMap,
 	queryParamNames,
 	type VarDesc
 } from "#compiler/ir/desc.ts"
@@ -125,7 +126,7 @@ const scalarBinds = (
 ): ReadonlyMap<string, InferredExpr> | undefined => {
 	const out = new Map<string, InferredExpr>()
 	for (const [name, b] of Object.entries(bind)) {
-		if (b.kind === "relationParam") {
+		if (b.kind === "relationParam" || b.kind === "rows") {
 			return undefined
 		}
 		out.set(name, b)
@@ -742,11 +743,7 @@ class Navigator {
 					r.source.kind === "query"
 						? {
 								...r.source,
-								bind: Object.fromEntries(
-									Object.entries(r.source.bind).map(
-										([name, b]) => [name, b.kind === "relationParam" ? b : lift(b)] as const
-									)
-								)
+								bind: mapBindMap(r.source.bind, lift)
 							}
 						: r.source,
 				bindings: Object.fromEntries(
@@ -970,11 +967,7 @@ class Navigator {
 				read.source.kind === "query"
 					? {
 							...read.source,
-							bind: Object.fromEntries(
-								Object.entries(read.source.bind).map(
-									([name, b]) => [name, b.kind === "relationParam" ? b : passing.expr(b)] as const
-								)
-							)
+							bind: mapBindMap(read.source.bind, (e) => passing.expr(e))
 						}
 					: read.source
 			const step: InferredSource = {

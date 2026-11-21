@@ -19,7 +19,9 @@
  *    contributes `{ name: ReadonlyArray<Row> | Stream<Row> }`. A parameterized query is
  *    matched only through Q.bind: match refuses a source whose `params` is nonempty, bind refuses one bound to a
  *    relation parameter the same way, and bind requires every parameter and passes outer parameters through at the
- *    inner parameter's type. Query, Ordered and ChangeSet also carry P invariantly (`paramsInvariant`), so a value that
+ *    inner parameter's type. A ChangeSet's parameters are one namespace, so ChangeSet.bind closes the ones it names
+ *    and leaves the rest free, and a query it binds a relation parameter to brings its own parameters into the
+ *    namespace, each the one parameter of its name at one type. Query, Ordered and ChangeSet also carry P invariantly (`paramsInvariant`), so a value that
  *    needs parameters never passes for one that needs none, which is what a bound ChangeSet and match's refusal rely
  *    on. Compatible uses of one name unify by intersection, so incompatible uses leave a parameter no value can
  *    satisfy.
@@ -71,8 +73,9 @@
  *    other. schema.extend accepts a derived relation only over a level of
  *    its base, and Rule<S>.match accepts only relations of S and sources over a level of S: a query,
  *    a bound import (Q.bind keeps the query's schema) and an interior stage are SchemaSources carrying their schema
- *    invariantly, IsLevelOf compares it with each level invariantly, and a relation parameter bound to a source is
- *    checked against the imported query's levels, so no import reads a level above the importing rule's schema. An
+ *    invariantly, IsLevelOf compares it with each level invariantly, and a relation parameter bound to a query makes
+ *    the bound import, or the bound ChangeSet, over the higher of its own schema and the query's (BoundOver), so no
+ *    rule over a level below matches an import that reads a level above it. An
  *    arm's attachment child is over a level of its rule's schema, as for Query.attach. A contravariant phantom over the
  *    relations record would express "a query over a base is a query over an extension" as plain assignability, but
  *    TypeScript compares a measured variance on the whole type argument, and an extension's statement tuple is not
@@ -887,7 +890,7 @@ export interface ParamType<in out D, out Sql extends SqlTag, out L = D> {
 }
 
 /** What a caller passes for a parameter map's entry: a scalar parameter's language, a relation parameter's facts. */
-type ArgumentOf<X> = X extends { readonly language: infer L } ? L : X
+export type ArgumentOf<X> = X extends { readonly language: infer L } ? L : X
 
 /**
  * A value a parameter may hold: a scalar parameter's host value (a field's host type, a contract

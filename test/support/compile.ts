@@ -92,6 +92,7 @@ import { printCommands } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
+import type { FrontendOptions } from "#compiler/write/frontend/compile.ts"
 import type { CompiledWrite, CompileWriteOptions } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { readArrayLiteral } from "#test/support/arrays.ts"
@@ -167,6 +168,21 @@ export const codebookFor = (
  * parseSchemaInput); a parsed SchemaInput is never one, and goes to inputArtifacts.
  */
 export type FixtureSchema = AnySchema | AnyRole | Owned | EngineSchemaDesc<object>
+
+/** The front end's options as compileWrite states them for reality over `schemaValue`: every context's fact held, and the
+ * keys of its views as its artifacts know them. */
+export const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => {
+	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
+	return {
+		claims: { kind: "every" },
+		laws: artifacts.laws,
+		derived: artifacts.derived,
+		world: { kind: "reality" },
+		codes: artifacts.names.codes,
+		clock: noClock,
+		source: transactionClock
+	}
+}
 
 /**
  * The artifacts of `schema`, parsed once as the runtime parses it (parseSchemaInput), under the test's naming

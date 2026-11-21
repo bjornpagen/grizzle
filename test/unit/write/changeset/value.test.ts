@@ -267,8 +267,8 @@ export const bindReadsTheCallersMapOnceAMapOrAFactWhoseReadingThrowsIsRefusedALi
 			kills: [
 				{
 					file: "packages/engine/src/write/changeset/value.ts",
-					original: "\t\t\t\t\t\t\towned(value, ownedBound)",
-					replacement: "\t\t\t\t\t\t\tvalue",
+					original: '{ kind: "value", value: owned(value, ownedBound) }',
+					replacement: '{ kind: "value", value }',
 					why: "bind keeps the caller's values as they are, never the copy it read, so a later write to a live map's array reaches the bound value."
 				}
 			]

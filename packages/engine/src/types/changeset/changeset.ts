@@ -23,9 +23,10 @@ import type {
 	IsOneLiteral,
 	IsRetyped,
 	LanguageOf,
+	ArgumentOf,
 	OnlyParams,
-	ParamArg,
 	ParamOrigin,
+	ParamValue,
 	ParamsOfTerm,
 	PhantomOf,
 	Refusal,
@@ -41,12 +42,15 @@ import type {
 	UnwrittenField
 } from "#compiler/types/fields/field.ts"
 import type {
+	BindContexts,
+	BoundOver,
 	ContextsOf,
 	Decoders,
 	OneName,
 	OrderedAt,
 	ParamsOf,
-	QueryAt
+	QueryAt,
+	QueryRows
 } from "#compiler/types/query/query.ts"
 import type { HeadValue } from "#compiler/types/query/terms.ts"
 import type {
@@ -61,7 +65,7 @@ import type {
 	AnyFragment,
 	AnySchema,
 	BelowOf,
-	IsLevelOf,
+	HigherLevel,
 	IsRelationOf,
 	LevelsOf,
 	NameIn,
@@ -878,10 +882,72 @@ export interface ChangeSetOf<
 		Last,
 		Arrays
 	>
-	bind<const Arg>(
-		params: ParamArg<Params> & Arg & OnlyParams<Arg, Params>
-	): ChangeSetOf<S, unknown, Writes, Reads, Cx, Done, Last, Arrays>
+	/**
+	 * Closes the parameters `params` names, the others staying free: each scalar parameter with a value of its language,
+	 * each relation parameter with its facts, or with a query or a bound query of its rows (BoundRows), which every member
+	 * and read-back that uses the parameter reads in its own statement. The ChangeSet is then over the higher of S and
+	 * those queries' schemas (BoundOver), reads their contexts, and needs their own parameters, each the one parameter of
+	 * its name.
+	 */
+	bind<const Arg extends BindArgOf<Params>>(
+		params: Arg & OnlyParams<Arg, Params> & BoundRows<Arg, Params, S>
+	): ChangeSetOf<
+		BoundOver<S, Arg, Params>,
+		BoundParams<Params, Arg>,
+		Writes,
+		Reads,
+		Cx | BindContexts<Arg>,
+		Done,
+		Last,
+		Arrays
+	>
 }
+
+/**
+ * What ChangeSet.bind takes for each parameter of P it names: a scalar parameter's value of its language; a relation
+ * parameter's facts, an array or a Stream, or a source of its rows, a query or a bound query (BoundRows), which refuses
+ * a source for a scalar parameter by name. Each value is a ParamValue or a source by construction.
+ */
+type BindArgOf<P> = {
+	readonly [K in keyof P]?:
+		| (ArgumentOf<P[K]> & ParamValue)
+		| Source<P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row> ? Row : unknown>
+}
+
+/**
+ * What ChangeSet.bind holds of each query or bound query it binds a relation parameter of P to: the parameter's rows,
+ * exactly its fields, over a level of S or a schema S is a level of (QueryRows); never a scalar parameter, which takes
+ * one value where a query's rows are any number; and the query's own parameters, which join the ChangeSet's, each the
+ * ChangeSet's free parameter of its name at its one type (AgreeingParams).
+ */
+type BoundRows<A, P, S> = {
+	readonly [K in keyof A]: K extends keyof P
+		? A[K] extends Phantom<{ readonly schema: unknown }>
+			? P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row>
+				? QueryRows<A[K], Row, S> & AgreeingParams<Omit<P, keyof A>, ParamsOf<A[K]>>
+				: Refusal<"a query binds a relation parameter, whose rows are any number; a scalar parameter takes one value">
+			: unknown
+		: unknown
+}
+
+/** Whether every parameter of Q that P names too is P's at one type: one name is one parameter. */
+type AgreeingParams<P, Q> = [
+	{
+		[K in keyof Q & keyof P]-?: [P[K]] extends [Q[K]] ? ([Q[K]] extends [P[K]] ? never : K) : K
+	}[keyof Q & keyof P]
+] extends [never]
+	? unknown
+	: Refusal<"a bound query's parameter is the ChangeSet's parameter of its name, at its one type">
+
+/**
+ * The parameters a ChangeSet bound with A needs: those of P that A leaves free, and the own parameters of each query A
+ * binds a relation parameter to, which join them; none, unknown, where none is left.
+ */
+type BoundParams<P, A> = FreeLeft<
+	Omit<P, keyof A> & UnionToIntersection<{ [K in keyof A]-?: ParamsOf<A[K]> }[keyof A]>
+>
+/** A map of parameters as one record, or unknown where it holds none. */
+type FreeLeft<M> = [keyof M] extends [never] ? unknown : Simplify<M>
 
 /** ChangeSet.insert over the ChangeSet it is called on (ChangeSet). */
 type ChangeSetInsert = <
@@ -1804,10 +1870,9 @@ export type ReadsOf<C> = C extends { readonly reads: RowDecoder<infer R> } ? R :
 
 /**
  * A ChangeSet over a level of the other's schema combines with it, as db.apply accepts either: the result
- * is over the higher of the two schemas. Levels form one chain, so of two schemas either one is a level of the other
- * or they do not combine.
+ * is over the higher of the two schemas (HigherLevel). Levels form one chain, so of two schemas either one is a level
+ * of the other or they do not combine.
  */
-type HigherLevel<A, B> = IsLevelOf<A, B> extends true ? A : IsLevelOf<B, A> extends true ? B : never
 type LevelCheck<H> = [H] extends [never]
 	? Refusal<"the ChangeSets' schemas are not levels of one another">
 	: unknown

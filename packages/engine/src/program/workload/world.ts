@@ -4,6 +4,8 @@ import { mapRecord } from "#compiler/core/record.ts"
 import {
 	type AttachDesc,
 	type BindingsDesc,
+	type BindMapDesc,
+	type BindTermDesc,
 	type ExprDesc,
 	type HeadTermDesc,
 	type InteriorDesc,
@@ -13,6 +15,7 @@ import {
 	mapHeadTerms,
 	type QueryDesc,
 	type QueryStageDesc,
+	type RowsDesc,
 	type RuleDesc,
 	type SourceDesc,
 	type VarDesc
@@ -70,29 +73,12 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 			}
 			case "query":
 			case "step":
-				return {
-					...s,
-					query: inQuery(s.query),
-					bind: Object.fromEntries(
-						Object.entries(s.bind).map(([param, b]) => [
-							param,
-							b.kind === "relationParam" ? b : expr(b)
-						])
-					)
-				}
+				return { ...s, query: inQuery(s.query), bind: bound(s.bind) }
 			case "call":
 			case "callField":
 				return {
 					...s,
-					args: mapRecord(s.args, (a) =>
-						a.kind === "rows"
-							? {
-									kind: "rows",
-									query: inQuery(a.query),
-									bind: mapRecord(a.bind, (b) => (b.kind === "relationParam" ? b : expr(b)))
-								}
-							: expr(a)
-					)
+					args: mapRecord(s.args, (a) => (a.kind === "rows" ? rows(a) : expr(a)))
 				}
 			case "split":
 				return { ...s, text: expr(s.text) }
@@ -106,6 +92,16 @@ export const inlineWorlds = (query: QueryDesc, role: CheckedSchema): QueryDesc =
 				return s
 		}
 	}
+	/** A bind map's terms and bound rows read through the worlds; a relation parameter of the importer as it is. */
+	const bound = (bind: BindMapDesc): BindMapDesc =>
+		mapRecord(bind, (b): BindTermDesc =>
+			b.kind === "relationParam" ? b : b.kind === "rows" ? rows(b) : expr(b)
+		)
+	const rows = (a: RowsDesc): RowsDesc => ({
+		kind: "rows",
+		query: inQuery(a.query),
+		bind: bound(a.bind)
+	})
 	const bindings = (b: BindingsDesc): BindingsDesc => mapBindingTerms(b, expr)
 	const expr = (e: ExprDesc): ExprDesc => mapExpr(e, { leaf: (x) => x, term: expr, source })
 	const head = (t: HeadTermDesc): HeadTermDesc => mapHeadTerms(t, expr)

@@ -21,8 +21,8 @@
  *    constant kind, each under every value and stage its kind has, a parameter of the column's descriptor and of
  *    another's among them, a self-join's second scope among them, the program admitting exactly what the engine admits;
  *    every combinator over every shape of query; and the scope axis: a query matched, as it is and bound, over each
- *    level against its rule's schema, a relation parameter bound to each kind of source, and a relational negation at
- *    each place in a rule's filters. Beside it, the argument axis (`arguments`, test/support/agreement/arguments.ts):
+ *    level against its rule's schema, a relation parameter bound to each kind of source, each query at each level of
+ *    the import's, the rule's and of neither, and a relational negation at each place in a rule's filters. Beside it, the argument axis (`arguments`, test/support/agreement/arguments.ts):
  *    every shape of a query's parameters against every form of argument, through every method that takes one, the
  *    program admitting exactly what the runtime's reading of an argument admits.
  * 4. Faults (`faults`): queries of the same generator, each planting one fault at a site whose drawn value the engine
@@ -182,6 +182,25 @@ export const admission = boxAgreement(admissionBox, {
 			original: 'k === c.name && h.kind === "parent" && h.column === c.parent',
 			replacement: "true",
 			why: 'Operator mutant 21a6720246 at packages/engine/src/check/checker.ts:3856 in <module>: `k === c.name && h.kind === "parent" && h.column === c.parent` becomes `true`; the property fails (the census, lane TESTPOLICY2).'
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original: "\t): BoundSource<\n\t\tBoundOver<S, B, P>,\n",
+			replacement: "\t): BoundSource<\n\t\tS,\n",
+			why: "A bound import keeps its query's schema whatever its relation parameter is bound to, so a rule over Agree matching byIds bound to a query over AgreeAbove (aboveRule) is admitted by the types, where the engine refuses it a level above the rule (ForeignLevel)."
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original:
+				'\t\t? Refusal<"a relation parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of">\n',
+			replacement: "\t\t? unknown\n",
+			why: "A relation parameter takes a query over a level apart from the import's (apart), which the engine refuses by the levels rule, so the types admit what the engine refuses."
+		},
+		{
+			file: "packages/engine/src/query/build/query.ts",
+			original: "\tconst over = highestLevel(levels)\n",
+			replacement: "\tconst over = state.schema.over\n",
+			why: "The bound import keeps its query's level, so the engine admits a query over Apart bound into byIds (apart) and a rule over Agree matching a bound import that reads AgreeAbove (aboveRule), both of which the types refuse."
 		}
 	]
 })

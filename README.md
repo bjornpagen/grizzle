@@ -3041,7 +3041,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | filter | `r.eq`, `r.ne`, `r.lt`, `r.le`, `r.gt`, `r.ge`, `r.between`, `r.in`, `r.and`, `r.or`; an empty `r.in` list or `r.or()` matches no row, `r.and()` every row |
 | exclude | `r.not(Table, { ... })`: no matching row exists |
 | take a parameter | `r.param("name", type)`: a term of that type |
-| pass a row list | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table |
+| pass a row list | `r.relation("name", fields)`: a parameter that is a list of rows, matched like a table; `Q.bind({ name: rows })` binds it to a query's rows, of a level above among them ([Levels](#levels)) |
 | aggregate | `r.count()`, `r.sum(x)`, `r.mean(x)`, `r.min(x)`, `r.max(x)`, grouped by the other columns of `find`; a min or max is one of its values, at its type, contract included |
 | combine | a second `.rule(...)`, the union of both rules' rows. Rules of different columns need a constant that tells them apart; a rule with an attachment shares its columns with no other. A take or attachment over a union of several headings is no rule of a further union, takes once and is never paged |
 | nest | `.attach(name, (parent) => child, delivery)`, delivery `"array"`, `"option"`, `"one"` or `arm(field, name)` |
@@ -3347,7 +3347,8 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   .put(PostViews, rows)             after the change, the row at each key is the one given
   .retire(Flow, groups)             retire these groups of a retirable unit (Retirable units)
   .read("name", (delta) => query)   a query over the result, delivered in the outcome
-  .bind({ org, slug })              every parameter's value, bound ahead of apply
+  .bind({ org, sittings: mine })    the parameters it names, ahead of apply: a value, rows, or a query of a relation
+                                    parameter's rows; the rest stay the program's
 ```
 
 - **Rows** are an array, an Effect `Stream` or a query, in any number; each column travels as one array. A query reads
@@ -4005,6 +4006,17 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   ([Errors and outcomes](#errors-and-outcomes)). `Qti`'s own laws are named as they would be were `Ledger` not
   installed: a process holds no predicate of a law above it, so it never claims to judge one, and judges each of its
   own.
+- **A relation parameter takes a query of a level above.** A lower level's program that names the rows it acts on as a
+  relation parameter, `r.relation("sittings", heading)`, is bound to a query of a level above it, so the higher level's
+  guard runs inside the lower level's statement, with no read before it. In a rule over the higher level,
+  `openVisit.bind({ sittings: appSittings.bind({ child: r.param("child", LearnerId) }) })` binds an import's parameter
+  to a bound query, which is bound first as a match's is; and `suspendTest.bind({ sittings: appSittings })` binds a
+  ChangeSet's, once for every member and read-back that uses it, `appSittings`' own parameter `child` joining the
+  ChangeSet's as one parameter of one type, the other parameters staying the program's. Either is then over the higher
+  of the two levels and reads the query's contexts. A query over a level apart is refused, `Refusal<"a relation
+  parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of">`, as
+  is one that delivers other fields than the parameter's heading; a scalar parameter takes no query, whose rows are
+  any number. Every member that reads one bound query reads one evaluation of it, in one statement.
 - **A level over whatever base it is given.** A package's level over the base its installation hands it is a function
   of that base, bounded by the least level it reads: `export const ledgerOf = <Base extends SchemaOver<typeof Qti>>(base:
   Base) => schema.extend([base], "Ledger", [Sitting], [contained(on(Sitting, "item"), on(Item, "id"))])`. The call checks

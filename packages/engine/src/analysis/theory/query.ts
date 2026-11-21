@@ -23,6 +23,8 @@ import { compareStrings } from "#compiler/core/order.ts"
 import { mapRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import type {
+	ImportDesc,
+	Inferred,
 	InferredBindings,
 	InferredExpr,
 	InferredHead,
@@ -31,6 +33,7 @@ import type {
 	InferredRule,
 	InferredSource,
 	InferredStage,
+	Located,
 	SelectionDesc,
 	TermDesc,
 	VarDesc
@@ -1153,20 +1156,24 @@ export const liveReading = (definition: LiveEnv["definition"]): LiveReading => {
  * would read as a closed relation, the same at every state and in no unit.
  */
 const liveQuery = (query: InferredQuery, live: LiveReading): InferredQuery => {
+	/** A query read under a bind map, live, and each query's rows its bind map binds a relation parameter to. */
+	const liveImport = <I extends ImportDesc<Located, Inferred>>(i: I): I => ({
+		...i,
+		query: live.query(i.query),
+		bind: mapRecord(i.bind, (b) => (b.kind === "rows" ? liveImport(b) : b))
+	})
 	const source = (s: InferredSource): InferredSource => {
 		switch (s.kind) {
 			case "relation":
 				return live.relation(s.name)
 			case "query":
 			case "step":
-				return { ...s, query: live.query(s.query) }
+				return liveImport(s)
 			case "call":
 			case "callField":
 				return {
 					...s,
-					args: mapRecord(s.args, (a) =>
-						a.kind === "rows" ? { ...a, query: live.query(a.query) } : a
-					)
+					args: mapRecord(s.args, (a) => (a.kind === "rows" ? liveImport(a) : a))
 				}
 			case "split":
 			case "param":

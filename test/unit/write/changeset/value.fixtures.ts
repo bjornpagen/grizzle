@@ -398,7 +398,6 @@ const malformedTag: Refusal = "MalformedDescription"
 type Rule =
 	| "unrelated levels"
 	| "a repeated read-back name"
-	| "a missing value"
 	| "an extra value"
 	| "a NULL value"
 	| "a query over a higher level"
@@ -450,11 +449,9 @@ const bindRule = (m: Model, p: Params["bind"]): Rule | undefined => {
 	const given = new Set(Arr.map(p.values, (e) => e.name))
 	return Arr.some([...given], (name) => !names.has(name))
 		? "an extra value"
-		: Arr.some([...names], (name) => !given.has(name))
-			? "a missing value"
-			: Arr.some(p.values, (e) => e.value.kind === "null")
-				? "a NULL value"
-				: undefined
+		: Arr.some(p.values, (e) => e.value.kind === "null")
+			? "a NULL value"
+			: undefined
 }
 
 const combineRule = (m: Model, p: Params["union"]): Rule | undefined => {
@@ -689,8 +686,13 @@ const otherValue = (name: string, value: string): string => {
 	return value === first ? second : first
 }
 
-/** How bind's values depart from the free parameters: not at all, one missing, one more, or one NULL. */
-type Flaw = "none" | "missing" | "extra" | "null"
+/**
+ * How bind's values depart from the free parameters: not at all, one more, or one NULL. bind closes the names it is
+ * given and leaves the rest free, a member then half bound, which this model's bindings, a member's every parameter
+ * bound or none, do not hold: a bind that names some free parameters is test/pg/served/bound-rows' and
+ * test/unit/write/bound-rows' (a write's relation parameter bound, its other parameters left to the call).
+ */
+type Flaw = "none" | "extra" | "null"
 
 /** A value for every free parameter. */
 const valuesGen =
@@ -701,14 +703,14 @@ const valuesGen =
 			value: { kind: "value", value: s.draw(valueFor(name)) }
 		}))
 
-/** The values bind is given: one for every free parameter, or that with one missing, one more, or one NULL. */
+/** The values bind is given: one for every free parameter, or that with one more, or one NULL. */
 const bindValuesGen =
 	(names: ReadonlyArray<string>): Gen<ReadonlyArray<BindEntry>> =>
 	(s) => {
 		const entries = s.draw(valuesGen(names))
 		const extraNames = Arr.filter(["p", "s", "p#1", "x"] as const, (n) => !names.includes(n))
 		const flaws: ReadonlyArray<Flaw> = [
-			...(entries.length > 0 ? (["missing", "null"] as const) : []),
+			...(entries.length > 0 ? (["null"] as const) : []),
 			...(extraNames.length > 0 ? (["extra"] as const) : [])
 		]
 		const flaw = s.draw(
@@ -722,8 +724,6 @@ const bindValuesGen =
 		switch (flaw) {
 			case "none":
 				return entries
-			case "missing":
-				return Arr.remove(entries, s.draw(int(0, entries.length - 1)))
 			case "null": {
 				const at = s.draw(int(0, entries.length - 1))
 				return Arr.map(entries, (e, i): BindEntry =>
@@ -1679,7 +1679,6 @@ export const commandNames = [
 export const rules: ReadonlyArray<Rule> = [
 	"unrelated levels",
 	"a repeated read-back name",
-	"a missing value",
 	"an extra value",
 	"a NULL value",
 	"a query over a higher level",

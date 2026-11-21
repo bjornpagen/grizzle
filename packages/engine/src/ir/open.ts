@@ -8,6 +8,7 @@ import type {
 	Located,
 	MatchDesc,
 	Refs,
+	RowsDesc,
 	RuleDesc,
 	SourceDesc,
 	Spelled,
@@ -87,6 +88,8 @@ export type OpenBound = BindTermDesc<Located, Open>
 export type OpenSource = SourceDesc<Located, Open>
 
 export type OpenCallArg = CallArgDesc<Located, Open>
+
+export type OpenRows = RowsDesc<Located, Open>
 
 export type OpenMatch = MatchDesc<Located, Open>
 

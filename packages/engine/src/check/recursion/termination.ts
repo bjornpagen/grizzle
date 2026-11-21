@@ -17,7 +17,7 @@ import { encode, everyProperty, unwrap } from "#compiler/core/canonical.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { integerRanges } from "#compiler/ir/carriers.ts"
-import { exprChildren, headTerms, type LiteralDesc } from "#compiler/ir/desc.ts"
+import { bindTerms, exprChildren, headTerms, type LiteralDesc } from "#compiler/ir/desc.ts"
 import type { RelNode, TerminationCert } from "#compiler/ir/rel.ts"
 import { baseOf, type ScalarType, typeLabel } from "#compiler/ir/scalar.ts"
 import { inferredType } from "#compiler/scalar/registry.ts"
@@ -117,9 +117,7 @@ const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
 		i !== self && (m.source.kind === "query" || m.source.kind === "step")
 			? [
 					{
-						bind: entries(m.source.bind).flatMap(([, e]) =>
-							e.kind === "relationParam" ? [] : [e]
-						),
+						bind: bindTerms(m.source).map(([, e]) => e),
 						vars: boundVars(m)
 					}
 				]

@@ -867,6 +867,23 @@ export type IsLevelOfInvariant<S, IX> = 0 extends 1 & S
 		: false
 
 /**
+ * The highest of the levels L, of which every level in L is one, or never where none is: levels form one chain, so of
+ * any levels either one is the highest or two of them are not levels of one another and do not combine. Every
+ * combination of values over levels is over the highest of its arguments' (schema/level.ts higherLevel), by this one
+ * rule: ChangeSet.union and sequence (HigherLevel), and a query whose relation parameters are bound to the rows of
+ * queries over other levels (Query.bind).
+ */
+export type HighestLevel<L> = HighestIn<L, L>
+/** The members X of L of which every member of All is a level (HighestLevel). */
+type HighestIn<L, All> = L extends unknown
+	? [All extends unknown ? (IsLevelOf<L, All> extends true ? never : All) : never] extends [never]
+		? L
+		: never
+	: never
+/** The higher of two levels (HighestLevel), or never where neither is a level of the other. */
+export type HigherLevel<A, B> = HighestLevel<A | B>
+
+/**
  * Whether X is each level of L, each its own. The invariant phantoms are parameters of their own (InvariantlyAt): a
  * tuple of Invariant here would be a reference the checker defers, holding X and the level in its mapper, and deciding
  * it would instantiate both whole, every relation of each with them, for each level of each test.

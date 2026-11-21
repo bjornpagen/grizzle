@@ -1,5 +1,6 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Stream } from "effect"
 import {
@@ -17,7 +18,7 @@ import type { IdentityDigest, IdentityDigests } from "#compiler/core/fingerprint
 import { hostRead } from "#compiler/core/host.ts"
 import { captureLoc, labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import * as Order from "#compiler/core/order.ts"
-import { type Built, builtMark } from "#compiler/core/phantom.ts"
+import { type Built, builtMark, isBuilt } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import { type TextsId, TextsMap, textsId } from "#compiler/core/text.ts"
 import {
@@ -30,6 +31,12 @@ import {
 	type QueryDesc,
 	queryParamNames,
 	type ReadBackDesc,
+	type RelationDesc,
+	type RelationParamSourceDesc,
+	type RowsDesc,
+	bindRelationParams,
+	identityQuery,
+	passedThrough,
 	renameEqualParams,
 	renameQueryParams,
 	type WriteOp
@@ -40,14 +47,23 @@ import { schemaInfo } from "#compiler/query/build/heading.ts"
 import { queryOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { isCallback } from "#compiler/query/build/scope.ts"
-import { isOrdered, publicDesc, queryState } from "#compiler/query/build/state.ts"
+import {
+	isOrdered,
+	isRowsValue,
+	publicDesc,
+	queryState,
+	rowsSource
+} from "#compiler/query/build/state.ts"
 import { headValueOf } from "#compiler/query/build/terms.ts"
+import { spellRows } from "#compiler/query/build/walk.ts"
 import { isDecoded } from "#compiler/runtime/write/decoded.ts"
 import { termExpr } from "#compiler/scalar/compute/term.ts"
+import { bareEnv } from "#compiler/scalar/registry.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { highestLevel, isLevelOver, type Level } from "#compiler/schema/level.ts"
+import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
-import { malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
+import { builderRefusal, malformed, orThrow, requireName } from "#compiler/schema/protocol.ts"
 import { named, record } from "#compiler/schema/record.ts"
 import type {
 	ChangeSetConstructor,
@@ -57,7 +73,7 @@ import type {
 	Strata,
 	Stratum
 } from "#compiler/types/changeset/changeset.ts"
-import type { ParamMap, ParamValue, Simplify } from "#compiler/types/core/phantom.ts"
+import type { ParamValue, Simplify } from "#compiler/types/core/phantom.ts"
 import type { Decoders, OrderedBase, QueryBase } from "#compiler/types/query/query.ts"
 import { type BuiltOver, builtOverOf } from "#compiler/write/changeset/levels.ts"
 import { delta, memberRelation, memberRelationNamed } from "#compiler/write/delta/source.ts"
@@ -238,10 +254,12 @@ export type MemberInput = ReadonlyArray<unknown> | Stream.Stream<unknown> | Quer
  *   read-back query's immediate decoder delivering every row (`record` over named parts), merged with
  *   the decoders of the read-backs before it, and of the ChangeSets union and sequence combine.
  * - Parameters. A ChangeSet's free parameters are one namespace, the union of its members' and read-backs'
- *   parameters. bind closes every one of them with a value, hygienically, as Query.bind closes an import's:
- *   a bound parameter leaves the namespace. Its uses keep a name of their own, private to
- *   the ChangeSet, which the Description lists under `bindings` and by which its value travels beside the
- *   Description. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
+ *   parameters. bind closes the ones it names, hygienically, as Query.bind closes an import's, and leaves the rest
+ *   free: a bound parameter leaves the namespace. A relation parameter bound to a query or a bound query is bound in
+ *   every member and read-back that uses it, in the one form an import's bind map writes (ir/desc.ts
+ *   bindRelationParams), the query's own parameters joining the namespace; any other is bound to a value, whose
+ *   uses keep a name of their own, private to the ChangeSet, which the Description lists under `bindings` and by which
+ *   its value travels beside the Description. A member or read-back added later, or a ChangeSet combined with this one, whose parameter has the
  *   bound name needs a separate, free parameter, so the private names are renamed out of its way first (release), and
  *   two ChangeSets that bind one name to different values combine into two private parameters. Private parameters of
  *   one name bound to equal values are one parameter, and a private name is canonical (canonicalBindings): named in
@@ -628,6 +646,30 @@ const freshName = (origin: string, taken: ReadonlySet<string>): string => {
 const renamedQuery = (query: QueryDesc, rename: ReadonlyMap<string, string>): QueryDesc =>
 	orThrow(decodeDesc("query", renameQueryParams(query, rename)))
 
+/** A member a query describes, its query `query`: its identity, its parameters and its Description with it. */
+const withMemberQuery = (
+	m: Extract<MemberState, { readonly kind: "query" | "computed" }>,
+	query: QueryDesc,
+	identities: IdentityDigests
+): MemberState =>
+	m.kind === "computed"
+		? computedState(m.relation, query, m.desc.loc, identities)
+		: {
+				...m,
+				query,
+				identity: identityOf(identities, query),
+				params: queryParamNames(query),
+				desc: queryMemberDesc(m.op, m.relation, query, m.desc.loc)
+			}
+
+/** A read-back, its query `query`: its parameters and its Description with it. */
+const withReadQuery = (r: ReadBackState, query: QueryDesc): ReadBackState => ({
+	...r,
+	query,
+	params: queryParamNames(query),
+	desc: Object.freeze({ name: r.name, query })
+})
+
 const renameMember = (
 	m: MemberState,
 	rename: ReadonlyMap<string, string>,
@@ -639,31 +681,11 @@ const renameMember = (
 	if (m.kind === "equal") {
 		return equalState(m.op, m.relation, renameEqualParams(m.fields, rename), m.desc.loc, identities)
 	}
-	if (m.kind === "computed") {
-		return computedState(m.relation, renamedQuery(m.query, rename), m.desc.loc, identities)
-	}
-	const query = renamedQuery(m.query, rename)
-	return {
-		...m,
-		query,
-		identity: identityOf(identities, query),
-		params: queryParamNames(query),
-		desc: queryMemberDesc(m.op, m.relation, query, m.desc.loc)
-	}
+	return withMemberQuery(m, renamedQuery(m.query, rename), identities)
 }
 
-const renameRead = (r: ReadBackState, rename: ReadonlyMap<string, string>): ReadBackState => {
-	if (![...r.params].some((p) => rename.has(p))) {
-		return r
-	}
-	const query = renamedQuery(r.query, rename)
-	return {
-		...r,
-		query,
-		params: queryParamNames(query),
-		desc: Object.freeze({ name: r.name, query })
-	}
-}
+const renameRead = (r: ReadBackState, rename: ReadonlyMap<string, string>): ReadBackState =>
+	[...r.params].some((p) => rename.has(p)) ? withReadQuery(r, renamedQuery(r.query, rename)) : r
 
 /** The scope with its uses of the names `rename` maps renamed, and its private parameters with them. The images are
  * distinct and none is a name of the scope `rename` leaves in place. */
@@ -1277,26 +1299,38 @@ const ownedBound = (value: ParamValue, read: CanonicalObject | Outside): ParamVa
 /** A JavaScript caller's value, read as unknown: grizzle has no NULL. */
 const absent = (value: unknown): boolean => value === undefined || value === null
 
-/** The values come from the typed bind, ParamArg<Params>, each a ParamValue by construction, whose type
- * alone states a bound Stream's channels; a JavaScript caller's argument that is no record, or a NULL value, is refused.
- * The caller's map, and each value in it, is read once through hostRead into the value the ChangeSet owns (owned): a
- * getter or proxy trap that throws refuses it, and nothing after the read runs the caller's code.
+/** What bind reads of one entry of its caller's map: a parameter's value as the ChangeSet owns it (owned), or a query or
+ * a bound query, whose rows a relation parameter is bound to. */
+type BindEntry =
+	| { readonly kind: "value"; readonly value: ParamValue }
+	| { readonly kind: "rows"; readonly value: unknown }
+
+/** The values come from the typed bind, BindArg<S, Params>, each a ParamValue by construction, whose type alone states a
+ * bound Stream's channels, or a query or a bound query; a JavaScript caller's argument that is no record, or a NULL
+ * value, is refused. The caller's map, and each value in it, is read once through hostRead into the value the
+ * ChangeSet owns (owned): a getter or proxy trap that throws refuses it, and nothing after the read runs the caller's
+ * code.
  *
- * A free name is no private one, so the bound parameter keeps its name until make() makes it canonical. */
-const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
+ * bind closes the parameters it names; the others stay free, the ChangeSet's to take where it runs. A free name is no
+ * private one, so a parameter bound to a value keeps its name until make() makes it canonical. A relation parameter
+ * bound to a query or a bound query is bound in every member and read-back that uses it (bindRows), so it leaves the
+ * namespace, the query's own parameters joining it. */
+const bindParams = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
 	state: ChangeSetState,
 	decoder: RowDecoder<Rd>,
-	params: ParamMap
-): ChangeSetOf<S, unknown, W, Rd, never, Done, Last, A> & SchemaMember => {
+	params: Readonly<Record<string, ParamValue | Built>>
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
 	const label = "ChangeSet.bind"
 	const read = hostRead(
 		() => malformed(label, "a record of parameter values whose reading throws nothing"),
 		() =>
 			isPlainRecord(params)
 				? Result.ok(
-						Object.entries(params).map(([name, value]): readonly [string, ParamValue] => [
+						Object.entries(params).map(([name, value]): readonly [string, BindEntry] => [
 							name,
-							owned(value, ownedBound)
+							isBuilt(value)
+								? { kind: "rows", value }
+								: { kind: "value", value: owned(value, ownedBound) }
 						])
 					)
 				: Result.err(malformed(label, "a record of parameter values"))
@@ -1306,24 +1340,160 @@ const bindParams = <S, W extends string, Rd, Done extends Strata, Last extends S
 	}
 	const free = freeParams(state)
 	const bound = new Map(state.bound)
-	for (const [name, value] of read.value) {
+	const rows = new Map<string, RowsDesc>()
+	const levels: [Level, ...Array<Level>] = [state.over]
+	for (const [name, entry] of read.value) {
 		if (!free.has(name)) {
 			throw malformed(
 				label,
 				`a value only for a free parameter of the ChangeSet; ${JSON.stringify(name)} is none of them`
 			)
 		}
-		if (absent(value)) {
+		if (entry.kind === "rows") {
+			if (!isRowsValue(entry.value)) {
+				throw malformed(
+					`${label} ${name}`,
+					"a parameter's value, or a query or a bound query of a relation parameter's rows"
+				)
+			}
+			const query = boundRows(entry.value, `${label} ${name}`)
+			rows.set(name, query.rows)
+			levels.push(query.over)
+		} else if (absent(entry.value)) {
 			throw malformed(label, `a value for ${name}: grizzle has no NULL`)
-		}
-		bound.set(name, { origin: name, value, key: boundKey(value) })
-	}
-	for (const name of free) {
-		if (!bound.has(name)) {
-			throw malformed(label, `a value for every parameter of the ChangeSet; ${name} is missing`)
+		} else {
+			bound.set(name, { origin: name, value: entry.value, key: boundKey(entry.value) })
 		}
 	}
-	return make(state.over, state.strata, state.reads, bound, state.identities, decoder)
+	if (rows.size === 0) {
+		return make(state.over, state.strata, state.reads, bound, state.identities, decoder)
+	}
+	const top = highestLevel(levels)
+	if (top === undefined) {
+		throw builderRefusal(
+			label,
+			"a relation parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of"
+		)
+	}
+	const scope = bindRows(state, rows, label)
+	return make(
+		top === state.over
+			? state.over
+			: defined(builtOverOf(top.value), "a query is written over a schema or a role"),
+		scope.strata,
+		scope.reads,
+		bound,
+		state.identities,
+		decoder
+	)
+}
+
+/**
+ * The rows a relation parameter of a ChangeSet is bound to (ChangeSet.bind): a bound query's own bind map, or a query's
+ * own parameters passed through under their names (ir/desc.ts passedThrough), each joining the ChangeSet's one
+ * namespace, where one name is one parameter and its uses agree; and the level it is written over.
+ */
+const boundRows = (
+	value: unknown,
+	label: string
+): { readonly rows: RowsDesc; readonly over: Level } => {
+	const { info, rows } = rowsSource(value, label, bareEnv)
+	if (info.scope.kind !== "written") {
+		throw malformed(label, "a query or a bound query written over a schema")
+	}
+	if (queryState(value) === undefined) {
+		/** A ChangeSet's bind is in no rule, so a bound query it takes binds no rule's variable. */
+		const outside = (): never => {
+			throw malformed(label, "a bound query whose bind map reads no rule's variable")
+		}
+		return {
+			rows: spellRows(rows, { var: outside, parent: outside, interior: outside }),
+			over: info.scope.over
+		}
+	}
+	const through = passedThrough(rows.query)
+	if (through.kind === "untyped") {
+		throw malformed(
+			label,
+			`a bound query, Q.bind({ ... }), for a query whose take is parameter ${through.param}: no use of it states its type`
+		)
+	}
+	return { rows: { kind: "rows", query: rows.query, bind: through.bind }, over: info.scope.over }
+}
+
+/**
+ * Each member and read-back of a ChangeSet with its uses of the relation parameters `rows` names bound to their rows
+ * (ir/desc.ts bindRelationParams), so none of them uses one: a parameter bound so that a member still uses is used as
+ * a scalar there, which no query binds, and is refused. A match of a relation parameter reads an import of its identity
+ * query (identityQuery), one for every match of one source.
+ */
+const bindRows = (
+	state: ChangeSetState,
+	rows: ReadonlyMap<string, RowsDesc>,
+	label: string
+): Pick<Scope, "strata" | "reads"> => {
+	const identityQueries = new Map<IdentityDigest, QueryDesc>()
+	const identity = (source: RelationParamSourceDesc): QueryDesc => {
+		const key = orThrow(state.identities.of(source))
+		const known = identityQueries.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const fields =
+			source.kind === "param"
+				? Object.keys(source.heading)
+				: relationFields(state.over, source.relation)
+		if (!isNonEmpty(fields)) {
+			throw malformed(
+				label,
+				`relation parameter ${source.name} over a heading of at least one field`
+			)
+		}
+		const query = orThrow(decodeDesc("query", identityQuery(source, fields, captureLoc(label, []))))
+		identityQueries.set(key, query)
+		return query
+	}
+	/** Built only around parts a builder or a decode made, so every member that reads one binding reads one value of it,
+	 * by which the checks of its compile key it (check/checker.ts importedKey): a closed import read by several members
+	 * is one node of the write's DAG. */
+	const bind = (query: QueryDesc): QueryDesc => bindRelationParams(query, rows, identity)
+	const uses = (params: ReadonlySet<string>): boolean =>
+		[...rows.keys()].some((name) => params.has(name))
+	const strata = state.strata.map((stratum) => {
+		const bound = stratum.map((m) =>
+			(m.kind === "query" || m.kind === "computed") && uses(m.params)
+				? withMemberQuery(m, bind(m.query), state.identities)
+				: m
+		)
+		return bound.every((m, i) => m === stratum[i]) ? stratum : canonicalStratum(bound)
+	})
+	const reads = state.reads.map((r) => (uses(r.params) ? withReadQuery(r, bind(r.query)) : r))
+	const still = [...rows.keys()].find((name) => usedParams({ strata, reads }).has(name))
+	if (still !== undefined) {
+		throw builderRefusal(
+			`${label} ${still}`,
+			"a query binds a relation parameter, whose rows are any number; a scalar parameter takes one value"
+		)
+	}
+	return { strata, reads }
+}
+
+/** The fields of the ordinary relation `name` of a ChangeSet's levels, which a relation parameter over its heading
+ * (Rule.relation) delivers; none for a name that is none. */
+const relationFields = (over: BuiltOver, name: string): ReadonlyArray<string> => {
+	const found = over.kind === "role" ? contentRelation(over.base, name) : over.relations.get(name)
+	return found?.kind === "relation" ? Object.keys(found.fields) : []
+}
+
+/** The relation `name` of a level or of a level below it. */
+const contentRelation = (content: SchemaContent, name: string): RelationDesc | undefined => {
+	for (let at: SchemaContent | undefined = content; at !== undefined; at = at.below) {
+		const found = at.relations.get(name)
+		if (found !== undefined) {
+			return found
+		}
+	}
+	return undefined
 }
 
 const stateOf = (value: unknown, label: string): ChangeSetState => {

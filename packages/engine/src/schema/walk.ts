@@ -133,6 +133,8 @@ class Collector {
 		for (const b of Object.values(bind)) {
 			if (b.kind === "relationParam") {
 				this.inputs.add(`relation parameter ${b.name}`)
+			} else if (b.kind === "rows") {
+				this.#imported(b.query, b.bind)
 			} else {
 				this.expr(b)
 			}

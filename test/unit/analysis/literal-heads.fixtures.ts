@@ -15,8 +15,9 @@ import { loginDescOf, roleBuilder as role } from "#compiler/schema/world.ts"
 import type { RelationName } from "#compiler/types/schema/relation.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
+import { frontendOptions } from "#test/support/compile.ts"
 import { checking, owning } from "#test/support/policy.ts"
-import { cs, descOf, frontendOptions } from "#test/unit/write/changeset/fixtures.ts"
+import { cs, descOf } from "#test/unit/write/changeset/fixtures.ts"
 
 /**
  * Where a column a rule's head fixes at a literal is read after navigation substitutes the literal for it: a selection

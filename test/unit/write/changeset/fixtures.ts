@@ -1,5 +1,4 @@
 import { pipe, String as Str } from "effect"
-import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import { type Codebook } from "#compiler/ir/codes.ts"
 import type { ChangeSetDesc } from "#compiler/ir/desc.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -15,13 +14,14 @@ import {
 	parseChangeSet
 } from "#compiler/write/changeset/value.ts"
 
-import {
-	compileChangeSet,
-	type FrontendOptions,
-	type WriteFrontend
-} from "#compiler/write/frontend/compile.ts"
+import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { type FixtureSchema, testArtifacts, testCompile } from "#test/support/compile.ts"
+import {
+	type FixtureSchema,
+	frontendOptions,
+	testArtifacts,
+	testCompile
+} from "#test/support/compile.ts"
 import { AutomaticTask, ManualTask, Task, Work } from "#test/support/fixtures/api/work.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { checking } from "#test/support/policy.ts"
@@ -46,21 +46,6 @@ export const parsedOf = (value: unknown): ParsedChangeSet => {
 		throw new Error("not a ChangeSet value")
 	}
 	return parsed
-}
-
-/** The front end's options as compileWrite states them for reality over `schemaValue`: every context's fact held, and the
- * keys of its views as its artifacts know them. */
-export const frontendOptions = (schemaValue: FixtureSchema): FrontendOptions => {
-	const artifacts = succeeded(testArtifacts(schemaValue, testCompile))
-	return {
-		claims: { kind: "every" },
-		laws: artifacts.laws,
-		derived: artifacts.derived,
-		world: { kind: "reality" },
-		codes: artifacts.names.codes,
-		clock: noClock,
-		source: transactionClock
-	}
 }
 
 /** The codes a fresh installation of `schemaValue` holds: what its codecs encode a closed id or a set under. */

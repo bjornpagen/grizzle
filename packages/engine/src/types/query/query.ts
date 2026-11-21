@@ -42,7 +42,7 @@ import type {
 } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
 import type { AllDigits, NumeralAbove } from "#compiler/types/fields/source.ts"
-import type { Rule } from "#compiler/types/query/rule.ts"
+import type { RequireBound, Rule } from "#compiler/types/query/rule.ts"
 import type {
 	Aggregate,
 	NoStrayParameters,
@@ -56,7 +56,13 @@ import type {
 	VSource
 } from "#compiler/types/query/terms.ts"
 import type { FactOfFields } from "#compiler/types/schema/relation.ts"
-import type { AnyFragment, AnySchema, LevelsOf } from "#compiler/types/schema/schema.ts"
+import type {
+	AnyFragment,
+	AnySchema,
+	HigherLevel,
+	HighestLevel,
+	LevelsOf
+} from "#compiler/types/schema/schema.ts"
 import type { AnyRole } from "#compiler/types/schema/world.ts"
 import type { ApproximateNearestSpec } from "#compiler/types/vector/vector.ts"
 
@@ -388,7 +394,7 @@ export interface ReadBack {
 /**
  * What each parameter of a query may be bound to: a scalar parameter to a term that meets its type (Meets), an outer
  * parameter of it among them, or a JavaScript value of its language; a relation parameter to a source of its rows, a
- * relation parameter of the importing rule (RelationBindings).
+ * relation-valued term (RelationBindings).
  */
 type BindingsFor<P> = {
 	readonly [K in keyof P]: P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row>
@@ -399,19 +405,70 @@ type BindingsFor<P> = {
 }
 
 /**
- * A relation parameter is bound to a relation parameter of the importing rule, `r.relation(name, heading)`, the one
- * source a Description holds as a binding (query/build/query.ts bindQuery): a query, a bound import, an interior stage
- * or a recursive definition's self is refused, whatever schema it is over.
+ * A relation parameter is bound to a relation-valued term of its heading, the sources a Description holds as a
+ * binding (ir/desc.ts RelationTermDesc, query/build/query.ts boundRelation): a relation parameter of the importing
+ * rule, `r.relation(name, heading)`, or a query or a bound query (RelationTerm). An interior stage or a recursive
+ * definition's self is refused.
  */
-type RelationBindings<B, P> = {
+type RelationBindings<B, P, S> = {
 	readonly [K in keyof B]: K extends keyof P
-		? P[K] extends ReadonlyArray<unknown> | Stream.Stream<unknown>
-			? IsRelationParameter<B[K]> extends true
-				? unknown
-				: Refusal<"a relation parameter binds a relation parameter of the importing rule, r.relation(name, heading)">
+		? P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row>
+			? RelationTerm<B[K], Row, S>
 			: unknown
 		: unknown
 }
+
+/**
+ * A relation-valued term for a relation parameter of rows Row of a query over S: the importing rule's relation
+ * parameter, or a query or a bound query (a source written over a schema, no interior stage) that needs no parameter
+ * (RequireBound), delivers exactly Row's fields, and is written over a level of S or a schema S is a level of: the
+ * bound import is over the higher of the two (BoundOver), and levels of which neither is a level of the other do not
+ * combine.
+ */
+type RelationTerm<X, Row, S> =
+	IsRelationParameter<X> extends true
+		? unknown
+		: X extends Phantom<{ readonly interior: true }>
+			? Refusal<"a relation parameter binds a relation-valued term: a relation parameter of the importing rule, r.relation(name, heading), or a query or a bound query">
+			: X extends Phantom<{ readonly schema: unknown }>
+				? RequireBound<X> & QueryRows<X, Row, S>
+				: Refusal<"a relation parameter binds a relation-valued term: a relation parameter of the importing rule, r.relation(name, heading), or a query or a bound query">
+
+/**
+ * A query or a bound query X standing for the rows Row of a relation parameter bound in a program over S, an import's
+ * (Query.bind) or a ChangeSet's (ChangeSet.bind): it delivers exactly Row's fields and is written over a level of S or
+ * over a schema S is a level of, the program it is bound in then over the higher of the two (BoundOver); levels of which
+ * neither is a level of the other do not combine.
+ */
+export type QueryRows<X, Row, S> = (SameKeys<HeadOfSource<X>, Row> extends true
+	? unknown
+	: Refusal<"a relation parameter binds a query that delivers exactly its heading's fields">) &
+	([HigherLevel<S, WrittenOver<X>>] extends [never]
+		? Refusal<"a relation parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of">
+		: unknown)
+
+/** The schema a source is written over, read off its phantom: a query's or a bound import's; never for any other. */
+type WrittenOver<X> = X extends Phantom<{ readonly schema: Invariant<infer SX> }> ? SX : never
+
+/** The facts a source holds, read off its phantom. */
+type HeadOfSource<X> = X extends Phantom<{ readonly heading: infer H }> ? H : never
+
+/**
+ * The schema a program whose relation parameters B binds is over, a bound import (Query.bind) or a bound ChangeSet
+ * (ChangeSet.bind): the highest of its own, S, and those of the queries its relation parameters are bound to
+ * (HighestLevel), so a rule matches a bound import only where it may match each of them.
+ */
+export type BoundOver<S, B, P> = HighestLevel<
+	| S
+	| {
+			[K in keyof B]-?: K extends keyof P
+				? P[K] extends ReadonlyArray<unknown> | Stream.Stream<unknown>
+					? WrittenOver<B[K]>
+					: never
+				: never
+	  }[keyof B]
+>
+
 /** A relation parameter: a source over no schema that contributes its one name to the rule that matches it. */
 type IsRelationParameter<X> =
 	X extends Phantom<{ readonly schema: unknown }>
@@ -421,6 +478,9 @@ type IsRelationParameter<X> =
 			: false
 /** The origins a binding object's terms read, on which the facts of the import it binds depend. */
 type BindReads<B> = { [K in keyof B]-?: OperandOrigin<B[K]> }[keyof B]
+
+/** The contexts a binding object's queries read, which the import that reads their rows reads (ContextsOf). */
+export type BindContexts<B> = { [K in keyof B]-?: ContextsOf<B[K]> }[keyof B]
 
 /**
  * The parameters a binding object leaves to the importing rule: its terms' own, outer parameters among them, and what
@@ -601,12 +661,22 @@ export interface Query<
 	>
 	named(name: string): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms>
 	/**
-	 * The bound import keeps the query's schema, so matching it is checked against the importing rule's levels, and its
-	 * evidence, whose keys a match of it reads, with what its bindings read.
+	 * The bound import is over the highest of the query's schema and the schemas of the queries its relation parameters
+	 * are bound to (BoundOver), so matching it is checked against the importing rule's levels; it reads the contexts the
+	 * query and those queries read, and keeps the query's evidence, whose keys a match of it reads, with what its
+	 * bindings read.
 	 */
 	bind<const B extends BindingsFor<P>>(
-		bindings: B & NoStrayParameters<B, P> & RelationBindings<B, P>
-	): BoundSource<S, Head, BindParams<B>, Hc, Cx, Ev, BindReads<B>>
+		bindings: B & NoStrayParameters<B, P> & RelationBindings<B, P, S>
+	): BoundSource<
+		BoundOver<S, B, P>,
+		Head,
+		BindParams<B>,
+		Hc,
+		Cx | BindContexts<B>,
+		Ev,
+		BindReads<B>
+	>
 	/**
 	 * An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment,
 	 * and never a closed id of a closed.unordered roster, which has no order (OrderedKeys).
@@ -873,6 +943,24 @@ export interface BoundSource<S, Head, SP, Hc, Cx, Ev, Rd> extends Built, Headed<
 				readonly readsContexts: (read: Cx) => void
 				readonly evidence: Ev
 				readonly reads: Rd
+		  }
+		| undefined
+}
+
+/**
+ * An interior stage of a rule over S (Rule.interior): a source matched in that rule alone, as a bound import is, its
+ * phantom marked `interior`, so no import's relation parameter is bound to it (RelationTerm), its rows being its rule's.
+ */
+export interface InteriorSource<S, Head, SP, Hc, Cx, Ev> extends Built, Headed<Hc> {
+	readonly [phantom]?:
+		| {
+				readonly heading: Head
+				readonly sourceParams: SP
+				readonly schema: Invariant<S>
+				readonly readsContexts: (read: Cx) => void
+				readonly evidence: Ev
+				readonly reads: never
+				readonly interior: true
 		  }
 		| undefined
 }

@@ -6,7 +6,6 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { decoderOf, headingsOf, oneOf, type RowDecoder } from "#compiler/core/decoder.ts"
-import { unsupported } from "#compiler/core/errors.ts"
 import { parseNameCharacters } from "#compiler/core/identity.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
@@ -20,7 +19,7 @@ import {
 	renameQueryParams,
 	type TakeDesc
 } from "#compiler/ir/desc.ts"
-import type { BuilderScope, OpenBound, OpenExpr, VarScope } from "#compiler/ir/open.ts"
+import type { BuilderScope, OpenBound, OpenExpr, OpenRows, VarScope } from "#compiler/ir/open.ts"
 
 import {
 	attachedDecoders,
@@ -53,6 +52,7 @@ import {
 	described,
 	headingOf,
 	isOrdered,
+	isRowsValue,
 	publicDesc,
 	type QueryCarriers,
 	type QueryState,
@@ -61,6 +61,7 @@ import {
 	registeredSource,
 	registerQuery,
 	registerSource,
+	rowsSource,
 	type SourceInfo,
 	sourceInfo
 } from "#compiler/query/build/state.ts"
@@ -72,10 +73,16 @@ import {
 	untypedTerm
 } from "#compiler/query/build/terms.ts"
 import { predicateExpr, termExpr } from "#compiler/scalar/compute/term.ts"
-import type { SqlTag } from "#compiler/scalar/registry.ts"
-import { levelOf } from "#compiler/schema/level.ts"
+import type { ScalarEnv, SqlTag } from "#compiler/scalar/registry.ts"
+import { highestLevel, type Level, levelOf } from "#compiler/schema/level.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
-import { fieldDescOf, malformed, ownedKind, requireName } from "#compiler/schema/protocol.ts"
+import {
+	builderRefusal,
+	fieldDescOf,
+	malformed,
+	ownedKind,
+	requireName
+} from "#compiler/schema/protocol.ts"
 
 import {
 	mint,
@@ -532,9 +539,10 @@ const takeOf = (k: unknown): TakeDesc => {
 }
 
 /**
- * Query.bind: each required input of the imported query bound to a term, an outer
- * parameter or a literal. A relation parameter is bound to a relation parameter of the importing rule; a source of
- * any other kind has no binding form in the Description.
+ * Query.bind: each required input of the imported query bound to a term, an outer parameter or a literal, and each
+ * relation parameter to a relation-valued term (boundRelation): a relation parameter of the importing rule, or the rows
+ * of a query or a bound query. The bound import is written over the highest of the query's level and the levels of the
+ * queries whose rows it binds (schema/level.ts highestLevel), so a rule matches it where it may match each of them.
  */
 const bindQuery = <S, Head, SP, Hc extends Carriers, Cx, Ev, Rd>(
 	state: QueryState<Hc>,
@@ -548,6 +556,7 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx, Ev, Rd>(
 		)
 	}
 	const out: Record<string, OpenBound> = {}
+	const levels: [Level, ...Array<Level>] = [state.schema.over]
 	for (const [name, value] of Object.entries(bindings)) {
 		requireName(name, label, "a parameter name")
 		if (value === undefined) {
@@ -562,12 +571,22 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx, Ev, Rd>(
 				`a term, a parameter or a literal for ${name}, not a predicate or head term`
 			)
 		} else {
-			const source = boundSource(value)
-			out[name] = source ?? {
+			const relation = boundRelation(value, `${label} ${name}`, state.schema.env)
+			if (relation?.kind === "rows" && relation.info.scope.kind === "written") {
+				levels.push(relation.info.scope.over)
+			}
+			out[name] = relation?.term ?? {
 				kind: "literal",
 				value: untypedLiteral(value, `${label} ${name}`)
 			}
 		}
+	}
+	const over = highestLevel(levels)
+	if (over === undefined) {
+		throw builderRefusal(
+			label,
+			"a relation parameter binds a query over a level of the schema it is bound in, or over a schema that schema is a level of"
+		)
 	}
 	const desc = publicDesc(state, label)
 	const carriers = headingOf(state.carriers)
@@ -576,28 +595,40 @@ const bindQuery = <S, Head, SP, Hc extends Carriers, Cx, Ev, Rd>(
 		heading: state.heading,
 		carriers,
 		origin: noOrigin,
-		scope: { kind: "written", over: state.schema.over },
+		scope: { kind: "written", over },
 		label: "bound query"
 	})
 }
 
-/** A relation parameter bound to a relation parameter of the importing rule: the outer parameter, by name. */
-const boundSource = (value: unknown): OpenBound | undefined => {
+/**
+ * A relation-valued term a relation parameter is bound to: a relation parameter of the importing rule, by name, or the
+ * rows of a query or a bound query (state.ts rowsSource), with its source info, whose level the bound import reads;
+ * undefined for a value that is no source, which binds a scalar parameter as a literal.
+ */
+const boundRelation = (
+	value: unknown,
+	label: string,
+	env: ScalarEnv
+):
+	| { readonly kind: "param"; readonly term: OpenBound }
+	| { readonly kind: "rows"; readonly term: OpenRows; readonly info: SourceInfo }
+	| undefined => {
 	const registered = registeredSource(value)
-	if (
-		registered !== undefined &&
-		(registered.desc.kind === "param" || registered.desc.kind === "paramOf")
-	) {
-		return { kind: "relationParam", name: registered.desc.name }
+	if (registered?.desc.kind === "param" || registered?.desc.kind === "paramOf") {
+		return { kind: "param", term: { kind: "relationParam", name: registered.desc.name } }
+	}
+	if (isRowsValue(value)) {
+		const { info, rows } = rowsSource(value, label, env)
+		return { kind: "rows", term: rows, info }
 	}
 	const isRelation =
 		typeof value === "object" &&
 		value !== null &&
 		(ownedKind(value) !== undefined || (isObjectRecord(value) && value["kind"] === "relation"))
-	if (registered !== undefined || queryState(value) !== undefined || isRelation) {
-		throw unsupported(
-			captureLoc("Query.bind", []),
-			"bindRelationParameter: a relation parameter of an imported query is bound to a relation parameter of the importing rule, r.relation(name, heading); a query or relation source has no binding form in the Description"
+	if (registered !== undefined || isRelation) {
+		throw builderRefusal(
+			label,
+			"a relation parameter binds a relation-valued term: a relation parameter of the importing rule, r.relation(name, heading), or a query or a bound query"
 		)
 	}
 	return undefined
@@ -639,8 +670,9 @@ const querySchema = (schema: unknown, extra: ReadonlyArray<unknown>): SchemaInfo
  *   parameter.
  *
  * `bind` closes an imported query's parameters with terms, outer parameters or literals, hygienically: each binding is
- * recorded on the match source that imports it. A relation parameter of the imported query
- * is bound to a relation parameter of the importing rule. Every stage is built from parts the builder checked as it
+ * recorded on the match source that imports it. A relation parameter of the imported query is bound to a
+ * relation-valued term (boundRelation): a relation parameter of the importing rule, or the rows of a query or a bound
+ * query, the bound import then over the higher of the two levels. Every stage is built from parts the builder checked as it
  * took them, so a value the builder makes always holds an owned, valid Description, frozen, exposed as its
  * non-enumerable `desc` for the packages that compile, store or describe it:
  *

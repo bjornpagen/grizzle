@@ -89,6 +89,10 @@ export interface Built {
 /** The brand, for a builder to spread into the value it makes. */
 export const builtMark: Built = Object.freeze({ [built]: true } as const)
 
+/** Whether a value carries the brand: a value a builder made, which no parameter's value is. */
+export const isBuilt = (value: unknown): value is Built =>
+	typeof value === "object" && value !== null && built in value
+
 const field: unique symbol = Symbol("grizzle.field")
 
 /**

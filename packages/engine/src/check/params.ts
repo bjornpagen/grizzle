@@ -9,6 +9,7 @@ import {
 	type BindTermDesc,
 	type ExprDesc,
 	type HeadTermDesc,
+	type ImportDesc,
 	type InferredFieldDesc,
 	type Inferred,
 	type InteriorDesc,
@@ -193,6 +194,7 @@ export type ResolvedMatch = MatchDesc<Located, Resolved>
 export type ResolvedSource = SourceDesc<Located, Resolved>
 export type ResolvedBindings = BindingsDesc<Located, Resolved>
 export type ResolvedBound = BindTermDesc<Located, Resolved>
+export type ResolvedImport = ImportDesc<Located, Resolved>
 export type ResolvedHead = HeadTermDesc<Located, Resolved>
 export type ResolvedExpr = ExprDesc<Located, Resolved>
 

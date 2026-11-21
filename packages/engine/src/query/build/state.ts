@@ -4,7 +4,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isPlainRecord } from "#compiler/core/record.ts"
 import type { FieldDesc, QueryDesc, QueryStageDesc } from "#compiler/ir/desc.ts"
-import type { BuilderScope, OpenSource } from "#compiler/ir/open.ts"
+import type { BuilderScope, OpenRows, OpenSource } from "#compiler/ir/open.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
 import {
 	fieldsHeading,
@@ -239,6 +239,28 @@ export const sourceValue = <C extends Carriers>(
 		scope: anywhere,
 		label
 	})
+
+/** Whether a value is a query or a bound query, whose rows a call's rows argument or a relation parameter's binding
+ * reads (rowsSource). */
+export const isRowsValue = (value: unknown): boolean =>
+	registeredSource(value)?.desc.kind === "query" || queryState(value) !== undefined
+
+/**
+ * The rows of a query, read where a relation is taken, a call's rows argument or a relation parameter's binding: a
+ * query or a bound query, its query and its bind map (RowsDesc), and where a source that reads them may be matched,
+ * its source info's scope.
+ */
+export const rowsSource = (
+	value: unknown,
+	label: string,
+	env: ScalarEnv
+): { readonly info: SourceInfo; readonly rows: OpenRows } => {
+	const info = sourceInfo(value, label, env)
+	if (info.desc.kind !== "query") {
+		throw malformed(label, "rows: a query or a bound query, Q.bind({ ... })")
+	}
+	return { info, rows: { kind: "rows", query: info.desc.query, bind: info.desc.bind } }
+}
 
 /**
  * The rows of a declared function's call as a source (query/build/call.ts): `desc`, its heading and its carriers the

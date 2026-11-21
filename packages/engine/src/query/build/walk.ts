@@ -1,21 +1,26 @@
 import { mapRecord } from "#compiler/core/record.ts"
 import {
 	type BindingsDesc,
+	type BindMapDesc,
+	type BindTermDesc,
 	type ExprDesc,
 	type HeadTermDesc,
 	type MatchDesc,
 	mapBindingTerms,
 	mapExpr,
 	mapHeadTerms,
+	type RowsDesc,
 	type RuleDesc,
 	type SourceDesc
 } from "#compiler/ir/desc.ts"
 import type {
 	InteriorRef,
 	OpenBindings,
+	OpenBound,
 	OpenExpr,
 	OpenHead,
 	OpenMatch,
+	OpenRows,
 	OpenRule,
 	OpenSource,
 	ParentRef,
@@ -23,7 +28,7 @@ import type {
 } from "#compiler/ir/open.ts"
 
 /** How an open rule's references are spelled: a variable, a parent variable and an interior stage. */
-interface Spellings {
+export interface Spellings {
 	readonly var: (ref: VarRef) => string
 	readonly parent: (ref: ParentRef) => string
 	readonly interior: (ref: InteriorRef) => string
@@ -38,29 +43,12 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 			return { kind: "interior", id: s.interior(source.id) }
 		case "query":
 		case "step":
-			return {
-				kind: source.kind,
-				query: source.query,
-				bind: Object.fromEntries(
-					Object.entries(source.bind).map(([k, b]) => [
-						k,
-						b.kind === "relationParam" ? b : spellExpr(b, s)
-					])
-				)
-			}
+			return { kind: source.kind, query: source.query, bind: spellBind(source.bind, s) }
 		case "call":
 		case "callField":
 			return {
 				...source,
-				args: mapRecord(source.args, (a) =>
-					a.kind === "rows"
-						? {
-								kind: "rows",
-								query: a.query,
-								bind: mapRecord(a.bind, (b) => (b.kind === "relationParam" ? b : spellExpr(b, s)))
-							}
-						: spellExpr(a, s)
-				)
+				args: mapRecord(source.args, (a) => (a.kind === "rows" ? spellRows(a, s) : spellExpr(a, s)))
 			}
 		case "split":
 			return { kind: "split", split: source.split, text: spellExpr(source.text, s) }
@@ -74,6 +62,22 @@ const spellSource = (source: OpenSource, s: Spellings): SourceDesc => {
 			return source
 	}
 }
+
+/**
+ * A bind map spelled: its terms, and the bind map of each query's rows it binds a relation parameter to, are the
+ * importing rule's; the queries are nested scopes, already spelled.
+ */
+const spellBind = (bind: Readonly<Record<string, OpenBound>>, s: Spellings): BindMapDesc =>
+	mapRecord(bind, (b): BindTermDesc =>
+		b.kind === "relationParam" ? b : b.kind === "rows" ? spellRows(b, s) : spellExpr(b, s)
+	)
+
+/** The rows of a query, a call's argument or a relation parameter's binding, its bind map spelled (spellBind). */
+export const spellRows = (rows: OpenRows, s: Spellings): RowsDesc => ({
+	kind: "rows",
+	query: rows.query,
+	bind: spellBind(rows.bind, s)
+})
 
 /** An open expression with every reference spelled. */
 export const spellExpr = (e: OpenExpr, s: Spellings): ExprDesc =>

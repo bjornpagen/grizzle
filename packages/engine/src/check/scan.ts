@@ -86,8 +86,9 @@ const bindingLeaves = <P extends object, T, D extends InferredFieldDesc>(
 }
 
 /**
- * A source's bind map is evaluated in the importing rule's scope, and so is each argument of a call: a value's term,
- * and a rows argument's bind map, its query its own scope.
+ * A source's bind map is evaluated in the importing rule's scope, the bind map of each query's rows it binds a relation
+ * parameter to among it, and so is each argument of a call: a value's term, and a rows argument's bind map, its query
+ * its own scope.
  */
 const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	s: SourceDesc<Located, ParamsAs<P, T, D>>,
@@ -97,6 +98,8 @@ const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 		for (const [, b] of entries(bind)) {
 			if (b.kind === "relationParam") {
 				into.params.push(b)
+			} else if (b.kind === "rows") {
+				bound(b.bind)
 			} else {
 				exprLeaves(b, into)
 			}

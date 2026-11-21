@@ -23,6 +23,7 @@ import type {
 	ResolvedBound,
 	ResolvedExpr,
 	ResolvedHead,
+	ResolvedImport,
 	ResolvedInterior,
 	ResolvedMatch,
 	ResolvedQuery,
@@ -213,32 +214,42 @@ interface ParentColumn {
 }
 
 /**
- * A bound value's part of a key (`importedKey`, Checker `#closedCall`): a parameter by its name, a constant by its
- * canonical text, and, under region reads (`region`), an outer value by the region and the column it is read through;
- * none for an outer value elsewhere, whose rows are its reader's.
+ * A bound value's part of a key (`importedKey`, Checker `#closedCall`), and whether it is closed: a parameter by its
+ * name and a constant by its canonical text, closed; under region reads (`region`) an outer value by the region and
+ * the column it is read through, not closed; none for an outer value elsewhere, whose rows are its reader's; and the
+ * rows of a query a relation parameter is bound to by that query's own import's key, closed where it is.
  */
-const boundPart = (value: BindValue, region: boolean): string | undefined => {
+const boundPart = (
+	session: CheckSession,
+	value: BindValue,
+	region: boolean
+): ImportKey | undefined => {
 	switch (value.kind) {
 		case "param":
-			return `p:${value.cell.name}`
+			return { text: `p:${value.cell.name}`, closed: true }
 		case "literal":
-			return `l:${canonicalTextOf([value.value, value.stated])}`
+			return { text: `l:${canonicalTextOf([value.value, value.stated])}`, closed: true }
 		case "column":
-			return region ? `c:${value.node}:${value.name}` : undefined
+			return region ? { text: `c:${value.node}:${value.name}`, closed: false } : undefined
+		case "rows": {
+			const key = importedKey(session, value.query, value.values, region)
+			return key === undefined ? undefined : { text: `r(${key.text})`, closed: key.closed }
+		}
 	}
 }
 
 /**
  * The key two imports share exactly when they read the same rows (Checker `#imported`): the imported query, by its
  * identity, which one resolution of the compile's Descriptions gives every import of it in every query it checks
- * (check/session.ts CheckSession), and each bound value, a parameter by its name, the one parameter of that name its
- * query, or its ChangeSet, whose members' and read-backs' parameters are one namespace, declares, a constant by its
- * canonical text, and, under region reads (`region`), an outer value by the region and the column it is read through:
- * every match of one query at one rule statement's unit channels reads one import, which the CTE policy computes once
- * at the scope those values come from (lower/optimize/cte-policy rule 3b), where a node built at every match
- * multiplied the statement by the import's reads, at every level of a chain of definitions (analysis/theory/navigate.ts
- * sharedImports); none for an import bound to an outer value elsewhere, whose rows are its reader's, built at each
- * import.
+ * (check/session.ts CheckSession), and each bound value (`boundPart`), a parameter by its name, the one parameter of
+ * that name its query, or its ChangeSet, whose members' and read-backs' parameters are one namespace, declares, a
+ * constant by its canonical text, the rows of a query by that query's import's key, so one guard bound into the
+ * imports of several members is one node, and, under region reads (`region`), an outer value by the region and the
+ * column it is read through: every match of one query at one rule statement's unit channels reads one import, which
+ * the CTE policy computes once at the scope those values come from (lower/optimize/cte-policy rule 3b), where a node
+ * built at every match multiplied the statement by the import's reads, at every level of a chain of definitions
+ * (analysis/theory/navigate.ts sharedImports); none for an import bound to an outer value elsewhere, whose rows are
+ * its reader's, built at each import.
  */
 const importedKey = (
 	session: CheckSession,
@@ -249,20 +260,20 @@ const importedKey = (
 	const parts = [`q${session.place(query)}`]
 	let closed = true
 	for (const [param, value] of [...values].toSorted(([a], [b]) => compareStrings(a, b))) {
-		const part = boundPart(value, region)
+		const part = boundPart(session, value, region)
 		if (part === undefined) {
 			return undefined
 		}
-		closed = closed && value.kind !== "column"
-		parts.push(`${param}=${part}`)
+		closed = closed && part.closed
+		parts.push(`${param}=${part.text}`)
 	}
 	return { text: parts.join(" "), closed }
 }
 
 /**
- * An import's key (`importedKey`): its text, and whether the import is closed, every value it is bound to a parameter or
- * a constant, the key the session records on the completed DAG (Checker `root`), or bound to an outer value under
- * region reads, a key of one rule statement's DAG alone.
+ * An import's key (`importedKey`): its text, and whether the import is closed, every value it is bound to a parameter,
+ * a constant or closed rows, the key the session records on the completed DAG (Checker `root`), or bound to an outer
+ * value under region reads, a key of one rule statement's DAG alone.
  */
 interface ImportKey {
 	readonly text: string
@@ -280,11 +291,11 @@ interface ParentScope {
 }
 
 /**
- * What an imported query's parameter is bound to: one of the importer's own parameters, a typed
- * constant, or an outer value read through a column of the importer's region. A constant carries the bind entry where
- * it was written: it is admitted at the imported parameter's declared type, and a refusal of it names the bind entry.
+ * What an imported query's scalar parameter is bound to: one of the importer's own parameters, a typed constant, or an
+ * outer value read through a column of the importer's region. A constant carries the bind entry where it was written:
+ * it is admitted at the imported parameter's declared type, and a refusal of it names the bind entry.
  */
-type BindValue =
+type ScalarBinding =
 	| { readonly kind: "param"; readonly cell: ParamCell }
 	| {
 			readonly kind: "literal"
@@ -297,6 +308,23 @@ type BindValue =
 			readonly node: NodeId
 			readonly name: string
 			readonly type: ScalarType
+	  }
+
+/** How a scope reads the terms of a bind map written in it: each term, by the parameter it binds, at its location. */
+type Binder = (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+
+/**
+ * What an imported query's parameter is bound to: a scalar binding, one of the importer's own relation parameters
+ * among them (`param`, whose cell a use reads as a relation), or the rows of a query (`rows`), which a use of the
+ * parameter reads as an import of that query at `values`, its bind map's values read in the scope that wrote it, so the
+ * substitution is hygienic: the query's parameters and variables are its writer's, never the import's it stands in.
+ */
+type BindValue =
+	| ScalarBinding
+	| {
+			readonly kind: "rows"
+			readonly query: ResolvedQuery
+			readonly values: ReadonlyMap<string, BindValue>
 	  }
 
 /**
@@ -332,7 +360,7 @@ const deltaKeys = (
 
 const boundConstant = (
 	schema: SchemaReading,
-	constant: Extract<BindValue, { readonly kind: "literal" }>,
+	constant: Extract<ScalarBinding, { readonly kind: "literal" }>,
 	type: ScalarType,
 	patterns: PatternAutomata
 ): ExprSpec => {
@@ -1900,7 +1928,7 @@ export class Checker {
 	 * What a parameter reference reads in `scope`: in the query's own scope its own cell, under an import what the
 	 * import's bind map binds the parameter to, by the name the bind map spells it by.
 	 */
-	#resolveParam(cell: ParamCell, scope: Scope, loc: SourceLoc): BindValue {
+	#bound(cell: ParamCell, scope: Scope, loc: SourceLoc): BindValue {
 		const params = scope.params
 		if (params.kind === "own") {
 			return { kind: "param", cell }
@@ -1917,6 +1945,18 @@ export class Checker {
 		return bound
 	}
 
+	/** What a scalar parameter's reference reads in `scope` (#bound): never rows, which only a relation parameter takes. */
+	#resolveParam(cell: ParamCell, scope: Scope, loc: SourceLoc): ScalarBinding {
+		const bound = this.#bound(cell, scope, loc)
+		return bound.kind === "rows"
+			? fail(
+					"MalformedDescription",
+					loc,
+					`a term for parameter ${cell.name}, which is used as a scalar; the import binds it to the rows of a query`
+				)
+			: bound
+	}
+
 	rule(rule: ResolvedRule, scope: Scope): RelNode {
 		return new RuleCheck(this, rule, scope, rule.loc).run()
 	}
@@ -1926,7 +1966,7 @@ export class Checker {
 		scope: Scope,
 		interiors: ReadonlyArray<ResolvedInterior>,
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): RelNode {
 		switch (src.kind) {
 			case "relation": {
@@ -2080,7 +2120,7 @@ export class Checker {
 	#callSource(
 		src: Extract<ResolvedSource, { readonly kind: "call" }>,
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): RelNode {
 		const fn = this.#declaredFunction(src.function, loc)
 		const returns = fn.desc.returns
@@ -2129,7 +2169,7 @@ export class Checker {
 	#callFieldSource(
 		src: Extract<ResolvedSource, { readonly kind: "callField" }>,
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): RelNode {
 		const fn = this.#declaredFunction(src.function, loc)
 		const returns = fn.desc.returns
@@ -2198,7 +2238,7 @@ export class Checker {
 		fn: OwnedFunction,
 		given: Extract<ResolvedSource, { readonly kind: "call" }>["args"],
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): { readonly args: ReadonlyArray<CallArg<LiveRefs>>; readonly key: string | undefined } {
 		this.#callArguments(fn, Object.keys(given), loc)
 		/** Each argument's part of the call's key (`#closedCall`), none where an argument is no closed one. */
@@ -2212,8 +2252,8 @@ export class Checker {
 				}
 				const type = this.fieldType(declared.type.type, at)
 				const value = bind(arg, declared.name, at)
-				const part = boundPart(value, false)
-				parts.push(part === undefined ? undefined : `${declared.name}=${part}`)
+				const part = boundPart(this.options.session, value, false)
+				parts.push(part === undefined ? undefined : `${declared.name}=${part.text}`)
 				return {
 					kind: "value",
 					name: declared.name,
@@ -2286,7 +2326,7 @@ export class Checker {
 	#splitSource(
 		src: Extract<ResolvedSource, { readonly kind: "split" }>,
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): RelNode {
 		const at = childLoc(loc, splitArgument)
 		const value = bind(src.text, splitArgument, at)
@@ -2390,6 +2430,12 @@ export class Checker {
 				return this.emit(paramSpec(value.cell.use(type, loc), "compare", compareType(type)))
 			case "literal":
 				return this.emit(boundConstant(this.schema, value, type, this.patterns))
+			case "rows":
+				return fail(
+					"MalformedDescription",
+					loc,
+					`a value of ${typeLabel(type)} for argument ${arg}, not the rows of a query`
+				)
 		}
 	}
 
@@ -2444,12 +2490,8 @@ export class Checker {
 		return this.node({ kind: "Context", context: context.name, heading }, loc)
 	}
 
-	#importSource(
-		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "query" | "bind">,
-		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
-	): RelNode {
-		const values = this.#boundValues(src, loc, bind)
+	#importSource(src: ResolvedImport, loc: SourceLoc, bind: Binder): RelNode {
+		const values = this.boundValues(src, loc, bind)
 		return this.#keyedImport(
 			src,
 			values,
@@ -2472,12 +2514,12 @@ export class Checker {
 		src: Pick<Extract<ResolvedSource, { readonly kind: "query" }>, "query" | "bind">,
 		scope: Scope,
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): RelNode {
 		if (this.options.read !== "region") {
 			return this.#importSource(src, loc, bind)
 		}
-		const values = this.#boundValues(src, loc, (term, param, at) => {
+		const values = this.boundValues(src, loc, (term, param, at) => {
 			if (term.kind !== "param") {
 				return bind(term, param, at)
 			}
@@ -2500,10 +2542,10 @@ export class Checker {
 	}
 
 	/** The values an import's bind map binds its parameters to. */
-	#boundValues(
+	boundValues(
 		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "bind">,
 		loc: SourceLoc,
-		bind: (term: ResolvedBound, param: string, loc: SourceLoc) => BindValue
+		bind: Binder
 	): ReadonlyMap<string, BindValue> {
 		const values = new Map<string, BindValue>()
 		for (const [param, term] of entries(src.bind)) {
@@ -2564,6 +2606,13 @@ export class Checker {
 		return out.node
 	}
 
+	/**
+	 * A relation parameter's rows: in the query's own scope, or bound to one of the importer's relation parameters, the
+	 * caller's rows of its declared heading; bound to the rows of a query, that query imported here, at this use, under
+	 * its own bind map read in the scope that wrote it (BindValue `rows`), delivering exactly the declared heading's
+	 * columns, each at a type that meets the field's (compatible), so the import reads the query's rows where it read
+	 * the caller's.
+	 */
 	#paramSource(
 		src: Extract<ResolvedSource, { readonly kind: "param" | "paramOf" }>,
 		scope: Scope,
@@ -2573,16 +2622,63 @@ export class Checker {
 			src.kind === "param"
 				? this.#declaredHeading(src.heading, loc)
 				: this.#relationHeading(src.relation, loc)
-		const resolved = this.#resolveParam(src.cell, scope, loc)
-		if (resolved.kind !== "param") {
-			return fail(
-				"MalformedDescription",
-				loc,
-				`relation parameter ${src.cell.name} bound to the importer's relation parameter`
-			)
+		const resolved = this.#bound(src.cell, scope, loc)
+		switch (resolved.kind) {
+			case "param": {
+				const param = resolved.cell.relationUse(heading, loc)
+				return this.node({ kind: "InputSet", input: { kind: "declared", param }, heading }, loc)
+			}
+			case "rows":
+				return this.#boundRows(src.cell.name, heading, resolved, loc)
+			case "literal":
+			case "column":
+				return fail(
+					"MalformedDescription",
+					loc,
+					`relation parameter ${src.cell.name} bound to a relation-valued term: the importer's relation parameter, or the rows of a query`
+				)
 		}
-		const param = resolved.cell.relationUse(heading, loc)
-		return this.node({ kind: "InputSet", input: { kind: "declared", param }, heading }, loc)
+	}
+
+	/** The rows a relation parameter is bound to (#paramSource), of exactly its declared heading. */
+	#boundRows(
+		name: string,
+		heading: Heading,
+		bound: Extract<BindValue, { readonly kind: "rows" }>,
+		loc: SourceLoc
+	): RelNode {
+		const rows = this.#keyedImport(
+			bound,
+			bound.values,
+			loc,
+			importedKey(this.options.session, bound.query, bound.values, false)
+		)
+		const stray = rows.heading.filter((c) => columnOf(heading, c.name) === undefined)
+		for (const f of heading) {
+			const delivered = columnOf(rows.heading, f.name)
+			if (delivered === undefined) {
+				failWith({
+					_tag: "Refused",
+					at: childLoc(loc, f.name),
+					refusal: "a relation parameter binds a query that delivers exactly its heading's fields"
+				})
+			}
+			if (!compatible(delivered.type, f.type)) {
+				fail(
+					"MalformedDescription",
+					childLoc(loc, f.name),
+					`a query delivering ${f.name} of ${typeLabel(f.type)} for relation parameter ${name}; it delivers ${typeLabel(delivered.type)}`
+				)
+			}
+		}
+		if (stray.length > 0) {
+			failWith({
+				_tag: "Refused",
+				at: loc,
+				refusal: "a relation parameter binds a query that delivers exactly its heading's fields"
+			})
+		}
+		return rows
 	}
 
 	/**
@@ -2951,8 +3047,13 @@ export class Checker {
 		this.#inherit(node, from)
 	}
 
-	resolveParam(cell: ParamCell, scope: Scope, loc: SourceLoc): BindValue {
+	resolveParam(cell: ParamCell, scope: Scope, loc: SourceLoc): ScalarBinding {
 		return this.#resolveParam(cell, scope, loc)
+	}
+
+	/** What a relation parameter of the importer, bound in turn to an import's, reads in `scope` (#bound). */
+	resolveBound(cell: ParamCell, scope: Scope, loc: SourceLoc): BindValue {
+		return this.#bound(cell, scope, loc)
 	}
 }
 
@@ -3484,13 +3585,21 @@ class RuleCheck {
 
 	/**
 	 * What an import's bind term binds a parameter to, read in this rule's scope: a scalar parameter is used at its
-	 * declared type there, and a relation parameter is resolved where the import reads it as a source. An outer value is
+	 * declared type there, a relation parameter is resolved where the import reads it as a source, and the rows of a
+	 * query are that query at its bind map's values, each read here as this term is (BindValue `rows`). An outer value is
 	 * read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
 	 * relational filter's over the node it filters, which delivers the region's columns unchanged (`#relational`).
 	 */
 	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc, node: NodeId): BindValue {
 		if (term.kind === "relationParam") {
-			return this.cx.resolveParam(term.cell, this.scope, loc)
+			return this.cx.resolveBound(term.cell, this.scope, loc)
+		}
+		if (term.kind === "rows") {
+			return {
+				kind: "rows",
+				query: term.query,
+				values: this.cx.boundValues(term, loc, (t, p, at) => this.#bindValue(t, p, at, node))
+			}
 		}
 		if (term.kind === "var") {
 			return this.#slotValue(this.#userSlot(term.var, loc), node)

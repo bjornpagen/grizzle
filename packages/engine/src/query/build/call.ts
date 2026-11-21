@@ -8,15 +8,15 @@ import {
 	type NamedDesc,
 	valueHeading
 } from "#compiler/ir/desc.ts"
-import type { OpenCallArg, OpenExpr, OpenSource } from "#compiler/ir/open.ts"
+import type { OpenCallArg, OpenExpr } from "#compiler/ir/open.ts"
 import { tokensHeading } from "#compiler/ir/rel.ts"
 import { tokenPattern } from "#compiler/ir/scalar.ts"
 import { fieldTyping, heading } from "#compiler/query/build/heading.ts"
 import {
 	callSourceValue,
 	descriptorCarriers,
-	type SourceInfo,
-	sourceInfo
+	rowsSource,
+	type SourceInfo
 } from "#compiler/query/build/state.ts"
 import { scalarTerm } from "#compiler/scalar/compute/builders.ts"
 import { spelling } from "#compiler/scalar/compute/spelling.ts"
@@ -96,21 +96,6 @@ const valueArgument = (value: unknown, label: string): OpenExpr => {
 	return { kind: "literal", value: untypedLiteral(value, label) }
 }
 
-/** A rows argument: a query or a bound query, its query and its bind map, and where it may be matched. */
-const rowsArgument = (
-	value: unknown,
-	label: string
-): {
-	readonly info: SourceInfo
-	readonly imported: Extract<OpenSource, { readonly kind: "query" }>
-} => {
-	const info = sourceInfo(value, label, bareEnv)
-	if (info.desc.kind !== "query") {
-		throw malformed(label, "rows: a query or a bound query, Q.bind({ ... })")
-	}
-	return { info, imported: info.desc }
-}
-
 /**
  * Fn.call(f, args): the value of a declared function that returns a value of a field, immutable or stable, at its
  * arguments, a term of the field's type and carrier.
@@ -177,9 +162,9 @@ const sourceArgs = (
 		if (type.kind === "value") {
 			described[name] = valueArgument(value, `${label} ${name}`)
 		} else if (type.kind === "rows" && valueHeading(type.heading) !== undefined) {
-			const rowsArg = rowsArgument(value, `${label} ${name}`)
+			const rowsArg = rowsSource(value, `${label} ${name}`, bareEnv)
 			rows.push(rowsArg.info)
-			described[name] = { kind: "rows", query: rowsArg.imported.query, bind: rowsArg.imported.bind }
+			described[name] = rowsArg.rows
 		} else {
 			throw malformed(
 				`${label} ${name}`,

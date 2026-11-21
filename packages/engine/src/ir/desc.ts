@@ -707,14 +707,22 @@ export const exprChildren = <L, R extends Refs>(
 
 /**
  * The terms a source's bind map binds its scalar parameters to, by parameter, in the importing rule's scope: an
- * imported query's and a navigation step's; every other source binds none, and a relation parameter is no term.
+ * imported query's and a navigation step's, and those of the bind map of each query a relation parameter is bound to
+ * (`<param>.<its param>`); every other source binds none, and a relation parameter of the importer is no term.
  */
 export const bindTerms = <L, R extends Refs>(
 	s: SourceDesc<L, R>
 ): ReadonlyArray<readonly [string, ExprDesc<L, R>]> => {
-	const scalar = (bind: BindMapDesc<L, R>, at: (param: string) => string) =>
+	const scalar = (
+		bind: BindMapDesc<L, R>,
+		at: (param: string) => string
+	): ReadonlyArray<readonly [string, ExprDesc<L, R>]> =>
 		Object.entries(bind).flatMap(([param, b]) =>
-			b.kind === "relationParam" ? [] : [[at(param), b] as const]
+			b.kind === "relationParam"
+				? []
+				: b.kind === "rows"
+					? scalar(b.bind, (inner) => `${at(param)}.${inner}`)
+					: [[at(param), b] as const]
 		)
 	switch (s.kind) {
 		case "query":
@@ -812,15 +820,28 @@ export const mapBindingTerms = <L, R extends Refs, S extends Refs>(
 ): BindingsDesc<L, S> =>
 	Object.fromEntries(Object.entries(b).map(([column, e]) => [column, f(e)] as const))
 
+/**
+ * A bind map with each scalar term mapped by `f`, and so the bind map of each query's rows it binds a relation
+ * parameter to, at any depth; a relation parameter of the importer is no term and stays as it is.
+ */
+export const mapBindMap = <L, R extends Refs>(
+	bind: BindMapDesc<L, R>,
+	f: (e: ExprDesc<L, R>) => ExprDesc<L, R>
+): BindMapDesc<L, R> =>
+	mapRecord(bind, (b): BindTermDesc<L, R> =>
+		b.kind === "relationParam"
+			? b
+			: b.kind === "rows"
+				? { ...b, bind: mapBindMap(b.bind, f) }
+				: f(b)
+	)
+
 /** A source with each term its bind map binds (bindTerms) mapped by `f`, the query it imports kept whole. */
 export const mapBindTerms = <L, R extends Refs>(
 	s: SourceDesc<L, R>,
 	f: (e: ExprDesc<L, R>) => ExprDesc<L, R>
 ): SourceDesc<L, R> => {
-	const mapped = (bind: BindMapDesc<L, R>): BindMapDesc<L, R> =>
-		Object.fromEntries(
-			Object.entries(bind).map(([param, b]) => [param, b.kind === "relationParam" ? b : f(b)])
-		)
+	const mapped = (bind: BindMapDesc<L, R>): BindMapDesc<L, R> => mapBindMap(bind, f)
 	switch (s.kind) {
 		case "query":
 		case "step":
@@ -857,12 +878,39 @@ export const mapExprChildren = <L, R extends Refs>(
 ): ExprDesc<L, R> => mapExpr(e, { leaf: (x) => x, term: f, source: (s) => mapBindTerms(s, f) })
 
 /**
- * What an imported query's bind map binds one of its parameters to: a scalar term, or, for a relation parameter, a
- * relation parameter of the importing rule by name.
+ * A query read under a bind map, its parameters bound by its reader in the reader's scope: an imported query's source
+ * (SourceDesc query and step), a call's rows argument and a relation parameter's bound rows (RowsDesc) alike.
+ */
+export interface ImportDesc<L = Located, R extends Refs = Spelled> {
+	readonly query: QueryDesc<L, R["nested"]>
+	readonly bind: BindMapDesc<L, R>
+}
+
+/**
+ * The rows of a query read where a relation is taken, a call's rows argument or a relation parameter's binding: the
+ * query, its own scope, and the bind map its reader binds its parameters by (ImportDesc). No term is of kind "rows",
+ * so the kind tells them apart from a term.
+ */
+export interface RowsDesc<L = Located, R extends Refs = Spelled> extends ImportDesc<L, R> {
+	readonly kind: "rows"
+}
+
+/**
+ * A relation-valued term a relation parameter of an imported query is bound to, of the parameter's heading: a relation
+ * parameter of the importing rule by name, or the rows of a query (RowsDesc), a query or a bound query over a level the
+ * import's level is a level of or that is a level of it, read in the importing rule's scope, as a scalar binding is.
+ */
+export type RelationTermDesc<L = Located, R extends Refs = Spelled> =
+	| ({ readonly kind: "relationParam" } & R["param"])
+	| RowsDesc<L, R>
+
+/**
+ * What an imported query's bind map binds one of its parameters to: a scalar parameter a term, and a relation
+ * parameter a relation-valued term (RelationTermDesc).
  */
 export type BindTermDesc<L = Located, R extends Refs = Spelled> =
 	| ExprDesc<L, R>
-	| ({ readonly kind: "relationParam" } & R["param"])
+	| RelationTermDesc<L, R>
 
 /** An imported query's bind map: each of its parameters bound to what the importer gives it. */
 export type BindMapDesc<L = Located, R extends Refs = Spelled> = Readonly<
@@ -875,13 +923,7 @@ export type BindMapDesc<L = Located, R extends Refs = Spelled> = Readonly<
  * of a query whose heading is the argument's heading, its parameters bound by the caller as an import's are (`bind`),
  * which the call passes as an array of the argument's row type. No term is of kind "rows", so the kind tells them apart.
  */
-export type CallArgDesc<L = Located, R extends Refs = Spelled> =
-	| ExprDesc<L, R>
-	| {
-			readonly kind: "rows"
-			readonly query: QueryDesc<L, R["nested"]>
-			readonly bind: BindMapDesc<L, R>
-	  }
+export type CallArgDesc<L = Located, R extends Refs = Spelled> = ExprDesc<L, R> | RowsDesc<L, R>
 
 /**
  * The declared functions a Description calls, by name, at any depth: each call term (ExprDesc call) and each call
@@ -2057,7 +2099,18 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	bound(b: BindTermDesc<Located, SpelledAs<T, D>>): BindTermDesc<Located, ParamsAs<P, T, D>> {
 		return b.kind === "relationParam"
 			? { kind: "relationParam", ...this.#spelling.param(b.name) }
-			: this.expr(b)
+			: b.kind === "rows"
+				? this.rows(b)
+				: this.expr(b)
+	}
+
+	/** Rows of a query: the query its own namespace, its bind map read in this one, as an import's is. */
+	rows(a: RowsDesc<Located, SpelledAs<T, D>>): RowsDesc<Located, ParamsAs<P, T, D>> {
+		return {
+			kind: "rows",
+			query: this.#importedQuery(a.query),
+			bind: mapRecord(a.bind, (b) => this.bound(b))
+		}
 	}
 
 	/** An imported query, walked once in a namespace of its own (`#imported`). */
@@ -2089,15 +2142,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 			case "callField":
 				return {
 					...s,
-					args: mapRecord(s.args, (a) =>
-						a.kind === "rows"
-							? {
-									kind: "rows",
-									query: this.#importedQuery(a.query),
-									bind: mapRecord(a.bind, (b) => this.bound(b))
-								}
-							: this.expr(a)
-					)
+					args: mapRecord(s.args, (a) => (a.kind === "rows" ? this.rows(a) : this.expr(a)))
 				}
 			case "split":
 				return { kind: "split", split: s.split, text: this.expr(s.text) }
@@ -2206,6 +2251,179 @@ export const renameQueryParams = (q: QueryDesc, rename: ReadonlyMap<string, stri
 					new Map()
 				)
 			)
+
+/** A relation parameter as a source a rule matches: over a declared heading, or over a relation's (Rule.relation). */
+export type RelationParamSourceDesc<L = Located, R extends Refs = Spelled> = Extract<
+	SourceDesc<L, R>,
+	{ readonly kind: "param" | "paramOf" }
+>
+
+/**
+ * The query that delivers a relation parameter's rows as they are: one rule matching `source`, each of the parameter's
+ * fields, `fields`, bound to a variable of its own scope, the parameter's name, and delivered under its own name. A
+ * match of the parameter is a match of an import of it (bindRelationParams), which the import's bind map binds.
+ */
+export const identityQuery = (
+	source: RelationParamSourceDesc,
+	fields: NonEmptyReadonlyArray<string>,
+	loc: SourceLoc
+): QueryDesc => {
+	const vars = mapNonEmpty(fields, (field): VarDesc => ({
+		id: `${source.name}.${field}`,
+		origin: undefined,
+		loc
+	}))
+	const terms: Readonly<Record<string, ExprDesc>> = Object.fromEntries(
+		fields.map((field): readonly [string, ExprDesc] => [
+			field,
+			{ kind: "var", var: `${source.name}.${field}` }
+		])
+	)
+	const query: QueryDesc = {
+		stage: {
+			kind: "rules",
+			loc,
+			arms: [
+				{
+					loc,
+					vars,
+					matches: [{ loc, source, bindings: terms }],
+					where: [],
+					head: terms,
+					interiors: [],
+					attach: []
+				}
+			]
+		}
+	}
+	return deepFreeze(query)
+}
+
+/**
+ * The imported queries of a walk that spells every name as it is (spelledAsIs): each the query itself, never walked, so
+ * a query several imports share stays one value, by which a compile's checks key the imports (check/checker.ts
+ * importedKey).
+ */
+const unwalkedImports: ImportedWalks<Spelled["param"], FieldDesc, FieldDesc> = {
+	get: (q) => q,
+	set: () => undefined
+}
+
+/**
+ * A walk over a query's own namespace that binds the relation parameters `rows` names (bindRelationParams): a bind
+ * term of one is its rows, and a match of one is a match of an import of its identity query (`identity`), the
+ * parameter bound to its rows. The rows are written in the namespace that binds them, so they are no use of the
+ * parameter and are never bound again.
+ */
+class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc, FieldDesc> {
+	readonly #rows: ReadonlyMap<string, RowsDesc>
+	readonly #identity: (source: RelationParamSourceDesc) => QueryDesc
+
+	constructor(
+		rows: ReadonlyMap<string, RowsDesc>,
+		identity: (source: RelationParamSourceDesc) => QueryDesc
+	) {
+		super(spelledAsIs, unwalkedImports)
+		this.#rows = rows
+		this.#identity = identity
+	}
+
+	override source(s: SourceDesc): SourceDesc {
+		if (s.kind !== "param" && s.kind !== "paramOf") {
+			return super.source(s)
+		}
+		const rows = this.#rows.get(s.name)
+		return rows === undefined
+			? s
+			: { kind: "query", query: this.#identity(s), bind: { [s.name]: rows } }
+	}
+
+	override bound(b: BindTermDesc): BindTermDesc {
+		return b.kind === "relationParam" ? (this.#rows.get(b.name) ?? b) : super.bound(b)
+	}
+}
+
+/**
+ * The query with each of its own uses of the relation parameters `rows` names bound to their rows (ChangeSet.bind), in
+ * the one binding form an import's bind map writes (RelationTermDesc): a bind term of one is its rows, and a match of
+ * one a match of an import of its identity query (identityQuery, built by `identity`), the parameter bound to its
+ * rows. An imported query keeps its own parameters, and only the terms of its bind map are bound. Frozen throughout, as
+ * renameQueryParams' query is.
+ */
+export const bindRelationParams = (
+	q: QueryDesc,
+	rows: ReadonlyMap<string, RowsDesc>,
+	identity: (source: RelationParamSourceDesc) => QueryDesc
+): QueryDesc => deepFreeze(new RelationBinding(rows, identity).query(q))
+
+/**
+ * A walk that reads a query's own parameters with what each use states of it (passedThrough): a scalar parameter's
+ * declared type, a relation parameter as one, and a take bound to a parameter, whose type no use declares.
+ */
+class ParamUses extends ParamWalk<Spelled["param"], FieldDesc, FieldDesc> {
+	/** Each parameter's first use, as the term that passes it through. */
+	readonly terms = new Map<string, BindTermDesc>()
+	/** The parameters a take is bound to. */
+	readonly takes = new Set<string>()
+
+	constructor() {
+		super(spelledAsIs, unwalkedImports)
+	}
+
+	#use(name: string, term: BindTermDesc): void {
+		if (!this.terms.has(name)) {
+			this.terms.set(name, term)
+		}
+	}
+
+	override stage(s: QueryStageDesc): QueryStageDesc {
+		if (s.kind === "take" && s.take.kind === "param") {
+			this.takes.add(s.take.name)
+		}
+		return super.stage(s)
+	}
+
+	override source(s: SourceDesc): SourceDesc {
+		if (s.kind === "param" || s.kind === "paramOf") {
+			this.#use(s.name, { kind: "relationParam", name: s.name })
+		}
+		return super.source(s)
+	}
+
+	override bound(b: BindTermDesc): BindTermDesc {
+		if (b.kind === "relationParam") {
+			this.#use(b.name, b)
+		}
+		return super.bound(b)
+	}
+
+	override expr(e: ExprDesc): ExprDesc {
+		if (e.kind === "param") {
+			this.#use(e.name, { kind: "param", name: e.name, type: e.type })
+		}
+		return super.expr(e)
+	}
+}
+
+/**
+ * The bind map that passes each of a query's own parameters through under its own name (ChangeSet.bind): a scalar
+ * parameter to the parameter of its name at its declared type, a relation parameter to the relation parameter of its
+ * name, so the query's rows, imported under it, read the parameters of the namespace that imports them, where one name
+ * is one parameter and its uses agree. A take bound to a parameter is stated by no use's type, so a query with one passes
+ * nothing through: `untyped` names it.
+ */
+export const passedThrough = (
+	q: QueryDesc
+):
+	| { readonly kind: "bind"; readonly bind: BindMapDesc }
+	| { readonly kind: "untyped"; readonly param: string } => {
+	const uses = new ParamUses()
+	uses.query(q)
+	const [untyped] = [...uses.takes].filter((name) => !uses.terms.has(name))
+	return untyped === undefined
+		? { kind: "bind", bind: Object.fromEntries(uses.terms) }
+		: { kind: "untyped", param: untyped }
+}
 
 /** A declared name: a nonempty string of storable text (core/text.ts), as every builder takes one. */
 const name = S.refine(S.nonEmptyString, isValidText, "a nonempty storable string")
@@ -2462,12 +2680,19 @@ const exprDescBody: S.Shape<ExprDesc> = S.normalized<ReadExpr, ExprDesc>(
 	exprOfRead
 )
 
-/** A bind map's binding as the decoder reads it: a read expression, or a relation parameter by name. */
-type ReadBound = ReadExpr | Exclude<BindTermDesc, ExprDesc>
+/**
+ * A bind map's binding as the decoder reads it: a read expression, a relation parameter by name, or the rows of a query
+ * under its own bind map (RelationTermDesc).
+ */
+type ReadBound = ReadExpr | RelationTermDesc
 
 const bindTermDescShape: S.Shape<BindTermDesc> = S.normalized<ReadBound, BindTermDesc>(
-	S.tagged("kind", { ...exprCases, relationParam: S.struct({ name }) }),
-	(b) => (b.kind === "relationParam" ? b : exprOfRead(b))
+	S.tagged("kind", {
+		...exprCases,
+		relationParam: S.struct({ name }),
+		rows: S.ref("a query's rows", () => importDescShape)
+	}),
+	(b) => (b.kind === "relationParam" || b.kind === "rows" ? b : exprOfRead(b))
 )
 
 /** The decoder fieldDescShape refers to (S.ref). */

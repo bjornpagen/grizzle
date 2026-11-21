@@ -7,12 +7,15 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { childLoc, locBelow, type SourceLoc } from "#compiler/core/loc.ts"
 import {
 	exprChildren,
+	type ImportDesc,
+	type Inferred,
 	type InferredExpr,
 	type InferredHead,
 	type InferredQuery,
 	type InferredRule,
 	type InferredSource,
-	type InferredStage
+	type InferredStage,
+	type Located
 } from "#compiler/ir/desc.ts"
 import { splitArgument } from "#compiler/ir/rel.ts"
 
@@ -137,12 +140,7 @@ class Structure {
 		switch (s.kind) {
 			case "query":
 			case "step":
-				this.query(s.query, { recursiveStep: false, attachment: false })
-				for (const [param, e] of entries(s.bind)) {
-					if (e.kind !== "relationParam") {
-						this.expr(e, vars, interiors, cx, childLoc(childLoc(loc, "bind"), param))
-					}
-				}
+				this.imported(s, vars, interiors, cx, loc)
 				return
 			case "interior":
 				if (!interiors.has(s.id)) {
@@ -181,12 +179,7 @@ class Structure {
 				for (const [arg, a] of entries(s.args)) {
 					const at = childLoc(childLoc(loc, "args"), arg)
 					if (a.kind === "rows") {
-						this.query(a.query, { recursiveStep: false, attachment: false })
-						for (const [param, e] of entries(a.bind)) {
-							if (e.kind !== "relationParam") {
-								this.expr(e, vars, interiors, cx, childLoc(childLoc(at, "bind"), param))
-							}
-						}
+						this.imported(a, vars, interiors, cx, at)
 					} else {
 						this.expr(a, vars, interiors, cx, at)
 					}
@@ -200,6 +193,28 @@ class Structure {
 			case "paramOf":
 			case "context":
 				return
+		}
+	}
+
+	/**
+	 * A query read under a bind map, an import's, a call's rows argument's or a relation parameter's bound rows: the
+	 * query its own scope, and its bind map read in this one, a bound query's own bind map in turn.
+	 */
+	imported(
+		s: ImportDesc<Located, Inferred>,
+		vars: ReadonlySet<string>,
+		interiors: ReadonlySet<string>,
+		cx: Context,
+		loc: SourceLoc
+	): void {
+		this.query(s.query, { recursiveStep: false, attachment: false })
+		for (const [param, e] of entries(s.bind)) {
+			const at = childLoc(childLoc(loc, "bind"), param)
+			if (e.kind === "rows") {
+				this.imported(e, vars, interiors, cx, at)
+			} else if (e.kind !== "relationParam") {
+				this.expr(e, vars, interiors, cx, at)
+			}
 		}
 	}
 
