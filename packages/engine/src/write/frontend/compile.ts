@@ -445,6 +445,28 @@ const queriesIn = (drafted: Drafted, dag: ValidDag, at: Counterpart): WriteQueri
 		})
 	})
 
+/**
+ * The queries `drafted` names over a write's analyzed DAG, each attachment judged at the delivered type the analysis
+ * restated it to (rel.ts Attach judged), which the read-backs' reader delivers, each node the frontend built read as its
+ * annotated counterpart, and that DAG. The analysis is made here and is this function's alone, in no frame or scope of
+ * its caller's, so it is unreachable once the queries are read, before the restatement analyzes the DAG again (made by
+ * the caller and passed in, it stayed in the caller's frame as long as the compile ran): a write's compile holds one analysis at a time, where the first,
+ * held by the compile's own scope, lived beside the second, each every node's properties (a write of edullm's endTest,
+ * 35K nodes, held two of 540 MB each).
+ */
+const analyzedQueries = (
+	drafted: Drafted,
+	structural: ValidDag,
+	analyzed: (structure: ValidDag) => LogicalAnalysis
+): { readonly dag: ValidDag; readonly queries: WriteQueries } => {
+	const analysis = analyzed(structural)
+	const judged = judgedAsDelivered(analysis.dag)
+	return {
+		dag: judged.dag,
+		queries: queriesIn(drafted, judged.dag, (node) => judged.of(analysis.of(node).node))
+	}
+}
+
 /** The queries over another form of the write DAG, and the node standing there in the place of each node they name. */
 interface Restatement {
 	readonly restated: WriteQueries
@@ -2916,11 +2938,6 @@ const compile = (
 				keyedViews: true
 			})
 		)
-	const analysis = analyzed(structural)
-	/** The analyzed DAG, each attachment judged at the delivered type the analysis restated it to (rel.ts Attach
-	 * judged), which the read-backs' reader delivers. */
-	const judged = judgedAsDelivered(analysis.dag)
-	const dag = judged.dag
 	const reads: ReadonlyArray<ReadBack> = readBacks.map((r) =>
 		Object.freeze({
 			name: r.name,
@@ -3145,7 +3162,7 @@ const compile = (
 		params: Object.freeze([...userParams.map((p) => p.id), ...slotParams])
 	}
 	/** The queries over the analyzed DAG, each node the frontend built read as its annotated counterpart. */
-	const queries = queriesIn(drafted, dag, (node) => judged.of(analysis.of(node).node))
+	const { dag, queries } = analyzedQueries(drafted, structural, analyzed)
 	/** The DAG the optimized artifact lowers: every take correlated through bind restated with its correlation explicit,
 	 * as a query's is, so the take policy sees its parent set, and analyzed alike. The rewrite reads the analyzed DAG's
 	 * roots, every described source and read-back, and keeps every node's label; each node the queries name is read as

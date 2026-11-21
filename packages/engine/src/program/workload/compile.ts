@@ -140,9 +140,13 @@ interface ProgramIr {
  * database's clock reads as a parameter does: its access paths are the ones a caller's value of it plans.
  */
 type ProgramPlan = {
-	readonly params: ReadonlyArray<ParamDecl>
-	/** The roots of its checked IR, whose nodes' types name the text refinements it is served with (servedTypesOf). */
-	readonly roots: ReadonlyArray<RelNode>
+	/**
+	 * The types it is served with, read off its declared parameters and the nodes of its checked IR when it is planned
+	 * (servedTypesOf): the plan holds them, never the IR, which a workload's plans held every one of until its last
+	 * program was planned, each query's whole DAG beside the ChangeSet compiles that came after it (edullm's qti, 1 GB
+	 * of the 4 GiB heap at its largest write's compile).
+	 */
+	readonly served: ServedTypes
 } & (
 	| { readonly kind: "query"; readonly access: ProgramAccess; readonly footprint: Footprint }
 	| { readonly kind: "answered"; readonly access: ProgramAccess }
@@ -150,6 +154,7 @@ type ProgramPlan = {
 )
 
 const programPlan = (
+	name: string,
 	program: ProgramDesc,
 	reads: WorkloadReads,
 	clock: ClockBinding
@@ -160,7 +165,7 @@ const programPlan = (
 			const { kind, query } = program
 			return Result.map(queryRead(query, reads, clock), (read): ProgramPlan => {
 				const ir = rowsIr(read, isOrderedQuery(query))
-				const planned = { params: read.params, roots: ir.roots, access: irAccess(ir) }
+				const planned = { served: servedTypesOf(name, read.params, ir.roots), access: irAccess(ir) }
 				switch (kind) {
 					case "query":
 						return {
@@ -184,14 +189,13 @@ const programPlan = (
 				),
 				(ir): ProgramPlan => ({
 					kind: "changeSet",
-					params: ir.params,
-					roots: ir.roots,
+					served: servedTypesOf(name, ir.params, ir.roots),
 					access: irAccess(ir)
 				})
 			)
 		}
 		case "clocked":
-			return programPlan(program.program, reads, program.clock)
+			return programPlan(name, program.program, reads, program.clock)
 	}
 }
 
@@ -467,7 +471,7 @@ const workloadPlans = (
 	const programs: Array<readonly [string, ProgramPlan]> = []
 	for (const [name, program] of Object.entries(workload.value.desc.programs)) {
 		const planned = Result.mapError(
-			programPlan(program, reads.value, noClock),
+			programPlan(name, program, reads.value, noClock),
 			(e): WorkloadPlanRefused => ({
 				kind: "program",
 				workload: input,
@@ -584,9 +588,10 @@ export const compileWorkload = (
 		access[login.login] = Object.fromEntries(
 			programs.value.map(([name, planned]) => [name, planned.access] as const)
 		)
-		for (const [name, planned] of programs.value) {
-			served.push(servedTypesOf(name, planned.params, planned.roots))
-		}
+		appendAll(
+			served,
+			programs.value.map(([, planned]) => planned.served)
+		)
 		footprints.set(
 			login.login,
 			new Map(

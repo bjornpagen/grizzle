@@ -13,6 +13,18 @@
  * compile's folds are its own. Kill: the frontend holds the counterpart that read the analyses beside its map, as it
  * did, so every compiled write holds its restatement's folds.
  *
+ * And a write's compile holds one analysis at a time (write/frontend/compile.ts analyzedQueries): the write's first
+ * analysis is made and read inside the helper that reads its queries, in no frame or scope of the compile's, so when the
+ * restatement analyzes the DAG again the first is unreachable, where the compile's scope held it beside the second,
+ * every node's properties twice (edullm's qti generate: 1.63 GB of its 3.44 GB live at the 4 GiB heap's limit). Per
+ * case, over the same box: the folds alive when the restatement's analysis starts outnumber those alive when the first
+ * analysis started by fewer than one analysis holds, counted by V8 after a full collection at each read of the evidence
+ * the analyses are made under (the laws' theory `evidence`, read once by each); what one analysis holds is counted in
+ * the case, the folds alive with an analysis of the compiled write's DAG held, less those alive before it. Fewer, not
+ * none: a fold the restatement's own rewrite holds (lower/shapes/take/decorrelate.ts, its editor) may be alive at the
+ * second start, and is none of the first analysis's. Kill: the first analysis made by the compile and handed to the
+ * helper, so the compile's scope holds it while the second is made.
+ *
  * Features: one member, several members.
  */
 
@@ -22,10 +34,13 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Fold } from "#compiler/ir/fold.ts"
+import { analyzeLogical } from "#compiler/logical/annotate.ts"
+import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	type FixtureSchema,
+	frontendOptions,
 	realityWrite,
 	testArtifacts,
 	testCompile
@@ -103,6 +118,82 @@ export const aCompiledWriteHoldsNoneOfItsCompilesFoldsThoseAliveWhileItIsHeldAre
 					original: "\treturn { restated, restate }\n}",
 					replacement: "\treturn { restated, restate, at }\n}",
 					why: "The frontend holds the counterpart that read the restatement's analyses beside its map, as it held it before, so every compiled write holds two analyses' folds and the folds alive grow by them."
+				}
+			]
+		}
+	)
+
+/**
+ * The folds alive at each read of the evidence a write's analyses are made under, as its frontend compiles, and the
+ * folds one analysis holds: alive with an analysis of the compiled write's DAG held, less those alive before it.
+ */
+const foldsAtAnalyses = (
+	written: Written
+): { readonly counts: ReadonlyArray<number>; readonly held: number } => {
+	const options = frontendOptions(written.schema)
+	const { theory } = options.laws
+	const counts: Array<number> = []
+	const watched = {
+		...theory,
+		get evidence() {
+			counts.push(foldsAlive())
+			return theory.evidence
+		}
+	}
+	const frontend = succeeded(
+		compileChangeSet(checking(written.schema), descOf(written.change), {
+			...options,
+			laws: { ...options.laws, theory: watched }
+		})
+	)
+	const before = foldsAlive()
+	const analysis = succeeded(
+		analyzeLogical(frontend.ir.dag, { context: "transaction", containments: [], keyedViews: true })
+	)
+	const held = foldsAlive() - before
+	assert.ok(analysis.dag.roots.length >= 0, "the analysis is held while its folds are counted")
+	return { counts, held }
+}
+
+/** A write's compile holds one analysis at a time: the folds alive when its restatement's analysis starts are those alive when its first did. */
+export const aWritesCompileHoldsOneAnalysisAtATimeTheFoldsAliveWhenItsRestatementsAnalysisStartsAreThoseAliveWhenItsFirstDid =
+	property.exhaust(
+		finite((source) =>
+			source.draw(
+				element<Shape>([
+					"one reader of a call",
+					"eight readers of a call",
+					"a chain of eight levels",
+					"the worked example"
+				])
+			)
+		),
+		{
+			needs: {},
+			situations: ["one member", "several members"],
+			check: (_, k: Case<Feature>) => (shape) =>
+				Effect.sync(() => {
+					const written = writtenOf(shape)
+					k.note(written.members === 1 ? "one member" : "several members")
+					const { counts, held } = foldsAtAnalyses(written)
+					const [first, second, ...rest] = counts
+					assert.equal(rest.length, 0, `${shape}: two analyses, the first and the restatement's`)
+					assert.ok(held > 0, `${shape}: an analysis holds folds`)
+					assert.ok(
+						first !== undefined && second !== undefined && second - first < held,
+						`${shape}: the first analysis is not alive at the second (${first} then ${second}, an analysis ${held})`
+					)
+				}),
+			oracle: { kind: "specification", name: "an analysis read is an analysis dropped" },
+			box: "one and eight readers of one call of eight bound imports, a chain of eight bound levels, and the worked example's put, delete and insert",
+			kept: [],
+			kills: [
+				{
+					file: "packages/engine/src/write/frontend/compile.ts",
+					original: "\tconst { dag, queries } = analyzedQueries(drafted, structural, analyzed)\n",
+					replacement:
+						"\tconst first = analyzed(structural)\n\tconst { dag, queries } = analyzedQueries(drafted, structural, () => first)\n",
+					why: "The compile makes the first analysis and hands it to the helper, so its scope holds it while the restatement analyzes the DAG again: two analyses alive at once, the folds alive at the second outnumbering those at the first."
 				}
 			]
 		}
