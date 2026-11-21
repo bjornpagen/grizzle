@@ -9,7 +9,7 @@
  * - Each statement's canonical text is read once, where the statement is built (schema/statements.ts), and carried in
  *   the level's content: schema(...) reads none, and `grizzle generate` and `grizzle check` own the schema once,
  *   reading the texts its content carries (schema/own.ts ownBuilt), none again; they hash each level's fingerprint
- *   (core/fingerprint.ts schemaLevel), the snapshot's encoding of it; no level check or program they compile reads a
+ *   (core/fingerprint.ts schemaFingerprint), the snapshot's encoding of it; no level check or program they compile reads a
  *   description's text (descText). generate and check compile the installation's basis once (its law model and closed
  *   constants, physical/install/plan.ts installBasis), packing every closed relation's cells once
  *   (physical/ddl/constants.ts planClosed), plan the installation three times over it (commandPlans), and build the
@@ -121,6 +121,13 @@ export const startupWorkReadsASchemasContentOnceCompilesItOncePerCommandNothingF
 				replacement:
 					'\tResult.flatMap(\n\t\tResult.flatMap(compileLaws(owned, slice, { kind: "planned" }), () =>\n\t\t\tcompileLaws(owned, slice, { kind: "planned" })\n\t\t),\n\t\t(model) => basisOf(model, codes)\n\t)',
 				why: "The installation basis compiles its law model twice."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: "\t\tfingerprint: unwrap(schemaFingerprint(identities, level))\n",
+				replacement:
+					"\t\tfingerprint: unwrap(\n\t\t\tResult.flatMap(schemaFingerprint(identities, level), () => schemaFingerprint(identities, level))\n\t\t)\n",
+				why: "generate and check hash each level's fingerprint twice; the count of fingerprints fails."
 			},
 			{
 				file: "packages/grizzle/src/cli/generate.ts",
