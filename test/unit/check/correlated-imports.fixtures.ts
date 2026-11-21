@@ -30,7 +30,7 @@ const run = fn("run", {
 const Item = relation("Item", { id: pg.integer, kind: pg.integer }, ["id"])
 const Value = relation("Value", { item: pg.integer, k: pg.bigint, v: pg.bigint }, ["item", "k"])
 
-export const Correlated = schema("CorrelatedImports", [Item, Value, run], [])
+const Correlated = schema("CorrelatedImports", [Item, Value, run], [])
 
 /** The values of one item, by its id, their v at least `j`: the `j`-th argument of a run, bound to its reader's item. */
 const argumentOf = (j: bigint) =>
@@ -57,7 +57,7 @@ export type Bound = 1 | 3
  * `bound` of whose arguments are each an import bound to the item's id, a term of the parent row, the rest closed: as
  * edullm's session start reads its run's variables and values, two fields of one call bound to the parent's terms.
  */
-export const fieldsQueryOf = (bound: Bound, fields: Fields): InferredQuery => {
+const fieldsQueryOf = (bound: Bound, fields: Fields): InferredQuery => {
 	const q = query(Correlated)
 		.rule((r) => {
 			const { id, kind } = v(Item, "item")
@@ -94,7 +94,7 @@ export const checkedNodes = (bound: Bound, fields: Fields): number =>
 /** A session's seeds, by its id: Seed is each item's seed. */
 const Seed = relation("Seed", { id: pg.integer, seed: pg.integer }, ["id"])
 
-export const Nested = schema("NestedCorrelatedImports", [Item, Seed], [])
+const Nested = schema("NestedCorrelatedImports", [Item, Seed], [])
 
 /** A lookup's size: one match of Seed, or three, each its own copy of the seed. */
 export type LookupSize = "small" | "large"
@@ -137,7 +137,7 @@ export const readersGen: Gen<Readers> = element([1, 2, 3, 4] as const)
  * to its parent's id: the lookup bound to the item's id at two removes, as edullm's session start's run arguments each
  * import the session lookup bound to their own parameters, which the run binds to the parent row's terms.
  */
-export const nestedQueryOf = (size: LookupSize, readers: Readers): InferredQuery => {
+const nestedQueryOf = (size: LookupSize, readers: Readers): InferredQuery => {
 	const q = query(Nested)
 		.rule((r) => {
 			const { id, kind } = v(Item, "item")

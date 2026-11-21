@@ -1256,7 +1256,7 @@ const within = (columns: ReadonlyArray<SideColumn>, outer: ReadonlyArray<SideCol
  * column that holds the rest further in, which reads that column's every row for each probe. `index` is unique wherever
  * this reads it.
  */
-export const servesProbeBy =
+const servesProbeBy =
 	<C>(same: (a: C, b: C) => boolean) =>
 	(index: NonEmptyReadonlyArray<C>, probe: NonEmptyReadonlyArray<C>): boolean => {
 		const holds = (columns: ReadonlyArray<C>, outer: ReadonlyArray<C>): boolean =>
