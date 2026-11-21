@@ -27,7 +27,7 @@
 		"#cli-generator/*": "./packages/cli-generator/*"
 	},
 	"scripts": {
-		"prepare": "effect-tsgo patch && lefthook install",
+		"prepare": "effect-tsgo patch",
 		"types": "toolchain-turbo run typecheck --filter=./packages/* --filter=//",
 		"check": "toolchain-turbo run typecheck workspace-gate oxlint format dead-code architecture dedupe load runtime-gate benchmark --filter=./packages/* --filter=// --continue=dependencies-successful",
 		"typecheck": "toolchain-typecheck -p tsconfig.json",
