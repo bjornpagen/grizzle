@@ -3,7 +3,6 @@ import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { atMost } from "#compiler/ir/cardinality.ts"
 import { localCertificate, makeCertificate } from "#compiler/ir/certificate.ts"
-import { nodesByLabel, topoOrder } from "#compiler/ir/dag.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import {
@@ -11,7 +10,6 @@ import {
 	inputsOf,
 	type NodeOf,
 	type Occurrence,
-	type RelDag,
 	type RelNode,
 	type TakeBound,
 	type VarDecl
@@ -28,6 +26,7 @@ import {
 	outputNames,
 	type InputSource
 } from "#compiler/lower/conservative/context.ts"
+import type { DagIndex } from "#compiler/lower/conservative/dag-index.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { orderItemsOf, partialOrder } from "#compiler/lower/conservative/take/order.ts"
 import type { ShapeFacts } from "#compiler/lower/shapes/share/physical.ts"
@@ -370,22 +369,6 @@ const rowsBound = (root: RelNode, facts: ShapeFacts): RowsBound | undefined =>
 		}
 	}).of(root)
 
-/** The nodes that read each node's rows as a data input, each reader once. */
-const readersOf = (dag: RelDag): ReadonlyMap<RelNode, ReadonlyArray<RelNode>> => {
-	const readers = new Map<RelNode, Array<RelNode>>()
-	for (const n of topoOrder(dag)) {
-		for (const input of new Set(inputsOf(n))) {
-			const list = readers.get(input)
-			if (list === undefined) {
-				readers.set(input, [n])
-			} else {
-				list.push(n)
-			}
-		}
-	}
-	return readers
-}
-
 /** One step up the chain that reads a region's rows: the bound found (or none), or the reader to look above. */
 type RestrictionStep =
 	| { readonly kind: "found"; readonly bound: RowsBound | undefined }
@@ -404,16 +387,15 @@ const unrestricted: RestrictionStep = { kind: "found", bound: undefined }
  * at a node read by none or by several, or at the first reader that neither restricts nor passes the rows on.
  */
 const restrictionAbove = (
-	dag: RelDag,
+	index: DagIndex,
 	region: RelNode,
 	facts: ShapeFacts
 ): RowsBound | undefined => {
-	const readers = readersOf(dag)
 	const step = (node: RelNode): RestrictionStep => {
-		if (dag.roots.includes(node)) {
+		if (index.isRoot(node)) {
 			return unrestricted
 		}
-		const [reader, ...others] = readers.get(node) ?? []
+		const [reader, ...others] = index.readersOf(node)
 		if (reader === undefined || others.length > 0) {
 			return unrestricted
 		}
@@ -482,7 +464,7 @@ const readsEnclosingScope = (region: NodeOf<"MatchRegion">): boolean =>
  * parents per enclosing row: the few parents the LATERAL probe is for, whatever the region's sources.
  */
 export const parentSetOf = (
-	dag: RelDag,
+	index: DagIndex,
 	take: NodeOf<"Take">,
 	facts: ShapeFacts
 ): ParentSet<RelationInput> => {
@@ -491,8 +473,8 @@ export const parentSetOf = (
 		return { kind: "uncorrelated" }
 	}
 	const referenced = new Set<NodeId>(outer.flatMap((c) => c.expr.deps.nodes))
-	for (const node of topoOrder(dag)) {
-		if (node.kind !== "MatchRegion" || !node.occurrences.some((o) => o.source === take)) {
+	for (const node of index.readersOf(take)) {
+		if (node.kind !== "MatchRegion") {
 			continue
 		}
 		if (readsEnclosingScope(node)) {
@@ -502,7 +484,7 @@ export const parentSetOf = (
 			(o) => o.source !== take && !isCorrelatedSource(o.source)
 		)
 		const b = occurrencesBound(parents, facts)
-		const restriction = b.open === 0 ? undefined : restrictionAbove(dag, node, facts)
+		const restriction = b.open === 0 ? undefined : restrictionAbove(index, node, facts)
 		if (b.open > 0 && restriction === undefined) {
 			return { kind: "whole" }
 		}
@@ -525,10 +507,9 @@ export const parentSetOf = (
 		return { kind: "whole" }
 	}
 	/** The nodes the correlation names, by label: names read tolerantly, a node unknown bounding nothing. */
-	const labels = nodesByLabel(dag)
 	let max = 1n
 	for (const id of referenced) {
-		const named = labels.get(id)
+		const named = index.labeled(id)
 		const card = named === undefined ? undefined : facts.maxCard(named)
 		if (card === undefined || card.kind === "unbounded") {
 			return { kind: "whole" }
@@ -588,14 +569,13 @@ const armBoundable = (cx: LowerContext, node: NodeOf<"Take">): NodeOf<"Union"> |
 		return undefined
 	}
 	const input = node.input
-	if (input.kind !== "Union" || input.heading.length === 0 || cx.dag.roots.includes(input)) {
+	if (input.kind !== "Union" || input.heading.length === 0 || cx.index.isRoot(input)) {
 		return undefined
 	}
 	if (input.groups.reduce((n, g) => n + g.arms.length, 0) < 2) {
 		return undefined
 	}
-	const readers = topoOrder(cx.dag).filter((n) => inputsOf(n).includes(input))
-	return readers.length === 1 ? input : undefined
+	return cx.index.readersOf(input).length === 1 ? input : undefined
 }
 
 /**

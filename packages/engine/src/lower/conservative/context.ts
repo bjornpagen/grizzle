@@ -34,6 +34,7 @@ import {
 import { refinementText, regexOf, type RegexRef, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
+import { DagIndex } from "#compiler/lower/conservative/dag-index.ts"
 import {
 	judgesLaw,
 	type ArrayPart,
@@ -434,6 +435,10 @@ interface Shared {
 	scopes: Fold<RelNode, NodeScope> | undefined
 	/** The evaluation keys of the DAG's reads of fields of calls (call/keys.ts), made at the first key read. */
 	evaluationKeys: EvaluationKeys | undefined
+	/** What the lowering asks of the DAG about a node beside the node (dag-index.ts DagIndex), made at the first question. */
+	index: DagIndex | undefined
+	/** How many nodes the builds of `index` visited, summed over every build. */
+	indexVisits: number
 }
 
 /**
@@ -663,7 +668,9 @@ export class LowerContext {
 			evaluations: undefined,
 			free: new Map(),
 			scopes: undefined,
-			evaluationKeys: undefined
+			evaluationKeys: undefined,
+			index: undefined,
+			indexVisits: 0
 		}
 		this.#scope = {
 			sublinkDepth: 0,
@@ -752,10 +759,6 @@ export class LowerContext {
 		})
 	}
 
-	/**
-	 * The evaluation of the call of evaluation key `key` a query around the scope hosts: the innermost host's that holds
-	 * it, undefined where none does, so the read evaluates the call itself.
-	 */
 	/** The evaluation key of `read`, a read of a field of a call (call/keys.ts EvaluationKeys). */
 	evaluationKey(read: NodeOf<"Call">): string {
 		const keys = this.#shared.evaluationKeys ?? new EvaluationKeys(this.dag)
@@ -763,6 +766,30 @@ export class LowerContext {
 		return keys.of(read)
 	}
 
+	/**
+	 * What the lowering asks of its DAG about a node beside the node itself (dag-index.ts DagIndex): built at its first
+	 * question, and every later question of every scope and statement of the lowering read off it.
+	 */
+	get index(): DagIndex {
+		const made = this.#shared.index
+		if (made !== undefined) {
+			return made
+		}
+		const index = new DagIndex(this.dag)
+		this.#shared.index = index
+		this.#shared.indexVisits += index.visited
+		return index
+	}
+
+	/** How many nodes the lowering's builds of its index (`index`) visited: the DAG's nodes once, whatever it asks. */
+	get indexVisits(): number {
+		return this.#shared.indexVisits
+	}
+
+	/**
+	 * The evaluation of the call of evaluation key `key` a query around the scope hosts: the innermost host's that holds
+	 * it, undefined where none does, so the read evaluates the call itself.
+	 */
 	hostedEvaluation(read: NodeOf<"Call">, key: string): HostedEvaluation | undefined {
 		for (let host = this.#scope.evaluations; host !== undefined; host = host.outer) {
 			const hosted = host.evaluation(read, key, this)

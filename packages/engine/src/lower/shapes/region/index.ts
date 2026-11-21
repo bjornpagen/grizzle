@@ -3,9 +3,8 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import { topoOrder } from "#compiler/ir/dag.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { exprsOf, inputsOf, type NodeOf, type RelNode, type VarDecl } from "#compiler/ir/rel.ts"
+import type { NodeOf, RelNode, VarDecl } from "#compiler/ir/rel.ts"
 import { baseOf, type Carrier } from "#compiler/ir/scalar.ts"
 import { conjuncts } from "#compiler/logical/props.ts"
 import {
@@ -287,9 +286,9 @@ const readerComparisons = (
 	cx: LowerContext,
 	fns: ReadonlySet<string>
 ): ReadonlyArray<ReaderComparison> => {
-	const nodes = topoOrder(cx.dag)
-	const [filter, ...others] = nodes.filter((n) => inputsOf(n).includes(node))
-	if (filter === undefined || others.length > 0 || cx.dag.roots.includes(node)) {
+	const index = cx.index
+	const [filter, ...others] = index.readersOf(node)
+	if (filter === undefined || others.length > 0 || index.isRoot(node)) {
 		return []
 	}
 	if (filter.kind !== "Filter") {
@@ -297,8 +296,7 @@ const readerComparisons = (
 	}
 	/** Every expression that reads the region's columns is one of the filter's own. */
 	const own = new Set(exprClosure([filter.pred]))
-	const readsRegion = (e: ScalarExpr): boolean => e.kind === "column" && e.column.node === node.id
-	if (!exprClosure(nodes.flatMap((n) => exprsOf(n))).every((e) => !readsRegion(e) || own.has(e))) {
+	if (!index.columnReadsOf(node.id).every((e) => own.has(e))) {
 		return []
 	}
 	return conjuncts(filter.pred).flatMap((e) => {

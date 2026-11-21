@@ -639,7 +639,7 @@ const parentsOf = <I extends ChoiceInput>(
 			return context.parents
 		}
 	}
-	return parentSetOf(cx.dag, take, facts)
+	return parentSetOf(cx.index, take, facts)
 }
 
 /**
