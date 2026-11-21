@@ -24,6 +24,7 @@ import type {
 	ParamsOfTerm,
 	ParamType,
 	Refusal,
+	RequireBound,
 	SchemaSource,
 	Simplify,
 	Source,
@@ -42,7 +43,7 @@ import type {
 } from "#compiler/types/evidence/evidence.ts"
 import type { FieldBase, LiteralOf } from "#compiler/types/fields/field.ts"
 import type { AllDigits, NumeralAbove } from "#compiler/types/fields/source.ts"
-import type { RequireBound, Rule } from "#compiler/types/query/rule.ts"
+import type { Rule } from "#compiler/types/query/rule.ts"
 import type {
 	Aggregate,
 	NoStrayParameters,

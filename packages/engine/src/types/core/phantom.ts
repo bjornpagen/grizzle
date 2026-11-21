@@ -674,6 +674,22 @@ export interface SchemaSource<in out S, out Head, out SP = unknown> extends Buil
 		| undefined
 }
 
+/**
+ * What a query read by another must be: one whose parameters are all bound. A query of no parameters is one, and so is
+ * a bound import, `Q.bind({ ... })`, whose bind map binds every one of them (Query.bind's BindingsFor). The engine
+ * binds an imported query's parameters by its bind map alone (check/checker.ts #resolveParam), never by name from
+ * the importing rule's, so a query of parameters passed unbound is refused wherever it stands for rows: where a rule
+ * matches it (types/query/rule.ts MatchCheck), where a call passes it as rows (types/compute/call.ts ExactCallArgs), and
+ * where a bind map binds it to an import's relation parameter (types/query/query.ts RelationTerm). Any other value, a
+ * term among them, carries no parameter map of its own, and is no query this rule reads.
+ */
+export type RequireBound<R> =
+	R extends Phantom<{ readonly params: infer QP }>
+		? [keyof QP] extends [never]
+			? unknown
+			: Refusal<"bind the query's parameters before matching it or passing it as rows: Q.bind({ ... })">
+		: unknown
+
 /** A primitive JavaScript value: a string, a number, a bigint or a boolean. */
 export type Literal = string | number | bigint | boolean
 

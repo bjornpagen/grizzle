@@ -9,6 +9,7 @@ import type {
 	ParamsContribution,
 	ParamsOfTerm,
 	Refusal,
+	RequireBound,
 	Source,
 	Term,
 	UnhostedOrigin,
@@ -39,14 +40,21 @@ type CallArgOf<T> =
 /** The arguments of a call of a function of arguments Args, each by its declared name, every one of them. */
 export type CallArgs<Args> = { readonly [K in keyof Args]: CallArgOf<Args[K]> }
 
-/** Every argument the function declares and none other: a stray key is refused at its key. */
+/**
+ * Every argument the function declares and none other, each bound: a stray key is refused at its key, and so is a rows
+ * argument that is a query of parameters passed unbound (RequireBound), since the engine binds an imported query's
+ * parameters by its bind map alone, never by name from the calling rule's.
+ */
 export type ExactCallArgs<A, Args> = {
 	readonly [K in keyof A]: K extends keyof Args
-		? unknown
+		? RequireBound<A[K]>
 		: Refusal<"an argument the function declares">
 }
 
-/** The parameters a call's arguments need: each term's own, and what each bound query contributes. */
+/**
+ * The parameters a call's arguments need: each term's own, and what each bound query contributes, its bind map's
+ * (BoundSource); a query of no parameters, the one other rows argument ExactCallArgs admits, contributes none.
+ */
 export type CallParams<A> = UnionToIntersection<
 	{
 		[K in keyof A]-?: ParamsContribution<

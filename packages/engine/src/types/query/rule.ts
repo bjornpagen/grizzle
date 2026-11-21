@@ -34,6 +34,7 @@ import type {
 	ParamsOfTerm,
 	Predicate,
 	Refusal,
+	RequireBound,
 	Simplify,
 	Source,
 	SqlOfTerm,
@@ -265,14 +266,6 @@ type LevelOfPhantom<S, B> = "schema" extends keyof B
 		? unknown
 		: Refusal<"the query is not over a level of this query's schema">
 	: unknown
-
-/** A parameterized query is bound before it stands for rows: matched, or bound to an import's relation parameter. */
-export type RequireBound<R> =
-	R extends Phantom<{ readonly params: infer QP }>
-		? [keyof QP] extends [never]
-			? unknown
-			: Refusal<"bind the query's parameters before matching it: Q.bind({ ... })">
-		: unknown
 
 /**
  * What a rule checks of a source of kind K it matches or negates: an ordinary relation is one of the schema's, held by

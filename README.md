@@ -3795,7 +3795,11 @@ result's type stands. `Fn.rows(f, args)` is the rows of a function that returns 
 matches as it matches a bound query. `Fn.row(f, args)` is the fields of the one row a function returns: a
 record of sources, one for each field of the row that holds rows of a heading of values. Each argument is named as the
 function declares it, every one of them and no other: a value is a term, a parameter or a JavaScript value, as a bind
-map takes one; rows are a query, or a bound query, whose heading holds the argument's fields.
+map takes one; rows are a query, or a bound query, whose heading holds the argument's fields. A rows argument's
+parameters are all bound, as a matched query's are: a query of parameters is passed as `Q.bind({ ... })`, each bound
+to a parameter, a variable or a constant of the calling rule, since the call binds them by its bind map alone and
+never by name from the caller's own. Passed unbound, it is a type error ("bind the query's parameters before
+matching it or passing it as rows") and, from JavaScript, `MalformedDescription`.
 
 ```ts
 /** A document, by its slug. */

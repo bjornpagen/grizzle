@@ -131,7 +131,7 @@ export const refusals = [
 	"approximateNearest over one rule's projection; this source is an aggregate rule, whose output is a nonlinear fold rather than a distance of one stored vector",
 	"approximateNearest over one rule's projection; this source is another approximate search",
 	"arms of different headings share a field that holds a different constant in each",
-	"bind the query's parameters before matching it: Q.bind({ ... })",
+	"bind the query's parameters before matching it or passing it as rows: Q.bind({ ... })",
 	"bytes are stored only, written and read back whole: no key, rule, computation, parameter or filter reads them",
 	"clocked binds at least one parameter of the program to the database's clock",
 	"clocked binds only parameters of the program whose values are bigints: bigint or a contract over it",

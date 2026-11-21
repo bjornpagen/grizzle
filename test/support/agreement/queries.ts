@@ -3226,7 +3226,9 @@ const refusalOf = (spec: QuerySpec, reason: CompileReason): RefusedQuery | undef
 				: undefined
 		case "unboundImport":
 			return malformed && "path" in reason.at && reason.at.path[0] === "bindings"
-				? named("bind the query's parameters before matching it: Q.bind({ ... })")
+				? named(
+						"bind the query's parameters before matching it or passing it as rows: Q.bind({ ... })"
+					)
 				: undefined
 		case "allenTerm":
 			return malformed && label === "r.allen" ? named("a span term is required") : undefined
