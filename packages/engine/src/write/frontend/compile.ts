@@ -807,7 +807,13 @@ interface CheckedMember {
 				readonly kind: "enumerated"
 				readonly member: Extract<FactsMemberDesc["member"], { readonly kind: "array" | "stream" }>
 		  }
-		| { readonly kind: "described"; readonly query: LogicalQuery; readonly root: RelNode }
+		| {
+				readonly kind: "described"
+				/** Its checked query's root in the write DAG, where the merge renamed it: the member's own checked DAG, which
+				 * no reader past the merge reads, is not held, so the compile holds the write DAG and no member's DAG beside
+				 * it. */
+				readonly root: RelNode
+		  }
 }
 
 /** What an action reads before its source is built: its enumerated slot alone, or the roots of its described members,
@@ -1687,7 +1693,7 @@ const compile = (
 					member: { kind: "query", query: describedQuery },
 					loc
 				},
-				source: { kind: "described", query, root: merger.add(query) }
+				source: { kind: "described", root: merger.add(query) }
 			}
 		})
 	)
