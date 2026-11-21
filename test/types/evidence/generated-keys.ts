@@ -83,6 +83,21 @@ const Ref = relation.generated(
 	})
 )
 const Refs = schema("Refs", [Ref], [key(on(Ref, "ad", "abd")), key(on(Ref, "xd"))])
+
+/**
+ * The type a parameter pinning each column is of: a written column's own descriptor, and a generated one's declared
+ * type, which a parameter takes, a generated field being no descriptor; as the JavaScript view's value and as the
+ * program spells it.
+ */
+const paramTypes: Readonly<Record<Column, { readonly value: unknown; readonly spelled: string }>> =
+	{
+		a: { value: Ref.fields.a, spelled: "Ref.fields.a" },
+		b: { value: Ref.fields.b, spelled: "Ref.fields.b" },
+		x: { value: Ref.fields.x, spelled: "Ref.fields.x" },
+		ad: { value: sha256, spelled: "sha256" },
+		abd: { value: sha256, spelled: "sha256" },
+		xd: { value: pg["double precision"], spelled: 'pg["double precision"]' }
+	}
 const artifacts = succeeded(
 	testArtifacts(Refs, testCompile),
 	"the generated-key program's artifacts"
@@ -94,7 +109,7 @@ const cellQuery = (cell: Cell): unknown =>
 		const vars = varsOver(Ref, "ref")
 		const row = Rec.fromEntries(Arr.map(bound[cell.binds], (c) => [c, vars[c]] as const))
 		return Arr.reduce(cell.pinned, r.match(Ref, row), (matched, c) =>
-			matched.where(r.eq(vars[c], r.param(c, Ref.fields[c])))
+			matched.where(r.eq(vars[c], r.param(c, paramTypes[c].value)))
 		).find(row)
 	})
 
@@ -123,7 +138,10 @@ const cellLines = (cell: Cell, index: number): ReadonlyArray<string> => {
 		`export const q${index} = query(Refs).rule((r) => {`,
 		'\tconst f = v(Ref, "ref")',
 		`\treturn r.match(Ref, ${row})${Arr.join(
-			Arr.map(cell.pinned, (c) => `.where(r.eq(f.${c}, r.param("${c}", Ref.fields.${c})))`),
+			Arr.map(
+				cell.pinned,
+				(c) => `.where(r.eq(f.${c}, r.param("${c}", ${paramTypes[c].spelled})))`
+			),
 			""
 		)}.find(${row})`,
 		"})",

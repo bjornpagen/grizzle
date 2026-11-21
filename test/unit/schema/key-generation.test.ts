@@ -33,6 +33,9 @@ import { refused, succeeded } from "#test/support/assert.ts"
 import {
 	admissionOf,
 	foreignWritings,
+	instantAdmission,
+	type InstantRead,
+	instantReadGen,
 	keyGenerationGen,
 	type KeyGenerationCase,
 	type KeyGenerationFeature,
@@ -195,6 +198,69 @@ export const aMemberOverAKeyGenerationGroupsByTheOwnersGenerationOrACopyOfIt = p
 				original: '\t\tif (g.writing.kind === "keyGenerated" && !sameGeneration(g, key)) {',
 				replacement: "\t\tif (g.writing.kind !== g.writing.kind) {",
 				why: "Every member's key generation admitted as its group, whatever it generates: a member over another read or another expression would key its rows apart from the owner its group names."
+			}
+		]
+	}
+)
+
+/**
+ * A key generation reads an instant its caller states as it read it (instant.stored), a caller field whose value the
+ * caller holds as a key head, and never its relation's clock, which the database stamps at each insert: refused,
+ * GeneratedRefused at `g`, rule keyReadsUnwritten naming `at` and the writing `instant` (analysis/schema.ts
+ * unwrittenRead). The box: Seen(id, at, seen, body) keyed by (id, at, g), g over `seen` or over `at`. Oracle: the rule
+ * restated.
+ */
+export const aKeyGenerationReadsAnInstantItsCallerStatesAndNeverItsClock = property.exhaust(
+	finite(instantReadGen),
+	{
+		needs: {},
+		situations: ["admitted: a stored instant read", "refused: the clock read"],
+		check:
+			(_, c: Case<"admitted: a stored instant read" | "refused: the clock read">) =>
+			(read: InstantRead) =>
+				Effect.sync(() => {
+					const outcome = instantAdmission(read)
+					if (read === "stored") {
+						succeeded(outcome, "a key generation over a stored instant compiles")
+						c.note("admitted: a stored instant read")
+						return
+					}
+					const reason = refused(
+						outcome,
+						"GeneratedRefused",
+						"a key generation over the clock"
+					).reason
+					if (reason._tag !== "GeneratedRefused") {
+						return assert.fail(`GeneratedRefused, not ${reason._tag}`)
+					}
+					assert.equal(reason.field, "g", "refused at the key generation")
+					assert.deepEqual<unknown>(
+						reason.rule,
+						{ kind: "keyReadsUnwritten", read: "at", writing: "instant" },
+						"refused for its read of the clock"
+					)
+					c.note("refused: the clock read")
+				}),
+		oracle: {
+			kind: "specification",
+			name: "analysis/schema.ts unwrittenRead restated: a caller field, a stored instant among them, is a key head; the clock's instant is the database's"
+		},
+		box: "Seen(id, at, seen, body) keyed by (id, at, g), at its clock, seen a stored instant, g a key generation over seen or over at",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/schema.ts",
+				original: '\t\tcase "caller":\n\t\tcase "generated":\n\t\t\treturn undefined',
+				replacement:
+					'\t\tcase "caller":\n\t\t\treturn isInstantDesc(f.desc) ? "instant" : undefined\n\t\tcase "generated":\n\t\t\treturn undefined',
+				why: "Every instant-typed caller field refused as the clock's, the rule before FIELDS-B: a key generation over an instant its caller states would not compile."
+			},
+			{
+				file: "packages/engine/src/analysis/schema.ts",
+				original: '\t\tcase "place":\n\t\tcase "instant":\n\t\t\treturn f.writing.kind',
+				replacement:
+					'\t\tcase "place":\n\t\t\treturn f.writing.kind\n\t\tcase "instant":\n\t\t\treturn undefined',
+				why: "The clock's instant read as its caller's: a key generation over it would key each row by a value the database stamps after the key is compared."
 			}
 		]
 	}

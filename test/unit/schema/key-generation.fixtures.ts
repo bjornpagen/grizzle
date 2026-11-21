@@ -6,7 +6,7 @@ import { Array as Arr, Option, Order, Result as EffectResult } from "effect"
 import { type CompileError, isCompileError } from "#compiler/core/errors.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
-import { natural, pg, place } from "#compiler/public/fields.ts"
+import { instant, natural, pg, place } from "#compiler/public/fields.ts"
 import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import {
@@ -434,6 +434,51 @@ export const foreignWritings = (c: KeyGenerationCase): ReadonlyArray<Exclude<Wri
 	Arr.filter(["drawn", "accumulated", "place", "retirement"] as const, (w) =>
 		Arr.some(c.reads, (r) => r.writing === w)
 	)
+
+/** Which instant a key generation reads: one its caller states as it read it (instant.stored), or its relation's clock. */
+export type InstantRead = "stored" | "clock"
+
+/** The field of each instant read: Seen's `seen`, a stored instant, or `at`, its clock, which its primary key holds. */
+const instantField: Readonly<Record<InstantRead, string>> = { stored: "seen", clock: "at" }
+
+/**
+ * Seen(id, at, seen, body), keyed by (id, at, g): `at` its clock, the database's instant at each insert, which a key
+ * holds after a field that orders it; `seen` an instant its caller states as it read it; and `g` a key generation over
+ * the instant `read` names, a conditional between two pieces that reads it.
+ */
+const instantSchema = (read: InstantRead): unknown =>
+	schema(
+		"Instants",
+		[
+			keyedRelation(
+				"Seen",
+				{ id: pg.integer, at: instant, seen: instant.stored, body: Body },
+				["id", "at", "g"],
+				(row) => {
+					const value = row[instantField[read]]
+					return {
+						g: generatedField(
+							Generated,
+							computeCore.cond(computeCore.eq(value, value), pieceLiteral("i"), pieceLiteral("j")),
+							[]
+						)
+					}
+				}
+			)
+		],
+		[],
+		[]
+	)
+
+/** What compiling the instants schema over the read `read` gives: its installation, or its CompileError. */
+export const instantAdmission = (read: InstantRead): Result.Result<unknown, CompileError> =>
+	compiled(() => instantSchema(read))
+
+/** The instant reads: one its caller states, and its clock. */
+const instantReads = ["stored", "clock"] as const
+
+/** A case of the instant box: which instant its key generation reads. */
+export const instantReadGen: Gen<InstantRead> = (source) => source.draw(element(instantReads))
 
 /**
  * How a family's member holds its group over an owner whose key holds a generation (INTERFACE.md §3): its own key
