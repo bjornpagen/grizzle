@@ -185,15 +185,16 @@ export const unchangedEdges = (
 
 /**
  * The nodes the roots reach through data edges, in topological order: every node after its inputs, depth-first from
- * each root in order and through each node's distinct inputs in structural order (postorder over rel.ts inputsOf),
- * each node once. A SelfRef's feedback is a name, not followed.
+ * each root in order and through each node's distinct inputs in structural order (postorder over rel.ts edgesOf, whose
+ * repeats the walk meets seen, so it walks each node's distinct inputs as inputsOf lists them, building no list of
+ * them), each node once. A SelfRef's feedback is a name, not followed.
  */
 export const topoOrder = (dag: RelDag): ReadonlyArray<RelNode> =>
-	postorder(dag.roots, (node) => inputsOf(node))
+	postorder(dag.roots, (node) => edgesOf(node))
 
 /** An editor's cells the roots reach through their current inputs, in topological order (postorder). */
 export const cellOrder = (roots: ReadonlyArray<Cell>): ReadonlyArray<Cell> =>
-	postorder(roots, (cell) => inputsOf(cell.current))
+	postorder(roots, (cell) => edgesOf(cell.current))
 
 /**
  * The nodes a DAG holds by label, built by one walk for one reader's call: the tolerant reading of a name a node holds

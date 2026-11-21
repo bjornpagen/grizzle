@@ -151,7 +151,7 @@ export const feedbackReadsOf = <V>(g: Graph<V>, order: ReadonlyArray<V>): Readon
 	const reads = new Set<V>()
 	for (const v of order) {
 		const node = g.node(v)
-		const inputs = node.kind === "Recursive" ? [node.base] : inputsOf(node)
+		const inputs = node.kind === "Recursive" ? [node.base] : edgesOf(node)
 		if (node.kind === "SelfRef" || inputs.some((i) => reads.has(i))) {
 			reads.add(v)
 		}

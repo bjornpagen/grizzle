@@ -1366,6 +1366,27 @@ export const inputsOf = <N>(n: NodeOver<EdgeRefs<N>>): ReadonlyArray<N> => {
 	return edges.length < 2 ? edges : [...new Set(edges)]
 }
 
+const noScopeExprs: ReadonlyArray<never> = Object.freeze([])
+
+/**
+ * A region's expressions, which it evaluates in its own scope: each occurrence's constants in occurrence order, then its
+ * correlated variables'; the one shared empty list where it has none, most regions' case.
+ */
+const regionExprs = <E>(
+	n: Extract<NodeOver<ExprRefs<E>>, { readonly kind: "MatchRegion" }>
+): ReadonlyArray<E> => {
+	const out: Array<E> = []
+	for (const o of n.occurrences) {
+		for (const c of o.constants) {
+			out.push(c.expr)
+		}
+	}
+	for (const c of n.correlated) {
+		out.push(c.expr)
+	}
+	return out.length === 0 ? noScopeExprs : out
+}
+
 /** The expressions a node holds itself, in structural order (mapNode's), repeats kept. */
 export const exprsOf = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 	switch (n.kind) {
@@ -1388,10 +1409,7 @@ export const exprsOf = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 		case "Step":
 			return []
 		case "MatchRegion":
-			return [
-				...n.occurrences.flatMap((o) => o.constants.map((c) => c.expr)),
-				...n.correlated.map((c) => c.expr)
-			]
+			return regionExprs(n)
 		case "Filter":
 			return [n.pred]
 		case "ProjectSet":
@@ -1456,8 +1474,6 @@ export const fieldParams = (n: NodeOver<RefKinds>): ReadonlyArray<ParamId> => {
 	}
 }
 
-const noScopeExprs: ReadonlyArray<never> = Object.freeze([])
-
 /**
  * The expressions a node evaluates in its own scope, the only ones outer values enter it through: a region's constants
  * and correlated variables, evaluated with the whole region in scope, and a take's correlation. A column reference one
@@ -1469,12 +1485,9 @@ const noScopeExprs: ReadonlyArray<never> = Object.freeze([])
 export const scopeExprs = <E>(n: NodeOver<ExprRefs<E>>): ReadonlyArray<E> => {
 	switch (n.kind) {
 		case "MatchRegion":
-			return [
-				...n.occurrences.flatMap((o) => o.constants.map((c) => c.expr)),
-				...n.correlated.map((c) => c.expr)
-			]
+			return regionExprs(n)
 		case "Take":
-			return n.correlation.map((c) => c.expr)
+			return n.correlation.length === 0 ? noScopeExprs : n.correlation.map((c) => c.expr)
 		case "Call":
 			return callValues(n.args)
 		case "Base":

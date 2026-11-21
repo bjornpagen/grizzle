@@ -18,6 +18,7 @@
  * spelling not in normal form.
  */
 
+import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import {
@@ -66,6 +67,7 @@ import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { refusalLoc, refused, succeeded, throwsDefect } from "#test/support/assert.ts"
 import { normalizeDag, toTable } from "#test/support/dag.ts"
 import { normalizeExprTable } from "#test/support/fixtures/ir/scalar.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { validateDag, validateTable } from "#test/support/oracle/dag-validate.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
 import {
@@ -97,6 +99,7 @@ import {
 } from "#test/unit/ir/dag.fixtures.ts"
 import { everyKind, fail, heading, scalarTypes } from "#test/unit/ir/fixture.ts"
 import { generatedDags } from "#test/unit/ir/population.ts"
+import { Q, Task } from "#test/unit/lower/conservative/fixtures.ts"
 
 /**
  * Traversals of generated DAGs order every reachable node after its inputs, and close expressions over their
@@ -159,8 +162,8 @@ export const traversalsOfGeneratedDAGsOrderEveryReachableNodeAfterItsInputsAndCl
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag.ts",
-				original: "\tpostorder(dag.roots, (node) => inputsOf(node))",
-				replacement: "\tpostorder(dag.roots, (node) => inputsOf(node)).toReversed()",
+				original: "\tpostorder(dag.roots, (node) => edgesOf(node))",
+				replacement: "\tpostorder(dag.roots, (node) => edgesOf(node)).toReversed()",
 				why: "topoOrder lists a node before its inputs; the traversal property fails."
 			}
 		]
@@ -269,6 +272,82 @@ export const theDependencyListsOfGeneratedNodesAndExpressionsAreTheUnionOfTheirP
 				original: "\t\ti += order <= 0 ? 1 : 0\n",
 				replacement: "\t\ti += order < 0 ? 1 : 0\n",
 				why: "The merge keeps an item both lists hold twice: the union repeats it."
+			}
+		]
+	})
+
+/**
+ * A DAG's topological order walks each node's data edges, repeats and all, and builds no list of distinct inputs
+ * (ir/dag.ts topoOrder): the walk meets a repeated input seen and passes it, so its order is the postorder over each
+ * node's distinct inputs (rel.ts inputsOf, the walk before), and a region's expressions, its scope's, are its
+ * occurrences' constants then its correlated variables' (rel.ts exprsOf, scopeExprs), built in one pass.
+ *
+ * Oracle: the postorder over inputsOf, and the region's expressions spelled as the spread they replace (second
+ * implementations: the old constructions); V8's call counts of inputsOf during the walk.
+ *
+ * Budget: 300 runs and 300 steered cases, the traversal property's, over its space.
+ */
+export const aTopologicalOrderWalksEachNodesEdgesAsThePostorderOverItsInputsAndBuildsNoInputList =
+	property.explore(generatedDags, {
+		needs: {},
+		budget: { runs: 300, steered: 300 },
+		situations: [
+			"a node reading one input twice",
+			"a region of expressions"
+		] satisfies ReadonlyArray<
+			Reached<"a node reading one input twice" | "a region of expressions">
+		>,
+		check: (_, c: Case<"a node reading one input twice" | "a region of expressions">) => (d) =>
+			Effect.gen(function* () {
+				const [order, counts] = yield* callCounts(
+					Effect.sync(() => topoOrder(d)),
+					{ inputsOf: { file: "packages/engine/src/ir/rel.ts", name: "inputsOf" } }
+				)
+				assert.equal(counts.inputsOf, 0, "the walk builds no list of distinct inputs")
+				assert.deepEqual(
+					order,
+					postorder(d.roots, (node) => inputsOf(node))
+				)
+				/** A union of one projection twice, its edges a repeat, beside the drawn DAG. */
+				const q = new Q()
+				const twice = q.project(
+					q.region([{ source: q.base(Task, conservativeMeta), bind: { id: "id" }, constants: {} }]),
+					[["id", "id"]],
+					conservativeMeta
+				)
+				const repeated = q.build(q.union([twice, twice], [])).dag
+				const repeatedOrder = topoOrder(repeated)
+				assert.deepEqual(
+					repeatedOrder,
+					postorder(repeated.roots, (node) => inputsOf(node))
+				)
+				for (const node of [...order, ...repeatedOrder]) {
+					if (inputsOf(node).length < edgesOf(node).length) {
+						c.note("a node reading one input twice")
+					}
+					if (node.kind === "MatchRegion") {
+						const spread = [
+							...Arr.flatMap(node.occurrences, (o) => Arr.map(o.constants, (k) => k.expr)),
+							...Arr.map(node.correlated, (k) => k.expr)
+						]
+						assert.deepEqual(exprsOf(node), spread, `${node.id}'s expressions`)
+						if (spread.length > 0) {
+							c.note("a region of expressions")
+						}
+					}
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the postorder over each node's distinct inputs, and a region's expressions as the spread before"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/dag.ts",
+				original: "\tpostorder(dag.roots, (node) => edgesOf(node))",
+				replacement: "\tpostorder(dag.roots, (node) => inputsOf(node))",
+				why: "The walk builds each node's distinct inputs again, as before it walked the edges: inputsOf is called for every node, and the count fails."
 			}
 		]
 	})
