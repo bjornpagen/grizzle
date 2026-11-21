@@ -109,9 +109,23 @@ export const declaredRenames = property.explore(renameCaseGen, {
 			reason:
 				"A counted family's member and the spare relation swapped: the member's predecessor, generated from its index, which the swap renames, was added again STORED, a rewrite of the member's table (32618b388's pairing of generated law columns by their definitions as held)",
 			since: "2026-11-20"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/family-renames.test.ts#declaredRenames:140512.4:0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0"
+			),
+			reason:
+				"A counted family's hidden fold selecting by weight under its handles b and c swapped: the fold's CHECK, which calls a row function on the hidden accumulators the swap renames, was added again NOT VALID and validated, the function named by its parameters' column names (56f26ca01's row functions)",
+			since: "2026-11-21"
 		}
 	],
 	kills: [
+		{
+			file: "packages/engine/src/physical/ddl/row-functions.ts",
+			original: `\t\tname: \`p\${i + 1}\`,`,
+			replacement: "\t\tname: column,",
+			why: "A row function's parameters are named by the columns its caller passes, so a declared rename of one names the function anew: the CHECK that calls it is added again NOT VALID and validated, a scan of its table, where it is renamed in place; the kept swap's constraint OIDs move."
+		},
 		{
 			file: "packages/engine/src/deploy/diff/declared.ts",
 			original:

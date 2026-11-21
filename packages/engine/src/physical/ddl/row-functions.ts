@@ -272,8 +272,10 @@ const selects = (e: Expr): boolean =>
 
 /**
  * The call of `expr`'s row function on the columns it reads, in the order it first reads them, each the function's
- * parameter by its position and named by its column, which `install` installs, named by its definition's digest
- * (`identified`).
+ * parameter by its position and named by it (`p1` … `pn`), which `install` installs, named by its definition's digest
+ * (`identified`). The function is what its body computes over its parameters' types, whatever the columns it is called
+ * on are named: a declared rename of a column it reads renames the column in its call, the CHECK or the generation
+ * standing as it is, and leaves the function and its name as they are.
  */
 const called = (
 	scope: RowScope,
@@ -282,8 +284,8 @@ const called = (
 	install: (fn: RowFunction) => void
 ): Expr => {
 	const columns = ownColumns(expr)
-	const params: ReadonlyArray<FunctionParam> = columns.map((column) => ({
-		name: column,
+	const params: ReadonlyArray<FunctionParam> = columns.map((column, i) => ({
+		name: `p${i + 1}`,
 		type: scope.columnType(column)
 	}))
 	const position = new Map(columns.map((column, i) => [column, i + 1]))
