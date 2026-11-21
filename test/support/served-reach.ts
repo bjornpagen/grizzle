@@ -67,6 +67,8 @@ export const typeRosters = (descriptor: ScalarType): ReadonlyArray<DeclaredName>
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "range4":

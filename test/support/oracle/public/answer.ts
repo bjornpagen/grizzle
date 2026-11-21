@@ -349,6 +349,8 @@ const carrierValue = (type: ScalarType, host: unknown): Result.Result<Value, str
 			return typeof host === "boolean" ? Result.succeed(host) : wrong()
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "code":
 			return typeof host === "string" ? Result.succeed(host) : wrong()

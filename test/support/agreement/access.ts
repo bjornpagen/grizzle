@@ -4,7 +4,7 @@ import type { Situations } from "@bjornpagen/testing/features"
 import { array, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Result as EffectResult, Record as Rec } from "effect"
-import { openToken } from "#adapter/db/served.ts"
+import { openOptions } from "#adapter/db/served.ts"
 import { readServedRole } from "#adapter/pool/served.ts"
 import { refreshTargets } from "#adapter/refresh/targets.ts"
 import { served } from "#adapter/served/served.ts"
@@ -92,7 +92,7 @@ import {
  *   the login value itself, of the role value itself, or of the schema typechecks exactly when Db.open's boundary reads
  *   its argument as a served login's role (pool/served.ts readServedRole);
  * - Db.open given no options, null, a token, or a token of another type than text typechecks exactly when Db.open's
- *   boundary reads them (db/served.ts openToken), refusing what a JavaScript caller passes at stage schema: no options,
+ *   boundary reads them (db/served.ts openOptions), refusing what a JavaScript caller passes at stage schema: no options,
  *   null as the argument, and another token;
  * - a program over the base, reading its ordinary relations alone or the closed relation's rows too, a member of a
  *   workload over a role, typechecks exactly when the engine compiles it for the role: a role holding every relation of
@@ -535,7 +535,7 @@ interface AccessVerdict {
 	readonly refresh: boolean
 	/** Whether Db.open's first argument is a role reached through its login. */
 	readonly opener: boolean
-	/** Whether Db.open's boundary reads the drawn options (db/served.ts openToken). */
+	/** Whether Db.open's boundary reads the drawn options (db/served.ts openOptions). */
 	readonly options: boolean
 	/** Whether the engine compiles the program over the base for the role (OutsideRole for a partial role). */
 	readonly base: boolean
@@ -701,7 +701,7 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 		program: program.ok,
 		refresh: EffectResult.isSuccess(refresh),
 		opener: EffectResult.isSuccess(readServedRole(opened)),
-		options: EffectResult.isSuccess(openToken(optionValues[spec.options].value)),
+		options: EffectResult.isSuccess(openOptions(optionValues[spec.options].value)),
 		base: compileTemplate(
 			baseValues[spec.base.program],
 			defined(values[spec.base.role], "the base program's role"),

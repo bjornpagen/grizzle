@@ -291,6 +291,12 @@ const isVectorColumn = (heading: Heading, column: string): boolean =>
 const isTextColumn = (heading: Heading, column: string): boolean =>
 	carrierOf(heading, column) === "text"
 
+/** An inet's or a cidr's column, whose containment a GiST index under inet_ops serves. */
+const isNetColumn = (heading: Heading, column: string): boolean => {
+	const carrier = carrierOf(heading, column)
+	return carrier === "inet" || carrier === "cidr"
+}
+
 /** A search document's column (ir/scalar.ts SearchType), which only a GIN index serves a match of. */
 const isSearchColumn = (heading: Heading, column: string): boolean =>
 	carrierOf(heading, column) === "tsvector"
@@ -777,6 +783,7 @@ class Extractor {
 				return
 			case "Filter":
 				this.textSearch(n.input, n.pred)
+				this.netContainment(n.input, n.pred)
 				return this.visit(n.input, withAtoms(pushed, this.atomsOf(n)))
 			case "ProjectSet":
 				return this.visit(n.input, mapPushed(pushed, this.projection(n)))
@@ -1407,6 +1414,58 @@ class Extractor {
 						},
 						binds: []
 					})
+				}
+			}
+		}
+	}
+
+	/**
+	 * The GiST path of each network containment a filter's conjunction holds (registry.ts netContainment, `<<=`, `<<`
+	 * and `&&`) of a stored inet or cidr column and a value the probe knows: a parameter's, a literal's, an outer
+	 * value's, or a join partner's column, a context's address among them. inet's GiST class, inet_ops, PostgreSQL 19's
+	 * default for inet and cidr, serves every one of the three on either side, so the probe reads the rows whose
+	 * networks contain or lie within the value and no other row. A containment under a disjunction or a negation, a side
+	 * computed from the row, or a column no stored table holds asks nothing of an index.
+	 */
+	netContainment(input: RelNode, pred: ScalarExpr): void {
+		for (const e of conjuncts(pred)) {
+			if (e.kind !== "op") {
+				continue
+			}
+			const fn = nativeOp(e.op)?.fn
+			if (fn !== "netWithin" && fn !== "netStrictlyWithin" && fn !== "netOverlaps") {
+				continue
+			}
+			const [x, y] = e.args.map((a) => operandOf(input.id, a))
+			for (const [side, other] of [
+				[x, y],
+				[y, x]
+			] as const) {
+				if (side?.kind !== "column" || other === undefined || other.kind === "computed") {
+					continue
+				}
+				for (const r of this.resolve(input, columnRequests([side.name]), nothing)) {
+					for (const { resolved } of r.columns) {
+						const field = storedColumn(resolved)
+						if (
+							field === undefined ||
+							r.base.relationKind === "world" ||
+							!isNetColumn(r.base.heading, field)
+						) {
+							continue
+						}
+						this.lookups.push({
+							path: {
+								relation: r.base.relation,
+								derived: r.base.relationKind === "derived",
+								method: "gist",
+								keys: [{ field, dir: "asc" }],
+								fixed: 0,
+								use: "network containment"
+							},
+							binds: []
+						})
+					}
 				}
 			}
 		}

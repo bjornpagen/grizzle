@@ -15,6 +15,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import type { Prepared } from "#compiler/core/prepared.ts"
 import type { ParamText } from "#compiler/core/wire.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
+import type { ContextFactSource } from "#compiler/ir/desc.ts"
 import type { CallerParamDecl, ConstraintLaws, PageFill } from "#compiler/ir/products.ts"
 import type { CompletedOrder, Heading, HeadingColumn } from "#compiler/ir/rel.ts"
 import type { ConstraintLaw } from "#compiler/laws/model/model.ts"
@@ -270,12 +271,13 @@ export interface ServedRoleForm {
 }
 
 /**
- * A context of a role: its name, the claim its facts are read from (none for the claims' top level), and its fields
- * typed against the base, in code-unit order.
+ * A context of a role: its name, its source (ir/desc.ts ContextFactSource: a token's, with the claim its facts are read
+ * from, none for the claims' top level, or attested by the server), and its fields typed against the base, in
+ * code-unit order.
  */
 export interface ServedContext {
 	readonly name: string
-	readonly claim: string | undefined
+	readonly source: ContextFactSource
 	readonly fields: ReadonlyArray<HeadingColumn>
 }
 

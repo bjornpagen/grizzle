@@ -8,6 +8,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 
 import { assert } from "@bjornpagen/testing/assert"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
@@ -31,6 +32,7 @@ export const textCell = (row: ReadonlyArray<unknown>, i: number): string => {
 /** The concrete PostgreSQL type of a carrier, as a cast or pg_typeof names it. */
 export const concreteTypeName: { readonly [C in Carrier]: string } = {
 	...catalogTypeName,
+	cidr: "cidr",
 	range4: "int4range",
 	range8: "int8range"
 }
@@ -208,6 +210,14 @@ const sameValue = (value: ModelValue, text: string, type: ScalarType): boolean =
 		case "date":
 		case "vector":
 			return typeof value === "string" && value === text
+		case "inet": {
+			const read = admitInet(text)
+			return typeof value === "string" && read.ok && read.value === value
+		}
+		case "cidr": {
+			const read = admitCidr(text)
+			return typeof value === "string" && read.ok && read.value === value
+		}
 	}
 }
 

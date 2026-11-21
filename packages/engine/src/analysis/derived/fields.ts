@@ -69,6 +69,10 @@ export const declaredDescOf = (
 			return Result.ok({ kind: "bytes" })
 		case "date":
 			return Result.ok({ kind: "pg", type: "date" })
+		case "inet":
+			return Result.ok({ kind: "pg", type: "inet" })
+		case "cidr":
+			return Result.ok({ kind: "pg", type: "cidr" })
 		case "numeric":
 			return Result.ok({
 				kind: "numeric",

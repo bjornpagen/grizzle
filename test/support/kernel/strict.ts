@@ -20,6 +20,7 @@ import { moneyFractionDigits, Decimal, normalizeNumeric } from "#compiler/scalar
 import { decimalToBinary32 } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import {
 	makeSpan,
 	type Span,
@@ -494,6 +495,8 @@ const readers: {
 	bool: () => readBool,
 	uuid: () => (text) => toResult(toUuid(text)),
 	date: () => (text) => toResult(toCalendarDate(text)),
+	inet: () => (text) => toResult(admitInet(text)),
+	cidr: () => (text) => toResult(admitCidr(text)),
 	text: () => (text) => toResult(validateText(text)),
 	bytes: () => (text) => Result.map(readBytes(text), (bytes) => new AdmittedBytes(bytes)),
 	code: (spec) => readCode(spec.roster),

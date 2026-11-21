@@ -292,6 +292,8 @@ export const kindOfType = (t: ScalarType): ColumnKind | "hull" | undefined => {
 		case "bool":
 		case "bytes":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "bits":
 		case "range4":
 		case "range8":

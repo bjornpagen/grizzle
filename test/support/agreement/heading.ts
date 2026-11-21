@@ -94,6 +94,8 @@ const carrierHost = (descriptor: ScalarType): string => {
 			return "CalendarDate"
 		case "bytes":
 		case "bits":
+		case "inet":
+		case "cidr":
 			throw new Error(`no agreement schema declares a ${type.carrier} field`)
 	}
 }
@@ -261,6 +263,8 @@ const paramDomain = (descriptor: ScalarType): string => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "bytes":
 		case "text":
 		case "code":

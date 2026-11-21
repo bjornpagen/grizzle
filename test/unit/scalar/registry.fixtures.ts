@@ -357,7 +357,9 @@ const pgCarrier = {
 	"double precision": { kind: "plain", carrier: "float8" },
 	money: { kind: "plain", carrier: "money" },
 	boolean: { kind: "plain", carrier: "bool" },
-	date: { kind: "plain", carrier: "date" }
+	date: { kind: "plain", carrier: "date" },
+	inet: { kind: "plain", carrier: "inet" },
+	cidr: { kind: "plain", carrier: "cidr" }
 } as const satisfies Readonly<Record<PgScalarName, PlainContent | NumericValueContent>>
 
 /** Asserts that `t` is a plain value type of `carrier`: its capabilities, and no typmod, refinement or contract. */

@@ -627,6 +627,8 @@ export const inputText = (literal: TypedLiteral, type: ScalarType, codes: Codebo
 			return literal.value ? "true" : "false"
 		case "text":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "date":
 			return literal.value
 		case "handle":

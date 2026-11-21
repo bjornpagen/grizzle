@@ -19,7 +19,8 @@ import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 
 /**
  * The native carriers grizzle admits. range4, range8 and rangeDate are int4range, int8range and daterange,
- * the only span carriers; date is a calendar day; bytes is bytea, a value stored and read back whole (BytesType); tsvector
+ * the only span carriers; date is a calendar day; inet and cidr are PostgreSQL's network address types, an address
+ * with its network's mask and a network (scalar/values/net.ts); bytes is bytea, a value stored and read back whole (BytesType); tsvector
  * is a search document, a value PostgreSQL alone computes and matches (SearchType); there is
  * no timestamp, interval, JSON or array carrier. exactInteger and exactMoney are the exact arithmetic carriers
  * (ExactType), never a field's.
@@ -35,6 +36,8 @@ export const carriers = [
 	"bool",
 	"uuid",
 	"date",
+	"inet",
+	"cidr",
 	"text",
 	"bytes",
 	"code",
@@ -68,6 +71,8 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
 	bool: true,
 	uuid: false,
 	date: false,
+	inet: false,
+	cidr: false,
 	text: false,
 	bytes: false,
 	code: true,
@@ -85,7 +90,8 @@ export const fewValued: Readonly<Record<Carrier, boolean>> = {
  * Whether a column of each carrier routes a change by its value (logical/routes.ts Routes): PostgreSQL's `::text` of a
  * stored value, under any writer's session settings, is the codec's canonical text of the value (codec/scalar.ts
  * ScalarCodec text), so a change's text and a bound parameter's text are equal exactly when the values are. A date's
- * text follows DateStyle, a float's extra_float_digits and its -0, a money's lc_monetary, a bytea's bytea_output; a
+ * text follows DateStyle, a float's extra_float_digits and its -0, a money's lc_monetary, a bytea's bytea_output, an
+ * inet's and a cidr's network_show, which states every mask where inet_out omits a whole one; a
  * numeric prints its stored scale where the codec trims it, a set prints bit_out's binary where the codec writes hex,
  * and a vector, a date span and an exact carrier are none a route compares.
  */
@@ -100,6 +106,8 @@ export const routable: Readonly<Record<Carrier, boolean>> = {
 	bool: true,
 	uuid: true,
 	date: false,
+	inet: false,
+	cidr: false,
 	text: true,
 	bytes: false,
 	code: true,
@@ -126,7 +134,7 @@ export const spanCarriers = [
  * The operation capability vocabulary: storage, equality, ordering, hashing used for bucketing, the
  * aggregate overload families, span endpoints, expression-index eligibility, GiST, the set algebra of a set over a
  * roster (union, intersection, difference, cardinality, subset and disjointness, and the singleton of a closed id of
- * it), PostgreSQL's full text search of a search document (its match and its ranks), and the admitted extension
+ * it), the containment of PostgreSQL's network address types (`<<=`, `<<` and `&&`), PostgreSQL's full text search of a search document (its match and its ranks), and the admitted extension
  * operation. A CapabilitySet is sorted and duplicate-free, so its canonical form is its identity.
  */
 export const capabilities = [
@@ -137,6 +145,7 @@ export const capabilities = [
 	"gist",
 	"hashing",
 	"minMax",
+	"netContainment",
 	"ordering",
 	"setAlgebra",
 	"spanEndpoint",
@@ -502,7 +511,7 @@ export interface RosterHandles {
 export type IntegerCarrier = "int2" | "int4" | "int8"
 export type SpanCarrier = (typeof spanCarriers)[number]
 /** The carriers whose descriptor holds nothing beside its carrier, its capabilities and its contract. */
-export type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date"
+export type BareCarrier = "float4" | "float8" | "money" | "bool" | "uuid" | "date" | "inet" | "cidr"
 
 /**
  * The descriptor is a union tagged by carrier: each plain variant holds exactly the fields its carrier has, and a
@@ -925,6 +934,8 @@ const samePlain = (a: PlainType, b: PlainType): boolean => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "bytes":
 			return true
 	}
@@ -1007,6 +1018,8 @@ export const nativeNames = {
 	bool: "boolean",
 	uuid: "uuid",
 	date: "date",
+	inet: "inet",
+	cidr: "cidr",
 	text: "text",
 	bytes: "bytea",
 	code: "smallint",
@@ -1072,6 +1085,8 @@ export const typeLabel = (t: ScalarType): string => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "bytes":
 		case "range4":
 		case "range8":

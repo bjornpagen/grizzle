@@ -213,7 +213,7 @@
 				]
 			},
 			{
-				// The value core: the exact values a browser decodes into and builds (Decimal, Money, Vector, Span, uuid, a calendar date) and their carrier limits, over browser-core alone.
+				// The value core: the exact values a browser decodes into and builds (Decimal, Money, Vector, Span, uuid, a calendar date, an inet or cidr) and their carrier limits, over browser-core alone.
 				"name": "values",
 				"patterns": [
 					"packages/engine/src/ir/carriers.ts",
@@ -223,6 +223,7 @@
 					"packages/engine/src/scalar/values/fault.ts",
 					"packages/engine/src/scalar/values/float.ts",
 					"packages/engine/src/scalar/values/money.ts",
+					"packages/engine/src/scalar/values/net.ts",
 					"packages/engine/src/scalar/values/span.ts",
 					"packages/engine/src/scalar/values/uuid.ts",
 					"packages/engine/src/scalar/values/vector.ts"
@@ -1558,7 +1559,9 @@
 	// not follow a class's property to its type, and the catalog shapes call CatalogEditor's through CatalogContext.ed
 	// (lower/shapes/catalog/neighbor.ts). folds, fold and axes, only of the class that implements RiddenFamily: fallow
 	// reads FamilyEntry's as unused, though the Normalizer reads all three through its Map of FamilyEntry
-	// (analysis/theory/laws.ts). The entry goes when fallow is patched (TODO.md, grizzle/upstream/fallow).
+	// (analysis/theory/laws.ts). retry: OpenError's, public API a server reads where Db.open fails, which grizzle's own code
+	// reads only in its suites, through an error narrowed by an assertion fallow does not follow (unit/adapter/layer.test.ts).
+	// The entry goes when fallow is patched (TODO.md, grizzle/upstream/fallow).
 	"usedClassMembers": [
 		{ "implements": "RiddenFamily", "members": ["folds", "fold", "axes"] },
 		"discriminantSpine",
@@ -1574,6 +1577,7 @@
 		"member",
 		"nestedRows",
 		"matches",
+		"retry",
 		"_tag"
 	]
 }

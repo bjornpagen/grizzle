@@ -911,6 +911,10 @@ const filler = (type: ScalarType, i: number): TypedLiteral => {
 			return { kind: "text", value: `v${i}` }
 		case "bool":
 			return { kind: "bool", value: true }
+		case "inet":
+			return { kind: "inet", value: `10.0.0.${i % 256}` }
+		case "cidr":
+			return { kind: "cidr", value: `10.${i % 256}.0.0/16` }
 		case "code":
 			return { kind: "handle", handle: defined(base.roster.handles[0], "a roster handle") }
 		case "bits":

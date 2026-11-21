@@ -58,6 +58,7 @@ import {
 import * as N from "#test/support/oracle/evaluate/numeric.ts"
 import { power as numericPower } from "#test/support/oracle/evaluate/power.ts"
 import { resolvedReference } from "#test/support/oracle/evaluate/uri.ts"
+import { netHolds } from "#test/support/oracle/reference/net.ts"
 import { ecmaMatches } from "#test/support/regex.ts"
 
 /**
@@ -111,6 +112,9 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "netWithin":
+		case "netStrictlyWithin":
+		case "netOverlaps":
 		case "canonicalZero":
 		case "add":
 		case "sub":
@@ -230,6 +234,8 @@ export const modelLiteral = (literal: TypedLiteral): ModelValue => {
 			return literal.value
 		case "text":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "date":
 			return literal.value
 		case "handle":
@@ -530,6 +536,8 @@ export const compareCarried = (
 			return isString(a) && isString(b) ? ordered(a, b) : undefined
 		case "text":
 			return isString(a) && isString(b) ? compareCodePoints(a, b) : undefined
+		case "inet":
+		case "cidr":
 		case "bytes":
 		case "tsvector":
 			return undefined
@@ -887,6 +895,10 @@ const catalogApply = (
 				? Result.succeed(new Set([...set, handle]))
 				: mismatch(op)
 		}
+		case "netWithin":
+		case "netStrictlyWithin":
+		case "netOverlaps":
+			return isString(a) && isString(b) ? Result.succeed(netHolds(op.fn, a, b)) : mismatch(op)
 		case "and":
 		case "or":
 		case "cast":

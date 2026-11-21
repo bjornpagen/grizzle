@@ -455,7 +455,7 @@ export const mutated = (
 			const context = {
 				name: `Session${m.claim}`,
 				fields: { sub: { kind: "uuid" as const } },
-				claim: undefined
+				source: { kind: "token" as const, claim: undefined }
 			}
 			const defective = chained(
 				replaced(

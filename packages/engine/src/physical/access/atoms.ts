@@ -352,6 +352,9 @@ export const predicateAtoms = (
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "netWithin":
+		case "netStrictlyWithin":
+		case "netOverlaps":
 		case "canonicalZero":
 		case "ne":
 		case "not":

@@ -590,6 +590,8 @@ const valueOf = (value: string, type: TypeRef): SqlValue => {
 		case "bytea":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "daterange":
 		case "datemultirange":
 		case "tsvector":
@@ -867,6 +869,7 @@ const evaluate = (e: Expr, scope: Scope): SqlValue => {
 				case "-|-":
 				case "/":
 				case "<<":
+				case "<<=":
 				case "<=>":
 				case "<@":
 				case ">>":
@@ -2293,6 +2296,8 @@ class Model {
 			}
 			case "uuid":
 			case "date":
+			case "inet":
+			case "cidr":
 				return { kind: "text", value: v.value }
 			case "float":
 			case "floatSpecial":

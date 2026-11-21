@@ -84,7 +84,9 @@ const doorReading = {
 
 /**
  * Why opening a Db failed: a token that is no token68, one verify refused, or claims or an `exp` that do not decode
- * are `tokenRefused`; a role no layer serves is no route; the rest is the server's own configuration.
+ * are `tokenRefused`; a verifier that could not judge the token now is `unavailable`, its reason `verifierUnavailable`,
+ * retried safely, never read as a refused token; a role no layer serves is no route; the rest is the server's own
+ * configuration, the server's attested facts that do not decode among it.
  */
 const openReading = {
 	DbConfigRefused: "failed",
@@ -93,9 +95,11 @@ const openReading = {
 	LiveSourceMissing: "failed",
 	RoleOutsideLayers: "route",
 	TokenMalformed: "tokenRefused",
-	TokenError: "tokenRefused",
+	TokenRefused: "tokenRefused",
+	VerifierUnavailable: "unavailable",
 	ClaimRefused: "tokenRefused",
 	ExpiryRefused: "tokenRefused",
+	AttestationRefused: "failed",
 	CompileError: "failed"
 } as const satisfies Reading<OpenReason["_tag"], "open">
 
@@ -469,8 +473,15 @@ export const watchEnded = (
 		: messageErrors[watchReading[ended]](message)
 
 /** The call error a Db's opening fails a served call with, its message the failure's. */
-export const openCallError = (error: OpenError): FailureOf<"open"> =>
-	messageErrors[openReading[error.reason._tag]](error.message)
+export const openCallError = (error: OpenError): FailureOf<"open"> => {
+	const reading = openReading[error.reason._tag]
+	return reading === "unavailable"
+		? callError("unavailable", { message: error.message, reason: verifierUnavailable })
+		: messageErrors[reading](error.message)
+}
+
+/** Why a call's Db did not open for now, its layer's verify unable to judge its token (VerifierUnavailable). */
+const verifierUnavailable = { kind: "verifierUnavailable" } as const
 
 /** The witness of a refusal PostgreSQL raised by a domain, which states no row. */
 const unreported = { kind: "unreported" } as const

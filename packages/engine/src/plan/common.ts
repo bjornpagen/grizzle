@@ -138,6 +138,7 @@ export {
 export {
 	type AttachDesc,
 	type ContextDesc,
+	type ContextFactSource,
 	descText,
 	type FieldDesc,
 	type LoginDesc,
@@ -247,9 +248,12 @@ export type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.
 export type {
 	AnyLogin,
 	AnyRole,
-	LoginReadsContext,
+	AttestedFactsOf,
+	AttestedRecord,
+	LoginReadsToken,
 	LoginRole,
-	ReadsContext,
+	ReadsAttested,
+	ReadsToken,
 	RefreshListOf,
 	RolesOf,
 	WithinRoleContexts,

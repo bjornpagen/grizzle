@@ -160,6 +160,10 @@ const paramDescriptor = (param: Param, roster: RosterValue): FieldBase => {
 			return Id
 		case "date":
 			return date
+		case "inet":
+			return pg.inet
+		case "cidr":
+			return pg.cidr
 		case "code":
 			return closedId(roster)
 		case "bytes":
@@ -317,6 +321,8 @@ export const hostValue = (literal: TypedLiteral, type: ScalarType): unknown => {
 		case "bool":
 		case "text":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "date":
 			return literal.value
 		case "handle":

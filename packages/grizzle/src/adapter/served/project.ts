@@ -232,11 +232,11 @@ const memberOf = (
 	}
 }
 
-/** A role's contexts, served: each one's name, claim and typed fields. */
+/** A role's contexts, served: each one's name, source and typed fields. */
 const contextsOf = (role: LayerRole): ReadonlyArray<ServedContext> =>
 	Arr.map(role.contexts, (c) => ({
 		name: c.name,
-		claim: c.claim,
+		source: c.source,
 		fields: Arr.map(c.fields, (f) => ({ name: f.name, type: f.type }))
 	}))
 

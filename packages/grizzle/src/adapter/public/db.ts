@@ -15,9 +15,15 @@ import { openMoved } from "#adapter/db/moved.ts"
 import { openDb } from "#adapter/db/served.ts"
 import type { DbConstructor } from "#adapter/types/db.ts"
 
-export type { NoTokenOptions, OpenOptions, TokenOptions } from "#adapter/types/db.ts"
+export type { AttestedOptions, OpenOptions, TokenOptions } from "#adapter/types/db.ts"
 
 export const Db: DbConstructor = { open: openDb, openMoved }
+
+/**
+ * The inet and cidr host values and their parses (scalar/values/net.ts): what a server attests a request's address as
+ * (Db.open's `attested`), read from its edge's header by `Inet.parse`, the one text PostgreSQL's inet_out prints.
+ */
+export { Cidr, Inet } from "#compiler/plan/runtime.ts"
 export type Db<R, P> = DbOf<R, P>
 
 export type {

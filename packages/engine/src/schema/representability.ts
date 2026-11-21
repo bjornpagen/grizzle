@@ -393,6 +393,23 @@ export const indexMaxKeys = 32
  */
 const indexNullBitmapBytes = Math.floor((indexMaxKeys + bitsPerByte - 1) / bitsPerByte)
 
+/**
+ * The most bytes an inet or cidr datum takes, in a heap tuple and in an index entry: its varlena header at its longest,
+ * then inet_struct's family and mask length, a byte each, and an IPv6 address's 16 bytes. Its GiST key under inet_ops,
+ * GistInetKey, is a short varlena of a family, two mask lengths and the same address, never longer.
+ *
+ * @limitKind derived
+ * @owner PostgreSQL 19.0
+ * @unit bytes
+ * @scope one inet or cidr datum, in a heap tuple and in an index entry, and its GiST key under inet_ops
+ * @derivation "#define SET_INET_VARSIZE(dst) SET_VARSIZE(dst, VARHDRSZ + offsetof(inet_struct, ipaddr) +
+ *   ip_addrsize(dst))" (https://github.com/postgres/postgres/blob/REL_19_0/src/include/utils/inet.h#L86-L88, verified
+ *   2026-11-21), inet_struct's `unsigned char family; unsigned char bits; unsigned char ipaddr[16];` (#L23-L28), an
+ *   IPv6 address's ip_addrsize 16; pg_type.dat's `typname => 'inet', typlen => '-1', ... typalign => 'i'`
+ * @from {@link varlenaHeaderBytes}
+ */
+const inetDatumBytes = varlenaHeaderBytes + 1 + 1 + 16
+
 /** The two bounds a range holds, and a btree_gist key of a fixed-size type beside each other. */
 const bounds = ["lower", "upper"] as const
 
@@ -430,6 +447,7 @@ export const isFixedWidth = (bound: DatumBound): boolean => {
 		case "date":
 		case "code":
 			return true
+		case "inet":
 		case "bit":
 		case "bytea":
 		case "numeric":
@@ -450,6 +468,7 @@ type Family =
 	| "bool"
 	| "uuid"
 	| "date"
+	| "inet"
 	| "code"
 	| "bit"
 	| "bytea"
@@ -458,7 +477,10 @@ type Family =
 	| "range"
 	| "vector"
 
-/** The families btree_gist has an operator class for: every family but vector, the scalars a span key may hold. */
+/**
+ * The families a GiST class serves, the scalars a span key may hold: every family but vector, inet's under core's
+ * inet_ops (GistInetKey), every other's under btree_gist's class.
+ */
 type GistFamily = Exclude<Family, "vector">
 interface GistDatum extends DatumBound {
 	readonly family: GistFamily
@@ -671,6 +693,9 @@ const pgDatumBound = (type: Extract<FieldDesc, { readonly kind: "pg" }>["type"])
 			return fixed(typlens.bool, 1, "bool")
 		case "date":
 			return fixed(typlens.date, 4, "date")
+		case "inet":
+		case "cidr":
+			return fixed(inetDatumBytes, 4, "inet")
 	}
 }
 
@@ -803,6 +828,8 @@ const gistKeyBytes = (d: GistDatum): number => {
 		case "uuid":
 		case "date":
 			return bounds.length * d.bytes
+		case "inet":
+			return d.bytes
 		case "numeric":
 		case "text":
 		case "bit":

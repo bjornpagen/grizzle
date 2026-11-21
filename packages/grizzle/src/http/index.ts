@@ -5,6 +5,7 @@
  * node:http's or node:http2's server; httpRoutes lists the routes a set of served logins gives.
  */
 export {
+	type Attest,
 	type HttpConfig,
 	type HttpConfigFault,
 	HttpConfigRefused,

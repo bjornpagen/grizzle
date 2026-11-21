@@ -457,7 +457,7 @@ export type EnvironmentFeature =
  * Db.open judges the token on the host and contacts nothing (adapter/db/served.ts): a token that is no token68 (RFC
  * 7235 section 2.1) is OpenError{stage: "token"} whose reason is TokenMalformed, and verify never runs on it; with any
  * other token, the layer's verify runs on it once, and its refusal, or anything it throws instead of returning its Effect, is OpenError{stage:
- * "token"} whose reason is a TokenError, the throw its cause; the payload it returns is decoded through the contexts
+ * "token"} whose reason is a TokenRefused, the throw its cause; the payload it returns is decoded through the contexts
  * the role reads, Session's one uuid claim `sub` read from the payload's top level, and a payload that is no object,
  * lacks the claim or holds a value its field refuses is ClaimRefused naming the fault. A token whose claims decode
  * opens a Db, though the layer's endpoint, a memory one, ends every connection once TLS is up: whatever the token, the
@@ -485,6 +485,7 @@ type Payload =
 
 type VerifyBehaviour =
 	| { readonly kind: "refuses" }
+	| { readonly kind: "unavailable" }
 	| { readonly kind: "throws"; readonly thrown: Thrown }
 	| { readonly kind: "returns"; readonly payload: Payload }
 
@@ -515,6 +516,7 @@ export const tokenCaseGen: Gen<TokenCase> = (source) => ({
 	verify: source.draw(
 		weighted<VerifyBehaviour>([
 			[1, constant({ kind: "refuses" })],
+			[1, constant({ kind: "unavailable" })],
 			[
 				1,
 				(inner) => ({
@@ -580,7 +582,8 @@ export const payloadValue = (payload: Payload): unknown => {
 /** What the README's stages say a case's Db.open meets. */
 type TokenVerdict =
 	| { readonly kind: "TokenMalformed" }
-	| { readonly kind: "TokenError" }
+	| { readonly kind: "TokenRefused" }
+	| { readonly kind: "VerifierUnavailable" }
 	| { readonly kind: "ClaimRefused"; readonly fault: ClaimRefused["fault"] }
 	| { readonly kind: "opened" }
 
@@ -615,7 +618,9 @@ export const tokenVerdict = (c: TokenCase): TokenVerdict => {
 	switch (verify.kind) {
 		case "refuses":
 		case "throws":
-			return { kind: "TokenError" }
+			return { kind: "TokenRefused" }
+		case "unavailable":
+			return { kind: "VerifierUnavailable" }
 		case "returns": {
 			const payload = verify.payload
 			switch (payload.kind) {
@@ -635,6 +640,7 @@ export const tokenVerdict = (c: TokenCase): TokenVerdict => {
 export type TokenFeature =
 	| "a token that is no token68"
 	| "verify refuses"
+	| "verify's verifier unavailable"
 	| `verify throws ${Thrown}`
 	| `refused ${ClaimRefused["fault"]["kind"]}`
 	| "claims decoded"

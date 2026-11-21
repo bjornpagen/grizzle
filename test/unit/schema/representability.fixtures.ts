@@ -938,8 +938,20 @@ type FixedGistFamily =
 	| "code"
 
 /** A set over a roster is bit(n), a varlena, which btree_gist keys as it keys text (btree_bit.c over gbt_var), and so
- * is a key's image, a bytea (btree_bytea.c). */
-type GistFamily = FixedGistFamily | "numeric" | "text" | "bit" | "bytea" | "range" | "vector"
+ * is a key's image, a bytea (btree_bytea.c). An inet or cidr is a varlena core's inet_ops keys by a GistInetKey no
+ * longer than the datum (network_gist.c), so its key is at most its datum. */
+type GistFamily =
+	| FixedGistFamily
+	| "inet"
+	| "numeric"
+	| "text"
+	| "bit"
+	| "bytea"
+	| "range"
+	| "vector"
+
+/** An inet datum's most bytes: a varlena header, its family and mask length, and an IPv6 address's 16 bytes (inet.h). */
+const inetBytes = 4 + 1 + 1 + 16
 
 /** Each fixed family's typlen, its datum's bytes: a code is a smallint. */
 export const fixedTyplens: { readonly [F in FixedGistFamily]: number } = {
@@ -968,6 +980,7 @@ const isFixedGistFamily = (family: GistFamily): family is FixedGistFamily => {
 		case "date":
 		case "code":
 			return true
+		case "inet":
 		case "numeric":
 		case "text":
 		case "bit":
@@ -996,6 +1009,7 @@ export const gistKeyBytes = (family: Exclude<GistFamily, "vector">, bytes: numbe
 		case "bit":
 		case "bytea":
 			return 4 + Math.ceil(bytes / 4) * 4 + bytes
+		case "inet":
 		case "range":
 			return bytes
 	}
@@ -1369,17 +1383,23 @@ const gistFamilies: Arr.NonEmptyReadonlyArray<GistFamily> = [
 	"bit",
 	"bytea",
 	"range",
-	"vector"
+	"vector",
+	"inet"
 ]
 
-/** A drawn datum: a fixed family's bytes are its typlen, and numeric, text and range draw theirs. */
+/** A drawn datum: a fixed family's bytes are its typlen, an inet's its longest, and numeric, text and range draw theirs. */
 export const gistDatumGen: Gen<{ readonly family: GistFamily; readonly bytes: number }> = (
 	source
 ) => {
 	const family = source.draw(element(gistFamilies))
 	return {
 		family,
-		bytes: isFixedGistFamily(family) ? fixedTyplens[family] : source.draw(int(5, 3000))
+		bytes:
+			family === "inet"
+				? inetBytes
+				: isFixedGistFamily(family)
+					? fixedTyplens[family]
+					: source.draw(int(5, 3000))
 	}
 }
 

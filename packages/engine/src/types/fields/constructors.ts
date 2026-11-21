@@ -2,6 +2,7 @@ import type { Brand } from "effect"
 import type { Columned } from "#compiler/core/decoder.ts"
 import type { mintedRefusal } from "#compiler/scalar/minted.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 import type { Scalar } from "#compiler/types/compute/scalar.ts"
 import type {
 	DomainOf,
@@ -67,6 +68,12 @@ export interface Pg {
 	readonly "double precision": Field<number, "double precision">
 	readonly money: Field<Money, "money">
 	readonly boolean: Field<boolean, "boolean">
+	/**
+	 * pg.inet and pg.cidr: PostgreSQL's network address types, an address with its network's mask and a network, each
+	 * host value the one text inet_out or cidr_out prints of it (scalar/values/net.ts Inet, Cidr).
+	 */
+	readonly inet: Field<Inet, "inet">
+	readonly cidr: Field<Cidr, "cidr">
 	/** pg.smallserial, pg.serial, pg.bigserial and pg.uuidv7 are refusals, no field (scalar/minted.ts). */
 	readonly smallserial: Refusal<typeof mintedRefusal>
 	readonly serial: Refusal<typeof mintedRefusal>

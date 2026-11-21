@@ -112,6 +112,8 @@ const hostOf = (literal: TypedLiteral): Value => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "span":
 		case "vector":
 		case "pattern":

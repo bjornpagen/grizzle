@@ -1,6 +1,6 @@
 import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Record as Rec, Redacted, type Scope } from "effect"
-import { TokenError } from "#adapter/errors/failures.ts"
+import { TokenRefused } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { jsonText, trusted, trustedJson } from "#compiler/core/trusted.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -71,7 +71,7 @@ export type HeldOf<B extends Reality> = {
  * more than one role, or a refresh, states its own.
  *
  * A test token is the JSON text of the payload it stands for, in base64url (tokenText, a token68 as every door reads
- * one), and testVerify, every test layer's verify, decodes it: any other token is a TokenError, as a verifier's refusal
+ * one), and testVerify, every test layer's verify, decodes it: any other token is a TokenRefused, as a verifier's refusal
  * is. So a test states the claims it opens a Db with by value,
  * and what grizzle decodes from them is grizzle's own, through the role's contexts.
  *
@@ -127,21 +127,21 @@ export const tokenOf = (payload: Json): string => tokenText(jsonText(payload))
 const utf8 = new TextEncoder()
 
 /**
- * Every test layer's verify: the payload the JSON text a token spells holds (tokenText), or a TokenError for a token
+ * Every test layer's verify: the payload the JSON text a token spells holds (tokenText), or a TokenRefused for a token
  * that spells no UTF-8 text or a text that holds no JSON as written. Its bytes are read as the UTF-8 they are
  * (grizzle-text utf8.ts), so a byte order mark before the JSON, which JSON.parse refuses, is no JSON.
  */
-export const testVerify = (token: string): Effect.Effect<unknown, TokenError> => {
+export const testVerify = (token: string): Effect.Effect<unknown, TokenRefused> => {
 	const bytes = base64urlBytes(token)
 	if (bytes === undefined) {
-		return Effect.fail(new TokenError({ cause: "the token spells no base64url text" }))
+		return Effect.fail(new TokenRefused({ cause: "the token spells no base64url text" }))
 	}
 	const text = utf8Text(bytes)
 	return text === undefined
-		? Effect.fail(new TokenError({ cause: "the token spells no UTF-8 text" }))
+		? Effect.fail(new TokenRefused({ cause: "the token spells no UTF-8 text" }))
 		: Effect.try({
 				try: () => trustedJson<unknown>(text),
-				catch: (cause) => new TokenError({ cause })
+				catch: (cause) => new TokenRefused({ cause })
 			})
 }
 

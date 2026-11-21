@@ -70,6 +70,7 @@ import {
 } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { scalarTypeOf } from "#compiler/scalar/registry.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import type { OwnedFixture } from "#test/support/evidence.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { foldInputOf } from "#test/support/fixtures/ir/fold.ts"
@@ -165,6 +166,20 @@ const literalOf = (value: LiteralDesc, type: ScalarType): TypedLiteral => {
 				return { kind: "handle", handle: value }
 			}
 			break
+		case "inet": {
+			const inet = admitInet(value)
+			if (inet.ok) {
+				return { kind: "inet", value: inet.value }
+			}
+			break
+		}
+		case "cidr": {
+			const cidr = admitCidr(value)
+			if (cidr.ok) {
+				return { kind: "cidr", value: cidr.value }
+			}
+			break
+		}
 		case "bits":
 			if (typeof value === "object" && "handles" in value) {
 				return { kind: "handles", handles: value.handles }

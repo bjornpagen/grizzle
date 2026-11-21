@@ -3580,6 +3580,8 @@ const keyValueText = (type: ScalarType): string => {
 		case "money":
 		case "bool":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "bits":

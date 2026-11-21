@@ -650,6 +650,8 @@ const boundsOf = (type: ScalarType): readonly [LiteralDesc, LiteralDesc] | undef
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":

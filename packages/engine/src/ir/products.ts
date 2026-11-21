@@ -376,6 +376,8 @@ export interface CarrierDecl {
  * - span predicate: A span predicate: one GiST index per span field, scalar prefix through btree_gist.
  * - approximate vector retrieval: ApproximateNearest over a cosine distance: HNSW with the cosine operator class.
  * - text search: A match of a stored search document against a query: GIN under tsvector's default class.
+ * - network containment: A stored inet's or cidr's `<<=`, `<<` or `&&` against a value the probe knows: GiST under
+ *   inet's default class, inet_ops.
  * - write target: The key a ChangeSet's statement matches written facts on: exact deletion, put occupants, the
  *   insert arbiter.
  */
@@ -390,6 +392,7 @@ const accessUses = [
 	"span predicate",
 	"approximate vector retrieval",
 	"text search",
+	"network containment",
 	"write target"
 ] as const
 export type AccessUse = (typeof accessUses)[number]

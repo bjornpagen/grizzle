@@ -114,7 +114,9 @@ export const pgScalarNames = [
 	"double precision",
 	"money",
 	"boolean",
-	"date"
+	"date",
+	"inet",
+	"cidr"
 ] as const
 export type PgScalarName = (typeof pgScalarNames)[number]
 
@@ -250,7 +252,10 @@ export const computeFns = [
 	"cardinality",
 	"subset",
 	"disjoint",
-	"singleton"
+	"singleton",
+	"netWithin",
+	"netStrictlyWithin",
+	"netOverlaps"
 ] as const
 export type ComputeFn = (typeof computeFns)[number]
 /** The functions that take a scale argument: round(a, scale) and trunc(a, scale). */
@@ -1023,19 +1028,33 @@ export interface RowSourceDesc {
 }
 
 /**
- * A context: the session's relation parameters, bound once per Db from the verified token, holding at most one fact.
- * Its fields are claims of scalar types only (contextFieldAdmits); `claim` names the nested claim object they are read
- * from, undefined for the payload's own top level. It belongs to no schema, has no laws and is never written.
+ * Where a context's one fact comes from, which its declaration states once: `token`, the claims the layer's verify
+ * returns for the Db's token, read from the payload's top level or from the nested claim object `claim` names; or
+ * `attested`, the facts the server itself states where it opens the Db (Db.open's `attested`, an HTTP handler's
+ * `attest` of its request), which no token, request body or other client input reaches. A context is of one source,
+ * so no claim of a client's stands for a fact its server attests.
+ */
+export type ContextFactSource =
+	| { readonly kind: "token"; readonly claim: string | undefined }
+	| { readonly kind: "attested" }
+
+/** The kinds of a context's source (ContextFactSource). */
+export type ContextFactSourceKind = ContextFactSource["kind"]
+
+/**
+ * A context: the session's relation parameters, bound once per Db, holding at most one fact, from its source
+ * (ContextFactSource). Its fields are scalar types only (contextFieldAdmits). It belongs to no schema, has no laws and
+ * is never written.
  */
 export interface ContextDesc {
 	readonly name: string
 	readonly fields: Readonly<Record<string, FieldDesc>>
-	readonly claim: string | undefined
+	readonly source: ContextFactSource
 }
 
 /**
- * The field types a context admits: text, uuid, boolean, the integer types, a contract over one of them, and a closed
- * handle. A claim is a JSON scalar, read back through its field's cast.
+ * The field types a context admits: text, uuid, boolean, the integer types, inet and cidr, a contract over one of them,
+ * and a closed handle. A claim is a JSON scalar, read back through its field's cast.
  */
 export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
@@ -1044,7 +1063,9 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 				desc.type === "smallint" ||
 				desc.type === "integer" ||
 				desc.type === "bigint" ||
-				desc.type === "boolean"
+				desc.type === "boolean" ||
+				desc.type === "inet" ||
+				desc.type === "cidr"
 			)
 		case "uuid":
 		case "text":
@@ -2557,7 +2578,10 @@ const computeCases: {
 	cardinality: unscaledCompute,
 	subset: unscaledCompute,
 	disjoint: unscaledCompute,
-	singleton: unscaledCompute
+	singleton: unscaledCompute,
+	netWithin: unscaledCompute,
+	netStrictlyWithin: unscaledCompute,
+	netOverlaps: unscaledCompute
 }
 
 const guardDescShape: S.Shape<GuardDesc> = S.tagged("kind", {
@@ -2786,20 +2810,26 @@ const fieldMapShape = S.recordShape(fieldDescShape, name)
 
 /** What a context's fields must be: at least one, each a type a context admits (contextFieldAdmits). */
 const contextFieldsCapability =
-	"a context of at least one field, each text, uuid, boolean, an integer type, a contract over one, or a closed handle"
+	"a context of at least one field, each text, uuid, boolean, an integer type, inet, cidr, a contract over one, or a closed handle"
 
-const contextDescShape: S.Shape<ContextDesc> = S.structStated(
-	{
-		name,
-		fields: S.refine(
-			fieldMapShape,
-			(f) => Object.keys(f).length > 0 && Object.values(f).every(contextFieldAdmits),
-			contextFieldsCapability
-		)
-	},
-	{ claim: name },
-	{}
-)
+/**
+ * A context's source (ContextFactSource): a token's, with the nested claim object its fields are read from, or
+ * attested.
+ */
+const contextSourceShape: S.Shape<ContextFactSource> = S.tagged("kind", {
+	token: S.structStated({}, { claim: name }, {}),
+	attested: S.struct({})
+})
+
+const contextDescShape: S.Shape<ContextDesc> = S.struct({
+	name,
+	fields: S.refine(
+		fieldMapShape,
+		(f) => Object.keys(f).length > 0 && Object.values(f).every(contextFieldAdmits),
+		contextFieldsCapability
+	),
+	source: contextSourceShape
+})
 
 /**
  * A query read under a bind map, an import's and a call's rows argument's alike: an import that binds nothing has the
@@ -3968,41 +3998,38 @@ export const closedRelationOver = (
 	)
 
 /**
- * A context's Description over its declared name, its fields' decoded types and its claim object's name
- * (schema/world.ts admitContext): what its caller wrote held as a decode of the whole context holds it, with its
- * refusals at its paths (each field name a declared name, at least one field and each one a context admits, a claim
- * object's declared name), and the fields' types as they are.
+ * A context's Description over its declared name, its fields' decoded types and its source (schema/world.ts
+ * admitContext, admitAttested): what its caller wrote held as a decode of the whole context holds it, with its refusals
+ * at its paths (each field name a declared name, at least one field and each one a context admits, a claim object's
+ * declared name), and the fields' types as they are.
  */
-export const contextOver = (
+export const contextOver = <Source extends ContextFactSource>(
 	contextName: string,
 	fields: Readonly<Record<string, FieldDesc>>,
-	claim: string | undefined
-): Result.Result<ContextDesc, CompileError> =>
+	source: Source
+): Result.Result<ContextDesc & { readonly source: Source }, CompileError> =>
 	Result.map(
 		S.decodeWith(
-			S.structStated(
-				{
-					name,
-					fields: S.refine(
-						S.recordShape(S.boolean, name),
-						(f) => Object.keys(f).length > 0 && Object.values(f).every((admits) => admits),
-						contextFieldsCapability
-					)
-				},
-				{ claim: name },
-				{}
-			),
+			S.struct({
+				name,
+				fields: S.refine(
+					S.recordShape(S.boolean, name),
+					(f) => Object.keys(f).length > 0 && Object.values(f).every((admits) => admits),
+					contextFieldsCapability
+				),
+				source: contextSourceShape
+			}),
 			{
 				name: contextName,
 				fields: Object.fromEntries(
 					Object.entries(fields).map(([field, desc]) => [field, contextFieldAdmits(desc)] as const)
 				),
-				claim
+				source
 			},
 			subjects.context
 		),
-		(parts): ContextDesc =>
-			Object.freeze({ name: parts.name, fields: Object.freeze({ ...fields }), claim: parts.claim })
+		(parts): ContextDesc & { readonly source: Source } =>
+			Object.freeze({ name: parts.name, fields: Object.freeze({ ...fields }), source })
 	)
 
 /**

@@ -128,6 +128,8 @@ export const types = {
 	text: builtinType("text"),
 	uuid: builtinType("uuid"),
 	date: builtinType("date"),
+	inet: builtinType("inet"),
+	cidr: builtinType("cidr"),
 	bytea: builtinType("bytea"),
 	/** A search document, pg_catalog's tsvector (ir/search.ts). */
 	tsvector: builtinType("tsvector"),

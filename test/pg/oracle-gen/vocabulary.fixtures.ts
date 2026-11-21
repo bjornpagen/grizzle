@@ -111,6 +111,10 @@ export const sqlLiteral = (literal: TypedLiteral, type: ScalarType, schema: stri
 			return `${quoteString(literal.value)}::uuid`
 		case "date":
 			return `${quoteString(literal.value)}::date`
+		case "inet":
+			return `${quoteString(literal.value)}::inet`
+		case "cidr":
+			return `${quoteString(literal.value)}::cidr`
 		case "handle":
 			return `${codeIn(type, literal.handle)}::smallint::${t}`
 		case "handles":

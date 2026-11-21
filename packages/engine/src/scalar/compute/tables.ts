@@ -3,6 +3,7 @@ import type { CalendarDate } from "#compiler/ir/date.ts"
 import { carrierColumn } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
 import type { Money } from "#compiler/scalar/values/money.ts"
+import type { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 
 /** The unbranded host value of each SQL type a plain result can have. */
@@ -17,6 +18,8 @@ export interface PlainHost {
 	readonly boolean: boolean
 	readonly uuid: Uuid
 	readonly date: CalendarDate
+	readonly inet: Inet
+	readonly cidr: Cidr
 	readonly text: string
 	readonly "exact integer": bigint
 	readonly "exact money": Money
@@ -50,6 +53,8 @@ export const plainColumns: { readonly [S in PlainSql]: Column<PlainHost[S]> } = 
 	boolean: carrierColumn("bool"),
 	uuid: textColumn<Uuid>(),
 	date: carrierColumn("date"),
+	inet: carrierColumn("inet"),
+	cidr: carrierColumn("cidr"),
 	text: carrierColumn("text"),
 	"exact integer": carrierColumn("exactInteger"),
 	"exact money": carrierColumn("exactMoney")

@@ -93,6 +93,7 @@ const constructors: {
 		...args: never
 	) => Extract<Failure, { readonly _tag: T }>
 } = {
+	AttestationRefused: Public.AttestationRefused,
 	CallInputRefused: Failures.CallInputRefused,
 	ClaimRefused: Public.ClaimRefused,
 	CommitLost: Failures.CommitLost,
@@ -133,12 +134,13 @@ const constructors: {
 	StartupRefused: Failures.StartupRefused,
 	TemporaryRefused: Failures.TemporaryRefused,
 	TlsRefused: Failures.TlsRefused,
-	TokenError: Public.TokenError,
 	TokenMalformed: Public.TokenMalformed,
+	TokenRefused: Public.TokenRefused,
 	TransientFailure: Execution.TransientFailure,
 	TransportFailure: Execution.TransportFailure,
 	UnreadableAnswer: Failures.UnreadableAnswer,
-	UnseenOccupant: Failures.UnseenOccupant
+	UnseenOccupant: Failures.UnseenOccupant,
+	VerifierUnavailable: Public.VerifierUnavailable
 }
 
 /** Whether the adapter built `failure` with the public constructor of its tag. */

@@ -28,6 +28,8 @@ export const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, str
 	bool: "bool",
 	uuid: "uuid",
 	date: "date",
+	inet: "inet",
+	cidr: "cidr",
 	text: "text",
 	bytes: "bytea",
 	code: "int2",
@@ -41,11 +43,16 @@ export const carrierTypes = (vectorSchema: string): Readonly<Record<Carrier, str
 	exactMoney: "numeric"
 })
 
-/** The polymorphic input type PostgreSQL resolves an operator class or aggregate over, for the generic carriers. */
+/**
+ * The input type PostgreSQL resolves an operator class or aggregate over where it is not the carrier's own: a generic
+ * carrier's polymorphic type, and inet for a cidr, which is binary-coercible to inet and has no operator, class or
+ * aggregate of its own (pg_cast, pg_opclass's cidr_ops over inet).
+ */
 export const polymorphic: Readonly<Partial<Record<Carrier, string>>> = {
 	range4: "anyrange",
 	range8: "anyrange",
-	rangeDate: "anyrange"
+	rangeDate: "anyrange",
+	cidr: "inet"
 }
 
 /**
@@ -89,7 +96,12 @@ export const exclusions: Readonly<
 	 * A bytes value is stored and read back whole, and that is all (scalar/bytes.ts): no key, unique, containment,
 	 * comparison or aggregate reads one.
 	 */
-	bytes: ["equality", "gist", "hashing", "minMax", "ordering"]
+	bytes: ["equality", "gist", "hashing", "minMax", "ordering"],
+	/**
+	 * A cidr's min and max are inet's (min(inet), max(inet)), which answer an inet: a cidr's least value is no cidr the
+	 * language types, so no aggregate of the language reads one.
+	 */
+	cidr: ["minMax"]
 }
 
 /** The capabilities the registry claims for a carrier. */

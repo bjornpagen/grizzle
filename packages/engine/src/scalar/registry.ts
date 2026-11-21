@@ -114,6 +114,8 @@ export const carrierSql = {
 	bool: "boolean",
 	uuid: "uuid",
 	date: "date",
+	inet: "inet",
+	cidr: "cidr",
 	text: "text",
 	bytes: "bytea",
 	code: "code",
@@ -561,7 +563,9 @@ const pgTypes = {
 	"double precision": plainType("float8"),
 	money: plainType("money"),
 	boolean: plainType("bool"),
-	date: plainType("date")
+	date: plainType("date"),
+	inet: plainType("inet"),
+	cidr: plainType("cidr")
 } as const satisfies { readonly [N in PgScalarName]: DeclaredType }
 
 /**

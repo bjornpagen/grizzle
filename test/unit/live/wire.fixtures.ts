@@ -45,6 +45,7 @@ import { type CarrierSpec } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { cidrValues, inetValues } from "#test/support/net-values.ts"
 import { upTo } from "#test/support/up-to.ts"
 
 export type Feature =
@@ -87,6 +88,8 @@ const specOf =
 			case "bool":
 			case "uuid":
 			case "date":
+			case "inet":
+			case "cidr":
 			case "text":
 			case "bytes":
 			case "tsvector":
@@ -227,6 +230,10 @@ const valueOf =
 				return source.draw(uuid(4))
 			case "date":
 				return source.draw(dateGen)
+			case "inet":
+				return source.draw(inetValues)
+			case "cidr":
+				return source.draw(cidrValues)
 			case "text":
 			case "tsvector":
 				return source.draw(textGen)
@@ -450,6 +457,8 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "tsvector":
 		case "exactMoney":

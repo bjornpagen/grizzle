@@ -20,6 +20,7 @@ export type ValueKind =
 	| { readonly kind: "bool" }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "date" }
+	| { readonly kind: "net"; readonly carrier: "inet" | "cidr" }
 	| { readonly kind: "text" }
 	| { readonly kind: "bytes" }
 	| { readonly kind: "code"; readonly roster: RosterCodec }

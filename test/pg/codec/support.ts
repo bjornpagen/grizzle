@@ -88,6 +88,10 @@ export const wireSql = (descriptor: ScalarType, names: SqlNames): string => {
 			return "uuid"
 		case "date":
 			return "date"
+		case "inet":
+			return "inet"
+		case "cidr":
+			return "cidr"
 		case "text":
 			return "text"
 		case "bytes":

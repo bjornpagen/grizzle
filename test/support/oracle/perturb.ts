@@ -148,6 +148,8 @@ const relabelingOf = (type: ScalarType): Relabeling | undefined => {
 		case "uuid":
 			return type.contract === undefined ? "uuid" : undefined
 		case "date":
+		case "inet":
+		case "cidr":
 			return undefined
 		case "numeric":
 		case "float4":

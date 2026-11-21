@@ -61,6 +61,7 @@ const comparison = (op: BinaryOperator, cmp: number): boolean => {
 		case "-|-":
 		case "/":
 		case "<<":
+		case "<<=":
 		case "<=>":
 		case "<>":
 		case "<@":

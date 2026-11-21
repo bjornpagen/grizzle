@@ -125,7 +125,7 @@ const fieldColumn = (relation: string, field: string): NativeColumn => ({
 /**
  * How many of a request's keys, from the first, a path of its use binds by equality (AccessPath `fixed`): a lookup's,
  * a key lookup's, a join key's and a write target's every key, a range's and a prefix search's every key but its last,
- * and none of a seek's, which states no prefix here, nor of an approximate retrieval's or a span predicate's.
+ * and none of a seek's, which states no prefix here, nor of an approximate retrieval's, a span predicate's or a network containment's.
  */
 const fixedOf = (use: AccessUse, keys: number): number => {
 	switch (use) {
@@ -142,6 +142,7 @@ const fixedOf = (use: AccessUse, keys: number): number => {
 		case "span predicate":
 		case "approximate vector retrieval":
 		case "text search":
+		case "network containment":
 			return 0
 	}
 }

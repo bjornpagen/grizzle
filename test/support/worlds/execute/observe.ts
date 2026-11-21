@@ -63,14 +63,14 @@ const isOpenStage = (stage: string): stage is ModelOpenStage => openStages.has(s
 
 /**
  * The stage a refused Db.open reports, as the model names it: at stage token, by its reason, its parse's TokenMalformed,
- * verify's TokenError or a ClaimRefused; none for a stage the model never predicts (config, capability).
+ * verify's TokenRefused or a ClaimRefused; none for a stage the model never predicts (config, capability).
  */
 const openStageOf = (error: OpenError): ModelOpenStage | undefined => {
 	if (error.stage === "token") {
 		const tag = error.reason._tag
 		return tag === "TokenMalformed"
 			? "token:malformed"
-			: tag === "TokenError"
+			: tag === "TokenRefused"
 				? "token:verify"
 				: tag === "ClaimRefused"
 					? "token:claims"

@@ -62,7 +62,9 @@ const fields: Readonly<Record<string, TestField>> = {
 	mood: field({ kind: "closedId", roster: "Mood", only: undefined }, "code"),
 	moods: field({ kind: "bits", roster: "Mood" }, "bits"),
 	span: testSpan(testPg.integer),
-	bin: field({ kind: "bytes" }, "bytea")
+	bin: field({ kind: "bytes" }, "bytea"),
+	addr: testPg.inet,
+	block: testPg.cidr
 }
 
 const names = nonEmpty(Rec.keys(fields), "the heading's columns")
@@ -91,6 +93,7 @@ type Family =
 	| "code"
 	| "span"
 	| "bytes"
+	| "net"
 	| "other"
 
 /** The heading's columns of each family. */
@@ -123,6 +126,9 @@ const familyOf = (name: string): Family => {
 			return "span"
 		case "bytes":
 			return "bytes"
+		case "inet":
+		case "cidr":
+			return "net"
 		case "uuid":
 		case "date":
 		case "vector":
@@ -143,6 +149,7 @@ const families: Arr.NonEmptyReadonlyArray<Family> = [
 	"code",
 	"span",
 	"bytes",
+	"net",
 	"other"
 ]
 
@@ -219,7 +226,10 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	cardinality: { result: "integer", args: ["bits"] },
 	subset: { result: "bool", args: ["bits", "bits"] },
 	disjoint: { result: "bool", args: ["bits", "bits"] },
-	singleton: { result: "bits", args: ["code"] }
+	singleton: { result: "bits", args: ["code"] },
+	netWithin: { result: "bool", args: ["net", "net"] },
+	netStrictlyWithin: { result: "bool", args: ["net", "net"] },
+	netOverlaps: { result: "bool", args: ["net", "net"] }
 }
 
 /** The functions whose result is of `family`: arithmetic's at a number family, every other at its own. */
@@ -387,6 +397,8 @@ const bareValue = (family: Family, value: number): LiteralDesc => {
 			return value % 2 === 0
 		case "text":
 			return Str.slice(0, ((value % 4) + 4) % 4)("abc")
+		case "net":
+			return `10.${((value % 256) + 256) % 256}.0.0/16`
 		case "bits":
 		case "code":
 		case "span":

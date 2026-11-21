@@ -1,7 +1,11 @@
 import type { Effect, Layer, Redacted } from "effect"
 import type { Token } from "#adapter/db/token.ts"
 import type { OpenError } from "#adapter/errors/execution.ts"
-import type { CredentialError, TokenError } from "#adapter/errors/failures.ts"
+import type {
+	CredentialError,
+	TokenRefused,
+	VerifierUnavailable
+} from "#adapter/errors/failures.ts"
 import type { PgDriver, PgSocket, PoolListener } from "#adapter/types/driver.ts"
 import type { ReadShape, ShapeOf } from "#compiler/live/index.ts"
 import type {
@@ -10,7 +14,7 @@ import type {
 	Built,
 	Invariant,
 	Isolation,
-	LoginReadsContext,
+	LoginReadsToken,
 	LoginRole,
 	Phantom,
 	RolesOf,
@@ -123,16 +127,18 @@ export interface PoolBounds {
 }
 
 /**
- * Turns a Db's token into the payload its contexts are decoded from, once per Db.open: a JWT verifier, for instance.
- * It fails with TokenError when the token is refused. It is handed only a Token, token68 text, which every door parses
+ * Turns a Db's token into the payload its token's contexts are decoded from, once per Db.open: a JWT verifier, for
+ * instance. It fails with TokenRefused where its verifier refuses the token, and with VerifierUnavailable where no
+ * verifier could judge it now (its service down or unreachable), which a caller may retry: an outage is never read as a
+ * refused token. It is handed only a Token, token68 text, which every door parses
  * a token into before verify runs (Db.open's options, an HTTP call's Authorization header), refusing any other text
  * with TokenMalformed; a verify written over any string takes one.
  */
-export type Verify = (token: Token) => Effect.Effect<unknown, TokenError>
+export type Verify = (token: Token) => Effect.Effect<unknown, TokenRefused | VerifierUnavailable>
 
 /** `verify` is required exactly when a role of the login reads a context. */
 type VerifyOf<L> =
-	LoginReadsContext<L> extends true ? { readonly verify: Verify } : { readonly verify?: Verify }
+	LoginReadsToken<L> extends true ? { readonly verify: Verify } : { readonly verify?: Verify }
 
 /**
  * A role of a served login, reached through it by name, `Ledger.roles.member`: what Db.open takes. It names its login's

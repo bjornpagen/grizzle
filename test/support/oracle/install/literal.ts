@@ -8,6 +8,7 @@ import { MoneyText, moneyTag, VectorText, vectorTag } from "#compiler/ir/carrier
 import { toCalendarDate } from "#compiler/ir/date.ts"
 import { decimalPayload, isDecimalLike } from "#compiler/ir/decimal.ts"
 import type { SpanCarrier } from "#compiler/ir/scalar.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
 import type { Expr, LiteralValue } from "#compiler/sql/ast.ts"
 import { cast, lit, types } from "#compiler/sql/build.ts"
@@ -183,6 +184,7 @@ const spelledLiteral = (
 		case "bool":
 		case "uuid":
 		case "date":
+		case "net":
 		case "text":
 		case "bytes":
 		case "code":
@@ -287,6 +289,13 @@ export const literalFor = (
 				return refuse(location, "date (YYYY-MM-DD, 0001-01-01 to 9999-12-31)", value)
 			}
 			return Result.succeed(literal({ kind: "text", value }, type))
+		case "net": {
+			const read = v.carrier === "inet" ? admitInet(value) : admitCidr(value)
+			if (!read.ok) {
+				return refuse(location, `${v.carrier} (a text PostgreSQL's ${v.carrier}_in reads)`, value)
+			}
+			return Result.succeed(literal({ kind: "text", value: read.value }, type))
+		}
 		case "text":
 			if (typeof value !== "string" || Str.includes("\u0000")(value) || !value.isWellFormed()) {
 				return refuse(location, "text (well-formed, without NUL)", value)

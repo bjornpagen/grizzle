@@ -347,13 +347,14 @@ type Ordered<A, Taken extends boolean> = [SqlOfTerm<A>] extends ["bits"]
 type Orders<A, B> = Every<[Compares<A, B, OrderedSql>, HasOrder<A>]>
 
 /**
- * The scalar catalogue: PostgreSQL's scalar operators, functions and casts, in eleven namespaces, each member in the
+ * The scalar catalogue: PostgreSQL's scalar operators, functions and casts, in twelve namespaces, each member in the
  * one whose domain it reads: Type (constants, contracts and casts), Num (the numeric family), Logic (comparisons,
  * connectives and conditionals over any type), Range (a span's endpoints), Text, Xml (XML Schema's pattern dialect),
- * Crypto, Distance (over vectors), Search (text search documents and queries), Bits (the set algebra) and Fn (declared
- * functions). Each is the runtime builders of packages/engine/src/scalar/compute bound to its public signature here
- * (TypeApi, NumApi, LogicApi, RangeApi, TextApi, XmlApi, CryptoApi, DistanceApi, SearchApi, BitsApi, FnApi) by the
- * public barrels public/compute.ts and public/fields.ts (Bits, beside Bits.of); what follows holds of all eleven.
+ * Crypto, Distance (over vectors), Search (text search documents and queries), Bits (the set algebra), Net (the network
+ * types' containment) and Fn (declared functions). Each is the runtime builders of packages/engine/src/scalar/compute
+ * bound to its public signature here (TypeApi, NumApi, LogicApi, RangeApi, TextApi, XmlApi, CryptoApi, DistanceApi,
+ * SearchApi, BitsApi, NetApi, FnApi) by the public barrels public/compute.ts and public/fields.ts (Bits, beside
+ * Bits.of); what follows holds of all twelve.
  *
  * Every method threads the parameter maps of its operands into its result, and types its result as PostgreSQL's
  * overload does, over its operand's SQL type, the term's `sql`: arithmetic keeps the operand's SQL type without its
@@ -1468,6 +1469,48 @@ export interface BitsApi {
 	singleton<A extends TermBase | FirstValue, X, PA, OA, L>(
 		id: A & FirstTerm<A> & Term<X, PA, OA, "code", unknown, Facts, L>
 	): Admitted<TakesFirst<A, "code">, Term<SetOver<X, L>, PA, ComputedOrigin<OA>, "bits">>
+}
+
+/** The SQL types of PostgreSQL's network address types, which Net's containment reads on either side. */
+type NetSql = "inet" | "cidr"
+
+/**
+ * An operand of a network containment beside its first: an inet or a cidr term, of either type whatever the first's,
+ * or a JavaScript value of the first operand's language, which takes its type.
+ */
+type NetOperand<X> = (TermBase & { readonly sql: NetSql }) | LiteralOf<X>
+
+/**
+ * The Net namespace: the containment of PostgreSQL's network address types, inet and cidr, each test over an inet or a
+ * cidr term and an inet or a cidr operand, a term or a value of the first's type, and each false across the address
+ * families, as PostgreSQL defines it (network.c). `>>=` and `>>` are within and strictlyWithin with their operands
+ * swapped, so neither has a name of its own.
+ */
+export interface NetApi {
+	/** Whether a is within b or equals it, `a <<= b`: a's mask no shorter than b's, a's address b's on b's mask. */
+	within<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		a: A & First<A, [B]> & InputTerm<X, PA, OA, NetSql>,
+		b: Fit<B, NoInfer<NetOperand<X>>>
+	): Admitted<
+		Every<[TakesFirst<A, NetSql>, Takes<B, NetOperand<X>>]>,
+		Predicate<PA & P<B>, ComputedOrigin<OA | O<B>>>
+	>
+	/** Whether a is within b and not b itself, `a << b`: a's mask longer than b's, a's address b's on b's mask. */
+	strictlyWithin<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		a: A & First<A, [B]> & InputTerm<X, PA, OA, NetSql>,
+		b: Fit<B, NoInfer<NetOperand<X>>>
+	): Admitted<
+		Every<[TakesFirst<A, NetSql>, Takes<B, NetOperand<X>>]>,
+		Predicate<PA & P<B>, ComputedOrigin<OA | O<B>>>
+	>
+	/** Whether a and b overlap, `a && b`: one is within the other, their addresses one on the shorter mask. */
+	overlaps<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		a: A & First<A, [B]> & InputTerm<X, PA, OA, NetSql>,
+		b: Fit<B, NoInfer<NetOperand<X>>>
+	): Admitted<
+		Every<[TakesFirst<A, NetSql>, Takes<B, NetOperand<X>>]>,
+		Predicate<PA & P<B>, ComputedOrigin<OA | O<B>>>
+	>
 }
 
 /**

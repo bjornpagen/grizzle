@@ -1003,6 +1003,20 @@ const textMatches = (
 	return call.finishPredicate(real, ph)
 }
 
+/**
+ * Net.within, Net.strictlyWithin and Net.overlaps: a network containment test over an inet or a cidr term and an inet
+ * or a cidr operand, a term or a literal, which takes the first operand's type (typing.ts netContainment): a predicate.
+ */
+const netContainment =
+	(fn: "netWithin" | "netStrictlyWithin" | "netOverlaps") =>
+	(a: unknown, b: unknown, extra: ReadonlyArray<unknown>): PredicateValue => {
+		if (extra.length > 0) {
+			return malformed(captureLoc(spelling[fn], []), `two operands for ${spelling[fn]}`)
+		}
+		const { call, real, ph } = computeCall(fn, "literal", [a, b])
+		return call.finishPredicate(real, ph)
+	}
+
 /** Search.rank(document, query) and textRankCd: the document's rank for the query, a real. */
 const textRank =
 	(read: "rank" | "rankCd", name: "textRank" | "textRankCd") =>
@@ -1288,7 +1302,10 @@ const checks = Object.freeze({
 	cardinality: unary("cardinality"),
 	subset: binary("subset", "literal"),
 	disjoint: binary("disjoint", "literal"),
-	singleton
+	singleton,
+	netWithin: netContainment("netWithin"),
+	netStrictlyWithin: netContainment("netStrictlyWithin"),
+	netOverlaps: netContainment("netOverlaps")
 })
 
 /** The predicates, the same for a typed and a JavaScript caller, and's and or's operands as one list. */
@@ -1458,6 +1475,9 @@ export const compute = Object.freeze({
 	cardinality: (a: unknown) => plain(checks.cardinality(a, []), "bigint"),
 	subset: (a: unknown, b: unknown) => plain(checks.subset(a, b), "boolean"),
 	disjoint: (a: unknown, b: unknown) => plain(checks.disjoint(a, b), "boolean"),
+	netWithin: (a: unknown, b: unknown): PredicateValue => checks.netWithin(a, b, []),
+	netStrictlyWithin: (a: unknown, b: unknown): PredicateValue => checks.netStrictlyWithin(a, b, []),
+	netOverlaps: (a: unknown, b: unknown): PredicateValue => checks.netOverlaps(a, b, []),
 	/** The set's host type T is the public signature's, which its column, a set's over the roster, delivers. */
 	singleton: <T>(id: unknown): ScalarTerm<T, "bits"> => {
 		const checked = checks.singleton(id, [])
@@ -1625,6 +1645,12 @@ export const computeCore = Object.freeze({
 		plainBy(checks.cardinality(a, extra)),
 	subset: (a: unknown, b: unknown) => plainBy(checks.subset(a, b)),
 	disjoint: (a: unknown, b: unknown) => plainBy(checks.disjoint(a, b)),
+	netWithin: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): PredicateValue =>
+		checks.netWithin(a, b, extra),
+	netStrictlyWithin: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): PredicateValue =>
+		checks.netStrictlyWithin(a, b, extra),
+	netOverlaps: (a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): PredicateValue =>
+		checks.netOverlaps(a, b, extra),
 	singleton: (id: unknown, ...extra: ReadonlyArray<unknown>): ScalarTerm => {
 		const checked = checks.singleton(id, extra)
 		return scalarTerm(checked.expr, checked.type, {

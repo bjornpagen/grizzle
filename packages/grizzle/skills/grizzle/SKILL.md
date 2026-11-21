@@ -643,8 +643,9 @@ The command line's own refusals, by stage:
   whose encoding is grizzle's own. `Db.open` contacts nothing and
   checks nothing of the database: grizzle assumes it is the one the snapshot was migrated to, and the request's first
   call is its first round trip. `token` is required exactly when the role
-  declares a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
-  judged by its domain where a statement reads it. `grizzle migrate` judges the database after every apply and when
+  declares a context of a token's claims, and `attested` exactly when it declares an attested one; the layer's
+  `verify` refuses a token at the stage `token`, and a claim of a refined field is judged by its domain where a
+  statement reads it. `grizzle migrate` judges the database after every apply and when
   nothing is pending, and refuses drift: the login's and the role's settings and privileges exactly the snapshot's,
   the login LOGIN NOINHERIT and the role NOLOGIN with no SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS, a
   role's members its login and the migration identity PostgreSQL makes a member of each role it creates, row security
@@ -820,9 +821,13 @@ The command line's own refusals, by stage:
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
   installation stay exactly those three: `rds_iam` holds nothing there, so it is no drift, and a membership handing the
   login any privilege or ownership is.
-- A role declares the contexts its token's claims carry, `role(S, "student", wholeEntriesOf(S), { write, contexts:
-  [Session, Acting] })`: its `Db` decodes exactly those (a context of `{ claim: "act" }` from the nested `act` object,
-  no row where the token has none), and its query entries and the programs on it match only those. A program over the
+- A role declares the contexts its `Db`'s facts hold, `role(S, "student", wholeEntriesOf(S), { write, contexts:
+  [Session, Acting] })`: its `Db` decodes exactly those, each from its one source, a `context(...)` from the token's
+  claims (one of `{ claim: "act" }` from the nested `act` object, no row where the token has none), an
+  `attested(...)` from what the server attests (`Db.open`'s `attested`, `httpHandler`'s `attest(request)`), never a
+  token's claim: a fact a client must not choose, a request's address from the edge's header among them
+  (`attested("Origin", { address: pg.inet })`, `Inet.parse(header)`), is attested, never claimed. Its query entries
+  and the programs on it match only those. A program over the
   schema that matches `Session` runs on every full role declaring `Session`: write it once over the schema, never once
   per role, and never add a query entry only to make a context available. A query entry matching an undeclared context
   is a type error (`RoleRefused` `entryContext`); a program matching one is a type error in a workload over the role

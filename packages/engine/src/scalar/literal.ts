@@ -13,6 +13,7 @@ import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { unreadableOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -118,6 +119,10 @@ const hostLiteral = (base: PlainType, value: unknown): Result.Result<LiteralDesc
 			return toUuid(value)
 		case "date":
 			return toCalendarDate(value)
+		case "inet":
+			return admitInet(value)
+		case "cidr":
+			return admitCidr(value)
 		case "text":
 			return validateText(value)
 		case "bytes":

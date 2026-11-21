@@ -27,7 +27,7 @@ import {
 	selectBuilder,
 	treeBuilder
 } from "#compiler/schema/statements.ts"
-import { contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
+import { attestedBuilder, contextBuilder, roleBuilder } from "#compiler/schema/world.ts"
 import type {
 	DeclaredName,
 	MembersTyped,
@@ -770,9 +770,9 @@ export const fold = <
 export const Monoid: { readonly [M in MonoidName]: MonoidOf<M> } = monoids
 
 /**
- * The session's relation parameters: a source of at most one fact, matched by a rule of any query over any schema.
- * `claim` names the nested claim object the fields are read from; without it they are the payload's own top-level
- * claims.
+ * The session's relation parameters: a source of at most one fact, matched by a rule of any query over any schema,
+ * read from the claims the layer's verify returns for a Db's token. `claim` names the nested claim object the fields are
+ * read from; without it they are the payload's own top-level claims.
  */
 export const context = <
 	const Name extends string,
@@ -782,6 +782,20 @@ export const context = <
 	fields: Fields,
 	...options: ContextOptions
 ): Context<Name, Fields> => contextBuilder<Name, Fields>(name, fields, ...options)
+
+/**
+ * A context its server attests: a source of at most one fact, matched as a context is, whose fact the server states
+ * where it opens a Db (Db.open's `attested`, an HTTP handler's `attest` of its request), never a token's claim and
+ * never a client's input: `attested("Origin", { address: pg.inet })` for the address a request reached the server
+ * from, as the server's edge reports it.
+ */
+export const attested = <
+	const Name extends string,
+	const Fields extends Readonly<Record<string, ContextField>>
+>(
+	name: Name,
+	fields: Fields
+): Context<Name, Fields, "attested"> => attestedBuilder<Name, Fields>(name, fields)
 
 /**
  * Relations defined over the base, a schema: whole relations of the base, each under its own name, and queries over
@@ -811,5 +825,5 @@ export const role = <
 					MembersTyped<F> &
 					MembersTyped<C>
 		  ]
-): Role<Base, Name, RoleRelations<Rs>, W[number], F[number], DeclaredContexts<C>> =>
+): Role<Base, Name, RoleRelations<Rs>, W[number], F[number], DeclaredContexts<C>, C[number]> =>
 	roleBuilder<Base, Name, Rs, W, F>(base, name, relations, ...options)

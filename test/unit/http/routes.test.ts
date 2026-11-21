@@ -196,9 +196,9 @@ export const anHTTPHandlersRoutesAreExactlyTheServedMembersAndEveryRequestIsAnsw
 				{
 					file: "packages/grizzle/src/http/handler.ts",
 					original:
-						"\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))\n\t\tconst body = yield* bodyJson(request)",
+						"\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))\n\t\tconst attested = yield* Effect.mapError(\n\t\t\tEffect.fromResult(openingAttested(attesting, route.role.held.role, request)),\n\t\t\topenCallError\n\t\t)\n\t\tconst body = yield* bodyJson(request)",
 					replacement:
-						"\t\tconst body = yield* bodyJson(request)\n\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))",
+						"\t\tconst body = yield* bodyJson(request)\n\t\tconst token = yield* Effect.fromResult(openingToken(route.role.held.role, given))\n\t\tconst attested = yield* Effect.mapError(\n\t\t\tEffect.fromResult(openingAttested(attesting, route.role.held.role, request)),\n\t\t\topenCallError\n\t\t)",
 					why: "A call's missing token is checked after its body's JSON, so a call with no bearer token and no JSON body is an `input`."
 				}
 			]

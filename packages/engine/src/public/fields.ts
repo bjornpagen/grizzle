@@ -93,6 +93,11 @@ export { Money } from "#compiler/scalar/values/money.ts"
 export type { Span } from "#compiler/scalar/values/span.ts"
 /** The uuid host value, uuid_out's spelling as ArkRegex infers it, and its parse from a plain string. */
 export { Uuid } from "#compiler/scalar/values/uuid.ts"
+/**
+ * The inet and cidr host values, the one text inet_out and cidr_out print of a value, and their parses from any text
+ * PostgreSQL's inet_in and cidr_in read (scalar/values/net.ts).
+ */
+export { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 /** pgvector's carrier, a branded Float32Array. */
 export { Vector } from "#compiler/scalar/values/vector.ts"
 export type {

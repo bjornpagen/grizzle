@@ -205,6 +205,8 @@ export const lexicalTargetOf = (type: ScalarType): LexicalTarget | undefined => 
 		case "float4":
 		case "money":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":

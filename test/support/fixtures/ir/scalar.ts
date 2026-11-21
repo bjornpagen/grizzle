@@ -98,7 +98,9 @@ const plainCarriers: ReadonlySet<string> = new Set<PlainCarrier>([
 	"float8",
 	"money",
 	"bool",
-	"date"
+	"date",
+	"inet",
+	"cidr"
 ])
 
 /** Whether a carrier is a plain one (scalar/compute/types.ts PlainCarrier), an operation result with no metadata. */
@@ -137,6 +139,8 @@ const exactWidening = (
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "vector":
 		case "tsvector":
 			return undefined

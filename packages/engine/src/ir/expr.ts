@@ -50,6 +50,7 @@ import {
 } from "#compiler/ir/scalar.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { cosineNormMax, cosineNormMin } from "#compiler/scalar/values/fault.ts"
+import { type Cidr, type Inet, isCidrText, isInetText } from "#compiler/scalar/values/net.ts"
 
 /**
  * The identity of one native overload, resolved against the installed capability registry. The scalar package owns
@@ -305,6 +306,8 @@ export type TypedLiteral =
 	| { readonly kind: "text"; readonly value: string }
 	| { readonly kind: "uuid"; readonly value: string }
 	| { readonly kind: "date"; readonly value: CalendarDate }
+	| { readonly kind: "inet"; readonly value: Inet }
+	| { readonly kind: "cidr"; readonly value: Cidr }
 	| {
 			readonly kind: "handle"
 			/** One of the closed id's roster's live handles, which lowers to its code under the installation's codebook. */
@@ -348,6 +351,8 @@ export const identityValueOf = (value: TypedLiteral): IdentityValue => {
 		case "money":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "handles":
 		case "span":
 		case "vector":
@@ -946,6 +951,8 @@ export const integerLiteral = (literal: TypedLiteral): bigint | undefined => {
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "handle":
 		case "handles":
 		case "span":
@@ -1018,6 +1025,20 @@ export const literalProblem = (literal: TypedLiteral, outer: ScalarType): string
 			return toCalendarDate(literal.value).ok
 				? undefined
 				: "a date literal is a day from 0001-01-01 to 9999-12-31, written YYYY-MM-DD"
+		case "inet":
+			if (carrier !== "inet") {
+				return `an inet literal is not a ${carrier} value`
+			}
+			return isInetText(literal.value)
+				? undefined
+				: "an inet literal is its value's one text, as inet_out prints it"
+		case "cidr":
+			if (carrier !== "cidr") {
+				return `a cidr literal is not a ${carrier} value`
+			}
+			return isCidrText(literal.value)
+				? undefined
+				: "a cidr literal is its value's one text, as cidr_out prints it"
 		case "handle":
 			if (carrier !== "code") {
 				return `a handle literal is not a ${carrier} value`

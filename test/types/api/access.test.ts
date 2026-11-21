@@ -27,10 +27,11 @@ export const access = agreement(accessCases, {
 	kills: [
 		{
 			file: "packages/grizzle/src/adapter/types/db.ts",
-			original: "\tReadsContext<R> extends true ? TokenOptions : TokenOptions | NoTokenOptions",
+			original:
+				"\tReadsToken<R> extends true ? { readonly token: string } : { readonly token?: string }",
 			replacement:
-				"\tReadsContext<R> extends true ? TokenOptions | NoTokenOptions : TokenOptions | NoTokenOptions",
-			why: "Db.open takes no token for a role that reads a context (adapter/types/db.ts OpenOptions); the agreement's program fails."
+				"\tReadsToken<R> extends true ? { readonly token?: string } : { readonly token?: string }",
+			why: "Db.open takes no token for a role that reads a token's context (adapter/types/db.ts TokenOptions); the agreement's program fails."
 		},
 		{
 			file: "packages/engine/src/types/schema/world.ts",
@@ -38,7 +39,7 @@ export const access = agreement(accessCases, {
 				"export type DeclaredContexts<C> = C extends ReadonlyArray<infer X> ? NameOf<X> : never\n",
 			replacement:
 				"export type DeclaredContexts<C> = C extends ReadonlyArray<infer X> ? never : never\n",
-			why: "a role's type declares no context: a program over a full role matching a context it declares, which the engine compiles, is refused, and Db.open of a role declaring one takes no token."
+			why: "a role's type declares no context: a program over a full role matching a context it declares, which the engine compiles, is refused."
 		},
 		{
 			file: "packages/engine/src/types/schema/world.ts",

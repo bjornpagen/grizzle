@@ -335,7 +335,10 @@ const seekRequestsOf = (
 		]
 	})
 
-/** The requests of a judged query's lookups (`requestsOf`). */
+/**
+ * The requests of a judged query's lookups (`requestsOf`): none of an approximate retrieval's, a text search's or a
+ * network containment's, which a judge reads through its equalities' keys and filters.
+ */
 const lookupRequestsOf = (
 	b: InstallBuilder,
 	rule: RuleTrigger,
@@ -344,7 +347,13 @@ const lookupRequestsOf = (
 	extractLookups([root], { pageable: [] }).flatMap(
 		({ path, binds }): ReadonlyArray<IndexRequest> => {
 			const target = b.model.relations.get(path.relation)?.relation
-			if (target === undefined || path.method === "hnsw" || path.method === "gin" || path.derived) {
+			if (
+				target === undefined ||
+				path.method === "hnsw" ||
+				path.method === "gin" ||
+				path.use === "network containment" ||
+				path.derived
+			) {
 				return []
 			}
 			const keys = path.keys.flatMap((k) =>

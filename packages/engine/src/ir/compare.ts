@@ -43,6 +43,8 @@ export const operatorSchemaOf = (
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":

@@ -36,7 +36,7 @@ import {
  * here, each a Data.TaggedError, so Effect.catchReason, catchReasons and unwrapReason reach it, and each rendering
  * its own `message`. A reason states only what happened, as data: whatever follows from it (an error's stage) is a
  * getter, never a stored field. `cause` is only a foreign value wrapped: what the password Effect
- * (CredentialError) or the layer's verify (TokenError) failed with or threw. The adapter classifies each failure once,
+ * (CredentialError) or the layer's verify (TokenRefused) failed with or threw. The adapter classifies each failure once,
  * where it happens: a connection attempt where pg reports it (wire/session.ts), a statement's answer where its flight
  * drains (wire/batch.ts), a catalog read where its rows are parsed (wire/statement.ts).
  *
@@ -260,7 +260,8 @@ export type AcquireRefusal = ConnectRefusal | LayerReleased
  * - `password`: a Redacted or an Effect yielding one;
  * - `servedLogin`: a login served(...) built; `builtLogin`: a login login(...) built; `snapshot`: the committed
  *   snapshot.json, as an import of it yields;
- * - `function`; `verifier`: a function, since `role` of `login` declares a context.
+ * - `function`; `verifier`: a function, since `role` of `login` declares a token's context; `attester`: a function, since
+ *   `role` of `login` declares a context its server attests.
  */
 export type SettingRule =
 	| { readonly kind: "object"; readonly settings: ReadonlyArray<string> }
@@ -286,6 +287,7 @@ export type SettingRule =
 	| { readonly kind: "snapshot" }
 	| { readonly kind: "function" }
 	| { readonly kind: "verifier"; readonly role: string; readonly login: string }
+	| { readonly kind: "attester"; readonly role: string; readonly login: string }
 	| { readonly kind: "rolePrefix"; readonly fault: RolePrefixFault }
 	| { readonly kind: "installedRole"; readonly role: string; readonly limit: number }
 
@@ -336,7 +338,9 @@ const ruleText = (rule: SettingRule): string => {
 		case "function":
 			return "must be a function"
 		case "verifier":
-			return `must be a function: role ${rule.role} of login ${rule.login} declares a context`
+			return `must be a function: role ${rule.role} of login ${rule.login} declares a token's context`
+		case "attester":
+			return `must be a function: role ${rule.role} of login ${rule.login} declares a context its server attests`
 		case "rolePrefix":
 			return `must be a role prefix, used verbatim: ${rolePrefixFaultText(rule.fault)}`
 		case "installedRole":
@@ -414,13 +418,30 @@ export class TokenMalformed extends Data.TaggedError("TokenMalformed") {
 }
 
 /**
- * A token was refused: the layer's verify failed with it, its `cause` the verifier's own, or verify threw, its `cause`
- * what it threw. The application's verify fails with it; grizzle builds one only for a verify that throws. It is the
- * reason of an OpenError at stage `token`. CredentialError stays the database password failing.
+ * A token was refused: the layer's verify judged it and refused it, its `cause` the verifier's own, or verify threw,
+ * its `cause` what it threw. The application's verify fails with it where its verifier answered that the token is no
+ * good (a bad signature, an expired or revoked session); grizzle builds one only for a verify that throws. It is the
+ * reason of an OpenError at stage `token`, never retried: the same token meets the same answer. CredentialError stays
+ * the database password failing.
  */
-export class TokenError extends Data.TaggedError("TokenError")<{ readonly cause: unknown }> {
+export class TokenRefused extends Data.TaggedError("TokenRefused")<{ readonly cause: unknown }> {
 	override get message(): string {
 		return "the layer's verify refused the token"
+	}
+}
+
+/**
+ * The layer's verify could not judge a token now: its verifier is unavailable (its service down, unreachable or timing
+ * out), its `cause` the verifier's own. The application's verify fails with it where no answer about the token came,
+ * never where one refused it, since a token it reads as refused is no outage. It is the reason of an OpenError at stage
+ * `token` whose retry is `safe`: nothing was judged and nothing ran, so the same call may pass once the verifier
+ * answers.
+ */
+export class VerifierUnavailable extends Data.TaggedError("VerifierUnavailable")<{
+	readonly cause: unknown
+}> {
+	override get message(): string {
+		return "the layer's verify could not judge the token now: its verifier is unavailable"
 	}
 }
 
@@ -452,6 +473,44 @@ export class ClaimRefused extends Data.TaggedError("ClaimRefused")<{
 				return `the claim object of context ${this.context} has no ${fault.field}`
 			case "refused":
 				return `the claim ${fault.field} of context ${this.context} is no value of its field`
+		}
+	}
+}
+
+/**
+ * Why the facts a server attests for a Db (Db.open's `attested`, an HTTP handler's `attest`) do not decode through its
+ * role's attested contexts: a member names no context the role declares as attested (`undeclared`), or names one by a
+ * value that is no object; a fact lacks a field of its context, or holds a field its context has not; or a field's
+ * value is refused by its field's encoder. No value is quoted.
+ */
+export type AttestationFault =
+	| { readonly kind: "undeclared" }
+	| { readonly kind: "notAnObject" }
+	| { readonly kind: "missing"; readonly field: string }
+	| { readonly kind: "unknownField"; readonly field: string }
+	| { readonly kind: "refused"; readonly field: string }
+
+/**
+ * The facts a server attests do not decode through `context`'s fields, for `fault`: the reason of an OpenError at stage
+ * `schema`, since they are the server's own value, which no client states.
+ */
+export class AttestationRefused extends Data.TaggedError("AttestationRefused")<{
+	readonly context: string
+	readonly fault: AttestationFault
+}> {
+	override get message(): string {
+		const fault = this.fault
+		switch (fault.kind) {
+			case "undeclared":
+				return `the attested facts name ${this.context}, which the role declares as no attested context`
+			case "notAnObject":
+				return `the attested fact of context ${this.context} is no object`
+			case "missing":
+				return `the attested fact of context ${this.context} has no ${fault.field}`
+			case "unknownField":
+				return `the attested fact of context ${this.context} holds ${fault.field}, which its context has not`
+			case "refused":
+				return `the attested ${fault.field} of context ${this.context} is no value of its field`
 		}
 	}
 }

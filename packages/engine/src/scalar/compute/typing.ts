@@ -871,6 +871,8 @@ const carrierBounds = (t: PlainType): Bounds | undefined => {
 			return dateBounds
 		case "bool":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -1046,6 +1048,8 @@ const literalNumber = (
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "handle":
 		case "handles":
 		case "span":
@@ -1361,6 +1365,8 @@ export const withinGuards = (carrier: Carrier): boolean => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -2960,6 +2966,37 @@ class Typing<R extends Refs> {
 	}
 
 	/**
+	 * Net.within(a, b), Net.strictlyWithin(a, b) and Net.overlaps(a, b): PostgreSQL's `a <<= b`, `a << b` and `a && b`
+	 * over the network types (registry.ts netContainment), each operand an inet or a cidr, a contract over one among
+	 * them, of either type whatever the other's, since an address is tested against a network as each is stored; a
+	 * literal takes the first operand's type, as every literal takes the type of the term it meets. Each is false across
+	 * the address families and defined on every pair of values, so it stands in a query, a check and a law alike.
+	 */
+	netContainment(
+		fn: "netWithin" | "netStrictlyWithin" | "netOverlaps",
+		aDesc: ExprDesc<Located, R>,
+		bDesc: ExprDesc<Located, R>,
+		at: SourceLoc
+	): Typed {
+		const a = this.term(aDesc, childLoc(at, 0))
+		const b =
+			bDesc.kind === "literal" && bDesc.type === undefined
+				? this.literal(bDesc.value, this.adopt(a.nominal, "compare"), childLoc(at, 1))
+				: this.lower(bDesc, childLoc(at, 1))
+		for (const operand of [a, b]) {
+			if (!capsOf(operand.actual).includes("netContainment")) {
+				return stop(
+					"UnsupportedOperation",
+					at,
+					`netContainment: ${spelling[fn]} reads an inet or a cidr on each side, not ${typeLabel(operand.nominal)}`
+				)
+			}
+		}
+		const op = this.overload(fn, [a.actual, b.actual], at)
+		return this.native(op, [a, b], plainType("bool"), undefined, at, spelling[fn])
+	}
+
+	/**
 	 * Crypto.sha256(x): the SHA-256 digest of a bytes value, or of a text's UTF-8 bytes, as 64 lowercase hex digits,
 	 * `encode(sha256(x), 'hex')` and `encode(<textDigest>(x), 'hex')` (registry.ts bytesDigest, textSha256). It is the
 	 * one operation that reads a bytes value, which it reads whole, as a head does (whole): no operation yields bytes, so
@@ -4256,6 +4293,10 @@ class Typing<R extends Refs> {
 			case "websearchRankCd":
 			case "plainRankCd":
 				return this.textSearch(desc.fn, arg(0), arg(1), here)
+			case "netWithin":
+			case "netStrictlyWithin":
+			case "netOverlaps":
+				return this.netContainment(desc.fn, arg(0), arg(1), here)
 			case "cosineDistance": {
 				const a = this.term(arg(0), here)
 				const b = this.operand(arg(1), a, "compare", here)
@@ -4429,6 +4470,8 @@ class Typing<R extends Refs> {
 			case "bool":
 			case "uuid":
 			case "date":
+			case "inet":
+			case "cidr":
 			case "text":
 			case "bytes":
 			case "code":
@@ -4668,6 +4711,8 @@ const roundingScale = (target: ScalarType): number => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -4709,6 +4754,8 @@ const conversionOf = (from: ScalarType, to: ScalarType, how: CastHow): Conversio
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -4872,6 +4919,8 @@ const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":

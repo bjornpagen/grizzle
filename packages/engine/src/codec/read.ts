@@ -21,6 +21,7 @@
  * | bool | true, false (bool::text), t, f (boolout) |
  * | uuid | uuid_out text |
  * | date | date_out text under DateStyle ISO |
+ * | inet, cidr | network_show text, its mask always stated, read into inet_out's and cidr_out's |
  * | text | the string |
  * | bytes | no text: the cell is the value its delivery assembled (codec/delivery.ts), its one text its SHA-256 digest |
  * | code | int2out text, read as the handle the code names |
@@ -54,6 +55,7 @@ import {
 	keyText,
 	type SpecOf
 } from "#compiler/scalar/values/identity.ts"
+import { convertInet } from "#compiler/scalar/values/net.ts"
 
 /** A column's reader: its cell's host value, and the one text of the value its cell holds. */
 export interface ScalarReader {
@@ -143,6 +145,8 @@ const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string
 	bool: boolCellText,
 	uuid: itself,
 	date: itself,
+	inet: convertInet,
+	cidr: itself,
 	text: itself,
 	code: itself,
 	bits: bitsCellText,

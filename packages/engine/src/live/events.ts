@@ -61,6 +61,8 @@ export type CredentialReason = (typeof credentialReasons)[number]
  *   crash_shutdown), or accepts no connection now, starting, recovering or stopping (57P03 cannot_connect_now);
  * - `tooManyConnections`: every connection slot the server or the role allows is taken, 53300 too_many_connections;
  * - `layerReleased`: the DbLayer the Db was opened under, or the live read registered on, was released;
+ * - `verifierUnavailable`: the layer's verify could not judge the call's token now (VerifierUnavailable), its
+ *   verifier's service down or unreachable: no token was refused, and the same call may pass once it answers;
  * - `sessionLost`: a session the installation's live source holds was lost with no report of the server's: its
  *   listening session ended, the transport lost its connection, a fan-out's COMMIT went
  *   unanswered, or its leader's replication stream sent nothing past its deadline (a session the server ended with
@@ -79,6 +81,7 @@ export const unavailableCauses = [
 	"serverDown",
 	"tooManyConnections",
 	"layerReleased",
+	"verifierUnavailable",
 	"sessionLost",
 	"slotInvalidated",
 	"leaderFailed"
@@ -220,7 +223,7 @@ export const callError = <K extends CallErrorKind>(
  *   another (wireRefusals), an Authorization header holding no bearer token68, no token where the role declares a context,
  *   a body that is no JSON text or not the member's input;
  * - `open`: the opening of the Db a served call runs on, through the layer's verify and the role's contexts
- *   (OpenError);
+ *   (OpenError), its verifier unavailable among them;
  * - `read`: a read's run, its input's parse included (ReadError);
  * - `watch`: a live read's subscription: its change source's refusal or loss, its layer's release, its token's expiry;
  * - `apply`: a write's or a refresh's run, its input's parse included (ApplyError);
@@ -228,7 +231,7 @@ export const callError = <K extends CallErrorKind>(
  */
 export const failures = {
 	door: ["route", "input", "tokenRefused", "stale"],
-	open: ["route", "tokenRefused", "failed"],
+	open: ["route", "tokenRefused", "unavailable", "failed"],
 	read: [
 		"refused",
 		"input",

@@ -65,6 +65,8 @@ const sqlType = (schema: string, c: HeadingColumn): string => {
 		case "vector":
 		case "tsvector":
 		case "bits":
+		case "inet":
+		case "cidr":
 		case "exactInteger":
 		case "exactMoney":
 			throw new Error(`no fixture column type for ${c.type.carrier}`)

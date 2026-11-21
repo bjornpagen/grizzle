@@ -1,5 +1,6 @@
 import type { RowDecoder } from "#compiler/core/decoder.ts"
 import type { Built, Phantom, phantom } from "#compiler/core/phantom.ts"
+import type { ContextFactSource, ContextFactSourceKind } from "#compiler/ir/desc.ts"
 import type {
 	Carriers,
 	Headed,
@@ -42,37 +43,45 @@ import type {
 import type { Statement } from "#compiler/types/schema/statements.ts"
 
 /**
- * A context field: text, uuid, boolean, an integer type, a contract over one of them, or a closed handle; never a field
- * of a writing of its own.
+ * A context field: text, uuid, boolean, an integer type, inet, cidr, a contract over one of them, or a closed handle;
+ * never a field of a writing of its own.
  */
 export type ContextField = Field<
 	unknown,
-	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "code"
+	"text" | "uuid" | "boolean" | "smallint" | "integer" | "bigint" | "inet" | "cidr" | "code"
 > &
 	NoWriting
 
 /**
- * Any context: the members every one has. `claim` names the nested claim object its fields are read from, undefined
- * for the verified payload's own top level.
+ * Any context: the members every one has. `source` is where its one fact comes from (ir/desc.ts ContextFactSource): a
+ * token's claims, read from the verified payload's top level or the nested claim object `claim` names, or the facts its
+ * server attests.
  */
 export interface AnyContext extends Built {
 	readonly kind: "context"
 	readonly name: string
 	readonly fields: unknown
-	readonly claim: string | undefined
+	readonly source: ContextFactSource
 	readonly fact: RowDecoder<unknown>
 }
 
+/** A context's source of kind S, as its value states it. */
+export type SourceOf<S extends ContextFactSourceKind> = Extract<
+	ContextFactSource,
+	{ readonly kind: S }
+>
+
 /**
- * A context named Name over its fields: its heading is the fields, the carriers v mints variables over, and `fact`
- * decodes its one fact. Its fields are a phantom too, as a derived relation's are, so no reader takes it for a source
- * of unknown heading.
+ * A context named Name over its fields, of source S: its heading is the fields, the carriers v mints variables over,
+ * and `fact` decodes its one fact. Its fields are a phantom too, as a derived relation's are, so no reader takes it for
+ * a source of unknown heading. context(...) makes one of a token's claims, attested(...) one its server attests.
  */
-export interface Context<Name extends string, Fields>
+export interface Context<Name extends string, Fields, S extends ContextFactSourceKind = "token">
 	extends AnyContext, Phantom<{ readonly fields: Fields }> {
 	readonly kind: "context"
 	readonly name: Name
 	readonly fields: Fields
+	readonly source: SourceOf<S>
 	readonly heading: Fields
 	readonly fact: RowDecoder<FactOfFields<Fields>>
 }
@@ -97,7 +106,8 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  * checks (EntriesCheck, RolesOver) and their values (Context, Role, Login) are declared here.
  *
  * - A context is the session's relation parameters: a source of at most one fact, bound once per Db from the verified
- *   token. Its fields are claims of scalar types (ContextField). It belongs to no schema, so a rule of any query over
+ *   token's claims, or from the facts its server attests where it opens the Db. Its fields are scalar types
+ *   (ContextField). It belongs to no schema, so a rule of any query over
  *   any schema matches it; no law takes it and no ChangeSet writes it.
  * - A role is relations defined over its base, a schema, and is no schema itself. A whole entry is a relation of the
  *   base, itself, under its own name; a query entry is a world relation (World), a query over the base installed as a
@@ -111,8 +121,10 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  *   the layer's login.
  *
  * Which contexts a role declares is a phantom, the names of its options' `contexts` (DeclaredContexts), the only ones
- * its query entries' definitions (EntriesCheck) and its programs (WithinRoleContexts) match, so Db.open requires a
- * token exactly when a role declares one, and DbLayer.make a verify exactly when a role of its login does.
+ * its query entries' definitions (EntriesCheck) and its programs (WithinRoleContexts) match, and the contexts
+ * themselves (`declared`), so Db.open requires a token exactly when a role declares a token's context (ReadsToken) and
+ * the attested facts exactly when it declares an attested one (ReadsAttested), and DbLayer.make a verify exactly when a
+ * role of its login declares a token's.
  *
  * A role's query entry under its name. Its fields are a phantom, its definition's heading, which RelationFieldsOf
  * reads; the heading is a real member too, which v mints variables over, and `fact` decodes the facts of that heading.
@@ -376,11 +388,13 @@ export interface Role<
 	Relations,
 	Write extends string,
 	Refresh extends string,
-	Contexts
+	Contexts,
+	Declared = never
 > extends Phantom<{
 	readonly extends: FullBaseOf<Base, Relations>
 	readonly fragments: HeldFragments<Base, Relations>
 	readonly contexts: Contexts
+	readonly declared: Declared
 }> {
 	readonly kind: "role"
 	readonly name: Name
@@ -450,12 +464,74 @@ type ContextsStated<B> = B extends unknown
 	: never
 
 /**
- * Whether a role declares a context, the condition under which Db.open requires a token. The contexts are a
- * parameter of their own (ReadsSome): a tuple of ContextsReadBy here would be a reference the checker defers, holding
- * the role in its mapper, and deciding it would instantiate the role whole, its base with it.
+ * The contexts a role declares, themselves (its options' `contexts`): never when it declares none, and unknown for a role
+ * whose type does not say, read off its phantom as ContextsReadBy reads the names.
  */
-export type ReadsContext<R> = ReadsSome<ContextsReadBy<R>>
+type DeclaredReadBy<R> = R extends unknown
+	? string extends keyof R
+		? unknown
+		: typeof phantom extends keyof R
+			? DeclaredStated<PhantomOf<R>>
+			: unknown
+	: never
+
+/** The contexts a phantom bundle declares, each bundle of a union its own: unknown for one that states none. */
+type DeclaredStated<B> = B extends unknown
+	? "declared" extends keyof B
+		? B["declared" & keyof B]
+		: unknown
+	: never
+
+/** The names of the contexts of a token's claims among Cs: unknown where Cs does not say which. */
+type TokenNames<Cs> = unknown extends Cs
+	? unknown
+	: Cs extends { readonly source: { readonly kind: "token" } }
+		? NameOf<Cs>
+		: never
+
+/** The contexts its server attests among Cs: unknown where Cs does not say which. */
+type AttestedOfCs<Cs> = unknown extends Cs
+	? unknown
+	: Extract<Cs, { readonly source: { readonly kind: "attested" } }>
+
+/**
+ * Whether a role declares a context of a token's claims, the condition under which Db.open requires a token and
+ * DbLayer.make a verify. The contexts are a parameter of their own (ReadsSome): a tuple of DeclaredReadBy here would be
+ * a reference the checker defers, holding the role in its mapper, and deciding it would instantiate the role whole, its
+ * base with it.
+ */
+export type ReadsToken<R> = ReadsSome<TokenNames<DeclaredReadBy<R>>>
 type ReadsSome<C> = [C] extends [never] ? false : true
+
+/**
+ * Whether a role declares a context its server attests: `true`, the condition under which Db.open requires `attested`;
+ * `false` where it declares none; and `unknown` for a role whose type does not say, which may declare one, so Db.open
+ * takes `attested` without requiring it, a fact it leaves out being no fact, as a token without a claim holds none.
+ */
+export type ReadsAttested<R> =
+	unknown extends AttestedOfCs<DeclaredReadBy<R>>
+		? unknown
+		: ReadsSome<AttestedOfCs<DeclaredReadBy<R>>>
+
+/**
+ * The facts a server attests for a Db of role R (Db.open's `attested`): under each attested context the role declares
+ * its one fact, each field its host value, or none, where the server attests no fact of it, as a token without a
+ * context's claim object holds no fact of it. A role whose type does not say states a record of any context's facts.
+ */
+export type AttestedFactsOf<R> = AttestedRecord<AttestedOfCs<DeclaredReadBy<R>>>
+
+/** The record of the facts of the attested contexts Cs, by name. */
+export type AttestedRecord<Cs> = unknown extends Cs
+	? Readonly<Record<string, Readonly<Record<string, unknown>>>>
+	: {
+			readonly [
+				C in Cs as C extends { readonly name: infer N extends string } ? N : never
+			]?: C extends {
+				readonly fact: RowDecoder<infer F>
+			}
+				? F
+				: never
+		}
 /**
  * A program run on a Db of R matches only the contexts R declares (Cx, the program's ContextsOf): the Db's claims hold
  * facts of those alone, and the checker refuses any other at run time too (OutsideRole context). A role whose type does
@@ -586,5 +662,5 @@ export type RolesOf<L> = L extends { readonly roles: infer Rs }
 			: never
 		: never
 	: never
-/** Whether a role of the login reads a context, the condition under which DbLayer.make requires a verify. */
-export type LoginReadsContext<L> = ReadsContext<RolesOf<L>>
+/** Whether a role of the login declares a token's context, the condition under which DbLayer.make requires a verify. */
+export type LoginReadsToken<L> = ReadsToken<RolesOf<L>>

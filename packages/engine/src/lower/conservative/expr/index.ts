@@ -121,6 +121,8 @@ export const lowerLiteral = (
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 			return lit.text(literal.value, sqlType)
 		case "handle":
 			return lit.int(BigInt(codeOf(literalCodec(names, type), literal.handle)), sqlType)

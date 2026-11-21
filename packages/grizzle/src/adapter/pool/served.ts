@@ -316,7 +316,7 @@ const installedLogin = (
 
 /**
  * Builds the service in the current scope (the layer's) from a parsed config: the served login loaded (see the header),
- * a login a role of which declares a context refused without a verify, then the login's pool.
+ * a login a role of which declares a token's context refused without a verify, then the login's pool.
  */
 const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 	config: ParsedDbConfig
@@ -325,7 +325,9 @@ const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 	const login = yield* Effect.fromResult(
 		Result.mapError(installedLogin(config, loaded), refusedConfig)
 	)
-	const reading = Arr.findFirst(login.roles, (role) => role.contexts.length > 0)
+	const reading = Arr.findFirst(login.roles, (role) =>
+		Arr.some(role.contexts, (context) => context.source.kind === "token")
+	)
 	if (config.token.kind === "none" && Option.isSome(reading)) {
 		return yield* refusedConfig(
 			faultAt(dbConfig, "verify", {

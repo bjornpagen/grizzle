@@ -1,6 +1,8 @@
 export { OpenError, type OpenReason, type OpenStage } from "#adapter/errors/execution.ts"
 
 export {
+	type AttestationFault,
+	AttestationRefused,
 	type ClaimFault,
 	ClaimRefused,
 	ConnectionEnvironmentRefused,
@@ -12,6 +14,7 @@ export {
 	ServedLoginRefused,
 	type SettingFault,
 	type SettingRule,
-	TokenError,
-	TokenMalformed
+	TokenMalformed,
+	TokenRefused,
+	VerifierUnavailable
 } from "#adapter/errors/failures.ts"

@@ -351,6 +351,8 @@ const carrier = (type: ScalarType, host: unknown, what: string): Value => {
 		case "text":
 		case "code":
 		case "date":
+		case "inet":
+		case "cidr":
 			if (typeof host === "string") {
 				return host
 			}

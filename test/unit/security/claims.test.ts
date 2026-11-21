@@ -1,5 +1,5 @@
 /**
- * The host claims decoder (packages/grizzle/src/adapter/db/claims.ts claimsOf) decodes a verified payload exactly as
+ * The host claims decoder (packages/grizzle/src/adapter/db/claims.ts tokenFacts, then claimsOf) decodes a verified payload exactly as
  * README "Permissions" and "Security model" say, over the shapes a `verify` can return that JSON cannot: a claim or a
  * field on the payload's prototype chain rather than its own, a getter, a getter whose read throws, a non-object claim.
  * The worlds model's host decoder (test/support/worlds/model/session/claims.ts payloadFacts) is the specification,
@@ -26,7 +26,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Option, Record as Rec, Result } from "effect"
-import { type Claims, claimsOf } from "#adapter/db/claims.ts"
+import { type Claims, claimsOf, noFacts, tokenFacts } from "#adapter/db/claims.ts"
 import { ClaimRefused, type ExpiryRefused } from "#adapter/errors/failures.ts"
 import { docsBase } from "#test/support/worlds/model/bases/docs.ts"
 import { claimsText, payloadFacts } from "#test/support/worlds/model/session/claims.ts"
@@ -63,9 +63,9 @@ export const theHostClaimsDecoderDecodesAVerifysObjectToExactlyTheOwnPropertyFac
 						c.note(`value:${s.kind}`)
 					}
 					const payload = payloadOf(draw)
-					const grizzle: Result.Result<Claims, ClaimRefused | ExpiryRefused> = claimsOf(
-						memberContexts,
-						payload
+					const grizzle: Result.Result<Claims, ClaimRefused | ExpiryRefused> = Result.map(
+						tokenFacts(memberContexts, payload),
+						({ facts, expiry }) => claimsOf(facts, noFacts, expiry)
 					)
 					const read = Option.liftThrowable(() => payloadFacts(docsBase, memberSpec, payload))()
 					if (Option.isNone(read)) {

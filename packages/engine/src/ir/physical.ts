@@ -297,6 +297,10 @@ export const baseTypeRef = (names: PhysicalNames, t: ScalarType): TypeRef => {
 			return types.uuid
 		case "date":
 			return types.date
+		case "inet":
+			return types.inet
+		case "cidr":
+			return types.cidr
 		case "text":
 			return types.text
 		case "bytes":

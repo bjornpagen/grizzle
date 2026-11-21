@@ -508,6 +508,8 @@ export const unrefined = (t: ScalarType): ScalarType => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "bytes":
 		case "bits":
 		case "range4":

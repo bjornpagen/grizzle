@@ -44,6 +44,13 @@ const bigint = plain("bigint", carrierColumn("int8"))
 const real = plain("real", carrierColumn("float4"))
 const money = plain("money", carrierColumn("money"))
 const boolean = plain("boolean", carrierColumn("bool"))
+/**
+ * inet and cidr, PostgreSQL's network address types (scalar/values/net.ts): an address with its network's mask, and a
+ * network, whose address has no bit set right of its mask. A value is any text inet_in or cidr_in reads, and its host
+ * value the one text inet_out or cidr_out prints of it, so '1.2.3.4/32' is the inet '1.2.3.4'.
+ */
+const inet = plain("inet", carrierColumn("inet"))
+const cidr = plain("cidr", carrierColumn("cidr"))
 
 /** double precision, the one name its descriptor's source location spells with brackets, as its key is written. */
 const doublePrecision: ColumnDescriptor<"double precision", number> = defineField(
@@ -120,7 +127,7 @@ const numeric = defineField(
 /**
  * The pg namespace: PostgreSQL's numeric, money and boolean descriptors, each under the one name PostgreSQL's
  * format_type prints for its type, which is its SQL tag: smallint, integer, bigint, numeric (numeric(p, s) its call),
- * real, "double precision", money and boolean. A type has one spelling, so no declaration names one type two ways. smallserial, serial, bigserial
+ * real, "double precision", money, boolean, inet and cidr. A type has one spelling, so no declaration names one type two ways. smallserial, serial, bigserial
  * and uuidv7 are no descriptors but the refusal of one (scalar/minted.ts): grizzle mints no ids.
  *
  * - `pg.numeric` is numeric of no typmod, every value numeric holds, its host type Decimal: a field, a parameter, a
@@ -146,6 +153,8 @@ export const pgDescriptors = Object.freeze({
 	"double precision": doublePrecision,
 	money,
 	boolean,
+	inet,
+	cidr,
 	smallserial: minted,
 	serial: minted,
 	bigserial: minted,

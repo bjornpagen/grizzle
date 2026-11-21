@@ -21,6 +21,8 @@ export type ConvertedCarrier =
 	| "bool"
 	| "uuid"
 	| "date"
+	| "inet"
+	| "cidr"
 	| "text"
 	| "tsvector"
 	| "range4"

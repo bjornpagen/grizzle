@@ -217,8 +217,12 @@ const eventsOf = (
 	})
 }
 
-/** Whether a role's calls need a bearer token: it reads a context, whose facts are read from the token's claims. */
-const readsContext = (role: ServedRoleForm): boolean => role.contexts.length > 0
+/**
+ * Whether a role's calls need a bearer token: it reads a context of a token's claims, whose facts are read from the
+ * token. An attested context's facts are the server's, which no call states.
+ */
+const readsContext = (role: ServedRoleForm): boolean =>
+	role.contexts.some((context) => context.source.kind === "token")
 
 /** Words listed as prose: `a`, `a and b`, `a, b and c`. */
 const listed = (words: ReadonlyArray<string>): string => {
@@ -459,20 +463,33 @@ const roleDescription = (
 		const count = programs.filter((program) => program.deed.kind === kind).length
 		return count === 0 ? [] : [`${count} ${deedWords[kind]}`]
 	})
-	const token = readsContext(role)
-		? `Its calls need a bearer token: it reads ${listed(
-				role.contexts.map((context) =>
-					context.claim === undefined
+	const claimed = role.contexts.flatMap((context) =>
+		context.source.kind === "token"
+			? [
+					context.source.claim === undefined
 						? `the context ${context.name} from the claims' top level`
-						: `the context ${context.name} from the claim ${context.claim}`
-				)
-			)}.`
-		: "Its calls need no bearer token: it reads no context."
+						: `the context ${context.name} from the claim ${context.source.claim}`
+				]
+			: []
+	)
+	const attested = role.contexts.flatMap((context) =>
+		context.source.kind === "attested" ? [context.name] : []
+	)
+	const token =
+		claimed.length > 0
+			? `Its calls need a bearer token: it reads ${listed(claimed)}.`
+			: attested.length > 0
+				? "Its calls need no bearer token: it reads no context of a token's claims."
+				: "Its calls need no bearer token: it reads no context."
+	const server =
+		attested.length > 0
+			? ` The server attests ${listed(attested.map((name) => `the context ${name}`))} of each call, which no call states.`
+			: ""
 	return `Role ${role.name}: ${
 		programs.length === 0
 			? "it serves no program"
 			: `it serves ${counted(programs.length, "program", "programs")}, ${listed(serves)}`
-	}. ${token}`
+	}. ${token}${server}`
 }
 
 /**

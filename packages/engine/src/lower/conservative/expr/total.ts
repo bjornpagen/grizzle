@@ -70,6 +70,8 @@ const spaceOf = (t: ScalarType): Space | undefined => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -258,6 +260,9 @@ const exactIn = (
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "netWithin":
+		case "netStrictlyWithin":
+		case "netOverlaps":
 		case "canonicalZero":
 			return undefined
 	}

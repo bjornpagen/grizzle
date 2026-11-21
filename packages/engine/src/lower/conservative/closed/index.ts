@@ -48,6 +48,10 @@ const placeholderValue = (cx: LowerContext, type: ScalarType): Expr => {
 			return lit.text("00000000-0000-0000-0000-000000000000", cx.baseTypeRef(base))
 		case "date":
 			return lowerLiteral(cx.names, { kind: "date", value: firstCalendarDate }, base)
+		case "inet":
+			return lit.text("0.0.0.0", cx.baseTypeRef(base))
+		case "cidr":
+			return lit.text("0.0.0.0/0", cx.baseTypeRef(base))
 		case "text":
 			return lit.text("", cx.baseTypeRef(base))
 		case "bytes":

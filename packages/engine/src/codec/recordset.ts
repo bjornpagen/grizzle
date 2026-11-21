@@ -223,6 +223,8 @@ const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm }
 	bool: literalArray,
 	uuid: literalArray,
 	date: literalArray,
+	inet: literalArray,
+	cidr: literalArray,
 	text: textBinaryArray,
 	bytes: () => binaryArray,
 	code: literalArray,

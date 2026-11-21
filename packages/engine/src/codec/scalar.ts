@@ -54,6 +54,7 @@ import {
  * | bool | true, false |
  * | uuid | lowercase hyphenated |
  * | date | YYYY-MM-DD, 0001-01-01 to 9999-12-31 |
+ * | inet, cidr | inet_out's and cidr_out's text of the value inet_in and cidr_in read (scalar/values/net.ts) |
  * | text | the string |
  * | bytes | `\x` and two lowercase hex digits a byte, byteain's hex input; a member's array is binary (codec/bytea.ts) |
  * | code | the handle's code, decimal digits |
@@ -128,6 +129,8 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "tsvector":

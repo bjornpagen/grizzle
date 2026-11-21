@@ -3,12 +3,20 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
-import { type Claims, claimsOf, noClaims, type TypedContext } from "#adapter/db/claims.ts"
+import {
+	attestedFacts,
+	type Claims,
+	claimsOf,
+	noExpiry,
+	noFacts,
+	type TypedContext,
+	tokenFacts
+} from "#adapter/db/claims.ts"
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { servedHandles } from "#adapter/db/handles.ts"
 import { parseToken, type Token } from "#adapter/db/token.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
-import { TokenError } from "#adapter/errors/failures.ts"
+import { TokenRefused, type VerifierUnavailable } from "#adapter/errors/failures.ts"
 import {
 	type HeldRole,
 	readServedRole,
@@ -43,34 +51,52 @@ const isWorkloadOf = <R, P>(
 
 /**
  * The layer's verify of a token, called at the boundary: a verify that throws instead of returning its Effect has not
- * verified the token, so its throw refuses the token like a verify that fails (a TokenError whose cause is what it
- * threw), as every read of a JavaScript caller's value that throws refuses it. An Effect it returns keeps its own
- * semantics.
+ * verified the token, so its throw refuses the token like a verify that refuses it (a TokenRefused whose cause is what
+ * it threw), as every read of a JavaScript caller's value that throws refuses it. An Effect it returns keeps its own
+ * semantics: TokenRefused where its verifier refused the token, VerifierUnavailable where none could judge it now.
  */
-const verified = (verify: Verify, token: Token): Effect.Effect<unknown, TokenError> =>
+const verified = (
+	verify: Verify,
+	token: Token
+): Effect.Effect<unknown, TokenRefused | VerifierUnavailable> =>
 	Effect.flatten(
-		Effect.try({ try: () => verify(token), catch: (thrown) => new TokenError({ cause: thrown }) })
+		Effect.try({ try: () => verify(token), catch: (thrown) => new TokenRefused({ cause: thrown }) })
 	)
 
 /**
- * The claims of a Db (claims.ts): none without a token, or on a layer whose login reads no context; else the payload
- * the layer's verify returns for the token, decoded through the role's contexts.
+ * The claims of a Db (claims.ts): its token's contexts' facts, none without a token or on a layer whose login reads no
+ * token's context, else those of the payload the layer's verify returns for the token; and its attested contexts'
+ * facts, those the server attests (`attested`), decoded first, on the host, so a refused attestation calls no verify.
  */
 const dbClaims = (
 	sessions: ServedSessions,
 	contexts: ReadonlyArray<TypedContext>,
-	token: Option.Option<Token>
-): Effect.Effect<Claims, OpenError> => {
-	const check = sessions.token
-	if (Option.isNone(token) || check.kind === "none") {
-		return Effect.succeed(noClaims)
-	}
-	return Effect.mapError(
-		Effect.flatMap(verified(check.verify, token.value), (payload) =>
-			Effect.fromResult(claimsOf(contexts, payload))
-		),
+	opening: Opening
+): Effect.Effect<Claims, OpenError> =>
+	Effect.mapError(
+		Effect.flatMap(Effect.fromResult(attestedFacts(contexts, opening.attested)), (attested) => {
+			const check = sessions.token
+			if (Option.isNone(opening.token) || check.kind === "none") {
+				return Effect.succeed(claimsOf(noFacts, attested, noExpiry))
+			}
+			return Effect.flatMap(verified(check.verify, opening.token.value), (payload) =>
+				Effect.fromResult(
+					Result.map(tokenFacts(contexts, payload), ({ facts, expiry }) =>
+						claimsOf(facts, attested, expiry)
+					)
+				)
+			)
+		}),
 		(reason) => new OpenError({ reason })
 	)
+
+/**
+ * What a Db opens with beside its role: the token it gives, parsed as every door parses one (db/token.ts parseToken),
+ * or none; and the facts its server attests, a record by context name (claims.ts attestedFacts), or none.
+ */
+export interface Opening {
+	readonly token: Option.Option<Token>
+	readonly attested: Option.Option<Readonly<Record<string, unknown>>>
 }
 
 /**
@@ -83,17 +109,21 @@ const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
 /** No key of Db.open's options is left unread: every own property is copied. */
 const optionKeys: ReadonlySet<string> = new Set()
 
+/** The keys Db.open's options hold: its token and its attested facts. */
+const openKeys: ReadonlySet<string> = new Set(["token", "attested"])
+
 /**
  * Db.open's options as a JavaScript caller passes them, read once at the boundary (core/host.ts readCaller): the token
- * they give, parsed as every door parses one (db/token.ts parseToken), or none. The options are an object that is no
- * list, every own property of which, at any depth, reads as data, and the token is their own property, read off the
- * copy; no options, null, a list, a value that is no object, one whose reading throws or that holds a getter or a
- * setter, and a token that is no string are each refused at stage schema, and a string that is no token68 at stage
- * token (TokenMalformed), before any verify runs, as an HTTP call's is.
+ * they give, parsed as every door parses one (db/token.ts parseToken), or none; and the facts its server attests, a
+ * record, or none. The options are an object that is no list, every own property of which, at any depth, reads as
+ * data, holding no key but `token` and `attested`, each their own property, read off the copy; no options, null, a
+ * list, a value that is no object, one whose reading throws or that holds a getter or a setter, another key, a token
+ * that is no string and attested facts that are no record are each refused at stage schema, and a string that is no
+ * token68 at stage token (TokenMalformed), before any verify runs, as an HTTP call's is.
  */
-export const openToken = (options: unknown): Result.Result<Option.Option<Token>, OpenError> => {
+export const openOptions = (options: unknown): Result.Result<Opening, OpenError> => {
 	if (!isRecord(options)) {
-		return Result.fail(refusedOption("Db.open's options: an object, { token } or {}"))
+		return Result.fail(refusedOption("Db.open's options: an object, { token?, attested? }"))
 	}
 	const read = readCaller(options, optionKeys)
 	if (!read.ok) {
@@ -104,14 +134,28 @@ export const openToken = (options: unknown): Result.Result<Option.Option<Token>,
 		)
 	}
 	const copy = read.value.data
+	if (Arr.some(Rec.keys(copy), (key) => !openKeys.has(key))) {
+		return Result.fail(
+			refusedOption("Db.open's options: their token and attested facts, nothing else")
+		)
+	}
+	const attested: unknown = Rec.has(copy, "attested") ? copy["attested"] : undefined
+	if (attested !== undefined && !isRecord(attested)) {
+		return Result.fail(
+			refusedOption(
+				"Db.open's attested facts: a record of each attested context's fact, by its name"
+			)
+		)
+	}
+	const facts = attested === undefined ? Option.none() : Option.some(attested)
 	const token: unknown = Rec.has(copy, "token") ? copy["token"] : undefined
 	if (token === undefined) {
-		return Result.succeed(Option.none())
+		return Result.succeed({ token: Option.none(), attested: facts })
 	}
 	if (typeof token === "string") {
 		return Result.mapBoth(parseToken(token), {
 			onFailure: (reason) => new OpenError({ reason }),
-			onSuccess: Option.some
+			onSuccess: (parsed) => ({ token: Option.some(parsed), attested: facts })
 		})
 	}
 	return Result.fail(refusedOption("Db.open's token: a string, the token the layer's verify reads"))
@@ -133,9 +177,9 @@ export interface OpenedServed<R, P> extends HeldRole {
  */
 export const servedContext = (
 	held: HeldRole,
-	token: Option.Option<Token>
+	opening: Opening
 ): Effect.Effect<ServedDbContext, OpenError> =>
-	Effect.map(dbClaims(held.sessions, held.role.contexts, token), (claims) => {
+	Effect.map(dbClaims(held.sessions, held.role.contexts, opening), (claims) => {
 		const login = held.sessions.login
 		return {
 			prologue: prologueOf(login.prologue, held.role.installed, claims.text, login.fingerprint),
@@ -167,7 +211,8 @@ export const servedContext = (
  *    whose layer is not provided, or whose served file holds no role of the token's name, is OpenError{stage: "role"}.
  * 3. The token. A Db opened with a token turns it into claims once: the layer's verify runs on it, and the payload it
  *    returns is decoded through the contexts the role declares (claims.ts). A refusal is OpenError{stage:
- *    "token"} whose reason is verify's TokenError, or ClaimRefused for a payload that does not decode. A Db opened
+ *    "token"} whose reason is verify's TokenRefused, VerifierUnavailable (its retry `safe`), or ClaimRefused for a
+ *    payload that does not decode. A Db opened
  *    without one, or on a layer whose login reads no context, has no context facts. PostgreSQL judges a claim of a
  *    refined field where a statement reads it, by its field's domain.
  *
@@ -197,9 +242,9 @@ export const openedWith = <R extends AnyRole, P>(
 	Effect.gen(function* () {
 		const reached: unknown = role
 		const address = yield* Effect.fromResult(readServedRole<R>(reached))
-		const token = yield* Effect.fromResult(openToken(options))
+		const opening = yield* Effect.fromResult(openOptions(options))
 		const held = yield* servedSessions(address)
-		const ctx = yield* servedContext(held, token)
+		const ctx = yield* servedContext(held, opening)
 		const handles = handlesFor(ctx, held)
 		if (
 			!isWorkloadOf<R, P>(

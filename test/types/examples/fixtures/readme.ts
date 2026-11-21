@@ -6,6 +6,7 @@ import {
 	type AnyLogin,
 	type AnySchema,
 	arm,
+	attested,
 	ChangeSet,
 	check,
 	clocked,
@@ -28,6 +29,7 @@ import {
 	fold,
 	fragment,
 	type HeadOf,
+	type Inet,
 	type Infer,
 	instant,
 	key,
@@ -37,6 +39,7 @@ import {
 	Monoid,
 	mutable,
 	natural,
+	Net,
 	on,
 	paged,
 	type ParamsOf,
@@ -73,7 +76,7 @@ import {
 	type LiveSourceService,
 	roleNameOf,
 	served,
-	TokenError
+	TokenRefused
 } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
@@ -710,11 +713,11 @@ export const WebLayer = DbLayer.make({
 	attachPool: attachDatabasePool,
 	verify: (token) =>
 		clerkJwtKey.pipe(
-			Effect.mapError((cause) => new TokenError({ cause })),
+			Effect.mapError((cause) => new TokenRefused({ cause })),
 			Effect.flatMap((jwtKey) =>
 				Effect.tryPromise({
 					try: () => verifyToken(token, { jwtKey, authorizedParties: ["https://blog.example"] }),
-					catch: (cause) => new TokenError({ cause })
+					catch: (cause) => new TokenRefused({ cause })
 				})
 			)
 		)
@@ -990,6 +993,43 @@ export const sameTitle = query(Blog).rule((r) => {
 		.where(r.ne(post.slug, twin.slug))
 		.find({ org: post.org, post: post.slug, twin: twin.slug, title: post.title })
 })
+
+/** README: "Queries", network containment. */
+/** An organization's networks, each a cidr under the organization's key. */
+export const Network = relation("Network", { org: ClerkOrg, network: pg.cidr }, ["org", "network"])
+export const Campus = schema("Campus", [Network], [])
+/** The address a request reached the server from, as its edge reports it: attested by the server, never the client's. */
+export const Origin = attested("Origin", { address: pg.inet })
+
+/** The organizations whose networks the request's address lies within. */
+export const orgsHere = query(Campus).rule((r) => {
+	const { org, network } = v(Network, "network")
+	const { address } = v(Origin, "origin")
+	return r
+		.match(Network, { org, network })
+		.match(Origin, { address })
+		.where(Net.within(address, network))
+		.find({ org })
+})
+
+/** "`attested` exactly when it declares one its server attests": a full role of Campus declaring Origin. */
+export const Visitor = role(Campus, "visitor", wholeEntriesOf(Campus), { contexts: [Origin] })
+export const CampusWeb = login(Campus, "campus_web", [Visitor], {
+	workload: [workload(Visitor, { orgsHere })]
+})
+declare const campusFile: unknown
+const CampusServed = served<typeof CampusWeb>(campusFile, "campus_web")
+
+// @ts-expect-error -- refused: Visitor declares an attested context, so Db.open requires the server's attested facts
+export const visitorUnattested = Db.open(CampusServed.roles.visitor, {})
+
+/** A server attests the address its edge reports, read by Inet.parse; no token is needed for a role that claims none. */
+export const visitorAttested = (header: Inet) =>
+	Db.open(CampusServed.roles.visitor, { attested: { Origin: { address: header } } })
+
+export const visitorMisattested = (header: Inet) =>
+	// @ts-expect-error -- refused: an attested fact holds its context's fields alone
+	Db.open(CampusServed.roles.visitor, { attested: { Origin: { addr: header } } })
 
 /** README: "Queries", no outer joins. */
 /** Tickets sold per show, zero included: the second rule covers the shows a LEFT JOIN would pad with NULL. */

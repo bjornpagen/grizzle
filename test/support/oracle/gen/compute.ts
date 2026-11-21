@@ -415,6 +415,8 @@ const numberLiteral = (carrier: Carrier, n: number): LiteralDesc => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "bytes":
 		case "text":
 		case "code":

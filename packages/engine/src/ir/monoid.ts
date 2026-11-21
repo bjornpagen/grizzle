@@ -186,6 +186,8 @@ const summable = (t: ScalarType): boolean => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -234,6 +236,8 @@ const zeroOf = (t: ScalarType): TypedLiteral => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -279,6 +283,8 @@ const leastOf = (t: ScalarType): TypedLiteral | undefined => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "bits":

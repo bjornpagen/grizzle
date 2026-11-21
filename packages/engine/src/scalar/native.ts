@@ -83,6 +83,26 @@ export const nativeCapabilities = {
 	uuid: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	/** date_ops for B-tree and hash, btree_gist's gist_date_ops, and min and max (date_smaller, date_larger). */
 	date: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
+	/**
+	 * inet's B-tree, hash and GiST classes, network_ops' inet_ops (PostgreSQL 19 makes GiST's inet_ops the default class
+	 * of inet and cidr, and btree_gist 1.9 its own gist_inet_ops no default), min and max (network_smaller,
+	 * network_larger), and the containment operators <<=, << and &&, which inet_ops' GiST class serves.
+	 */
+	inet: [
+		"equality",
+		"expressionIndex",
+		"gist",
+		"hashing",
+		"minMax",
+		"netContainment",
+		"ordering",
+		"storage"
+	],
+	/**
+	 * cidr reads inet's operators and classes through its binary coercion to inet. PostgreSQL has no min or max over
+	 * cidr: inet's would deliver an inet, of another text than the cidr it chose.
+	 */
+	cidr: ["equality", "expressionIndex", "gist", "hashing", "netContainment", "ordering", "storage"],
 	text: ["equality", "expressionIndex", "gist", "hashing", "minMax", "ordering", "storage"],
 	/**
 	 * bytea has equality, a B-tree and a hash class, but grizzle admits storage alone: a bytes value is written and read
@@ -143,6 +163,8 @@ export type PlainCarrier =
 	| "money"
 	| "bool"
 	| "date"
+	| "inet"
+	| "cidr"
 
 /** The plain result type of a carrier, frozen: no contract. */
 export const plainType = (carrier: PlainCarrier): ScalarType =>

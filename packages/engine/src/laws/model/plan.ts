@@ -323,6 +323,8 @@ const hashable = (c: PlannedColumn): boolean => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "code":
 		case "range4":

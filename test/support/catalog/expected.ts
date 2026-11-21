@@ -128,6 +128,8 @@ const builtinTypname: { readonly [K in BuiltinTypeName]: string } = {
 	text: "text",
 	uuid: "uuid",
 	date: "date",
+	inet: "inet",
+	cidr: "cidr",
 	bytea: "bytea",
 	jsonb: "jsonb",
 	money: "money",

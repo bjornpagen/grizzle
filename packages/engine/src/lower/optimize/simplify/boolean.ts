@@ -248,6 +248,9 @@ const foldAs = <E>(expr: ScalarExpr, column: ColumnValue, rebuild: Rebuild<E>): 
 		case "subset":
 		case "disjoint":
 		case "adjoin":
+		case "netWithin":
+		case "netStrictlyWithin":
+		case "netOverlaps":
 		case "canonicalZero":
 		case "cast":
 			return { kind: "expr", expr }

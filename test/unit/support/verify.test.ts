@@ -1,13 +1,13 @@
 /**
  * The test layers' verify (test/support/worlds.ts testVerify), the one every test's DbLayer reads a token through: a
- * token whose text holds JSON as written verifies as that JSON, and any other text is a TokenError, whatever a decoder
+ * token whose text holds JSON as written verifies as that JSON, and any other text is a TokenRefused, whatever a decoder
  * would forgive in front of the parse. The worlds model reads a token that is no JSON as refused at token:verify, so a
  * verify more lenient than JSON.parse lets a world open a Db the model refuses (pg/world-model/errors, TEST_SEED=
  * 2079795525, rotating case 10: a token of {} after a byte order mark, U+FEFF, opened).
  *
  * - Property: over every token text of a box, a JSON value of each kind written bare, after a byte order mark, before
  *   one, inside spaces, or after a byte order mark inside spaces, verify succeeds exactly when JSON.parse admits the
- *   text as it is, with the value it parses to, and fails with TokenError otherwise. Oracle: JSON.parse over the text
+ *   text as it is, with the value it parses to, and fails with TokenRefused otherwise. Oracle: JSON.parse over the text
  *   itself, which no decoding precedes.
  *
  * Features: a text admitted, a text refused, and a byte order mark before the JSON.
@@ -28,8 +28,8 @@ import {
 	type Wrapping
 } from "#test/unit/support/verify.fixtures.ts"
 
-/** The test layers' verify verifies exactly the token texts that hold JSON as written, and refuses every other with TokenError. */
-export const theTestLayersVerifyVerifiesExactlyTheTokenTextsThatHoldJSONAsWrittenAndRefusesEveryOtherWithTokenError =
+/** The test layers' verify verifies exactly the token texts that hold JSON as written, and refuses every other with TokenRefused. */
+export const theTestLayersVerifyVerifiesExactlyTheTokenTextsThatHoldJSONAsWrittenAndRefusesEveryOtherWithTokenRefused =
 	property.exhaust(
 		finite(
 			(source) =>

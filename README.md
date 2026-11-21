@@ -1670,7 +1670,7 @@ A `login` is one PostgreSQL user, the one `roleNameOf(Web, {})` names (here `blo
 
 ```ts
 import net from "node:net"
-import { CredentialError, DbLayer, LiveSource, served, TokenError } from "@bjornpagen/grizzle/runtime"
+import { CredentialError, DbLayer, LiveSource, served, TokenRefused } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
 import { Config, Effect, Layer } from "effect"
@@ -1719,11 +1719,11 @@ export const WebLayer = DbLayer.make({
 	attachPool: attachDatabasePool,
 	verify: (token) =>
 		clerkJwtKey.pipe(
-			Effect.mapError((cause) => new TokenError({ cause })),
+			Effect.mapError((cause) => new TokenRefused({ cause })),
 			Effect.flatMap((jwtKey) =>
 				Effect.tryPromise({
 					try: () => verifyToken(token, { jwtKey, authorizedParties: ["https://blog.example"] }),
-					catch: (cause) => new TokenError({ cause })
+					catch: (cause) => new TokenRefused({ cause })
 				})
 			)
 		)
@@ -1739,7 +1739,7 @@ export const WebLayer = DbLayer.make({
 - `connectTimeoutMs`: how long one connection attempt may take, past which it fails with `ConnectTimedOut`; how long each CancelRequest an interrupted call sends may take; and how long the call then waits for the server to end its statement before it sends another.
 - `pool`: at most `max` sessions open, `min` of them kept open once opened, and the others closed `idleTimeoutMs` after their last use. None is opened before a call asks for one.
 
-A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
+A login whose roles read the token also needs `verify`, your function from a bearer token to its verified payload: here, Clerk's `verifyToken`, which judges a token by its key alone, so its every failure is a `TokenRefused`. A verifier that calls a service fails with `VerifierUnavailable` where the service gives no answer, so the caller retries an outage and never reads it as a refused token. `attachPool` hands the pool to Vercel, so idle connections close before a function instance suspends.
 
 A login whose workloads serve a read requires its installation's live source, `LiveSource.layer`, which its type states: the `DbLayer` of `Web` is a layer that needs `BlogLive`, and the program does not compile until it is provided. Build it once per process for the installation and provide it to every such layer, so one process holds one of it however many logins it serves. It takes the connection of the installation's decoder login, the one login `grizzle migrate` grants REPLICATION, whose `password` is that login's credential, and any served login of the installation that reads. The served login names that decoder login, `WebServed.decoder`, its PostgreSQL role `roleNameOf(WebServed.decoder, connection)`, which the layer logs in as. Its type is the login's: a `DecoderLogin` for `Web`, whose type proves it serves a read, which `roleNameOf` takes as it is; `{ kind: "none" }` for `EtlJob`, whose type proves it serves none and whose live source reads no credential; and either, narrowed by `kind`, for a login whose type cannot tell, `AnyLogin` among them. It connects nothing until a Db's first `watch`; from then on, for its scope, it holds one listening session of the decoder login and the process's candidacy for the installation's live leader, which streams the committed changes of the tables live reads read from the installation's replication slot and fans out which rows they touched, sealed under the installation's secret. These serve every watch alike, so they run under the services the live source was built with, outside the span it was built in, and never under the first watch's: no request's trace holds them, and a request's own calls are traced under its own span. A `watch` made before the slot stands, a fresh installation's first ones, waits for it: the leader makes the slot, which PostgreSQL holds back until every transaction that holds a transaction id at its start has ended, then fans out `:stands`, and each waiting read checks the slot once more. `EtlJob` serves no read, so its layer needs no live source. A login whose type hides its workloads, `AnyLogin` among them, requires one too, since its type cannot prove it reads nothing; providing a source no layer uses is legal. Every watch ends with `stale` when the installation is migrated: the leader decodes the migration's ledger row and fans out a version notice, so a read of closed relations alone, whose rows only a migration changes, needs the live source too.
 
@@ -1925,6 +1925,8 @@ schema.
 | `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
 | `pg.money`                                         | money                                                               | `Money`                                                                |
 | `pg.boolean`                                       | boolean                                                             | `boolean`                                                              |
+| `pg.inet`                                          | inet                                                                | `Inet`, inet_out's text; `Inet.parse` reads any text inet_in reads     |
+| `pg.cidr`                                          | cidr                                                                | `Cidr`, cidr_out's text; `Cidr.parse` reads any text cidr_in reads     |
 | `str.regex(pattern, flags?)`                       | text, behind a domain that checks the pattern                       | the pattern's language: `string`, or `"yes" \| "no"` for `^(yes\|no)$` |
 | `str.bytes(n, str.regex(...))`                     | text, behind a domain that checks its UTF-8 bytes, then the pattern | the pattern's                                                          |
 | `str.and(str.regex(p), str.regex(q), ...)`         | text, behind a domain that checks every pattern                     | the patterns' languages intersected, `P & Q`                           |
@@ -1948,6 +1950,7 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   float's `-0` a value of its own, kept as written, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
   PostgreSQL's to check ([Errors and outcomes](#errors-and-outcomes)).
 
+- **Network types.** `pg.inet` is an address with its network's mask, `pg.cidr` a network, IPv4 and IPv6 alike, PostgreSQL's own. A value is any text PostgreSQL's inet_in or cidr_in reads, and its host value the one text inet_out or cidr_out prints of it, so `"1.2.3.4/32"` is the inet `"1.2.3.4"`, `"10/8"` the cidr `"10.0.0.0/8"`, and a cidr with a bit set right of its mask, `"10.1.2.3/8"`, is an `EncodingFailure` (`cidrHostBits`), as PostgreSQL refuses it. grizzle reads every text as PostgreSQL 19 does, quirks included, so a value means one thing on the host and in the database: `Inet.parse(text)` and `Cidr.parse(text)` read a text, such as a request's address from an edge's header, into the value, a `Result`. Both compare, order (IPv4 before IPv6, then network_cmp's order), hash, stand in a key or an index, and are a context's field; an inet has `min` and `max`, and a cidr none, since PostgreSQL has neither. Their containment is `Net`'s ([Scalar terms](#scalar-terms)).
 - **Contracts.** `Cents(500n)` brands a value without checking it; the database checks it on every write. A fourth
   argument, `{ proves: [...] }`, declares facts the check implies ([Queries](#queries)).
 - **A contract's brand is Effect's.** Its values are its base's type and `Brand.Brand<name>` of `effect/Brand`, which the
@@ -2919,14 +2922,16 @@ file's JSON, whose encoding is grizzle's own. There is one `roleNameOf`, in `@bj
 re-exported by `@bjornpagen/grizzle`: it reads the stem a login, a role, a served login or a decoder login carries and
 loads no schema module. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
 refuses a file of another login than the name it was served as, at stage `config`. It requires `verify`
-exactly when one of the login's roles declares a context. A layer with `verify` runs it on every token it is handed,
-for a role that declares no context too.
+exactly when one of the login's roles declares a context of a token's claims. A layer with `verify` runs it on every
+token it is handed, for a role that declares no such context too.
 
 `Db.open(WebServed.roles.member, { token })` is the only way to open a `Db`, and only where the layer of the role's
 login is provided: a role of the login itself (`Web.roles.member`) is a type error, since the app holds the login as a
-type alone. It requires `token` exactly when the role declares a context. It runs `verify` once per `Db` and decodes the
-role's contexts from what it returns, and the `Db` keeps those claims. A `Db` opened without a token, or on a layer
-without `verify`, has no context rows. A role that declares no context opens whatever the payload.
+type alone. It requires `token` exactly when the role declares a context of a token's claims, and `attested` exactly
+when it declares one its server attests ([Contexts of a role](#contexts-of-a-role)). It runs `verify` once per `Db` and
+decodes the role's token contexts from what it returns, and the `Db` keeps those claims. A `Db` opened without a token,
+or on a layer without `verify`, has no rows of its token contexts. A role that declares no token context opens
+whatever the payload.
 
 **Queries for a role are written over the role.** `query(MemberBlog)` and `ChangeSet.empty(MemberBlog)` see only what
 `member` does, write only the entries in its `write` list, and match only the contexts it declares. Anything else is a
@@ -2934,10 +2939,12 @@ type error, and another context, from a caller the types don't reach, is refused
 
 ### Contexts of a role
 
-A role states the contexts its token's claims carry: `contexts: [Session, Org]` on `member`. They are the role's
-boundary, read once where a `Db` opens: `Db.open` decodes exactly those from what `verify` returns, each from its own
-claim (`Org` from the nested object `o`, so a token without `o` has no `Org` row), and requires a token exactly when
-the role declares one. Every query entry of the role, and every program on a `Db` of it, matches only the contexts it
+A role states the contexts its `Db`'s facts hold: `contexts: [Session, Org]` on `member`. They are the role's boundary,
+read once where a `Db` opens, each from its context's one source: a `context(...)` from the token's claims, `Db.open`
+decoding exactly those from what `verify` returns, each from its own claim (`Org` from the nested object `o`, so a token
+without `o` has no `Org` row); an `attested(...)` from the facts the server itself attests where it opens the `Db`.
+`Db.open` requires a token exactly when the role declares a context of a token's claims, and `attested` exactly when it
+declares an attested one. Every query entry of the role, and every program on a `Db` of it, matches only the contexts it
 declares, and nothing else makes a context available:
 
 - **A program over the schema matches them on a full role.** `role(Blog, "staff", wholeEntriesOf(Blog), { write:
@@ -2949,7 +2956,16 @@ declares, and nothing else makes a context available:
 - **A program matching one** is a type error in a workload over the role, and `OutsideRole` (`context`) when it
   compiles for the role, before any SQL: in `grizzle generate` for each role of a login whose workload holds it.
 - **Two contexts of one name that differ**, among the declared ones or between one and what a program matches, are
-  `DuplicateIdentity`.
+  `DuplicateIdentity`; a context of a token's claims and an attested one of one name differ.
+- **An attested context is the server's alone.** `attested("Origin", { address: pg.inet })` is a fact the server states,
+  `Db.open(WebServed.roles.student, { token, attested: { Origin: { address } } })` with `address` read by
+  `Inet.parse` from its edge's header of the address a request reached it from, and an HTTP handler's
+  `httpHandler({ logins, heartbeatMs, attest: (request) => ({ Origin: … }) })` for each request it serves, which the
+  handler's config requires exactly when a served role declares one. No token's claim, request body or other client
+  input reaches an attested context, so a client-stated address is no fact of one, and a token's claim of the same name
+  is the token's alone. A context the server leaves out has no fact, as a token without a context's claim object has
+  none; a member naming a context no served role attests, a fact of other fields, or a value its field refuses is
+  `AttestationRefused`, at stage `schema`.
 
 ### Writing through a role
 
@@ -3073,7 +3089,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 
 ### Scalar terms
 
-PostgreSQL's scalar operators, functions and casts are typed builders of terms, in eleven namespaces, each member in the one whose domain it reads, so a name is short and the namespace carries the domain: `Xml.isPattern`, never `isXsdPattern`.
+PostgreSQL's scalar operators, functions and casts are typed builders of terms, in twelve namespaces, each member in the one whose domain it reads, so a name is short and the namespace carries the domain: `Xml.isPattern`, never `isXsdPattern`.
 
 | namespace | members |
 |---|---|
@@ -3087,9 +3103,10 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 | `Distance` | `cosine` |
 | `Search` | `websearch`, `plain`, `matches`, `rank`, `rankCd` |
 | `Bits` | `union`, `intersection`, `difference`, `cardinality`, `subset`, `disjoint`, `singleton` |
+| `Net` | `within`, `strictlyWithin`, `overlaps` |
 | `Fn` | `call`, `rows`, `row` |
 
-`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
+`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; `Net` the containment of the network types ([Network containment](#network-containment)); and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
 
 ### Arithmetic
 
@@ -3152,6 +3169,41 @@ So a typed value derived from its lexical form is a generated field, `generated(
 `Text.parseDecimal(x)` reads a decimal text of any digits into numeric exactly, by XML Schema's `xs:decimal` lexical mapping: its digits, signed, over ten to the count of its fraction digits, a numeric of no typmod. So `1.50`, `+001.5` and `1.5` are one value, and a text past 256 integer or 255 fraction digits is the value it names, never rounded, clamped or read as an infinity. Its text is `decimalText`, the grammar of XML Schema 1.1's `xs:decimal` lexical space, `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)`, within `decimalTextMaxBytes` UTF-8 bytes, 16,384. Every such text names a value PostgreSQL's numeric holds, at most 16,383 digits past its point; one byte more can name one it does not hold. A regex counts no run past 255, so the byte bound stands beside the pattern, as `str.bytes` does. The parse compiles over a field whose pattern lies inside `decimalText` and whose type bounds its bytes within 16,384, `str.bytes(16384, str.regex(decimalText.source))` or a refinement of it, or a subject under both guards, `Logic.when(Text.matches(x, decimalText), (x) => Logic.when(Num.within(Text.octetLength(x), 0, 16384), () => Text.parseDecimal(x), otherwise), otherwise)`, the byte guard standing where `octetLength` does. Anything else is `PartialOperation` with the precondition `lexical`, whose guard names the test the operand lacks. The value of a text of at most n bytes has at most n integer and n - 1 fraction digits, so it casts into `pg.numeric(2n, n - 1)` with no guard. Its SQL is `x::numeric`, IMMUTABLE, so it stands in checks, generated fields and queries. Where `Type.cast` into `pg.numeric(p, s)` keeps its form of at most 256 integer and 255 fraction digits, compare decimals of any length by their parse. Never let an `otherwise` stand for a value, such as an infinity: a rule over it then passes on a text that does not parse, so state what the rule holds of such a text in the rule.
 
 XML Schema collapses a number's white space before it reads it. Guard the collapsed text, and the branch reads it as text of the collapse's language and the guard's pattern together, as a guard narrows any term: `Logic.when(Text.matches(Text.collapse(x), doubleText), (x) => Text.parseDouble(x), otherwise)` parses ` 1.5 ` and `\t-2e3\n`, and a translation, a cast and a value's base narrow alike.
+
+### Network containment
+
+`Net.within(a, b)` is PostgreSQL's `a <<= b`, whether `a` lies within the network `b` or is it, `Net.strictlyWithin(a, b)`
+its `a << b`, within and not `b` itself, and `Net.overlaps(a, b)` its `a && b`, whether either lies within the other.
+Each operand is an inet or a cidr, a contract over one among them, of either type whatever the other's, so an address
+is tested against a network as each is stored; a JavaScript value takes the first operand's type. `>>=` and `>>` are
+`within` and `strictlyWithin` with their operands swapped. Each is a predicate, false across the address families as
+PostgreSQL defines it, and defined on every pair of values, so it stands in a query's filter, a row check and a rule
+alike, and the host's evaluation of it is PostgreSQL's, bit for bit.
+
+```ts
+/** An organization's networks, each a cidr under the organization's key. */
+export const Network = relation("Network", { org: ClerkOrg, network: pg.cidr }, ["org", "network"])
+export const Campus = schema("Campus", [Network], [])
+/** The address a request reached the server from, as its edge reports it: attested by the server, never the client's. */
+export const Origin = attested("Origin", { address: pg.inet })
+
+/** The organizations whose networks the request's address lies within. */
+export const orgsHere = query(Campus).rule((r) => {
+	const { org, network } = v(Network, "network")
+	const { address } = v(Origin, "origin")
+	return r
+		.match(Network, { org, network })
+		.match(Origin, { address })
+		.where(Net.within(address, network))
+		.find({ org })
+})
+```
+
+A containment in a query's filter of a stored inet or cidr and a value the probe knows, a parameter's, a literal's or a
+join partner's, a context's address among them, requests a GiST index on the column: inet_ops, PostgreSQL 19's default
+GiST class for inet and cidr, serves `<<=`, `<<`, `>>=`, `>>` and `&&` alike, so the probe reads the networks that
+contain or lie within the value and no other row. A rule's judge reads its rows by its equalities' keys and filters
+by the containment.
 
 ### No outer joins
 
@@ -4626,13 +4678,13 @@ fails with its `CallError`, by kind:
 | --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `input`         | `never` | a parameter, a fact or a window the member's codecs or input boundary refuse, past a bound of its transport included |
 | `paramRejected` | `never` | PostgreSQL refused a parameter's value outside its pattern, a `str.bytes` bound included, as it bound it (`param`) |
-| `tokenRefused`  | `never` | no token where the role declares a context, a token `verify` refuses, or claims that do not decode              |
+| `tokenRefused`  | `never` | no token where the role declares a token's context, a token `verify` refuses, or claims that do not decode      |
 | `tokenExpired`  | `safe`  | the token expired, before the call or while it streamed                                                         |
 | `refused`       | `never` | the schema's laws refused the write (`refused`, `witness`)                                                      |
 | `outsideWorld`  | `never` | a row the write adds lies outside the written world relation (`relation`)                                       |
 | `transient`     | `safe`  | the attempt changed nothing, refused by a concurrent transaction (`reason`)                                     |
 | `credentialRefused` | `never` | no session could be had: its connection was not authenticated, either way (`reason`)                       |
-| `unavailable`   | `safe`  | no session could be had for now: the network, the server, a released layer (`reason`)                          |
+| `unavailable`   | `safe`  | no session could be had for now: the network, the server, a released layer, `verify`'s verifier (`reason`)     |
 | `transport`     | `safe`  | a connection broke before the call's end: a read's, which commits nothing, or a write's before COMMIT was sent |
 | `stale`         | `never` | the database is not at the Db's snapshot ([Deploying](#deploying)), so the call ran nothing                     |
 | `commitUnknown` | `never` | a write's COMMIT was sent and no answer came: it may have committed                                             |
@@ -4643,7 +4695,10 @@ fails with its `CallError`, by kind:
   `unwrapReason` reach it; `stage` follows from the reason, and `message` is a sentence naming it. Every error and
   reason class is exported as a value, the class grizzle builds it with, so a test of your code builds the exact value
   an open fails with, never a cast. Your `password` Effect fails with `CredentialError`, and your `verify` with
-  `TokenError`.
+  `TokenRefused` where its verifier refuses the token, or `VerifierUnavailable` where none could judge it now (the
+  verifier's service down or unreachable): `OpenError`'s `retry` is `safe` for that one reason and `never` for every
+  other, and over HTTP the call's error is `unavailable`, reason `verifierUnavailable`, retried safely, so an outage of
+  your verifier never reads as a refused token.
 - **`transient`**: its `reason` is `SerializationFailure` (40001), `Deadlock` (40P01), or a concurrent transaction's
   work the statement met (`PutTargetConflict`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`). grizzle never
   retries by itself: `settled(call)` runs a call again at once past each `transient` refusal, with no bound, and ends
@@ -4705,8 +4760,8 @@ fails with its `CallError`, by kind:
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `config`     | `DbConfigRefused`; `ConnectionEnvironmentRefused`, a process environment that sets `PGREPLICATION`                                                                                                                                                                                                                  |
 | `role`       | `RoleOutsideLayers`                                                                                                                                                                                                                                                                                                 |
-| `token`      | `TokenMalformed`, a token that is no token68 (a JWT is one), refused before `verify` runs; `TokenError`, `verify`'s refusal or throw (the throw is its `cause`); `ClaimRefused`, a payload that does not decode through the role's contexts; `ExpiryRefused`, an `exp` that is no number of seconds since the epoch |
-| `schema`     | `CompileError`                                                                                                                                                                                                                                                                                                      |
+| `token`      | `TokenMalformed`, a token that is no token68 (a JWT is one), refused before `verify` runs; `TokenRefused`, `verify`'s refusal or throw (the throw is its `cause`); `VerifierUnavailable`, `verify` unable to judge the token now, the one reason whose `retry` is `safe`; `ClaimRefused`, a payload that does not decode through the role's contexts; `ExpiryRefused`, an `exp` that is no number of seconds since the epoch |
+| `schema`     | `CompileError`; `AttestationRefused`, attested facts that do not decode through the role's attested contexts                                                                                                                                                                                                      |
 
 `Db.open` contacts nothing, so a connection that can't be had is the first call's failure, never the open's.
 

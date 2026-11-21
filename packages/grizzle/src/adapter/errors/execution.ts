@@ -1,6 +1,7 @@
 import * as Data from "effect/Data"
 import {
 	type AcquireRefusal,
+	type AttestationRefused,
 	type ClaimRefused,
 	CommitLost,
 	ConcurrentRefresh,
@@ -24,12 +25,14 @@ import {
 	SpanKeyChange,
 	type StaleReason,
 	type TemporaryRefused,
-	TokenError,
 	type TokenMalformed,
+	type TokenRefused,
 	type TransientReason,
 	UnreadableAnswer,
-	UnseenOccupant
+	UnseenOccupant,
+	type VerifierUnavailable
 } from "#adapter/errors/failures.ts"
+import type { Retry } from "#compiler/live/index.ts"
 import { SchemaFingerprint, sqlstates } from "#compiler/plan/runtime.ts"
 
 import type {
@@ -56,8 +59,8 @@ import type {
 /**
  * Why opening a Db or building a DbLayer failed, on the host, before anything is sent: a DbConfig no connection can
  * use, an environment that sets a connection option grizzle cannot override, or a served file of another login; a role no provided layer serves; a
- * token that is no token68, a token verify refused or threw, claims that do not decode through the role's contexts, or an `exp` that is no
- * NumericDate; a schema, login, snapshot or
+ * token that is no token68, a token verify refused or threw, a verifier unavailable now, claims that do not decode through the role's contexts, or an `exp` that is no
+ * NumericDate; attested facts that do not decode through the role's attested contexts; a schema, login, snapshot or
  * option value that does not compile or parse (CompileError), a login whose role name the naming door refuses
  * included.
  */
@@ -68,15 +71,18 @@ export type OpenReason =
 	| LiveSourceMissing
 	| RoleOutsideLayers
 	| TokenMalformed
-	| TokenError
+	| TokenRefused
+	| VerifierUnavailable
 	| ClaimRefused
 	| ExpiryRefused
+	| AttestationRefused
 	| CompileError
 
 /**
  * Where opening a Db or building a DbLayer failed: `config`, a DbConfig or the environment's connection options
  * refused, or a served file of another login than the one it was served as; `role`, a role no provided layer's login holds or a login with no role name; `token`, a token that is no
- * token68, one verify refused, or one whose claims or `exp` do not decode; or `schema`, a value that does not compile or parse.
+ * token68, one verify refused or could not judge now, or one whose claims or `exp` do not decode; or `schema`, a value that does not compile or parse,
+ * attested facts that do not decode among them.
  */
 export type OpenStage = "config" | "role" | "token" | "schema"
 
@@ -90,14 +96,24 @@ const openStage = (reason: OpenReason): OpenStage => {
 		case "RoleOutsideLayers":
 			return "role"
 		case "TokenMalformed":
-		case "TokenError":
+		case "TokenRefused":
+		case "VerifierUnavailable":
 		case "ClaimRefused":
 		case "ExpiryRefused":
 			return "token"
+		case "AttestationRefused":
 		case "CompileError":
 			return "schema"
 	}
 }
+
+/**
+ * Whether opening again may pass (live/events.ts Retry): `safe` where the layer's verify could not judge the token now
+ * (VerifierUnavailable), so nothing was judged and the same open may pass once its verifier answers; `never` for every
+ * other reason, which the same open meets again.
+ */
+const openRetry = (reason: OpenReason): Retry =>
+	reason._tag === "VerifierUnavailable" ? "safe" : "never"
 
 /** Opening a Db or building a DbLayer failed for `reason`, at the stage that reason fails at. */
 export class OpenError extends Data.TaggedError("OpenError")<{
@@ -105,6 +121,11 @@ export class OpenError extends Data.TaggedError("OpenError")<{
 }> {
 	get stage(): OpenStage {
 		return openStage(this.reason)
+	}
+
+	/** Whether opening again may pass (openRetry). */
+	get retry(): Retry {
+		return openRetry(this.reason)
 	}
 
 	override get message(): string {

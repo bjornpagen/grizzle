@@ -330,6 +330,16 @@ const carrierDraws: { readonly [C in StorageCarrier]: CarrierDraw } = {
 		reason:
 			"a date's comparisons, codec and text are judged by its parse's differential over every boundary of the date form, on its own installation"
 	},
+	inet: {
+		kind: "undrawn",
+		reason:
+			"an inet's values, order and containment are judged against PostgreSQL's own by test/pg/net, on its own installation"
+	},
+	cidr: {
+		kind: "undrawn",
+		reason:
+			"a cidr's values, order and containment are judged against PostgreSQL's own by test/pg/net, on its own installation"
+	},
 	rangeDate: {
 		kind: "undrawn",
 		reason:
@@ -478,6 +488,8 @@ export const typedLiteralDesc = (literal: TypedLiteral, type: ScalarType): Liter
 			return literal.value
 		case "text":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "date":
 			return literal.value
 		case "handle":
@@ -848,6 +860,8 @@ export const twinSpellings: { readonly [C in Carrier]: TwinSpellings } = {
 	bool: canonicalOnly,
 	uuid: canonicalOnly,
 	date: canonicalOnly,
+	inet: canonicalOnly,
+	cidr: canonicalOnly,
 	text: canonicalOnly,
 	bytes: canonicalOnly,
 	tsvector: canonicalOnly,

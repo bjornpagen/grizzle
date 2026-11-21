@@ -60,7 +60,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * sides (by its sampled value alone, by the half of the column's extent holding it after a prefix); the keys' order;
  * equality on each scalar key and overlap on each span key; the nearest vectors; the documents a query matches.
  */
-const shapes = ["equality", "range", "ordered", "overlap", "nearest", "match"] as const
+const shapes = ["equality", "range", "ordered", "overlap", "nearest", "match", "contain"] as const
 export type Shape = (typeof shapes)[number]
 
 /** Each workload use's probe, as ir/products.ts accessUses defines the use. */
@@ -75,7 +75,8 @@ const accessShape: Readonly<Record<AccessUse, Shape>> = {
 	"page seek": "ordered",
 	"span predicate": "overlap",
 	"approximate vector retrieval": "nearest",
-	"text search": "match"
+	"text search": "match",
+	"network containment": "contain"
 }
 
 /**
@@ -100,6 +101,7 @@ const sampledShape: Readonly<Record<Shape, boolean>> = {
 	range: true,
 	ordered: false,
 	overlap: true,
+	contain: true,
 	nearest: true,
 	match: true
 }
@@ -110,6 +112,7 @@ const orderedShape: Readonly<Record<Shape, boolean>> = {
 	range: false,
 	ordered: true,
 	overlap: false,
+	contain: false,
 	nearest: true,
 	match: false
 }
@@ -204,7 +207,8 @@ const methodOfUse: Readonly<Record<AccessUse, AccessIndexRequest["method"]>> = {
 	"page seek": "btree",
 	"span predicate": "gist",
 	"approximate vector retrieval": "hnsw",
-	"text search": "gin"
+	"text search": "gin",
+	"network containment": "gist"
 }
 
 /**
@@ -227,6 +231,7 @@ const fixedOfUse = (use: AccessUse, keys: number): number => {
 		case "page seek":
 		case "approximate vector retrieval":
 		case "text search":
+		case "network containment":
 			return 0
 	}
 }
@@ -957,6 +962,10 @@ const probeOf = (installed: Judged, table: Table, request: IndexRequest) =>
 				case "match":
 					return assert.fail(
 						`${label}: a text search request, which no drawn field asks: no field kind is a search document`
+					)
+				case "contain":
+					return assert.fail(
+						`${label}: a network containment request, which no drawn field asks: no field kind is an inet or a cidr`
 					)
 			}
 		})

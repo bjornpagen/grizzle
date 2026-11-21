@@ -2392,6 +2392,10 @@ const hostText = (t: ScalarType): string => {
 			return "Uuid"
 		case "date":
 			return "CalendarDate"
+		case "inet":
+			return "Inet"
+		case "cidr":
+			return "Cidr"
 		case "text":
 			return typeof t.text === "string"
 				? "string"

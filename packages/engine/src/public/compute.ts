@@ -6,6 +6,7 @@ import type {
 	DistanceApi,
 	FnApi,
 	LogicApi,
+	NetApi,
 	NumApi,
 	RangeApi,
 	SearchApi,
@@ -140,6 +141,13 @@ export const Search: SearchApi = Object.freeze<SearchApi>({
 	matches: (document, query) => C.textMatches(document, query),
 	rank: (document, query) => C.textRank(document, query),
 	rankCd: (document, query) => C.textRankCd(document, query)
+})
+
+/** Net: the containment of the network address types, inet and cidr. */
+export const Net: NetApi = Object.freeze<NetApi>({
+	within: (a, b) => C.netWithin(a, b),
+	strictlyWithin: (a, b) => C.netStrictlyWithin(a, b),
+	overlaps: (a, b) => C.netOverlaps(a, b)
 })
 
 /** Fn: a declared function called at its arguments, for its value, its rows or its one row. */

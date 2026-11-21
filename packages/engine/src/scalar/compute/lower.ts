@@ -1049,6 +1049,8 @@ export const fitRange = (target: ScalarType): readonly [Exact, Exact] | undefine
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":

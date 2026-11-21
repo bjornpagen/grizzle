@@ -9,9 +9,11 @@ import {
 	ClaimRefused,
 	ConnectionEnvironmentRefused,
 	DbConfigRefused,
-	TokenError,
-	TokenMalformed
+	TokenMalformed,
+	TokenRefused,
+	VerifierUnavailable
 } from "#adapter/errors/failures.ts"
+import { openCallError } from "#adapter/live/call-error.ts"
 import { Db } from "#adapter/public/db.ts"
 import { DbLayer } from "#adapter/public/layer.ts"
 import type { DbConfigShape } from "#adapter/types/layer.ts"
@@ -225,19 +227,20 @@ export const dbLayerMakeRefusesAtStageConfigExactlyTheProcessEnvironmentsThatSet
 
 /**
  * DbLayer.make judges a token at stage token before any connection: no token68 a TokenMalformed, verify's refusal or
- * throw a TokenError, a payload that does not decode a ClaimRefused.
+ * throw a TokenRefused, a payload that does not decode a ClaimRefused.
  *
  * Budget: its suite's count before the conversion (unit/adapter/layer-token: 150 independent cases and 96 steered,
  * Vitest at grizzle 4ca3036a). At those counts its required situations went unreached at TEST_SEED=1 (verify throws a
  * RangeError, verify throws an Error with a cause; toolchain-test run of 2026-11-16 08:21Z), so its steered phase
  * keeps the runner's cap of 200, which it stops short of once every situation is reached.
  */
-export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATokenMalformedVerifysRefusalOrThrowATokenErrorAPayloadThatDoesNotDecodeAClaimRefused =
+export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATokenMalformedVerifysRefusalOrThrowATokenRefusedAPayloadThatDoesNotDecodeAClaimRefused =
 	property.explore((source) => [source.draw(drawnGen), source.draw(tokenCaseGen)] as const, {
 		needs: {},
 		situations: [
 			"a token that is no token68",
 			"verify refuses",
+			"verify's verifier unavailable",
 			"verify throws an Error",
 			"verify throws a TypeError",
 			"verify throws a RangeError",
@@ -254,13 +257,16 @@ export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATok
 					let verified = 0
 					let opened = 0
 					const thrown: Array<Error> = []
-					const refusal = new TokenError({ cause: "the verifier refused the token" })
-					const verify = (): Effect.Effect<unknown, TokenError> => {
+					const refusal = new TokenRefused({ cause: "the verifier refused the token" })
+					const outage = new VerifierUnavailable({ cause: { status: 503 } })
+					const verify = (): Effect.Effect<unknown, TokenRefused | VerifierUnavailable> => {
 						verified++
 						const behaviour = c.verify
 						switch (behaviour.kind) {
 							case "refuses":
 								return Effect.fail(refusal)
+							case "unavailable":
+								return Effect.fail(outage)
 							case "throws": {
 								const error = thrownValue(behaviour.thrown)
 								thrown.push(error)
@@ -306,20 +312,40 @@ export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATok
 					assert.ok(Exit.isFailure(exit), "a refused token opens no Db")
 					const error = Cause.squash(exit.cause)
 					assert.ok(error instanceof OpenError, String(error))
+					const served = openCallError(error)
+					if (verdict.kind === "VerifierUnavailable") {
+						assert.equal(error.stage, "token")
+						assert.ok(error.reason === outage, "verify's own VerifierUnavailable")
+						assert.equal(error.retry, "safe", "an unavailable verifier's open may be retried")
+						assert.equal(
+							served.kind,
+							"unavailable",
+							"over HTTP, an unavailable verifier is no refused token"
+						)
+						assert.equal(served.retry, "safe")
+						k.note("verify's verifier unavailable")
+						return
+					}
+					assert.equal(error.retry, "never", "every other open meets the same answer again")
+					assert.notEqual(
+						served.retry,
+						"safe",
+						"over HTTP, no other refusal of the open is retried"
+					)
 					switch (verdict.kind) {
 						case "TokenMalformed":
 							assert.equal(error.stage, "token")
 							assert.ok(error.reason instanceof TokenMalformed, String(error.reason))
 							k.note("a token that is no token68")
 							break
-						case "TokenError":
+						case "TokenRefused":
 							assert.equal(error.stage, "token")
-							assert.ok(error.reason instanceof TokenError, String(error.reason))
+							assert.ok(error.reason instanceof TokenRefused, String(error.reason))
 							if (c.verify.kind === "throws") {
 								assert.deepEqual([error.reason.cause], thrown, "the throw is its cause")
 								k.note(`verify throws ${c.verify.thrown}`)
 							} else {
-								assert.ok(error.reason === refusal, "verify's own TokenError")
+								assert.ok(error.reason === refusal, "verify's own TokenRefused")
 								k.note("verify refuses")
 							}
 							break
@@ -340,6 +366,18 @@ export const dbLayerMakeJudgesATokenAtStageTokenBeforeAnyConnectionNoToken68ATok
 		budget: { runs: 150, steered: 200 },
 		kept: [],
 		kills: [
+			{
+				file: "packages/grizzle/src/adapter/live/call-error.ts",
+				original: '\tVerifierUnavailable: "unavailable",',
+				replacement: '\tVerifierUnavailable: "tokenRefused",',
+				why: "An unavailable verifier reads over HTTP as a refused token, never retried: a call met while the verifier is down fails for good."
+			},
+			{
+				file: "packages/grizzle/src/adapter/errors/execution.ts",
+				original: '\treason._tag === "VerifierUnavailable" ? "safe" : "never"',
+				replacement: '\t"never"',
+				why: "Db.open's OpenError of an unavailable verifier says never to retry, as a refused token's does."
+			},
 			{
 				file: "packages/grizzle/src/adapter/connection/environment.ts",
 				original: '\t\treturn value !== undefined && value !== ""',

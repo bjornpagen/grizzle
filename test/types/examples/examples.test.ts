@@ -26,10 +26,11 @@ export const readme = boxAgreement(statedRefusals, {
 		},
 		{
 			file: "packages/grizzle/src/adapter/types/db.ts",
-			original: "\tReadsContext<R> extends true ? TokenOptions : TokenOptions | NoTokenOptions",
+			original:
+				"\tReadsToken<R> extends true ? { readonly token: string } : { readonly token?: string }",
 			replacement:
-				"\tReadsContext<R> extends true ? TokenOptions | NoTokenOptions : TokenOptions | NoTokenOptions",
-			why: 'Db.open takes no token for a role that reads a context, so the README\'s refusal "MemberBlog reads a context, so Db.open requires a token" compiles: armed, its directive is unused, and disarmed, the refusal is missing.'
+				"\tReadsToken<R> extends true ? { readonly token?: string } : { readonly token?: string }",
+			why: "Db.open takes no token for a role that reads a token's context, so the README's refusal \"MemberBlog reads a context, so Db.open requires a token\" compiles: armed, its directive is unused, and disarmed, the refusal is missing."
 		},
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",

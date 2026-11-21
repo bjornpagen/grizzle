@@ -244,6 +244,12 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	uuidSyntax: "a uuid in the hyphenated 8-4-4-4-12 hexadecimal form",
 	dateSyntax:
 		"a calendar date in ISO 8601's extended form YYYY-MM-DD, a day from 0001-01-01 to 9999-12-31",
+	inetSyntax:
+		"an inet: a text PostgreSQL's inet_in reads, an IPv4 or IPv6 address with an optional /mask length",
+	cidrSyntax:
+		"a cidr: a text PostgreSQL's cidr_in reads, an IPv4 or IPv6 network with an optional /mask length",
+	cidrHostBits:
+		"a cidr whose address has no bit set right of its mask: a network, never an address within one, as PostgreSQL refuses it",
 	textType: "a string",
 	textNul: "text without NUL: PostgreSQL text cannot store U+0000",
 	textSurrogate: "well-formed text: an unpaired UTF-16 surrogate is not a Unicode scalar",

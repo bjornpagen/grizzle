@@ -5,14 +5,22 @@ import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as Str from "effect/String"
 import { readHost } from "#adapter/engine.ts"
-import { ClaimRefused, ExpiryRefused } from "#adapter/errors/failures.ts"
-import type { Codebook, ContextDesc, FieldDesc, ScalarType } from "#compiler/plan/common.ts"
+import { AttestationRefused, ClaimRefused, ExpiryRefused } from "#adapter/errors/failures.ts"
+import type {
+	Codebook,
+	ContextDesc,
+	ContextFactSource,
+	FieldDesc,
+	ScalarType
+} from "#compiler/plan/common.ts"
 import type { ScalarCodec } from "#compiler/plan/read.ts"
 import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/runtime.ts"
 
 /**
- * A Db's claims: the facts of the contexts its role declares, decoded once per Db.open from the payload the layer's verify
- * returned, and the text of the `grizzle.claims` setting each of the Db's transactions sets (wire/batch.ts Prologue).
+ * A Db's claims: the facts of the contexts its role declares, decoded once per Db.open, each from its context's source
+ * (ContextFactSource): a token's context from the payload the layer's verify returned, an attested context from the
+ * facts its server attests (attestedFacts), never one from the other's; and the text of the `grizzle.claims` setting
+ * each of the Db's transactions sets (wire/batch.ts Prologue), which holds both kinds of fact alike.
  *
  * The setting is a JSON object with one member per context that has a fact, `{ "<Context>": { "<field>": "<text>" } }`,
  * never the token and nothing else of the payload. Each value is the field's text form (codec/scalar.ts), a JSON string
@@ -27,7 +35,8 @@ import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/
  * value. Reading the payload runs the verifier's value, and each object of it is read once (PayloadRead): its top level
  * before any context decodes, and each claim object when the first context naming it reads it, every context that
  * names it then reading the same members; a read that throws refuses the context that made it the same way. A Db
- * opened without a token has no context facts: its setting is `{}`.
+ * opened without a token has no facts of its token's contexts, and one whose server attests none no facts of its
+ * attested contexts: a Db with neither has the setting `{}`.
  *
  * Claims are JSON, which has no bigint, and an instant is a bigint contract (a token's `exp` and `iat` among them), so
  * an integer claim is read as JSON states integers. An int8 claim, and a numeric(p, 0) one, whose host value is a
@@ -76,21 +85,14 @@ export interface Claims {
 	readonly expiry: Expiry
 }
 
-/** The claims of a Db with no context facts and no token. */
-export const noClaims: Claims = Object.freeze({
-	text: "{}",
-	present: new Set<string>(),
-	values: [],
-	expiry: neverExpires
-})
-
 /**
- * One context: its name, the claim object its facts are read from (none for the payload's top level), and its fields in
- * code-unit order, each typed, with its codec under the installation's codes: what its claims are decoded through.
+ * One context: its name, its source (a token's, with the claim object its facts are read from, none for the payload's
+ * top level, or attested), and its fields in code-unit order, each typed, with its codec under the installation's
+ * codes: what its facts are decoded through.
  */
 export interface TypedContext {
 	readonly name: string
-	readonly claim: string | undefined
+	readonly source: ContextFactSource
 	readonly fields: ReadonlyArray<{
 		readonly name: string
 		readonly type: ScalarType
@@ -139,6 +141,8 @@ const claimHost = (codec: ScalarCodec, value: unknown): Option.Option<unknown> =
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "code":
 		case "range4":
@@ -193,7 +197,7 @@ interface PayloadRead {
  * context.
  */
 const claimObject = (
-	context: Pick<TypedContext, "name" | "claim">,
+	context: { readonly name: string; readonly claim: string | undefined },
 	payload: PayloadRead
 ): Result.Result<ReadonlyMap<string, unknown> | undefined, ClaimRefused> => {
 	const claim = context.claim
@@ -234,9 +238,10 @@ type Fact = ReadonlyArray<{
 
 const contextFact = (
 	context: TypedContext,
+	claim: string | undefined,
 	payload: PayloadRead
 ): Result.Result<Fact | undefined, ClaimRefused> =>
-	Result.flatMap(claimObject(context, payload), (object) => {
+	Result.flatMap(claimObject({ name: context.name, claim }, payload), (object) => {
 		if (object === undefined) {
 			return Result.succeed(undefined)
 		}
@@ -292,49 +297,148 @@ const expiryOf = (
 		: Result.fail(new ExpiryRefused())
 }
 
+/** The facts a source gives a Db, each context's member of the setting in its fact's order of fields, and each claim. */
+export interface SourceFacts {
+	readonly members: ReadonlyArray<readonly [string, ReadonlyArray<ClaimValue>]>
+}
+
+/** No facts: a Db opened without a token, or whose server attests none. */
+export const noFacts: SourceFacts = Object.freeze({ members: [] })
+
+/** The token contexts among a role's, each with the claim object its facts are read from. */
+const tokenContexts = (
+	contexts: ReadonlyArray<TypedContext>
+): ReadonlyArray<{ readonly context: TypedContext; readonly claim: string | undefined }> =>
+	Arr.flatMap(contexts, (context) =>
+		context.source.kind === "token" ? [{ context, claim: context.source.claim }] : []
+	)
+
 /**
- * The claims `payload` holds for `contexts`, and its expiry (see the header). Its top level is read once, before any
- * context decodes: a read that throws refuses the first context in order, or the expiry when no context reads the
- * payload.
+ * The facts `payload` holds of the token contexts among `contexts`, and its expiry (see the header). Its top level is
+ * read once, before any context decodes: a read that throws refuses the first token context in order, or the expiry
+ * when no context reads the payload. An attested context reads nothing of the payload.
  */
-export const claimsOf = (
+export const tokenFacts = (
 	contexts: ReadonlyArray<TypedContext>,
 	payload: unknown
-): Result.Result<Claims, ClaimRefused | ExpiryRefused> => {
+): Result.Result<
+	{ readonly facts: SourceFacts; readonly expiry: Expiry },
+	ClaimRefused | ExpiryRefused
+> => {
 	const sorted = Arr.sort(
-		contexts,
-		Order.mapInput(Order.String, (c: TypedContext) => c.name)
+		tokenContexts(contexts),
+		Order.mapInput(Order.String, (c: { readonly context: TypedContext }) => c.context.name)
 	)
 	const unreadable: ClaimRefused | ExpiryRefused = Arr.isReadonlyArrayNonEmpty(sorted)
-		? notAnObject(Arr.headNonEmpty(sorted).name)
+		? notAnObject(Arr.headNonEmpty(sorted).context.name)
 		: new ExpiryRefused()
 	return Result.gen(function* () {
 		const top = yield* readHost(unreadable, () => Result.succeed(topLevel(payload)))
 		const read: PayloadRead = { top, claims: new Map() }
-		const members: Array<readonly [string, string]> = []
-		const values: Array<ClaimValue> = []
-		for (const context of sorted) {
-			const fact = yield* contextFact(context, read)
-			if (fact === undefined) {
-				continue
-			}
-			members.push([
-				context.name,
-				objectText(Arr.map(fact, ({ field, text }) => [field, jsonText(text)] as const))
-			])
-			for (const { field, type, text } of fact) {
-				values.push({ context: context.name, field, type, text })
+		const members: Array<readonly [string, ReadonlyArray<ClaimValue>]> = []
+		for (const { context, claim } of sorted) {
+			const fact = yield* contextFact(context, claim, read)
+			if (fact !== undefined) {
+				members.push([
+					context.name,
+					Arr.map(fact, ({ field, type, text }) => ({ context: context.name, field, type, text }))
+				])
 			}
 		}
 		const expiry = yield* expiryOf(top)
-		return {
-			text: objectText(members),
-			present: new Set(Arr.map(members, ([name]) => name)),
-			values,
-			expiry
-		}
+		return { facts: { members }, expiry }
 	})
 }
+
+/**
+ * The facts a server attests for a Db (Db.open's `attested`, an HTTP handler's `attest`), decoded through the attested
+ * contexts among `contexts`: `attested` is a record whose every member names one of them, each a fact of exactly its
+ * context's fields, each a host value its field's codec admits, or no record at all, where the server attests none. A
+ * context it leaves out has no fact. A member naming any other context, a token's among them, or a fact of other
+ * fields, is AttestationRefused: a token's context is read from the token alone, so no attested value stands for one.
+ */
+export const attestedFacts = (
+	contexts: ReadonlyArray<TypedContext>,
+	attested: Option.Option<Readonly<Record<string, unknown>>>
+): Result.Result<SourceFacts, AttestationRefused> => {
+	if (Option.isNone(attested)) {
+		return Result.succeed(noFacts)
+	}
+	const byName = new Map(
+		Arr.flatMap(contexts, (c) => (c.source.kind === "attested" ? [[c.name, c] as const] : []))
+	)
+	const refused = (context: string, fault: AttestationRefused["fault"]): AttestationRefused =>
+		new AttestationRefused({ context, fault })
+	return Result.gen(function* () {
+		const members: Array<readonly [string, ReadonlyArray<ClaimValue>]> = []
+		for (const name of Arr.sort(Rec.keys(attested.value), Order.String)) {
+			const context = byName.get(name)
+			if (context === undefined) {
+				return yield* Result.fail(refused(name, { kind: "undeclared" }))
+			}
+			const fact = attested.value[name]
+			if (fact === undefined) {
+				continue
+			}
+			if (!isRecord(fact) || isList(fact)) {
+				return yield* Result.fail(refused(name, { kind: "notAnObject" }))
+			}
+			const own = ownMembers(fact)
+			const unknownField = Arr.findFirst(
+				Arr.fromIterable(own.keys()),
+				(key) => !Arr.some(context.fields, (f) => f.name === key)
+			)
+			if (Option.isSome(unknownField)) {
+				return yield* Result.fail(
+					refused(name, { kind: "unknownField", field: unknownField.value })
+				)
+			}
+			const values: Array<ClaimValue> = []
+			for (const field of context.fields) {
+				if (!own.has(field.name)) {
+					return yield* Result.fail(refused(name, { kind: "missing", field: field.name }))
+				}
+				const text = field.codec.encode(own.get(field.name))
+				if (!text.ok) {
+					return yield* Result.fail(refused(name, { kind: "refused", field: field.name }))
+				}
+				values.push({ context: name, field: field.name, type: field.type, text: text.value })
+			}
+			members.push([name, values])
+		}
+		return { members }
+	})
+}
+
+/**
+ * A Db's claims from its token's facts and its server's attested facts, which name no context twice, since each
+ * context is of one source: the setting's members in code-unit order of their contexts' names, so one set of facts
+ * gives one text, and the token's expiry.
+ */
+export const claimsOf = (token: SourceFacts, attested: SourceFacts, expiry: Expiry): Claims => {
+	const members = Arr.sort(
+		[...token.members, ...attested.members],
+		Order.mapInput(Order.String, ([name]: readonly [string, unknown]) => name)
+	)
+	return {
+		text: objectText(
+			Arr.map(
+				members,
+				([name, values]) =>
+					[
+						name,
+						objectText(Arr.map(values, ({ field, text }) => [field, jsonText(text)] as const))
+					] as const
+			)
+		),
+		present: new Set(Arr.map(members, ([name]) => name)),
+		values: Arr.flatMap(members, ([, values]) => values),
+		expiry
+	}
+}
+
+/** The expiry of a Db whose token states none, or that has no token. */
+export const noExpiry: Expiry = neverExpires
 
 /** The typed fields of a context, by `typeOf`, in code-unit order, each with its codec under the codes `codes`. */
 export const typedContext = (
@@ -353,12 +457,12 @@ export const typedContext = (
  * the compile types against the base, and a served file holds typed.
  */
 export const contextOver = (
-	context: Pick<TypedContext, "name" | "claim">,
+	context: Pick<TypedContext, "name" | "source">,
 	fields: ReadonlyArray<{ readonly name: string; readonly type: ScalarType }>,
 	codes: Codebook
 ): TypedContext => ({
 	name: context.name,
-	claim: context.claim,
+	source: context.source,
 	fields: Arr.map(
 		Arr.sort(
 			fields,

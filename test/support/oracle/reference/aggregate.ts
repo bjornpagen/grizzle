@@ -185,6 +185,8 @@ const sum = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "vector":
 		case "tsvector":
 			throw referenceUnsupported(`sum over ${carrier}`)
@@ -220,6 +222,8 @@ const avg = (values: Arr.NonEmptyReadonlyArray<Value>, type: ScalarType): Value 
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "vector":
 		case "tsvector":
 			throw referenceUnsupported(`avg over ${carrier}`)

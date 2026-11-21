@@ -9,6 +9,7 @@ import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 
 import { Money } from "#compiler/scalar/values/money.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import {
 	Identities,
 	type ValueIdentity,
@@ -242,6 +243,8 @@ export const valueIdentity = (v: Value, type: ScalarType): ValueIdentity => {
 			throw referenceUnsupported("a search document, which PostgreSQL alone parses")
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "code":
 			return ["value", asString(v)]
@@ -295,6 +298,8 @@ export const indexIdentity = (v: Value, type: ScalarType): ValueIdentity | undef
 			return undefined
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 			return typeof v === "string" ? valueIdentity(v, type) : undefined
 		case "code":
@@ -473,6 +478,20 @@ export const literalOfValue = (v: Value, type: ScalarType): TypedLiteral => {
 			return { kind: "uuid", value: asString(v) }
 		case "date":
 			return { kind: "date", value: convertDate(asString(v)) }
+		case "inet": {
+			const read = admitInet(asString(v))
+			if (!read.ok) {
+				throw referenceUnsupported(`an inet value that is no inet: ${asString(v)}`)
+			}
+			return { kind: "inet", value: read.value }
+		}
+		case "cidr": {
+			const read = admitCidr(asString(v))
+			if (!read.ok) {
+				throw referenceUnsupported(`a cidr value that is no cidr: ${asString(v)}`)
+			}
+			return { kind: "cidr", value: read.value }
+		}
 		case "code":
 			return { kind: "handle", handle: asString(v) }
 		case "bits":

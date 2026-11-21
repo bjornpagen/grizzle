@@ -189,6 +189,9 @@ const valueKind = (t: ScalarType, codes: Codebook): ValueKind => {
 			return { kind: "uuid" }
 		case "date":
 			return { kind: "date" }
+		case "inet":
+		case "cidr":
+			return { kind: "net", carrier: b.carrier }
 		case "text":
 		case "tsvector":
 			return { kind: "text" }

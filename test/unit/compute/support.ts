@@ -193,6 +193,8 @@ export const testPg = {
 	 */
 	computedNumeric: { sql: "numeric", column: plainColumns.numeric, scalar: anyNumeric },
 	uuid: field({ kind: "uuid" }, "uuid"),
+	inet: field({ kind: "pg", type: "inet" }, "inet"),
+	cidr: field({ kind: "pg", type: "cidr" }, "cidr"),
 	text: field(textDesc("^.*$", "su"), "text"),
 	regex: (source: string, flags: "u" | "su") => field(textDesc(source, flags), "text")
 } as const
@@ -502,6 +504,8 @@ const builtinNames: Readonly<Partial<Record<Carrier, TypeRef>>> = {
 	money: builtinType("money"),
 	bool: builtinType("boolean"),
 	uuid: builtinType("uuid"),
+	inet: builtinType("inet"),
+	cidr: builtinType("cidr"),
 	text: builtinType("text"),
 	range4: builtinType("int4range"),
 	range8: builtinType("int8range"),
@@ -602,6 +606,8 @@ const literalExpr = (literal: TypedLiteral, t: ScalarType, options: RenderOption
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 			return { kind: "literal", value: { kind: "text", value: literal.value }, type }
 		case "handle": {
 			const roster = rosterOf(t)

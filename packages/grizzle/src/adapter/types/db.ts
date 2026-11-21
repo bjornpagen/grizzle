@@ -19,30 +19,42 @@ import type {
 import type { AnyChangeSet, Refused, Witness } from "#compiler/plan/change.ts"
 import type {
 	AnyRole,
+	AttestedFactsOf,
 	Clocked,
 	Invariant,
 	Phantom,
-	ReadsContext,
+	ReadsAttested,
+	ReadsToken,
 	Refresh
 } from "#compiler/plan/common.ts"
 
 /**
- * Db.open's options with a token: what the layer's verify turns into the payload the role's contexts are decoded from,
- * once per Db.
+ * Db.open's token: what the layer's verify turns into the payload the role's token contexts are decoded from, once per
+ * Db. It is required exactly when the role declares a context of a token's claims (ReadsToken), and a role that
+ * declares none may still be opened with one, which verify reads.
  */
-export interface TokenOptions {
-	readonly token: string
-}
-
-/** Db.open's options without a token, `{}`: a Db opened so has no context facts. It holds no key, so none is left out. */
-export type NoTokenOptions = Readonly<Record<string, never>>
+export type TokenOptions<R> =
+	ReadsToken<R> extends true ? { readonly token: string } : { readonly token?: string }
 
 /**
- * Db.open's options for role R: with a token, or, exactly when the role's relations read no context, without one. The
- * snapshot is the layer's (DbConfig), since an application has exactly one.
+ * Db.open's attested facts: under each context the role declares that its server attests (attested(...)), its one fact
+ * or none (AttestedFactsOf), stated by the server where it opens the Db, never read from a token. It is required exactly
+ * when the role declares such a context (ReadsAttested), absent where it declares none, and optional for a role whose
+ * type does not say.
  */
-export type OpenOptions<R> =
-	ReadsContext<R> extends true ? TokenOptions : TokenOptions | NoTokenOptions
+export type AttestedOptions<R> =
+	unknown extends ReadsAttested<R>
+		? { readonly attested?: AttestedFactsOf<R> }
+		: ReadsAttested<R> extends true
+			? { readonly attested: AttestedFactsOf<R> }
+			: { readonly attested?: never }
+
+/**
+ * Db.open's options for role R: its token (TokenOptions) and its attested facts (AttestedOptions), each required exactly
+ * when the role declares a context of its source, so `{}` opens a role that declares none. The snapshot is the layer's
+ * (DbConfig), since an application has exactly one.
+ */
+export type OpenOptions<R> = TokenOptions<R> & AttestedOptions<R>
 
 /**
  * Db.open; packages/grizzle/src/adapter/db/served.ts implements it. It contacts nothing: every transaction of the Db it

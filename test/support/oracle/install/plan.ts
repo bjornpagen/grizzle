@@ -279,7 +279,9 @@ const pgValues: {
 	"double precision": { kind: "float", carrier: "float8" },
 	money: { kind: "money" },
 	boolean: { kind: "bool" },
-	date: { kind: "date" }
+	date: { kind: "date" },
+	inet: { kind: "net", carrier: "inet" },
+	cidr: { kind: "net", carrier: "cidr" }
 }
 
 /**

@@ -14,15 +14,19 @@ import { memberCalls, type ServedCalls } from "#adapter/db/handles.ts"
 import { servedContext } from "#adapter/db/served.ts"
 import type { Token } from "#adapter/db/token.ts"
 import { readHost, toResult } from "#adapter/engine.ts"
-import type { OpenError } from "#adapter/errors/execution.ts"
-import { settingFaultText, type SettingFault } from "#adapter/errors/failures.ts"
+import { OpenError } from "#adapter/errors/execution.ts"
+import {
+	AttestationRefused,
+	type SettingFault,
+	settingFaultText
+} from "#adapter/errors/failures.ts"
 import { doorRefusal, openCallError } from "#adapter/live/call-error.ts"
 import { type HeldRole, heldRole, type ReadLogin, readServedLogin } from "#adapter/pool/served.ts"
 import type { LoadedMember, LoadedRole } from "#adapter/served/load.ts"
 import { ownServices } from "#adapter/services.ts"
 import type { DbLayerOf, ServedLogin } from "#adapter/types/layer.ts"
 import type { CallErrorOf, FailureOf } from "#compiler/live/index.ts"
-import type { AnyLogin } from "#compiler/plan/common.ts"
+import type { AnyLogin, AttestedFactsOf, ReadsAttested, RolesOf } from "#compiler/plan/common.ts"
 import {
 	parseInput,
 	readCaller,
@@ -43,14 +47,29 @@ import { type SseEvent, sseHeaders, sseStream } from "#http/sse.ts"
 export type HttpHandler = (request: Request) => Promise<Response>
 
 /**
- * httpHandler's config: the served logins whose roles' members it serves, each a login served(...) built, whose
- * DbLayer the handler's Effect requires, and the interval of the heartbeat every answer carries, in milliseconds, an
- * integer from 1 to 2,147,483,647: the caller's, since grizzle states no interval of its own.
+ * What the server attests of a request, for the contexts its served roles declare as attested (attested(...)): under
+ * each one's name its one fact, or none, read from the request as the server's own deployment trusts it (an edge's
+ * header of the address a request reached it from), never from its token or its body, which the client states.
  */
-export interface HttpConfig<Ls extends ReadonlyArray<AnyLogin>> {
+export type Attest<Ls extends ReadonlyArray<AnyLogin>> = (
+	request: Request
+) => AttestedFactsOf<RolesOf<Ls[number]>>
+
+/**
+ * httpHandler's config: the served logins whose roles' members it serves, each a login served(...) built, whose
+ * DbLayer the handler's Effect requires; the interval of the heartbeat every answer carries, in milliseconds, an
+ * integer from 1 to 2,147,483,647: the caller's, since grizzle states no interval of its own; and `attest`, the facts
+ * the server attests of each request (Attest), required exactly when a served role declares an attested context and
+ * absent otherwise.
+ */
+export type HttpConfig<Ls extends ReadonlyArray<AnyLogin>> = {
 	readonly logins: { readonly [K in keyof Ls]: ServedLogin<Ls[K]> }
 	readonly heartbeatMs: number
-}
+} & (unknown extends ReadsAttested<RolesOf<Ls[number]>>
+	? { readonly attest?: Attest<Ls> }
+	: ReadsAttested<RolesOf<Ls[number]>> extends true
+		? { readonly attest: Attest<Ls> }
+		: { readonly attest?: never })
 
 /**
  * Why httpHandler refused its config, when it was built: a setting no handler can use (a value that is no served login,
@@ -83,18 +102,22 @@ export class HttpConfigRefused extends Data.TaggedError("HttpConfigRefused")<{
 const httpConfig = ["HttpConfig"] as const
 
 /** The settings of a handler's config. */
-const httpSettings: ReadonlyArray<string> = ["logins", "heartbeatMs"]
+const httpSettings: ReadonlyArray<string> = ["logins", "heartbeatMs", "attest"]
 
-/** The setting a handler's config reads off its typed value, leaving it unread on the copy: its logins. */
-const typedSettings: ReadonlySet<string> = new Set(["logins"])
+/** The settings a handler's config reads off its typed value, leaving them unread on the copy: its logins and attest. */
+const typedSettings: ReadonlySet<string> = new Set(["logins", "attest"])
 
 const refusedSetting = (fault: SettingFault): HttpConfigRefused =>
 	new HttpConfigRefused({ reason: { kind: "setting", fault } })
 
-/** A handler's config read: its logins, each as a config reads a served login, and its heartbeat's interval. */
+/**
+ * A handler's config read: its logins, each as a config reads a served login, its heartbeat's interval, and its attest,
+ * none where the config gives none.
+ */
 interface ReadConfig {
 	readonly logins: Arr.NonEmptyReadonlyArray<ReadLogin>
 	readonly heartbeatMs: number
+	readonly attest: Option.Option<(request: Request) => unknown>
 }
 
 /**
@@ -125,6 +148,14 @@ const readConfig = <Ls extends ReadonlyArray<AnyLogin>>(
 		if (typeof heartbeatMs !== "number" || !timerDelay(heartbeatMs)) {
 			return Result.fail(faultAt(httpConfig, "heartbeatMs", timerRule))
 		}
+		const attest: unknown = config.attest
+		if (attest !== undefined && typeof attest !== "function") {
+			return Result.fail(faultAt(httpConfig, "attest", { kind: "function" }))
+		}
+		const attestOf: Option.Option<(request: Request) => unknown> =
+			attest === undefined
+				? Option.none()
+				: Option.some((request: Request): unknown => Reflect.apply(attest, undefined, [request]))
 		const typed: ReadonlyArray<ServedLogin<Ls[number]>> = config.logins
 		const given: unknown = typed
 		const loginRefused = faultAt(httpConfig, "logins", { kind: "servedLogin" })
@@ -140,7 +171,7 @@ const readConfig = <Ls extends ReadonlyArray<AnyLogin>>(
 			logins.push(served.success)
 		}
 		return Arr.isReadonlyArrayNonEmpty(logins)
-			? Result.succeed({ logins, heartbeatMs })
+			? Result.succeed({ logins, heartbeatMs, attest: attestOf })
 			: Result.fail(loginRefused)
 	})
 
@@ -200,21 +231,69 @@ const servedRoles = <S>(
 
 /**
  * The token a Db of `role` opens with: the one the request gives, and none without one only where the role reads no
- * context, since its contexts are read from a token's claims (a Db.open of it requires one); a role reading one refuses
- * a request without a token.
+ * token's context, since those are read from a token's claims (a Db.open of it requires one); a role reading one
+ * refuses a request without a token.
  */
 const openingToken = (
 	role: LoadedRole,
 	given: Option.Option<Token>
 ): Result.Result<Option.Option<Token>, FailureOf<"door">> =>
-	Arr.isReadonlyArrayNonEmpty(role.contexts) && Option.isNone(given)
+	Arr.some(role.contexts, (context) => context.source.kind === "token") && Option.isNone(given)
 		? Result.fail(
 				doorRefusal(
 					"TokenAbsent",
-					`role ${role.name} declares a context, and the call gives no bearer token`
+					`role ${role.name} declares a token's context, and the call gives no bearer token`
 				)
 			)
 		: Result.succeed(given)
+
+/** No key of an attest's answer is left unread: every own property is copied. */
+const noTypedKeys: ReadonlySet<string> = new Set()
+
+/**
+ * The facts the server attests of `request` for a Db of `role` (claims.ts attestedFacts): none where the role declares
+ * no attested context; else the members of what the config's attest returns for the request that name the role's
+ * attested contexts. Its answer is read once as data (core/host.ts readCaller): no record, or a member naming no
+ * attested context of any role the handler serves (`names`), is AttestationRefused, so a name no served role reads is
+ * never dropped unseen; a member of another role's context is that role's, which this Db never reads.
+ */
+const openingAttested = (
+	attesting: Attesting,
+	role: LoadedRole,
+	request: Request
+): Result.Result<Option.Option<Readonly<Record<string, unknown>>>, OpenError> => {
+	const own = new Set(
+		Arr.flatMap(role.contexts, (c) => (c.source.kind === "attested" ? [c.name] : []))
+	)
+	const attest = attesting.attest
+	if (own.size === 0 || Option.isNone(attest)) {
+		return Result.succeed(Option.none())
+	}
+	const refused = (context: string, fault: AttestationRefused["fault"]): OpenError =>
+		new OpenError({ reason: new AttestationRefused({ context, fault }) })
+	const [first] = own
+	const answerRefused = refused(first ?? role.name, { kind: "notAnObject" })
+	return readHost(answerRefused, () => {
+		const answer = attest.value(request)
+		if (typeof answer !== "object" || answer === null || Arr.isArray(answer)) {
+			return Result.fail(answerRefused)
+		}
+		const read = readCaller(answer, noTypedKeys)
+		if (!read.ok) {
+			return Result.fail(answerRefused)
+		}
+		const facts: Record<string, unknown> = {}
+		for (const name of read.value.keys) {
+			if (!attesting.names.has(name)) {
+				return Result.fail(refused(name, { kind: "undeclared" }))
+			}
+			if (own.has(name)) {
+				facts[name] = read.value.data[name]
+			}
+		}
+		return Result.succeed(Option.some(facts))
+	})
+}
 
 /**
  * A member's events as their frames, by the member's shape: a live set read's or ordered read's, its watch; an answered
@@ -259,14 +338,22 @@ const inputRefused = (fault: WireFault): FailureOf<"door"> =>
  */
 const routeCall = (
 	route: ServedRoute,
+	attesting: Attesting,
 	request: Request
 ): Effect.Effect<Stream.Stream<SseEvent>, FailureOf<"door" | "open">> =>
 	Effect.gen(function* () {
 		yield* Effect.fromResult(wireNamed(request, route.member.loaded.wire.digest))
 		const given = yield* Effect.fromResult(authorizationToken(request))
 		const token = yield* Effect.fromResult(openingToken(route.role.held.role, given))
+		const attested = yield* Effect.mapError(
+			Effect.fromResult(openingAttested(attesting, route.role.held.role, request)),
+			openCallError
+		)
 		const body = yield* bodyJson(request)
-		const ctx = yield* Effect.mapError(servedContext(route.role.held, token), openCallError)
+		const ctx = yield* Effect.mapError(
+			servedContext(route.role.held, { token, attested }),
+			openCallError
+		)
 		const member = route.member
 		const input = yield* Effect.fromResult(
 			Result.mapError(toResult(parseInput(member.loaded.wire.member.input, body)), inputRefused)
@@ -381,12 +468,22 @@ const routeErrorJson = (error: CallErrorOf<"route">): WireJson => ({
 })
 
 /**
+ * How the handler attests a request's facts: the config's attest, none where it gives none, and the names of the
+ * attested contexts of every role it serves, which an attest's answer names alone.
+ */
+interface Attesting {
+	readonly attest: Option.Option<(request: Request) => unknown>
+	readonly names: ReadonlySet<string>
+}
+
+/**
  * The events answering `request`: the call of the route its request line names (routeCall), its events read through the
  * answer's progress (AnswerProgress reading), or, for a line no route serves, its refusal. Every refusal is the call's
  * error, then its end, so the stream never fails.
  */
 const answerEvents = (
 	table: ReadonlyMap<string, ServedRoute>,
+	attesting: Attesting,
 	request: Request,
 	progress: AnswerProgress
 ): Stream.Stream<SseEvent> => {
@@ -401,12 +498,41 @@ const answerEvents = (
 			),
 		onSome: (route) =>
 			Stream.unwrap(
-				Effect.match(Effect.map(routeCall(route, request), progress.reading), {
+				Effect.match(Effect.map(routeCall(route, attesting, request), progress.reading), {
 					onFailure: (error) => Stream.fromIterable(refusedFrames(route.member.slots.error, error)),
 					onSuccess: (events) => events
 				})
 			)
 	})
+}
+
+/**
+ * How a handler attests its requests (Attesting): its config's attest and the attested contexts of every role it
+ * serves; a config that gives no attest beside a served role declaring an attested context is refused, naming the role.
+ */
+const attestingOf = (
+	read: ReadConfig,
+	logins: ReadonlyArray<{ readonly login: string; readonly roles: ReadonlyArray<ServedRole> }>
+): Result.Result<Attesting, HttpConfigRefused> => {
+	const names = new Set<string>()
+	for (const { login, roles } of logins) {
+		for (const role of roles) {
+			for (const context of role.held.role.contexts) {
+				if (context.source.kind !== "attested") {
+					continue
+				}
+				if (Option.isNone(read.attest)) {
+					return Result.fail(
+						refusedSetting(
+							faultAt(httpConfig, "attest", { kind: "attester", role: role.name, login })
+						)
+					)
+				}
+				names.add(context.name)
+			}
+		}
+	}
+	return Result.succeed({ attest: read.attest, names })
 }
 
 /**
@@ -434,12 +560,16 @@ export const httpAnswers = <const Ls extends readonly [AnyLogin, ...Array<AnyLog
 				(route) => new HttpConfigRefused({ reason: { kind: "route", route } })
 			)
 		)
+		const attesting = yield* Effect.fromResult(attestingOf(read, logins))
 		return (request: Request): HttpAnswer => {
 			const progress = answerProgress()
 			return {
 				response: new Response(
 					Stream.toReadableStreamWith(
-						sseStream(progress.writing(answerEvents(table, request, progress)), read.heartbeatMs),
+						sseStream(
+							progress.writing(answerEvents(table, attesting, request, progress)),
+							read.heartbeatMs
+						),
 						context,
 						{ signal: request.signal }
 					),

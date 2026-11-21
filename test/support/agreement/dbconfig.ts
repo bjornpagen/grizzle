@@ -7,7 +7,7 @@ import {
 	servedLoginSettings,
 	transportSettings
 } from "#adapter/connection/config.ts"
-import { TokenError } from "#adapter/errors/failures.ts"
+import { TokenRefused } from "#adapter/errors/failures.ts"
 import { parseServedConfig } from "#adapter/pool/served.ts"
 import { served } from "#adapter/served/served.ts"
 import type { DbConfigShape, Verify } from "#adapter/types/layer.ts"
@@ -35,7 +35,7 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  *   block, both refuse. Each call stands on one line, so its refusal is the line's, wherever the checker reports it.
  * - The channels the reader cannot see, each a type-only contract stated with its reason (typeOnly): a password is a
  *   Redacted or an Effect yielding one that fails only with CredentialError and needs no service; verify fails only
- *   with TokenError; and the driver's Client has pipeline mode, which every flight's one round trip needs. Over every
+ *   with TokenRefused; and the driver's Client has pipeline mode, which every flight's one round trip needs. Over every
  *   combination of a password, a verify and a driver, the reader admits each config but the one missing the verify a
  *   login reading a context needs, and the types admit exactly what the reader admits and every contract holds. Each
  *   is stated as whether DbLayer.make's parameter takes the config's type (Takes): a call would raise the Effect
@@ -110,7 +110,7 @@ const passwords: Arr.NonEmptyReadonlyArray<Password> = [
 	"text"
 ]
 
-/** A verify as a config states it: none, one failing with TokenError, or one failing with another error. */
+/** A verify as a config states it: none, one failing with TokenRefused, or one failing with another error. */
 type VerifyKind = "none" | "token" | "otherFailure"
 const verifies: Arr.NonEmptyReadonlyArray<VerifyKind> = ["none", "token", "otherFailure"]
 
@@ -126,7 +126,7 @@ const typeOnly = {
 	"a password Effect fails only with CredentialError": (c: ChannelCase) =>
 		c.password !== "otherFailure",
 	"a password Effect needs no service": (c: ChannelCase) => c.password !== "service",
-	"verify fails only with TokenError": (c: ChannelCase) => c.verify !== "otherFailure",
+	"verify fails only with TokenRefused": (c: ChannelCase) => c.verify !== "otherFailure",
 	"a driver's Client has pipeline mode, which every flight's one round trip needs": (
 		c: ChannelCase
 	) => c.driver === "pg"
@@ -151,9 +151,9 @@ const transport = {
 const pool = { max: 1, min: 0, idleTimeoutMs: testConnectTimeout } as const
 
 /** A verify that refuses every token. */
-const verifyToken: Verify = (token) => Effect.fail(new TokenError({ cause: token }))
+const verifyToken: Verify = (token) => Effect.fail(new TokenRefused({ cause: token }))
 
-/** What a verify failing with another error than TokenError fails with. */
+/** What a verify failing with another error than TokenRefused fails with. */
 class Unverified extends Data.TaggedError("Unverified")<{ readonly token: string }> {}
 
 /** A valid config of the login: every setting, and verify where the login's role reads a context. */
@@ -227,7 +227,7 @@ const channelConfig = (c: ChannelCase): LoginConfig => {
 			: {
 					verify: (token: string) =>
 						Effect.fail(
-							c.verify === "token" ? new TokenError({ cause: token }) : new Unverified({ token })
+							c.verify === "token" ? new TokenRefused({ cause: token }) : new Unverified({ token })
 						)
 				}
 	const driver: Readonly<Record<string, unknown>> = {

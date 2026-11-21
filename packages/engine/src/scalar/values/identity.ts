@@ -36,6 +36,14 @@ import {
 import { toInt2, toInt4, toInt8 } from "#compiler/scalar/values/integer.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import {
+	admitCidr,
+	admitInet,
+	type Cidr,
+	compareNet,
+	type Inet,
+	netValueOf
+} from "#compiler/scalar/values/net.ts"
+import {
 	admitSpan,
 	compareSpan,
 	isSpanOf,
@@ -97,6 +105,9 @@ export interface CarrierHost {
 	readonly uuid: string
 	/** A date's host value is its ISO 8601 text, its one form (ir/date.ts). */
 	readonly date: CalendarDate
+	/** An inet's and a cidr's host value is inet_out's and cidr_out's text, its one form (values/net.ts). */
+	readonly inet: Inet
+	readonly cidr: Cidr
 	readonly text: string
 	/** A bytes value's host value is its bytes with their digest (values/bytes.ts AdmittedBytes). */
 	readonly bytes: AdmittedBytes
@@ -132,6 +143,8 @@ interface SpecExtras {
 	readonly bool: unknown
 	readonly uuid: unknown
 	readonly date: unknown
+	readonly inet: unknown
+	readonly cidr: unknown
 	readonly text: unknown
 	readonly bytes: unknown
 	readonly code: { readonly roster: RosterCodec; readonly only: ReadonlySet<string> | undefined }
@@ -186,6 +199,8 @@ interface OrderExtras {
 	readonly bool: unknown
 	readonly uuid: unknown
 	readonly date: unknown
+	readonly inet: unknown
+	readonly cidr: unknown
 	readonly text: unknown
 	readonly bytes: unknown
 	readonly code: { readonly roster: HandleOrder }
@@ -330,6 +345,8 @@ const coercions: Admitters = {
 	bool: (value) => (typeof value === "boolean" ? Result.ok(value) : Result.err("boolType")),
 	uuid: (value) => toUuid(value),
 	date: (value) => toCalendarDate(value),
+	inet: (value) => admitInet(value),
+	cidr: (value) => admitCidr(value),
 	text: (value) => validateText(value),
 	bytes: (value) => admitBytes(value),
 	code: (value, spec) => admitSubsetHandle(value, spec.roster, spec.only),
@@ -371,6 +388,8 @@ export const unreadableOf: { readonly [C in Carrier]: () => ValueFault } = {
 	bool: () => "boolType",
 	uuid: () => "uuidSyntax",
 	date: () => "dateSyntax",
+	inet: () => "inetSyntax",
+	cidr: () => "cidrSyntax",
 	text: () => "textType",
 	bytes: () => "bytesType",
 	code: () => "codeHandle",
@@ -433,6 +452,8 @@ const hostChecks: { readonly [C in Carrier]: (value: unknown) => value is Carrie
 	bool: (value) => typeof value === "boolean",
 	uuid: isString,
 	date: (value): value is CalendarDate => toCalendarDate(value).ok,
+	inet: (value): value is Inet => admitInet(value).ok,
+	cidr: (value): value is Cidr => admitCidr(value).ok,
 	text: isString,
 	bytes: isAdmittedBytes,
 	code: isString,
@@ -466,6 +487,8 @@ const canonicalTexts: CanonicalTexts = {
 	money: (v) => v.toString(),
 	uuid: (v) => v,
 	date: (v) => v,
+	inet: (v) => v,
+	cidr: (v) => v,
 	text: (v) => v,
 	bytes: (v) => v.digest,
 	code: (v, spec) => String(codeOf(spec.roster, v)),
@@ -513,7 +536,7 @@ const canonicalTexts: CanonicalTexts = {
  *   every host site that takes two facts of one identity as one checks (`sameFact`).
  * - `compareValues` is PostgreSQL's B-tree order for the type, the host's one comparison, the evaluator's
  *   (scalar/compute/evaluate.ts) and the stored values' alike: float and numeric total orders with NaN last, text in
- *   code point order, uuid and bytes by bytes, closed ids by code, which is roster order (ir/codes.ts HandleOrder), spans
+ *   code point order, uuid and bytes by bytes, inet and cidr as network_cmp orders them (values/net.ts), closed ids by code, which is roster order (ir/codes.ts HandleOrder), spans
  *   by start then end, vectors as vector_cmp, and sets by their bit strings, which no language order reads, since a set
  *   has no ordering.
  * - `factIdentity` admits a whole fact against its heading and gives it its identity, each field's canonical text in
@@ -580,6 +603,8 @@ const comparators: Comparators = {
 	bool: (x, y) => (x === y ? 0 : x ? 1 : -1),
 	uuid: (x, y) => compareOrdered(x, y),
 	date: (x, y) => compareOrdered(x, y),
+	inet: (x, y) => compareNet(netValueOf(x, "inet"), netValueOf(y, "inet")),
+	cidr: (x, y) => compareNet(netValueOf(x, "cidr"), netValueOf(y, "cidr")),
 	text: (x, y) => compareCodePoints(x, y),
 	bytes: (x, y) => compareBytes(x.bytes, y.bytes),
 	code: (x, y, order) => sign(rankOf(order.roster, x) - rankOf(order.roster, y)),
@@ -596,7 +621,7 @@ const comparators: Comparators = {
 /**
  * Whether PostgreSQL's equality of a carrier's values is their host values' identity: a carrier each of whose values has
  * one host value, so two values are equal exactly where they are one host value (compareValues's 0 of them): an
- * integer, a boolean, a uuid's and a date's text, a text and a search document's printed text, whose order compares
+ * integer, a boolean, a uuid's, a date's, an inet's and a cidr's text, a text and a search document's printed text, whose order compares
  * code points, and a closed id's handle, whose order ranks it in its roster. A numeric's and money's are objects; a double's NaN is equal to itself in
  * PostgreSQL's order and to no value in the host's identity; bytes, a set, a span and a vector are objects; so each of
  * those is equal by its order. Each carrier states it here, so a new one is a case to decide.
@@ -612,6 +637,8 @@ export const equalByIdentity: { readonly [C in Carrier]: boolean } = {
 	bool: true,
 	uuid: true,
 	date: true,
+	inet: true,
+	cidr: true,
 	text: true,
 	bytes: false,
 	code: true,
@@ -798,6 +825,8 @@ const sameExtras: { readonly [C in Carrier]: (a: SpecOf<C>, b: CarrierSpec) => b
 	bool: (_, b) => b.carrier === "bool",
 	uuid: (_, b) => b.carrier === "uuid",
 	date: (_, b) => b.carrier === "date",
+	inet: (_, b) => b.carrier === "inet",
+	cidr: (_, b) => b.carrier === "cidr",
 	text: (_, b) => b.carrier === "text",
 	bytes: (_, b) => b.carrier === "bytes",
 	code: (a, b) => b.carrier === "code" && sameCodes(a.roster, b.roster),
@@ -970,6 +999,8 @@ const heldAs: { readonly [C in Carrier]: "shared" | "again" } = {
 	bool: "shared",
 	uuid: "shared",
 	date: "shared",
+	inet: "shared",
+	cidr: "shared",
 	text: "shared",
 	bytes: "again",
 	code: "shared",

@@ -90,6 +90,8 @@ export const wireScalarOf = (descriptor: ScalarType): WireScalar => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "tsvector":

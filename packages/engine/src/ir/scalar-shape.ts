@@ -91,6 +91,7 @@ import {
 	numericMinScale,
 	numericOwnBound
 } from "#compiler/scalar/values/fault.ts"
+import { type Cidr, type Inet, isCidrText, isInetText } from "#compiler/scalar/values/net.ts"
 
 /**
  * The wire form the decoder reads before the carrier's rules: every meaning-changing field optional, nested
@@ -500,6 +501,8 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 			return Object.freeze({ carrier, caps, contract })
 		case "text":
 			if (t.text === undefined) {
@@ -554,6 +557,27 @@ const narrowPlain = (t: WireScalarType): ScalarType | string => {
 export const decodeScalarType = (value: unknown): Result.Result<ScalarType, CompileError> =>
 	S.decodeWith(scalarTypeShape, value, "scalar type")
 
+/**
+ * An inet's and a cidr's text, its one form (scalar/values/net.ts), decoded by the admission every value of it is: a
+ * text inet_in or cidr_in reads, printed as inet_out or cidr_out prints it, so a text of another spelling of a value is
+ * no form of it.
+ */
+const inetShape: S.Shape<Inet> = S.plain({
+	expected: "an inet as inet_out prints it",
+	parse: function* (value, path) {
+		const text = yield* S.string.parse(value, path)
+		return isInetText(text) ? text : S.refuse(path, "an inet as inet_out prints it")
+	}
+})
+
+const cidrShape: S.Shape<Cidr> = S.plain({
+	expected: "a cidr as cidr_out prints it",
+	parse: function* (value, path) {
+		const text = yield* S.string.parse(value, path)
+		return isCidrText(text) ? text : S.refuse(path, "a cidr as cidr_out prints it")
+	}
+})
+
 /** A calendar date's text, its one form (ir/date.ts), decoded by the admission every date is. */
 export const calendarDateShape: S.Shape<CalendarDate> = S.plain({
 	expected: "a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31",
@@ -587,6 +611,8 @@ export const literalShape: S.Shape<TypedLiteral> = S.tagged("kind", {
 	text: S.struct({ value: S.string }),
 	uuid: S.struct({ value: S.string }),
 	date: S.struct({ value: calendarDateShape }),
+	inet: S.struct({ value: inetShape }),
+	cidr: S.struct({ value: cidrShape }),
 	handle: S.struct({ handle: S.nonEmptyString }),
 	handles: S.struct({ handles: S.array(S.nonEmptyString) }),
 	span: S.struct({ start: S.bigint, end: S.bigint }),

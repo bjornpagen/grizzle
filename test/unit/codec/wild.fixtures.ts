@@ -37,6 +37,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { isValueFault } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { cidrValues, inetValues } from "#test/support/net-values.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
 
 /** The codec's own refusal words beside the value carriers' ValueFault words (core/errors.ts CodecFault). */
@@ -115,6 +116,7 @@ const days = int(0, lastDay)
 
 const calendarDates: Gen<unknown> = map(days, dateAt)
 
+/** An IPv4 or IPv6 address's text with a mask, its address cleared past the mask for a cidr. */
 /** A span of days, built ordered: a start before the last day, then a later end, each its calendar date's text. */
 const dateSpans: Gen<unknown> = (source) => {
 	const start = source.draw(int(0, lastDay - 1))
@@ -181,6 +183,8 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 	bool: [{ label: "bool", type: { carrier: "bool", caps }, live: boolean }],
 	uuid: [{ label: "uuid", type: { carrier: "uuid", caps }, live: uuid(4) }],
 	date: [{ label: "date", type: { carrier: "date", caps }, live: calendarDates }],
+	inet: [{ label: "inet", type: { carrier: "inet", caps }, live: inetValues }],
+	cidr: [{ label: "cidr", type: { carrier: "cidr", caps }, live: cidrValues }],
 	text: [
 		{
 			label: "text",

@@ -298,6 +298,8 @@ export const writable = (carrier: Carrier): ReadonlyArray<GuardTest["kind"]> => 
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "code":
 		case "bits":
 		case "range4":

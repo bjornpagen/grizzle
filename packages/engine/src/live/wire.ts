@@ -6,7 +6,8 @@
  *
  * A JSON number is a value, and a JSON string a spelling: an integer of the int2 and int4 carriers and a float travel as
  * numbers, read by value; every other value as a string or a structure, read by the wire's grammar of it, whose every
- * spelling names one value. `parse` refuses exactly what has no exact value of the declared type (a malformed uuid, an
+ * spelling names one value, but an inet's and a cidr's, which arrive as any text PostgreSQL reads as the value and
+ * leave as the one text inet_out and cidr_out print. `parse` refuses exactly what has no exact value of the declared type (a malformed uuid, an
  * unknown handle, 1.005 at scale 2, a float4 no binary32 number is), and nothing the schema's laws decide: those are
  * PostgreSQL's, a span's order and width and a vector's norm among them, and the schema names each such law of a type
  * among its gaps (`schemaGaps`), so no schema admits a value silently.
@@ -48,6 +49,16 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { bytesMaxLength } from "#compiler/scalar/values/fault.ts"
 import { binary32Max } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import {
+	admitCidr,
+	admitInet,
+	type Cidr,
+	convertCidr,
+	convertInet,
+	type Inet,
+	isCidrText,
+	isInetText
+} from "#compiler/scalar/values/net.ts"
 import { isSpanOf, type Span } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { isVector, Vector } from "#compiler/scalar/values/vector.ts"
@@ -69,8 +80,9 @@ export type WireSchema = { readonly [keyword: string]: Json }
  * value its schema admits:
  *
  * - the exact parse (`parse`, as the host's parseValue): a float4's or a vector component's binary32 exactness, a
- *   span's start before its end, a fixed-width span's width, and a vector's norm in the cosine domain, each refused as
- *   the WireFaultKind of its name before any SQL;
+ *   span's start before its end, a fixed-width span's width, a vector's norm in the cosine domain, and an inet's or a
+ *   cidr's text (`network`), which texts PostgreSQL's inet_in and cidr_in read and a cidr's address clear right of its
+ *   mask, which no pattern here restates, each refused as the WireFaultKind of its name before any SQL;
  * - PostgreSQL, a refusal grizzle classifies by the law it names: a contract's predicate, a text's byte bound, and a
  *   text pattern no ECMA-262 regex states;
  * - nothing, for what a refusal reports: the members of each law it names (types/changeset Law, whose union of kinds no
@@ -80,6 +92,7 @@ export const schemaGaps = [
 	"binary32",
 	"contract",
 	"lawShape",
+	"network",
 	"octets",
 	"pattern",
 	"spanOrder",
@@ -108,6 +121,7 @@ export const wireFaults = [
 	"handle",
 	"json",
 	"members",
+	"network",
 	"range",
 	"repeated",
 	"scale",
@@ -146,6 +160,8 @@ interface WireExtras {
 	readonly bool: unknown
 	readonly uuid: unknown
 	readonly date: unknown
+	readonly inet: unknown
+	readonly cidr: unknown
 	readonly text: unknown
 	readonly bytes: unknown
 	readonly code: { readonly handles: ReadonlyArray<string> }
@@ -183,6 +199,8 @@ interface WireHost {
 	readonly bool: boolean
 	readonly uuid: string
 	readonly date: CalendarDate
+	readonly inet: Inet
+	readonly cidr: Cidr
 	readonly text: string
 	readonly bytes: Uint8Array<ArrayBuffer>
 	readonly code: string
@@ -671,6 +689,32 @@ const carrierWire: CarrierWires = {
 		is: isString
 	},
 	date: dateWire,
+	inet: {
+		schema: () => withGaps({ type: "string" }, ["network"]),
+		encode: (value) => value,
+		parse: (json) => {
+			if (typeof json !== "string") {
+				return Result.err("json")
+			}
+			const inet = admitInet(json)
+			return inet.ok ? inet : Result.err("network")
+		},
+		decode: (json) => convertInet(trustedString(json)),
+		is: (value): value is Inet => typeof value === "string" && isInetText(value)
+	},
+	cidr: {
+		schema: () => withGaps({ type: "string" }, ["network"]),
+		encode: (value) => value,
+		parse: (json) => {
+			if (typeof json !== "string") {
+				return Result.err("json")
+			}
+			const cidr = admitCidr(json)
+			return cidr.ok ? cidr : Result.err("network")
+		},
+		decode: (json) => convertCidr(trustedString(json)),
+		is: (value): value is Cidr => typeof value === "string" && isCidrText(value)
+	},
 	text: {
 		schema: () => spelled(admittedText),
 		encode: (value) => value,

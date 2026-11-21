@@ -18,6 +18,7 @@ import {
 	type ContextDesc,
 	contextFieldAdmits,
 	contextOver,
+	type ContextFactSourceKind,
 	decodeRoleOver,
 	type FieldDesc,
 	heldRelation,
@@ -79,6 +80,7 @@ import type {
 	RoleOptionRecord,
 	RoleOptions,
 	RoleRelations,
+	SourceOf,
 	WholeEntriesOf,
 	World,
 	WritableNameOf
@@ -147,18 +149,22 @@ export interface WorldDraft {
 }
 export const worldDraftOf = (value: unknown): WorldDraft | undefined => ownedDesc(value, "world")
 
-/** The admission core of context(...): a JavaScript caller's arguments checked and described. */
-export const admitContext = (
+/**
+ * A context's name and its fields' Descriptions, as context(...) and attested(...) read them alike: a declared name and
+ * a record of field descriptors, each of a type a context admits (contextFieldAdmits), every other field ContextRefused
+ * `claimType`.
+ */
+const contextFields = (
+	builder: "context" | "attested",
 	name: unknown,
-	fields: unknown,
-	options: unknown,
-	extra: ReadonlyArray<unknown>
-): ContextDesc => {
-	const label = `context ${typeof name === "string" ? name : "?"}`
+	fields: unknown
+): {
+	readonly label: string
+	readonly name: string
+	readonly descs: Readonly<Record<string, FieldDesc>>
+} => {
+	const label = `${builder} ${typeof name === "string" ? name : "?"}`
 	const contextName = requireName(name, label, "a context name")
-	if (extra.length > 0) {
-		throw malformed(label, "context(name, fields, options?): at most three arguments")
-	}
 	if (!isPlainRecord(fields)) {
 		throw malformed(label, "a record of field descriptors")
 	}
@@ -179,14 +185,52 @@ export const admitContext = (
 		}
 		descs[field] = desc
 	}
+	return { label, name: contextName, descs }
+}
+
+/** The admission core of context(...): a JavaScript caller's arguments checked and described, a token's context. */
+export const admitContext = (
+	name: unknown,
+	fields: unknown,
+	options: unknown,
+	extra: ReadonlyArray<unknown>
+): ContextDesc & { readonly source: SourceOf<"token"> } => {
+	const read = contextFields("context", name, fields)
+	if (extra.length > 0) {
+		throw malformed(read.label, "context(name, fields, options?): at most three arguments")
+	}
 	if (options === undefined) {
-		return orThrow(contextOver(contextName, descs, undefined))
+		const top: SourceOf<"token"> = Object.freeze({ kind: "token", claim: undefined })
+		return orThrow(contextOver(read.name, read.descs, top))
 	}
 	if (!isPlainRecord(options) || Object.keys(options).some((k) => k !== "claim")) {
-		throw malformed(label, "options { claim }: the nested claim object the fields are read from")
+		throw malformed(
+			read.label,
+			"options { claim }: the nested claim object the fields are read from"
+		)
 	}
-	const claim = requireName(options["claim"], label, "a claim object name")
-	return orThrow(contextOver(contextName, descs, claim))
+	const nested: SourceOf<"token"> = Object.freeze({
+		kind: "token",
+		claim: requireName(options["claim"], read.label, "a claim object name")
+	})
+	return orThrow(contextOver(read.name, read.descs, nested))
+}
+
+/**
+ * The admission core of attested(...): a JavaScript caller's arguments checked and described, a context whose fact
+ * its server attests where it opens a Db (ir/desc.ts ContextFactSource `attested`).
+ */
+const admitAttested = (
+	name: unknown,
+	fields: unknown,
+	extra: ReadonlyArray<unknown>
+): ContextDesc & { readonly source: SourceOf<"attested"> } => {
+	const read = contextFields("attested", name, fields)
+	if (extra.length > 0) {
+		throw malformed(read.label, "attested(name, fields): two arguments")
+	}
+	const source: SourceOf<"attested"> = Object.freeze({ kind: "attested" })
+	return orThrow(contextOver(read.name, read.descs, source))
 }
 
 /**
@@ -202,7 +246,37 @@ export const contextBuilder = <
 	...rest: ContextOptions | readonly [unknown, ...ReadonlyArray<unknown>]
 ): Context<Name, Fields> => {
 	const [options, ...extra] = rest
-	const desc = admitContext(name, fields, options, extra)
+	return contextValue<Name, Fields, "token">(
+		name,
+		fields,
+		admitContext(name, fields, options, extra)
+	)
+}
+
+/**
+ * attested(name, fields): a context whose one fact its server attests where it opens a Db, never a token's claim. The
+ * value is a context's, as context(...) makes one. A JavaScript caller's arguments past the fields are refused.
+ */
+export const attestedBuilder = <
+	const Name extends string,
+	const Fields extends Readonly<Record<string, ContextField>>
+>(
+	name: Name,
+	fields: Fields,
+	...extra: ReadonlyArray<never>
+): Context<Name, Fields, "attested"> =>
+	contextValue<Name, Fields, "attested">(name, fields, admitAttested(name, fields, extra))
+
+/** A context's value over its admitted Description: a frozen copy of its fields, its heading, its source and `fact`. */
+const contextValue = <
+	const Name extends string,
+	const Fields extends Readonly<Record<string, ContextField>>,
+	Source extends ContextFactSourceKind
+>(
+	name: Name,
+	fields: Fields,
+	desc: ContextDesc & { readonly source: SourceOf<Source> }
+): Context<Name, Fields, Source> => {
 	const copied = frozenCopy(fields)
 	return ownValue({
 		kind: "context",
@@ -211,7 +285,7 @@ export const contextBuilder = <
 			kind: "context",
 			name,
 			fields: copied,
-			claim: desc.claim,
+			source: desc.source,
 			heading: copied,
 			fact: record<[Fields]>(copied)
 		},

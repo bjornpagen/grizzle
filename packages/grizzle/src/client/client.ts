@@ -19,7 +19,7 @@ import {
 	trusted,
 	type ValueOf
 } from "#compiler/plan/client.ts"
-import type { AnyLogin, AnyRole, LoginReadsContext, LoginRole } from "#compiler/plan/common.ts"
+import type { AnyLogin, AnyRole, LoginReadsToken, LoginRole } from "#compiler/plan/common.ts"
 
 /** clientOf's options with a token: where the login's programs are served, and the token every call sends. */
 export interface TokenClientOptions<E> {
@@ -38,9 +38,7 @@ export interface UrlClientOptions {
 
 /** clientOf's options for login L: with a token, or, exactly when no role of L declares a context, without one. */
 export type ClientOptions<L, E> =
-	LoginReadsContext<L> extends true
-		? TokenClientOptions<E>
-		: TokenClientOptions<E> | UrlClientOptions
+	LoginReadsToken<L> extends true ? TokenClientOptions<E> : TokenClientOptions<E> | UrlClientOptions
 
 /** An event of a program X's answer that its value is made of: every event but the error and the end. */
 export type ItemOf<X> = Exclude<EventOf<X>, { readonly kind: "error" | "end" }>

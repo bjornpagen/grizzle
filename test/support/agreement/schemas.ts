@@ -2609,7 +2609,9 @@ const pgHost: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["type
 	numeric: "Fi.Decimal",
 	money: "Fi.Money",
 	boolean: "boolean",
-	date: "Fi.CalendarDate"
+	date: "Fi.CalendarDate",
+	inet: "Fi.Inet",
+	cidr: "Fi.Cidr"
 }
 
 const rosterNamed = (base: Base, name: string): RosterSpec =>
@@ -2709,6 +2711,10 @@ const hostOfScalar = (t: ScalarType, ids: Ids): string => {
 			return "Fi.Uuid"
 		case "date":
 			return "Fi.CalendarDate"
+		case "inet":
+			return "Fi.Inet"
+		case "cidr":
+			return "Fi.Cidr"
 		case "text":
 			return typeof t.text === "string"
 				? "string"
@@ -5550,7 +5556,9 @@ const pgLiteral: { readonly [T in Extract<FieldDesc, { readonly kind: "pg" }>["t
 	numeric: "Fi.Decimal | bigint | string",
 	money: "Fi.Money",
 	boolean: "boolean",
-	date: "Fi.CalendarDate"
+	date: "Fi.CalendarDate",
+	inet: "Fi.Inet",
+	cidr: "Fi.Cidr"
 }
 
 /**
@@ -5568,7 +5576,9 @@ const pgDescriptorType: {
 	numeric: "Fi.NumericField",
 	money: 'Fi.Field<Fi.Money, "money">',
 	boolean: 'Fi.Field<boolean, "boolean">',
-	date: 'Fi.Field<Fi.CalendarDate, "date">'
+	date: 'Fi.Field<Fi.CalendarDate, "date">',
+	inet: 'Fi.Field<Fi.Inet, "inet">',
+	cidr: 'Fi.Field<Fi.Cidr, "cidr">'
 }
 
 /** The type assertions of a base: every inference the types make, equal to what the engine describes. */

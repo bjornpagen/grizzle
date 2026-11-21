@@ -2775,6 +2775,9 @@ const hostText = (t: ScalarType, uses: Set<Imported>, position: "term" | "delive
 		case "date":
 			uses.add("CalendarDate")
 			return "CalendarDate"
+		case "inet":
+		case "cidr":
+			throw new Error(`no agreement compute draws a ${t.carrier} term`)
 		case "text":
 			return "string"
 		case "bytes":

@@ -53,6 +53,14 @@ import {
 	type OrderSpec
 } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import {
+	type NetCarrier,
+	type NetValue,
+	netOverlaps,
+	netStrictlyWithin,
+	netValueOf,
+	netWithin
+} from "#compiler/scalar/values/net.ts"
 
 /**
  * Why an evaluation has no value: the precondition an operation's operands fail, which no admitted expression meets
@@ -159,6 +167,8 @@ export const evaluatorOrder = (type: ScalarType): OrderSpec => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "vector":
@@ -283,6 +293,8 @@ const integerOf = (c: Carrier): ((v: HostValue) => bigint) => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -320,6 +332,8 @@ const integerHost = (type: ScalarType): ((x: bigint) => HostValue) => {
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -473,6 +487,8 @@ const arithmetic = (
 		}
 		case "bool":
 		case "uuid":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -527,6 +543,8 @@ const signed = (fn: "neg" | "abs" | "sign", c: Carrier, type: ScalarType): Unary
 		case "bool":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "text":
 		case "bytes":
 		case "code":
@@ -728,6 +746,17 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			}
 		case "adjoin":
 			return (args) => Result.ok(new Set([...hostOf("bits", a(args)), hostOf("code", b(args))]))
+		case "netWithin":
+		case "netStrictlyWithin":
+		case "netOverlaps": {
+			const left = netCarrierOf(defined(argTypes[0], `${fn}'s first operand`))
+			const right = netCarrierOf(defined(argTypes[1], `${fn}'s second operand`))
+			const holds = netTests[fn]
+			return (args) =>
+				Result.ok(
+					holds(netValueOf(hostOf(left, a(args)), left), netValueOf(hostOf(right, b(args)), right))
+				)
+		}
 		case "complement":
 			return refused("complement, which no scalar operation yields")
 		case "canonicalZero": {
@@ -763,6 +792,27 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 		case "cast":
 			return refused(`${fn} evaluated by its node`)
 	}
+}
+
+/** Each network containment test over two network values (scalar/values/net.ts), false across the families. */
+const netTests = {
+	netWithin,
+	netStrictlyWithin,
+	netOverlaps
+} as const satisfies {
+	readonly [F in "netWithin" | "netStrictlyWithin" | "netOverlaps"]: (
+		a: NetValue,
+		b: NetValue
+	) => boolean
+}
+
+/** The network carrier of a containment operand's type: inet or cidr, as its typing proved (typing.ts netContainment). */
+const netCarrierOf = (type: ScalarType): NetCarrier => {
+	const carrier = baseOf(type).carrier
+	if (carrier !== "inet" && carrier !== "cidr") {
+		throw defect(`a network containment operand of inet or cidr, not of ${carrier}`)
+	}
+	return carrier
 }
 
 /**

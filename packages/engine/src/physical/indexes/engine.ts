@@ -497,6 +497,16 @@ const textSearchPlacements = (keys: Keys): Placements => ({
 	others: []
 })
 
+/**
+ * The values of a network column that contain, lie within or overlap a known value, which only a GiST index on the
+ * column under inet_ops finds for every one of the three: a B-tree reads a column's networks within a constant as a
+ * range, but none containing it.
+ */
+const containmentPlacements = (keys: Keys): Placements => ({
+	own: { kind: "placed", lead: keys, bound: keys },
+	others: []
+})
+
 /** The nearest vectors, which only an HNSW index on the column under its class finds. */
 const nearestPlacements = (keys: Keys): Placements => ({
 	own: { kind: "blocks", method: "hnsw", blocks: [keys], directed: undefined },
@@ -517,7 +527,8 @@ const btreeNeeds: Readonly<Record<AccessUse, "lookup" | "range" | "order" | "non
 	"page seek": "order",
 	"span predicate": "none",
 	"approximate vector retrieval": "none",
-	"text search": "none"
+	"text search": "none",
+	"network containment": "none"
 }
 
 /** A workload B-tree request's placements, by what its use asks of a B-tree (btreeNeeds). */
@@ -551,7 +562,9 @@ const placementsOf = (
 ): Placements => {
 	switch (request.method) {
 		case "gist":
-			return gistPlacements(keys, columns, label)
+			return request.role === "access" && request.use === "network containment"
+				? containmentPlacements(keys)
+				: gistPlacements(keys, columns, label)
 		case "hnsw":
 			return nearestPlacements(keys)
 		case "gin":

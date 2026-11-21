@@ -261,6 +261,10 @@ const catalogName = (t: ScalarType): string => {
 			return "uuid"
 		case "date":
 			return "date"
+		case "inet":
+			return "inet"
+		case "cidr":
+			return "cidr"
 		case "text":
 			return "text"
 		case "bytes":
@@ -320,6 +324,7 @@ const minMaxCarriers: ReadonlyArray<Carrier> = [
 	"float4",
 	"float8",
 	"money",
+	"inet",
 	"text",
 	"code",
 	"exactInteger",

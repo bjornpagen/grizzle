@@ -719,7 +719,7 @@ export type SqlState =
 
 /**
  * What refuses a token (README "Errors and outcomes"): Db.open's own parse, a token that is no token68, a
- * TokenMalformed, before verify runs; verify, its refusal or throw a TokenError; or the claims, a ClaimRefused.
+ * TokenMalformed, before verify runs; verify, its refusal or throw a TokenRefused; or the claims, a ClaimRefused.
  */
 export type TokenRefuser = "malformed" | "verify" | "claims"
 
@@ -727,7 +727,7 @@ export type TokenRefuser = "malformed" | "verify" | "claims"
  * The stage `Db.open` reports, as grizzle names it, in the order it checks them, all on the host: the role value and
  * the snapshot its login layer was given (`schema`), the token's parse, the role, then the token's verify and claims;
  * at stage token, with what refused it: `token:malformed` a TokenMalformed (a token that is no token68, refused before
- * the role's layer is found and before verify runs), `token:verify` a TokenError, `token:claims` a ClaimRefused (a
+ * the role's layer is found and before verify runs), `token:verify` a TokenRefused, `token:claims` a ClaimRefused (a
  * payload that does not decode through the role's contexts). Db.open contacts nothing, so no stage judges the database.
  */
 export type ModelOpenStage = "role" | "schema" | `token:${TokenRefuser}`

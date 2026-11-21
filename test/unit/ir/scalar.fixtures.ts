@@ -228,6 +228,8 @@ const types: Arr.NonEmptyReadonlyArray<ScalarType> = [
 	scalarTypes.bool,
 	scalarTypes.text,
 	scalarTypes.uuid,
+	plainType("inet"),
+	plainType("cidr"),
 	scalarTypes.kind,
 	scalarOf({ kind: "bits", roster: "Kind" }, { Kind: ["Automatic", "Manual"] }),
 	scalarOf(f.span(f.integer, undefined), {}),
@@ -260,6 +262,14 @@ const handlesGen = map(
 	array(element(["Automatic", "Manual", "Gold"]), { min: 0, max: 3 }),
 	(handles): TypedLiteral => ({ kind: "handles", handles })
 )
+
+/**
+ * inet and cidr literals written as inet_out and cidr_out print their values, each its value's one text, which a literal
+ * of the type holds; every other spelling the literals property draws (a whole mask stated, a leading zero, an
+ * uppercase digit, a host bit right of a cidr's mask, a text that is no address) is no literal of either.
+ */
+const canonicalInets = ["1.2.3.4", "10.0.0.0/8", "::1", "2001:db8::/32", "::ffff:1.2.3.4"] as const
+const canonicalCidrs = ["10.0.0.0/8", "::/0", "1.2.3.4/32", "2001:db8::/32"] as const
 
 /** The literal kinds the literals property draws: every kind but a date, which no type it tries a literal at holds. */
 type DrawnKind = Exclude<TypedLiteral["kind"], "date">
@@ -322,6 +332,14 @@ const literalArms: { readonly [K in DrawnKind]: Gen<TypedLiteral> } = {
 			value: succeeded(VectorText.of(Float32Array.from(xs)))
 		})
 	),
+	inet: map(
+		element([...canonicalInets, "1.2.3.4/32", "010.0.0.0/8", "::0001", "2001:DB8::1", "a.b.c.d"]),
+		(value): TypedLiteral => ({ kind: "inet", value })
+	),
+	cidr: map(
+		element([...canonicalCidrs, "10.1.2.3/8", "010.0.0.0/8", "::1/0", "2001:DB8::/32"]),
+		(value): TypedLiteral => ({ kind: "cidr", value })
+	),
 	pattern: map(
 		oneOf([
 			element(["^a+$", "a|b", "[a-c]*"]),
@@ -371,6 +389,8 @@ const carriersOf: { readonly [K in DrawnKind]: Arr.NonEmptyReadonlyArray<Carrier
 	bool: ["bool"],
 	text: ["text"],
 	uuid: ["uuid"],
+	inet: ["inet"],
+	cidr: ["cidr"],
 	handle: ["code"],
 	handles: ["bits"],
 	span: ["range4", "range8"],
@@ -456,6 +476,10 @@ export const admits = (literal: TypedLiteral, outer: ScalarType): boolean => {
 			)
 		case "date":
 			return c === "date" && toCalendarDate(literal.value).ok
+		case "inet":
+			return c === "inet" && Arr.contains<string>(canonicalInets, literal.value)
+		case "cidr":
+			return c === "cidr" && Arr.contains<string>(canonicalCidrs, literal.value)
 		case "handle":
 			return c === "code" && type.roster.handles.includes(literal.handle)
 		case "handles": {

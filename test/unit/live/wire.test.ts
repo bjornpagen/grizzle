@@ -99,7 +99,7 @@ export const theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichT
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/live/wire.test.ts#theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichTheParseAndTheDecodeReadBack:-:h.5.1.0.1.1.1.0.1.0.1.0.1.0"
+					"test/unit/live/wire.test.ts#theWiresOneTableEncodesEveryValueOfATypeToJSONItsSchemaAdmitsWhichTheParseAndTheDecodeReadBack:-:j.5.1.0.1.1.1.0.1.0.1.0.1.0"
 				),
 				reason:
 					"a vector holding a -0 component, spelled and read back as 0 (wire-codec, live test phase 729f76a6)",
@@ -262,7 +262,7 @@ export const theWiresOneTableParsesToExactlyWhatTheHostDoorParsesEveryValueItRea
 		kept: [
 			{
 				token: ReplayToken(
-					"test/unit/live/wire.test.ts#theWiresOneTableParsesToExactlyWhatTheHostDoorParsesEveryValueItReadsTheHostDoorReadsUnchangedAndEveryValueOfATypeReadsBackFromItsJSON:-:h.2.1.0.1.1.1.0.0.0"
+					"test/unit/live/wire.test.ts#theWiresOneTableParsesToExactlyWhatTheHostDoorParsesEveryValueItReadsTheHostDoorReadsUnchangedAndEveryValueOfATypeReadsBackFromItsJSON:-:j.2.1.0.1.1.1.0.0.0"
 				),
 				reason:
 					"a vector holding a -0 component, which the wire reads back as 0 (wire-host-door, live test phase 729f76a6)",

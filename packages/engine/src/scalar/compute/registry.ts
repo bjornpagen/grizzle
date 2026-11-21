@@ -95,7 +95,10 @@ const divisor: Totality = requires([nonzero(1)])
 const narrowing: Totality = requires([fits])
 const finiteNarrowing: Totality = requires([finite(0), fits])
 
-/** The infix operators an overload is spelled with: arithmetic, comparisons, bit's set algebra, and text's || and ~. */
+/**
+ * The infix operators an overload is spelled with: arithmetic, comparisons, bit's set algebra, text's || and ~, and the
+ * network types' containment, <<=, << and &&.
+ */
 type Infix =
 	| "+"
 	| "-"
@@ -112,6 +115,9 @@ type Infix =
 	| "|"
 	| "||"
 	| "~"
+	| "<<="
+	| "<<"
+	| "&&"
 
 /**
  * What a text search node reads of a document and a query (SqlForm textSearch): whether the document matches it, `@@`
@@ -300,6 +306,9 @@ export type NativeFn =
 	| "subset"
 	| "disjoint"
 	| "adjoin"
+	| "netWithin"
+	| "netStrictlyWithin"
+	| "netOverlaps"
 	| "cast"
 	| "canonicalZero"
 
@@ -389,6 +398,9 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	subset: "strict",
 	disjoint: "strict",
 	adjoin: "strict",
+	netWithin: "strict",
+	netStrictlyWithin: "strict",
+	netOverlaps: "strict",
 	cast: "node",
 	canonicalZero: "strict"
 })
@@ -465,7 +477,10 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	cardinality: { arity: 1, check: true, nodes: ["cardinality"] },
 	subset: { arity: 2, check: true, nodes: ["subset"] },
 	disjoint: { arity: 2, check: true, nodes: ["disjoint"] },
-	singleton: { arity: 1, check: true, nodes: ["adjoin"] }
+	singleton: { arity: 1, check: true, nodes: ["adjoin"] },
+	netWithin: { arity: 2, check: true, nodes: ["netWithin"] },
+	netStrictlyWithin: { arity: 2, check: true, nodes: ["netStrictlyWithin"] },
+	netOverlaps: { arity: 2, check: true, nodes: ["netOverlaps"] }
 })
 
 /** Operands of one carrier each, in order, at least one. */
@@ -581,10 +596,12 @@ export type NativeOp = FixedOp | CommonTypeOp
 
 /**
  * PostgreSQL's regtype spelling of a carrier in pg_operator and pg_proc: its type's own name (ir/scalar.ts nativeNames),
- * a closed id's smallint's, its code's, and a range's anyrange, since range operators are polymorphic.
+ * a closed id's smallint's, its code's, a cidr's inet's, whose operators and functions a cidr reads through its binary
+ * coercion to inet, and a range's anyrange, since range operators are polymorphic.
  */
 export const catalogTypeName = {
 	...nativeNames,
+	cidr: "inet",
 	range4: "anyrange",
 	range8: "anyrange",
 	rangeDate: "anyrange"
@@ -733,6 +750,38 @@ const comparison = (cmp: Comparison, carrier: Carrier): FixedOverload => {
 		reads: "value"
 	})
 }
+
+/** The network carriers, inet and cidr, which every containment operator takes on either side. */
+type NetOperand = "inet" | "cidr"
+
+/**
+ * A network containment test, pg_catalog's operator over two inets at its operands' carriers: an inet or a cidr on
+ * either side, a cidr read through its binary coercion to inet, so an address is tested against a network as it is
+ * stored. Each is false across the address families (network.c network_sub, network_subeq, network_overlap), so it is
+ * defined on every pair of values.
+ */
+const netContainment = (
+	fn: "netWithin" | "netStrictlyWithin" | "netOverlaps",
+	op: "<<=" | "<<" | "&&",
+	left: NetOperand,
+	right: NetOperand
+): FixedOverload =>
+	frozen({
+		fn,
+		operands: positional([left, right]),
+		result: "bool",
+		sql: { kind: "infix", op, owner: "catalog" },
+		catalog: {
+			kind: "operator",
+			name: op,
+			operands: { kind: "infix", left: catalogTypeName[left], right: catalogTypeName[right] },
+			result: "boolean",
+			owner: "catalog"
+		},
+		volatility: "immutable",
+		totality: total,
+		reads: "value"
+	})
 
 /** BETWEEN over three operands of one carrier, composed of its >= and <=. */
 const between = (carrier: Carrier, ge: OpId, le: OpId): FixedOverload =>
@@ -1253,7 +1302,9 @@ const endpoint = (
  * - an operator: its implementing function, pg_operator.oprcode, such as "int8pl" or "numeric_mul";
  * - a function: its regprocedure signature, such as "abs(bigint)" or "round(numeric,integer)"; pgvector's one function
  *   is prefixed with its extension, "vector:cosine_distance(vector,vector)", because its schema is the installation's;
- * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq";
+ * - a closed id's operator: smallint's, its code's, prefixed "code:", as "code:int2eq"; a cidr's comparison, inet's
+ *   read through cidr's binary coercion, prefixed "cidr:", as "cidr:network_eq"; and a network containment over an
+ *   inet and a cidr, or two cidrs, prefixed by its operands' carriers, as "inet,cidr:network_subeq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
  *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text" and its ASCII case fold's
  *   "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test "isXsdPattern:text", a bytes
@@ -1610,6 +1661,38 @@ const catalogOverloads = {
 	"in:date": membership("date", opId("date_eq")),
 	"least:date": extreme("least", "date", opId("date_lt")),
 	"greatest:date": extreme("greatest", "date", opId("date_gt")),
+	network_eq: comparison("eq", "inet"),
+	network_ne: comparison("ne", "inet"),
+	network_lt: comparison("lt", "inet"),
+	network_le: comparison("le", "inet"),
+	network_gt: comparison("gt", "inet"),
+	network_ge: comparison("ge", "inet"),
+	"between:inet": between("inet", opId("network_ge"), opId("network_le")),
+	"in:inet": membership("inet", opId("network_eq")),
+	"least:inet": extreme("least", "inet", opId("network_lt")),
+	"greatest:inet": extreme("greatest", "inet", opId("network_gt")),
+	"cidr:network_eq": comparison("eq", "cidr"),
+	"cidr:network_ne": comparison("ne", "cidr"),
+	"cidr:network_lt": comparison("lt", "cidr"),
+	"cidr:network_le": comparison("le", "cidr"),
+	"cidr:network_gt": comparison("gt", "cidr"),
+	"cidr:network_ge": comparison("ge", "cidr"),
+	"between:cidr": between("cidr", opId("cidr:network_ge"), opId("cidr:network_le")),
+	"in:cidr": membership("cidr", opId("cidr:network_eq")),
+	"least:cidr": extreme("least", "cidr", opId("cidr:network_lt")),
+	"greatest:cidr": extreme("greatest", "cidr", opId("cidr:network_gt")),
+	network_subeq: netContainment("netWithin", "<<=", "inet", "inet"),
+	"inet,cidr:network_subeq": netContainment("netWithin", "<<=", "inet", "cidr"),
+	"cidr,inet:network_subeq": netContainment("netWithin", "<<=", "cidr", "inet"),
+	"cidr,cidr:network_subeq": netContainment("netWithin", "<<=", "cidr", "cidr"),
+	network_sub: netContainment("netStrictlyWithin", "<<", "inet", "inet"),
+	"inet,cidr:network_sub": netContainment("netStrictlyWithin", "<<", "inet", "cidr"),
+	"cidr,inet:network_sub": netContainment("netStrictlyWithin", "<<", "cidr", "inet"),
+	"cidr,cidr:network_sub": netContainment("netStrictlyWithin", "<<", "cidr", "cidr"),
+	network_overlap: netContainment("netOverlaps", "&&", "inet", "inet"),
+	"inet,cidr:network_overlap": netContainment("netOverlaps", "&&", "inet", "cidr"),
+	"cidr,inet:network_overlap": netContainment("netOverlaps", "&&", "cidr", "inet"),
+	"cidr,cidr:network_overlap": netContainment("netOverlaps", "&&", "cidr", "cidr"),
 	texteq: comparison("eq", "text"),
 	textne: comparison("ne", "text"),
 	text_lt: comparison("lt", "text"),
@@ -2078,6 +2161,8 @@ const equalities: { readonly [C in Carrier]: DefinedOp } = Object.freeze({
 	bool: comparisonId("booleq"),
 	uuid: comparisonId("uuid_eq"),
 	date: comparisonId("date_eq"),
+	inet: comparisonId("network_eq"),
+	cidr: comparisonId("cidr:network_eq"),
 	text: comparisonId("texteq"),
 	bytes: comparisonId("byteaeq"),
 	tsvector: comparisonId("tsvector_eq"),

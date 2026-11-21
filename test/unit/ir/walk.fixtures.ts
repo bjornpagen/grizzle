@@ -146,7 +146,11 @@ const sourceOf = (inner: Gen<InferredExpr>): Gen<InferredSource> =>
 		constant({ kind: "delta", side: "added", relation: "R" }),
 		constant({
 			kind: "context",
-			context: { name: "Session", fields: { x: integer }, claim: undefined }
+			context: {
+				name: "Session",
+				fields: { x: integer },
+				source: { kind: "token", claim: undefined }
+			}
 		}),
 		constant({ kind: "row", heading: { x: integer } }),
 		(source) => ({

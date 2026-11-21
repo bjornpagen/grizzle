@@ -87,6 +87,7 @@ export {
 	slotCommand
 } from "#compiler/live/replication.ts"
 export { sealNonceBytes } from "#compiler/core/seal.ts"
+export { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
 export type { WriteText } from "#compiler/runtime/write/parted.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"

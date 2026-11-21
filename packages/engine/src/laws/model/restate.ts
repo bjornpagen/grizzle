@@ -97,6 +97,8 @@ const restatedLiteral = (
 		case "money":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 		case "span":
 		case "vector":
 		case "pattern":

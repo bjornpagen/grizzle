@@ -12,6 +12,7 @@ import { Decimal, integerOfDecimal, normalizeNumeric } from "#compiler/scalar/va
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
+import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
 import type { Span } from "#compiler/scalar/values/span.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
@@ -230,6 +231,18 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 				? Result.ok({ kind: "date", value: date.value })
 				: Result.err("a calendar date written YYYY-MM-DD, from 0001-01-01 to 9999-12-31")
 		}
+		case "inet": {
+			const inet = admitInet(value)
+			return inet.ok
+				? Result.ok({ kind: "inet", value: inet.value })
+				: Result.err("an inet: a text inet_in reads")
+		}
+		case "cidr": {
+			const cidr = admitCidr(value)
+			return cidr.ok
+				? Result.ok({ kind: "cidr", value: cidr.value })
+				: Result.err("a cidr: a text cidr_in reads, no bit set right of its mask")
+		}
 		case "text":
 			return typeof value === "string" ? Result.ok({ kind: "text", value }) : Result.err("a string")
 		case "bytes":
@@ -349,6 +362,8 @@ export const hostOfLiteral = (carrier: Carrier, literal: TypedLiteral): HostValu
 		case "text":
 		case "uuid":
 		case "date":
+		case "inet":
+		case "cidr":
 			return literal.value
 		case "handle":
 			return literal.handle
@@ -400,6 +415,10 @@ export const literalOfHost = (value: HostValue, type: ScalarType): TypedLiteral 
 			return { kind: "uuid", value: hostOf("uuid", value) }
 		case "date":
 			return { kind: "date", value: hostOf("date", value) }
+		case "inet":
+			return { kind: "inet", value: hostOf("inet", value) }
+		case "cidr":
+			return { kind: "cidr", value: hostOf("cidr", value) }
 		case "code":
 			return { kind: "handle", handle: hostOf("code", value) }
 		case "bits": {

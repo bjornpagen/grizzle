@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import type { TokenError } from "#adapter/errors/failures.ts"
+import type { TokenRefused } from "#adapter/errors/failures.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import { testVerify, tokenOf, tokenText } from "#test/support/worlds.ts"
@@ -38,7 +38,7 @@ const throwing = (token: string): never => {
 }
 
 /**
- * The verify of every login layer the executor builds: a token's payload is its JSON text, any other text a TokenError,
+ * The verify of every login layer the executor builds: a token's payload is its JSON text, any other text a TokenRefused,
  * as a verifier's refusal is; every call is counted. It reads the token the open in flight handed (opens run one at a
  * time, and verify runs once per Db.open): drawn wild `verify-throws`, verify throws, and drawn `verify-not-object`, it
  * returns a number. A call with no open in flight, or with a text other than the one its open handed, is a defect of
@@ -46,7 +46,7 @@ const throwing = (token: string): never => {
  */
 export const worldVerify =
 	(handed: () => Option.Option<Handed>, counted: () => void) =>
-	(token: string): Effect.Effect<unknown, TokenError> => {
+	(token: string): Effect.Effect<unknown, TokenRefused> => {
 		counted()
 		const open = handed()
 		if (Option.isNone(open) || open.value.text !== token) {
