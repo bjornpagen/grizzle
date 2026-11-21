@@ -99,7 +99,7 @@ export const oneSchemaInstalledInTwoPostgreSQLSchemasChecksEachLawUnderOneIdenti
 			{
 				file: "packages/engine/src/deploy/snapshot/violation.ts",
 				original:
-					'\tconst identity = unwrap(\n\t\tmeaningDigestWithin(reads.dag, [reads.root], "law-check", installation.checked.closed)\n\t)',
+					'\tconst identity = unwrap(meaningDigestWithin(reads.dag, [reads.root], "law-check", stated))',
 				replacement:
 					"\tconst identity = JSON.stringify(violationQuery(installation, law, reads), (_, x) => (typeof x === 'bigint' ? String(x) : x))",
 				why: "A check is keyed by its SQL again, which names its installation's tables, so one law holds two identities, and every change of the lowering checks every law again."
@@ -148,8 +148,7 @@ export const aChangeOfALawsMeaningChecksThatLawAgainAndNoOther = property.exhaus
 		kills: [
 			{
 				file: "packages/engine/src/ir/dag.ts",
-				original:
-					"\t\tObject.entries(normal.exprs).map(([id, e]) => [id, statedExpr(e, closedFacts)])",
+				original: "\t\tObject.entries(normal.exprs).map(([id, e]) => [id, statedExpr(e, stated)])",
 				replacement: "\t\t[]",
 				why: "A check's identity reads no expression of its law, so Positive's new bound keeps its identity and the draft never checks the rows against it."
 			},

@@ -2,7 +2,7 @@ import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { refuseLaw } from "#compiler/deploy/snapshot/objects.ts"
-import { meaningDigestWithin, rooted, topoOrder } from "#compiler/ir/dag.ts"
+import { meaningDigestWithin, rooted, StatedFacts, topoOrder } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
@@ -114,6 +114,7 @@ const storedColumnsRead = (
 const readsAndIdentity = (
 	installation: Installation,
 	violations: TheoryViolations,
+	stated: StatedFacts,
 	law: LawId
 ): {
 	readonly reads: ConservativeInput
@@ -125,9 +126,7 @@ const readsAndIdentity = (
 		throw defect(`the violation queries hold the law ${law} of the theory`)
 	}
 	const reads = readsOf(installation, violation)
-	const identity = unwrap(
-		meaningDigestWithin(reads.dag, [reads.root], "law-check", installation.checked.closed)
-	)
+	const identity = unwrap(meaningDigestWithin(reads.dag, [reads.root], "law-check", stated))
 	return { reads, columns: storedColumnsRead(installation, reads), digest: identity }
 }
 
@@ -135,9 +134,10 @@ const readsAndIdentity = (
 const checkOf = (
 	installation: Installation,
 	violations: TheoryViolations,
+	stated: StatedFacts,
 	law: LawId
 ): MigrationCheck => {
-	const { reads, columns, digest } = readsAndIdentity(installation, violations, law)
+	const { reads, columns, digest } = readsAndIdentity(installation, violations, stated, law)
 	return { law, query: violationQuery(installation, law, reads), digest, reads: columns }
 }
 
@@ -180,12 +180,14 @@ const violationsOf = (installation: Installation): TheoryViolations =>
  */
 export const lawChecks = (installation: Installation): LawChecks => {
 	const violations = violationsOf(installation)
+	/** The closed facts every law's identity reads, each read once for all of them (ir/dag.ts StatedFacts). */
+	const stated = new StatedFacts(installation.checked.closed)
 	return {
 		migrations: installation.laws.migrationLaws.map((law) =>
-			checkOf(installation, violations, law)
+			checkOf(installation, violations, stated, law)
 		),
 		rules: installation.laws.rules.map((r): RuleCheck => {
-			const { columns, digest } = readsAndIdentity(installation, violations, r.law.id)
+			const { columns, digest } = readsAndIdentity(installation, violations, stated, r.law.id)
 			return {
 				law: r.law.id,
 				query: defined(
@@ -207,5 +209,6 @@ export const lawChecks = (installation: Installation): LawChecks => {
  */
 export const baselineRuleChecks = (installation: Installation): ReadonlyArray<MigrationCheck> => {
 	const violations = violationsOf(installation)
-	return installation.laws.rules.map((r) => checkOf(installation, violations, r.law.id))
+	const stated = new StatedFacts(installation.checked.closed)
+	return installation.laws.rules.map((r) => checkOf(installation, violations, stated, r.law.id))
 }

@@ -18,9 +18,10 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Record } from "effect"
-import { everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import { canonicalTag, encode, everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
 import {
 	digest,
+	digestCarrying,
 	IdentityDigests,
 	identityDigest,
 	schemaFingerprint
@@ -329,6 +330,55 @@ export const identityDigestsTakeEachFrozenContainersIdentityOnceHoweverOftenItIs
 				replacement:
 					"\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, this.#within(), unframed))\n",
 				why: "A value asked is digested anew, its kept identity unread: each ask of the level, and of each part, hashes its text again."
+			}
+		]
+	})
+
+/** A digest carrying a container's text writes it where the container stands and reads the container never: as many digests of values holding it read none of it, and each is the digest of the value read in place. */
+export const aDigestCarryingAContainersTextWritesItWhereTheContainerStandsAndReadsItNever =
+	property.explore(digestGen, {
+		needs: {},
+		situations: [],
+		check:
+			() =>
+			([drawn, domain]) =>
+				Effect.sync(() => {
+					let read = 0
+					const counted = Object.freeze({
+						[canonicalTag]: () => {
+							read += 1
+							return { tag: "c", payload: "counted" }
+						}
+					})
+					const part = Object.freeze({ drawn, counted })
+					const texts = new Map([[part, succeeded(encode(part, everyProperty))]])
+					const values = [part, [part, drawn], { a: part, b: [part] }]
+					read = 0
+					for (const v of values) {
+						assert.equal<string>(
+							succeeded(digestCarrying(domain, v, everyProperty, texts)),
+							succeeded(digest(domain, v, everyProperty)),
+							"the carrying digest is the digest of the value read in place"
+						)
+					}
+					assert.equal(
+						read,
+						4,
+						"the carried container is read by the plain digests alone, once for each place it stands, never by a carrying one"
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the digest of the value read in place, and a carried container read by no carrying digest"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\tconst text = this.#carried.texts.get(container)\n",
+				replacement:
+					"\t\tconst text = container === this ? this.#carried.texts.get(container) : undefined\n",
+				why: "A carried container is read again where it stands, as every digest read a closed read's facts: each carrying digest reads it as many times as it holds it."
 			}
 		]
 	})

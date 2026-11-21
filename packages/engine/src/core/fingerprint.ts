@@ -15,6 +15,7 @@ import {
 	isCanonicalContainer,
 	unwrap,
 	writeCanonical,
+	writeCanonicalCarrying,
 	writeIdentityText,
 	writeOwned
 } from "#compiler/core/canonical.ts"
@@ -43,6 +44,24 @@ export const digest = (
 	Result.flatMap(fingerprintDomain(domain), (line) => {
 		const message = framed(line)
 		return Result.map(writeCanonical(message.out, value, options), () => message.hex())
+	})
+
+/**
+ * `digest`'s digest of `value`, each frozen container `texts` holds written from its text rather than read again
+ * (canonical.ts writeCanonicalCarrying): its bytes are `digest`'s exactly where each text is the container's `encode`
+ * under `options`, which the caller who holds `texts` writes once for every value that holds the container.
+ */
+export const digestCarrying = (
+	domain: string,
+	value: unknown,
+	options: EncodeOptions,
+	texts: ReadonlyMap<object, WellFormedText>
+): Result.Result<string, CompileError> =>
+	Result.flatMap(fingerprintDomain(domain), (line) => {
+		const message = framed(line)
+		return Result.map(writeCanonicalCarrying(message.out, value, options, texts), () =>
+			message.hex()
+		)
 	})
 
 /** A fingerprint's domain, one line of well-formed text, or MalformedArtifact: the one check of a caller's domain. */

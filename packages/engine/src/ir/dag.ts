@@ -3,10 +3,16 @@ import { postorder } from "@bjornpagen/grizzle-text/base/graph"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
-import { catchRefusal, maxStringLength, omitSourceLocs } from "#compiler/core/canonical.ts"
+import {
+	catchRefusal,
+	maxStringLength,
+	ownedText,
+	withoutSourceLocs
+} from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { digest } from "#compiler/core/fingerprint.ts"
+import { digestCarrying } from "#compiler/core/fingerprint.ts"
 import {
 	allocatedKinds,
 	ExprId,
@@ -961,7 +967,7 @@ const closedReadFacts = (
 	closedFacts: ReadonlyMap<string, ClosedFacts>,
 	relation: string,
 	payload: ReadonlyArray<string>
-): object => {
+): { readonly heading: Heading; readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>> } => {
 	const facts = closedFacts.get(relation)
 	if (facts === undefined) {
 		throw defect(`the installation holds the closed relation ${relation} a closed read names`)
@@ -977,18 +983,73 @@ const closedReadFacts = (
 }
 
 /**
+ * The closed facts the meaning digests of one caller's DAGs read (statedForm): each closed read's facts
+ * (closedReadFacts) projected once for the caller, by its relation and payload, and frozen, with its canonical text
+ * written once (core/canonical.ts ownedText, under the digests' options, withoutSourceLocs), which every digest of the
+ * caller writes where the facts stand (core/fingerprint.ts digestCarrying) rather than reading them again. One per
+ * caller's loop over its DAGs, over the installation's closed facts: its law checks (deploy/snapshot/violation.ts
+ * lawChecks, baselineRuleChecks) and its derived definitions' meanings (physical/derived/meaning.ts
+ * definitionMeanings), so a closed relation every law reads is projected and spelled once for all of them, where each
+ * closed read of each law projected its rows again and each digest read them again.
+ */
+export class StatedFacts {
+	readonly #closed: ReadonlyMap<string, ClosedFacts>
+	/** Each closed read's facts, by its relation and payload, the pair's JSON text. */
+	readonly #reads = new Map<string, object>()
+	/** Each closed read's facts' canonical text, by the facts. */
+	readonly #texts = new Map<object, WellFormedText>()
+
+	constructor(facts: ReadonlyMap<string, ClosedFacts>) {
+		this.#closed = facts
+	}
+
+	/** The facts a closed read of `relation` naming the payload fields `payload` reads (closedReadFacts), once. */
+	read(relation: string, payload: ReadonlyArray<string>): object {
+		const key = JSON.stringify([relation, payload])
+		const known = this.#reads.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const facts = frozenFacts(closedReadFacts(this.#closed, relation, payload))
+		this.#reads.set(key, facts)
+		this.#texts.set(facts, ownedText(facts, withoutSourceLocs))
+		return facts
+	}
+
+	/** Each closed read's facts' canonical text, by the facts: what a digest writes where they stand. */
+	get texts(): ReadonlyMap<object, WellFormedText> {
+		return this.#texts
+	}
+
+	/** How many closed reads' facts this caller projected: its work, one for each relation and payload it read. */
+	get projected(): number {
+		return this.#reads.size
+	}
+}
+
+/** A closed read's facts (closedReadFacts) with their own containers frozen: their record, heading and rows. */
+const frozenFacts = (facts: {
+	readonly heading: Heading
+	readonly rows: ReadonlyArray<ReadonlyArray<TypedLiteral>>
+}): object =>
+	Object.freeze({
+		heading: Object.freeze([...facts.heading]),
+		rows: Object.freeze(facts.rows.map((row) => Object.freeze([...row])))
+	})
+
+/**
  * An expression of a normal DAG as a meaning digest reads it (statedForm): a closed read (C.at, C.has, C.row) with the
- * facts it reads (closedReadFacts), since it names its closed relation and none of its facts, which the installation's
+ * facts it reads (StatedFacts read), since it names its closed relation and none of its facts, which the installation's
  * constants hold apart from the DAG, as a Closed node holds the facts it scans; every other kind as the DAG holds it, so
  * a DAG of no closed read is stated as it is.
  */
-const statedExpr = (e: TableExpr, closedFacts: ReadonlyMap<string, ClosedFacts>): object => {
+const statedExpr = (e: TableExpr, stated: StatedFacts): object => {
 	switch (e.kind) {
 		case "closedAt":
-			return { ...e, facts: closedReadFacts(closedFacts, e.relation, [e.field]) }
+			return { ...e, facts: stated.read(e.relation, [e.field]) }
 		case "closedHas":
 		case "closedRow":
-			return { ...e, facts: closedReadFacts(closedFacts, e.relation, []) }
+			return { ...e, facts: stated.read(e.relation, []) }
 		case "column":
 		case "value":
 		case "param":
@@ -1012,7 +1073,7 @@ const statedExpr = (e: TableExpr, closedFacts: ReadonlyMap<string, ClosedFacts>)
 const statedForm = (
 	normal: DagTable,
 	fields: (node: TableNode) => object,
-	closedFacts: ReadonlyMap<string, ClosedFacts>
+	stated: StatedFacts
 ): unknown => ({
 	roots: normal.roots,
 	nodes: Object.fromEntries(
@@ -1022,7 +1083,7 @@ const statedForm = (
 		])
 	),
 	exprs: Object.fromEntries(
-		Object.entries(normal.exprs).map(([id, e]) => [id, statedExpr(e, closedFacts)])
+		Object.entries(normal.exprs).map(([id, e]) => [id, statedExpr(e, stated)])
 	)
 })
 
@@ -1046,7 +1107,7 @@ const rowsFields = (node: TableNode): object => {
 
 /**
  * The digest of what the DAG `roots` reach within `context` asks of the rows it reads (statedForm), the closed facts its
- * closed reads read among them, each closed relation's in `closedFacts`, allocation, source locations and derived
+ * closed reads read among them, each read once for the caller (`stated`), allocation, source locations and derived
  * metadata excluded: one query's whatever lowers, rewrites or analyzes it, the identity of a law's check
  * (deploy/snapshot/violation.ts checkOf).
  */
@@ -1054,11 +1115,16 @@ export const meaningDigestWithin = (
 	context: RelDag,
 	roots: Roots,
 	domain: string,
-	closedFacts: ReadonlyMap<string, ClosedFacts>
+	stated: StatedFacts
 ): Result.Result<DagDigest, CompileError> =>
 	Result.flatMap(normalizeWithin(context, roots), (normal) =>
 		Result.map(
-			digest(domain, statedForm(normal, digestedFields, closedFacts), { omit: omitSourceLocs }),
+			digestCarrying(
+				domain,
+				statedForm(normal, digestedFields, stated),
+				withoutSourceLocs,
+				stated.texts
+			),
 			DagDigest
 		)
 	)
@@ -1073,11 +1139,16 @@ export const rowsDigestWithin = (
 	context: RelDag,
 	roots: Roots,
 	domain: string,
-	closedFacts: ReadonlyMap<string, ClosedFacts>
+	stated: StatedFacts
 ): Result.Result<DagDigest, CompileError> =>
 	Result.flatMap(normalizeWithin(context, roots), (normal) =>
 		Result.map(
-			digest(domain, statedForm(normal, rowsFields, closedFacts), { omit: omitSourceLocs }),
+			digestCarrying(
+				domain,
+				statedForm(normal, rowsFields, stated),
+				withoutSourceLocs,
+				stated.texts
+			),
 			DagDigest
 		)
 	)

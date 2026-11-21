@@ -795,6 +795,20 @@ type Frame =
 	  }
 
 /**
+ * Containers a traversal writes from texts written before rather than reading them again (writeCanonicalCarrying):
+ * each frozen container `texts` holds by the container has that canonical text under the traversal's options, which
+ * `write` writes where the container stands. A frozen container's text is its content's for as long as it lives, and
+ * it was written whole, so nothing in it is refused or reaches a container outside it.
+ */
+interface Carried {
+	readonly texts: ReadonlyMap<object, WellFormedText>
+	readonly write: (text: WellFormedText) => void
+}
+
+/** What a traversal carries where it reads every container: nothing. */
+const nothingCarried: Carried = { texts: new Map(), write: () => undefined }
+
+/**
  * One canonical traversal: every check, in one order, with one refusal each, and the value's canonical form written
  * to its sink as it is read. Every container read is opened onto a stack of frames on the heap, where its members wait
  * while one of them is read, so a value nested to any depth never deepens the call stack. Keys are visited in the
@@ -812,12 +826,15 @@ class Walk {
 	readonly #sink: Sink
 	/** How the traversal reads a value: the canonical model's reading (canonicalOf), or a JSON form's (transportedOf). */
 	readonly #reading: Reading
+	/** The containers written from their texts rather than read (Carried). */
+	readonly #carried: Carried
 
-	constructor(options: EncodeOptions, sink: Sink, reading: Reading, base: Path) {
+	constructor(options: EncodeOptions, sink: Sink, reading: Reading, base: Path, carried: Carried) {
 		this.#options = options
 		this.#sink = sink
 		this.#reading = reading
 		this.#base = base
+		this.#carried = carried
 	}
 
 	/**
@@ -972,11 +989,17 @@ class Walk {
 				writeScalar(this.#sink, read)
 				return false
 			case "array":
+				if (this.#written(read.items)) {
+					return false
+				}
 				this.#enter(read.items)
 				this.#sink.open("array")
 				this.#frames.push({ kind: "array", value: read.items, next: 0 })
 				return true
 			case "record":
+				if (this.#written(read.record)) {
+					return false
+				}
 				this.#enter(read.record)
 				this.#sink.open("object")
 				this.#frames.push({
@@ -989,6 +1012,16 @@ class Walk {
 			case "outside":
 				return stop(this.#here(), read.what)
 		}
+	}
+
+	/** Whether `container` is carried (Carried): its text written where it stands, and it not read. */
+	#written(container: object): boolean {
+		const text = this.#carried.texts.get(container)
+		if (text === undefined) {
+			return false
+		}
+		this.#carried.write(text)
+		return true
 	}
 
 	/** A container entered as an ancestor of what it holds, refused where it is one already: a cycle. */
@@ -1185,7 +1218,10 @@ const writeIdentityRecord = <T>(
 		} else if (read.kind === "outside") {
 			refuseValue([key], read.what)
 		} else {
-			new Walk(options, sink, canonicalOf, [key]).member(record, memberOf(record[key]))
+			new Walk(options, sink, canonicalOf, [key], nothingCarried).member(
+				record,
+				memberOf(record[key])
+			)
 		}
 	}
 	sink.close("object")
@@ -1516,7 +1552,7 @@ export const writeTemplate = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TemplateSink(holeOf)
-		new Walk(options, sink, canonicalOf, rootPath).of(value)
+		new Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)
 		return sink.template()
 	})
 
@@ -1598,7 +1634,29 @@ export const writeCanonical = (
 		if (value === undefined) {
 			return refuseValue([], "a value, not undefined")
 		}
-		new Walk(options, new ByteSink(out), canonicalOf, rootPath).of(value)
+		new Walk(options, new ByteSink(out), canonicalOf, rootPath, nothingCarried).of(value)
+	})
+
+/**
+ * writeCanonical's text of `value`, each container `texts` holds written from its text where it stands rather than read
+ * again (Carried): the caller's texts of frozen parts many values hold, each written once by `encode` under the same
+ * options, so a digest of each value reads its own parts and copies the shared ones' text.
+ */
+export const writeCanonicalCarrying = (
+	out: Utf8Writer,
+	value: unknown,
+	options: EncodeOptions,
+	texts: ReadonlyMap<object, WellFormedText>
+): Result.Result<void, CompileError> =>
+	catchRefusal(() => {
+		if (value === undefined) {
+			return refuseValue([], "a value, not undefined")
+		}
+		const sink = new ByteSink(out)
+		new Walk(options, sink, canonicalOf, rootPath, {
+			texts,
+			write: (text) => sink.written(text)
+		}).of(value)
 	})
 
 /** The JSON form of a canonical value. */
@@ -1625,7 +1683,7 @@ const jsonBy = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new JsonSink()
-		new Walk(options, sink, reading, rootPath).of(value)
+		new Walk(options, sink, reading, rootPath, nothingCarried).of(value)
 		return sink.value()
 	})
 
@@ -1705,7 +1763,7 @@ const encodeWalk = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TextSink()
-		new Walk(options, sink, canonicalOf, rootPath).of(value)
+		new Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)
 		return sink.text()
 	})
 
@@ -1760,7 +1818,7 @@ export const encodeOver = (
 ): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => {
 		const sink = new TextSink()
-		new Walk(options, sink, canonicalOf, rootPath).over(record, written, (text) =>
+		new Walk(options, sink, canonicalOf, rootPath, nothingCarried).over(record, written, (text) =>
 			sink.written(text)
 		)
 		return sink.text()
@@ -1885,7 +1943,7 @@ export const canonicalTokens = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TokenSink()
-		new Walk(options, sink, canonicalOf, rootPath).of(value)
+		new Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)
 		return sink.tokens()
 	})
 

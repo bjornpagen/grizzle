@@ -500,9 +500,9 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 			{
 				file: "packages/engine/src/core/canonical.ts",
 				original:
-					"\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath).of(value)\n\t\treturn sink.text()\n\t})",
+					"\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)\n\t\treturn sink.text()\n\t})",
 				replacement:
-					'\t\tconst remembered = typeof value === "object" && value !== null && Object.isFrozen(value)\n\t\tconst memo = remembered ? frozenTexts.get(value) : undefined\n\t\tif (memo !== undefined) {\n\t\t\treturn memo\n\t\t}\n\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath).of(value)\n\t\tif (remembered) {\n\t\t\tfrozenTexts.set(value, sink.text())\n\t\t}\n\t\treturn sink.text()\n\t})\n\nconst frozenTexts = new WeakMap<object, string>()',
+					'\t\tconst remembered = typeof value === "object" && value !== null && Object.isFrozen(value)\n\t\tconst memo = remembered ? frozenTexts.get(value) : undefined\n\t\tif (memo !== undefined) {\n\t\t\treturn memo\n\t\t}\n\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath, nothingCarried).of(value)\n\t\tif (remembered) {\n\t\t\tfrozenTexts.set(value, sink.text())\n\t\t}\n\t\treturn sink.text()\n\t})\n\nconst frozenTexts = new WeakMap<object, string>()',
 				why: "a frozen value's text remembered, whatever it holds since and whatever the options; the now property fails."
 			}
 		]

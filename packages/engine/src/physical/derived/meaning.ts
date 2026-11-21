@@ -1,6 +1,6 @@
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
-import { rooted, rowsDigestWithin } from "#compiler/ir/dag.ts"
+import { rooted, rowsDigestWithin, StatedFacts } from "#compiler/ir/dag.ts"
 import { makePassContext } from "#compiler/ir/pass.ts"
 import { derivedKeyConstraints, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
@@ -27,6 +27,8 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 		laws: installation.laws,
 		views: derivedKeyConstraints(analysis)
 	})
+	/** The closed facts every definition's meaning reads, each read once for all of them (ir/dag.ts StatedFacts). */
+	const stated = new StatedFacts(installation.checked.closed)
 	return new Map(
 		analysis.order.map((a) => {
 			const pruned = unwrap(
@@ -37,7 +39,7 @@ export const definitionMeanings = (installation: Installation): ReadonlyMap<stri
 			)
 			const reads = conservativeInput(pruned)
 			const meaning = unwrap(
-				rowsDigestWithin(reads.dag, [reads.root], "derived-definition", installation.checked.closed)
+				rowsDigestWithin(reads.dag, [reads.root], "derived-definition", stated)
 			)
 			return [a.name, meaning] as const
 		})
