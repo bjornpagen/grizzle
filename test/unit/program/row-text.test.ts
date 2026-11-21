@@ -50,7 +50,7 @@ export const aFoundRowsTextIsOneTextPerRowValueForValue = property.exhaust(
 			},
 			{
 				file: "packages/engine/src/program/text.ts",
-				original: "\t\t\tconst handles = setHandles(rosterOf(column.roster))",
+				original: "\t\t\tconst handles = handleList(rosterOf(column.roster))",
 				replacement:
 					"\t\t\tconst handles = (value: unknown) => Result.ok(value instanceof Set ? [...value].map(String) : [])",
 				why: "A set's handles are written in the order the caller's Set holds them, not its roster's declared order: {Low, Mid} and {Mid, Low}, one set, are two texts."

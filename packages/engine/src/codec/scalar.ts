@@ -250,7 +250,7 @@ export const handleText = (
  * A set's handles under no installation, its one list: each a live handle of its roster (admitHandles), in the roster's
  * declared order.
  */
-export const setHandles = (
+export const handleList = (
 	roster: Roster
 ): ((value: unknown) => Result.Result<ReadonlyArray<string>, CodecFault>) => {
 	const live = declaredHandles(roster)
@@ -264,7 +264,7 @@ export const setHandles = (
 
 /**
  * A value's one text read under no installation (program/text.ts codecTextOver), a function of its host value alone: a
- * closed id's its handle (handleText); a set's its handles in its roster's declared order (setHandles) as a JSON array,
+ * closed id's its handle (handleText); a set's its handles in its roster's declared order (handleList) as a JSON array,
  * a handle holding any text but NUL. Every other carrier's is its codec's encode, which reads no code: the exact parse
  * of the value and its canonical text.
  */
@@ -276,7 +276,7 @@ export const hostText = (
 		return handleText(base.roster, subsetHandlesOf(type))
 	}
 	if (base.carrier === "bits") {
-		const handles = setHandles(base.roster)
+		const handles = handleList(base.roster)
 		return (value) => Result.map(handles(value), jsonText)
 	}
 	return scalarCodec(type, emptyCodebook).encode

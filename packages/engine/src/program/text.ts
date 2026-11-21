@@ -7,12 +7,12 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { Result as Public } from "effect"
-import { handleText, hostText, setHandles, specText } from "#compiler/codec/scalar.ts"
+import { handleText, hostText, handleList, specText } from "#compiler/codec/scalar.ts"
 import {
 	type ColumnForm,
 	type DecoderForm,
 	formFields,
-	type HeadingField,
+	type FormField,
 	type OptionVocabulary
 } from "#compiler/core/decoder.ts"
 import { type CodecFault, type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -90,7 +90,7 @@ const listText =
 /**
  * A column's value's text by its form (core/decoder.ts ColumnForm), framed: a converted column's and head literals'
  * its conversion's carrier's one text (codec/scalar.ts specText), a refined text's the text itself, a closed id's its
- * handle (handleText), a set's its handles in its roster's declared order as a list (setHandles), and a bytes value's
+ * handle (handleText), a set's its handles in its roster's declared order as a list (handleList), and a bytes value's
  * its digest, its canonical text. Each is the column's type's one text of the value, so two values have one text
  * exactly where the type's equality holds them equal.
  */
@@ -114,7 +114,7 @@ const columnText = (column: ColumnForm, rosterOf: (name: string) => Roster): Val
 			return (value) => Result.map(text(value), framed)
 		}
 		case "bits": {
-			const handles = setHandles(rosterOf(column.roster))
+			const handles = handleList(rosterOf(column.roster))
 			return (value) => Result.map(handles(value), framedList)
 		}
 	}
@@ -125,7 +125,7 @@ const columnText = (column: ColumnForm, rosterOf: (name: string) => Roster): Val
  * order, an Option's none or its one, the one child's alone; an alternatives arm's, an Option, its none or its one.
  */
 const fieldText = (
-	field: HeadingField,
+	field: FormField,
 	rosterOf: (name: string) => Roster,
 	options: OptionVocabulary
 ): ValueText => {

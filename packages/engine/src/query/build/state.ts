@@ -26,7 +26,7 @@ import { untyped } from "#compiler/scalar/compute/term.ts"
 import { describeField, type ScalarEnv } from "#compiler/scalar/registry.ts"
 import { highestLevel, type Level } from "#compiler/schema/level.ts"
 import {
-	fieldDescOf as fieldDesc,
+	describedDesc as fieldDesc,
 	type HeadingTyping,
 	malformed,
 	type OwnedKind,

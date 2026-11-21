@@ -8,7 +8,7 @@ import { str } from "#compiler/public/text.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import type { TermTyping } from "#compiler/scalar/compute/typing.ts"
 import { decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
-import { fieldDescOf } from "#compiler/schema/protocol.ts"
+import { describedDesc } from "#compiler/schema/protocol.ts"
 import { baseParams, field, spelledExpr, typeWith, v } from "#test/unit/compute/support.ts"
 
 /**
@@ -23,7 +23,10 @@ export const bytesGen: Gen<number> = oneOf([
 
 /** The typing of Text.parseDecimal(t) for a column t of any text within `bytes` UTF-8 bytes. */
 export const parsedOver = (bytes: number): Result.Result<TermTyping<Spelled>, CompileError> => {
-	const t = field(fieldDescOf(str.bytes(bytes, str.regex("^.*$", "su")), "a bounded text"), "text")
+	const t = field(
+		describedDesc(str.bytes(bytes, str.regex("^.*$", "su")), "a bounded text"),
+		"text"
+	)
 	return typeWith(
 		spelledExpr(computeCore.parseDecimal(v("t", t)).expr),
 		{ t: { kind: "column", type: t.scalar } },

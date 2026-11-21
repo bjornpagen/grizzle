@@ -158,7 +158,7 @@ export const describedField = (value: unknown, label: string): Described =>
 	orThrow(registeredField(value) ?? refusedField(value, builderLoc(label, [])))
 
 /** The FieldDesc of a field descriptor a builder made. */
-export const fieldDescOf = (value: unknown, label: string): FieldDesc =>
+export const describedDesc = (value: unknown, label: string): FieldDesc =>
 	describedField(value, label).desc
 
 export interface PredicateValue extends Built {

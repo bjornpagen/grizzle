@@ -8,7 +8,7 @@
  * one of four headings: b, c and d; b and c; c, b and d, the first in another order; b, c and d with d a bigint.
  *
  * Oracle: the specification, read off the declarations themselves: each heading's fields with the FieldDesc its
- * builder recorded (schema/protocol.ts fieldDescOf), in name order, and two declarations one exactly when those are
+ * builder recorded (schema/protocol.ts describedDesc), in name order, and two declarations one exactly when those are
  * equal, so no hand-written reading of a heading stands between a declaration and its verdict.
  *
  * Features: one heading, a heading within the other, a field of another type.

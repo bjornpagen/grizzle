@@ -22,7 +22,7 @@ import {
 	plantedArms,
 	printRecords,
 	reached,
-	records,
+	readRecords,
 	sameRecord,
 	unionOf,
 	cellsInstall,
@@ -115,9 +115,9 @@ export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachR
 										first: queryOver(Cells).rule(a),
 										second: queryOver(Cells).rule(b)
 									})
-									const delivered = yield* records(member(served, "planted"))
-									const first = yield* records(member(served, "first"))
-									const second = yield* records(member(served, "second"))
+									const delivered = yield* readRecords(member(served, "planted"))
+									const first = yield* readRecords(member(served, "first"))
+									const second = yield* readRecords(member(served, "second"))
 									const alone = armsAlone([first, second])
 									assert.deepEqual(
 										set(structuralHash, sameRecord)(delivered, alone),
@@ -132,9 +132,9 @@ export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachR
 									...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
 								})
 								const unionMember = member(loaded, "union")
-								const union = yield* records(memberCalls(ctx, unionMember))
+								const union = yield* readRecords(memberCalls(ctx, unionMember))
 								const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
-									records(memberCalls(ctx, member(loaded, `arm${j}`)))
+									readRecords(memberCalls(ctx, member(loaded, `arm${j}`)))
 								)
 								const alone = armsAlone(armRecords)
 								assert.deepEqual(

@@ -464,7 +464,7 @@ export interface RowDecoder<out A> extends Phantom<{ readonly host: A }> {
 }
 
 /** A field of one heading of a decoder form: a record's own field, or an alternatives arm's attachment (`arm`). */
-export type HeadingField = FieldForm | { readonly kind: "arm"; readonly child: DecoderForm }
+export type FormField = FieldForm | { readonly kind: "arm"; readonly child: DecoderForm }
 
 /**
  * The headings a decoder form may deliver, each its fields under their keys in the order its record fills them
@@ -473,7 +473,7 @@ export type HeadingField = FieldForm | { readonly kind: "arm"; readonly child: D
  */
 export const formFields = (
 	form: DecoderForm
-): ReadonlyArray<ReadonlyArray<readonly [string, HeadingField]>> => {
+): ReadonlyArray<ReadonlyArray<readonly [string, FormField]>> => {
 	switch (form.kind) {
 		case "record":
 			return [form.fields]

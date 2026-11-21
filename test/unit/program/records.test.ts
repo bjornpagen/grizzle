@@ -130,7 +130,7 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/program/records.ts",
+					file: "packages/engine/src/schema/literals.ts",
 					original: "\t\t\t\tseq([start, new RegexBuilder().alt(texts.map(literal)), end]),",
 					replacement:
 						"\t\t\t\tseq([start, new RegexBuilder().alt(texts.slice(0, 1).map(literal)), end]),",
@@ -152,9 +152,9 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 				},
 				{
 					file: "packages/engine/src/program/records.ts",
-					original: '\tif (carrier !== undefined && carrier.column.kind === "constant") {',
+					original: '\tif (carrier?.column.kind === "constant") {',
 					replacement:
-						'\tif (carrier !== undefined && carrier.column.kind === "constant" && carrier.column.values.length > 1) {',
+						'\tif (carrier?.column.kind === "constant" && carrier.column.values.length > 1) {',
 					why: "A head literal of one value is read as a column, whose heading typing is untyped: records refuses every query beside a head literal."
 				},
 				{

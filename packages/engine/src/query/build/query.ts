@@ -78,7 +78,7 @@ import { highestLevel, type Level, levelOf } from "#compiler/schema/level.ts"
 import { untypedLiteral } from "#compiler/schema/literal.ts"
 import {
 	builderRefusal,
-	fieldDescOf,
+	describedDesc,
 	malformed,
 	ownedKind,
 	requireName
@@ -848,7 +848,7 @@ const recursive = <S, const Row extends Record<string, FieldBase>>(
 	const rowDescs: Record<string, FieldDesc> = {}
 	for (const [field, descriptor] of Object.entries(row)) {
 		requireName(field, label, "a row field name")
-		rowDescs[field] = fieldDescOf(descriptor, `${label} row ${field}`)
+		rowDescs[field] = describedDesc(descriptor, `${label} row ${field}`)
 	}
 	const arms = <A>(value: ReadonlyArray<A>, what: string): NonEmptyReadonlyArray<A> => {
 		if (!isList(value) || !isNonEmpty(value)) {

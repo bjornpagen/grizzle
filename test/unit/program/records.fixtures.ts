@@ -2,6 +2,9 @@
  * What the properties of records.test.ts read: a schema of a relation holding a field of every type a column of a
  * query's heading may be stored as, the flat queries over it a property's box draws, and the program each binds.
  */
+import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
+import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { Array as Arr, Record as Rcd } from "effect"
 import { rowOptions } from "#adapter/engine.ts"
 import { readProgram } from "#adapter/reader/run.ts"
@@ -43,8 +46,8 @@ import {
 export const Tier = closed.ordered("Tier", ["Low", "Mid", "High"])
 
 /** A contract over a uuid, and one over a bigint: a column's brand and check are its contract's. */
-export const Account = contract("Account", uuid)
-export const Cents = contract("Cents", pg.bigint)
+const Account = contract("Account", uuid)
+const Cents = contract("Cents", pg.bigint)
 
 /**
  * A field of every type a stored column may be: each pg integer, a numeric of a scale, of scale 0 and of no typmod,
@@ -156,7 +159,7 @@ export const heldPairs: Arr.NonEmptyReadonlyArray<readonly [HeadValue, HeadValue
 ]
 
 /** Every literal pair the box's unions write: the held ones, and two numbers, which no stored field holds exactly yet. */
-export const literalPairs: Arr.NonEmptyReadonlyArray<readonly [HeadValue, HeadValue]> = [
+const literalPairs: Arr.NonEmptyReadonlyArray<readonly [HeadValue, HeadValue]> = [
 	...heldPairs,
 	[1, 2]
 ]
@@ -167,8 +170,9 @@ export const heldExactly = (pair: readonly [HeadValue, HeadValue]): boolean =>
 	(typeof pair[0] === "boolean" && typeof pair[1] === "boolean")
 
 /**
- * Whether a declaration's values are exactly a literal pair: a text of one pattern its two texts match, as ECMA-262 reads
- * it under `u`, and none of their concatenation, a text beside them, or an empty text; or a boolean, both its values.
+ * Whether a declaration's values are exactly a literal pair: a text of one pattern its two texts match, as grizzle's own
+ * automaton reads it (grizzle-text regex/match.ts Matcher, a second reader beside PostgreSQL's), and none of their
+ * concatenation, a text beside them, or an empty text; or a boolean, both its values.
  */
 export const holdsExactly = (desc: FieldDesc, pair: readonly [HeadValue, HeadValue]): boolean => {
 	if (desc.kind === "pg") {
@@ -178,16 +182,17 @@ export const holdsExactly = (desc: FieldDesc, pair: readonly [HeadValue, HeadVal
 		return false
 	}
 	const [only, ...more] = desc.patterns
-	if (more.length > 0) {
+	const parsed = parsePattern(only.source, only.flags)
+	if (more.length > 0 || !parsed.ok) {
 		return false
 	}
-	const pattern = new RegExp(only.source, "u")
+	const pattern = Matcher.of(buildNfa(parsed.value))
 	return (
-		pattern.test(pair[0]) &&
-		pattern.test(pair[1]) &&
-		!pattern.test(`${pair[0]}${pair[1]}`) &&
-		!pattern.test(`${pair[0]}x`) &&
-		!pattern.test("")
+		pattern.matches(pair[0]) &&
+		pattern.matches(pair[1]) &&
+		!pattern.matches(`${pair[0]}${pair[1]}`) &&
+		!pattern.matches(`${pair[0]}x`) &&
+		!pattern.matches("")
 	)
 }
 
@@ -197,7 +202,7 @@ export const holdsExactly = (desc: FieldDesc, pair: readonly [HeadValue, HeadVal
  * (test/support/oracle/verify/sql.ts target, "nested column alias is not a generated c<n>"), a query of any bytes
  * column, reported to main; the round trip on PostgreSQL (test/pg/records) reads it through the served compile.
  */
-export const auditedColumns: Arr.NonEmptyReadonlyArray<Exclude<ItemColumn, "blob">> = [
+const auditedColumns: Arr.NonEmptyReadonlyArray<Exclude<ItemColumn, "blob">> = [
 	"id",
 	...Arr.filter(
 		itemColumns,

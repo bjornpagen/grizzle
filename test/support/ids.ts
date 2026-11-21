@@ -1,6 +1,6 @@
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { contract, uuid } from "#compiler/public/fields.ts"
-import { fieldDescOf } from "#compiler/schema/protocol.ts"
+import { describedDesc } from "#compiler/schema/protocol.ts"
 
 /** The tests' id contract's name, its domain's. */
 export const idName = "Id"
@@ -15,4 +15,4 @@ export const Id = contract(idName, uuid)
 export type IdValue = ReturnType<typeof Id>
 
 /** Id's FieldDesc, as a description reads a field of it. */
-export const idDesc: FieldDesc = fieldDescOf(Id, idName)
+export const idDesc: FieldDesc = describedDesc(Id, idName)

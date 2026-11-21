@@ -6,7 +6,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
-import { fieldDescOf } from "#compiler/schema/protocol.ts"
+import { describedDesc } from "#compiler/schema/protocol.ts"
 
 /** How a member declares the relation parameter's fields: b, c and d, b and c, c before b, or d as a bigint. */
 type Declared = "b, c, d" | "b, c" | "c, b, d" | "b, c, d as a bigint"
@@ -24,7 +24,7 @@ export const fieldsOf = (declared: Declared) => {
 	return Arr.sort(
 		Arr.map(Rec.toEntries(heading), ([name, field]) => ({
 			name,
-			desc: fieldDescOf(field, name)
+			desc: describedDesc(field, name)
 		})),
 		Order.mapInput(Order.String, (f: { readonly name: string }) => f.name)
 	)

@@ -523,7 +523,7 @@ export const reached = (c: {
 }
 
 /** The rows a served member delivers, run without parameters. */
-export const records = (calls: OnceCalls) => readOnce(calls)({ params: {}, facts: {} })
+export const readRecords = (calls: OnceCalls) => readOnce(calls)({ params: {}, facts: {} })
 
 /**
  * Each delivered record's key on the member's wire (see the header): its key under the wire's key fields encodes to
