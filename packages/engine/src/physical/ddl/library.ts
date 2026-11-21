@@ -1141,8 +1141,9 @@ const xsdPatternDefinition = (): LibraryBody => {
 }
 
 /**
- * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes, which
- * Crypto.sha256 over a text writes as lowercase hex, a digest field a key may be declared over. An installation's
+ * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes, the digest
+ * Crypto.sha256 over a text is on the host too (scalar/values/sha256.ts Sha256.ofText), a digest field a key may be
+ * declared over. An installation's
  * database is UTF8 (grizzle refuses another at its first migration), so convert_to converts nothing and copies the
  * text's bytes as they are stored; convert_to is STABLE in pg_proc only because a conversion's result can depend on the database's
  * encoding, which a database never changes, and sha256 is IMMUTABLE, so the digest is one value of a text wherever it

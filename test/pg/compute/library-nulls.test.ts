@@ -13,30 +13,27 @@
  * Features: each library function with no argument NULL, each argument NULL alone, and every argument NULL.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { agree, exact, ordered } from "@bjornpagen/testing/oracle"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { jsonText } from "#compiler/core/trusted.ts"
 import {
 	batchGen,
 	calls,
 	hostValue,
 	type LibraryNullFeature,
+	type LibraryValue,
+	libraryValue,
 	rowsJson,
+	sameLibraryValue,
 	uncalledNodes
 } from "#test/pg/compute/library-nulls.fixtures.ts"
 import { inInstallation } from "#test/pg/compute/utf16-length.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** A cell of a row PostgreSQL returned, a text or NULL. */
-const cell = (row: ReadonlyArray<unknown>): string | null => {
-	const v = row[0]
-	return typeof v === "string" || v === null
-		? v
-		: assert.fail(`a text cell, not ${Formatter.format(v)}`)
-}
+/** The cell of a row PostgreSQL returned, the call's value in its own type. */
+const cell = (row: ReadonlyArray<unknown>): LibraryValue => libraryValue(row[0], "PostgreSQL")
 
 /** grizzle's library on PostgreSQL 19: every library function's value over every set of NULL arguments is the host's. */
 export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySetOfNullArgumentsIsTheHosts =
@@ -75,12 +72,12 @@ export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySet
 								[call.create],
 								pinned.queryValues(call.sql, [jsonText(rowsJson(rows))])
 							)
-							yield* agree<ReadonlyArray<string | null>>(
+							yield* agree<ReadonlyArray<LibraryValue>>(
 								[
 									["PostgreSQL", Arr.map(answered, cell)],
 									["the host", Arr.map(rows, (row) => hostValue(call, row))]
 								],
-								ordered(exact)
+								ordered(sameLibraryValue)
 							)
 						}
 					}),
@@ -113,6 +110,14 @@ export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySet
 				replacement:
 					'\t\tcase "strict":\n\t\t\treturn { present, absent: () => Result.ok(false) }\n',
 				why: "The host reads a strict operation over a NULL operand as false, where PostgreSQL's STRICT library function returns NULL."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/library.ts",
+				original:
+					'\tbody: call("sha256", [call("convert_to", [param(1, types.text), text("UTF8")])])\n',
+				replacement:
+					'\tbody: call("sha224", [call("convert_to", [param(1, types.text), text("UTF8")])])\n',
+				why: "textDigest's body digests a text by SHA-224, 28 bytes, where the host's digest of it is SHA-256's 32: PostgreSQL's digest of every text no NULL is other bytes than the host's."
 			}
 		]
 	})

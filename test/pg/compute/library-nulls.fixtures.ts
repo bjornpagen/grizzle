@@ -2,6 +2,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { array, characterOf, constant, type Gen, oneOf, string } from "@bjornpagen/testing/gen"
+import { type Equivalence, equivalence } from "@bjornpagen/testing/oracle"
 import { Array as Arr, Formatter } from "effect"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
 import { exprClosure, predicateTable, type ScalarExpr } from "#compiler/ir/expr.ts"
@@ -10,6 +11,7 @@ import { libraryCreate } from "#compiler/physical/ddl/library.ts"
 import { compiledExpr, sqlNull } from "#compiler/scalar/compute/evaluate.ts"
 import { libraryOf, nativeOp, nativeOps } from "#compiler/scalar/compute/registry.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
+import { sameBytes } from "#compiler/scalar/values/bytes.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { baseParams, lowerWith, plainRender, renderSql } from "#test/unit/compute/support.ts"
@@ -84,7 +86,7 @@ const lowered = (fn: LibraryFn, { desc, arity }: Call): LoweredCall => {
 		fn,
 		arity,
 		term: term.expr,
-		sql: `SELECT (${renderSql(term.expr, plainRender)})::text FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, a text, b text) ORDER BY r0.ord`,
+		sql: `SELECT ${renderSql(term.expr, plainRender)} FROM jsonb_to_recordset($1::text::jsonb) AS r0(ord int4, a text, b text) ORDER BY r0.ord`,
 		create: printStatement(libraryCreate("pg_temp", fn))
 	}
 }
@@ -164,18 +166,35 @@ export const rowsJson = (
 ): ReadonlyArray<{ readonly ord: number; readonly a: string | null; readonly b: string | null }> =>
 	Arr.map(rows, (row, ord) => ({ ord, a: row.args[0] ?? null, b: row.args[1] ?? null }))
 
-/** A value as the SQL's text cast writes it: a boolean as `true` or `false`, a text as itself, NULL as null. */
-const asText = (value: unknown): string | null =>
-	value === sqlNull
-		? null
-		: typeof value === "boolean"
-			? String(value)
-			: typeof value === "string"
-				? value
-				: assert.fail(`the host's value is a boolean or a text, not ${Formatter.format(value)}`)
+/**
+ * A library function's value, as either side holds it: isXsdPattern's boolean, resolveReference's text, textDigest's
+ * digest, its bytes (a Sha256 on the host, bytea as PostgreSQL returns it), or NULL.
+ */
+export type LibraryValue = boolean | string | Uint8Array | null
 
-/** The host evaluator's value of a call over a row (scalar/compute/evaluate.ts), as its SQL's text cast writes it. */
-export const hostValue = (call: LoweredCall, row: NullRow): string | null => {
+/** `value` as a LibraryValue: a boolean, a text or bytes as themselves, NULL (the host's sqlNull among them) as null. */
+export const libraryValue = (value: unknown, side: string): LibraryValue =>
+	value === sqlNull || value === null
+		? null
+		: typeof value === "boolean" || typeof value === "string" || value instanceof Uint8Array
+			? value
+			: assert.fail(`${side}'s value is a boolean, a text or bytes, not ${Formatter.format(value)}`)
+
+/** A value as a report spells it: bytes by their hex, every other value by Formatter. */
+const spelled = (value: LibraryValue): string =>
+	value instanceof Uint8Array ? `bytes ${value.toHex()}` : Formatter.format(value)
+
+/** Whether two values are one: two bytes values by their bytes (bytea's equality), every other pair by identity. */
+export const sameLibraryValue: Equivalence<LibraryValue> = equivalence(
+	(left, right) =>
+		left instanceof Uint8Array && right instanceof Uint8Array
+			? sameBytes(left, right)
+			: left === right,
+	spelled
+)
+
+/** The host evaluator's value of a call over a row (scalar/compute/evaluate.ts). */
+export const hostValue = (call: LoweredCall, row: NullRow): LibraryValue => {
 	const table = predicateTable(call.term)
 	const value = succeeded(
 		compiledExpr(table)(
@@ -188,5 +207,5 @@ export const hostValue = (call: LoweredCall, row: NullRow): string | null => {
 		),
 		`the host evaluates ${call.fn}`
 	)
-	return asText(value)
+	return libraryValue(value, "the host")
 }
