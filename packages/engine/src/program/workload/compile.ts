@@ -626,7 +626,8 @@ export const compileWorkload = (
 			domains: served.flatMap((p) => p.domains),
 			contracts: served.flatMap((p) => p.contracts),
 			typed: served.flatMap((p) => p.typed),
-			texts: served.flatMap((p) => p.texts)
+			texts: served.flatMap((p) => p.texts),
+			library: served.flatMap((p) => p.library)
 		}
 	}
 	return Result.ok({

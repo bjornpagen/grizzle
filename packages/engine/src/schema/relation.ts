@@ -72,6 +72,7 @@ import {
 	type Described,
 	describeFieldOrThrow,
 	isOwnedDescriptor,
+	registerWrittenField,
 	type ScalarEnv,
 	scalarTypeOf
 } from "#compiler/scalar/registry.ts"
@@ -266,6 +267,7 @@ export const drawnField = <F extends FieldBase>(
 		sql: type.sql
 	})
 	fieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })
+	registerWrittenField(value, type)
 	return value
 }
 
@@ -291,6 +293,7 @@ const placed = <F extends PlaceField>(value: F, order: PlaceOrderDesc): F => {
 		type: naturalDescriptor,
 		writing: { kind: "place", order }
 	})
+	registerWrittenField(value, naturalDescriptor)
 	return value
 }
 
@@ -335,6 +338,7 @@ export const retirementField = (type: Field<boolean, "boolean">): RetirementFiel
 		sql: type.sql
 	})
 	fieldEntries.set(value, { kind: "written", type, writing: { kind: "retirement" } })
+	registerWrittenField(value, type)
 	return value
 }
 
@@ -377,6 +381,7 @@ export const accumulatedField = <F extends FieldBase>(
 		type,
 		writing: { kind: "accumulated", start: literal }
 	})
+	registerWrittenField(value, type)
 	return value
 }
 
@@ -548,6 +553,7 @@ export const generatedField = <F extends FieldBase>(
 		sql: type.sql
 	})
 	fieldEntries.set(value, { kind: "generated", type: described, term })
+	registerWrittenField(value, type)
 	return value
 }
 

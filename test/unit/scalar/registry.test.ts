@@ -25,7 +25,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { drawnFeature, passed, WILD_KINDS } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
@@ -64,6 +64,7 @@ import {
 	type DescribeFeature,
 	describes,
 	endpoints,
+	isWrittenField,
 	Kind,
 	type LiteralFeature,
 	literalCases,
@@ -74,7 +75,7 @@ import {
 	rostersOfSketch,
 	scalarOf,
 	someFault,
-	statedWriting
+	valueDescriptor
 } from "#test/unit/scalar/registry.fixtures.ts"
 import { type DescriptorSketch, descriptorGen, descriptorOf } from "#test/unit/scalar/support.ts"
 
@@ -434,19 +435,20 @@ export const literalDescForLiteralOperandsAdoptTheBasesHostTypeReturnsTheLiteral
 	})
 
 /**
- * DescribeField reads every descriptor a builder made, pg.numeric among them, and refuses a look-alike, a written field
- * and every wild value as malformed, at describeField, span and closedId.
+ * DescribeField reads every descriptor a builder made, pg.numeric among them, and a written field as the descriptor its
+ * values are of, a place as natural, and refuses a look-alike and every wild value as malformed, at describeField, span
+ * and closedId.
  *
  * Budget: its suite's count before the conversion (unit/scalar/describe-field: 1000 independent cases and 0 steered,
  * Vitest at grizzle 4ca3036a).
  */
-export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeAWrittenFieldAndEveryWildValueAsMalformedAtDescribeFieldSpanAndClosedId =
+export const describeFieldReadsEveryDescriptorABuilderMadeAndAWrittenFieldAsItsValueTypeAndRefusesALookAlikeAndEveryWildValueAsMalformedAtDescribeFieldSpanAndClosedId =
 	property.explore(boundarySpace, {
 		needs: {},
 		situations: [
 			"live",
+			"a written field, read as its value type",
 			"stale look-alike",
-			"stale written field",
 			...Arr.map(WILD_KINDS, (kind): DescribeFeature => `wild ${kind}`),
 			"boundary describeField",
 			"boundary span",
@@ -458,33 +460,30 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeAW
 				Effect.sync(() => {
 					c.note(drawnFeature(d))
 					c.note(`boundary ${boundary}`)
+					if (d.kind === "live" && isWrittenField(d.value)) {
+						c.note("a written field, read as its value type")
+					}
 					const x = passed(d)
 					switch (boundary) {
 						case "describeField": {
 							const result = describeField(x, SourceLoc("a drawn descriptor", []))
 							if (d.kind === "live") {
-								assert.equal(result.ok, true)
+								assert.deepEqual(
+									succeeded(result).desc,
+									succeeded(
+										describeField(valueDescriptor(d.value), SourceLoc("its value type", []))
+									).desc,
+									"a descriptor is read as the descriptor its values are of"
+								)
 								return
 							}
-							const reason = refused(result, "MalformedDescription").reason
-							if (
-								d.kind === "stale" &&
-								d.from === "written field" &&
-								reason._tag === "MalformedDescription"
-							) {
-								assert.ok(
-									Str.includes(`a field of a writing of its own (${statedWriting(d.value)})`)(
-										reason.what
-									),
-									`a written field is refused as one, naming its writing: ${reason.what}`
-								)
-							}
+							refused(result, "MalformedDescription")
 							return
 						}
 						case "span":
 							if (d.kind !== "live") {
 								throwsRefused(() => spanDescriptor(x), "MalformedDescription")
-							} else if (endpoints.includes(d.value)) {
+							} else if (endpoints.includes(valueDescriptor(d.value))) {
 								assert.ok(spanOf(scalarOf(spanDescriptor(x))) !== undefined, "a span")
 							} else {
 								throwsRefused(() => spanDescriptor(x), "UnsupportedOperation")
@@ -516,9 +515,9 @@ export const describeFieldReadsEveryDescriptorABuilderMadeAndRefusesALookAlikeAW
 			{
 				file: "packages/engine/src/scalar/registry.ts",
 				original:
-					'\treturn typeof writing === "string" ? { kind: "written", writing } : { kind: "copy" }\n',
-				replacement: '\treturn { kind: "copy" }\n',
-				why: "A field of a writing of its own is refused as a copy of a descriptor, an object spread, which names nothing of what it is: the case of a place passed where a descriptor is asked fails."
+					"\treturn written === undefined ? ownedText.get(value)?.described : registeredField(written)\n",
+				replacement: "\treturn ownedText.get(value)?.described\n",
+				why: "A field of a writing of its own is no descriptor, the old refusal: a place passed where a descriptor is asked, edullm's param over ItemSession's place, is refused rather than read as natural, and the live written-field case fails."
 			},
 			{
 				file: "packages/engine/src/scalar/registry.ts",

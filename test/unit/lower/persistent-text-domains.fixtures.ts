@@ -12,10 +12,10 @@ import {
 	type Installation,
 	installOptions
 } from "#compiler/physical/install/compile.ts"
-import { Text, Type } from "#compiler/public/compute.ts"
+import { Text, Type, Xml } from "#compiler/public/compute.ts"
 import { generated } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
+import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Id } from "#test/support/ids.ts"
 import { owning } from "#test/support/policy.ts"
@@ -37,10 +37,12 @@ export type TextMap = (typeof textMaps)[number]
 
 /**
  * Where a computed text is read: a containment of a stored text into a derived relation's head that computes it, whose
- * two sides the law relabels to their common type, or a generated field that casts it into a text type no stored field
- * declares, any text of more bytes than the operand holds, so the cast is total by the bound alone.
+ * two sides the law relabels to their common type; a generated field that casts it into a text type no stored field
+ * declares, any text of more bytes than the operand holds, so the cast is total by the bound alone; or a check over a
+ * derived relation's head that computes it, holding each to be an XML Schema pattern (Xml.isPattern), a call of
+ * grizzle's library function isXsdPattern that only the law's judge makes, pantry's Pattern_language.
  */
-const sites = ["containment", "generated cast"] as const
+const sites = ["containment", "generated cast", "pattern check"] as const
 export type Site = (typeof sites)[number]
 
 export interface PersistentTextCase {
@@ -93,6 +95,33 @@ const schemaOf = (c: PersistentTextCase) => {
 				"Images",
 				[Image],
 				[contained(on(Named, "t"), on(Image, "image"))]
+			)
+		}
+		case "pattern check": {
+			const Source = relation("Source", { lex: c.operand.text, node: Id }, ["node"])
+			const base = schema("Base", [Source], [])
+			const Image = derived(
+				"Image",
+				query(base).rule((r) => {
+					const { lex, node } = v(Source, "s")
+					const read = r.match(Source, { lex, node })
+					switch (c.map) {
+						case "collapse":
+							return read.find({ image: Text.collapse(lex), node })
+						case "replaceWhitespace":
+							return read.find({ image: Text.replaceWhitespace(lex), node })
+						case "lowerAscii":
+							return read.find({ image: Text.lowerAscii(lex), node })
+						case "translate":
+							return read.find({ image: Text.translate(lex, "ab", "ba"), node })
+					}
+				})
+			)
+			return schema.extend(
+				[base],
+				"Images",
+				[Image],
+				[check("Pattern_language", Image, (p) => p.eq(Xml.isPattern(p.image), true))]
 			)
 		}
 		case "generated cast":

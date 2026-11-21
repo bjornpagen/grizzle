@@ -944,18 +944,21 @@ export const literalOperandSpace = aimed<LiteralOperand, LiteralFeature>(
 
 /**
  * The descriptor boundary: describeField reads a descriptor a builder made, pg.numeric itself among them (numeric of no
- * typmod, which is also numeric(p, s)'s constructor), span takes one as its endpoint, and closedId takes a closed
- * relation. A copy of a descriptor's members (a look-alike), a field of a writing of its own (drawn, accumulated,
- * retirement or a place), whose value no caller states, and any wild value are no descriptor: MalformedDescription at
- * describeField and span, a written field's naming its writing; any wild value is no closed relation:
- * MalformedDescription at closedId. A live descriptor is read; span builds over integer, bigint and contracts over
- * them, and refuses any other endpoint by its capability; closedId builds the closed relation's handle descriptor.
+ * typmod, which is also numeric(p, s)'s constructor), and a field of a writing of its own (drawn, accumulated,
+ * retirement or a place) as the descriptor its values are of, a place as natural, one rule for every field, so a
+ * parameter typed by one is typed by its value type; span takes one as its endpoint, and closedId takes a closed
+ * relation. A copy of a descriptor's members (a look-alike) and any wild value are no descriptor: MalformedDescription
+ * at describeField and span; any wild value is no closed relation: MalformedDescription at closedId. A live descriptor
+ * is read; span builds over integer, bigint and contracts over them, natural among them, and refuses any other
+ * endpoint by its capability; closedId builds the closed relation's handle descriptor.
  */
 type Boundary = "describeField" | "span" | "closedId"
-type NoDescriptor = "look-alike" | "written field"
 
-/** What a boundary was handed and which boundary it was. */
-export type DescribeFeature = DrawnFeature<NoDescriptor> | `boundary ${Boundary}`
+/** What a boundary was handed and which boundary it was, and whether a live descriptor was a written field. */
+export type DescribeFeature =
+	| DrawnFeature<"look-alike">
+	| `boundary ${Boundary}`
+	| "a written field, read as its value type"
 
 const Cents = contractDescriptor("Cents", pgDescriptors.bigint)
 const Day = contractDescriptor("Day", pgDescriptors.integer)
@@ -965,7 +968,8 @@ export const endpoints: Arr.NonEmptyReadonlyArray<object> = [
 	pgDescriptors.integer,
 	pgDescriptors.bigint,
 	Cents,
-	Day
+	Day,
+	naturalDescriptor
 ]
 const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	...endpoints,
@@ -985,50 +989,52 @@ const descriptors: Arr.NonEmptyReadonlyArray<object> = [
 	str.regex("^a$")
 ]
 
-/** A field of each writing of its own a caller may pass where a descriptor is asked: its value no caller states. */
-const writtenFields: Arr.NonEmptyReadonlyArray<object> = [
-	drawnField(naturalDescriptor, []),
-	placeDescriptor,
-	placeDescriptor.by("stage"),
-	retirementField(pgDescriptors.boolean),
-	accumulatedField(pgDescriptors.integer, 0, [])
+/**
+ * A field of each writing of its own a caller may pass where a descriptor is asked, with the descriptor its values are
+ * of, which describeField reads it as.
+ */
+const writtenFields: Arr.NonEmptyReadonlyArray<readonly [object, object]> = [
+	[drawnField(naturalDescriptor, []), naturalDescriptor],
+	[placeDescriptor, naturalDescriptor],
+	[placeDescriptor.by("stage"), naturalDescriptor],
+	[retirementField(pgDescriptors.boolean), pgDescriptors.boolean],
+	[accumulatedField(pgDescriptors.integer, 0, []), pgDescriptors.integer]
 ]
 
-/** The writing a written field states (writtenFields), which its refusal names. */
-export const statedWriting = (value: object): string => {
-	const writing = "writing" in value ? value.writing : undefined
-	return typeof writing === "string" ? writing : "none"
-}
+/** The descriptor a live value's values are of: a written field's (writtenFields), or the descriptor itself. */
+export const valueDescriptor = (value: object): object =>
+	Option.getOrElse(
+		Option.map(
+			Arr.findFirst(writtenFields, ([field]) => field === value),
+			([, type]) => type
+		),
+		() => value
+	)
+
+/** Whether a live value is a field of a writing of its own (writtenFields). */
+export const isWrittenField = (value: object): boolean =>
+	Arr.some(writtenFields, ([field]) => field === value)
 
 /**
  * A descriptor (live, a look-alike or wild) for describeField and span, or a closed relation (live Kind, or wild) for
  * closedId.
  */
-const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = weighted([
+const boundaryCaseGen: Gen<readonly [Drawn<object, "look-alike">, Boundary]> = weighted([
 	[
 		1,
 		(source) =>
 			[
 				source.draw(
-					lsw<object, NoDescriptor>({
-						live: element(descriptors),
+					lsw<object, "look-alike">({
+						live: weighted([
+							[1, element(descriptors)],
+							[1, map(element(writtenFields), ([field]) => field)]
+						]),
 						stale: Option.some(
-							weighted([
-								[
-									1,
-									map(element(descriptors), (field): Stale<object, NoDescriptor> => ({
-										value: { ...field },
-										from: "look-alike"
-									}))
-								],
-								[
-									1,
-									map(element(writtenFields), (field): Stale<object, NoDescriptor> => ({
-										value: field,
-										from: "written field"
-									}))
-								]
-							])
+							map(element(descriptors), (field): Stale<object, "look-alike"> => ({
+								value: { ...field },
+								from: "look-alike"
+							}))
 						),
 						wild: WILD_KINDS
 					})
@@ -1041,7 +1047,7 @@ const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = w
 		(source) =>
 			[
 				source.draw(
-					lsw<object, NoDescriptor>({
+					lsw<object, "look-alike">({
 						live: constant(Kind),
 						stale: Option.none(),
 						wild: WILD_KINDS
@@ -1056,13 +1062,13 @@ const boundaryCaseGen: Gen<readonly [Drawn<object, NoDescriptor>, Boundary]> = w
  * A boundary's case, aimed at each wild kind still pending: a wild value of that kind at any of the three boundaries.
  */
 export const boundarySpace = aimed<
-	readonly [Drawn<object, NoDescriptor>, Boundary],
+	readonly [Drawn<object, "look-alike">, Boundary],
 	DescribeFeature
 >(
 	boundaryCaseGen,
 	Arr.map(
 		WILD_KINDS,
-		(kind): readonly [DescribeFeature, Gen<readonly [Drawn<object, NoDescriptor>, Boundary]>] => [
+		(kind): readonly [DescribeFeature, Gen<readonly [Drawn<object, "look-alike">, Boundary]>] => [
 			`wild ${kind}`,
 			(source) =>
 				[

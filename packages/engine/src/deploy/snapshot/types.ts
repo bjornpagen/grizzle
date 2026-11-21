@@ -4,6 +4,7 @@ import type { ColumnIdent, LawId, RelationIdent, SchemaFingerprint } from "#comp
 import type { RecordedManifest } from "#compiler/deploy/snapshot/recorded.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
+import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type {
 	ConstraintLaws,
 	InstallationManifest,
@@ -259,12 +260,18 @@ export interface CompileFacts {
 	 */
 	readonly references: ReferenceChoice
 	/**
-	 * Each structural text domain the installation's stored fields declare, by its pattern language's key, with the digest
-	 * that names it (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by
-	 * whatever relations its slice reads. generate plans them from every stored field; DbLayer.make reads them here and
-	 * types no field its slice does not read.
+	 * Each structural text domain the installation holds, by its pattern language's key, with the digest that names it
+	 * (physical/ddl/domains.ts TextDomainNames), which every compile names a refined text's domain by whatever relations
+	 * its slice reads. generate plans them from every artifact and served program (physical/install/plan.ts
+	 * artifactObjects, ServedTypes); DbLayer.make reads them here and collects none.
 	 */
 	readonly textDomains: TextDomainNames
+	/**
+	 * The library functions the installation installs (ir/physical.ts LibraryFn), in name order, which every compile
+	 * calls only those of. generate plans them from every artifact and served program, as it plans the text domains;
+	 * DbLayer.make reads them here and collects none.
+	 */
+	readonly library: ReadonlyArray<LibraryFn>
 }
 
 /**

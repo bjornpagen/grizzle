@@ -96,11 +96,19 @@ export const aCompilesLawModelIsTheWholeSchemasRestrictedToItsSlicesWritesAndNam
 				const whole = wholeArtifacts.laws
 				const sliced = succeeded(
 					Result.flatMap(
-						planBasis(owned, codes, slice, installed.closed, installed.textDomains, {
-							kind: "recorded",
-							cycles: whole.fkCycles,
-							references: whole.references
-						}),
+						planBasis(
+							owned,
+							codes,
+							slice,
+							installed.closed,
+							installed.textDomains,
+							installed.library,
+							{
+								kind: "recorded",
+								cycles: whole.fkCycles,
+								references: whole.references
+							}
+						),
 						(basis) => baseArtifacts(basis, unserved)
 					),
 					"the slice's artifacts, as a Db plans them from its snapshot"

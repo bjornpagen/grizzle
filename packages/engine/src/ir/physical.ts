@@ -152,7 +152,8 @@ export interface PhysicalNames {
 	readonly closed: (relation: string) => ClosedConstant
 	/**
 	 * A library function of the installation (`LibraryFn`), qualified by the installation's schema, where the
-	 * installation installs it: one its schema's persistent expressions call. Any other is refused as UninstalledDomain
+	 * installation installs it: one any of its artifacts or a program of its served workload calls
+	 * (physical/install/plan.ts artifactObjects, ServedTypes `library`). Any other is refused as UninstalledFunction
 	 * where the statement calling it is compiled, never by PostgreSQL where it runs.
 	 */
 	readonly library: (fn: LibraryFn) => QualifiedFunctionRef

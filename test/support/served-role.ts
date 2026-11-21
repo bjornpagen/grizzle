@@ -61,6 +61,7 @@ export const servedRoleContext = (
 					slice,
 					snapshot.derived.closed,
 					snapshot.derived.textDomains,
+					snapshot.derived.library,
 					{
 						kind: "recorded",
 						cycles: snapshot.derived.fkCycles,

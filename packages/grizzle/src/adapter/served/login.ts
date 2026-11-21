@@ -177,7 +177,7 @@ export const artifactsUnder = (
 ): Engine.Result<LayerArtifacts, CompileError> =>
 	layerOver(slice, (sliced) =>
 		Engine.flatMap(
-			planBasis(base, codes, sliced, derived.closed, derived.textDomains, {
+			planBasis(base, codes, sliced, derived.closed, derived.textDomains, derived.library, {
 				kind: "recorded",
 				cycles: derived.fkCycles,
 				references: derived.references

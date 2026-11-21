@@ -339,7 +339,7 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 		),
 		(refused) => refusedAt("workload")(refused.error)
 	)
-	const derived = derivedFacts(basis.closed, basis.model, basis.textDomains)
+	const derived = derivedFacts(basis.closed, basis.model, basis.textDomains, basis.library)
 	const params: InstalledSource = { kind: "planned", types: workload.params }
 	const servedArtifacts = yield* Effect.mapError(
 		fromEngine(artifactsOver(basis, params)),

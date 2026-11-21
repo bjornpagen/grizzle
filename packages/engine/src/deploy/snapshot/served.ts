@@ -19,6 +19,7 @@ import type {
 } from "#compiler/deploy/snapshot/types.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { rosterCodebook } from "#compiler/ir/codes.ts"
+import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 import type { FkCycles } from "#compiler/laws/model/model.ts"
 import type { ReferenceChoice } from "#compiler/laws/model/plan.ts"
@@ -69,6 +70,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	const fkCycles = derived["fkCycles"]
 	const references = derived["references"]
 	const textDomains = derived["textDomains"]
+	const library = derived["library"]
 	const tables = derived["tables"]
 	const live = derived["live"]
 	const params = derived["params"]
@@ -84,6 +86,9 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 	if (!isRecord(textDomains)) {
 		return Result.err(underived(["derived", "textDomains"]))
 	}
+	if (!isList(library)) {
+		return Result.err(underived(["derived", "library"]))
+	}
 	if (!isRecord(tables)) {
 		return Result.err(underived(["derived", "tables"]))
 	}
@@ -98,6 +103,7 @@ const servedDerived = (derived: unknown): Result.Result<SnapshotDerived, Compile
 		fkCycles: trusted<FkCycles>(fkCycles),
 		references: trusted<ReferenceChoice>(references),
 		textDomains: trusted<TextDomainNames>(new Map(Object.entries(textDomains))),
+		library: trusted<ReadonlyArray<LibraryFn>>(library),
 		tables: trusted<SnapshotTables>(tables),
 		live: trusted<LiveSource>(live),
 		params: trusted<InstalledParams>(params)

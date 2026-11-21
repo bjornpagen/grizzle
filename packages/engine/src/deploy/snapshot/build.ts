@@ -72,6 +72,7 @@ import { rosterCodebook } from "#compiler/ir/codes.ts"
 import { type Codebook, codecOf, type PreviousRoster } from "#compiler/ir/codes.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
 import type { Spellings } from "#compiler/ir/pattern.ts"
+import type { LibraryFn } from "#compiler/ir/physical.ts"
 import {
 	type AccessIndexRequest,
 	type InstallationManifest,
@@ -909,7 +910,12 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
  * indexes (snapshotTablesOf), its live source, and the types its plan casts its served parameters to
  * (InstallPlan.installedParams). */
 export const derivedOf = (installation: Installation): SnapshotDerived => ({
-	...derivedFacts(installation.closed, installation.laws, textDomainNames(installation.textPlans)),
+	...derivedFacts(
+		installation.closed,
+		installation.laws,
+		textDomainNames(installation.textPlans),
+		installation.library
+	),
 	tables: snapshotTablesOf(installation),
 	live: liveSourceOf(installation),
 	params: installation.installedParams
@@ -941,7 +947,8 @@ const liveSourceOf = (installation: Installation): LiveSource => {
 
 /**
  * The compile facts of an installation whose closed relations' constants are named as `closed` names them, under its
- * law model `model`, its text domains `textDomains`: what a level's artifacts compile under besides its codes, from a
+ * law model `model`, its text domains `textDomains` and its library functions `library`: what a level's artifacts
+ * compile under besides its codes, from a
  * snapshot (adapter/served/login.ts artifactsUnder) or, before the snapshot is written, from the basis the installation
  * is compiled over. The snapshot records the installation's whole set of text domains (derivedOf), its served
  * programs' and its worlds' among them; the basis holds its law model's own (physical/install/plan.ts
@@ -951,12 +958,14 @@ const liveSourceOf = (installation: Installation): LiveSource => {
 export const derivedFacts = (
 	closed: ClosedNames,
 	model: LawModel,
-	textDomains: TextDomainNames
+	textDomains: TextDomainNames,
+	library: ReadonlyArray<LibraryFn>
 ): CompileFacts => ({
 	closed,
 	fkCycles: model.fkCycles,
 	references: model.references,
-	textDomains
+	textDomains,
+	library
 })
 
 /** The target snapshot's content, built from the compiled installation of the current schema and workload, with the
@@ -1337,6 +1346,7 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 	fkCycles: d.fkCycles,
 	references: d.references.map((r) => ({ law: r.law, part: r.part })),
 	textDomains: Object.fromEntries([...d.textDomains].toSorted(([a], [b]) => compareStrings(a, b))),
+	library: d.library,
 	tables: Object.fromEntries(
 		Object.entries(d.tables).map(([schema, tables]) => [
 			schema,

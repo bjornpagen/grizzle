@@ -2843,12 +2843,9 @@ interface Admitted {
  * pattern's language or a lexical form, a generated field's term sharing a value with its declared text type, a value inside width_bucket's domain, a power's result inside its type's
  * range), a text function's place in a query
  * (a concatenation beside an equation, a translation of a long text, a length outside a predicate), the digits of an
- * exact decimal's text, the values of a pattern term the build must see, a match guard some text of its subject
- * passes, and a computed text's domain: a query's head delivers its term at the term's type, which for a translation
- * or a collapse is its image's refinement, and a refinement no stored field declares has no domain to deliver it in
- * (README's "a query's head delivers it through one cast into a text type some field declares, or into Prose"). The
- * types read a pattern string or a translation's map as a string, never its language, so no type meets it with the
- * subject's or names the image.
+ * exact decimal's text, the values of a pattern term the build must see, and a match guard some text of its subject
+ * passes. The types read a pattern string or a translation's map as a string, never its language, so no type meets it
+ * with the subject's or names the image.
  */
 const engineDecides = {
 	fits: "decided: a fit",
@@ -2862,8 +2859,7 @@ const engineDecides = {
 	pattern: "decided: a pattern's values",
 	literal: "decided: a literal's value",
 	integral: "decided: a number's integrality",
-	overlap: "decided: a match's overlap",
-	domain: "decided: a refinement's domain"
+	overlap: "decided: a match's overlap"
 } as const
 type DecidedNote = (typeof engineDecides)[keyof typeof engineDecides]
 const computeDecided: Arr.NonEmptyReadonlyArray<DecidedNote> = [
@@ -2933,17 +2929,13 @@ const decidedBy = (thrown: unknown): DecidedNote | undefined => {
 				: Str.startsWith("from and to of")(text) ||
 					  Str.startsWith("from holding each character once")(text)
 					? engineDecides.literal
-					: Str.includes("which no stored field declares, so the installation holds no domain")(
-								text
-						  )
-						? engineDecides.domain
-						: Str.includes(" in a query")(text)
-							? engineDecides.placement
-							: Str.endsWith(
-										" match no admitted text value together, so no value is ever of their type"
-								  )(text)
-								? engineDecides.overlap
-								: undefined
+					: Str.includes(" in a query")(text)
+						? engineDecides.placement
+						: Str.endsWith(
+									" match no admitted text value together, so no value is ever of their type"
+							  )(text)
+							? engineDecides.overlap
+							: undefined
 }
 
 /**

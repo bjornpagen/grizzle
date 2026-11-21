@@ -507,9 +507,10 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   compiled for installs none of: a statement is served only over the domains its installation holds, so a value cast
  *   to another is refused where it is compiled, never by PostgreSQL where it runs.
  * - `UninstalledFunction`: a statement at `at` calls `fn`, a function of grizzle's library (ir/physical.ts LibraryFn)
- *   the installation it is compiled for installs none of, since no persistent expression of its schema calls it: a
- *   statement is served only over the functions its installation holds, so a call of another is refused where it is
- *   compiled, never by PostgreSQL where it runs (42883).
+ *   the installation it is compiled for installs none of, since none of its artifacts and no program of its served
+ *   workload calls it (physical/install/plan.ts artifactObjects, ServedTypes `library`): a statement is served only
+ *   over the functions its installation holds, so a call of another is refused where it is compiled, never by
+ *   PostgreSQL where it runs (42883).
  */
 export type CompileReason =
 	| { readonly _tag: "Refused"; readonly at: SourceLoc; readonly refusal: Refused }
@@ -1122,7 +1123,7 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "UninstalledDomain":
 			return uninstalledText(reason.domain)
 		case "UninstalledFunction":
-			return `the installation installs no library function ${reason.fn}, which no stored field, check or contract of its schema calls: call it in a persistent expression of the schema, or compute the value in the application`
+			return `the installation installs no library function ${reason.fn}, which none of its artifacts and no program of its served workload calls: serve the program from a workload of a login of the installation and run grizzle generate`
 		case "Misdeclared":
 			return misdeclaredText(reason.misdeclared)
 		case "UndeclaredDrop": {

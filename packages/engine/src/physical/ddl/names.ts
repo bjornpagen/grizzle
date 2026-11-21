@@ -211,7 +211,7 @@ interface NamesInput {
 	readonly closedTable: ClosedTable
 	/** Each stored relation's selection keys' law columns, by its declared name (`selectionKeysOf`). */
 	readonly selectionKeys: ReadonlyMap<string, ReadonlyArray<SelectionKey>>
-	/** The library functions the installation installs (physical/ddl/library.ts libraryCalls). */
+	/** The library functions the installation installs (physical/install/plan.ts artifactObjects, ServedTypes). */
 	readonly library: ReadonlyArray<LibraryFn>
 	/**
 	 * The columns each stored relation's laws add to it, by its declared name, as an index entry holds them

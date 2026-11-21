@@ -19,7 +19,7 @@ import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
 import { type Identity, identity, type KeyImage } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { exprClosure } from "#compiler/ir/expr.ts"
+import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { persistentExprs } from "#compiler/physical/ddl/constants.ts"
@@ -1192,20 +1192,24 @@ const identities: { readonly [F in LibraryFn]: Identity<"libraryFunction"> } = {
 	)
 }
 
+/** The library function an expression calls, by its native operation's SQL (registry.ts libraryOf), or none. */
+export const calledLibrary = (e: ScalarExpr): LibraryFn | undefined => {
+	const sql = e.kind === "op" ? nativeOp(e.op)?.sql : undefined
+	return sql === undefined ? undefined : libraryOf(sql)
+}
+
 /** The identity a library function is named by (core/identity.ts libraryFunction). */
 export const libraryIdentity = (fn: LibraryFn): Identity<"libraryFunction"> => identities[fn]
 
 /**
  * The library functions the persistent expressions of `model` call (constants.ts persistentExprs), and each key image's
- * (laws/model/plan.ts keyedAs), in name order: those its installation installs. A contract's predicate, a derived
- * relation's definition and a role's statements call only those, or are refused as UninstalledFunction where they are
- * compiled.
+ * (laws/model/plan.ts keyedAs), in name order: what the installation's one collector of its artifacts' objects reads
+ * for them beside its checked DAGs' calls (physical/install/plan.ts artifactObjects).
  */
 export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 	const called = new Set<LibraryFn>()
 	for (const e of exprClosure(persistentExprs(model))) {
-		const sql = e.kind === "op" ? nativeOp(e.op)?.sql : undefined
-		const fn = sql === undefined ? undefined : libraryOf(sql)
+		const fn = calledLibrary(e)
 		if (fn !== undefined) {
 			called.add(fn)
 		}

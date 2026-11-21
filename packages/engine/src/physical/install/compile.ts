@@ -16,6 +16,7 @@ import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
+import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
 import type { RegexRef } from "#compiler/ir/scalar.ts"
 import type { LivePlan } from "#compiler/live/notify.ts"
@@ -384,14 +385,16 @@ const servedParams = (
 		const contracts: Array<ParamContract> = []
 		const typed: Array<ParamContract> = []
 		const texts: Array<RegexRef> = []
+		const library: Array<LibraryFn> = []
 		for (const extension of new Set(extensions)) {
 			const types = unwrap(extension.params(checked))
 			appendAll(domains, types.domains)
 			appendAll(contracts, types.contracts)
 			appendAll(typed, types.typed)
 			appendAll(texts, types.texts)
+			appendAll(library, types.library)
 		}
-		return { kind: "planned", types: { domains, contracts, typed, texts } }
+		return { kind: "planned", types: { domains, contracts, typed, texts, library } }
 	})
 
 /** The plan of the installation over `basis` under `settings` with `extensions`, the types their served programs cast

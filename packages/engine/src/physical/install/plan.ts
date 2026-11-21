@@ -63,7 +63,7 @@ import {
 	type ParamDomainUse,
 	type ServedTypes,
 	patternLawId,
-	dagDomains,
+	dagObjects,
 	type ParamContract,
 	planTextDomains,
 	structuralRegex,
@@ -120,6 +120,8 @@ export interface PlanBasis {
 	readonly codes: Codebook
 	readonly closed: ClosedNames
 	readonly textDomains: TextDomainNames
+	/** The library functions it installs: a Db's, as its snapshot records them; a fresh basis's, its own artifacts'. */
+	readonly library: ReadonlyArray<LibraryFn>
 }
 
 /**
@@ -158,22 +160,24 @@ const closedRelationsOf = (model: LawModel): ReadonlyArray<ClosedTheoryRelation>
 	)
 
 /**
- * The domains an installation's own artifacts type a value by beyond its stored fields' (artifactDomains): the columns
- * outside the stored relations a pattern types, the structural text refinements its artifacts type a value by where no
- * column is, and the contracts they type a value by that no stored field of the base declares.
+ * The objects an installation's own artifacts need beyond its stored fields' (artifactObjects): the columns outside the
+ * stored relations a pattern types, the structural text refinements its artifacts type a value by where no column is,
+ * the contracts they type a value by that no stored field of the base declares, and the library functions they call.
  */
-interface ArtifactDomains {
+interface ArtifactObjects {
 	readonly columns: ReadonlyArray<TextColumnUse>
 	readonly texts: ReadonlyArray<RegexRef>
 	readonly contracts: ReadonlyArray<ParamContract>
+	readonly library: ReadonlyArray<LibraryFn>
 }
 
-/** Each law model's ArtifactDomains, collected once whatever plans read it. */
-const modelDomains = new WeakMap<LawModel, ArtifactDomains>()
+/** Each law model's ArtifactObjects, collected once whatever plans read it. */
+const modelObjects = new WeakMap<LawModel, ArtifactObjects>()
 
 /**
- * The domains an installation's own artifacts over `model` type a value by beyond its stored fields', each of which it
- * installs (planTextDomains, outsideContracts), one collector for every kind: `columns`, every materialized derived
+ * The objects an installation's own artifacts over `model` need beyond its stored fields', each of which it installs
+ * (planTextDomains, outsideContracts, physical/ddl/library.ts addLibrary), one reachability walk for every kind of
+ * object: `columns`, every materialized derived
  * relation's view column a pattern types, which its definition casts to that pattern's domain (a literal or a min of
  * refined text keeps its pattern); and, where no column is, the text refinements (`texts`) and the contracts
  * (`contracts`) of each refinement down the contract chain of a stored field's type, a contract's base, which a value
@@ -184,11 +188,14 @@ const modelDomains = new WeakMap<LawModel, ArtifactDomains>()
  * live derived relation's computed text a rule reads through its definition and the common type a containment relabels
  * its sides to among them; and of each field of a declared function's result, which every read of the function's value
  * or rows casts to (lower/conservative/call calledRows, declaredCall), the one check PostgreSQL makes of what its body
- * returned, since the function's row type holds the field at its base (ir/physical.ts rowTypeOf). So no refinement or
- * contract any of them types a value by needs a stored field to declare it. Collected once per model (`modelDomains`).
+ * returned, since the function's row type holds the field at its base (ir/physical.ts rowTypeOf); and `library`, each
+ * library function a persistent expression or a key image calls (physical/ddl/library.ts libraryCalls) and each one a
+ * materialized definition's or a law's checked DAG calls, a law's check over a derived relation calling Xml.isPattern
+ * among them. So no refinement, contract or library function any of them needs requires a stored field, a check or a
+ * contract to name it. Collected once per model (`modelObjects`).
  */
-const artifactDomains = (model: LawModel): ArtifactDomains => {
-	const known = modelDomains.get(model)
+const artifactObjects = (model: LawModel): ArtifactObjects => {
+	const known = modelObjects.get(model)
 	if (known !== undefined) {
 		return known
 	}
@@ -222,32 +229,37 @@ const artifactDomains = (model: LawModel): ArtifactDomains => {
 		)
 	]
 	const held = [
-		...derived.map((a) => dagDomains(a.loc, [], a.query.dag.roots)),
-		dagDomains(
+		...derived.map((a) => dagObjects(a.loc, [], a.query.dag.roots)),
+		dagObjects(
 			SourceLoc(`the laws of schema ${owned.name}`, []),
 			[],
 			unwrap(theoryViolations(checked, theory)).dag.roots
 		)
 	]
-	const own: ArtifactDomains = {
+	const own: ArtifactObjects = {
 		columns,
 		texts: [...typed.flatMap((t) => typeRefinements(t.type)), ...held.flatMap((h) => h.texts)],
 		contracts: [
 			...typed.flatMap((t) => typeContracts(t.type, t.loc)),
 			...held.flatMap((h) => h.contracts)
-		]
+		],
+		library: distinctLibrary([...libraryCalls(model), ...held.flatMap((h) => h.library)])
 	}
-	modelDomains.set(model, own)
+	modelObjects.set(model, own)
 	return own
 }
 
+/** Library functions `fns`, each once, in name order: the order an installation installs and records them in. */
+const distinctLibrary = (fns: ReadonlyArray<LibraryFn>): ReadonlyArray<LibraryFn> =>
+	[...new Set(fns)].toSorted(compareStrings)
+
 /**
- * The text domains of a law model's own artifacts (artifactDomains): its stored fields', its views' and the rest its
+ * The text domains of a law model's own artifacts (artifactObjects): its stored fields', its views' and the rest its
  * persistent expressions, derived definitions, laws and declared functions type a value by, without a served program's
  * or a world's, which an installation's plan adds (planInstallation).
  */
 const declaredTextDomains = (model: LawModel): TextDomainNames => {
-	const own = artifactDomains(model)
+	const own = artifactObjects(model)
 	return textDomainNames(planTextDomains(model.owned, model.theory, own.columns, own.texts))
 }
 
@@ -269,6 +281,7 @@ export const basisOf = (
 			codes,
 			closed: closedNames(planned),
 			textDomains: declaredTextDomains(model),
+			library: artifactObjects(model).library,
 			planned
 		}
 	})
@@ -282,6 +295,7 @@ export const planBasis = (
 	slice: Slice,
 	closed: ClosedNames,
 	textDomains: TextDomainNames,
+	library: ReadonlyArray<LibraryFn>,
 	cycles: CycleSource
 ): Result.Result<PlanBasis, CompileError> =>
 	Result.map(compileLaws(owned, slice, cycles), (model): PlanBasis => ({
@@ -289,7 +303,8 @@ export const planBasis = (
 		model,
 		codes,
 		closed,
-		textDomains
+		textDomains,
+		library
 	}))
 
 /**
@@ -331,8 +346,8 @@ export interface InstallPlan {
 	readonly names: InstallNames
 	/** Each closed relation's constants as readers address them, the basis's: what the snapshot records. */
 	readonly closed: ClosedNames
-	/** The library functions the installation installs, those its schema's persistent expressions call
-	 * (physical/ddl/library.ts libraryCalls), in name order. */
+	/** The library functions the installation installs, those its artifacts and its served programs call
+	 * (artifactObjects, ServedTypes `library`), with those a snapshot records, in name order. */
 	readonly library: ReadonlyArray<LibraryFn>
 	/** Each structural text domain, planned (planTextDomains). */
 	readonly textPlans: ReadonlyArray<TextDomainPlan>
@@ -619,12 +634,12 @@ export const planInstallation = (
 				)
 			})
 		}))
-		/** A Db's plan names the domains its snapshot records, the installation's whole set, so it collects none of its
-		 * own artifacts' refinements again. */
-		const own: ArtifactDomains =
+		/** A Db's plan names the domains and functions its snapshot records, the installation's whole set, so it collects
+		 * none of its own artifacts' objects again. */
+		const own: ArtifactObjects =
 			params.kind === "recorded"
-				? { columns: [], texts: [], contracts: [] }
-				: artifactDomains(model)
+				? { columns: [], texts: [], contracts: [], library: [] }
+				: artifactObjects(model)
 		const textPlans = planTextDomains(
 			owned,
 			model.theory,
@@ -641,7 +656,7 @@ export const planInstallation = (
 			outsideContracts(owned, fields, [...planned.contracts, ...planned.typed, ...own.contracts])
 		)
 		const contracts = contractSources(model, outside)
-		const library = libraryCalls(model)
+		const library = distinctLibrary([...own.library, ...planned.library, ...basis.library])
 		const recorded = params.kind === "recorded" ? params.installed.contracts : []
 		const names = installNames({
 			owned,

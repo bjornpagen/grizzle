@@ -27,7 +27,13 @@ import { topoOrder } from "#compiler/ir/dag.ts"
 import { descText, type FieldDesc } from "#compiler/ir/desc.ts"
 import { exprClosure, predicateTree } from "#compiler/ir/expr.ts"
 import type { DomainCheck, DomainCheckTerm, LawField, TableRelation } from "#compiler/ir/law.ts"
-import { domainBase, missing, type PhysicalNames, qualifiedType } from "#compiler/ir/physical.ts"
+import {
+	domainBase,
+	type LibraryFn,
+	missing,
+	type PhysicalNames,
+	qualifiedType
+} from "#compiler/ir/physical.ts"
 import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/products.ts"
 import { exprsOf, type HeadingColumn, type RelNode } from "#compiler/ir/rel.ts"
 import {
@@ -41,6 +47,7 @@ import {
 import { domainCheck, type LawModel } from "#compiler/laws/model/model.ts"
 import { type InstallBuilder, isVectorRef } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
+import { calledLibrary } from "#compiler/physical/ddl/library.ts"
 import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
 import { digestedHooks, digestedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
@@ -358,11 +365,11 @@ const paramContracts = (
  * The types the programs an installation serves name, which it installs: each pattern parameter's own pattern domain at
  * its place (ParamDomainUse); each contract a parameter is typed by (`contracts`, ParamContract), as the programs'
  * declarations name them, each held to its name's one definition (paramContractsDefined); each contract the programs'
- * checked IR types a value by (`typed`, dagDomains), a function's result's or a query's own cast target among them,
+ * checked IR types a value by (`typed`, dagObjects), a function's result's or a query's own cast target among them,
  * which names the domain of its name's definition; and every structural text refinement the programs type a value by
- * (`texts`), a parameter's, a column's of any node of theirs and an expression's (dagDomains), whose domain each
- * statement of theirs may name (a carrier's column, a cast, a delivered value's check), so no served statement names a
- * domain the installation lacks. A served program that types a value by a refinement or a contract new to the
+ * (`texts`), a parameter's, a column's of any node of theirs and an expression's (dagObjects), whose domain each
+ * statement of theirs may name (a carrier's column, a cast, a delivered value's check); and every library function
+ * their expressions call (`library`), so no served statement names a domain or calls a function the installation lacks. A served program that types a value by a refinement or a contract new to the
  * installation is a change of the installation, which generate drafts a migration for, as it drafts any other domain.
  */
 export interface ServedTypes {
@@ -370,10 +377,17 @@ export interface ServedTypes {
 	readonly contracts: ReadonlyArray<ParamContract>
 	readonly typed: ReadonlyArray<ParamContract>
 	readonly texts: ReadonlyArray<RegexRef>
+	readonly library: ReadonlyArray<LibraryFn>
 }
 
 /** No served type: what a plan serving no program is given. */
-export const noServedTypes: ServedTypes = { domains: [], contracts: [], typed: [], texts: [] }
+export const noServedTypes: ServedTypes = {
+	domains: [],
+	contracts: [],
+	typed: [],
+	texts: [],
+	library: []
+}
 
 /** The types the program `program`, its declared parameters `params` and the nodes `roots` its plan reads, names
  * (ServedTypes). */
@@ -382,12 +396,13 @@ export const servedTypesOf = (
 	params: ReadonlyArray<ParamDecl>,
 	roots: ReadonlyArray<RelNode>
 ): ServedTypes => {
-	const held = dagDomains(SourceLoc(`program ${program}`, []), params, roots)
+	const held = dagObjects(SourceLoc(`program ${program}`, []), params, roots)
 	return {
 		domains: paramDomainUses(params),
 		contracts: paramContracts(program, params),
 		typed: held.contracts,
-		texts: held.texts
+		texts: held.texts,
+		library: held.library
 	}
 }
 
@@ -405,27 +420,32 @@ export const typeRefinements = (t: ScalarType): ReadonlyArray<RegexRef> => {
 	]
 }
 
-/** The domains no stored field need declare that a checked DAG types its values by (dagDomains). */
-export interface DagDomains {
+/** The objects a checked DAG's values need of its installation whatever stored field declares them (dagObjects): the
+ * domains it types its values by and the library functions its expressions call. */
+export interface DagObjects {
 	readonly texts: ReadonlyArray<RegexRef>
 	readonly contracts: ReadonlyArray<ParamContract>
+	readonly library: ReadonlyArray<LibraryFn>
 }
 
 /**
- * The domains a checked DAG types a value by whatever stored field declares them, a program's, a derived definition's
- * or a law's violation query's: each structural text refinement (typeRefinements), each pattern key once, a refinement
- * a built-in source gives (r.tokens' token, Text.collapse's language) and a declared function's result's among them,
- * and each contract (typeContracts) at `loc`, each name once, of each column its declared parameters `params` bind, of
- * each column of every node `roots` reach and of each expression a node holds. Each once, its first in that order, so
- * a workload states as many domains as its programs hold refinements and contracts, never one per typed column.
+ * The objects a checked DAG needs of its installation, a program's, a derived definition's or a law's violation
+ * query's, one reachability walk for every kind: each structural text refinement it types a value by
+ * (typeRefinements), each pattern key once, a refinement a built-in source gives (r.tokens' token, Text.collapse's
+ * language) and a declared function's result's among them, and each contract (typeContracts) at `loc`, each name once,
+ * of each column its declared parameters `params` bind, of each column of every node `roots` reach and of each
+ * expression a node holds; and each library function an expression calls (physical/ddl/library.ts calledLibrary), a
+ * law's Xml.isPattern over a derived relation among them. Each once, its first in that order, so a workload states as
+ * many objects as its programs need, never one per typed column.
  */
-export const dagDomains = (
+export const dagObjects = (
 	loc: SourceLoc,
 	params: ReadonlyArray<ParamDecl>,
 	roots: ReadonlyArray<RelNode>
-): DagDomains => {
+): DagObjects => {
 	const texts = new Map<string, RegexRef>()
 	const contracts = new Map<string, ParamContract>()
+	const library = new Set<LibraryFn>()
 	const add = (t: ScalarType): void => {
 		for (const regex of typeRefinements(t)) {
 			if (!texts.has(regex.key)) {
@@ -449,9 +469,17 @@ export const dagDomains = (
 		}
 		for (const e of exprClosure(exprsOf(node))) {
 			add(e.type)
+			const fn = calledLibrary(e)
+			if (fn !== undefined) {
+				library.add(fn)
+			}
 		}
 	}
-	return { texts: [...texts.values()], contracts: [...contracts.values()] }
+	return {
+		texts: [...texts.values()],
+		contracts: [...contracts.values()],
+		library: [...library].toSorted(compareStrings)
+	}
 }
 
 /**

@@ -4,18 +4,18 @@
  * lowering emits as base-typed VALUES literals (lower/conservative/closed).
  *
  * - **A literal in the pattern is proved on the host:** every payload literal the pattern's automaton admits is
- *   delivered uncast, whether or not the installation names a domain for the pattern, so a pattern no stored column
- *   carries lowers at all (the audit's floor case at TEST_SEED=3928500770, whose roster K0 carried such a payload).
- * - **A literal outside it is the database's to refuse:** with a domain named for the pattern, the delivered p0 is cast
- *   to it, which PostgreSQL checks for every delivered row; with none, the lowering refuses, naming p0's refinement.
+ *   delivered uncast (the audit's floor case at TEST_SEED=3928500770, whose roster K0 carried such a payload).
+ * - **A literal outside it is the database's to refuse:** the delivered p0 is cast to the pattern's domain, which
+ *   PostgreSQL checks for every delivered row, and which the installation holds for every refinement its programs type
+ *   a value by (physical/install/plan.ts artifactObjects, ServedTypes), whatever stored column carries the pattern.
  * - **An empty source claims nothing:** its placeholder rows, under WHERE false, define no delivered value, so it is
  *   delivered uncast.
  *
- * The box: every sequence of zero to two payload values over one in the pattern, one outside it (a capital), each under
- * names with and without the pattern's domain, each the source projected whole or filtered to its rows (a derived table
- * the trace follows). The oracle is the pattern's membership read off the values the case states, never the tracer.
+ * The box: every sequence of zero to two payload values over one in the pattern, one outside it (a capital), each the
+ * source projected whole or filtered to its rows (a derived table the trace follows). The oracle is the pattern's
+ * membership read off the values the case states, never the tracer.
  *
- * Features: each delivery (uncast with or without a domain, cast, refused, an empty source uncast).
+ * Features: each delivery (uncast, cast, an empty source uncast).
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -25,7 +25,7 @@ import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { textOf } from "#compiler/ir/scalar.ts"
 import { flight } from "#compiler/lower/conservative/types.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { succeeded } from "#test/support/assert.ts"
 import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
 import { auditStatementViolations } from "#test/support/oracle/verify/sql.ts"
 import {
@@ -37,15 +37,13 @@ import {
 } from "#test/unit/lower/conservative/closed-refined.fixtures.ts"
 import { T } from "#test/unit/lower/conservative/fixtures.ts"
 
-/** A Closed source's refined payload is delivered uncast where the pattern admits every literal, cast to its domain or refused where one is outside. */
-export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsEveryLiteralCastToItsDomainOrRefusedWhereOneIsOutside =
+/** A Closed source's refined payload is delivered uncast where the pattern admits every literal, and cast to its domain where one is outside. */
+export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsEveryLiteralAndCastToItsDomainWhereOneIsOutside =
 	property.exhaust(finite(caseGen), {
 		needs: {},
 		situations: [
-			"an in-pattern payload delivered uncast without a domain",
-			"an in-pattern payload delivered uncast beside a domain",
+			"an in-pattern payload delivered uncast",
 			"an out-of-pattern payload cast to its domain",
-			"an out-of-pattern payload refused without a domain",
 			"an empty source delivered uncast"
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, seen: CaseOf<Feature>) => (c) =>
@@ -54,13 +52,7 @@ export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsE
 				assert.ok(regex !== undefined && typeof regex !== "string", "the payload carries a pattern")
 				const outside = Arr.some(c.payload, (v) => !patternMember(regex, v))
 				assert.equal(outside, Arr.contains(c.payload, "Abc"), "the oracle's membership")
-				const r = lowered(c)
-				if (outside && !c.domain) {
-					seen.note("an out-of-pattern payload refused without a domain")
-					refused(r, "UnsupportedOperation", Formatter.format(c))
-					return
-				}
-				const program = succeeded(r, Formatter.format(c))
+				const program = succeeded(lowered(c), Formatter.format(c))
 				const statements = flight(program.roots)
 				for (const s of statements) {
 					assert.deepEqual(auditStatementViolations(s.ast), [], Formatter.format(c))
@@ -76,16 +68,14 @@ export const aClosedSourcesRefinedPayloadIsDeliveredUncastWhereThePatternAdmitsE
 						? "an empty source delivered uncast"
 						: outside
 							? "an out-of-pattern payload cast to its domain"
-							: c.domain
-								? "an in-pattern payload delivered uncast beside a domain"
-								: "an in-pattern payload delivered uncast without a domain"
+							: "an in-pattern payload delivered uncast"
 				)
 			}),
 		oracle: {
 			kind: "specification",
 			name: "the pattern's membership of each value the case states"
 		},
-		box: "zero to two payload values over one in the pattern and one outside, with and without the pattern's domain, projected whole or filtered",
+		box: "zero to two payload values over one in the pattern and one outside, projected whole or filtered",
 		kept: [],
 		kills: [
 			{

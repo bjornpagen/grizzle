@@ -391,7 +391,25 @@ export const registeredField = (
 	if (isOwnedDescriptor(value)) {
 		return Result.ok(value)
 	}
-	return hasProperties(value) ? ownedText.get(value)?.described : undefined
+	if (!hasProperties(value)) {
+		return undefined
+	}
+	const written = writtenFields.get(value)
+	return written === undefined ? ownedText.get(value)?.described : registeredField(written)
+}
+
+/**
+ * Each field of a writing of its own a builder made (schema/relation.ts: a drawn, accumulated, generated, retirement or
+ * place field), by its value, with the descriptor its values are of, a place's natural among them: where a field
+ * descriptor is asked of it, it describes as that value type, one rule for every field, since a caller that states a
+ * value typed by it, a parameter's or a relation parameter's column's, states a value of that type. A WeakMap holds
+ * nothing alive and is never enumerated, so it is no cache.
+ */
+const writtenFields = new WeakMap<object, unknown>()
+
+/** `value`, a field of a writing of its own whose values are of the descriptor `type`, registered (writtenFields). */
+export const registerWrittenField = (value: object, type: unknown): void => {
+	writtenFields.set(value, type)
 }
 
 /**
@@ -431,29 +449,18 @@ export const refusedField = (
 }
 
 /**
- * What a branded value that no builder registered as a descriptor is (isDescriptorCopy): a field of a writing of its own,
- * by the tag it states (`writing`), drawn(…), accumulated(…), generated(…), retirement or place(…), whose value no
- * caller states; a copy of a descriptor, an object spread; or no branded value at all.
+ * What a branded value that no builder registered as a descriptor is (isDescriptorCopy): a copy of a descriptor, an
+ * object spread; or no branded value at all. A field of a writing of its own is registered (writtenFields).
  */
-type Branded =
-	| { readonly kind: "written"; readonly writing: string }
-	| { readonly kind: "copy" }
-	| { readonly kind: "unbranded" }
+type Branded = { readonly kind: "copy" } | { readonly kind: "unbranded" }
 
-/** What `value` is, as Branded reads it: a branded value's own `writing`, where it states one. */
-const brandedOf = (value: unknown): Branded => {
-	if (!isDescriptorCopy(value)) {
-		return { kind: "unbranded" }
-	}
-	const writing = hasProperties(value) ? value["writing"] : undefined
-	return typeof writing === "string" ? { kind: "written", writing } : { kind: "copy" }
-}
+/** What `value` is, as Branded reads it. */
+const brandedOf = (value: unknown): Branded =>
+	isDescriptorCopy(value) ? { kind: "copy" } : { kind: "unbranded" }
 
 /** The refusal's text of a value no builder registered as a descriptor, by what it is (Branded). */
 const brandedText = (b: Branded): string => {
 	switch (b.kind) {
-		case "written":
-			return `a field descriptor of a value type, which a caller states: a field of a writing of its own (${b.writing}) is none, since grizzle or PostgreSQL writes its value; take its type, the descriptor it is declared over, such as natural`
 		case "copy":
 			return "a field descriptor a builder made: a copy of one (an object spread) is none, because a descriptor's host type is its builder's"
 		case "unbranded":

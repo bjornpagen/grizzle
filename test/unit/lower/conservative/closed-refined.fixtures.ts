@@ -11,43 +11,27 @@ import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput } from "#compiler/lower/conservative/types.ts"
 import type { Select } from "#compiler/sql/ast.ts"
 import { identityHooks, transformSelect } from "#compiler/sql/transform.ts"
-import { closed, decodedSchema, f, relation } from "#test/support/fixtures/ir/desc.ts"
-import { installationOf, localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
+import { localVectorSchema, productionNames } from "#test/support/kernel/naming.ts"
 import { fixtureCodes } from "#test/unit/ir/fixture.ts"
 import { Q, T } from "#test/unit/lower/conservative/fixtures.ts"
 
 type Value = "abc" | "Abc"
 
-/** The names the case lowers under: production's stand-ins, with no domain for any pattern, or with the domain an
- * installation whose stored column carries the payload's pattern names for it. */
-const plain: PhysicalNames = productionNames(
+/** The names the case lowers under: production's stand-ins, which name every pattern's domain by its definition, as an
+ * installation holding the domain of every refinement its programs type a value by does. */
+const names: PhysicalNames = productionNames(
 	"Rosters",
 	{ kind: "declared" },
 	localVectorSchema,
 	fixtureCodes
 )
 
-const patterned = installationOf(
-	decodedSchema({
-		name: "Rosters",
-		relations: [
-			closed.ordered("Kind", ["Automatic", "Manual"]),
-			relation("Word", { id: f.uuid, word: f.regex("^[a-z]+$", "u") }, ["id"])
-		],
-		statements: [],
-		bases: []
-	}),
-	{ kind: "declared" }
-).names.textDomain
-
-const withDomain: PhysicalNames = { ...plain, textDomain: patterned }
-
-/** The installed name of the pattern's domain, which a cast to it spells. */
+/** The name of the payload's pattern's domain, which a cast to it spells. */
 export const domainName = defined(
-	((text) => (text === undefined || typeof text === "string" ? undefined : patterned(text)))(
+	((text) => (text === undefined || typeof text === "string" ? undefined : names.textDomain(text)))(
 		textOf(T.code)
 	),
-	"the installation names a domain for the payload's pattern"
+	"the names name a domain for the payload's pattern"
 ).name
 
 /** Whether a statement names a type by `name` anywhere in its structure: a cast to the domain is the one such name. */
@@ -67,7 +51,6 @@ export const namesType = (statement: Select, name: string): boolean => {
 
 interface Case {
 	readonly payload: ReadonlyArray<Value>
-	readonly domain: boolean
 	readonly filtered: boolean
 }
 
@@ -82,15 +65,12 @@ const payloadGen: Gen<ReadonlyArray<Value>> = element([
 
 export const caseGen: Gen<Case> = (source) => ({
 	payload: source.draw(payloadGen),
-	domain: source.draw(element([false, true])),
 	filtered: source.draw(element([false, true]))
 })
 
 export type Feature =
-	| "an in-pattern payload delivered uncast without a domain"
-	| "an in-pattern payload delivered uncast beside a domain"
+	| "an in-pattern payload delivered uncast"
 	| "an out-of-pattern payload cast to its domain"
-	| "an out-of-pattern payload refused without a domain"
 	| "an empty source delivered uncast"
 
 const handles = ["Automatic", "Manual"] as const
@@ -117,7 +97,7 @@ export const lowered = (c: Case) => {
 	)
 	const query = q.build(root)
 	return lowerConservative(conservativeInput(query), {
-		names: c.domain ? withDomain : plain,
+		names,
 		params: query.params,
 		subject: { kind: "query" }
 	})

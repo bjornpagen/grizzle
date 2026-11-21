@@ -6,13 +6,14 @@
  * `grizzle generate`. A change of what any of those files holds is a change of this format, and nothing reads the
  * format before it.
  *
- * @formatConstant grizzle's artifact format: 4, whose snapshot.json records every structural text domain the
- * installation holds (derived.textDomains), each refinement any artifact over it or any program it serves types a value
- * by, and every contract outside the base they type a value by (derived.params.contracts). Format 3's files were written
- * in several shapes, changes of what they hold riding its number (a constant recorded with no language before
- * 56f26ca01), so a reader that trusted a sealed record of 3 met shapes it never wrote; every one is refused here
+ * @formatConstant grizzle's artifact format: 5, whose snapshot.json records the library functions the installation
+ * installs (derived.library), each one any artifact over it or any program it serves calls, beside every structural
+ * text domain it holds (derived.textDomains), each refinement any artifact or served program types a value by, and every
+ * contract outside the base they type a value by (derived.params.contracts). Format 3's files were written in several
+ * shapes, changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a
+ * reader that trusted a sealed record of 3 met shapes it never wrote; every one is refused here
  */
-export const artifactFormat = 4
+export const artifactFormat = 5
 
 /** The member of a snapshot.json or a served file that records its format (artifactFormat). */
 export const formatKey = "format"
