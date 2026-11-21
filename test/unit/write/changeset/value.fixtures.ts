@@ -1378,6 +1378,7 @@ export type AlgebraFeature =
 	| "a union over a higher level"
 	| "a union of more strata on one side"
 	| "a read-back repeated over one query"
+	| "read-backs read out of name order"
 	| `refused: ${Rule}`
 	| `fault: ${Fault}`
 
@@ -1390,6 +1391,13 @@ const boundUses = (c: Canon): ReadonlyArray<readonly [string, string]> =>
 	)
 
 /** The features a model ChangeSet shows. */
+/**
+ * Whether a read-back is read after another whose name sorts after its own: the order the read-backs were read,
+ * unioned and sequenced in is not their name order, which the outcome's decoder of them follows alone.
+ */
+const outOfNameOrder = (reads: ReadonlyArray<ModelRead>): boolean =>
+	Arr.some(reads, (r, i) => Arr.some(reads, (q, j) => i < j && q.name < r.name))
+
 const shapeFeatures = (c: ModelChangeSet): ReadonlyArray<AlgebraFeature> => {
 	const canon = canonOf(c)
 	const members = Arr.flatten(c.strata)
@@ -1438,6 +1446,7 @@ const shapeFeatures = (c: ModelChangeSet): ReadonlyArray<AlgebraFeature> => {
 		Arr.some(members, (m) => m.kind === "array"),
 		"an array member"
 	)
+	when(outOfNameOrder(c.reads), "read-backs read out of name order")
 	when(
 		Arr.some(members, (m) => m.kind === "stream"),
 		"a Stream member"

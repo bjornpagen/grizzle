@@ -102,6 +102,7 @@ export const theChangeSetAlgebraBuildsTheModelsChangeSetAtEveryStepCanonicalSeal
 				"a union over a higher level",
 				"a union of more strata on one side",
 				"a read-back repeated over one query",
+				"read-backs read out of name order",
 				...Arr.map(rules, (rule): AlgebraFeature => `refused: ${rule}`),
 				...Arr.map(faults, (fault): AlgebraFeature => `fault: ${fault}`)
 			] satisfies ReadonlyArray<Reached<AlgebraFeature>>,
