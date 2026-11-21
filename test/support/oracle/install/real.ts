@@ -286,7 +286,7 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 		if (t === undefined) {
 			throw refuse(at(r.name), "a theory relation for every stored relation")
 		}
-		const columns: Array<OracleColumn> = Arr.map(Rec.keys(r.fields), (field) => {
+		const columns: Array<OracleColumn> = Arr.flatMap(Rec.keys(r.fields), (field) => {
 			const f = r.fields[field]
 			if (f === undefined) {
 				throw refuse(at(`${r.name}.${field}`), "a physical field for every field")
@@ -295,13 +295,18 @@ const build = (input: FixtureSchema, options: RealPlanOptions): RealInstallPlan 
 			if (Option.isNone(heading)) {
 				throw refuse(at(`${r.name}.${field}`), "a heading column for every field")
 			}
-			const location = at(`${r.name}.${field}`)
-			return {
-				field,
-				column: f.column,
-				type: typeOf(heading.value.type, false),
-				location
+			if (heading.value.writing.kind === "generated") {
+				return []
 			}
+			const location = at(`${r.name}.${field}`)
+			return [
+				{
+					field,
+					column: f.column,
+					type: typeOf(heading.value.type, false),
+					location
+				}
+			]
 		})
 		/** Every theory key has an owned key. */
 		const keyOf = (fields: ReadonlyArray<string>): OracleKey => {

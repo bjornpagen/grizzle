@@ -14,9 +14,10 @@
  *
  * The oracle is the whole statement (a second implementation): the stored rows of each header, the outcome and its
  * verdict, the read-back's rows and the counts are the whole statement's under its own header; and by the rule, the
- * deltas the first call's session stands up are those of the relations it sent a part of, each holding a fact or kept
- * by the rider, none where the judge refused and the transaction's tables went with it, each of which the whole
- * statement's session stands up too.
+ * deltas the first call's session stands up are those of the relations whose part it sent wrote a row, each holding a
+ * fact, none where the judge refused and the transaction's tables went with it, each of which the whole statement's
+ * session stands up too. A part the rider keeps over an empty parameter is sent and writes no row, and a statement
+ * that writes none captures nothing, standing up no delta (physical/ddl/rules.ts, the capture, since bb5637a78).
  *
  * Features: a part left out, every part sent, no sidecar sent, a rider keeping S1 whose parameter is empty, a refusal
  * at COMMIT.
@@ -86,8 +87,9 @@ export const aSingleStatementsShapesWriteJudgeAndCaptureAsItsWholeStatementDoesA
 						const run = (header: string, sentWhole: boolean) =>
 							withServedDb(opened.installed, opened.server.roles.app, {}, ({ ctx, load }) =>
 								Effect.gen(function* () {
-									const members = yield* load({ write: changes })
-									const loaded = member(members, "write")
+									const served = box.rider ? "riderWrite" : "write"
+									const members = yield* load({ [served]: changes })
+									const loaded = member(members, served)
 									if (loaded.kind !== "change") {
 										return yield* Effect.die(new Error("the write loads as a change"))
 									}
@@ -138,7 +140,7 @@ export const aSingleStatementsShapesWriteJudgeAndCaptureAsItsWholeStatementDoesA
 						assert.equal(committed, !refused, "the judge refuses exactly an orphan's facts")
 						const sent = Arr.sort(
 							[
-								...(holds.p1 || box.rider ? ["S1"] : []),
+								...(holds.p1 ? ["S1"] : []),
 								...(holds.p2 ? ["S2"] : []),
 								...(holds.p3 ? ["S3"] : []),
 								...(holds.p1 || holds.p2 ? ["G"] : [])

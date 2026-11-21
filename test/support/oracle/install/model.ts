@@ -81,7 +81,10 @@ export interface OracleKey {
 export interface OracleTable {
 	readonly relation: string
 	readonly name: ObjectName
-	/** Declaration order. */
+	/**
+	 * The columns a load writes, in declaration order: every field's but a generated one's, which PostgreSQL computes from
+	 * its row and no fact carries (write/insert/statement.ts isCarried).
+	 */
 	readonly columns: ReadonlyArray<OracleColumn>
 	readonly primaryKey: OracleKey
 	/** Each key(R, fields) statement, in declaration order. */

@@ -4,6 +4,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record as Rec, String as Str } from "effect"
 import type { LoadedChange } from "#adapter/served/load.ts"
+import { conversionOf } from "#compiler/core/identity.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -48,12 +49,6 @@ export const Lab = schema(
 		)
 	)
 )
-
-/** What every case installs: the box, its login's workload holding no member of its own. */
-export const labInstall = { label: "parted_lab", programs: {} } as const
-
-/** The box installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
-export const labTemplate = fixtureTemplate(import.meta, Lab, labInstall)
 
 /** The box's relations, empty, as a case loads them. */
 export const noFacts = Object.freeze({ H: [], S1: [], S2: [], S3: [], G: [] })
@@ -129,6 +124,21 @@ export const changesOf = (rider: boolean) => {
 		: writes
 }
 
+/**
+ * What every case installs: the box, its login's workload serving the write each case runs, with its rider and
+ * without. An installation installs the domains its artifacts and its served programs type, so a box that serves no
+ * program installs no parameter's pattern domain, by design, and a write run against it is refused before it runs
+ * (physical names UninstalledDomain, "serve the program from a workload of a login of the installation"): the case's
+ * write is one the box serves.
+ */
+export const labInstall = {
+	label: "parted_lab",
+	programs: { write: changesOf(false), riderWrite: changesOf(true) }
+} as const
+
+/** The box installed once per member (reads/support.ts fixtureTemplate), which each case's seat holds. */
+export const labTemplate = fixtureTemplate(import.meta, Lab, labInstall)
+
 /** A header no case writes, which an orphan's facts name. */
 const elsewhere = "00000000-0000-7000-8000-0000000000ff"
 
@@ -197,7 +207,11 @@ export const wholeChange = (change: LoadedChange): LoadedChange => {
 	return { ...change, entry: { ...change.entry, program } }
 }
 
-/** The relations whose deltas the database's sessions hold, of the box's judged ones, by their delta's table name. */
+/**
+ * The relations whose deltas the database's sessions hold, of the box's judged ones, by their delta's table name, which
+ * the installation names `__delta_news_` and the relation's name segments (core/identity.ts ruleDelta, conversionOf:
+ * S3's s_3), then its digest.
+ */
 export const heldDeltas = (admin: PgConnection): Effect.Effect<ReadonlyArray<string>, SqlError> =>
 	Effect.map(
 		admin.query(
@@ -208,7 +222,7 @@ export const heldDeltas = (admin: PgConnection): Effect.Effect<ReadonlyArray<str
 			Arr.sort(
 				Arr.filter(["S1", "S2", "S3", "G"], (name) =>
 					Arr.some(result.rows, (row) =>
-						Str.startsWith(`__delta_news_${Str.toLowerCase(name)}_`)(String(row["relname"]))
+						Str.startsWith(`__delta_news_${conversionOf(name)}_`)(String(row["relname"]))
 					)
 				),
 				Order.String

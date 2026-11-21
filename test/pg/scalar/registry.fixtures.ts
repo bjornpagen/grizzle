@@ -103,8 +103,9 @@ export const exclusions: Readonly<
 	 */
 	cidr: ["minMax"],
 	/**
-	 * A search document is matched by a query (textSearch, under GIN), never compared, ordered or keyed: no key, unique,
-	 * containment or comparison reads one, so neither its B-tree nor its GiST class.
+	 * A search document is read back whole, matched against a query and ranked by PostgreSQL, and that is all
+	 * (scalar/native.ts, ir/scalar.ts SearchType): no key, rule or comparison reads one, so its equality, B-tree and
+	 * GiST classes are none of the language's.
 	 */
 	tsvector: ["equality", "gist", "ordering"]
 }
