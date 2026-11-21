@@ -674,6 +674,7 @@ const childRead = (
 ): QueryValue | OrderedValue => {
 	const { holder } = a
 	const rule = queryOver(level).rule((r: RuleValue) => {
+		const { match } = r
 		const vars = varsOver(holder.relation, "row")
 		const found = [...holder.key.slice(a.carries.length).map((k) => k.name), ...holder.columns].map(
 			(c) => [c, vars[c]] as const
@@ -681,14 +682,14 @@ const childRead = (
 		if (a.holding.kind === "array") {
 			const carried = a.carries.map(([field]) => [field, vars[field]] as const)
 			return whereEach(
-				r.match(holder.relation, Object.fromEntries([...carried, ...found])),
+				match(holder.relation, Object.fromEntries([...carried, ...found])),
 				a.carries.map(([field, from]) => r.eq(vars[field], p[from]))
 			).find(Object.fromEntries([...carried, ...found, ...holder.literals]))
 		}
 		const carried = a.carries.map(([field, from]) => [field, p[from]] as const)
-		return r
-			.match(holder.relation, Object.fromEntries([...carried, ...found]))
-			.find(Object.fromEntries([...carried, ...found, ...holder.literals]))
+		return match(holder.relation, Object.fromEntries([...carried, ...found])).find(
+			Object.fromEntries([...carried, ...found, ...holder.literals])
+		)
 	})
 	const attached = attachedReads(rule, holder, level)
 	return a.holding.kind === "array" ? attached.orderBy([a.holding.place, "asc"]) : attached
@@ -711,11 +712,12 @@ export const recordsQueryOver = <L, R extends AnyRecords>(
 	const state = stateOf(records, label)
 	const { root } = state
 	const built = queryOver(level).rule((r: RuleValue) => {
+		const { match } = r
 		const vars = varsOver(root.relation, "row")
 		const keyNames = root.key.map((k) => k.name)
 		const found = [...keyNames, ...root.columns].map((c) => [c, vars[c]] as const)
 		return whereEach(
-			r.match(root.relation, Object.fromEntries(found)),
+			match(root.relation, Object.fromEntries(found)),
 			keyNames.map((k) => r.eq(vars[k], r.param(k, ownerField(state.ownerFields, k))))
 		).find(Object.fromEntries([...found, ...root.literals]))
 	})

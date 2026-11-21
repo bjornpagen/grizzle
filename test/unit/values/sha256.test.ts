@@ -74,20 +74,21 @@ export const aDigestsHexIsItsBytesInLowercaseAndFromHexReadsBackExactlyWhatToHex
 		kills: [
 			{
 				file: "packages/engine/src/core/digest.ts",
-				original: 'const lowerHex = regex("^[0-9a-f]*$", "u")',
-				replacement: 'const lowerHex = regex("^[0-9a-fA-F]*$", "u")',
+				original: "(code >= 0x30 && code <= 0x39) || (code >= 0x61 && code <= 0x66)",
+				replacement:
+					"(code >= 0x30 && code <= 0x39) || (code >= 0x61 && code <= 0x66) || (code >= 0x41 && code <= 0x46)",
 				why: "fromHex admits an uppercase digit, so a digest has two hexes and a key read back from one names no key the other wrote."
 			},
 			{
 				file: "packages/engine/src/core/digest.ts",
-				original: "text.length === digestHexLength && lowerHex.test(text)",
-				replacement: "lowerHex.test(text)",
+				original: "if (text.length !== digestHexLength) {",
+				replacement: "if (text.length === 0) {",
 				why: "fromHex admits a hex of another length, a digest of other than 32 bytes the digest domain refuses, or throws on an odd one."
 			},
 			{
 				file: "packages/engine/src/core/digest.ts",
-				original: "text.length === digestHexLength && lowerHex.test(text)",
-				replacement: "text.length === digestHexLength",
+				original: "if (!isLowerHexDigit(text.charCodeAt(position))) {",
+				replacement: "if (Number.isNaN(text.charCodeAt(position))) {",
 				why: "fromHex reads a text holding a character no hex digit, and throws where it should refuse."
 			},
 			{

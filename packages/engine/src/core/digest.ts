@@ -1,5 +1,4 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { regex } from "arkregex"
 import type { ValueFault } from "#compiler/core/errors.ts"
 
 /**
@@ -37,8 +36,9 @@ export const sha256Text = (digest: Uint8Array): string => `${hexInput}${digestHe
 export const sha256FromText = (text: string): Uint8Array<ArrayBuffer> =>
 	Uint8Array.fromHex(text.slice(hexInput.length))
 
-/** Lowercase hex digits, the digits digestHex writes. */
-const lowerHex = regex("^[0-9a-f]*$", "u")
+/** Whether a UTF-16 code unit is a lowercase hex digit, 0-9 or a-f, a digit digestHex writes. */
+const isLowerHexDigit = (code: number): boolean =>
+	(code >= 0x30 && code <= 0x39) || (code >= 0x61 && code <= 0x66)
 
 /** The length of every digest's hex (`digestHex`): two digits a byte. */
 const digestHexLength = digestHex(new Uint8Array(sha256Octets)).length
@@ -47,8 +47,17 @@ const digestHexLength = digestHex(new Uint8Array(sha256Octets)).length
  * Whether `text` is a digest's hex (`digestHex`): a lowercase hex digit pair for each of its bytes, and nothing else, so
  * no uppercase digit, no other length and no character but a hex digit.
  */
-export const isDigestHex = (text: string): boolean =>
-	text.length === digestHexLength && lowerHex.test(text)
+export const isDigestHex = (text: string): boolean => {
+	if (text.length !== digestHexLength) {
+		return false
+	}
+	for (let position = 0; position < text.length; position += 1) {
+		if (!isLowerHexDigit(text.charCodeAt(position))) {
+			return false
+		}
+	}
+	return true
+}
 
 /** Whether `text` is a digest's one text (`sha256Text`): `\\x` and a digest's hex. */
 export const isSha256Text = (text: string): boolean =>
