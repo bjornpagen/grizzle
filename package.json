@@ -30,7 +30,7 @@
 		"prepare": "effect-tsgo patch",
 		"types": "toolchain-turbo run typecheck --filter=./packages/* --filter=//",
 		"check": "toolchain-turbo run typecheck workspace-gate oxlint format dead-code architecture dedupe load runtime-gate benchmark --filter=./packages/* --filter=// --continue=dependencies-successful",
-		"trunk": "pnpm check && pnpm test && pnpm test:network",
+		"trunk": "pnpm check && pnpm test && pnpm exec toolchain-pg settle && pnpm test:network",
 		"typecheck": "toolchain-typecheck -p tsconfig.json",
 		"workspace-gate": "workspace-gate",
 		"oxlint": "toolchain-oxlint-root",
