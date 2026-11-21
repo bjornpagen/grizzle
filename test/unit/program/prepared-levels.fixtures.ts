@@ -26,6 +26,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { ownBuilt, rostersOf } from "#compiler/schema/own.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
+import type { PreparedWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 
@@ -119,3 +120,11 @@ export const entriesOf = <S extends ParamSource>(
 	variants.kind === "form"
 		? [variants.entry]
 		: [...entriesOf(variants.lacking), ...entriesOf(variants.holding)]
+
+/** What a prepared write's compiles did: how many levels it was compiled at, and how many times it was placed. */
+export const workOf = (
+	prepared: PreparedWrite
+): { readonly compiles: number; readonly placements: number } => ({
+	compiles: prepared.compiles,
+	placements: prepared.placements
+})

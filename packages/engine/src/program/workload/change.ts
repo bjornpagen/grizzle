@@ -29,6 +29,7 @@ import { fillContexts } from "#compiler/write/frontend/entry.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import {
 	type CompiledWrite,
+	type PlacedWrite,
 	type PreparedWrite,
 	prepareWrite
 } from "#compiler/write/program/compile.ts"
@@ -113,7 +114,7 @@ export const compileParsed = <S extends ParamSource>(
 	source: ClockSource
 ): Result.Result<ChangeEntry<S>, CompileError> =>
 	Result.flatMap(preparedParsed(artifacts, change, claims, clock, source), (prepared) =>
-		entryAt(prepared, level)
+		entryOf(prepared, prepared.prepared.compile(level))
 	)
 
 /** A parsed ChangeSet prepared against `artifacts` for the contexts `claims` holds a fact of (compileParsed's, before
@@ -149,12 +150,12 @@ const preparedParsed = <S extends ParamSource>(
 	)
 }
 
-/** A prepared ChangeSet's entry at `level`: its prepared write compiled at it (write/program/compile.ts PreparedWrite). */
-const entryAt = <S extends ParamSource>(
+/** A prepared ChangeSet's entry, its prepared write compiled (write/program/compile.ts PreparedWrite) as `write`. */
+const entryOf = <S extends ParamSource>(
 	entry: PreparedEntry<S>,
-	level: Isolation
+	write: Result.Result<CompiledWrite, CompileError>
 ): Result.Result<ChangeEntry<S>, CompileError> =>
-	Result.map(entry.prepared.compile(level), (compiled): ChangeEntry<S> => ({
+	Result.map(write, (compiled): ChangeEntry<S> => ({
 		params: entry.params,
 		prepared: entry.prepared,
 		change: entry.change,
@@ -175,6 +176,9 @@ type PreparedVariants<S extends ParamSource> =
 	| {
 			readonly kind: "form"
 			readonly entry: () => Result.Result<PreparedEntry<S>, CompileError>
+			/** Its entry's write placed (PreparedWrite.place), made where it first compiles and held, beside the entry, by
+			 * the role's compiles alone: no entry holds the analysis a placement reads. */
+			readonly placed: () => Result.Result<PlacedWrite, CompileError>
 			readonly decoder: RowDecoder<unknown>
 	  }
 	| {
@@ -200,15 +204,13 @@ const preparedVariants = <S extends ParamSource>(
 ): PreparedVariants<S> => {
 	const context = undecided.at(-1)
 	if (context === undefined) {
-		return {
-			kind: "form",
-			entry: once(() =>
-				Result.flatMap(parsedChange(role, changes), (change) =>
-					preparedParsed(artifacts, change, new Set(holding), clock, source)
-				)
-			),
-			decoder: changes.reads
-		}
+		const entry = once(() =>
+			Result.flatMap(parsedChange(role, changes), (change) =>
+				preparedParsed(artifacts, change, new Set(holding), clock, source)
+			)
+		)
+		const placed = once(() => Result.flatMap(entry(), (prepared) => prepared.prepared.place()))
+		return { kind: "form", entry, placed, decoder: changes.reads }
 	}
 	const before = undecided.slice(0, -1)
 	return {
@@ -234,7 +236,9 @@ const variantsCompiledAt = <S extends ParamSource>(
 	switch (variants.kind) {
 		case "form":
 			return Result.map(
-				Result.flatMap(variants.entry(), (prepared) => entryAt(prepared, level)),
+				Result.flatMap(variants.entry(), (prepared) =>
+					Result.flatMap(variants.placed(), (placed) => entryOf(prepared, placed.compile(level)))
+				),
 				(entry): CompiledVariants<S> => ({ kind: "form", entry, decoder: variants.decoder })
 			)
 		case "split":
@@ -499,11 +503,14 @@ const variantsAt = <S extends ParamSource>(
 ): Result.Result<CompiledVariants<S>, CompileError> => {
 	switch (variants.kind) {
 		case "form":
-			return Result.map(entryAt(variants.entry, level), (entry): CompiledVariants<S> => ({
-				kind: "form",
-				entry,
-				decoder: variants.decoder
-			}))
+			return Result.map(
+				entryOf(variants.entry, variants.entry.prepared.compile(level)),
+				(entry): CompiledVariants<S> => ({
+					kind: "form",
+					entry,
+					decoder: variants.decoder
+				})
+			)
 		case "split":
 			return Result.flatMap(variantsAt(variants.holding, level), (held) =>
 				Result.map(variantsAt(variants.lacking, level), (lacking): CompiledVariants<S> => ({

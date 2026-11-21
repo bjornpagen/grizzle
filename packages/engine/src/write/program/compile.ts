@@ -5,7 +5,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -49,6 +49,7 @@ import type { DeclaredParamSlot, WriteParamSlot } from "#compiler/lower/conserva
 import { isPlainQuery } from "#compiler/lower/delivery.ts"
 import { emptyCtePlan } from "#compiler/lower/optimize/cte-policy/index.ts"
 import { placeDeduplication } from "#compiler/lower/optimize/dedup/place.ts"
+import type { DedupPlan } from "#compiler/lower/optimize/dedup/plan.ts"
 import type { OptimizedProgram } from "#compiler/lower/optimize/pipeline.ts"
 import { partQuery, type TaggedPart } from "#compiler/lower/parts.ts"
 import {
@@ -1701,8 +1702,8 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
 	}
 }
 
-/** The duplicate-elimination placement the optimized artifact lowers its described members under, and the shape facts
- * it gives. No root of the write DAG observes repeats, because each consumer of a
+/** The duplicate-elimination placement the optimized artifact lowers its described members under, the same at every
+ * level (PreparedWrite.place). No root of the write DAG observes repeats, because each consumer of a
  * member decides its own set boundary: a write statement reads it through SELECT DISTINCT unless distinctByEvidence
  * proves it distinct, a deletion ignores repeats, and a read-back is lowered on its own.
  * So the placement places a DISTINCT only where a node inside a member observes repeats, a fold, a
@@ -1710,11 +1711,8 @@ const abortsOf = (step: PlannedWrite): AbortKind => {
  * certificate. The conservative artifact keeps every boundary, and the write oracle compares the two. Its proofs
  * resolve keys through the schema's catalog: its constraints and its views' unique indexes,
  * named as the installation installs them. */
-const writeFacts = (
-	dag: RelDag,
-	schema: CatalogSchema
-): { readonly facts: ShapeFacts; readonly certificates: ReadonlyArray<Certificate> } => {
-	const placement = unwrap(
+const placementOf = (dag: RelDag, schema: CatalogSchema): DedupPlan =>
+	unwrap(
 		placeDeduplication(dag, {
 			context: "transaction",
 			/** A write program records no constraint premise: its statements run in the transaction they prove for. */
@@ -1722,6 +1720,12 @@ const writeFacts = (
 			roots: "ignored"
 		})
 	)
+
+/** The facts a compile at one level lowers by, over the write's placement, and the certificates its lowering records,
+ * its own: each level's compile records into a list of its own. */
+const writeFacts = (
+	placement: DedupPlan
+): { readonly facts: ShapeFacts; readonly certificates: ReadonlyArray<Certificate> } => {
 	const certificates: Array<Certificate> = [...placement.certificates]
 	const facts = shapeFactsFromPlan(placement, {
 		derivedDefinition: false,
@@ -1780,7 +1784,9 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
  * formedAt) and whose puts choose their statements by it (putOps), the lowering's write context, and the statements
  * built over them. So is everything a compile appends to as it lowers, made afresh at each level and never held here:
  * the facts whose certificates the lowering records (writeFacts), the statement share, the shape state and the share
- * index's memo. A prepared write holds no analysis beyond what its compiled write holds (`frontend`, the put choices).
+ * index's memo. Its placement (`place`), which reads no level but holds the physical analysis its facts read, is the
+ * placed write's, which the compiles of one role hold. A prepared write holds no analysis beyond what its compiled
+ * write holds (`frontend`, the put choices).
  */
 export class PreparedWrite {
 	readonly schema: CheckedSchema
@@ -1788,6 +1794,7 @@ export class PreparedWrite {
 	readonly frontend: WriteFrontend
 	readonly chosen: ChosenTargets
 	#compiles = 0
+	#placements = 0
 
 	constructor(
 		schema: CheckedSchema,
@@ -1806,11 +1813,42 @@ export class PreparedWrite {
 		return this.#compiles
 	}
 
-	/** The write compiled at `level` (compileWrite's steps 3 to 5): the WriteProgram compileWrite makes at it. */
-	compile(level: Isolation): Result.Result<CompiledWrite, CompileError> {
-		this.#compiles += 1
-		return catchRefusal(() => compileAt(this, level))
+	/** How many times it was placed (`place`): the placements its compiles read, one for every compile of one role. */
+	get placements(): number {
+		return this.#placements
 	}
+
+	/**
+	 * The write placed (PlacedWrite): its restated front end and the placement of its deduplication over the restated
+	 * DAG (writeFacts), which read no level either, for each level `compile`s from. A placement holds the physical
+	 * analysis its facts read, so the placed write is held only by the compiles of one role and never by an entry.
+	 */
+	place(): Result.Result<PlacedWrite, CompileError> {
+		this.#placements += 1
+		return catchRefusal(() => {
+			/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs
+			 * each the restated node standing in its place, and each put its choice; the conservative realization lowers
+			 * the checked one. */
+			const restated: WriteFrontend = Object.freeze({ ...this.frontend, ...this.frontend.restated })
+			const placement = placementOf(restated.ir.dag, this.frontend)
+			return {
+				compile: (level: Isolation): Result.Result<CompiledWrite, CompileError> => {
+					this.#compiles += 1
+					return catchRefusal(() => compileAt(this, restated, placement, level))
+				}
+			}
+		})
+	}
+
+	/** The write compiled at `level` (compileWrite's steps 3 to 5), placed for this compile alone (`place`). */
+	compile(level: Isolation): Result.Result<CompiledWrite, CompileError> {
+		return Result.flatMap(this.place(), (placed) => placed.compile(level))
+	}
+}
+
+/** A prepared write placed (PreparedWrite.place): compiled at each level from its one placement. */
+export interface PlacedWrite {
+	readonly compile: (level: Isolation) => Result.Result<CompiledWrite, CompileError>
 }
 
 const prepare = (
@@ -1832,15 +1870,19 @@ const prepare = (
 	return new PreparedWrite(schema, options, frontend, choosePutTargets(frontend))
 }
 
-/** A prepared write compiled at `level`: steps 3 to 5 of compileWrite, over the front end and put targets it holds. */
-const compileAt = (prepared: PreparedWrite, level: Isolation): CompiledWrite => {
+/**
+ * A prepared write compiled at `level`: steps 3 to 5 of compileWrite, over the front end and put targets it holds, its
+ * restated front end `restated` and the placement of its deduplication `placement` (PreparedWrite.place).
+ */
+const compileAt = (
+	prepared: PreparedWrite,
+	restated: WriteFrontend,
+	placement: DedupPlan,
+	level: Isolation
+): CompiledWrite => {
 	const { schema, frontend, chosen } = prepared
 	const options: CompileWriteOptions = { ...prepared.options, level }
-	/** The optimized artifact lowers the restated write DAG (`WriteFrontend.restated`), its actions and read-backs each
-	 * the restated node standing in its place, and each put its choice; the conservative realization lowers the checked
-	 * one. */
-	const restated: WriteFrontend = Object.freeze({ ...frontend, ...frontend.restated })
-	const placed = writeFacts(restated.ir.dag, frontend)
+	const placed = writeFacts(placement)
 	/** The statements every lowering below builds, shared where their requests are equal. */
 	const share = new StatementShare()
 	/** A write's described members lower statement by statement in each per-execution mode, and no CTE policy shares
@@ -1934,7 +1976,7 @@ export const compileWrite = (
 ): Result.Result<CompiledWrite, CompileError> =>
 	catchRefusal(() => {
 		const { level, ...prepareOptions } = options
-		return compileAt(prepare(schema, desc, prepareOptions), level)
+		return unwrap(prepare(schema, desc, prepareOptions).compile(level))
 	})
 
 /**

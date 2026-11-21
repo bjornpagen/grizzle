@@ -12,10 +12,11 @@
  * Room's insert, Hold's put, Plain's insert and Plain's put.
  *
  * Property: after the login's READ COMMITTED compile, every entry of a role with a member lacking a form is the
- * SERIALIZABLE compile of the prepared write its READ COMMITTED compile read, compiled twice, and every entry of a
- * formed role compiled once; the formed role compiled again at SERIALIZABLE holds the same prepared writes, each
- * compiled twice, their front ends the ones its READ COMMITTED entries hold. Each member's front end is compiled once,
- * whatever the levels. Kill: each level of a role's compile prepares its members again.
+ * SERIALIZABLE compile of the prepared write its READ COMMITTED compile read, compiled twice and placed once
+ * (PreparedWrite.place, its deduplication's placement), and every entry of a formed role compiled once; the formed role
+ * compiled again at SERIALIZABLE holds the same prepared writes, each compiled twice, their front ends the ones its
+ * READ COMMITTED entries hold. Each member's front end is compiled once whatever the levels, and placed once for every
+ * compile of its role. Kills: each level of a role's compile prepares its members again; and places them again.
  *
  * Features: a role with a member lacking a form, a formed role.
  */
@@ -30,7 +31,8 @@ import {
 	changeLoginOf,
 	entriesOf,
 	programs,
-	rolesGen
+	rolesGen,
+	workOf
 } from "#test/unit/program/prepared-levels.fixtures.ts"
 
 type Situation = "a role with a member lacking a form" | "a formed role"
@@ -56,16 +58,21 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 						c.note("a role with a member lacking a form")
 						for (const entry of entries) {
 							assert.equal(
-								entry.prepared.compiles,
+								workOf(entry.prepared).compiles,
 								2,
 								"an unformed role's member: one prepared write, compiled at READ COMMITTED and SERIALIZABLE"
 							)
+							assert.equal(workOf(entry.prepared).placements, 1, "placed once for both")
 						}
 						continue
 					}
 					c.note("a formed role")
 					for (const entry of entries) {
-						assert.equal(entry.prepared.compiles, 1, "a formed role's member, compiled once")
+						assert.equal(
+							workOf(entry.prepared).compiles,
+							1,
+							"a formed role's member, compiled once"
+						)
 					}
 					const again = Arr.flatMap(
 						[...succeeded(serializableChanges(compiled.changes), "SERIALIZABLE").members.values()],
@@ -80,7 +87,7 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 							"the prepared write its READ COMMITTED entry holds"
 						)
 						assert.equal(
-							entry.prepared.compiles,
+							workOf(entry.prepared).compiles,
 							2,
 							"compiled again at SERIALIZABLE, prepared once"
 						)
@@ -99,6 +106,14 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 				original: "\t\t\tconst variants = once(() =>\n",
 				replacement: "\t\t\tconst variants = (() =>\n",
 				why: "Each level of a role's compile prepares its members again from their values, as each level compiled them before: an unformed role's SERIALIZABLE entries are each a fresh prepared write compiled once, and the search fails."
+			},
+			{
+				file: "packages/engine/src/program/workload/change.ts",
+				original:
+					"\t\tconst placed = once(() => Result.flatMap(entry(), (prepared) => prepared.prepared.place()))\n",
+				replacement:
+					"\t\tconst placed = () => Result.flatMap(entry(), (prepared) => prepared.prepared.place())\n",
+				why: "Each level of a role's compile places its members' writes again, as each level placed them before: an unformed role's entries are placed twice, and the search fails."
 			}
 		]
 	})
