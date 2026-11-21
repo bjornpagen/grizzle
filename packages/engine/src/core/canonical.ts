@@ -154,9 +154,11 @@ export type Path = ReadonlyArray<string | number>
 
 /**
  * Whether an object property is left out of the canonical form, for presentation data excluded from semantic
- * identity. A pure function of its arguments.
+ * identity: a pure function of the member's key and its value as memberOf reads it, never of where the record stands, so
+ * a container has one text wherever it stands, whether a traversal writes it, compares it (sameUnder) or digests it by
+ * its token (writeIdentityText).
  */
-export type OmitRule = (key: string, value: unknown, path: Path) => boolean
+export type OmitRule = (key: string, value: unknown) => boolean
 
 /**
  * A record's member as the canonical form reads it: a stack a builder captured (core/loc.ts CapturedStack) as the call
@@ -383,6 +385,9 @@ const checkText = (
 	}
 }
 
+/** The path of a traversal's root: no step from it. */
+const rootPath: Path = []
+
 /** refuse, typed so that control flow analysis knows a call to it does not return. */
 const stop: (path: Path, capability: string) => never = refuseValue
 
@@ -484,24 +489,51 @@ const standInOf = (value: object): CanonicalValue | Outside => {
  * An object read by its kind: a Float32Array as a vector, whatever else it holds; a stand-in as the member it stands
  * for; a value whose method returns a tag and a payload as one implementing the protocol, and one whose method returns
  * anything else as a forgery outside the model; an array; and any other object as a plain record, or outside the
- * model.
+ * model. A record whose prototype is Object's or none and which holds no symbol of its own is read by those facts
+ * alone (plainRecordOf), the one reading the checks below give it, each made once for the record.
  */
-const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalValue | Outside => {
+const objectOf = (value: Readonly<Record<string, unknown>>): CanonicalValue | Outside =>
+	plainRecordOf(value) ?? kindOf(value)
+
+/** An object read by the checks in their order (objectOf). */
+const kindOf = (value: Readonly<Record<string, unknown>>): CanonicalValue | Outside => {
 	if (value instanceof Float32Array) {
 		return vectorOf(value)
 	}
 	if (standInTag in value) {
 		return standInOf(value)
 	}
-	const tagged = taggedValueOf(value)
-	if (tagged !== undefined) {
-		return protocolOf(value, tagged)
-	}
-	if (canonicalTag in value && typeof value[canonicalTag] === "function") {
-		return outside(value, "a canonical tag and payload")
+	if (canonicalTag in value) {
+		const method: unknown = value[canonicalTag]
+		if (typeof method === "function") {
+			const tagged = admitTaggedValue(Reflect.apply(method, value, []))
+			return tagged === undefined
+				? outside(value, "a canonical tag and payload")
+				: protocolOf(value, tagged)
+		}
 	}
 	return isList(value) ? { kind: "array", items: value } : recordOf(value)
 }
+
+/**
+ * A plain record read as one where its prototype is Object's or none and it holds no symbol of its own, and neither
+ * prototype holds the stand-in's or the protocol's symbol: no Float32Array has such a prototype, so the checks of
+ * kindOf, in their order, read it as that record; undefined for any other object, which kindOf reads.
+ */
+const plainRecordOf = (value: Readonly<Record<string, unknown>>): CanonicalObject | undefined => {
+	if (isList(value)) {
+		return undefined
+	}
+	const proto: unknown = Object.getPrototypeOf(value)
+	return (proto === null || (proto === Object.prototype && !plainPrototypeTagged())) &&
+		Object.getOwnPropertySymbols(value).length === 0
+		? { kind: "record", record: value }
+		: undefined
+}
+
+/** Whether Object's prototype holds the stand-in's or the protocol's symbol, which every plain record would inherit. */
+const plainPrototypeTagged = (): boolean =>
+	standInTag in Object.prototype || canonicalTag in Object.prototype
 
 /** A number read by the canonical model: a finite one but -0 as itself, and NaN, an infinity or -0 by the word naming
  * it. */
@@ -555,18 +587,12 @@ const transportedOf = (value: unknown): CanonicalValue | Outside =>
 /** The pairs of members two canonical objects hold one text exactly when they hold, or undefined where they cannot. */
 type MemberPairs = ReadonlyArray<readonly [unknown, unknown]> | undefined
 
-/**
- * Which members of a record a text leaves out, by the member's key and its value as memberOf reads it: a rule that reads
- * no path (OmitRule), since a comparison walks two values at once and states none.
- */
-export type LeftOut = (key: string, member: unknown) => boolean
-
 /** The member of a record under one of its keys as a text holds it, read as memberOf reads it; undefined where the
  * text holds none: the member is not stated, or `leftOut` leaves it out. */
 const heldMember = (
 	record: Readonly<Record<string, unknown>>,
 	key: string,
-	leftOut: LeftOut
+	leftOut: OmitRule
 ): unknown => {
 	const member = memberOf(record[key])
 	return member === undefined || leftOut(key, member) ? undefined : member
@@ -625,7 +651,7 @@ const itemPairs = (x: ReadonlyArray<unknown>, y: ReadonlyArray<unknown>): Member
 const recordPairs = (
 	x: Readonly<Record<string, unknown>>,
 	y: Readonly<Record<string, unknown>>,
-	leftOut: LeftOut
+	leftOut: OmitRule
 ): MemberPairs => {
 	const pairs: Array<readonly [unknown, unknown]> = []
 	for (const key of Object.keys(x)) {
@@ -653,7 +679,7 @@ const recordPairs = (
  * non-finite number or a protocol value beside any of one tag and payload, nothing more; two arrays, their items; two
  * records, their members; two collections of one kind, their items in order; and never a value outside the model.
  */
-const memberPairs = (x: Compared, y: Compared, leftOut: LeftOut): MemberPairs => {
+const memberPairs = (x: Compared, y: Compared, leftOut: OmitRule): MemberPairs => {
 	switch (x.kind) {
 		case "vector":
 		case "floatSpecial":
@@ -683,12 +709,12 @@ const memberPairs = (x: Compared, y: Compared, leftOut: LeftOut): MemberPairs =>
  * at once, so a value is read only where it differs from the other. The pairs still to compare wait on a stack on the
  * heap, so no depth of value deepens the call stack.
  */
-export const sameUnder = (leftOut: LeftOut): ((a: unknown, b: unknown) => boolean) =>
+export const sameUnder = (leftOut: OmitRule): ((a: unknown, b: unknown) => boolean) =>
 	sameBy(canonicalOf, leftOut)
 
 /** Whether two values are one under `reading` and `leftOut` (sameUnder), each pair read once as it is met. */
 const sameBy =
-	(reading: (value: unknown) => CanonicalValue | Collection | Outside, leftOut: LeftOut) =>
+	(reading: (value: unknown) => CanonicalValue | Collection | Outside, leftOut: OmitRule) =>
 	(a: unknown, b: unknown): boolean => {
 		const pending: Array<readonly [unknown, unknown]> = [[a, b]]
 		for (let pair = pending.pop(); pair !== undefined; pair = pending.pop()) {
@@ -778,7 +804,8 @@ type Frame =
  * again after one.
  */
 class Walk {
-	readonly #path: Array<string | number> = []
+	/** The path of the value the traversal begins at: none for a root, a record's key for its member (`member`). */
+	readonly #base: Path
 	readonly #ancestors = new Set<object>()
 	readonly #frames: Array<Frame> = []
 	readonly #options: EncodeOptions
@@ -786,10 +813,27 @@ class Walk {
 	/** How the traversal reads a value: the canonical model's reading (canonicalOf), or a JSON form's (transportedOf). */
 	readonly #reading: Reading
 
-	constructor(options: EncodeOptions, sink: Sink, reading: Reading) {
+	constructor(options: EncodeOptions, sink: Sink, reading: Reading, base: Path) {
 		this.#options = options
 		this.#sink = sink
 		this.#reading = reading
+		this.#base = base
+	}
+
+	/**
+	 * The path of the value being read, for a refusal: the base's, then each open container's member being read, an
+	 * array's by its index and a record's by its key, each the one before its frame's next. Built only where a refusal
+	 * names it, never as a value is read.
+	 */
+	#here(): Path {
+		const path: Array<string | number> = [...this.#base]
+		for (const frame of this.#frames) {
+			const at = frame.next - 1
+			path.push(
+				frame.kind === "array" ? at : defined(frame.keys[at], "a frame's member being read")
+			)
+		}
+		return path
 	}
 
 	/** Writes `root`. */
@@ -809,7 +853,7 @@ class Walk {
 	): void {
 		const read = this.#reading(root)
 		if (typeof read !== "object" || read.kind !== "record") {
-			return stop(this.#path, "a plain record")
+			return stop(this.#here(), "a plain record")
 		}
 		this.#ancestors.add(read.record)
 		this.#sink.open("object")
@@ -825,19 +869,19 @@ class Walk {
 	}
 
 	/**
-	 * Writes `value`, the member under `key` of `record`, as `over` reads a member of a record it holds no text of: under
-	 * the path [key], `record` its one ancestor (writeIdentityText).
+	 * Writes `value`, a member of `record`, as `over` reads a member of a record it holds no text of: `record` its one
+	 * ancestor, under the path the traversal was made with, the member's key (writeIdentityText).
 	 */
-	member(record: object, key: string, value: unknown): void {
+	member(record: object, value: unknown): void {
 		this.#ancestors.add(record)
-		this.#path.push(key)
-		this.#readMember(value)
+		this.#read(value)
 		this.#run()
 	}
 
 	/** Reads the open containers' members until every container is closed. */
 	#run(): void {
-		for (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {
+		const frames = this.#frames
+		for (let top = frames[frames.length - 1]; top !== undefined; top = frames[frames.length - 1]) {
 			if (top.kind === "array") {
 				this.#item(top)
 			} else {
@@ -855,11 +899,10 @@ class Walk {
 		}
 		frame.next = i + 1
 		const item: unknown = frame.value[i]
-		if (!(i in frame.value) || item === undefined) {
-			stop([...this.#path, i], "an array element, not a hole")
+		if (item === undefined) {
+			stop(this.#here(), "an array element, not a hole")
 		}
-		this.#path.push(i)
-		this.#readMember(item)
+		this.#read(item)
 	}
 
 	/** A record's next member read, or skipped where it is left out, or the record closed after its last. */
@@ -871,38 +914,28 @@ class Walk {
 		}
 		frame.next += 1
 		const child = memberOf(frame.value[key])
-		if (child === undefined || this.#options.omit(key, child, this.#path)) {
+		if (child === undefined || this.#options.omit(key, child)) {
 			return
 		}
-		this.#path.push(key)
-		checkText(key, this.#path, refuseValue)
+		if (!key.isWellFormed()) {
+			stop(this.#here(), wellFormedText)
+		}
 		this.#sink.key(key)
 		if (frame.kind === "over") {
 			const text = frame.written.get(key)
 			if (text !== undefined) {
 				frame.write(text)
-				this.#path.pop()
 				return
 			}
 		}
-		this.#readMember(child)
+		this.#read(child)
 	}
 
-	/** A member read: its path segment is popped once its form is written, at once or when its container closes. */
-	#readMember(value: unknown): void {
-		if (!this.#read(value)) {
-			this.#path.pop()
-		}
-	}
-
-	/** The container on top closed: its frame and ancestor left, and its path segment, when it is a member. */
+	/** The container on top closed: its frame and ancestor left. */
 	#close(value: object, kind: ContainerKind): void {
 		this.#frames.pop()
 		this.#ancestors.delete(value)
 		this.#sink.close(kind)
-		if (this.#frames.length > 0) {
-			this.#path.pop()
-		}
 	}
 
 	/**
@@ -954,14 +987,14 @@ class Walk {
 				})
 				return true
 			case "outside":
-				return stop(this.#path, read.what)
+				return stop(this.#here(), read.what)
 		}
 	}
 
 	/** A container entered as an ancestor of what it holds, refused where it is one already: a cycle. */
 	#enter(container: object): void {
 		if (this.#ancestors.has(container)) {
-			stop(this.#path, "an acyclic value")
+			stop(this.#here(), "an acyclic value")
 		}
 		this.#ancestors.add(container)
 	}
@@ -1111,26 +1144,30 @@ const writeIdentityRecord = <T>(
 	before: (out: Utf8Writer) => void
 ): void => {
 	const keys = keysOf(record)
+	/** Each member's reading as the text holds it (memberOf), undefined where it holds none: unstated, or left out. */
+	const reads: Array<CanonicalValue | Outside | undefined> = []
 	const taken: Array<T | undefined> = []
-	const reads: Array<CanonicalValue | Outside> = []
 	for (const key of keys) {
 		const member: unknown = record[key]
-		const read = canonicalOf(member)
+		const child = memberOf(member)
+		if (child === undefined || options.omit(key, child)) {
+			reads.push(undefined)
+			taken.push(undefined)
+			continue
+		}
+		const read = canonicalOf(child)
 		reads.push(read)
-		taken.push(
-			isCanonicalContainer(read) && !options.omit(key, member, noPath) ? tokens.of(read) : undefined
-		)
+		taken.push(child === member && isCanonicalContainer(read) ? tokens.of(read) : undefined)
 	}
 	before(out)
 	const sink = new ByteSink(out)
 	sink.open("object")
 	for (let at = 0; at < keys.length; at++) {
-		const key = keyAt(keys, at)
-		const member: unknown = record[key]
-		const child = memberOf(member)
-		if (child === undefined || options.omit(key, child, noPath)) {
+		const read = reads[at]
+		if (read === undefined) {
 			continue
 		}
+		const key = keyAt(keys, at)
 		checkText(key, [key], refuseValue)
 		sink.key(key)
 		const token = taken[at]
@@ -1138,7 +1175,6 @@ const writeIdentityRecord = <T>(
 			sink.token(tokens.write, token)
 			continue
 		}
-		const read = child === member ? defined(reads[at], "a member's reading") : canonicalOf(child)
 		if (
 			typeof read !== "object" ||
 			read.kind === "vector" ||
@@ -1149,14 +1185,11 @@ const writeIdentityRecord = <T>(
 		} else if (read.kind === "outside") {
 			refuseValue([key], read.what)
 		} else {
-			new Walk(options, sink, canonicalOf).member(record, key, child)
+			new Walk(options, sink, canonicalOf, [key]).member(record, memberOf(record[key]))
 		}
 	}
 	sink.close("object")
 }
-
-/** The path of a record's member as an omission reads it at the root of a text (Walk.over's). */
-const noPath: Path = []
 
 /**
  * A plain record's keys in canonical order, by UTF-16 code unit (core/order.ts compareStrings): the array Object.keys
@@ -1483,7 +1516,7 @@ export const writeTemplate = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TemplateSink(holeOf)
-		new Walk(options, sink, canonicalOf).of(value)
+		new Walk(options, sink, canonicalOf, rootPath).of(value)
 		return sink.template()
 	})
 
@@ -1565,7 +1598,7 @@ export const writeCanonical = (
 		if (value === undefined) {
 			return refuseValue([], "a value, not undefined")
 		}
-		new Walk(options, new ByteSink(out), canonicalOf).of(value)
+		new Walk(options, new ByteSink(out), canonicalOf, rootPath).of(value)
 	})
 
 /** The JSON form of a canonical value. */
@@ -1592,7 +1625,7 @@ const jsonBy = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new JsonSink()
-		new Walk(options, sink, reading).of(value)
+		new Walk(options, sink, reading, rootPath).of(value)
 		return sink.value()
 	})
 
@@ -1672,7 +1705,7 @@ const encodeWalk = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TextSink()
-		new Walk(options, sink, canonicalOf).of(value)
+		new Walk(options, sink, canonicalOf, rootPath).of(value)
 		return sink.text()
 	})
 
@@ -1727,7 +1760,9 @@ export const encodeOver = (
 ): Result.Result<WellFormedText, CompileError> =>
 	catchRefusal(() => {
 		const sink = new TextSink()
-		new Walk(options, sink, canonicalOf).over(record, written, (text) => sink.written(text))
+		new Walk(options, sink, canonicalOf, rootPath).over(record, written, (text) =>
+			sink.written(text)
+		)
 		return sink.text()
 	})
 
@@ -1850,7 +1885,7 @@ export const canonicalTokens = (
 			return refuseValue([], "a value, not undefined")
 		}
 		const sink = new TokenSink()
-		new Walk(options, sink, canonicalOf).of(value)
+		new Walk(options, sink, canonicalOf, rootPath).of(value)
 		return sink.tokens()
 	})
 

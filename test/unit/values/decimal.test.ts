@@ -312,9 +312,9 @@ export const decimalIdentityAndOrderOrdersAsCmpNumericsAndEqualityTextAndPartsAg
 			{
 				file: "packages/engine/src/core/canonical.ts",
 				original:
-					'\t\tfor (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {\n\t\t\tif (top.kind === "array") {\n\t\t\t\tthis.#item(top)',
+					'\t\tfor (let top = frames[frames.length - 1]; top !== undefined; top = frames[frames.length - 1]) {\n\t\t\tif (top.kind === "array") {\n\t\t\t\tthis.#item(top)',
 				replacement:
-					'\t\tfor (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {\n\t\t\tif (top.kind !== "array") {\n\t\t\t\tthis.#item(top)',
+					'\t\tfor (let top = frames[frames.length - 1]; top !== undefined; top = frames[frames.length - 1]) {\n\t\t\tif (top.kind !== "array") {\n\t\t\t\tthis.#item(top)',
 				why: "Operator mutant 87f78705d1 at packages/engine/src/core/canonical.ts:755 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
 			}
 		]

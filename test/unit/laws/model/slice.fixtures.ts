@@ -12,7 +12,7 @@ import {
 	uniqueKeys
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { encode, type EncodeOptions, type LeftOut, sameUnder } from "#compiler/core/canonical.ts"
+import { encode, type EncodeOptions, type OmitRule, sameUnder } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
@@ -764,7 +764,7 @@ const relationOf = (n: NamedNative): string | undefined => {
  * closed side's rows are the closed relation's own, which both models hold alike; and a compiled statement's parameter
  * encoders, which are code, each slot's own.
  */
-const labelMembers: LeftOut = (k, value) =>
+const labelMembers: OmitRule = (k, value) =>
 	typeof value === "function" ||
 	k === "deps" ||
 	((k === "id" || k === "node" || k === "canonical") && typeof value === "string") ||

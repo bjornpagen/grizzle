@@ -103,29 +103,36 @@ const isSegment = (segment: unknown): segment is string | number =>
 	typeof segment === "string" || typeof segment === "number"
 
 /**
- * The SourceLoc a value spells where a location travels inside a description, or undefined when it spells none: its
- * site a call site, as JSON spells one, or the stack a builder captured. JSON carries no undefined, so a location
- * without a call site leaves the key out there.
+ * Whether a value spells a SourceLoc where a location travels inside a description: a record of a label, a path of
+ * string and number segments and a site that is a call site, as JSON spells one, the stack a builder captured, or
+ * none, and nothing else. JSON carries no undefined, so a location without a call site leaves the key out there. Read
+ * in place, with nothing built of it: the canonical text asks it of every member under "loc" it meets (canonical.ts
+ * omitSourceLocs).
  */
-export const parseSourceLoc = (value: unknown): SourceLoc | undefined => {
+export const isSourceLoc = (value: unknown): value is SourceLoc => {
 	if (!isRecord(value) || Array.isArray(value)) {
-		return undefined
+		return false
 	}
-	if (!Object.keys(value).every((k) => k === "path" || k === "label" || k === "site")) {
-		return undefined
+	for (const key of Object.keys(value)) {
+		if (key !== "path" && key !== "label" && key !== "site") {
+			return false
+		}
 	}
 	const { label, path, site } = value
-	if (typeof label !== "string" || !Array.isArray(path) || !path.every(isSegment)) {
-		return undefined
+	if (typeof label !== "string" || !Array.isArray(path)) {
+		return false
 	}
-	if (site === undefined || site instanceof CapturedStack || isCallSite(site)) {
-		return { path, label, site }
+	for (const segment of path) {
+		if (!isSegment(segment)) {
+			return false
+		}
 	}
-	return undefined
+	return site === undefined || site instanceof CapturedStack || isCallSite(site)
 }
 
-/** Whether a value spells a SourceLoc, as parseSourceLoc reads it. */
-export const isSourceLoc = (value: unknown): boolean => parseSourceLoc(value) !== undefined
+/** The SourceLoc a value spells (isSourceLoc), as a location of its own; undefined where it spells none. */
+export const parseSourceLoc = (value: unknown): SourceLoc | undefined =>
+	isSourceLoc(value) ? { path: value.path, label: value.label, site: value.site } : undefined
 
 /** "Work.relations.Task.fields[0]": string segments joined by dots, numeric segments as indices. */
 export const formatPath = (path: ReadonlyArray<string | number>): string => {

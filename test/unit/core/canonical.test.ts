@@ -265,6 +265,18 @@ export const aValueOutsideTheModelIsRefusedAtItsPathInTheDirectionItArisesAndNev
 		kills: [
 			{
 				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\tObject.getOwnPropertySymbols(value).length === 0",
+				replacement: "\t\ttrue",
+				why: "a record holding a symbol key of its own is read as a plain record, its symbol member left out of its text; the outside-the-model property fails at its symbol key."
+			},
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\t\tconst at = frame.next - 1\n",
+				replacement: "\t\t\tconst at = frame.next\n",
+				why: "a refusal names the member after the one being read; the outside-the-model property fails at the path it planted."
+			},
+			{
+				file: "packages/engine/src/core/canonical.ts",
 				original: '\tif (digits.length > 1 && digits.startsWith("0")) {',
 				replacement: '\tif (digits.startsWith("00")) {',
 				why: "a bigint text with one leading zero admitted; the outside-the-model property fails."
@@ -353,7 +365,7 @@ export const aValueOutsideTheModelIsRefusedAsACycleWhereItMeetsItselfWhenItHolds
 		kills: [
 			{
 				file: "packages/engine/src/core/canonical.ts",
-				original: '\t\t\tstop(this.#path, "an acyclic value")',
+				original: '\t\t\tstop(this.#here(), "an acyclic value")',
 				replacement: '\t\t\tstop([], "an acyclic value")',
 				why: "a cycle refused at the root, not where it meets itself; the cycle property fails."
 			},
@@ -488,9 +500,9 @@ export const theOmittedMembersReadAValueAsItIsNowAChangedValueIsWrittenAsChanged
 			{
 				file: "packages/engine/src/core/canonical.ts",
 				original:
-					"\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf).of(value)\n\t\treturn sink.text()\n\t})",
+					"\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath).of(value)\n\t\treturn sink.text()\n\t})",
 				replacement:
-					'\t\tconst remembered = typeof value === "object" && value !== null && Object.isFrozen(value)\n\t\tconst memo = remembered ? frozenTexts.get(value) : undefined\n\t\tif (memo !== undefined) {\n\t\t\treturn memo\n\t\t}\n\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf).of(value)\n\t\tif (remembered) {\n\t\t\tfrozenTexts.set(value, sink.text())\n\t\t}\n\t\treturn sink.text()\n\t})\n\nconst frozenTexts = new WeakMap<object, string>()',
+					'\t\tconst remembered = typeof value === "object" && value !== null && Object.isFrozen(value)\n\t\tconst memo = remembered ? frozenTexts.get(value) : undefined\n\t\tif (memo !== undefined) {\n\t\t\treturn memo\n\t\t}\n\t\tconst sink = new TextSink()\n\t\tnew Walk(options, sink, canonicalOf, rootPath).of(value)\n\t\tif (remembered) {\n\t\t\tfrozenTexts.set(value, sink.text())\n\t\t}\n\t\treturn sink.text()\n\t})\n\nconst frozenTexts = new WeakMap<object, string>()',
 				why: "a frozen value's text remembered, whatever it holds since and whatever the options; the now property fails."
 			}
 		]

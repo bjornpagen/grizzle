@@ -13,7 +13,6 @@ import {
 	encode,
 	everyProperty,
 	type Json,
-	omitSourceLocs,
 	toJson,
 	withoutSourceLocs
 } from "#compiler/core/canonical.ts"
@@ -123,21 +122,16 @@ const byKey: Comparator<readonly [string, unknown]> = mapInput(
 	(entry: readonly [string, unknown]) => entry[0]
 )
 
-/** Every property but the snapshot's own fingerprint and what no semantic identity holds (core/canonical.ts
- * omitSourceLocs): a pattern value's spelling among them, so a draft that only spells a pattern again in its language is
- * the snapshot it continues, whose described laws keep the spelling the installation holds. */
-const withoutFingerprint: EncodeOptions = {
-	omit: (...[key, value, path]) =>
-		(path.length === 0 && key === "fingerprint") || omitSourceLocs(key, value)
-}
-
 /**
- * The fingerprint of a snapshot's JSON value: the digest of every property but its own fingerprint, the content
- * fingerprint a finished snapshot records (finishSnapshot), digested over its content whole (contentForm). A committed
- * snapshot is trusted by its seal (snapshotSeal), never by its fingerprint.
+ * The fingerprint of a snapshot's content (contentForm, which holds every member of the snapshot but its fingerprint):
+ * the digest of every property but what no semantic identity holds (core/canonical.ts omitSourceLocs), a pattern
+ * value's spelling among them, so a draft that only spells a pattern again in its language is the snapshot it
+ * continues, whose described laws keep the spelling the installation holds. It is the content fingerprint a finished
+ * snapshot records (finishSnapshot), digested over its content whole. A committed snapshot is trusted by its seal
+ * (snapshotSeal), never by its fingerprint.
  */
 const snapshotFingerprint = (value: unknown): Result.Result<SchemaFingerprint, CompileError> =>
-	Result.map(digest("snapshot", value, withoutFingerprint), toSchemaFingerprint)
+	Result.map(digest("snapshot", value, withoutSourceLocs), toSchemaFingerprint)
 
 /** The fingerprint of a schema's empty snapshot, which a database holds before its first migration: the source of that
  * migration and the latest target of a database without the schema's ledger. It depends on the installed schema

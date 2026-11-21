@@ -234,10 +234,8 @@ export const sourceLocIsRecognizedByItsExactStructure = property.explore(structu
 	kills: [
 		{
 			file: "packages/engine/src/core/loc.ts",
-			original:
-				'\tif (!Object.keys(value).every((k) => k === "path" || k === "label" || k === "site")) {',
-			replacement:
-				'\tif (!Object.keys(value).some((k) => k === "path" || k === "label" || k === "site")) {',
+			original: '\t\tif (key !== "path" && key !== "label" && key !== "site") {',
+			replacement: '\t\tif (key !== "path" && key !== "label" && key !== "site" && false) {',
 			why: "a record with a key beyond a location's read as one; the structure property fails."
 		}
 	]
