@@ -1,3 +1,9 @@
+import { type Reached } from "@bjornpagen/testing/features"
+import { finite } from "@bjornpagen/testing/gen"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
+import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
+import { check } from "#cli/check.ts"
 /**
  * The derived runtime facts snapshot.json records beside the snapshot, outside its fingerprint, are held to the compile:
  * `grizzle check` refuses facts that are not the ones the schemas compile to, and `grizzle generate` writes snapshot.json
@@ -17,12 +23,7 @@
  * Features: the derived member removed, a member left out, every member left out, a foreign fact, and a foreign fact
  * beside every member.
  */
-import { type Reached } from "@bjornpagen/testing/features"
-import { finite } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
-import { parseSnapshot } from "#adapter/boundary/snapshot.ts"
-import { check } from "#cli/check.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
@@ -83,7 +84,7 @@ export const derivedRuntimeFactsCheckRefusesStaleDerivedFactsAndGenerateWritesSn
 					assert.equal(refused.code, 1, refused.stdout)
 					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 					const resolved = succeeded(read)
-					const [checked] = yield* check(resolved, ws)
+					const [checked] = yield* check(resolved, ws, silentPhases)
 					assert.deepEqual(
 						Arr.map(defined(checked, "the schema's check").findings, (f) => f.kind),
 						["derivedFacts"],

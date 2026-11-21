@@ -19,6 +19,7 @@ import { check } from "#cli/check.ts"
 import { type ChainBreak, CliError, type CliStage, type TreeRefused } from "#cli/errors.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { metaFileName, writeMeta } from "#compiler/deploy/render/folder.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { defineConfig } from "#index.ts"
@@ -468,7 +469,7 @@ export const tampered = (
 			const spec = yield* Effect.orDie(specConfig(ws))
 			const read = yield* resolvedConfig(defineConfig(spec), `${ws}/${configName}`)
 			const resolved = succeeded(read)
-			const [schemaCheck] = yield* Effect.orDie(check(resolved, ws))
+			const [schemaCheck] = yield* Effect.orDie(check(resolved, ws, silentPhases))
 			containsEqual(
 				Arr.map(defined(schemaCheck, "the schema's check").findings, (f) => ({
 					kind: f.kind,

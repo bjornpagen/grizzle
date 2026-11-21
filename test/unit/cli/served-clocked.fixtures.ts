@@ -6,6 +6,7 @@ import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { ReasonAt, RoleCertificate } from "#compiler/analysis/isolation/certify.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { clockedMember, workload } from "#compiler/program/workload/value.ts"
@@ -239,11 +240,12 @@ export const compiled = (c: Case, clocked: boolean) =>
 			schemaCompiled,
 			emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 			[],
-			noDeclarations
+			noDeclarations,
+			silentPhases
 		)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(schemaCompiled, draft, served)
+		const entries = yield* servedFiles(schemaCompiled, draft, served, silentPhases)
 		const entry = defined(
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === "app")),
 			"the served file of login app"

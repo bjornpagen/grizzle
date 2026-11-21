@@ -90,6 +90,7 @@ export { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 export { handleMaxBytes } from "#compiler/schema/own.ts"
 export { maxStringLength } from "#compiler/core/canonical.ts"
 export { SourceLoc } from "#compiler/core/loc.ts"
+export { type Phase, type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 export { prepared, type Prepared } from "#compiler/core/prepared.ts"
 export {
 	concatNonEmpty,

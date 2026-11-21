@@ -1,3 +1,9 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import { check } from "#cli/check.ts"
+import { loginFiles } from "#cli/files.ts"
 /**
  * A refresh member of a login's workload is compiled by `grizzle generate` into the login's served file, and held to
  * it by `grizzle check`, as every member is: its targets are the views of the set of materialized relations its
@@ -17,12 +23,7 @@
  * configured set's first draft, drafting no folder and leaving snapshot.json and manifest.json byte for byte, since a
  * refresh member plans no access; and check passes again.
  */
-import { assert, defined } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import { check } from "#cli/check.ts"
-import { loginFiles } from "#cli/files.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -92,7 +93,7 @@ export const servedRefreshMembersARefreshMembersServedTargetsAreItsCallsSetOfRel
 							const checked = yield* cliOver(ws, configured, ["check", configName], at(2))
 							assert.equal(checked.code, same ? 0 : 1, checked.stdout)
 							const read = yield* resolvedConfig(configured, `${ws}/${configName}`)
-							const [result] = yield* check(succeeded(read), ws)
+							const [result] = yield* check(succeeded(read), ws, silentPhases)
 							const findings = defined(result, "the schema's check").findings
 							const expected = same ? [] : loginFileFindings("stale")
 							assert.deepEqual(

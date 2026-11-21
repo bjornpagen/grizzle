@@ -28,10 +28,13 @@ import {
 	type SchemaTree
 } from "#cli/files.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { phasedEffect } from "#cli/phases.ts"
 import { refusalText } from "#cli/refusals.ts"
 import {
 	compileReasonText,
 	looksLikeLiteralPack,
+	type Phases,
+	phased,
 	type RecordedFormat,
 	recordedFormatText
 } from "#compiler/plan/common.ts"
@@ -424,13 +427,14 @@ const loginFindings = (
  */
 const checkSchema = Effect.fn("checkSchema")(function* (
 	compiled: CompiledSchema,
-	cwd: string
+	cwd: string,
+	phases: Phases
 ): Effect.fn.Return<SchemaCheck, never, FileSystem.FileSystem | Path.Path> {
 	const schema = compiled.configured
 	const committed = yield* checkCommitted(schema, cwd)
 	const snapshot = Option.map(committed.committed, (c) => c.snapshot)
 	const draft = Option.isSome(snapshot)
-		? yield* Effect.result(draftSchema(compiled, snapshot.value, [], noDeclarations))
+		? yield* Effect.result(draftSchema(compiled, snapshot.value, [], noDeclarations, phases))
 		: undefined
 	const installation =
 		draft !== undefined && Result.isSuccess(draft) ? draft.success.installation : undefined
@@ -496,7 +500,7 @@ const checkSchema = Effect.fn("checkSchema")(function* (
 				at("manifestRecord", schema.declared, refusalText.manifestRecord.problem)
 			}
 			const served = yield* Effect.result(
-				servedFiles(compiled, draft.success, draft.success.served)
+				servedFiles(compiled, draft.success, draft.success.served, phases)
 			)
 			if (Result.isFailure(served)) {
 				at(
@@ -567,15 +571,24 @@ const packFaultText = (fault: PackFault): string => {
 
 /**
  * Every configured schema's findings, in configured order, each schema compiled first (config.ts compileSchema): a
- * schema or login that does not compile is the configuration's refusal.
+ * schema or login that does not compile is the configuration's refusal. Each schema's check is a phase reported to
+ * `phases` (`schema`), its compile and its draft phases inside it.
  */
 export const check = (
 	config: ResolvedConfig,
-	cwd: string
+	cwd: string,
+	phases: Phases
 ): Effect.Effect<ReadonlyArray<SchemaCheck>, CliError, FileSystem.FileSystem | Path.Path> =>
 	Effect.forEach(config.schemas, (schema) =>
-		Effect.flatMap(Effect.fromResult(compileSchema(schema)), (compiled) =>
-			checkSchema(compiled, cwd)
+		phasedEffect(
+			phases,
+			{ name: "schema", of: [schema.declared] },
+			Effect.flatMap(
+				Effect.suspend(() =>
+					Effect.fromResult(phased(phases, { name: "build", of: [] }, () => compileSchema(schema)))
+				),
+				(compiled) => checkSchema(compiled, cwd, phases)
+			)
 		)
 	)
 

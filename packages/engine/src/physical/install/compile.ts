@@ -16,6 +16,7 @@ import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
 import type { IndexRequest, InstallationManifest } from "#compiler/ir/products.ts"
@@ -281,7 +282,7 @@ export const compileInstallation = (
 	options: InstallOptions
 ): Result.Result<Installation, CompileError> =>
 	Result.flatMap(installBasis(owned, options.codes, everySlice(owned)), (basis) =>
-		installationOver(basis, options)
+		installationOver(basis, options, silentPhases)
 	)
 
 /**
@@ -296,7 +297,7 @@ export const conservativeInstallation = (
 	options: InstallOptions
 ): Result.Result<Installation, CompileError> =>
 	Result.flatMap(conservativeBasis(owned, options.codes, everySlice(owned)), (basis) =>
-		installationOver(basis, options)
+		installationOver(basis, options, silentPhases)
 	)
 
 /** The settings of `options`, refused unless every schema identifier it names is one the installation may create, the
@@ -398,14 +399,17 @@ const servedParams = (
 	})
 
 /** The plan of the installation over `basis` under `settings` with `extensions`, the types their served programs cast
- * their parameters to among it (servedParams). */
+ * their parameters to among it (servedParams), a phase reported to `phases` (`installPlan`). */
 const servedPlan = (
 	basis: InstallBasis,
 	settings: InstallSettings,
-	extensions: ReadonlyArray<InstallExtension>
+	extensions: ReadonlyArray<InstallExtension>,
+	phases: Phases
 ): Result.Result<InstallPlan, CompileError> =>
-	Result.flatMap(servedParams(extensions, basis.model.checked), (params) =>
-		planInstallation(basis, settings, params)
+	phased(phases, { name: "installPlan", of: [] }, () =>
+		Result.flatMap(servedParams(extensions, basis.model.checked), (params) =>
+			planInstallation(basis, settings, params)
+		)
 	)
 
 /**
@@ -414,24 +418,28 @@ const servedPlan = (
  * served programs cast their parameters to (servedParams), then its objects built from the plan, those parameters'
  * pattern domains and contracts' domains among them. The span CHECKs (`addSpanStorage`) and the closed facts'
  * validation (`refinedConstantsExtension`) precede the caller's extensions, each once: a caller that lists one
- * extension twice adds nothing twice.
+ * extension twice adds nothing twice. Its plan, its rules' checks and its index plan are phases reported to `phases`
+ * (`installPlan`, `judge`, `indexes`).
  */
 export const installationOver = (
 	basis: InstallBasis,
-	options: Omit<InstallOptions, "codes">
+	options: Omit<InstallOptions, "codes">,
+	phases: Phases
 ): Result.Result<Installation, CompileError> => {
 	const keys = new KeyLedger(basis.model.unrepresentable)
-	return keys.settle(installationIn(basis, options, keys))
+	return keys.settle(installationIn(basis, options, keys, phases))
 }
 
-/** The installation over `basis` under `options` (installationOver), each index it judges refused in `keys`. */
+/** The installation over `basis` under `options` (installationOver), each index it judges refused in `keys`, its phases
+ * reported to `phases`. */
 const installationIn = (
 	basis: InstallBasis,
 	options: Omit<InstallOptions, "codes">,
-	keys: KeyLedger
+	keys: KeyLedger,
+	phases: Phases
 ): Result.Result<Installation, CompileError> =>
 	Result.flatMap(admittedSettings(basis.owned, options), (settings) =>
-		Result.flatMap(servedPlan(basis, settings, options.extensions), (plan) =>
+		Result.flatMap(servedPlan(basis, settings, options.extensions, phases), (plan) =>
 			catchRefusal((): Installation => {
 				const { owned, model, planned } = basis
 				const certification = certificationOf(plan, options.extensions)
@@ -472,7 +480,7 @@ const installationIn = (
 				const declared = addFunctions(b)
 				const { keyIndexes, tables } = addTables(b)
 				const units = addUnitFunctions(b)
-				const rules = addRules(b)
+				const rules = phased(phases, { name: "judge", of: [] }, () => addRules(b))
 				addImmutableGuards(b)
 				addSpanStorage(b, plan.spans)
 
@@ -491,7 +499,9 @@ const installationIn = (
 				const paramDomains = addParamDomains(b, plan.paramDomains)
 
 				const requests = [...reverseRequests(b), ...rules.requests, ...extensionRequests]
-				const indexes = unwrap(planIndexes(b, keyIndexes, requests))
+				const indexes = phased(phases, { name: "indexes", of: [] }, () =>
+					unwrap(planIndexes(b, keyIndexes, requests))
+				)
 				planStatistics(b, statisticsRequests)
 
 				const live = liveOf(options.extensions)

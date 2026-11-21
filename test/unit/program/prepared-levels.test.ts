@@ -25,6 +25,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { readCommittedChanges, serializableChanges } from "#compiler/program/workload/change.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -46,7 +47,10 @@ export const eachMembersFrontEndIsCompiledOnceWhateverTheLevelsItsRoleIsCompiled
 		>,
 		check: (_, c: Case<Situation>) => (drawn) =>
 			Effect.sync(() => {
-				const roles = succeeded(readCommittedChanges(changeLoginOf(drawn)), "the login's compile")
+				const roles = succeeded(
+					readCommittedChanges(changeLoginOf(drawn), silentPhases),
+					"the login's compile"
+				)
 				for (const [i, held] of drawn.entries()) {
 					const compiled = roles.get(`writer${i}`)
 					assert.ok(compiled !== undefined, `role writer${i} compiled`)

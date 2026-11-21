@@ -9,6 +9,7 @@ import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { once } from "#compiler/core/lazy.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { type Phases, phased } from "#compiler/core/phase.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
@@ -490,17 +491,21 @@ export type ReadCommittedRole<S extends ParamSource = ParamSource> =
 			readonly unformed: NonEmptyReadonlyArray<Unformed>
 	  }
 
-/** One role of `login` compiled for READ COMMITTED (ReadCommittedRole). */
+/** One role of `login` compiled for READ COMMITTED (ReadCommittedRole), each ChangeSet's compile a phase reported to
+ * `phases` (`changeSet`). */
 const readCommittedRole = <S extends ParamSource>(
 	name: string,
 	value: unknown,
-	login: ChangeLogin<S>
+	login: ChangeLogin<S>,
+	phases: Phases
 ): Result.Result<ReadCommittedRole<S>, ChangeRefused> =>
 	Result.flatMap(roleBase(name, value, login), (base) => {
 		const members = new Map<string, CompiledVariants<S>>()
 		const unformed: Array<Unformed> = []
 		for (const program of base.programs) {
-			const variants = program.compile("readCommitted")
+			const variants = phased(phases, { name: "changeSet", of: [name, program.name] }, () =>
+				program.compile("readCommitted")
+			)
 			if (variants.ok) {
 				members.set(program.name, variants.value)
 			} else if (variants.error.reason._tag === "NoReadCommittedForm") {
@@ -555,14 +560,15 @@ export const loginChanges = <L extends Isolation, S extends ParamSource>(
 /**
  * Every role of a login, by its name in the login, in its order, compiled for READ COMMITTED (ReadCommittedRole): what
  * the installation's certification reads first, and serves a role it certifies READ COMMITTED. A role or program that
- * does not compile for another reason is ChangeRefused.
+ * does not compile for another reason is ChangeRefused. Each ChangeSet's compile is a phase reported to `phases`.
  */
 export const readCommittedChanges = <S extends ParamSource>(
-	login: ChangeLogin<S>
+	login: ChangeLogin<S>,
+	phases: Phases
 ): Result.Result<ReadonlyMap<string, ReadCommittedRole<S>>, ChangeRefused> => {
 	const roles = new Map<string, ReadCommittedRole<S>>()
 	for (const { name, value } of login.roles) {
-		const role = readCommittedRole(name, value, login)
+		const role = readCommittedRole(name, value, login, phases)
 		if (!role.ok) {
 			return role
 		}

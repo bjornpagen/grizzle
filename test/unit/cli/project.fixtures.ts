@@ -46,6 +46,7 @@ import { formatTimestamp } from "#cli/clock.ts"
 import type { CliError } from "#cli/errors.ts"
 import type { refusalText } from "#cli/refusals.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import type { AbandonedSchema, Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
 	fileNameMaxBytes,
@@ -1363,7 +1364,7 @@ const runCheck = (r: Workspace, m: Model) =>
 		const ran = yield* cliOver(r.dir, config, ["check", configName], instantOf(m.clock))
 		const read = yield* resolvedConfig(config, `${r.dir}/${configName}`)
 		const resolved = succeeded(read)
-		const checks = yield* check(resolved, r.dir)
+		const checks = yield* check(resolved, r.dir, silentPhases)
 		const expected = Arr.map(m.schemas, findingsOf)
 		const sorted = (kinds: ReadonlyArray<FindingKind>) => Arr.sort(kinds, Order.String)
 		assert.deepEqual(

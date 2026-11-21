@@ -10,6 +10,7 @@ import { artifactsOver, layerOver, loginRoles, workloadSlice } from "#adapter/se
 import { noLevelAbove } from "#adapter/witness/keylaw.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
@@ -65,9 +66,10 @@ export const generateAndDbLayerMakeCompileALoginsProgramsAlikeAtTheSelectListsBo
 							compiledSchema,
 							emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 							[],
-							noDeclarations
+							noDeclarations,
+							silentPhases
 						),
-						(draft) => servedFiles(compiledSchema, draft, draft.served)
+						(draft) => servedFiles(compiledSchema, draft, draft.served, silentPhases)
 					)
 				)
 				const codes = firstCodebook(rostersOf(compiledSchema.owned))

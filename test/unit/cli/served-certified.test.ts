@@ -32,6 +32,7 @@ import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effe
 import { served as servedLogin } from "#adapter/public/layer.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { isolationTrigger } from "#compiler/physical/ddl/isolation.ts"
@@ -123,11 +124,12 @@ export const aRolesIsolationLevelIsDecidedOnceFromTheStatementsItsWritesSendEver
 					compiled,
 					emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 					[],
-					noDeclarations
+					noDeclarations,
+					silentPhases
 				)
 				const served = draft.served
 				assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-				const entries = yield* servedFiles(compiled, draft, served)
+				const entries = yield* servedFiles(compiled, draft, served, silentPhases)
 				const servedLogins = new Map(
 					Arr.map(
 						entries,

@@ -21,6 +21,7 @@ import { Effect } from "effect"
 import { snapshotServedEntry } from "#adapter/served/compile.ts"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -93,9 +94,10 @@ export const aLoginsServedFileIsTheSameTextFromTheDraftsWorkloadPlanAndFromTheCo
 					compiled,
 					emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 					[],
-					noDeclarations
+					noDeclarations,
+					silentPhases
 				)
-				const entries = yield* servedFiles(compiled, draft, draft.served)
+				const entries = yield* servedFiles(compiled, draft, draft.served, silentPhases)
 				const snapshot = trustedJson<unknown>(
 					succeeded(writeRuntimeSnapshot(draft.snapshot, draft.derived), "snapshot.json")
 				)

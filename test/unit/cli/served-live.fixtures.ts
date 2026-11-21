@@ -4,6 +4,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { Result as Answered, Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot, writeRuntimeSnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -148,14 +149,15 @@ export const liveIsTheUnion = (
 				compiled,
 				emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 				[],
-				noDeclarations
+				noDeclarations,
+				silentPhases
 			)
 		)
 		if (Answered.isFailure(draft)) {
 			return
 		}
 		const { snapshot, served } = draft.success
-		const entries = yield* Effect.result(servedFiles(compiled, draft.success, served))
+		const entries = yield* Effect.result(servedFiles(compiled, draft.success, served, silentPhases))
 		if (Answered.isFailure(entries)) {
 			return
 		}

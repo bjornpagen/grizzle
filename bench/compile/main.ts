@@ -35,6 +35,7 @@ import {
 import { elapsed } from "#bench/cold/stats.ts"
 import { checkFiles } from "#cli/check.ts"
 import { resolveConfig } from "#cli/config.ts"
+import { processMeter } from "#cli/main.ts"
 import { readTargets } from "#cli/migrate.ts"
 import { type ConfigLoader, runCli } from "#cli/run.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
@@ -389,7 +390,7 @@ const pool: PoolBounds = { max: 1, min: 0, idleTimeoutMs: timerMaxMs }
 
 /** A command line's run in process over the configuration, refused unless it ended with status 0. */
 const command = (phase: Phase, argv: ReadonlyArray<string>, cwd: string, load: ConfigLoader) =>
-	Effect.flatMap(timedEffect(runCli(argv, cwd, load)), ([report, spent]) =>
+	Effect.flatMap(timedEffect(runCli(argv, cwd, load, processMeter)), ([report, spent]) =>
 		report.code === 0
 			? Effect.succeed(spent)
 			: Effect.fail(

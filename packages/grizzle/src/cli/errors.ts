@@ -182,10 +182,11 @@ export type CommandName =
 
 /**
  * The flags of `grizzle generate`: its switches, the flags that take a value once, and the flags that take one each
- * time they are given, a declaration each (renames.ts).
+ * time they are given, a declaration each (renames.ts). `--phases`, the one switch `grizzle check` takes too, reports
+ * the run's phases on stderr (phases.ts).
  */
 export const generateFlags = {
-	switches: ["custom"],
+	switches: ["custom", "phases"],
 	valued: ["name", "schema"],
 	repeated: ["rename", "drop"]
 } as const

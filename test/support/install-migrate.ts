@@ -96,6 +96,7 @@ import {
 import { templateDigest, templatePassword } from "#test/support/substrate/templates.ts"
 
 import { regex } from "arkregex"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { fixtureNeedBudget, templateNeedBudget } from "#test/support/budgets.ts"
 /**
  * Installing a compiled schema into the test file's database through its migrations.
@@ -1226,9 +1227,10 @@ const generatedDraft = (
 							? at.previous.snapshot
 							: emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 						at.previous.kind === "empty" ? at.previous.abandoned : [],
-						version.declarations
+						version.declarations,
+						silentPhases
 					)
-					const served = yield* servedFiles(compiled, drafted, drafted.served)
+					const served = yield* servedFiles(compiled, drafted, drafted.served, silentPhases)
 					return { draft: drafted, entries: served }
 				}),
 				Path.Path,

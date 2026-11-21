@@ -6,6 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -207,7 +208,8 @@ export const runCertified = (drawn: Drawn, c: Case<GroupWitnessFeature>) =>
 			compiled,
 			emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 			[],
-			noDeclarations
+			noDeclarations,
+			silentPhases
 		)
 		assert.ok(draft.served.kind === "logins", "a schema with a login plans its logins")
 		const writers = Arr.findFirst(draft.served.certification, (r) => r.role === "writer")

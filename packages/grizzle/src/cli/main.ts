@@ -11,6 +11,7 @@ import {
 	ExportRefused,
 	thrownOf
 } from "#cli/errors.ts"
+import type { PhaseMeter } from "#cli/phases.ts"
 import { runCli } from "#cli/run.ts"
 
 const written = (
@@ -73,6 +74,38 @@ const configAt = (
 const argumentsStart = 2
 
 /**
+ * The microseconds of a second, the unit of Node's process.cpuUsage()
+ * (https://nodejs.org/docs/v26.13.0/api/process.html#processcpuusagepreviousvalue: "values are in microsecond
+ * values").
+ *
+ * @formatConstant Node's process.cpuUsage(): microseconds
+ */
+const microsPerSecond = 1_000_000
+
+/**
+ * The process's phase meter, for `--phases` (phases.ts): each reading the seconds since the process started, its user
+ * and system CPU seconds and its memory (process.memoryUsage()), and each line written to stderr at once, which on Linux
+ * is synchronous for a file, a pipe and a terminal alike, so a run that dies after a boundary has written its line.
+ */
+export const processMeter: PhaseMeter = {
+	read: () => {
+		const cpu = process.cpuUsage()
+		const memory = process.memoryUsage()
+		return {
+			seconds: process.uptime(),
+			cpuSeconds: (cpu.user + cpu.system) / microsPerSecond,
+			heapUsed: memory.heapUsed,
+			heapTotal: memory.heapTotal,
+			rss: memory.rss,
+			external: memory.external
+		}
+	},
+	write: (line) => {
+		process.stderr.write(`${line}\n`)
+	}
+}
+
+/**
  * The grizzle CLI: `grizzle generate`, `grizzle check`, `grizzle migrate`, `grizzle drift`, `grizzle names`, `grizzle
  * roles` and `grizzle uninstall`, each over
  * the configuration file its command line names.
@@ -84,7 +117,7 @@ const argumentsStart = 2
 const main = Effect.gen(function* () {
 	const argv = yield* Effect.sync(() => process.argv.slice(argumentsStart))
 	const cwd = yield* Effect.sync(() => process.cwd())
-	const report = yield* runCli(argv, cwd, configAt)
+	const report = yield* runCli(argv, cwd, configAt, processMeter)
 	yield* written(Console.log, report.stdout)
 	yield* written(Console.error, report.stderr)
 	yield* Effect.sync(() => {

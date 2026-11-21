@@ -40,6 +40,7 @@ import {
 	writeLoginFiles,
 	writeSnapshotFiles
 } from "#cli/files.ts"
+import { phasedEffect } from "#cli/phases.ts"
 import { rosterRenames } from "#cli/renames.ts"
 import type { RoleChanges } from "#compiler/plan/change.ts"
 import {
@@ -53,6 +54,8 @@ import {
 	type InstalledSource,
 	type Isolation,
 	namedLogin,
+	type Phases,
+	phased,
 	unserved,
 	rostersOf,
 	sameLevel,
@@ -109,6 +112,8 @@ interface GenerateOptions {
 	/** The draft's declared renames and drops (renames.ts), each the one chosen schema's. */
 	readonly declared: Declarations
 	readonly now: DateTime.Utc
+	/** What the run's phases are reported to (`--phases`), or silentPhases. */
+	readonly phases: Phases
 }
 
 interface DraftMarker {
@@ -321,12 +326,13 @@ export type ServedBasis =
  * (ServedBasis). Every login's roles are named under its artifacts' installation before any login compiles
  * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
  * IdentifierTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
- * ServedRefused.
+ * ServedRefused. The workload's plan and the change compile are phases reported to `phases` (`workload`, `changes`).
  */
 const plannedLogins = Effect.fn("plannedLogins")(function* (
 	schema: CompiledSchema,
 	basis: InstallBasis,
-	codes: Codebook
+	codes: Codebook,
+	phases: Phases
 ) {
 	const { configured, logins } = schema
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
@@ -340,10 +346,13 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	}
 	const { plan: workload, frontends } = yield* Effect.mapError(
 		fromEngine(
-			planWorkload(
-				Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
-				configured.built,
-				options
+			phased(phases, { name: "workload", of: [] }, () =>
+				planWorkload(
+					Arr.map(logins, (l) => ({ login: l.owned.name, workloads: l.login.workload })),
+					configured.built,
+					options,
+					phases
+				)
 			)
 		),
 		(refused) => refusedAt("workload")(refused.error)
@@ -373,18 +382,21 @@ const plannedLogins = Effect.fn("plannedLogins")(function* (
 	)
 	const plan = yield* Effect.mapError(
 		fromEngine(
-			servedWorkload(
-				workload,
-				Arr.map(served, ({ login: l, named, artifacts }) => ({
-					name: l.owned.name,
-					roles: l.login.roles,
-					workload: l.login.workload,
-					named,
-					artifacts,
-					clock: transactionClock,
-					planned: frontends
-				})),
-				options
+			phased(phases, { name: "changes", of: [] }, () =>
+				servedWorkload(
+					workload,
+					Arr.map(served, ({ login: l, named, artifacts }) => ({
+						name: l.owned.name,
+						roles: l.login.roles,
+						workload: l.login.workload,
+						named,
+						artifacts,
+						clock: transactionClock,
+						planned: frontends
+					})),
+					options,
+					phases
+				)
 			)
 		),
 		(refused) =>
@@ -431,22 +443,27 @@ const draftInput = Effect.fn("draftInput")(function* (
 	schema: CompiledSchema,
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
-	declared: Declarations
+	declared: Declarations,
+	phases: Phases
 ): Effect.fn.Return<{ readonly input: DraftInput; readonly served: ServedBasis }, CliError> {
 	const rosters = rostersOf(schema.owned)
 	const renames = yield* Effect.mapError(
 		Effect.fromResult(rosterRenames(declared, rosters)),
 		cliError
 	)
-	const compiled = yield* installationUnder(schema, {
-		previous: rosterFates(
-			previous,
-			declared,
-			Arr.map(rosters, (r) => r.closed)
-		),
-		renames,
-		spellings: spellingsOf(previous)
-	})
+	const compiled = yield* installationUnder(
+		schema,
+		{
+			previous: rosterFates(
+				previous,
+				declared,
+				Arr.map(rosters, (r) => r.closed)
+			),
+			renames,
+			spellings: spellingsOf(previous)
+		},
+		phases
+	)
 	return {
 		input: {
 			previous,
@@ -476,11 +493,13 @@ export interface CodesFrom {
  * declared out of its codes' order is RosterReordered. The schema's basis is compiled once: the artifacts the workloads'
  * access paths are planned against and the installation the draft installs share one law model and one plan of the
  * closed constants (physical/install/plan.ts installBasis). Each login's ChangeSets are compiled once in the workload
- * plan (plannedLogins), and its other programs once the draft lays out its snapshot (servedFiles).
+ * plan (plannedLogins), and its other programs once the draft lays out its snapshot (servedFiles). The basis, the
+ * logins' plan and the installation are phases reported to `phases` (`basis`, `installation`).
  */
 export const installationUnder = Effect.fn("installationUnder")(function* (
 	schema: CompiledSchema,
-	history: CodesFrom
+	history: CodesFrom,
+	phases: Phases
 ): Effect.fn.Return<
 	{
 		readonly installation: Installation
@@ -501,14 +520,16 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 	const codes = drafted.value
 	const refusedAt = (step: DraftRefused["step"]) => draftRefused(configured.declared, step)
 	const basis = yield* Effect.mapError(
-		fromEngine(installBasis(owned, codes, everySlice(owned))),
+		fromEngine(
+			phased(phases, { name: "basis", of: [] }, () => installBasis(owned, codes, everySlice(owned)))
+		),
 		refusedAt("schema")
 	)
 	/** The unrepresentable keys the schema's compile met so far, which a refusal of its logins' workloads, met after
 	 * them, gives way to (engine core/canonical.ts metFirst). */
 	const unrepresentable = basis.model.unrepresentable
 	const planned = Arr.isReadonlyArrayNonEmpty(logins)
-		? yield* Effect.catch(plannedLogins(schema, basis, codes), (refused) =>
+		? yield* Effect.catch(plannedLogins(schema, basis, codes, phases), (refused) =>
 				Arr.isReadonlyArrayNonEmpty(unrepresentable)
 					? Effect.fail(refusedAt("schema")(unrepresentableKeys(unrepresentable)))
 					: Effect.fail(refused)
@@ -522,7 +543,11 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 		codes
 	)
 	const installation = yield* Effect.mapError(
-		fromEngine(installationOver(basis, options)),
+		fromEngine(
+			phased(phases, { name: "installation", of: [] }, () =>
+				installationOver(basis, options, phases)
+			)
+		),
 		refusedAt("schema")
 	)
 	return {
@@ -548,14 +573,15 @@ export const draftSchema = Effect.fn("draftSchema")(function* (
 	schema: CompiledSchema,
 	previous: DeploySnapshot,
 	abandoned: ReadonlyArray<AbandonedSchema>,
-	declared: Declarations
+	declared: Declarations,
+	phases: Phases
 ): Effect.fn.Return<
 	MigrationDraft & { readonly installation: Installation; readonly served: ServedBasis },
 	CliError
 > {
-	const { input, served } = yield* draftInput(schema, previous, abandoned, declared)
+	const { input, served } = yield* draftInput(schema, previous, abandoned, declared, phases)
 	const draft = yield* Effect.mapError(
-		fromEngine(draftMigration(input)),
+		fromEngine(phased(phases, { name: "draft", of: [] }, () => draftMigration(input))),
 		draftRefused(schema.configured.declared, "draft")
 	)
 	return { ...draft, installation: input.installation, served }
@@ -571,11 +597,16 @@ const generateSchema = Effect.fn("generateSchema")(function* (
 	naming: FolderNaming,
 	timestamp: string,
 	abandoned: ReadonlyArray<AbandonedSchema>,
-	declared: Declarations
+	declared: Declarations,
+	phases: Phases
 ): Effect.fn.Return<GenerateResult & { readonly served: ServedBasis }, CliError> {
-	const { input, served } = yield* draftInput(schema, previous, abandoned, declared)
+	const { input, served } = yield* draftInput(schema, previous, abandoned, declared, phases)
 	const generated = yield* Effect.mapError(
-		fromEngine(generateMigration({ ...input, naming, timestamp })),
+		fromEngine(
+			phased(phases, { name: "draft", of: [] }, () =>
+				generateMigration({ ...input, naming, timestamp })
+			)
+		),
 		draftRefused(schema.configured.declared, "draft")
 	)
 	return { ...generated, served }
@@ -601,12 +632,23 @@ export const snapshotFilesOf = (
  * artifacts, and one over a level below, whose ownership is its own (cli/config.ts compileSchema), over that level's,
  * as the snapshot records them. generate writes them beside the snapshot and check holds the committed ones to them,
  * so both compile every login once, from the one text. A login whose workload does not compile is ServedRefused, at
- * the login, its role or its program.
+ * the login, its role or its program. The served files are a phase reported to `phases` (`served`), each login's a
+ * phase inside it (`servedLogin`).
  */
-export const servedFiles = Effect.fn("servedFiles")(function* (
+export const servedFiles = (
 	schema: CompiledSchema,
 	draft: DraftSnapshot,
-	served: ServedBasis
+	served: ServedBasis,
+	phases: Phases
+): Effect.Effect<ReadonlyArray<ServedEntry>, CliError> =>
+	phasedEffect(phases, { name: "served", of: [] }, servedEntries(schema, draft, served, phases))
+
+/** Each login's served file (servedFiles), each a phase reported to `phases`. */
+const servedEntries = Effect.fn("servedFiles")(function* (
+	schema: CompiledSchema,
+	draft: DraftSnapshot,
+	served: ServedBasis,
+	phases: Phases
 ): Effect.fn.Return<ReadonlyArray<ServedEntry>, CliError> {
 	if (served.kind === "noLogin") {
 		return []
@@ -622,7 +664,11 @@ export const servedFiles = Effect.fn("servedFiles")(function* (
 			throw defect(`the plan of login ${login.owned.name}, a login of the configuration`)
 		}
 		return Effect.mapError(
-			servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints),
+			phasedEffect(
+				phases,
+				{ name: "servedLogin", of: [login.owned.name] },
+				servedEntry(login, snapshot, planned.artifacts, planned.roles, planned.footprints)
+			),
 			(refusal) =>
 				cliError(
 					new ServedRefused({
@@ -683,16 +729,19 @@ const draftFor = Effect.fn("draftFor")(function* (
 			kind: "custom"
 		} satisfies SchemaDraft
 	}
-	const compiled = yield* Effect.fromResult(compileSchema(schema))
+	const compiled = yield* Effect.fromResult(
+		phased(options.phases, { name: "build", of: [] }, () => compileSchema(schema))
+	)
 	const generated = yield* generateSchema(
 		compiled,
 		previous,
 		mode.naming,
 		timestamp,
 		isEmptySnapshot(previous) ? yield* abandonedSchemas(config) : [],
-		options.declared
+		options.declared,
+		options.phases
 	)
-	const files = yield* servedFiles(compiled, generated, generated.served)
+	const files = yield* servedFiles(compiled, generated, generated.served, options.phases)
 	const served = servedWrites(files, tree.logins)
 	const certification = generated.served.kind === "logins" ? generated.served.certification : []
 	const fences = generated.served.kind === "logins" ? generated.served.fences : []
@@ -870,12 +919,20 @@ export const generateMigrations = Effect.fn("generate")(function* (
 	const schemas = yield* Effect.fromResult(selectSchemas(config, options))
 	const drafts: Array<SchemaDraft> = []
 	for (const s of schemas) {
-		const draft = yield* draftFor(config, s, options)
+		const draft = yield* phasedEffect(
+			options.phases,
+			{ name: "schema", of: [s.declared] },
+			draftFor(config, s, options)
+		)
 		drafts.push(draft)
 	}
 	const reports: Array<SchemaGenerateReport> = []
 	for (const d of drafts) {
-		const report = yield* writeDraft(d)
+		const report = yield* phasedEffect(
+			options.phases,
+			{ name: "write", of: [d.schema.declared] },
+			writeDraft(d)
+		)
 		reports.push(report)
 	}
 	return reports

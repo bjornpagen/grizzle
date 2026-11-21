@@ -27,7 +27,7 @@ import {
 	snapshotFilesOf,
 	writeDraft
 } from "#cli/generate.ts"
-import { noRenames, type PreviousRoster, rostersOf } from "#compiler/plan/common.ts"
+import { noRenames, type Phases, type PreviousRoster, rostersOf } from "#compiler/plan/common.ts"
 import {
 	type DraftInput,
 	freshSnapshot,
@@ -79,7 +79,8 @@ import { type DeploySnapshot, installationsOf } from "#compiler/plan/serve.ts"
 export const upgradeAll = Effect.fn("upgradeAll")(function* (
 	config: ResolvedConfig,
 	connection: MigrationConnection,
-	now: DateTime.Utc
+	now: DateTime.Utc,
+	phases: Phases
 ): Effect.fn.Return<
 	ReadonlyArray<SchemaGenerateReport>,
 	CliError | MigrateError,
@@ -97,7 +98,7 @@ export const upgradeAll = Effect.fn("upgradeAll")(function* (
 		Effect.gen(function* () {
 			const session = yield* openMigrationSession(connection)
 			return yield* Effect.forEach(committed, (c) =>
-				upgradeSchema(session, c.compiled, c.tree, c.chain, now)
+				upgradeSchema(session, c.compiled, c.tree, c.chain, now, phases)
 			)
 		})
 	)
@@ -127,7 +128,8 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 	compiled: CompiledSchema,
 	tree: SchemaTree,
 	chain: WholeChain,
-	now: DateTime.Utc
+	now: DateTime.Utc,
+	phases: Phases
 ): Effect.fn.Return<SchemaDraft, CliError | MigrateError> {
 	const schema = compiled.configured
 	const ident = schema.ident
@@ -138,7 +140,7 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 			refused(compiled, { kind: "rosterUnread", roster: unread.roster, found: unread.found })
 		)
 	)
-	const judged = yield* provenSpellings(session, compiled, rosters)
+	const judged = yield* provenSpellings(session, compiled, rosters, phases)
 	const statements = yield* Effect.fromResult(statementsFor(ident))
 	const ledger = yield* readLedger(session, ident, statements)
 	if (ledger.latest !== chain.reached || ledger.partial !== undefined) {
@@ -165,7 +167,7 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 		fromEngine(generateUpgrade({ ...input, timestamp: nextTimestamp(now, chain.timestamps) })),
 		draftRefused(schema.declared, "draft")
 	)
-	const files = yield* servedFiles(compiled, generated, judged.served)
+	const files = yield* servedFiles(compiled, generated, judged.served, phases)
 	const served = servedWrites(files, tree.logins)
 	const certification = judged.served.kind === "logins" ? judged.served.certification : []
 	const fences = judged.served.kind === "logins" ? judged.served.fences : []
@@ -206,7 +208,8 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 const provenSpellings = Effect.fn("provenSpellings")(function* (
 	session: MigrationSession,
 	compiled: CompiledSchema,
-	rosters: ReadonlyArray<PreviousRoster>
+	rosters: ReadonlyArray<PreviousRoster>,
+	phases: Phases
 ): Effect.fn.Return<Judged, CliError | MigrateError> {
 	const candidates = spellingsHeld(compiled.owned)
 	const at = new Map<string, number>(Arr.map([...candidates.keys()], (language) => [language, 0]))
@@ -217,11 +220,15 @@ const provenSpellings = Effect.fn("provenSpellings")(function* (
 				return spelling === undefined ? [] : [[language, spelling] as const]
 			})
 		)
-		const under = yield* installationUnder(compiled, {
-			previous: rosters,
-			renames: noRenames,
-			spellings
-		})
+		const under = yield* installationUnder(
+			compiled,
+			{
+				previous: rosters,
+				renames: noRenames,
+				spellings
+			},
+			phases
+		)
 		const target = yield* Effect.mapError(
 			fromEngine(freshSnapshot({ installation: under.installation, workload: under.workload })),
 			draftRefused(compiled.configured.declared, "draft")

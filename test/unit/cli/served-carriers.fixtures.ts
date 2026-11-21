@@ -5,6 +5,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Record as Rec, Result, String as Str } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { manifestStatements } from "#compiler/deploy/admission/manifest.ts"
 import { manifestRoles, roleExpectation } from "#compiler/deploy/admission/roles.ts"
@@ -177,10 +178,10 @@ export const drafted = (
 		)
 		const configured = defined(config.schemas[0], "the configured schema")
 		const compiled = yield* Effect.fromResult(compileSchema(configured))
-		const draft = yield* draftSchema(compiled, previous(configured), [], declarations)
+		const draft = yield* draftSchema(compiled, previous(configured), [], declarations, silentPhases)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(compiled, draft, served)
+		const entries = yield* servedFiles(compiled, draft, served, silentPhases)
 		const creates = Arr.flatMap(entries, (entry) => {
 			const file = succeeded(servedFile(trustedJson<unknown>(entry.text)), "the served file")
 			const roles = Arr.map(file.roles, (r) => ({

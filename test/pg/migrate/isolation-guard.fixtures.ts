@@ -8,6 +8,7 @@ import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema } from "#cli/generate.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -200,7 +201,8 @@ const draftedVersion = (
 				emptySnapshot({ schemaName: configured.declared, schema: configured.ident })
 			),
 			[],
-			declared
+			declared,
+			silentPhases
 		)
 		assert.ok(draft.served.kind === "logins", "a schema with a login plans its logins")
 		const levels = new Map<string, Isolation>(

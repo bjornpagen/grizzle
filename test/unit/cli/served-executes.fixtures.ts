@@ -5,6 +5,7 @@ import { array, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Record as Rec, String as Str } from "effect"
 import { compileSchema, resolveConfig } from "#cli/config.ts"
 import { draftSchema, servedFiles } from "#cli/generate.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -226,11 +227,12 @@ export const servedRoles = (c: Case) =>
 			compiled,
 			emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 			[],
-			noDeclarations
+			noDeclarations,
+			silentPhases
 		)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")
-		const entries = yield* servedFiles(compiled, draft, served)
+		const entries = yield* servedFiles(compiled, draft, served, silentPhases)
 		const installation = draft.installation
 		const app = defined(
 			Option.getOrUndefined(Arr.findFirst(installation.worlds, (l) => l.name === "app")),

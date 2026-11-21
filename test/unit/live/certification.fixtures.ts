@@ -8,6 +8,7 @@ import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
 import { workload, workloadState } from "#compiler/program/workload/value.ts"
 
 import { assert, defined } from "@bjornpagen/testing/assert"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
 	type AnyLogin,
@@ -212,7 +213,8 @@ export const draftOf = (c: Case, platformReads: ReadonlyArray<string>, withReads
 			compiled,
 			emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 			[],
-			noDeclarations
+			noDeclarations,
+			silentPhases
 		)
 		const served = draft.served
 		assert.ok(served.kind === "logins", "a schema with a login plans its logins")

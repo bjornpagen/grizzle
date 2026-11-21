@@ -5,6 +5,7 @@ import { defined } from "@bjornpagen/testing/assert"
 import { array, type Gen, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Record as Rec } from "effect"
 import { artifactsOver, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { transactionClock } from "#compiler/ir/clock.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { namedLogin } from "#compiler/physical/ddl/names.ts"
@@ -95,10 +96,15 @@ export const changeLoginOf = (drawn: NonEmptyReadonlyArray<ReadonlyArray<Program
 	const checking = succeeded(artifactsOver(basis, unserved), "the base's artifacts")
 	const ownedLogin = succeeded(ownLoginOver(built, owned), "the login over its base")
 	const planned = succeeded(
-		planWorkload([{ login: ownedLogin.name, workloads: built.workload }], built.base, {
-			artifacts: checking,
-			roles: ownedLogin.roles
-		}),
+		planWorkload(
+			[{ login: ownedLogin.name, workloads: built.workload }],
+			built.base,
+			{
+				artifacts: checking,
+				roles: ownedLogin.roles
+			},
+			silentPhases
+		),
 		"the login's workload plan"
 	)
 	const artifacts = succeeded(

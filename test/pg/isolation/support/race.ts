@@ -29,6 +29,7 @@ import { draftSchema, servedFiles } from "#cli/generate.ts"
 import type { RoleIsolation } from "#compiler/analysis/isolation/certify.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { emptySnapshot } from "#compiler/deploy/snapshot/build.ts"
@@ -198,7 +199,8 @@ const draftOf = (shape: Shape) =>
 				compiled,
 				emptySnapshot({ schemaName: configured.declared, schema: configured.ident }),
 				[],
-				noDeclarations
+				noDeclarations,
+				silentPhases
 			)
 			if (draft.served.kind === "noLogin") {
 				return yield* Effect.die(new Error("a shape's login is its draft's"))
@@ -400,12 +402,17 @@ const certifiedPlan = (
 				(roles) => [login, { ...planned, roles: new Map(roles) }] as const
 			)
 		)
-		const entries = yield* servedFiles(compiled, draft, {
-			kind: "logins",
-			certification: certified,
-			fences: [],
-			logins: new Map(stated)
-		})
+		const entries = yield* servedFiles(
+			compiled,
+			draft,
+			{
+				kind: "logins",
+				certification: certified,
+				fences: [],
+				logins: new Map(stated)
+			},
+			silentPhases
+		)
 		const entry = defined(
 			Option.getOrUndefined(Arr.findFirst(entries, (e) => e.login === shape.login.name)),
 			`the served file of login ${shape.login.name}`

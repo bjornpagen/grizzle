@@ -25,9 +25,9 @@ import {
  *
  * Exactly these commands exist, each over the configuration file its one argument names:
  *
- *     grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]… [--drop <old>]…
- *     grizzle generate <config> --custom --name <name> [--schema <schema>]
- *     grizzle check <config>
+ *     grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]… [--drop <old>]… [--phases]
+ *     grizzle generate <config> --custom --name <name> [--schema <schema>] [--phases]
+ *     grizzle check <config> [--phases]
  *     grizzle migrate <config>
  *     grizzle drift <config>
  *     grizzle upgrade <config>
@@ -43,8 +43,10 @@ import {
  * only when the configuration declares several, and `--custom` and a declaration need it there (generate.ts).
  * `--rename <old>=<new>` and `--drop <old>`, each given once per name, declare the draft's renames and drops, read here
  * (renames.ts), so a declaration its text shows wrong never reaches the compiler; a custom migration drafts nothing
- * and takes none. Flags follow drizzle's spelling, as `--flag value` or `--flag=value`, anywhere after the command,
- * and only generate takes any. `--help` (or `-h`, anywhere, or no argument) prints the usage. Anything else is a usage
+ * and takes none. `--phases` reports each phase of the run on stderr as it starts and ends, with the process's
+ * readings (phases.ts), and changes nothing else the command writes or prints. Flags follow drizzle's spelling, as
+ * `--flag value` or `--flag=value`, anywhere after the command, and only generate takes any but `--phases`, which check
+ * takes too. `--help` (or `-h`, anywhere, or no argument) prints the usage. Anything else is a usage
  * error.
  *
  * What generate makes: the next migration drafted from the schemas' change, named `--name` or after the change; or an
@@ -74,17 +76,26 @@ type Command =
 	| { readonly kind: "roles" }
 	| { readonly kind: "uninstall" }
 
-/** A command line: the usage, or a command over the configuration file it names, as given. */
+/**
+ * A command line: the usage, or a command over the configuration file it names, as given, and whether its phases are
+ * reported (`--phases`, which only generate and check take).
+ */
 export type CommandLine =
 	| { readonly kind: "help" }
-	| { readonly kind: "run"; readonly config: string; readonly command: Command }
+	| {
+			readonly kind: "run"
+			readonly config: string
+			readonly command: Command
+			readonly phases: boolean
+	  }
 
 export const usageText = `Usage:
   grizzle generate <config> [--name <name>] [--schema <schema>] [--rename <old>=<new>]... [--drop <old>]...
+                   [--phases]
       draft the next migration from the schemas' changes
-  grizzle generate <config> --custom --name <name> [--schema <schema>]
+  grizzle generate <config> --custom --name <name> [--schema <schema>] [--phases]
       an empty migration for data steps
-  grizzle check <config>
+  grizzle check <config> [--phases]
       generated, resolved and untampered? (offline)
   grizzle migrate <config>
       apply pending migrations
@@ -118,6 +129,10 @@ Options of generate, as --flag value or --flag=value, anywhere after the command
   --drop <old>      a drop the draft makes, once per name: Relation, Relation.field, Roster#handle or
                     @login; every drop of a name the schema no longer holds is declared, by --rename
                     or --drop
+  --phases          report each phase on stderr as it starts and ends, a line each:
+                    grizzle phase <phase> <start|end> t=<s> cpu=<s> heapUsed=<MB> heapTotal=<MB>
+                    rss=<MB> external=<MB>, then grizzle phase done ... peakHeapUsed=<MB>;
+                    check takes it too
 `
 
 const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"
@@ -134,6 +149,9 @@ interface Flags {
 }
 
 const noFlags: Flags = { switches: [], valued: [], repeated: [] }
+
+/** The flags of `grizzle check`: `--phases` alone. */
+const checkFlags: Flags = { switches: ["phases"], valued: [], repeated: [] }
 
 /**
  * A command's arguments as they read: its configuration file, and the flags it was given, a repeated flag's values in
@@ -272,7 +290,8 @@ const parseGenerate = (rest: ReadonlyArray<string>): Result.Result<CommandLine, 
 					mode,
 					schema: Option.fromUndefinedOr(scanned.values.get("schema")),
 					declared
-				}
+				},
+				phases: scanned.switches.has("phases")
 			}))
 		)
 	)
@@ -281,11 +300,15 @@ const parsePlain = (
 	command: Exclude<CommandName, "generate">,
 	rest: ReadonlyArray<string>
 ): Result.Result<CommandLine, CliError> =>
-	Result.map(scan(command, rest, noFlags), (scanned): CommandLine => ({
-		kind: "run",
-		config: scanned.config,
-		command: { kind: command }
-	}))
+	Result.map(
+		scan(command, rest, command === "check" ? checkFlags : noFlags),
+		(scanned): CommandLine => ({
+			kind: "run",
+			config: scanned.config,
+			command: { kind: command },
+			phases: scanned.switches.has("phases")
+		})
+	)
 
 export const parseArgs = (argv: ReadonlyArray<string>): Result.Result<CommandLine, CliError> => {
 	const [command, ...rest] = argv

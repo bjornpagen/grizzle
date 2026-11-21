@@ -1,3 +1,10 @@
+import { assert, defined } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import { readSnapshot } from "#adapter/boundary/snapshot.ts"
+import { check } from "#cli/check.ts"
+import { artifactFormat } from "#compiler/core/format.ts"
 /**
  * A committed snapshot's two files as `grizzle check`, `grizzle generate` and `grizzle names` read them: a snapshot.json
  * of another format than this grizzle's (core/format.ts artifactFormat), one that records none, or the format before
@@ -19,13 +26,7 @@
  *
  * Features: each commit.
  */
-import { assert, defined } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import { readSnapshot } from "#adapter/boundary/snapshot.ts"
-import { check } from "#cli/check.ts"
-import { artifactFormat } from "#compiler/core/format.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { manifestFileName, snapshotFileName } from "#compiler/deploy/snapshot/types.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -85,7 +86,7 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 					yield* fs.writeFileString(snapshotFile, pair.snapshot)
 					yield* fs.writeFileString(manifestFile, pair.manifest)
 					const converted = readSnapshot(pair)
-					const [checked] = yield* check(resolved, ws)
+					const [checked] = yield* check(resolved, ws, silentPhases)
 					const findings = defined(checked, "the schema's check").findings
 					const kinds = Arr.map(findings, (f) => f.kind)
 					if (

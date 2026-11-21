@@ -25,6 +25,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, FileSystem, Option, Order, String as Str } from "effect"
 import { check } from "#cli/check.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { metaFileName } from "#compiler/deploy/render/folder.ts"
 import { splitStatements } from "#compiler/deploy/render/markers.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -121,7 +122,7 @@ export const grizzleCheckOverAClosedRelationsHexLiteralsPassesADraftedLiteralAnd
 					)
 					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 					const resolved = succeeded(read)
-					const findings = Effect.map(Effect.orDie(check(resolved, ws)), (checks) =>
+					const findings = Effect.map(Effect.orDie(check(resolved, ws, silentPhases)), (checks) =>
 						Arr.flatMap(checks, (x) => Arr.map(x.findings, foundOf))
 					)
 					const held = yield* cliOver(ws, config, ["check", configName], now(1))

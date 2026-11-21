@@ -1,3 +1,8 @@
+import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter } from "effect"
+import { check } from "#cli/check.ts"
 /**
  * `grizzle check` reports every finding at once, one per entry, never stopping at the first, generated: a committed
  * directory of one schema (its first draft, `init`, and a custom folder after it, `seed`) with a drawn set of faults
@@ -18,11 +23,7 @@
  * Features: each finding's kind, a stray entry alone, four findings at once, and a later folder off the chain the walk
  * never reaches.
  */
-import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
-import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter } from "effect"
-import { check } from "#cli/check.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { cliOver, configName, resolvedConfig, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -79,7 +80,7 @@ export const grizzleCheckReportsEveryPlantedFaultAtOnceEachAtItsEntryExactlyAsTh
 							assert.equal(ran.code, expected.length > 0 ? 1 : 0, ran.stderr)
 							const read = yield* resolvedConfig(config, `${ws}/${configName}`)
 							const resolved = succeeded(read)
-							const [checked] = yield* check(resolved, ws)
+							const [checked] = yield* check(resolved, ws, silentPhases)
 							unorderedEqual(
 								Arr.map(defined(checked, "the schema's check").findings, (f) => ({
 									kind: f.kind,

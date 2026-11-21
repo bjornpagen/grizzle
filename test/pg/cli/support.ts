@@ -27,6 +27,8 @@ import type { GrizzleConfig, MigrationConnectionConfig } from "#adapter/types/co
 import type { DbConnection, ServedLogin } from "#adapter/types/layer.ts"
 import { type ConfigFile, type ResolvedConfig, resolveConfig } from "#cli/config.ts"
 import { type CliError, ConfigMissing, cliError } from "#cli/errors.ts"
+import { processMeter } from "#cli/main.ts"
+import type { PhaseMeter } from "#cli/phases.ts"
 import { type CliReport, type ConfigLoader, runCli } from "#cli/run.ts"
 import { jsonText, trustedJson } from "#compiler/core/trusted.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
@@ -415,16 +417,17 @@ const workspaceConfig: ConfigLoader = (file) =>
 	})
 
 /**
- * Runs a command line in process in `dir` at `now`, its configuration file imported by `load`; its report's lines
- * read back as the text the bin writes.
+ * Runs a command line in process in `dir` at `now`, its configuration file imported by `load` and its phases, where it
+ * asks (`--phases`), written to `meter`; its report's lines read back as the text the bin writes.
  */
 const runIn = (
 	dir: string,
 	load: ConfigLoader,
 	argv: ReadonlyArray<string>,
-	now: DateTime.Utc
+	now: DateTime.Utc,
+	meter: PhaseMeter
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runCli(argv, dir, load).pipe(
+	runCli(argv, dir, load, meter).pipe(
 		Effect.provideService(Clock.Clock, fixedClock(now)),
 		Effect.map((report) => ({
 			code: report.code,
@@ -445,7 +448,7 @@ export const cli = (
 	argv: ReadonlyArray<string>,
 	now: DateTime.Utc
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, workspaceConfig, argv, now)
+	runIn(dir, workspaceConfig, argv, now, processMeter)
 
 /**
  * Runs a command line in process in `dir` at `now` over `value`, the default export of whatever configuration file it
@@ -459,7 +462,22 @@ export const cliOver = (
 	argv: ReadonlyArray<string>,
 	now: DateTime.Utc
 ): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
-	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now)
+	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now, processMeter)
+
+/**
+ * Runs a command line in process in `dir` at `now` over `value` (cliOver), its phases, where it asks (`--phases`),
+ * written to `meter`.
+ *
+ * @internal
+ */
+export const cliMetered = (
+	dir: string,
+	value: unknown,
+	argv: ReadonlyArray<string>,
+	now: DateTime.Utc,
+	meter: PhaseMeter
+): Effect.Effect<CliRun, never, FileSystem.FileSystem | Path.Path> =>
+	runIn(dir, (file) => Effect.succeed({ file, value }), argv, now, meter)
 
 /**
  * The drift check's mismatches a refused `grizzle migrate` or `grizzle drift` reports, each as its kind and fact: none

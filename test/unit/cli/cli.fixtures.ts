@@ -233,7 +233,7 @@ export const argvOf = (command: string, units: ReadonlyArray<Unit>): ReadonlyArr
 /** What the parser must read a line of the grammar as. */
 export const meaningOf = (line: GrammarLine): CommandLine => {
 	if (line.command !== "generate") {
-		return { kind: "run", config: line.config, command: { kind: line.command } }
+		return { kind: "run", config: line.config, command: { kind: line.command }, phases: false }
 	}
 	const mode: GenerateMode =
 		line.mode.kind === "custom"
@@ -248,7 +248,8 @@ export const meaningOf = (line: GrammarLine): CommandLine => {
 	return {
 		kind: "run",
 		config: line.config,
-		command: { kind: "generate", mode, schema: line.schema, declared: noDeclarations }
+		command: { kind: "generate", mode, schema: line.schema, declared: noDeclarations },
+		phases: false
 	}
 }
 

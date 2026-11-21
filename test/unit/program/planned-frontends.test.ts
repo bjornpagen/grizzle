@@ -38,6 +38,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { noClock } from "#compiler/ir/clock.ts"
 import { type ChangeEntry, readCommittedChanges } from "#compiler/program/workload/change.ts"
 import { compileWorkload, loginFootprints } from "#compiler/program/workload/compile.ts"
@@ -66,7 +67,7 @@ export const everyMembersEntryHoldsTheFrontEndItsWorkloadsPlanCompiledOfItsProgr
 		check: (_, c: Case<Situation>) => (drawn) =>
 			Effect.sync(() => {
 				const login = changeLoginOf(drawn)
-				const roles = succeeded(readCommittedChanges(login), "the login's compile")
+				const roles = succeeded(readCommittedChanges(login, silentPhases), "the login's compile")
 				for (const [i, held] of drawn.entries()) {
 					c.note(held.length === 1 ? "one program" : "several programs of a role")
 					const compiled = roles.get(`writer${i}`)
@@ -115,9 +116,12 @@ export const aLoginServedOverItsPlansFrontEndsCompilesWhatItCompilesWithNone = p
 		check: (_, c: Case<Situation>) => (drawn) =>
 			Effect.sync(() => {
 				const login = changeLoginOf(drawn)
-				const over = succeeded(readCommittedChanges(login), "served over the plan's front ends")
+				const over = succeeded(
+					readCommittedChanges(login, silentPhases),
+					"served over the plan's front ends"
+				)
 				const alone = succeeded(
-					readCommittedChanges({ ...login, planned: noPlannedFrontends }),
+					readCommittedChanges({ ...login, planned: noPlannedFrontends }, silentPhases),
 					"served compiling every front end"
 				)
 				for (const [i, held] of drawn.entries()) {

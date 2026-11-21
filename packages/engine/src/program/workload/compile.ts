@@ -9,6 +9,7 @@ import { type CompileError, malformedDescription, within } from "#compiler/core/
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
+import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 import { type ClockBinding, noClock, transactionClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,
@@ -696,44 +697,56 @@ export const compileWorkload = (
 	schema: SchemaInput,
 	options: WorkloadOptions
 ): Result.Result<WorkloadPlan, WorkloadPlanRefused> =>
-	workloadPlanned(logins, schema, options, () => undefined)
+	workloadPlanned(logins, schema, options, () => undefined, silentPhases)
 
 /**
  * The plan of `logins` over `schema` (compileWorkload), with the front end it compiled of each ChangeSet of a workload
  * over a role (planned.ts PlannedFrontends): what the served compile of the logins over the same basis reads where it
  * would compile that front end again (servedWorkload), so a generate compiles each such ChangeSet's front end once.
- * compileWorkload keeps none, so a plan no served compile follows holds no front end past its program's plan.
+ * compileWorkload keeps none, so a plan no served compile follows holds no front end past its program's plan. Each
+ * login's programs are a phase reported to `phases` (`workloadLogin`).
  */
 export const planWorkload = (
 	logins: ReadonlyArray<LoginWorkloads>,
 	schema: SchemaInput,
-	options: WorkloadOptions
+	options: WorkloadOptions,
+	phases: Phases
 ): Result.Result<
 	{ readonly plan: WorkloadPlan; readonly frontends: PlannedFrontends },
 	WorkloadPlanRefused
 > => {
 	const frontends: Array<PlannedFrontend> = []
 	return Result.map(
-		workloadPlanned(logins, schema, options, (planned) => {
-			frontends.push(planned)
-		}),
+		workloadPlanned(
+			logins,
+			schema,
+			options,
+			(planned) => {
+				frontends.push(planned)
+			},
+			phases
+		),
 		(plan) => ({ plan, frontends: new PlannedFrontends(frontends) })
 	)
 }
 
-/** The plan of `logins` over `schema`, each ChangeSet's front end over a role handed to `keep` with its key. */
+/** The plan of `logins` over `schema`, each ChangeSet's front end over a role handed to `keep` with its key, each login's
+ * programs reported to `phases`. */
 const workloadPlanned = (
 	logins: ReadonlyArray<LoginWorkloads>,
 	schema: SchemaInput,
 	options: WorkloadOptions,
-	keep: (planned: PlannedFrontend) => void
+	keep: (planned: PlannedFrontend) => void,
+	phases: Phases
 ): Result.Result<WorkloadPlan, WorkloadPlanRefused> => {
 	const { artifacts } = options
 	const access: Record<string, Readonly<Record<string, ProgramAccess>>> = {}
 	const footprints = new Map<string, ReadonlyMap<string, Footprint>>()
 	const served: Array<ServedTypes> = []
 	for (const login of [...logins].toSorted((a, b) => compareStrings(a.login, b.login))) {
-		const programs = loginPlans(login.login, login.workloads, schema, artifacts, keep)
+		const programs = phased(phases, { name: "workloadLogin", of: [login.login] }, () =>
+			loginPlans(login.login, login.workloads, schema, artifacts, keep)
+		)
 		if (!programs.ok) {
 			return programs
 		}
@@ -920,16 +933,20 @@ export type ServedWorkloadRefused =
  * The plan of `logins` as generate compiles it (ServedWorkloadPlan): `planned`, their workloads' plan under the options'
  * artifacts (compileWorkload), then each login's change members, in the logins' order, each over the artifacts the
  * login's served file compiles over, which serve the plan's parameter types (WorkloadPhysical.params), then every
- * role's certificate over them under the options' artifacts.
+ * role's certificate over them under the options' artifacts. Each login's change compile and the certification are
+ * phases reported to `phases` (`loginChanges`, `certification`).
  */
 export const servedWorkload = <S extends ParamSource>(
 	planned: WorkloadPlan,
 	logins: ReadonlyArray<ServedLogin<S>>,
-	options: WorkloadOptions
+	options: WorkloadOptions,
+	phases: Phases
 ): Result.Result<ServedWorkloadPlan<S>, ServedWorkloadRefused> => {
 	const changes = new Map<string, ReadonlyMap<string, ReadCommittedRole<S>>>()
 	for (const login of logins) {
-		const roles = readCommittedChanges(login)
+		const roles = phased(phases, { name: "loginChanges", of: [login.name] }, () =>
+			readCommittedChanges(login, phases)
+		)
 		if (!roles.ok) {
 			return Result.err({ kind: "login", login: login.name, refused: roles.error })
 		}
@@ -940,10 +957,15 @@ export const servedWorkload = <S extends ParamSource>(
 		return calls
 	}
 	return Result.map(
-		Result.mapError(certification(options.artifacts, changes), (error): ServedWorkloadRefused => ({
-			kind: "workload",
-			error
-		})),
+		Result.mapError(
+			phased(phases, { name: "certification", of: [] }, () =>
+				certification(options.artifacts, changes)
+			),
+			(error): ServedWorkloadRefused => ({
+				kind: "workload",
+				error
+			})
+		),
 		(certified): ServedWorkloadPlan<S> => ({
 			...planned,
 			changes: certified.served,

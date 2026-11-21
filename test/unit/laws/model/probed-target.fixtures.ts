@@ -5,6 +5,7 @@ import { array, boolean, element, type Gen, shuffled, weighted } from "@bjornpag
 import { Array as Arr, Formatter, Option, Order, Record as Rec } from "effect"
 import type { TheoryLaw } from "#compiler/analysis/theory/laws.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { ExprDesc, SideDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -395,7 +396,10 @@ export const placementsOf = (desc: SchemaDesc): Placements => {
 		"every target a key holds compiles"
 	)
 	const installed = (b: InstallBasis): Installation =>
-		succeeded(installationOver(b, options), "every placement of the fixed targets installs")
+		succeeded(
+			installationOver(b, options, silentPhases),
+			"every placement of the fixed targets installs"
+		)
 	const parts = Arr.flatMap(basis.model.theory.laws, (law): ReadonlyArray<PartRef> =>
 		law.detail.kind === "containment" && law.detail.to.relation === "T"
 			? [{ law: law.id, part: 0 }]

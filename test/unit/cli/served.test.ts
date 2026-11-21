@@ -1,3 +1,7 @@
+import { type Reached } from "@bjornpagen/testing/features"
+import { type Case, property } from "@bjornpagen/testing/property"
+import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
+import { check } from "#cli/check.ts"
 /**
  * A login's served file is held to its workload's compile, byte for byte: `grizzle generate` writes
  * `served/<login>.json` beside the snapshot for every login of the configuration, and `grizzle check` compiles every
@@ -22,10 +26,7 @@
  * create: check passing on it and the regenerate drafting no folder are generate's idempotence over a workload's
  * parameter domains, which a later generate must find recorded in the snapshot and never draft again.
  */
-import { type Reached } from "@bjornpagen/testing/features"
-import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Order, String as Str } from "effect"
-import { check } from "#cli/check.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 
 import { servedDirectory, servedPath } from "#compiler/served/forms.ts"
 
@@ -105,7 +106,7 @@ export const servedFilesCheckRefusesAServedFileThatIsNotItsLoginsCompileOneMissi
 					const refused = yield* cliOver(ws, config, ["check", configName], at(2))
 					assert.equal(refused.code, expected.length === 0 ? 0 : 1, refused.stdout)
 					const read = yield* resolvedConfig(config, `${ws}/${configName}`)
-					const [checked] = yield* check(succeeded(read), ws)
+					const [checked] = yield* check(succeeded(read), ws, silentPhases)
 					const findings = defined(checked, "the schema's check").findings
 					assert.deepEqual(
 						Arr.map(findings, (f) => ({ kind: f.kind, where: f.where })),

@@ -20,7 +20,7 @@ import {
 	stageOutcome
 } from "#adapter/migrate/errors.ts"
 import type { UninstallReport } from "#adapter/migrate/uninstall.ts"
-import { parseArgs, usageText } from "#cli/args.ts"
+import { type CommandLine, parseArgs, usageText } from "#cli/args.ts"
 import { check, checkFiles, findingText, type SchemaCheck } from "#cli/check.ts"
 import { type ConfigFile, resolveConfig } from "#cli/config.ts"
 import { migrationConnection } from "#cli/connection.ts"
@@ -28,8 +28,10 @@ import type { CliError } from "#cli/errors.ts"
 import { generateMigrations, type SchemaGenerateReport } from "#cli/generate.ts"
 import { drift, migrate, roles, uninstallAll } from "#cli/migrate.ts"
 import { names } from "#cli/names.ts"
+import { type PhaseMeter, phasedEffect, phaseRun } from "#cli/phases.ts"
 import { cliStageFix, migrateStageFix, refusalText } from "#cli/refusals.ts"
 import { upgradeAll } from "#cli/upgrade.ts"
+import type { Phases } from "#compiler/plan/common.ts"
 import { metaFileName } from "#compiler/plan/migration.ts"
 
 /**
@@ -393,7 +395,8 @@ export type ConfigLoader = (
 const program = Effect.fn("program")(function* (
 	argv: ReadonlyArray<string>,
 	cwd: string,
-	load: ConfigLoader
+	load: ConfigLoader,
+	meter: PhaseMeter
 ): Effect.fn.Return<Ran, CliError | CommandRefused, FileSystem.FileSystem | Path.Path> {
 	const parsed = parseArgs(argv)
 	if (Result.isFailure(parsed)) {
@@ -403,16 +406,32 @@ const program = Effect.fn("program")(function* (
 	if (line.kind === "help") {
 		return ran(exitCodes.ok, [Str.trimEnd(usageText)], [])
 	}
+	const run = phaseRun(meter, line.phases)
+	return yield* Effect.ensuring(commandRan(line, cwd, load, run.phases), Effect.sync(run.done))
+})
+
+/** The command a command line runs, over the configuration file it names, its phases reported to `phases`. */
+const commandRan = Effect.fn("commandRan")(function* (
+	line: Extract<CommandLine, { readonly kind: "run" }>,
+	cwd: string,
+	load: ConfigLoader,
+	phases: Phases
+): Effect.fn.Return<Ran, CliError | CommandRefused, FileSystem.FileSystem | Path.Path> {
 	const path = yield* Path.Path
-	const { value, file } = yield* load(path.resolve(cwd, line.config))
-	const config = yield* resolveConfig(value, file)
+	const config = yield* phasedEffect(
+		phases,
+		{ name: "config", of: [] },
+		Effect.flatMap(load(path.resolve(cwd, line.config)), (loaded) =>
+			resolveConfig(loaded.value, loaded.file)
+		)
+	)
 	const command = line.command
 	if (command.kind === "names") {
 		const listed = yield* names(config)
 		return ran(exitCodes.ok, listed, [])
 	}
 	if (command.kind === "check") {
-		const checks = yield* check(config, cwd)
+		const checks = yield* check(config, cwd, phases)
 		const clean = Arr.filter(checks, (c) => c.findings.length === 0)
 		const dirty = Arr.filter(checks, (c) => c.findings.length > 0)
 		return ran(
@@ -456,7 +475,7 @@ const program = Effect.fn("program")(function* (
 		const connection = yield* migrationConnection(config)
 		const now = yield* DateTime.now
 		const reports = yield* Effect.mapError(
-			upgradeAll(config, connection, now),
+			upgradeAll(config, connection, now, phases),
 			refusedBy("upgrade")
 		)
 		return ran(
@@ -479,7 +498,8 @@ const program = Effect.fn("program")(function* (
 		mode: command.mode,
 		schema: command.schema,
 		declared: command.declared,
-		now
+		now,
+		phases
 	})
 	return ran(
 		exitCodes.ok,
@@ -516,6 +536,9 @@ const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
  * fiber's interruption, so an interrupted migrate closes its connection, which rolls an open file transaction back,
  * and the ledger tells where a rerun resumes (packages/grizzle/src/adapter/migrate/apply.ts).
  *
+ * Its phases, where the command line asks (`--phases`), are written to `meter` as each starts and ends, apart from the
+ * report (phases.ts), which they leave as it is.
+ *
  * Output is stable plain text. The clock a new folder's timestamp reads is Effect's Clock. No command reads the
  * environment for where to connect: migrate, drift, roles and uninstall connect with the configuration's connection
  * (connection.ts).
@@ -523,9 +546,10 @@ const refusedReport = (e: CliError | CommandRefused): RefusedReport => {
 export const runCli = Effect.fn("runCli")(function* (
 	argv: ReadonlyArray<string>,
 	cwd: string,
-	load: ConfigLoader
+	load: ConfigLoader,
+	meter: PhaseMeter
 ): Effect.fn.Return<CliReport, never, FileSystem.FileSystem | Path.Path> {
-	const exit = yield* Effect.exit(program(argv, cwd, load))
+	const exit = yield* Effect.exit(program(argv, cwd, load, meter))
 	if (Exit.isSuccess(exit)) {
 		const done: RanReport = {
 			outcome: "ran",

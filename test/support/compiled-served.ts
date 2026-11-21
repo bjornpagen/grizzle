@@ -5,6 +5,7 @@ import { compileServed } from "#adapter/public/compile.ts"
 import { atRole, planRefusal, type ServedRefusal } from "#adapter/served/compile.ts"
 import { artifactsOver, type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { silentPhases } from "#compiler/core/phase.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import {
 	derivedOf,
@@ -49,7 +50,12 @@ export const compiledInstallation = (
 		const options = { artifacts: checking, roles: ownedLogin.roles }
 		const { plan: workload, frontends } = yield* Effect.mapError(
 			fromEngine(
-				planWorkload([{ login: ownedLogin.name, workloads: login.workload }], login.base, options)
+				planWorkload(
+					[{ login: ownedLogin.name, workloads: login.workload }],
+					login.base,
+					options,
+					silentPhases
+				)
 			),
 			(refused) => planRefusal({ login, owned: ownedLogin }, refused)
 		)
@@ -76,7 +82,8 @@ export const compiledInstallation = (
 							planned: frontends
 						}
 					],
-					options
+					options,
+					silentPhases
 				)
 			),
 			(refused) => (refused.kind === "workload" ? atLogin(refused.error) : atRole(refused.refused))
@@ -91,7 +98,8 @@ export const compiledInstallation = (
 						[ownedLogin],
 						[servedWorkloadExtension(plan)],
 						codes
-					)
+					),
+					silentPhases
 				)
 			),
 			atLogin
