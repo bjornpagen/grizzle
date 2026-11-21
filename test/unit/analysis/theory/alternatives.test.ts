@@ -2,7 +2,8 @@
  * An alternatives statement's laws (fin.md §7, R5): its expansion is pure and headless, one forward containment per arm
  * relation, `eq` for an arm of one handle and `in` for an arm of several, and one reverse containment per armed
  * handle; the theory states each as a containment law of source `alternatives`, and a containment the schema also
- * states itself is one law with both statements. The oracle is fin.md §7's expansion written as its own checker,
+ * states itself is one law with both statements, of the source of the one first among the owned statements, which
+ * order by identity (schema/own.ts). The oracle is fin.md §7's expansion written as its own checker,
  * judged over every roster of at most four handles with every assignment of its handles to two arm relations or none.
  *
  * Features: one handle per arm, an arm of several handles, an unarmed handle, a restated containment.
@@ -91,12 +92,26 @@ export const alternativesFinMd7ExpandsToItsArmsContainmentsHeadlessEachAContainm
 						Order.String
 					)
 					assert.deepEqual(lawsAs, expectedContainments(arms), "each containment is one law")
+					/**
+					 * The alternatives statement's place among the owned statements, which order by identity (schema/own.ts):
+					 * a reverse containment's, which no restatement states, so its law has that one statement.
+					 */
+					const alternativesAt = Arr.findFirst(laws, (law) => law.statements.length === 1).pipe(
+						Option.map((law) => law.source.statement),
+						Option.getOrElse(() =>
+							assert.fail("a reverse containment the alternatives alone state")
+						)
+					)
 					assert.ok(
 						Arr.every(
 							laws,
-							(law) => law.source.kind === "alternatives" && law.shape === "contained"
+							(law) =>
+								law.shape === "contained" &&
+								law.source.statement === law.statements[0] &&
+								law.source.kind ===
+									(law.source.statement === alternativesAt ? "alternatives" : "contained")
 						),
-						"each of source alternatives, of shape contained"
+						"each of shape contained, of its first statement's source: the alternatives', or a restatement's that orders before it"
 					)
 					if (restated) {
 						k.note("a restated containment")
