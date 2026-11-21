@@ -356,6 +356,24 @@ type Admit = (just: Justification) => boolean
 
 const everything: Admit = () => true
 
+/** What a closure through a stage of `context` admits: the dependencies whose contexts are no more demanding. */
+const admittedThrough = (context: EvidenceContext): Admit => {
+	const admitted: Admit = (just) => !lessDemanding(context, just.context)
+	return admitted
+}
+
+/**
+ * What a closure admits: every implication and point rule (`every`), or those of a table's stage, by its index, whose
+ * contexts are no more demanding than the stage's.
+ */
+type Admission = "every" | number
+
+/** How many facts each implication and each point rule of a table waits on as a closure starts, -1 for one it admits not. */
+interface Counts {
+	readonly implications: Int32Array
+	readonly points: Int32Array
+}
+
 /** The implications and point rules waiting on a fact, by index. */
 interface Waiting {
 	readonly fromColumn: ReadonlyMap<string, ReadonlyArray<number>>
@@ -411,8 +429,12 @@ export class Dependencies {
 	readonly implications: ReadonlyArray<Implication>
 	readonly points: ReadonlyArray<PointRule>
 	readonly #waiting: Waiting
+	/** The heading's columns, which a closure's start is read among. */
+	readonly #heading: ReadonlySet<string>
 	/** The evidence contexts the table's justifications hold in, least demanding first, one of each demand. */
 	readonly #stages: ReadonlyArray<EvidenceContext>
+	/** Each admission's counts a closure starts from (`#counts`), by the stage it closes through, built at its first. */
+	readonly #starts = new Map<Admission, Counts>()
 	/** How many closures the table has run. */
 	#closures = 0
 	/** How many derivations the table has explained. */
@@ -427,6 +449,7 @@ export class Dependencies {
 		this.implications = implications
 		this.points = points
 		this.#waiting = indexed(implications, points)
+		this.#heading = new Set(columns)
 		const used = new Set<EvidenceContext>([
 			...implications.map((i) => i.just.context),
 			...points.map((p) => p.just.context)
@@ -539,7 +562,7 @@ export class Dependencies {
 	 * the row and the attributes beyond the heading are what a closure derives, never what it starts from.
 	 */
 	closure(start: Iterable<string>): FactClosure {
-		return this.#closure(start, everything)
+		return this.#closure(start, "every")
 	}
 
 	/** How many closures the table has run: the work of its questions, which a property bounds. */
@@ -552,14 +575,38 @@ export class Dependencies {
 		return this.#explanations
 	}
 
-	#closure(start: Iterable<string>, admit: Admit): FactClosure {
+	/**
+	 * What a closure through `admission` starts from: how many facts each implication and point rule waits on, -1 for one
+	 * it does not admit. Read off the table once for each admission its closures close through, every closure after the
+	 * first copying it, where each closure asked every dependency's justification again.
+	 */
+	#counts(admission: Admission): Counts {
+		return this.#starts.getOrInsertComputed(admission, () => {
+			const admit =
+				admission === "every"
+					? everything
+					: admittedThrough(defined(this.#stages[admission], "a stage the table holds"))
+			const implications = new Int32Array(this.implications.length)
+			for (const [i, imp] of this.implications.entries()) {
+				implications[i] = admit(imp.just) ? imp.from.length + imp.at.length : -1
+			}
+			const points = new Int32Array(this.points.length)
+			for (const [i, rule] of this.points.entries()) {
+				points[i] = admit(rule.just) ? rule.from.length : -1
+			}
+			return { implications, points }
+		})
+	}
+
+	#closure(start: Iterable<string>, admission: Admission): FactClosure {
 		this.#closures += 1
 		const imps = this.implications
 		const rules = this.points
 		const columns = new Map<string, Step>()
 		const points = new Map<string, Step>()
-		const waiting = imps.map((imp) => (admit(imp.just) ? imp.from.length + imp.at.length : -1))
-		const pointWaiting = rules.map((rule) => (admit(rule.just) ? rule.from.length : -1))
+		const counts = this.#counts(admission)
+		const waiting = counts.implications.slice()
+		const pointWaiting = counts.points.slice()
 		/** The spans of `at` each implication has already counted as pointed. */
 		const pointedAt = new Map<number, Set<string>>()
 		const queue: Array<Fact> = []
@@ -606,7 +653,7 @@ export class Dependencies {
 			count(i)
 		}
 		for (const c of start) {
-			if (this.columns.includes(c)) {
+			if (this.#heading.has(c)) {
 				learn(c, fromStart)
 			}
 		}
@@ -730,8 +777,7 @@ export class Dependencies {
 	 */
 	#staged(start: ReadonlyArray<string>, last: number): Staged | undefined {
 		for (let stage = 0; stage <= last; stage++) {
-			const context = defined(this.#stages[stage], "a stage the table holds")
-			const closure = this.#closure(start, (j) => !lessDemanding(context, j.context))
+			const closure = this.#closure(start, stage)
 			if (closure.columns.has(rowAttribute)) {
 				return { stage, closure }
 			}
