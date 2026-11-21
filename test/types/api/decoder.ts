@@ -2,6 +2,11 @@ import { Array as Arr, Effect } from "effect"
 import { served } from "#adapter/public/layer.ts"
 import type { AnyLogin } from "#compiler/public/schema.ts"
 import {
+	Answered,
+	AnsweredBeside,
+	AnsweredDefers,
+	AnsweredKeys,
+	AnsweredPages,
 	Bare,
 	Clocked,
 	Defers,
@@ -22,9 +27,10 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * login of the box (test/support/agreement/decoder-logins.ts) is compiled with no database as `grizzle generate`
  * compiles it (compiled-served.ts compiledServedFile) and served (adapter/served/served.ts served), and its decoder's
  * kind read off the value. The one program the type tier checks (test/types/api/decoder.test.ts) states, for each
- * login, that ServedLogin<typeof L>["decoder"] is exactly the arm its file holds, NoDecoder or DecoderLogin, and for
- * each login whose file names a decoder login, that roleNameOf takes it with no narrowing; and that a served login of
- * AnyLogin, whose type cannot tell, is typed with every arm the box's files hold.
+ * login, that ServedLogin<typeof L>["decoder"] is exactly the arm its file holds, NoDecoder or DecoderLogin, and that
+ * DbLayer.make of L requires a live source (LiveOf) exactly where its file names a decoder login, so a login whose reads
+ * are all answered opens with none; for each login whose file names a decoder login, that roleNameOf takes it with no
+ * narrowing; and that a served login of AnyLogin, whose type cannot tell, is typed with every arm the box's files hold.
  */
 const box = [
 	["Bare", Bare],
@@ -35,7 +41,12 @@ const box = [
 	["Pages", Pages],
 	["Keys", Keys],
 	["Defers", Defers],
-	["Mixed", Mixed]
+	["Mixed", Mixed],
+	["Answered", Answered],
+	["AnsweredPages", AnsweredPages],
+	["AnsweredKeys", AnsweredKeys],
+	["AnsweredDefers", AnsweredDefers],
+	["AnsweredBeside", AnsweredBeside]
 ] as const satisfies ReadonlyArray<readonly [string, AnyLogin]>
 
 /** The public type of each arm of a served decoder, by the kind its value holds. */
@@ -66,6 +77,7 @@ const cellLines = (cell: DecoderCell): ReadonlyArray<string> => {
 			const kind = decoderOf(cell.value)
 			return [
 				`export type d_${cell.binding} = Expect<Equals<ServedLogin<typeof ${cell.binding}>["decoder"], ${armOf[kind]}>>`,
+				`export type l_${cell.binding} = Expect<Equals<[LiveOf<typeof ${cell.binding}>] extends [never] ? "none" : "decoderLogin", "${kind}">>`,
 				...(kind === "decoderLogin"
 					? [
 							`export const r_${cell.binding} = (login: ServedLogin<typeof ${cell.binding}>): string => roleNameOf(login.decoder, {})`

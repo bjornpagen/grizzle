@@ -62,7 +62,6 @@ export type { SpecifiedStatement } from "#compiler/lower/template.ts"
 export { queryInput, type QueryInput, type QueryTemplate } from "#compiler/program/compile.ts"
 export {
 	pageKey,
-	servedInstantRead,
 	servedPage,
 	servedRead,
 	servedReadLive,

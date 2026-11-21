@@ -31,7 +31,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Array as Arr, Option, Order } from "effect"
 import { type ServedDbContext } from "#adapter/db/context.ts"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { type LoadedMember } from "#adapter/served/load.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
@@ -307,7 +307,7 @@ export const keepsEachOwnersCountAndStockThroughAMemberWritersOwnAppendsPutsAndD
 										"facts",
 										`the member ${name} takes its call's facts`
 									)
-									return answered(writeOnce(onceCalls(db.ctx, change))({ params: {}, facts }))
+									return answered(writeOnce(memberCalls(db.ctx, change))({ params: {}, facts }))
 								}
 								yield* owner.query(
 									`TRUNCATE ${store}, ${names.table(b.Item)}, ${names.table(b.Shelf)}, ${names.table(b.Slot)}`,

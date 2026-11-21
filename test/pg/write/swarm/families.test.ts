@@ -8,7 +8,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, recorded } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { type LawId } from "#compiler/core/ids.ts"
@@ -165,7 +165,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 										`${label}: refused when it compiles, ${error.message}, where the oracle expects ${expected.kind}`
 									)
 								}
-								const served = onceCalls(flight.context, member(loaded.success, "step"))
+								const served = memberCalls(flight.context, member(loaded.success, "step"))
 								const applied = yield* Effect.result(
 									flight.judged(label, answered(writeOnce(served)({ params, facts })))
 								)

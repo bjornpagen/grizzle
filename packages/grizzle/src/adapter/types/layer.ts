@@ -244,11 +244,12 @@ export type LoginBase<L> = L extends { readonly base: infer B } ? B : never
 /**
  * What a login's type proves of its live reads, the one decision LiveOf and a served login's decoder (DecoderOf) read:
  * `none`, no member serves one; `some`, a member does; or `may`, the type cannot tell. A member serves a live read
- * unless its answer is a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's, or a read's at its
- * call's instant (a clocked member's), which registers no watch; every other read needs the live source, a read of
- * closed relations alone too, for the version notice a migration ends its watch with. Exactly a workload that serves
- * one plans a query program (engine program/workload/compile.ts servesRead), so `grizzle generate` gives a `none`
- * login's served file no live source and a `some` login's the installation's.
+ * unless its answer is a write's (engine live/program.ts ShapeOf), a ChangeSet's or a refresh's, or an answered read's
+ * (workload Answered, a clocked member's among them), at its call's instant alone, which registers no watch; every
+ * other read needs the live source, a read of closed relations alone too, for the version notice a migration ends its
+ * watch with. Exactly a workload that serves one plans a live query program (engine program/workload/compile.ts
+ * servesRead), so `grizzle generate` gives a `none` login's served file no live source and a `some` login's the
+ * installation's: a login whose reads are all answered, beside its writes, opens with no LiveSource.
  */
 type Reads = "none" | "some" | "may"
 

@@ -96,10 +96,14 @@ export default defineConfig({
   `{ kind: "start" }`, `{ kind: "after", key }`, `{ kind: "end" }`, `{ kind: "before", key }` or
   `{ kind: "at", position }`, a key a row's `RowKey` and a position the count of rows before the window (page `n` of
   size `m` is position `(n - 1) * m`; its statement is OFFSET, linear in the position, so page by key wherever the API
-  allows); generate compiles a page template for no other member. The member `clocked(program, { now: "millis" })`
+  allows); generate compiles a page template for no other member. The member `answered(read)`, of a query, an ordered
+  query, a `paged(...)` one or a key, is answered at its call's instant alone and never live: its handle holds `once`
+  and its explains, no `watch`, over HTTP it is reset, upserts, ready then end, its CLI has no `--follow`, and a login
+  whose reads are all answered needs no `LiveSource` (a serverless route's ops login). The member
+  `clocked(program, { now: "millis" })`
   binds the bigint parameter `now` of a query, an ordered query or a ChangeSet to the database's clock, the instant
   the call's transaction began, in `"micros"` or `"millis"`: the input omits it, every statement of the call reads the
-  one instant, and a clocked read answers `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
+  one instant, and a clocked read is an answered one with its clock, answering `once` alone, never live. Bind a lease's, a timer's or a due instant's `now`
   so, never the host's clock; a reading lies in PostgreSQL's timestamptz range in its unit, so `now + delay`, the delay a
   contract its predicate bounds, casts into its field with no guard where those bounds fit (millis: into a bigint).
   Rows an array or a Stream inserts take such a field from the call: `insertComputed(Claim, [], { until: Type.cast(
@@ -120,8 +124,8 @@ export default defineConfig({
   reading one is refused (`UnfillableField`, `stamped`), and two owners of one call in one group meet at the owner's
   key. A migration adding `place` to stored rows gives each place 0
   where the new key holds the old one, and is refused elsewhere; `place.by(field)`, beside a key within the group and
-  the field, numbers the stored rows by the field (README "Places"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key or
-  a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE
+  the field, numbers the stored rows by the field (README "Places"). The member `deferrable(read)`, of a query, an ordered query, a `paged(...)` one, a key, an
+  answered or a clocked read, reads in a SERIALIZABLE READ ONLY DEFERRABLE transaction: it waits until every SERIALIZABLE
   read-write transaction running on the cluster when it began has ended, then never fails with a serialization
   failure, never makes another transaction fail and holds no predicate lock. A plain read answers at once and may
   fail retryably: use `deferrable` for a scan or status read that must not fail and can wait, a plain read where an

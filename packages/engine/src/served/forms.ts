@@ -126,7 +126,7 @@ export interface ServedPrologue {
 /**
  * What every session of a login sends that no program states, emitted at generate: the startup options pinning its
  * role's defaults (physical/ddl/roles.ts loginStartupOptions), each transaction's BEGIN, and its COMMIT and ROLLBACK.
- * A read begins SERIALIZABLE READ ONLY, `deferrable` where its member declares it (ServedInstantRead deferrable), else
+ * A read begins SERIALIZABLE READ ONLY, `deferrable` where its member declares it (ServedRead deferrable), else
  * `immediate`; a write begins read write at its role's level (ServedRoleForm isolation), or a refresh at SERIALIZABLE.
  */
 export interface ServedSession {
@@ -174,8 +174,8 @@ export interface UncoveredRead {
 
 /**
  * An installation's live change source as a served file holds it (live/notify.ts LiveSource), emitted at generate
- * (program/live.ts servedLiveOf): none where the login has no read, or where the file serves its reads' once calls
- * alone (adapter served/compile.ts onceEntryOf); otherwise its names and the texts its leader and its listeners send,
+ * (program/live.ts servedLiveOf): none where the login has no live read, every read of it answered (ServedReadLive
+ * `answered`); otherwise its names and the texts its leader and its listeners send,
  * since every watch needs the source, a constant read's for the version notice a migration ends it with. The leader is
  * the one process at a time holding `lock`, sent first on the decoder login's replication connection, which takes
  * simple queries alone, each one of this source's texts: `lock`,
@@ -280,27 +280,24 @@ export interface ServedContext {
 }
 
 /**
- * One program of a role's workload, by name, as its compile serves it: a query or ordered query read for its rows; one
- * whose member binds a parameter to the database's clock, read at the instant its call's transaction began and never
- * live, since time passing is no change; an ordered query that pages, with its page; a key, whose lookup reads by the
- * key's values; a ChangeSet, compiled for each set of its fill contexts that may hold a fact; or a refresh of
+ * One program of a role's workload, by name, as its compile serves it: a query or ordered query read for its rows; an
+ * ordered query that pages, with its page; a key, whose lookup reads by the key's values, each read live or answered
+ * (ServedReadLive); a ChangeSet, compiled for each set of its fill contexts that may hold a fact; or a refresh of
  * materialized derived relations, its targets in refresh order.
  */
 export type ServedMemberForm = MemberForm<{
 	readonly read: ServedRead
-	readonly instant: ServedInstantRead
 	readonly page: ServedPage
 	readonly variants: ServedVariants
 }>
 
 /**
- * What a program of a role's workload is read by, part by part: a read's and a key's read, a clocked read's, a paged
+ * What a program of a role's workload is read by, part by part: a read's, a key's and a paged one's read, a paged
  * read's page and a ChangeSet's variants, as a served file holds them (ServedMemberForm) or as a layer loaded them
  * (packages/grizzle adapter/served/load.ts LoadedMember).
  */
 export interface MemberParts {
 	readonly read: unknown
-	readonly instant: unknown
 	readonly page: unknown
 	readonly variants: unknown
 }
@@ -308,7 +305,6 @@ export interface MemberParts {
 /** One program of a role's workload, by name, of each kind its form takes (ServedMemberForm), over its parts `P`. */
 export type MemberForm<P extends MemberParts> = { readonly name: string } & (
 	| { readonly kind: "read"; readonly read: P["read"] }
-	| { readonly kind: "instant"; readonly read: P["instant"] }
 	| { readonly kind: "paged"; readonly read: P["read"]; readonly page: P["page"] }
 	| { readonly kind: "key"; readonly fields: ReadonlyArray<string>; readonly read: P["read"] }
 	| { readonly kind: "change"; readonly variants: P["variants"] }
@@ -353,21 +349,26 @@ export interface ServedRefresh {
 }
 
 /**
- * What wakes a read's watch, from its footprint (logical/routes.ts Footprint): `constant`, a read of closed relations
- * alone, whose rows only a migration changes, so its watch subscribes to no row, and only the installation's version
- * notice ends it; `routed`, every other, by its footprint's tables and views, at least one, and their routes.
+ * How a read is called: `answered`, at its call's instant alone and never live, a read its member declares answered(...)
+ * or a clocked one, since no change wakes it and time passing is no change, so its calls hold no watch, it subscribes
+ * to nothing and needs no live source; or live, its watch woken from its footprint (logical/routes.ts Footprint):
+ * `constant`, a read of closed relations alone, whose rows only a migration changes, so its watch subscribes to no row,
+ * and only the installation's version notice ends it; `routed`, every other, by its footprint's tables and views, at
+ * least one, and their routes. Whether an answered read reads the database's clock is its program's to state: under a
+ * moved clock it declares the clock's offset (check/clock.ts sourcedParams).
  */
 export type ServedReadLive =
+	| { readonly kind: "answered" }
 	| { readonly kind: "constant" }
 	| { readonly kind: "routed"; readonly footprint: ServedFootprint }
 
 /**
  * A query or ordered query compiled for a role's rows, as one call reads it: whether its member is declared
  * deferrable(...), the declared parameters a call supplies, its artifact, which prints a parameter its member binds to
- * the database's clock as the reading itself, its delivered spine, the decoder of its records, and the key each of its
- * delivered rows is told apart by. An instant member's read is this alone.
+ * the database's clock as the reading itself, its delivered spine, the decoder of its records, the key each of its
+ * delivered rows is told apart by, and how it is called, answered or live (ServedReadLive).
  */
-export interface ServedInstantRead {
+export interface ServedRead {
 	/**
 	 * Whether its member is declared deferrable(...): its transaction begins SERIALIZABLE READ ONLY DEFERRABLE, so it
 	 * waits for a safe snapshot, until every SERIALIZABLE read-write transaction running on the cluster when it began
@@ -381,10 +382,6 @@ export interface ServedInstantRead {
 	readonly spine: ServedSpine
 	readonly decoder: DecoderForm
 	readonly key: ServedKey
-}
-
-/** A read a call may watch: its instant read, and what wakes a watch of it (ServedReadLive). */
-export interface ServedRead extends ServedInstantRead {
 	readonly live: ServedReadLive
 }
 

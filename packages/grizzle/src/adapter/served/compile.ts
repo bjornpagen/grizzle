@@ -9,7 +9,7 @@ import {
 	plannedLoginRoles,
 	workloadSlice
 } from "#adapter/served/login.ts"
-import { type ReadsServed, servedFileOf, type UncoveredProgram } from "#adapter/served/project.ts"
+import { servedFileOf, type UncoveredProgram } from "#adapter/served/project.ts"
 import { lawsAbove } from "#adapter/witness/keylaw.ts"
 import {
 	type ChangeRefused,
@@ -197,37 +197,15 @@ const projectionRefusal = (
 		: atLogin(refused)
 
 /**
- * The served file a login's compile projects with its reads served as `reads` says (adapter/served/project.ts
- * servedFileOf), with its canonical text and its OpenAPI document's.
- */
-const entryOf = (
-	compiled: CompiledServed,
-	reads: ReadsServed
-): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.gen(function* () {
-		const file = yield* Effect.mapError(
-			Effect.fromResult(servedFileOf(compiled, reads)),
-			projectionRefusal
-		)
-		const text = yield* Effect.mapError(fromEngine(servedText(file)), atLogin)
-		const openapi = yield* Effect.mapError(fromEngine(openApiText(file)), atLogin)
-		return { login: compiled.login.name, file, text, openapi }
-	})
-
-/**
- * The served file of a login's compile, its reads called by `watch` and `once` (entryOf): what generate writes and an
- * application's DbLayer serves, so a read whose footprint its snapshot's live source does not decode is refused.
+ * The served file a login's compile projects (adapter/served/project.ts servedFileOf), with its canonical text and its
+ * OpenAPI document's: what generate writes and an application's DbLayer serves, so a live read whose footprint its
+ * snapshot's live source does not decode is refused, and an answered one, which no change wakes, needs none of it.
  */
 export const servedEntryOf = Effect.fn("servedEntryOf")(function* (compiled: CompiledServed) {
-	return yield* entryOf(compiled, "watched")
-})
-
-/**
- * The served file of a login's compile, its reads called by `once` alone (entryOf): one whose members a test serves
- * through adapter/db/handles.ts onceCalls, never a DbLayer, so its reads need no live source and it holds none.
- */
-const onceEntryOf = Effect.fn("onceEntryOf")(function* (compiled: CompiledServed) {
-	return yield* entryOf(compiled, "once")
+	const file = yield* Effect.mapError(Effect.fromResult(servedFileOf(compiled)), projectionRefusal)
+	const text = yield* Effect.mapError(fromEngine(servedText(file)), atLogin)
+	const openapi = yield* Effect.mapError(fromEngine(openApiText(file)), atLogin)
+	return { login: compiled.login.name, file, text, openapi }
 })
 
 /**
@@ -307,16 +285,6 @@ export const snapshotServedEntry = (
 	snapshot: unknown
 ): Effect.Effect<ServedEntry, ServedRefusal> =>
 	Effect.flatMap(snapshotCompiled(login, snapshot, transactionClock), servedEntryOf)
-
-/**
- * The served file of `login` under `snapshot` alone, its reads called once alone (`snapshotCompiled`, then
- * `onceEntryOf`): adapter/public/compile.ts compileServedOnce's.
- */
-export const snapshotOnceEntry = (
-	login: ServedInput,
-	snapshot: unknown
-): Effect.Effect<ServedEntry, ServedRefusal> =>
-	Effect.flatMap(snapshotCompiled(login, snapshot, transactionClock), onceEntryOf)
 
 /**
  * The served file of `login` under `snapshot` alone (`snapshotCompiled`, then `servedEntryOf`), every reading of the

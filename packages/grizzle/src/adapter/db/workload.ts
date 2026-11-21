@@ -1,5 +1,6 @@
 import type { ChangeForm } from "#adapter/apply/index.ts"
 import type { ReadForm, RowsForm } from "#adapter/reader/reader.ts"
+import type { ReadCalled } from "#compiler/plan/change.ts"
 import type { NonEmptyReadonlyArray } from "#compiler/plan/common.ts"
 import type { ServedRefreshTarget } from "#compiler/plan/serve.ts"
 
@@ -19,16 +20,16 @@ export type ChangeVariants =
 
 /**
  * One program of a login's workloads, compiled once by the layer for one role: a query or ordered query, read for its
- * rows; one whose member binds parameters to the database's clock, read at its call's instant (clocked); an ordered
- * query that pages (paged), with its page template; a key, whose lookup query reads by the key's values, each read
- * deferrable where its member is deferrable(...); or a ChangeSet, compiled for each set of its fill contexts that may
- * hold a fact, since a write into a query entry compiles for the contexts the Db's claims hold
+ * rows, its parameters a clocked member binds bound to the database's clock; an ordered query that pages (paged), with
+ * its page template; a key, whose lookup query reads by the key's values, each read deferrable where its member is
+ * deferrable(...) and called as its Description says (engine program/workload/value.ts readCalled): live, or answered
+ * at its call's instant alone, as an answered(...) or a clocked member is; or a ChangeSet, compiled for each set of its
+ * fill contexts that may hold a fact, since a write into a query entry compiles for the contexts the Db's claims hold
  * (write/frontend/entry.ts).
  */
 export type WorkloadForm = { readonly name: string } & (
-	| ({ readonly deferrable: boolean } & (
+	| ({ readonly deferrable: boolean; readonly called: ReadCalled } & (
 			| { readonly kind: "read"; readonly form: RowsForm<unknown> }
-			| { readonly kind: "instant"; readonly form: RowsForm<unknown> }
 			| { readonly kind: "paged"; readonly form: ReadForm<unknown> }
 			| {
 					readonly kind: "key"

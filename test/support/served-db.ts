@@ -1,16 +1,11 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Layer, Option, Record as Rec, Result, type Scope } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { changeApplication, onceCalls, type OnceCalls, variantOf } from "#adapter/db/handles.ts"
+import { changeApplication, memberCalls, type OnceCalls, variantOf } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
 import type { ApplyError, OpenError } from "#adapter/errors/execution.ts"
-import {
-	compileServed,
-	compileServedMoved,
-	compileServedOnce,
-	type ServedRefusal
-} from "#adapter/public/compile.ts"
+import { compileServed, compileServedMoved, type ServedRefusal } from "#adapter/public/compile.ts"
 import { served } from "#adapter/public/layer.ts"
 import { compiledWrite } from "#adapter/served/forms.ts"
 import { type LoadedMember, loadServed } from "#adapter/served/load.ts"
@@ -19,14 +14,16 @@ import type { ApplyOutcome } from "#adapter/types/db.ts"
 import type { ServedLogin, ServedRole } from "#adapter/types/layer.ts"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
+import { isRecord } from "#compiler/core/record.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { projectWrite } from "#compiler/plan/change.ts"
-import { servedReadBacks } from "#compiler/plan/read.ts"
+import { isOrderedValue, isQueryValue, servedReadBacks } from "#compiler/plan/read.ts"
 import { defect } from "#compiler/plan/runtime.ts"
 import type { ServedTables } from "#compiler/plan/serve.ts"
 import { programsOn } from "#compiler/program/workload/roles.ts"
-import { workload } from "#compiler/program/workload/value.ts"
+import { answeredMember, deferrableMember, workload } from "#compiler/program/workload/value.ts"
 import type { AnyLogin, AnyLoginRole, AnyRole } from "#compiler/public/schema.ts"
+import { isKeyPosition } from "#compiler/query/build/key.ts"
 import type { ServedMember, ServedRoleForm, ServedVariants } from "#compiler/served/forms.ts"
 import { servedFile, servedText } from "#compiler/served/json.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
@@ -58,8 +55,9 @@ import { testVerify, tokenOf } from "#test/support/worlds.ts"
  *   `db.workload.<member>`.
  * - withServedDb: one Db of a role per installation, opened through its login's served layer, whose `serve` compiles a
  *   test's drawn programs into members of the role's workload, each loaded and run on that Db's context: the same pool,
- *   prologue and claims, each by its once alone (adapter/db/handles.ts onceCalls): the programs are drawn after the
- *   installation, which installed no live source for them, so a watch through `serve` does not compile.
+ *   prologue and claims, each by its once (adapter/db/handles.ts memberCalls): the programs are drawn after the
+ *   installation, which installed no live source for them, so each read is served answered (answeredPrograms), never
+ *   live.
  * - servedOn: the same `load` and `serve` over a served Db's context a test opened itself.
  *
  * The served file of `login` with `workloads` in place of its own, compiled under the snapshot the installation reached
@@ -279,8 +277,9 @@ export const Served = {
  * One Db of a role over an installation: its context, which every member it serves runs over; `load`, which compiles
  * `programs`, each a program workload(...) admits (a query, an ordered query, paged(...) of one, a ChangeSet, a
  * relation's key or refresh(relations)), into members of the role's workload under their names, and gives each one loaded, by
- * name, for a test that runs it over a context of its own (adapter/db/handles.ts onceCalls) or reads its loaded
- * program; and `serve`, which gives each one's once over the context, by name, by its answer's shape (OnceCalls).
+ * name, for a test that runs it over a context of its own (adapter/db/handles.ts memberCalls) or reads its loaded
+ * program; and `serve`, which gives each one's once over the context, by name, by its answer's shape (OnceCalls). Each
+ * read among `programs` is served answered (answeredPrograms).
  */
 export interface ServedDb {
 	readonly ctx: ServedDbContext
@@ -368,20 +367,46 @@ export const withServedDb = <A, E, R>(
 	})
 
 /**
+ * A program as a Db over an installation that installed no live source for it serves it: a live read answered
+ * (workload answered), a deferrable one's read within its deferrable(...), so no change wakes it, its served file
+ * holds no live source for it and the snapshot's live source decodes none of its footprint; every other program, a
+ * ChangeSet, a clocked one, which is answered already, a refresh, or a value no workload admits, as it stands.
+ */
+const answeredRead = (program: unknown): unknown => {
+	if (
+		isQueryValue(program) ||
+		isOrderedValue(program) ||
+		isKeyPosition(program) ||
+		(isRecord(program) && Rec.has(program, "paged"))
+	) {
+		return answeredMember(program)
+	}
+	return isRecord(program) && Rec.has(program, "deferrable")
+		? deferrableMember(answeredRead(program["deferrable"]))
+		: program
+}
+
+/** `programs` with each read answered (answeredRead), under their names. */
+export const answeredPrograms = (
+	programs: Readonly<Record<string, unknown>>
+): Readonly<Record<string, unknown>> => Rec.map(programs, answeredRead)
+
+/**
  * `load` and `serve` over `ctx`, a Db of `role` a test opened through its login's served layer, whose file was compiled
- * under `snapshot`, the JSON value of a snapshot.json: each call compiles its programs into one served file of the login
- * under that snapshot for once calls alone (adapter/public/compile.ts compileServedOnce, whose file's live is none), the
- * role's workload holding exactly them, loads it, and gives each member loaded, or its once on `ctx`, by name.
+ * under `snapshot`, the JSON value of a snapshot.json: each call compiles its programs, each read answered
+ * (answeredPrograms), into one served file of the login under that snapshot (adapter/public/compile.ts compileServed,
+ * whose file's live is none where none is live), the role's workload holding exactly them, loads it, and gives each
+ * member loaded, or its once on `ctx`, by name.
  */
 const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): ServedOn => {
 	const login = role.login
 	const loadWithTables: ServedDb["loadWithTables"] = (programs) =>
 		Effect.gen(function* () {
 			const json = yield* Effect.suspend(() =>
-				compileServedOnce(login, snapshot, [workload(role.role, programs)])
+				compileServed(login, snapshot, [workload(role.role, answeredPrograms(programs))])
 			)
 			const loaded = yield* Effect.fromResult(
-				loadServed(succeeded(servedFile(json), "the once file of the login"), login.name)
+				loadServed(succeeded(servedFile(json), "the answered file of the login"), login.name)
 			)
 			return {
 				members: new Map(
@@ -402,7 +427,7 @@ const servedOn = (snapshot: unknown, role: AnyLoginRole, ctx: ServedDbContext): 
 				new Map(
 					Arr.map([...loaded], ([name, m]): readonly [string, OnceCalls] => [
 						name,
-						onceCalls(ctx, m)
+						memberCalls(ctx, m)
 					])
 				)
 		)

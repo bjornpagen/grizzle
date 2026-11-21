@@ -33,7 +33,7 @@ import { aimed } from "@bjornpagen/testing/gen"
 import { passed } from "@bjornpagen/testing/lsw"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Result, String as Str } from "effect"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import {
 	callersParams,
 	classFault,
@@ -97,7 +97,7 @@ export const applyErrorThroughThePublicAPIAValueItsCodecRefusesIsRefusedAsInputN
 								const mark = tap.mark()
 								const change = member(members, c.form)
 								assertVariant(change, "kind", "change", "a ChangeSet loads as a change member")
-								const calls = onceCalls(tapped, change)
+								const calls = memberCalls(tapped, change)
 								const takes = variantOf(tapped, change.variants).call.kind
 								const outcome = yield* Effect.result(
 									c.form === "parameter"

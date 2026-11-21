@@ -1975,8 +1975,16 @@ export interface PlannedChangeSetDesc<L = Located> {
 	readonly bindings: ReadonlyArray<string>
 }
 
+/**
+ * A program of a workload as its member serves it: a query or ordered query read live (`query`), its watch woken by
+ * each change of what it reads; one answered at its call's instant alone and never live (`answered`, workload
+ * answered), since no change wakes it; a ChangeSet; or one of an answered read and a ChangeSet with parameters bound
+ * to the database's clock (`clocked`), so a clocked read is an answered one with its clock, time passing being no
+ * change.
+ */
 export type ProgramDesc<L = Located> =
 	| { readonly kind: "query"; readonly query: QueryDesc<L> }
+	| { readonly kind: "answered"; readonly query: QueryDesc<L> }
 	| { readonly kind: "changeSet"; readonly changeSet: ChangeSetDesc<L> }
 	| {
 			readonly kind: "clocked"
@@ -1986,12 +1994,21 @@ export type ProgramDesc<L = Located> =
 
 /**
  * A program a served member binds parameters of to the database's clock, by their declared names, each with its unit
- * (workload clocked): a query, an ordered query or a ChangeSet.
+ * (workload clocked): an answered query or ordered query, which no change wakes, or a ChangeSet. A live read binds
+ * none, so none is clocked.
  */
-export type ClockedProgramDesc<L = Located> = Exclude<ProgramDesc<L>, { readonly kind: "clocked" }>
+export type ClockedProgramDesc<L = Located> = Extract<
+	ProgramDesc<L>,
+	{ readonly kind: "answered" | "changeSet" }
+>
 
-/** The query or ChangeSet a program runs, whatever parameters its member binds to the clock. */
-export const unclocked = <L>(program: ProgramDesc<L>): ClockedProgramDesc<L> =>
+/**
+ * The program a member runs, whatever parameters it binds to the clock: a live read, an answered one or a ChangeSet,
+ * a clocked one's program.
+ */
+export const unclocked = <L>(
+	program: ProgramDesc<L>
+): Exclude<ProgramDesc<L>, { readonly kind: "clocked" }> =>
 	program.kind === "clocked" ? program.program : program
 
 /** The exported query workload. */
@@ -3630,7 +3647,7 @@ const changeSetDescShape: S.Shape<ChangeSetDesc> = S.audited(
 )
 
 const clockedProgramShape: S.Shape<ClockedProgramDesc> = S.tagged("kind", {
-	query: S.struct({ query: queryDescShape }),
+	answered: S.struct({ query: queryDescShape }),
 	changeSet: S.struct({ changeSet: changeSetDescShape })
 })
 
@@ -3646,6 +3663,7 @@ const workloadDescShape: S.Shape<WorkloadDesc> = S.struct({
 	programs: S.recordShape(
 		S.tagged("kind", {
 			query: S.struct({ query: queryDescShape }),
+			answered: S.struct({ query: queryDescShape }),
 			changeSet: S.struct({ changeSet: changeSetDescShape }),
 			clocked: S.struct({ clock: clockBindingShape, program: clockedProgramShape })
 		}),

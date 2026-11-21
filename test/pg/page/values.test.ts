@@ -27,7 +27,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { windowCall } from "#adapter/page/window.ts"
 import { keyOf } from "#compiler/live/index.ts"
 import { paged } from "#compiler/public/workload.ts"
@@ -122,10 +122,10 @@ export const boundaryValuesThroughThePageRuntimeCutsDOfDrawnEdgeValuesOfEveryOrd
 								Option.getOrThrow
 							)
 							const pagedMember = member(loaded, `paged${at}`)
-							const q = onceCalls(dbCtx, pagedMember)
+							const q = memberCalls(dbCtx, pagedMember)
 							const compiled = pageTemplate(pagedMember, opened.installed.names.codes)
 							const runtime = compiled.runtime
-							const rows = yield* readOnce(onceCalls(dbCtx, member(loaded, `unpaged${at}`)))({
+							const rows = yield* readOnce(memberCalls(dbCtx, member(loaded, `unpaged${at}`)))({
 								params: {},
 								facts: {}
 							})

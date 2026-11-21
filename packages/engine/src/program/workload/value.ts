@@ -5,7 +5,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
 import { deepFreeze, hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import { type ClockBinding, noClock } from "#compiler/ir/clock.ts"
-import { declaredNameAt, type ProgramDesc, type WorkloadDesc } from "#compiler/ir/desc.ts"
+import {
+	declaredNameAt,
+	type ProgramDesc,
+	type QueryDesc,
+	type WorkloadDesc
+} from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import {
 	levelSchema,
@@ -25,30 +30,65 @@ import {
 import { builderLoc, builderRefusal, malformed } from "#compiler/schema/protocol.ts"
 import { derivedDraftOf } from "#compiler/schema/relation.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
-import type { Clocked, Deferrable, Paged, Refresh, Workload } from "#compiler/types/db/workload.ts"
+import type {
+	Answered,
+	Clocked,
+	Deferrable,
+	Paged,
+	Refresh,
+	Workload
+} from "#compiler/types/db/workload.ts"
 import {
 	type ChangeSetValue,
 	changeSetState,
 	isChangeSetValue
 } from "#compiler/write/changeset/value.ts"
 
-type QueryProgramDesc = Extract<ProgramDesc, { readonly kind: "query" }>
+/**
+ * A read's Description as its member serves it, which reads no clock: live (`query`), or answered at its call's instant
+ * alone (`answered`), where answered(...) made its member (answeredMember).
+ */
+type UnclockedReadDesc = Extract<ProgramDesc, { readonly kind: "query" | "answered" }>
 
 /**
- * A read program value of a workload, by kind, as the builders made it, with its Description: a query, an ordered
- * query read only, one that pages (paged), whose Description is its ordered query's, or a query or ordered query whose
- * member binds parameters to the database's clock (clocked), read at its call's instant and never live.
+ * A query or ordered query's Description as its member serves it (UnclockedReadDesc), or, where its member binds
+ * parameters to the database's clock (clocked), the answered read under that binding, never live, since time passing
+ * is no change: the one place a read's liveness and its clock are stated.
+ */
+export type ReadDesc =
+	| UnclockedReadDesc
+	| {
+			readonly kind: "clocked"
+			readonly clock: ClockBinding
+			readonly program: Extract<ProgramDesc, { readonly kind: "answered" }>
+	  }
+
+/**
+ * How a read member is called: `live`, its watch woken by each change of its footprint, or `answered`, at its call's
+ * instant alone, never live.
+ */
+export type ReadCalled = "live" | "answered"
+
+/** How a read is called, read off its Description (ReadDesc): answered where its program is, a clocked read's too. */
+export const readCalled = (desc: ReadDesc): ReadCalled => {
+	const program = desc.kind === "clocked" ? desc.program : desc
+	switch (program.kind) {
+		case "query":
+			return "live"
+		case "answered":
+			return "answered"
+	}
+}
+
+/**
+ * A read program value of a workload, by kind, as the builders made it, with its Description (ReadDesc): a query, an
+ * ordered query read only, or one that pages (paged), whose Description is its ordered query's, which a clock never
+ * reads.
  */
 type ReadValue =
-	| { readonly kind: "query"; readonly value: QueryValue; readonly desc: QueryProgramDesc }
-	| { readonly kind: "ordered"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
-	| {
-			readonly kind: "instant"
-			readonly value: QueryValue | OrderedValue
-			readonly desc: QueryProgramDesc
-			readonly clock: ClockBinding
-	  }
-	| { readonly kind: "paged"; readonly value: OrderedValue; readonly desc: QueryProgramDesc }
+	| { readonly kind: "query"; readonly value: QueryValue; readonly desc: ReadDesc }
+	| { readonly kind: "ordered"; readonly value: OrderedValue; readonly desc: ReadDesc }
+	| { readonly kind: "paged"; readonly value: OrderedValue; readonly desc: UnclockedReadDesc }
 
 /** A program value of a workload, by kind, as the builders made it, with its Description: a read or a ChangeSet. */
 type ProgramValue =
@@ -63,15 +103,16 @@ type ProgramValue =
 /**
  * One program of a workload, by kind, as `grizzle generate` compiles it: a query or ordered query value, or a key,
  * which reads through its lookup query (query/build/key.ts keyQuery) at the key position the workload admitted, each
- * a read, deferrable where its member is deferrable(...) (deferrableMember), and a ChangeSet value, each with the
- * Description the migration generator plans (a key's is its lookup's, built over the workload's schema); or a refresh
- * of materialized derived relations, which plans nothing and reads no relation's law, so it has none: the compile
- * resolves its relations against the role that runs it.
+ * a read, deferrable where its member is deferrable(...) (deferrableMember) and answered where it is answered(...)
+ * (answeredMember) or clocked, and a ChangeSet value, each with the Description the migration generator plans (a key's
+ * is its lookup's, built over the workload's schema); or a refresh of materialized derived relations, which plans
+ * nothing and reads no relation's law, so it has none: the compile resolves its relations against the role that runs
+ * it.
  */
 export type WorkloadProgram = { readonly name: string } & (
 	| ({ readonly deferrable: boolean } & (
 			| ReadValue
-			| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: QueryProgramDesc }
+			| { readonly kind: "key"; readonly target: KeyPosition; readonly desc: UnclockedReadDesc }
 	  ))
 	| Extract<ProgramValue, { readonly kind: "changeSet" }>
 	| { readonly kind: "refresh"; readonly relations: NonEmptyReadonlyArray<unknown> }
@@ -104,14 +145,17 @@ interface ProgramFound {
 	readonly schema: Over | undefined
 }
 
-/** A query or ordered query value, as `program` names it with its Description, and the schema it was written over. */
+/**
+ * A query or ordered query value, as `program` names it with its query's Description, and the schema it was written
+ * over.
+ */
 const queryFound = (
-	program: (desc: QueryProgramDesc) => ProgramValue,
+	program: (query: QueryDesc) => ProgramValue,
 	value: QueryValue | OrderedValue
 ): ProgramFound => {
 	const input = orThrow(queryInput(value))
 	return {
-		program: program({ kind: "query", query: input.desc }),
+		program: program(input.desc),
 		schema: input.kind === "built" ? input.schema : undefined
 	}
 }
@@ -180,8 +224,9 @@ const clockBinding = (binding: unknown): ClockBinding => {
 /**
  * clocked(program, binding): the workload member that serves `program`, a query, an ordered query or a ChangeSet, with
  * each parameter `binding` names bound to the database's clock in its unit: the instant the call's transaction began,
- * transaction_timestamp(), one value in every statement of the call, which no call supplies. A clocked read is read at
- * that instant and never live, since time passing is no change: its handle answers `once` alone. Whether each name is
+ * transaction_timestamp(), one value in every statement of the call, which no call supplies. A clocked read is an
+ * answered one (answeredMember) with its clock, read at that instant and never live, since time passing is no change:
+ * its handle answers `once` alone. Whether each name is
  * a bigint parameter of the program is the compile's to judge (check/clock.ts clockParams); a program that is none of
  * the three, a paged one among them, and a binding of no parameter or of a unit that is no clock unit throw CompileError
  * MalformedDescription synchronously.
@@ -204,12 +249,45 @@ export const clockedMember = <X, B>(
 	return value
 }
 
+/** The read each value answered(...) made answers (answeredMember). */
+const answeredValues = new WeakMap<object, unknown>()
+
+/**
+ * answered(read): the workload member that answers `read`, a query, an ordered query, a paged(...) ordered query or a
+ * relation's key, at its call's instant alone and never live: its handle holds `once`, its explains and no `watch`, and
+ * over HTTP its answer is its reset, its upserts, its ready, then its end, since no change wakes it. Its workload plans
+ * no footprint for it, so a login whose reads are all answered serves no live read and its layer needs no live source.
+ * A clocked read is answered already, with its clock (clockedMember). A value that is no such read, a ChangeSet, a
+ * clocked one, a refresh, a deferrable and an answered member among them, throws CompileError MalformedDescription
+ * synchronously.
+ */
+export const answeredMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): Answered<X> => {
+	if (extra.length > 0) {
+		throw malformed("answered", "answered(read): one argument")
+	}
+	const isRead =
+		(hasProperties(read) && pagedValues.has(read)) ||
+		isQueryValue(read) ||
+		isOrderedValue(read) ||
+		isKeyPosition(read)
+	if (!isRead) {
+		throw malformed(
+			"answered",
+			"answered takes a read: a query, an ordered query, a paged one or a relation's key"
+		)
+	}
+	const value: Answered<X> = Object.freeze({ answered: read })
+	answeredValues.set(value, read)
+	return value
+}
+
 /** The read each value deferrable(...) made reads (deferrableMember). */
 const deferrableValues = new WeakMap<object, unknown>()
 
 /**
  * deferrable(read): the workload member that runs `read`, a query, an ordered query, a paged(...) ordered query, a
- * relation's key or a clocked(...) query or ordered query, in a SERIALIZABLE READ ONLY DEFERRABLE transaction: each
+ * relation's key, an answered(...) one or a clocked(...) query or ordered query, in a SERIALIZABLE READ ONLY DEFERRABLE
+ * transaction: each
  * call waits for a safe snapshot, until every SERIALIZABLE read-write transaction running on the cluster when it began
  * has ended, then reads untracked by SSI, so it never fails with a serialization failure, never dooms another
  * transaction and holds no SIRead lock. Any other read member reads at once, may fail retryably, and holds its SIRead
@@ -222,7 +300,7 @@ export const deferrableMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): 
 	}
 	const clocked = hasProperties(read) ? clockedValues.get(read) : undefined
 	const isRead =
-		(hasProperties(read) && pagedValues.has(read)) ||
+		(hasProperties(read) && (pagedValues.has(read) || answeredValues.has(read))) ||
 		isQueryValue(read) ||
 		isOrderedValue(read) ||
 		isKeyPosition(read) ||
@@ -230,7 +308,7 @@ export const deferrableMember = <X>(read: X, ...extra: ReadonlyArray<unknown>): 
 	if (!isRead) {
 		throw malformed(
 			"deferrable",
-			"deferrable takes a read: a query, an ordered query, a paged one, a relation's key or a clocked one"
+			"deferrable takes a read: a query, an ordered query, a paged one, a relation's key, an answered one or a clocked one"
 		)
 	}
 	const value: Deferrable<X> = Object.freeze({ deferrable: read })
@@ -277,22 +355,32 @@ export const refreshMember = <Rs extends NonEmptyReadonlyArray<unknown>>(
 
 /**
  * One program value, its Description and the schema it was written over, when it is a query, ordered query, paged
- * ordered query or ChangeSet value; undefined otherwise.
+ * ordered query, clocked or ChangeSet value; undefined otherwise. A read's Description is `served` of its query's: live,
+ * or answered where its member is answered(...); a clocked read's is its answered query under its clock.
  */
-const programDescOf = (program: unknown): ProgramFound | undefined => {
+const programDescOf = (
+	program: unknown,
+	served: (query: QueryDesc) => UnclockedReadDesc
+): ProgramFound | undefined => {
 	const clocked = hasProperties(program) ? clockedValues.get(program) : undefined
 	if (clocked !== undefined) {
 		return clockedFound(clocked.program, clocked.clock)
 	}
 	const pagedQuery = hasProperties(program) ? pagedValues.get(program) : undefined
 	if (pagedQuery !== undefined) {
-		return queryFound((desc) => ({ kind: "paged", value: pagedQuery, desc }), pagedQuery)
+		return queryFound(
+			(query) => ({ kind: "paged", value: pagedQuery, desc: served(query) }),
+			pagedQuery
+		)
 	}
 	if (isQueryValue(program)) {
-		return queryFound((desc) => ({ kind: "query", value: program, desc }), program)
+		return queryFound((query) => ({ kind: "query", value: program, desc: served(query) }), program)
 	}
 	if (isOrderedValue(program)) {
-		return queryFound((desc) => ({ kind: "ordered", value: program, desc }), program)
+		return queryFound(
+			(query) => ({ kind: "ordered", value: program, desc: served(query) }),
+			program
+		)
 	}
 	return changeSetFound(program, noClock)
 }
@@ -317,26 +405,34 @@ const changeSetFound = (program: unknown, clock: ClockBinding): ProgramFound | u
 
 /**
  * The program a clocked member serves, with its Description and the schema it was written over: a query or ordered
- * query read at its call's instant (`instant`), or a ChangeSet with its binding.
+ * query answered at its call's instant alone under its binding, or a ChangeSet with its binding.
  */
 const clockedFound = (
 	program: QueryValue | OrderedValue | ChangeSetValue,
 	clock: ClockBinding
-): ProgramFound | undefined =>
-	isQueryValue(program) || isOrderedValue(program)
-		? queryFound((desc) => ({ kind: "instant", value: program, desc, clock }), program)
-		: changeSetFound(program, clock)
+): ProgramFound | undefined => {
+	const desc = (query: QueryDesc): ReadDesc => ({
+		kind: "clocked",
+		clock,
+		program: { kind: "answered", query }
+	})
+	if (isQueryValue(program)) {
+		return queryFound((query) => ({ kind: "query", value: program, desc: desc(query) }), program)
+	}
+	if (isOrderedValue(program)) {
+		return queryFound((query) => ({ kind: "ordered", value: program, desc: desc(query) }), program)
+	}
+	return changeSetFound(program, clock)
+}
 
 /**
- * The Description a workload records of a program: its own, or, where its member binds parameters to the clock, the
- * program under that binding (ir/desc.ts ProgramDesc clocked).
+ * The Description a workload records of a program: a read's as its member serves it (ReadDesc), and a ChangeSet's own,
+ * or, where its member binds parameters to the clock, the ChangeSet under that binding (ir/desc.ts ProgramDesc clocked).
  */
 const workloadDescOf = (
 	program: Exclude<WorkloadProgram, { readonly kind: "refresh" }>
 ): ProgramDesc => {
 	switch (program.kind) {
-		case "instant":
-			return { kind: "clocked", clock: program.clock, program: program.desc }
 		case "changeSet":
 			return Object.keys(program.clock).length > 0
 				? { kind: "clocked", clock: program.clock, program: program.desc }
@@ -352,7 +448,8 @@ const workloadDescOf = (
 /**
  * One named program of a workload over `schema`, or the refusal of a value that is none: a query, ordered query or
  * ChangeSet over a level of the schema, or a key of a relation of it, whose lookup query is built over the schema; a
- * read deferrable where deferrable(...) made the member (deferrableMember), which admits a read alone.
+ * read deferrable where deferrable(...) made the member (deferrableMember), which admits a read alone, and answered
+ * where answered(...) made it, within deferrable(...)'s (answeredMember).
  */
 const workloadProgram = (
 	name: string,
@@ -366,8 +463,12 @@ const workloadProgram = (
 	}
 	const deferred = hasProperties(program) ? deferrableValues.get(program) : undefined
 	const deferrable = deferred !== undefined
-	const read = deferrable ? deferred : program
-	const found = programDescOf(read)
+	const member = deferrable ? deferred : program
+	const answered = hasProperties(member) ? answeredValues.get(member) : undefined
+	const read = answered === undefined ? member : answered
+	const served = (query: QueryDesc): UnclockedReadDesc =>
+		answered === undefined ? { kind: "query", query } : { kind: "answered", query }
+	const found = programDescOf(read, served)
 	if (found !== undefined) {
 		const over = found.schema
 		if (over !== undefined && !levelSchema(over, built, builderLoc(label, ["programs", name])).ok) {
@@ -384,7 +485,7 @@ const workloadProgram = (
 	if (lookup === undefined) {
 		throw malformed(
 			label,
-			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key, a deferrable read or a refresh the builders made`
+			`program ${JSON.stringify(name)}: a query, an ordered query, a paged ordered query, a ChangeSet, a clocked one of them, a relation's key, an answered or deferrable read or a refresh the builders made`
 		)
 	}
 	return {
@@ -392,7 +493,7 @@ const workloadProgram = (
 		kind: "key",
 		deferrable,
 		target: lookup.target,
-		desc: { kind: "query", query: orThrow(queryInput(lookup.query)).desc }
+		desc: served(orThrow(queryInput(lookup.query)).desc)
 	}
 }
 

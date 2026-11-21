@@ -22,7 +22,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order, Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import {
 	caseGen,
 	expectedTexts,
@@ -77,7 +77,7 @@ export const aDeclaredCallReceivesEachArgumentByItsNameAndARowEachValueByItsFiel
 									const loaded = yield* loadWithTables(served.programs)
 									const run = member(loaded.members, "run")
 									const answered = yield* Effect.result(
-										readOnce(onceCalls(db, run))({ params: {}, facts: {} })
+										readOnce(memberCalls(db, run))({ params: {}, facts: {} })
 									)
 									if (Result.isFailure(answered)) {
 										return assert.fail(`the program answers: ${Formatter.format(answered.failure)}`)

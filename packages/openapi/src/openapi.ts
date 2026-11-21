@@ -118,7 +118,7 @@ const leafSchema = (leaf: ServedLeaf): WireSchema => {
 
 /**
  * The extension a stream's event carries for its consumer (`x-stream`): what an event of each role is to the stream,
- * and for a `ready` the event that follows it where one alone may (an instant read's `end`, live/events.ts), so a
+ * and for a `ready` the event that follows it where one alone may (an answered read's `end`, live/events.ts), so a
  * consumer knows the stream ends there.
  */
 const streamRole = (
@@ -234,7 +234,6 @@ const deedOf = (member: ServedMember, shape: MemberShape<ServedLeaf>): Deed => {
 		case "read":
 		case "key":
 		case "paged":
-		case "instant":
 			return { kind: "reads" }
 		case "change":
 			return {
@@ -256,28 +255,42 @@ const counted = (count: number, one: string, many: string): string =>
 
 /**
  * An operation's summary: what its program is, by its served form (served/forms.ts ServedMemberForm) alone, so it is
- * as short for a program of hundreds of relations as for one of one: a live read of a set or an ordered one, by its
- * key, paged by window, a read at its call's instant alone, a write or a refresh. What the program names is its
- * description's (descriptionOf).
+ * as short for a program of hundreds of relations as for one of one: a read of a set or an ordered one, by its key or
+ * paged by window, live or answered at its call's instant alone (readSummary), a write or a refresh. What the program
+ * names is its description's (descriptionOf).
  */
 const summaryOf = (member: ServedMember): string => {
 	switch (member.kind) {
 		case "read":
-			return member.read.key.kind === "set" ? "A live set read" : "A live ordered read"
+			return readSummary(member, member.read.key.kind === "set" ? "set read" : "ordered read")
 		case "key":
-			return member.read.key.kind === "set"
-				? "A live set read by its key"
-				: "A live ordered read by its key"
+			return readSummary(
+				member,
+				member.read.key.kind === "set" ? "set read by its key" : "ordered read by its key"
+			)
 		case "paged":
-			return "A live ordered read paged by window"
-		case "instant":
-			return member.read.key.kind === "set"
-				? "A set read at the call's instant"
-				: "An ordered read at the call's instant"
+			return readSummary(member, "ordered read paged by window")
 		case "change":
 			return "A write"
 		case "refresh":
 			return "A refresh"
+	}
+}
+
+/**
+ * A read's summary, `what` it reads under how it is called (served/forms.ts ServedReadLive): a live one's, whose stream
+ * goes on past its ready, or an answered one's, answered once at its call's instant, whose stream ends at its ready.
+ */
+const readSummary = (
+	member: Extract<ServedMember, { readonly kind: "read" | "key" | "paged" }>,
+	what: string
+): string => {
+	switch (member.read.live.kind) {
+		case "answered":
+			return `An answered ${what}, once at the call's instant`
+		case "constant":
+		case "routed":
+			return `A live ${what}`
 	}
 }
 

@@ -40,7 +40,6 @@ import type {
 	MemberForm,
 	ServedChange,
 	ServedFile,
-	ServedInstantRead,
 	ServedKey,
 	ServedLive,
 	ServedMember,
@@ -63,12 +62,13 @@ import type {
  *
  * A read of a role's workload as one call reads it, loaded: the declared parameters a call supplies and their codecs,
  * its program, its rows' reader (its decoder bound to the program's layouts), its key, the shape of its answer and the
- * head fields its rows are keyed by (served/forms.ts ServedKey). An instant member's read is this alone.
+ * head fields its rows are keyed by (served/forms.ts ServedKey), and how it is called (served/forms.ts ServedReadLive):
+ * answered at its call's instant alone, or live, woken by no row for a read of closed relations alone, or by the
+ * tables a change of which its subscriptions route by.
  */
-export interface LoadedInstantRead {
+export interface LoadedRead {
 	/**
-	 * Whether its member is deferrable(...), so its calls begin DEFERRABLE (served/forms.ts ServedInstantRead
-	 * deferrable).
+	 * Whether its member is deferrable(...), so its calls begin DEFERRABLE (served/forms.ts ServedRead deferrable).
 	 */
 	readonly deferrable: boolean
 	readonly params: ReadonlyArray<CallerParamDecl>
@@ -76,13 +76,6 @@ export interface LoadedInstantRead {
 	readonly program: ReadProgram
 	readonly read: (row: Row) => DecodedRow
 	readonly key: ServedKey
-}
-
-/**
- * A read a call may watch, loaded: its instant read, and what wakes its watch (served/forms.ts ServedReadLive): no row
- * for a read of closed relations alone, or the tables a change of which its subscriptions route by.
- */
-export interface LoadedRead extends LoadedInstantRead {
 	readonly live: ServedReadLive
 }
 
@@ -155,7 +148,6 @@ export type LoadedVariants =
  */
 export type LoadedMember = MemberForm<{
 	readonly read: LoadedRead
-	readonly instant: LoadedInstantRead
 	readonly page: LoadedPage
 	readonly variants: LoadedVariants
 }> & { readonly wire: ServedMember["wire"] }
@@ -199,7 +191,7 @@ export interface LoadedLogin {
 
 /** A read's decoder bound to `layouts` under `bind`, its refusal a defect of the compile that wrote the file. */
 const boundReader = (
-	read: Pick<ServedInstantRead, "decoder">,
+	read: Pick<ServedRead, "decoder">,
 	layouts: Arr.NonEmptyReadonlyArray<ReadProgram["layouts"][number]>,
 	bind: BindContext
 ): Result.Result<(row: Row) => DecodedRow, CompileError> =>
@@ -221,11 +213,11 @@ const servedReads = (
 }
 
 /** A read, loaded under the codes `codes` and the bind context `bind`. */
-const loadInstantRead = (
-	read: ServedInstantRead,
+const loadRead = (
+	read: ServedRead,
 	codes: Codebook,
 	bind: BindContext
-): Result.Result<LoadedInstantRead, CompileError> => {
+): Result.Result<LoadedRead, CompileError> => {
 	const program = readProgram(read.source, read.spine, codes)
 	return Result.map(boundReader(read, program.layouts, bind), (reader) => ({
 		deferrable: read.deferrable,
@@ -233,20 +225,10 @@ const loadInstantRead = (
 		codecs: paramCodecs(read.params, codes),
 		program,
 		read: reader,
-		key: read.key
-	}))
-}
-
-/** A read a call may watch, loaded: its instant read (loadInstantRead) and what wakes its watch. */
-const loadRead = (
-	read: ServedRead,
-	codes: Codebook,
-	bind: BindContext
-): Result.Result<LoadedRead, CompileError> =>
-	Result.map(loadInstantRead(read, codes, bind), (loaded) => ({
-		...loaded,
+		key: read.key,
 		live: read.live
 	}))
+}
 
 /** A paged member's page, loaded over its read's parameters and spine. */
 const loadPage = (
@@ -358,13 +340,6 @@ const loadMember = (
 				name: member.name,
 				wire: member.wire,
 				kind: "read",
-				read
-			}))
-		case "instant":
-			return Result.map(loadInstantRead(member.read, codes, bind), (read): LoadedMember => ({
-				name: member.name,
-				wire: member.wire,
-				kind: "instant",
 				read
 			}))
 		case "key":

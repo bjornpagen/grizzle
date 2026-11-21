@@ -5,7 +5,6 @@ import {
 	type ServedInput,
 	type ServedRefusal,
 	snapshotMovedEntry,
-	snapshotOnceEntry,
 	snapshotServedEntry
 } from "#adapter/served/compile.ts"
 import { builtLogin, ownLoginOver } from "#adapter/served/login.ts"
@@ -70,9 +69,10 @@ const compiledJson = (
  * It is an application's test's way to a program the login's committed workload does not hold: compile it into a served
  * file of its own over the database's snapshot, then serve that file. `workloads` is `login.workload` for the login's own
  * file. A value login(...) did not build, a base that does not compile, a program that does not compile for a role it
- * runs on, and a read whose footprint the snapshot's live source does not decode, so that a watch of it would miss its
- * changes (UncoveredRead, a snapshot of an installation migrated without the program's workload), are each its
- * ServedRefusal, naming where the compile refused.
+ * runs on, and a live read whose footprint the snapshot's live source does not decode, so that a watch of it would miss
+ * its changes (UncoveredRead, a snapshot of an installation migrated without the program's workload), are each its
+ * ServedRefusal, naming where the compile refused; an answered read (workload answered), which no change wakes, needs
+ * none of the source.
  */
 export const compileServed = (
 	login: AnyLogin,
@@ -80,19 +80,6 @@ export const compileServed = (
 	workloads: ReadonlyArray<AnyWorkload>
 ): Effect.Effect<unknown, ServedRefusal> =>
 	compiledJson("compileServed", login, snapshot, workloads, snapshotServedEntry)
-
-/**
- * compileServedOnce(login, snapshot, workloads): compileServed's file of `login` with `workloads`, its reads called once
- * alone (adapter/served/compile.ts snapshotOnceEntry): no change wakes them, so no read needs the snapshot's live source
- * and the file holds none. Its members are served by adapter/db/handles.ts onceCalls, whose calls have no watch, never
- * by a DbLayer.
- */
-export const compileServedOnce = (
-	login: AnyLogin,
-	snapshot: unknown,
-	workloads: ReadonlyArray<AnyWorkload>
-): Effect.Effect<unknown, ServedRefusal> =>
-	compiledJson("compileServedOnce", login, snapshot, workloads, snapshotOnceEntry)
 
 /**
  * compileServedMoved(login, snapshot, workloads): compileServed's file of `login` with `workloads`, compiled for a moved

@@ -3,7 +3,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
-import { onceCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
+import { memberCalls, type WrittenOutcome } from "#adapter/db/handles.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
@@ -235,7 +235,9 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 							const db = yield* openServedDb(done, world.server.roles.app, {})
 							const loaded = yield* db.load(programs)
 							const applied = (name: Write["op"], facts: CallFacts) =>
-								answered(writeOnce(onceCalls(db.ctx, member(loaded, name)))({ params: {}, facts }))
+								answered(
+									writeOnce(memberCalls(db.ctx, member(loaded, name)))({ params: {}, facts })
+								)
 							let parents: ReadonlyArray<ParentRow> = []
 							let children: ReadonlyArray<ChildRow> = []
 							for (const [i, w] of k.writes.entries()) {

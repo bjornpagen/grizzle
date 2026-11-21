@@ -48,7 +48,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result as EffectResult } from "effect"
-import { memberExplains, onceCalls, variantOf } from "#adapter/db/handles.ts"
+import { memberExplains, memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { type ParamMap } from "#compiler/plan/common.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -144,7 +144,7 @@ export const explainsAndAnalyzesADrawnReadItsExecutesStatementsByNameAndTextRead
 								const analyzed = yield* observe(tap, explains.explainAnalyze({ params, facts: {} }))
 								const executed = yield* observe(
 									tap,
-									readOnce(onceCalls(context, program))({ params, facts: {} })
+									readOnce(memberCalls(context, program))({ params, facts: {} })
 								)
 								const sent = plannedStatements(tap, executed.window, context.prologue)
 								ofTheServed(
@@ -351,7 +351,7 @@ export const explainsADrawnChangeSetItsApplysPlannableStatementsByNameAndTextWit
 									estimateOnly(plan.plan)
 									readsWithin(plan.plan, footprint, tableOf, indexes)
 								}
-								const calls = onceCalls(context, change)
+								const calls = memberCalls(context, change)
 								assertVariant(
 									calls,
 									"shape",
@@ -585,7 +585,7 @@ export const explainsAServedChangeSetUnderItsSessionsMessageBoundAsItsApplicatio
 								}
 								const limit = explainedTextBound(variantOf(served, boxes.variants).entry.program)
 								const bound = { ...served, pool: boundPool(served.pool, limit) }
-								const handle = onceCalls(bound, boxes)
+								const handle = memberCalls(bound, boxes)
 								if (handle.shape !== "write") {
 									return assert.fail("a ChangeSet with array members loads as a write handle")
 								}

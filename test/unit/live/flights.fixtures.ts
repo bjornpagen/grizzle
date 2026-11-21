@@ -240,9 +240,9 @@ export const answerOf = (
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "list":
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
-		case "instantSet":
+		case "answeredSet":
 			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
-		case "instantList":
+		case "answeredList":
 			return read(calls.answer(input), (e) => (e.kind === "error" ? e.error : undefined))
 		case "write":
 			return read(calls.watch(input), (e) => (e.kind === "error" ? e.error : undefined))
@@ -259,9 +259,9 @@ export const onceOf = (
 			return Effect.exit(Effect.asVoid(calls.once(input)))
 		case "list":
 			return Effect.exit(Effect.asVoid(calls.once(input)))
-		case "instantSet":
+		case "answeredSet":
 			return Effect.exit(Effect.asVoid(calls.once(input)))
-		case "instantList":
+		case "answeredList":
 			return Effect.exit(Effect.asVoid(calls.once(input)))
 		case "write":
 			return Effect.exit(Effect.asVoid(calls.once(input)))

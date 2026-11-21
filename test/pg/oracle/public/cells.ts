@@ -9,7 +9,7 @@ import {
 	String as Str
 } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { onceCalls, type OnceCalls } from "#adapter/db/handles.ts"
+import { memberCalls, type OnceCalls } from "#adapter/db/handles.ts"
 import { windowIntake } from "#adapter/page/execute.ts"
 import type { PageRuntime } from "#adapter/page/template.ts"
 import { windowCall } from "#adapter/page/window.ts"
@@ -523,10 +523,10 @@ const valueOf =
 	(input: unknown): Effect.Effect<ReadValue, CallError> => {
 		switch (calls.shape) {
 			case "set":
-			case "instantSet":
+			case "answeredSet":
 				return calls.once(input)
 			case "list":
-			case "instantList":
+			case "answeredList":
 				return calls.once(input)
 			case "write":
 				return Effect.die(new Error("a read of a write member"))
@@ -538,7 +538,7 @@ const everyRow: Window = { anchor: { kind: "start" }, size: Number.MAX_SAFE_INTE
 
 /** A loaded member's reads over a Db's context `ctx` (ReadCalls). */
 export const readCalls = (ctx: ServedDbContext, member: LoadedMember): ReadCalls => {
-	const once = valueOf(onceCalls(ctx, member))
+	const once = valueOf(memberCalls(ctx, member))
 	const windowed = (params: HostParams, window: unknown) => once({ params, facts: {}, window })
 	return {
 		read: (params) =>
@@ -563,13 +563,12 @@ export interface StrictReader {
 }
 
 /**
- * The loaded read a member reads through: a read's, an instant read's, a key's, a paged member's; none for a change or
+ * The loaded read a member reads through: a read's, live or answered, a key's, a paged member's; none for a change or
  * a refresh.
  */
 const readOf = (member: LoadedMember) => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 		case "key":
 		case "paged":
 			return member.read

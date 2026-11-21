@@ -17,8 +17,8 @@ import {
 } from "#adapter/wire/batch.ts"
 import {
 	type FailureOf,
-	type InstantListEvent,
-	type InstantSetEvent,
+	type AnsweredListEvent,
+	type AnsweredSetEvent,
 	type KeyFields,
 	keyOf,
 	type RowKey
@@ -86,9 +86,9 @@ export interface ShapeEvents<E> {
 
 /**
  * A set read's events: each upsert carries its row. One run reads the rows at its call's instant, so it makes an
- * instant read's events alone (live/events.ts InstantSetEvent), no `remove`: a live read's every re-run makes these too.
+ * answered read's events alone (live/events.ts AnsweredSetEvent), no `remove`: a live read's every re-run makes these too.
  */
-export const setEvents: ShapeEvents<InstantSetEvent<DecodedRow>> = {
+export const setEvents: ShapeEvents<AnsweredSetEvent<DecodedRow>> = {
 	reset: (fields) => ({ kind: "reset", key: fields }),
 	upserts: () => (row) => ({ kind: "upsert", row }),
 	ready: { kind: "ready" },
@@ -97,14 +97,14 @@ export const setEvents: ShapeEvents<InstantSetEvent<DecodedRow>> = {
 
 /**
  * An ordered read's events: each upsert carries the key of the row before it too, null for the first. One run makes an
- * instant read's events alone (live/events.ts InstantListEvent), as setEvents does.
+ * answered read's events alone (live/events.ts AnsweredListEvent), as setEvents does.
  */
-export const listEvents: ShapeEvents<InstantListEvent<DecodedRow>> = {
+export const listEvents: ShapeEvents<AnsweredListEvent<DecodedRow>> = {
 	reset: (fields) => ({ kind: "reset", key: fields }),
 	upserts: (fields) => {
 		let after: RowKey | null = null
 		return (row) => {
-			const event: InstantListEvent<DecodedRow> = { kind: "upsert", row, after }
+			const event: AnsweredListEvent<DecodedRow> = { kind: "upsert", row, after }
 			after = keyOf(fields, row)
 			return event
 		}

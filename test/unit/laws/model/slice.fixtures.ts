@@ -20,11 +20,11 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
 import {
 	type ChangeSetDesc,
-	type ClockedProgramDesc,
 	decodeDesc,
 	type ExprDesc,
 	type GuardDesc,
 	guardedExpr,
+	type ProgramDesc,
 	type QueryDesc
 } from "#compiler/ir/desc.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
@@ -656,7 +656,10 @@ const queryOver = (
 }
 
 /** The program a use runs: its query, or its ChangeSet of an insert into each of its writes, reading back its reads. */
-export const programOf = (c: SliceCase, u: Use): ClockedProgramDesc => {
+export const programOf = (
+	c: SliceCase,
+	u: Use
+): Extract<ProgramDesc, { readonly kind: "query" | "changeSet" }> => {
 	if (u.kind === "query") {
 		const [first, ...more] = u.reads
 		return {

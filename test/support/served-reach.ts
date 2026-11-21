@@ -136,7 +136,6 @@ export const writtenBy = (role: ServedRoleForm): ReadonlySet<StoredRelationName>
 const memberRosters = (member: ServedMember): ReadonlyArray<string> => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 		case "key":
 			return [
 				...decoderRosters(member.read.decoder),
@@ -215,7 +214,6 @@ export interface Raised {
 const memberParams = (member: ServedMember): ReadonlyArray<CallerParamDecl> => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 		case "key":
 		case "paged":
 			return member.read.params
@@ -233,19 +231,18 @@ const compiledWrites = (variants: ChangeVariants): ReadonlyArray<CompiledWrite> 
 		: [...compiledWrites(variants.holding), ...compiledWrites(variants.lacking)]
 
 /**
- * The parameters a compiled member binds to the database's clock (ClockParamDecl): an instant read's and each of a
- * ChangeSet's writes'. No served form carries them, since the runtime binds and casts nothing for them: each statement
+ * The parameters a compiled member binds to the database's clock (ClockParamDecl): a read's, some where it is clocked,
+ * and each of a ChangeSet's writes'. No served form carries them, since the runtime binds and casts nothing for them: each statement
  * prints its reading cast to the parameter's type, so the oracle reads them where the statement was printed from.
  */
 const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
 	switch (member.kind) {
-		case "instant":
-			return member.form.bound.compiled.compiled.template.clocked
-		case "change":
-			return Arr.flatMap(compiledWrites(member.variants), (write) => write.clocked)
 		case "read":
 		case "key":
 		case "paged":
+			return member.form.bound.compiled.compiled.template.clocked
+		case "change":
+			return Arr.flatMap(compiledWrites(member.variants), (write) => write.clocked)
 		case "refresh":
 			return []
 	}

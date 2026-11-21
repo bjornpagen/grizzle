@@ -6,7 +6,7 @@ import type {
 	EventOfShape,
 	InputCheck,
 	InputCheckOf,
-	InstantShape,
+	AnsweredShape,
 	KeyRead,
 	ServedArrays,
 	ServedInput,
@@ -92,8 +92,8 @@ export type WorkloadHandles<R, P> = {
 /**
  * The calls of a served member of program X, whatever login serves X and whatever role it runs on: exactly `once` and
  * `watch`, each taking the program's input (live/program.ts InputOf: `{ params, facts }`, a paged member's
- * `{ params, facts, window }`), and a read's or a change's explains; a clocked read's (workload Clocked) `once` alone,
- * since its answer is its read at its call's instant, which no change reaches. X itself is in the type, so a handle of
+ * `{ params, facts, window }`), and a read's or a change's explains; an answered read's (workload Answered), a clocked
+ * one's among them, `once` alone, since its answer is its read at its call's instant, which no change wakes. X itself is in the type, so a handle of
  * one program is no handle of another, whatever calls the two share, and a function over one served program takes any
  * login's handle of it.
  *
@@ -109,8 +109,8 @@ export type MemberHandle<X> = MemberCalls<X> &
 	Phantom<{ readonly program: Invariant<X> }>
 
 /**
- * A served member's calls (MemberHandle): its once, and its watch but for a clocked read's, whose shape is an instant's
- * (live/events.ts InstantShape). Each takes an input I inferred apart from X and checked after as X's input exactly
+ * A served member's calls (MemberHandle): its once, and its watch but for an answered read's, a clocked one's among
+ * them, whose shape is an answered one (live/events.ts AnsweredShape). Each takes an input I inferred apart from X and checked after as X's input exactly
  * (live/program.ts InputCheck): its params, its facts and a paged member's window, each refused where the runtime
  * refuses it.
  */
@@ -132,7 +132,7 @@ export type MemberCalls<X> = CallsOf<
  * the calls are over X's parts alone; and the shape is a parameter of its own, since a tuple of an alias over X,
  * `[ShapeOf<X>] extends [...]`, is a reference the checker resolves later, holding X.
  */
-type CallsOf<Sh, In, A, Ps, Key extends boolean, V, Ev> = [Sh] extends [InstantShape]
+type CallsOf<Sh, In, A, Ps, Key extends boolean, V, Ev> = [Sh] extends [AnsweredShape]
 	? OnceCall<In, A, Ps, Key, V>
 	: OnceCall<In, A, Ps, Key, V> & WatchCall<In, A, Ps, Key, Ev>
 

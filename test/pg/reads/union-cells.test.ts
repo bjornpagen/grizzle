@@ -3,7 +3,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { set, structuralHash } from "@bjornpagen/testing/oracle"
 import { type Case as CaseOf, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
@@ -132,9 +132,9 @@ export const unionCellsDecodesAUnionsRowsToExactlyTheRecordsItsArmsDecodeToEachR
 									...Rec.fromEntries(Arr.map(arms, (arm, j) => [`arm${j}`, unionOf([arm])]))
 								})
 								const unionMember = member(loaded, "union")
-								const union = yield* records(onceCalls(ctx, unionMember))
+								const union = yield* records(memberCalls(ctx, unionMember))
 								const armRecords = yield* Effect.forEach(arms, (_arm, j) =>
-									records(onceCalls(ctx, member(loaded, `arm${j}`)))
+									records(memberCalls(ctx, member(loaded, `arm${j}`)))
 								)
 								const alone = armsAlone(armRecords)
 								assert.deepEqual(

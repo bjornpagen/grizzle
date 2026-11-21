@@ -29,7 +29,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Order } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
@@ -138,7 +138,7 @@ export const everyMemberOfANestedWriteUnderAStampedOwnerStoresExactlyItsOwnersSt
 							}
 						}
 						const call = answered(
-							writeOnce(onceCalls(flight.context, member(loaded, "stamp")))({ params: {}, facts })
+							writeOnce(memberCalls(flight.context, member(loaded, "stamp")))({ params: {}, facts })
 						)
 						const conflict = c.owners === "one group"
 						for (const nth of [1, 2]) {

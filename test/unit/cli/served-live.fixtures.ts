@@ -169,7 +169,6 @@ export const liveIsTheUnion = (
 							case "paged":
 							case "key":
 								return member.read.live.kind === "routed" ? [member.read.live.footprint] : []
-							case "instant":
 							case "change":
 							case "refresh":
 								return []

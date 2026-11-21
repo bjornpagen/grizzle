@@ -143,7 +143,7 @@ const notedReads = (served: ServedFile, note: (feature: Feature) => void): void 
 				case "key":
 				case "paged": {
 					const live = member.read.live
-					if (live.kind === "constant") {
+					if (live.kind === "constant" || live.kind === "answered") {
 						break
 					}
 					const tables = Arr.filter(Rec.keys(live.footprint), (t) => !views.includes(t))
@@ -161,7 +161,6 @@ const notedReads = (served: ServedFile, note: (feature: Feature) => void): void 
 					}
 					break
 				}
-				case "instant":
 				case "change":
 				case "refresh":
 					break

@@ -88,9 +88,11 @@ export const aMemberBoundToTheDatabasesClockCertifiesAsItsProgramWithTheCallsNow
 				for (const name of c.reads) {
 					const member = defined(members.get(name), `the served member ${name}`)
 					assert.equal(
-						member.kind,
-						name === "dueNow" ? "instant" : "read",
-						`member ${name}: a clocked read is served at its call's instant, any other read live`
+						member.kind === "read" && member.read.live.kind === "answered"
+							? "answered"
+							: member.kind,
+						name === "dueNow" ? "answered" : "read",
+						`member ${name}: a clocked read is answered at its call's instant, any other read live`
 					)
 				}
 				const liveWanted = c.reads.includes("wanted")

@@ -22,7 +22,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
 	type Body,
@@ -96,7 +96,7 @@ export const aReadOfAFunctionsRefinedResultIsCheckedAtItsCast = property.explore
 									)
 									const run = member(loaded.members, programOf(c.read))
 									const input = { params: { item: c.at }, facts: {} }
-									const answered = yield* Effect.result(readOnce(onceCalls(db, run))(input))
+									const answered = yield* Effect.result(readOnce(memberCalls(db, run))(input))
 									if (c.body === "rotated") {
 										assert.ok(
 											Result.isFailure(answered),

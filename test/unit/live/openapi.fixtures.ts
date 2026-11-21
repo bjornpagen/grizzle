@@ -52,7 +52,7 @@ export type Feature =
 	| "a set read"
 	| "a list read"
 	| "a paged read"
-	| "an instant read"
+	| "an answered read"
 	| "a write"
 	| "a refresh"
 	| "a role reading a context"
@@ -282,24 +282,34 @@ const relationsOf = (member: ServedMember): ReadonlyArray<string> => {
 		case "read":
 		case "key":
 		case "paged":
-		case "instant":
 			return []
+	}
+}
+
+/** Whether a member is a read answered at its call's instant alone (served/forms.ts ServedReadLive `answered`). */
+const answeredOf = (member: ServedMember): boolean => {
+	switch (member.kind) {
+		case "read":
+		case "key":
+		case "paged":
+			return member.read.live.kind === "answered"
+		case "change":
+		case "refresh":
+			return false
 	}
 }
 
 /**
  * The sources a member's call over HTTP meets its failures at (live/events.ts failures), by its served form: the HTTP
- * door's and its Db's opening before it runs, then a live read's run and subscription, a read's at its call's instant
- * run alone, a ChangeSet's run and refusing outcome, a refresh's run alone.
+ * door's and its Db's opening before it runs, then a live read's run and subscription, an answered read's run alone,
+ * a ChangeSet's run and refusing outcome, a refresh's run alone.
  */
 const sourcesOf = (member: ServedMember): ReadonlyArray<FailureSource> => {
 	switch (member.kind) {
 		case "read":
 		case "key":
 		case "paged":
-			return ["door", "open", "read", "watch"]
-		case "instant":
-			return ["door", "open", "read"]
+			return answeredOf(member) ? ["door", "open", "read"] : ["door", "open", "read", "watch"]
 		case "change":
 			return ["door", "open", "apply", "outcome"]
 		case "refresh":
@@ -321,15 +331,19 @@ const kindsAt = (sources: ReadonlyArray<FailureSource>): Array<string> =>
 
 /**
  * What a member's summary says it is, as a word each, by its served form (served/forms.ts ServedMemberForm): `live`
- * exactly for a read a call watches, `instant` for one at its call's instant, `ordered` for a read of a list, `paged`
- * for a paged one, `write` for a ChangeSet's and `refresh` for a refresh's.
+ * exactly for a read a call watches, `answered` for one answered at its call's instant alone, `ordered` for a read of a
+ * list, `paged` for a paged one, `write` for a ChangeSet's and `refresh` for a refresh's.
  */
 const kindWords = (member: ServedMember): ReadonlyArray<readonly [string, boolean]> => {
 	const shape = member.wire.member.shape
 	return [
-		["live", member.kind === "read" || member.kind === "key" || member.kind === "paged"],
-		["instant", member.kind === "instant"],
-		["ordered", shape === "list" || shape === "instantList"],
+		[
+			"live",
+			(member.kind === "read" || member.kind === "key" || member.kind === "paged") &&
+				!answeredOf(member)
+		],
+		["answered", answeredOf(member)],
+		["ordered", shape === "list" || shape === "answeredList"],
 		["paged", member.kind === "paged"],
 		["write", member.kind === "change"],
 		["refresh", member.kind === "refresh"]
@@ -552,17 +566,17 @@ const holds = (
 			)
 			const shape = member.wire.member.shape
 			note(
-				shape === "set" || shape === "instantSet"
+				shape === "set" || shape === "answeredSet"
 					? "a set read"
-					: shape === "list" || shape === "instantList"
+					: shape === "list" || shape === "answeredList"
 						? "a list read"
 						: "a write"
 			)
 			if (member.kind === "paged") {
 				note("a paged read")
 			}
-			if (member.kind === "instant") {
-				note("an instant read")
+			if (answeredOf(member)) {
+				note("an answered read")
 			}
 			if (member.kind === "refresh") {
 				note("a refresh")
@@ -621,13 +635,13 @@ const holds = (
 				if (name === "ready") {
 					assert.deepEqual(
 						at(component, "x-stream"),
-						member.kind === "instant" ? { role: "ready", next: "end" } : { role: "ready" },
-						`${path}: its ready says end follows it exactly for an instant read\n${printed()}`
+						answeredOf(member) ? { role: "ready", next: "end" } : { role: "ready" },
+						`${path}: its ready says end follows it exactly for an answered read\n${printed()}`
 					)
 				}
 				const data = at(component, "properties", "data", "contentSchema", "required")
 				if (name === "upsert") {
-					const ordered = shape === "list" || shape === "instantList"
+					const ordered = shape === "list" || shape === "answeredList"
 					assert.deepEqual(
 						data,
 						ordered ? ["row", "after"] : ["row"],

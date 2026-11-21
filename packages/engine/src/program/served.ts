@@ -25,7 +25,6 @@ import { pageStatementSlotOf } from "#compiler/runtime/lower/slots.ts"
 import { unitColumn } from "#compiler/runtime/lower/tree.ts"
 import type {
 	ServedFootprint,
-	ServedInstantRead,
 	ServedKey,
 	ServedPage,
 	ServedPageProgram,
@@ -43,30 +42,11 @@ import { emitText } from "#compiler/sql/emit.ts"
 import { emptyNameMap } from "#compiler/sql/naming.ts"
 
 /**
- * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedInstantRead): whether its
- * member is declared deferrable, the declared parameters a call supplies (QueryTemplate params), its artifact and
- * delivered spine (served/read.ts), its records' decoder, and the key its rows are delivered under (`key`: its own,
- * templateKey, or its page's, pageKey).
- */
-export const servedInstantRead = (
-	deferrable: boolean,
-	template: QueryTemplate,
-	desc: QueryDesc,
-	decoder: RowDecoder<unknown>,
-	key: ServedKey
-): ServedInstantRead => ({
-	deferrable,
-	params: template.params,
-	source: servedSource(template.run),
-	spine: servedSpine(desc),
-	decoder: decoder.form,
-	key
-})
-
-/**
- * A query compiled for a role's rows, served as a read a call may watch (served/forms.ts ServedRead): its instant read
- * (servedInstantRead) and what wakes its watch, from its footprint, the workload plan's
- * (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedReadLive).
+ * A query compiled for a role's rows, served as one call reads it (served/forms.ts ServedRead): whether its member is
+ * declared deferrable, the declared parameters a call supplies (QueryTemplate params), its artifact and delivered spine
+ * (served/read.ts), its records' decoder, the key its rows are delivered under (`key`: its own, templateKey, or its
+ * page's, pageKey), and how it is called (`live`): answered, or what wakes its watch, from its footprint, the workload
+ * plan's (program/workload/compile.ts WorkloadFootprints), its tables named as installed (servedReadLive).
  */
 export const servedRead = (
 	deferrable: boolean,
@@ -75,7 +55,15 @@ export const servedRead = (
 	decoder: RowDecoder<unknown>,
 	key: ServedKey,
 	live: ServedReadLive
-): ServedRead => ({ ...servedInstantRead(deferrable, template, desc, decoder, key), live })
+): ServedRead => ({
+	deferrable,
+	params: template.params,
+	source: servedSource(template.run),
+	spine: servedSpine(desc),
+	decoder: decoder.form,
+	key,
+	live
+})
 
 /** The root of a program's DAG reads no enclosing node: it is evaluated once per execution. */
 const evaluatedOnce: OuterRefs = new Map()
@@ -315,7 +303,6 @@ export const servedRosters = (roles: ReadonlyArray<ServedRoleForm>): ReadonlySet
 				case "refresh":
 					break
 				case "read":
-				case "instant":
 				case "paged":
 				case "key":
 					decoderRosters(member.read.decoder, out)

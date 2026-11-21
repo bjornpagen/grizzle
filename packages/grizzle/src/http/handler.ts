@@ -217,9 +217,9 @@ const openingToken = (
 		: Result.succeed(given)
 
 /**
- * A member's events as their frames, by the member's shape: a set read's, an ordered read's, either at its call's
- * instant alone, whose answer ends after its ready, or a write's, each event framed by its payload (events.ts), its slots
- * encoded by the member's wire.
+ * A member's events as their frames, by the member's shape: a live set read's or ordered read's, its watch; an answered
+ * one's, at its call's instant alone, its answer, which ends after its ready and never watches, so it holds no live
+ * source; or a write's, each event framed by its payload (events.ts), its slots encoded by the member's wire.
  */
 const framed = (
 	calls: ServedCalls,
@@ -231,9 +231,9 @@ const framed = (
 			return Stream.map(calls.watch(input), (event) => setFrame(slots, event))
 		case "list":
 			return Stream.map(calls.watch(input), (event) => listFrame(slots, event))
-		case "instantSet":
+		case "answeredSet":
 			return Stream.map(calls.answer(input), (event) => setFrame(slots, event))
-		case "instantList":
+		case "answeredList":
 			return Stream.map(calls.answer(input), (event) => listFrame(slots, event))
 		case "write":
 			return Stream.map(calls.watch(input), (event) => writeFrame(slots, event))
@@ -458,9 +458,11 @@ export const httpAnswers = <const Ls extends readonly [AnyLogin, ...Array<AnyLog
  * as long as the caller's runtime or layer scope, grizzle builds no runtime of its own, and no request is traced under
  * the handler's build.
  *
- * Every request is answered 200 with a text/event-stream body (sse.ts) carrying its call's events: its member's watch
- * (db/handles.ts memberCalls), reset, upserts, ready and the live changes for a read, reset, upserts, ready then end
- * for a read at its call's instant (a clocked member's answer), its outcome then end for a write.
+ * Every request is answered 200 with a text/event-stream body (sse.ts) carrying its call's events (db/handles.ts
+ * memberCalls): a live read's watch, reset, upserts, ready and the live changes; an answered read's answer, at its
+ * call's instant alone (an answered(...) or a clocked member's), reset, upserts, ready then end, which never watches; a
+ * write's outcome then end. A handler whose logins' reads are all answered serves with no live source: its layers
+ * require none (types/layer.ts LiveOf).
  * Every failure is one `error` event carrying its CallError, then `end`: a request line no route serves; a request
  * naming no `grizzle-wire` digest, or one naming another form of the member than the one served (`stale`, so a client
  * never decodes by a form the server no longer serves); a token refused, or missing where the role declares a context; a

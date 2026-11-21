@@ -14,7 +14,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
 import { Uuid } from "#compiler/public/fields.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
@@ -249,7 +249,7 @@ export const applyFacts = (ctx: ServedDbContext, change: LoadedMember, facts: un
 		"facts",
 		"the write's member takes its call's facts"
 	)
-	return answered(writeOnce(onceCalls(ctx, change))({ params: {}, facts }))
+	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
 }
 
 /**

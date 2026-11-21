@@ -28,8 +28,10 @@ import { clockOffsetName } from "#compiler/plan/runtime.ts"
  *
  * Each call of a clocked read or a change member reads `offset` once, before anything else of the call, and states it
  * as the clock's offset among the call's parameters, the one value every statement of the call binds; its once, its
- * watch or answer and its explains alike. Every other member (a live read, a key, a page, a refresh) reads no clock and
- * is the served Db's own.
+ * answer and its explains alike. A read is clocked exactly when its program declares the offset among its parameters,
+ * the one place a served file states its clock: an answered read that binds no parameter to the clock compiles under
+ * the transaction's clock and declares none. Every other member (a live or answered read that reads no clock, a key, a
+ * page, a refresh) is the served Db's own.
  */
 
 /** Whether a value is an object that is no list: a record of parameters, which readParams reads by name. */
@@ -87,15 +89,15 @@ const movedCalls = (calls: ServedCalls, offset: Effect.Effect<bigint>): ServedCa
 				once: onceAt(offset, calls.once),
 				watch: streamAt(offset, calls.watch)
 			}
-		case "instantSet":
+		case "answeredSet":
 			return {
-				shape: "instantSet",
+				shape: "answeredSet",
 				once: onceAt(offset, calls.once),
 				answer: streamAt(offset, calls.answer)
 			}
-		case "instantList":
+		case "answeredList":
 			return {
-				shape: "instantList",
+				shape: "answeredList",
 				once: onceAt(offset, calls.once),
 				answer: streamAt(offset, calls.answer)
 			}
@@ -125,28 +127,35 @@ const movedExplains = (explains: MemberExplains, offset: Effect.Effect<bigint>):
 }
 
 /**
- * A member's handle parts over a moved clock: a clocked read's and a change's state the offset `offset` reads at each
- * call; every other member's are the served Db's own, since it reads no clock.
+ * Whether a member's calls read the clock, and so state its offset: a change's, every one of which a moved file
+ * declares it for (its stamps), and a read's whose program declares the clock's offset among its parameters (engine
+ * check/clock.ts sourcedParams), a clocked read's; a refresh reads none.
+ */
+const readsClock = (member: LoadedMember): boolean => {
+	switch (member.kind) {
+		case "change":
+			return true
+		case "read":
+		case "key":
+		case "paged":
+			return Arr.some(member.read.params, (param) => param.name === clockOffsetName)
+		case "refresh":
+			return false
+	}
+}
+
+/**
+ * A member's handle parts over a moved clock: one whose calls read the clock (readsClock) states the offset `offset`
+ * reads at each call; every other member's are the served Db's own.
  */
 const movedParts = (
 	parts: MemberHandleParts,
 	member: LoadedMember,
 	offset: Effect.Effect<bigint>
-): MemberHandleParts => {
-	switch (member.kind) {
-		case "instant":
-		case "change":
-			return {
-				calls: movedCalls(parts.calls, offset),
-				explains: movedExplains(parts.explains, offset)
-			}
-		case "read":
-		case "key":
-		case "paged":
-		case "refresh":
-			return parts
-	}
-}
+): MemberHandleParts =>
+	readsClock(member)
+		? { calls: movedCalls(parts.calls, offset), explains: movedExplains(parts.explains, offset) }
+		: parts
 
 /**
  * Db.openMoved(role, options, offset): the Db of `role` opened with `options` as Db.open opens it, over a moved clock

@@ -48,7 +48,6 @@ import { explainChange, explainRead, explainReadAnalyzed } from "#adapter/served
 import type {
 	ChangeCall,
 	LoadedChange,
-	LoadedInstantRead,
 	LoadedMember,
 	LoadedPage,
 	LoadedRead,
@@ -64,8 +63,8 @@ import {
 	diffSet,
 	type FailureOf,
 	fold,
-	type InstantListEvent,
-	type InstantSetEvent,
+	type AnsweredListEvent,
+	type AnsweredSetEvent,
 	type Keyed,
 	type KeyedList,
 	type KeyedSet,
@@ -81,18 +80,20 @@ import {
 } from "#compiler/live/index.ts"
 import type { EncodingFailure } from "#compiler/plan/common.ts"
 import { defect, encodeFailure, factPlace, type RouteKey } from "#compiler/plan/runtime.ts"
-import type { ServedRefresh, ServedTables } from "#compiler/plan/serve.ts"
+import type { ServedReadLive, ServedRefresh, ServedTables } from "#compiler/plan/serve.ts"
 
 /**
  * A served Db's workload handles: each member its layer loaded for the Db's role (served/load.ts LoadedMember), run on
- * the Db's pool, under its name. Every member offers exactly `once(input)` and `watch(input)` (ServedCalls), its input
- * read once at this boundary (db/input.ts), and a read or change member its explains, which plan exactly the
- * statements its once sends. A handle lives as long as the layer that loaded its program.
+ * the Db's pool, under its name. Every member offers `once(input)` and, but an answered read, `watch(input)`
+ * (ServedCalls), its input read once at this boundary (db/input.ts), and a read or change member its explains, which
+ * plan exactly the statements its once sends. A handle lives as long as the layer that loaded its program.
  *
  * - A read, a key and a paged member read: `watch` is the read's events (reader/stream.ts readStream), reset, an
  *   upsert per row as it decodes, provisional, then ready after its COMMIT; `once` is those events folded to ready
  *   (live/fold.ts), the read's value, or the error that ended them. A key member's parameters are its key's values,
- *   read off its input's params by the key's fields; a paged member's window selects its template and its anchor.
+ *   read off its input's params by the key's fields; a paged member's window selects its template and its anchor. An
+ *   answered read (served/forms.ts ServedReadLive `answered`), a clocked one among them, has no watch: its answer is one
+ *   call's events then `end`, which no change follows, and it registers no subscription.
  * - A change member writes: `once` is its outcome after its COMMIT, accepted with its counts and read-backs or
  *   unchanged, and every refusal is its CallError, the laws' rejection and a fact outside the world included; `watch`
  *   is that outcome, or that error, then end. Its facts are its array members' where its ChangeSet holds some, else `{}`.
@@ -112,21 +113,17 @@ export type ServedCalls =
 	| (Extract<OnceCalls, { readonly shape: "list" }> & {
 			readonly watch: (input: unknown) => Stream.Stream<ListEvent<DecodedRow>>
 	  })
-	| (Extract<OnceCalls, { readonly shape: "instantSet" }> & {
-			readonly answer: (input: unknown) => Stream.Stream<InstantSetEvent<DecodedRow>>
+	| (Extract<OnceCalls, { readonly shape: "answeredSet" }> & {
+			readonly answer: (input: unknown) => Stream.Stream<AnsweredSetEvent<DecodedRow>>
 	  })
-	| (Extract<OnceCalls, { readonly shape: "instantList" }> & {
-			readonly answer: (input: unknown) => Stream.Stream<InstantListEvent<DecodedRow>>
+	| (Extract<OnceCalls, { readonly shape: "answeredList" }> & {
+			readonly answer: (input: unknown) => Stream.Stream<AnsweredListEvent<DecodedRow>>
 	  })
 	| (Extract<OnceCalls, { readonly shape: "write" }> & {
 			readonly watch: (input: unknown) => Stream.Stream<WriteEvent<WrittenOutcome>>
 	  })
 
-/**
- * A member's `once` alone, by the shape of its answer (ServedCalls): the calls of a member of a file that serves its
- * reads once alone (adapter/public/compile.ts compileServedOnce), which no change wakes and which hold no `watch`, and
- * the once half of every member's calls.
- */
+/** A member's `once` alone, by the shape of its answer: the once half of every member's calls (ServedCalls). */
 export type OnceCalls =
 	| {
 			readonly shape: "set"
@@ -137,13 +134,13 @@ export type OnceCalls =
 			readonly once: (input: unknown) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<"list">>
 	  }
 	| {
-			readonly shape: "instantSet"
+			readonly shape: "answeredSet"
 			readonly once: (
 				input: unknown
 			) => Effect.Effect<KeyedSet<DecodedRow>, ShapeFailure<ReadShape>>
 	  }
 	| {
-			readonly shape: "instantList"
+			readonly shape: "answeredList"
 			readonly once: (
 				input: unknown
 			) => Effect.Effect<KeyedList<DecodedRow>, ShapeFailure<ReadShape>>
@@ -166,10 +163,7 @@ export interface ParsedRead {
 }
 
 /** A read's execution inputs from the caller's parameters (reader/params.ts hostParams, reader/relations.ts). */
-const readInputs = (
-	read: LoadedInstantRead,
-	params: unknown
-): Effect.Effect<ExecutionInputs, ReadError> =>
+const readInputs = (read: LoadedRead, params: unknown): Effect.Effect<ExecutionInputs, ReadError> =>
 	Effect.flatMap(hostParams(read.params, params), (values) =>
 		Effect.mapError(
 			Effect.fromResult(executionInputs(read.codecs, values)),
@@ -178,10 +172,7 @@ const readInputs = (
 	)
 
 /** A read member's call over `params`, each call's rows read by its program's intake (reader/run.ts readIntake). */
-const programCall = (
-	read: LoadedInstantRead,
-	params: unknown
-): Effect.Effect<ParsedRead, ReadError> =>
+const programCall = (read: LoadedRead, params: unknown): Effect.Effect<ParsedRead, ReadError> =>
 	Effect.map(readInputs(read, params), (inputs) => ({
 		inputs,
 		call: {
@@ -212,7 +203,7 @@ const readInput = (input: unknown): Effect.Effect<CallInput, ReadError> =>
 
 /** A read member's call (programCall) from its input. */
 const parseRead =
-	(read: LoadedInstantRead) =>
+	(read: LoadedRead) =>
 	(input: unknown): Effect.Effect<ParsedRead, ReadError> =>
 		Effect.flatMap(readInput(input), (given) => programCall(read, given.params))
 
@@ -303,35 +294,42 @@ const listAnswer: ShapeAnswer<"list", ListEvent<DecodedRow>> = {
 }
 
 /**
- * How a read at its call's instant answers (a clocked member's), beside how its events are made: its `end`, which
- * follows its ready, and its events folded from before its reset into its value of keyed shape S.
+ * How an answered read answers, at its call's instant alone (an answered(...) or a clocked member's), beside how its
+ * events are made: its `end`, which follows its ready, and its events folded from before its reset into its value of
+ * keyed shape S.
  */
-interface InstantAnswer<S extends ReadShape, E> extends ShapeEvents<E> {
+interface AnsweredAnswer<S extends ReadShape, E> extends ShapeEvents<E> {
 	readonly end: E
 	readonly settle: (events: ReadonlyArray<E>) => ReadState<S, DecodedRow>
 }
 
-/** A set read's answer at its call's instant. */
-const instantSetAnswer: InstantAnswer<"set", InstantSetEvent<DecodedRow>> = {
+/** An answered set read's answer. */
+const answeredSetAnswer: AnsweredAnswer<"set", AnsweredSetEvent<DecodedRow>> = {
 	...setEvents,
 	end: { kind: "end" },
 	settle: (events) => fold(opening<"set", DecodedRow>("set"), events)
 }
 
-/** An ordered read's answer at its call's instant. */
-const instantListAnswer: InstantAnswer<"list", InstantListEvent<DecodedRow>> = {
+/** An answered ordered read's answer. */
+const answeredListAnswer: AnsweredAnswer<"list", AnsweredListEvent<DecodedRow>> = {
 	...listEvents,
 	end: { kind: "end" },
 	settle: (events) => fold(opening<"list", DecodedRow>("list"), events)
 }
 
+/** What wakes a live read's watch (served/forms.ts ServedReadLive): every arm but an answered read's, which has none. */
+type Routing = Exclude<ServedReadLive, { readonly kind: "answered" }>
+
 /**
- * The routing keys a read's call is registered under (served/forms.ts ServedReadLive): a routed read's, its served
+ * The routing keys a live read's call is registered under, by what wakes it (`routing`): a routed read's, its served
  * footprint's bound with the call's inputs (live/router.ts routeKeys); a constant read's none, since no change of a row
  * changes it.
  */
-const keysOf = (read: LoadedRead, parsed: ParsedRead): ReadonlyArray<RouteKey> => {
-	const routing = read.live
+const keysOf = (
+	routing: Routing,
+	read: LoadedRead,
+	parsed: ParsedRead
+): ReadonlyArray<RouteKey> => {
 	switch (routing.kind) {
 		case "constant":
 			return []
@@ -348,6 +346,7 @@ const keysOf = (read: LoadedRead, parsed: ParsedRead): ReadonlyArray<RouteKey> =
  */
 const registered = <S extends ReadShape, E>(
 	ctx: ServedDbContext,
+	routing: Routing,
 	read: LoadedRead,
 	answer: ShapeAnswer<S, E>,
 	parsed: ParsedRead
@@ -355,14 +354,15 @@ const registered = <S extends ReadShape, E>(
 	ctx.subscriptions.register({
 		read: readStream(ctx, parsed.call, answer).events,
 		answer,
-		keys: keysOf(read, parsed),
+		keys: keysOf(routing, read, parsed),
 		expiry: ctx.expiry
 	})
 
 /**
- * A read member's live registration for one input, exactly what its watch registers (readCalls), by its answer's
+ * A live read member's registration for one input, exactly what its watch registers (readCalls), by its answer's
  * shape, for as long as the scope it is made in: a suite keeps its `state` while it pulls its `initial` and `changes`
- * itself. An input that does not parse is the call's error; a write member is none.
+ * itself. An input that does not parse is the call's error; an answered read, which registers nothing, and a write
+ * member are none.
  */
 export type LiveRead =
 	| { readonly shape: "set"; readonly live: Live<SetEvent<DecodedRow>> }
@@ -376,32 +376,41 @@ export const liveRead = (
 	const live = (
 		read: LoadedRead,
 		parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-	): Effect.Effect<LiveRead, FailureOf<"read">, Scope.Scope> =>
-		Effect.flatMap(
-			Effect.mapError(parse(input), readCallError),
-			(parsed): Effect.Effect<LiveRead, never, Scope.Scope> => {
-				switch (read.key.kind) {
-					case "set":
-						return Effect.map(registered(ctx, read, setAnswer, parsed), (registration) => ({
-							shape: "set",
-							live: registration
-						}))
-					case "list":
-						return Effect.map(registered(ctx, read, listAnswer, parsed), (registration) => ({
-							shape: "list",
-							live: registration
-						}))
-				}
-			}
-		)
+	): Option.Option<Effect.Effect<LiveRead, FailureOf<"read">, Scope.Scope>> => {
+		const routing = read.live
+		switch (routing.kind) {
+			case "answered":
+				return Option.none()
+			case "constant":
+			case "routed":
+				return Option.some(
+					Effect.flatMap(
+						Effect.mapError(parse(input), readCallError),
+						(parsed): Effect.Effect<LiveRead, never, Scope.Scope> => {
+							switch (read.key.kind) {
+								case "set":
+									return Effect.map(
+										registered(ctx, routing, read, setAnswer, parsed),
+										(registration) => ({ shape: "set", live: registration })
+									)
+								case "list":
+									return Effect.map(
+										registered(ctx, routing, read, listAnswer, parsed),
+										(registration) => ({ shape: "list", live: registration })
+									)
+							}
+						}
+					)
+				)
+		}
+	}
 	switch (member.kind) {
 		case "read":
-			return Option.some(live(member.read, parseRead(member.read)))
+			return live(member.read, parseRead(member.read))
 		case "key":
-			return Option.some(live(member.read, parseKey(member.read, member.fields)))
+			return live(member.read, parseKey(member.read, member.fields))
 		case "paged":
-			return Option.some(live(member.read, parseWindow(member.read, member.page)))
-		case "instant":
+			return live(member.read, parseWindow(member.read, member.page))
 		case "change":
 		case "refresh":
 			return Option.none()
@@ -417,6 +426,7 @@ export const liveRead = (
  */
 const readCalls = <S extends ReadShape, E>(
 	ctx: ServedDbContext,
+	routing: Routing,
 	read: LoadedRead,
 	answer: ShapeAnswer<S, E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
@@ -428,7 +438,7 @@ const readCalls = <S extends ReadShape, E>(
 		Stream.make(answer.error(readCallError(failure)))
 	const live = (parsed: ParsedRead): Stream.Stream<E> =>
 		Stream.unwrap(
-			Effect.map(registered(ctx, read, answer, parsed), (registration) =>
+			Effect.map(registered(ctx, routing, read, answer, parsed), (registration) =>
 				Stream.concat(registration.initial, registration.changes)
 			)
 		)
@@ -483,12 +493,13 @@ const readOnce =
 		})
 
 /**
- * A read's calls at its call's instant (a clocked member's): its answer, one call's events then `end`, which no change
- * follows, since time passing is no change; and its once, those events settled to ready. It registers no subscription.
+ * An answered read's calls, at its call's instant alone (an answered(...) or a clocked member's): its answer, one
+ * call's events then `end`, which no change follows, since no change wakes it and time passing is no change; and its
+ * once, those events settled to ready. It registers no subscription.
  */
-const instantCalls = <S extends ReadShape, E>(
+const answeredCalls = <S extends ReadShape, E>(
 	ctx: ServedDbContext,
-	answer: InstantAnswer<S, E>,
+	answer: AnsweredAnswer<S, E>,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): {
 	readonly once: (input: unknown) => Effect.Effect<Keyed<S, DecodedRow>, ShapeFailure<ReadShape>>
@@ -501,28 +512,51 @@ const instantCalls = <S extends ReadShape, E>(
 	}
 }
 
-/** An instant member's calls by the shape of its key (served/forms.ts ServedKey), its input its read's params alone. */
-const instantMemberCalls = (ctx: ServedDbContext, read: LoadedInstantRead): ServedCalls => {
-	const parse = parseRead(read)
-	switch (read.key.kind) {
-		case "set":
-			return { shape: "instantSet", ...instantCalls(ctx, instantSetAnswer, parse) }
-		case "list":
-			return { shape: "instantList", ...instantCalls(ctx, instantListAnswer, parse) }
-	}
-}
-
-/** A read's calls by the shape of its key (served/forms.ts ServedKey), its input parsed by `parse`. */
-const readMemberCalls = (
+/** An answered read's calls (answeredCalls) by the shape of its key (served/forms.ts ServedKey). */
+const answeredMemberCalls = (
 	ctx: ServedDbContext,
 	read: LoadedRead,
 	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
 ): ServedCalls => {
 	switch (read.key.kind) {
 		case "set":
-			return { shape: "set", ...readCalls(ctx, read, setAnswer, parse) }
+			return { shape: "answeredSet", ...answeredCalls(ctx, answeredSetAnswer, parse) }
 		case "list":
-			return { shape: "list", ...readCalls(ctx, read, listAnswer, parse) }
+			return { shape: "answeredList", ...answeredCalls(ctx, answeredListAnswer, parse) }
+	}
+}
+
+/** A live read's calls (readCalls), woken as `routing` says, by the shape of its key (served/forms.ts ServedKey). */
+const liveMemberCalls = (
+	ctx: ServedDbContext,
+	routing: Routing,
+	read: LoadedRead,
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): ServedCalls => {
+	switch (read.key.kind) {
+		case "set":
+			return { shape: "set", ...readCalls(ctx, routing, read, setAnswer, parse) }
+		case "list":
+			return { shape: "list", ...readCalls(ctx, routing, read, listAnswer, parse) }
+	}
+}
+
+/**
+ * A read's calls by how it is called (served/forms.ts ServedReadLive), its input parsed by `parse`: an answered read's
+ * once and answer, and no watch (answeredMemberCalls); a live one's once and watch (liveMemberCalls).
+ */
+const readMemberCalls = (
+	ctx: ServedDbContext,
+	read: LoadedRead,
+	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
+): ServedCalls => {
+	const routing = read.live
+	switch (routing.kind) {
+		case "answered":
+			return answeredMemberCalls(ctx, read, parse)
+		case "constant":
+		case "routed":
+			return liveMemberCalls(ctx, routing, read, parse)
 	}
 }
 
@@ -700,8 +734,8 @@ export const variantOf = (ctx: ServedDbContext, variants: LoadedVariants): Loade
 }
 
 /**
- * The parse of a read member's input into its call (ParsedRead), by the member's kind: a read's, an instant one's, a
- * key's and a paged member's; a write member has none. What a suite reads a member's statement and rows through when it runs flights of
+ * The parse of a read member's input into its call (ParsedRead), by the member's kind: a read's, a key's and a paged
+ * member's; a write member has none. What a suite reads a member's statement and rows through when it runs flights of
  * its own beside the read's (two artifacts in one snapshot, a flight's statements counted).
  */
 export const readCallOf = (
@@ -709,7 +743,6 @@ export const readCallOf = (
 ): Option.Option<(input: unknown) => Effect.Effect<ParsedRead, ReadError>> => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 			return Option.some(parseRead(member.read))
 		case "key":
 			return Option.some(parseKey(member.read, member.fields))
@@ -726,8 +759,6 @@ export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedC
 	switch (member.kind) {
 		case "read":
 			return readMemberCalls(ctx, member.read, parseRead(member.read))
-		case "instant":
-			return instantMemberCalls(ctx, member.read)
 		case "key":
 			return readMemberCalls(ctx, member.read, parseKey(member.read, member.fields))
 		case "paged":
@@ -736,61 +767,6 @@ export const memberCalls = (ctx: ServedDbContext, member: LoadedMember): ServedC
 			return writeCalls(changeWrite(ctx, variantOf(ctx, member.variants)))
 		case "refresh":
 			return writeCalls(refreshWrite(ctx, member.refresh))
-	}
-}
-
-/** A read's once alone by the shape of its key (served/forms.ts ServedKey), its input parsed by `parse` (OnceCalls). */
-const readMemberOnce = (
-	ctx: ServedDbContext,
-	read: LoadedRead,
-	parse: (input: unknown) => Effect.Effect<ParsedRead, ReadError>
-): OnceCalls => {
-	switch (read.key.kind) {
-		case "set":
-			return { shape: "set", once: readOnce(callEvents(ctx, setAnswer, parse), setAnswer.settle) }
-		case "list":
-			return {
-				shape: "list",
-				once: readOnce(callEvents(ctx, listAnswer, parse), listAnswer.settle)
-			}
-	}
-}
-
-/** An instant member's once alone by the shape of its key (OnceCalls), its input its read's params alone. */
-const instantMemberOnce = (ctx: ServedDbContext, read: LoadedInstantRead): OnceCalls => {
-	const parse = parseRead(read)
-	switch (read.key.kind) {
-		case "set":
-			return {
-				shape: "instantSet",
-				once: readOnce(callEvents(ctx, instantSetAnswer, parse), instantSetAnswer.settle)
-			}
-		case "list":
-			return {
-				shape: "instantList",
-				once: readOnce(callEvents(ctx, instantListAnswer, parse), instantListAnswer.settle)
-			}
-	}
-}
-
-/**
- * A loaded member's once alone over a Db's context, by the shape of its answer (OnceCalls): a member of a file that
- * serves its reads once alone (adapter/public/compile.ts compileServedOnce), whose read registers nowhere.
- */
-export const onceCalls = (ctx: ServedDbContext, member: LoadedMember): OnceCalls => {
-	switch (member.kind) {
-		case "read":
-			return readMemberOnce(ctx, member.read, parseRead(member.read))
-		case "instant":
-			return instantMemberOnce(ctx, member.read)
-		case "key":
-			return readMemberOnce(ctx, member.read, parseKey(member.read, member.fields))
-		case "paged":
-			return readMemberOnce(ctx, member.read, parseWindow(member.read, member.page))
-		case "change":
-			return { shape: "write", once: changeWrite(ctx, variantOf(ctx, member.variants)) }
-		case "refresh":
-			return { shape: "write", once: refreshWrite(ctx, member.refresh) }
 	}
 }
 
@@ -834,7 +810,6 @@ export const memberExplains = (
 ): MemberExplains => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 			return readExplains(ctx, installed, parseRead(member.read))
 		case "key":
 			return readExplains(ctx, installed, parseKey(member.read, member.fields))
@@ -881,7 +856,7 @@ const explainsOf = (explains: MemberExplains): object => {
 }
 
 /**
- * The calls a handle holds of its member's (memberCalls): its once and watch, an instant member's once alone, whose
+ * The calls a handle holds of its member's (memberCalls): its once and watch, an answered read's once alone, whose
  * answer only the HTTP handler sends (types/db MemberCalls).
  */
 const handleCalls = (calls: ServedCalls): object => {
@@ -890,8 +865,8 @@ const handleCalls = (calls: ServedCalls): object => {
 		case "list":
 		case "write":
 			return { once: calls.once, watch: calls.watch }
-		case "instantSet":
-		case "instantList":
+		case "answeredSet":
+		case "answeredList":
 			return { once: calls.once }
 	}
 }

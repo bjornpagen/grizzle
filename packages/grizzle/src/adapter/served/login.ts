@@ -19,6 +19,7 @@ import {
 	loginChanges,
 	loginRole,
 	programsOn,
+	readCalled,
 	type RoleChanges,
 	type WorkloadProgram
 } from "#compiler/plan/change.ts"
@@ -257,27 +258,19 @@ const programForm = (
 		case "query":
 		case "ordered": {
 			const query = program.value
-			return Result.map(
-				compileRowsForm(role, query, () => query.rows, noClock, transactionClock),
-				(form): WorkloadForm => ({
-					name: program.name,
-					kind: "read",
-					deferrable: program.deferrable,
-					form
-				})
-			)
-		}
-		case "instant": {
-			const query = program.value
-			return Result.map(
-				compileRowsForm(role, query, () => query.rows, program.clock, role.clock),
-				(form): WorkloadForm => ({
-					name: program.name,
-					kind: "instant",
-					deferrable: program.deferrable,
-					form
-				})
-			)
+			const desc = program.desc
+			/** A clocked read's binding, read at the role's clock; any other read binds none and reads no clock. */
+			const compiled =
+				desc.kind === "clocked"
+					? compileRowsForm(role, query, () => query.rows, desc.clock, role.clock)
+					: compileRowsForm(role, query, () => query.rows, noClock, transactionClock)
+			return Result.map(compiled, (form): WorkloadForm => ({
+				name: program.name,
+				kind: "read",
+				deferrable: program.deferrable,
+				called: readCalled(desc),
+				form
+			}))
 		}
 		case "paged": {
 			const query = program.value
@@ -287,6 +280,7 @@ const programForm = (
 					name: program.name,
 					kind: "paged",
 					deferrable: program.deferrable,
+					called: readCalled(program.desc),
 					form
 				})
 			)
@@ -306,6 +300,7 @@ const programForm = (
 					name: program.name,
 					kind: "key",
 					deferrable: program.deferrable,
+					called: readCalled(program.desc),
 					fields: target.fields,
 					form
 				})

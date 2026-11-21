@@ -3,10 +3,12 @@
  * int8, a numeric(12, 2), a money, a boolean, a float4, a refined text, a date, bytes and a uuid under a contract), a
  * law that refuses an id below 1, and one role, `app`, writing it, whose workload holds one member of every shape a
  * role serves: a set read by an int8 floor, a set read by a refined text, a key, an ordered read paged from either end,
- * a read at its call's instant bound to the database's clock, a put, and a deletion of every item. `grizzle generate`
+ * a read at its call's instant bound to the database's clock, a read answered at its call's instant alone
+ * (answered(...)), a put, and a deletion of every item. `grizzle generate`
  * drafts it and `grizzle migrate` installs it through grizzle.config.ts, as an application's would be.
  */
 import {
+	answered,
 	bytes,
 	ChangeSet,
 	check,
@@ -68,8 +70,8 @@ const App = role(Items, "app", { Item }, { write: ["Item"] })
 
 /**
  * The role's members: a set read by an int8 floor, a set read by a name, a key, an ordered read by its windows, a read
- * of the items whose int8 is at most the database's clock in milliseconds at the call's instant, a put, and a deletion
- * of every item.
+ * of the items whose int8 is at most the database's clock in milliseconds at the call's instant, every item answered
+ * once and never live, a put, and a deletion of every item.
  */
 const programs = Object.freeze({
 	atLeast: query(Items).rule((r) => {
@@ -98,6 +100,7 @@ const programs = Object.freeze({
 		}),
 		{ now: "millis" }
 	),
+	listed: answered(everyItem),
 	put: ChangeSet.empty(Items).put(Item, []),
 	clear: ChangeSet.empty(Items).delete(Item, everyItem)
 })

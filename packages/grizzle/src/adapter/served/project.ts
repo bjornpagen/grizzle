@@ -12,7 +12,8 @@ import {
 	type ClosedTable,
 	closedTableOf,
 	type CompiledWrite,
-	projectWrite
+	projectWrite,
+	type ReadCalled
 } from "#compiler/plan/change.ts"
 import {
 	type CompileError,
@@ -31,7 +32,6 @@ import {
 	writesOf
 } from "#compiler/plan/common.ts"
 import {
-	type Footprint,
 	memberWire,
 	type ProgramFootprints,
 	roleWire,
@@ -44,7 +44,6 @@ import {
 import {
 	pageKey,
 	type QueryTemplate,
-	servedInstantRead,
 	servedReadLive,
 	servedRead,
 	servedReadBacks,
@@ -56,7 +55,6 @@ import {
 	type ServedChange,
 	type ServedContext,
 	type ServedFile,
-	type ServedInstantRead,
 	type ServedKey,
 	type ServedMember,
 	type ServedMemberForm,
@@ -120,13 +118,12 @@ const tablesOf = (installed: SnapshotTables, footprint: ReadonlySet<string>): Se
 /**
  * A rows form's read, served: whether its member is deferrable(...), its template, its Description's spine, its
  * decoder's form, the key its rows are delivered under, its template's own (templateKey) unless a page's is given, and
- * its footprint, named as installed under the role's names `names`.
+ * how it is called, `live` (served/forms.ts ServedReadLive).
  */
 const readOf = (
 	deferrable: boolean,
 	form: RowsForm<unknown>,
-	footprint: Footprint,
-	names: SchemaArtifacts["names"],
+	live: ServedReadLive,
 	key: (template: QueryTemplate) => ServedKey
 ): ServedRead => {
 	const { compiled } = form.bound.compiled
@@ -136,22 +133,7 @@ const readOf = (
 		compiled.desc,
 		form.decoder(),
 		key(compiled.template),
-		servedReadLive(footprint, names)
-	)
-}
-
-/**
- * A rows form's read at its call's instant, served: as readOf serves a read, deferrable or not, with no footprint, since
- * no change reaches an instant member's answer.
- */
-const instantReadOf = (deferrable: boolean, form: RowsForm<unknown>): ServedInstantRead => {
-	const { compiled } = form.bound.compiled
-	return servedInstantRead(
-		deferrable,
-		compiled.template,
-		compiled.desc,
-		form.decoder(),
-		templateKey(compiled.template)
+		live
 	)
 }
 
@@ -191,8 +173,9 @@ const variantsOf = (variants: ChangeVariants): Result.Result<ServedVariants, Uns
 
 /**
  * One workload member of a role, served: a read's and a key's read, a paged read's read beside the page its runtime was
- * served from (served/forms.ts pageTemplateFor), its rows keyed by the page's order, and a ChangeSet's variants. A
- * read's footprint is the workload plan's for its program, among `footprints`, named as installed under `names`.
+ * served from (served/forms.ts pageTemplateFor), its rows keyed by the page's order, and a ChangeSet's variants. A read
+ * is called as its member is (liveOf): answered, with no footprint, since no change wakes it; or live, woken by its
+ * footprint, the workload plan's for its program, among `footprints`, named as installed under `names`.
  */
 const memberOf = (
 	member: WorkloadForm,
@@ -200,39 +183,41 @@ const memberOf = (
 	names: SchemaArtifacts["names"]
 ): Result.Result<ServedMemberForm, UnservedMember> => {
 	const { name } = member
-	const footprint = (): Footprint => {
-		const read = footprints.get(name)
-		if (read === undefined) {
-			throw defect(`the footprint of query program ${name}, a query of its login's workload plan`)
+	const liveOf = (called: ReadCalled): ServedReadLive => {
+		switch (called) {
+			case "answered":
+				return { kind: "answered" }
+			case "live": {
+				const read = footprints.get(name)
+				if (read === undefined) {
+					throw defect(
+						`the footprint of query program ${name}, a live query of its login's workload plan`
+					)
+				}
+				return servedReadLive(read, names)
+			}
 		}
-		return read
 	}
 	switch (member.kind) {
 		case "read":
 			return Result.succeed({
 				name,
 				kind: "read",
-				read: readOf(member.deferrable, member.form, footprint(), names, templateKey)
-			})
-		case "instant":
-			return Result.succeed({
-				name,
-				kind: "instant",
-				read: instantReadOf(member.deferrable, member.form)
+				read: readOf(member.deferrable, member.form, liveOf(member.called), templateKey)
 			})
 		case "key":
 			return Result.succeed({
 				name,
 				kind: "key",
 				fields: member.fields,
-				read: readOf(member.deferrable, member.form, footprint(), names, templateKey)
+				read: readOf(member.deferrable, member.form, liveOf(member.called), templateKey)
 			})
 		case "paged": {
 			const page = member.form.page.runtime.page
 			return Result.succeed({
 				name,
 				kind: "paged",
-				read: readOf(member.deferrable, member.form, footprint(), names, () => pageKey(page)),
+				read: readOf(member.deferrable, member.form, liveOf(member.called), () => pageKey(page)),
 				page
 			})
 		}
@@ -337,13 +322,12 @@ const refusalsOf = (role: LayerRole): ServedRefusals => {
 
 /**
  * The parameters a member declares that a call supplies, each of whose values PostgreSQL checks against its
- * refinement's domain as it binds it: a read's, an instant read's, a page's, and every variant's of a ChangeSet; a
- * refresh declares none.
+ * refinement's domain as it binds it: a read's, a key's, a page's, and every variant's of a ChangeSet; a refresh
+ * declares none.
  */
 const memberParams = (member: WorkloadForm): ReadonlyArray<CallerParamDecl> => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 		case "key":
 			return member.form.bound.compiled.compiled.template.params
 		case "paged":
@@ -360,17 +344,17 @@ const memberParams = (member: WorkloadForm): ReadonlyArray<CallerParamDecl> => {
 
 /**
  * The parameters a member binds to the database's clock, each of whose readings PostgreSQL checks against its
- * contract's domain as its statement casts it: an instant read's, and every variant's of a ChangeSet.
+ * contract's domain as its statement casts it: a read's, which binds some where its member is clocked, and every
+ * variant's of a ChangeSet.
  */
 const memberClocked = (member: WorkloadForm): ReadonlyArray<ClockParamDecl> => {
 	switch (member.kind) {
-		case "instant":
-			return member.form.bound.compiled.compiled.template.clocked
-		case "change":
-			return Arr.flatMap(variantsWrites(member.variants), (write) => write.clocked)
 		case "read":
 		case "key":
 		case "paged":
+			return member.form.bound.compiled.compiled.template.clocked
+		case "change":
+			return Arr.flatMap(variantsWrites(member.variants), (write) => write.clocked)
 		case "refresh":
 			return []
 	}
@@ -440,13 +424,6 @@ const servedAbove = (above: LawsAbove): ServedAbove => ({
 	laws: above.laws
 })
 
-/**
- * What a served file's reads are called by: `watch` and `once`, as generate and compileServed serve a login, so each
- * read's footprint must be one its snapshot's live source decodes; or `once` alone, as compileServedOnce serves one
- * (adapter/db/handles.ts onceCalls), which no change wakes, so its file holds no live source.
- */
-export type ReadsServed = "watched" | "once"
-
 /** A watched read the compile refuses, program `program` of role `role`, whose footprint its source does not decode. */
 export interface UncoveredProgram {
 	readonly _tag: "UncoveredProgram"
@@ -455,17 +432,13 @@ export interface UncoveredProgram {
 	readonly read: UncoveredRead
 }
 
-/**
- * A member's read's live kind (served/forms.ts ServedReadLive), where it is a read a call may watch; none for a read at
- * its call's instant, which registers no watch, and for a write.
- */
+/** How a member's read is called (served/forms.ts ServedReadLive), where it is a read; none for a write. */
 const readLiveOf = (member: ServedMemberForm): ServedReadLive | undefined => {
 	switch (member.kind) {
 		case "read":
 		case "key":
 		case "paged":
 			return member.read.live
-		case "instant":
 		case "change":
 		case "refresh":
 			return undefined
@@ -473,15 +446,18 @@ const readLiveOf = (member: ServedMemberForm): ServedReadLive | undefined => {
 }
 
 /**
- * What of a read whose watch is `live` the snapshot's live source `source` does not decode (engine program/live.ts
- * readGaps): every read needs the source itself, for the version notice a migration ends its watch with
- * (adapter/live/changes.ts), so a source that is none is its one gap; a routed read needs its footprint's tables and
- * routing columns besides.
+ * What of a read called as `live` says the snapshot's live source `source` does not decode (engine program/live.ts
+ * readGaps): an answered read registers no watch, so it needs nothing of it; every live read needs the source itself,
+ * for the version notice a migration ends its watch with (adapter/live/changes.ts), so a source that is none is its one
+ * gap; a routed read needs its footprint's tables and routing columns besides.
  */
 const gapsOf = (
 	live: ServedReadLive,
 	source: ServedSnapshot["derived"]["live"]
 ): ReadonlyArray<LiveGap> => {
+	if (live.kind === "answered") {
+		return []
+	}
 	if (source.kind === "none") {
 		return [{ kind: "source" }]
 	}
@@ -494,8 +470,8 @@ const gapsOf = (
 }
 
 /**
- * The first read of `roles`, in role and member order, a read's, a key's or a paged read's, whose watch `source` does
- * not serve (gapsOf), with every part of it the source does not decode; none where it serves each one's.
+ * The first live read of `roles`, in role and member order, a read's, a key's or a paged read's, whose watch `source`
+ * does not serve (gapsOf), with every part of it the source does not decode; none where it serves each one's.
  */
 const uncoveredOf = (
 	roles: ReadonlyArray<ServedRoleForm>,
@@ -522,18 +498,17 @@ const uncoveredOf = (
 }
 
 /**
- * The served file of a login's compile (see the header), its reads served as `reads` says: the login, the snapshot
- * fingerprint it compiled under, its base and that level's index, its PostgreSQL role, its base's schema and the
- * prologue's and session's texts, its live source, the codes of exactly the rosters its roles read, the laws above its
- * base, and its roles. A ledger or login role the naming door refuses is its CompileError, a workload ChangeSet no call
- * can serve its UnservedMember, and a watched read the snapshot's live source does not serve its UncoveredProgram, a
- * reading login's over a snapshot with no source among them. A login with no read and a file of reads called once
- * alone hold none; every other holds the installation's source, whose version notice ends each of its watches at a
- * migration, a constant read's too.
+ * The served file of a login's compile (see the header): the login, the snapshot fingerprint it compiled under, its
+ * base and that level's index, its PostgreSQL role, its base's schema and the prologue's and session's texts, its live
+ * source, the codes of exactly the rosters its roles read, the laws above its base, and its roles. A ledger or login
+ * role the naming door refuses is its CompileError, a workload ChangeSet no call can serve its UnservedMember, and a
+ * live read the snapshot's live source does not serve its UncoveredProgram, a watching login's over a snapshot with no
+ * source among them. A login with no live read, every read of it answered or none at all, holds none and needs none;
+ * every other holds the installation's source, whose version notice ends each of its watches at a migration, a
+ * constant read's too.
  */
 export const servedFileOf = (
-	compiled: CompiledLogin,
-	reads: ReadsServed
+	compiled: CompiledLogin
 ): Result.Result<ServedFile, CompileError | UnservedMember | UncoveredProgram> =>
 	Result.gen(function* () {
 		const { login, snapshot } = compiled
@@ -553,7 +528,7 @@ export const servedFileOf = (
 		)
 		const used = servedRosters(roles)
 		const source = snapshot.derived.live
-		const uncovered = reads === "watched" ? uncoveredOf(roles, source) : undefined
+		const uncovered = uncoveredOf(roles, source)
 		if (uncovered !== undefined) {
 			return yield* Result.fail(uncovered)
 		}
@@ -566,10 +541,7 @@ export const servedFileOf = (
 			schema,
 			prologue: { fence: prepared(ledger.fence.text), enter: prepared(ledger.enter.text) },
 			session: servedSession,
-			live:
-				reads === "once" || !servesRead(compiled.footprints)
-					? { kind: "none" }
-					: servedLiveOf(root, source),
+			live: servesRead(compiled.footprints) ? servedLiveOf(root, source) : { kind: "none" },
 			rosters: new Map(
 				Arr.map(
 					Arr.filter([...snapshot.codes.rosters], ([name]) => used.has(name)),

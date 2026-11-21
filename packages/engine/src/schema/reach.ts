@@ -112,7 +112,7 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 	}
 	for (const { role, program: described } of programs) {
 		const program = unclocked(described)
-		if (program.kind === "query") {
+		if (program.kind === "query" || program.kind === "answered") {
 			for (const r of queryUses(program.query).relations) {
 				name(role, r)
 			}

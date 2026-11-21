@@ -18,7 +18,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
 	type CallsFeature,
@@ -76,7 +76,7 @@ export const aServedProgramsCallsAnswerPostgresqlsOwnRowsOfThem = property.explo
 									const loaded = yield* loadWithTables(programsOf(c.language))
 									const run = member(loaded.members, "run")
 									const input = { params: {}, facts: {} }
-									const answered = yield* Effect.result(readOnce(onceCalls(db, run))(input))
+									const answered = yield* Effect.result(readOnce(memberCalls(db, run))(input))
 									const refuses = Arr.some(expected, (row) => row["out"] === null)
 									if (refuses) {
 										notes.note("a row holding NULL, refused")

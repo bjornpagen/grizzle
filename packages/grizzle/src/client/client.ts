@@ -14,7 +14,7 @@ import {
 	defect,
 	type EventOf,
 	type InputCheck,
-	type InstantShape,
+	type AnsweredShape,
 	type ShapeOf,
 	trusted,
 	type ValueOf
@@ -63,10 +63,11 @@ export interface Watched<X> {
  *
  * - `watch`: every value, whole at a committed snapshot, with the events that made it. A read's stays open, a value
  *   per batch of changes, until the caller interrupts it, which aborts the request; a write's ends after its outcome.
- *   A clocked read (workload Clocked) has none: its answer is its value at its call's instant, then its end.
+ *   An answered read (workload Answered), a clocked one among them, has none: its answer is its value at its call's
+ *   instant, then its end.
  * - `once`: the first value, a read's at `ready` and a write's outcome; the request is aborted once it came.
  */
-export type ProgramClient<X, E> = [ShapeOf<X>] extends [InstantShape]
+export type ProgramClient<X, E> = [ShapeOf<X>] extends [AnsweredShape]
 	? OnceClient<X, E>
 	: OnceClient<X, E> & WatchClient<X, E>
 

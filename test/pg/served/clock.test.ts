@@ -2,7 +2,7 @@ import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result, Stream } from "effect"
-import { memberCalls, onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
@@ -50,7 +50,7 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 					yield* withServedDb(opened.installed, opened.server.roles.app, {}, ({ ctx: db, load }) =>
 						Effect.gen(function* () {
 							const loaded = yield* load(programs)
-							const calls = (name: string) => onceCalls(db, member(loaded, name))
+							const calls = (name: string) => memberCalls(db, member(loaded, name))
 							const call = { params: {}, facts: {} }
 
 							const firstRows = yield* readOnce(calls("reading"))(call)
@@ -80,7 +80,7 @@ export const aMemberBoundToTheDatabasesClockReadsTheInstantItsCallsTransactionBe
 							})
 
 							const dueCalls = memberCalls(db, member(loaded, "due"))
-							if (dueCalls.shape !== "instantSet") {
+							if (dueCalls.shape !== "answeredSet") {
 								return assert.fail("a clocked set read is served at its call's instant")
 							}
 							const answer = yield* Stream.runCollect(dueCalls.answer(call))

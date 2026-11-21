@@ -3,7 +3,7 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { OpenError } from "#adapter/errors/execution.ts"
 import { isCompileError } from "#compiler/core/errors.ts"
 import { caseGen } from "#test/pg/write/swarm/case.ts"
@@ -218,7 +218,7 @@ export const written = (c: SwarmCase, label: string) =>
 					runs.push({ kind: "uncompiled" })
 					return runs
 				}
-				const served = onceCalls(flight.context, member(loaded.success, "step"))
+				const served = memberCalls(flight.context, member(loaded.success, "step"))
 				const applied = yield* Effect.result(
 					flight.judged(at, answered(writeOnce(served)({ params, facts })))
 				)

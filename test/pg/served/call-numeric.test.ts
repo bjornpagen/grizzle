@@ -20,7 +20,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import { isRecord } from "#compiler/core/record.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { Decimal } from "#compiler/public/fields.ts"
@@ -114,7 +114,7 @@ export const aCallOfANumericOfNoTypmodPassesItsValueAsItIsThroughReadsAndWrites 
 								({ ctx: db, loadWithTables }) =>
 									Effect.gen(function* () {
 										const loaded = yield* loadWithTables(programsOf(installed.declared))
-										const call = (name: string) => onceCalls(db, member(loaded.members, name))
+										const call = (name: string) => memberCalls(db, member(loaded.members, name))
 										const none = { params: {}, facts: {} }
 										const held = yield* Effect.result(
 											writeOnce(call("hold"))({

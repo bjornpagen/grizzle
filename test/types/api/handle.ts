@@ -4,29 +4,56 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The member-handle program: the box of every kind of served program a handle runs (a query, a paged ordered query, a
- * relation's key, a deferrable(...) read, a ChangeSet of query members and one of array members), each kind twice, two
- * programs of distinct types over one level, both served to a role of that level and to a role of a level that extends
- * it, by every pairing of a function over MemberHandle<typeof p> with a handle, exhausted and printed as one program the
- * type batch checks.
+ * relation's key, a deferrable(...) read, an answered(...) query, paged query and key, a ChangeSet of query members and
+ * one of array members), each kind twice, two programs of distinct types over one level, both served to a role of that
+ * level and to a role of a level that extends it, by every pairing of a function over MemberHandle<typeof p> with a
+ * handle, exhausted and printed as one program the type batch checks.
  *
  * The oracle: a handle is admitted exactly when its program is the function's own, whichever login's role holds it, a
  * role over the level or over its extension; the handle of the kind's other program is refused. Each pairing states
  * its verdict as a type the program must hold, and each admitted handle is also passed to the function, so the program
- * typechecks clean exactly when every verdict holds. Each read kind's explain fails as its once does, with CallError. Each
- * pairing is a cell of the box, and so is each read kind's explain; the level, its programs and the Dbs are the
- * batch's own.
+ * typechecks clean exactly when every verdict holds. Each read kind's explain fails as its once does, with CallError.
+ * Each kind's handle holds a `watch` exactly where its program is live: an answered read's holds `once` alone, so a
+ * watch of it is a type error. Each pairing is a cell of the box, and so is each read kind's explain and each kind's
+ * watch; the level, its programs and the Dbs are the batch's own.
  */
 
 /** The kinds of program a served member's handle runs, each with its two programs' declarations. */
-const kinds = ["query", "paged", "key", "deferrable", "change", "facts"] as const
+const kinds = [
+	"query",
+	"paged",
+	"key",
+	"deferrable",
+	"answered",
+	"answeredPaged",
+	"answeredKey",
+	"change",
+	"facts"
+] as const
 
 /** The read kinds, each with the error its explain fails with. */
 const readErrors: Arr.NonEmptyReadonlyArray<readonly [Kind, string]> = [
 	["query", "CallError"],
 	["paged", "CallError"],
 	["key", "CallError"],
-	["deferrable", "CallError"]
+	["deferrable", "CallError"],
+	["answered", "CallError"],
+	["answeredPaged", "CallError"],
+	["answeredKey", "CallError"]
 ]
+
+/** Whether each kind's handle holds a watch: every kind's but an answered read's, whose program is never live. */
+const watches: { readonly [K in Kind]: boolean } = {
+	query: true,
+	paged: true,
+	key: true,
+	deferrable: true,
+	answered: false,
+	answeredPaged: false,
+	answeredKey: false,
+	change: true,
+	facts: true
+}
 
 type Kind = (typeof kinds)[number]
 
@@ -61,6 +88,43 @@ const programsOf: { readonly [K in Kind]: readonly [string, string] } = {
 )`
 	],
 	key: ["Item", "Note"],
+	answered: [
+		`answered(
+	query(Root).rule((r) => {
+		const { id, label } = v(Item, "item")
+		return r.match(Item, { id, label }).find({ id, label })
+	})
+)`,
+		`answered(
+	query(Root).rule((r) => {
+		const { id, count } = v(Note, "note")
+		return r.match(Note, { id, count }).find({ id, count })
+	})
+)`
+	],
+	answeredPaged: [
+		`answered(
+	paged(
+		query(Root)
+			.rule((r) => {
+				const { id, label } = v(Item, "item")
+				return r.match(Item, { id, label }).find({ id, label })
+			})
+			.orderBy(["id", "asc"])
+	)
+)`,
+		`answered(
+	paged(
+		query(Root)
+			.rule((r) => {
+				const { id, count } = v(Note, "note")
+				return r.match(Note, { id, count }).find({ id, count })
+			})
+			.orderBy(["id", "asc"])
+	)
+)`
+	],
+	answeredKey: ["answered(Item)", "answered(Note)"],
 	deferrable: [
 		`deferrable(
 	query(Root).rule((r) => {
@@ -114,15 +178,24 @@ const pairings: Arr.NonEmptyReadonlyArray<Pairing> = Arr.flatMap(kinds, (kind) =
 	Arr.flatMap(dbs, (db) => Arr.map([true, false] as const, (own): Pairing => ({ kind, db, own })))
 )
 
-/** A cell of the box: a pairing, or a read kind's explain and the error it fails with. */
+/**
+ * A cell of the box: a pairing, a read kind's explain and the error it fails with, or a kind's handle and whether it
+ * holds a watch.
+ */
 type HandleCell =
 	| Readonly<{ kind: "pairing"; pairing: Pairing }>
 	| Readonly<{ kind: "explain"; read: Kind; error: string }>
+	| Readonly<{ kind: "watch"; program: Kind; watches: boolean }>
 
 /** The cells of handleBox, minted as a dictionary in its door (test/types/api/handle.dictionary.ts). */
 export const handleBoxItems: Arr.NonEmptyReadonlyArray<HandleCell> = [
 	...Arr.map(pairings, (pairing): HandleCell => ({ kind: "pairing", pairing })),
-	...Arr.map(readErrors, ([read, error]): HandleCell => ({ kind: "explain", read, error }))
+	...Arr.map(readErrors, ([read, error]): HandleCell => ({ kind: "explain", read, error })),
+	...Arr.map(kinds, (program): HandleCell => ({
+		kind: "watch",
+		program,
+		watches: watches[program]
+	}))
 ]
 
 /**
@@ -151,6 +224,10 @@ const cellLines = (cell: HandleCell, index: number): ReadonlyArray<string> => {
 		case "explain":
 			return [
 				`export type e${index} = Expect<Equals<Effect.Error<ReturnType<typeof atLevel.workload.${memberOf(cell.read, 0)}.explain>>, ${cell.error}>>`
+			]
+		case "watch":
+			return [
+				`export type w${index} = Expect<Equals<"watch" extends keyof typeof atLevel.workload.${memberOf(cell.program, 0)} ? true : false, ${cell.watches}>>`
 			]
 	}
 }

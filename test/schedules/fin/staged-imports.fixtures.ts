@@ -1,7 +1,7 @@
 /** What the property of staged-imports.test.ts reads: the imports' schema, its rig and the exploration of their race. */
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Formatter, Record as Rec, Result, String as Str } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { openServed } from "#adapter/db/served.ts"
 import { type LoadedMember } from "#adapter/served/load.ts"
 import { type Session, type SessionPool } from "#adapter/wire/session.ts"
@@ -154,7 +154,9 @@ export const explored = (taken: SubstrateCase<Generated>) =>
 		/** An import on `writer`'s Db context, its pool's sessions holding the planted message bound. */
 		const imported = (writer: typeof a, facts: ReturnType<typeof importOf>) =>
 			answered(
-				writeOnce(onceCalls({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member))({
+				writeOnce(
+					memberCalls({ ...writer.ctx, pool: plantedPool(writer.ctx.pool, limit) }, member)
+				)({
 					params: {},
 					facts
 				})

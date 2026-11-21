@@ -255,7 +255,7 @@ read against main 5b049abf); a Q label points at its entry above.
     level's login offline under its own installation. It must be the one composition generate's draft runs
     (cli/generate.ts plannedLogins), never a second copy beside test/support/compiled-served.ts compiledSnapshot.
     Asked by the pantry port's export/scan.test.ts, which compiled ScanProbe under Qti's snapshot and is rightly
-    refused UncoveredRead; compileServedOnce stays unexported (its files are served by onceCalls alone).
+    refused UncoveredRead; an answered(...) read needs no live source, so a login of answered reads compiles there.
 
 ### qti-pie's test-survey asks, for the owner to schedule (2026-11-14)
 From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.md, section 4), logged only.

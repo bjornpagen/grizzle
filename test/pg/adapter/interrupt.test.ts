@@ -28,7 +28,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, Fiber, Formatter, Option } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import type { SessionPool } from "#adapter/wire/session.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { Uuid } from "#compiler/public/fields.ts"
@@ -102,7 +102,7 @@ export const interruptedPublicCallsLeaveTheStateBeforeOrAfterAndNothingRunning =
 								)
 								/** A member's calls over `pool`. */
 								const on = (pool: SessionPool, name: string) =>
-									onceCalls({ ...context, pool }, member(members, name))
+									memberCalls({ ...context, pool }, member(members, name))
 								const notesNow = Effect.map(
 									s.admin.queryValues(
 										`SELECT ${noteTask}::text, ${noteText} FROM ${notes} ORDER BY ${noteTask}`,

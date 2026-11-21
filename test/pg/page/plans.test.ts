@@ -36,7 +36,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { explainStatementWith, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { planNodeTypes } from "#bench/harness/explain.ts"
 import type { Param } from "#compiler/core/wire.ts"
@@ -105,7 +105,7 @@ export const thePlansOfThePageRuntimesStatementsWithAnOrderItsExactReverseAndAMi
 								const loaded = yield* load(Rec.map(orders, (q) => pagedMember(q)))
 								const recording = recordingContext(ctx)
 								/** The paged member of an order, what its windows send recorded. */
-								const pager = (order: Order) => onceCalls(recording.ctx, member(loaded, order))
+								const pager = (order: Order) => memberCalls(recording.ctx, member(loaded, order))
 								/** The statement the runtime sends for a window: the one statement of its flight. */
 								const sentFor = (order: Order, anchor: Anchor, size: number) =>
 									Effect.gen(function* () {

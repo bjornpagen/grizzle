@@ -4,7 +4,7 @@ import { element, type Gen } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { ServedDbContext } from "#adapter/db/context.ts"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import type { ChangeCall, LoadedMember } from "#adapter/served/load.ts"
 import type { ParamMap } from "#compiler/plan/common.ts"
 
@@ -121,7 +121,7 @@ export const applied = (ctx: ServedDbContext, change: LoadedMember, facts: unkno
 		"facts",
 		"a change member of array members takes its call's facts"
 	)
-	return answered(writeOnce(onceCalls(ctx, change))({ params: {}, facts }))
+	return answered(writeOnce(memberCalls(ctx, change))({ params: {}, facts }))
 }
 
 /** A change member of no array member, applied on `ctx` with `params`. */
@@ -131,7 +131,7 @@ export const appliedWith = (ctx: ServedDbContext, change: LoadedMember, params: 
 		"params",
 		"a change member of no array member takes its parameters alone"
 	)
-	return answered(writeOnce(onceCalls(ctx, change))({ params, facts: {} }))
+	return answered(writeOnce(memberCalls(ctx, change))({ params, facts: {} }))
 }
 
 const declared = levels("Levels")

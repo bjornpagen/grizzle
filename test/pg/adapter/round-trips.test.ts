@@ -31,7 +31,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
 import { Db } from "#adapter/public/db.ts"
 import type { CallError, RowKey, Window } from "#compiler/live/index.ts"
@@ -574,7 +574,7 @@ export const oneRoundTripPerPublicCallEveryDrawnRefreshThroughARefreshMemberIsOn
 							const loaded = yield* load({ studentWeekly: refresh([fixture.StudentWeekly]) })
 							const { pool, tap } = yield* tappedPool(installation.as(fixture.server))
 							const refreshing = writeOnce(
-								onceCalls({ ...ctx, pool }, member(loaded, "studentWeekly"))
+								memberCalls({ ...ctx, pool }, member(loaded, "studentWeekly"))
 							)({ params: {}, facts: {} })
 
 							for (const emptied of refreshes) {

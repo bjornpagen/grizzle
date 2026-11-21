@@ -112,10 +112,11 @@ export type WorkloadFootprints = ReadonlyMap<string, ProgramFootprints>
 export type ProgramFootprints = ReadonlyMap<string, Footprint>
 
 /**
- * Whether a login serves a read, by its programs' footprints `footprints`: its workload plans a query program, as every
- * read member does, a query, an ordered query, a paged read and a key's lookup alike, while a ChangeSet, a refresh and a
- * clocked read, answered at its call's instant and never watched, plan none. A login that serves one watches, so its installation holds a live source (livePlanOf) and its served file
- * names it (adapter served/project.ts).
+ * Whether a login serves a live read, by its programs' footprints `footprints`: its workload plans a live query
+ * program, as every live read member does, a query, an ordered query, a paged read and a key's lookup alike, while a
+ * ChangeSet, a refresh and an answered read (a clocked one among them), answered at its call's instant and never
+ * watched, plan none. A login that serves one watches, so its installation holds a live source (livePlanOf) and its
+ * served file names it (adapter served/project.ts).
  */
 export const servesRead = (footprints: ProgramFootprints): boolean => footprints.size > 0
 
@@ -132,8 +133,9 @@ interface ProgramIr {
 
 /**
  * One program's plan, as the database would compile it on the workload schema: a query's access and footprint, both
- * read from its one checked IR (queryRead); a ChangeSet's access alone, since no read subscribes to a write; and a
- * query a clocked member reads at its call's instant (`instant`), its access alone, since no change reaches its answer.
+ * read from its one checked IR (queryRead); a ChangeSet's access alone, since no read subscribes to a write; and an
+ * answered query, read at its call's instant alone (`answered`, a clocked read's among them), its access alone, since
+ * no change wakes it.
  * A ChangeSet over a role is the role's, whose statements write the base's tables. A parameter a member binds to the
  * database's clock reads as a parameter does: its access paths are the ones a caller's value of it plans.
  */
@@ -143,7 +145,7 @@ type ProgramPlan = {
 	readonly roots: ReadonlyArray<RelNode>
 } & (
 	| { readonly kind: "query"; readonly access: ProgramAccess; readonly footprint: Footprint }
-	| { readonly kind: "instant"; readonly access: ProgramAccess }
+	| { readonly kind: "answered"; readonly access: ProgramAccess }
 	| { readonly kind: "changeSet"; readonly access: ProgramAccess }
 )
 
@@ -153,16 +155,21 @@ const programPlan = (
 	clock: ClockBinding
 ): Result.Result<ProgramPlan, CompileError> => {
 	switch (program.kind) {
-		case "query": {
-			const ordered = isOrderedQuery(program.query)
-			return Result.map(queryRead(program.query, reads, clock), (read): ProgramPlan => {
-				const ir = rowsIr(read, ordered)
-				return {
-					kind: "query",
-					params: read.params,
-					roots: ir.roots,
-					access: irAccess(ir),
-					footprint: footprintOf(read.dag, read.analysis, read.params)
+		case "query":
+		case "answered": {
+			const { kind, query } = program
+			return Result.map(queryRead(query, reads, clock), (read): ProgramPlan => {
+				const ir = rowsIr(read, isOrderedQuery(query))
+				const planned = { params: read.params, roots: ir.roots, access: irAccess(ir) }
+				switch (kind) {
+					case "query":
+						return {
+							kind,
+							...planned,
+							footprint: footprintOf(read.dag, read.analysis, read.params)
+						}
+					case "answered":
+						return { kind, ...planned }
 				}
 			})
 		}
@@ -184,15 +191,7 @@ const programPlan = (
 			)
 		}
 		case "clocked":
-			return Result.map(programPlan(program.program, reads, program.clock), (plan): ProgramPlan => {
-				switch (plan.kind) {
-					case "query":
-					case "instant":
-						return { kind: "instant", params: plan.params, roots: plan.roots, access: plan.access }
-					case "changeSet":
-						return plan
-				}
-			})
+			return programPlan(program.program, reads, program.clock)
 	}
 }
 

@@ -22,7 +22,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import {
 	answeredTexts,
@@ -90,7 +90,7 @@ export const aReadOfTheFieldsOfAFunctionsRowAnswersTheReferencesRowsOfItsModel =
 										const loaded = yield* loadWithTables(programsOf(installed.declared).programs)
 										const read = member(loaded.members, c.program)
 										const input = { params: paramsOf(c), facts: {} }
-										const answered = yield* Effect.result(readOnce(onceCalls(db, read))(input))
+										const answered = yield* Effect.result(readOnce(memberCalls(db, read))(input))
 										if (Result.isFailure(expected)) {
 											assert.ok(
 												Result.isFailure(answered),
@@ -227,7 +227,7 @@ export const aStatementThatReadsSeveralFieldsOfOneCallCallsItOnce = property.exp
 											return
 										}
 										const landing = landingOf(c)
-										const applied = yield* Effect.result(writeOnce(onceCalls(db, read))(input))
+										const applied = yield* Effect.result(writeOnce(memberCalls(db, read))(input))
 										if (Result.isFailure(landing)) {
 											assert.ok(
 												Result.isFailure(applied),

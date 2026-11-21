@@ -70,7 +70,6 @@ export {
 	servedDirectory,
 	type ServedFile,
 	type ServedFootprint,
-	type ServedInstantRead,
 	type ServedReadLive,
 	type LiveGap,
 	type ServedLive,

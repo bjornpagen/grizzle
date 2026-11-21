@@ -16,7 +16,7 @@ export {
 	callError,
 	type EventDescriptor,
 	events,
-	type InstantShape,
+	type AnsweredShape,
 	type ReadShape,
 	type Retry,
 	type Shape,

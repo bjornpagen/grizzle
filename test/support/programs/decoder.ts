@@ -3,8 +3,13 @@
  * (test/support/prelude.ts): the program imports these alone, each through this module.
  */
 export { roleNameOf } from "#index.ts"
-export type { AnyLogin, DecoderLogin, NoDecoder, ServedLogin } from "#index.ts"
+export type { AnyLogin, DecoderLogin, LiveOf, NoDecoder, ServedLogin } from "#index.ts"
 export {
+	Answered,
+	AnsweredBeside,
+	AnsweredDefers,
+	AnsweredKeys,
+	AnsweredPages,
 	Bare,
 	Clocked,
 	Defers,

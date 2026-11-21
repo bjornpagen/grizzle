@@ -3,7 +3,7 @@
 import { assert, defined, unorderedEqual } from "@bjornpagen/testing/assert"
 import { boolean, constant, element, type Gen, oneOf, type Steered } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, type Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { rowEvaluator } from "#adapter/public/host.ts"
 import { bindFrame } from "#adapter/wire/batch.ts"
 import { previewOver } from "#compiler/program/preview.ts"
@@ -1015,7 +1015,7 @@ export const checkCase = (
 			/** A member applied on the tapped context with its call's facts. */
 			const applied = (name: string, callFacts: CallFacts) =>
 				answered(
-					writeOnce(onceCalls(flight.context, member(loaded, name)))({
+					writeOnce(memberCalls(flight.context, member(loaded, name)))({
 						params: {},
 						facts: callFacts
 					})

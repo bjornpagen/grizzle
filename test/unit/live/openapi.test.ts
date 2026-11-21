@@ -22,11 +22,11 @@
  *   a reader does, so the properties above read the document as its readers do.
  * - Events by shape: each operation's stream is the events of its member's shape (live/events.ts events), one component
  *   each, discriminated by `event`; a list's upsert carries `after`, a set's does not, and a write's answer is its
- *   outcome; a paged member's body takes its window. An instant read's `ready` says in its `x-stream` that `end`
- *   follows it, and no other's does.
+ *   outcome; a paged member's body takes its window. An answered read's `ready` (an answered(...) or a clocked
+ *   member's) says in its `x-stream` that `end` follows it, and no other's does.
  * - Described, each name once: one tag per role, in the login's order, whose description names every context the role
  *   reads and says its calls need a bearer token exactly where it reads one; each operation's summary says what its
- *   program is (live or at its call's instant, ordered, paged by window, a write or a refresh); each operation's
+ *   program is (live or answered at its call's instant, ordered, paged by window, a write or a refresh); each operation's
  *   description names every relation its program writes or refreshes, its key's fields and its parameters; and its
  *   `grizzle-wire` header's description names what a call naming no digest and one naming another are answered
  *   (live/events.ts wireRefusals).
@@ -40,13 +40,13 @@
  *   operation's security names it exactly when its role reads one.
  * - Exact errors: each operation's error event admits exactly the kinds of CallError its call over HTTP may end with:
  *   those the classification's tables (adapter live/call-error.ts readings) read the failures of the HTTP door and of
- *   the Db's opening as, and of its answer's sources: a live read's run and subscription, a read's at its call's
- *   instant run alone, a ChangeSet's run and its refusing outcome, a refresh's run alone.
+ *   the Db's opening as, and of its answer's sources: a live read's run and subscription, an answered read's run
+ *   alone, a ChangeSet's run and its refusing outcome, a refresh's run alone.
  *
  * Oracle: the served file the document is read off, its members and their wires, the event model's own table, and the
  * classification's tables.
  *
- * Features: a set read, a list read, a paged read, an instant read, a write, a refresh, a role reading a context, a
+ * Features: a set read, a list read, a paged read, an answered read, a write, a refresh, a role reading a context, a
  * role reading none, a login no role of which reads a context, a schema shared, a wire node shared.
  */
 
@@ -79,7 +79,7 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 			"a set read",
 			"a list read",
 			"a paged read",
-			"an instant read",
+			"an answered read",
 			"a write",
 			"a refresh",
 			"a role reading a context",
@@ -110,13 +110,13 @@ export const aLoginsOpenAPIDocumentValidatesIsCanonicalAndHoldsOneOperationPerPr
 				original:
 					'\t\t\t\t["x-stream", descriptor.next === undefined ? { role } : { role, next: descriptor.next }]',
 				replacement: '\t\t\t\t["x-stream", { role }]',
-				why: "An instant read's ready does not say that `end` follows it."
+				why: "An answered read's ready does not say that `end` follows it."
 			},
 			{
 				file: "packages/openapi/src/openapi.ts",
-				original: '\t\t\t\t? "A set read at the call\'s instant"',
-				replacement: '\t\t\t\t? "A live set read at the call\'s instant"',
-				why: "An instant read's summary says live."
+				original: `\t\t\treturn \`An answered \${what}, once at the call's instant\``,
+				replacement: `\t\t\treturn \`A live \${what}, once at the call's instant\``,
+				why: "An answered read's summary says live: answered treated as live."
 			},
 			{
 				file: "packages/engine/src/live/events.ts",

@@ -6,10 +6,11 @@
  * A read's answer opens with `reset`, which names the key fields its rows are keyed by, once its read has answered;
  * sends an `upsert` per row as it decodes, provisional until `ready`, which follows the read's COMMIT; and then, live,
  * an `upsert` or `remove` per change, each sent after its re-run's COMMIT. A set read's upsert carries its row alone; an ordered read's carries the
- * key of the row it follows too, null for the first. An instant read's answer, a read whose member binds a parameter to
- * the database's clock, is its read at its call's instant alone: `reset`, its upserts, `ready`, then `end`, with no
- * `remove`, since time passing is no change. A write's answer is its `outcome`, after its COMMIT. Every failure is one
- * `error`, and an answer ends with `end` after its error or outcome, an instant read's after its ready too. A read that
+ * key of the row it follows too, null for the first. An answered read's answer, a read its member declares
+ * answered(...) or one whose member binds a parameter to the database's clock, is its read at its call's instant alone:
+ * `reset`, its upserts, `ready`, then `end`, with no `remove`, since no change wakes it, and time passing is no change.
+ * A write's answer is its `outcome`, after its COMMIT. Every failure is one `error`, and an answer ends with `end` after
+ * its error or outcome, an answered read's after its ready too. A read that
  * fails before it answered, its input refused at the door or by PostgreSQL as it binds it among them, answers its error
  * alone: no `reset` opened an answer it never gave.
  */
@@ -265,12 +266,12 @@ export type FailureOf<S extends FailureSource> = CallErrorIn<FailureKind<S>>
 
 /**
  * What a member's answer is, each with the sources of the failures its calls meet (failures): a live read's, its run's
- * and its subscription's; a read's at its call's instant, its run's alone; a ChangeSet's, its run's and its outcome's;
- * and a refresh's, its run's alone.
+ * and its subscription's; an answered read's, at its call's instant alone, its run's alone; a ChangeSet's, its run's and
+ * its outcome's; and a refresh's, its run's alone.
  */
 export const answers = {
 	live: ["read", "watch"],
-	instant: ["read"],
+	answered: ["read"],
 	change: ["apply", "outcome"],
 	refresh: ["apply"]
 } as const satisfies { readonly [answer: string]: NonEmptyReadonlyArray<FailureSource> }
@@ -306,7 +307,7 @@ export type Role = "item" | "ready" | "error" | "end"
 
 /**
  * An event's descriptor: its role, the members its payload holds, and the event that follows it where one event alone
- * may: an instant read's `ready` is followed by its `end` (`next`), since no change reaches it.
+ * may: an answered read's `ready` is followed by its `end` (`next`), since no change wakes it.
  */
 export interface EventDescriptor {
 	readonly role: Role
@@ -317,7 +318,7 @@ export interface EventDescriptor {
 const reset = { role: "item", payload: { key: "fields" } } as const
 const remove = { role: "item", payload: { key: "key" } } as const
 const ready = { role: "ready", payload: {} } as const
-const instantReady = { role: "ready", payload: {}, next: "end" } as const
+const answeredReady = { role: "ready", payload: {}, next: "end" } as const
 const error = { role: "error", payload: { error: "error" } } as const
 const end = { role: "end", payload: {} } as const
 
@@ -326,30 +327,30 @@ const listUpsert = { role: "item", payload: { row: "row", after: "after" } } as 
 
 /**
  * The events of each shape of answer, by name: a set read's, an ordered read's, whose upsert carries `after` too, each
- * of them read at its call's instant alone (instantSet, instantList), which no change reaches, and a write's.
+ * of them answered at its call's instant alone (answeredSet, answeredList), which no change wakes, and a write's.
  */
 export const events = {
 	set: { reset, upsert: setUpsert, remove, ready, error, end },
 	list: { reset, upsert: listUpsert, remove, ready, error, end },
-	instantSet: { reset, upsert: setUpsert, ready: instantReady, error, end },
-	instantList: { reset, upsert: listUpsert, ready: instantReady, error, end },
+	answeredSet: { reset, upsert: setUpsert, ready: answeredReady, error, end },
+	answeredList: { reset, upsert: listUpsert, ready: answeredReady, error, end },
 	write: { outcome: { role: "item", payload: { outcome: "outcome" } }, error, end }
 } as const satisfies {
 	readonly [shape: string]: { readonly [name: string]: EventDescriptor }
 }
 
-/** The shapes of answer: a set read's, an ordered read's, each at an instant alone, a write's. */
+/** The shapes of answer: a set read's, an ordered read's, each live or answered at its call's instant alone, a write's. */
 export type Shape = keyof typeof events
 
 /**
- * The answers of each shape (answers): a set or ordered read's live, one at its call's instant alone its instant one's,
- * and a write's a ChangeSet's or a refresh's.
+ * The answers of each shape (answers): a set or ordered read's live, an answered one's answered at its call's instant
+ * alone, and a write's a ChangeSet's or a refresh's.
  */
 export interface ShapeAnswers {
 	readonly set: "live"
 	readonly list: "live"
-	readonly instantSet: "instant"
-	readonly instantList: "instant"
+	readonly answeredSet: "answered"
+	readonly answeredList: "answered"
 	readonly write: "change" | "refresh"
 }
 
@@ -359,8 +360,8 @@ export type ShapeFailure<S extends Shape> = AnswerFailure<ShapeAnswers[S]>
 /** The shapes of a read's keyed value: a set's, and an ordered read's list. */
 export type ReadShape = Extract<Shape, "set" | "list">
 
-/** The shapes of a read at its call's instant alone, which no change reaches: a set's and an ordered read's. */
-export type InstantShape = Extract<Shape, "instantSet" | "instantList">
+/** The shapes of an answered read, at its call's instant alone, which no change wakes: a set's and an ordered read's. */
+export type AnsweredShape = Extract<Shape, "answeredSet" | "answeredList">
 
 /**
  * The event `name` of shape S over Row and Outcome: its name as `kind`, and its payload's members, an error of the
@@ -386,11 +387,11 @@ export type SetEvent<Row> = EventOfShape<"set", Row, never>
 /** An ordered read's events. */
 export type ListEvent<Row> = EventOfShape<"list", Row, never>
 
-/** A set read's events at its call's instant alone (InstantShape). */
-export type InstantSetEvent<Row> = EventOfShape<"instantSet", Row, never>
+/** An answered set read's events, at its call's instant alone (AnsweredShape). */
+export type AnsweredSetEvent<Row> = EventOfShape<"answeredSet", Row, never>
 
-/** An ordered read's events at its call's instant alone (InstantShape). */
-export type InstantListEvent<Row> = EventOfShape<"instantList", Row, never>
+/** An answered ordered read's events, at its call's instant alone (AnsweredShape). */
+export type AnsweredListEvent<Row> = EventOfShape<"answeredList", Row, never>
 
 /** A write's events. */
 export type WriteEvent<Outcome> = EventOfShape<"write", never, Outcome>

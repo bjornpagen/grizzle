@@ -14,7 +14,7 @@ import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
-import { paged } from "#compiler/public/workload.ts"
+import { answered, paged } from "#compiler/public/workload.ts"
 import { listFrame, setFrame, type SlotEncoders, writeFrame } from "#http/events.ts"
 import type { SseEvent } from "#http/sse.ts"
 import type { StreamEvent } from "#test/support/event-stream.ts"
@@ -45,6 +45,18 @@ export const programs = Object.freeze({
 	),
 	item: Item,
 	put: ChangeSet.empty(Items).put(Item, [])
+})
+
+/**
+ * The same members as an operations login serving a serverless route declares them (workload answered): each read
+ * answered at its call's instant alone, never live, beside the put, so no member of the login is live and its layer
+ * needs no live source.
+ */
+export const answeredMembers = Object.freeze({
+	atLeast: answered(programs.atLeast),
+	ranked: answered(programs.ranked),
+	item: answered(Item),
+	put: programs.put
 })
 
 /** One call: a member's input as JSON, which is its host input too, every value an int4's JSON integer. */
@@ -249,9 +261,9 @@ export const inProcess = (
 			return Stream.map(calls.watch(body), (event) => carried(setFrame(slots, event)))
 		case "list":
 			return Stream.map(calls.watch(body), (event) => carried(listFrame(slots, event)))
-		case "instantSet":
+		case "answeredSet":
 			return Stream.map(calls.answer(body), (event) => carried(setFrame(slots, event)))
-		case "instantList":
+		case "answeredList":
 			return Stream.map(calls.answer(body), (event) => carried(listFrame(slots, event)))
 		case "write":
 			return Stream.map(calls.watch(body), (event) => carried(writeFrame(slots, event)))

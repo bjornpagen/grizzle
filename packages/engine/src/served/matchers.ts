@@ -30,13 +30,11 @@ const variantPatterns = (variants: ServedVariants): ReadonlyArray<PatternSource>
 }
 
 /**
- * The patterns a member's calls read: a read's, an instant read's, a key's and a page's parameters', and a ChangeSet's
- * variants'.
+ * The patterns a member's calls read: a read's, a key's and a page's parameters', and a ChangeSet's variants'.
  */
 const memberPatterns = (member: ServedMember): ReadonlyArray<PatternSource> => {
 	switch (member.kind) {
 		case "read":
-		case "instant":
 		case "key":
 		case "paged":
 			return member.read.params.flatMap(paramPatterns)

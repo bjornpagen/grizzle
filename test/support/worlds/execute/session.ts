@@ -4,7 +4,7 @@ import { Array as Arr, Effect, Option, Predicate, Record as Rec, type Ref, Resul
 import type { ServedDbContext } from "#adapter/db/context.ts"
 import { fromEngine } from "#adapter/engine.ts"
 import type { ReadError } from "#adapter/errors/execution.ts"
-import { compileServedOnce, type ServedRefusal } from "#adapter/public/compile.ts"
+import { compileServed, type ServedRefusal } from "#adapter/public/compile.ts"
 import type { DecodedRow } from "#adapter/reader/stream.ts"
 import { runRefresh } from "#adapter/refresh/run.ts"
 import type { LoadedMember } from "#adapter/served/load.ts"
@@ -24,7 +24,7 @@ import type { TestCompileOptions } from "#test/support/compile.ts"
 import { Id } from "#test/support/ids.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { flown } from "#test/support/read-calls.ts"
-import { applicationOf } from "#test/support/served-db.ts"
+import { answeredPrograms, applicationOf } from "#test/support/served-db.ts"
 import {
 	artifactsAgree,
 	type Delivery,
@@ -83,9 +83,9 @@ export const refusedWith = (observation: Observation, error: unknown): Seen => (
  * version's refusal reader, which its refusals' laws and refusing objects are read back by, and the Db's context, which
  * holds the pool of the layer it was opened on, the pool that serves it after a migration made another version current.
  * Each program an action runs is a member of the role's workload, compiled as generate compiles it into a served file
- * of the login under `snapshot`, the snapshot its layer's file was compiled under, for once calls alone
- * (adapter/public/compile.ts compileServedOnce), then loaded as a layer loads it and run once on the Db's context
- * (adapter/db/handles.ts onceCalls); `compile` is the installation's allocation and codes, under which the read
+ * of the login under `snapshot`, the snapshot its layer's file was compiled under, each read answered
+ * (served-db.ts answeredPrograms), then loaded as a layer loads it and run once on the Db's context
+ * (adapter/db/handles.ts memberCalls); `compile` is the installation's allocation and codes, under which the read
  * differential compiles a read again (artifacts.ts). No action watches a read, and the installation was migrated
  * without the programs an action draws, so its snapshot's live source serves none of their watches.
  */
@@ -111,8 +111,9 @@ export interface DbSession {
 
 /**
  * The served file of the session's login whose role's workload holds exactly `programs`, under the snapshot its layer's
- * file was compiled under, its reads called once alone (adapter/public/compile.ts compileServedOnce), so its live is
- * none; a value workload(...) itself refuses is that refusal, as generate refuses it.
+ * file was compiled under, each read answered (served-db.ts answeredPrograms), so its live is none
+ * (adapter/public/compile.ts compileServed); a value workload(...) itself refuses is that refusal, as generate refuses
+ * it.
  */
 const servedFileOf = (
 	session: DbSession,
@@ -120,12 +121,12 @@ const servedFileOf = (
 ): Effect.Effect<ServedFile, ServedRefusal | CompileError> =>
 	Effect.flatMap(
 		Effect.mapError(
-			attempt("the workload", () => workload(session.reached.role, programs)),
+			attempt("the workload", () => workload(session.reached.role, answeredPrograms(programs))),
 			(refused) => refused.refusal
 		),
 		(served) =>
 			Effect.flatMap(
-				Effect.suspend(() => compileServedOnce(session.reached.login, session.snapshot, [served])),
+				Effect.suspend(() => compileServed(session.reached.login, session.snapshot, [served])),
 				(json) => fromEngine(servedFile(json))
 			)
 	)

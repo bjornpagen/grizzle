@@ -46,7 +46,7 @@ export interface QueryTemplate extends ProgramArtifacts {
 	readonly params: ReadonlyArray<CallerParamDecl>
 	/**
 	 * The declared parameters its member binds to the database's clock, which its statement prints as the reading, cast
-	 * as a placeholder of each is: none but an instant member's.
+	 * as a placeholder of each is: none but a clocked read's.
 	 */
 	readonly clocked: ReadonlyArray<ClockParamDecl>
 	/** How the runtime delivers the result. */
@@ -86,7 +86,7 @@ export interface CompileQueryOptions extends TemplateReading {
 	readonly context: TemplateContext
 	/**
 	 * The parameters the query's served member binds to the database's clock (check/clock.ts clockParams), which the
-	 * template's statement prints as the reading itself: none but an instant member's.
+	 * template's statement prints as the reading itself: none but a clocked read's.
 	 */
 	readonly clock: ClockBinding
 	/**

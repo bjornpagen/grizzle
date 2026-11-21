@@ -24,7 +24,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls, memberExplains } from "#adapter/db/handles.ts"
 import {
 	type BoundCase,
 	boundCaseGen,
@@ -133,7 +133,7 @@ export const aRelationParameterBoundToAHigherLevelsQueryReadsItsRowsInTheLowerLe
 								({ ctx: db, loadWithTables }) =>
 									Effect.gen(function* () {
 										const loaded = yield* loadWithTables(world.programs)
-										const call = (name: string) => onceCalls(db, member(loaded.members, name))
+										const call = (name: string) => memberCalls(db, member(loaded.members, name))
 										const sittings = yield* readOnce(call("sittingsOf"))({
 											params: { child: c.child },
 											facts: {}

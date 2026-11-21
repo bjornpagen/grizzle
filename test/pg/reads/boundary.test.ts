@@ -3,7 +3,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { fullSwarm } from "@bjornpagen/testing/swarm"
 import { Effect, Exit, Scope, Struct } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { paged } from "#compiler/public/workload.ts"
 import { defaultPool, poolFor, rowsOn } from "#test/pg/adapter/support.ts"
@@ -94,7 +94,7 @@ export const aServedDbsHandlesAtTheirBoundaryAnswerLiveStaleAndWildValuesByTheir
 											)
 										)
 										const tapped = { ...context, pool }
-										const callsOf = (name: string) => onceCalls(tapped, member(loaded, name))
+										const callsOf = (name: string) => memberCalls(tapped, member(loaded, name))
 										const real: Subject = {
 											reads: {
 												live: callsOf("live"),

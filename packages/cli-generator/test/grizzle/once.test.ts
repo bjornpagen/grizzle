@@ -1091,3 +1091,82 @@ export const grizzleOnce = property.explore(
 		kills: []
 	}
 )
+
+/** The login's live reads, whose streams go on past their `ready`: the set reads, the key and the page. */
+const liveReads = ["atLeast", "named", "ranked", "item"] as const
+
+/** The login's reads answered at their call's instant alone: the clocked `past` and the answered(...) `listed`. */
+const answeredReads = ["past", "listed"] as const
+
+/** A live read of the login, with its liveness. */
+const liveGen: Gen<readonly [string, boolean]> = (source) =>
+	[source.draw(element(liveReads)), true] as const
+
+/** A read of the login answered at its call's instant alone, with its liveness. */
+const answeredGen: Gen<readonly [string, boolean]> = (source) =>
+	[source.draw(element(answeredReads)), false] as const
+
+/** One read of the login and whether it is live: a live one or an answered one, then one read of it. */
+const readGen: Gen<readonly [string, boolean]> = (source) =>
+	source.draw(
+		weighted([
+			[1, liveGen],
+			[1, answeredGen]
+		])
+	)
+
+/** What the follow property reaches: a live read's command, and an answered read's. */
+type FollowFeature = "a live read's command" | "an answered read's command"
+
+/**
+ * A generated CLI offers --follow exactly for a live read: an answered read's operation (an answered(...) or a clocked
+ * member's) says in its `ready`'s x-stream that `end` follows it, so its command's help lists no --follow, while every
+ * live read's lists it.
+ */
+export const grizzleFollowsLiveReadsAlone = property.explore(
+	aimed(readGen, [
+		["a live read's command", liveGen],
+		["an answered read's command", answeredGen]
+	] as const),
+	{
+		needs: { twins: twinsNeed },
+		situations: ["a live read's command", "an answered read's command"] satisfies ReadonlyArray<
+			Reached<FollowFeature>
+		>,
+		check:
+			({ twins: twinsOf }, notes: Case<FollowFeature>) =>
+			([program, live]) =>
+				Effect.gen(function* () {
+					const twins = yield* twinsOf
+					const command = yield* Effect.fromOption(
+						Option.fromUndefinedOr(twins.commands.get(program))
+					)
+					const run = yield* runBin(twins.built, {
+						args: [...command, "--help"],
+						env: {},
+						stdin: new Uint8Array(0)
+					})
+					const help = `${decoder.decode(run.stdout)}${decoder.decode(run.stderr)}`
+					notes.note(live ? "a live read's command" : "an answered read's command")
+					assert.equal(
+						Str.includes("--follow")(help),
+						live,
+						`${program}'s help ${live ? "lists" : "lists no"} --follow:\n${help}`
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "each read's liveness as the login declares it: answered(...) and clocked reads answered once, every other live"
+		},
+		kept: [],
+		budget: { runs: 6, steered: 6 },
+		kills: [
+			{
+				file: "packages/cli-generator/src/emit/cli.ts",
+				original: '\t\t\t\t\t(event) => event.role === "ready" && !("next" in event)',
+				replacement: '\t\t\t\t\t(event) => event.role === "ready"',
+				why: "Every command whose stream names a ready offers --follow, an answered read's too, whose stream ends at its ready: answered treated as live; the property fails."
+			}
+		]
+	}
+)

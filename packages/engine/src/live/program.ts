@@ -22,7 +22,14 @@ import type {
 	Refusal,
 	UnionToIntersection
 } from "#compiler/types/core/phantom.ts"
-import type { Clocked, Deferrable, Paged, ReadOf, Refresh } from "#compiler/types/db/workload.ts"
+import type {
+	Answered,
+	Clocked,
+	Deferrable,
+	Paged,
+	ReadOf,
+	Refresh
+} from "#compiler/types/db/workload.ts"
 import type { OrderedBase, ParamsOf } from "#compiler/types/query/query.ts"
 import type { AnyClosed, AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { CandidateKey, KeyValues } from "#compiler/types/schema/statements.ts"
@@ -96,11 +103,27 @@ type KeyTarget = AnyRelation | AnyClosed | CandidateKey<AnyRelation>
 
 /**
  * The shape of a served program's answer, a deferrable member's its read's: an ordered or paged read's is a list, a
- * write's a write, a read's a set, and a clocked read's its list or set at its call's instant alone.
+ * write's a write, a read's a set, and an answered read's, a clocked one's among them, its list or set answered at its
+ * call's instant alone (AnsweredShapeOf).
  */
-export type ShapeOf<X> = ShapeOfProgram<ReadOf<X>>
+export type ShapeOf<X> =
+	X extends Deferrable<infer Y>
+		? ShapeOf<Y>
+		: X extends Answered<infer R>
+			? AnsweredShapeOf<ShapeOfProgram<R>>
+			: ShapeOfProgram<X>
 
-/** The shape of a program's answer (ShapeOf), a deferrable member's read unwrapped. */
+/** The answered shape of a read of shape S: a set read's answeredSet, an ordered one's answeredList. */
+type AnsweredShapeOf<S> = S extends "set"
+	? "answeredSet"
+	: S extends "list"
+		? "answeredList"
+		: never
+
+/**
+ * The shape of a program's answer (ShapeOf), a deferrable or answered member's read unwrapped: a clocked read's is an
+ * answered one's (ShapeOf of its program answered), since time passing is no change.
+ */
 type ShapeOfProgram<X> =
 	X extends Paged<unknown>
 		? "list"
@@ -109,9 +132,7 @@ type ShapeOfProgram<X> =
 			: X extends Clocked<infer P, unknown>
 				? P extends AnyChangeSet
 					? "write"
-					: P extends OrderedBase
-						? "instantList"
-						: "instantSet"
+					: ShapeOf<Answered<P>>
 				: X extends AnyChangeSet
 					? "write"
 					: X extends OrderedBase
@@ -119,17 +140,19 @@ type ShapeOfProgram<X> =
 						: "set"
 
 /**
- * The program a served member runs: a deferrable member's read's, a paged member's ordered query, a clocked member's
- * program, or the member itself.
+ * The program a served member runs: a deferrable or answered member's read's, a paged member's ordered query, a clocked
+ * member's program, or the member itself.
  */
 type ProgramOf<X> =
 	X extends Deferrable<infer R>
 		? ProgramOf<R>
-		: X extends Paged<infer O>
-			? O
-			: X extends Clocked<infer P, unknown>
-				? P
-				: X
+		: X extends Answered<infer R>
+			? ProgramOf<R>
+			: X extends Paged<infer O>
+				? O
+				: X extends Clocked<infer P, unknown>
+					? P
+					: X
 
 /** The records a program delivers, as its own type states them: a read's rows, a ChangeSet's read-backs. */
 type RecordsOf<X> = ProgramOf<X> extends Delivering<infer A> ? A : never
@@ -233,7 +256,7 @@ type FactsIn<I> = I extends { readonly facts: infer F } ? F : unknown
  * its keys and its parts read by key (ReadByKey, ProgramByKey, the phantom's members), never by a test of it. A query
  * holds its schema, and a conditional the checker resolves instantiates its operands whole, every relation of the
  * schema with them, once for every query a Db serves. A program's keys tell its kind: a deferrable member's
- * `deferrable`, a paged one's `paged`, a clocked one's `clocked`, a refresh's `refresh`, a ChangeSet's `reads`, an
+ * `deferrable`, an answered one's `answered`, a paged one's `paged`, a clocked one's `clocked`, a refresh's `refresh`, a ChangeSet's `reads`, an
  * ordered query's `take`, and a relation's, a closed relation's or a candidate key's `kind`; a query has none of them. A
  * value typed `any` or `never`, or one with a symbol index signature, whose keys are every symbol, is read by the
  * structural readers above (ByKeys). The structural readers stay what a type generic in its program reads (client
@@ -242,19 +265,32 @@ type FactsIn<I> = I extends { readonly facts: infer F } ? F : unknown
  */
 type ByKeys<X> = symbol extends keyof X ? false : true
 
-/** A deferrable member's read, or the program itself where it is none (workload.ts ReadOf), by its keys. */
+/**
+ * The read a member runs, past its deferrable(...) and its answered(...), or the program itself where it is neither
+ * (workload.ts ReadOf), by its keys.
+ */
 type ReadByKey<X> = X extends unknown
 	? ByKeys<X> extends true
 		? "deferrable" extends keyof X
-			? X["deferrable" & keyof X]
-			: X
+			? ReadByKey<X["deferrable" & keyof X]>
+			: "answered" extends keyof X
+				? X["answered" & keyof X]
+				: X
 		: ReadOf<X>
 	: never
 
-/** ShapeOf by the program's keys. */
-export type ServedShape<X> = ShapeOfRead<ReadByKey<X>>
+/** ShapeOf by the program's keys: an answered member's its read's, answered (AnsweredShapeOf). */
+export type ServedShape<X> = X extends unknown
+	? ByKeys<X> extends true
+		? "deferrable" extends keyof X
+			? ServedShape<X["deferrable" & keyof X]>
+			: "answered" extends keyof X
+				? AnsweredShapeOf<ShapeOfRead<X["answered" & keyof X]>>
+				: ShapeOfRead<X>
+		: ShapeOf<X>
+	: never
 
-/** The shape of a program's answer (ShapeOf), a deferrable member's read unwrapped, by its keys. */
+/** The shape of a program's answer (ShapeOf), its member's read, by its keys. */
 type ShapeOfRead<X> = X extends unknown
 	? ByKeys<X> extends true
 		? "paged" extends keyof X
@@ -262,7 +298,7 @@ type ShapeOfRead<X> = X extends unknown
 			: "refresh" extends keyof X
 				? "write"
 				: "clocked" extends keyof X
-					? InstantShapeOf<X["clocked" & keyof X]>
+					? ClockedShapeOf<X["clocked" & keyof X]>
 					: "reads" extends keyof X
 						? "write"
 						: "take" extends keyof X
@@ -271,14 +307,12 @@ type ShapeOfRead<X> = X extends unknown
 		: ShapeOfProgram<X>
 	: never
 
-/** A clocked member's shape by its program's keys: a ChangeSet's a write, an ordered query's a list at its instant. */
-type InstantShapeOf<P> = P extends unknown
+/** A clocked member's shape by its program's keys: a ChangeSet's a write, a read's its answered one's (ServedShape). */
+type ClockedShapeOf<P> = P extends unknown
 	? ByKeys<P> extends true
 		? "reads" extends keyof P
 			? "write"
-			: "take" extends keyof P
-				? "instantList"
-				: "instantSet"
+			: ServedShape<Answered<P>>
 		: ShapeOfProgram<Clocked<P, unknown>>
 	: never
 
@@ -287,11 +321,13 @@ type ProgramByKey<X> = X extends unknown
 	? ByKeys<X> extends true
 		? "deferrable" extends keyof X
 			? ProgramByKey<X["deferrable" & keyof X]>
-			: "paged" extends keyof X
-				? X["paged" & keyof X]
-				: "clocked" extends keyof X
-					? X["clocked" & keyof X]
-					: X
+			: "answered" extends keyof X
+				? ProgramByKey<X["answered" & keyof X]>
+				: "paged" extends keyof X
+					? X["paged" & keyof X]
+					: "clocked" extends keyof X
+						? X["clocked" & keyof X]
+						: X
 		: ProgramOf<X>
 	: never
 
@@ -434,8 +470,8 @@ type OnlyInputMembersOf<I, In> = [Exclude<keyof I, keyof In>] extends [never]
 export type ServedValue<X> = {
 	readonly set: KeyedSet<ServedRow<X>>
 	readonly list: KeyedList<ServedRow<X>>
-	readonly instantSet: KeyedSet<ServedRow<X>>
-	readonly instantList: KeyedList<ServedRow<X>>
+	readonly answeredSet: KeyedSet<ServedRow<X>>
+	readonly answeredList: KeyedList<ServedRow<X>>
 	readonly write: ServedOutcome<X>
 }[ServedShape<X>]
 
@@ -446,8 +482,8 @@ export type ServedValue<X> = {
 export type ValueOf<X> = {
 	readonly set: KeyedSet<RowOf<X>>
 	readonly list: KeyedList<RowOf<X>>
-	readonly instantSet: KeyedSet<RowOf<X>>
-	readonly instantList: KeyedList<RowOf<X>>
+	readonly answeredSet: KeyedSet<RowOf<X>>
+	readonly answeredList: KeyedList<RowOf<X>>
 	readonly write: OutcomeOf<X>
 }[ShapeOf<X>]
 
@@ -458,7 +494,7 @@ export type EventOf<X> = EventOfShape<ShapeOf<X>, RowOf<X>, OutcomeOf<X>>
 export type StateOf<X> = {
 	readonly set: ReadState<"set", RowOf<X>>
 	readonly list: ReadState<"list", RowOf<X>>
-	readonly instantSet: ReadState<"set", RowOf<X>>
-	readonly instantList: ReadState<"list", RowOf<X>>
+	readonly answeredSet: ReadState<"set", RowOf<X>>
+	readonly answeredList: ReadState<"list", RowOf<X>>
 	readonly write: WriteState<OutcomeOf<X>>
 }[ShapeOf<X>]

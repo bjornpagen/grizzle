@@ -35,7 +35,7 @@ import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { changeSetOver as ChangeSet } from "#compiler/write/changeset/value.ts"
 import {
 	appendedBeside,
@@ -131,7 +131,7 @@ const installed = (k: FreshCase, label: string, byDepth: boolean) =>
 		const loaded = yield* db.load(programs)
 		/** A member applied on the tapped context with its call's facts. */
 		const applied = (name: string, facts: CallFacts) =>
-			answered(writeOnce(onceCalls(flight.context, member(loaded, name)))({ params: {}, facts }))
+			answered(writeOnce(memberCalls(flight.context, member(loaded, name)))({ params: {}, facts }))
 		const state = Effect.forEach(
 			Arr.map(k.spec.relations, (_, r) => relationAt(r)),
 			(relation) => storedRows(done, relation)

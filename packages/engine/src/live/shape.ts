@@ -687,12 +687,12 @@ const payloadSlot = (slot: Slot, schemas: PayloadSchemas): WireSchema => {
 	return schemas[slot]
 }
 
-/** The answer of each read shape (live/events.ts ShapeAnswers): a set or ordered read's live, an instant one's its own. */
+/** The answer of each read shape (live/events.ts ShapeAnswers): a set or ordered read's live, an answered one's its own. */
 const readAnswers: { readonly [S in Exclude<Shape, "write">]: ShapeAnswers[S] } = {
 	set: "live",
 	list: "live",
-	instantSet: "instant",
-	instantList: "instant"
+	answeredSet: "answered",
+	answeredList: "answered"
 }
 
 /**

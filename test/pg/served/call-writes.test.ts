@@ -19,7 +19,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { steered } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Result } from "effect"
-import { memberExplains, onceCalls } from "#adapter/db/handles.ts"
+import { memberExplains, memberCalls } from "#adapter/db/handles.ts"
 import {
 	drawnFeatures,
 	expectedOf,
@@ -85,7 +85,7 @@ export const writesFromACallGuardedByADerivedRelationCallItOnceAndWriteTheGuarde
 											[1],
 											`one statement calls grade, once, for both members: ${Formatter.format(scans)}`
 										)
-										const applied = yield* Effect.result(writeOnce(onceCalls(db, answer))(input))
+										const applied = yield* Effect.result(writeOnce(memberCalls(db, answer))(input))
 										if (Result.isFailure(applied)) {
 											return assert.fail(`answer applies: ${Formatter.format(applied.failure)}`)
 										}

@@ -41,7 +41,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Result } from "effect"
-import { onceCalls } from "#adapter/db/handles.ts"
+import { memberCalls } from "#adapter/db/handles.ts"
 import { ReadFailure } from "#adapter/errors/execution.ts"
 import { CallInputRefused } from "#adapter/errors/failures.ts"
 import { readCallError } from "#adapter/live/call-error.ts"
@@ -130,8 +130,11 @@ export const thePageRuntimeThroughTheReadersAnswersEveryWindowByTheDOfTheMomentA
 							return yield* Effect.gen(function* () {
 								/** A paged member's calls, their flights counted. */
 								const pagedCalls = (handle: Handle) =>
-									onceCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
-								const unpaged = onceCalls(dbCtx, member(loaded, memberName(walk.query, "unpaged")))
+									memberCalls(recording.ctx, member(loaded, memberName(walk.query, handle)))
+								const unpaged = memberCalls(
+									dbCtx,
+									member(loaded, memberName(walk.query, "unpaged"))
+								)
 								const compiled = pageTemplate(
 									member(loaded, memberName(walk.query, "member")),
 									opened.installed.names.codes
@@ -398,7 +401,7 @@ export const thePageRuntimeThroughTheReadersRefusesEveryWindowInputButExactlyIts
 							const recording = recordingContext(dbCtx)
 
 							const paging = member(loaded, memberName(c.query, "member"))
-							const calls = onceCalls(recording.ctx, paging)
+							const calls = memberCalls(recording.ctx, paging)
 							const compiled = pageTemplate(paging, opened.installed.names.codes)
 							const [first] = yield* windowOf(calls, params, { kind: "start" }, 1)
 							const row = keyOf(compiled.fields, defined(first, "a row of D"))

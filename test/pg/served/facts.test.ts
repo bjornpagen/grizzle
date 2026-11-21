@@ -2,7 +2,7 @@ import { assert, unorderedEqual } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Result } from "effect"
-import { onceCalls, variantOf } from "#adapter/db/handles.ts"
+import { memberCalls, variantOf } from "#adapter/db/handles.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
@@ -73,14 +73,14 @@ export const aServedChangeSetsArrayMembersWriteExactlyTheFactsEachCallSuppliesAn
 									}
 									const applied = yield* Effect.result(
 										answered(
-											writeOnce(onceCalls(db, change))({
+											writeOnce(memberCalls(db, change))({
 												params: {},
 												facts: plantedFacts(facts, plant)
 											})
 										)
 									)
 									const everyRow = (name: string) =>
-										readOnce(onceCalls(db, member(loaded, name)))({ params: {}, facts: {} })
+										readOnce(memberCalls(db, member(loaded, name)))({ params: {}, facts: {} })
 									const storedItems = yield* everyRow("items")
 									const storedLabels = yield* everyRow("labels")
 									const expectedItems = itemsAfter(stored, facts)
