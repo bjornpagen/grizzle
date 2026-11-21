@@ -3,6 +3,7 @@ import { keyEvidence } from "#compiler/analysis/physical/evidence.ts"
 import {
 	asTheyAre,
 	DependencyDraft,
+	embeddedIn,
 	hiddenIn,
 	type JoinedOccurrence,
 	type Justification,
@@ -11,6 +12,7 @@ import {
 	nodePremise,
 	type OuterColumn,
 	outerKey,
+	ownOrigin,
 	paramPremise,
 	type Rep,
 	resolveOuter,
@@ -1369,7 +1371,7 @@ const regionProps = (node: NodeOf<"MatchRegion">, cx: RuleContext): PhysicalProp
 		if (evaluation !== undefined) {
 			fds.implyWithin(ns, [occurrenceRow, ...evaluation.vars], scanVars, evaluation.just)
 		}
-		joined.push({ row: occurrenceRow, origin: [ns] })
+		joined.push({ row: occurrenceRow, origin: embeddedIn(ns, ownOrigin) })
 	}
 	for (const [place, o] of node.occurrences.entries()) {
 		occurrence(o, place)

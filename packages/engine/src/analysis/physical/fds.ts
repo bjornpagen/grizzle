@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { nominal } from "#compiler/core/brand.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -164,21 +164,49 @@ export const rowAttribute = "\u0000"
 /**
  * An attribute a table carries beyond its fragment's heading, under the namespace of the embedding that brought it:
  * an embedded table's row, a column of the embedded fragment the embedding gives no column of its own, or a hidden
- * attribute of the embedded table, renamed again. Every hidden attribute begins with the character `row` is, which no
- * column name holds (a declared name is ASCII letters, digits and underscores, and so is every name grizzle mints), so
- * a table's columns and its hidden attributes never meet, and two namespaces of one table never do either.
+ * attribute of the embedded table, numbered anew among the draft's (DependencyDraft embed), so a hidden attribute's name
+ * is as long at every depth, where each embedding wrote the embedded one's whole name into its own (the ledger's judge
+ * at hub f4f1f78de: 150 characters on average, 2,368 at most, each hashed again as the name of a fact). Every hidden
+ * attribute begins with the character `row` is, which no column name holds (a declared name is ASCII letters, digits
+ * and underscores, and so is every name grizzle mints), so a table's columns and its hidden attributes never meet, and
+ * two namespaces of one table never do either.
  */
 export const hiddenIn = (namespace: string, attribute: string): string =>
 	`${rowAttribute}${namespace}${rowAttribute}${attribute}`
 
 const isHidden = (attribute: string): boolean => attribute.startsWith(rowAttribute)
 
-/** The namespaces of the embeddings an implication passed through, outermost first; none for a table's own. */
-type Origin = ReadonlyArray<string>
+/**
+ * The embeddings an implication passed through, outermost first: the namespace of the outermost and the embeddings
+ * within it, or a table's own. An embedding adds its namespace before an origin and shares the rest, so carrying an
+ * implication up a chain of embeddings costs one cell at each, however deep it came from, where each embedding copied
+ * the whole path (the ledger's judge at hub f4f1f78de: 44 namespaces on average, 277 at most).
+ */
+type Origin =
+	| { readonly kind: "own" }
+	| { readonly kind: "embedded"; readonly namespace: string; readonly within: Origin }
 
-/** Whether `origin` lies within the embedding `prefix` names. */
-const within = (origin: Origin, prefix: Origin): boolean =>
-	prefix.length <= origin.length && prefix.every((n, i) => origin[i] === n)
+/** The origin of a table's own implications and point rules. */
+export const ownOrigin: Origin = Object.freeze({ kind: "own" })
+
+/** The origin of what the embedding `namespace` brought from `inner`. */
+export const embeddedIn = (namespace: string, inner: Origin): Origin => ({
+	kind: "embedded",
+	namespace,
+	within: inner
+})
+
+/** Whether `origin` lies within the embedding `prefix` names: every namespace of `prefix` its own, outermost first. */
+const within = (origin: Origin, prefix: Origin): boolean => {
+	let o = origin
+	for (let p = prefix; p.kind === "embedded"; p = p.within) {
+		if (o.kind !== "embedded" || o.namespace !== p.namespace) {
+			return false
+		}
+		o = o.within
+	}
+	return true
+}
 
 /** One occurrence a rule region's identification joins: its row attribute, and the origin of what its embedding added. */
 export interface JoinedOccurrence {
@@ -1002,6 +1030,10 @@ export class DependencyDraft {
 	readonly #members: ReadonlySet<string>
 	readonly #imps: Array<Implication> = []
 	readonly #points: Array<PointRule> = []
+	/** The namespaces of the draft's embeddings, each its own (embed). */
+	readonly #namespaces = new Set<string>()
+	/** How many hidden attributes of embedded tables the draft has named (embed). */
+	#hidden = 0
 
 	/** A draft over `universe`, the attributes a rule names: a node's heading, or a region's variables. */
 	constructor(universe: ReadonlyArray<string>) {
@@ -1014,7 +1046,7 @@ export class DependencyDraft {
 	}
 
 	imply(from: ReadonlyArray<string>, to: ReadonlyArray<string>, just: Justification): void {
-		this.#add(from, [], to, just, [], [])
+		this.#add(from, [], to, just, ownOrigin, [])
 	}
 
 	/** `from` with one known point of each span of `at` determines `to`. */
@@ -1024,7 +1056,7 @@ export class DependencyDraft {
 		to: ReadonlyArray<string>,
 		just: Justification
 	): void {
-		this.#add(from, at, to, just, [], [])
+		this.#add(from, at, to, just, ownOrigin, [])
 	}
 
 	/** `from` determines `to`, as part of the embedding `namespace` names (an occurrence's known columns). */
@@ -1034,12 +1066,12 @@ export class DependencyDraft {
 		to: ReadonlyArray<string>,
 		just: Justification
 	): void {
-		this.#add(from, [], to, just, [namespace], [])
+		this.#add(from, [], to, just, embeddedIn(namespace, ownOrigin), [])
 	}
 
 	/** `from` identifies at most one row. */
 	identify(from: ReadonlyArray<string>, just: Justification): void {
-		this.#add(from, [], [rowAttribute], just, [], [])
+		this.#add(from, [], [rowAttribute], just, ownOrigin, [])
 	}
 
 	/** A rule region's row is identified by every one of its occurrences' rows, `joined`. */
@@ -1049,14 +1081,14 @@ export class DependencyDraft {
 			[],
 			[rowAttribute],
 			just,
-			[],
+			ownOrigin,
 			joined
 		)
 	}
 
 	/** `from` determines a point of the span `span`. */
 	pin(from: ReadonlyArray<string>, span: string, just: Justification): void {
-		this.#pin(from, span, just, [])
+		this.#pin(from, span, just, ownOrigin)
 	}
 
 	fix(column: string, just: Justification): void {
@@ -1073,16 +1105,27 @@ export class DependencyDraft {
 
 	/**
 	 * Every implication and point rule of `table`, renamed by `embedding`: a heading column read as its first
-	 * representative, with what representing it rests on, and determined as every representative; a column with none,
-	 * and every hidden attribute, as the hidden attribute of the namespace; the row as the embedding's row.
+	 * representative, with what representing it rests on, and determined as every representative; a column with none as
+	 * the hidden attribute of the namespace (hiddenIn), which the draft's rules may name; every hidden attribute as one
+	 * numbered anew under the namespace, which no rule names; the row as the embedding's row. Each embedding of a draft
+	 * has a namespace of its own, so the draft names no two embedded attributes alike.
 	 */
 	embed(table: Dependencies, embedding: Embedding): void {
 		const heading = new Set(table.columns)
 		const ns = embedding.namespace
+		if (this.#namespaces.has(ns)) {
+			throw defect(`physical: two embeddings of one dependency draft under the namespace ${ns}`)
+		}
+		this.#namespaces.add(ns)
 		/** Each attribute's name in the embedding, made once for every implication and point rule that reads it. */
 		const renamed = new Map<string, string>()
 		const rename = (a: string): string =>
-			a === rowAttribute ? embedding.row : renamed.getOrInsertComputed(a, () => hiddenIn(ns, a))
+			a === rowAttribute
+				? embedding.row
+				: renamed.getOrInsertComputed(a, () => (isHidden(a) ? this.#hiddenIn(ns) : hiddenIn(ns, a)))
+		/** Each origin of the embedded table's, within the embedding: one cell for every implication that shares it. */
+		const origins = new Map<Origin, Origin>()
+		const originOf = (o: Origin): Origin => origins.getOrInsertComputed(o, () => embeddedIn(ns, o))
 		const read = (a: string): Rep => {
 			const first = heading.has(a) ? embedding.column(a)[0] : undefined
 			return first ?? { column: rename(a), just: structural }
@@ -1114,8 +1157,8 @@ export class DependencyDraft {
 				at.map((r) => r.column),
 				written(imp.to),
 				joinJustifications([local.just, ...from.map((r) => r.just), ...at.map((r) => r.just)]),
-				[ns, ...imp.origin],
-				imp.join.map((o) => ({ row: rename(o.row), origin: [ns, ...o.origin] }))
+				originOf(imp.origin),
+				imp.join.map((o) => ({ row: rename(o.row), origin: originOf(o.origin) }))
 			)
 		}
 		for (const rule of table.points) {
@@ -1128,9 +1171,16 @@ export class DependencyDraft {
 				[...from.map((r) => r.column), ...local.from],
 				read(rule.span).column,
 				joinJustifications([local.just, ...from.map((r) => r.just)]),
-				[ns, ...rule.origin]
+				originOf(rule.origin)
 			)
 		}
+	}
+
+	/** A hidden attribute of a table the embedding `namespace` brings, named anew: numbered among the draft's. */
+	#hiddenIn(namespace: string): string {
+		const n = this.#hidden
+		this.#hidden = n + 1
+		return hiddenIn(namespace, `${rowAttribute}${n}`)
 	}
 
 	/** The table of this draft for a fragment of heading `columns`, reduced (Dependencies reduce). */
