@@ -668,19 +668,23 @@ export interface Query<
 	 * one heading meet at every field, none of them attached, and arms of different headings share a literal
 	 * discriminant, a combination of fields telling every two apart; a stage over a union of several headings is no arm.
 	 * The check is on the arm the callback returns, as attach's DeliveryClaim is: an intersection with the callback
-	 * itself would be read before the arm is inferred, and leave it its constraint. The records are either arm's: arms
+	 * itself would be read before the arm is inferred, and leave it its constraint. Nothing is inferred from it
+	 * (NoInfer): inferring the arm into the check made the checker resolve the arm's members, every one a type of its
+	 * own, at each arm a union adds. The records are either arm's: arms
 	 * of one heading key set decode as one record over their carriers, arms of different key sets by oneOf. The union's
 	 * evidence is what the engine proves of a union of one heading (UnionEvidence): fields every arm fixes alike, and
 	 * keys its literals tell apart. Its attachments are the query's own (At): an arm that attaches, or one beside a
 	 * query that attaches, is of another heading than every other arm (ArmsMeet), and the records of a union of several
 	 * headings are stored nowhere (program/records.ts), so no reader of a union's attachments meets an arm's.
 	 */
-	rule<Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(
+	rule<Over, Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(
+		this: OverSchema<Over>,
 		rule: (
-			r: Rule<S>
-		) => Finished<Head2, Ev2, P2, S, IHead2, Hc2, Cx2> & ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>
+			r: Rule<Over>
+		) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2> &
+			NoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>
 	): Query<
-		S,
+		Over,
 		Head | Head2,
 		UnionEvidence<Ev, Ev2, Head, Head2>,
 		P & P2,
@@ -708,7 +712,7 @@ export interface Query<
 		const F extends keyof Head & string,
 		const Hd extends string
 	>(
-		this: QueryOver<Over>,
+		this: OverSchema<Over>,
 		name: AttachmentName<Name, Head>,
 		child: (
 			parent: ParentVars<DeliveredHeading<Head, Hc>, Ev>
@@ -742,10 +746,11 @@ export interface Query<
 	 * query and those queries read, and keeps the query's evidence, whose keys a match of it reads, with what its
 	 * bindings read.
 	 */
-	bind<const B extends BindingsFor<P>>(
-		bindings: B & NoStrayParameters<B, P> & RelationBindings<B, P, S>
+	bind<Over, const B extends BindingsFor<P>>(
+		this: OverSchema<Over>,
+		bindings: B & NoStrayParameters<B, P> & RelationBindings<B, P, Over>
 	): BoundSource<
-		BoundOver<S, B, P>,
+		BoundOver<Over, B, P>,
 		Head,
 		BindParams<B>,
 		Hc,
@@ -757,15 +762,20 @@ export interface Query<
 	 * An order over the columns the query delivers (DeliveredKeys): never a field only some arms have, or an attachment,
 	 * and never a closed id of a closed.unordered roster, which has no order (OrderedKeys).
 	 */
-	orderBy<const O extends ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, Direction]>>(
+	orderBy<
+		Over,
+		const O extends ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, Direction]>
+	>(
+		this: OverSchema<Over>,
 		...order: O & OrderedKeys<O, Hc>
-	): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms, At>
+	): Ordered<Over, Head, Ev, P, IHead, Hc, Cx, Arms, At>
 	/**
 	 * A search over one rule's projection, its source as the checker reads it (SearchSource), ranked by a distance of its
 	 * carriers. The search keeps a subset of its source's facts, at most `take` of them, so its evidence is a take's of
 	 * the source's (TakeEvidence), as the engine proves of the sealed node.
 	 */
-	approximateNearest<const K extends number>(
+	approximateNearest<Over, const K extends number>(
+		this: OverSchema<Over>,
 		spec: SearchSource<AsOneArm<Arms, Head, Hc>, K> & {
 			readonly take: PositiveBound<
 				K,
@@ -774,7 +784,7 @@ export interface Query<
 			>
 		}
 	): Query<
-		S,
+		Over,
 		Head,
 		TakeEvidence<Ev, K>,
 		P,
@@ -791,6 +801,23 @@ export interface Query<
 		],
 		At
 	>
+}
+
+/**
+ * What a member of Query, Ordered or Finished reads of the value it is called on, `this`: its schema, Over, read off its
+ * phantom by key (`schema`), never the interface's own S. A method of a generic interface is instantiated in two
+ * steps, the interface's type arguments, then the call's own, and the second walks every type the first put in: a
+ * member whose signature names S walked the schema, every relation of it and each relation's field record, once per
+ * call and per inference pass, so every union arm, bind, order and take over a schema of n relations cost n (the
+ * combinators' cost gate, test/types/query/budget/combinators.ts). A member that names Over holds only its own type
+ * parameter, which the call infers from the phantom it is called on at one property read, and the phantom alone is
+ * compared, never a member of the value, so the call costs what it did over a schema of any size. A member with no type
+ * parameter of its own, Query.named, is instantiated once, by the interface's arguments, and keeps S: made generic, it
+ * is compared as a generic signature with QueryBase's wherever a query is read as any query over a level (a workload's
+ * entries, an attachment's child), at every level of the schema (the query-scale gate, budget/scaling.ts).
+ */
+interface OverSchema<in out S> {
+	readonly [phantom]?: { readonly schema: Invariant<S> } | undefined
 }
 
 /**
@@ -1199,8 +1226,9 @@ type HeadingCarriers<Head> = {
 }
 
 /**
- * S is the schema of the rule that finished the arm (Rule<S>.find), so an arm's attachment child is over one of its
- * levels, as Query.attach requires. The heading is invariant (headingInvariant), so a union's arm is read at exactly
+ * S is the schema of the rule that finished the arm (Rule<S>.find), carried invariantly in its phantom (`schema`), so an
+ * arm's attachment child is over one of its levels, as Query.attach requires, read off the phantom as every member of
+ * Query reads its schema (OverSchema). The heading is invariant (headingInvariant), so a union's arm is read at exactly
  * its own heading. A Finished written without a
  * schema has none, so it attaches nothing until it is read as the Finished of a rule over a schema. Whether it attaches
  * is its records' (AttachedNames): an attachment adds a key to Head that its carriers lack, which a union of arms of
@@ -1219,6 +1247,7 @@ export interface Finished<
 	extends
 		Phantom<{
 			readonly headingInvariant: Invariant<Head>
+			readonly schema: Invariant<S>
 			readonly evidence: Ev
 			readonly params: P
 			readonly readsContexts: (read: Cx) => void
@@ -1228,14 +1257,16 @@ export interface Finished<
 		Decoders<Head, IHead> {
 	/** An arm may attach before it joins a union; the arm keeps its own attached heading. */
 	attach<
+		Over,
 		const Name extends string,
-		C extends Child<S>,
+		C extends Child<Over>,
 		CH,
 		CI,
 		const K extends DeliveryKind,
 		const F extends keyof Head & string,
 		const Hd extends string
 	>(
+		this: OverSchema<Over>,
 		name: AttachmentName<Name, Head>,
 		child: (
 			parent: ParentVars<Hc, Ev>
@@ -1248,7 +1279,7 @@ export interface Finished<
 		AttachedHeads<Head, Name, CH, F, Hd>[K],
 		Ev,
 		Simplify<P & ChildParams<C>>,
-		S,
+		Over,
 		WithChild<IHead, Name, CI, ReadBack[K]>,
 		Hc,
 		Cx | ChildContexts<C>,
@@ -1286,10 +1317,11 @@ export interface Ordered<
 	 * literal of int4's range, or the name of an integer parameter, take("batch"), which joins the query's parameters
 	 * as pg.integer (TakeBound). A union of several headings is bounded by one take (OneTakeOverGroups).
 	 */
-	take<const K extends number | string>(
+	take<Over, const K extends number | string>(
+		this: OverSchema<Over>,
 		k: K & TakeBound<K> & OneTakeOverGroups<Arms, Head, Hc>
 	): Query<
-		S,
+		Over,
 		Head,
 		TakeEvidence<Ev, K>,
 		K extends string ? Simplify<P & { readonly [N in K]: ParamType<number, "integer"> }> : P,

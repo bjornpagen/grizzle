@@ -26,10 +26,10 @@ export const cost = costGate(plainQueries, {
 		{
 			file: "packages/engine/src/types/query/query.ts",
 			original:
-				"\trule<Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\trule: (\n\t\t\tr: Rule<S>\n\t\t) => Finished<Head2, Ev2, P2, S, IHead2, Hc2, Cx2> & ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>\n\t): Query<\n\t\tS,\n\t\tHead | Head2,\n\t\tUnionEvidence<Ev, Ev2, Head, Head2>,\n\t\tP & P2,\n\t\tIHead | IHead2,\n\t\tUnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,\n\t\tCx | Cx2,\n\t\treadonly [...Arms, ArmOf<Head2, Hc2>],\n\t\tAt\n\t>\n",
+				"\trule<Over, Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\tthis: OverSchema<Over>,\n\t\trule: (\n\t\t\tr: Rule<Over>\n\t\t) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tOver,\n\t\tHead | Head2,\n\t\tUnionEvidence<Ev, Ev2, Head, Head2>,\n\t\tP & P2,\n\t\tIHead | IHead2,\n\t\tUnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,\n\t\tCx | Cx2,\n\t\treadonly [...Arms, ArmOf<Head2, Hc2>],\n\t\tAt\n\t>\n",
 			replacement:
-				"\trule<Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2, At2>(\n\t\trule: (\n\t\t\tr: Rule<S>\n\t\t) => Finished<Head2, Ev2, P2, S, IHead2, Hc2, Cx2, At2> & ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>\n\t): Query<\n\t\tS,\n\t\tHead | Head2,\n\t\tUnionEvidence<Ev, Ev2, Head, Head2>,\n\t\tP & P2,\n\t\tIHead | IHead2,\n\t\tUnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,\n\t\tCx | Cx2,\n\t\treadonly [...Arms, ArmOf<Head2, Hc2>],\n\t\tAt | At2\n\t>\n",
-			why: "A union holds its arm's attachments beside the query's (`At | At2`), as before the cut: each union of two rules costs 16 more instantiations, 5,864 against its bound of 5,848."
+				"\trule<Over, Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2, At2>(\n\t\tthis: OverSchema<Over>,\n\t\trule: (\n\t\t\tr: Rule<Over>\n\t\t) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2, At2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tOver,\n\t\tHead | Head2,\n\t\tUnionEvidence<Ev, Ev2, Head, Head2>,\n\t\tP & P2,\n\t\tIHead | IHead2,\n\t\tUnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,\n\t\tCx | Cx2,\n\t\treadonly [...Arms, ArmOf<Head2, Hc2>],\n\t\tAt | At2\n\t>\n",
+			why: "A union holds its arm's attachments beside the query's (`At | At2`), as before the cut: each union of two rules costs 16 more instantiations, 5,842 against its bound of 5,826."
 		}
 	]
 })

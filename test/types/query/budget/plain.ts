@@ -52,7 +52,9 @@ const step = 20
 
 /**
  * What one query of each shape adds to a program's instantiations, at most: what it added when the attachments phantom
- * was cut, a one-rule query four more than before the phantom, a union of two rules five more.
+ * was cut, a one-rule query four more than before the phantom; and a union of two rules what it adds since every member
+ * of a query reads its schema off its phantom (types/query/query.ts OverSchema) and its arm check infers nothing
+ * (NoInfer), 22 fewer than the phantom's cut left it.
  *
  * @limitKind measured
  * @owner the query facade's type cost gates (test/types/query/budget/plain.ts)
@@ -62,15 +64,18 @@ const step = 20
  * @evidence ~/.cache/grizzle-release/RECORDS-ATTACH-tools/pin (write.ts writes this module's program through the
  *   gates' prelude, run.sh checks it at 20 and 40 queries as measured.ts checks a program: tsgo --checkers 1
  *   --extendedDiagnostics, referencing packages/engine and packages/grizzle) and its runs
- *   RECORDS-ATTACH-pin-{lanebase,lane,lanekill}.log: before the phantom, with it, and with `At | At2`
- * @observed 2026-11-21, 11:50 to 12:15 UTC
+ *   RECORDS-ATTACH-pin-{lanebase,lane,lanekill}.log: before the phantom, with it, and with `At | At2`; the same
+ *   run.sh over lane PERF-TYPES's workspace (~/.cache/grizzle/perf-types) with its cut and with `At | At2` over it
+ * @observed 2026-11-21, 11:50 to 12:15 UTC; the union's bound again 2026-11-21, 16:3x UTC
  * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, load 60 to 90 from other sessions; Node 26.13.1, TypeScript
- *   7.1.0-beta (tsgo); grizzle at pin-stack 20760a35f (the records cars) and the attachments cut over it
+ *   7.1.0-beta (tsgo); grizzle at pin-stack 20760a35f (the records cars) and the attachments cut over it; the union's
+ *   bound at hub main 71af69764 and lane PERF-TYPES's cut over it, load 400 to 500
  * @workload a schema of three relations; 20 and 40 one-rule queries over one of them, and 20 and 40 unions of two such
  *   rules, each program checked alone
  * @result per added query, one rule: 2,372 instantiations before the phantom, 2,376 with it; a union of two rules:
  *   5,843 before, 5,848 with the union keeping its receiver's attachments, 5,864 with a union holding both arms'
- *   (`At | At2`); every program clean; types are not read (the checker interns them)
+ *   (`At | At2`); after PERF-TYPES's cut, 5,826, and 5,842 with `At | At2`; every program clean; types are not read
+ *   (the checker interns them)
  * @decision the bound is the cut's own cost, exactly: a change that makes a query that attaches nothing pay more for
  *   its type's attachments, or any other cost per plain query, is refused here, and a change that lowers it lowers the
  *   bound
@@ -79,7 +84,7 @@ const step = 20
  */
 const addedAtMost: { readonly [S in PlainShape]: number } = {
 	"one rule": 2376,
-	"union of two rules": 5848
+	"union of two rules": 5826
 }
 
 /** How a shape prints. */

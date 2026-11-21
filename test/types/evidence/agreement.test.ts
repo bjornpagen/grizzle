@@ -185,8 +185,8 @@ export const admission = boxAgreement(admissionBox, {
 		},
 		{
 			file: "packages/engine/src/types/query/query.ts",
-			original: "\t): BoundSource<\n\t\tBoundOver<S, B, P>,\n",
-			replacement: "\t): BoundSource<\n\t\tS,\n",
+			original: "\t): BoundSource<\n\t\tBoundOver<Over, B, P>,\n",
+			replacement: "\t): BoundSource<\n\t\tOver,\n",
 			why: "A bound import keeps its query's schema whatever its relation parameter is bound to, so a rule over Agree matching byIds bound to a query over AgreeAbove (aboveRule) is admitted by the types, where the engine refuses it a level above the rule (ForeignLevel)."
 		},
 		{
