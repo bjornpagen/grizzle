@@ -11,6 +11,9 @@
  * - The factor search's judging closures (logical/closure.ts irredundant, factorClosures): each stops as soon as it
  *   holds the targets it judges, so over m redundant dependencies beside m of no determinant its firings grow as m,
  *   never m². Oracle: that growth bound, and the factors each a_i and b_i alone.
+ * - A node's steps' sources (logical/props.ts readingIndex, stepSource) and a source column's class (regionProps):
+ *   read off its reading indexed once and the source's classes, so over m bindings and outputs with a step of m
+ *   targets each the analysis's calls are affine in m. Oracle: that growth.
  * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
  *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
  *   growth bound.
@@ -35,7 +38,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order } from "effect"
+import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import {
@@ -54,8 +57,8 @@ import {
 	rowsOf
 } from "#compiler/logical/closure.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { incrementsAtMostDouble, incrementsDoNotGrow } from "#test/support/growth.ts"
-import { callCounts } from "#test/support/kernel/calls.ts"
+import { affine, incrementsAtMostDouble, incrementsDoNotGrow } from "#test/support/growth.ts"
+import { callCounts, everyCallCount as callCountsIn } from "#test/support/kernel/calls.ts"
 import {
 	type ClosureFeature,
 	closedMask,
@@ -64,6 +67,7 @@ import {
 	type CyclePoint,
 	factorSites,
 	type FactorPoint,
+	indexedReading,
 	dependenciesOf,
 	type InterningFeature,
 	interning,
@@ -73,6 +77,7 @@ import {
 	type NamingFeature,
 	passClosure,
 	type ReadingFeature,
+	type ReadingPoint,
 	readingQuery,
 	readings,
 	redundantTable,
@@ -350,6 +355,69 @@ export const theFactorSearchJudgesADependencyByAClosureThatStopsAtItsTargetsFiri
 				original: "\t\t\t\tif (done()) {\n\t\t\t\t\treturn\n\t\t\t\t}\n\t\t\t\tfire(row)",
 				replacement: "\t\t\t\tfire(row)",
 				why: "Every judging closure fires every dependency of no determinant, as each closure of the search did (logical/closure.ts factorClosures); the firings grow as m²."
+			}
+		]
+	})
+
+/**
+ * A node's steps read what they fix off its reading indexed once (logical/props.ts readingIndex, stepSource): a
+ * projection's outputs by name and a region's bindings by variable, each target of each step one lookup, and a region
+ * finds a source column's class in the source's classes: so over projections of m outputs and a region of m bindings
+ * between them, each with a step of m targets, the analysis's calls are affine in m, where each target scanned the
+ * outputs or bindings and each column the source's heading, m² of them.
+ */
+export const aNodesStepsReadTheirSourcesOffItsReadingIndexedOnceAffineInItsColumns =
+	property.exhaust(finite(int(2, 3)), {
+		needs: {},
+		situations: ["from m = 8", "from m = 12"] satisfies ReadonlyArray<Reached<ReadingPoint>>,
+		check: (_, c: Case<ReadingPoint>) => (step) =>
+			Effect.gen(function* () {
+				c.note(step === 2 ? "from m = 8" : "from m = 12")
+				const counted = new Map<number, number>()
+				for (const m of [4 * step, 8 * step, 12 * step]) {
+					const [analysis, counts] = yield* callCountsIn(
+						Effect.sync(() => succeeded(analyzeLogical(indexedReading(m), checkerEvidence))),
+						Str.endsWith("logical/props.ts")
+					)
+					const root = defined(analysis.dag.roots[0], "the projection")
+					assert.equal(analysis.of(root).props.columns.length, m, "the projection's m outputs")
+					counted.set(
+						m,
+						Arr.reduce([...counts.values()], 0, (n, k) => n + k)
+					)
+				}
+				affine(
+					(m) => defined(counted.get(m), `the calls at m = ${m}`),
+					8,
+					"the analysis's calls in props.ts"
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a size made of a fixed part and a part per column increments alike over two equal steps"
+		},
+		box: "m columns at 4s, 8s and 12s, s at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\tconst out = index.outputs.get(column)",
+				replacement: "\t\t\tconst out = index.node.out.find((o) => o.name === column)",
+				why: "Each target of a projection's step scans its outputs (logical/props.ts stepSource); the calls grow as m²."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\tconst binding = occurrence.bindings.get(column)",
+				replacement:
+					"\t\t\tconst binding = occurrence.occurrence.bindings.find((b) => b.var.name === column)",
+				why: "Each target of a region's step scans its occurrence's bindings (logical/props.ts stepSource); the calls grow as m²."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "(src.classes.get(c) ?? []).find((m) => varsAt.has(m))",
+				replacement:
+					"src.columns.filter((m) => rootIn(src.forest, m) === rootIn(src.forest, c)).find((m) => varsAt.has(m))",
+				why: "A region finds a source column's class by scanning the source's heading for each column it gives (logical/props.ts regionProps givenBy); the calls grow as m²."
 			}
 		]
 	})

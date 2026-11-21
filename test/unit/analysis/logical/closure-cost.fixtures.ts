@@ -3,7 +3,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import { type Dependency, implication, projectionCloses } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type DeclaredKey, type ValidDag } from "#compiler/ir/rel.ts"
 import { attributesOver, bitsOf } from "#compiler/logical/attributes.ts"
@@ -17,7 +17,7 @@ import {
 import { Ir, type SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 import type { CountedFunction } from "#test/support/kernel/calls.ts"
-import { type Table, tableGen } from "#test/unit/analysis/logical/keys.fixtures.ts"
+import { int4, type Table, tableGen } from "#test/unit/analysis/logical/keys.fixtures.ts"
 
 /** A drawn dependency table (keys.fixtures.ts tableGen) and a start, the mask of the columns its closure starts from. */
 export interface Started {
@@ -300,6 +300,49 @@ export const redundantTable = (m: number) => {
 }
 
 export type FactorPoint = "from m = 4" | "from m = 6"
+
+/**
+ * Over a relation parameter of m columns c_i, a projection of m computed outputs p_i = c_i + 1, a region binding each
+ * p_i to a variable v_i, and a projection of m computed outputs o_i = v_i + 1: each projection's step from what its
+ * input's key reaches determines its every output, and the region's from the hidden attributes the first projection's
+ * outputs are computed from binds its every variable, so each node has one step of m targets, each read off a reading
+ * of m outputs or bindings.
+ */
+export const indexedReading = (m: number): ValidDag => {
+	const q = new Ir(workModel())
+	const columns = Arr.map(indices(m), (i) => `c${i}`)
+	const rows = q.input(
+		"rows",
+		Arr.map(columns, (c) => [c, int4] as const)
+	)
+	const computed = q.project(
+		rows,
+		Arr.map(columns, (c) => [`p_${c}`, q.op("add", [q.col(rows, c), q.lit(1, int4)])] as const),
+		conservativeMeta
+	)
+	const region = q.region(
+		[
+			{
+				source: computed,
+				bind: Rec.fromEntries(Arr.map(columns, (c) => [`p_${c}`, `v${c}`] as const)),
+				constants: {}
+			}
+		],
+		conservativeMeta
+	)
+	return q.build(
+		q.project(
+			region,
+			Arr.map(
+				columns,
+				(c) => [`o_${c}`, q.op("add", [q.col(region, `v${c}`), q.col(region, `v${c}`)])] as const
+			),
+			conservativeMeta
+		)
+	).dag
+}
+
+export type ReadingPoint = "from m = 8" | "from m = 12"
 
 /**
  * Where the analysis interns a node's attributes and its dependencies over them, beside every node's properties built

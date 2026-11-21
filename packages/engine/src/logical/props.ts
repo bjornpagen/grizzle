@@ -868,8 +868,81 @@ const carriers = {
 	grouped: groupKeeps
 } as const
 
+/** A region's occurrence as its steps read it: its bindings by the variable bound and its constants by their column. */
+interface OccurrenceIndex {
+	readonly occurrence: ReadingOf<"MatchRegion">["occurrences"][number]
+	readonly bindings: ReadonlyMap<
+		string,
+		ReadingOf<"MatchRegion">["occurrences"][number]["bindings"][number]
+	>
+	readonly constants: ReadonlyMap<
+		string,
+		ReadingOf<"MatchRegion">["occurrences"][number]["constants"][number]
+	>
+}
+
+/**
+ * What a node's steps read of its reading, by name, each the first the reading lists: a projection's outputs by name, a
+ * region's occurrences by their id and the locals its scope expressions read, as stepSource reads them for every target
+ * of every step, so each is one lookup where it was a scan of the reading.
+ */
+type ReadingIndex =
+	| {
+			readonly kind: "projection"
+			readonly node: ReadingOf<"ProjectSet">
+			readonly outputs: ReadonlyMap<string, ReadingOf<"ProjectSet">["out"][number]>
+	  }
+	| {
+			readonly kind: "region"
+			readonly node: ReadingOf<"MatchRegion">
+			readonly occurrences: ReadonlyMap<OccurrenceId, OccurrenceIndex>
+			readonly locals: ReadonlySet<NodeId>
+	  }
+	| { readonly kind: "other" }
+
+/** The first value of each key of `items`, in their order: what a scan for the first item of a key finds. */
+const firstBy = <K, V>(items: ReadonlyArray<V>, key: (item: V) => K): ReadonlyMap<K, V> => {
+	const out = new Map<K, V>()
+	for (const item of items) {
+		const k = key(item)
+		if (!out.has(k)) {
+			out.set(k, item)
+		}
+	}
+	return out
+}
+
+/** A node's reading indexed for its steps (ReadingIndex). */
+const readingIndex = (props: Steps): ReadingIndex => {
+	const node = props.reading
+	if (node.kind === "ProjectSet") {
+		return { kind: "projection", node, outputs: firstBy(node.out, (o) => o.name) }
+	}
+	if (node.kind === "MatchRegion") {
+		return {
+			kind: "region",
+			node,
+			occurrences: firstBy(
+				node.occurrences.map((occurrence) => ({
+					occurrence,
+					bindings: firstBy(occurrence.bindings, (b) => b.var.name),
+					constants: firstBy(occurrence.constants, (k) => k.column)
+				})),
+				(o) => o.occurrence.id
+			),
+			locals: regionLocals(props.node.id, node)
+		}
+	}
+	return { kind: "other" }
+}
+
 /** Where step `d` reads the value it fixes `column` to at a node. */
-const stepSource = (props: Steps, d: Dependency, column: string): StepSource => {
+const stepSource = (
+	props: Steps,
+	index: ReadingIndex,
+	d: Dependency,
+	column: string
+): StepSource => {
 	const node = props.reading
 	const rule = d.rule
 	switch (rule.rule) {
@@ -893,14 +966,14 @@ const stepSource = (props: Steps, d: Dependency, column: string): StepSource => 
 			}
 		}
 		case "correlated": {
-			if (node.kind !== "MatchRegion") {
+			if (index.kind !== "region") {
 				throw defect("a correlated variable is a region's")
 			}
 			const corr = defined(
-				node.correlated[rule.index],
+				index.node.correlated[rule.index],
 				"a correlated rule's index names a correlated variable of its region"
 			)
-			return own(valueAt(corr.expr, regionLocals(props.node.id, node)))
+			return own(valueAt(corr.expr, index.locals))
 		}
 		case "equal":
 			return {
@@ -908,45 +981,46 @@ const stepSource = (props: Steps, d: Dependency, column: string): StepSource => 
 				column: defined(d.from[0], "an equality's step is determined by its one column")
 			}
 		case "match": {
-			if (node.kind !== "MatchRegion") {
+			if (index.kind !== "region") {
 				throw defect("a match binds a variable of its region")
 			}
 			const occurrence = defined(
-				node.occurrences.find((o) => o.id === rule.occurrence),
+				index.occurrences.get(rule.occurrence),
 				"a match rule's occurrence is one of its region's"
 			)
 			/** A hidden attribute of the occurrence is bound to no variable: what it holds is opaque. */
-			const binding = occurrence.bindings.find((b) => b.var.name === column)
+			const binding = occurrence.bindings.get(column)
 			if (binding === undefined) {
 				return opaque
 			}
-			const constant = occurrence.constants.find((k) => k.column === binding.column)
+			const constant = occurrence.constants.get(binding.column)
 			if (constant !== undefined) {
-				return own(valueAt(constant.expr, regionLocals(props.node.id, node)))
+				return own(valueAt(constant.expr, index.locals))
 			}
 			return {
 				kind: "input",
-				input: occurrence.source,
+				input: occurrence.occurrence.source,
 				column: binding.column,
 				over: (source) => matchBinds(d.from, [column], rule.occurrence, source)
 			}
 		}
 		case "projection": {
-			if (node.kind !== "ProjectSet") {
+			if (index.kind !== "projection") {
 				throw defect("a projection's rule is a projection's")
 			}
 			/** A hidden attribute of the input is no output: what it holds is opaque. */
-			const out = node.out.find((o) => o.name === column)
+			const out = index.outputs.get(column)
 			if (out === undefined) {
 				return opaque
 			}
-			const input = node.input.node.id
+			const projection = index.node
+			const input = projection.input.node.id
 			const copied = copiedColumn(out.expr)
 			return copied === undefined
 				? own(valueAt(out.expr, new Set([input])))
 				: {
 						kind: "input",
-						input: node.input,
+						input: projection.input,
 						column: copied,
 						over: (derived) => projectionCloses(d.from, [column], derived)
 					}
@@ -1029,14 +1103,16 @@ const namingOf = (props: Steps, sources: StepSources): Naming<Named> =>
  * Where each row of a node reads the value its step fixes each target to (stepSource), in the row's target order: worked
  * out once per node, here alone, and read by its naming (namingOf) and by the names of its fixed columns (FixedNames).
  */
-const sourcesOf = (props: Steps): StepSources =>
-	props.stated.rows.map((row) => ({
+const sourcesOf = (props: Steps): StepSources => {
+	const index = readingIndex(props)
+	return props.stated.rows.map((row) => ({
 		row,
 		targets: row.to.map((at) => {
 			const column = attributeAt(props.stated.attributes, at)
-			return { at, column, source: stepSource(props, row.dependency, column) }
+			return { at, column, source: stepSource(props, index, row.dependency, column) }
 		})
 	}))
+}
 
 /**
  * The value a fixed column holds by the witness that fixed it at the node `props` are of, a witness of the node's own: a
@@ -1138,18 +1214,6 @@ const determinantsOf = (props: Props): ReadonlyArray<Determinant> => {
 		}
 	}
 	return out
-}
-
-/**
- * The columns of a node's heading equal to `column` in every row, in heading order: those whose tree of the labelled
- * forest has its root (Props.forest). A column of the heading is one of them; a name outside it is equal to none.
- */
-const classOf = (
-	props: Pick<Props, "columns" | "forest">,
-	column: string
-): ReadonlyArray<string> => {
-	const root = rootIn(props.forest, column)
-	return props.columns.filter((m) => rootIn(props.forest, m) === root)
 }
 
 /**
@@ -2547,7 +2611,8 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			if (srcFixed.has(c)) {
 				return { given: [], from: [] }
 			}
-			const member = classOf(src, c).find((m) => varsAt.has(m))
+			/** The other columns equal to c in every row of the source, by its class: none for a hidden attribute. */
+			const member = (src.classes.get(c) ?? []).find((m) => varsAt.has(m))
 			const memberVar = member === undefined ? undefined : varsAt.get(member)?.[0]
 			return member === undefined || memberVar === undefined
 				? { given: [c], from: [hide(c)] }
