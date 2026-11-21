@@ -18,6 +18,7 @@ import {
 	type CompiledVariants,
 	loginChanges,
 	loginRole,
+	noPlannedFrontends,
 	programsOn,
 	readCalled,
 	type RoleChanges,
@@ -55,7 +56,6 @@ import {
 	SourceLoc,
 	transactionClock
 } from "#compiler/plan/common.ts"
-import { noPlannedFrontends } from "#compiler/plan/migration.ts"
 import { keyQuery, templateFor } from "#compiler/plan/read.ts"
 import {
 	type CompileFacts,

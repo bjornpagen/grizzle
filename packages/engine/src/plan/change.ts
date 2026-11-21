@@ -47,6 +47,7 @@ export {
 	parsedChange,
 	type RoleChanges
 } from "#compiler/program/workload/change.ts"
+export { noPlannedFrontends } from "#compiler/program/workload/planned.ts"
 export { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 export { factsDecoderOver } from "#compiler/program/decode.ts"
 export { insertPreviewOver } from "#compiler/program/preview.ts"
