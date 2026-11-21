@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { nominal } from "#compiler/core/brand.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import type { CoercionIdentity, ElisionReason } from "#compiler/ir/certificate.ts"
@@ -9,11 +10,8 @@ import { type OpId, sortedOps } from "#compiler/ir/expr.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import { inHeadingOrder } from "#compiler/logical/closure.ts"
 
-/**
- * What a physical claim rests on: its grounds, and what only a claim about a lowered SQL fragment depends on beyond
- * them (the elision reasons, operators, coercions and outer columns below).
- */
-export interface Justification extends Grounds {
+/** What a physical claim rests on, as a join reads it (`Justification`), in any order and with repeats. */
+interface Grounding extends Grounds {
 	readonly reasons: ReadonlyArray<ElisionReason>
 	/** Native equality operators the claim compares under. */
 	readonly equality: ReadonlyArray<OpId>
@@ -28,20 +26,38 @@ export interface Justification extends Grounds {
 	readonly outer: ReadonlyArray<OuterColumn>
 }
 
+declare const normalBrand: unique symbol
+
+/**
+ * What a physical claim rests on: its grounds, and what only a claim about a lowered SQL fragment depends on beyond
+ * them (the elision reasons, operators, coercions and outer columns), in its normal form, which only this module mints
+ * (`normalized`): its premises ordered by their text (ir/evidence.ts premiseText), its operators by their order
+ * (ir/expr.ts sortedOps), its coercions and outer columns by their text, each once, and its reasons each once in the
+ * order they were first given. The join of one normal justification with any that rest on nothing (`restsOnNothing`)
+ * is that justification itself, so a join that meets only one justification resting on anything builds nothing.
+ */
+export interface Justification extends Grounding {
+	readonly [normalBrand]: true
+}
+
+const mintJustification = nominal<Grounding, Justification>()
+
 /** A column of a node outside the fragment, read per evaluation. */
 export interface OuterColumn {
 	readonly node: NodeId
 	readonly column: string
 }
 
-export const structural: Justification = Object.freeze({
-	premises: [],
-	context: "queryLocal",
-	reasons: [],
-	equality: [],
-	coercions: [],
-	outer: []
-})
+export const structural: Justification = mintJustification(
+	Object.freeze({
+		premises: [],
+		context: "queryLocal",
+		reasons: [],
+		equality: [],
+		coercions: [],
+		outer: []
+	})
+)
 
 const outerKey = (o: OuterColumn): string => `${o.node}\u0000${o.column}`
 
@@ -49,17 +65,17 @@ const sortedUnique = <A extends string>(items: Iterable<A>): ReadonlyArray<A> =>
 	[...new Set(items)].toSorted()
 
 /**
- * The union of several justifications: every premise, reason, operator and coercion, under the most demanding
- * context (logical/props.ts strongest).
+ * The normal form of the union of several groundings: every premise, reason, operator and coercion, under the most
+ * demanding context (logical/props.ts strongest).
  */
-export const joinJustifications = (justs: Iterable<Justification>): Justification => {
+const normalized = (groundings: Iterable<Grounding>): Justification => {
 	const premises = new Map<string, Premise>()
 	const contexts: Array<EvidenceContext> = []
 	const reasons: Array<ElisionReason> = []
 	const equality: Array<OpId> = []
 	const coercions: Array<CoercionIdentity> = []
 	const outer = new Map<string, OuterColumn>()
-	for (const j of justs) {
+	for (const j of groundings) {
 		for (const p of j.premises) {
 			premises.set(premiseText(p), p)
 		}
@@ -71,7 +87,7 @@ export const joinJustifications = (justs: Iterable<Justification>): Justificatio
 			outer.set(outerKey(o), o)
 		}
 	}
-	return {
+	return mintJustification({
 		premises: [...premises.entries()]
 			.toSorted(([a], [b]) => compareStrings(a, b))
 			.map(([, p]) => p),
@@ -80,7 +96,39 @@ export const joinJustifications = (justs: Iterable<Justification>): Justificatio
 		equality: sortedOps(equality),
 		coercions: sortedUnique(coercions),
 		outer: [...outer.entries()].toSorted(([a], [b]) => compareStrings(a, b)).map(([, o]) => o)
+	})
+}
+
+/**
+ * Whether a justification rests on nothing: no premise, reason, operator, coercion or outer column, in the least
+ * demanding context, which every other context is at least as demanding as (ir/evidence.ts strongest), so a join
+ * reads nothing of it.
+ */
+const restsOnNothing = (j: Justification): boolean =>
+	j.context === "queryLocal" &&
+	j.premises.length === 0 &&
+	j.reasons.length === 0 &&
+	j.equality.length === 0 &&
+	j.coercions.length === 0 &&
+	j.outer.length === 0
+
+/**
+ * The union of several justifications: every premise, reason, operator and coercion, under the most demanding
+ * context (logical/props.ts strongest). Those resting on nothing add nothing; one alone is its own union, being normal,
+ * and none is `structural`, so only a union of two or more that rest on something is built.
+ */
+export const joinJustifications = (justs: Iterable<Justification>): Justification => {
+	const held: Array<Justification> = []
+	for (const j of justs) {
+		if (!restsOnNothing(j)) {
+			held.push(j)
+		}
 	}
+	const [first] = held
+	if (first === undefined) {
+		return structural
+	}
+	return held.length === 1 ? first : normalized(held)
 }
 
 /**
@@ -94,16 +142,17 @@ export const resolveOuter = (
 	const bound = just.outer.filter((o) => local(o.node))
 	return bound.length === 0
 		? { bound, just }
-		: { bound, just: { ...just, outer: just.outer.filter((o) => !local(o.node)) } }
+		: { bound, just: normalized([{ ...just, outer: just.outer.filter((o) => !local(o.node)) }]) }
 }
 
-export const justify = (input: Partial<Justification>): Justification =>
-	joinJustifications([{ ...structural, ...input }])
+/** The justification of what `input` names, in its normal form. */
+export const justify = (input: Partial<Grounding>): Justification =>
+	normalized([{ ...structural, ...input }])
 
 export const withReason = (
 	j: Justification,
 	reasons: ReadonlyArray<ElisionReason>
-): Justification => joinJustifications([j, { ...structural, reasons }])
+): Justification => joinJustifications([j, justify({ reasons })])
 
 export const nodePremise = (node: NodeId): Premise => ({ kind: "node", node })
 export const paramPremise = (param: ParamId): Premise => ({ kind: "param", param })

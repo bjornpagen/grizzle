@@ -122,14 +122,10 @@ export const existenceCertificate = (
 		rule: multiplicityRules.existence,
 		inputs: [node.right.id],
 		outputs: [node.id],
-		just: {
+		just: justify({
 			premises: [{ kind: "node", node: node.id }],
-			context: "queryLocal",
-			reasons: ["existentialObservation"],
-			equality: [],
-			coercions: [],
-			outer: []
-		},
+			reasons: ["existentialObservation"]
+		}),
 		heading: node.heading.map((c) => c.name)
 	})
 }
@@ -182,14 +178,10 @@ export const recursiveTermsCertificate = (
 		rule: multiplicityRules.recursiveTerms,
 		inputs: [node.base.id, node.step.id],
 		outputs: [node.id],
-		just: {
+		just: justify({
 			premises: [{ kind: "node", node: node.id }],
-			context: "queryLocal",
-			reasons: ["globalRecursiveClosure"],
-			equality: [],
-			coercions: [],
-			outer: []
-		},
+			reasons: ["globalRecursiveClosure"]
+		}),
 		heading: node.heading.map((c) => c.name)
 	})
 }
