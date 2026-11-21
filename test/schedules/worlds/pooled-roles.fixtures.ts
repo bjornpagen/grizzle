@@ -1,6 +1,6 @@
 /** What the properties of pooled-roles.test.ts read: its spaces, models and helpers. */
 
-import { type Gen, int } from "@bjornpagen/testing/gen"
+import { type Aimed, aimed, constant, type Gen, int } from "@bjornpagen/testing/gen"
 import { type Nature, type PctSchedule, pctSchedule } from "@bjornpagen/testing/interleave"
 import {
 	act,
@@ -21,7 +21,7 @@ import {
 	setRole,
 	tenantOf
 } from "#test/schedules/worlds/support.ts"
-import type { RaceOp, WorldRace } from "#test/support/schedules/worlds.ts"
+import type { RaceOp, WorldRace, WorldRaceFeature } from "#test/support/schedules/worlds.ts"
 import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
 
 const SESSIONS = ["ann", "reader", "dan"] as const
@@ -39,13 +39,33 @@ interface Case {
 	readonly schedule: PctSchedule<Session>
 }
 
-export const caseGen: Gen<Case> = (source) => ({
+const drawnCase: Gen<Case> = (source) => ({
 	pool: source.draw(poolSizeGen),
 	interruption: source.draw(interruptionGen),
 	end: source.draw(endGen),
 	words: source.draw(int(0, 9)),
 	schedule: source.draw(pctSchedule(SESSIONS, pctDepth, MOVES))
 })
+
+/**
+ * The case that interrupts ann's insert as it waits on dan's: dan runs first, his BEGIN, role, claims and insert of doc7,
+ * then drops below every session at that fourth move, so ann's probe and her insert of doc7 run while his transaction
+ * holds the row, and her insert, waiting on it, is interrupted mid-flight, the pooled connection probed after it.
+ */
+const interruptedWait: Case = {
+	pool: 1,
+	interruption: "interrupt",
+	end: "commit",
+	words: 0,
+	schedule: { priorities: ["dan", "ann", "reader"], changes: [4] }
+}
+
+/** Each case drawn, a turn aiming at a wait or an interruption still pending drawing the interrupted wait. */
+export const caseGen: Aimed<Case, WorldRaceFeature> = aimed(drawnCase, [
+	["blocked", constant(interruptedWait)],
+	["ended: interruption", constant(interruptedWait)],
+	["probed after: interruption", constant(interruptedWait)]
+])
 
 /** A probe of a Db session's pooled connection between its transactions. */
 const probe = (session: number): RaceOp => ({ kind: "probe", session })
