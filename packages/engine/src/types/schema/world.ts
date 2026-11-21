@@ -771,11 +771,22 @@ type OffLogin<Base, Roles, W> =
 
 /**
  * The verdict on a login's roles R, a union of them: unknown where each is over the base, compared invariantly as levels
- * are, else the refusal; one verdict, as WorkloadsOver is.
+ * are, else the refusal; one verdict, as WorkloadsOver is. Roles holding a member typed any are `any` as a union, which
+ * no base matches, so the verdict would refuse them beside MembersTyped, and the two refusals, intersected, are a type
+ * no diagnostic names: they are MembersTyped's alone (IsUntyped), read only where the roles would be refused, so roles
+ * over the base cost no test of it.
  */
 export type RolesOver<Base, R> = [OffBase<Base, R>] extends [never]
 	? unknown
-	: Refusal<"a login's roles share its base">
+	: IsUntyped<R> extends true
+		? unknown
+		: Refusal<"a login's roles share its base">
+
+/**
+ * Whether a union of a list's members is `any`. Its keys are read first, as MembersTyped reads them, so no member is an
+ * operand of the test.
+ */
+type IsUntyped<R> = symbol extends keyof R ? (0 extends 1 & R ? true : false) : false
 
 /** The roles of R over another base than Base. */
 type OffBase<Base, R> = R extends { readonly base: infer B }
