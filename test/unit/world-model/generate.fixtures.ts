@@ -3,6 +3,7 @@
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, Record } from "effect"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { valueText } from "#test/support/laws/model.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
 import { knownNonEmpty, pool } from "#test/support/worlds/generate/domain.ts"
@@ -123,6 +124,8 @@ type Box = Readonly<{
  */
 export const box: Need<Box> = {
 	key: "test/unit/world-model/generate.fixtures.ts box",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const docs = initialState(docsInstall, baseNames(docsBase), new Map())
 		return Effect.succeed({

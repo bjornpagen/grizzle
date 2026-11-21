@@ -13,6 +13,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { types } from "#compiler/sql/build.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { compileTemplate, programAsts, testCompile } from "#test/support/compile.ts"
 import type { OracleTemplate } from "#test/support/conservative.ts"
 import { decodedQuery } from "#test/support/fixtures/ir/desc.ts"
@@ -122,6 +123,8 @@ export const equated = compiled(
 /** What the search built once before its cases, now once per worker: every case on it reads them. */
 export const equatedChecksNeed = {
 	key: "test/unit/spans/lowering.fixtures.ts equatedChecksNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		for (const statement of statements(equated)) {
 			assert.ok(has(shapeOf(statement), "predicate = column param"))

@@ -68,6 +68,7 @@ import {
 } from "#runtime/read.ts"
 import { type Cluster, connectionTo, unboundedMillis } from "#test/grizzle/connection.ts"
 import type { Server } from "#test/grizzle/world.ts"
+import { cliNeedBudget } from "#test/support/budgets.ts"
 import { buildPackage, type BuiltPackage, generateFixture } from "#test/support/cli-package.ts"
 import { finished } from "#test/support/process.ts"
 import { chunkText, streamText } from "#test/support/stdio.ts"
@@ -245,6 +246,7 @@ const emptyDatabase = Template.database({
 	name: "eocg grizzle empty",
 	content: {},
 	from: Template.cluster,
+	budget: cliNeedBudget,
 	build: () => Effect.void
 })
 
@@ -521,6 +523,8 @@ const configOf = (url: string): string =>
 /** The twins and the CLI, set up once on each worker that runs the tier (see the header). */
 export const twinsNeed: Need<Twins> = {
 	key: "test/grizzle/twins.ts twinsNeed",
+	budget: cliNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const bin = yield* grizzleBin
 		const draft = yield* drafted(bin)

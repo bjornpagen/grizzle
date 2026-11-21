@@ -13,6 +13,7 @@ import {
 	type Span,
 	SPANS
 } from "#test/pg/substrate/temporal.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
@@ -75,6 +76,7 @@ type Deferral = "immediate" | "deferred"
  */
 const coverageTemplate = (deferral: Deferral) =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: import.meta,
 		name: `temporal ${deferral}`,
 		content: { deferral },

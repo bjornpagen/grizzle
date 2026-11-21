@@ -53,6 +53,7 @@ import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { defineConfig } from "#index.ts"
 import { offlineOwner } from "#test/pg/cli/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { paths, repoRoot } from "#test/support/files.ts"
 import {
 	appliedHistory,
@@ -463,6 +464,7 @@ export const certifiedShapeTemplate = (
 	certifier: Exclude<Certifier, { readonly kind: "generate" }>
 ): SubstrateTemplate<InstalledShape> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn,
 		name,
 		content: { shape: name, certifier: certifier.kind },

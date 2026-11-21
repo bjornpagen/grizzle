@@ -30,6 +30,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	compileTemplate,
 	installationSql,
@@ -247,6 +248,7 @@ const owned = owning(Shop)
  * case runs in one rolled-back transaction on the worker's clone of it (Substrate.rolledBack), so a case writes nothing.
  */
 export const shopTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "shop",
 	content: {

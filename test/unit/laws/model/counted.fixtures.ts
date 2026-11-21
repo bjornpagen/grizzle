@@ -5,6 +5,7 @@ import { element, type Gen, int, map, oneOf, shuffled } from "@bjornpagen/testin
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { appended, swapWithLast } from "#test/support/families/counted.ts"
 import {
 	type FoldFamily,
@@ -267,6 +268,8 @@ export const lawlessOf = (size: number, variant: Variant): FoldStored => {
 /** What the search built once before its cases (model, drawn), now once per worker: every case on it reads them. */
 export const drawnNeed = {
 	key: "test/unit/laws/model/counted.fixtures.ts drawnNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const model = modelOf(schema)
 		const drawn = drawnOf(model)

@@ -23,6 +23,7 @@ import { ownerDirectories } from "#bench/harness/rules.ts"
 import { discoverGates } from "#bench/harness/runner.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import type { UniqueAbort } from "#compiler/runtime/write/steps.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { catalogIds } from "#test/unit/bench/harness.dictionary.ts"
 
@@ -308,6 +309,8 @@ export const retriedCases = aimed<Retried, RetryFeature>(retriedGen, [
 /** What the search built once before its cases (path, discovered, listed), now once per worker: every case on it reads them. */
 export const gatesNeed = {
 	key: "test/unit/bench/harness.fixtures.ts gatesNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const path = yield* Path.Path
 		const discovered = yield* discoverGates(

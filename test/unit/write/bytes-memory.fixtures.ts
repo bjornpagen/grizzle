@@ -9,6 +9,7 @@ import { bytes, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { inForce, type Transport } from "#compiler/runtime/write/transport.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { realityWrite, testArtifacts, testCompile } from "#test/support/compile.ts"
 
 /** The one value every fact of a case holds: 1 MiB. */
@@ -67,6 +68,8 @@ export const reality = realityWrite(succeeded(testArtifacts(Large, testCompile))
 /** What the search built once before its cases (value), now once per worker: every case on it reads them. */
 export const valueNeed = {
 	key: "test/unit/write/bytes-memory.fixtures.ts valueNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const value = new Uint8Array(valueLength).fill(7)
 		return Effect.succeed(value)

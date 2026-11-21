@@ -24,6 +24,7 @@ import { Vector } from "#compiler/scalar/values/vector.ts"
 import { own, rostersOf } from "#compiler/schema/own.ts"
 import { hostFillOf } from "#compiler/write/program/decide.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { cellAt, cellsOf } from "#test/support/cells.ts"
 import { type FoldMonoid, identityOf, type Planes } from "#test/support/families/fold.ts"
 import {
@@ -321,6 +322,8 @@ const fillOf = (s: Shape): Compiled | undefined => {
  */
 export const compiledFills: Need<ReadonlyMap<string, Compiled | undefined>> = {
 	key: "test/unit/write/family-fold.fixtures.ts compiledFills",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const fills: ReadonlyMap<string, Compiled | undefined> = new Map(
 			Arr.map(SHAPES, (s) => [shapeKey(s), fillOf(s)] as const)

@@ -9,6 +9,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { derived, login, relation, role, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { Id } from "#test/support/ids.ts"
 import { installedTemplate } from "#test/support/install-migrate.ts"
 
@@ -240,6 +241,8 @@ export const reportsTemplate = installedTemplate({
 /** What the search built once before its cases (leases, model), now once per worker: every case on it reads them. */
 export const leasesNeed = {
 	key: "test/pg/derived/refresh/refresh.fixtures.ts leasesNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		/** The Db's context over a pool that counts its leases: a refresh leases one session. */
 		const leases = { count: 0 }

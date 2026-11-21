@@ -58,11 +58,10 @@ document's package and a shell, the local cluster's package, the dev tools and t
 
 ## Development environment
 
-Everything runs natively on one Linux machine, Ubuntu. There is no Docker, no container image and no hosted CI. The
-gate is the git hooks (`lefthook.yml`), which `pnpm install` installs, each on a snapshot of exactly what it lets
-through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a commit runs the typecheck,
-`pnpm types`, oxfmt's check of its files and the AST-only oxlint (`oxlint.ast.config.ts`) on them, and a push runs
-`pnpm types` on HEAD. The full typecheck and lint, `pnpm check`, runs by hand before a release.
+Everything runs natively on one Linux machine, Ubuntu. There is no Docker, no container image and no hosted CI, and no
+git hook: a lane lands on the repository's hub behind the thin gate (the jj-lanes skill: the formatter, the lockfile,
+`pnpm types` and the test files it changes), and trunk@grizzle runs the root's `trunk` script, the whole gate
+(`pnpm check`, then every test tier), on a batch of landings before it pushes upstream.
 
 - **Toolchain:** `apt install build-essential meson ninja-build pkg-config bison flex libssl-dev liblz4-dev libzstd-dev
   libreadline-dev zlib1g-dev python3 git`. You need Node 26 or later, and pnpm at the version `packageManager`

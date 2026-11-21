@@ -4,6 +4,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import type { NeedFailed, Resources } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, type Scope } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import type { Taken } from "#test/support/worlds/drive/suite.ts"
@@ -166,6 +167,7 @@ const slotNeeds = (slot: Slot) =>
 	({
 		seat: Substrate.seat(
 			worldTemplate({
+				budget: templateNeedBudget,
 				declaredIn: import.meta,
 				name: `exhaustive slot ${slot.index}`,
 				install: slot.install,

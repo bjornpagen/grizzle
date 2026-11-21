@@ -20,6 +20,7 @@ import { prepared } from "#compiler/core/prepared.ts"
 import { assert } from "@bjornpagen/testing/assert"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Param } from "#compiler/core/wire.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { fenceSql, prologueIn } from "#test/support/flight/model.ts"
 import { testSql } from "#test/support/sql.ts"
 import { fixtureGroup } from "#test/support/substrate/replace.ts"
@@ -58,6 +59,7 @@ export const assertOneRoundTrip = (window: WireWindow, status: string): void => 
  * over the worker's seat of it, its table emptied after the case (flightsIn).
  */
 export const flightsTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "wire flights",
 	content: { table: "t", sequence: "seq" },

@@ -11,6 +11,7 @@ import type { CreateTable, SqlStatement } from "#compiler/sql/ast.ts"
 import { builtinType, cUtf8Collation } from "#compiler/sql/build.ts"
 import { lex } from "#compiler/sql/lexer.ts"
 import { printStatement } from "#compiler/sql/print.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { type ShapeFeature } from "#test/support/kernel/shape.ts"
 import {
 	resolveStatement,
@@ -133,6 +134,7 @@ export const auditCatalog = catalogIn(auditSchema)
  * planned, so nothing is emptied after a case.
  */
 export const auditTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "sql audit catalog",
 	content: { schema: auditSchema },

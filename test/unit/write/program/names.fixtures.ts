@@ -10,6 +10,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { CompiledWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedOf, uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	Item,
@@ -52,6 +53,8 @@ export const bound = Effect.fn("bound")(function* (name: string) {
 /** What the search built once before its cases (items), now once per worker: every case on it reads them. */
 export const itemsNeed = {
 	key: "test/unit/write/program/names.fixtures.ts itemsNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const items = yield* bound("items")
 		return items

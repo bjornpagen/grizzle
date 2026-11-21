@@ -12,6 +12,7 @@ import {
 	refusalFunctionDdl,
 	refusalFunctionName
 } from "#compiler/write/refusal.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { wild } from "#test/support/kernel/naming.ts"
 import { noTables } from "#test/support/substrate/replace.ts"
@@ -107,6 +108,7 @@ export const raisedFeatures: Arr.NonEmptyReadonlyArray<Raised> = [
  * (substrate.ts installTemplate), where the search made it once before its cases: a case only calls the function.
  */
 export const refusalTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "refusal channel",
 	content: { function: refusalFunctionName },

@@ -14,6 +14,7 @@ import {
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import type { TextsId } from "#compiler/core/text.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { longestHashedText } from "#test/support/kernel/long-keys.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -135,6 +136,8 @@ export const positions = ["first", "middle", "last"] as const
 /** What the search built once before its cases (bytes), now once per worker: every case on it reads them. */
 export const bytesNeed = {
 	key: "test/unit/values/text.fixtures.ts bytesNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const encoder = new TextEncoder()
 		const bytes = (a: string, b: string): Order => {

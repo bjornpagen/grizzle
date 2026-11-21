@@ -12,6 +12,7 @@ import type { TypedLiteral } from "#compiler/ir/expr.ts"
 import { baseOf, nativeNames, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { baseTypeSpecs, scalarOfSpec, type SpelledValue } from "#test/support/oracle/gen/domain.ts"
 
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	aggregateLowering,
 	type GenAggregate,
@@ -245,6 +246,7 @@ export const ddl = (schema: string, s: GenSchema): ReadonlyArray<string> => {
  * where each search made it before its box; a case only reads, so nothing is emptied after it.
  */
 export const rosterTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "vocabulary roster",
 	content: { roster: "K0" },

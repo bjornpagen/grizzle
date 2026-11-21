@@ -263,6 +263,8 @@ export const Served = {
 	): TemplateNeed<ServedCase<L>> => ({
 		key: `grizzle Served.of ${login.name} ${cases.key}`,
 		template: cases.template,
+		budget: cases.budget,
+		runNeeds: cases.runNeeds,
 		open: Effect.map(cases.open, (take) =>
 			Effect.map(take, ({ substrate, value }) => ({
 				substrate,

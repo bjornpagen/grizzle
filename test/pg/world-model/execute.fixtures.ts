@@ -5,6 +5,7 @@ import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { sameValue, valueText } from "#test/support/laws/model.ts"
 import type { LeakField } from "#test/support/worlds/execute/leak.ts"
 import { installedNames } from "#test/support/worlds/execute/names.ts"
@@ -339,6 +340,7 @@ export const leakCases = caseGen(hostSchemaOf(docsInstall.base, installedNames(d
  * clone unlike its template after the first case whose reality holds a document, and refuse the next case's take.
  */
 export const docsWorld = worldTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "leak scan docs",
 	install: docsInstall,

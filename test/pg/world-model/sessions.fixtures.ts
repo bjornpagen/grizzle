@@ -3,6 +3,7 @@
 import { type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import {
 	noAims,
@@ -78,6 +79,7 @@ export const cases = 24
  * OrgDocs' rows are no table a seat's reset empties.
  */
 export const docsWorld = worldTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "sessions",
 	install: docsInstall,

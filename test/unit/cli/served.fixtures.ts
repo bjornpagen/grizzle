@@ -24,6 +24,7 @@ import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { admittedNames, dictionaryNameGenOtherThan } from "#test/support/kernel/dict.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
@@ -407,6 +408,8 @@ export const situationsOf = (
 /** What the search built once before its cases (fs, base, domains, file, text, json, programs, paths, entries), now once per worker: every case on it reads them. */
 export const baseNeed = {
 	key: "test/unit/cli/served.fixtures.ts baseNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const base = yield* workspace("served-base")

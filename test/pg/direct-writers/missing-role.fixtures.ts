@@ -14,6 +14,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { dictionaryNameGen } from "#test/support/kernel/dict.ts"
 import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { docsInstall } from "#test/support/worlds/model/bases/docs.ts"
@@ -229,6 +230,7 @@ export const loginOf = (name: LoginName): LoginSpec =>
 
 /** The docs world installed once per member (worlds/execute/template.ts worldTemplate), which each case's seat holds. */
 export const docsWorld = worldTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "missing role",
 	install: docsInstall,

@@ -15,6 +15,7 @@ import { servedFile } from "#compiler/served/json.ts"
 import { defineConfig } from "#index.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { Id } from "#test/support/ids.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -203,6 +204,8 @@ export const situationsOf = (calls: Calls): ReadonlyArray<Situation> => {
 /** What the search built once before its cases (fs, draftOf), now once per worker: every case on it reads them. */
 export const draftsNeed = {
 	key: "test/unit/cli/served-refresh.fixtures.ts draftsNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const drafts = new Map<number, string>()

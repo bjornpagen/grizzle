@@ -20,6 +20,7 @@ import { type LawId } from "#compiler/core/ids.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type Roster, rosterOf } from "#compiler/ir/scalar.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import * as G from "#test/support/fixtures/golden/work.ts"
 import {
 	check,
@@ -539,6 +540,8 @@ export const declaration = (source: Source): ReadonlyArray<StatementDesc> => {
 /** What the search built once before its cases (ids), now once per worker: every case on it reads them. */
 export const idsNeed = {
 	key: "test/unit/analysis/logical/theory.fixtures.ts idsNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const ids = [G.a1, G.a2, G.a3]
 		return Effect.succeed(ids)

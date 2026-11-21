@@ -18,10 +18,6 @@ skills:
   dirs:
     - .agents/skills
 catalogMode: strict
-# No dependency's install script runs. lefthook's would install the git hooks, which the root's prepare does instead, on
-# every install.
-allowBuilds:
-  lefthook: false
 # Admit a release once it is a day old, except Effect's own packages, at their newest as the toolchain's are: its
 # shared base lists exactly the diagnostics the installed @effect/tsgo ships, so grizzle's @effect/tsgo is the pin's.
 minimumReleaseAge: 1440
@@ -48,7 +44,6 @@ catalog:
   effect: 4.1.4
   eslint-plugin-better-tailwindcss: 4.11.0
   fallow: 3.44.0
-  lefthook: 2.2.2
   oxfmt: 0.79.0
   oxlint: 1.94.0
   pg: 8.23.1

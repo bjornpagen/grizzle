@@ -76,6 +76,7 @@ import type {
 } from "#test/support/worlds/model/types.ts"
 
 import { regex } from "arkregex"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 /** The roles of the education installation, as its fixture names them. */
 const educationRoles = [
 	"student",
@@ -1354,6 +1355,7 @@ type EducationSuite = Realization & {
  * points, and refuse the next case's take.
  */
 const educationWorld = worldTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "education",
 	install: educationInstall,

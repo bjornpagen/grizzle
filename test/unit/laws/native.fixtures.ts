@@ -6,6 +6,7 @@ import { type Aimed, aimed, element, type Gen } from "@bjornpagen/testing/gen"
 import type { Need, Case, Oracle } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import {
 	type MutationStatement as FamilyStatement,
 	type Program,
@@ -1145,6 +1146,8 @@ export const installed = finInstallation()
 /** What the search built once before its cases (installed), now once per worker: every case on it reads them. */
 export const finNeed = {
 	key: "test/unit/laws/native.fixtures.ts finNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const installed = finInstallation()
 		return Effect.succeed(installed)
@@ -1154,6 +1157,8 @@ export const finNeed = {
 /** What the search built once before its cases (installed), now once per worker: every case on it reads them. */
 export const familiesStateNeed = {
 	key: "test/unit/laws/native.fixtures.ts familiesStateNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const installed = familiesInstalled()
 		return Effect.succeed(installed)
@@ -1163,6 +1168,8 @@ export const familiesStateNeed = {
 /** What the search built once before its cases (installed), now once per worker: every case on it reads them. */
 export const familiesNeed = {
 	key: "test/unit/laws/native.fixtures.ts familiesNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const installed = familiesInstalled()
 		return Effect.succeed(installed)

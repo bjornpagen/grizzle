@@ -4,6 +4,7 @@ import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { defined } from "@bjornpagen/testing/assert"
 import type { Need } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import {
 	defaultRecursiveLimits,
 	edgePairs,
@@ -60,6 +61,8 @@ export type BagFeature =
 /** What the search built once before its cases (plain), now once per worker: every case on it reads them. */
 export const plainNeed = {
 	key: "test/unit/recursion/generators.fixtures.ts plainNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const plain = { loops: false, parallel: "never" as const, edges: "set" as const }
 		return Effect.succeed(plain)

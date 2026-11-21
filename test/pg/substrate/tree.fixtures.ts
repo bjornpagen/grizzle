@@ -27,6 +27,7 @@ import {
 	type TreeRow,
 	upToTwoRoots
 } from "#test/pg/substrate/tree.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
@@ -226,6 +227,7 @@ export const THEOREM_ORACLE: Oracle = {
  * nothing.
  */
 export const treeTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "trees rfc",
 	content: { lowering: "rfc" },

@@ -14,6 +14,7 @@ import { compileInstallation, installOptions } from "#compiler/physical/install/
 import type { Uuid } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	compileTemplate,
 	installationSql,
@@ -226,6 +227,7 @@ const compiled = (
  * and the reset empties no table.
  */
 export const workTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "template",
 	content: { schema: Work.name },

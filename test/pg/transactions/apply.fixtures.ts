@@ -11,6 +11,7 @@ import type { ParamMap } from "#compiler/plan/common.ts"
 import { assert, assertVariant } from "@bjornpagen/testing/assert"
 import { login, relation, role, schema, wholeEntriesOf } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { t3, t4, tMissing } from "#test/support/fixtures/golden/work.ts"
@@ -152,6 +153,8 @@ export const levelsTemplate = installedTemplate({
 /** What the search built once before its cases (credential), now once per worker: every case on it reads it. */
 export const credentialNeed = {
 	key: "test/pg/transactions/apply.fixtures.ts credentialNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		/** The login's credential, which a value turns off to fail an acquisition. */
 		const credential = { ok: true }

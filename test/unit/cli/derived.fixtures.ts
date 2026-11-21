@@ -15,6 +15,7 @@ import {
 import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 
 /**
@@ -144,6 +145,8 @@ export const stalingGen: Gen<Staling> = stalings(members)
 /** What the search built once before its cases (fs, base, snapshot, manifest, entries), now once per worker: every case on it reads them. */
 export const baseNeed = {
 	key: "test/unit/cli/derived.fixtures.ts baseNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const base = yield* workspace("derived-base")

@@ -54,6 +54,7 @@ export const worldTemplate = (spec: {
 	readonly name: string
 	readonly install: InstallSpec
 	readonly ambient: AmbientSession
+	readonly budget: number
 }): SubstrateTemplate<TemplateWorld> => {
 	const options = {
 		label: "worlds",
@@ -71,6 +72,7 @@ export const worldTemplate = (spec: {
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content,
+		budget: spec.budget,
 		plan: (names) =>
 			Effect.gen(function* () {
 				const declared = yield* baseBuild(spec.install)

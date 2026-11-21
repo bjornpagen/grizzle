@@ -124,6 +124,5 @@ export default toolchain({
 	],
 	effectFree: ["packages/engine", "packages/openapi", "packages/text"],
 	packs: { grizzle: true },
-	bannedPackages: [],
-	land: { lock: "~/.cache/grizzle-release/pushlock/lock", branch: "main" }
+	bannedPackages: []
 })

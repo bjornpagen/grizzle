@@ -33,6 +33,7 @@ import { admitValue } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { Vector } from "#compiler/scalar/values/vector.ts"
 import { arraysEncoder } from "#test/support/arrays.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
 import { kindCodes, types } from "#test/unit/codec/support.ts"
@@ -661,6 +662,8 @@ export const everyFacts = array(everyFact, { min: 0, max: 8 })
 /** What the search built once before its cases (normalize), now once per worker: every case on it reads them. */
 export const normalizeNeed = {
 	key: "test/unit/codec/recordset.fixtures.ts normalizeNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const normalize = relationNormalizer(reading)
 		return Effect.succeed(normalize)
@@ -670,6 +673,8 @@ export const normalizeNeed = {
 /** What the search built once before its cases (encode), now once per worker: every case on it reads them. */
 export const encodeNeed = {
 	key: "test/unit/codec/recordset.fixtures.ts encodeNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const encode = arraysEncoder(reading)
 		return Effect.succeed(encode)

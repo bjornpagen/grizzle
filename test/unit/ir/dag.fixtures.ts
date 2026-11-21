@@ -45,6 +45,7 @@ import {
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { contractType } from "#compiler/scalar/registry.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 import { f } from "#test/support/fixtures/ir/desc.ts"
 import { normalizeExprTable, scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -409,6 +410,8 @@ export const spellingOf = (
 /** What the search built once before its cases (build, reference), now once per worker: every case on it reads them. */
 export const buildNeed = {
 	key: "test/unit/ir/dag.fixtures.ts buildNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const build = (type: ScalarType, supply: IdSupply) => {
 			const b = new DagBuilder(supply)

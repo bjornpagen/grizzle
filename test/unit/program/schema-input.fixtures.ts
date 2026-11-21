@@ -15,6 +15,7 @@ import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { own } from "#compiler/schema/own.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import {
 	compileTemplate,
 	type FixtureSchema,
@@ -296,6 +297,8 @@ const changesOf = (base: SchemaDesc): ReadonlyArray<Change> =>
  */
 export const changedCases: Need<Arr.NonEmptyReadonlyArray<Changed>> = {
 	key: "test/unit/program/schema-input.fixtures.ts changedCases",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() =>
 		Effect.succeed(
 			nonEmpty(

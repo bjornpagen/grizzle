@@ -96,6 +96,7 @@ import {
 import { templateDigest, templatePassword } from "#test/support/substrate/templates.ts"
 
 import { regex } from "arkregex"
+import { fixtureNeedBudget, templateNeedBudget } from "#test/support/budgets.ts"
 /**
  * Installing a compiled schema into the test file's database through its migrations.
  *
@@ -919,6 +920,7 @@ interface Seeding<E> {
  */
 const historyTemplate = <E>(spec: HistorySpec, seeding: Seeding<E>): SubstrateTemplate<Installed> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: spec.content,
@@ -965,6 +967,8 @@ export const templateNamed = <A>(
 	derive: (names: TemplateNames) => A
 ): Need<A> => ({
 	key,
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.map(templateDigest(template.database), (digest) =>
 		Effect.succeed(derive(templateNames(digest)))
 	)
@@ -1443,6 +1447,7 @@ const generatedSeeded = <E>(
 	}
 ): SubstrateTemplate<Generated> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: spec.content,

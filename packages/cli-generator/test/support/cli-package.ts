@@ -29,6 +29,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { generate, type GenerateResult } from "#generate.ts"
 import { type DocumentUri, isDocumentUri } from "#model/brands.ts"
 import { parseJson } from "#runtime/json.ts"
+import { cliNeedBudget } from "#test/support/budgets.ts"
 import { type Finished, finished } from "#test/support/process.ts"
 
 /** A file a fixture writes: its path, `/`-separated and relative to the directory it lands in, and its text. */
@@ -119,6 +120,8 @@ export const workerFixture = <A, E>(
 	open: Effect.Effect<A, E, Scope.Scope | NodeServices.NodeServices | Digest.Digest>
 ): Need<A> => ({
 	key,
+	budget: cliNeedBudget,
+	runNeeds: [],
 	open: Effect.mapBoth(
 		Effect.flatMap(Layer.build(NodeCrypto.layerDigest), (context) =>
 			Effect.provideService(open, Digest.Digest, Context.get(context, Digest.Digest))

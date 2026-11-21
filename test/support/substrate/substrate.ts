@@ -892,8 +892,9 @@ export interface SubstrateCase<T> {
 }
 
 /**
- * What an installed template states: its declaring module, name and content (as Template.database takes them), and its
- * install in three parts. `plan` is the pure part, what the install makes under the template's names (names.ts
+ * What an installed template states: its declaring module, name and content (as Template.database takes them), the
+ * CPU its open may spend on a worker, its build or the wait on another worker's included (Template budget, measured:
+ * budgets.ts), and its install in three parts. `plan` is the pure part, what the install makes under the template's names (names.ts
  * templateNames: its schema and its owner login), which the build and every worker compute alike; `install` makes it
  * once per member, on a substrate over the template database whose allocations are the template's
  * (templateAllocations); `bind` reads it as a case over a clone sees it, by the case's database and budget; `reset`
@@ -903,6 +904,7 @@ interface InstallSpec<P, T, E1, E2> {
 	readonly declaredIn: ImportMeta
 	readonly name: string
 	readonly content: Content
+	readonly budget: number
 	readonly plan: (names: TemplateNames) => Effect.Effect<P, E1>
 	readonly install: (plan: P) => Effect.Effect<void, E2, Substrate | Scope.Scope>
 	readonly bind: (plan: P, binding: TemplateBinding) => T
@@ -1035,6 +1037,7 @@ export const installTemplate = <P, T, E1, E2>(
 		name: spec.name,
 		content: spec.content,
 		from: baseTemplate,
+		budget: spec.budget,
 		build: (target) =>
 			Effect.scoped(
 				Effect.gen(function* () {
@@ -1131,6 +1134,8 @@ const substrateCases = <T>(
 ): TemplateNeed<SubstrateCase<T>> => ({
 	key: `grizzle ${form} ${database.key}`,
 	template: database.template,
+	budget: database.budget,
+	runNeeds: database.runNeeds,
 	open: Effect.map(
 		Effect.all([
 			database.open,
@@ -1381,6 +1386,8 @@ const rolledBackCases = <T>(
 ): TemplateNeed<RolledBack<T>> => ({
 	key: `grizzle ${form} ${template.database.key}`,
 	template: template.database,
+	budget: template.database.budget,
+	runNeeds: [],
 	open: Effect.map(
 		Effect.all([
 			template.database.open,
@@ -1465,6 +1472,8 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	static readonly fresh: TemplateNeed<SubstrateShape> = {
 		key: "grizzle Substrate.fresh",
 		template: baseTemplate,
+		budget: baseTemplate.budget,
+		runNeeds: [],
 		open: Effect.map(
 			substrateCases("Substrate.fresh", base, Database.fresh(baseTemplate), dropped).open,
 			(take) => Effect.map(take, (taken) => taken.substrate)
@@ -1481,6 +1490,8 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 	static readonly installing: TemplateNeed<SubstrateShape> = {
 		key: "grizzle Substrate.installing",
 		template: baseTemplate,
+		budget: baseTemplate.budget,
+		runNeeds: [],
 		open: Effect.map(
 			substrateCases("Substrate.installing", base, Database.seat(baseTemplate, []), (substrate) =>
 				Effect.succeed(undoInstallEffects(substrate.admin))

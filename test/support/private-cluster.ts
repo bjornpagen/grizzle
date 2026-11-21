@@ -4,6 +4,7 @@ import type { NodeServices } from "@effect/platform-node/NodeServices"
 import { Array as Arr, Config, Effect, FileSystem, type Scope } from "effect"
 import { ChildProcess } from "effect/process"
 import { busyBackendBytes } from "#pg.config.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { pgCluster } from "#test/support/env.ts"
 
 /**
@@ -64,6 +65,8 @@ const removed = (spec: ReturnType<typeof privateSpec>) =>
  */
 export const privateCluster: Need<PgMember> = {
 	key: "grizzle private cluster",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.map(
 		Effect.all([Effect.service(WorkerIndex), Effect.context<NodeServices>()]),
 		([worker, platform]): Effect.Effect<PgMember, NeedFailed, Scope.Scope> => {

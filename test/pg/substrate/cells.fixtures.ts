@@ -14,6 +14,7 @@ import {
 	type Tuple
 } from "#compiler/ir/cells.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { bitText } from "#test/support/closed/bit-text.ts"
 import { qualified, refusalOf, refusalText, tuple } from "#test/support/substrate.ts"
 import { fixtureGroup, noTables } from "#test/support/substrate/replace.ts"
@@ -389,6 +390,7 @@ export type CachedCheckFeature =
  * cases: each case creates the templates it proves in it and drops them, so the seat empties nothing.
  */
 export const cellsSchemaTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "cells schema",
 	content: { schema: "empty" },
@@ -418,6 +420,7 @@ const digitsDdl = (schema: string): ReadonlyArray<string> => {
 /** A proof's templates installed in a schema of its own once per member, where its search installed them before its cases. */
 const ddlTemplate = (name: string, ddl: (schema: string) => ReadonlyArray<string>, table: string) =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: import.meta,
 		name,
 		content: { templates: name },

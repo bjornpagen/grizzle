@@ -9,6 +9,7 @@ import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { assert } from "@bjornpagen/testing/assert"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { admitCidr, admitInet } from "#compiler/scalar/values/net.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { strictIntegers, strictRead } from "#test/support/kernel/strict.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import { type CatalogResult, declinedOps } from "#test/support/oracle/evaluate/catalog.ts"
@@ -72,6 +73,7 @@ export const evaluatorTemplate = (
 	name: string
 ): SubstrateTemplate<string> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn,
 		name,
 		content: { evaluator: "try_eval" },

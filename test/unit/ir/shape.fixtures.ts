@@ -23,6 +23,7 @@ import { ChildProcess } from "effect/process"
 import { jsonText } from "#compiler/core/trusted.ts"
 import * as S from "#compiler/ir/shape.ts"
 import type { Place } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 
 /** A point: an integer x and an optional nonempty label. */
 const point = S.structWith({ x: S.integer }, { label: S.nonEmptyString })
@@ -541,6 +542,8 @@ export const decodedIn = weighted<DecodedIn>([
  */
 export const consumerNeed = {
 	key: "test/unit/ir/shape.fixtures.ts consumerNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const take = yield* Checkout.dir.open
 		const dir = yield* Effect.scoped(take)

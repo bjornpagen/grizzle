@@ -43,6 +43,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	closed,
@@ -1003,6 +1004,8 @@ export const boxGen: Gen<Program<Params>> = boxOf(reached)
  */
 export const transitions: Need<ReadonlyMap<string, Stepped>> = {
 	key: "test/unit/deploy/rosters.fixtures.ts transitions",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const prepared: Prepared = { pairLaw: lawOfPair(), first: firstSnapshot() }
 		const table = new Map<string, Stepped>()

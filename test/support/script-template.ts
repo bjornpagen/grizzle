@@ -1,5 +1,6 @@
 import { Effect, type Scope } from "effect"
 import type { Installation } from "#compiler/physical/install/compile.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { installationSql } from "#test/support/compile.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
 import { transaction } from "#test/support/oracle/install/transaction.ts"
@@ -66,6 +67,7 @@ const scriptSeeded = <E>(
 	}
 ): SubstrateTemplate<ScriptInstall> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: { label: spec.label },

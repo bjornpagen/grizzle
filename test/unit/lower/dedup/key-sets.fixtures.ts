@@ -31,6 +31,7 @@ import { isOrderedValue, isQueryValue } from "#compiler/query/build/query.ts"
 import { keyColumns, type RowsRole, type StatementRoots } from "#compiler/runtime/lower/tree.ts"
 import { hasCapability } from "#compiler/scalar/registry.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { admitGenerated, testArtifacts, testCompile } from "#test/support/compile.ts"
 import { genCatalog } from "#test/support/evidence.ts"
 import * as P from "#test/support/fixtures/api/platform.ts"
@@ -268,6 +269,8 @@ export const artifacts = succeeded(testArtifacts(P.Billing, testCompile), "the b
 /** What the search built once before its cases (reads), now once per worker: every case on it reads them. */
 export const readsNeed = {
 	key: "test/unit/lower/dedup/key-sets.fixtures.ts readsNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const reads = new Map(billingReads)
 		return Effect.succeed(reads)

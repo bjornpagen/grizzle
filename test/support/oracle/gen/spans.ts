@@ -20,6 +20,7 @@ import {
 	dayNumber,
 	lastCalendarDate
 } from "#compiler/ir/date.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	classify,
 	compareSpans,
@@ -889,6 +890,7 @@ const spanSchemaTemplate = (
 		}
 	}
 	return installTemplate({
+		budget: templateNeedBudget,
 		declaredIn,
 		name: `${label} ${endpoint} ${left} ${right}`,
 		content: { label, endpoint, left, right },

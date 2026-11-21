@@ -11,6 +11,7 @@ import {
 import { existencePass } from "#compiler/lower/optimize/existence/index.ts"
 import { fusePass } from "#compiler/lower/optimize/fuse/index.ts"
 import { simplifyPass } from "#compiler/lower/optimize/simplify/index.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { rebuildDag } from "#test/support/dag.ts"
 import type { CountedFunction } from "#test/support/kernel/calls.ts"
 
@@ -36,6 +37,8 @@ export type FinishFeature =
 /** What the search built once before its cases (chain), now once per worker: every case on it reads them. */
 export const chainNeed = {
 	key: "test/unit/lower/rewrite/frame.fixtures.ts chainNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const chain = [
 			semanticSimplification,
@@ -52,6 +55,8 @@ export const chainNeed = {
 /** What the search built once before its cases (passes), now once per worker: every case on it reads them. */
 export const passesNeed = {
 	key: "test/unit/lower/rewrite/frame.fixtures.ts passesNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const passes = [semanticSimplification, relationalRewrites]
 		return Effect.succeed(passes)

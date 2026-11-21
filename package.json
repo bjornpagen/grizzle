@@ -72,7 +72,6 @@
 		"@types/pg": "catalog:",
 		"@vercel/functions": "catalog:",
 		"fallow": "catalog:",
-		"lefthook": "catalog:",
 		"oxfmt": "catalog:",
 		"oxlint": "catalog:",
 		"tsrs": "catalog:",

@@ -17,6 +17,7 @@ import {
 	flight
 } from "#compiler/lower/conservative/types.ts"
 import { statementOutput } from "#compiler/runtime/lower/tree.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { fixtureGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
 import { installTemplate, Substrate } from "#test/support/substrate/substrate.ts"
@@ -270,6 +271,7 @@ export const qualifying = (passed: number, bindings: number): Qualifying =>
  * its own clone: its value is the schema's name.
  */
 export const shapesTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "lower-shapes",
 	content: "the conservative fixture's relations, as install creates them",

@@ -3,6 +3,7 @@ import { Effect } from "effect"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { type PayrollProgram, payrollPrograms } from "#test/pg/oracle/payroll/support.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import * as P from "#test/support/fixtures/api/payroll.ts"
 import {
 	appliedHistory,
@@ -59,6 +60,7 @@ interface PayrollInstalled {
  * programs compiled) once per worker, so no case installs or compiles again.
  */
 export const payrollTemplate = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "payroll",
 	content: { schema: "Reporting", logins: [], ambient: "ordinary", label: "real" },

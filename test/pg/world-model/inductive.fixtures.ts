@@ -17,6 +17,7 @@ import {
 import type { NeedFailed, Resources } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import {
@@ -125,6 +126,7 @@ const kindsWithin = (reach: Reach): Focus => (reach === "database" ? databaseKin
 /** Each fixed installation's world as a template (execute/template.ts worldTemplate), under the cluster's own ambient. */
 const inductiveTemplates = Rec.map(fixedInstalls, (install, key) =>
 	worldTemplate({
+		budget: templateNeedBudget,
 		declaredIn: import.meta,
 		name: `inductive ${key}`,
 		install,

@@ -18,6 +18,7 @@ import {
 	ownLogin,
 	ownRole
 } from "#compiler/schema/own.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { declaredErasure } from "#test/support/catalog/declared.ts"
 import {
 	type GrantKind,
@@ -138,6 +139,7 @@ export const physicalTemplate = (spec: {
 	readonly logins: ReadonlyArray<OwnedLogin>
 }): SubstrateTemplate<TemplateFixture> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: { fixture: spec.desc.name },

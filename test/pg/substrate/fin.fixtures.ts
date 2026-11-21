@@ -48,6 +48,7 @@ import {
 	storedOfRows,
 	writeOf
 } from "#test/pg/substrate/fin.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	BREAKING_FORMS,
 	type Form,
@@ -804,6 +805,7 @@ const loweringsTemplate = <L extends string>(
 	lowerings: Readonly<Record<L, Lowering>>
 ): SubstrateTemplate<Lowered<L>> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: import.meta,
 		name,
 		content: { lowerings: Rec.keys(lowerings) },
@@ -1019,6 +1021,7 @@ const riNames = (schema: string): RiNames => ({
  * empties no table: a case rolls its write back.
  */
 export const riTemplate: SubstrateTemplate<Lowered<"ordered">> = installTemplate({
+	budget: templateNeedBudget,
 	declaredIn: import.meta,
 	name: "fin ri load",
 	content: { lowering: "mirrors ordered", load: riLoad },

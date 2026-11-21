@@ -5,6 +5,7 @@ import { Array as Arr, Effect, Option, Redacted, String as Str } from "effect"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import { pin } from "#pg/pin.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { configureDatabase, devSession, session, testDatabaseSettings } from "#test/support/pg.ts"
 import { memberBudget, sqlNeedFailed } from "#test/support/runner.ts"
@@ -48,6 +49,7 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 		vectorAcl: vectorSchemaGrant
 	},
 	from: Template.cluster,
+	budget: templateNeedBudget,
 	build: (target) =>
 		Effect.scoped(
 			Effect.gen(function* () {

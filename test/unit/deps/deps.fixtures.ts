@@ -15,6 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { trustedJson } from "#compiler/core/trusted.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { hardenedNode, run, runOptions } from "#test/support/process.ts"
 import {
@@ -136,6 +137,8 @@ const probe = (root: string, modules: ReadonlyArray<string>) =>
  */
 export const probedEntries: Need<Readonly<{ root: string; out: ProbeOutput }>> = {
 	key: "test/unit/deps/deps.fixtures.ts probedEntries",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.orDie(
 		Effect.map(
 			Effect.gen(function* () {

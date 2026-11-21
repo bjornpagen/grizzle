@@ -32,6 +32,7 @@ import {
 	writeConfig
 } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { migrationFolders } from "#test/support/migrate/kit.ts"
 
@@ -482,6 +483,8 @@ export const tampered = (
 /** What the search built once before its cases (committed), now once per worker: every case on it reads it. */
 export const committedNeed = {
 	key: "test/unit/cli/tamper.fixtures.ts committedNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const base = yield* workspace("tamper")
 		const committed = {

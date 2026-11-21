@@ -11,6 +11,7 @@ import { servedSession } from "#compiler/program/served.ts"
 import type { ServedSession } from "#compiler/served/forms.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import {
 	clusterConnection,
 	clusterPool,
@@ -72,6 +73,7 @@ export const substrateLogin = (
  */
 export const loginTemplate = (declaredIn: ImportMeta, name: string) =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn,
 		name,
 		content: { login: "server" },

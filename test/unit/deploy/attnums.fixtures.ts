@@ -20,6 +20,7 @@ import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { f, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { owning } from "#test/support/policy.ts"
@@ -169,6 +170,8 @@ const longestProgram = 6
  */
 export const draftsByPrefix: Need<ReadonlyMap<string, Drafted>> = {
 	key: "test/unit/deploy/attnums.fixtures.ts draftsByPrefix",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const created: Drafted = {
 			model: initial,

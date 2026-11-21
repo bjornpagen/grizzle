@@ -24,6 +24,7 @@ import type { Lowered } from "#compiler/scalar/compute/lower.ts"
 import { ProgramPatterns, tablePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { AdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { Id } from "#test/support/ids.ts"
 import {
 	baseParams,
@@ -249,6 +250,8 @@ export const read = lowered("query")
 /** What the search built once before its cases (check), now once per worker: every case on it reads it. */
 export const checkNeed = {
 	key: "test/pg/compute/digest.fixtures.ts checkNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.sync(() => {
 		const check = lowered("check")
 		return Effect.succeed(check)

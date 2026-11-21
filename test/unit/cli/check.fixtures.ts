@@ -25,6 +25,7 @@ import { defineConfig } from "#index.ts"
 import { shopV1 } from "#test/pg/cli/fixture.ts"
 import { cliOver, configName, offlineOwner, workspace } from "#test/pg/cli/support.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { besideFolders } from "#test/support/migrate/kit.ts"
 
@@ -247,6 +248,8 @@ export const notesOf = (p: Planted, found: ReadonlyArray<Finding>): ReadonlyArra
 /** What the search built once before its cases (fs, base, layout), now once per worker: every case on it reads them. */
 export const fsNeed = {
 	key: "test/unit/cli/check.fixtures.ts fsNeed",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const base = yield* workspace("check-base")

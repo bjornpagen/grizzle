@@ -6,6 +6,7 @@ import { element, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { recorder } from "@bjornpagen/testing/source"
 import { Array as Arr, Option, Record as Rec } from "effect"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { pairWorldBudget } from "#test/support/budgets.ts"
 import { worldTemplate } from "#test/support/worlds/execute/template.ts"
 import { classifyEntry } from "#test/support/worlds/model/host.ts"
 import type {
@@ -509,6 +510,7 @@ export const { install, roleOf } = installationOf(box)
 
 /** The box's installation as a world installed once per member (worlds/execute/template.ts worldTemplate), which each case's seat holds. */
 export const pairWorld = worldTemplate({
+	budget: pairWorldBudget,
 	declaredIn: import.meta,
 	name: "roles",
 	install,

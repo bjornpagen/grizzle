@@ -29,6 +29,7 @@ import { loginDescOf } from "#compiler/schema/world.ts"
 import { apply, noFurther, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { templateNeedBudget } from "#test/support/budgets.ts"
 import { deployedWorkloadOver, inputArtifacts, testCompile } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import {
@@ -349,6 +350,7 @@ export const migratedOnceTemplate = (spec: {
 	readonly options: MigratedDraft
 }): SubstrateTemplate<Installed> =>
 	installTemplate({
+		budget: templateNeedBudget,
 		declaredIn: spec.declaredIn,
 		name: spec.name,
 		content: { label: spec.options.label },

@@ -5887,7 +5887,7 @@ Everything runs natively on Linux, with no Docker. There is no build step: Node 
 
 ```sh
 git submodule update --init       # the toolchain, vendor/toolchain: the dev tools and the testing library
-pnpm install                      # and the git hooks, lefthook.yml
+pnpm install
 pnpm pg:build                     # build the pinned PostgreSQL 19.0 from its release tarball, and pgvector
 pnpm pg settle                    # start the local cluster's units and give them pg.config.ts: verify-full TLS from 5442
 pnpm pg check                     # read every member as a run reads it, writing nothing

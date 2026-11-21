@@ -8,6 +8,7 @@ import {
 	type Statements
 } from "@bjornpagen/testing/resources"
 import { Context, Effect, Layer, Option, type Scope } from "effect"
+import { fixtureNeedBudget } from "#test/support/budgets.ts"
 import { overTls } from "#test/support/cluster.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { type PgConnection, type SqlError, textSession } from "#test/support/pg.ts"
@@ -186,5 +187,7 @@ export const grizzleCluster: Layer.Layer<PgCluster | WorkerBudgets, never, Platf
  */
 export const workerCluster: Need<Context.Context<PgCluster | WorkerBudgets>> = {
 	key: "grizzle worker cluster",
+	budget: fixtureNeedBudget,
+	runNeeds: [],
 	open: Effect.map(Effect.context<PgCluster | WorkerBudgets>(), Effect.succeed)
 }
