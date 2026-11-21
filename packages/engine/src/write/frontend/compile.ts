@@ -11,7 +11,7 @@ import { closedTableOf } from "#compiler/analysis/schema.ts"
 import type { CheckedEntry, CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
-import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery, Navigation } from "#compiler/analysis/theory/navigate.ts"
 import { editedBy } from "#compiler/analysis/theory/refill.ts"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import { clockParams, sourcedParams } from "#compiler/check/clock.ts"
@@ -1016,6 +1016,8 @@ const compile = (
 	/** 1. Check the members and read-backs, merging their queries into one DAG in that order, every check one session's
 	 * (check/session.ts), so every closed import of one key, in any of them, is one node of the DAG. */
 	const session = new CheckSession()
+	/** Its members' navigation, each query they read navigated once for the ChangeSet (analysis/theory/navigate.ts). */
+	const navigation = new Navigation(laws.theory.regionFacts)
 	const merger = new QueryMerger(session)
 	const params = new Map<string, ParamDecl>()
 	/** Each ordinary relation of the base the ChangeSet writes, as a member writes it (`writtenOf`), built where the
@@ -1459,13 +1461,7 @@ const compile = (
 					{
 						op: "insert",
 						relation: computedHeading,
-						query: navigateQuery(
-							m.member.query,
-							loc,
-							columns,
-							{ kind: "perRead" },
-							laws.theory.regionFacts
-						),
+						query: navigateQuery(m.member.query, loc, columns, { kind: "perRead" }, navigation),
 						loc
 					},
 					{ label: `insert ${relation.name}'s computed fields`, clock, session }
@@ -1667,13 +1663,7 @@ const compile = (
 					{
 						op: member.op,
 						relation: written,
-						query: navigateQuery(
-							describedQuery,
-							loc,
-							columns,
-							{ kind: "perRead" },
-							laws.theory.regionFacts
-						),
+						query: navigateQuery(describedQuery, loc, columns, { kind: "perRead" }, navigation),
 						loc
 					},
 					{ label: `${member.op} ${member.relation}`, clock, session }

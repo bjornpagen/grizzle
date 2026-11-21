@@ -3,7 +3,7 @@
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, Result, Struct } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
-import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -76,7 +76,7 @@ export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => vo
 		loc,
 		queryColumns(checked, loc),
 		{ kind: "perStatement", extent: "units" },
-		succeeded(buildTheory(checked)).regionFacts
+		new Navigation(succeeded(buildTheory(checked)).regionFacts)
 	)
 	if (navigated === desc) {
 		return

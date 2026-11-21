@@ -5,7 +5,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Order } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
-import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { checkQuery } from "#compiler/check/index.ts"
 import { CheckSession } from "#compiler/check/session.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -136,7 +136,7 @@ export const judged = (c: Case, note: (f: Feature) => void): void => {
 				loc,
 				queryColumns(artifacts.laws.checked, loc),
 				{ kind: "perStatement", extent: "every" },
-				theory.regionFacts
+				new Navigation(theory.regionFacts)
 			),
 			{
 				read: "region",

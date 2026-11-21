@@ -9,7 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
-import { navigateQuery, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery, Navigation, type RegionExtent } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbes,
 	type LawSide,
@@ -237,7 +237,7 @@ const judgedStatement = (
 				loc,
 				columns,
 				{ kind: "perStatement", extent },
-				b.model.theory.regionFacts
+				new Navigation(b.model.theory.regionFacts)
 			),
 			{ read: "region", label, clock: noClock, session: new CheckSession() }
 		)

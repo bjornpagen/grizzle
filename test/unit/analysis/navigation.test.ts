@@ -3,7 +3,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { aimed, finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
-import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { caseSketchGen, resolveCase } from "#test/support/oracle/public/generate.ts"
 import {
 	type Feature,
@@ -115,7 +115,7 @@ export const navigationsGateJudgesAWriteMembersNegationThatReadsNoVariableAmongT
 					loc,
 					gateColumns,
 					{ kind: "perRead" },
-					gateFacts
+					new Navigation(gateFacts)
 				)
 				if (navigated.stage.kind !== "rules") {
 					return assert.fail("a navigated member is one rules stage")

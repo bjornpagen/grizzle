@@ -55,7 +55,7 @@ import {
  * rule holds, its parameters and literals, each next match the one with the most columns keyed so far, bound to a
  * parameter or to a variable the steps placed bound, directly or by an equality with them, then the one with the most
  * columns bound at all, literals among them, then one whose every row is beside a row of another that reads every row
- * of its relation (Interned `within`: a containment the schema states of its relation into the other's over every
+ * of its relation (Navigation `within`: a containment the schema states of its relation into the other's over every
  * row, at the variables both bind; #chain `readsAll`), then the earliest declared among equals: a literal alone is no
  * key, a constant every key's rows may share, so a read a literal alone binds never goes before one a key binds. That
  * is how a rule's probe starts from the row its write touched; how a member walks a qti package: from the package's
@@ -204,17 +204,20 @@ export type RegionExtent = "units" | "every"
 type Binds = ReadonlyMap<string, InferredExpr>
 
 /**
- * One statement's navigation: each query it reads navigated once for its identity (ir/desc.ts descIdentity), and what
- * it reads of each rule (`reads`), computed once for the rule. Every read of a query of one identity is the one
- * navigation of it, one object, so the checker, which keys an import by its query's place (check/session.ts
- * CheckSession), builds one node for all of them, where each read navigated apart was an object of its own, a node of
- * its own; and a chain of unions, each rule of a level reading the level below, navigates each level once for each set
- * of values its rules read it at, where navigated at each read apart, every level was navigated once for every path
- * down the chain to it, the product of the unions' widths at every depth above it. Its work is linear in the queries
- * and rules its statement reads, never in the paths through them. One per call of `navigateQuery`, never shared
- * between statements; with the containments its chains are ordered by (`within`).
+ * A navigation of a compile's queries (`navigateQuery`): each query they read navigated once for its identity (ir/desc.ts
+ * descIdentity), and what they read of each rule (`reads`), computed once for the rule. Every read of a query of one
+ * identity is the one navigation of it, one object, so the checker, which keys an import by its query's place
+ * (check/session.ts CheckSession), builds one node for all of them, where each read navigated apart was an object of its
+ * own, a node of its own; and a chain of unions, each rule of a level reading the level below, navigates each level once
+ * for each set of values its rules read it at, where navigated at each read apart, every level was navigated once for
+ * every path down the chain to it, the product of the unions' widths at every depth above it. Its work is linear in the
+ * queries and rules its compile reads, never in the paths through them. Its owner is the compile whose queries share
+ * it: a write's every member (write/frontend/compile.ts), whose queries read the same imports, each navigated once for
+ * the ChangeSet where each member navigated and digested them again (edullm's evaluate: 97 members over one call's
+ * imports); a judge's one statement (physical/ddl/rules.ts). With the containments its chains are ordered by
+ * (`within`).
  */
-class Interned {
+export class Navigation {
 	/**
 	 * The identity digests of what this navigation reads (ir/desc.ts descIdentities): each query's every part digested
 	 * once for every identity and import key of it, where each was digested anew for each. A query is frozen before it is
@@ -381,7 +384,7 @@ const sharedWithin = (
 	loc: SourceLoc,
 	columns: QueryColumns,
 	sharing: ImportSharing,
-	interned: Interned
+	interned: Navigation
 ): { readonly flat: Flat; readonly unrestricted: ReadonlySet<string> } => {
 	const fixed = fixedTerms({
 		vars: flat.vars,
@@ -444,7 +447,7 @@ const noImports: KeptImports = new Set()
  * inlining leaves it: a read inside an import navigation keeps whole is that import's own, so the shallowest imports
  * read more than once are kept first, and the rest counted again without the rows they hold.
  */
-const sharedImports = (rules: ReadonlyArray<InferredRule>, interned: Interned): KeptImports => {
+const sharedImports = (rules: ReadonlyArray<InferredRule>, interned: Navigation): KeptImports => {
 	const shared = new Set<string>()
 	const unions = new Set<string>()
 	for (;;) {
@@ -714,9 +717,9 @@ class Navigator {
 
 	readonly #sharing: ImportSharing
 
-	readonly #interned: Interned
+	readonly #interned: Navigation
 
-	constructor(loc: SourceLoc, columns: QueryColumns, sharing: ImportSharing, interned: Interned) {
+	constructor(loc: SourceLoc, columns: QueryColumns, sharing: ImportSharing, interned: Navigation) {
 		this.#interned = interned
 		this.#sharing = sharing
 		this.#loc = loc
@@ -1307,7 +1310,7 @@ const navigate = (
 	columns: QueryColumns,
 	sharing: ImportSharing,
 	imports: KeptImports,
-	interned: Interned
+	interned: Navigation
 ): NonEmptyReadonlyArray<InferredRule> =>
 	new Navigator(loc, columns, sharing, interned).rule(rule, 0, imports)
 
@@ -1330,7 +1333,7 @@ const filtersBelow = (e: InferredExpr): boolean =>
  * it reads some one not. A conjunction is a choice of one rule at each read of an import of several rules, at any
  * depth, each read's choice its own, so the most a conjunction reads is the sum of the most each read's rules read; and
  * `filtersJoin`, whether the rule filters by a query a conjunction of which joins (`someConjunctionJoins`), as every
- * conjunction of the rule filters as it does. Each import's rules are read once (Interned `reads`), where its
+ * conjunction of the rule filters as it does. Each import's rules are read once (Navigation `reads`), where its
  * conjunctions are the product of the unions' widths at every depth.
  */
 interface RuleReads {
@@ -1456,7 +1459,7 @@ const navigatedRule = (
 	columns: QueryColumns,
 	sharing: ImportSharing,
 	imports: KeptImports,
-	interned: Interned
+	interned: Navigation
 ): NonEmptyReadonlyArray<InferredRule> => {
 	if (joins(interned.reads(rule))) {
 		return navigate(rule, loc, columns, sharing, imports, interned)
@@ -1605,27 +1608,28 @@ const boundInside = (
  * statistics or none, reads a join the judge reads as a product it filters afterwards. A rule over an imported query of
  * several rules, where one of its conjunctions (`conjunctions`) joins, is navigated with each such import read whole
  * under `perStatement`, every rule statement's, one node, each of its rules navigated inside it (`sharedImports`), and
- * as the union of its conjunctions, each navigated, under `perRead`. Each chain is ordered by the containments `facts`
- * holds, the schema's theory's (Interned `within`).
+ * as the union of its conjunctions, each navigated, under `perRead`. It is navigated within its compile's `navigation`,
+ * which navigates each query of one identity once for every query of the compile, and orders each chain by the
+ * containments of the schema's theory it holds (Navigation `within`).
  */
 export const navigateQuery = (
 	query: InferredQuery,
 	loc: SourceLoc,
 	columns: QueryColumns,
 	sharing: ImportSharing,
-	facts: RegionFacts
-): InferredQuery => navigatedQuery(query, loc, columns, sharing, new Interned(facts))
+	navigation: Navigation
+): InferredQuery => navigatedQuery(query, loc, columns, sharing, navigation)
 
 /**
  * `navigateQuery` within one statement's navigation, its imports read whole interned in `interned`, each query of one
- * identity navigated once (Interned `navigated`).
+ * identity navigated once (Navigation `navigated`).
  */
 const navigatedQuery = (
 	query: InferredQuery,
 	loc: SourceLoc,
 	columns: QueryColumns,
 	sharing: ImportSharing,
-	interned: Interned
+	interned: Navigation
 ): InferredQuery => {
 	return interned.navigated(query, () => {
 		const stage = query.stage
