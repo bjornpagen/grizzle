@@ -2,7 +2,7 @@
 
 import { defined } from "@bjornpagen/testing/assert"
 import { element, finite } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import { decode, everyProperty, type Json, noRevivers } from "#compiler/core/canonical.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import { artifactFormat, formatKey, type RecordedFormat } from "#compiler/core/format.ts"
@@ -12,14 +12,15 @@ import { succeeded } from "#test/support/assert.ts"
 
 /**
  * What a case commits beside the first draft's other file: a snapshot.json that records no format, or that records the
- * format before this grizzle's or the one after it; a manifest.json sealed under a domain that names no format
- * (`manifest`); a record sealed again over an edit no draft reads, so it reads but is
- * not the record the schemas compile to; or that edit under the draft's seal, a hand edit.
+ * format before this grizzle's or the one after it; both files as a draft of format 3 left them (`formatThree`); a
+ * manifest.json sealed under a domain that names no format (`manifest`); a record sealed again over an edit no draft
+ * reads, so it reads but is not the record the schemas compile to; or that edit under the draft's seal, a hand edit.
  */
 const commits = [
 	"format none",
 	"the format before",
 	"the format after",
+	"a format 3 draft",
 	"a seal naming no format",
 	"a record not the compile's",
 	"a hand edit"
@@ -30,7 +31,8 @@ export type Commit = (typeof commits)[number]
 export const formatCommits = {
 	"format none": { kind: "none" },
 	"the format before": { kind: "recorded", text: String(artifactFormat - 1) },
-	"the format after": { kind: "recorded", text: String(artifactFormat + 1) }
+	"the format after": { kind: "recorded", text: String(artifactFormat + 1) },
+	"a format 3 draft": { kind: "recorded", text: "3" }
 } as const satisfies { readonly [C in Commit]?: RecordedFormat }
 
 /** Every case: each commit once. */
@@ -87,3 +89,67 @@ export const editedManifest = (snapshot: string, record: string, sealed: boolean
 		seal: succeeded(snapshotSeal(joinedContent(snapshot, edited)), "the edited record's seal")
 	})
 }
+
+/** A JSON object's members. */
+type Members = { readonly [key: string]: Json }
+
+/** A manifest.json record with the language left out of each constant's header it records (snapshot/recorded.ts
+ * RecordedConstant). */
+const withoutLanguage = (members: Members): Members => {
+	const manifest = trustedJson<
+		Members & {
+			readonly objects: ReadonlyArray<Members & { readonly ddl: ReadonlyArray<Members> }>
+		}
+	>(jsonText(defined(members["manifest"], "manifest.json's manifest")))
+	return {
+		...members,
+		manifest: {
+			...manifest,
+			objects: Arr.map(manifest.objects, (o) => ({
+				...o,
+				ddl: Arr.map(o.ddl, (s): Members => {
+					const header = s["header"]
+					return s["kind"] === "recordedConstant" && header !== undefined
+						? { ...s, header: Rec.remove(trustedJson<Members>(jsonText(header)), "language") }
+						: s
+				})
+			}))
+		}
+	}
+}
+
+/**
+ * Both files as a draft of format `format` left them: snapshot.json recording it, and manifest.json's record as that
+ * format held it (`shape`), sealed under its domain (`manifest-<format>`, build.ts snapshotSeal) over the content both
+ * files hold, which leaves the format out, as a grizzle of that format wrote and sealed it.
+ */
+const formatDraft = (
+	snapshot: string,
+	manifest: string,
+	format: number,
+	shape: (record: Members) => Members
+): { readonly snapshot: string; readonly manifest: string } => {
+	const shaped = jsonText(shape(recordOf(manifest)))
+	return {
+		snapshot: formatted(snapshot, { kind: "recorded", text: String(format) }),
+		manifest: jsonText({
+			...recordOf(shaped),
+			seal: succeeded(
+				digest(`manifest-${format}`, joinedContent(snapshot, shaped), everyProperty),
+				`format ${format}'s seal`
+			)
+		})
+	}
+}
+
+/**
+ * Both files as a draft of format 3 left them, edullm's reset folder of 2026-11-20 11:54Z among them: each constant
+ * recorded by its name, its parameters and its result type, with no language (56f26ca01 added it, riding format 3). A
+ * reader that trusted it replayed a constant of no language, whose print fell into another statement's arm and failed
+ * (TypeError: name.replaceAll is not a function).
+ */
+export const formatThree = (
+	snapshot: string,
+	manifest: string
+): { readonly snapshot: string; readonly manifest: string } =>
+	formatDraft(snapshot, manifest, 3, withoutLanguage)

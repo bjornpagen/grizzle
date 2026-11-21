@@ -31,6 +31,7 @@ import {
 	type CommentTarget,
 	type ContextSource,
 	type CreateDeclaredFunction,
+	type CreateConstant,
 	type CreateFunction,
 	type Cte,
 	type CteBody,
@@ -74,6 +75,7 @@ import {
 	type OperandSelect,
 	type SelectCore,
 	type SqlStatement,
+	type StubConstant,
 	type TableConstraint,
 	type TableName,
 	type Target,
@@ -1833,6 +1835,39 @@ const quotedLines = (out: Lines, opener: "AS" | "DO", body: ReadonlyArray<string
 /** What a stub constant returns (sql/ast.ts StubConstant): NULL of its result type. */
 const stubValue = (returns: TypeRef): string => `NULL::${printType(returns)}`
 
+/**
+ * A constant's CREATE FUNCTION (sql/ast.ts CreateConstant): its head, its language's clauses and its body. A function of
+ * its own, as the stub's is, so each language arm returns from it and no value of its language another arm's statement
+ * falls into.
+ */
+const writeConstant = (out: Lines, statement: CreateConstant): void => {
+	out.line(constantHead(statement.name, statement.params, statement.returns))
+	switch (statement.language) {
+		case "sql":
+			out.line(sqlConstantClauses("strict" in statement && statement.strict))
+			return out.line(`RETURN ${printExpr(statement.body)}`)
+		case "plpgsql":
+			out.line(plannedConstantClauses)
+			return dollarQuoted(out, "AS", {
+				declare: [],
+				body: [{ kind: "return", value: statement.body }]
+			})
+	}
+}
+
+/** A stub constant's CREATE FUNCTION (sql/ast.ts StubConstant): its head, its language's clauses and its NULL. */
+const writeStubConstant = (out: Lines, statement: StubConstant): void => {
+	out.line(constantHead(statement.name, statement.params, statement.returns))
+	switch (statement.language) {
+		case "sql":
+			out.line(constantClauses)
+			return out.line(`RETURN ${stubValue(statement.returns)}`)
+		case "plpgsql":
+			out.line(plannedConstantClauses)
+			return quotedLines(out, "AS", ["BEGIN", `  RETURN ${stubValue(statement.returns)};`, "END"])
+	}
+}
+
 /** What a function returns, as its RETURNS clause spells it: a catalog type, or a set of one type's values. */
 const printReturns = (returns: CreateFunction["returns"]): string =>
 	typeof returns === "string" ? printCatalogType(returns) : `SETOF ${printType(returns.setOf)}`
@@ -2206,32 +2241,9 @@ const writeCommand = (out: Lines, statement: SqlStatement): void => {
 		case "packConstant":
 			return writePack(out, statement)
 		case "createConstant":
-			out.line(constantHead(statement.name, statement.params, statement.returns))
-			switch (statement.language) {
-				case "sql":
-					out.line(sqlConstantClauses("strict" in statement && statement.strict))
-					return out.line(`RETURN ${printExpr(statement.body)}`)
-				case "plpgsql":
-					out.line(plannedConstantClauses)
-					return dollarQuoted(out, "AS", {
-						declare: [],
-						body: [{ kind: "return", value: statement.body }]
-					})
-			}
+			return writeConstant(out, statement)
 		case "stubConstant":
-			out.line(constantHead(statement.name, statement.params, statement.returns))
-			switch (statement.language) {
-				case "sql":
-					out.line(constantClauses)
-					return out.line(`RETURN ${stubValue(statement.returns)}`)
-				case "plpgsql":
-					out.line(plannedConstantClauses)
-					return quotedLines(out, "AS", [
-						"BEGIN",
-						`  RETURN ${stubValue(statement.returns)};`,
-						"END"
-					])
-			}
+			return writeStubConstant(out, statement)
 		case "createGuardTrigger": {
 			out.line(`CREATE TRIGGER ${quoteIdent(statement.name)}`)
 			const clauses = out.nested()

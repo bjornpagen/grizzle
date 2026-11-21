@@ -8,7 +8,9 @@
  *
  * @formatConstant grizzle's artifact format: 4, whose snapshot.json records every structural text domain the
  * installation holds (derived.textDomains), each refinement any artifact over it or any program it serves types a value
- * by, and every contract outside the base they type a value by (derived.params.contracts)
+ * by, and every contract outside the base they type a value by (derived.params.contracts). Format 3's files were written
+ * in several shapes, changes of what they hold riding its number (a constant recorded with no language before
+ * 56f26ca01), so a reader that trusted a sealed record of 3 met shapes it never wrote; every one is refused here
  */
 export const artifactFormat = 4
 

@@ -96,9 +96,8 @@ export const grizzlesLibraryOnPostgreSQL19EveryLibraryFunctionsValueOverEverySet
 		kills: [
 			{
 				file: "packages/engine/src/sql/print.ts",
-				original:
-					'\t\t\t\t\tout.line(sqlConstantClauses("strict" in statement && statement.strict))\n',
-				replacement: "\t\t\t\t\tout.line(sqlConstantClauses(false))\n",
+				original: '\t\t\tout.line(sqlConstantClauses("strict" in statement && statement.strict))\n',
+				replacement: "\t\t\tout.line(sqlConstantClauses(false))\n",
 				why: "A library function's CREATE drops STRICT, so its body runs over a NULL: isXsdPattern(NULL) is true and resolveReference(NULL, 'http://a/b') is 'http://a/b' in PostgreSQL, where the host reads NULL."
 			},
 			{

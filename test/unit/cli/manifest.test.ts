@@ -10,9 +10,10 @@
  * leaving snapshot.json as it was.
  *
  * A case takes the committed directory of one schema's first draft (derived.fixtures.ts baseNeed) and commits one file
- * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; manifest.json sealed under the earlier
- * domain `manifest`; the record with an edge left out, an edit no draft reads, sealed again; or that edit under the
- * draft's seal.
+ * beside the other: snapshot.json of no format, of the format before this grizzle's or after it; both files as a draft of
+ * format 3 left them, its constants recorded with no language, sealed under format 3's domain, which the format check
+ * refuses before anything reads its record; manifest.json sealed under the earlier domain `manifest`; the record with an
+ * edge left out, an edit no draft reads, sealed again; or that edit under the draft's seal.
  *
  * Oracle: the first draft's own snapshot.json and manifest.json, and the format each commit records.
  *
@@ -35,18 +36,20 @@ import {
 	formatlessSealed,
 	editedManifest,
 	formatCommits,
+	formatThree,
 	formatted
 } from "#test/unit/cli/manifest.fixtures.ts"
 
 /** A snapshot.json of another format is check's format finding, carrying the formats, which generate and names refuse at the stage format writing nothing; a seal naming no format and a hand edit read as no snapshot; and a record not the compile's is check's finding, which generate writes back drafting no folder. */
 export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEditReadsAsNoSnapshotAndARecordNotTheCompilesIsWrittenBack =
 	property.exhaust(commitSpace, {
-		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, manifest.json under the earlier seal's domain, a record sealed again over an edit, and that edit under the draft's seal",
+		box: "snapshot.json of no format, of the format before this grizzle's and of the one after it, a draft of format 3, manifest.json under the earlier seal's domain, a record sealed again over an edit, and that edit under the draft's seal",
 		needs: { baseNeed },
 		situations: [
 			"format none",
 			"the format before",
 			"the format after",
+			"a format 3 draft",
 			"a seal naming no format",
 			"a record not the compile's",
 			"a hand edit"
@@ -69,6 +72,8 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 							case "the format before":
 							case "the format after":
 								return { snapshot: formatted(snapshot, formatCommits[commit]), manifest }
+							case "a format 3 draft":
+								return formatThree(snapshot, manifest)
 							case "a seal naming no format":
 								return { snapshot, manifest: formatlessSealed(snapshot, manifest) }
 							case "a record not the compile's":
@@ -86,7 +91,8 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 					if (
 						commit === "format none" ||
 						commit === "the format before" ||
-						commit === "the format after"
+						commit === "the format after" ||
+						commit === "a format 3 draft"
 					) {
 						const recorded = formatCommits[commit]
 						assert.deepEqual(
@@ -146,6 +152,12 @@ export const aSnapshotOfAnotherFormatIsItsOwnFindingASealNamingNoFormatOrAHandEd
 		},
 		kept: [],
 		kills: [
+			{
+				file: "packages/engine/src/core/format.ts",
+				original: "export const artifactFormat = 4",
+				replacement: "export const artifactFormat = 3",
+				why: "The format left at 3, which changes of what its files hold rode: a draft of format 3 whose constants record no language passes the format check under its seal and is read as this grizzle's record, which the drift check replayed as a stub of no language and crashed printing (TypeError: name.replaceAll is not a function), as metis met over edullm's reset folder."
+			},
 			{
 				file: "packages/engine/src/deploy/snapshot/build.ts",
 				original: "\tif (!isArtifactFormat(format)) {",
