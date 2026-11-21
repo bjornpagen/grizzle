@@ -270,7 +270,7 @@ interface HoldsFrame {
  * walked once per label asked of any subtree that holds it, where collecting every subtree's labels walked each subtree
  * whole for each node it was asked of.
  */
-export const holdsLabel = (root: RelNode, label: NodeId): boolean => {
+const holdsLabel = (root: RelNode, label: NodeId): boolean => {
 	const known = heldAt(root, label)
 	if (known !== undefined) {
 		return known
