@@ -1439,6 +1439,17 @@ const fixedTerms = (rule: InferredRule): ((term: InferredExpr) => InferredExpr |
 	return (term) => (term.kind === "var" ? vars.get(term.var) : isFixed(term) ? term : undefined)
 }
 
+/**
+ * The parameter an import restricted inside (`boundInside`) receives its reader's parameter `name` under, a name its
+ * own navigation never mints. That navigation is a Navigator of its own, which names its channels `via<depth>.<variable>`
+ * from depth 0 and its inlined variables `n<k>.` from 0, as its reader's did, so the reader's channel `via0.n0.x` is a
+ * name the import's steps mint again for a variable `n0.x` of their own. A step's bind map holds one entry per name: under
+ * the reader's name, the step's channel took the entry, a condition the restriction placed in that step read the step's
+ * variable for the reader's value, and the import's bind map named a parameter no rule of it read, which the checker
+ * refuses (check/checker.ts #importAt), as it did a containment into a union of rules each inlining one import.
+ */
+const received = (name: string): string => `in.${name}`
+
 const boundInside = (
 	source: Imported,
 	bindings: InferredBindings,
@@ -1474,14 +1485,17 @@ const boundInside = (
 		if (
 			passed.length < leaves.params.length ||
 			heads.length < stage.arms.length ||
-			passed.some((p) => own.has(p.name) && !(p.name in bind && canonicalEquals(bind[p.name], p)))
+			passed.some((p) => own.has(received(p.name)))
 		) {
 			continue
 		}
 		for (const p of passed) {
-			bind[p.name] = p
+			bind[received(p.name)] = p
 		}
-		held.push({ term, heads })
+		held.push({
+			term: boundIn(term, new Map(passed.map((p) => [p.name, { ...p, name: received(p.name) }]))),
+			heads
+		})
 	}
 	if (!isNonEmpty(held)) {
 		return source
