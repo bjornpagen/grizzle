@@ -57,7 +57,7 @@ export const notebook = (name: string) => {
 			.match(Session, { sub: author })
 			.find({ id, author, body })
 	})
-	const writer = role(base, "writer", { MyNote: mine }, { write: ["MyNote"] })
+	const writer = role(base, "writer", { MyNote: mine }, { write: ["MyNote"], contexts: [Session] })
 	const { MyNote } = writer.relations
 	const notes = query(writer).rule((r) => {
 		const { id, author, body } = v(MyNote, "mine")

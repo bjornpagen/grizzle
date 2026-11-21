@@ -59,7 +59,7 @@ import type { ServedFile } from "#compiler/plan/serve.ts"
  * (RoleOutsideLayers). Two layers of one login share a key, and the later one wins, as Effect's context does for any
  * service.
  *
- * The config's verify is required exactly when a role of the login reads a context, which the type states and the
+ * The config's verify is required exactly when a role of the login declares a context, which the type states and the
  * layer checks for a JavaScript caller (DbConfigRefused): every Db of such a login can then turn a token into claims.
  *
  * How a layer's Dbs turn a token into claims: by its verify, or not at all, for a login whose roles read no context.
@@ -316,7 +316,7 @@ const installedLogin = (
 
 /**
  * Builds the service in the current scope (the layer's) from a parsed config: the served login loaded (see the header),
- * a login a role of which reads a context refused without a verify, then the login's pool.
+ * a login a role of which declares a context refused without a verify, then the login's pool.
  */
 const makeServedSessions = Effect.fn("makeServedSessions")(function* <L>(
 	config: ParsedDbConfig

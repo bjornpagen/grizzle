@@ -260,7 +260,7 @@ export type AcquireRefusal = ConnectRefusal | LayerReleased
  * - `password`: a Redacted or an Effect yielding one;
  * - `servedLogin`: a login served(...) built; `builtLogin`: a login login(...) built; `snapshot`: the committed
  *   snapshot.json, as an import of it yields;
- * - `function`; `verifier`: a function, since `role` of `login` reads a context.
+ * - `function`; `verifier`: a function, since `role` of `login` declares a context.
  */
 export type SettingRule =
 	| { readonly kind: "object"; readonly settings: ReadonlyArray<string> }
@@ -336,7 +336,7 @@ const ruleText = (rule: SettingRule): string => {
 		case "function":
 			return "must be a function"
 		case "verifier":
-			return `must be a function: role ${rule.role} of login ${rule.login} reads a context`
+			return `must be a function: role ${rule.role} of login ${rule.login} declares a context`
 		case "rolePrefix":
 			return `must be a role prefix, used verbatim: ${rolePrefixFaultText(rule.fault)}`
 		case "installedRole":

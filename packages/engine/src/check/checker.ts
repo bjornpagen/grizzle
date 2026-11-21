@@ -940,8 +940,8 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
  *
  * - A context is a Context leaf of at most one row, its heading the context's fields typed against the schema (a closed
  *   handle names a roster of the schema). One query names each context with one descriptor (DuplicateIdentity).
- *   Checked against a role, a query reads only the contexts the role's relations read, as they declare them: a Db of
- *   the role holds facts of those alone.
+ *   Checked against a role, a query reads only the contexts the role declares, as it declares them: a Db of the role
+ *   holds facts of those alone, and any other is outside the role (OutsideRole context).
  *
  * Recursive and approximate stages are plug-ins (context.ts). A query reads only what its schema declares: checked
  * against a role, only the role's relations.
@@ -2400,18 +2400,24 @@ export class Checker {
 		const context = src.context
 		const text = unwrap(descText(context))
 		/**
-		 * A Db of a role holds facts of exactly the contexts its relations read, decoded from its token: a query
-		 * over the role reads one of them, as they declare it, or would read a context no Db of the role holds.
+		 * A Db of a role holds facts of exactly the contexts the role declares, decoded from its token: a program on
+		 * the role matches one of them, as the role declares it, or would read a context no Db of the role holds, which
+		 * is outside the role.
 		 */
 		const world = this.schema.world
 		if (world.kind === "role") {
 			const held = world.role.contexts[context.name]
 			if (held === undefined) {
-				fail(
-					"MalformedDescription",
-					loc,
-					`a context role ${world.role.name}'s relations read, whose facts its Db holds (${Object.keys(world.role.contexts).length === 0 ? "none" : Object.keys(world.role.contexts).join(", ")}); context ${context.name} is none of them`
-				)
+				failWith({
+					_tag: "OutsideRole",
+					at: loc,
+					role: world.role.name,
+					access: {
+						kind: "context",
+						context: context.name,
+						declared: Object.keys(world.role.contexts)
+					}
+				})
 			}
 			if (unwrap(descText(held)) !== text) {
 				failWith({

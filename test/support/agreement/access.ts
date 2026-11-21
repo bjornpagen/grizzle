@@ -15,6 +15,7 @@ import { writtenNames } from "#compiler/ir/desc.ts"
 import { lawsOf } from "#compiler/program/laws.ts"
 import { type QueryValue, queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { queryDescOf } from "#compiler/schema/protocol.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import {
@@ -25,12 +26,19 @@ import {
 	writableNamesOf
 } from "#compiler/schema/world.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
-import type { AnyRole, EntryValue, RoleOptionRecord } from "#compiler/types/schema/world.ts"
+import type {
+	AnyContext,
+	AnyRole,
+	EntryValue,
+	RoleOptionRecord
+} from "#compiler/types/schema/world.ts"
 import {
 	Account,
 	AccountNames,
 	accountIds,
+	accountOrg,
 	accountSeats,
+	accountSession,
 	accountTasks,
 	Org,
 	Reports,
@@ -58,20 +66,25 @@ import {
 
 /**
  * The access agreement: logins of roles drawn over ./access-schema.ts, each role's Task entry reading a context at a
- * drawn place or none, and the one TypeScript program that states, of every login, what its types admit, which the
- * type tier checks (test/types/api/access.test.ts). The engine is the oracle, as the runtime and generate read a role: the
- * contexts its relations read (schema/walk.ts queryUses of each query entry, as pool/registry.ts reads them), its
- * compilation of a program for the role, as a workload over the role compiles each member (a program matching a context
- * the role reads none of is refused), and the resolution of the relations a refresh member names (refresh/targets.ts).
- * Of each drawn login:
+ * drawn place or none and each role declaring the contexts its Task entry reads and a drawn few more, and the one
+ * TypeScript program that states, of every login, what its types admit, which the type tier checks
+ * (test/types/api/access.test.ts). The engine is the oracle, as the runtime and generate read a role: the contexts its
+ * Description declares (RoleDesc.contexts, which ownership holds as OwnedRole.contexts, the served file's and the
+ * layer's), role(...)'s admission of a role whose query entry matches a context it may not declare, its compilation of a
+ * program for the role, as a workload over the role compiles each member (a program matching a context the role does
+ * not declare is refused, OutsideRole context), and the resolution of the relations a refresh member names
+ * (refresh/targets.ts). Of each drawn login:
  *
- * - Db.open of each of its roles without a token typechecks exactly when the role's relations read no context, and
- *   with one always, delivering exactly a Db of the role it opened, over the base or an extension, its services
- *   exactly the role's DbLayer and its error OpenError;
- * - DbLayer.make without verify typechecks exactly when no role of the login reads a context, and with verify its
+ * - Db.open of each of its roles without a token typechecks exactly when the role declares no context, and with one
+ *   always, delivering exactly a Db of the role it opened, over the base or an extension, its services exactly the
+ *   role's DbLayer and its error OpenError;
+ * - DbLayer.make without verify typechecks exactly when no role of the login declares a context, and with verify its
  *   layer provides exactly the DbLayer of each of the login's roles, failing with OpenError;
  * - a program over a role matching a drawn context, a member of a workload over the role as a query or as a ChangeSet's
  *   read-back, typechecks exactly when the engine compiles it for the role;
+ * - a role outside the login, its Task entry at a drawn place and its declared contexts a drawn subset of Org and
+ *   Session, which may leave out a context its entry reads, typechecks exactly when role(...) builds it, refused
+ *   exactly where the entry matches a context it does not declare (RoleRefused entryContext);
  * - a refresh member, refresh(relations), of drawn derived relations in a workload over a role typechecks exactly when
  *   the engine resolves every one against the role's refresh list, and its handle's once succeeds with Refreshed and
  *   fails with CallError;
@@ -95,7 +108,9 @@ import {
  *   of the list alone and refuses the list, and then its relations' names and its write list are exactly those of the
  *   engine's Description of it, and a program over the base reading the closed relation, and one over the level (over
  *   Reports, matching its live derived relation, which no role holds), are members of a workload over it exactly when
- *   the engine compiles them there;
+ *   the engine compiles them there, and so is a program over the base matching a drawn context, which the full role
+ *   runs exactly when it declares that context: one program over the base serves every full role declaring what it
+ *   matches;
  * - each builder that takes a schema (role, login, schema.extend, wholeEntriesOf, writableNamesOf, lawsOf), given the
  *   level or the case's first role value, typechecks exactly when the engine admits its base: a role is no schema.
  *
@@ -123,6 +138,22 @@ const derivedValues: { readonly [D in DerivedName]: AnyDerived } = { TaskTally, 
 
 const contextNames = ["Org", "Session"] as const
 type ContextName = (typeof contextNames)[number]
+const contextValues: { readonly [C in ContextName]: AnyContext } = { Org, Session }
+
+/** The program over the base matching each context, by the name the program imports it under. */
+const baseMatching: { readonly [C in ContextName]: readonly [string, object] } = {
+	Org: ["accountOrg", accountOrg],
+	Session: ["accountSession", accountSession]
+}
+
+/** The contexts a place's Task entry matches, as the engine reads its definition (schema/walk.ts queryUses). */
+const entryReads = (place: Place): ReadonlyArray<ContextName> => {
+	if (place === "whole") {
+		return []
+	}
+	const uses = queryUses(queryDescOf(taskEntry[place][1], `Task at ${place}`))
+	return Arr.filter(contextNames, (c) => uses.contexts.has(c))
+}
 
 /**
  * What Db.open is given: a role of the login's served workload, the role reached through the login value itself, the
@@ -224,10 +255,15 @@ type FullWrite =
 	| { readonly kind: "every and"; readonly stray: StrayName }
 	| { readonly kind: "listed"; readonly names: ReadonlyArray<LevelName> }
 
-/** A full role over the case's level: its base's whole entries (wholeEntriesOf), and its write and refresh lists. */
+/**
+ * A full role over the case's level: its base's whole entries (wholeEntriesOf), its write and refresh lists, the
+ * contexts it declares, and the context the program over the base it is given matches.
+ */
 interface FullSpec {
 	readonly write: FullWrite
 	readonly refresh: ReadonlyArray<LevelName>
+	readonly contexts: ReadonlyArray<ContextName>
+	readonly matches: ContextName
 }
 
 /** The builders that take a schema, each of which a case gives a base of its own. */
@@ -245,11 +281,21 @@ type SchemaTaker = (typeof schemaTakers)[number]
 const baseKinds = ["schema", "role"] as const
 type BaseKind = (typeof baseKinds)[number]
 
-/** One role of a case's login: its Task entry's place, and, over Reports, its derived entries and refresh list. */
+/**
+ * One role of a case's login: its Task entry's place, the contexts it declares beyond those its Task entry reads, and,
+ * over Reports, its derived entries and refresh list.
+ */
 interface RoleSpec {
 	readonly name: string
 	readonly place: Place
+	readonly extra: ReadonlyArray<ContextName>
 	readonly refresh: ReadonlyArray<DerivedName>
+}
+
+/** A role outside the login: its Task entry's place and the contexts it declares, any subset of the two. */
+interface StraySpec {
+	readonly place: Place
+	readonly contexts: ReadonlyArray<ContextName>
 }
 
 interface AccessSpec {
@@ -270,6 +316,8 @@ interface AccessSpec {
 	readonly base: { readonly role: number; readonly program: BaseProgram }
 	/** A full role over the level, outside the login. */
 	readonly full: FullSpec
+	/** A role outside the login whose declaration may leave out a context its Task entry reads. */
+	readonly stray: StraySpec
 	/** Each builder that takes a schema, given the level or the first role's value. */
 	readonly over: { readonly [B in SchemaTaker]: BaseKind }
 }
@@ -288,6 +336,9 @@ export type AccessNote =
 	| `full over ${AccessSpec["level"]} runs its program ${"admitted" | "refused"}`
 	| `full write ${FullWrite["kind"]}`
 	| "full write repeated"
+	| `full matches a context ${"admitted" | "refused"}`
+	| `stray ${"admitted" | "refused"}`
+	| "declared beyond its relations"
 	| `${SchemaTaker} over a ${BaseKind} ${"admitted" | "refused"}`
 	| `law ${"kept" | "dropped"}`
 	| "two roles"
@@ -319,9 +370,15 @@ const fullWriteGen: Gen<FullWrite> = (source) => {
 	}
 }
 
+/** A drawn subset of the contexts, in their order. */
+const contextsGen: Gen<ReadonlyArray<ContextName>> = (source) =>
+	Arr.filter(contextNames, () => coin(source, 2))
+
 const fullGen: Gen<FullSpec> = (source) => ({
 	write: fullWriteGen(source),
-	refresh: coin(source, 2) ? [] : Arr.filter(levelNames, () => coin(source, 3))
+	refresh: coin(source, 2) ? [] : Arr.filter(levelNames, () => coin(source, 3)),
+	contexts: contextsGen(source),
+	matches: source.draw(element(contextNames))
 })
 
 const specGen: Gen<AccessSpec> = (source) => {
@@ -330,6 +387,7 @@ const specGen: Gen<AccessSpec> = (source) => {
 	const roleSpec = (at: number): RoleSpec => ({
 		name: `r${at}`,
 		place: source.draw(element(places)),
+		extra: contextsGen(source),
 		refresh: level === "Reports" ? Arr.filter(derivedNames, () => coin(source, 2)) : []
 	})
 	const roles: Arr.NonEmptyReadonlyArray<RoleSpec> =
@@ -354,6 +412,7 @@ const specGen: Gen<AccessSpec> = (source) => {
 			program: source.draw(element(basePrograms))
 		},
 		full: fullGen(source),
+		stray: { place: source.draw(element(places)), contexts: contextsGen(source) },
 		over: {
 			role: source.draw(element(baseKinds)),
 			login: source.draw(element(baseKinds)),
@@ -391,6 +450,20 @@ const keptUnion = (level: AccessSpec["level"], kept: ReadonlyArray<number>): str
 			)
 		: "never"
 
+/** The contexts a login's role declares: those its Task entry reads, and its drawn extra ones, in their order. */
+const declaredOf = (r: RoleSpec): ReadonlyArray<ContextName> => {
+	const reads = entryReads(r.place)
+	return Arr.filter(contextNames, (c) => Arr.contains(reads, c) || Arr.contains(r.extra, c))
+}
+
+/** Contexts by name, as a JavaScript caller declares them. */
+const contextsOf = (names: ReadonlyArray<ContextName>): ReadonlyArray<AnyContext> =>
+	Arr.map(names, (c) => contextValues[c])
+
+/** Contexts by name, as the program declares them. */
+const contextsSource = (names: ReadonlyArray<ContextName>): string =>
+	`contexts: [${Arr.join(names, ", ")}]`
+
 /** A role, built by the public role(...) as the program builds it. */
 const builtRole = (spec: AccessSpec, r: RoleSpec): AnyRole => {
 	const values: Readonly<Record<string, EntryValue>> = {
@@ -406,9 +479,21 @@ const builtRole = (spec: AccessSpec, r: RoleSpec): AnyRole => {
 	)
 	return role(spec.level === "Reports" ? Reports : Work, r.name, entriesOf, {
 		write: [],
-		refresh: r.refresh
+		refresh: r.refresh,
+		contexts: contextsOf(declaredOf(r))
 	})
 }
+
+/** The stray role, built by role(...) as the program builds it, as the engine reads it: built or refused. */
+const strayVerdictOf = (stray: StraySpec): boolean =>
+	catchCompileError(() =>
+		role(
+			Work,
+			"stray",
+			{ Tier, Account, Task: taskEntry[stray.place][1] },
+			{ contexts: contextsOf(stray.contexts) }
+		)
+	).ok
 
 const got = (record: Readonly<Record<string, EntryValue>>, name: string): EntryValue => {
 	const found = record[name]
@@ -418,17 +503,13 @@ const got = (record: Readonly<Record<string, EntryValue>>, name: string): EntryV
 	return found
 }
 
-/** The contexts a role's relations read, by name, as the layer reads them. */
-const readsOf = (value: AnyRole): ReadonlySet<string> => {
+/** The contexts a role declares, by name, as its Description holds them and the layer reads them. */
+const declaresOf = (value: AnyRole): ReadonlySet<string> => {
 	const desc = roleDescOf(value)
 	if (desc === undefined) {
 		throw new Error("role(...) describes every role it builds")
 	}
-	return new Set(
-		Arr.flatMap(desc.relations, (entry) =>
-			entry.kind === "world" ? [...queryUses(entry.query).contexts.keys()] : []
-		)
-	)
+	return new Set(Arr.map(desc.contexts, (c) => c.name))
 }
 
 /** The program over a role matching a context, built through the query builder's JavaScript view. */
@@ -446,7 +527,7 @@ const builtProgram = (value: AnyRole, context: ContextName): QueryValue => {
 }
 
 interface AccessVerdict {
-	/** Per role, whether its relations read a context. */
+	/** Per role, whether it declares a context. */
 	readonly reads: Arr.NonEmptyReadonlyArray<boolean>
 	/** Per role, the positions in its base's statements of the laws role(...) keeps for it (keptPositions). */
 	readonly kept: Arr.NonEmptyReadonlyArray<ReadonlyArray<number>>
@@ -459,6 +540,8 @@ interface AccessVerdict {
 	/** Whether the engine compiles the program over the base for the role (OutsideRole for a partial role). */
 	readonly base: boolean
 	readonly full: FullVerdict
+	/** Whether role(...) builds the stray role. */
+	readonly stray: boolean
 	/** Whether each schema-taking builder admits the base it is given. */
 	readonly over: { readonly [B in SchemaTaker]: boolean }
 }
@@ -466,7 +549,8 @@ interface AccessVerdict {
 /**
  * The engine's reading of a case's full role: refused by role(...), for a repeat in its write list or not, or admitted
  * with the names of its entries and its write list as its Description holds them, and whether the program over the
- * base matching the closed relation and the program over its level (levelPrograms) compile for it.
+ * base matching the closed relation, the program over its level (levelPrograms) and the program over the base matching
+ * the drawn context compile for it.
  */
 type FullVerdict =
 	| { readonly kind: "refused"; readonly repeat: boolean }
@@ -477,6 +561,7 @@ type FullVerdict =
 			readonly kept: ReadonlyArray<number>
 			readonly base: boolean
 			readonly level: boolean
+			readonly matches: boolean
 	  }
 
 /** A full role's options as a JavaScript caller passes them, its write list made by the helpers the program calls. */
@@ -484,15 +569,20 @@ const fullOptions = (
 	full: FullSpec,
 	level: typeof Work | typeof Reports
 ): RoleOptionRecord<ReadonlyArray<string>, ReadonlyArray<string>> => {
+	const contexts = contextsOf(full.contexts)
 	switch (full.write.kind) {
 		case "omitted":
-			return { refresh: full.refresh }
+			return { refresh: full.refresh, contexts }
 		case "every":
-			return { write: writableNamesOf(level), refresh: full.refresh }
+			return { write: writableNamesOf(level), refresh: full.refresh, contexts }
 		case "every and":
-			return { write: [...writableNamesOf(level), full.write.stray], refresh: full.refresh }
+			return {
+				write: [...writableNamesOf(level), full.write.stray],
+				refresh: full.refresh,
+				contexts
+			}
 		case "listed":
-			return { write: full.write.names, refresh: full.refresh }
+			return { write: full.write.names, refresh: full.refresh, contexts }
 	}
 }
 
@@ -523,7 +613,8 @@ const fullVerdictOf = (spec: AccessSpec): FullVerdict => {
 		write: writtenNames(desc),
 		kept: keptPositions(built.value),
 		base: compileTemplate(accountSeats, built.value, testCompile).ok,
-		level: compileTemplate(levelValues[spec.level], built.value, testCompile).ok
+		level: compileTemplate(levelValues[spec.level], built.value, testCompile).ok,
+		matches: compileTemplate(baseMatching[spec.full.matches][1], built.value, testCompile).ok
 	}
 }
 
@@ -575,7 +666,7 @@ const overVerdictOf = (spec: AccessSpec, first: AnyRole, builder: SchemaTaker): 
 
 const verdictOf = (spec: AccessSpec): AccessVerdict => {
 	const values = Arr.map(spec.roles, (r) => builtRole(spec, r))
-	const reads = Arr.map(values, (v) => readsOf(v).size > 0)
+	const reads = Arr.map(values, (v) => declaresOf(v).size > 0)
 	const kept = Arr.map(values, keptPositions)
 	const programRole = defined(values[spec.program.role], "the program's role")
 	const program = Result.flatMap(
@@ -617,6 +708,7 @@ const verdictOf = (spec: AccessSpec): AccessVerdict => {
 			testCompile
 		).ok,
 		full: fullVerdictOf(spec),
+		stray: strayVerdictOf(spec.stray),
 		over: {
 			role: overVerdictOf(spec, values[0], "role"),
 			login: overVerdictOf(spec, values[0], "login"),
@@ -642,7 +734,11 @@ export const accessCases: Gen<AccessCase> = (source) => {
 	for (const [r, reads] of Arr.zip(spec.roles, verdict.reads)) {
 		notes.add(`a context read: ${r.place}`)
 		notes.add(`open ${reads ? "refused" : "admitted"}`)
+		if (Arr.some(declaredOf(r), (c) => !Arr.contains(entryReads(r.place), c))) {
+			notes.add("declared beyond its relations")
+		}
 	}
+	notes.add(`stray ${verdict.stray ? "admitted" : "refused"}`)
 	for (const [r, kept] of Arr.zip(spec.roles, verdict.kept)) {
 		if (Arr.isReadonlyArrayNonEmpty(kept)) {
 			notes.add("law kept")
@@ -662,6 +758,7 @@ export const accessCases: Gen<AccessCase> = (source) => {
 		notes.add(
 			`full over ${spec.level} runs its program ${verdict.full.level ? "admitted" : "refused"}`
 		)
+		notes.add(`full matches a context ${verdict.full.matches ? "admitted" : "refused"}`)
 	}
 	notes.add(`full write ${spec.full.write.kind}`)
 	if (verdict.full.kind === "refused" && verdict.full.repeat) {
@@ -685,7 +782,11 @@ export const accessCases: Gen<AccessCase> = (source) => {
 const repeatRefusal: Refused = "a write list names each role relation once"
 
 const contextRefusal: Refused =
-	"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold"
+	"a program on a Db of a role matches only the contexts the role declares, whose facts its claims hold"
+
+/** The refusal a role takes when a query entry of it matches a context it does not declare. */
+const entryContextRefusal: Refused =
+	"a role's query entry matches only the contexts the role declares"
 
 /** The directive of a workload member over no level of the workload's schema, as workload(...) refuses it. */
 const levelDirective =
@@ -696,7 +797,13 @@ const roleSource = (spec: AccessSpec, r: RoleSpec, i: number): string =>
 	`export const R${i}_${r.name} = role(${spec.level}, ${jsonText(r.name)}, { ${Arr.join(
 		Arr.map(roleEntries(spec, r), ([name, value]) => `${name}: ${value}`),
 		", "
-	)} }${spec.level === "Reports" ? `, { refresh: [${Arr.join(Arr.map(r.refresh, jsonText), ", ")}] }` : ""})`
+	)} }, { ${spec.level === "Reports" ? `refresh: [${Arr.join(Arr.map(r.refresh, jsonText), ", ")}], ` : ""}${contextsSource(declaredOf(r))} })`
+
+/** The stray role's declaration, in the program: under its directive where role(...) refuses it. */
+const strayLines = (stray: StraySpec, admitted: boolean, i: number): ReadonlyArray<string> => [
+	...(admitted ? [] : [`// @ts-expect-error -- refusal: ${entryContextRefusal}`]),
+	`export const D${i} = role(Work, "d${i}", { Tier: Tier, Account: Account, Task: ${taskEntry[stray.place][0]} }, { ${contextsSource(stray.contexts)} })`
+]
 
 /** The program over a role matching a context, in the program. */
 const programSource = (roleId: string, context: ContextName, i: number): string =>
@@ -704,7 +811,7 @@ const programSource = (roleId: string, context: ContextName, i: number): string 
 
 /** A full role's options, in the program. */
 const fullOptionsSource = (full: FullSpec, level: AccessSpec["level"]): string => {
-	const refresh = `refresh: [${Arr.join(Arr.map(full.refresh, jsonText), ", ")}]`
+	const refresh = `refresh: [${Arr.join(Arr.map(full.refresh, jsonText), ", ")}], ${contextsSource(full.contexts)}`
 	switch (full.write.kind) {
 		case "omitted":
 			return `{ ${refresh} }`
@@ -745,7 +852,9 @@ const fullBlock = (spec: AccessSpec, verdict: FullVerdict, i: number): ReadonlyA
 				...(verdict.base ? [] : [levelDirective]),
 				`export const fb${i} = workload(F${i}, { p: accountSeats })`,
 				...(verdict.level ? [] : [levelDirective]),
-				`export const fl${i} = workload(F${i}, { p: ${levelPrograms[spec.level]} })`
+				`export const fl${i} = workload(F${i}, { p: ${levelPrograms[spec.level]} })`,
+				...(verdict.matches ? [] : [`// @ts-expect-error -- refusal: ${contextRefusal}`]),
+				`export const fc${i} = workload(F${i}, { p: ${baseMatching[spec.full.matches][0]} })`
 			]
 	}
 }
@@ -807,7 +916,9 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 	)
 	const opens = Arr.flatMap(Arr.zip(spec.roles, verdict.reads), ([r, reads]) => [
 		...(reads
-			? [`// @ts-expect-error -- refused: role ${r.name} reads a context, so Db.open needs a token`]
+			? [
+					`// @ts-expect-error -- refused: role ${r.name} declares a context, so Db.open needs a token`
+				]
 			: []),
 		`export const o${i}_${r.name} = Db.open(S${i}.roles.${r.name}, {})`,
 		`export const t${i}_${r.name} = Db.open(S${i}.roles.${r.name}, { token: "token" })`,
@@ -835,7 +946,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 		...opens,
 		...(Arr.some(verdict.reads, (x) => x)
 			? [
-					"// @ts-expect-error -- refused: a role of the login reads a context, so its layer needs verify"
+					"// @ts-expect-error -- refused: a role of the login declares a context, so its layer needs verify"
 				]
 			: []),
 		`export const m${i} = DbLayer.make({ ...destination, login: S${i}, password })`,
@@ -863,6 +974,7 @@ const blockOf = (c: AccessCase, i: number): ReadonlyArray<string> => {
 				]
 			: []),
 		...fullBlock(spec, verdict.full, i),
+		...strayLines(spec.stray, verdict.stray, i),
 		...Arr.flatMap(schemaTakers, (builder) => overLines(spec, builder, verdict.over[builder], i)),
 		""
 	]
@@ -897,6 +1009,11 @@ export const accessRequired: Situations<AccessNote> = [
 	"full refused",
 	"full over Work runs its program admitted",
 	"full over Reports runs its program admitted",
+	"full matches a context admitted",
+	"full matches a context refused",
+	"stray admitted",
+	"stray refused",
+	"declared beyond its relations",
 	...Arr.map(fullWriteKinds, (kind): AccessNote => `full write ${kind}`),
 	"full write repeated",
 	...Arr.flatMap(schemaTakers, (builder): ReadonlyArray<AccessNote> => [

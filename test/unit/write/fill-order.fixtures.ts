@@ -609,7 +609,9 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 				if (reason._tag === "OutsideRole") {
 					assert.equal(reason.access.kind, access, `${label}: a ${access}`)
 					assert.ok(
-						reason.access.kind !== "wholeBase" && reason.access.relation === left,
+						reason.access.kind !== "wholeBase" &&
+							reason.access.kind !== "context" &&
+							reason.access.relation === left,
 						`${label}: names ${left}`
 					)
 				}

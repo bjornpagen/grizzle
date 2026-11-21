@@ -1775,6 +1775,11 @@ export type RoleDesc<L = Located> = L & {
 	readonly refresh: ReadonlyArray<string>
 	/** The whole entries of retirable units' headers whose groups the role retires (ChangeSet.retire). */
 	readonly retire: ReadonlyArray<string>
+	/**
+	 * The contexts the role declares, each name once: the facts its Db's claims hold, decoded from the verified token,
+	 * and the only contexts its query entries and its programs match.
+	 */
+	readonly contexts: ReadonlyArray<ContextDesc>
 } & RoleWriting
 
 /** The role relations a role writes, by whichever of `write` and `insert` it states. */
@@ -3198,6 +3203,7 @@ const roleWrite = S.uniqueStrings("written relations", name)
 const roleInsert = S.nonEmptyUniqueStrings("inserted relations")
 const roleRefresh = S.uniqueStrings("refreshed relations", name)
 const roleRetire = S.uniqueStrings("retired headers", name)
+const roleContexts = S.uniqueArray(contextDescShape, (c) => c.name, "declared contexts")
 
 const roleDescShape: S.Shape<RoleDesc> = S.located(
 	S.unionShape(
@@ -3208,7 +3214,8 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				relations: roleRelations,
 				write: roleWrite,
 				refresh: roleRefresh,
-				retire: roleRetire
+				retire: roleRetire,
+				contexts: roleContexts
 			},
 			loc
 		),
@@ -3219,7 +3226,8 @@ const roleDescShape: S.Shape<RoleDesc> = S.located(
 				relations: roleRelations,
 				insert: roleInsert,
 				refresh: roleRefresh,
-				retire: roleRetire
+				retire: roleRetire,
+				contexts: roleContexts
 			},
 			loc
 		)
@@ -3232,6 +3240,7 @@ type RoleParts = Located & {
 	readonly relations: NonEmptyReadonlyArray<RoleEntryDesc>
 	readonly refresh: ReadonlyArray<string>
 	readonly retire: ReadonlyArray<string>
+	readonly contexts: ReadonlyArray<ContextDesc>
 } & RoleWriting
 
 /**
@@ -3244,6 +3253,7 @@ export type RoleInput = {
 	readonly relations: ReadonlyArray<RoleEntryDesc>
 	readonly refresh: ReadonlyArray<string>
 	readonly retire: ReadonlyArray<string>
+	readonly contexts: ReadonlyArray<ContextDesc>
 	readonly loc: SourceLoc
 } & RoleWriting
 
@@ -3255,10 +3265,13 @@ const roleEntryPartShape: S.Shape<RoleEntryPart> = S.tagged("kind", {
 	world: S.located(S.structWith({ name }, loc))
 })
 
+/** A declared context as a decode of its role reads what its caller wrote of it: its name, each name once. */
+const roleContextNames = S.uniqueArray(S.struct({ name }), (c) => c.name, "declared contexts")
+
 /**
  * What a decode of a whole role reads of the parts its caller wrote, each at its place in the role: its name, its
- * entries' kinds, names and locations, its written and refreshed relations and its location; a query entry's query is
- * no part of it, and is decoded where it was taken.
+ * entries' kinds, names and locations, its written and refreshed relations, its declared contexts' names and its
+ * location; a query entry's query and a context's Description are no part of it, each decoded where it was taken.
  */
 const roleWrittenShape = S.located(
 	S.unionShape(
@@ -3268,7 +3281,8 @@ const roleWrittenShape = S.located(
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				write: roleWrite,
 				refresh: roleRefresh,
-				retire: roleRetire
+				retire: roleRetire,
+				contexts: roleContextNames
 			},
 			loc
 		),
@@ -3278,7 +3292,8 @@ const roleWrittenShape = S.located(
 				relations: S.nonEmptyUniqueArray(roleEntryPartShape, (e) => e.name, "role relation names"),
 				insert: roleInsert,
 				refresh: roleRefresh,
-				retire: roleRetire
+				retire: roleRetire,
+				contexts: roleContextNames
 			},
 			loc
 		)
@@ -3557,6 +3572,7 @@ const roleDescOver = (base: SchemaDesc, role: RoleParts): RoleDesc =>
 			: { write: Object.freeze(role.write) }),
 		refresh: Object.freeze(role.refresh),
 		retire: Object.freeze(role.retire),
+		contexts: Object.freeze(role.contexts),
 		loc: role.loc
 	})
 
@@ -3574,7 +3590,8 @@ export const decodeRoleOver = (
 			roleWrittenShape,
 			{
 				...role,
-				relations: role.relations.map((e) => ({ kind: e.kind, name: e.name, loc: e.loc }))
+				relations: role.relations.map((e) => ({ kind: e.kind, name: e.name, loc: e.loc })),
+				contexts: role.contexts.map((c) => ({ name: c.name }))
 			},
 			subjects.role
 		),
@@ -3586,6 +3603,7 @@ export const decodeRoleOver = (
 				...("insert" in written ? { insert: written.insert } : { write: written.write }),
 				refresh: written.refresh,
 				retire: written.retire,
+				contexts: deepFreeze([...role.contexts]),
 				loc: written.loc
 			})
 		}

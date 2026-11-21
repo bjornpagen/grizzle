@@ -162,7 +162,7 @@ export type LoadedMember = MemberForm<{
 
 /**
  * One role of the login, loaded: its name in the login, the PostgreSQL role each of its Dbs' transactions enters, the
- * contexts its relations read, typed, which a token's claims decode through, its wire as generate committed it
+ * contexts it declares, typed, which a token's claims decode through, its wire as generate committed it
  * (live/member.ts RoleWire), whose witness every member's errors are encoded by, and its workload's members in order.
  */
 export interface LoadedRole {

@@ -1,7 +1,7 @@
 /**
  * The access agreement (test/support/agreement/access.ts): over drawn logins, Db.open needs a token, DbLayer.make a
- * verify, a workload over a role its contexts, and a refresh member its refresh list, exactly where the engine's
- * reading of the role needs them. Each login is a block of one program a batch checks disarmed. Oracle: the engine's
+ * verify, a workload over a role its declared contexts, a role's query entries its declared contexts, and a refresh
+ * member its refresh list, exactly where the engine's reading of the role needs them. Each login is a block of one program a batch checks disarmed. Oracle: the engine's
  * reading of each drawn role. The witnesses reach every place a role reads a context and every probe under both
  * verdicts.
  */
@@ -31,6 +31,35 @@ export const access = agreement(accessCases, {
 			replacement:
 				"\tReadsContext<R> extends true ? TokenOptions | NoTokenOptions : TokenOptions | NoTokenOptions",
 			why: "Db.open takes no token for a role that reads a context (adapter/types/db.ts OpenOptions); the agreement's program fails."
+		},
+		{
+			file: "packages/engine/src/types/schema/world.ts",
+			original:
+				"export type DeclaredContexts<C> = C extends ReadonlyArray<infer X> ? NameOf<X> : never\n",
+			replacement:
+				"export type DeclaredContexts<C> = C extends ReadonlyArray<infer X> ? never : never\n",
+			why: "a role's type declares no context: a program over a full role matching a context it declares, which the engine compiles, is refused, and Db.open of a role declaring one takes no token."
+		},
+		{
+			file: "packages/engine/src/types/schema/world.ts",
+			original: "type EntryContextsWithin<Cx, Declared> = [Cx] extends [Declared]\n",
+			replacement: "type EntryContextsWithin<Cx, Declared> = [Cx] extends [Cx]\n",
+			why: "a role's type admits a query entry matching a context it does not declare, which role(...) refuses (entryContext): the stray role typechecks."
+		},
+		{
+			file: "packages/engine/src/schema/world.ts",
+			original:
+				"\t\tconst contextBreak = entryContextBreak(contexts, queryUses(e.query).contexts)\n",
+			replacement: "\t\tconst contextBreak = entryContextBreak(contexts, new Map())\n",
+			why: "role(...) admits a query entry matching a context the role does not declare, which its type refuses: the stray role builds."
+		},
+		{
+			file: "packages/engine/src/schema/own.ts",
+			original:
+				"\tfor (const c of [...desc.contexts].toSorted((a, b) => compareStrings(a.name, b.name))) {\n",
+			replacement:
+				"\tfor (const c of [...desc.contexts].slice(1).toSorted((a, b) => compareStrings(a.name, b.name))) {\n",
+			why: "the owned role drops its first declared context from what its Db holds: a program over the base matching it, which the full role's type admits, is OutsideRole."
 		}
 	]
 })

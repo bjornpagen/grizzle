@@ -15,7 +15,7 @@ import {
 	role
 } from "#compiler/public/schema.ts"
 import { loginBuilder as login } from "#compiler/schema/world.ts"
-import type { EntryContexts, RoleRelations } from "#compiler/types/schema/world.ts"
+import type { RoleRelations } from "#compiler/types/schema/world.ts"
 import { soleWorldOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import type { SubstrateWorld } from "#test/support/substrate/session.ts"
@@ -62,7 +62,7 @@ export type HeldOf<B extends Reality> = {
  * test's identity provider issues.
  *
  * A schema's full world is the role `app` holding every relation of the schema whole but its closed and live derived
- * relations, and writing every ordinary relation, in the login `server`, whose workload is the test's programs over the
+ * relations, writing every ordinary relation and declaring no context, in the login `server`, whose workload is the test's programs over the
  * role, each a member a Db of the role runs by its name (`db.workload.<name>`): reality itself, so every program over the
  * schema runs on it. A closed relation has no extent in the database, only its constants, so no role holds it; a roster
  * does, as its code column; a live derived relation's rows are its definition's over the relations the role holds. It is typed by no
@@ -92,9 +92,7 @@ export const fullWorld = <B extends Reality, const P extends Readonly<Record<str
 		heldRelations(reality)
 	)
 	const names = Rec.keys(relations)
-	const app = trusted<
-		Role<B, "app", RoleRelations<HeldOf<B>>, string, never, EntryContexts<HeldOf<B>>>
-	>(
+	const app = trusted<Role<B, "app", RoleRelations<HeldOf<B>>, string, never, never>>(
 		role(reality, "app", relations, {
 			write: Arr.filter(names, (name) => relations[name]?.kind === "relation")
 		})

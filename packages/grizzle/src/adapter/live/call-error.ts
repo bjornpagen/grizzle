@@ -68,7 +68,7 @@ type Reading<Tag extends string, S extends FailureSource> = { readonly [T in Tag
 /**
  * The HTTP door's refusals, before any member runs (http/request.ts, http/handler.ts): a request line no route serves;
  * a wire header naming no digest or another form of the member (live/events.ts wireRefusals); an Authorization header
- * holding no bearer token68, or no token where the role reads a context; a body that cannot be read, is no JSON text
+ * holding no bearer token68, or no token where the role declares a context; a body that cannot be read, is no JSON text
  * in UTF-8, or does not parse as the member's input.
  */
 const doorReading = {

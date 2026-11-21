@@ -10,7 +10,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { arrayText, catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
+import { arrayText, catchRefusal, Refusal, sameContent, unwrap } from "#compiler/core/canonical.ts"
 import type { RoleRule } from "#compiler/core/causes.ts"
 import {
 	CompileError,
@@ -2637,10 +2637,38 @@ export type OwnedWrite =
 	  }
 
 /**
+ * How the contexts a query entry matches stand against the contexts its role declares (RoleDesc.contexts), the only
+ * ones its Db's claims hold facts of: the first it matches, in name order, that the role does not declare
+ * (`undeclared`), or declares by another Description (`another`); none when it matches declared ones alone. Ownership
+ * (ownRoleOf) and the builder (schema/world.ts admitRole) each refuse a break in their own error's form.
+ */
+type EntryContextBreak = {
+	readonly kind: "undeclared" | "another"
+	readonly context: string
+}
+
+export const entryContextBreak = (
+	declared: ReadonlyArray<ContextDesc>,
+	matched: ReadonlyMap<string, ContextDesc>
+): EntryContextBreak | undefined => {
+	for (const [name, c] of [...matched].toSorted(([a], [b]) => compareStrings(a, b))) {
+		const held = declared.find((d) => d.name === name)
+		if (held === undefined) {
+			return { kind: "undeclared", context: name }
+		}
+		if (!sameContent(held, c)) {
+			return { kind: "another", context: name }
+		}
+	}
+	return undefined
+}
+
+/**
  * The owned role: its name, its base's Owned, its relations by name, its write list as admitted entries by name in name
  * order, the key that list was stated under (`insert`: the role holds INSERT and SELECT on what it writes, no DELETE
  * or UPDATE), its refresh list in name order, whether it holds every relation of its base whole (a full role, whose
- * base is among its levels), and the contexts its relations read, by name.
+ * base is among its levels), and the contexts it declares, by name, in name order: the facts its Db's claims hold, and
+ * the only contexts its query entries and programs match.
  */
 export interface OwnedRole {
 	readonly name: DeclaredName
@@ -2674,10 +2702,6 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	 * ownership holds it apart from the login's other names. */
 	const roleName = declareName(DeclaredNamespace.of("role"), desc.name, "role", desc.loc)
 	const relations: Record<string, OwnedEntry> = {}
-	const contexts = new Map<
-		string,
-		{ readonly desc: ContextDesc; readonly text: string; readonly loc: SourceLoc }
-	>()
 	/** The role's schema holds one view per relation, named by the relation's declared name. */
 	const views = DeclaredNamespace.of(`${label}'s relation`)
 	for (const e of desc.relations) {
@@ -2724,18 +2748,16 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		if (approximates(e.query)) {
 			broken(e.loc, { kind: "entryApproximate", entry: e.name })
 		}
-		for (const [name, c] of uses.contexts) {
-			const text = textOf(c)
-			const prior = contexts.get(name)
-			if (prior === undefined) {
-				contexts.set(name, { desc: c, text, loc: e.loc })
-			} else if (prior.text !== text) {
-				failWith({
-					_tag: "DuplicateIdentity",
-					at: e.loc,
-					duplicate: { kind: "context", name, earlier: prior.loc }
-				})
-			}
+		const contextBreak = entryContextBreak(desc.contexts, uses.contexts)
+		if (contextBreak?.kind === "undeclared") {
+			broken(e.loc, { kind: "entryContext", entry: e.name, context: contextBreak.context })
+		}
+		if (contextBreak?.kind === "another") {
+			failWith({
+				_tag: "DuplicateIdentity",
+				at: e.loc,
+				duplicate: { kind: "context", name: contextBreak.context, earlier: desc.loc }
+			})
 		}
 		relations[e.name] = {
 			kind: "world",
@@ -2820,8 +2842,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		(r) => !heldRelation(r.desc) || relations[r.name]?.kind === "whole"
 	)
 	const ownedContexts: Record<string, ContextDesc> = {}
-	for (const [name, c] of [...contexts].toSorted(([a], [b]) => compareStrings(a, b))) {
-		ownedContexts[name] = c.desc
+	for (const c of [...desc.contexts].toSorted((a, b) => compareStrings(a.name, b.name))) {
+		ownedContexts[c.name] = c
 	}
 	return {
 		name: roleName,
@@ -2844,8 +2866,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
  * checked against it, each a RoleRefused naming the rule it breaks (core/causes.ts RoleRule), or Refused for a rule the
  * types name too: a whole entry names a relation of the base under its own name; a query entry is a Query over the base that reads no parameter; a write entry is a whole ordinary
  * relation or a query entry the writable-entry analysis admits, at most one per base relation; a refresh entry is a
- * derived whole entry; and the contexts the role's relations read agree on each context's descriptor
- * (DuplicateIdentity). The relations' names are declared names of one namespace, the role's schema of views
+ * derived whole entry; and each context a query entry matches is one the role declares (entryContext), by the
+ * declared descriptor (DuplicateIdentity). The relations' names are declared names of one namespace, the role's schema of views
  * (core/identity.ts DeclaredNamespace: MalformedDescription, or IdentifierCollision for two that convert alike). A
  * query entry's heading and types are the checker's, against the base (analysis/schema.ts checkedRoleOver), and its heading's
  * names are its view's columns (analysis/derived/world.ts). ownLogin owns each role and checks they share the login's
@@ -2922,7 +2944,8 @@ export const ownBuiltRole = (desc: RoleDesc, base: Owned): Result.Result<OwnedRo
 
 /**
  * The description of the full role `name` over a schema description: every relation of every level a role holds
- * whole (desc.ts heldRelation), writing its ordinary relations and refreshing its materialized derived ones.
+ * whole (desc.ts heldRelation), writing its ordinary relations and refreshing its materialized derived ones, and
+ * declaring no context.
  */
 export const fullRoleDesc = (
 	base: SchemaDesc,
@@ -2947,6 +2970,7 @@ export const fullRoleDesc = (
 			write: relations.filter((r) => r.kind === "relation").map((r) => r.name),
 			refresh: relations.filter((r) => r.kind === "derived").map((r) => r.name),
 			retire: [],
+			contexts: [],
 			loc
 		})
 	})

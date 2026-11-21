@@ -33,6 +33,7 @@ import { argumentsOf, nonEmptyArgumentsOf } from "#test/support/list.ts"
 import { definitionOf, type RuleSources } from "#test/support/worlds/execute/describe.ts"
 import { carrierOf, isWide } from "#test/support/worlds/execute/host.ts"
 import { attempt, type RealizeRefused } from "#test/support/worlds/execute/refused.ts"
+import { contextsRead } from "#test/support/worlds/generate/entries.ts"
 import { fieldDomain } from "#test/support/worlds/model/host.ts"
 import type {
 	BaseSpec,
@@ -542,8 +543,17 @@ const roleOf = (spec: InstallSpec, made: BuiltBase, r: RoleSpec) =>
 							`entry ${r.name}.${name}`
 						)
 		}
+		/** The contexts the role declares: the model's roles declare exactly the contexts their relations read. */
+		const contexts: Array<AnyContext> = []
+		for (const c of contextsRead(spec.base, r)) {
+			const built = made.contexts[c.name]
+			if (built === undefined) {
+				return yield* Effect.die(new Error(`context ${c.name}, which the base does not declare`))
+			}
+			contexts.push(built)
+		}
 		const value: BuiltRole = yield* attempt(`role ${r.name}`, () =>
-			role(made.base, r.name, entries, { write: r.write, refresh: r.refresh })
+			role(made.base, r.name, entries, { write: r.write, refresh: r.refresh, contexts })
 		)
 		return value
 	})

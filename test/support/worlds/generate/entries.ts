@@ -9,7 +9,8 @@ import type {
 	RoleSpec
 } from "#test/support/worlds/model/types.ts"
 
-/** The contexts a role's relations read, in the base's order: a token is required exactly when there is one. */
+/** The contexts a role declares, those its relations read, in the base's order: a token is required exactly when there
+ * is one. */
 export const contextsRead = (base: BaseSpec, role: RoleSpec): ReadonlyArray<ContextSpec> => {
 	const read = roleContexts(role)
 	return Arr.filter(base.contexts, (c) => read.has(c.name))

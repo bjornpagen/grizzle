@@ -224,7 +224,10 @@ ${members(shape)}
 				? `export const Ctx = role(S, "ctx", { ...wholeEntriesOf(S), ${Arr.join(
 						Arr.map(indices(shape.contexts), (j) => `InC${j}: inC${j}`),
 						", "
-					)} })
+					)} }, { contexts: [${Arr.join(
+						Arr.map(indices(shape.contexts), (j) => `C${j}`),
+						", "
+					)}] })
 ${Arr.join(
 	Arr.map(
 		indices(shape.contexts),

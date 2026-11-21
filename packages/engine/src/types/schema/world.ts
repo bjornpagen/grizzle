@@ -110,9 +110,9 @@ export interface AnyWorld extends Built, Headed<Carriers> {
  * - A login is one credential and one pool for roles over one base. DbLayer.make takes one; Db.open opens a role of
  *   the layer's login.
  *
- * Which contexts a role reads is a phantom: the contexts its query entries' definitions match (ContextsOf), so Db.open
- * requires a token exactly when a role's relations read one, and DbLayer.make a verify exactly when a role of its login
- * does.
+ * Which contexts a role declares is a phantom, the names of its options' `contexts` (DeclaredContexts), the only ones
+ * its query entries' definitions (EntriesCheck) and its programs (WithinRoleContexts) match, so Db.open requires a
+ * token exactly when a role declares one, and DbLayer.make a verify exactly when a role of its login does.
  *
  * A role's query entry under its name. Its fields are a phantom, its definition's heading, which RelationFieldsOf
  * reads; the heading is a real member too, which v mints variables over, and `fact` decodes the facts of that heading.
@@ -167,9 +167,10 @@ type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }
 
 /**
  * One entry, checked: a whole entry is a relation of the base under its own name; a query entry is over a level of the
- * base and admissible as a definition (one flat heading of at least one field, no parameter).
+ * base, admissible as a definition (one flat heading of at least one field, no parameter), and matches only the
+ * contexts the role declares, Declared their names (EntryContextsWithin).
  */
-type EntryCheck<Base, K, V> = V extends AnyRelation | AnyRoster | AnyDerived
+type EntryCheck<Base, K, V, Declared> = V extends AnyRelation | AnyRoster | AnyDerived
 	? V extends AnyLive
 		? Refusal<"a whole entry is a relation PostgreSQL stores: a role reads a live derived relation through the relations its definition reads">
 		: IsRelationOf<Base, V> extends true
@@ -178,9 +179,22 @@ type EntryCheck<Base, K, V> = V extends AnyRelation | AnyRoster | AnyDerived
 				: Refusal<"a whole entry is a relation of the base under its own name">
 			: Refusal<"a whole entry is a relation of the base under its own name">
 	: IsLevelOf<Base, QuerySchema<V>> extends true
-		? DefinitionShape<V>
+		? DefinitionShape<V> & EntryContextsWithin<ContextsOf<V>, Declared>
 		: Refusal<"a query entry is a query over the role's base">
-export type EntriesCheck<Base, Rs> = { readonly [K in keyof Rs]: EntryCheck<Base, K, Rs[K]> }
+export type EntriesCheck<Base, Rs, Declared = never> = {
+	readonly [K in keyof Rs]: EntryCheck<Base, K, Rs[K], Declared>
+}
+
+/**
+ * A query entry's contexts Cx within the names of the contexts its role declares: a Db of the role holds facts of
+ * those alone, and role(...) refuses any other at run time too (RoleRefused entryContext).
+ */
+type EntryContextsWithin<Cx, Declared> = [Cx] extends [Declared]
+	? unknown
+	: Refusal<"a role's query entry matches only the contexts the role declares">
+
+/** The names of the contexts a role declares, its options' `contexts`: never for none. */
+export type DeclaredContexts<C> = C extends ReadonlyArray<infer X> ? NameOf<X> : never
 
 /** The entries a role may write: whole ordinary relations and query entries. */
 export type WritableKeys<Rs> = {
@@ -238,11 +252,6 @@ export type WholeEntriesOf<Base extends AnySchema> = WholeEntries<Base["relation
  * derived relation are never among them.
  */
 export type WritableNameOf<Base extends AnySchema> = WritableKeys<WholeEntriesOf<Base>>
-
-/** The contexts a role's query entries read. */
-export type EntryContexts<Rs> = {
-	[K in keyof Rs]-?: Rs[K] extends AnyRelation | AnyRoster | AnyDerived ? never : ContextsOf<Rs[K]>
-}[keyof Rs]
 
 /**
  * The highest level of a role's base it holds whole, every relation of that level and of every level below it under its
@@ -359,7 +368,7 @@ export interface AnyRole extends Built {
 /**
  * A role over Base named Name: its relations, the base's laws it keeps, and its write and refresh lists, as written. A
  * full role extends its base, and a role holds every fragment of its base it holds whole (the phantoms LevelsOf reads);
- * `contexts` is the union of the contexts its relations read.
+ * `contexts` is the union of the names of the contexts it declares.
  */
 export interface Role<
 	Base,
@@ -395,27 +404,32 @@ export type DistinctWrites<W> =
 /**
  * The arguments after a role's relations: none, or its options, `write` naming the role relations it may write, or
  * `insert` naming the ones it may only insert into, holding no DELETE or UPDATE on any of them, `refresh` the derived
- * whole entries it may refresh, and `retire` the whole entries of retirable units' headers whose groups it may retire,
- * each empty when left out. A role states `write` or `insert`, never both.
+ * whole entries it may refresh, `retire` the whole entries of retirable units' headers whose groups it may retire, and
+ * `contexts` the contexts it declares, the facts its Db's claims hold and the only ones its query entries and programs
+ * match, each empty when left out. A role states `write` or `insert`, never both.
  */
-export type RoleOptions<W, F> = readonly [] | readonly [options: RoleOptionRecord<W, F>]
-export type RoleOptionRecord<W, F> =
+export type RoleOptions<W, F, C = ReadonlyArray<AnyContext>> =
+	| readonly []
+	| readonly [options: RoleOptionRecord<W, F, C>]
+export type RoleOptionRecord<W, F, C = ReadonlyArray<AnyContext>> =
 	| {
 			readonly write?: W
 			readonly insert?: never
 			readonly refresh?: F
 			readonly retire?: ReadonlyArray<string>
+			readonly contexts?: C
 	  }
 	| {
 			readonly insert: W
 			readonly write?: never
 			readonly refresh?: F
 			readonly retire?: ReadonlyArray<string>
+			readonly contexts?: C
 	  }
 
 /**
- * The contexts a role's relations read: never when none does, and unknown for a role whose type does not say (a role
- * widened to AnyRole, or typed `any`, whose keys are every string), which may read any, so a token and a verify stay
+ * The contexts a role declares: never when it declares none, and unknown for a role whose type does not say (a role
+ * widened to AnyRole, or typed `any`, whose keys are every string), which may declare any, so a token and a verify stay
  * required for it. They are read off the role's phantom by key, each role of a union its own, never by a match of
  * `Phantom<infer B>`, which binds the bundle, the role's base among its members, and instantiates it again, whole, in
  * the branch that reads it.
@@ -436,16 +450,16 @@ type ContextsStated<B> = B extends unknown
 	: never
 
 /**
- * Whether a role's relations read a context, the condition under which Db.open requires a token. The contexts are a
+ * Whether a role declares a context, the condition under which Db.open requires a token. The contexts are a
  * parameter of their own (ReadsSome): a tuple of ContextsReadBy here would be a reference the checker defers, holding
  * the role in its mapper, and deciding it would instantiate the role whole, its base with it.
  */
 export type ReadsContext<R> = ReadsSome<ContextsReadBy<R>>
 type ReadsSome<C> = [C] extends [never] ? false : true
 /**
- * A program run on a Db of R matches only the contexts R's relations read (Cx, the program's ContextsOf): the Db's
- * claims hold facts of those alone, and the checker refuses any other at run time too. A role whose type does not say
- * which contexts it reads, and a schema, admit any. A Cx that names no context (string, where the argument is no program
+ * A program run on a Db of R matches only the contexts R declares (Cx, the program's ContextsOf): the Db's claims hold
+ * facts of those alone, and the checker refuses any other at run time too (OutsideRole context). A role whose type does
+ * not say which contexts it declares, and a schema, admit any. A Cx that names no context (string, where the argument is no program
  * of the kind the reader takes, so nothing inferred its names) is judged by nothing here: the argument's own mismatch is
  * the error. The role's contexts are a parameter of their own (ContextsWithin), as ReadsContext's are.
  */
@@ -454,7 +468,7 @@ export type WithinRoleContexts<R, Cx> = string extends Cx
 	: ContextsWithin<Cx, ContextsReadBy<R>>
 type ContextsWithin<Cx, Read> = [Cx] extends [Read]
 	? unknown
-	: Refusal<"a program on a Db of a role matches only the contexts the role's relations read, whose facts its claims hold">
+	: Refusal<"a program on a Db of a role matches only the contexts the role declares, whose facts its claims hold">
 
 /** The names of the relations a role may write: its write list. */
 export type WriteListOf<R> = R extends { readonly write: ReadonlyArray<infer W extends string> }

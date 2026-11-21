@@ -231,6 +231,8 @@ export type EntryKind = "relation" | "closed" | "derived" | "query"
  * - `entryOutsideBase`: a query entry that reads `relation`, which the base lacks.
  * - `entryAttaches`: a query entry that attaches a nested relation.
  * - `entryApproximate`: a query entry that searches approximately.
+ * - `entryContext`: a query entry that matches `context`, which the role does not declare: a role's Db holds facts of
+ *   its declared contexts alone.
  * - `writeOutside`, `refreshOutside`: a write or refresh list naming `name`, no relation of the role.
  * - `writeKind`: a write list naming a closed or derived whole entry.
  * - `writeUnwritable`: a write list naming a query entry the writable-entry analysis refuses, for `why`.
@@ -248,6 +250,7 @@ export type RoleRule =
 	| { readonly kind: "entryOutsideBase"; readonly entry: string; readonly relation: string }
 	| { readonly kind: "entryAttaches"; readonly entry: string }
 	| { readonly kind: "entryApproximate"; readonly entry: string }
+	| { readonly kind: "entryContext"; readonly entry: string; readonly context: string }
 	| { readonly kind: "writeOutside"; readonly name: string }
 	| { readonly kind: "writeKind"; readonly name: string; readonly entryKind: "closed" | "derived" }
 	| { readonly kind: "writeUnwritable"; readonly entry: string; readonly why: WritabilityReason }
@@ -448,6 +451,8 @@ export const roleRuleText = (rule: RoleRule): string => {
 			return `a query entry of one flat heading; ${rule.entry} attaches`
 		case "entryApproximate":
 			return `a query entry that searches nothing approximately; ${rule.entry} does`
+		case "entryContext":
+			return `a query entry matching only the contexts the role declares; ${rule.entry} matches ${rule.context}, which it does not declare`
 		case "writeOutside":
 			return `a write list of the role's relations; ${rule.name} is none of them`
 		case "writeKind":

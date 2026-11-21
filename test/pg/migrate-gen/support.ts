@@ -747,6 +747,7 @@ const worldsOf = (
 			write: stored,
 			refresh: [],
 			retire: [],
+			contexts: [],
 			loc
 		}),
 		(writer) =>
@@ -758,6 +759,7 @@ const worldsOf = (
 							write: [],
 							refresh: [],
 							retire: [],
+							contexts: [],
 							loc
 						}),
 						(reader) => admitLoginRoles(desc, { name: "server", roles: [writer, reader], loc })

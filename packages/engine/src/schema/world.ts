@@ -38,6 +38,7 @@ import {
 	type SchemaContent,
 	sameLevel
 } from "#compiler/schema/levels.ts"
+import { entryContextBreak } from "#compiler/schema/own.ts"
 import {
 	builderLoc,
 	frozenCopy,
@@ -273,6 +274,37 @@ const nameList = (value: unknown, label: string, what: string): ReadonlyArray<st
 	return value.map((item) => requireName(item, label, what))
 }
 
+/**
+ * The contexts a role declares, as its caller lists them: each a context context(...) built, in the list's order, a
+ * context listed twice one declaration, two of one name that differ DuplicateIdentity; none when the list is left out.
+ */
+const declaredContexts = (value: unknown, label: string): ReadonlyArray<ContextDesc> => {
+	if (value === undefined) {
+		return []
+	}
+	if (!isList(value)) {
+		throw malformed(label, "a list of contexts built by context(...)")
+	}
+	const declared = new Map<string, ContextDesc>()
+	for (const [i, item] of value.entries()) {
+		const desc = contextDescOf(item)
+		if (desc === undefined) {
+			throw malformed(`${label} ${i}`, "a context built by context(...)")
+		}
+		const prior = declared.get(desc.name)
+		if (prior === undefined) {
+			declared.set(desc.name, desc)
+		} else if (!sameContent(prior, desc)) {
+			throw CompileError.make({
+				_tag: "DuplicateIdentity",
+				at: builderLoc(`${label} ${i}`, []),
+				duplicate: { kind: "context", name: desc.name, earlier: builderLoc(label, []) }
+			})
+		}
+	}
+	return [...declared.values()]
+}
+
 /** An insert list as a role holds it: at least one role relation, an empty one stating no write at all. */
 const insertList = (names: ReadonlyArray<string>, label: string): NonEmptyReadonlyArray<string> => {
 	const [first, ...rest] = names
@@ -400,13 +432,38 @@ export const admitRole = (
 	if (!isPlainRecord(options) && options !== undefined) {
 		throw malformed(
 			label,
-			"options { write?, insert?, refresh?, retire? }: lists of role relation names"
+			"options { write?, insert?, refresh?, retire?, contexts? }: lists of role relation names, and of the contexts the role declares"
 		)
 	}
 	const opts = options ?? {}
 	for (const k of Object.keys(opts)) {
-		if (k !== "write" && k !== "insert" && k !== "refresh" && k !== "retire") {
+		if (k !== "write" && k !== "insert" && k !== "refresh" && k !== "retire" && k !== "contexts") {
 			throw malformed(label, `options without ${k}`)
+		}
+	}
+	const contexts = declaredContexts(opts["contexts"], `${label} contexts`)
+	for (const e of entries) {
+		if (e.kind !== "world") {
+			continue
+		}
+		const contextBreak = entryContextBreak(contexts, queryUses(e.query).contexts)
+		if (contextBreak?.kind === "undeclared") {
+			throw roleRefused(`${label} relation ${e.name}`, {
+				kind: "entryContext",
+				entry: e.name,
+				context: contextBreak.context
+			})
+		}
+		if (contextBreak?.kind === "another") {
+			throw CompileError.make({
+				_tag: "DuplicateIdentity",
+				at: e.loc,
+				duplicate: {
+					kind: "context",
+					name: contextBreak.context,
+					earlier: builderLoc(`${label} contexts`, [])
+				}
+			})
 		}
 	}
 	if (opts["write"] !== undefined && opts["insert"] !== undefined) {
@@ -485,6 +542,7 @@ export const admitRole = (
 			...writing,
 			refresh,
 			retire,
+			contexts,
 			loc: builderLoc(label, [baseDesc.name, roleName])
 		})
 	)
@@ -529,8 +587,8 @@ const noNames: readonly [] = Object.freeze([] as const)
  * context, role and login: the world builders.
  *
  * - `context(name, fields, options?)`: the session's relation parameters, a source of at most one fact that a rule of
- *   a query over any schema matches, though a program on a Db of a role matches only the contexts the role's relations
- *   read, whose facts the Db's claims hold. Its fields are claims of scalar types (ir/desc.ts contextFieldAdmits);
+ *   a query over any schema matches, though a program on a Db of a role matches only the contexts the role declares,
+ *   whose facts the Db's claims hold. Its fields are claims of scalar types (ir/desc.ts contextFieldAdmits);
  *   `claim` names the nested claim object they are read from.
  * - `role(base, name, relations, options?)`: a schema whose relations are defined over `base`. A whole entry is a
  *   relation of the base, itself, under its own name; a query entry is a query over the base, admitted as a definition:
@@ -542,8 +600,10 @@ const noNames: readonly [] = Object.freeze([] as const)
  *   the role holds INSERT and SELECT on what they write, no DELETE or UPDATE, so a program of the role that deletes
  *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `refresh` names
  *   derived whole entries, and `retire` the whole entries of retirable units' headers whose groups the role retires,
- *   which ownership holds to that (schema/own.ts, retireOutside and retireNotHeader). The role keeps the
- *   base's statements whose every relation is a whole entry.
+ *   which ownership holds to that (schema/own.ts, retireOutside and retireNotHeader). `contexts` names the contexts
+ *   the role declares, the facts its Db's claims hold: each query entry matches only those (entryContext), and so does
+ *   each program on the role (check/checker.ts, OutsideRole context). The role keeps the base's statements whose every
+ *   relation is a whole entry.
  * - `login(base, name, roles, { workload? })`: one credential and one pool for roles over `base`, and the workloads it
  *   owns. Every role is in exactly one login, which the builder records (loginOfRole); role and login names are distinct
  *   within the login. Each role is reached through the login by its name, `Web.roles.member`, which Db.open takes.

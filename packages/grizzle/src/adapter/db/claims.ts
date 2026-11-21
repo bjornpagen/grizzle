@@ -11,7 +11,7 @@ import type { ScalarCodec } from "#compiler/plan/read.ts"
 import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/runtime.ts"
 
 /**
- * A Db's claims: the facts of the contexts its role reads, decoded once per Db.open from the payload the layer's verify
+ * A Db's claims: the facts of the contexts its role declares, decoded once per Db.open from the payload the layer's verify
  * returned, and the text of the `grizzle.claims` setting each of the Db's transactions sets (wire/batch.ts Prologue).
  *
  * The setting is a JSON object with one member per context that has a fact, `{ "<Context>": { "<field>": "<text>" } }`,

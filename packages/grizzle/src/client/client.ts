@@ -31,12 +31,12 @@ export interface TokenClientOptions<E> {
 	readonly token: Token<E>
 }
 
-/** clientOf's options without a token: a login none of whose roles reads a context sends none. */
+/** clientOf's options without a token: a login none of whose roles declares a context sends none. */
 export interface UrlClientOptions {
 	readonly url: URL
 }
 
-/** clientOf's options for login L: with a token, or, exactly when no role of L reads a context, without one. */
+/** clientOf's options for login L: with a token, or, exactly when no role of L declares a context, without one. */
 export type ClientOptions<L, E> =
 	LoginReadsContext<L> extends true
 		? TokenClientOptions<E>

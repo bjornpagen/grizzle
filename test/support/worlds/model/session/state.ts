@@ -83,7 +83,7 @@ const ruleContexts = (rule: Rule): ReadonlyArray<string> => [
 export const entryContexts = (entry: EntrySpec): ReadonlySet<string> =>
 	new Set(entry.kind === "whole" ? [] : Arr.flatMap(entry.rules, ruleContexts))
 
-/** The contexts a role's relations read. */
+/** The contexts a role declares: a model role declares exactly the contexts its relations read. */
 export const roleContexts = (role: RoleSpec): ReadonlySet<string> =>
 	new Set(Arr.flatMap(Record.values(role.entries), (e) => [...entryContexts(e)]))
 

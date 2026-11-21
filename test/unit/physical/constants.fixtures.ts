@@ -126,6 +126,7 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			write: [],
 			refresh: [],
 			retire: [],
+			contexts: [],
 			loc
 		})
 	)
@@ -137,6 +138,7 @@ export const installationOf = (owned: Owned, codes: Codebook): Installation => {
 			write: ["Tags"],
 			refresh: [],
 			retire: [],
+			contexts: [],
 			loc
 		})
 	)

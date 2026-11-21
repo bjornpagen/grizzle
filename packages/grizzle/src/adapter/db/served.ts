@@ -166,7 +166,7 @@ export const servedContext = (
  *    among the layers the context holds, at the address read off the token (pool/served.ts servedSessions): a login
  *    whose layer is not provided, or whose served file holds no role of the token's name, is OpenError{stage: "role"}.
  * 3. The token. A Db opened with a token turns it into claims once: the layer's verify runs on it, and the payload it
- *    returns is decoded through the contexts the role's relations read (claims.ts). A refusal is OpenError{stage:
+ *    returns is decoded through the contexts the role declares (claims.ts). A refusal is OpenError{stage:
  *    "token"} whose reason is verify's TokenError, or ClaimRefused for a payload that does not decode. A Db opened
  *    without one, or on a layer whose login reads no context, has no context facts. PostgreSQL judges a claim of a
  *    refined field where a statement reads it, by its field's domain.

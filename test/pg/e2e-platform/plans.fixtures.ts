@@ -372,7 +372,7 @@ export const tenantOf = (world: ReturnType<typeof P.platformAt>) => {
 			Allocation: allocationsEntry,
 			DailySpend: spendEntry
 		},
-		{ write: ["Workspace", "ApiKey", "Revocation"] }
+		{ write: ["Workspace", "ApiKey", "Revocation"], contexts: [Tenant] }
 	)
 	const own = tenant.relations
 	const eventCost = query(tenant).rule((r) => {

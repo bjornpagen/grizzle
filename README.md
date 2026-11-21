@@ -528,7 +528,7 @@ Nothing ties the policy's condition to the TypeScript that relies on it, and a q
 **The reframe.** "This organization's keys" is not a filter you add to queries. It is a relation: the keys whose `org` is the caller's. What a role may see is itself a query, so write it once and make it the table the dashboard calls `ApiKey`. Three declarations say it:
 
 - **A `context`** is a claim of the caller's verified session token, which a query reads as a table of at most one row. `Tenant` holds the token's `org`.
-- **A `role`** is what one kind of user sees, laid out as tables. Each entry is a table of the schema, whole, or a query over it, and `write` lists the entries the role may write. `KeyAdmin`'s `ApiKey` is the query `orgKeys`: the keys whose `org` matches `Tenant`'s.
+- **A `role`** is what one kind of user sees, laid out as tables. Each entry is a table of the schema, whole, or a query over it, `write` lists the entries the role may write, and `contexts` the contexts it declares: the claims its `Db` holds, and the only contexts its entries and programs match. `KeyAdmin`'s `ApiKey` is the query `orgKeys`: the keys whose `org` matches `Tenant`'s.
 - **A `login`** is one PostgreSQL user, with its password and its own connection pool, that can act as the roles it lists.
 
 **The declaration.**
@@ -549,7 +549,12 @@ export const orgKeys = query(Keys).rule((r) => {
 	return r.match(ApiKey, { digest, org, name }).match(Tenant, { org }).find({ digest, name })
 })
 
-export const KeyAdmin = role(Keys, "key_admin", { ApiKey: orgKeys }, { write: ["ApiKey"] })
+export const KeyAdmin = role(
+	Keys,
+	"key_admin",
+	{ ApiKey: orgKeys },
+	{ write: ["ApiKey"], contexts: [Tenant] }
+)
 export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 ```
 
@@ -1597,15 +1602,15 @@ export const MemberBlog = role(
 	Blog,
 	"member",
 	{ Status, Post: memberPosts, MyPost: myPosts, Comment: comments, MyComment: myComments },
-	{ write: ["MyPost", "MyComment"] }
+	{ write: ["MyPost", "MyComment"], contexts: [Session, Org] }
 )
 export const Etl = role(Blog, "etl", { Post: postKeys, PostViews }, { write: ["PostViews"] })
 ```
 
-A `role` is what one kind of user sees, laid out as tables. Each entry is a table or roster of `Blog`, whole (`Status`), or a query over `Blog` (`Post: published`), and `write` lists the entries the role may write.
+A `role` is what one kind of user sees, laid out as tables. Each entry is a table or roster of `Blog`, whole (`Status`), or a query over `Blog` (`Post: published`), `write` lists the entries the role may write, and `contexts` the contexts its token's claims carry, which its entries and programs match.
 
 - `anon` reads published posts and their comments.
-- `member` reads published posts and every post of its active organization. `memberPosts` has two rules, and a query with several rules returns the rows of all of them; `Status.handle("Published")` puts that constant in the first rule's rows, so both rules return the same columns. `myPosts` matches `Session` and `Org`, so it keeps the posts whose `author` is the signed-in user and whose `org` is the active organization. Inserting into `MyPost` fills `author` and `org` from the token, and a post `myPosts` would not return is refused. `MyComment` works the same way, on published posts only.
+- `member` reads published posts and every post of its active organization. `memberPosts` has two rules, and a query with several rules returns the rows of all of them; `Status.handle("Published")` puts that constant in the first rule's rows, so both rules return the same columns. `myPosts` matches `Session` and `Org`, which `member` declares, so it keeps the posts whose `author` is the signed-in user and whose `org` is the active organization. Inserting into `MyPost` fills `author` and `org` from the token, and a post `myPosts` would not return is refused. `MyComment` works the same way, on published posts only.
 - `etl` reads each post's organization and slug, never a title or a body, and writes `PostViews`.
 
 grizzle installs each role as a PostgreSQL role that reads through views in a schema of its own, one for each entry but the roster. `MyPost` and `MyComment` leave rows out, so `Post` and `Comment` get row-level security with a policy for `member`; `PostViews`, which `etl` writes whole, needs none, and its grants decide. A filter forgotten in app code cannot leak a row, because the filter is not in app code: PostgreSQL applies it to every statement.
@@ -2846,10 +2851,11 @@ Three declarations, all in the [example](#example):
   boolean, the integer types, contracts over them, and closed ids, whose claim is a handle's name. An absent claim
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
-- **`role(schema, name, entries, { write?, insert?, refresh?, retire? })`**: what one kind of user sees. An entry is a
-  table of the schema, whole, or a query over it. `write` lists the entries it writes, each once (a name listed twice is
-  a type error), `refresh` the derived tables it refreshes, `retire` the retirable units' headers whose groups it
-  retires ([Retirable units](#retirable-units)). `insert` lists them in place of `write` for a role that only
+- **`role(schema, name, entries, { write?, insert?, refresh?, retire?, contexts? })`**: what one kind of user sees. An
+  entry is a table of the schema, whole, or a query over it. `write` lists the entries it writes, each once (a name
+  listed twice is a type error), `refresh` the derived tables it refreshes, `retire` the retirable units' headers whose
+  groups it retires ([Retirable units](#retirable-units)), and `contexts` the contexts it declares
+  ([Contexts of a role](#contexts-of-a-role)). `insert` lists them in place of `write` for a role that only
   inserts: it holds INSERT and SELECT on what it writes and no UPDATE or DELETE, so a ChangeSet of it that deletes,
   puts, or adds a member to a mutable owner's family, which updates the owner's count, is `OutsideRole` (`insert`)
   when it compiles, naming the table and the operation. A role states one of the two. A role is no schema: `role`, `login`, `schema.extend`,
@@ -2911,18 +2917,37 @@ file's JSON, whose encoding is grizzle's own. There is one `roleNameOf`, in `@bj
 re-exported by `@bjornpagen/grizzle`: it reads the stem a login, a role, a served login or a decoder login carries and
 loads no schema module. `DbLayer.make({ login: WebServed, ... })` builds the login's pool and loads its workloads, compiling nothing, and
 refuses a file of another login than the name it was served as, at stage `config`. It requires `verify`
-exactly when one of the login's roles reads a context. A layer with `verify` runs it on every token it is handed, for
-a role that reads no context too.
+exactly when one of the login's roles declares a context. A layer with `verify` runs it on every token it is handed,
+for a role that declares no context too.
 
 `Db.open(WebServed.roles.member, { token })` is the only way to open a `Db`, and only where the layer of the role's
 login is provided: a role of the login itself (`Web.roles.member`) is a type error, since the app holds the login as a
-type alone. It requires `token` exactly when the role reads a context. It runs `verify` once per `Db` and decodes the
+type alone. It requires `token` exactly when the role declares a context. It runs `verify` once per `Db` and decodes the
 role's contexts from what it returns, and the `Db` keeps those claims. A `Db` opened without a token, or on a layer
-without `verify`, has no context rows. A role that reads no context opens whatever the payload.
+without `verify`, has no context rows. A role that declares no context opens whatever the payload.
 
 **Queries for a role are written over the role.** `query(MemberBlog)` and `ChangeSet.empty(MemberBlog)` see only what
-`member` does, write only the entries in its `write` list, and match only the contexts it reads. Anything else is a
+`member` does, write only the entries in its `write` list, and match only the contexts it declares. Anything else is a
 type error, and another context, from a caller the types don't reach, is refused before any SQL.
+
+### Contexts of a role
+
+A role states the contexts its token's claims carry: `contexts: [Session, Org]` on `member`. They are the role's
+boundary, read once where a `Db` opens: `Db.open` decodes exactly those from what `verify` returns, each from its own
+claim (`Org` from the nested object `o`, so a token without `o` has no `Org` row), and requires a token exactly when
+the role declares one. Every query entry of the role, and every program on a `Db` of it, matches only the contexts it
+declares, and nothing else makes a context available:
+
+- **A program over the schema matches them on a full role.** `role(Blog, "staff", wholeEntriesOf(Blog), { write:
+  writableNamesOf(Blog), contexts: [Session] })` runs every query and ChangeSet over `Blog` itself, those matching
+  `Session` among them, so one program serves every role that declares what it matches and needs no copy written over
+  each role.
+- **A query entry matching a context the role does not declare** is a type error naming the rule, and
+  `RoleRefused` (`entryContext`) for a JavaScript caller, when you build the role.
+- **A program matching one** is a type error in a workload over the role, and `OutsideRole` (`context`) when it
+  compiles for the role, before any SQL: in `grizzle generate` for each role of a login whose workload holds it.
+- **Two contexts of one name that differ**, among the declared ones or between one and what a program matches, are
+  `DuplicateIdentity`.
 
 ### Writing through a role
 
@@ -3932,7 +3957,7 @@ export const Learner = role(
 	Ledger,
 	"learner",
 	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
-	{ write: ["MySitting"] }
+	{ write: ["MySitting"], contexts: [Session] }
 )
 export const LedgerApp = login(Ledger, "app", [Learner])
 export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })
@@ -4574,7 +4599,7 @@ fails with its `CallError`, by kind:
 | --------------- | ------- | --------------------------------------------------------------------------------------------------------------- |
 | `input`         | `never` | a parameter, a fact or a window the member's codecs or input boundary refuse, past a bound of its transport included |
 | `paramRejected` | `never` | PostgreSQL refused a parameter's value outside its pattern, a `str.bytes` bound included, as it bound it (`param`) |
-| `tokenRefused`  | `never` | no token where the role reads a context, a token `verify` refuses, or claims that do not decode                 |
+| `tokenRefused`  | `never` | no token where the role declares a context, a token `verify` refuses, or claims that do not decode              |
 | `tokenExpired`  | `safe`  | the token expired, before the call or while it streamed                                                         |
 | `refused`       | `never` | the schema's laws refused the write (`refused`, `witness`)                                                      |
 | `outsideWorld`  | `never` | a row the write adds lies outside the written world relation (`relation`)                                       |
@@ -5204,7 +5229,7 @@ A login's CLI is `acme-app <role> <program>`: its input's members are flags, or 
 
 psql, scripts and other services may write grizzle's tables directly, under the same rules and roles as the app. Log in
 as a login's role, `roleNameOf(login, connection)`, `SET ROLE` to one of its roles, `roleNameOf(role, connection)`, set the claims in the
-transaction for a role that reads them
+transaction for a role that declares contexts
 (`SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`), and write at SERIALIZABLE. The
 schema's tables are in `schemaNameOf(schema)`, and a role's views in `schemaNameOf(role)`.
 A readable name spells what it is, and `constraintNamesOf(schema)` gives a check's from its rule

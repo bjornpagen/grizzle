@@ -136,7 +136,9 @@ const owned = query(Shelf).rule((r) => {
 	return r.match(Item, { id, owner }).match(Session, { sub: owner }).find({ id })
 })
 
-export const Claiming = login(Shelf, "claiming", [role(Shelf, "owner", { Owned: owned })])
+export const Claiming = login(Shelf, "claiming", [
+	role(Shelf, "owner", { Owned: owned }, { contexts: [Session] })
+])
 
 /**
  * Each login served as its type, over its real served file, compiled with no database

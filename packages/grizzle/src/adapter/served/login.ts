@@ -364,7 +364,7 @@ const compileRoleWorkload = (
 	})
 
 /**
- * The contexts the role's relations read (schema/own.ts OwnedRole.contexts), their fields typed against the base, each
+ * The contexts the role declares (schema/own.ts OwnedRole.contexts), their fields typed against the base, each
  * with its codec under the installation's codes: a contract or roster a context names is the base's.
  */
 const typedContexts = (
@@ -386,7 +386,7 @@ const typedContexts = (
 
 /**
  * One role of a login, compiled: the role value the login holds, its compilation context (db/context.ts RoleContext);
- * the PostgreSQL role a Db of it enters; the contexts its relations read, typed, which a token's claims decode through;
+ * the PostgreSQL role a Db of it enters; the contexts it declares, typed, which a token's claims decode through;
  * and the programs of the login's workloads over it, compiled.
  */
 export interface LayerRole extends RoleContext {

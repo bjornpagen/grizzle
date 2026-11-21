@@ -18,8 +18,9 @@ import { Id } from "#test/support/ids.ts"
  * The values the access agreement (test/support/agreement/access.ts) draws its worlds from, which its generated
  * program imports by name: Work, an account's tasks and its tier, whose seats a closed relation states; Reports, an extension of it holding two derived relations a role
  * may refresh and a live one no role holds; two contexts, Org, a claimed organisation's id, and Session, a token's subject; Task as a query entry
- * reading a context at every place a definition can, or none; and two logins the DbConfig agreement
- * (test/support/agreement/dbconfig.ts) configures, one whose role reads no context and one whose role reads Session.
+ * reading a context at every place a definition can, or none; a program over Work matching each context; and two
+ * logins the DbConfig agreement (test/support/agreement/dbconfig.ts) configures, one whose role declares no context and
+ * one whose role declares Session, which its Task entry reads.
  */
 export const Tier = closed.ordered("Tier", ["Free", "Pro"])
 const TierInfo = closed.relation(
@@ -147,6 +148,18 @@ export const taskImported = query(Work).rule((r) => {
 const Reader = role(Work, "reader", { Tier, Account, Task })
 export const PlainLogin = login(Work, "plain", [Reader])
 
-/** A role of Work whose Task entry reads Session, and the login that holds it. */
-const Member = role(Work, "member", { Tier, Account, Task: taskSession })
+/** A program over the base matching Org: an account of the claimed organisation, which a role declaring Org runs. */
+export const accountOrg = query(Work).rule((r) => {
+	const { id } = v(Account, "account")
+	return r.match(Account, { id }).match(Org, { id }).find({ id })
+})
+
+/** A program over the base matching Session: the account the token's subject names, which a role declaring Session runs. */
+export const accountSession = query(Work).rule((r) => {
+	const { id, name } = v(Account, "account")
+	return r.match(Account, { id, name }).match(Session, { sub: name }).find({ id })
+})
+
+/** A role of Work whose Task entry reads Session, which it declares, and the login that holds it. */
+const Member = role(Work, "member", { Tier, Account, Task: taskSession }, { contexts: [Session] })
 export const WebLogin = login(Work, "web", [Member])

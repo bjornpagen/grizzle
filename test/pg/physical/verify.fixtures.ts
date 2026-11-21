@@ -112,7 +112,7 @@ const driftWorlds = (name: string) => {
 		base,
 		"editor",
 		{ Doc, DocCount: base.relations.DocCount, Mine: mine },
-		{ write: ["Mine"], refresh: ["DocCount"] }
+		{ write: ["Mine"], refresh: ["DocCount"], contexts: [Session] }
 	)
 	const viewer = role(base, "viewer", { DocCount: base.relations.DocCount })
 	return { base, editor, viewer, desk: login(base, "desk", [editor, viewer]) }

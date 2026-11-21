@@ -261,7 +261,7 @@ export const worlds = (name: string) => {
 			.match(Session, { sub: owner })
 			.find({ id, doc, author })
 	})
-	const editor = role(base, "editor", { Doc, Mine: mine }, { write: ["Mine"] })
+	const editor = role(base, "editor", { Doc, Mine: mine }, { write: ["Mine"], contexts: [Session] })
 	const viewer = role(base, "viewer", { Doc })
 	const keeper = role(base, "keeper", { Doc }, { write: ["Doc"] })
 	const keep = ChangeSet.empty(keeper)

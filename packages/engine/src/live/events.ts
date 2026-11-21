@@ -142,7 +142,7 @@ export type Retry = "safe" | "never"
  * - `paramRejected`: PostgreSQL refused a parameter's value outside its pattern as it bound it, a byte bound
  *   (`str.bytes`) among them: `param` is where, a scalar parameter by its name or a field of a relation parameter's
  *   facts by the parameter's name and the field's (ParamPlace).
- * - `tokenRefused`: no token where the role reads a context, a token its verify refuses, or claims that do not
+ * - `tokenRefused`: no token where the role declares a context, a token its verify refuses, or claims that do not
  *   decode through the role's contexts.
  * - `tokenExpired`: the token expired, before the call or while it streamed: the same call with a fresh token.
  * - `refused`: the schema's laws refused the write: which laws and how grizzle decided them, and the witness.
@@ -216,7 +216,7 @@ export const callError = <K extends CallErrorKind>(
  * each of its producers is typed by its kinds (FailureOf):
  *
  * - `door`: the HTTP door, before any member runs: a request line no route serves, a wire header naming no digest or
- *   another (wireRefusals), an Authorization header holding no bearer token68, no token where the role reads a context,
+ *   another (wireRefusals), an Authorization header holding no bearer token68, no token where the role declares a context,
  *   a body that is no JSON text or not the member's input;
  * - `open`: the opening of the Db a served call runs on, through the layer's verify and the role's contexts
  *   (OpenError);

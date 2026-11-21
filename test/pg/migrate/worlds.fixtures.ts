@@ -111,7 +111,7 @@ export const versionOf = (name: string, k: Knobs) => {
 		ext,
 		"editor",
 		{ Doc, Busy: ext.relations.Busy, Mine: mine(), Capped: capped },
-		{ write: ["Mine"], refresh: ["Busy"] }
+		{ write: ["Mine"], refresh: ["Busy"], contexts: [Session, Quota] }
 	)
 	const viewer = role(ext, "viewer", { Tier, Org, Busy: ext.relations.Busy })
 	return { schema: ext, editor, viewer, login: login(ext, k.login, [editor, viewer]) }

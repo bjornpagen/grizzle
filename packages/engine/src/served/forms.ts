@@ -250,7 +250,7 @@ export const servedPath = (login: string): string => `${servedDirectory}/${login
 
 /**
  * One role of a login as its Dbs serve it: its name in the login, its installed PostgreSQL role, the isolation level
- * its writes begin at, the contexts its relations read, typed, which a Db's claims are decoded through, the classifier
+ * its writes begin at, the contexts it declares, typed, which a Db's claims are decoded through, the classifier
  * of its refusals, its wire (live/member.ts RoleWire), the witnesses its refusals may name on the wire, once for all its
  * members, and its workload members in the workloads' order, each program's own record order.
  */

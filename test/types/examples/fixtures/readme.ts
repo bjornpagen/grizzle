@@ -219,7 +219,12 @@ export const orgKeys = query(Keys).rule((r) => {
 	return r.match(ApiKey, { digest, org, name }).match(Tenant, { org }).find({ digest, name })
 })
 
-export const KeyAdmin = role(Keys, "key_admin", { ApiKey: orgKeys }, { write: ["ApiKey"] })
+export const KeyAdmin = role(
+	Keys,
+	"key_admin",
+	{ ApiKey: orgKeys },
+	{ write: ["ApiKey"], contexts: [Tenant] }
+)
 export const Dashboard = login(Keys, "dashboard", [KeyAdmin])
 
 /** README: "Hard in Drizzle, one declaration here", 2. Top three per group, with exact types. */
@@ -622,7 +627,7 @@ export const MemberBlog = role(
 	Blog,
 	"member",
 	{ Status, Post: memberPosts, MyPost: myPosts, Comment: comments, MyComment: myComments },
-	{ write: ["MyPost", "MyComment"] }
+	{ write: ["MyPost", "MyComment"], contexts: [Session, Org] }
 )
 export const Etl = role(Blog, "etl", { Post: postKeys, PostViews }, { write: ["PostViews"] })
 
@@ -1336,7 +1341,7 @@ export const Learner = role(
 	Ledger,
 	"learner",
 	{ ...wholeEntriesOf(Qti), MySitting: mySittings },
-	{ write: ["MySitting"] }
+	{ write: ["MySitting"], contexts: [Session] }
 )
 export const LedgerApp = login(Ledger, "app", [Learner])
 export const QtiAuthor = role(Qti, "author", wholeEntriesOf(Qti), { write: writableNamesOf(Qti) })

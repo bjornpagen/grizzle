@@ -82,7 +82,7 @@ export const seatsAt = (name: string) => {
 			.match(Session, { sub: holder })
 			.find({ id, code, grp, lead, team })
 	})
-	const holder = role(base, "holder", { MySeat: mine }, { write: ["MySeat"] })
+	const holder = role(base, "holder", { MySeat: mine }, { write: ["MySeat"], contexts: [Session] })
 	return {
 		base,
 		holder,

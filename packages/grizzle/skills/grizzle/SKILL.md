@@ -636,8 +636,8 @@ The command line's own refusals, by stage:
   role's writes at, `readCommitted` or `serializable`: read a login's certificate there, never from the file's JSON,
   whose encoding is grizzle's own. `Db.open` contacts nothing and
   checks nothing of the database: grizzle assumes it is the one the snapshot was migrated to, and the request's first
-  call is its first round trip. `token` is required exactly when the role's
-  relations read a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
+  call is its first round trip. `token` is required exactly when the role
+  declares a context; the layer's `verify` refuses one at the stage `token`, and a claim of a refined field is
   judged by its domain where a statement reads it. `grizzle migrate` judges the database after every apply and when
   nothing is pending, and refuses drift: the login's and the role's settings and privileges exactly the snapshot's,
   the login LOGIN NOINHERIT and the role NOLOGIN with no SUPERUSER, CREATEDB, CREATEROLE, REPLICATION or BYPASSRLS, a
@@ -808,6 +808,13 @@ The command line's own refusals, by stage:
   login's roles as no drift only with SET FALSE and no ADMIN, and only while the login's effective privileges on the
   installation stay exactly those three: `rds_iam` holds nothing there, so it is no drift, and a membership handing the
   login any privilege or ownership is.
+- A role declares the contexts its token's claims carry, `role(S, "student", wholeEntriesOf(S), { write, contexts:
+  [Session, Acting] })`: its `Db` decodes exactly those (a context of `{ claim: "act" }` from the nested `act` object,
+  no row where the token has none), and its query entries and the programs on it match only those. A program over the
+  schema that matches `Session` runs on every full role declaring `Session`: write it once over the schema, never once
+  per role, and never add a query entry only to make a context available. A query entry matching an undeclared context
+  is a type error (`RoleRefused` `entryContext`); a program matching one is a type error in a workload over the role
+  and `OutsideRole` (`context`) when generate compiles it for a role that does not declare it.
 - A role is over a schema and is no schema itself: `role`, `login`, `schema.extend`, `wholeEntriesOf`,
   `writableNamesOf`, `lawsOf` and `lawsByStatement` take a schema, and a role passed to one is a type
   error; `query`, `ChangeSet.empty` and `workload` take either. A role's `write` names each entry once: a name listed
@@ -851,7 +858,7 @@ The command line's own refusals, by stage:
   its drawn start, so no query entry writes it. A family's members are written from an array or a `Stream`, never from
   a query or through a query entry.
 - A direct SQL writer logs in as a login's role, runs `SET ROLE` to `roleNameOf(role, connection)` for one of its roles, reads
-  the role's views in `schemaNameOf(role)`, and, for a role whose relations read a context, sets the claims in the
+  the role's views in `schemaNameOf(role)`, and, for a role that declares contexts, sets the claims in the
   transaction:
   `SELECT set_config('grizzle.claims', '{"Session":{"sub":"user_123"}}', true)`. A login holder can set any claims:
   the login is the boundary, so give each trust domain its own. A writer states every field of every row it inserts:

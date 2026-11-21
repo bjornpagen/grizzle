@@ -211,7 +211,7 @@ const openingToken = (
 		? Result.fail(
 				doorRefusal(
 					"TokenAbsent",
-					`role ${role.name} reads a context, and the call gives no bearer token`
+					`role ${role.name} declares a context, and the call gives no bearer token`
 				)
 			)
 		: Result.succeed(given)
@@ -463,7 +463,7 @@ export const httpAnswers = <const Ls extends readonly [AnyLogin, ...Array<AnyLog
  * for a read at its call's instant (a clocked member's answer), its outcome then end for a write.
  * Every failure is one `error` event carrying its CallError, then `end`: a request line no route serves; a request
  * naming no `grizzle-wire` digest, or one naming another form of the member than the one served (`stale`, so a client
- * never decodes by a form the server no longer serves); a token refused, or missing where the role reads a context; a
+ * never decodes by a form the server no longer serves); a token refused, or missing where the role declares a context; a
  * body that is not JSON, or not the member's input; and any failure of the call itself. The Db is opened as Db.open opens one (db/served.ts servedContext), with the bearer token of the
  * Authorization header, through the layer's own verify and the role's contexts, so a token means one thing to either.
  *

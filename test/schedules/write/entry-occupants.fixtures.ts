@@ -24,7 +24,12 @@ export const seats = (name: string) => {
 		const { id, team, holder } = v(Seat, "seat")
 		return r.match(Seat, { id, team, holder }).match(Session, { sub: holder }).find({ id, team })
 	})
-	const holder = role(base, "holder", { MySeat: mine, Gate }, { insert: ["MySeat", "Gate"] })
+	const holder = role(
+		base,
+		"holder",
+		{ MySeat: mine, Gate },
+		{ insert: ["MySeat", "Gate"], contexts: [Session] }
+	)
 	const direct = role(base, "direct", { Seat, Gate })
 	const MySeat = holder.relations.MySeat
 	return {

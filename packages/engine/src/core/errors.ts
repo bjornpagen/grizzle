@@ -331,8 +331,9 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
  * A relation access a role does not hold, an OutsideRole's: a read of a relation of the role's base the role does not
  * hold (`base` naming the base); a write of a relation outside its write list; an UPDATE or DELETE of `relation` by a
  * role that writes by its insert list, which holds neither (`insert`); a refresh of one outside its refresh list; a
- * retirement of the groups of a header outside its retire list; or a program over the role's base, which is one only
- * for a role holding every relation of it whole.
+ * retirement of the groups of a header outside its retire list; a match of `context`, which the role does not declare,
+ * so its Db's claims hold no fact of it; or a program over the role's base, which is one only for a role holding every
+ * relation of it whole.
  */
 export type RoleAccess =
 	| { readonly kind: "read"; readonly relation: string; readonly base: string }
@@ -344,6 +345,7 @@ export type RoleAccess =
 	  }
 	| { readonly kind: "refresh"; readonly relation: string }
 	| { readonly kind: "retire"; readonly relation: string }
+	| { readonly kind: "context"; readonly context: string; readonly declared: ReadonlyArray<string> }
 	| { readonly kind: "wholeBase"; readonly base: string }
 
 const accessText = (role: string, access: RoleAccess): string => {
@@ -358,6 +360,8 @@ const accessText = (role: string, access: RoleAccess): string => {
 			return `a derived relation in role ${role}'s refresh list; ${access.relation} is outside it`
 		case "retire":
 			return `a retirable header in role ${role}'s retire list; ${access.relation} is outside it`
+		case "context":
+			return `a context role ${role} declares, whose facts its Db's claims hold (${access.declared.length === 0 ? "it declares none" : access.declared.join(", ")}); ${access.context} is none of them`
 		case "wholeBase":
 			return `a program over a level of role ${role}; its base ${access.base} is one only for a role holding every relation of it whole, and ${role} does not`
 	}

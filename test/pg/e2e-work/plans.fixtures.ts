@@ -111,7 +111,7 @@ export const tenantWorld = (name: string) => {
 			ManualTask: manual,
 			TaskNote: notes
 		},
-		{ write: ["Task", "AutomaticTask", "ManualTask", "TaskNote"] }
+		{ write: ["Task", "AutomaticTask", "ManualTask", "TaskNote"], contexts: [Tenant] }
 	)
 	const own = tenant.relations
 	const automaticTasksFor = query(tenant).rule((r) => {
