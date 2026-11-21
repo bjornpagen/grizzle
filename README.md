@@ -4761,14 +4761,13 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `OutsideRole`                                   | the `role` and the `access` it doesn't hold                                                              |
 | `DuplicateIdentity`                             | the `earlier` declaration                                                                                |
 | `IdentifierCollision`                           | the `other` declaration and the `identifier` both convert to                                             |
-| `IdentifierTooLong`                             | the `declaration` whose `identifier` takes `bytes` past PostgreSQL's `limit`, refused where it's written |
+| `IdentifierTooLong`                             | the `declaration` whose `identifier`, a name's conversion or a login's or role's role, takes `bytes` past PostgreSQL's `limit` |
 | `DigestCollision`                               | two objects, `display` and `otherDisplay`, whose hashed names share the stem and digest of `identifier`; renaming a declaration either is built from gives it another |
 | `UnrepresentableKey`                            | the key and its `fault`                                                                                  |
 | `PartialOperation`                              | an `operation` whose `precondition` on `operand` nothing proves, and the `guard` to write                |
 | `RecursionRefused`, `DerivedRefused`            | their `cause`                                                                                            |
 | `ForeignLevel`                                  | a rule over `over` (a schema or a role) reading a query written over `written`, none of `over`'s levels  |
 | `RoleRefused`, `LoginRefused`, `ContextRefused` | the `rule` broken                                                                                        |
-| `RoleNameTooLong`                               | the PostgreSQL `role` and its `limit`                                                                    |
 | `GeneratedRefused`                              | the generated `field` of a `relation` and the `rule` it breaks                                           |
 | `FoldOverProjection`                            | the match's `source` and the `key` it must bind for an aggregate to read each row once                   |
 | `QueriedOwnerAppend`                            | an insert or put (`op`), at `at`, of the `owner` from a query beside an append of `member` to its `family` (`{ owner, count }`) |

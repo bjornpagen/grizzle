@@ -25,7 +25,7 @@
  * - Disjoint: the two spaces' roles share no name, the decoder's among them.
  * - Bound: a prefix is at most the budget the longest hashed role name leaves, 63 - 2 - |__aside_<digest>| = 43 bytes,
  *   and one past it is refused where it is parsed (MalformedDescription); within it, a prefix whose longest role passes
- *   63 bytes is refused (RoleNameTooLong), and one that fills 63 exactly is not.
+ *   63 bytes is refused (IdentifierTooLong), and one that fills 63 exactly is not.
  * - The decoder fits: under a prefix at the budget, the longest any installation admits, the decoder login's role is
  *   named, whatever the schema's name, an allocation's included, and so is every role set aside while logins are
  *   renamed (identity.roleAside of the login's and each role's stem, as migrate fills it, core/identity.ts roleInSpace):

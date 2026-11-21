@@ -895,7 +895,6 @@ const reasonKey = (reason: CompileReason): string => {
 		case "DigestCollision":
 		case "ResourceBound":
 		case "GeneratedRefused":
-		case "RoleNameTooLong":
 		case "UnfillableField":
 		case "UnwritableRelation":
 		case "InstantRefused":

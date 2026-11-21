@@ -311,7 +311,7 @@ export type ServedBasis =
  * snapshot records. The plan, with what each login's served file compiles over
  * (ServedBasis). Every login's roles are named under its artifacts' installation before any login compiles
  * (physical/ddl/names.ts namedLogin), so a role whose PostgreSQL role does not fit is DraftRefused with
- * RoleNameTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
+ * IdentifierTooLong; a program the checker refuses is DraftRefused, and a login's ChangeSet that does not compile
  * ServedRefused.
  */
 const plannedLogins = Effect.fn("plannedLogins")(function* (

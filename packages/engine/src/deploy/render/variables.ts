@@ -47,6 +47,7 @@ export type VariableFault =
 			readonly kind: "roleTooLong"
 			readonly name: string
 			readonly role: string
+			readonly bytes: number
 			readonly limit: number
 	  }
 

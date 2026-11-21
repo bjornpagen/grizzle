@@ -18,7 +18,7 @@
  *   schemaNameOf of every role; and Db.open of every role, its layer given the served file generate wrote and the
  *   password of roleNameOf of the login, logs in and is admitted;
  * - one byte past, `grizzle generate` refuses the name as too long and drafts nothing, and roleNameOf refuses
- *   (RoleNameTooLong) exactly the worlds whose role passes 63 bytes.
+ *   (IdentifierTooLong) exactly the worlds whose role passes 63 bytes.
  *
  * Features: the login's role the longest and a role's, a converted camel-case name, a schema spelled apart from its
  * conversion, at the limit and one byte past.
@@ -54,8 +54,8 @@ export const longNames = property.explore(namesGen, {
 	kills: [
 		{
 			file: "packages/engine/src/core/identity.ts",
-			original: "\tif (utf8Length(named.identifier) > maxIdentifierBytes) {",
-			replacement: "\tif (utf8Length(named.identifier) > maxIdentifierBytes + 1) {",
+			original: "\tif (bytes > maxIdentifierBytes) {",
+			replacement: "\tif (bytes > maxIdentifierBytes + 1) {",
 			why: "The 63-byte rule admits a login's or role's PostgreSQL role of 64 bytes, so one byte past the limit generate drafts where it must refuse."
 		}
 	]

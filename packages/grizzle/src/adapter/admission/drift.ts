@@ -1332,14 +1332,19 @@ const inScratch = (
 	}
 }
 
-/** A role of `of`'s past PostgreSQL's longest identifier under the installation's role prefix, as the snapshot's
- * refusal. */
-const roleTooLong = (of: "login" | "role", fault: InstalledRoleTooLong): CompileError =>
+/** The role of `of` `stem` past PostgreSQL's longest identifier under the installation's role prefix, as the
+ * snapshot's refusal, IdentifierTooLong. */
+const roleTooLong = (
+	of: "login" | "role",
+	stem: string,
+	fault: InstalledRoleTooLong
+): CompileError =>
 	CompileError.make({
-		_tag: "RoleNameTooLong",
+		_tag: "IdentifierTooLong",
 		at: SourceLoc("rolePrefix", []),
-		of,
-		role: fault.role,
+		declaration: `${of} ${stem}`,
+		identifier: fault.role,
+		bytes: fault.bytes,
 		limit: fault.limit
 	})
 
@@ -1347,7 +1352,7 @@ const roleTooLong = (of: "login" | "role", fault: InstalledRoleTooLong): Compile
  * no stem, or a role the installation's role prefix makes too long. */
 const unfilled = (fault: VariableFault): CompileError =>
 	fault.kind === "roleTooLong"
-		? roleTooLong("role", fault)
+		? roleTooLong("role", fault.name, fault)
 		: malformedArtifact("manifest", [], `a role named by its stem, not ${fault.name}`)
 
 /** A statement of the replay: its text and the object of the manifest it builds. */
@@ -1826,7 +1831,9 @@ export const driftCheck = (
 			const expected = roleExpectation(statements, schema, stem, decoder)
 			const installed = installedExpectation(expected, installation.roles)
 			if (!installed.ok) {
-				return yield* Result.fail(roleTooLong(expected.login ? "login" : "role", installed.error))
+				return yield* Result.fail(
+					roleTooLong(expected.login ? "login" : "role", stem, installed.error)
+				)
 			}
 			roles.push(installed.value)
 		}

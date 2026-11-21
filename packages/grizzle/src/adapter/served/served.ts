@@ -161,8 +161,8 @@ const stemmed = <L>(named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin): 
  * it reads names (DecoderOf), is the one LiveSource.layer logs in as, whose password is the layer's. A role's is the one a direct SQL writer's `SET ROLE`
  * names. The installation is the connection, or any part of it (`{}` for one without a role prefix). It reads the stem
  * and evaluates no schema, so the runtime entry loads none of the compiler. It throws CompileError for a login's or a
- * role's name the naming door refused (MalformedDescription, RoleNameTooLong), for a role prefix it refuses
- * (MalformedDescription), and for a role the prefix takes past PostgreSQL's 63 bytes (RoleNameTooLong).
+ * role's name the naming door refused (MalformedDescription, IdentifierTooLong), for a role prefix it refuses
+ * (MalformedDescription), and for a role the prefix takes past PostgreSQL's 63 bytes (IdentifierTooLong).
  */
 export const roleNameOf = <L>(
 	named: AnyLogin | AnyRole | ServedLogin<L> | DecoderLogin,
@@ -178,7 +178,14 @@ export const roleNameOf = <L>(
 	}
 	const role = roleInSpace(space.value, stem)
 	if (!role.ok) {
-		throw CompileError.make({ _tag: "RoleNameTooLong", at, of, ...role.error })
+		throw CompileError.make({
+			_tag: "IdentifierTooLong",
+			at,
+			declaration: `${of} ${stem}`,
+			identifier: role.error.role,
+			bytes: role.error.bytes,
+			limit: role.error.limit
+		})
 	}
 	return role.value
 }

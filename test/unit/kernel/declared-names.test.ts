@@ -108,8 +108,10 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 			kills: [
 				{
 					file: "packages/engine/src/core/identity.ts",
-					original: "\treturn bytes > maxIdentifierBytes",
-					replacement: "\treturn bytes >= maxIdentifierBytes",
+					original:
+						'\treturn bytes > maxIdentifierBytes\n\t\t? Result.err({ kind: "length", conversion, bytes })',
+					replacement:
+						'\treturn bytes >= maxIdentifierBytes\n\t\t? Result.err({ kind: "length", conversion, bytes })',
 					why: "A conversion of exactly maxIdentifierBytes is refused; the byte-limit property fails."
 				},
 				{

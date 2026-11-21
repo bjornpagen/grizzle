@@ -201,7 +201,7 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 					report.outcome === "refused" &&
 						report.refusal._tag === "CliError" &&
 						report.refusal.reason._tag === "DraftRefused" &&
-						report.refusal.reason.error.reason._tag === "RoleNameTooLong",
+						report.refusal.reason.error.reason._tag === "IdentifierTooLong",
 					`generate refuses a role past the limit: ${ran.stderr}`
 				)
 				const drafted = yield* fs.exists(`${dir}/migrations/${allocated}`)
@@ -211,7 +211,7 @@ export const limitCase = (n: Names, c: Case<LimitFeature>) =>
 					if (bytes > maxIdentifierBytes) {
 						throwsRefused(
 							() => roleNameOf(w.world, {}),
-							"RoleNameTooLong",
+							"IdentifierTooLong",
 							`${w.name} past the limit`
 						)
 					} else {

@@ -509,9 +509,11 @@ export const roleSpaceOf = (
 		? Result.ok({ kind: "stems" })
 		: Result.map(parseRolePrefix(rolePrefix), (prefix) => ({ kind: "prefixed", prefix }))
 
-/** An installed role past PostgreSQL's maxIdentifierBytes, which no installation can create or log in as. */
+/** An installed role past PostgreSQL's maxIdentifierBytes, which no installation can create or log in as: the role,
+ * its bytes and the limit. */
 export interface InstalledRoleTooLong {
 	readonly role: string
+	readonly bytes: number
 	readonly limit: number
 }
 
@@ -529,8 +531,9 @@ export const roleInSpace = (
 		return Result.ok(name)
 	}
 	const role = `${space.prefix}${roleSeparator}${name}`
-	return utf8Length(role) > maxIdentifierBytes
-		? Result.err({ role, limit: maxIdentifierBytes })
+	const bytes = utf8Length(role)
+	return bytes > maxIdentifierBytes
+		? Result.err({ role, bytes, limit: maxIdentifierBytes })
 		: Result.ok(role)
 }
 
@@ -1907,16 +1910,22 @@ export type Fitted<K extends "login" | "role"> = Identity<K> & { readonly [fitte
 const fittedOf = <K extends "login" | "role">(named: Identity<K>): Fitted<K> =>
 	nominal<Identity<K>, Fitted<K>>()(named)
 
-/** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as RoleNameTooLong when it does not fit
- * PostgreSQL's maxIdentifierBytes with its schema's name. */
-const fitted = <K extends "login" | "role">(named: Identity<K>, loc: SourceLoc): Fitted<K> => {
-	if (utf8Length(named.identifier) > maxIdentifierBytes) {
+/** A login's or role's PostgreSQL role, `<schema>__<name>`, refused at `loc` as IdentifierTooLong of `declaration`
+ * when it does not fit PostgreSQL's maxIdentifierBytes with its schema's name. */
+const fitted = <K extends "login" | "role">(
+	named: Identity<K>,
+	declaration: string,
+	loc: SourceLoc
+): Fitted<K> => {
+	const bytes = utf8Length(named.identifier)
+	if (bytes > maxIdentifierBytes) {
 		throw new Refusal(
 			CompileError.make({
-				_tag: "RoleNameTooLong",
+				_tag: "IdentifierTooLong",
 				at: loc,
-				of: named.kind,
-				role: named.identifier,
+				declaration,
+				identifier: named.identifier,
+				bytes,
 				limit: maxIdentifierBytes
 			})
 		)
@@ -1931,7 +1940,8 @@ export const loginIdentity = (
 	installation: Identity<"schema">,
 	name: DeclaredName,
 	loc: SourceLoc
-): Fitted<"login"> => fitted(identity.login(installation, name), loc)
+): Fitted<"login"> =>
+	fitted(identity.login(installation, name), `login name ${JSON.stringify(name)}`, loc)
 
 /** A role's PostgreSQL role, its theory role and its stem, under the installation, by the name its ownership declared
  * (schema/own.ts ownRole). */
@@ -1939,4 +1949,5 @@ export const roleIdentity = (
 	installation: Identity<"schema">,
 	name: DeclaredName,
 	loc: SourceLoc
-): Fitted<"role"> => fitted(identity.role(installation, name), loc)
+): Fitted<"role"> =>
+	fitted(identity.role(installation, name), `role name ${JSON.stringify(name)}`, loc)

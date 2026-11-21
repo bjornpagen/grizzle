@@ -32,7 +32,7 @@ const worldName = (
  * A login's stem, minted by the installer's function (core/identity.ts loginIdentity) under the installation its
  * base's declared name gives (schema/own.ts schemaInstallation): the role its migration creates, the one its layer's
  * pool logs in as and admission judges, at the stem; or its refusal, a name the naming door refuses or a role past
- * PostgreSQL's 63 bytes (RoleNameTooLong).
+ * PostgreSQL's 63 bytes (IdentifierTooLong).
  */
 export const loginStem = (login: LoginDesc): Result.Result<string, CompileError> =>
 	Result.flatMap(schemaInstallation(login.base.name, login.base.loc), (installation) =>

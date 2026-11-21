@@ -13,8 +13,8 @@ import type { AnyRole } from "#compiler/types/schema/world.ts"
  * as the installation mints it (schema/own.ts schemaInstallation, core/identity.ts identity.roleSchema), and a schema
  * is the database's, so a role's is its stem's in every installation, whatever its role prefix. It throws CompileError
  * for a value schema(...), schema.extend or role(...) did not build, and for a name the installation refuses: a
- * declared name the naming door refuses (MalformedDescription), a schema's starting with `pg_`, or a role's past
- * PostgreSQL's 63 bytes (RoleNameTooLong).
+ * declared name the naming door refuses (MalformedDescription, or IdentifierTooLong past 63 bytes), a schema's
+ * starting with `pg_`, or a role's past PostgreSQL's 63 bytes (IdentifierTooLong).
  */
 export const schemaNameOf = (of: AnySchema | AnyRole): string => {
 	switch (of.kind) {

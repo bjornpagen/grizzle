@@ -430,9 +430,11 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `OutsideRole`: a program over `role` makes an access the role does not hold (RoleAccess).
  * - `IdentifierCollision`: two declarations whose `what` names, `declaration` and `otherDeclaration`, both convert to
  *   the identifier `identifier`; the one refused is `at`, the other `other`.
- * - `IdentifierTooLong`: a declaration, `declaration` (its kind and name), whose identifier, `identifier`, its name's
- *   conversion, takes `bytes` bytes, past PostgreSQL's `limit` (core/identity.ts maxIdentifierBytes), which PostgreSQL
- *   would cut short: refused where the name is written (admitDeclaredName) and where it is declared.
+ * - `IdentifierTooLong`: a declaration, `declaration` (its kind and name), whose identifier, `identifier`, takes
+ *   `bytes` bytes, past PostgreSQL's `limit` (core/identity.ts maxIdentifierBytes), which PostgreSQL would cut short:
+ *   a declared name's conversion, refused where the name is written (admitDeclaredName) and where it is declared, or a
+ *   login's or role's PostgreSQL role, `<schema>__<name>` (fitted), under the installation's role prefix where it
+ *   has one (roleInSpace).
  * - `DigestCollision`: two distinct objects, `display` and `otherDisplay`, whose hashed names share the stem and the
  *   digest of `identifier` (core/identity.ts digestChars): two of one installation (censusOf), or a migration's
  *   temporary and an object standing while it runs or another temporary (TemporaryCensus); renaming a declaration
@@ -459,8 +461,6 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   there what it means over the fragment, so only the fragment states how its relations are written, and a schema that
  *   lists it may add over them only what refuses: a containment, a row check, a rule over a query.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
- * - `RoleNameTooLong`: a login's or a role's PostgreSQL role, `role` (`<schema>__<name>`), is longer than PostgreSQL's
- *   `limit` bytes.
  * - `GeneratedRefused`: generated field `field` of `relation` breaks the rule `rule`.
  * - `UnfillableField`: the column `field` of `relation`, which grizzle fills by the law `law`, reads the column
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
@@ -660,13 +660,6 @@ export type CompileReason =
 			readonly at: SourceLoc
 			readonly context: string
 			readonly rule: ClaimRule
-	  }
-	| {
-			readonly _tag: "RoleNameTooLong"
-			readonly at: SourceLoc
-			readonly of: "login" | "role"
-			readonly role: string
-			readonly limit: number
 	  }
 	| {
 			readonly _tag: "UnfillableField"
@@ -1109,8 +1102,6 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `login ${reason.login}: ${loginRuleText(reason.rule)}`
 		case "ContextRefused":
 			return `context ${reason.context}: ${claimRuleText(reason.rule)}`
-		case "RoleNameTooLong":
-			return `a ${reason.of} name whose role ${reason.role} fits ${reason.limit} bytes with its schema's name`
 		case "UnfillableField":
 			return unfillableText(reason)
 		case "InstantRefused":

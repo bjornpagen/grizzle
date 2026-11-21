@@ -246,7 +246,7 @@ const nameRole = (
 })
 
 /** `role` named under the installation's `levels`: its PostgreSQL role embeds its base's level, refused as
- * RoleNameTooLong when it does not fit with that level's name (fitted). */
+ * IdentifierTooLong when it does not fit with that level's name (fitted). */
 export const namedRole = (
 	role: OwnedRole,
 	levels: NonEmptyReadonlyArray<Identity<"schema">>

@@ -190,7 +190,7 @@ const connectionOf = <L>(
  * The bound of a role space for the roles of `stems`, each named by `name` under a prefix of `q`s: the longest the
  * prefix may be, the budget or what 63 bytes leave the longest role, whichever is less, or one byte past it where
  * `past`. Past the budget, every name is refused as the prefix's (MalformedDescription); within it, each stem is named,
- * or refused (RoleNameTooLong) past 63 bytes. None where no prefix leaves the longest room.
+ * or refused (IdentifierTooLong) past 63 bytes. None where no prefix leaves the longest room.
  */
 const boundOf = (
 	stems: ReadonlyArray<readonly [string, (installation: RoleInstallation) => string]>,
@@ -212,7 +212,11 @@ const boundOf = (
 	for (const [stem, name] of stems) {
 		const bytes = length + 2 + utf8Length(stem)
 		if (bytes > maxIdentifierBytes) {
-			throwsRefused(() => name({ rolePrefix: prefix }), "RoleNameTooLong", `${stem} past the limit`)
+			throwsRefused(
+				() => name({ rolePrefix: prefix }),
+				"IdentifierTooLong",
+				`${stem} past the limit`
+			)
 		} else {
 			assert.equal(utf8Length(name({ rolePrefix: prefix })), bytes, `${stem} under the prefix`)
 		}
@@ -277,7 +281,7 @@ export const nameCase = (n: Names, c: Case<NameFeature>) =>
 			if (!Arr.every([loginStem, ...roleStems], fitting)) {
 				throwsRefused(
 					() => Arr.map([desk, ...roles], (w) => roleNameOf(w, at)),
-					"RoleNameTooLong",
+					"IdentifierTooLong",
 					"a role past 63 bytes under the space"
 				)
 				return decoder.kind === "none" ? [] : [roleNameOf(decoder, at)]

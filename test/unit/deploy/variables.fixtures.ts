@@ -289,7 +289,16 @@ export const draftCase = (d: Drafting, c: Case<DraftFeature>) =>
 					probe,
 					role.length <= 63
 						? { ok: true, value: `SELECT ${quoteIdent(role)}` }
-						: { ok: false, error: { kind: "roleTooLong", name: d.variable, role, limit: 63 } },
+						: {
+								ok: false,
+								error: {
+									kind: "roleTooLong",
+									name: d.variable,
+									role,
+									bytes: role.length,
+									limit: 63
+								}
+							},
 					`the role's name ${d.variable} fills as its role under the space`
 				)
 			} else if (d.variable === "DBNAME") {
