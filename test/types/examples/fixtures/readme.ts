@@ -1305,6 +1305,10 @@ export const signIn = ChangeSet.empty(Auth)
 		)
 	)
 
+/** What a read of sign-ins delivered, kept as it was read: its instants stored as they are. */
+const SeenSignIn = relation("SeenSignIn", { user: UserId, at: instant.stored }, ["user", "at"])
+export const KeptSignIns = schema("KeptSignIns", [SeenSignIn], [])
+
 /** README: "Levels". */
 /** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
 const Word = str.regex("^[a-z]+$", "u")
