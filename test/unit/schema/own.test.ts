@@ -256,8 +256,7 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 			kills: [
 				{
 					file: "packages/engine/src/schema/own.ts",
-					original:
-						"\t\t\t\t.toSorted((a, b) => (a.text < b.text ? -1 : a.text > b.text ? 1 : 0))\n",
+					original: "\t\t\t\t.toSorted((a, b) => compareStrings(a.identity, b.identity))\n",
 					replacement: "",
 					why: "Statements kept in the order written (schema/own.ts canonicalDesc), so reordering moves the fingerprint; the fingerprint property fails."
 				}

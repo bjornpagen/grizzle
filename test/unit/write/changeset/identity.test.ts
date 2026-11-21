@@ -86,7 +86,8 @@ export const aMembersIdentityIsItsDescriptionsIdentityDigestEqualMembersOneAndEv
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, open))\n",
+				original:
+					"\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, open, unframed))\n",
 				replacement:
 					"\t\t\t\tunwrap(writeCanonical(this.#messages.out, value, this.#options))\n\t\t\t\treturn mintIdentityDigest(this.#messages.hex())\n",
 				why: "The identity digest is the canonical text's, written whole: at 32 levels the text is past the longest string a process holds, so the member is refused where the property builds it."

@@ -6,16 +6,13 @@ import {
 } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import {
-	arrayText,
 	type CanonicalObject,
 	canonicalFormat,
 	canonicalOf,
 	catchRefusal,
 	type EncodeOptions,
 	encode,
-	encodeOver,
 	unwrap,
-	withoutSourceLocs,
 	writeCanonical,
 	writeCanonicalOver,
 	writeOwned
@@ -99,7 +96,7 @@ export class IdentityDigests {
 			const open = new Map<object, WellFormedText>()
 			const read = containerOf(value)
 			if (read !== undefined) {
-				return mintIdentityDigest(this.#containerDigest(read, open))
+				return mintIdentityDigest(this.#containerDigest(read, open, unframed))
 			}
 			unwrap(writeCanonical(this.#messages.out, value, this.#options))
 			return mintIdentityDigest(this.#messages.hex())
@@ -110,9 +107,34 @@ export class IdentityDigests {
 		return identity
 	}
 
+	/**
+	 * The digest of `value` framed by `line`, a fingerprint's domain (`digest`'s frame): SHA-256 of the frame, then
+	 * `value`'s identity text, each container it holds written as its token, as `of` writes it.
+	 */
+	framed(line: WellFormedText, value: unknown): Result.Result<string, CompileError> {
+		const hashed = catchRefusal(() => {
+			const read = containerOf(value)
+			if (read !== undefined) {
+				return this.#containerDigest(read, new Map(), (out) => writeFrame(out, line))
+			}
+			writeFrame(this.#messages.out, line)
+			unwrap(writeCanonical(this.#messages.out, value, this.#options))
+			return this.#messages.hex()
+		})
+		if (!hashed.ok) {
+			this.#messages.discard()
+		}
+		return hashed
+	}
+
 	/** How many containers these digests have digested, each its text hashed once: their work. */
 	get digested(): number {
 		return this.#digested
+	}
+
+	/** How many bytes these digests have hashed, every container's text and every frame: their work, as bytes. */
+	get written(): number {
+		return this.#messages.out.length
 	}
 
 	/** A container's text as a member of another: its digest tagged, digested on its first read. */
@@ -123,7 +145,7 @@ export class IdentityDigests {
 		if (known !== undefined) {
 			return known
 		}
-		const token = wellFormed(`"~${identityTag}:${this.#containerDigest(read, open)}"`)
+		const token = identityToken(this.#containerDigest(read, open, unframed))
 		this.#digested += 1
 		tokens.set(container, token)
 		return token
@@ -133,7 +155,11 @@ export class IdentityDigests {
 	 * The digest of a container's own text: its scalars as `encode` writes them, its containers as their tokens, each
 	 * container's digested before the text is begun, and each member refused in order where `encode` refuses it.
 	 */
-	#containerDigest(read: Container, open: Map<object, WellFormedText>): string {
+	#containerDigest(
+		read: Container,
+		open: Map<object, WellFormedText>,
+		before: (out: Utf8Writer) => void
+	): string {
 		const out = this.#messages.out
 		if (read.kind === "array") {
 			const members = read.items.map((item): Member => {
@@ -144,6 +170,7 @@ export class IdentityDigests {
 				refuseOutside(item, this.#options)
 				return { kind: "scalar", item }
 			})
+			before(out)
 			out.ascii("[")
 			for (const [i, member] of members.entries()) {
 				if (i > 0) {
@@ -166,10 +193,18 @@ export class IdentityDigests {
 				written.set(key, this.#tokenOf(at, open))
 			}
 		}
+		before(out)
 		unwrap(writeCanonicalOver(out, read.record, this.#options, written))
 		return this.#messages.hex()
 	}
 }
+
+/** What a message holds before a container's own identity text where no frame is: nothing. */
+const unframed = (_out: Utf8Writer): void => undefined
+
+/** A container's text as a member of another's identity text: its identity digest, tagged (`identityDigest`). */
+const identityToken = (identity: string): WellFormedText =>
+	wellFormed(`"~${identityTag}:${identity}"`)
 
 /** An array's member as its container's identity text holds it: a container's token, or a scalar written as it is. */
 type Member =
@@ -330,48 +365,19 @@ export const constantDigest = <D extends ConstantDomain>(
 	options: EncodeOptions
 ): ConstantDigest<D> => nominal<string, ConstantDigest<D>>()(ownedDigest(domain, value, options))
 
-declare const levelTextBrand: unique symbol
-
 /**
- * The canonical text of one level of a schema description, without its SourceLocs, minted only by schemaLevel: what the
- * level's fingerprint hashes, and what the text of each level above it holds among its `bases`.
+ * A schema level's fingerprint: SHA-256 over the domain-separated identity text of `{ content: level }` without the
+ * SourceLocs its descs carry under "loc" (ir/desc.ts), which are presentation, excluded from semantic identity. The text
+ * is built Merkle-style (IdentityDigests): every array and record the level holds, its bases among them, written as its
+ * own identity digest's token, so a query its relations read by many paths is digested once, and the levels of one
+ * owned schema, read by one IdentityDigests, digest each part they share once (schema/own.ts hashedLevels): a level's
+ * text is linear in its distinct parts, where its canonical text, a union chain's, doubles with each level.
  */
-export type LevelText = WellFormedText & { readonly [levelTextBrand]: true }
-
-const mintLevelText = nominal<WellFormedText, LevelText>()
-
-/** A schema level's canonical text and its fingerprint (schemaLevel). */
-export interface SchemaLevel {
-	readonly text: LevelText
-	readonly fingerprint: SchemaFingerprint
-}
-
-/**
- * A schema level's canonical text and fingerprint, over the levels `bases` it extends, in its own order, none for the
- * root. The fingerprint is SHA-256 over the domain-separated canonical text of `{ content: level }`, without the
- * SourceLocs its descs carry under "loc" (ir/desc.ts), which are presentation, excluded from semantic identity. A level
- * holds its bases under `bases`, each base's text the one its own fingerprint hashed, so that member is written from
- * those texts (core/canonical.ts encodeOver, arrayText) and no base is ever encoded again.
- */
-export const schemaLevel = (
-	level: unknown,
-	bases: ReadonlyArray<SchemaLevel>
-): Result.Result<SchemaLevel, CompileError> =>
-	Result.flatMap(
-		encodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),
-		(text) => {
-			const message = framed(schemaDomain)
-			return Result.map(
-				writeCanonicalOver(
-					message.out,
-					{ content: level },
-					withoutSourceLocs,
-					new Map([["content", text]])
-				),
-				() => ({ text: mintLevelText(text), fingerprint: SchemaFingerprint(message.hex()) })
-			)
-		}
-	)
+export const schemaFingerprint = (
+	identities: IdentityDigests,
+	level: unknown
+): Result.Result<SchemaFingerprint, CompileError> =>
+	Result.map(identities.framed(schemaDomain, { content: level }), SchemaFingerprint)
 
 /** A schema level's digest domain and a roster's handles', proved well-formed once, as the module loads. */
 const schemaDomain = wellFormed("schema")

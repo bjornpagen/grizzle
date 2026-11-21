@@ -235,3 +235,37 @@ export const allocatedBy = (f: () => unknown): number => {
 	}
 	return (getHeapStatistics().total_allocated_bytes - before) / 8
 }
+
+/**
+ * A schema level whose one derived relation reads a union chain `depth` deep, each level a union of `reads` rules, every
+ * rule reading the one object of the level below, as a Description shares the queries it imports by reference: its
+ * canonical text spells the leaf reads^depth times, its parts are linear in the depth.
+ */
+export const chainLevel = (depth: number, reads: number): unknown => {
+	let query: unknown = Object.freeze({
+		kind: "base",
+		relation: "Node",
+		fields: Object.freeze(["id", "kind"])
+	})
+	for (let at = 0; at < depth; at++) {
+		const below = query
+		query = Object.freeze({
+			kind: "union",
+			arms: Object.freeze(
+				Array.from({ length: reads }, (_, rule) =>
+					Object.freeze({ rule: `r${rule + 1}`, reads: below })
+				)
+			)
+		})
+	}
+	return Object.freeze({
+		name: "Chain",
+		relations: Object.freeze([Object.freeze({ name: "Top", definition: query })]),
+		statements: Object.freeze([]),
+		bases: Object.freeze([])
+	})
+}
+
+/** A union chain's depth and its levels' reads (chainLevel). */
+export const chainGen: Gen<readonly [number, number]> = (source) =>
+	[source.draw(int(1, 12)), source.draw(int(2, 3))] as const

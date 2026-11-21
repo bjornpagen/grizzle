@@ -1,4 +1,4 @@
-import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	lastNonEmpty,
@@ -20,7 +20,7 @@ import {
 	prose,
 	undeclaredRelation
 } from "#compiler/core/errors.ts"
-import { type SchemaLevel, schemaLevel } from "#compiler/core/fingerprint.ts"
+import { type IdentityDigest, schemaFingerprint } from "#compiler/core/fingerprint.ts"
 import {
 	admitSchemaName,
 	conversionOf,
@@ -51,6 +51,7 @@ import {
 	conjunctsOf,
 	type ContextDesc,
 	decodeRoleOver,
+	descIdentities,
 	descText,
 	descTextOver,
 	type ExprDesc,
@@ -258,12 +259,12 @@ export interface OwnedContract {
  *
  * Semantic identity excludes allocation order, callback identity, aliases and source locations.
  * Equivalent declarations agree: a relation, closed relation or statement declared twice identically is one
- * declaration, and the canonical description sorts each level's relations by name and its statements by canonical
- * text, and a closed relation holds its rows as a set by key (ir/desc.ts AdmittedClosedRelation). A statement is
- * canonicalized first: a check's and a selection's conjunctions and disjunctions have their operands in canonical
- * order, each comparison its canonical orientation and each IN list its values in canonical order, so that reordered
- * but equal declarations share one text. Roster order is kept, because it is comparison order. The fingerprint hashes
- * that canonical description (core/fingerprint.ts schemaLevel).
+ * declaration, and the canonical description sorts each level's relations by name and its statements by identity
+ * digest (ir/desc.ts descIdentities), and a closed relation holds its rows as a set by key (ir/desc.ts
+ * AdmittedClosedRelation). A statement is canonicalized first: a check's and a selection's conjunctions and
+ * disjunctions have their operands in canonical order, each comparison its canonical orientation and each IN list its
+ * values in canonical order, so that reordered but equal declarations share one text. Roster order is kept, because it
+ * is comparison order. The fingerprint hashes that canonical description (core/fingerprint.ts schemaFingerprint).
  * PostgreSQL identifiers are part of the installation artifact, not of the fingerprint.
  *
  * The owned schema: the frozen schema product (desc and fingerprint, ir/products.ts) with what ownership resolved
@@ -724,6 +725,8 @@ interface StatementEntry {
 	readonly desc: StatementDesc
 	readonly level: number
 	readonly text: string
+	/** The statement's identity digest (ir/desc.ts descIdentities): its place in a level's canonical order. */
+	readonly identity: IdentityDigest
 }
 
 /** The entries of a map in name order, as `[...map.keys()].sort()` orders the names. */
@@ -1185,22 +1188,16 @@ type LevelFingerprints = (
 ) => NonEmptyReadonlyArray<{ readonly level: SchemaDesc; readonly fingerprint: SchemaFingerprint }>
 
 /**
- * Each level's fingerprint hashed over its canonical description: the digest of the canonical description it tops,
- * each level's text written once and read by the level above (core/fingerprint.ts schemaLevel). What `grizzle
- * generate` and `grizzle check` record and verify.
+ * Each level's fingerprint hashed over its canonical description (core/fingerprint.ts schemaFingerprint), the levels'
+ * one identity digests reading each part they share once: a base, which the level above holds among its bases, and a
+ * query its relations read by many paths. What `grizzle generate` and `grizzle check` record and verify.
  */
 const hashedLevels: LevelFingerprints = (levels) => {
-	const hashed = new Map<SchemaDesc, SchemaLevel>()
-	return mapNonEmpty(levels, (level) => {
-		const at = unwrap(
-			schemaLevel(
-				level,
-				level.bases.map((b) => defined(hashed.get(b), "a level's bases come before it"))
-			)
-		)
-		hashed.set(level, at)
-		return { level, fingerprint: at.fingerprint }
-	})
+	const identities = descIdentities()
+	return mapNonEmpty(levels, (level) => ({
+		level,
+		fingerprint: unwrap(schemaFingerprint(identities, level))
+	}))
 }
 
 /** A level of a schema as its installation's snapshot records it: its declared name and its fingerprint. */
@@ -1240,6 +1237,8 @@ class Owner {
 	readonly #levels: NonEmptyReadonlyArray<SchemaDesc>
 	readonly #relations = new Map<string, RelationEntry>()
 	readonly #statements: Array<StatementEntry> = []
+	/** The identity digests of the statements, each part they share digested once (StatementEntry identity). */
+	readonly #identities = descIdentities()
 	/** Each ordinary relation's namespace of row checks, filled as its check statements are owned. */
 	readonly #checkNames = new Map<string, DeclaredNamespace>()
 	/**
@@ -1279,7 +1278,7 @@ class Owner {
 		const statements = this.#statements.map((s) => {
 			const statement = this.#checkStatement(s)
 			this.#checkLevels(s)
-			return { text: s.text, level: s.level, statement }
+			return { text: s.text, identity: s.identity, level: s.level, statement }
 		})
 		this.#checkRaces(statements.map((s) => s.statement))
 		const relations = this.#ownRelations(statements.map((s) => s.statement))
@@ -1295,7 +1294,7 @@ class Owner {
 		const fieldIds = Object.values(relations)
 			.flatMap((r) => Object.values(r.fields).map((f) => f.id))
 			.toSorted()
-		const ordered = statements.toSorted((a, b) => (a.text < b.text ? -1 : 1))
+		const ordered = statements.toSorted((a, b) => compareStrings(a.identity, b.identity))
 		return {
 			desc: canonical,
 			fingerprint,
@@ -1635,7 +1634,12 @@ class Owner {
 			for (const { form, text } of statements) {
 				if (!seen.has(text)) {
 					seen.add(text)
-					this.#statements.push({ desc: form, level, text })
+					this.#statements.push({
+						desc: form,
+						level,
+						text,
+						identity: unwrap(this.#identities.of(form))
+					})
 				}
 			}
 		}
@@ -2499,7 +2503,7 @@ class Owner {
 			}
 			const statements = this.#statements
 				.filter((s) => s.level === level)
-				.toSorted((a, b) => (a.text < b.text ? -1 : a.text > b.text ? 1 : 0))
+				.toSorted((a, b) => compareStrings(a.identity, b.identity))
 				.map((s) => s.desc)
 			return schemaLevelDesc({
 				name: schema.name,

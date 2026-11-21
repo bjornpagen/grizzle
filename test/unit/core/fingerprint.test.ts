@@ -18,8 +18,13 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect, Formatter, Record } from "effect"
-import { encode, everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
-import { digest, identityDigest, schemaLevel } from "#compiler/core/fingerprint.ts"
+import { everyProperty, withoutSourceLocs } from "#compiler/core/canonical.ts"
+import {
+	digest,
+	IdentityDigests,
+	identityDigest,
+	schemaFingerprint
+} from "#compiler/core/fingerprint.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { specified } from "#test/unit/core/canonical.fixtures.ts"
 import {
@@ -28,6 +33,8 @@ import {
 	changes,
 	contentWith,
 	allocatedBy,
+	chainGen,
+	chainLevel,
 	type DigestFeature,
 	digestGen,
 	type DomainFeature,
@@ -63,7 +70,8 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 						? { ...p, content: { ...Record.fromEntries(entries), loc: "Paris" } }
 						: p
 				const after = changed(before, change, there, entries)
-				const schema = (q: Parts) => succeeded(schemaLevel(q.content, [])).fingerprint
+				const schema = (q: Parts) =>
+					succeeded(schemaFingerprint(new IdentityDigests(withoutSourceLocs), q.content))
 				const schemaParts: ReadonlySet<Change> = new Set(["content", "a non-SourceLoc loc"])
 				assert.equal(
 					schema(after) !== schema(before),
@@ -72,13 +80,10 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 				)
 				assert.equal(schema({ ...before, content: stripped(before.content) }), schema(before))
 				const above = { ...Record.fromEntries(entries), loc: there, bases: [before.content] }
-				const written: string = succeeded(
-					schemaLevel(above, [succeeded(schemaLevel(before.content, []))])
-				).text
-				assert.equal(
-					written,
-					succeeded(encode(above, withoutSourceLocs)),
-					"a level over its base, its base written from the base's text, as it is encoded whole"
+				assert.equal<string>(
+					schema({ content: above }),
+					platformDigest(framedText("schema", identitySpecified({ content: stripped(above) }))),
+					"a level over its base: SHA-256 of its frame and its content's identity text, its base by its token"
 				)
 				c.note(change)
 			}),
@@ -94,18 +99,17 @@ export const fingerprintsCoverEveryPartTheContractNamesAndNothingElse = property
 		{
 			file: "packages/engine/src/core/fingerprint.ts",
 			original:
-				'\t\tencodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),',
+				"\tResult.map(identities.framed(schemaDomain, { content: level }), SchemaFingerprint)",
 			replacement:
-				'\t\tencodeOver(level, { omit: () => false }, new Map([["bases", arrayText(bases.map((b) => b.text))]])),',
-			why: "a level encoded with every property, its SourceLocs kept in the text; the parts property fails."
+				"\tResult.map(identities.framed(rosterDomain, { content: level }), SchemaFingerprint)",
+			why: "a level framed under another domain; the parts property's specified fingerprint differs."
 		},
 		{
 			file: "packages/engine/src/core/fingerprint.ts",
 			original:
-				'\t\tencodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.text))]])),',
-			replacement:
-				'\t\tencodeOver(level, withoutSourceLocs, new Map([["bases", arrayText(bases.map((b) => b.fingerprint))]])),',
-			why: "a level over a base written with the base's fingerprint in place of its text; the parts property's base differential fails."
+				"\tResult.map(identities.framed(schemaDomain, { content: level }), SchemaFingerprint)",
+			replacement: "\tResult.map(identities.framed(schemaDomain, level), SchemaFingerprint)",
+			why: "a level's fingerprint hashes the level where its content's record holds it; the specified fingerprint differs."
 		}
 	]
 })
@@ -234,3 +238,47 @@ export const aDigestAllocatesNoHeapForEachCharacterOfTheStringsItEncodes = prope
 		]
 	}
 )
+
+/** A schema level's fingerprint hashes bytes linear in its distinct parts: a union chain one level deeper adds as many bytes at every depth, where its canonical text doubles. */
+export const aSchemaLevelsFingerprintHashesBytesLinearInItsDistinctPartsAUnionChainOneLevelDeeperAddsAsManyBytesAtEveryDepth =
+	property.explore(chainGen, {
+		needs: {},
+		situations: [],
+		check:
+			() =>
+			([depth, reads]) =>
+				Effect.sync(() => {
+					/** The bytes the fingerprint of a chain `d` deep hashes. */
+					const hashed = (d: number): number => {
+						const identities = new IdentityDigests(withoutSourceLocs)
+						succeeded(schemaFingerprint(identities, chainLevel(d, reads)))
+						return identities.written
+					}
+					const step = hashed(depth + 1) - hashed(depth)
+					assert.equal(
+						hashed(depth + 2) - hashed(depth + 1),
+						step,
+						`a chain of ${reads} reads a level, one level deeper past ${depth + 1}, adds the ${step} bytes it adds past ${depth}`
+					)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "a Merkle text, each part written once as its token: linear in the parts"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: "\t\tconst tokens = Object.isFrozen(container) ? this.#tokens : open\n",
+				replacement: "\t\tconst tokens = new Map<object, WellFormedText>()\n",
+				why: "No container's token is kept, so each is digested at every path that reaches it: a chain one level deeper hashes reads times the bytes."
+			},
+			{
+				file: "packages/engine/src/core/fingerprint.ts",
+				original: "\t\tconst token = identityToken(this.#containerDigest(read, open, unframed))\n",
+				replacement:
+					'\t\tconst token = unwrap(encode(read.kind === "array" ? read.items : read.record, this.#options))\n',
+				why: "A container is written as its canonical text, the tree, where its token stands: the level's text spells the leaf at every path, and a chain one level deeper hashes reads times the bytes."
+			}
+		]
+	})
