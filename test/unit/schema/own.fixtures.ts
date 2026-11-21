@@ -98,8 +98,6 @@ export const TaskIds = materializedDerived(
 
 export const Reports = schema.extend([Work], "Reports", [TaskIds], [], [])
 
-export const wordGen = matching(arkregex("^[A-Z][a-z]{1,7}$"))
-
 /**
  * A word no fixture declares, as a name or a handle: a word that ends in a digit, which no declared name or handle of the
  * fixtures does.

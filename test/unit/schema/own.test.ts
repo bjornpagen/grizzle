@@ -108,7 +108,6 @@ import {
 	TaskIds,
 	undeclaredWordGen,
 	withStatements,
-	wordGen,
 	Work,
 	wrapped
 } from "#test/unit/schema/own.fixtures.ts"
@@ -266,13 +265,19 @@ export const theOwnedProductFingerprintsCanonicalContentOrderRepeatsAndLocations
 		}
 	)
 
-/** Conflicting declarations refuses a name claimed twice with conflicting meaning, and owns the same meaning twice as one declaration. Its budget is its suite's before it was a property (test/unit/schema/own.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
+/**
+ * Conflicting declarations refuses a name claimed twice with conflicting meaning, and owns the same meaning twice as one
+ * declaration. The claimed contract's name is a word no fixture declares (undeclaredWordGen), so the only claims of it
+ * are the case's two: a word that is a declared name, the tests' Id among them, is claimed by the fixture's own fields
+ * too, with another meaning, a DuplicateIdentity the agreeing case does not state. Its budget is its suite's before it
+ * was a property (test/unit/schema/own.test.ts at 4ca3036a): 300 runs and 300 steered cases.
+ */
 export const conflictingDeclarationsRefusesANameClaimedTwiceWithConflictingMeaningAndOwnsTheSameMeaningTwiceAsOneDeclaration =
 	property.explore(
 		(source) => ({
 			conflict: source.draw(element(conflicts)),
 			agree: source.draw(boolean),
-			name: source.draw(wordGen),
+			name: source.draw(undeclaredWordGen),
 			n: source.draw(bigint(0n, 9n)),
 			swapped: source.draw(boolean)
 		}),
