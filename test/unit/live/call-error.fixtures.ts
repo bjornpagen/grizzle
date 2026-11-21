@@ -2,7 +2,15 @@
 
 import { constants } from "node:os"
 import { word } from "@bjornpagen/testing/dictionary"
-import { boolean, characterOf, element, type Gen, string, weighted } from "@bjornpagen/testing/gen"
+import {
+	aimed,
+	boolean,
+	characterOf,
+	element,
+	type Gen,
+	string,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import {
 	type ApplyError,
@@ -493,12 +501,29 @@ const pathsOf = (failure: Failure): Arr.NonEmptyReadonlyArray<Path> => {
 	}
 }
 
-/** A case: a failure and a path it meets a call on (pathsOf). */
-export const metGen: Gen<Drawn> = (source) => {
-	const failure = source.draw(failureGen)
-	const path = source.draw(element(pathsOf(failure)))
-	return { failure, path }
-}
+/** A case of `failures`: a failure and a path it meets a call on (pathsOf). */
+const metOf =
+	(failures: Gen<Failure>): Gen<Drawn> =>
+	(source) => {
+		const failure = source.draw(failures)
+		const path = source.draw(element(pathsOf(failure)))
+		return { failure, path }
+	}
+
+/** The socket's failure with one of `codes`. */
+const socketOf =
+	(codes: Arr.NonEmptyReadonlyArray<string>): Gen<Failure> =>
+	(source) => ({ kind: "socket", code: source.draw(element(codes)) })
+
+/**
+ * The drawn cases (failureGen), aimed at the reasons only a few socket codes read as: `connectionRefused`, ECONNREFUSED
+ * or ENOENT, and `timedOut`, ETIMEDOUT alone, the operating system's verdict, since no connect timeout of grizzle's
+ * raises one.
+ */
+export const metGen = aimed<Drawn, ConnectFeature>(metOf(failureGen), [
+	["connectionRefused", metOf(socketOf(["ECONNREFUSED", "ENOENT"]))],
+	["timedOut", metOf(socketOf(["ETIMEDOUT"]))]
+])
 
 /** The connection a failure is, as the adapter classifies it (failures.ts ConnectRefusal). */
 const connectRefusalOf = (

@@ -205,7 +205,7 @@ interface Running {
  *   a FATAL ErrorResponse and ends the session; `lose` ends the connection with no answer. `hold` runs until a
  *   CancelRequest and is refused 57014 then; `late` finishes just as the CancelRequest arrives, too late to stop it, and
  *   answers its rows; `stuck` runs while the server is unreachable, so no CancelRequest reaches it (CancelEnd
- *   `unreached`), until the connection is destroyed. Past a
+ *   `unreached`, once every answer the server had made reached the client), until the connection is destroyed. Past a
  *   statement a CancelRequest stopped, the server runs the rest of the flight in order, as PostgreSQL runs a pipeline
  *   on for a client that keeps its connection, which an abandoned flight does until the server has ended it
  *   (wire/batch.ts abandon).
@@ -378,7 +378,29 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		flight.onAnswer(index, taking(flight.pipeline[index], answer))
 	}
 
+	/**
+	 * The CancelRequests that cannot reach the server, each waiting to end `unreached` until the running flight owes the
+	 * client nothing: the operating system's verdict that a server is unreachable comes after every answer its session's
+	 * connection already carried.
+	 */
+	const unreachedWaits: Array<() => void> = []
+
+	/** Ends every unreached CancelRequest once nothing is owed. */
+	const verdict = (): void => {
+		if (!owesAnswers()) {
+			for (const ended of unreachedWaits.splice(0)) {
+				ended()
+			}
+		}
+	}
+
 	const deliverOne = (): void => {
+		handOver()
+		verdict()
+	}
+
+	/** Hands the client the next answer owed, or the connection's end. */
+	const handOver = (): void => {
 		const flight = running
 		const owed = flight?.owed.shift()
 		if (flight === undefined || owed === undefined) {
@@ -462,7 +484,19 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			return Effect.succeed("sent")
 		}
 		if (waiting.waiting === "stuck") {
-			return Effect.succeed("unreached")
+			return Effect.callback<CancelEnd>((resume) => {
+				const ended = (): void => {
+					resume(Effect.succeed("unreached"))
+				}
+				unreachedWaits.push(ended)
+				verdict()
+				return Effect.sync(() => {
+					const at = unreachedWaits.indexOf(ended)
+					if (at >= 0) {
+						unreachedWaits.splice(at, 1)
+					}
+				})
+			})
 		}
 		const query = flight.pipeline[waiting.index]
 		flight.waiting = undefined

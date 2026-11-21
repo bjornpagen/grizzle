@@ -89,10 +89,9 @@ export const theConfigurationsConnectionGeneratedResolvesToExactlyTheDrawnRoleAn
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/connection/config.ts",
-				original:
-					"export const timerDelay = (v: number): boolean => integerIn(v, timerMinMs, timerMaxMs)",
-				replacement: "export const timerDelay = (v: number): boolean => false",
-				why: "Operator mutant (boolean-return) at packages/grizzle/src/adapter/connection/config.ts:169 in timerDelay: `integerIn(v, timerMinMs.value, timerMaxMs.value)` becomes `false`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\t\t\tauthority,\n\t\t\tservername\n\t\t})",
+				replacement: "\t\t\tauthority,\n\t\t\tservername: host\n\t\t})",
+				why: "The parsed transport names its host as the servername TLS verifies, where the configuration names its own: the drawn connection's servername is not resolved; the agreement fails."
 			}
 		]
 	})
