@@ -55,7 +55,10 @@ export interface Declarations {
  *   dropped top-down and what is built over a column converted in place dropped before its conversion, then new
  *   tables, each table's one
  *   alteration (its new columns, conversions by cast, set-aside columns, identities and law columns, and a new table's
- *   own constraints); then, when Structure holds a data step, SET CONSTRAINTS ALL IMMEDIATE, after which every data
+ *   own constraints); then, when Structure holds a data step, every immutability guard of a table the previous
+ *   installation guards dropped (physical/ddl/immutable.ts guardBracket, diff.ts unguard: DROP TRIGGER, which takes
+ *   ACCESS EXCLUSIVE on each such table until the migration commits, where DISABLE TRIGGER took SHARE ROW EXCLUSIVE)
+ *   and SET CONSTRAINTS ALL IMMEDIATE, after which every data
  *   step runs (diff.ts checkedAtOnce): the reviewer's UPDATE a placeholder column invites, written right after it, then
  *   each table's fill of its set-aside fields (Action fill), once every placeholder column of every table holds its
  *   value; then, once every table's fill has run, so every fill reads every old column it joins on, each table's
@@ -65,7 +68,8 @@ export interface Declarations {
  *   DROP DEFAULT of each column it drew; then each of those views populated (structure.refresh), bottom-up in install
  *   order, once every row it reads is written, so no committed state holds a view the target declares unpopulated;
  *   then each table's one alteration adding the
- *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn; and last the roles' changed
+ *   constraints of tables that may hold rows, NOT VALID, after every value they read is drawn, and each dropped guard
+ *   created again as the previous installation created it; and last the roles' changed
  *   views, world functions and policies created again with their grants, each whose role stands before the migration:
  *   in the one transaction that dropped them, so no committed state lacks one an existing role relies on;
  * - indexes: ordinary CREATE INDEX on relations this migration creates, which hold no row but a new view's, which only
@@ -268,8 +272,6 @@ export const alterationPass = (a: AlterTableAction): AlterTablePass => {
 		case "alterConstraintDeferral":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
-		case "enableTrigger":
-		case "disableTrigger":
 		case "replicaIdentity":
 			return "misc"
 	}

@@ -3215,8 +3215,6 @@ class Model {
 					break
 				case "enableRowSecurity":
 				case "disableRowSecurity":
-				case "enableTrigger":
-				case "disableTrigger":
 				case "replicaIdentity":
 					this.#table(s.table)
 					break

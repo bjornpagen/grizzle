@@ -397,9 +397,6 @@ const tableWord = (s: Extract<SqlStatement, { readonly kind: "alterTable" }>): s
 	if (rest.length === 0 && action.kind === "setExpression") {
 		return `set expression ${s.table.name}.${action.column}`
 	}
-	if (rest.length === 0 && (action.kind === "disableTrigger" || action.kind === "enableTrigger")) {
-		return `${action.kind === "disableTrigger" ? "disable" : "enable"} trigger ${s.table.name}.${action.name}`
-	}
 	if (rest.length > 0 || action.kind !== "alterColumnType" || action.type.kind !== "named") {
 		return `other alterTable`
 	}
@@ -442,6 +439,12 @@ const statementWord = (s: SqlStatement): string => {
 	}
 	if (s.kind === "alterTable") {
 		return tableWord(s)
+	}
+	if (s.kind === "dropTrigger") {
+		return `drop trigger ${s.table.name}.${s.name}`
+	}
+	if (s.kind === "createUpdateGuardTrigger") {
+		return `create trigger ${s.table.name}.${s.name}`
 	}
 	return `other ${s.kind}`
 }
@@ -546,9 +549,9 @@ const predicted = (
 			out.push(
 				["setup", `create domain ${now.bits}`],
 				["structure", `placeholder column ${table}.${setColumn}`],
-				["structure", `disable trigger ${table}.${guardTrigger}`],
+				["structure", `drop trigger ${table}.${guardTrigger}`],
 				["structure.immediate", "other setConstraintsImmediate"],
-				["structure.constraints", `enable trigger ${table}.${guardTrigger}`],
+				["structure.constraints", `create trigger ${table}.${guardTrigger}`],
 				["validate", `replace guard ${table}`]
 			)
 		} else if (liveChanged) {

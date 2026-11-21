@@ -4,13 +4,14 @@ import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import type {
-	AlterTable,
 	CreateUpdateGuardTrigger,
+	DropTrigger,
 	EmittedText,
 	Expr,
 	ObjectName,
 	PlFunction,
-	Revoke
+	Revoke,
+	SqlStatement
 } from "#compiler/sql/ast.ts"
 import { call, lit, objectName, types } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
@@ -20,38 +21,64 @@ import { emptyNameMap } from "#compiler/sql/naming.ts"
 export const immutableTriggerName: string = identifierOf(identity.immutableTrigger())
 
 /**
- * The bracket of a migration's data steps on guarded tables, the one spelling of it: each guard of `guarded` disabled,
- * `ALTER TABLE <t> DISABLE TRIGGER <guard>`, before the steps and enabled again after them, in their one transaction,
- * so no committed state, nor any other transaction, sees a guard disabled, and a step that fails rolls the disabling
- * back with it. Only where the set comes from differs: a draft's, from the previous installation's manifest
- * (deploy/diff/diff.ts unguard), and a custom migration's, from the catalog where its file runs (dataStepBracket).
+ * The bracket of a migration's data steps on guarded tables, the one spelling of it: each guard of `guards`, its
+ * table's trigger as the installation the migration follows created it, dropped, `DROP TRIGGER <guard> ON <t>`, before
+ * the steps, and created again as it stood after them, in their one transaction, so no committed state, nor any other
+ * transaction, sees a table without its guard, and a step that fails rolls the dropping back with it. Only where the
+ * guards come from differs: a draft's, from the previous installation's manifest (deploy/diff/diff.ts unguard), and a
+ * custom migration's, from the catalog where its file runs (dataStepBracket).
+ *
+ * Dropped, never disabled: PostgreSQL counts a disabled trigger among a table's BEFORE ROW UPDATE triggers (trigger.c
+ * SetTriggerFlags reads no tgenabled), and an UPDATE of a table that holds one computes every stored generated column of
+ * every row it writes, whatever it assigns (nodeModifyTable.c ExecInitGenerated, so the anchor a backfill assigns,
+ * sql/generation.ts, saves nothing), and copies the table's key columns' bitmap into its query's memory once a row
+ * (trigger.c ExecBRUpdateTriggers, execMain.c ExecUpdateLockMode), so a backfill's UPDATE holds memory that grows with
+ * its rows (test/pg/migrate/generated-fill-memory). Measured on 19.0, an UPDATE of a table of 49 stored generated
+ * columns at 1,000, 2,000, 4,000 and 8,000 rows: ExecutorState 262144, 262144, 262144 and 524288 bytes with a BEFORE ROW
+ * UPDATE trigger enabled or disabled, 131072 at every size with none.
+ *
+ * DROP TRIGGER takes ACCESS EXCLUSIVE on its table, where ALTER TABLE ... DISABLE TRIGGER took SHARE ROW EXCLUSIVE, so a
+ * migration with data steps holds every guarded table locked against reads too until it commits. A served Db is fenced
+ * from the installation while a migration runs (its prologue's snapshot guard), so only a direct SQL reader waits, for
+ * the migration's one transaction.
  */
 export const guardBracket = (
-	guarded: ReadonlyArray<ObjectName>
-): { readonly disable: ReadonlyArray<AlterTable>; readonly enable: ReadonlyArray<AlterTable> } => {
-	const toggled = (kind: "disableTrigger" | "enableTrigger"): ReadonlyArray<AlterTable> =>
-		guarded.map((table) => ({
-			kind: "alterTable",
-			table,
-			actions: [{ kind, name: immutableTriggerName }]
-		}))
-	return { disable: toggled("disableTrigger"), enable: toggled("enableTrigger") }
+	guards: ReadonlyArray<CreateUpdateGuardTrigger>
+): {
+	readonly drop: ReadonlyArray<DropTrigger>
+	readonly create: ReadonlyArray<CreateUpdateGuardTrigger>
+} => ({
+	drop: guards.map((g) => ({ kind: "dropTrigger", name: g.name, table: g.table, ifExists: false })),
+	create: guards
+})
+
+/** A guard the catalog holds where a custom migration's file runs: its table and its trigger's function. */
+export interface InstalledGuard {
+	readonly table: ObjectName
+	readonly function: ObjectName
 }
 
 /**
  * A custom migration's data step's bracket (guardBracket) as the runner sends it (adapter/migrate/apply.ts), over the
- * tables the catalog holds a guard on where the step runs.
+ * guards the catalog holds where the step runs, each created again over the function its trigger calls.
  */
 export const dataStepBracket = (
-	guarded: ReadonlyArray<ObjectName>
+	guards: ReadonlyArray<InstalledGuard>
 ): {
-	readonly disable: ReadonlyArray<EmittedText>
-	readonly enable: ReadonlyArray<EmittedText>
+	readonly drop: ReadonlyArray<EmittedText>
+	readonly create: ReadonlyArray<EmittedText>
 } => {
-	const { disable, enable } = guardBracket(guarded)
-	const texts = (statements: ReadonlyArray<AlterTable>): ReadonlyArray<EmittedText> =>
+	const { drop, create } = guardBracket(
+		guards.map((g): CreateUpdateGuardTrigger => ({
+			kind: "createUpdateGuardTrigger",
+			name: immutableTriggerName,
+			table: g.table,
+			function: g.function
+		}))
+	)
+	const texts = (statements: ReadonlyArray<SqlStatement>): ReadonlyArray<EmittedText> =>
 		statements.map((statement) => emitText(statement, emptyNameMap).text)
-	return { disable: texts(disable), enable: texts(enable) }
+	return { drop: texts(drop), create: texts(create) }
 }
 
 /** The fields of `relation` its guard holds fixed: every field its rows never change in place, but a generated one. */
@@ -108,9 +135,9 @@ const rowOf = (
  *
  * The function names the fields by name, never by number, so no catalog dependency ties it to a column: a migration
  * converts, renames and drops the table's columns under it, and replaces its body, in Validate, as it does a law
- * function's (deploy/diff/diff.ts); Structure's data steps on a table it guards run with its trigger disabled, enabled
- * again in the same transaction (diff.ts unguard), so a migration writes the rows its fields' changes call for and no
- * committed state holds a disabled guard.
+ * function's (deploy/diff/diff.ts); Structure's data steps on a table it guards run with its trigger dropped, created
+ * again in the same transaction (guardBracket, diff.ts unguard), so a migration writes the rows its fields' changes call
+ * for and no committed state holds a table without its guard.
  *
  * Each guard is created in Validate after its table, as a rule's capture is; a mutable relation, whose puts update it in
  * place, takes none.

@@ -717,8 +717,6 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 						case "dropConstraint":
 						case "enableRowSecurity":
 						case "disableRowSecurity":
-						case "enableTrigger":
-						case "disableTrigger":
 						case "replicaIdentity":
 						case "setExpression":
 							return []

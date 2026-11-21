@@ -1,21 +1,21 @@
 /**
  * A custom migration's data step writes an immutable relation's rows, on PostgreSQL 19 (adapter/migrate/apply.ts
  * guardBracket, physical/ddl/immutable.ts dataStepBracket): the README's promise that a migration's data steps on a
- * guarded table run with its guard disabled and enable it again in the same transaction, held for a data step written by
+ * guarded table run with its guard dropped and create it again in the same transaction, held for a data step written by
  * hand, which grizzle drafts no bracket into.
  *
  * Each case installs Sets, an immutable relation holding a set over a roster of two handles, one row holding both, and
  * migrates a custom migration (`grizzle generate --custom`) whose data step rewrites the row's set to the empty one:
  *
- * - **commits:** the step applies, the row holds the empty set, and the guard is enabled again, so the owner's own
+ * - **commits:** the step applies, the row holds the empty set, and the guard stands again, so the owner's own
  *   UPDATE of the row outside any migration is refused, 42501;
  * - **fails:** the step's later statement fails (22012), the migration stops at it, the row holds its set as before,
- *   and the guard is enabled, the owner's UPDATE refused 42501: the step's disabling rolled back with it;
+ *   and the guard stands, the owner's UPDATE refused 42501: the step's dropping rolled back with it;
  * - **alone:** a no-transaction file has no transaction to bracket, so the guard refuses its UPDATE and the migration
  *   says why: a no-transaction custom step cannot write a guarded table; use a transactional step;
  * - **at a draft's slot:** a draft whose Structure fills another immutable relation's new field by its placeholder holds
  *   a data-step slot, where the reviewer's step rewrites Sets' set: the draft brackets every table the installation
- *   guards and the next version keeps, so the folder applies and Sets' guard is enabled again after it;
+ *   guards and the next version keeps, so the folder applies and Sets' guard stands again after it;
  * - **before a roster shrink:** a custom step clears a handle's bit from Sets, and the migration removing the handle,
  *   applied with it, finds no set holding it: the README's "change or delete those rows in a data step first".
  *
@@ -118,7 +118,7 @@ export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGu
 				),
 		oracle: {
 			kind: "specification",
-			name: "README: an immutable table's guard, and a migration's data steps run with it disabled and enabled again in their transaction"
+			name: "README: an immutable table's guard, and a migration's data steps run with it dropped and created again in their transaction"
 		},
 		box: "each way a custom data step runs",
 		kept: [],
@@ -133,7 +133,7 @@ export const aCustomDataStepWritesAGuardedTableInsideItsTransactionsBracketItsGu
 			{
 				file: "packages/engine/src/deploy/diff/diff.ts",
 				original:
-					'\t\t\treturn v.kind === "table" && guarded.has(nameKey(v.create.table)) ? [v.create.table] : []\n',
+					'\t\t\treturn v.kind === "immutableTrigger" && kept.has(nameKey(v.create.table)) ? [v.create] : []\n',
 				replacement: "\t\t\treturn []\n",
 				why: "A draft brackets no guarded table at its data-step slot: the reviewer's UPDATE of Sets there is refused, 42501."
 			},

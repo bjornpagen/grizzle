@@ -1896,7 +1896,7 @@ schema.
   immutable table carries an immutability guard, a `BEFORE UPDATE` row trigger that refuses an UPDATE changing any field
   but the few grizzle itself rewrites in place (a family member's copy of a mutable owner's column, which the owner
   axis's ON UPDATE CASCADE carries, and a retirement), whoever runs it, its owner included, with 42501 naming the table.
-  A migration's data steps on such a table run with the guard disabled and enable it again in the same transaction:
+  A migration's data steps on such a table run with the guard dropped and create it again in the same transaction:
   a draft's and the data step you write at its place, over every table the previous version guards and this one keeps,
   and a custom migration's (`generate --custom`) transactional file, over every guard the database holds as it runs. A
   `-- grizzle: no-transaction` file has no transaction to do that in, so it cannot write a guarded table.
@@ -5358,7 +5358,13 @@ flight. From the first file until the last commits, and while a stopped run leav
 fails at once with a `stale` `CallError` (`StaleSnapshot`, reason `Migrating`) before any statement runs, but for a
 deferrable read begun while a statement of a `-- grizzle: no-transaction` file runs: it first waits for that statement,
 as for any SERIALIZABLE write, then fails `stale`. After the migration, a `Db` opened at the old snapshot fails with `stale` (reason `Migrated`),
-and keeps failing: deploy the code that carries the new served files and open new `Db`s with them.
+and keeps failing: deploy the code that carries the new served files and open new `Db`s with them. A migration whose
+Structure holds a data step (a backfill, a fill, a reviewer's UPDATE) drops the immutability guard of every immutable
+relation's table before its data steps and creates it again after them, in the same transaction, so a direct SQL reader
+of any such table also waits for the migration to commit: DROP TRIGGER takes ACCESS EXCLUSIVE. Only dropped, never
+disabled, does the guard leave the steps' UPDATEs as fast as the table without it: PostgreSQL counts a disabled
+BEFORE ROW UPDATE trigger as one, which makes an UPDATE compute every stored generated column of every row it writes
+and hold memory that grows with its rows.
 
 **Each transaction checks the snapshot.** Every transaction a `Db` sends starts with two statements in the same round
 trip: one takes the ledger's lock without waiting, so a running migration refuses it at once and the app never waits;

@@ -70,8 +70,6 @@ const actionCreated = (table: ObjectName, a: AlterTableAction): ReadonlyArray<Cr
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
-		case "enableTrigger":
-		case "disableTrigger":
 		case "replicaIdentity":
 			return []
 	}

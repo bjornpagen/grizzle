@@ -1581,8 +1581,6 @@ const withColumns = (
 			case "dropConstraint":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
-			case "enableTrigger":
-			case "disableTrigger":
 			case "replicaIdentity":
 				return a
 		}

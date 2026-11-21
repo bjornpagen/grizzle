@@ -9,7 +9,12 @@
  * (nodeModifyTable.c ExecInitGenerated), in the query's memory, which nothing frees until the statement ends: each
  * expression's tree parsed again, 83 KB a row over qti.attribute on 19rc1, whose ExecInitGenerated 19.0 keeps. So the
  * backfill assigns Member's anchor to itself
- * (sql/generation.ts), `cheap`, whose one reader is the cheapest to compute again.
+ * (sql/generation.ts), `cheap`, whose one reader is the cheapest to compute again. And it runs with no BEFORE ROW
+ * UPDATE trigger on Member: the immutability guard is dropped for the migration's data steps and created again after
+ * them (physical/ddl/immutable.ts guardBracket). A disabled one would still count (trigger.c SetTriggerFlags), so the
+ * UPDATE would compute all 49 generated columns of every row and copy the table's key bitmap into ExecutorState once a
+ * row (execMain.c ExecUpdateLockMode), memory that grows with the rows (red at the pin's cut, where the guard was
+ * disabled). The migration's drift check holds the guard re-created as the previous installation had it.
  *
  * Property: the ExecutorState of the fold's backfill UPDATE of Member, read by a statement-level trigger as the UPDATE
  * ends, holds no more bytes at 2n and at 4n members than at n: what an UPDATE builds once is the same at every size,
@@ -89,6 +94,19 @@ export const generatedFillMemory = property.exhaust(finite(memberGen), {
 				"\treturn anchor === undefined\n\t\t? brand(set)\n\t\t: brand([...set, { column: anchor.column, value: col(target, anchor.column) }])",
 			replacement: "\treturn anchor === undefined ? brand(set) : brand(set)",
 			why: "No anchor: the fold's backfill UPDATE sets only Member's accumulators, so PostgreSQL builds Member's 50 generation expressions again for every row and ExecutorState grows with the members."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/immutable.ts",
+			original:
+				'\tdrop: guards.map((g) => ({ kind: "dropTrigger", name: g.name, table: g.table, ifExists: false })),\n\tcreate: guards\n',
+			replacement: "\tdrop: [],\n\tcreate: []\n",
+			why: "The data steps run with every guard in place, a BEFORE ROW UPDATE trigger on Member: the backfill UPDATE computes all 49 generated columns of each row and copies Member's key bitmap into ExecutorState once a row, so its memory grows with the members, as a disabled guard's did."
+		},
+		{
+			file: "packages/engine/src/physical/ddl/immutable.ts",
+			original: "\tcreate: guards\n",
+			replacement: "\tcreate: []\n",
+			why: "A guard dropped for the data steps is never created again: the migration's drift check finds Member and Owner without the trigger their snapshot records, and the migration is refused."
 		}
 	]
 })

@@ -1654,10 +1654,6 @@ const printAlterTableAction = (action: AlterTableAction): string => {
 			return "ENABLE ROW LEVEL SECURITY"
 		case "disableRowSecurity":
 			return "DISABLE ROW LEVEL SECURITY"
-		case "enableTrigger":
-			return `ENABLE TRIGGER ${quoteIdent(action.name)}`
-		case "disableTrigger":
-			return `DISABLE TRIGGER ${quoteIdent(action.name)}`
 		case "replicaIdentity":
 			return action.identity === "full" ? "REPLICA IDENTITY FULL" : "REPLICA IDENTITY DEFAULT"
 		case "setExpression":

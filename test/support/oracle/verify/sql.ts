@@ -2586,8 +2586,6 @@ class StatementAuditor {
 									return
 								case "enableRowSecurity":
 								case "disableRowSecurity":
-								case "enableTrigger":
-								case "disableTrigger":
 								case "replicaIdentity":
 									return
 							}

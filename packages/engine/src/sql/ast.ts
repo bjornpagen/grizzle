@@ -1471,15 +1471,6 @@ export type AlterTableAction =
 	| { readonly kind: "disableRowSecurity" }
 	| {
 			/**
-			 * ENABLE TRIGGER and DISABLE TRIGGER <name>: an immutability guard (physical/ddl/immutable.ts) disabled for a
-			 * migration's data steps on its table and enabled again after them, in one transaction, so no committed state
-			 * holds it disabled (deploy/diff/diff.ts unguard).
-			 */
-			readonly kind: "enableTrigger" | "disableTrigger"
-			readonly name: string
-	  }
-	| {
-			/**
 			 * REPLICA IDENTITY FULL or DEFAULT: what an update's or a delete's WAL record keeps of the row it changed, every
 			 * column or the primary key's, which the installation's live source decodes its old routing values from
 			 * (physical/ddl/live.ts).
@@ -1520,8 +1511,6 @@ export const addedColumn = (a: AlterTableAction): ColumnDef | undefined => {
 		case "dropConstraint":
 		case "enableRowSecurity":
 		case "disableRowSecurity":
-		case "enableTrigger":
-		case "disableTrigger":
 		case "replicaIdentity":
 		case "setExpression":
 			return undefined

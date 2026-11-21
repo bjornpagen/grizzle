@@ -2691,29 +2691,30 @@ class Differ {
 	}
 
 	/**
-	 * The bracket of Structure's data steps (physical/ddl/immutable.ts guardBracket), where it holds one, after SET
-	 * CONSTRAINTS ALL IMMEDIATE: every table the previous installation guards that the target keeps, its guard disabled
-	 * in Structure, before the first data step, and enabled again in structure.constraints, after the last, in
-	 * Structure's one transaction. Every such table, never only those the draft's own steps write: a reviewer's data step
-	 * written at that place (README, Migrations) writes what it writes, a guarded table's rows a removed code holds among
-	 * them, which the guard would refuse as a change of a fixed field; no other transaction sees a guard disabled, nor
-	 * any committed state holds it so. A table the previous installation does not guard takes its guard in Validate,
-	 * after every data step.
+	 * The bracket of Structure's data steps (physical/ddl/immutable.ts guardBracket), where it holds one: every guard the
+	 * previous installation holds on a table the target keeps, its trigger dropped at the end of Structure, before SET
+	 * CONSTRAINTS ALL IMMEDIATE and the first data step, and created again as the previous installation created it in
+	 * structure.constraints, after the last, in Structure's one transaction, so what Validate drafts of the guard reads
+	 * the previous installation's trigger standing, as it would with no bracket. Every such table, never only those the
+	 * draft's own steps write: a reviewer's data step written at that place (README, Migrations) writes what it writes, a
+	 * guarded table's rows a removed code holds among them, which the guard would refuse as a change of a fixed field; no
+	 * other transaction sees a table without its guard, nor any committed state holds one so. A table the previous
+	 * installation does not guard takes its guard in Validate, after every data step.
 	 */
 	unguard(): void {
-		const guarded = new Set(
-			[...this.prev.values()].flatMap((o) => {
+		const kept = new Set(
+			[...this.next.values()].flatMap((o) => {
 				const v = installed(o)
-				return v.kind === "immutableTrigger" ? [nameKey(v.create.table)] : []
+				return v.kind === "table" ? [nameKey(v.create.table)] : []
 			})
 		)
-		const kept = [...this.next.values()].flatMap((o) => {
+		const guards = [...this.prev.values()].flatMap((o) => {
 			const v = installed(o)
-			return v.kind === "table" && guarded.has(nameKey(v.create.table)) ? [v.create.table] : []
+			return v.kind === "immutableTrigger" && kept.has(nameKey(v.create.table)) ? [v.create] : []
 		})
-		const bracket = guardBracket(kept)
-		this.sql("structure", bracket.disable)
-		this.sql("structure.constraints", bracket.enable)
+		const bracket = guardBracket(guards)
+		this.sql("structure", bracket.drop)
+		this.sql("structure.constraints", bracket.create)
 	}
 
 	/** The steps of a field's change in place from `b` to `c` (inPlace), its conversion by its cast or its placeholder

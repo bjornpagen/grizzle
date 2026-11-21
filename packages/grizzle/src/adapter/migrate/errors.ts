@@ -714,7 +714,7 @@ const rowsFix = (failure: StatementFailure): string =>
 
 /**
  * Statement `statement` (1-based) of a custom migration's no-transaction file `folder`/`file` wrote `table`, whose
- * immutability guard refused it: a statement run alone has no transaction for the guard to be disabled in and enabled
+ * immutability guard refused it: a statement run alone has no transaction for the guard to be dropped in and created
  * again before it commits, as a transactional data step's is (apply.ts guardBracket), so it must run in one.
  */
 export class GuardedTableUnbracketed extends Data.TaggedError("GuardedTableUnbracketed")<{

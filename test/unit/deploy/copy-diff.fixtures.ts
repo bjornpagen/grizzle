@@ -597,8 +597,6 @@ const alterationTouches = (
 			case "alterConstraintDeferral":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
-			case "enableTrigger":
-			case "disableTrigger":
 			case "replicaIdentity":
 				break
 		}

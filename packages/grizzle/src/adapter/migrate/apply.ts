@@ -120,6 +120,7 @@ import {
 	type FolderLaws,
 	immutableTriggerName,
 	type InstallationNames,
+	type InstalledGuard,
 	type ProofStatements,
 	proofStatements,
 	proofsIdent
@@ -373,30 +374,48 @@ const schemaOwner: CatalogQuery<string> = {
 }
 
 /**
- * The tables of the schemas $2 that carry the immutability guard $1 (physical/ddl/immutable.ts immutableTriggerName),
- * each by its schema and name: the guards a custom migration's data step runs under, read where the step runs, under
- * the apply lock, so a folder applied before it in the same apply, which adds or drops a guard, is read as it left them.
+ * The guards of the schemas $2, each a table that carries the immutability guard $1 (physical/ddl/immutable.ts
+ * immutableTriggerName) by its schema and name, and the function its trigger calls: the guards a custom migration's
+ * data step runs under, read where the step runs, under the apply lock, so a folder applied before it in the same
+ * apply, which adds or drops a guard, is read as it left them, and each is created again over the function it called.
  */
-const guardedTables: CatalogQuery<{ readonly schema: string; readonly name: string }> = (() => {
+const guardedTables: CatalogQuery<InstalledGuard> = (() => {
 	const g = C.from("pg_trigger", "g")
 	const c = C.from("pg_class", "c")
 	const n = C.from("pg_namespace", "n")
+	const f = C.from("pg_proc", "f")
+	const fn = C.from("pg_namespace", "fn")
 	return {
 		sql: emitCatalog(
 			C.query(
-				[C.asText(n.col("nspname")), C.asText(c.col("relname"))],
-				[g.item, c.item, n.item],
+				[
+					C.asText(n.col("nspname")),
+					C.asText(c.col("relname")),
+					C.asText(fn.col("nspname")),
+					C.asText(f.col("proname"))
+				],
+				[g.item, c.item, n.item, f.item, fn.item],
 				C.and([
 					C.eq(g.col("tgrelid"), c.col("oid")),
 					C.eq(c.col("relnamespace"), n.col("oid")),
+					C.eq(g.col("tgfoid"), f.col("oid")),
+					C.eq(f.col("pronamespace"), fn.col("oid")),
 					C.eq(g.col("tgname"), C.param(1, "text")),
 					C.any(n.col("nspname"), C.arrayParam(2, "text"))
 				])
 			)
 		),
 		what: "a guarded table",
-		row: ([schema, name]) =>
-			schema === undefined || name === undefined ? undefined : { schema, name }
+		row: ([schema, name, functionSchema, functionName]) =>
+			schema === undefined ||
+			name === undefined ||
+			functionSchema === undefined ||
+			functionName === undefined
+				? undefined
+				: {
+						table: { schema, name },
+						function: { schema: functionSchema, name: functionName }
+					}
 	}
 })()
 
@@ -753,23 +772,23 @@ const runFile = (
 	]
 	/**
 	 * The file's transaction: the ledger's lock, then, bracketing its statements if it runs them inside it, each guard
-	 * `bracket` disables and enables again (a custom migration's data step's, guardBracket), then its rows. A refusal
+	 * `bracket` drops and creates again (a custom migration's data step's, guardBracket), then its rows. A refusal
 	 * names the lock, the statement or the row that refused it, as the migration states the server's refusal
-	 * (refusalOf), a guard's disabling the lock's and its enabling the rows'.
+	 * (refusalOf), a guard's dropping the lock's and its creating the rows'.
 	 */
 	const transaction = (count: number, bracket: ReturnType<typeof dataStepBracket>) =>
 		Effect.catch(
 			session.transaction([
 				...fence,
-				...Arr.map(bracket.disable, (sql) => oneShotStatement(sql, [])),
+				...Arr.map(bracket.drop, (sql) => oneShotStatement(sql, [])),
 				...Arr.map(file.statements.slice(0, count), (sql) => oneShotStatement(sql, [])),
-				...Arr.map(bracket.enable, (sql) => oneShotStatement(sql, [])),
+				...Arr.map(bracket.create, (sql) => oneShotStatement(sql, [])),
 				...record
 			]),
 			(failure: BatchFailure | InputTooLarge) => {
 				switch (failure._tag) {
 					case "BatchRefused": {
-						const index = failure.index - fence.length - bracket.disable.length
+						const index = failure.index - fence.length - bracket.drop.length
 						return Effect.flatMap(refusalOf(session, failure.failure), (refusal) =>
 							Effect.fail(
 								index < 0
@@ -866,7 +885,7 @@ const guardedRead = (
 	levels: ReadonlyArray<string>,
 	at: RecordPlace,
 	schema: string
-): Effect.Effect<ReadonlyArray<{ readonly schema: string; readonly name: string }>, MigrateError> =>
+): Effect.Effect<ReadonlyArray<InstalledGuard>, MigrateError> =>
 	Effect.mapError(
 		Effect.flatMap(
 			session.apart([
@@ -886,14 +905,14 @@ const guardedOf = (
 ): Effect.Effect<ReadonlySet<string>, MigrateError> =>
 	Effect.map(
 		guardedRead(session, levels, at, schema),
-		(tables) => new Set(Arr.map(tables, (t) => `${t.schema}.${t.name}`))
+		(guards) => new Set(Arr.map(guards, (g) => `${g.table.schema}.${g.table.name}`))
 	)
 
 /**
  * The bracket of a custom migration's transactional file, a data step written by hand: every guard the catalog holds on
- * a table of the installation's levels (guardedRead), each disabled before the file's statements and enabled again
- * after them, in its one transaction (physical/ddl/immutable.ts dataStepBracket). Every guard, never the tables a
- * file's statements write, which no reading of hand-written SQL decides.
+ * a table of the installation's levels (guardedRead), each dropped before the file's statements and created again over
+ * its function after them, in its one transaction (physical/ddl/immutable.ts dataStepBracket). Every guard, never the
+ * tables a file's statements write, which no reading of hand-written SQL decides.
  */
 const guardBracket = (
 	session: MigrationSession,
@@ -901,9 +920,7 @@ const guardBracket = (
 	at: RecordPlace,
 	schema: string
 ): Effect.Effect<ReturnType<typeof dataStepBracket>, MigrateError> =>
-	Effect.map(guardedRead(session, levels, at, schema), (tables) =>
-		dataStepBracket(Arr.map(tables, (t) => ({ schema: t.schema, name: t.name })))
-	)
+	Effect.map(guardedRead(session, levels, at, schema), dataStepBracket)
 
 /** Whether the schema's ledger exists before a transaction of the apply: absent only before its first file committed. */
 type LedgerTable = LedgerRead["kind"]

@@ -1010,8 +1010,6 @@ export class Transform {
 			case "setRetirementDefault":
 			case "enableRowSecurity":
 			case "disableRowSecurity":
-			case "enableTrigger":
-			case "disableTrigger":
 			case "replicaIdentity":
 				return a
 		}
