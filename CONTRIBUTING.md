@@ -392,17 +392,33 @@ suite's residual risk. A longer search is a fuzz run, `pnpm fuzz <suite>`.
 
 ### Settled decisions (do not reopen)
 
-- **No automatic hashing of keys or lookups (2026-11-20).** grizzle holds every key, UNIQUE, family axis, reference
-  target and drafted lookup column as itself: it never installs a column over a digest of its own (no SHA-256 image of a
-  key's text or numeric, no `md5` lookup expression), and never rewrites a statement to compare digests. A key whose
-  widest entry, in any order of its columns, could pass PostgreSQL's B-tree limit (2,704 bytes), or that holds a text of
-  no byte bound, is refused at compile as `UnrepresentableKey`, naming the relation, the key, the field and the fix:
-  declare a byte bound (`str.bytes(n)`) or a precision, or key by an explicit digest field the schema declares, a
-  generated `Crypto.sha256(x)`. A drafted lookup leaves a column that cannot fit out of its index, a filter beside it.
-  The rule is README "Keys and indexes". Bjorn, verbatim: "yes, if no one requires automatic hashing, and if it's
-  spooky action, hard revert it, get grizzle green, and tell all the subagents to repin. huge keys are almost certainly
-  a bug anyways, we should never be getting anywhere near the hash limit for grizzle right? can we please pin and
-  document this so this never gets overturned again". Why:
+- **No silent hashing: keys at PostgreSQL's natural limits, explicit SHA-256 digests, never md5 (2026-11-20,
+  2026-11-21).** grizzle holds every key, UNIQUE, family axis, reference target and drafted lookup column as itself: it
+  never installs a column over a digest of its own (no SHA-256 image of a key's text or numeric, no `md5` lookup
+  expression), and never rewrites a statement to compare digests. A key whose widest entry, in any order of its
+  columns, could pass PostgreSQL's B-tree limit (2,704 bytes), or that holds a text of no byte bound, is refused at
+  compile as `UnrepresentableKey`, naming the relation, the key, the field and the fix. A drafted lookup leaves a column
+  that cannot fit out of its index, a filter beside it. The rule is README "Keys and indexes". A schema sizes its keys
+  from its data:
+  - **Key texts are bounded at PostgreSQL's natural limits.** A key's text takes the byte bound its key's B-tree entry
+    leaves it (`str.bytes(keyTextBytes(fields))`), checked against the longest value the real data holds, so almost
+    every table keys by its texts as themselves.
+  - **Only a field whose real data does not fit spills to an explicit digest**: a field the author declares beside it,
+    `generated(sha256, Crypto.sha256(row.text))`, SHA-256's raw 32 bytes, which the key holds like any other field. A
+    read by the text states the digest's equality itself. The digest's cost stands in the schema, where its author chose
+    it; grizzle never derives one.
+  - **Never md5.** Every digest grizzle and its tests compute is SHA-256. md5 stands only where an outside system
+    defines the digest (an integration's own, such as Timeback's), never in grizzle.
+
+  Bjorn, verbatim, 2026-11-20: "yes, if no one requires automatic hashing, and if it's spooky action, hard revert it,
+  get grizzle green, and tell all the subagents to repin. huge keys are almost certainly a bug anyways, we should never
+  be getting anywhere near the hash limit for grizzle right? can we please pin and document this so this never gets
+  overturned again". 2026-11-21: "my problem was never hashes, it was SILENT hashes, TRANSPARENT hashes. zig
+  philosophy, costs should be EXPLICIT, not implicit. hard refactor it everywhere"; "and never md5. lmfao. sha256";
+  "hard cull all md5 … except when we integrate with timeback or externally"; and on the bounds: "so, data driven.
+  postgres natural limits, for any fields that don't fit we spill over to explicit digests." Why:
+  - **Costs are explicit.** A digest costs a column, a computation on every write and a read that states it. A schema
+    that pays them says so; a hidden one changed what every statement over the key cost at a size no one wrote down.
   - **Action at a distance.** A key that crossed an invisible width moved to a hidden column, every statement over it
     changed shape, and a reference listing the same columns in another order could decide differently from the key it
     lands on.

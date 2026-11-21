@@ -73,7 +73,7 @@ import {
 	type ProgramField,
 	type Stored
 } from "#test/support/oracle/public/program.ts"
-import { spread } from "#test/support/plans.ts"
+import { sha256Uuid, spread } from "#test/support/plans.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { upTo } from "#test/support/up-to.ts"
 
@@ -111,7 +111,7 @@ const fieldSql = (
 		case "prose":
 			return `'p' || (${value})::text`
 		case "uuid":
-			return `md5('${salt}:' || (${value})::text)::uuid`
+			return sha256Uuid(`'${salt}:' || (${value})::text`)
 		case "handle":
 			return handle(value)
 		case "span4":
@@ -323,21 +323,21 @@ const Indexed: SchemaDesc = {
  * halves a page's entries in the column's order, never tells standby's values apart.
  */
 const indexedLoads: ReadonlyArray<VolumeLoad> = [
-	{ relation: "Line", fields: [["id", "md5('line:' || g)::uuid"]] },
+	{ relation: "Line", fields: [["id", sha256Uuid("'line:' || g")]] },
 	{
 		relation: "Deposit",
 		fields: [
-			["line", "md5('line:' || g)::uuid"],
-			["account", `md5('account:' || ${spread(1, 141)})::uuid`],
+			["line", sha256Uuid("'line:' || g")],
+			["account", sha256Uuid(`'account:' || ${spread(1, 141)}`)],
 			["remainder", "(g % 2 = 0)"]
 		]
 	},
 	{
 		relation: "Event",
 		fields: [
-			["id", "md5('event:' || g)::uuid"],
-			["tenant", `md5('tenant:' || ${spread(2, 141)})::uuid`],
-			["account", `md5('account:' || ${spread(3, 141)})::uuid`],
+			["id", sha256Uuid("'event:' || g")],
+			["tenant", sha256Uuid(`'tenant:' || ${spread(2, 141)}`)],
+			["account", sha256Uuid(`'account:' || ${spread(3, 141)}`)],
 			["created", spread(4, 141)],
 			["unrelated", spread(5, 141)],
 			["live", "(g % 2 = 0)"]
@@ -346,9 +346,9 @@ const indexedLoads: ReadonlyArray<VolumeLoad> = [
 	{
 		relation: "Booking",
 		fields: [
-			["room", `md5('room:' || ${spread(6, 141)})::uuid`],
+			["room", sha256Uuid(`'room:' || ${spread(6, 141)}`)],
 			["during", "int4range(g * 10, g * 10 + 5)"],
-			["id", `md5('booking:' || ${spread(7, 141)})::uuid`],
+			["id", sha256Uuid(`'booking:' || ${spread(7, 141)}`)],
 			["held", "(g % 2 = 0)"]
 		]
 	},
@@ -356,7 +356,7 @@ const indexedLoads: ReadonlyArray<VolumeLoad> = [
 		relation: "Shift",
 		fields: [
 			["standby", "(g % 10 = 0)"],
-			["worker", `md5('worker:' || ${spread(8, 141)})::uuid`],
+			["worker", sha256Uuid(`'worker:' || ${spread(8, 141)}`)],
 			["during", "int4range(g * 10, g * 10 + 5)"]
 		]
 	}
@@ -403,7 +403,7 @@ const rotaLoad = (plan: RealInstallPlan, shades: number): VolumeLoad => {
 				"shade",
 				`(ARRAY[${codes}]::int2[])[CASE WHEN g % 10 = 0 THEN 2 + (g / 10) % ${shades - 1} ELSE 1 END]::${rosterDomainSql(plan, "Shade")}`
 			],
-			["worker", `md5('rota:' || ${spread(9, 141)})::uuid`],
+			["worker", sha256Uuid(`'rota:' || ${spread(9, 141)}`)],
 			["during", "int4range(g * 10, g * 10 + 5)"]
 		]
 	}

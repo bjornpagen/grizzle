@@ -27,6 +27,7 @@ import {
 	plannedIndexes,
 	recordingMembers,
 	sentProblems,
+	sha256Uuid,
 	spread,
 	unanalyzed
 } from "#test/support/plans.ts"
@@ -76,16 +77,16 @@ export const theWorkedExamplesPlansEverySelectiveReadThroughItsIndexesOnDrawnSma
 										const load = [
 											`TRUNCATE ${Arr.join(Arr.map(relations, table), ", ")}`,
 											`INSERT INTO ${table("Account")} (${columns("Account", ["id", "name"])}) ` +
-												`SELECT md5('account:' || g)::uuid, 'account ' || lpad(g::text, 6, '0') ${series(sizes.accounts)}`,
+												`SELECT ${sha256Uuid("'account:' || g")}, 'account ' || lpad(g::text, 6, '0') ${series(sizes.accounts)}`,
 											`INSERT INTO ${table("Task")} (${columns("Task", ["id", "account", "kind"])}) ` +
-												`SELECT md5('task:' || g)::uuid, md5('account:' || ${spread(1, sizes.accounts)})::uuid, ` +
+												`SELECT ${sha256Uuid("'task:' || g")}, ${sha256Uuid(`'account:' || ${spread(1, sizes.accounts)}`)}, ` +
 												`(CASE WHEN g % 2 = 0 THEN ${codeOf(kind, "Automatic")} ELSE ${codeOf(kind, "Manual")} END)::smallint ${series(sizes.tasks)}`,
 											`INSERT INTO ${table("AutomaticTask")} (${columns("AutomaticTask", ["task", "budget"])}) ` +
-												`SELECT md5('task:' || (2 * g))::uuid, ${spread(2, 10_000)} ${series(sizes.tasks / 2)}`,
+												`SELECT ${sha256Uuid("'task:' || (2 * g)")}, ${spread(2, 10_000)} ${series(sizes.tasks / 2)}`,
 											`INSERT INTO ${table("ManualTask")} (${columns("ManualTask", ["task", "operator"])}) ` +
-												`SELECT md5('task:' || (2 * g + 1))::uuid, 'operator ' || g ${series(sizes.tasks / 2)}`,
+												`SELECT ${sha256Uuid("'task:' || (2 * g + 1)")}, 'operator ' || g ${series(sizes.tasks / 2)}`,
 											`INSERT INTO ${table("TaskNote")} (${columns("TaskNote", ["task", "note"])}) ` +
-												`SELECT md5('task:' || (3 * g))::uuid, 'note ' || g ${series(Math.floor((sizes.tasks - 1) / 3) + 1)}`
+												`SELECT ${sha256Uuid("'task:' || (3 * g)")}, 'note ' || g ${series(Math.floor((sizes.tasks - 1) / 3) + 1)}`
 										]
 										yield* Effect.onError(
 											Effect.gen(function* () {

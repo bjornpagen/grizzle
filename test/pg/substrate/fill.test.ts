@@ -111,7 +111,10 @@ export const chunkedFill = property.explore(fillSpace, {
 					[]
 				)
 				const rowsOf = (relation: string) =>
-					s.admin.queryValues(`SELECT k::text, pg_catalog.md5(pad) FROM ${relation} ORDER BY k`, [])
+					s.admin.queryValues(
+						`SELECT k::text, pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pad, 'UTF8')), 'hex') FROM ${relation} ORDER BY k`,
+						[]
+					)
 				const filledRows = yield* rowsOf(table)
 				const twinRows = yield* rowsOf(twin)
 				assert.deepEqual(

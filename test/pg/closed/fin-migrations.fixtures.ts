@@ -243,7 +243,7 @@ const declaredAt = (h: History, stages: ReadonlyArray<Stage>, v: number): Declar
 /** What a version reads: the functions each probe's CHECK reads, each probe's verdicts, and Step's rows. */
 interface Observed {
 	readonly step: ReadonlyArray<string>
-	/** Each function Step's CHECK reads, by its name, beside the digest of its definition. */
+	/** Each function Step's CHECK reads, by its name, beside its definition. */
 	readonly stepBodies: ReadonlyArray<readonly [string, string]>
 	readonly stepProduct: ReadonlyArray<string>
 	readonly verdicts: ReadonlyArray<readonly [Option.Option<string>, Option.Option<string>]>
@@ -310,10 +310,7 @@ export const finCase = (h: History, c: Case<FinFeature>) =>
 						)
 					const bodies = (r: string) =>
 						Effect.map(
-							values(
-								owner,
-								reached(r, "p.proname::text, pg_catalog.md5(pg_catalog.pg_get_functiondef(p.oid))")
-							),
+							values(owner, reached(r, "p.proname::text, pg_catalog.pg_get_functiondef(p.oid)")),
 							(rows) => Arr.map(rows, (row) => [String(row[0]), String(row[1])] as const)
 						)
 					const insert = (r: string, probe: Row) =>

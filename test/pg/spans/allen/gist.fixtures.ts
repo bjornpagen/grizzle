@@ -20,6 +20,7 @@ import { compileTestWorkload, testCompile } from "#test/support/compile.ts"
 import { decodedQuery, type AuthoredExprDesc as ExprDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id, idDesc } from "#test/support/ids.ts"
 import { installationNamesOf } from "#test/support/kernel/naming.ts"
+import { sha256Uuid } from "#test/support/plans.ts"
 import { type ScriptInstall, filledScriptTemplate } from "#test/support/script-template.ts"
 import { volumeFill } from "#test/support/substrate/fill.ts"
 import { Substrate, type SubstrateCase, worldSession } from "#test/support/substrate/substrate.ts"
@@ -257,7 +258,7 @@ const gistTemplate = (size: Size) =>
 									],
 									[
 										'"guest"',
-										`md5((g / ${size.perRoom})::text || ':' || (g % ${size.perRoom})::text)::uuid`
+										sha256Uuid(`(g / ${size.perRoom})::text || ':' || (g % ${size.perRoom})::text`)
 									]
 								]
 							}

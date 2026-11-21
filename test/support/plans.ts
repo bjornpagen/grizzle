@@ -40,6 +40,14 @@ import type { RoleDefault } from "#test/support/substrate/substrate.ts"
 export const spread = (salt: number, distinct: number): string =>
 	`((pg_catalog.hashint8extended(g::int8, ${salt}) % ${distinct} + ${distinct}) % ${distinct})`
 
+/**
+ * A load's uuid named by the SQL text `text`: the first 16 of the 32 bytes of its UTF-8 bytes' SHA-256, cast to a uuid
+ * as PostgreSQL 19 casts 16 bytes. A load's ids spread over the uuid's order as drawn ones do, and one text names one
+ * id in every table that reads it, so a row's foreign key is its parent's text again.
+ */
+export const sha256Uuid = (text: string): string =>
+	`pg_catalog.substring(pg_catalog.sha256(pg_catalog.convert_to(${text}, 'UTF8')), 1, 16)::uuid`
+
 /** The nodes that scan a stored relation. */
 const relationScans: ReadonlySet<string> = new Set([
 	"Seq Scan",

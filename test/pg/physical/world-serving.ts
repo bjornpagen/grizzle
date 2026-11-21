@@ -105,7 +105,7 @@ import { type Installed, installMigrated } from "#test/support/install-migrate.t
 import { workloadOf } from "#test/support/installed.ts"
 import { roleNamesOf } from "#test/support/kernel/naming.ts"
 import type { SqlError } from "#test/support/pg.ts"
-import { spread, unanalyzed } from "#test/support/plans.ts"
+import { sha256Uuid, spread, unanalyzed } from "#test/support/plans.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
 import type { VolumeFillRefused } from "#test/support/substrate/fill.ts"
 import { Substrate, worldSession } from "#test/support/substrate/substrate.ts"
@@ -376,7 +376,7 @@ const plantedInstall = (c: WorldCase): InstallSpec => {
  * subject (`^u_[a-z]{1,8}$`) spells one in five letters, an integer or a contract field is the number itself. The value
  * of a number no load reaches is one no row holds.
  */
-const uuidOf = (g: string): string => `pg_catalog.md5('u:' || (${g})::text)::uuid`
+const uuidOf = (g: string): string => sha256Uuid(`'u:' || (${g})::text`)
 const letter = (g: string, place: number): string =>
 	`pg_catalog.chr(97 + ((${g}) / ${26 ** place} % 26)::int4)`
 const subjectOf = (g: string): string =>

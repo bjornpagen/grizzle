@@ -148,14 +148,14 @@ export default defineGate({
 				id: "g::int8",
 				rank: "((pg_catalog.hashint8(g) & 2147483647) % 1000)::int4",
 				title: "'doc ' || g",
-				body: "pg_catalog.repeat(pg_catalog.md5((g % 500)::text), CASE WHEN g % 10 = 0 THEN 130 ELSE 6 END)"
+				body: "pg_catalog.repeat(pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to((g % 500)::text, 'UTF8')), 'hex'), CASE WHEN g % 10 = 0 THEN 65 ELSE 3 END)"
 			})
 			yield* settle(fx)
 			const runtime = yield* runtimeSession(fx, fx.world.app)
 			const raw = yield* rawSession(fx, fx.world.app, "m15b payload raw")
 			const D = fx.table("Doc")
 			const c = (f: string) => fx.column("Doc", f)
-			const data = `${options.docs} documents, ranks 0-999 hashed, bodies 192 bytes or (every tenth) 4160 bytes of repeated md5 text`
+			const data = `${options.docs} documents, ranks 0-999 hashed, bodies 192 bytes or (every tenth) 4160 bytes of repeated SHA-256 hex`
 			const reading = { role: fx.world.app, context: "snapshot", warm: 3, read: "rows" } as const
 			const handOptions: VariantOptions = {
 				samples: options.samples,

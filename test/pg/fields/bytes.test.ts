@@ -8,9 +8,9 @@
  * of its own; and one shelf's values deleted, which the delete returns in chunks too. A case aimed at it writes one
  * value past 268,435,443 bytes, the bound of a value whose hex text is one string, which every run reaches.
  *
- * Oracle: the drawn bytes themselves, and PostgreSQL's own octet_length and md5 of each stored value, read in the same
- * check beside Effect's md5 of the drawn bytes, lowercase hex as md5(bytea) writes it. Every value read back is a fresh
- * Uint8Array over its own buffer.
+ * Oracle: the drawn bytes themselves, and PostgreSQL's own octet_length and SHA-256 of each stored value, in lowercase
+ * hex, read in the same check beside Effect's SHA-256 of the drawn bytes in lowercase hex. Every value read back is a
+ * fresh Uint8Array over its own buffer.
  *
  * Features: the vocabulary Feature below, each value's length class and each path it is written and read by.
  */
@@ -189,16 +189,16 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 										const owner = yield* s.session(ownerSession())
 										const column = names.column(Blob, "body")
 										const stored = yield* owner.values(
-											`SELECT octet_length(${column})::text, md5(${column}) FROM ${names.table(Blob)} ORDER BY ${names.column(Blob, "id")}`,
+											`SELECT octet_length(${column})::text, encode(sha256(${column}), 'hex') FROM ${names.table(Blob)} ORDER BY ${names.column(Blob, "id")}`,
 											[]
 										)
 										const digest = yield* Digest.Digest
-										const md5s = yield* Effect.forEach(kept, (f) =>
-											digest.digestHex(Digest.md5, f.body)
+										const sha256s = yield* Effect.forEach(kept, (f) =>
+											digest.digestHex(Digest.sha256, f.body)
 										)
 										assert.deepEqual(
 											Arr.map(stored, (row) => Arr.map(row, (cell) => String(cell))),
-											Arr.zipWith(kept, md5s, (f, md5) => [String(f.body.length), md5]),
+											Arr.zipWith(kept, sha256s, (f, sha256) => [String(f.body.length), sha256]),
 											"PostgreSQL stores each value's length and bytes exactly"
 										)
 									})
@@ -212,7 +212,7 @@ export const bytesWrittenAndReadBackWholeStoresEveryDrawnValueExactlySingleOrBat
 				),
 		oracle: {
 			kind: "second-implementation",
-			name: "the drawn bytes, and PostgreSQL's octet_length and md5 beside Effect's md5"
+			name: "the drawn bytes, and PostgreSQL's octet_length and SHA-256 beside Effect's SHA-256"
 		},
 		kept: [],
 		kills: [
