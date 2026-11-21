@@ -28,6 +28,21 @@ export const unionJoin = boxAgreement(finite(word(unionJoinBox)), {
 		{
 			file: "packages/engine/src/types/query/query.ts",
 			original:
+				"type MeetsEvery<X, Ys> = false extends (Ys extends unknown ? KeyMeets<X, Ys> : never) ? false : true",
+			replacement:
+				"type MeetsEvery<X, Ys> = false extends (Ys extends unknown ? KeyMeets<X, X> : never) ? false : true",
+			why: "A further arm's field is met against the arm's own carrier rather than each carrier the arms before it deliver there (MeetsEvery), so an arm whose field meets no arm before it is admitted; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original:
+				"\t\t? false extends { [K in Ks & keyof All]-?: KeyMeets<X[K & keyof X], All[K]> }[Ks & keyof All]",
+			replacement: "\t\t? false extends { [K in Ks & keyof All]-?: true }[Ks & keyof All]",
+			why: "A further arm's field that only some arms before it deliver is never met against theirs (MismatchedApart), so one delivered at another type is admitted; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/query/query.ts",
+			original:
 				"type OneKeySet<Old, New> = [KeyOfAnyArm<Old>] extends [keyof New]\n\t? [keyof New] extends [keyof Old]",
 			replacement:
 				"type OneKeySet<Old, New> = [KeyOfAnyArm<Old>] extends [KeyOfAnyArm<Old> | keyof New]\n\t? [keyof New | keyof Old] extends [keyof New | keyof Old]",

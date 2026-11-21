@@ -70,8 +70,8 @@ const step = 20
  * that every member of a query reads its schema off its phantom (types/query/query.ts OverSchema), a union's arm check
  * infers nothing (NoInfer), a rule's evidence is held where it is inferred to its keys and card alone
  * (types/evidence/evidence.ts InferredEvidence), its head origins read where they are read, and a union's further arm is
- * judged beside the arms' carriers read off their union at once, attachments and key sets first (ArmsMeet): a one-rule
- * query 1,534, a union of two rules 4,022, a union of sixteen rules 60,694.
+ * judged beside the arms' carriers read off their union at once, attachments and key sets first, each field's carriers
+ * once (ArmsMeet): a one-rule query 1,534, a union of two rules 4,043, a union of sixteen rules 55,160.
  *
  * @limitKind measured
  * @owner the query facade's type cost gates (test/types/query/budget/plain.ts)
@@ -94,8 +94,11 @@ const step = 20
  *   (`At | At2`); after PERF-TYPES's first cut, 5,826, and 5,842 with `At | At2`; after its second, one rule 1,534, and
  *   2,399 with the first rule's evidence held to Evidence whole, a union of two rules 4,142, and 4,158 with
  *   `At | At2`; after its third, a union of two rules 4,022, and 4,038 with `At | At2`, and a union of sixteen rules
- *   60,694 (70,807 before it, 69,491 with every arm's attachment read beside each arm before it); every program clean;
- *   types are not read (the checker interns them)
+ *   60,694 (70,807 before it, 69,491 with every arm's attachment read beside each arm before it); after its fourth, a
+ *   further arm met beside each carrier the arms before it deliver at a field, a union of sixteen rules 55,160 (58,474
+ *   with each arm before it met apart, Mismatched pairwise) and a union of two rules 4,043, 21 more than the third left
+ *   it, the price of reading a field's carriers once, and 4,059 with `At | At2`; every program clean; types are not read
+ *   (the checker interns them)
  * @decision the bound is the cut's own cost, exactly: a change that makes a query that attaches nothing pay more for
  *   its type's attachments, or any other cost per plain query, is refused here, and a change that lowers it lowers the
  *   bound
@@ -104,8 +107,8 @@ const step = 20
  */
 const addedAtMost: { readonly [S in PlainShape]: number } = {
 	"one rule": 1534,
-	"union of two rules": 4022,
-	"union of sixteen rules": 60694
+	"union of two rules": 4043,
+	"union of sixteen rules": 55160
 }
 
 /** How a shape prints. */

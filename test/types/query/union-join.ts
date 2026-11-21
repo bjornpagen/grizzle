@@ -6,8 +6,8 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 /**
  * The union-join program: queries of several arms, each further arm judged as it joins beside the arms before it
  * (types/query/query.ts ArmsMeet), at each of the arm checks the judgement makes: an arm of one heading whose field
- * meets every arm before it; one whose field meets none (Mismatched); one whose field only some arms before it deliver,
- * at another type (Mismatched at a field some arms lack); arms of two headings whose constants tell no two apart
+ * meets every arm before it; one whose field meets none (Mismatched, MeetsEvery); one whose field only some arms before it
+ * deliver, at another type (MismatchedApart); arms of two headings whose constants tell no two apart
  * (IndistinctBeside, which OneKeySet skips for a union of one key set); and an attachment on an arm whose heading an arm
  * before it shares (AttachedBeside). Every query writes `before` arms of one heading first, so
  * the offending arm is judged beside all of them at once, and only it is refused, at its own rule, as the checker

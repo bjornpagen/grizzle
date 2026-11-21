@@ -1146,24 +1146,41 @@ type OneKeySet<Old, New> = [KeyOfAnyArm<Old>] extends [keyof New]
 type IndistinctBeside<Old, New, D> =
 	| Indistinct<New, Old, D>
 	| ([DiscriminantOf<Old, keyof Old>] extends [D] ? false : Indistinct<Old, Old, D>)
-/** Whether some two arms, X and Y among All, deliver a field they share at types that do not meet. */
+/**
+ * Whether an arm X delivers a field it shares with an arm of All at types that do not meet: at a field every arm of All
+ * has, X's carrier beside each carrier the arms deliver there, the field read off All at once (All[K], one union of the
+ * arms' carriers, each carrier once however many arms deliver it, a carrier that is itself a union read as each of its
+ * members, as the engine reads an arm whose field is one of two terms under each value of its flag); at a field only
+ * some of them have, beside each arm that has it (MismatchedApart).
+ */
 type Mismatched<X, All> = X extends unknown
-	? All extends unknown
-		? false extends { [K in keyof X & keyof All]-?: KeyMeets<X[K], All[K]> }[keyof X & keyof All]
+	? | (false extends { [K in keyof X & keyof All]-?: MeetsEvery<X[K], All[K]> }[keyof X & keyof All]
+				? true
+				: false)
+		| MismatchedApart<X, All, Exclude<keyof X, keyof All>>
+	: never
+/** Whether the carrier X meets every carrier of Ys, each its own (KeyMeets). */
+type MeetsEvery<X, Ys> = false extends (Ys extends unknown ? KeyMeets<X, Ys> : never) ? false : true
+/** Whether X delivers one of the fields Ks, which some arms of All lack, at a type an arm of All that has it does not meet. */
+type MismatchedApart<X, All, Ks> = [Ks] extends [never]
+	? false
+	: All extends unknown
+		? false extends { [K in Ks & keyof All]-?: KeyMeets<X[K & keyof X], All[K]> }[Ks & keyof All]
 			? true
 			: false
 		: never
-	: never
-/** The discriminant's fields among the fields Ks every arm has: those where every arm holds a constant. */
+/**
+ * The discriminant's fields among the fields Ks every arm has: those where every arm holds a constant, each field read
+ * off All at once (All[K], the arms' carriers there, each once, a carrier that is a union as each of its members).
+ */
 type DiscriminantOf<All, Ks> = {
-	[K in Ks & PropertyKey]-?: true extends NoConstantAt<All, K> ? never : K
-}[Ks & PropertyKey]
-type NoConstantAt<All, K> = All extends unknown
-	? K extends keyof All
-		? [ConstantValuesOf<All[K]>] extends [never]
-			? true
-			: false
-		: true
+	[K in Ks & keyof All]-?: true extends NoConstantIn<All[K]> ? never : K
+}[Ks & keyof All]
+/** Whether some carrier of Cs holds no constant. */
+type NoConstantIn<Cs> = Cs extends unknown
+	? [ConstantValuesOf<Cs>] extends [never]
+		? true
+		: false
 	: never
 /** Whether some two arms of different groups, X and Y among All, hold the same constant at every field of D. */
 type Indistinct<X, All, D> = X extends unknown

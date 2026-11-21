@@ -29,7 +29,7 @@ export const cost = costGate(plainQueries, {
 				"\trule<Over, Head2, Ev2 extends InferredEvidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\tthis: OverSchema<Over>,\n\t\trule: (\n\t\t\tr: Rule<Over>\n\t\t) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tOver,\n\t\tHead | Head2,\n\t\tUnionEvidence<Ev, Ev2, Head, Head2>,\n\t\tP & P2,\n\t\tIHead | IHead2,\n\t\tUnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,\n\t\tCx | Cx2,\n\t\treadonly [...Arms, ArmOf<Head2, Hc2>],\n\t\tAt\n\t>\n",
 			replacement:
 				"\trule<Over, Head2, Ev2 extends InferredEvidence, P2, IHead2, Hc2 extends Carriers, Cx2, At2>(\n\t\tthis: OverSchema<Over>,\n\t\trule: (\n\t\t\tr: Rule<Over>\n\t\t) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2, At2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tOver,\n\t\tHead | Head2,\n\t\tUnionEvidence<Ev, Ev2, Head, Head2>,\n\t\tP & P2,\n\t\tIHead | IHead2,\n\t\tUnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,\n\t\tCx | Cx2,\n\t\treadonly [...Arms, ArmOf<Head2, Hc2>],\n\t\tAt | At2\n\t>\n",
-			why: "A union holds its arm's attachments beside the query's (`At | At2`), as before the cut: each union of two rules costs 16 more instantiations, 4,038 against its bound of 4,022."
+			why: "A union holds its arm's attachments beside the query's (`At | At2`), as before the cut: each union of two rules costs 16 more instantiations, 4,059 against its bound of 4,043."
 		},
 		{
 			file: "packages/engine/src/types/query/query.ts",
@@ -42,10 +42,10 @@ export const cost = costGate(plainQueries, {
 		{
 			file: "packages/engine/src/types/query/query.ts",
 			original:
-				'type AttachedBeside<Old extends AnyArm, New extends AnyArm> = [\n\tOld["attached"] | New["attached"]\n] extends [never]\n\t? false\n\t: SharesAttachedHeading<Old, New>',
+				"type Mismatched<X, All> = X extends unknown\n\t? | (false extends { [K in keyof X & keyof All]-?: MeetsEvery<X[K], All[K]> }[keyof X & keyof All]\n\t\t\t\t? true\n\t\t\t\t: false)\n\t\t| MismatchedApart<X, All, Exclude<keyof X, keyof All>>\n\t: never\n",
 			replacement:
-				"type AttachedBeside<Old extends AnyArm, New extends AnyArm> = SharesAttachedHeading<Old, New>",
-			why: "Whether a union's further arm sits beside an attached arm of its heading is asked of each arm before it, even where no arm attaches (AttachedBeside's first test gone): a union of sixteen rules costs 69,491 instantiations against its bound of 60,694."
+				"type Mismatched<X, All> = X extends unknown\n\t? All extends unknown\n\t\t? false extends { [K in keyof X & keyof All]-?: KeyMeets<X[K], All[K]> }[keyof X & keyof All]\n\t\t\t? true\n\t\t\t: false\n\t\t: never\n\t: never\n",
+			why: "A union's further arm is met beside each arm before it, a mapped type of every field it shares with each (Mismatched pairwise), where it is met beside each carrier the arms deliver at a field once: a union of sixteen rules costs 58,474 instantiations against its bound of 55,160."
 		}
 	]
 })

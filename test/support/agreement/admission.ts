@@ -85,6 +85,12 @@ import { batchOwned, caseOwned, type Program } from "#test/types/batch/batch.ts"
  *   and so its attachment: a take, a name, or two of them drawn in turn, beside an arm of its heading, which both
  *   refuse by name; attachedArmKeptApart, under one or two drawn stages, beside an arm of another heading, which both
  *   admit. An order reaches an arm only through the take that closes it, since an ordered query has no rule.
+ * - flaggedArm: a union of two arms of one heading whose first arm's field is one of two values under a boolean the
+ *   program does not know, the column's variable or the constant (`flag ? x : c`), and whose second holds another
+ *   constant of the kind there. The engine reads the union under each value the flag may take, so it is admitted where
+ *   both readings compile, the second arm meeting the variable and the constant each; where either is refused, the
+ *   types refuse the union at the second arm by name, as an arm meeting each carrier the arms before it deliver at a
+ *   field, a carrier that is one of two values read as each (types/query/query.ts Mismatched).
  *
  * The combinator axis closes the same class over the query a combinator stands on rather than a constant: every
  * combinator (combinators: take, a page, orderBy, approximateNearest, attach, named, and a further arm of the shape's
@@ -139,7 +145,8 @@ const admissionPositions = [
 	"attachedArmTaken",
 	"attachedArmNamed",
 	"attachedArmKept",
-	"attachedArmKeptApart"
+	"attachedArmKeptApart",
+	"flaggedArm"
 ] as const
 export type AdmissionPosition = (typeof admissionPositions)[number]
 
@@ -411,6 +418,8 @@ const namedRefusal = (position: AdmissionPosition, kind: ConstantKind): Refused 
 			return kind === "param" || kind === "otherParam"
 				? "a union's arms deliver each field at one type"
 				: undefined
+		case "flaggedArm":
+			return "a union's arms deliver each field at one type"
 	}
 }
 
@@ -975,6 +984,34 @@ const statementOf = (
 			return keptAttachedStatement(name, drawn(twoKept, draw), other, c, [])
 		case "attachedArmKeptApart":
 			return keptAttachedStatement(name, drawn(anyKept, draw), c, other, [["e", 1]])
+		case "flaggedArm": {
+			const union = (k: (x: unknown) => unknown) =>
+				compiles(
+					() =>
+						queryOver(Agree)
+							.rule((r: RuleValue) => {
+								const vars = varsOver(Cell, "cell")
+								return r
+									.match(Cell, { id: vars["id"], [col]: vars[col] })
+									.find({ id: vars["id"], k: k(vars[col]) })
+							})
+							.rule((r: RuleValue) => {
+								const vars = varsOver(Cell, "cell")
+								return r
+									.match(Cell, { id: vars["id"], [col]: vars[col] })
+									.find({ id: vars["id"], k: other.value() })
+							}),
+					"rows"
+				)
+			const asVariable = union((x) => x)
+			const asConstant = union(() => c.value())
+			return {
+				lines: [
+					`export const ${name} = query(Agree).rule((r) => { ${matched}.find({ id, k: flag ? x : ${c.source} }) }).rule((r) => { ${matched}.find({ id, k: ${other.source} }) })`
+				],
+				verdict: () => asVariable() && asConstant()
+			}
+		}
 	}
 }
 
@@ -990,7 +1027,8 @@ const valued: ReadonlyArray<ConstantKind> = [
 ]
 
 /**
- * The kinds a position draws: every kind, but where a head holds the constant only those a head holds, where the
+ * The kinds a position draws: every kind, but where a flagged arm holds the constant none refused where it stands, a
+ * handle off its roster, which its roster refuses whatever union it is in; where a head holds the constant only those a head holds, where the
  * verdict turns on two constants being one value only those whose value the types carry (see the header), in a
  * check's predicate, which is no rule's and so has no r.param to declare one, no parameter, and at a discriminant,
  * whose two arms hold two constants of one kind, no parameter: two drawn parameters are of two descriptors, so their
@@ -1003,6 +1041,8 @@ const kindsAt = (position: AdmissionPosition): ReadonlyArray<ConstantKind> => {
 		case "heteroArms":
 		case "threeArms":
 			return Arr.filter(constantKinds, (k) => k !== "vector")
+		case "flaggedArm":
+			return Arr.filter(constantKinds, (k) => k !== "vector" && k !== "offRoster")
 		case "deadFilter":
 		case "heteroClash":
 		case "threeArmsClash":
@@ -1965,6 +2005,8 @@ export const admissionProgram = (
 					byIdsSource(byIdsAbove),
 					idsWriteSource(idsWriteAgree),
 					idsWriteSource(idsWriteAbove),
+					"/** A boolean the program does not know, which a flagged arm's field turns on (flaggedArm). */",
+					"export declare const flag: boolean",
 					""
 				]
 			},
