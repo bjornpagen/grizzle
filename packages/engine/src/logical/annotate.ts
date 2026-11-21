@@ -480,10 +480,7 @@ class Annotator<R extends Roots> {
 		const readable = (record: SharedRecord): boolean =>
 			kept.kind === "named" && !keptInside.has(record) && !touched(record) && whole(record)
 		const scopes = scopesOver((node) => entryOf(shared.state, node)?.scope)
-		const propsEnv: PropsEnv = {
-			scope: (node) => scopes.of(node),
-			keyedViews: env.keyedViews
-		}
+		const propsEnv = propsEnvOf(scopes, env.keyedViews)
 		/**
 		 * An attachment's exclusive child, revised to its evidence relative to the parent once the attachment is folded:
 		 * the attachment is its only reader, so the revision is the child the attachment's annotated node holds and the
@@ -630,29 +627,17 @@ class Annotator<R extends Roots> {
 						: relNode(node.id, { ...twins, judged: judged.delivered, meta: metaSpecOf(node.meta) })
 			}
 		}
-		const fold = new Fold<RelNode, AnnotatedNode>(function* (node) {
-			const entry = entryOf(shared.state, node)
-			if (entry !== undefined && agrees(entry.record)) {
-				return entry.annotated
-			}
-			const values = yield* edgeValues<AnnotatedNode>(node)
-			annotated.push(node)
-			const made = annotate(node, values)
-			live.set(node, made.props)
-			built(node)
-			return { node: made.node, judged: made.judged }
-		})
-		const dag = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).node))
-		const judged = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).judged))
-		recordInto(
-			shared.state,
-			annotated,
-			(node) => fold.of(node),
-			propsOf,
-			(node) => scopes.of(node),
-			revised,
-			agreed
+		const fold = new Fold<RelNode, AnnotatedNode>(
+			annotationStep(shared.state, agrees, annotate, (node, made) => {
+				annotated.push(node)
+				live.set(node, made.props)
+				built(node)
+			})
 		)
+		const of = annotatedOf(fold)
+		const dag = assembledDag(mapRoots(this.dag.roots, rootOf(of, "node")))
+		const judged = assembledDag(mapRoots(this.dag.roots, rootOf(of, "judged")))
+		recordInto(shared.state, annotated, of, propsOf, scopeOf(scopes), revised, agreed)
 		for (const node of live.keys()) {
 			handOff(node)
 		}
@@ -680,9 +665,68 @@ class Annotator<R extends Roots> {
 		revised.clear()
 		unread.clear()
 		annotated.length = 0
-		return { dag, judged, of: (node) => revisions.get(node) ?? fold.of(node), props }
+		return { dag, judged, of: revisedOf(revisions, of), props }
 	}
 }
+
+/**
+ * The environment a node's properties read (logical/props.ts PropsEnv): its scope, from the analysis's scopes. It and
+ * every closure an analysis hands out (its scope reader, the fold's step, the roots' readers, the result's `of`) are
+ * made by a function of their own that captures what they read alone, never in Annotator.run's scope: V8 holds every
+ * variable any closure of a scope captures in that scope's one context, and keeps a closure an analysis made, and that
+ * context, past the analysis (a hidden class's constructor, an allocation site's boilerplate, a live properties'
+ * closure). Made in run, each kept the whole analysis, its fold's memo among it: edullm's qti generate held eleven
+ * finished analyses that way, 1.24 GB of its 3.19 GB live at a heap snapshot (hub a841fcff1).
+ */
+const propsEnvOf = (scopes: Fold<RelNode, NodeScope>, keyedViews: boolean): PropsEnv => ({
+	scope: (node) => scopes.of(node),
+	keyedViews
+})
+
+/** A node's scope, from the analysis's scopes. */
+const scopeOf =
+	(scopes: Fold<RelNode, NodeScope>) =>
+	(node: RelNode): NodeScope =>
+		scopes.of(node)
+
+/** A node's annotated node and judged twin, from the analysis's fold. */
+const annotatedOf =
+	(fold: Fold<RelNode, AnnotatedNode>) =>
+	(node: RelNode): AnnotatedNode =>
+		fold.of(node)
+
+/** A root's annotated node, or its judged twin. */
+const rootOf =
+	(of: (node: RelNode) => AnnotatedNode, which: "node" | "judged") =>
+	(root: RelNode): RelNode =>
+		of(root)[which]
+
+/** A node's annotated node as the analysis reports it: an exclusive child's revision, or the fold's. */
+const revisedOf =
+	(revisions: ReadonlyMap<RelNode, AnnotatedNode>, of: (node: RelNode) => AnnotatedNode) =>
+	(node: RelNode): AnnotatedNode =>
+		revisions.get(node) ?? of(node)
+
+/**
+ * The fold's step (ir/fold.ts): the compile's recorded annotation where the DAG judges its sub-DAG alike (`agrees`),
+ * which reads no input; otherwise the node annotated from its inputs' values (`annotate`), `made` told of it.
+ */
+const annotationStep = (
+	state: SharedState,
+	agrees: (record: SharedRecord) => boolean,
+	annotate: (node: RelNode, values: NodeOver<ValueRefs<AnnotatedNode>>) => Annotated,
+	made: (node: RelNode, annotation: Annotated) => void
+) =>
+	function* (node: RelNode): Generator<RelNode, AnnotatedNode, AnnotatedNode> {
+		const entry = entryOf(state, node)
+		if (entry !== undefined && agrees(entry.record)) {
+			return entry.annotated
+		}
+		const values = yield* edgeValues<AnnotatedNode>(node)
+		const annotation = annotate(node, values)
+		made(node, annotation)
+		return { node: annotation.node, judged: annotation.judged }
+	}
 
 /**
  * The DAG with every node's logical metadata computed and every attachment's delivered type judged, under `env` alone or
