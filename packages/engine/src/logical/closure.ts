@@ -202,7 +202,8 @@ export type Naming<V> =
 
 /**
  * The naming of `rows` whose row at i reads the value it fixes its target at j from `sources[i][j]`: the sources as data,
- * read by every named closure over the rows, and the rows each attribute's value is copied by.
+ * read by every named closure over the rows, and the rows each attribute's value is copied by. Rows none of which names
+ * a target are named by nothing (namesNothing), whose closure is the same; a row that names none holds no sources.
  */
 export const namingOver = <V>(
 	rows: Rows,
@@ -236,8 +237,23 @@ export const namingOver = <V>(
 			filled[source.at] = at + 1
 		}
 	})
-	return { kind: "named", sources, names, copiersAt, copiers }
+	if (!names.includes(1)) {
+		return namesNothing
+	}
+	return {
+		kind: "named",
+		sources: sources.map((row, i) => (names[i] === 1 ? row : namesNoTarget)),
+		names,
+		copiersAt,
+		copiers
+	}
 }
+
+/**
+ * The sources of a row that names none of its targets, which a closure never asks (it asks only a row that names one,
+ * Naming names), so every such row of every node holds this one.
+ */
+const namesNoTarget: ReadonlyArray<never> = Object.freeze([])
 
 /** A closure that names nothing: what each column is reached by, whatever value it holds. */
 export const namesNothing: Naming<never> = Object.freeze({ kind: "none" })

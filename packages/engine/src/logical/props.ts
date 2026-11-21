@@ -242,10 +242,11 @@ export interface Props {
 	readonly whole: () => WholeKey
 	readonly card: Card
 	/**
-	 * The stored facts a column was read from: none for a column computed, aggregated, constant, ranked or bound by no
-	 * scan, and none for a name outside the heading, which no stored fact of the node gives.
+	 * The stored facts each column of its heading was read from, those read from one or more (provenanceOf): none for a
+	 * column computed, aggregated, constant, ranked or bound by no scan, and none for a name outside the heading, which no
+	 * stored fact of the node gives.
 	 */
-	readonly provenance: (column: string) => ReadonlyArray<Provenance>
+	readonly provenance: ReadonlyMap<string, ReadonlyArray<Provenance>>
 	readonly context: EvidenceContext
 	/**
 	 * The discriminant of the heading groups this node's rows are of, when they are of several: a heterogeneous union,
@@ -274,21 +275,36 @@ export type PropsReading = NodeOver<ValueRefs<Props>>
 /** One kind of node as the logical analysis reads it. */
 type ReadingOf<K extends RelNode["kind"]> = KindOver<K, ValueRefs<Props>>
 
-/** The stored facts a column of the node was read from (Props.provenance). */
+/** The stored facts a column of the node was read from (Props.provenance): none for a column it holds none for. */
 export const provenanceOf = (props: Props, column: string): ReadonlyArray<Provenance> =>
-	props.provenance(column)
+	props.provenance.get(column) ?? noFacts
 
-/** The provenance of a node: its rule read once for each column of its heading, none for any other name. */
+/** The facts of a column read from no stored fact, one list every such column shares. */
+const noFacts: ReadonlyArray<Provenance> = Object.freeze([])
+
+/**
+ * The provenance of a node: its rule read once for each column of its heading, kept for each column read from a stored
+ * fact, so a column read from none, and any other name, has none.
+ */
 const provenanceOver = (
 	columns: ReadonlyArray<string>,
 	of: (column: string) => ReadonlyArray<Provenance>
-): ((column: string) => ReadonlyArray<Provenance>) => {
-	const read = new Map(columns.map((c) => [c, of(c)]))
-	return (column) => read.get(column) ?? []
+): ReadonlyMap<string, ReadonlyArray<Provenance>> => {
+	const read = new Map<string, ReadonlyArray<Provenance>>()
+	for (const c of columns) {
+		const facts = of(c)
+		if (facts.length > 0) {
+			read.set(c, facts)
+		}
+	}
+	return read
 }
 
 /** The rule of a column read from no stored fact. */
-const noProvenance = (): ReadonlyArray<Provenance> => []
+const noProvenance = (): ReadonlyArray<Provenance> => noFacts
+
+/** The provenance of a node no column of which is read from a stored fact, one every such node shares. */
+const noneRead: ReadonlyMap<string, ReadonlyArray<Provenance>> = new Map()
 
 export interface PropsEnv {
 	/** The scope of a node (ir/dag.ts nodeScopes): the columns of other nodes a lateral source reads. */
@@ -2069,7 +2085,7 @@ const leafProps = (
 	subject: Subject,
 	anchor: object,
 	text: string,
-	provenance: (column: string) => ReadonlyArray<Provenance>,
+	provenance: ReadonlyMap<string, ReadonlyArray<Provenance>>,
 	compute: () => Props
 ): Props => {
 	const byText = leaves.get(anchor) ?? new Map<string, Props>()
@@ -2121,7 +2137,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 				reading.relationKind === "relation" ? reading.primaryKey : reading.view,
 				baseText(reading, env),
 				reading.relationKind === "world"
-					? noProvenance
+					? noneRead
 					: provenanceOver(all, (c) => [{ scan: occurrence, relation, field: c }]),
 				() => {
 					const stated: Stated =
@@ -2280,7 +2296,7 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 		}
 		case "Delta": {
 			const relation = reading.relation
-			return leafProps(subject, reading.keys, deltaText(reading), noProvenance, () => {
+			return leafProps(subject, reading.keys, deltaText(reading), noneRead, () => {
 				const deps = reading.keys.map((k, i) =>
 					declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
 				)
