@@ -31,7 +31,7 @@ import {
 	asideName,
 	roleAsideName,
 	asideStatements,
-	type Owned,
+	type AsidePart,
 	partRenames,
 	relationAside,
 	setAside,
@@ -1479,9 +1479,9 @@ const renamedSnapshot = (
 	}
 }
 
-/** A part of a relation a draft pairs by definition, by its kind as aside.ts Owned names it, and the name it takes. */
+/** A part of a relation a draft pairs by definition, by its kind as aside.ts AsidePart names it, and the name it takes. */
 interface Paired {
-	readonly kind: Owned["kind"]
+	readonly kind: AsidePart["kind"]
 	readonly name: string
 	readonly to: string
 }
@@ -1489,7 +1489,7 @@ interface Paired {
 /** The parts of `was` paired with those of `now` of the same definition (`canonicalEquals`), each with the name `now` gives it:
  * one of its own name first, so a part both name alike stays as it is, then any other, each taken once. */
 const pairBy = <P extends { readonly name: string }>(
-	kind: (p: P) => Owned["kind"],
+	kind: (p: P) => AsidePart["kind"],
 	was: ReadonlyMap<string, P>,
 	now: ReadonlyMap<string, P>,
 	matches: (a: P, b: P) => boolean
@@ -1519,7 +1519,7 @@ const pairBy = <P extends { readonly name: string }>(
 /** The names a part holds, each in the namespace PostgreSQL holds it in: a key its constraint's name in its relation's
  * own namespace and its index's in pg_class; another constraint its name in its relation's namespace alone; an index
  * its own in pg_class; a statistics object its own among the statistics objects. */
-const heldNames = (kind: Owned["kind"], name: string): ReadonlyArray<string> => {
+const heldNames = (kind: AsidePart["kind"], name: string): ReadonlyArray<string> => {
 	switch (kind) {
 		case "key":
 			return [`constraint ${name}`, `relation ${name}`]
@@ -1557,10 +1557,11 @@ const pairedParts = (
 ): { readonly statements: ReadonlyArray<SqlStatement>; readonly previous: DeploySnapshot } => {
 	const wasIdent = new Map(previous.manifest.objects.map((o) => [o.ident, o]))
 	const nowIdent = new Map(target.manifest.objects.map((o) => [o.ident, o]))
-	const constraintKind = (c: PartOf<"constraint">): Owned["kind"] =>
+	const constraintKind = (c: PartOf<"constraint">): AsidePart["kind"] =>
 		isKey(c.constraint) ? "key" : "constraint"
-	const outward: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<Owned> }> = []
-	const back: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<Owned> }> = []
+	const outward: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<AsidePart> }> =
+		[]
+	const back: Array<{ readonly table: ObjectName; readonly owned: ReadonlyArray<AsidePart> }> = []
 	const relations = new Map<string, string>()
 	const statistics = new Map<string, string>()
 	const keys = new Map<string, ReadonlyMap<string, string>>()
@@ -1609,7 +1610,7 @@ const pairedParts = (
 		if (moves.length === 0 && holders.length === 0) {
 			continue
 		}
-		const vacate = (p: Paired): Owned => ({
+		const vacate = (p: Paired): AsidePart => ({
 			kind: p.kind,
 			name: p.name,
 			to: asideName(temporaries, p.name)
@@ -1627,7 +1628,7 @@ const pairedParts = (
 				...through.map(({ first, to }) => ({ kind: first.kind, name: first.to, to }))
 			]
 		})
-		const final: ReadonlyArray<Owned> = [...moves, ...vacated]
+		const final: ReadonlyArray<AsidePart> = [...moves, ...vacated]
 		for (const p of final) {
 			if (p.kind === "statistics") {
 				statistics.set(p.name, p.to)

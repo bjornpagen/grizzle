@@ -34,7 +34,7 @@ type Holding = "table" | "materializedView" | "domain"
  * a foreign key, whose name lies in its relation's namespace alone; another index over it; an extended statistics
  * object over it. Setting a relation aside takes the names it owns in its
  * schema's pg_class and statistics objects (ownedBy), never a constraint's with no index, which stays its own. */
-export interface Owned {
+export interface AsidePart {
 	readonly kind: "key" | "constraint" | "index" | "statistics"
 	readonly name: string
 	readonly to: string
@@ -54,7 +54,7 @@ export type Aside =
 			readonly name: ObjectName
 			readonly cause: AsideCause
 			readonly to: string
-			readonly owned: ReadonlyArray<Owned>
+			readonly owned: ReadonlyArray<AsidePart>
 	  }
 	| {
 			readonly kind: "domain"
@@ -98,7 +98,7 @@ const ownedBy = (
 	holder: ObjectName,
 	parts: Parts,
 	temporaries: TemporaryCensus
-): ReadonlyArray<Owned> =>
+): ReadonlyArray<AsidePart> =>
 	[
 		...[...parts.constraint.values()].flatMap((c) =>
 			isKey(c.constraint) ? [{ kind: "key" as const, name: c.name }] : []
@@ -169,7 +169,7 @@ export const asidesOf = (
 	}
 	const holders = previous.manifest.objects
 	const parts = partsByTable(holders, new Map(holders.map((o) => [o.ident, o])))
-	const owned = (holder: ObjectName): ReadonlyArray<Owned> =>
+	const owned = (holder: ObjectName): ReadonlyArray<AsidePart> =>
 		ownedBy(holder, partsAt(parts, holder), temporaries)
 	return holders.flatMap((o): ReadonlyArray<Aside> => {
 		const held = heldName(o.ident)
@@ -191,7 +191,7 @@ const takenAside = (
 	held: { readonly kind: Holding; readonly name: ObjectName },
 	cause: AsideCause & { readonly kind: "taken" },
 	to: string,
-	owned: (holder: ObjectName) => ReadonlyArray<Owned>
+	owned: (holder: ObjectName) => ReadonlyArray<AsidePart>
 ): Aside => {
 	switch (held.kind) {
 		case "table":
@@ -203,7 +203,7 @@ const takenAside = (
 }
 
 /** The RENAME of what a set-aside relation owns, under the relation's aside name `to`. */
-const ownedRename = (at: (name: string) => ObjectName, to: string, o: Owned): SqlStatement => {
+const ownedRename = (at: (name: string) => ObjectName, to: string, o: AsidePart): SqlStatement => {
 	switch (o.kind) {
 		case "key":
 		case "constraint":
@@ -251,7 +251,7 @@ export const asideStatements = (a: Aside): NonEmptyReadonlyArray<SqlStatement> =
 }
 
 /** The previous snapshot as it is once its holders are set aside: each holder, and for a relation its columns,
- * constraints, triggers and what it owns (Owned), under the aside names in its identities, its definitions, its
+ * constraints, triggers and what it owns (AsidePart), under the aside names in its identities, its definitions, its
  * dependencies and every other statement that names them, the grants, PUBLIC revokes and role defaults among them
  * (withNames). Its fingerprint stays the committed one, the folder's source. */
 export const setAside = (
@@ -264,7 +264,7 @@ export const setAside = (
 	const relationAsides = asides.flatMap((a) =>
 		a.kind === "table" || a.kind === "materializedView" ? [a] : []
 	)
-	const owned = (kinds: ReadonlyArray<Owned["kind"]>) =>
+	const owned = (kinds: ReadonlyArray<AsidePart["kind"]>) =>
 		relationAsides.flatMap((a) =>
 			a.owned.filter((o) => kinds.includes(o.kind)).map((o) => [o.name, o.to] as const)
 		)
@@ -381,10 +381,10 @@ export const withNames = (previous: DeploySnapshot, names: Renamed): DeploySnaps
 	}
 }
 
-/** The RENAME of each part `owned` of the relation `table` (Owned), on the relation under its name. */
+/** The RENAME of each part `owned` of the relation `table` (AsidePart), on the relation under its name. */
 export const partRenames = (
 	table: ObjectName,
-	owned: ReadonlyArray<Owned>
+	owned: ReadonlyArray<AsidePart>
 ): ReadonlyArray<SqlStatement> => {
 	const at = (name: string): ObjectName => ({ ...table, name })
 	return owned.map((o) => ownedRename(at, table.name, o))

@@ -326,7 +326,7 @@ export const notesOf = (c: RowCase): ReadonlyArray<RowFeature> => {
 
 /** The one function a caller calls, as PostgreSQL's dependencies hold it: its OID, and whether the writer and the
  * reader may EXECUTE it. */
-export interface Called {
+interface Called {
 	readonly oid: string
 	readonly executes: readonly [boolean, boolean]
 }
@@ -336,7 +336,7 @@ export interface Called {
  * the table a function's fate decides, the CHECK heavy, the roster domain's CHECK, the bits domain's CHECK and Item's
  * relfilenode, with each stored row's xmin in id order; the bits domain's own OID, and flags' attribute number and type.
  */
-export interface Held {
+interface Held {
 	readonly called: Readonly<Record<Caller, Called>>
 	readonly heavy: string
 	readonly domain: string
