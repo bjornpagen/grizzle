@@ -71,6 +71,7 @@ import {
 	type Stored,
 	storedOf
 } from "#test/support/families/theorem.ts"
+import { transaction } from "#test/support/oracle/install/transaction.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import {
 	type Attempted,
@@ -1013,7 +1014,9 @@ const riNames = (schema: string): RiNames => ({
 /**
  * The RI measurement's load, owners 1 to 2,000 with three rows each, written on the RFC's ordered mirrors lowering
  * and analyzed once per member (substrate.ts installTemplate), where the search wrote and analyzed it before its
- * cases. Its seat empties no table: a case rolls its write back.
+ * cases. Its owners and their rows are one transaction: each owner's last slot is a foreign key into the family checked
+ * at commit (owner_last), and each row's copy one into its owner (fam_copy), so neither table is written alone. Its seat
+ * empties no table: a case rolls its write back.
  */
 export const riTemplate: SubstrateTemplate<Lowered<"ordered">> = installTemplate({
 	declaredIn: import.meta,
@@ -1026,14 +1029,10 @@ export const riTemplate: SubstrateTemplate<Lowered<"ordered">> = installTemplate
 			yield* installEach(installed)
 			const schema = Arr.headNonEmpty(installed).schema
 			const names = riNames(schema)
-			yield* s.admin.query(
+			yield* transaction(s.admin, [
 				`INSERT INTO ${names.owner} (id, n) SELECT o, ${riLoad.slots} FROM pg_catalog.generate_series(1, ${riLoad.owners}) AS o`,
-				[]
-			)
-			yield* s.admin.query(
-				`INSERT INTO ${names.fam} (member, g, at, copy) SELECT o * ${riLoad.slots} + a, o, a, ${riLoad.slots} FROM pg_catalog.generate_series(1, ${riLoad.owners}) AS o, pg_catalog.generate_series(0, ${riLoad.slots - 1}) AS a`,
-				[]
-			)
+				`INSERT INTO ${names.fam} (member, g, at, copy) SELECT o * ${riLoad.slots} + a, o, a, ${riLoad.slots} FROM pg_catalog.generate_series(1, ${riLoad.owners}) AS o, pg_catalog.generate_series(0, ${riLoad.slots - 1}) AS a`
+			])
 			yield* s.admin.query(`ANALYZE ${names.owner}, ${names.fam}`, [])
 		}),
 	bind: (installed) => ({ installed, tables: noTables }),
