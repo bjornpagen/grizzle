@@ -12,6 +12,7 @@ import {
 	counted,
 	fin,
 	fold,
+	lawsOf,
 	Monoid,
 	on,
 	relation,
@@ -222,6 +223,20 @@ const backwardCells = cellsNamed("Backward", "backward")
 const forwardInstall = { label: "forward", programs: programsOf(forwardCells) } as const
 const backwardInstall = { label: "backward", programs: programsOf(backwardCells) } as const
 
+/**
+ * Each naming's rules in its schema's canonical order of laws (lawsOf): the statements' laws in canonical statement
+ * order, a check's canonical text holding its declared name, the law's identity, so the two namings order the rules
+ * apart, and neither by its CHECKs' installed names.
+ */
+const canonicalRules: Readonly<Record<Naming, ReadonlyArray<Rule>>> = {
+	forward: Arr.flatMap(lawsOf(forwardCells), ({ law }) =>
+		law.kind === "check" ? [ruleOf("forward", law)] : []
+	),
+	backward: Arr.flatMap(lawsOf(backwardCells), ({ law }) =>
+		law.kind === "check" ? [ruleOf("backward", law)] : []
+	)
+}
+
 /** Each naming's cells installed once per member as a read fixture, where the suite installed both before its cases. */
 export const forwardTemplate = fixtureTemplate(import.meta, forwardCells, forwardInstall)
 export const backwardTemplate = fixtureTemplate(import.meta, backwardCells, backwardInstall)
@@ -244,10 +259,11 @@ export const backwardTemplate = fixtureTemplate(import.meta, backwardCells, back
  * up a cell it inserts: the host cannot tell a stored cell inserted again alone from a new one, and where such a stored
  * cell breaks the reported rule at an empty family's count and end, either may be the refused row, and the refusal names
  * that rule alone, `first`, its witness `unreported`. Every other refusal names `every` law the new cell breaks, exactly those,
- * each once, its witness the new cell's key, never a stored cell's, whichever CHECK PostgreSQL tried first. The two
- * namings list the laws they name in one order, the schema's canonical one, never their CHECKs' names' (4030e1cac): a
- * case writes under both, each over its clone of its naming's installation, where the suite held each naming's order
- * alike across its cases.
+ * each once, its witness the new cell's key, never a stored cell's, whichever CHECK PostgreSQL tried first. Each naming
+ * lists the laws it names in its schema's canonical order of laws (lawsOf), a check's by its declared name, the law's
+ * identity, never by its CHECKs' installed names (4030e1cac), so the two namings list them apart: a case writes under
+ * both, each over its clone of its naming's installation, where the suite held each naming's order alike across its
+ * cases.
  *
  * Its kept cases are a downstream tier's shape, an operator of two operands whose count its arity holds beside a
  * broken rule (qti-pie's p21-sum-as-condition, refused naming the arity too when the count was judged at the empty
@@ -292,8 +308,6 @@ export const everyCase = (
 		}
 		const differ = Arr.join(tried.forward, ",") !== Arr.join(tried.backward, ",")
 
-		/** Each naming's rules a stated cell's refusal names, in the order it lists them. */
-		const namedBy: { [N in Naming]?: ReadonlyArray<Rule> } = {}
 		const row = k.row
 		const broken = Arr.filter(rules, (rule) => breaks(rule, row))
 		const id = 2 * k.at + 1
@@ -402,13 +416,14 @@ export const everyCase = (
 			if (outcome.refused.kind !== "every") {
 				return assert.fail("a stated cell's refusal names every law it breaks")
 			}
-			const named = Arr.map(refusedLaws(outcome.refused), (law) => ruleOf(naming, law))
-			assert.deepEqual(
-				Arr.filter(rules, (rule) => named.includes(rule)),
-				broken,
-				`${naming}: every rule the cell breaks`
+			const named: ReadonlyArray<Rule> = Arr.map(refusedLaws(outcome.refused), (law) =>
+				ruleOf(naming, law)
 			)
-			assert.equal(named.length, broken.length, `${naming}: each rule once`)
+			assert.deepEqual(
+				named,
+				Arr.filter(canonicalRules[naming], (rule) => broken.includes(rule)),
+				`${naming}: every rule the cell breaks, each once, in its schema's canonical order of laws`
+			)
 			assert.deepEqual(outcome.witness, {
 				kind: "key",
 				relation: "Cell",
@@ -420,14 +435,6 @@ export const everyCase = (
 			if (Arr.some(k.stored, (st) => st.parts === "stated again")) {
 				c.note("a stored cell with its parts stated again beside a refused one")
 			}
-			namedBy[naming] = named
 			c.note(brokenFeature(broken.length))
-		}
-		if (namedBy.forward !== undefined && namedBy.backward !== undefined) {
-			assert.deepEqual(
-				namedBy.forward,
-				namedBy.backward,
-				"both namings name the broken rules in one order"
-			)
 		}
 	})

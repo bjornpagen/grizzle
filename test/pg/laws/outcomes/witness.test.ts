@@ -246,5 +246,12 @@ export const aCellBreakingOneToThreeRulesIsRefusedNamingEveryRuleItBreaksUnderAn
 				since: "2026-11-19"
 			}
 		],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/runtime/write/witness.ts",
+				original: "\t\tsortNonEmpty(once, (a, b) => order(a.law.law) - order(b.law.law)),",
+				replacement: "\t\tsortNonEmpty(once, (a, b) => order(b.law.law) - order(a.law.law)),",
+				why: "Operator mutant (operands swapped) at packages/engine/src/runtime/write/witness.ts in brokenLaws: a refusal lists the laws its row breaks against the schema's canonical order of laws, so a cell breaking two rules names them out of its naming's canonical order, and the property fails."
+			}
+		]
 	})
