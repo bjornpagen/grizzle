@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { regex } from "arkregex"
 import type { ValueFault } from "#compiler/core/errors.ts"
 import {
@@ -55,7 +56,7 @@ export const toUuid = (value: unknown): Result.Result<string, ValueFault> => {
 	for (let i = 0; i < value.length; i++) {
 		const code = value.charCodeAt(i)
 		const upperDigit = code >= 0x41 && code <= 0x46
-		const lowerDigit = (code >= 0x30 && code <= 0x39) || (code >= 0x61 && code <= 0x66)
+		const lowerDigit = isAsciiDigit(code) || (code >= 0x61 && code <= 0x66)
 		if (uuidHyphens.has(i) ? code !== 0x2d : !upperDigit && !lowerDigit) {
 			return Result.err("uuidSyntax")
 		}

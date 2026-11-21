@@ -133,9 +133,11 @@ export const theLiveModelsValuesAReadsEventsFoldIntoTheModelsValueAndAReSentUpse
 		],
 		kills: [
 			{
-				file: "packages/engine/src/scalar/values/decimal.ts",
-				original: "const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39",
-				replacement: "const isDigit = (code: number): boolean => code < 0x30 && code <= 0x39",
+				file: "packages/text/src/text.ts",
+				original:
+					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39",
+				replacement:
+					"export const isAsciiDigit = (unit: number): boolean => unit < 0x30 && unit <= 0x39",
 				why: "Operator mutant (comparison) at packages/engine/src/scalar/values/decimal.ts:42 in isDigit: `>=` becomes `<`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

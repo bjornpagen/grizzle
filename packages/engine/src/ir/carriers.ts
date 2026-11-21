@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import { type FloatSpecialName, floatSpecialNameOf, int4Max } from "#compiler/core/canonical.ts"
 import {
@@ -228,11 +229,8 @@ const moneyUnits = (text: string): bigint | undefined => {
 	if (digits.length === 0 || digits.length > int8Digits) {
 		return undefined
 	}
-	for (let i = 0; i < digits.length; i++) {
-		const code = digits.charCodeAt(i)
-		if (code < 0x30 || code > 0x39) {
-			return undefined
-		}
+	if (!isAsciiDigits(digits, 0, digits.length)) {
+		return undefined
 	}
 	if (digits.length > 1 && digits.startsWith("0")) {
 		return undefined

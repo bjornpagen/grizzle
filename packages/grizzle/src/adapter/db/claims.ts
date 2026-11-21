@@ -1,3 +1,4 @@
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
@@ -104,15 +105,7 @@ export interface TypedContext {
 /** Whether `text` is decimal digits with an optional leading minus: what BigInt reads as exactly that integer. */
 const isDecimalInteger = (text: string): boolean => {
 	const digits = Str.startsWith("-")(text) ? Str.slice(1)(text) : text
-	if (digits.length === 0) {
-		return false
-	}
-	for (const ch of digits) {
-		if (ch < "0" || ch > "9") {
-			return false
-		}
-	}
-	return true
+	return digits.length > 0 && isAsciiDigits(digits, 0, digits.length)
 }
 
 /**

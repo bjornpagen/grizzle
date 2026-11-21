@@ -513,7 +513,7 @@ const negationDroppedKill: Kill = {
 /** Printable ASCII punctuation from ! to / taken for alphanumerics and printed bare in the ARE, where it is an operator. */
 const punctuationBareKill: Kill = {
 	file: "packages/text/src/regex/print.ts",
-	original: "\t(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
+	original: "\tisAsciiDigit(c) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
 	replacement: "\t(c >= 0x21 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)",
 	why: "A literal . * + ( ) prints without its backslash, so PostgreSQL reads an operator; an escaped literal's membership disagrees."
 }

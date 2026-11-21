@@ -3,6 +3,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -2122,7 +2123,7 @@ export interface LiteralPackText {
 
 /** A text of decimal digits as the whole number it spells, none for any other text. */
 const wholeNumber = (text: string): bigint | undefined =>
-	text !== "" && Array.from(text).every((c) => c >= "0" && c <= "9") ? BigInt(text) : undefined
+	text !== "" && isAsciiDigits(text, 0, text.length) ? BigInt(text) : undefined
 
 /** The text between `before` at the start of `text` and the first `after` past it, and what follows, or none. */
 const between = (

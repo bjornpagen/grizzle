@@ -1,5 +1,6 @@
 import { RegexBuilder, set } from "@bjornpagen/grizzle-text/regex/ir"
 import { runsOf } from "@bjornpagen/grizzle-text/regex/words"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 
 declare const sqlstateBrand: unique symbol
@@ -37,7 +38,7 @@ const parse = (code: string): Sqlstate | undefined => {
 	}
 	for (let i = 0; i < code.length; i++) {
 		const unit = code.charCodeAt(i)
-		if (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {
+		if (!(isAsciiDigit(unit) || (unit >= 0x41 && unit <= 0x5a))) {
 			return undefined
 		}
 	}

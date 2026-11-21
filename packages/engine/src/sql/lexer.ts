@@ -1,3 +1,5 @@
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
+
 /**
  * A PostgreSQL lexer for the statements of a migration file (deploy/render/markers.ts splitStatements) and the test
  * kernel's structural text audit (test/support/oracle/verify/sql.ts).
@@ -102,15 +104,14 @@ export interface Lexed {
 
 /** The scanner reads UTF-16 code units, compared as numbers; a code unit past the end is NaN, which no class holds. */
 const isAsciiLetter = (c: number): boolean => (c >= 0x61 && c <= 0x7a) || (c >= 0x41 && c <= 0x5a)
-const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39
 const isOctalDigit = (c: number): boolean => c >= 0x30 && c <= 0x37
 const isBinaryDigit = (c: number): boolean => c === 0x30 || c === 0x31
 const isHexDigit = (c: number): boolean =>
-	isDigit(c) || (c >= 0x61 && c <= 0x66) || (c >= 0x41 && c <= 0x46)
+	isAsciiDigit(c) || (c >= 0x61 && c <= 0x66) || (c >= 0x41 && c <= 0x46)
 /** PostgreSQL's ident_start and ident_cont: letters, underscore, and any non-ASCII byte. */
 const isIdentStart = (c: number): boolean => isAsciiLetter(c) || c === underscore || c >= 0x80
-const isIdentCont = (c: number): boolean => isIdentStart(c) || isDigit(c) || c === dollarSign
-const isDollarTagCont = (c: number): boolean => isIdentStart(c) || isDigit(c)
+const isIdentCont = (c: number): boolean => isIdentStart(c) || isAsciiDigit(c) || c === dollarSign
+const isDollarTagCont = (c: number): boolean => isIdentStart(c) || isAsciiDigit(c)
 const isNewline = (c: number): boolean => c === lineFeed || c === carriageReturn
 /** PostgreSQL's non_newline_space: a space, a tab, a form feed or a vertical tab. */
 const isNonNewlineSpace = (c: number): boolean =>
@@ -373,9 +374,9 @@ const strayDollar = (text: string, i: number): Step => refused(text, i, i + 1, "
  * a stray `$`.
  */
 const dollar = (text: string, i: number): Step => {
-	if (isDigit(at(text, i + 1))) {
+	if (isAsciiDigit(at(text, i + 1))) {
 		let j = i + 1
-		while (isDigit(at(text, j))) {
+		while (isAsciiDigit(at(text, j))) {
 			j += 1
 		}
 		if (isIdentStart(at(text, j))) {
@@ -531,18 +532,18 @@ const numberAt = (text: string, i: number): Step => {
 			? refused(text, i, identContEnd(text, i), "invalid non-decimal integer")
 			: numberTo(text, i, end)
 	}
-	const integer = digitGroupsEnd(text, i, isDigit)
+	const integer = digitGroupsEnd(text, i, isAsciiDigit)
 	if (at(text, integer) === dot && at(text, integer + 1) === dot) {
 		return token({ kind: "number", text: text.slice(i, integer), start: i }, integer)
 	}
-	const base = at(text, integer) === dot ? digitGroupsEnd(text, integer + 1, isDigit) : integer
+	const base = at(text, integer) === dot ? digitGroupsEnd(text, integer + 1, isAsciiDigit) : integer
 	const marker = at(text, base)
 	if (marker !== 0x65 && marker !== 0x45) {
 		return numberTo(text, i, base)
 	}
 	const signed = at(text, base + 1) === plus || at(text, base + 1) === minus
 	const digits = base + 1 + (signed ? 1 : 0)
-	const exponentEnd = digitGroupsEnd(text, digits, isDigit)
+	const exponentEnd = digitGroupsEnd(text, digits, isAsciiDigit)
 	if (exponentEnd > digits) {
 		return numberTo(text, i, exponentEnd)
 	}
@@ -617,7 +618,7 @@ const stepAt = (text: string, i: number): Step => {
 	if (pair !== undefined) {
 		return token({ kind: "punct", text: pair, start: i }, i + 2)
 	}
-	if (isDigit(c) || (c === dot && isDigit(next))) {
+	if (isAsciiDigit(c) || (c === dot && isAsciiDigit(next))) {
 		return numberAt(text, i)
 	}
 	if (punctuationUnits.has(c)) {

@@ -56,6 +56,25 @@ export const codePoints = (text: string): ReadonlyArray<number> => {
 	return out
 }
 
+/**
+ * Whether a code unit is an ASCII decimal digit, 0 to 9: the one digit test of every reader of decimal numerals. A
+ * text's unit past its end, NaN, is none.
+ */
+export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39
+
+/**
+ * Whether every code unit of `text` from `start` to `end` is an ASCII decimal digit (isAsciiDigit): an empty range is,
+ * holding none.
+ */
+export const isAsciiDigits = (text: string, start: number, end: number): boolean => {
+	for (let i = start; i < end; i++) {
+		if (!isAsciiDigit(text.charCodeAt(i))) {
+			return false
+		}
+	}
+	return true
+}
+
 /** The text of `points` in order, each one code point: String.fromCodePoint over a list of any length. */
 export const codePointsText = (points: Iterable<number>): string => {
 	let text = ""

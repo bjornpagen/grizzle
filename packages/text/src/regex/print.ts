@@ -1,3 +1,4 @@
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { type AreAtom, isAlternation, piecesOf, printableIntervals } from "#text/regex/are.ts"
 import type { CharSet, Interval } from "#text/regex/charset.ts"
 import { folded, type LiveNode, type RegexNode } from "#text/regex/ir.ts"
@@ -36,7 +37,7 @@ interface Dialect {
 }
 
 const isAsciiAlnum = (c: number): boolean =>
-	(c >= 0x30 && c <= 0x39) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
+	isAsciiDigit(c) || (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
 
 /**
  * One code point as ECMA-262 and grizzle's grammar both spell it under the `u` flag, meaning itself inside a class and

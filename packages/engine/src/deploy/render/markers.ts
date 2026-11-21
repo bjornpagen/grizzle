@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { type Lexeme, lex, lexemesOf, type Token } from "#compiler/sql/lexer.ts"
 import { placeholderToken } from "#compiler/sql/print.ts"
 
@@ -11,10 +12,6 @@ export const confirmMarker = "-- grizzle: confirm"
  * line is no marker `grizzle migrate` refuses: it may stay. */
 export const lossMarker = "-- grizzle: data loss"
 
-/** Character classes, spelled out: the compiler constructs no RegExp. */
-export const isDigit = (ch: string | undefined): boolean =>
-	ch !== undefined && ch >= "0" && ch <= "9"
-
 /** The lines of a text, a trailing carriage return dropped from each. */
 const textLines = (text: string): ReadonlyArray<string> =>
 	text.split("\n").map((l) => (l.endsWith("\r") ? l.slice(0, -1) : l))
@@ -24,7 +21,7 @@ export const isWords = (text: string): boolean => {
 	let separator = true
 	for (const ch of text) {
 		const joins = ch === "_" || ch === "-"
-		if (joins ? separator : !(isDigit(ch) || (ch >= "a" && ch <= "z"))) {
+		if (joins ? separator : !(isAsciiDigit(ch.charCodeAt(0)) || (ch >= "a" && ch <= "z"))) {
 			return false
 		}
 		separator = joins

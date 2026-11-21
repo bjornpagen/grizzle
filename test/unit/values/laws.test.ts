@@ -174,8 +174,8 @@ export const theValueCarriersLawsAWrittenPayloadRevivesToItsValueAndOnlyAWritten
 		kills: [
 			{
 				file: "packages/engine/src/scalar/values/money.ts",
-				original: "\treturn text.charCodeAt(start) !== 0x30 || text.length === 1",
-				replacement: "\treturn true",
+				original: "\t\t(text.charCodeAt(start) !== 0x30 || text.length === 1)\n",
+				replacement: "\t\ttrue\n",
 				why: "Money's canonical-integer check is dropped, so a payload with a leading zero revives; the revival property fails."
 			}
 		]

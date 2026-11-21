@@ -1,4 +1,4 @@
-import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { codePoints, codePointsText, isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
 import * as Result from "#text/base/result.ts"
 import {
@@ -85,13 +85,11 @@ const syntaxCharacters = "^$\\.*+?()[]{}|"
 /** The code point of a one-unit ASCII literal of the grammar. */
 const cp = (ch: string): number => ch.charCodeAt(0)
 
-const isDecimalDigit = (c: number | undefined): boolean => c !== undefined && c >= 0x30 && c <= 0x39
-
 const hexValue = (c: number | undefined): number | undefined => {
 	if (c === undefined) {
 		return undefined
 	}
-	if (c >= 0x30 && c <= 0x39) {
+	if (isAsciiDigit(c)) {
 		return c - 0x30
 	}
 	if (c >= 0x41 && c <= 0x46) {
@@ -157,11 +155,11 @@ const isNameStart = (c: number): boolean =>
 	(c > 0x7f && !(c >= surrogateLo && c <= surrogateHi))
 
 const isNamePart = (c: number): boolean =>
-	isNameStart(c) || isDecimalDigit(c) || c === 0x200c || c === 0x200d
+	isNameStart(c) || isAsciiDigit(c) || c === 0x200c || c === 0x200d
 
 const isPropertyNameChar = (c: number | undefined): boolean => isAsciiLetter(c) || c === 0x5f
 const isPropertyValueChar = (c: number | undefined): boolean =>
-	isPropertyNameChar(c) || isDecimalDigit(c)
+	isPropertyNameChar(c) || (c !== undefined && isAsciiDigit(c))
 
 /**
  * A placeholder for a construct already refused as unsupported: the parse goes on only to find a later syntax error,
@@ -439,17 +437,13 @@ class Parser {
 	/** Decimal digits, saturating at a value above any admitted bound so a huge literal never loses precision. */
 	#decimal(): { readonly value: number } | undefined {
 		const first = this.#peek(0)
-		return first !== undefined && isDecimalDigit(first) ? this.#decimalFrom(first) : undefined
+		return first !== undefined && isAsciiDigit(first) ? this.#decimalFrom(first) : undefined
 	}
 
 	/** The decimal digits from the current position, whose code point is `first`, a digit. */
 	#decimalFrom(first: number): { readonly value: number } {
 		let value = 0
-		for (
-			let c: number | undefined = first;
-			c !== undefined && isDecimalDigit(c);
-			c = this.#peek(0)
-		) {
+		for (let c: number | undefined = first; c !== undefined && isAsciiDigit(c); c = this.#peek(0)) {
 			value = Math.min(value * 10 + (c - 0x30), Number.MAX_SAFE_INTEGER)
 			this.#pos += 1
 		}
@@ -810,7 +804,8 @@ class Parser {
 				return letter % 32
 			}
 			case "0": {
-				if (isDecimalDigit(this.#peek(2))) {
+				const third = this.#peek(2)
+				if (third !== undefined && isAsciiDigit(third)) {
 					throw this.#malformed(
 						at,
 						this.#text(at, at + 3),
@@ -844,7 +839,7 @@ class Parser {
 					this.#pos += 2
 					return next
 				}
-				if (inClass && isDecimalDigit(next)) {
+				if (inClass && isAsciiDigit(next)) {
 					throw this.#malformed(at, `\\${name}`, "invalid class escape in Unicode mode")
 				}
 				throw this.#malformed(at, `\\${name}`, "invalid escape in Unicode mode")

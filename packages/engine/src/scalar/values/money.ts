@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription, type ValueFault } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
@@ -19,13 +20,10 @@ const isCanonicalInteger = (text: string): boolean => {
 	if (length === 0 || length > int8Digits) {
 		return false
 	}
-	for (let i = start; i < text.length; i++) {
-		const code = text.charCodeAt(i)
-		if (code < 0x30 || code > 0x39) {
-			return false
-		}
-	}
-	return text.charCodeAt(start) !== 0x30 || text.length === 1
+	return (
+		isAsciiDigits(text, start, text.length) &&
+		(text.charCodeAt(start) !== 0x30 || text.length === 1)
+	)
 }
 
 /** What a Money's make answers for minor units it could not read. */

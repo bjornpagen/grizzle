@@ -253,9 +253,11 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 				why: "A new folder's timestamp repeats the newest folder's when the clock reads it."
 			},
 			{
-				file: "packages/grizzle/src/cli/clock.ts",
-				original: 'const isDigit = (c: string): boolean => c >= "0" && c <= "9"',
-				replacement: 'const isDigit = (c: string): boolean => c < "0" && c <= "9"',
+				file: "packages/text/src/text.ts",
+				original:
+					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39",
+				replacement:
+					"export const isAsciiDigit = (unit: number): boolean => unit < 0x30 && unit <= 0x39",
 				why: "Operator mutant (comparison) at packages/grizzle/src/cli/clock.ts:50 in isDigit: `>=` becomes `<`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

@@ -56,15 +56,14 @@ export const scannersThatReplaceARegExpUnderSrcSqlstateParseReadsExactly09AZ5AsT
 		kills: [
 			{
 				file: "packages/engine/src/core/sqlstate.ts",
-				original: "\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {",
-				replacement:
-					"\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x59))) {",
+				original: "\t\tif (!(isAsciiDigit(unit) || (unit >= 0x41 && unit <= 0x5a))) {",
+				replacement: "\t\tif (!(isAsciiDigit(unit) || (unit >= 0x41 && unit <= 0x59))) {",
 				why: "Sqlstate.parse's range of capitals ends at Y; the property fails."
 			},
 			{
 				file: "packages/engine/src/core/sqlstate.ts",
 				original:
-					"\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {\n\t\t\treturn undefined\n\t\t}",
+					"\t\tif (!(isAsciiDigit(unit) || (unit >= 0x41 && unit <= 0x5a))) {\n\t\t\treturn undefined\n\t\t}",
 				replacement: "\t\t{}",
 				why: "Operator mutant (guard) at packages/engine/src/core/sqlstate.ts:34 in parse: `if (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {\n\t\t\tre` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}

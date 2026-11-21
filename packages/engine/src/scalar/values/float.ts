@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { ValueFault } from "#compiler/core/errors.ts"
 
 /**
@@ -235,8 +236,6 @@ export const decimalToBinary32 = (coefficient: bigint, exponent: number): number
 	}
 }
 
-const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39
-
 /**
  * The binary32 value of the finite decimal text text[from, to): an optional minus sign, digits, an optional fraction
  * and an optional exponent (e, an optional sign, digits), -0 as +0.
@@ -251,7 +250,7 @@ const finiteBinary32 = (text: string, from: number, to: number): number => {
 		i++
 	}
 	const intStart = i
-	while (i < to && isDigit(text.charCodeAt(i))) {
+	while (i < to && isAsciiDigit(text.charCodeAt(i))) {
 		i++
 	}
 	let digits = text.slice(intStart, i)
@@ -261,7 +260,7 @@ const finiteBinary32 = (text: string, from: number, to: number): number => {
 	let exponent = 0
 	if (i < to && text.charCodeAt(i) === 0x2e) {
 		const fracStart = ++i
-		while (i < to && isDigit(text.charCodeAt(i))) {
+		while (i < to && isAsciiDigit(text.charCodeAt(i))) {
 			i++
 		}
 		digits += text.slice(fracStart, i)

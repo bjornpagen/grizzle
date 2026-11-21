@@ -1,4 +1,4 @@
-import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
+import { codePoints, codePointsText, isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { defined } from "#text/base/invariant.ts"
 import * as Result from "#text/base/result.ts"
 import { categoryRuns, generalCategories } from "#text/regex/categories.generated.ts"
@@ -614,7 +614,7 @@ class Reader {
 	#numeral(): string | undefined {
 		const from = this.#pos
 		let first = from
-		for (let c = this.#peek(0); c !== undefined && isDigit(c); c = this.#peek(0)) {
+		for (let c = this.#peek(0); c !== undefined && isAsciiDigit(c); c = this.#peek(0)) {
 			if (c === cp("0") && first === this.#pos) {
 				first += 1
 			}
@@ -629,9 +629,6 @@ class Reader {
 
 /** A count's greatest as written: a numeral, or none, `{n,}`. */
 type Most = { readonly kind: "bounded"; readonly numeral: string } | { readonly kind: "unbounded" }
-
-/** Whether a code point is an ASCII decimal digit, the digits of Appendix F's QuantExact ([0-9]+). */
-const isDigit = (c: number): boolean => c >= cp("0") && c <= cp("9")
 
 /** Whether the numeral `a` names a smaller number than `b`, both without leading zeros: by length, then digit by digit. */
 const numeralBelow = (a: string, b: string): boolean =>

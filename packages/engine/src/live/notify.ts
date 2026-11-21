@@ -1,3 +1,6 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
 /**
  * Liveness's one grammar: what a committed write changed, as the route keys a live program's runtime routes it by,
  * the text that spells each, and the sealed batches of those texts the fan-out channel carries. The side that reads a
@@ -6,9 +9,7 @@
  * notifications by their plaintext keys. A session without the secret, which any role of the database can LISTEN as,
  * reads nothing of a payload but its arrival, and makes none that opens.
  */
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { utf8, utf8Length, utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
@@ -131,9 +132,7 @@ const underscore = 0x5f
 
 const isLetter = (unit: number): boolean => unit >= 0x61 && unit <= 0x7a
 
-const isDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39
-
-const isHexDigit = (unit: number): boolean => isDigit(unit) || (unit >= 0x61 && unit <= 0x66)
+const isHexDigit = (unit: number): boolean => isAsciiDigit(unit) || (unit >= 0x61 && unit <= 0x66)
 
 declare const walPositionBrand: unique symbol
 
@@ -153,7 +152,7 @@ export const parseWalPosition = (text: string): Result.Result<WalPosition, LiveT
 		return refused(text, "a WAL position: decimal digits, no leading zero")
 	}
 	for (let at = 0; at < text.length; at += 1) {
-		if (!isDigit(text.charCodeAt(at))) {
+		if (!isAsciiDigit(text.charCodeAt(at))) {
 			return refused(text, "a WAL position: decimal digits, no leading zero")
 		}
 	}
@@ -174,7 +173,7 @@ const isInstalledIdentifier = (text: string): boolean => {
 	}
 	for (let at = 1; at < text.length; at += 1) {
 		const unit = text.charCodeAt(at)
-		if (!(isLetter(unit) || isDigit(unit) || unit === underscore)) {
+		if (!(isLetter(unit) || isAsciiDigit(unit) || unit === underscore)) {
 			return false
 		}
 	}

@@ -1,3 +1,4 @@
+import { isAsciiDigit, isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { isRecord } from "#compiler/core/record.ts"
 
 /** A JavaScript call site: its file, line and column. */
@@ -149,17 +150,8 @@ export const formatLoc = (loc: SourceLoc): string => {
 	return site === undefined ? head : `${head} (${formatSite(site)})`
 }
 
-const isDigits = (text: string): boolean => {
-	if (text === "") {
-		return false
-	}
-	for (const ch of text) {
-		if (ch < "0" || ch > "9") {
-			return false
-		}
-	}
-	return true
-}
+/** Whether a text is a numeral: at least one ASCII digit, and nothing else. */
+const isNumeral = (text: string): boolean => text !== "" && isAsciiDigits(text, 0, text.length)
 
 /** "file:line:col" with the two numbers taken from the end, so a Windows drive letter or a URL scheme stays in file. */
 const parseLocation = (location: string): CallSite | undefined => {
@@ -174,7 +166,7 @@ const parseLocation = (location: string): CallSite | undefined => {
 	const file = location.slice(0, colon1)
 	const line = location.slice(colon1 + 1, colon2)
 	const column = location.slice(colon2 + 1)
-	if (!isDigits(line) || !isDigits(column)) {
+	if (!isNumeral(line) || !isNumeral(column)) {
 		return undefined
 	}
 	return { file, line: Number(line), column: Number(column) }
@@ -202,7 +194,7 @@ export const parseFrame = (frame: string): CallSite | undefined => {
 const isSchemeUnit = (unit: number): boolean =>
 	(unit >= 0x61 && unit <= 0x7a) ||
 	(unit >= 0x41 && unit <= 0x5a) ||
-	(unit >= 0x30 && unit <= 0x39) ||
+	isAsciiDigit(unit) ||
 	unit === 0x2b ||
 	unit === 0x2e ||
 	unit === 0x2d

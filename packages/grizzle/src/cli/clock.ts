@@ -1,3 +1,4 @@
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { Array as Arr, DateTime, Option, Order, Record as Rec, String as Str } from "effect"
 import { timestampLength, timestampWidths } from "#compiler/plan/migration.ts"
 
@@ -47,8 +48,6 @@ export const formatTimestamp = (at: DateTime.Utc): string => {
 	)
 }
 
-const isDigit = (c: string): boolean => c >= "0" && c <= "9"
-
 /**
  * The instant a YYYYMMDDHHMMSS timestamp names, or none when it names no valid UTC second: its parts must read
  * back as themselves, so a month, day or time out of range names nothing. A year written with a leading zero, below
@@ -57,7 +56,7 @@ const isDigit = (c: string): boolean => c >= "0" && c <= "9"
 export const parseTimestamp = (text: string): Option.Option<DateTime.Utc> => {
 	if (
 		text.length !== timestampLength ||
-		!Arr.every(Str.split(text, ""), isDigit) ||
+		!isAsciiDigits(text, 0, text.length) ||
 		Str.startsWith("0")(text)
 	) {
 		return Option.none()

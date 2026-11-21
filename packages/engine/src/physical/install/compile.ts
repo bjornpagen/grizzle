@@ -1,6 +1,7 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { catchRefusal, KeyLedger, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
@@ -244,7 +245,7 @@ const admittedSchema = (name: string): boolean => {
 	for (let i = 0; i < name.length; i++) {
 		const ch = name.charAt(i)
 		const lower = ch >= "a" && ch <= "z"
-		if (!(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))) {
+		if (!(lower || ch === "_" || (i > 0 && isAsciiDigit(ch.charCodeAt(0))))) {
 			return false
 		}
 	}

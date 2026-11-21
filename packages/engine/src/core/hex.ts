@@ -1,5 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 
 /**
  * Hex, the one spelling of every bit string grizzle writes: a set's literal and its parameter text, a roster's live
@@ -106,7 +107,7 @@ export const hexOfBitText = (text: string): string => {
  * so a lowercase digit, which PostgreSQL would read as the same bits, is none.
  */
 const digitValue = (code: number): number | undefined => {
-	if (code >= 0x30 && code <= 0x39) {
+	if (isAsciiDigit(code)) {
 		return code - 0x30
 	}
 	if (code >= 0x41 && code <= 0x46) {

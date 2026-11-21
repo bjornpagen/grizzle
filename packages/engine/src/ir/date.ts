@@ -1,5 +1,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import type { ValueFault } from "#compiler/core/errors.ts"
 
 /**
@@ -70,7 +71,7 @@ const digitsValue = (text: string, start: number, end: number): number | undefin
 	let value = 0
 	for (let i = start; i < end; i++) {
 		const code = text.charCodeAt(i)
-		if (code < 0x30 || code > 0x39) {
+		if (!isAsciiDigit(code)) {
 			return undefined
 		}
 		value = value * 10 + (code - 0x30)

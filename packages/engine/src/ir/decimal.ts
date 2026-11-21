@@ -1,3 +1,4 @@
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import {
 	type Canonicalizable,
 	canonicalTag,
@@ -14,8 +15,6 @@ import {
 } from "#compiler/core/decimal.ts"
 
 export const decimalTag = "d"
-
-const isDigit = (ch: string | undefined): boolean => ch !== undefined && ch >= "0" && ch <= "9"
 
 /**
  * The IR's decimal: DecimalText or scalar/values' owned Decimal, both in the one form. The IR holds a numeric literal
@@ -67,7 +66,7 @@ export class DecimalText implements Canonicalizable {
 			i++
 		}
 		const intStart = i
-		while (isDigit(text[i])) {
+		while (isAsciiDigit(text.charCodeAt(i))) {
 			i++
 		}
 		const intDigits = i - intStart
@@ -79,7 +78,7 @@ export class DecimalText implements Canonicalizable {
 		if (text[i] === ".") {
 			i++
 			fracStart = i
-			while (isDigit(text[i])) {
+			while (isAsciiDigit(text.charCodeAt(i))) {
 				i++
 			}
 			if (i === fracStart || text[i - 1] === "0") {

@@ -1,6 +1,6 @@
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { compareCodePoints, isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { isWellFormedText, jsonEscape, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
@@ -453,12 +453,7 @@ export const isDecimal = (text: string): boolean => {
 	if (text.length > 1 && text.startsWith("0")) {
 		return false
 	}
-	for (const ch of text) {
-		if (ch < "0" || ch > "9") {
-			return false
-		}
-	}
-	return true
+	return isAsciiDigits(text, 0, text.length)
 }
 
 /**

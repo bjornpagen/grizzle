@@ -2,7 +2,7 @@ import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { type NonEmptyReadonlyArray, sortNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
+import { compareCodePoints, isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	canonicalTextOf,
@@ -824,7 +824,8 @@ const nativeNorm = (components: ReadonlyArray<number>): number => {
 	return Math.sqrt(sum)
 }
 
-const isLowerHex = (ch: string): boolean => (ch >= "0" && ch <= "9") || (ch >= "a" && ch <= "f")
+const isLowerHex = (ch: string): boolean =>
+	isAsciiDigit(ch.charCodeAt(0)) || (ch >= "a" && ch <= "f")
 
 /** Whether `text` is the canonical UUID text: lowercase hex digits in groups of 8, 4, 4, 4 and 12, joined by hyphens. */
 const isUuidText = (text: string): boolean =>

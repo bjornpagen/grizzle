@@ -1,4 +1,5 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { type Canonicalizable, canonicalTag, type TaggedValue } from "#compiler/core/canonical.ts"
 import { int4Max } from "#compiler/core/canonical.ts"
 import {
@@ -71,12 +72,10 @@ const roundHalfAway = (c: bigint, k: number): bigint => {
 	return (c % divisor) * 2n >= divisor ? q + 1n : q
 }
 
-const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39
-
 /** The end of the run of decimal digits of `text` from `start`. */
 const digitsEnd = (text: string, start: number): number => {
 	let i = start
-	while (i < text.length && isDigit(text.charCodeAt(i))) {
+	while (i < text.length && isAsciiDigit(text.charCodeAt(i))) {
 		i++
 	}
 	return i

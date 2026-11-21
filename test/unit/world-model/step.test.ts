@@ -216,9 +216,11 @@ export const theWorldsModelsMigrationFoldersDraftsAFoldersFilesInTheOrderAndNumb
 				why: "A world object whose compile states a proof of its rows that prints nothing reads as changed (diff.ts sameRead by the record): the kept case's view, printing the same statement, is dropped and created again in Structure; this property fails."
 			},
 			{
-				file: "packages/engine/src/sql/lexer.ts",
-				original: "const isDigit = (c: number): boolean => c >= 0x30 && c <= 0x39",
-				replacement: "const isDigit = (c: number): boolean => c >= 0x30 && c <= 58",
+				file: "packages/text/src/text.ts",
+				original:
+					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39",
+				replacement:
+					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 58",
 				why: "Operator mutant (bound) at packages/engine/src/sql/lexer.ts:103 in isDigit: `0x39` becomes `58`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

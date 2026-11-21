@@ -269,8 +269,9 @@ export const theWriteOraclesJudgementPassesAFaithfulRealizationAndRefusesEveryPl
 		kills: [
 			{
 				file: "packages/engine/src/physical/install/compile.ts",
-				original: '\t\tif (!(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))) {',
-				replacement: '\t\tif ((lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))) {',
+				original: '\t\tif (!(lower || ch === "_" || (i > 0 && isAsciiDigit(ch.charCodeAt(0))))) {',
+				replacement:
+					'\t\tif ((lower || ch === "_" || (i > 0 && isAsciiDigit(ch.charCodeAt(0))))) {',
 				why: 'Operator mutant (negation) at packages/engine/src/physical/install/compile.ts:239 in admittedSchema: `!(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))` becomes `(lower || ch === "_" || (i > 0 && ch >= "0" && ch <= "9"))`; the property fails (lane CATCH, grizzle 0baff5d6).'
 			}
 		]

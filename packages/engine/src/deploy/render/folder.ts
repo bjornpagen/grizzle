@@ -1,5 +1,6 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit, isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { catchRefusal, everyProperty, Refusal } from "#compiler/core/canonical.ts"
@@ -14,7 +15,6 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareNumbers, mapInput } from "#compiler/core/order.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
 import {
-	isDigit,
 	isWords,
 	type StatementToken,
 	splitStatements,
@@ -395,15 +395,6 @@ export interface DraftedFolder extends MigrationFolder {
 	readonly meta: DraftedMeta
 }
 
-/** Whether every character of `text` is an ASCII digit. */
-const allDigits = (text: string): boolean => {
-	for (const ch of text) {
-		if (!isDigit(ch)) {
-			return false
-		}
-	}
-	return true
-}
 
 /**
  * A migration folder's timestamp, the UTC second it is drafted at, which the CLI reads off its clock (cli/clock.ts)
@@ -427,7 +418,7 @@ const digitsOf = (widths: Readonly<Record<string, number>>): number => {
 /** A timestamp's length: the digits of all its fields. */
 export const timestampLength: number = digitsOf(timestampWidths)
 
-const isTimestamp = (text: string): boolean => text.length === timestampLength && allDigits(text)
+const isTimestamp = (text: string): boolean => text.length === timestampLength && isAsciiDigits(text, 0, text.length)
 
 /** What separates a migration folder's timestamp from its name. */
 const folderSeparator = "_"
@@ -470,7 +461,7 @@ export type ChangeVerb = "add" | "drop" | "change"
 const words = (text: string): string => {
 	let out = ""
 	for (const ch of text.toLowerCase()) {
-		const keep = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9")
+		const keep = (ch >= "a" && ch <= "z") || isAsciiDigit(ch.charCodeAt(0))
 		if (keep) {
 			out += ch
 		} else if (out.length > 0 && !out.endsWith("_")) {
@@ -536,7 +527,7 @@ const fileOrdinal = (name: string): number | undefined => {
 		return undefined
 	}
 	const digits = stem.slice(0, dash)
-	if (!allDigits(digits) || !isWords(stem.slice(dash + 1))) {
+	if (!isAsciiDigits(digits, 0, digits.length) || !isWords(stem.slice(dash + 1))) {
 		return undefined
 	}
 	const n = Number(digits)

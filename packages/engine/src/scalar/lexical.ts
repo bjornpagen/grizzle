@@ -1,4 +1,5 @@
 import { regexMaxRepeat } from "@bjornpagen/grizzle-text/regex/parse"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { integerRanges } from "#compiler/ir/carriers.ts"
 import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import type { ParseForm } from "#compiler/ir/proof.ts"
@@ -380,7 +381,6 @@ interface Numeral {
 }
 
 /** Whether a code unit is an ASCII digit. */
-const isDigit = (code: number): boolean => code >= 0x30 && code <= 0x39
 
 /**
  * The numeral a text is, `[+-]?digits(.digits)?` with at least one digit on one side of the point, or undefined: the
@@ -394,7 +394,7 @@ const numeralOf = (text: string): Numeral | undefined => {
 		const code = text.charCodeAt(i)
 		if (code === 0x2e && point < 0) {
 			point = i
-		} else if (!isDigit(code)) {
+		} else if (!isAsciiDigit(code)) {
 			return undefined
 		}
 	}
@@ -506,7 +506,7 @@ const isExponent = (text: string): boolean => {
 		return false
 	}
 	for (let i = start; i < text.length; i++) {
-		if (!isDigit(text.charCodeAt(i))) {
+		if (!isAsciiDigit(text.charCodeAt(i))) {
 			return false
 		}
 	}

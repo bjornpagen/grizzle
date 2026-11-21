@@ -1,5 +1,6 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { isAsciiDigit } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -201,7 +202,6 @@ const digestOf = (canonical: string): string => {
 
 const isUpper = (ch: string): boolean => ch >= "A" && ch <= "Z"
 const isLower = (ch: string): boolean => ch >= "a" && ch <= "z"
-const isDigit = (ch: string): boolean => ch >= "0" && ch <= "9"
 
 /**
  * The segments of a name: split at case boundaries (a lowercase letter or digit before an uppercase one, and the last
@@ -219,7 +219,7 @@ const nameSegments = (name: string): ReadonlyArray<string> => {
 		current = ""
 	}
 	for (const [i, ch] of chars.entries()) {
-		if (!(isUpper(ch) || isLower(ch) || isDigit(ch))) {
+		if (!(isUpper(ch) || isLower(ch) || isAsciiDigit(ch.charCodeAt(0)))) {
 			flush()
 			continue
 		}
@@ -227,8 +227,8 @@ const nameSegments = (name: string): ReadonlyArray<string> => {
 		const next = chars[i + 1] ?? ""
 		const boundary =
 			current !== "" &&
-			((isDigit(ch) && !isDigit(prev)) ||
-				(!isDigit(ch) && isDigit(prev)) ||
+			((isAsciiDigit(ch.charCodeAt(0)) && !isAsciiDigit(prev.charCodeAt(0))) ||
+				(!isAsciiDigit(ch.charCodeAt(0)) && isAsciiDigit(prev.charCodeAt(0))) ||
 				(isUpper(ch) && isLower(prev)) ||
 				(isUpper(ch) && isUpper(prev) && isLower(next)))
 		if (boundary) {
@@ -268,7 +268,7 @@ const schemaName = nominal<DeclaredName, SchemaName>()
  */
 export const parseNameCharacters = (name: string): Result.Result<string, string> => {
 	for (const ch of name) {
-		if (!(isUpper(ch) || isLower(ch) || isDigit(ch) || ch === "_")) {
+		if (!(isUpper(ch) || isLower(ch) || isAsciiDigit(ch.charCodeAt(0)) || ch === "_")) {
 			return Result.err(
 				`a name of ASCII letters, digits and underscores; ${JSON.stringify(ch)} is outside them`
 			)
@@ -282,7 +282,7 @@ export const parseNameCharacters = (name: string): Result.Result<string, string>
 	if (name === "") {
 		return Result.err("a name with at least one letter or digit")
 	}
-	if (isDigit(name.charAt(0))) {
+	if (isAsciiDigit(name.charCodeAt(0))) {
 		return Result.err("a name not starting with a digit")
 	}
 	return Result.ok(name)
@@ -445,7 +445,7 @@ export const rolePrefixFaultText = (fault: RolePrefixFault): string => {
 
 /** Whether `code` is a lowercase ASCII letter, a digit or `_`: a character of a lowercase PostgreSQL identifier. */
 const isPrefixUnit = (code: number): boolean =>
-	(code >= 0x61 && code <= 0x7a) || (code >= 0x30 && code <= 0x39) || code === 0x5f
+	(code >= 0x61 && code <= 0x7a) || isAsciiDigit(code) || code === 0x5f
 
 /**
  * The rule a role prefix keeps, used verbatim, never converted: a lowercase PostgreSQL identifier segment,
@@ -464,7 +464,7 @@ export const parseRolePrefix = (prefix: string): Result.Result<RolePrefix, RoleP
 		}
 	}
 	const first = prefix.charCodeAt(0)
-	if (first >= 0x30 && first <= 0x39) {
+	if (isAsciiDigit(first)) {
 		return Result.err({ kind: "digitFirst" })
 	}
 	if (prefix.includes("__")) {

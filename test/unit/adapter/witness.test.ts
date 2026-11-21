@@ -668,9 +668,11 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/core/sqlstate.ts",
-				original: "\t\tif (!((unit >= 0x30 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {",
-				replacement: "\t\tif (!((unit >= 49 && unit <= 0x39) || (unit >= 0x41 && unit <= 0x5a))) {",
+				file: "packages/text/src/text.ts",
+				original:
+					"export const isAsciiDigit = (unit: number): boolean => unit >= 0x30 && unit <= 0x39",
+				replacement:
+					"export const isAsciiDigit = (unit: number): boolean => unit >= 49 && unit <= 0x39",
 				why: "Operator mutant (bound) at packages/engine/src/core/sqlstate.ts:34 in parse: `0x30` becomes `49`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

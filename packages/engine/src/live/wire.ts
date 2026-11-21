@@ -1,3 +1,8 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import * as Result from "@bjornpagen/grizzle-text/base/result"
+import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
+import { RegexBuilder, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { literal } from "@bjornpagen/grizzle-text/regex/words"
 /**
  * The JSON wire's spelling of every scalar grizzle serves, as one table over the carriers (`carrierWire`): for each, the
  * JSON Schema of its spellings, its `encode` (a host value the server holds to JSON), its `parse` (the server's exact
@@ -14,11 +19,7 @@
  *
  * The module is runtime-free and browser-safe: it imports the value core and core leaves alone.
  */
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { base64Bytes } from "@bjornpagen/grizzle-text/base64"
-import { RegexBuilder, type RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
-import { literal } from "@bjornpagen/grizzle-text/regex/words"
+import { isAsciiDigits } from "@bjornpagen/grizzle-text/text"
 import { int4Max } from "#compiler/core/canonical.ts"
 import {
 	floatSpecialNameOf,
@@ -349,24 +350,13 @@ const smallIntegerOf = (
 	return json < min || json > max ? Result.err("range") : Result.ok(json === 0 ? 0 : json)
 }
 
-/** Whether every code unit of `text` from `start` to `end` is a decimal digit. */
-const allDigits = (text: string, start: number, end: number): boolean => {
-	for (let i = start; i < end; i++) {
-		const c = text.charCodeAt(i)
-		if (c < 0x30 || c > 0x39) {
-			return false
-		}
-	}
-	return true
-}
-
 /** Whether a text is an integer in the wire's grammar: an optional minus sign and digits as JSON writes an integer. */
 const isIntegerSpelling = (text: string): boolean => {
 	const start = text.startsWith("-") ? 1 : 0
 	const length = text.length - start
 	return (
 		length > 0 &&
-		allDigits(text, start, text.length) &&
+		isAsciiDigits(text, start, text.length) &&
 		(length === 1 || text.charCodeAt(start) !== 0x30)
 	)
 }
@@ -398,7 +388,7 @@ const isDecimalSpelling = (text: string): boolean => {
 	return (
 		isIntegerSpelling(text.slice(0, point)) &&
 		point + 1 < text.length &&
-		allDigits(text, point + 1, text.length)
+		isAsciiDigits(text, point + 1, text.length)
 	)
 }
 
