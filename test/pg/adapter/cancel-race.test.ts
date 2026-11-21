@@ -145,12 +145,15 @@ export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsS
 								 * backend, which waits on the case's lock, and let through only then, so the answer that starts
 								 * the next round comes once the statement waits, and that round's CancelRequest finds it.
 								 */
-								if (c.lands === "before the read") {
+								const raceBeforeTheRead = Effect.gen(function* () {
 									yield* until(Effect.sync(() => tapped.cancelsEnded() > 0))
 									tapped.gate.hold(0, { kind: "any" })
 									tapped.sent.release()
 									yield* until(waitsOnLock(pid))
 									tapped.gate.release()
+								})
+								if (c.lands === "before the read") {
+									yield* raceBeforeTheRead
 								}
 								yield* Fiber.join(interrupting)
 								const exit = yield* Fiber.await(call)
