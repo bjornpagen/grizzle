@@ -295,7 +295,7 @@ export const theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRo
 			},
 			{
 				token: ReplayToken(
-					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.1.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.0.0.0.h.0.0.0.0.0.0.0.0.0.0.0.1.0.2.1.3"
+					"test/pg/write/swarm/families.test.ts#theFamilyWriterUnderASwarmEveryLawfulChangeSetStoresTheReferencesRowsEveryUnlawfulOneIsRefusedByALawItBreaksAndEveryRefusalWhenItCompilesIsOneTheOracleStates:-:0.1.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.0.0.0.1.0.2.1.3"
 				),
 				reason:
 					"1bf3dbb: a counted family's or end, its owner inserted beside its members, one member per fact",

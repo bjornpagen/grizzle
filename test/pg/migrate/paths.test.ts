@@ -83,50 +83,50 @@ export const renamedPaths = property.explore(steered(renamedCaseSteered), {
 	},
 	kept: [
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.0.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.0.0.0.0.0.0.0"),
 			reason: "M49: two relation renames referencing each other",
 			since: "2026-10-29"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.1.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.1.0.0.0.0.0.0"),
 			reason: "M48: a key carried over a retyped field",
 			since: "2026-10-29"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.2.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.2.0.0.0.0.0.0"),
 			reason: "a key over a field renamed onto the primary key a new reference reads",
 			since: "2026-10-29"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.3.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.3.0.0.0.0.0.0"),
 			reason:
 				"a candidate key promoted over a dropped surrogate, its reference turned immediate in the same migration",
 			since: "2026-11-08"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.4.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.4.0.0.0.0.0.0"),
 			reason: "M36: a field renamed with its type changed",
 			since: "2026-10-29"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.5.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.5.0.0.0.0.0.0"),
 			reason: "M51: statistics over a retyped field",
 			since: "2026-10-29"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.6.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.6.0.0.0.0.0.0"),
 			reason: "M51: statistics of a renamed relation",
 			since: "2026-10-29"
 		},
 		{
-			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:8.7.0.0.0.0.0.0"),
+			token: ReplayToken("test/pg/migrate/paths.test.ts#renamedPaths:-:2.7.0.0.0.0.0.0"),
 			reason:
 				"rosters carrying a text payload: each version's login holds their closed relations as admitted",
 			since: "2026-11-07"
 		},
 		{
 			token: ReplayToken(
-				"test/pg/migrate/paths.test.ts#renamedPaths:-:0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.0.0.8.3.d.3.3.8.8.d.8.d.d.3.3.0.1.2.1.2.6.0.2.1.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.pa8.0.0.0.0.0.1.n.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
+				"test/pg/migrate/paths.test.ts#renamedPaths:-:0.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.2.1.3.1.1.2.2.3.2.3.3.1.3.0.1.2.1.2.6.0.2.1.0.0.0.0.0.0.0.1.3.0.0.0.0.0.0.1.0.0.1.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.pa8.0.0.0.0.0.1.b.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0"
 			),
 			reason:
 				"FULLSUITE3, kept again: a roster's re-pointed domain over a column of a relation the same step drops, the column holding a code the step removes: the domain's VALIDATE drafted before the drop refused the dropped table's row, 23514 (engine fix 695fe292; the case of 2026-11-16 drew stale, so a fuzz under its kill found this one, red at 04-validate.sql statement 1)",

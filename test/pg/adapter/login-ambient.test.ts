@@ -242,7 +242,7 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/adapter/login-ambient.test.ts#aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem:-:1.2.3.4.4.3.0.2.0.2.1.0.2.0.0.1.pa8.1.3.0.6.1.2.1.1.3.2.3.0.2.1.5.6.1.1.1.4.0.4.1.4.1.1.0"
+					"test/pg/adapter/login-ambient.test.ts#aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem:-:1.1.2.3.3.2.0.2.0.2.1.0.2.0.0.1.pa8.1.3.0.6.1.2.1.1.3.2.3.0.2.1.5.6.1.1.1.4.0.4.1.4.1.1.0"
 				),
 				reason:
 					"every hostile default with the pin standing: the program's every answer is the defaults' answer",
@@ -250,7 +250,7 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 			},
 			{
 				token: ReplayToken(
-					"test/pg/adapter/login-ambient.test.ts#aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem:-:1.2.3.4.4.3.3.0.2.0.2.1.0.2.0.0.1.pa8.1.3.0.6.1.2.1.1.3.2.3.0.2.1.5.6.1.1.1.4.0.4.1.4.1.1.0"
+					"test/pg/adapter/login-ambient.test.ts#aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem:-:1.1.2.3.3.2.1.0.2.0.2.1.0.2.0.0.1.pa8.1.3.0.6.1.2.1.1.3.2.3.0.2.1.5.6.1.1.1.4.0.4.1.4.1.1.0"
 				),
 				reason:
 					"every hostile default with the search_path pin reset: the startup options pin the path, every answer is the defaults' answer",
@@ -258,7 +258,7 @@ export const aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabases
 			},
 			{
 				token: ReplayToken(
-					"test/pg/adapter/login-ambient.test.ts#aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem:-:1.2.3.4.4.3.3.1.2.0.2.1.0.2.0.0.1.pa8.1.3.0.6.1.2.1.1.3.2.3.0.2.1.5.6.1.1.1.4.0.4.1.4.1.1.0"
+					"test/pg/adapter/login-ambient.test.ts#aLoginUnderHostileDatabaseDefaultsAnswersExactlyAsUnderTheDatabasesOwnDefaultsWithEveryPinOrWithoutOneOfThem:-:1.1.2.3.3.2.1.1.2.0.2.1.0.2.0.0.1.pa8.1.3.0.6.1.2.1.1.3.2.3.0.2.1.5.6.1.1.1.4.0.4.1.4.1.1.0"
 				),
 				reason:
 					"every hostile default with the extra_float_digits pin reset: the startup options pin float text to its round trip, every answer is the defaults' answer",

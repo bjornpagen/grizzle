@@ -109,7 +109,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:1.0.0.0.0.0.0.4.1.0.4.3.3.2.0.0.2.2.0.0.0.0.0.0.0.7.1.5.3.4.5.3.0.1.2.0.2.0.0.0.0.2.0.0.3.0.0.0.1.0.0.1.0.0.2.1.2.3.2.2.1.0.0.0.1.0.2.0.2.2.1.0.4.3.4.4.4.0.0.7.4.6.4.0.0.0.0.1.0.0"
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:1.0.0.0.0.0.0.2.0.0.2.2.2.1.0.0.1.1.0.0.0.0.0.0.0.3.0.2.2.2.2.2.0.0.1.0.1.0.0.0.0.1.0.0.2.0.0.0.0.0.0.1.0.0.1.0.1.2.1.1.0.0.0.0.0.0.1.0.1.1.0.0.2.2.2.2.2.0.0.3.2.3.2.0.0.0.0.1.0.0"
 				),
 				reason:
 					"an equality lookup on A's boolean key column, which answers half its rows through the primary key, beside a span predicate on Task binding its closed id but not the numeric of many values after it in the GiST index another span predicate creates",
@@ -117,7 +117,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:2.1.0.0.5.6.3.2.2.2.1.4.6.5.5.4.3.1.2.1.2.0.1.7.6.6.2.0.1.2.2.0.6.3.4.1.8.0.1.1.5.0.6.0.7.3.4.1.2.2.2.0.6.3.5.0.6.0.7.5.8.8.7.1.3.0.2.1.2.1.0.1.3.5.2.8.5.2.2.1.4.2.1.5.1.1.3.2.8.3.1.2.2.2"
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:2.0.0.0.2.2.1.1.1.1.0.1.2.2.2.1.1.0.1.1.1.0.0.2.2.2.1.0.0.1.1.0.2.1.1.0.3.0.0.0.2.0.2.0.2.1.1.0.1.1.1.0.2.1.2.0.2.0.2.2.3.3.2.0.1.0.1.0.1.1.0.0.1.2.1.3.2.1.1.0.1.1.0.2.0.0.1.1.3.1.0.1.1.1"
 				),
 				reason:
 					"a range on Overlaps' JsonbPretty, a closed handle, by equality and its fixed0, a numeric of many values, by a range, beside span predicates whose GiST index holds both: GiST places its entries by fixed0, so its scan would read the range across every handle, and the range is planned on a B-tree of its own",
@@ -125,7 +125,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:3.2.0.1.0.2.1.1.2.a.9.5.0.3.9.3.3.8.1.0.2.7.3.3.5.9.a.1.a.7.4.b.a.a.2.7.2.1"
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:3.1.0.1.0.1.0.0.0.3.3.1.0.1.3.1.1.2.0.0.1.2.1.1.1.3.3.0.3.2.1.3.3.3.1.2.1.1"
 				),
 				reason:
 					"a range on DateSubtract's (fixed0, tick0, B1), planned on a B-tree led by fixed0, beside span predicates whose GiST index leads with Bool for one on (LineVertical, Bool) and holds fixed0 and tick0 but not B1: PostgreSQL sweeps that GiST index for the range, which no order of it serves beside the requests its order answers to, though it lacks one of the range's fields (serving.ts keyOrdersConflict)",
@@ -133,7 +133,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:4.2.0.2.2.1.4.1.0.3.4.1.1.2.0.1.0.1.1.3.2.2.0.1.2.1.1.1.0.4.1.3.2.3.4.3.1.1.4.2.3.1.2.0.0.0.1.4.0.3.1.3.3.4.1.0.1.1.1.0.2.3.3.2.2.2.2.1.1.2.1.2.0.1.2.3.3.0.0.1.3.1.1.4.1.3.4.3.0.0.4.4.0.0.0.2.3.1.2.1.2.3.1.3.1.1.1.0.1.0.1.0.2.4.3.2.1.2.0.0.2.1.1.0.1.1.1.0.2.0.0.4.1.3.4.1.0.1.4.0.4.0.4.3.0.0.0.0"
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:4.1.0.1.1.0.1.0.0.1.1.0.1.1.0.1.0.0.0.1.1.1.0.1.1.1.1.1.0.1.0.1.1.1.1.1.0.0.1.1.1.0.1.0.0.0.1.2.0.1.0.1.1.1.1.0.1.1.1.0.1.2.1.1.1.1.1.0.1.1.1.1.0.0.1.1.1.0.0.0.1.0.0.1.0.1.1.1.0.0.1.1.0.0.0.1.1.0.1.0.1.1.0.1.0.1.1.0.0.0.0.0.1.1.1.1.1.1.0.0.1.1.0.0.0.0.0.0.1.0.0.1.0.1.1.0.0.0.1.0.1.0.1.1.0.0.0.0"
 				),
 				reason:
 					"lookups and a join key on DistPs's (fixed0, tick0), (Nameicregexeq, tick0) and four of its fields beside span predicates on five of its fields, on (Nameicregexeq, tick0, Bool), on (tick0, Bool) and on Bool alone: the widest predicate's GiST index answers every one of the predicates, each column that may lead it kept until the one on Bool narrows them (physical/indexes/engine.ts leadDraft), so it leads with Bool, and PostgreSQL sweeps it for the lookups, which no order of it serves beside them",
@@ -141,7 +141,7 @@ export const everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIs
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:5.1.1.2.1.1.2.0.1.0.0.1.4.0.3.4.1.0.1.3.4.2.3.2.2.2.2.4.1.1.5.2.2.1.4.2.1.2.1.3.0.1.1.0.1.1.4.2.2.1.1.2.2.2.1.1.0.2.0.2.3.0.3.0.1.0.2.3.0.2.3.3.2.1.1.3.3.0.0.1.3.4.1.3.1.1.1.0.2.1.1.0.1.2.0.2.3.2.3.0.1.2.0.1.0.0.0.0.2.1.2.2.2.0.4.1.2.0.0.0.0.4.2.1.1.1.1.0.3.2.0.2.2.1.2.1.1.4.2.2.0.0.1.0.2.1.0.0.1.5.5.1.1.2.4.1.1.4.3.3.1.2.2.4.4.5.2.2.2.0.1.2"
+					"test/pg/physical/serving.test.ts#everyRequestAGeneratedWorkloadPlansIsServedAndEveryIndexItCreatesIsNeeded:-:5.0.0.1.0.0.1.0.0.0.0.1.1.0.1.1.0.0.0.1.1.0.1.0.0.0.0.1.0.0.2.1.1.0.1.0.0.0.0.1.0.0.0.0.0.0.1.0.1.0.1.1.0.0.0.0.0.0.0.0.1.0.1.0.0.0.1.1.0.0.1.1.0.0.0.1.1.0.0.0.1.1.0.1.0.0.1.0.1.0.0.0.0.1.0.0.1.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.1.0.0.0.0.0.0.1.1.0.1.0.0.0.0.0.1.0.1.0.0.1.0.0.0.0.0.0.2.2.0.0.1.1.0.0.1.1.1.0.0.0.1.1.2.1.1.1.0.1.1"
 				),
 				reason:
 					"an equality lookup on SpgTextLeafConsistent's Name, planned on its primary key, beside a span predicate on (Name, tick0, Bool) whose GiST index leads with tick0 for a span predicate on (tick0, Bool) that another GiST index serves, one its order answers to (PlannedIndex answers): PostgreSQL sweeps it for the lookup, which no order of it serves beside them",
@@ -211,7 +211,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.2.3.2.0.0.0.0.2.0.0.0.4"
+					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:0.2.1.2.0.0.0.0.2.0.0.0.4"
 				),
 				reason:
 					"a law probe and a range on Shift's standby alone, a boolean, which Shift's GiST index leads with and places by worker, so that its scan reads every entry, and a B-tree serves both",
@@ -235,7 +235,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:1.2.3.3.0.0.0.0.3.0.0.0.4"
+					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:1.2.1.3.0.0.0.0.3.0.0.0.4"
 				),
 				reason:
 					"a law probe and a range on Rota's shade alone, a closed id of 5 handles, which Rota's GiST index leads with and places by worker, so that its scan reads every entry, and a B-tree serves both",
@@ -259,7 +259,7 @@ export const everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeed
 			},
 			{
 				token: ReplayToken(
-					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:4.2.3.3.0.0.0.0.3.0.0.0.4"
+					"test/pg/physical/serving.test.ts#everyDrawnRequestIsServedAndEveryIndexTheEngineCreatesForThemIsNeeded:-:4.2.1.3.0.0.0.0.3.0.0.0.4"
 				),
 				reason:
 					"a law probe and a range on Rota's shade alone, a closed id of 8 handles, which Rota's GiST index leads with and places by worker, so that its scan reads every entry, and a B-tree serves both",

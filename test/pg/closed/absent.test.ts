@@ -128,7 +128,7 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 			kept: [
 				{
 					token: ReplayToken(
-						"test/pg/closed/absent.test.ts#aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByADomainsCast:-:1.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.2.1.0.8.1.0.0.4.1.2.1.0.8.1.0.0.3.0.0.0.0.0.4.1.0.4.1.0.4.1.1.0.0.0.0.0.0.0.0.0"
+						"test/pg/closed/absent.test.ts#aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByADomainsCast:-:1.1.1.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.1.1.0.8.1.0.0.4.1.1.1.0.8.1.0.0.3.0.0.0.0.0.4.1.0.4.1.0.4.1.1.0.0.0.0.0.0.0.0.0"
 					),
 					reason:
 						"downstream: Kind {a, b} and Flag {x, y}, Pick holds only a → x, FlagSelf the diagonal; SetItem's check or(ne(kind, a), subset(FlagSelf.row(Pick.at(flag, kind)), flags)) and ScalarItem's or(ne(kind, a), eq(Pick.at(flag, kind), x)) hold of kind b with no flags",
@@ -136,7 +136,7 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 				},
 				{
 					token: ReplayToken(
-						"test/pg/closed/absent.test.ts#aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByADomainsCast:-:1.1.1.0.1.1.0.0.0.0.1.0.1.0.0.0.0.0.0.0.1.0.1.1.2.1.0.8.1.0.0.6.0.1.1.0.6.0.1.1.0.6.0.1.1.0.6.0.1.1.0.6.0.1.1.0.0.1.0.1.0.0.0.0.2.1.1.0.0.2.0.0.0.0.0.1.0.1.3.0.0.0.0"
+						"test/pg/closed/absent.test.ts#aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByADomainsCast:-:1.1.1.0.1.1.0.0.0.0.1.0.1.0.0.0.0.0.0.0.1.0.1.1.1.1.0.8.1.0.0.6.0.1.1.0.6.0.1.1.0.6.0.1.1.0.6.0.1.1.0.6.0.1.1.0.0.1.0.1.0.0.0.0.2.1.1.0.0.2.0.0.0.0.0.1.0.1.3.0.0.0.0"
 					),
 					reason:
 						"downstream, with no diagonal: Kind {a, b} and Flag {x, y}, Pick holds only a → x, FlagRel x → {x} and y → {x, y}; Checked0's or(ne(kind, a), subset(singleton(flag), FlagRel.row(Pick.at(flag, kind)))) holds of kind a with flag x and of kind b, whose Pick read is NULL; Checked1's membership alone refuses kind b's unknown row and kind a's flag y; every selection reads the membership, and the picked singleton is refused by its NOT NULL at kind b",
@@ -144,7 +144,7 @@ export const aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByA
 				},
 				{
 					token: ReplayToken(
-						"test/pg/closed/absent.test.ts#aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByADomainsCast:-:1.1.1.0.0.1.0.0.0.0.1.0.1.0.0.0.0.0.1.2.0.1.0.1.1.0.2.1.1.4.2.0.0.0.3.0.0.0.0.0.0.1.1.0.1.2.0.0.2.1.1.0.0.1.0.1.0.0.0.0.2.0.1.0.0.2.0.0.0.0.1.1.0.1.3.0.0.0.0"
+						"test/pg/closed/absent.test.ts#aClosedReadAtAnAbsentKeyIsJudgedByTheRuleThatReadsItNeverRefusedByADomainsCast:-:1.1.1.0.0.1.0.0.0.0.1.0.1.0.0.0.0.0.1.2.0.1.0.1.1.0.2.1.1.2.1.0.0.0.3.0.0.0.0.0.0.1.1.0.1.2.0.0.2.1.1.0.0.1.0.1.0.0.0.0.2.0.1.0.0.2.0.0.0.0.1.1.0.1.3.0.0.0.0"
 					),
 					reason:
 						"downstream, absence stated by C.has: Kind {a, b} and Flag {x, y}, Pick holds only a → (x, n 1), FlagW only x; Checked0 is the count bound, or(not(Pick.has(kind)), eq(Pick.at(n, kind), n)), which holds of kind b at any n and refuses kind a's n 2; Checked1 negates a guarded comparison, not(and(Pick.has(kind), eq(Pick.at(flag, kind), x))), true at kind b; the selections read presences, FlagW's at the picked flag NULL at kind b; and the conditionals store Pick's payload at kind a and their literal at kind b, the picked weight's at its NULL key",

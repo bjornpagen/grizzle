@@ -70,7 +70,7 @@ export const aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIs
 			},
 			{
 				token: ReplayToken(
-					"test/pg/closed/null-rewrites.test.ts#aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIsInEveryPosition:-:1.0.1.1.6.1.0.2.1.3.1.1.1.2.1.3.2.3.5.0.0.2.0.1.1.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.6.1.1.0"
+					"test/pg/closed/null-rewrites.test.ts#aComparisonsRewriteOverANULLOperandIsThreeValuedAsItsPlainMeaningIsInEveryPosition:-:1.0.1.1.6.1.0.1.1.2.1.1.1.2.1.2.2.3.5.0.0.2.0.1.1.0.1.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.6.1.1.0"
 				),
 				reason:
 					"TEST_SEED=3553103864, case 0: a generated field's match of the row's text against Pick.at at a written handle installed as CASE 'a' WHEN 'a' THEN …, a CASE over two constants, which PostgreSQL refused with 42P22; since 8b0332f84 the pattern is Pick's str.pattern payload, read from its ARE dictionary at the handle's key",

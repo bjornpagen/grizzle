@@ -149,7 +149,7 @@ export const aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhen
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/compute/bytes-guard.test.ts#aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhenTheGuardsBoundIsWithinTheTargetsAndStoresWhatTheHostComputes:-:3.14.0.0.14.1.0"
+					"test/pg/compute/bytes-guard.test.ts#aGuardOfATextsBytesOnPostgreSQL19AdmitsACastIntoStrBytesExactlyWhenTheGuardsBoundIsWithinTheTargetsAndStoresWhatTheHostComputes:-:2.14.0.0.14.1.0"
 				),
 				reason:
 					"FULLSUITE3's red at TEST_SEED=2458139245: a text of str.bytes(40) cast into its own type under a guard of its bytes within [0, 0], once refused as MalformedDescription at physical names, since the branch's coercion into the conditional's type, the guard's language, named a text domain no field declares",

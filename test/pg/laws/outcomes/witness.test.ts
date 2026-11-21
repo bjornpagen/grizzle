@@ -92,7 +92,7 @@ export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBre
 			},
 			{
 				token: ReplayToken(
-					"test/pg/laws/outcomes/witness.test.ts#aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt:-:0.0.1.0.0.0.0.1.0.0.1.0.3"
+					"test/pg/laws/outcomes/witness.test.ts#aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt:-:0.0.1.0.0.0.0.1.0.0.1.0.1"
 				),
 				reason:
 					"one account breaking Positive and Distinct, two row CHECKs: the host judges both, the vector one over the vectors themselves, so the refusal names both whichever PostgreSQL tried first",
@@ -100,7 +100,7 @@ export const aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBre
 			},
 			{
 				token: ReplayToken(
-					"test/pg/laws/outcomes/witness.test.ts#aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt:-:0.0.2.0.1.9.0.1.0.0.1.0.0.1.1.j.0.1.1.0.1.1.3"
+					"test/pg/laws/outcomes/witness.test.ts#aRefusedWriteNamesOneLawItsAccountsBreakAndTheKeyOfAnAccountThatBreaksIt:-:0.0.2.0.1.9.0.1.0.0.1.0.0.1.1.j.0.1.1.0.1.1.1"
 				),
 				reason:
 					"a row CHECK over two vectors, the second account's equal: the host judges from <> to over the vectors themselves, so Distinct's witness is that account, never unreported (lane VALUEONE: the host read no vector column, and left every vector check unjudged)",

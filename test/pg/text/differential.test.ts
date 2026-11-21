@@ -141,7 +141,7 @@ export const regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns = 
 		kept: [
 			{
 				token: ReplayToken(
-					"test/pg/text/differential.test.ts#regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns:-:1.1.1.1.3.1.1.1.4.0.0.0.0.1.6.0"
+					"test/pg/text/differential.test.ts#regexMembershipCompilesGeneratedAdmittedNestedQuantifierPatterns:-:1.1.1.1.1.1.1.1.4.0.0.0.0.1.6.0"
 				),
 				reason:
 					"(?:(?:(?:a?){16})?){100}b, which PostgreSQL refuses as too complex: the compile space admits it when emptyCopies counts no copy of an empty arc a kept state reaches (space.ts:474, CATCH mutant of grizzle 0baff5d6), which no witness of the search reaches; the shrunk failure of that mutant on the rotating stream's case 277 at TEST_SEED=1",
