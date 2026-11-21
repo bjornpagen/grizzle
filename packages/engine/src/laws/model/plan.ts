@@ -255,12 +255,8 @@ const plannedEntry = (
 const entryColumn = (c: PlannedColumn, datum: DatumBound): EntryColumn => ({
 	name: plannedText(c),
 	datum,
-	nullable: mayBeNull(c)
+	nullable: c.kind === "law"
 })
-
-/** Whether a planned column may hold NULL in an index entry: a law column, which a guard or a predecessor's first slot
- * leaves NULL, never a field. */
-const mayBeNull = (c: PlannedColumn): boolean => c.kind === "law"
 
 /** A planned column with its datum, where its datum is bounded. */
 interface BoundedColumn<C extends PlannedColumn> {
@@ -490,8 +486,7 @@ export type NativePlan =
 	| {
 			readonly kind: "PrimaryKey"
 			readonly relation: RelationInfo
-			/** Its key's fields. */
-			readonly columns: NonEmptyReadonlyArray<PlannedColumn>
+			readonly columns: NonEmptyReadonlyArray<LawField>
 			readonly named: Identity<"primaryKey" | "key">
 	  }
 	| {
@@ -623,19 +618,9 @@ const lawColumns = (columns: ReadonlyArray<PlannedColumn>): ReadonlyArray<Native
 		c.kind === "law" ? [...dependencies(c.column), { kind: "LawColumn", column: c.column }] : []
 	)
 
-/**
- * The law columns a law column's value reads, which must stand beside it: a counted predecessor reads its index.
- */
-const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> => {
-	switch (column.kind) {
-		case "indexPred":
-			return [{ kind: "LawColumn", column: column.index }]
-		case "constant":
-		case "term":
-		case "drawn":
-			return []
-	}
-}
+/** The law columns a law column's value reads, which must stand beside it: a counted predecessor reads its index. */
+const dependencies = (column: LawColumnPlan): ReadonlyArray<NativePlan> =>
+	column.kind === "indexPred" ? [{ kind: "LawColumn", column: column.index }] : []
 
 /**
  * The columns a side lowers to, one per term (§ partial projections): its guarded term (`guardTerm`) under its
@@ -718,26 +703,20 @@ export type PrimaryKeyPlan =
 			readonly span: FieldColumn<SpanField>
 			readonly key: {
 				readonly kind: "primary"
-				readonly scalars: NonEmptyReadonlyArray<PlannedColumn>
+				readonly scalars: NonEmptyReadonlyArray<FieldColumn>
 			}
 			readonly named: Identity<"primaryKey" | "key">
 	  })
 
 /**
  * The native object of the primary key `key` of `r`: a PRIMARY KEY over a scalar key, or its span field last WITHOUT
- * OVERLAPS. A primary key whose only field is a span
- * has no native lowering: PostgreSQL's PRIMARY KEY needs a column before WITHOUT OVERLAPS (42601), and an exclusion
- * constraint is no primary key, so it is UnrepresentableKey.
+ * OVERLAPS. A primary key whose only field is a span has no native lowering: PostgreSQL's PRIMARY KEY needs a column
+ * before WITHOUT OVERLAPS (42601), and an exclusion constraint is no primary key, so it is UnrepresentableKey.
  */
 export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): PrimaryKeyPlan => {
 	const { fields, span, named } = key
 	if (span === undefined) {
-		return {
-			kind: "PrimaryKey",
-			relation: r,
-			columns: mapNonEmpty(fields, (f): PlannedColumn => fieldColumn(f)),
-			named
-		}
+		return { kind: "PrimaryKey", relation: r, columns: fields, named }
 	}
 	const scalars = fields.filter((f) => f !== span)
 	if (!isNonEmpty(scalars)) {
@@ -746,7 +725,7 @@ export const primaryKeyPlan = (r: RelationInfo, key: KeyName, loc: SourceLoc): P
 			field: span.name
 		})
 	}
-	const scalarColumns = mapNonEmpty(scalars, (f): PlannedColumn => fieldColumn(f))
+	const scalarColumns = mapNonEmpty(scalars, (f) => fieldColumn(f))
 	return {
 		kind: "WithoutOverlaps",
 		relation: r,
@@ -2155,13 +2134,11 @@ export class Recognizer {
 	): ReadonlyArray<NativePlan> {
 		const { fields, span, primary, named } = d.key
 		if (primary) {
-			const pk = primaryKeyPlan(rel, d.key, loc)
-			return [...lawColumns(pk.kind === "PrimaryKey" ? pk.columns : pk.key.scalars), pk]
+			return [primaryKeyPlan(rel, d.key, loc)]
 		}
 		if (span === undefined) {
-			const columns = mapNonEmpty(fields, (f): PlannedColumn => fieldColumn(f))
+			const columns = mapNonEmpty(fields, fieldColumn)
 			return [
-				...lawColumns(columns),
 				{
 					kind: "Unique",
 					relation: rel,
@@ -2170,12 +2147,8 @@ export class Recognizer {
 				}
 			]
 		}
-		const scalarFields = fields.filter((f) => f !== span)
-		const scalars = isNonEmpty(scalarFields)
-			? mapNonEmpty(scalarFields, (f): PlannedColumn => fieldColumn(f))
-			: []
+		const scalars = fields.filter((f) => f !== span).map(fieldColumn)
 		return [
-			...lawColumns(scalars),
 			{
 				kind: "WithoutOverlaps",
 				relation: rel,
@@ -2375,13 +2348,8 @@ export class Recognizer {
 	): ReadonlyArray<NativePlan> {
 		const fromRel = tableOf(from.rel)
 		const toRel = tableOf(to.rel)
-		const side = sideColumns(from)
-		const referenced = this.#reference(to, side, fromRel, toRel, loc, part)
-		const reference = referenced
-		/** The source's own columns as the reference installs them, which its columns list first (`#reference`). */
-		const sourceColumns = mapNonEmpty(side, (_, i) =>
-			defined(reference.columns[i], "a referencing column per term of the source")
-		)
+		const sourceColumns = sideColumns(from)
+		const reference = this.#reference(to, sourceColumns, fromRel, toRel, loc, part)
 		const containment = `the containment of ${sideText(from)} in ${sideText(to)}`
 		return [
 			...lawColumns(reference.columns),
@@ -2863,16 +2831,14 @@ class FamilyPlanner {
 			this.#combine(fold, i)
 		}
 
-		const numbering = familyKeyColumns
-		const successors = successorKey
 		const natives: ReadonlyArray<NativePlan> = [
-			...lawColumns([copy, index, pred, ...group, lastPred, ...numbering, ...successors]),
+			...lawColumns([copy, index, pred, ...group, lastPred]),
 			{
 				kind: "Unique",
 				relation: member,
-				columns: numbering,
+				columns: familyKeyColumns,
 				entry: plannedEntry(
-					numbering,
+					familyKeyColumns,
 					`the UNIQUE of ${member.name} that ${familyText(this.#shape())} numbers its members by`,
 					this.#loc
 				)
@@ -2880,9 +2846,9 @@ class FamilyPlanner {
 			{
 				kind: "Unique",
 				relation: member,
-				columns: successors,
+				columns: successorKey,
 				entry: plannedEntry(
-					successors,
+					successorKey,
 					`the UNIQUE of ${member.name} that holds each member of ${familyText(this.#shape())} the predecessor of at most one`,
 					this.#loc
 				)
@@ -3136,9 +3102,6 @@ class FamilyPlanner {
 			target.base,
 			pairs.map((p) => p.to)
 		)
-		const reverseColumns = mapNonEmpty(source.keyed, (_, i) =>
-			defined(columns[i], "a source column per keyed column, which its base leads with")
-		)
 		const generated = columns.find(isGenerated)
 		if (onUpdate === "cascade" && generated !== undefined) {
 			return refuse(
@@ -3176,7 +3139,7 @@ class FamilyPlanner {
 				deferral,
 				laws: [own, ...laws],
 				reverse: plannedReverse(
-					reverseColumns,
+					source.keyed,
 					`the index of ${source.relation.name} over the columns the ${kind} axis of ${familyText(this.#shape())} references its target's key from`,
 					this.#loc
 				)

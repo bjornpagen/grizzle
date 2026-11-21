@@ -7,7 +7,6 @@ import { maxOf } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
-	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -653,7 +652,7 @@ const seedOf = (
 		name,
 		{
 			key: appendNonEmpty(
-				flatMapNonEmpty(family.group, (f, i) =>
+				mapNonEmpty(family.group, (f, i) =>
 					bound(w, name, f.member, col(g, defined(groups.group[i], "a group column")))
 				),
 				{

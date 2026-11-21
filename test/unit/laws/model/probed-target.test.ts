@@ -116,7 +116,7 @@ export const aFixedTargetsUNIQUEBesideTheReverseProbesOutOfItsSelectionPlansNoRe
 				file: "packages/engine/src/laws/model/plan.ts",
 				original: "\t\t\t...this.#targetUnique(toRel, reference.targetColumns, containment, loc),",
 				replacement:
-					"\t\t\t...(referenced.columns === side ? [] : this.#targetUnique(toRel, reference.targetColumns, containment, loc)),",
+					"\t\t\t...(reference.columns === sourceColumns ? [] : this.#targetUnique(toRel, reference.targetColumns, containment, loc)),",
 				why: "No UNIQUE beside a reference at a target's own columns (laws/model/plan.ts scalar containment); the foreign key that references no unique index catches it."
 			},
 			{

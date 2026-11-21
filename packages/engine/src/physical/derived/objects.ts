@@ -99,7 +99,7 @@ const viewObjects = (
 	/** Each field an index or statistics object on the view may name. */
 	const fields: Array<readonly [string, TargetField]> = []
 	for (const c of a.heading) {
-		fields.push([c.name, { desc: c.desc, type: c.type, nullable: false }])
+		fields.push([c.name, { desc: c.desc, type: c.type }])
 	}
 
 	/** The schema's installed keys and containments, as every compilation sees them, with the

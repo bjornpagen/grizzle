@@ -10,7 +10,6 @@ import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	concatNonEmpty,
-	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -18,7 +17,7 @@ import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type { HeldColumn, PrimaryKeyObject, UniqueObject } from "#compiler/laws/model/uniques.ts"
+import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import type {
@@ -116,38 +115,17 @@ const delivered = (
 	}
 }
 
-/** A key's column as a probe binds it: its installed name, and the field whose value it holds. */
-interface HeldAt {
-	readonly field: LawField
-	readonly column: string
-}
-
-/**
- * The one binding of a key's column to the value `value` of the field it holds (`HeldAt`), every probe's at every kind
- * of key: compared at the field's type, through the extension's operator over a vector.
- */
-const boundHeld = (
-	w: WriteContext,
-	held: HeldAt,
-	value: Expr
-): NonEmptyReadonlyArray<ProbeColumn> => [
-	{ column: held.column, value, schema: operatorSchemaOf(w.names, rowType(held.field)) }
-]
-
-/** A guarded object's UNIQUE column `c` as a probe binds it (`HeldAt`). */
-const uniqueHeld = (w: WriteContext, relation: string, c: HeldColumn): HeldAt => ({
-	field: c.field,
-	column: nativeName(w, relation, c.column)
-})
-
-/** A field of `relation` bound to `value` at its own column (`boundHeld`). */
+/** A field of `relation` bound to `value`, compared at its type: through the extension's operator over a vector. */
 export const bound = (
 	w: WriteContext,
 	relation: string,
 	f: LawField,
 	value: Expr
-): NonEmptyReadonlyArray<ProbeColumn> =>
-	boundHeld(w, { field: f, column: w.names.column(relation, f.name) }, value)
+): ProbeColumn => ({
+	column: w.names.column(relation, f.name),
+	value,
+	schema: operatorSchemaOf(w.names, rowType(f))
+})
 
 /** `fields` of `relation` bound to their values (`bound`), with no further condition. */
 export const atFields = (
@@ -156,7 +134,7 @@ export const atFields = (
 	fields: NonEmptyReadonlyArray<LawField>,
 	value: (f: LawField) => Expr
 ): ProbeAccess => ({
-	key: flatMapNonEmpty(fields, (f) => bound(w, relation, f, value(f))),
+	key: mapNonEmpty(fields, (f) => bound(w, relation, f, value(f))),
 	filter: () => [],
 	placed: mapNonEmpty(fields, (f) => w.names.column(relation, f.name))
 })
@@ -164,17 +142,6 @@ export const atFields = (
 /** The installed name of a native column of `relation`. */
 const nativeName = (w: WriteContext, relation: string, column: NativeColumn): string =>
 	column.kind === "field" ? w.names.column(relation, column.field.name) : column.column
-
-/**
- * The columns an ON CONFLICT names a declared key of `relation` by: its constraint's (laws/model/uniques.ts
- * PrimaryKeyObject `installed`), PostgreSQL inferring its arbiter
- * from exactly the columns of its unique index (42P10 for any other list).
- */
-export const arbiterColumns = (
-	w: WriteContext,
-	relation: string,
-	key: PrimaryKeyObject
-): NonEmptyReadonlyArray<string> => mapNonEmpty(key.installed, (c) => nativeName(w, relation, c))
 
 /**
  * Where a row of `relation` given by `value` conflicts at the unique object `u`: at a guarded object its UNIQUE's own
@@ -190,14 +157,16 @@ export const atObject = (
 ): ProbeAccess =>
 	u.kind === "guarded" && u.reach.kind === "index"
 		? {
-				key: flatMapNonEmpty(u.reach.columns, (c) =>
-					boundHeld(w, uniqueHeld(w, relation, c), value(c.field))
-				),
+				key: mapNonEmpty(u.reach.columns, (c) => ({
+					column: nativeName(w, relation, c.column),
+					value: value(c.field),
+					schema: operatorSchemaOf(w.names, rowType(c.field))
+				})),
 				filter: () => [],
 				placed: placedBy(w, relation, u)
 			}
 		: {
-				key: u.equal.flatMap((f) => bound(w, relation, f, value(f))),
+				key: u.equal.map((f) => bound(w, relation, f, value(f))),
 				filter: (inner) => {
 					const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
 					const guards = withinRow(w.cx, u, stored)
@@ -362,35 +331,17 @@ export const metAtObject = (
 	column: (f: LawField) => string
 ): MetAccess =>
 	u.kind === "guarded" && u.reach.kind === "index"
-		? metAtHeld(
-				w,
-				placedBy(w, relation, u),
-				u.reach.columns.map((c) => uniqueHeld(w, relation, c)),
+		? {
 				rows,
-				column
-			)
+				placed: placedBy(w, relation, u),
+				key: u.reach.columns.map((c) => ({
+					column: nativeName(w, relation, c.column),
+					from: column(c.field),
+					schema: operatorSchemaOf(w.names, rowType(c.field))
+				})),
+				filter: () => []
+			}
 		: metAtFields(w, relation, u, rows, column)
-
-/**
- * A met row's access through the key columns `held`, each bound to the met row's column of the field it holds, as
- * `boundHeld` binds a probe's.
- */
-const metAtHeld = (
-	w: WriteContext,
-	placed: NonEmptyReadonlyArray<string>,
-	held: ReadonlyArray<HeldAt>,
-	rows: string,
-	column: (f: LawField) => string
-): MetAccess => ({
-	rows,
-	placed,
-	key: held.map((h) => ({
-		column: h.column,
-		from: column(h.field),
-		schema: operatorSchemaOf(w.names, rowType(h.field))
-	})),
-	filter: () => []
-})
 
 /** A met row's access at the unique object `u` through its compared fields, its guards and its span over the stored
  * row (metAtObject). */

@@ -4,7 +4,6 @@ import {
 	appendNonEmpty,
 	dedupeNonEmpty,
 	isNonEmpty,
-	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
@@ -14,12 +13,12 @@ import type { ColumnIdent, ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
 	declaredKeyOf,
-	fieldColumn,
 	isSpanField,
 	type LawField,
 	type LawRelation,
 	type NativeColumn,
 	type NativeOf,
+	plainFields,
 	type RelationInfo,
 	type RowGuard,
 	scalarKeySet,
@@ -96,11 +95,9 @@ export type UniqueObject = Named &
 	)
 
 /** A declared key's object: a PRIMARY KEY or UNIQUE constraint, or one WITHOUT OVERLAPS when it holds a span field, over
- * the key's own handles, and the columns its constraint is installed over, which an ON CONFLICT naming it by its columns
- * lists. */
-export type PrimaryKeyObject = Named & {
-	readonly installed: NonEmptyReadonlyArray<NativeColumn>
-} & (
+ * the key's own handles. */
+export type PrimaryKeyObject = Named &
+	(
 		| { readonly kind: "key"; readonly equal: NonEmptyReadonlyArray<LawField> }
 		| {
 				readonly kind: "span"
@@ -279,23 +276,27 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 		case "PrimaryKey":
 			return []
 		case "Unique": {
-			const object = projected(o.relation, o.columns, lawColumns, named)
-			if (object?.kind !== "key") {
+			const fields = plainFields(o.columns)
+			if (fields === undefined) {
+				const object = projected(o.relation, o.columns, lawColumns, named)
 				return object === undefined ? [] : [{ relation: o.relation, role: "other", object }]
 			}
 			/** A UNIQUE over a declared candidate key's set is that key's (model.ts nativeIdentity); any other is
 			 * generated. */
-			const declared = declaredKeyOf(
-				o.relation,
-				scalarKeySet(o.relation.name, mapNonEmpty(object.equal, fieldColumn))
-			)
+			const declared = declaredKeyOf(o.relation, scalarKeySet(o.relation.name, o.columns))
 			return declared === undefined || declared.primary
-				? [{ relation: o.relation, role: "other", object }]
+				? [
+						{
+							relation: o.relation,
+							role: "other",
+							object: { ...named, kind: "key", equal: fields }
+						}
+					]
 				: [
 						{
 							relation: o.relation,
 							role: "key",
-							object: { ...named, installed: o.columns, kind: "key", equal: declared.fields }
+							object: { ...named, kind: "key", equal: declared.fields }
 						}
 					]
 		}
@@ -310,17 +311,7 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 			/** A declared span key is a key of its relation; one over a projected side holds apart only its side's rows. */
 			const declared = o.relation.keyNames.some((k) => k.named === o.named)
 			return declared && object.within.length === 0
-				? [
-						{
-							relation: o.relation,
-							role: "key",
-							object: {
-								...object,
-								installed: appendNonEmpty(o.key.scalars, o.span),
-								within: []
-							}
-						}
-					]
+				? [{ relation: o.relation, role: "key", object: { ...object, within: [] } }]
 				: [{ relation: o.relation, role: "other", object }]
 		}
 		case "TableCheck":
@@ -387,21 +378,19 @@ const beyondPrimary = (uniques: UniqueObjects): ReadonlyArray<UniqueObject> =>
 			!uniques.others.some((w, j) => j !== i && subsumes(w, u) && (j < i || !subsumes(u, w)))
 	)
 
-/** A primary key as a unique object: its relation's primary key fields, those a PRIMARY KEY compares, or a primary key
- * WITHOUT OVERLAPS's scalar fields and span, with the law its violation reports. */
-const primaryObject = (relation: RelationInfo, pk: NamedPrimaryKey): PrimaryKeyObject => {
+/** A primary key as a unique object: a PRIMARY KEY's fields, or a primary key WITHOUT OVERLAPS's scalar fields and
+ * span, with the law its violation reports. */
+const primaryObject = (pk: NamedPrimaryKey): PrimaryKeyObject => {
 	const o = pk.object
 	const named = { name: identifierOf(pk.named), law: o.lawIds[0], described: pk.described }
 	if (o.kind === "PrimaryKey") {
-		return { ...named, installed: o.columns, kind: "key", equal: relation.primaryFields }
+		return { ...named, kind: "key", equal: o.columns }
 	}
-	const span = o.span.field
 	return {
 		...named,
-		installed: appendNonEmpty(o.key.scalars, o.span),
 		kind: "span",
-		equal: relation.primaryFields.filter((f) => f !== span),
-		span,
+		equal: o.key.scalars.map((c) => c.field),
+		span: o.span.field,
 		within: []
 	}
 }
@@ -446,7 +435,7 @@ export const relationLaws = (
 	return new Map(
 		keyed.map(({ relation, primaryKey }) => {
 			const own = placed.get(relation) ?? []
-			const primary = primaryObject(relation, primaryKey)
+			const primary = primaryObject(primaryKey)
 			const keys: NonEmptyReadonlyArray<PrimaryKeyObject> = [
 				primary,
 				...own.flatMap((o) => (o.role === "key" ? [o.object] : []))

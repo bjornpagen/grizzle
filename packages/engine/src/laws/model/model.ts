@@ -76,10 +76,10 @@ import {
 	type DomainCheckTerm,
 	type DomainNative,
 	familyKey,
+	fieldColumn,
 	isSpanField,
 	keyTuple,
 	type LawColumnValue,
-	type LawColumnValues,
 	type LawField,
 	type LawRelation,
 	type NativeColumn,
@@ -192,7 +192,10 @@ export type PrimaryNative =
 			readonly span: { readonly kind: "field"; readonly field: SpanField }
 			readonly key: {
 				readonly kind: "primary"
-				readonly scalars: NonEmptyReadonlyArray<NativeColumn>
+				readonly scalars: NonEmptyReadonlyArray<{
+					readonly kind: "field"
+					readonly field: LawField
+				}>
 			}
 	  })
 
@@ -229,26 +232,19 @@ type Merged =
 			readonly law: TheoryLaw
 	  }
 
-/** A primary key's planned object as the model holds it, discharging `lawIds`, each column as `column` reads it. */
+/** A primary key's planned object as the model holds it, discharging `lawIds`, each column a field. */
 const primaryNative = (
 	plan: PrimaryKeyPlan,
-	lawIds: NonEmptyReadonlyArray<LawId>,
-	column: (c: PlannedColumn) => NativeColumn
+	lawIds: NonEmptyReadonlyArray<LawId>
 ): PrimaryNative => {
 	if (plan.kind === "PrimaryKey") {
-		return {
-			kind: "PrimaryKey",
-			relation: plan.relation,
-			columns: mapNonEmpty(plan.columns, column),
-			named: plan.named,
-			lawIds
-		}
+		return { ...plan, lawIds }
 	}
 	return {
 		kind: "WithoutOverlaps",
 		relation: plan.relation,
 		span: plan.span,
-		key: { kind: "primary", scalars: mapNonEmpty(plan.key.scalars, column) },
+		key: plan.key,
 		named: plan.named,
 		lawIds
 	}
@@ -496,7 +492,12 @@ const nativeIdentity = (
 ): NativeIdentity => {
 	switch (object.kind) {
 		case "PrimaryKey":
-			return keyTuple(scalarKeySet(object.relation.name, object.columns))
+			return keyTuple(
+				scalarKeySet(
+					object.relation.name,
+					mapNonEmpty(object.columns, (field) => fieldColumn(field))
+				)
+			)
 		case "Unique":
 			return keyTuple(scalarKeySet(object.relation.name, object.columns))
 		case "WithoutOverlaps":
@@ -1337,7 +1338,7 @@ class Specializer {
 			const columns = [
 				...r.fields.map((f) => rowColumn(f.desc, false)),
 				...(lawColumns.get(r.name) ?? []).map((c) =>
-					rowColumn(c.holds.desc, c.value.kind !== "drawn" && c.value.guard.length > 0)
+					rowColumn(c.field.desc, c.value.kind === "generated" && c.value.guard.length > 0)
 				)
 			]
 			const refused = wideRow(r.name, columns, heapTupleMaxBytes)
@@ -1450,8 +1451,7 @@ class Specializer {
 		const laws: [LawId, ...Array<LawId>] = [pk.law.id]
 		const object = primaryNative(
 			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
-			laws,
-			(c) => this.#column(c)
+			laws
 		)
 		byKey.set(
 			nativeIdentity(object, (side) => this.recognizer.closedSideOrdinal(side)),
@@ -1564,13 +1564,6 @@ class Specializer {
 		const lawIds: NonEmptyReadonlyArray<LawId> = [plan.law.id]
 		switch (n.kind) {
 			case "PrimaryKey":
-				return {
-					kind: "PrimaryKey",
-					relation: n.relation,
-					columns: mapNonEmpty(n.columns, (c) => this.#column(c)),
-					named: n.named,
-					lawIds
-				}
 			case "RosterDomain":
 				return { ...n, lawIds }
 			case "WithoutOverlaps": {
@@ -1656,7 +1649,7 @@ class Specializer {
 					kind: "LawColumn",
 					relation: c.relation,
 					column: this.#lawColumn(c),
-					holds: heldValues(c),
+					field: heldField(c),
 					value:
 						n.value.kind === "drawn"
 							? n.value
@@ -1789,24 +1782,16 @@ class Specializer {
 const isKeyLaw = (law: TheoryLaw): boolean =>
 	law.detail.kind === "key" || law.detail.kind === "projectedKey"
 
-/**
- * The values a law column holds (ir/law.ts LawColumnValues), its type the column's and an index entry over it sized by
- * its descriptor: a field's, a term's own field, a constant's target field, a drawn column's or a counted predecessor's
- * count.
- */
-const heldValues = (c: LawColumnPlan): LawColumnValues => {
-	const of = (field: LawField): LawColumnValues => ({
-		type: field.type,
-		desc: field.desc,
-		nullable: true
-	})
+/** The field whose values a law column holds, its type the column's and an index entry over it sized as one of the
+ * field's: a term's own field, a constant's target field, a drawn column's or a counted predecessor's count. */
+const heldField = (c: LawColumnPlan): LawField => {
 	switch (c.kind) {
-		case "drawn":
 		case "constant":
+		case "drawn":
 		case "indexPred":
-			return of(c.field)
+			return c.field
 		case "term":
-			return of(c.term.column)
+			return c.term.column
 	}
 }
 

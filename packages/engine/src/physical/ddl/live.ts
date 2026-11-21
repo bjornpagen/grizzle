@@ -73,25 +73,15 @@ const addLiveSecret = (
 }
 
 /**
- * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it, or the key's own ALTER
- * TABLE ... ADD CONSTRAINT where it reads a column a law adds: what its REPLICA IDENTITY DEFAULT holds, which a column
- * list of the publication must cover, a span key's law column among them.
+ * The columns of a footprint table's primary key, in key order, as its CREATE TABLE declares it: what its REPLICA
+ * IDENTITY DEFAULT holds, which a column list of the publication must cover, a span key's law column among them.
  */
 const keyColumns = (b: InstallBuilder, relation: string): NonEmptyReadonlyArray<string> => {
-	for (const s of b.evaluatedOn(relation)) {
-		const key =
-			s.kind === "createTable"
-				? s.primaryKey
-				: s.kind === "alterTable"
-					? s.actions.flatMap((a) =>
-							a.kind === "addConstraint" && a.constraint.kind === "primaryKey" ? [a.constraint] : []
-						)[0]
-					: undefined
-		if (key !== undefined) {
-			return mapNonEmpty(key.columns, (c) => c.column)
-		}
+	const created = b.evaluatedOn(relation).find((s) => s.kind === "createTable")
+	if (created?.kind !== "createTable") {
+		throw defect(`the CREATE TABLE of the footprint table of ${relation}`)
 	}
-	throw defect(`the primary key of the footprint table of ${relation}`)
+	return mapNonEmpty(created.primaryKey.columns, (c) => c.column)
 }
 
 /**

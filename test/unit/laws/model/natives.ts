@@ -174,7 +174,13 @@ export const keySets = (model: LawModel, relation: string): ReadonlyArray<string
 				return [columnSet(model, o.relation, o.columns)]
 			}
 			if (o.kind === "PrimaryKey" && o.relation.name === relation) {
-				return [columnSet(model, o.relation, o.columns)]
+				return [
+					columnSet(
+						model,
+						o.relation,
+						Arr.map(o.columns, (field) => ({ kind: "field" as const, field }))
+					)
+				]
 			}
 			return []
 		}),
@@ -476,7 +482,10 @@ export const breaks = (model: LawModel, o: NativeObject, state: State): boolean 
 	switch (o.kind) {
 		case "PrimaryKey":
 		case "Unique": {
-			const columns: ReadonlyArray<NativeColumn> = o.columns
+			const columns: ReadonlyArray<NativeColumn> =
+				o.kind === "PrimaryKey"
+					? Arr.map(o.columns, (field) => ({ kind: "field" as const, field }))
+					: o.columns
 			const tuples = Arr.flatMap(rows(o.relation.name), (r) => {
 				const t = tupleOf(model, o.relation.name, columns, r)
 				return t === undefined ? [] : [t]

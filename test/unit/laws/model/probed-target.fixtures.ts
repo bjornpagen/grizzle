@@ -472,7 +472,7 @@ const redundantPairs = (installation: Installation): ReadonlyArray<string> =>
 const keyNativeSet = (o: NativeObject): ReadonlyArray<readonly [string, string]> => {
 	switch (o.kind) {
 		case "PrimaryKey":
-			return [[o.relation.name, setText(Arr.map(o.columns, columnKey))]]
+			return [[o.relation.name, setText(Arr.map(o.columns, (c) => c.name))]]
 		case "Unique":
 			return [[o.relation.name, setText(Arr.map(o.columns, columnKey))]]
 		case "WithoutOverlaps":
@@ -628,7 +628,7 @@ const uniquesOfT = (installation: Installation): ReadonlyArray<UniqueOfT> =>
 		if (o.kind === "PrimaryKey" && o.relation.name === "T") {
 			return [
 				{
-					columns: o.columns,
+					columns: Arr.map(o.columns, (field): NativeColumn => ({ kind: "field", field })),
 					laws: o.lawIds
 				}
 			]

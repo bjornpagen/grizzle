@@ -180,33 +180,26 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 	}
 }
 
+/** The fields of a native's columns, its law columns left out. */
+const fieldNames = (columns: ReadonlyArray<NativeColumn>): ReadonlyArray<string> =>
+	columns.flatMap((column) => (column.kind === "field" ? [column.field.name] : []))
+
 /**
  * The relation and fields of a native an ON CONFLICT with no target arbitrates by (sql/ast.ts OnConflict `every`): a
- * primary key, a UNIQUE or a span key, its law columns left out; none for any other native.
+ * primary key, a UNIQUE or a span key; none for any other native.
  */
 const arbiterOf = (
 	object: NativeObject
 ): { readonly relation: string; readonly fields: ReadonlyArray<string> } | undefined => {
-	const arbiter = (relation: string, columns: ReadonlyArray<NativeColumn>) => ({
-		relation,
-		fields: columns.flatMap((c) => (c.kind === "field" ? [c.field.name] : []))
-	})
-	switch (object.kind) {
-		case "PrimaryKey":
-		case "Unique":
-			return arbiter(object.relation.name, object.columns)
-		case "WithoutOverlaps":
-			return arbiter(object.relation.name, [...object.key.scalars, object.span])
-		case "TableCheck":
-		case "ClosedCheck":
-		case "ForeignKey":
-		case "PeriodForeignKey":
-		case "LawColumn":
-		case "Domain":
-		case "RosterDomain":
-		case "ReverseIndex":
-			return undefined
+	if (object.kind === "PrimaryKey") {
+		return { relation: object.relation.name, fields: object.columns.map((f) => f.name) }
 	}
+	if (object.kind === "Unique") {
+		return { relation: object.relation.name, fields: fieldNames(object.columns) }
+	}
+	return object.kind === "WithoutOverlaps"
+		? { relation: object.relation.name, fields: fieldNames([...object.key.scalars, object.span]) }
+		: undefined
 }
 
 /**

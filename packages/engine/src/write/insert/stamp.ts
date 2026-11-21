@@ -32,7 +32,6 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	concatNonEmpty,
-	flatMapNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -107,7 +106,7 @@ export const headStampsCte = (
 		supply,
 		head.relation,
 		"last",
-		flatMapNonEmpty(head.child, (f, i) => bound(w, head.relation, f, childAt(i))),
+		mapNonEmpty(head.child, (f, i) => bound(w, head.relation, f, childAt(i))),
 		[w.names.column(head.relation, head.field.name)],
 		{ read: [w.names.column(head.relation, head.field.name)], filter: () => [] }
 	)

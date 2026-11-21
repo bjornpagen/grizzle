@@ -71,9 +71,10 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 			},
 			{
 				file: "packages/engine/src/program/isolation/input.ts",
-				original: '\t\t\tobject.kind === "PrimaryKey" || object.kind === "Unique"\n\t\t\t\t? [[',
+				original:
+					'\t\t\treturn object.kind === "Unique" ? [[object.relation.name, object.columns.map(columnKey)]] : []',
 				replacement:
-					'\t\t\tobject.kind === "PrimaryKey" || (object.kind === "Unique" && object.columns.every((c) => c.kind === "field"))\n\t\t\t\t? [[',
+					'\t\t\treturn object.kind === "Unique" && object.columns.every((c) => c.kind === "field")\n\t\t\t\t? [[object.relation.name, object.columns.map(columnKey)]]\n\t\t\t\t: []',
 				why: "A UNIQUE over a law column left out of the keys, as before, so a check by an alternatives arm's or a family slot's law columns binds no whole key (edullm's decideStage)."
 			},
 			{

@@ -85,7 +85,7 @@ import {
 	type WriteContext
 } from "#compiler/write/insert/statement.ts"
 import { buildProbe, probeArms } from "#compiler/write/insert/unique.ts"
-import { arbiterColumns, joinedAtKey } from "#compiler/write/probe.ts"
+import { joinedAtKey } from "#compiler/write/probe.ts"
 import type { InPlace, KeyArbiter } from "#compiler/write/put/choose.ts"
 import type { MergeScope } from "#compiler/write/put/proof.ts"
 import { type RefusalArm, refusalGuard, refusalRank } from "#compiler/write/refusal.ts"
@@ -416,7 +416,7 @@ export const buildUpsert = (w: WriteContext, spec: UpsertSpec): PutStatement => 
 			},
 			onConflict: {
 				kind: "columns",
-				columns: arbiterColumns(w, relation.name, relation.uniques.arbiter),
+				columns: mapNonEmpty(pk, column),
 				action: {
 					kind: "doUpdate",
 					set: assignments(

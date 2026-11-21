@@ -56,7 +56,6 @@ import {
 	appendNonEmpty,
 	concatNonEmpty,
 	extendNonEmpty,
-	flatMapNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
@@ -217,7 +216,6 @@ import {
 	type MetAccess,
 	metFound,
 	metRowsOf,
-	arbiterColumns,
 	type HeldKey,
 	keyedAmong,
 	probeGroup,
@@ -762,7 +760,7 @@ const appendedOf = (
 						supply,
 						of,
 						"last",
-						flatMapNonEmpty(c.family.group, (g) =>
+						mapNonEmpty(c.family.group, (g) =>
 							bound(w, of, g.member, col(a, columnAt(facts, columnKeyOf(g.owner.name))))
 						),
 						[installed(w, of, c.family.shape.index)],
@@ -1253,9 +1251,7 @@ const appendScan = (
 	const index = installed(w, name, family.shape.index)
 	/** The member's group columns bound to `keys`, a group's values in order. */
 	const groupAt = (keys: ReadonlyArray<Expr>) =>
-		flatMapNonEmpty(family.group, (g, i) =>
-			bound(w, name, g.member, defined(keys[i], "a group key"))
-		)
+		mapNonEmpty(family.group, (g, i) => bound(w, name, g.member, defined(keys[i], "a group key")))
 	const ownerReads = ownerReadsOf(drawnColumns)
 	/** The owner reads each group holds: every one but, where the family's appends draw its groups whole, each a settled
 	 * copy reads, which the rows draw at the group's new count (`wholeRows`). */
@@ -1389,7 +1385,7 @@ const appendScan = (
 				supply,
 				owner.name,
 				{
-					key: flatMapNonEmpty(family.group, (g, i) =>
+					key: mapNonEmpty(family.group, (g, i) =>
 						bound(w, owner.name, g.owner, defined(g0Keys[i], "a group key"))
 					),
 					filter: () => [],
@@ -1826,7 +1822,7 @@ const wholeRows = (
 			supply,
 			owner.name,
 			{
-				key: flatMapNonEmpty(family.group, (g, i) =>
+				key: mapNonEmpty(family.group, (g, i) =>
 					bound(w, owner.name, g.owner, col(g0, defined(groups.group[i], "a group column")))
 				),
 				filter: () => [],
@@ -1901,7 +1897,7 @@ const wholeRows = (
 		supply,
 		name,
 		"group",
-		flatMapNonEmpty(family.group, (g, i) =>
+		mapNonEmpty(family.group, (g, i) =>
 			bound(w, name, g.member, col(g1, defined(whole.group[i], "a group column")))
 		),
 		[index],
@@ -2567,7 +2563,7 @@ const insertOf = (
 								}
 							: {
 									kind: "columns",
-									columns: arbiterColumns(w, name, d.member.uniques.arbiter),
+									columns: mapNonEmpty(relation.primaryFields, (f) => w.names.column(name, f.name)),
 									action: { kind: "doNothing" }
 								},
 					columns: inserted,
@@ -2821,7 +2817,7 @@ const recountOf = (
 					supply,
 					memberName,
 					"last",
-					flatMapNonEmpty(family.group, (g, i) =>
+					mapNonEmpty(family.group, (g, i) =>
 						bound(w, memberName, g.member, defined(putKey[i], "a group key"))
 					),
 					[index],

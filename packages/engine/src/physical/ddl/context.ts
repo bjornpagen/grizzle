@@ -105,8 +105,6 @@ interface IndexedView {
 export interface TargetField {
 	readonly desc: InferredFieldDesc
 	readonly type: ScalarType
-	/** Whether the column may hold NULL: a law column that may (ir/law.ts LawColumnValues), never a field. */
-	readonly nullable: boolean
 }
 
 /** What a relation's indexes and statistics are built on once every extension has run: a stored relation's table or a
@@ -134,7 +132,7 @@ export interface BuiltTarget {
 
 /**
  * The law columns of each stored relation an index may name, by relation and identifier: each is described by the
- * values it holds (ir/law.ts LawColumnValues), so an index entry over it is bounded as one of a field of them.
+ * field whose values it holds (ir/law.ts LawColumn), so an index entry over it is bounded as one of that field's.
  */
 const lawColumnFields = (
 	natives: ReadonlyArray<NamedNative>
@@ -146,7 +144,7 @@ const lawColumnFields = (
 		}
 		const o = n.object
 		const own = out.get(o.relation.name) ?? new Map<string, TargetField>()
-		own.set(o.column, o.holds)
+		own.set(o.column, { desc: o.field.desc, type: o.field.type })
 		out.set(o.relation.name, own)
 	}
 	return out
@@ -774,15 +772,10 @@ export class InstallBuilder {
 			const lawColumns = this.#lawColumns.get(relation)
 			return {
 				kind: "built",
-				field: (c): TargetField | undefined => {
-					if (c.kind !== "field") {
-						return lawColumns?.get(c.column)
-					}
-					const field = stored.fields.find((f) => f.name === c.field)
-					return field === undefined
-						? undefined
-						: { desc: field.desc, type: field.type, nullable: false }
-				},
+				field: (c) =>
+					c.kind === "field"
+						? stored.fields.find((field) => field.name === c.field)
+						: lawColumns?.get(c.column),
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
 				object: this.table(relation)
 			}

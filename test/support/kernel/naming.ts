@@ -503,7 +503,11 @@ const constraintsOf = (
 	): ReadonlyArray<NamedConstraint> => [{ ident, relation, kind, fields, object: object.kind }]
 	switch (object.kind) {
 		case "PrimaryKey":
-			return named("pk", object.relation.name, Arr.map(object.columns, indexedName))
+			return named(
+				"pk",
+				object.relation.name,
+				Arr.map(object.columns, (f) => f.name)
+			)
 		case "WithoutOverlaps":
 			return named(
 				object.key.kind === "primary" ? "pk" : "key",

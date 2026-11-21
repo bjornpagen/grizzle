@@ -2088,12 +2088,9 @@ class StatementAuditor {
 			Arr.map(tableConstraints(table), (c) => c.name),
 			"constraint"
 		)
-		const declared = table.primaryKey
-		if (declared !== undefined) {
-			this.at("primaryKey", () => {
-				this.constraint(declared, columns)
-			})
-		}
+		this.at("primaryKey", () => {
+			this.constraint(table.primaryKey, columns)
+		})
 		this.at("secondary", () => {
 			for (const [i, c] of table.secondary.entries()) {
 				this.at(i, () => {

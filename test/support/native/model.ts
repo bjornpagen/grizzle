@@ -206,7 +206,7 @@ export const nativeInstallation = (
 							...on,
 							kind: "PrimaryKey",
 							timing: "immediate",
-							columns: Arr.map(o.columns, columnRead)
+							columns: Arr.map(o.columns, (f) => ({ kind: "field", field: f.name }))
 						})
 						return Option.none()
 					case "Unique":

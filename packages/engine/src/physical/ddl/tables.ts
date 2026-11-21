@@ -25,7 +25,8 @@ import {
 	type NativeOf,
 	scalarKeySet,
 	spanKeySet,
-	type TableRelation
+	type TableRelation,
+	fieldColumn
 } from "#compiler/ir/law.ts"
 import { fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, spanOf } from "#compiler/ir/scalar.ts"
@@ -72,20 +73,12 @@ interface PlannedTable {
 	readonly relation: string
 	readonly named: Identity<"table" | "rosterDomain" | "view">
 	readonly columns: NonEmptyReadonlyArray<ColumnDef>
-	/** Its primary key, where its CREATE TABLE declares it: none where the key reads a column a law adds, which the
-	 * key's own ALTER TABLE ... ADD CONSTRAINT names after it (`planNatives`). */
-	readonly primaryKey: PrimaryKey | undefined
+	readonly primaryKey: PrimaryKey
 	readonly after: ReadonlyArray<Node<"setup">>
 }
 
-/** The columns of a relation's primary key: its scalar columns, then a span key's span WITHOUT OVERLAPS. */
-const primaryColumns = (pk: NamedPrimaryKey): ReadonlyArray<NativeColumn> => {
-	const o = pk.object
-	return o.kind === "PrimaryKey" ? o.columns : [...o.key.scalars, o.span]
-}
-
-/** A relation's primary key as its constraint states it: PRIMARY KEY over its columns, or over its scalar columns and
- * its span WITHOUT OVERLAPS, under the name ownership minted. */
+/** A relation's primary key as its CREATE TABLE declares it: PRIMARY KEY over its fields, or over its scalar fields
+ * and its span WITHOUT OVERLAPS, under the name ownership minted. */
 const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 	const o = pk.object
 	const relation = o.relation.name
@@ -94,10 +87,7 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 		name: identifierOf(pk.named),
 		columns:
 			o.kind === "PrimaryKey"
-				? mapNonEmpty(o.columns, (c) => ({
-						column: nativeColumn(b, relation, c),
-						withoutOverlaps: false
-					}))
+				? keyColumns(b, relation, keyNames(o.columns))
 				: periodKeyColumns(b, relation, o.key.scalars, o.span)
 	}
 }
@@ -157,12 +147,23 @@ const plannedTables = (b: InstallBuilder): ReadonlyArray<PlannedTable> =>
 				relation: name,
 				named: b.names.relationNamed(name),
 				columns,
-				primaryKey: isNonEmpty(lawColumnsAmong(primaryColumns(primaryKey)))
-					? undefined
-					: primaryKeyOf(b, primaryKey),
+				primaryKey: primaryKeyOf(b, primaryKey),
 				after
 			}
 		})
+
+/** The names of a key's fields, at least one, as a key has. */
+const keyNames = (
+	fields: NonEmptyReadonlyArray<{ readonly name: string }>
+): NonEmptyReadonlyArray<string> => mapNonEmpty(fields, (f) => f.name)
+
+/** A scalar key's columns. */
+const keyColumns = (
+	b: InstallBuilder,
+	relation: string,
+	columns: NonEmptyReadonlyArray<string>
+): NonEmptyReadonlyArray<KeyColumn> =>
+	mapNonEmpty(columns, (f) => ({ column: b.names.column(relation, f), withoutOverlaps: false }))
 
 /** A span key's columns: its scalar columns, then its span column WITHOUT OVERLAPS, each a field's or a law column's
  * (`nativeColumn`). */
@@ -198,7 +199,7 @@ const setUniqueBound = (
 	relation: string,
 	columns: NonEmptyReadonlyArray<NativeColumn>
 ): void => {
-	/** The values a law column holds, from the law model's natives: no table exists yet. */
+	/** A law column's field, the one whose values it holds, from the law model's natives: no table exists yet. */
 	const lawField = (column: string): TargetField | undefined => {
 		for (const n of b.model.natives) {
 			if (
@@ -206,16 +207,13 @@ const setUniqueBound = (
 				n.object.relation.name === relation &&
 				n.object.column === column
 			) {
-				return n.object.holds
+				return n.object.field
 			}
 		}
 		return undefined
 	}
 	const fields = columns.map((c) => {
-		const field: TargetField | undefined =
-			c.kind === "field"
-				? { desc: c.field.desc, type: c.field.type, nullable: false }
-				: lawField(c.column)
+		const field = c.kind === "field" ? c.field : lawField(c.column)
 		if (field === undefined) {
 			throw defect(
 				`the law column ${nativeColumn(b, relation, c)} a UNIQUE of ${relation} reads, which the law model plans`
@@ -236,7 +234,7 @@ const setUniqueBound = (
 		if (datum === undefined) {
 			throw defect(`a bounded datum of ${name}, which the law model's UNIQUE of ${relation} proved`)
 		}
-		return { name, datum, nullable: field.nullable }
+		return { name, datum, nullable: column.kind === "law" }
 	})
 	unwrap(
 		Result.mapError(btreeEntry(entryColumns), (fault) => {
@@ -323,12 +321,8 @@ type NativePlan =
 			readonly kind: "ownUnique"
 			readonly relation: string
 			readonly named: Identity<IdentityKind>
-			/** A UNIQUE, a span key's with its span last WITHOUT OVERLAPS, a span-only key's exclusion constraint, or a
-			 * primary key over a column a law adds. */
-			readonly constraint: Extract<
-				TableConstraint,
-				{ readonly kind: "primaryKey" | "unique" | "exclude" }
-			>
+			/** A UNIQUE, a span key's with its span last WITHOUT OVERLAPS, or a span-only key's exclusion constraint. */
+			readonly constraint: Extract<TableConstraint, { readonly kind: "unique" | "exclude" }>
 			readonly laws: ReadonlyArray<LawId>
 			readonly key: KeyShape
 			/** The columns a law adds that it holds, which its table adds after its CREATE TABLE. */
@@ -578,29 +572,14 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 		}
 		switch (o.kind) {
 			case "PrimaryKey": {
-				const key = keyShape(scalarKeySet(o.relation.name, o.columns), o.columns)
-				const lawColumns = lawColumnsAmong(o.columns)
-				if (isNonEmpty(lawColumns)) {
-					plans.push({
-						kind: "ownUnique",
-						relation: o.relation.name,
-						named,
-						constraint: {
-							kind: "primaryKey",
-							name,
-							columns: mapNonEmpty(o.columns, (c) => ({
-								column: nativeColumn(b, o.relation.name, c),
-								withoutOverlaps: false
-							}))
-						},
-						laws: o.lawIds,
-						key,
-						lawColumns,
-						gist: false
-					})
-					continue
-				}
-				declarePrimary(o.relation.name, named, o.lawIds, key, false)
+				const columns = mapNonEmpty(o.columns, fieldColumn)
+				declarePrimary(
+					o.relation.name,
+					named,
+					o.lawIds,
+					keyShape(scalarKeySet(o.relation.name, columns), columns),
+					false
+				)
 				continue
 			}
 			case "Unique": {
@@ -630,8 +609,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				const span = o.span
 				const scalars = o.key.scalars
 				/** A span key over a projected side reads law columns its table adds after its CREATE TABLE, so its
-				 * constraint is its own ALTER TABLE ... ADD CONSTRAINT after them, as an inline one could not name them: a
-				 * primary key's PRIMARY KEY, any other's UNIQUE. */
+				 * constraint is its own ALTER TABLE ... ADD CONSTRAINT after them, as an inline one could not name them. */
 				const lawColumns = lawColumnsAmong([...scalars, span])
 				if (isNonEmpty(lawColumns)) {
 					plans.push({
@@ -640,7 +618,7 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 						named,
 						constraint: isNonEmpty(scalars)
 							? {
-									kind: o.key.kind === "primary" ? "primaryKey" : "unique",
+									kind: "unique",
 									name,
 									columns: periodKeyColumns(b, o.relation.name, scalars, span)
 								}
@@ -803,7 +781,7 @@ const lowerWrittenRow = (
 const lawColumnGeneration = (
 	b: InstallBuilder,
 	o: NativeOf<"LawColumn">,
-	value: Exclude<NativeOf<"LawColumn">["value"], { readonly kind: "drawn" }>,
+	value: Extract<NativeOf<"LawColumn">["value"], { readonly kind: "generated" }>,
 	label: string
 ): ColumnGeneration => {
 	const expr = lowerWrittenRow(b, o.relation, value.term, label)
@@ -821,7 +799,7 @@ const lawColumnGeneration = (
  * does.
  */
 const lawColumnDdl = (b: InstallBuilder, o: NativeOf<"LawColumn">): SqlStatement => {
-	const { type, collation } = lawColumnType(b.names, o.holds.type)
+	const { type, collation } = lawColumnType(b.names, o.field.type)
 	return {
 		kind: "alterTable",
 		table: b.names.relation(o.relation.name),
@@ -833,9 +811,9 @@ const lawColumnDdl = (b: InstallBuilder, o: NativeOf<"LawColumn">): SqlStatement
 					type,
 					collation,
 					generated:
-						o.value.kind === "drawn"
-							? undefined
-							: lawColumnGeneration(b, o, o.value, `column ${o.column} of ${o.relation.name}`)
+						o.value.kind === "generated"
+							? lawColumnGeneration(b, o, o.value, `column ${o.column} of ${o.relation.name}`)
+							: undefined
 				}
 			}
 		]
@@ -932,7 +910,7 @@ const addNatives = (
 			case "ownUnique": {
 				const object = b.add(
 					{
-						kind: p.constraint.kind === "primaryKey" ? "primaryKey" : "unique",
+						kind: "unique",
 						ident: constraintIdent(b, p.relation, p.named),
 						ddl: [
 							{

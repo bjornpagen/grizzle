@@ -1,5 +1,9 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
-import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
 import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
@@ -12,13 +16,7 @@ import {
 	nonEmptyNameSet
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type {
-	ExprDesc,
-	FieldDesc,
-	InferredFieldDesc,
-	PlaceOrderDesc,
-	TermDesc
-} from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -474,6 +472,17 @@ export interface LawIndexRequest {
 	readonly justification: { readonly kind: "law"; readonly law: LawId }
 }
 
+/** The fields of native columns when every one is a field, which a declared key's columns are; undefined when one is
+ * a law column. */
+export const plainFields = (
+	columns: ReadonlyArray<
+		{ readonly kind: "field"; readonly field: LawField } | { readonly kind: "law" }
+	>
+): NonEmptyReadonlyArray<LawField> | undefined => {
+	const fields = columns.flatMap((c) => (c.kind === "field" ? [c.field] : []))
+	return isNonEmpty(fields) && fields.length === columns.length ? fields : undefined
+}
+
 /**
  * What a law column holds: generated from its row, its term where every conjunct of its guard holds, and null elsewhere,
  * or drawn by the host, never null, proved by the foreign key or CHECK that reads it.
@@ -490,17 +499,6 @@ export type LawColumnValue =
 			readonly term: ScalarExpr
 	  }
 	| { readonly kind: "drawn"; readonly draws: Drawn }
-
-/**
- * The values a law column holds, by the type and descriptor of a field of them: a term's own field's, x's of pred(x),
- * the target field's a constant meets, a drawn column's or a counted predecessor's count's.
- */
-export interface LawColumnValues {
-	readonly type: ScalarType
-	readonly desc: InferredFieldDesc
-	/** Whether the column may hold NULL (laws/model/plan.ts mayHoldNull), which an index entry over it counts. */
-	readonly nullable: boolean
-}
 
 /** A family by its slots: one count counts one family, so its owner relation and count field name it. */
 export interface FamilyId {
@@ -548,10 +546,10 @@ export type Drawn =
  */
 type NativeBody =
 	| {
-			/** A PRIMARY KEY over its key's columns. */
+			/** A PRIMARY KEY over its key's fields. */
 			readonly kind: "PrimaryKey"
 			readonly relation: TableRelation
-			readonly columns: NonEmptyReadonlyArray<NativeColumn>
+			readonly columns: NonEmptyReadonlyArray<LawField>
 			/** The identity ownership named the primary key's constraint by. */
 			readonly named: Identity<"primaryKey" | "key">
 	  }
@@ -619,13 +617,14 @@ type NativeBody =
 	| {
 			/**
 			 * A column a law adds to its relation, generated STORED from the row or drawn by the host: in no heading and no
-			 * role view. `holds` are its values, its type's base the column's and an index entry over it sized by its
-			 * descriptor (`LawColumnValues`).
+			 * role view. `field` is the field whose values it holds, its type the column's and an index entry over it sized
+			 * as one of the field's: a term's own field, x of pred(x), the field of the target a constant meets, a drawn
+			 * column's or a counted predecessor's count.
 			 */
 			readonly kind: "LawColumn"
 			readonly relation: TableRelation
 			readonly column: ColumnIdent
-			readonly holds: LawColumnValues
+			readonly field: LawField
 			readonly value: LawColumnValue
 	  }
 	| {

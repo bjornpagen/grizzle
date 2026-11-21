@@ -90,15 +90,15 @@ const byRelation = <V>(
  * finds one row of at most and no read of fields alone binds whole. A span key (WITHOUT OVERLAPS) is no key a read by its
  * columns is a point read of.
  */
-const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> => {
-	return byRelation(
-		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, ReadonlyArray<string>]> =>
-			object.kind === "PrimaryKey" || object.kind === "Unique"
-				? [[object.relation.name, object.columns.map(columnKey)]]
-				: []
-		)
+const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> =>
+	byRelation(
+		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, ReadonlyArray<string>]> => {
+			if (object.kind === "PrimaryKey") {
+				return [[object.relation.name, object.columns.map((field) => field.name)]]
+			}
+			return object.kind === "Unique" ? [[object.relation.name, object.columns.map(columnKey)]] : []
+		})
 	)
-}
 
 /**
  * The counted groups of each member relation by its declared name: for each family whose owner is immutable, so the
@@ -116,7 +116,7 @@ const countedGroups = (
 /**
  * The references of each relation by its declared name: every foreign key it holds, deferrable or not, a native one, a
  * lowered containment's and a PERIOD key's alike, by the relation it references, that relation's columns it references
- * by their texts in the order of its key (ir/law.ts columnKey), as the relation's keys name them, and its ON
+ * by their texts in the order of its key, a law column by its identifier as the relation's keys name it, and its ON
  * UPDATE action. A PERIOD key's span is left out, which its check reads by overlap, and its action is NO ACTION.
  */
 const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Reference>> =>

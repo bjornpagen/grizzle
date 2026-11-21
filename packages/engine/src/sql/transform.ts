@@ -1269,12 +1269,8 @@ export class Transform {
 			case "createTable": {
 				const table = this.name(s.table, "relation")
 				const columns = mapNonEmptyKept(s.columns, (c) => this.columnDef(c))
-				const declared = s.primaryKey
-				const key = declared === undefined ? undefined : this.constraintName(s.table, declared.name)
-				const primaryKey =
-					declared === undefined || key === undefined || key === declared.name
-						? declared
-						: { ...declared, name: key }
+				const key = this.constraintName(s.table, s.primaryKey.name)
+				const primaryKey = key === s.primaryKey.name ? s.primaryKey : { ...s.primaryKey, name: key }
 				const secondary = mapList(s.secondary, (c) => this.inlineConstraint(c, s.table))
 				return table === s.table &&
 					columns === s.columns &&

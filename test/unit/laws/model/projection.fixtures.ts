@@ -452,9 +452,7 @@ const tablesOf = (statements: ReadonlyArray<SqlStatement>): ReadonlyMap<string, 
 	for (const s of statements) {
 		if (s.kind === "createTable") {
 			edit(s.table.name, (t) => ({ ...t, columns: [...t.columns, ...s.columns] }))
-			if (s.primaryKey !== undefined) {
-				constrain(s.table.name, s.primaryKey)
-			}
+			constrain(s.table.name, s.primaryKey)
 			for (const c of s.secondary) {
 				constrain(s.table.name, c)
 			}
