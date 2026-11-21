@@ -16,7 +16,7 @@
 
 import { type Reached } from "@bjornpagen/testing/features"
 import { aimed } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import {
 	caseGen,
 	collidingGen,
@@ -132,7 +132,16 @@ export const aNestedTreeOverAKeyGenerationGeneratesEachNodesKeyFromItsOwnReads =
 			kind: "specification",
 			name: "each node's key filled first: its root's k, p mod 3 of its own p, its pre-order start"
 		},
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/write/changeset/key-generation.test.ts#aNestedTreeOverAKeyGenerationGeneratesEachNodesKeyFromItsOwnReads:-:1.2.1.0.0.1.5.1.1.1.0.2.5.1.0.0"
+				),
+				reason:
+					"one node at one filled key under parents of other counts, two rows by the tree's count copy",
+				since: "2026-11-21"
+			}
+		],
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/fill.ts",

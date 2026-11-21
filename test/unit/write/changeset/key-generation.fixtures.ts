@@ -12,7 +12,7 @@ import { closedTableOf } from "#compiler/analysis/schema.ts"
 import { scalarCodec } from "#compiler/codec/scalar.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
 import { hasProperties } from "#compiler/core/record.ts"
-import { columnKeyOf } from "#compiler/ir/law.ts"
+import { columnKey, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LiteralBound, MessageBound } from "#compiler/ir/products.ts"
 import { strataAt } from "#compiler/ir/stratum.ts"
 import { Num } from "#compiler/public/compute.ts"
@@ -650,7 +650,11 @@ export const treeCollidingGen = (source: Source): ReadonlyArray<ReadonlyArray<Tr
 	return [[first, second]]
 }
 
-/** A row of Node as the model fills it, in pre-order: its key (k, d, start), its p, and every column the walk draws. */
+/**
+ * A row of Node as the model fills it, in pre-order: its key (k, d, start), its p, and every column the walk draws, its
+ * tree's copy of its owner's count among them (`n`, the family's ‹n›, write/family/statements.ts RowLayout): a root's
+ * its own count, a child's its parent's, so two nodes at one key under parents of other counts are two rows.
+ */
 type NodeRow = {
 	readonly k: number
 	readonly d: number
@@ -661,6 +665,7 @@ type NodeRow = {
 	readonly at: bigint
 	readonly children: bigint
 	readonly end: bigint
+	readonly n: bigint
 }
 
 /** A tree's rows as the model fills them: the root at start 0, its parent itself, each child a leaf after it, each d
@@ -675,7 +680,8 @@ const treeRows = (t: TreeFact): ReadonlyArray<NodeRow> => [
 		parent: 0n,
 		at: 0n,
 		children: BigInt(t.children.length),
-		end: BigInt(t.children.length + 1)
+		end: BigInt(t.children.length + 1),
+		n: BigInt(t.children.length)
 	},
 	...Arr.map(t.children, (c, i) => ({
 		k: t.k,
@@ -686,7 +692,8 @@ const treeRows = (t: TreeFact): ReadonlyArray<NodeRow> => [
 		parent: 0n,
 		at: BigInt(i),
 		children: 0n,
-		end: BigInt(i + 2)
+		end: BigInt(i + 2),
+		n: BigInt(t.children.length)
 	}))
 ]
 
@@ -710,7 +717,8 @@ const sameRow = (r: NodeRow, s: NodeRow): boolean =>
 	r.parent === s.parent &&
 	r.at === s.at &&
 	r.children === s.children &&
-	r.end === s.end
+	r.end === s.end &&
+	r.n === s.n
 
 /** The trees as a caller states a nested insert of them. */
 const statedTrees = (trees: ReadonlyArray<TreeFact>) =>
@@ -785,7 +793,13 @@ export const treeFillsFirst = (
 				})
 			)
 		})
-		const { columns, result } = yield* normalizedIn(Trees, treeChangeSetOf(strata))
+		const { frontend, columns, result } = yield* normalizedIn(Trees, treeChangeSetOf(strata))
+		/** The tree's copy of each node's owner's count, a column of its rows no field names (NodeRow `n`). */
+		const tree = Arr.findFirst(frontend.laws.families, (f) => f.member.name === Node.name)
+		if (Option.isNone(tree)) {
+			throw new Error("the tree of Node")
+		}
+		const copied = columnKey({ kind: "law", column: tree.value.copy })
 		const normalization = succeeded(result, "a nested insert of admitted trees normalizes")
 		if (normalization.kind === "keyConflict") {
 			if (Arr.some(conflicts, (k) => k.apart)) {
@@ -826,7 +840,8 @@ export const treeFillsFirst = (
 					parent: field(row, "parent"),
 					at: field(row, "at"),
 					children: field(row, "children"),
-					end: field(row, "end")
+					end: field(row, "end"),
+					n: cellAt(columns, { relation: Node.name, values: row.values }, copied)
 				})),
 				nodeOrder
 			)
