@@ -161,7 +161,7 @@ import {
 	wildcardText,
 	withoutSpanWidth
 } from "#compiler/scalar/compute/types.ts"
-import { binary64Digits } from "#compiler/scalar/lexical.ts"
+import { binary64Digits, decimalTextMaxBytes } from "#compiler/scalar/lexical.ts"
 import { lexicalTargetOf } from "#compiler/scalar/lexical.ts"
 import { binary64Precision } from "#compiler/scalar/lexical.ts"
 import { plainType } from "#compiler/scalar/native.ts"
@@ -1389,11 +1389,17 @@ const numericOf = (bounds: Bounds | undefined): ScalarType =>
 			})
 
 /**
- * The bounds of a decimal text's value where the text has at most `bytes` UTF-8 bytes: at most that many digits before
- * its point and, the point taking one, one fewer after it, finite and never NaN.
+ * The bounds of Text.parseDecimal's value where its operand has at most `bytes` UTF-8 bytes: at most as many digits
+ * before its point as the decimal text it parses has bytes and, the point taking one, one fewer after it, finite and
+ * never NaN. The parse is defined only within decimalTextMaxBytes (its lexical precondition, which the lowering proves),
+ * so the text it parses has at most that many bytes whatever the operand's own bound: a value's digits are read from
+ * the lesser of the two, and a text bounded only by regexTextMaxBytes, as every regex-matched text is, makes bounds of
+ * decimalTextMaxBytes digits, where its 268,435,454 bytes made two exact powers of ten of as many digits.
  */
-const decimalBounds = (bytes: number): Bounds =>
-	ofDigits(bytes, Math.max(bytes - 1, 0), { infinite: false, nan: false })
+const decimalBounds = (bytes: number): Bounds => {
+	const parsed = Math.min(bytes, decimalTextMaxBytes)
+	return ofDigits(parsed, Math.max(parsed - 1, 0), { infinite: false, nan: false })
+}
 
 /**
  * How a cast converts: a registered cast over a caller's term, whose preconditions its facts and bounds prove (prove);
@@ -2909,9 +2915,10 @@ class Typing<R extends Refs> {
 	 * numeric of no typmod. The registry's one overload, text to numeric, admits its operand, and it is defined where x
 	 * is a member of every decimal text within decimalTextMaxBytes, the grammar of XML Schema 1.1's xs:decimal lexical
 	 * space within the bytes whose every value numeric holds (the lexical precondition over `decimalText`, which the
-	 * lowering proves from x's language and its byte bound). Its value has at most as many integer digits as x has bytes
-	 * and one fewer fraction digits (decimalBounds), so x's byte bound proves the cast of it into a numeric(p, s) that
-	 * holds them; a literal's, which no type bounds, is numeric's own.
+	 * lowering proves from x's language and its byte bound). Its value has at most as many integer digits as the text it
+	 * parses has bytes, x's bound or decimalTextMaxBytes, whichever is less, and one fewer fraction digits (decimalBounds),
+	 * so x's byte bound proves the cast of it into a numeric(p, s) that holds them; a literal's, which no type bounds, is
+	 * numeric's own.
 	 */
 	parseDecimal(subjectDesc: ExprDesc<Located, R>, at: SourceLoc): Typed {
 		const x = this.term(subjectDesc, childLoc(at, 0))
