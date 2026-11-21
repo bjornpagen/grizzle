@@ -21,7 +21,6 @@ import {
 	lowest,
 	intersect,
 	minus,
-	nameAt,
 	namesOf,
 	positions,
 	sizeOf,
@@ -58,38 +57,76 @@ export interface Row {
 	readonly to: ReadonlyArray<number>
 }
 
-/** A node's dependencies as its closures read them: over its attributes interned, each a row, in table order. */
+/**
+ * A node's dependencies as its closures read them: over its attributes interned, each a row, in table order, with the
+ * index a closure fires them by (Beeri and Bernstein's LINCLOSURE, below): each row's determinants counted, and each
+ * position's rows reading it.
+ */
 export interface Rows {
 	readonly attributes: Attributes
 	readonly rows: ReadonlyArray<Row>
+	/** Each row's determinants, counted: the positions a closure waits for before the row fires. */
+	readonly determinants: Int32Array
+	/**
+	 * Each position's rows that read it among their determinants, ascending, packed: position p's are `readers` from
+	 * `readersAt[p]` to `readersAt[p + 1]`.
+	 */
+	readonly readersAt: Int32Array
+	readonly readers: Int32Array
+}
+
+/** Rows over `attributes`, indexed: each row's determinants counted, each position's readers packed. */
+const indexed = (attributes: Attributes, rows: ReadonlyArray<Row>): Rows => {
+	const determinants = new Int32Array(rows.length)
+	const readersAt = new Int32Array(attributes.names.length + 1)
+	const froms = rows.map((row, i) => {
+		const from = positions(row.from)
+		determinants[i] = from.length
+		for (const p of from) {
+			readersAt[p + 1] = (readersAt[p + 1] ?? 0) + 1
+		}
+		return from
+	})
+	for (let p = 0; p < attributes.names.length; p++) {
+		readersAt[p + 1] = (readersAt[p + 1] ?? 0) + (readersAt[p] ?? 0)
+	}
+	const readers = new Int32Array(readersAt[attributes.names.length] ?? 0)
+	const filled = readersAt.slice(0, attributes.names.length)
+	froms.forEach((from, i) => {
+		for (const p of from) {
+			const at = filled[p] ?? 0
+			readers[at] = i
+			filled[p] = at + 1
+		}
+	})
+	return { attributes, rows, determinants, readersAt, readers }
 }
 
 /**
  * A node's dependencies interned over its attributes: each one's determinants, every one an attribute of the node, as
  * every builder of a node's dependencies states them (logical/props.ts), and its targets among the attributes.
  */
-export const rowsOf = (attributes: Attributes, dependencies: ReadonlyArray<Dependency>): Rows => ({
-	attributes,
-	rows: dependencies.map((dependency) => ({
-		dependency,
-		from: bitsAt(
-			attributes,
-			dependency.from.map((c) =>
-				defined(attributes.at.get(c), "a dependency's determinant is an attribute of its node")
-			)
-		),
-		to: dependency.to.flatMap((c) => {
-			const p = attributes.at.get(c)
-			return p === undefined ? [] : [p]
-		})
-	}))
-})
+export const rowsOf = (attributes: Attributes, dependencies: ReadonlyArray<Dependency>): Rows =>
+	indexed(
+		attributes,
+		dependencies.map((dependency) => ({
+			dependency,
+			from: bitsAt(
+				attributes,
+				dependency.from.map((c) =>
+					defined(attributes.at.get(c), "a dependency's determinant is an attribute of its node")
+				)
+			),
+			to: dependency.to.flatMap((c) => {
+				const p = attributes.at.get(c)
+				return p === undefined ? [] : [p]
+			})
+		}))
+	)
 
 /** The rows of a node's dependencies `kept` holds, in table order: a closure over some of its dependencies. */
-export const rowsAmong = (rows: Rows, kept: ReadonlyArray<Row>): Rows => ({
-	attributes: rows.attributes,
-	rows: kept
-})
+export const rowsAmong = (rows: Rows, kept: ReadonlyArray<Row>): Rows =>
+	indexed(rows.attributes, kept)
 
 /**
  * What a start determines at a node, each position reached with how: the start's, ascending, then each step's targets in
@@ -111,19 +148,70 @@ export interface Closure<V> {
 }
 
 /**
- * What names the values a closure's steps fix its columns to: nothing, or `naming`, which names a step's column given the
- * values named before it, or leaves it unnamed.
+ * Where a step reads the value it fixes one of its targets to: a value of its own (a literal, a parameter, a column an
+ * input fixes), the value named of another attribute of the node (an equality's), or none.
+ */
+export type NameSource<V> =
+	| { readonly kind: "value"; readonly value: V }
+	| { readonly kind: "copy"; readonly at: number }
+	| { readonly kind: "none" }
+
+/** A step that names none of its targets. */
+export const namesNone: NameSource<never> = Object.freeze({ kind: "none" })
+
+/**
+ * What names the values a closure's steps fix its columns to: nothing, or each row's sources, one for each of its targets
+ * in its order (namingOver), with the rows that copy each attribute's value, packed as Rows readers are.
  */
 export type Naming<V> =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "named"
-			readonly naming: (
-				dependency: Dependency,
-				column: string,
-				named: (column: string) => V | undefined
-			) => V | undefined
+			readonly sources: ReadonlyArray<ReadonlyArray<NameSource<V>>>
+			/** Whether each row names any target: a source of each kind but none. */
+			readonly names: Uint8Array
+			readonly copiersAt: Int32Array
+			readonly copiers: Int32Array
 	  }
+
+/**
+ * The naming of `rows` whose row at i reads the value it fixes its target at j from `sources[i][j]`: the sources as data,
+ * read by every named closure over the rows, and the rows each attribute's value is copied by.
+ */
+export const namingOver = <V>(
+	rows: Rows,
+	sources: ReadonlyArray<ReadonlyArray<NameSource<V>>>
+): Naming<V> => {
+	const size = rows.attributes.names.length
+	const names = new Uint8Array(rows.rows.length)
+	const copiersAt = new Int32Array(size + 1)
+	sources.forEach((row, i) => {
+		for (const source of row) {
+			if (source.kind !== "none") {
+				names[i] = 1
+			}
+			if (source.kind === "copy") {
+				copiersAt[source.at + 1] = (copiersAt[source.at + 1] ?? 0) + 1
+			}
+		}
+	})
+	for (let p = 0; p < size; p++) {
+		copiersAt[p + 1] = (copiersAt[p + 1] ?? 0) + (copiersAt[p] ?? 0)
+	}
+	const copiers = new Int32Array(copiersAt[size] ?? 0)
+	const filled = copiersAt.slice(0, size)
+	sources.forEach((row, i) => {
+		for (const source of row) {
+			if (source.kind !== "copy") {
+				continue
+			}
+			const at = filled[source.at] ?? 0
+			copiers[at] = i
+			filled[source.at] = at + 1
+		}
+	})
+	return { kind: "named", sources, names, copiersAt, copiers }
+}
 
 /** A closure that names nothing: what each column is reached by, whatever value it holds. */
 export const namesNothing: Naming<never> = Object.freeze({ kind: "none" })
@@ -134,21 +222,32 @@ type Admission<V> = Extract<Naming<V>, { readonly kind: "named" }> | { readonly 
 const every: Admission<never> = Object.freeze({ kind: "every" })
 
 /**
- * Every attribute `start` determines under `rows`: first by the steps `naming` gives a value, given the values the
- * closure named before them, then by every step. A closure that names nothing has the second round alone, since the
- * first would reach no column.
+ * Every attribute `start` determines under `rows`: first by the steps `naming` gives a value, each target by its source
+ * (a value of the step's own, or the value named of another attribute so far), then by every step. A closure that names
+ * nothing has the second round alone, since the first would reach no column.
  *
- * Each round passes over the rows in table order until a pass adds no column, and a step fires at its turn in the pass
- * once its determinants are reached. A row's standing only advances: its determinants not all reached yet; asked when
- * the closure had named so many values, each target it did not reach then unnamed at those values; or every target
- * reached, so it adds nothing again. A pass visits again only what can still add a column: a row whose determinants were
- * not all reached, or whose targets a naming may now answer otherwise, since `naming` reads nothing but the values named
- * so far, and a target reached since only leaves it fewer to ask about. A visit it skips is one that would add nothing
- * and learn nothing, so the columns, each one's step and the order the steps fire in are the passes' own. A step's
- * targets are reached when its visit ends, each once, so a target it lists twice is asked about twice.
+ * Each round fires the rows as passes over them in table order until a pass adds no column would, and a step fires at its
+ * turn in the pass once its determinants are reached. A row's standing only advances: its determinants not all reached
+ * yet; asked, each target it did not reach then unnamed by its source; or every target reached, so it adds nothing
+ * again. A pass visits again only what can still add a column: a row whose determinants were not all reached, or one
+ * asked that copies a value named since, since a source of its own names the same value whenever it is asked, and a
+ * target reached since only leaves it fewer to ask about. A visit it skips is one that would add nothing and learn
+ * nothing, so the columns, each one's step and the order the steps fire in are the passes' own: a row whose every source
+ * names nothing is never asked, as asking it adds nothing. A step's targets are reached when its visit ends, each once,
+ * so a target it lists twice is asked about twice.
+ *
+ * The passes are never run: a row is visited only once it can add a column, as Beeri and Bernstein's LINCLOSURE fires a
+ * dependency ("Computational Problems Related to the Design of Normal Form Relational Schemas", ACM TODS 4(1), 1979):
+ * each row counts its determinants not reached yet, each position reached counts down the rows reading it (Rows
+ * readers), and a row whose count reaches nothing is due, as is an asked row once a value it copies is named (Naming
+ * copiers). A row due while the passes would be at a row before it is visited in that pass, at its turn, and one due at
+ * or after it in the next (passQueue), so the visits are the passes' visits that add or learn something, in the passes'
+ * order. A closure that names nothing visits each row at most once and tests each row whether to visit it once and again
+ * for each of its determinants reached: its work is its rows, their determinants and targets, and a word of the due rows
+ * for each 32 rows a pass reads past (test/unit/analysis/logical/closure-cost.test.ts).
  */
 export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<V> => {
-	const { attributes } = rows
+	const { attributes, readersAt, readers } = rows
 	const table = rows.rows
 	const reached = copyBits(start)
 	const sequence = positions(start)
@@ -156,55 +255,62 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
 	const fired: Array<number> = []
 	/** The values named so far, by position: none until a step names one. */
 	let named: Map<number, V> | undefined
-	/** Each row's marks: spent, every target it can reach reached, and fired, a target reached by it. */
+	/**
+	 * Each row's marks: spent, every target it can reach reached; fired, a target reached by it; and asked, asked in the
+	 * round of namings since a value it copies was last named, so asking it again names nothing.
+	 */
 	const marks = new Uint8Array(table.length)
-	/** The namings the closure had when each row was last asked, plus one: 0 before it was asked. */
-	const askedAt = new Int32Array(table.length)
-	/** How many times the closure named a value: all a naming's answer can differ by. */
-	let names = 0
-	const valueOf = (column: string): V | undefined => {
-		const p = attributes.at.get(column)
-		return p === undefined ? undefined : named?.get(p)
-	}
-	const added: Array<number> = []
-	/** A pass's visit of the row at `i`, adding the attributes it reaches; whether it added any. */
-	const step = (row: Row, i: number, admission: Admission<V>): boolean => {
-		if (
-			(marks[i] ?? 0) & spentMark ||
-			!subsetOf(row.from, reached) ||
-			(admission.kind === "named" && askedAt[i] === names + 1)
-		) {
-			return false
+	/** Each row's determinants not reached yet. */
+	const missing = rows.determinants.slice()
+	for (const p of sequence) {
+		for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
+			const i = readers[r] ?? 0
+			missing[i] = (missing[i] ?? 0) - 1
 		}
-		const asked = names
+	}
+	const due = passQueue(table.length)
+	/**
+	 * Whether a pass would visit the row at `i` and add or learn something: its determinants reached and a target left to
+	 * reach, and in the round of namings a target it names, not asked since a value it copies was last named.
+	 */
+	const visits = (i: number, admission: Admission<V>): boolean =>
+		missing[i] === 0 &&
+		((marks[i] ?? 0) & spentMark) === 0 &&
+		(admission.kind === "every" ||
+			(admission.names[i] === 1 && ((marks[i] ?? 0) & askedMark) === 0))
+	const added: Array<number> = []
+	/** The positions a visit named. */
+	const namedHere: Array<number> = []
+	/** A visit of the row at `i`, adding the attributes it reaches, each row it makes due due. */
+	const step = (row: Row, i: number, admission: Admission<V>): void => {
 		added.length = 0
+		namedHere.length = 0
 		let unreached = 0
-		for (const p of row.to) {
+		row.to.forEach((p, j) => {
 			if (holdsAt(reached, p)) {
-				continue
+				return
 			}
 			unreached++
 			if (admission.kind === "every") {
 				added.push(p)
-				continue
+				return
 			}
-			const value = admission.naming(row.dependency, nameAt(attributes, p), valueOf)
+			const source = admission.sources[i]?.[j] ?? namesNone
+			const value =
+				source.kind === "value"
+					? source.value
+					: source.kind === "copy"
+						? named?.get(source.at)
+						: undefined
 			if (value !== undefined) {
 				named ??= new Map()
 				named.set(p, value)
-				names++
+				namedHere.push(p)
 				added.push(p)
 			}
-		}
-		if (added.length === unreached) {
-			marks[i] = (marks[i] ?? 0) | spentMark
-		} else {
-			askedAt[i] = asked + 1
-		}
-		if (added.length === 0) {
-			return false
-		}
-		if (((marks[i] ?? 0) & firedMark) === 0) {
+		})
+		marks[i] = (marks[i] ?? 0) | (added.length === unreached ? spentMark : askedMark)
+		if (added.length > 0 && ((marks[i] ?? 0) & firedMark) === 0) {
 			marks[i] = (marks[i] ?? 0) | firedMark
 			fired.push(i)
 		}
@@ -215,19 +321,36 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
 			addTo(reached, p)
 			by[p] = i + 1
 			sequence.push(p)
-		}
-		return true
-	}
-	const reach = (admission: Admission<V>): void => {
-		for (let changed = true; changed;) {
-			changed = false
-			let i = 0
-			for (const row of table) {
-				if (step(row, i, admission)) {
-					changed = true
+			for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
+				const j = readers[r] ?? 0
+				missing[j] = (missing[j] ?? 0) - 1
+				if (visits(j, admission)) {
+					due.add(j)
 				}
-				i++
 			}
+		}
+		if (admission.kind === "named") {
+			for (const p of namedHere) {
+				for (let r = admission.copiersAt[p] ?? 0; r < (admission.copiersAt[p + 1] ?? 0); r++) {
+					const j = admission.copiers[r] ?? 0
+					marks[j] = (marks[j] ?? 0) & ~askedMark
+					if (visits(j, admission)) {
+						due.add(j)
+					}
+				}
+			}
+		}
+	}
+	/** A round: every row the first pass would visit due, then each due row visited in the passes' order. */
+	const reach = (admission: Admission<V>): void => {
+		due.restart()
+		for (let i = 0; i < table.length; i++) {
+			if (visits(i, admission)) {
+				due.add(i)
+			}
+		}
+		for (let i = due.next(); i !== undefined; i = due.next()) {
+			step(defined(table[i], "a due row is its closure's"), i, admission)
 		}
 	}
 	if (naming.kind === "named") {
@@ -237,11 +360,65 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
 	return { rows, start, reached, sequence, by, fired, named: named ?? namedNothing }
 }
 
+/**
+ * The rows due in a round, in the order passes over the table in table order would visit them: a row due while the passes
+ * are at a row before it in this pass, a row due at or after it in the next. Each pass's due rows are a bitset over the
+ * rows, read upward from the row the passes are at, a word at a time; the next pass's become this pass's once this
+ * pass holds none after it.
+ */
+const passQueue = (size: number) => {
+	const words = (size + 31) >>> 5
+	let now = new Uint32Array(words)
+	let later = new Uint32Array(words)
+	let at = -1
+	/** The least row of `bits` at `from` or after, clearing it; none when it holds none there. */
+	const take = (bits: Uint32Array, from: number): number | undefined => {
+		for (let w = from >>> 5; w < words; w++) {
+			const word = (bits[w] ?? 0) & (w === from >>> 5 ? ~0 << (from & 31) : ~0)
+			if (word === 0) {
+				continue
+			}
+			const bit = 31 - Math.clz32(word & -word)
+			bits[w] = (bits[w] ?? 0) & ~(1 << bit)
+			return (w << 5) + bit
+		}
+		return undefined
+	}
+	return {
+		/** Holds the row at `i` due: in this pass after the row visited, else in the next. */
+		add: (i: number): void => {
+			const into = i > at ? now : later
+			into[i >>> 5] = (into[i >>> 5] ?? 0) | (1 << (i & 31))
+		},
+		/** The next due row in the passes' order, none when no row is due. */
+		next: (): number | undefined => {
+			const here = take(now, at + 1)
+			if (here !== undefined) {
+				at = here
+				return here
+			}
+			const swapped = now
+			now = later
+			later = swapped
+			const first = take(now, 0)
+			at = first ?? -1
+			return first
+		},
+		/** A new round's passes: the first, before its first row. */
+		restart: (): void => {
+			at = -1
+		}
+	}
+}
+
 /** A row's mark that every target it can reach is reached, so it adds nothing again. */
 const spentMark = 1
 
 /** A row's mark that it reached a column, so it is among the closure's fired rows. */
 const firedMark = 2
+
+/** A row's mark that it was asked in the round of namings since a value it copies was last named. */
+const askedMark = 4
 
 /** The values of a closure that named none. */
 const namedNothing: ReadonlyMap<number, never> = new Map<number, never>()

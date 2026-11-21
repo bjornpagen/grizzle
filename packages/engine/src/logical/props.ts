@@ -108,7 +108,11 @@ import {
 	derivationRows,
 	independentFactors,
 	minimalKeys,
+	type NameSource,
+	type Naming,
+	namesNone,
 	namesNothing,
+	namingOver,
 	reaches,
 	type Row,
 	type Rows,
@@ -204,6 +208,12 @@ export interface Props {
 	 * whole, and whether some columns determine others is one closure.
 	 */
 	readonly stated: Rows
+	/**
+	 * Where each of its steps reads the value it fixes each of its targets to, by row and target (logical/closure.ts
+	 * Naming): the data every named closure of the node reads, its closure of nothing and each parent's closure of a
+	 * determinant of it, built once with its dependencies.
+	 */
+	readonly naming: Naming<Named>
 	/**
 	 * Its minimal keys over its classes of equal columns and its independent factors: for rows of one heading group one
 	 * proof, whose key holds one minimal key of each factor over the classes' representatives and whose alternatives are
@@ -448,7 +458,11 @@ interface Table {
 	readonly outer: OuterRefs
 	readonly columns: ReadonlyArray<string>
 	readonly stated: Rows
+	readonly naming: Naming<Named>
 }
+
+/** What a node's steps are read against: its table but the naming they make (namingOf). */
+type Steps = Omit<Table, "naming">
 
 /** A node's attributes: its heading, then its hidden attributes. */
 const attributesOf = (props: Pick<Table, "stated">): Attributes => props.stated.attributes
@@ -485,10 +499,7 @@ const namedOf = (v: ValueAt): Named | undefined => {
  * step names it.
  */
 const closureOf = (props: Table, start: Bits): Closure<Named> =>
-	closure(props.stated, start, {
-		kind: "named",
-		naming: (d, column, named) => stepValue(props, d, column, named)
-	})
+	closure(props.stated, start, props.naming)
 
 /**
  * What `start` determines at a node, each column reached by the first step to fire: what a key determines, whose
@@ -683,7 +694,7 @@ const carriers = {
 } as const
 
 /** Where step `d` reads the value it fixes `column` to at a node. */
-const stepSource = (props: Table, d: Dependency, column: string): StepSource => {
+const stepSource = (props: Steps, d: Dependency, column: string): StepSource => {
 	const node = props.reading
 	const rule = d.rule
 	switch (rule.rule) {
@@ -861,37 +872,47 @@ const stepNames = (
 }
 
 /**
- * The name of the value a step fixes `column` to at a node: a literal, a parameter or an outer column; none for a
- * computation. A rule that carries the column from an input reads the name its input's closure of nothing gives it,
- * read at the node (firstNameAt), as the derivation the rule carries does; a union's agreement reads the first name its
- * arms share, as its derivations do; an equality reads the name its other column holds, `named`, where the closure
- * named one.
+ * Where a step reads the name of the value it fixes `column` to at a node: a literal, a parameter or an outer column of
+ * its own, or none for a computation. A rule that carries the column from an input reads the name its input's closure of
+ * nothing gives it, read at the node (firstNameAt), as the derivation the rule carries does; a union's agreement reads
+ * the first name its arms share, as its derivations do; an equality reads the name its other column holds when the
+ * closure names one (a copy), none for a column the node lacks.
  */
-const stepValue = (
-	props: Table,
-	d: Dependency,
-	column: string,
-	named: (column: string) => Named | undefined
-): Named | undefined => {
+const nameSourceOf = (props: Steps, d: Dependency, column: string): NameSource<Named> => {
 	const source = stepSource(props, d, column)
+	const value = (name: Named | undefined): NameSource<Named> =>
+		name === undefined ? namesNone : { kind: "value", value: name }
 	switch (source.kind) {
 		case "own":
-			return source.name
-		case "column":
-			return named(source.column)
+			return value(source.name)
+		case "column": {
+			const at = props.stated.attributes.at.get(source.column)
+			return at === undefined ? namesNone : { kind: "copy", at }
+		}
 		case "input":
-			return firstNameAt(props, source.input, source.column)
+			return value(firstNameAt(props, source.input, source.column))
 		case "arms":
-			return commonNames(source.arms, column)[0]?.name
+			return value(commonNames(source.arms, column)[0]?.name)
 	}
 }
+
+/** The naming of a node's steps (Props.naming): each row's source of the name it gives each target, in its order. */
+const namingOf = (props: Steps): Naming<Named> =>
+	namingOver(
+		props.stated,
+		props.stated.rows.map((row) =>
+			row.to.map((p) =>
+				nameSourceOf(props, row.dependency, attributeAt(props.stated.attributes, p))
+			)
+		)
+	)
 
 /**
  * The value a fixed column holds by the witness that fixed it at the node `props` are of, a witness of the node's own: a
  * semi-join's pair carries the right side's (stepSource).
  */
 const fixedWitnessValue = (
-	props: Table,
+	props: Steps,
 	witness: Exclude<FixedWitness, { readonly kind: "semiJoinPair" }>,
 	column: string
 ): ValueAt => {
@@ -1389,7 +1410,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	const columns = node.heading.map((c) => c.name)
 	const { attributes } = rest
 	const heading = attributes.heading
-	const table: Table = {
+	const steps: Steps = {
 		node,
 		reading: subject.reading,
 		attachment: subject.attachment,
@@ -1397,6 +1418,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		columns,
 		stated: rowsOf(attributes, dependencies)
 	}
+	const table: Table = { ...steps, naming: namingOf(steps) }
 	const forest = forestOf(columns, rest.equal)
 	const classes = classesIn(columns, forest)
 	/**

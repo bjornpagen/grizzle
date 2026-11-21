@@ -1,10 +1,18 @@
 /** What the properties of closure-cost.test.ts read: its spaces, models and helpers. */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
-import { type Gen, int } from "@bjornpagen/testing/gen"
+import { defined } from "@bjornpagen/testing/assert"
+import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import { type Dependency, implication, projectionCloses } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type DeclaredKey, type ValidDag } from "#compiler/ir/rel.ts"
+import {
+	type NameSource,
+	type Naming,
+	namesNone,
+	namingOver,
+	type Rows
+} from "#compiler/logical/closure.ts"
 import { Ir, type SchemaModel } from "#test/support/fixtures/ir/build.ts"
 import { workModel } from "#test/support/fixtures/ir/work.ts"
 import type { CountedFunction } from "#test/support/kernel/calls.ts"
@@ -63,16 +71,198 @@ export type ClosureFeature =
 	| "a closure of three passes or more"
 	| "a dependency that never fires"
 
-/** A closure's one visit of a dependency in a pass (logical/closure.ts closure). */
-export const steps = Object.freeze({
-	step: { file: "packages/engine/src/logical/closure.ts", name: "step" }
+/**
+ * A drawn naming of a table's closure (logical/closure.ts Naming): where each dependency reads the value it fixes each of
+ * its targets to, by its targets in heading order. A value of its own; a copy of another column's value, named once that
+ * column is, so a dependency asked before it names nothing and is asked again once it is named; or none.
+ */
+export type DrawnSource =
+	| { readonly kind: "value"; readonly value: number }
+	| { readonly kind: "copy"; readonly column: number }
+	| { readonly kind: "none" }
+
+/** A drawn table, a start and each dependency's sources, one for each of its targets. */
+export interface NamedStart extends Started {
+	readonly sources: ReadonlyArray<ReadonlyArray<DrawnSource>>
+}
+
+/**
+ * A drawn table with sources for each target, and, when drawn over two columns or more, a chain around it: a first
+ * dependency of no determinants fixing a column x to a copy of a column y, and a last one fixing y to a value of its own,
+ * neither in the start. The first is asked before y is named and must be asked again once the last names it, at a later
+ * pass, so the chain is a naming the passes reach only by asking a row again.
+ */
+export const namedStartGen: Gen<NamedStart> = (source) => {
+	const drawn = source.draw(startedGen)
+	const width = drawn.table.width
+	const sourceGen: Gen<DrawnSource> = (s) => {
+		const kind = s.draw(int(0, 2))
+		return kind === 0
+			? { kind: "value", value: s.draw(int(0, 3)) }
+			: kind === 1
+				? { kind: "copy", column: s.draw(int(0, width - 1)) }
+				: { kind: "none" }
+	}
+	const sources = Arr.map(drawn.table.dependencies, (d) =>
+		Arr.map(indices(sizeOfMask(d.to)), () => source.draw(sourceGen))
+	)
+	if (width < 2 || !source.draw(boolean)) {
+		return { ...drawn, sources }
+	}
+	const x = source.draw(int(0, width - 1))
+	const y = (x + source.draw(int(1, width - 1))) % width
+	return {
+		table: {
+			width,
+			dependencies: [{ from: 0, to: 1 << x }, ...drawn.table.dependencies, { from: 0, to: 1 << y }]
+		},
+		start: drawn.start & ~((1 << x) | (1 << y)),
+		sources: [
+			[{ kind: "copy", column: y }],
+			...sources,
+			[{ kind: "value", value: source.draw(int(0, 3)) }]
+		]
+	}
+}
+
+/** The naming the drawn sources state over the table's rows, each copy of a column read at its position. */
+export const namingOf = (
+	rows: Rows,
+	sources: ReadonlyArray<ReadonlyArray<DrawnSource>>
+): Naming<number> =>
+	namingOver(
+		rows,
+		Arr.map(sources, (targets) =>
+			Arr.map(targets, (s): NameSource<number> =>
+				s.kind === "value" ? s : s.kind === "copy" ? { kind: "copy", at: s.column } : namesNone
+			)
+		)
+	)
+
+/** What a closure reaches and how, by the columns' indexes: as logical/closure.ts Closure reads them. */
+export interface PassClosure {
+	readonly sequence: ReadonlyArray<number>
+	/** Each column's row, by its index plus one: 0 by the start, or for a column not reached. */
+	readonly by: ReadonlyArray<number>
+	readonly fired: ReadonlyArray<number>
+	readonly named: ReadonlyMap<number, number>
+	/** The passes each round took, the last adding nothing. */
+	readonly passes: ReadonlyArray<number>
+	/** Whether a row asked when some target was left unnamed named one when it was asked again. */
+	readonly askedAgain: boolean
+}
+
+/**
+ * The closure of `start` as passes over the dependencies in table order compute it (the reference): with `sources`, a
+ * round of the namings first, each row asked at its turn once its determinants are reached and again in each pass after
+ * any value is named, then a round of every row; each round passing over the rows until a pass adds nothing, a row's
+ * targets reached when its visit ends, in heading order.
+ */
+export const passClosure = (
+	table: Table,
+	start: number,
+	sources: ReadonlyArray<ReadonlyArray<DrawnSource>> | undefined
+): PassClosure => {
+	const rows = table.dependencies
+	let reached = start
+	const sequence = Arr.filter(indices(table.width), (c) => (start & (1 << c)) !== 0)
+	const by = Arr.map(indices(table.width), () => 0)
+	const fired: Array<number> = []
+	const named = new Map<number, number>()
+	const spent = Arr.map(rows, () => false)
+	const askedAt = Arr.map(rows, () => 0)
+	const left = Arr.map(rows, () => false)
+	let askedAgain = false
+	const passes: Array<number> = []
+	const round = (naming: boolean): void => {
+		let pass = 0
+		for (let changed = true; changed; pass++) {
+			changed = false
+			Arr.forEach(rows, (d, i) => {
+				if (
+					spent[i] === true ||
+					(d.from & ~reached) !== 0 ||
+					(naming && askedAt[i] === named.size + 1)
+				) {
+					return
+				}
+				const asked = named.size
+				const added: Array<number> = []
+				let unreached = 0
+				let target = 0
+				for (let c = 0; c < table.width; c++) {
+					if ((d.to & (1 << c)) === 0) {
+						continue
+					}
+					const at = target
+					target++
+					if ((reached & (1 << c)) !== 0) {
+						continue
+					}
+					unreached++
+					if (!naming) {
+						added.push(c)
+						continue
+					}
+					const s = defined(sources?.[i]?.[at], "a target's source")
+					const value =
+						s.kind === "value" ? s.value : s.kind === "copy" ? named.get(s.column) : undefined
+					if (value !== undefined) {
+						named.set(c, value)
+						added.push(c)
+					}
+				}
+				if (left[i] === true && added.length > 0) {
+					askedAgain = true
+				}
+				if (added.length === unreached) {
+					spent[i] = true
+				} else {
+					askedAt[i] = asked + 1
+					left[i] = true
+				}
+				if (added.length === 0) {
+					return
+				}
+				if (!fired.includes(i)) {
+					fired.push(i)
+				}
+				for (const c of added) {
+					if ((reached & (1 << c)) !== 0) {
+						continue
+					}
+					reached |= 1 << c
+					by[c] = i + 1
+					sequence.push(c)
+				}
+				changed = true
+			})
+		}
+		passes.push(pass)
+	}
+	if (sources !== undefined) {
+		round(true)
+	}
+	round(false)
+	return { sequence, by, fired, named, passes, askedAgain }
+}
+
+/** A closure's visit of a due row, and its test of whether a pass would visit a row (logical/closure.ts closure). */
+export const visitSites = Object.freeze({
+	step: { file: "packages/engine/src/logical/closure.ts", name: "step" },
+	visits: { file: "packages/engine/src/logical/closure.ts", name: "visits" }
 } satisfies Readonly<Record<string, CountedFunction>>)
+
+export type NamingFeature =
+	| "a row asked again once a value is named"
+	| "a value named"
+	| "a column reached by a row that names nothing"
 
 /** A key search's tests of a candidate against the keys found: a scan's subset tests, or a set-trie's node visits. */
 export const keySearchSites = Object.freeze({
 	subsetOf: { file: "packages/engine/src/logical/attributes.ts", name: "subsetOf" },
 	keyWithin: { file: "packages/engine/src/logical/closure.ts", name: "keyWithin" }
-} satisfies Readonly<Record<string, CallSite>>)
+} satisfies Readonly<Record<string, CountedFunction>>)
 
 export type CyclePoint = "from n = 4" | "from n = 6"
 

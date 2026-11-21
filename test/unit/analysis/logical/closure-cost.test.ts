@@ -1,10 +1,13 @@
 /**
  * The work of the logical analysis's closures, counted, each property's own documentation beside its search:
  *
- * - A closure's visits (logical/closure.ts closure): a round passes over the node's dependencies, visiting each once a
- *   pass, until a pass adds nothing, so a closure that names nothing visits its dependencies at most once more than the
- *   attributes it adds: its work is bounded by its dependencies times its attributes. Oracle: the closure by brute force,
- *   and that count.
+ * - A closure's order and visits (logical/closure.ts closure): a round fires each row as passes over the node's
+ *   dependencies in table order would, each column by the passes' row and in their order, and visits a row only once it
+ *   can add a column, so a closure that names nothing visits each dependency at most once and tests each whether to
+ *   visit it once and again for each determinant reached. Oracle: the passes, run as a second implementation, and
+ *   those counts.
+ * - A naming closure (logical/closure.ts closure): it names, reaches and fires as the passes' round of namings and then
+ *   of every row would, a row asked again once a value it copies is named. Oracle: the passes.
  * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
  *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
  *   growth bound.
@@ -19,8 +22,9 @@
  * The counts are work, never time: V8's precise coverage counts each function's calls (kernel/calls.ts callCounts), so
  * neither guard depends on the machine.
  *
- * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a search from
- * n = 4 and from n = 6; one relation and several joined; one query of a reading and several.
+ * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a row asked
+ * again once a value is named, a value named and a column reached by a row that names nothing; a search from n = 4 and
+ * from n = 6; one relation and several joined; one query of a reading and several.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
@@ -28,7 +32,7 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, Order } from "effect"
 import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
 import {
@@ -53,19 +57,28 @@ import {
 	type InterningFeature,
 	interning,
 	keySearchSites,
+	namedStartGen,
+	namingOf,
+	type NamingFeature,
+	passClosure,
 	type ReadingFeature,
 	readingQuery,
 	readings,
 	taskReading,
 	sizeOfMask,
 	startedGen,
-	steps
+	visitSites
 } from "#test/unit/analysis/logical/closure-cost.fixtures.ts"
 import { productOf } from "#test/unit/analysis/logical/join-cost.fixtures.ts"
 
-/** A closure visits each dependency once a pass, and passes at most once more than the attributes it adds. */
-export const aClosureVisitsEachDependencyOnceAPassAndPassesAtMostOnceMoreThanTheAttributesItAdds =
-	property.explore(startedGen, {
+/**
+ * A closure fires each row as passes over the table in table order would, and visits each at most once: each column by
+ * the passes' row, in the passes' order, a row visited once its determinants are reached, never in a pass that cannot
+ * fire it.
+ */
+export const aClosureFiresEachRowAsPassesInTableOrderWouldVisitingEachAtMostOnce = property.explore(
+	startedGen,
+	{
 		needs: {},
 		budget: { runs: 300, steered: 300 },
 		situations: [
@@ -83,20 +96,35 @@ export const aClosureVisitsEachDependencyOnceAPassAndPassesAtMostOnceMoreThanThe
 						Effect.sync(() =>
 							closure(rows, bitsOf(attributes, columnsIn(table, start)), namesNothing)
 						),
-						steps
+						visitSites
+					)
+					const passes = passClosure(table, start, undefined)
+					assert.deepEqual<ReadonlyArray<number>>(
+						reached.sequence,
+						passes.sequence,
+						"the columns, in the passes' order"
+					)
+					assert.deepEqual<ReadonlyArray<number>>(
+						[...reached.by],
+						passes.by,
+						"each column by the passes' row"
+					)
+					assert.deepEqual(reached.fired, passes.fired, "the rows that fired, in the passes' order")
+					const dependencies = table.dependencies.length
+					const determinants = Arr.reduce(table.dependencies, 0, (n, d) => n + sizeOfMask(d.from))
+					assert.ok(
+						counts.step <= dependencies,
+						`${counts.step} visits of ${dependencies} dependencies`
+					)
+					assert.ok(
+						counts.visits <= dependencies + determinants,
+						`${counts.visits} tests of ${dependencies} dependencies of ${determinants} determinants`
 					)
 					const known = closedMask(table, start)
-					assert.deepEqual(namesOf(attributes, reached.reached), [...columnsIn(table, known)])
-					const dependencies = table.dependencies.length
-					const added = sizeOfMask(known & ~start)
-					assert.ok(
-						counts.step <= dependencies * (added + 1),
-						`${counts.step} visits of ${dependencies} dependencies adding ${added} attributes`
-					)
-					if (added === 0) {
+					if ((known & ~start) === 0) {
 						c.note("a closure that adds nothing")
 					}
-					if (dependencies > 0 && counts.step >= 3 * dependencies) {
+					if (Arr.some(passes.passes, (n) => n >= 3)) {
 						c.note("a closure of three passes or more")
 					}
 					if (Arr.some(table.dependencies, (d) => (d.from & ~known) !== 0)) {
@@ -105,19 +133,102 @@ export const aClosureVisitsEachDependencyOnceAPassAndPassesAtMostOnceMoreThanThe
 				}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the closure by brute force, and at most one pass more than the attributes it adds"
+			name: "passes over the dependencies in table order until one adds nothing, and one visit a row, one test a row and a determinant"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/logical/closure.ts",
-				original: "\t\tfor (let changed = true; changed;) {",
+				original:
+					'\t\tfor (let i = due.next(); i !== undefined; i = due.next()) {\n\t\t\tstep(defined(table[i], "a due row is its closure\'s"), i, admission)\n\t\t}\n',
 				replacement:
-					"\t\tfor (let changed = true, pass = 0; changed || pass <= attributes.names.length; pass++) {",
-				why: "A round passes over the dependencies once for each attribute whatever it adds (logical/closure.ts closure); the visits property fails."
+					'\t\tfor (let changed = true; changed; ) {\n\t\t\tchanged = false\n\t\t\tfor (let i = 0; i < table.length; i++) {\n\t\t\t\tif (visits(i, admission)) {\n\t\t\t\t\tstep(defined(table[i], "a due row is its closure\'s"), i, admission)\n\t\t\t\t\tchanged = true\n\t\t\t\t}\n\t\t\t}\n\t\t}\n',
+				why: "A round passes over every row until a pass adds nothing, testing each in each pass (logical/closure.ts closure); the visits property fails."
+			},
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\t\tconst into = i > at ? now : later",
+				replacement: "\t\t\tconst into = now",
+				why: "A row due before the passes' row is visited in this pass, out of the passes' order (logical/closure.ts passQueue); the order property fails."
 			}
 		]
-	})
+	}
+)
+
+/**
+ * A closure that names values names and fires as passes in table order would: each row asked at its turn once its
+ * determinants are reached, and asked again once a value is named, so every value, each column's row and the order are
+ * the passes'.
+ */
+export const aNamingClosureNamesAndFiresAsPassesInTableOrderWould = property.explore(
+	namedStartGen,
+	{
+		needs: {},
+		budget: { runs: 300, steered: 300 },
+		situations: [
+			"a row asked again once a value is named",
+			"a value named",
+			"a column reached by a row that names nothing"
+		] satisfies ReadonlyArray<Reached<NamingFeature>>,
+		check:
+			(_, c: Case<NamingFeature>) =>
+			({ table, start, sources }) =>
+				Effect.sync(() => {
+					const attributes = attributesOver(columnsOf(table), [])
+					const rows = rowsOf(attributes, dependenciesOf(table))
+					const reached = closure(
+						rows,
+						bitsOf(attributes, columnsIn(table, start)),
+						namingOf(rows, sources)
+					)
+					const passes = passClosure(table, start, sources)
+					assert.deepEqual<ReadonlyArray<number>>(
+						reached.sequence,
+						passes.sequence,
+						"the columns, in the passes' order"
+					)
+					assert.deepEqual<ReadonlyArray<number>>(
+						[...reached.by],
+						passes.by,
+						"each column by the passes' row"
+					)
+					assert.deepEqual(reached.fired, passes.fired, "the rows that fired, in the passes' order")
+					assert.deepEqual(
+						Arr.sort(
+							[...reached.named],
+							Order.mapInput(Order.Number, ([p]: readonly [number, number]) => p)
+						),
+						Arr.sort(
+							[...passes.named],
+							Order.mapInput(Order.Number, ([p]: readonly [number, number]) => p)
+						),
+						"every value the passes name"
+					)
+					if (passes.askedAgain) {
+						c.note("a row asked again once a value is named")
+					}
+					if (passes.named.size > 0) {
+						c.note("a value named")
+					}
+					if (Arr.some(passes.sequence, (p) => !passes.named.has(p) && (start & (1 << p)) === 0)) {
+						c.note("a column reached by a row that names nothing")
+					}
+				}),
+		oracle: {
+			kind: "second-implementation",
+			name: "a round of namings and a round of every row, each passing over the dependencies in table order until a pass adds nothing"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/closure.ts",
+				original: "\t\t\t\t\tmarks[j] = (marks[j] ?? 0) & ~askedMark",
+				replacement: "\t\t\t\t\tmarks[j] = marks[j] ?? 0",
+				why: "A row asked before a value it copies was named is never asked again (logical/closure.ts closure); the naming property fails."
+			}
+		]
+	}
+)
 
 /**
  * A key search tests each candidate against the keys it found by their set-trie, never one by one: over n columns each
