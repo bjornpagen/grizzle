@@ -43,7 +43,7 @@ import { installationsOf } from "#compiler/schema/own.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { setWidth } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import {
 	closed,
 	closedRelation,
@@ -307,14 +307,27 @@ const namesOf = (codes: ReadonlyArray<Coded>): ReadonlyArray<string> =>
 const rosterCodesOf = (codes: ReadonlyArray<Coded>): RosterCodes =>
 	Arr.map(codes, (c): CodeSlot => (c.live ? { kind: "live", handle: c.handle } : { kind: "hole" }))
 
-/** The roster's objects at a state of its codes, named through the naming door from the model's own codes. */
+/** The live codes of a state of the roster's codes as its live-codes constant's hex, at a set's width. */
+const liveOf = (codes: ReadonlyArray<Coded>): string =>
+	hexOfText(
+		setText(
+			codes.length,
+			Arr.flatMap(codes, (c, code) => (c.live ? [code] : []))
+		)
+	)
+
+/** The roster's objects at a state of its codes, named through the naming door from the model's own codes: its names
+ * constant by its names, its live-codes constant by its live codes. */
 const rosterObjects = (codes: ReadonlyArray<Coded>) => {
-	const digest = constantDigest("roster-names", namesOf(codes), everyProperty)
 	const domain = identity.rosterDomain(roster)
 	const bits = identity.bitsDomain(roster, setWidth(codes.length))
 	return {
-		names: identifierOf(identity.rosterConstant(roster, digest)),
-		live: identifierOf(identity.rosterLive(roster, digest)),
+		names: identifierOf(
+			identity.rosterConstant(roster, constantDigest("roster-names", namesOf(codes), everyProperty))
+		),
+		live: identifierOf(
+			identity.rosterLive(roster, constantDigest("roster-live", liveOf(codes), everyProperty))
+		),
 		domain: identifierOf(domain),
 		check: identifierOf(identity.domainCheck(domain)),
 		bits: identifierOf(bits),
@@ -508,23 +521,29 @@ const predicted = (
 	}
 	const was = rosterObjects(before.codes)
 	const now = rosterObjects(after.codes)
-	const namesChanged =
-		canonicalTextOf(namesOf(before.codes)) !== canonicalTextOf(namesOf(after.codes))
+	const namesChanged = was.names !== now.names
+	const liveChanged = was.live !== now.live
 	const widened = setWidth(after.codes.length) > setWidth(before.codes.length)
 	if (namesChanged) {
-		out.push(["setup", `create function ${now.names}`], ["setup", `revoke function ${now.names}`])
 		out.push(
+			["setup", `create function ${now.names}`],
+			["setup", `revoke function ${now.names}`],
+			["publish.removed", `drop function ${was.names}`]
+		)
+	}
+	if (liveChanged) {
+		out.push(
+			["setup", `create function ${now.live}`],
+			["setup", `revoke function ${now.live}`],
 			["structure", `drop check ${now.domain}.${now.check}`],
 			["structure", `add check ${now.domain}.${now.check}`],
 			["publish.validate", `validate ${now.domain}.${now.check}`],
-			["publish.removed", `drop function ${was.names}`]
+			["publish.removed", `drop function ${was.live}`]
 		)
 	}
 	if (after.set) {
 		if (!before.set) {
 			out.push(
-				["setup", `create function ${now.live}`],
-				["setup", `revoke function ${now.live}`],
 				["setup", `create domain ${now.bits}`],
 				["structure", `placeholder column ${table}.${setColumn}`],
 				["structure", `disable trigger ${table}.${guardTrigger}`],
@@ -532,12 +551,7 @@ const predicted = (
 				["structure.constraints", `enable trigger ${table}.${guardTrigger}`],
 				["validate", `replace guard ${table}`]
 			)
-		} else if (namesChanged) {
-			out.push(
-				["setup", `create function ${now.live}`],
-				["setup", `revoke function ${now.live}`],
-				["publish.removed", `drop function ${was.live}`]
-			)
+		} else if (liveChanged) {
 			if (widened) {
 				out.push(
 					["setup", `create domain ${now.bits}`],

@@ -9,7 +9,7 @@
  * - **A set's domain admits exactly sets of live codes:** a bits domain exactly where a set is typed over the roster,
  *   over bit(n), n every code minted rounded up to whole hex digits, whose CHECKs, evaluated likewise, admit the empty
  *   set, each live code alone, every live code together, and no set holding a hole's or a padding position.
- * - **The names constant is the codes:** each names constant the roster domain's CHECKs read, its `'{…}'::name[]`
+ * - **The names constant is the codes:** a names constant of the installation, which a view's decoded column reads, its `'{…}'::name[]`
  *   literal read back by an array-literal reader written here (PostgreSQL's array_in rules: double-quoted elements,
  *   backslash escapes), is the roster's names in code order, a hole the empty name, every awkward handle (`NULL`, a
  *   comma, a quote, a backslash, braces, spaces, 63 bytes) intact.
@@ -73,17 +73,26 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 				const constants = constantsOf(i)
 
 				for (const [at, s] of states(w).entries()) {
-					const { names, admitted } = rosterObjects(i, s)
+					const { names, live: liveRead, admitted } = rosterObjects(i, s)
 					const live = Arr.flatMap(s.slots, (slot, code) => (slot.kind === "live" ? [code] : []))
 					assert.deepEqual(
 						admitted,
 						live,
 						`roster ${s.closed}'s domain admits exactly its live codes`
 					)
-					assert.ok(names.size > 0, `roster ${s.closed}'s domain reads its names`)
-					for (const read of names.values()) {
-						assert.deepEqual(read, codecFor(s).names, `roster ${s.closed}'s names in code order`)
-					}
+					assert.equal(
+						liveRead.size,
+						1,
+						`roster ${s.closed}'s domain reads one live-codes constant`
+					)
+					assert.ok(
+						Arr.every([...liveRead.values()], (bits) => bits === setText(s.slots.length, live)),
+						`roster ${s.closed}'s domain reads its live codes`
+					)
+					assert.ok(
+						Arr.some([...names.values()], (read) => deepEquals(read, codecFor(s).names)),
+						`a names constant holds roster ${s.closed}'s names in code order`
+					)
 					const bitsName = i.names.bitsDomain(s.closed).name
 					const bits = Arr.filter(
 						i.statements,
@@ -178,17 +187,17 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 				if (holed !== undefined) {
 					const changed = installationOf(owning(holed.schema), holed.codes)
 					const before = defined(states(w)[0])
-					const was = rosterObjects(i, before).names
-					const now = rosterObjects(changed, before).names
+					const was = rosterObjects(i, before).live
+					const now = rosterObjects(changed, before).live
 					assert.ok(
-						Arr.every([...now.values()], (names) =>
-							Arr.every([...was.values()], (before) => !deepEquals(names, before))
+						Arr.every([...now.values()], (bits) =>
+							Arr.every([...was.values()], (prior) => bits !== prior)
 						),
-						"a hole changes the names every names constant holds"
+						"a hole changes the live codes the domain's constant holds"
 					)
 					assert.ok(
 						Arr.every([...now.keys()], (fn) => !was.has(fn)),
-						"a hole names the names constant anew"
+						"a hole names the live-codes constant anew"
 					)
 				}
 			}),
@@ -200,9 +209,16 @@ export const rosterAndClosedConstantsDomainsThatAdmitExactlyTheLiveCodesNamesTha
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/constants.ts",
-				original: '\t\t\t\t\t\t\t\tindex: binary("+", { kind: "domainValue" }, int(1))',
-				replacement: '\t\t\t\t\t\t\t\tindex: binary("+", { kind: "domainValue" }, int(0))',
-				why: "A roster's domain reads each code's name one subscript early, so a hole's code after a live one is admitted."
+				original: "\t\t\t\t\t\t\t\t\twhen: and([ge(value, int(0)), lt(value, int(codec.width))]),",
+				replacement:
+					"\t\t\t\t\t\t\t\t\twhen: and([ge(value, int(-1)), lt(value, int(codec.width))]),",
+				why: "A roster's domain reads a bit below its live-codes constant: get_bit refuses code -1 with an error where the domain's CHECK refuses it."
+			},
+			{
+				file: "packages/engine/src/physical/ddl/constants.ts",
+				original: "\t\t\t\t\t\t\t\t\t\tint(1)\n",
+				replacement: "\t\t\t\t\t\t\t\t\t\tint(0)\n",
+				why: "A roster's domain admits a code whose live bit is 0: every hole and padding code is admitted and every live code refused."
 			},
 			{
 				file: "packages/engine/src/ir/codes.ts",

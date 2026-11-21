@@ -3753,8 +3753,8 @@ const rosterConstantsOf = (
 
 /**
  * Each domain a manifest installs, by name key, as a column's values are read through it (DomainReading): a roster's,
- * the domain that reads a roster constant of `constants`, its codes' domain the names constant and its sets' the live
- * constant; a law's, every other.
+ * the domain that reads a roster constant of `constants`, its codes' domain and its sets' the live constant (a record
+ * before the live constant held its codes' domain reading the names constant); a law's, every other.
  */
 const domainsOf = (
 	manifest: {

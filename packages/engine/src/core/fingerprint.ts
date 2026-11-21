@@ -276,12 +276,13 @@ export type OwnedDomain =
 
 /**
  * The domains of an installed constant's content: a closed relation's or side's string of cells, a roster's names in
- * code order, a library function's definition (physical/ddl/library.ts) and a row function's
- * (physical/ddl/row-functions.ts).
+ * code order, a roster's live codes (ir/codes.ts liveHex), a library function's definition (physical/ddl/library.ts)
+ * and a row function's (physical/ddl/row-functions.ts).
  */
 export type ConstantDomain =
 	| "closed-constant"
 	| "roster-names"
+	| "roster-live"
 	| "library-function"
 	| "row-function"
 
@@ -319,6 +320,7 @@ const ownedDomains: { readonly [D in OwnedDomain]: WellFormedText } = {
 	"function-definition": wellFormed("function-definition"),
 	"closed-constant": wellFormed("closed-constant"),
 	"roster-names": wellFormed("roster-names"),
+	"roster-live": wellFormed("roster-live"),
 	"library-function": wellFormed("library-function"),
 	"row-function": wellFormed("row-function")
 }

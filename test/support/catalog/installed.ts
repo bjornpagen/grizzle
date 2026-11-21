@@ -361,15 +361,15 @@ const constantsOf = (
 				)
 			: []
 	)
-	const checking = (fn: string): string =>
-		Option.getOrThrowWith(
-			Arr.findFirst(domains, (d) =>
-				Arr.some(d.constraints, (c) => Arr.contains(callsOf(c.predicate), fn))
-			),
-			() => new Error(`the manifest's constant ${fn} is read by no domain's CHECK`)
-		).name.name
+	const checking = (fn: string): ReadonlyArray<string> =>
+		Arr.flatMap(domains, (d) =>
+			Arr.some(d.constraints, (c) => Arr.contains(callsOf(c.predicate), fn)) ? [d.name.name] : []
+		)
 	return installedConstants(installation, (name, kind) => [
-		[name, { kind: kind === "rosterConstant" ? "names" : "live", domain: checking(name) }]
+		[
+			name,
+			kind === "rosterConstant" ? { kind: "names" } : { kind: "live", domains: checking(name) }
+		]
 	])
 }
 

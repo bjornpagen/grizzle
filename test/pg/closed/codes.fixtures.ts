@@ -177,37 +177,80 @@ export const codeType = (state: RosterState): ScalarType =>
 		{ [state.closed]: liveOf(state) }
 	)
 
+/** The facts every roster constant must have: an IMMUTABLE function of no argument and no SET clause, returning
+ * `returns`. */
+const constantFacts = (returns: string) => ({
+	args: "0",
+	volatility: "i",
+	kind: "f",
+	definer: "false",
+	unset: "true",
+	returns
+})
+
+/** The one function rows of pg_depend name, by its schema and name, each row its facts, checked to be a constant
+ * returning `returns`: what `what` names. */
+const oneConstant = (
+	rows: ReadonlyArray<ReadonlyArray<unknown>>,
+	returns: string,
+	what: string
+): { readonly call: string; readonly schema: string; readonly name: string } => {
+	assert.equal(rows.length, 1, `${what} is one function`)
+	const [schemaName, name, args, volatility, kind, definer, unset, returned] = trusted<
+		readonly [string, string, string, string, string, string, string, string]
+	>(defined(rows[0]))
+	assert.deepEqual(
+		{ args, volatility, kind, definer, unset, returns: returned },
+		constantFacts(returns),
+		what
+	)
+	return { call: `${quoteIdent(schemaName)}.${quoteIdent(name)}()`, schema: schemaName, name }
+}
+
+/** The facts of a function by its pg_proc row, from its schema and name on: what oneConstant reads. */
+const procFacts =
+	"n.nspname::text, p.proname::text, p.pronargs::text, p.provolatile::text, p.prokind::text, p.prosecdef::text, (p.proconfig IS NULL)::text, p.prorettype::regtype::text"
+
 /**
- * The function a domain's CHECK depends on, by pg_depend: its schema, its name and the facts a names constant must
- * have. A CHECK that depends on other than one function is a failure of (8).
+ * The function a domain's CHECK depends on, by pg_depend: its roster's live-codes constant, which a CHECK that depends
+ * on other than one function fails (8).
  */
-export const constantOf = (
+export const liveConstantOf = (
 	session: RawSession,
 	domain: { readonly schema: string; readonly name: string }
 ) =>
-	Effect.gen(function* () {
-		const rows = yield* session.values(
-			`SELECT n.nspname::text, p.proname::text, p.pronargs::text, p.provolatile::text, p.prokind::text, p.prosecdef::text, (p.proconfig IS NULL)::text, p.prorettype::regtype::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE c.contypid = $1::text::regtype`,
+	Effect.map(
+		session.values(
+			`SELECT ${procFacts} FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE c.contypid = $1::text::regtype`,
 			[printObjectName(domain)]
-		)
-		assert.equal(rows.length, 1, `the CHECK of ${domain.name} depends on one function`)
-		const [schemaName, name, args, volatility, kind, definer, unset, returns] = trusted<
-			readonly [string, string, string, string, string, string, string, string]
-		>(defined(rows[0]))
-		assert.deepEqual(
-			{ args, volatility, kind, definer, unset, returns },
-			{
-				args: "0",
-				volatility: "i",
-				kind: "f",
-				definer: "false",
-				unset: "true",
-				returns: "name[]"
-			},
-			`the names constant of ${domain.name}`
-		)
-		return { call: `${quoteIdent(schemaName)}.${quoteIdent(name)}()`, schema: schemaName, name }
-	})
+		),
+		(rows) =>
+			oneConstant(rows, "bit varying", `the live-codes constant the CHECK of ${domain.name} reads`)
+	)
+
+/**
+ * The names constant a view's decoded column calls, by pg_depend of the view's rule: the one function returning name[]
+ * it depends on (8).
+ */
+export const namesConstantOf = (session: RawSession, view: string) =>
+	Effect.map(
+		session.values(
+			`SELECT DISTINCT ${procFacts} FROM pg_catalog.pg_rewrite AS r JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_rewrite'::regclass AND d.objid = r.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE r.ev_class = $1::text::regclass AND p.prorettype = 'pg_catalog.name[]'::regtype`,
+			[view]
+		),
+		(rows) => oneConstant(rows, "name[]", `the names constant the view ${view} reads`)
+	)
+
+/** A live-codes constant's bits as their text, and the model's: a set of the live codes at a set's width (setText). */
+export const liveHeld = (session: RawSession, call: string) =>
+	Effect.map(session.values(`SELECT ${call}::text`, []), (rows) => String(defined(rows[0])[0]))
+
+/** The live codes of a model's state as a set's text, its live-codes constant's bits. */
+export const modelLive = (state: RosterState): string =>
+	setText(
+		sizeOf(state),
+		Arr.flatMap(state.slots, (slot, code) => (slot.kind === "live" ? [code] : []))
+	)
 
 /** The names constant's elements in subscript order, and its lower bound: what the domain and the view read. */
 export const namesHeld = (session: RawSession, call: string) =>

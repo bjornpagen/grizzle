@@ -20,22 +20,25 @@
  * 3. A migration that removes a handle a row still holds fails at the domain's VALIDATE with 23514, naming the table and
  *    the column; once a data step removes those rows it applies. Every table holding a removed code is named once, and no
  *    other: set equality against the model.
- * 4. A migration that dropped a roster's names constant before re-pointing its domain fails with 2BP01: DROP FUNCTION …
- *    RESTRICT on the installed constant, which the domain's CHECK depends on by pg_depend (8), and RESTRICT keeps it.
+ * 4. A roster's constants are never dropped under what reads them: DROP FUNCTION … RESTRICT on the live-codes constant,
+ *    which the domain's CHECK depends on by pg_depend (8), and on the names constant, which the view's decoded column
+ *    does, fails with 2BP01, and RESTRICT keeps each.
  * 5. A backend that cached a domain's CHECK before a migration swapped it judges the next write by the new one: the
  *    same session, open across the migration, answers (2) exactly as a fresh one. Each pattern is a case of its own, on
  *    a clone of its own of the installation, so the session it holds across the migration is the case's own.
- * 6. A role without EXECUTE on the names constant is refused with 42501, a writer at the domain's CHECK and a reader at
- *    its view's decoded column; with the installed grants both pass, and every role that writes or decodes a roster's
- *    codes holds EXECUTE on its constant.
+ * 6. A role without EXECUTE on the constant its use of a roster's codes reads is refused with 42501, a writer without the
+ *    live-codes constant at the domain's CHECK and a reader without the names constant at its view's decoded column;
+ *    with the installed grants both pass, every role that writes a roster's codes holding EXECUTE on its live-codes
+ *    constant and every role that decodes them on its names constant.
  * 7. A set round-trips through its bit(n) column, n its codes rounded up to whole bytes: the text the writer
  *    sends is X then the hex digits of the model's positional text (setText), PostgreSQL stores the positional text,
  *    and the host decodes it to the set sent. After the roster grows, the column is a domain over bit(n′), every stored
  *    set padded with 0s to it, and decodes unchanged; after a removal, VALIDATE names the column of every set that still
  *    holds the removed handle, the data step clears its bit, and the domain then refuses a set holding it.
- * 8. The names constant is the model's names in code order, a hole the empty name: an IMMUTABLE function of no
- *    argument and no SET clause, returning a 1-based name[] of `size` elements, the one function its domain's CHECK
- *    depends on; after a migration the schema holds exactly the constants its domains read, as a set, every replaced
+ * 8. The live-codes constant is the model's live codes as a set's bits, the one function its domain's CHECK depends on;
+ *    the names constant is the model's names in code order, a hole the empty name, a 1-based name[] of `size` elements,
+ *    the one name[] function its view's decoded column depends on: each an IMMUTABLE function of no argument and no SET
+ *    clause. After a migration the schema holds exactly the names constants its views read, as a set, every replaced
  *    one dropped.
  *
  * The bar's mixed-radix alias: a column typed bare smallint, with the roster domain left off (the mutant that drops the
@@ -68,7 +71,10 @@ import {
 	type CodeFeature,
 	codeType,
 	columnTypeOf,
-	constantOf,
+	liveConstantOf,
+	liveHeld,
+	modelLive,
+	namesConstantOf,
 	decodedColumn,
 	domainCheckOf,
 	domainOf,
@@ -266,21 +272,21 @@ export const theViewDecodesEveryStoredCodeAsTheHostDoesAndTheNamesConstantNamesE
 								const m = seat.value
 								const owner = yield* ownerSessionOf
 								const last = migratedProbes(m.declared)
+								const view = roleNamesOf(m, last.reader)
 								const standing = yield* owner.values(
 									`SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
 									[m.schema]
 								)
 								const read = yield* Effect.forEach(patterns, (s) =>
-									constantOf(owner, domainOf(m, s))
+									namesConstantOf(owner, view.view(probeOf(s)))
 								)
 								unorderedEqual(
 									Arr.dedupe(Arr.map(standing, (r) => String(r[0]))),
 									Arr.dedupe(Arr.map(read, (k) => k.name)),
-									"the schema holds exactly the names constants its roster domains read, the migration having dropped every replaced one"
+									"the schema holds exactly the names constants its views read, the migration having dropped every replaced one"
 								)
 								const writer = yield* sessionOf(m, last.writer, "writer")
 								const reader = yield* sessionOf(m, last.reader, "reader")
-								const view = roleNamesOf(m, last.reader)
 								c.note(holeFeature(state))
 								const live = liveOf(state)
 								yield* writer.begin
@@ -314,19 +320,34 @@ export const theViewDecodesEveryStoredCodeAsTheHostDoesAndTheNamesConstantNamesE
 									],
 									`the view of ${state.closed} decodes its code in the column after it`
 								)
-								const constant = yield* constantOf(owner, domainOf(m, state))
-								const held = yield* namesHeld(reader, constant.call)
+								const names = yield* namesConstantOf(owner, view.view(probeOf(state)))
+								const held = yield* namesHeld(reader, names.call)
 								assert.deepEqual(
 									held,
 									{ lower: "1", cardinality: sizeOf(state), names: [...modelNames(state)] },
 									`the names constant of ${state.closed}`
 								)
-								yield* expectSqlstate(
-									owner.query(`DROP FUNCTION ${constant.call} RESTRICT`, []),
-									"2BP01"
+								const liveConstant = yield* liveConstantOf(owner, domainOf(m, state))
+								const bits = yield* liveHeld(writer, liveConstant.call)
+								assert.equal(bits, modelLive(state), `the live-codes constant of ${state.closed}`)
+								for (const constant of [names, liveConstant]) {
+									yield* expectSqlstate(
+										owner.query(`DROP FUNCTION ${constant.call} RESTRICT`, []),
+										"2BP01"
+									)
+								}
+								const after = yield* namesHeld(reader, names.call)
+								assert.deepEqual(
+									after,
+									held,
+									`RESTRICT keeps the names constant of ${state.closed}`
 								)
-								const after = yield* namesHeld(reader, constant.call)
-								assert.deepEqual(after, held, `RESTRICT keeps the constant of ${state.closed}`)
+								const kept = yield* liveHeld(writer, liveConstant.call)
+								assert.equal(
+									kept,
+									bits,
+									`RESTRICT keeps the live-codes constant of ${state.closed}`
+								)
 							}),
 							Substrate,
 							seat.substrate
@@ -468,13 +489,13 @@ export const validateRefusesARemovedCodeARowStillHoldsAndTheMigrationAppliesAfte
 	})
 
 /**
- * A role without EXECUTE on the names constant is refused, a writer at the domain and a reader at the view, and the
- * installed grants give it to both, each case on a clone of its own of the installation, whose grant it revokes and
- * gives back.
+ * A role without EXECUTE on the constant its use of a roster's codes reads is refused, a writer without the live-codes
+ * constant at the domain's CHECK and a reader without the names constant at the view, and the installed grants give
+ * each its own, each case on a clone of its own of the installation, whose grant it revokes and gives back.
  *
  * Its pre-conversion budget: the box (test/pg/closed/codes.test.ts at 5124bea5d).
  */
-export const aRoleWithoutExecuteOnTheNamesConstantIsRefusedAndTheInstalledGrantsGiveItToBoth =
+export const aRoleWithoutExecuteOnTheConstantItsCodesReadIsRefusedAndTheInstalledGrantsGiveItEach =
 	property.exhaust(finite(grantCases), {
 		needs: { codes: Substrate.freshOf(codesInstalledTemplate) },
 		situations: ["writer", "reader"] satisfies ReadonlyArray<Reached<Grantee>>,
@@ -488,7 +509,13 @@ export const aRoleWithoutExecuteOnTheNamesConstantIsRefusedAndTheInstalledGrants
 								const m = clone.value
 								const owner = yield* ownerSessionOf
 								kase.note(c.grantee)
-								const constant = yield* constantOf(owner, domainOf(m, c.state))
+								const constant =
+									c.grantee === "writer"
+										? yield* liveConstantOf(owner, domainOf(m, c.state))
+										: yield* namesConstantOf(
+												owner,
+												roleNamesOf(m, granteeRole(m, "reader")).view(probeOf(c.state))
+											)
 								const role = m.role(granteeRole(m, c.grantee))
 								const held = yield* owner.values(
 									`SELECT pg_catalog.has_function_privilege($1::text, $2::text::regprocedure, 'EXECUTE'), (SELECT count(*) FROM pg_catalog.aclexplode(COALESCE(p.proacl, pg_catalog.acldefault('f', p.proowner))) AS a WHERE a.grantee = 0) = 0 FROM pg_catalog.pg_proc AS p WHERE p.oid = $2::text::regprocedure`,
@@ -497,7 +524,7 @@ export const aRoleWithoutExecuteOnTheNamesConstantIsRefusedAndTheInstalledGrants
 								assert.deepEqual(
 									defined(held[0], "the constant's grants"),
 									[true, true],
-									`the ${c.grantee} holds EXECUTE on the names constant of ${c.state.closed}, and PUBLIC nothing`
+									`the ${c.grantee} holds EXECUTE on the constant of ${c.state.closed} it reads, and PUBLIC nothing`
 								)
 								yield* owner.query(
 									`REVOKE EXECUTE ON FUNCTION ${constant.call} FROM ${quoteIdent(role)}`,

@@ -12,7 +12,7 @@ import {
 	type InstalledTrigger,
 	unitFunctions
 } from "#test/support/catalog/verify.ts"
-import { setWidth } from "#test/support/closed/bit-text.ts"
+import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 interface Declared {
@@ -134,8 +134,24 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 					return []
 				}
 				const roster = parsedName(r.name)
-				const digest = constantDigest("roster-names", r.handles, everyProperty)
-				const names = identifierOf(identity.rosterConstant(roster, digest))
+				const names = identifierOf(
+					identity.rosterConstant(roster, constantDigest("roster-names", r.handles, everyProperty))
+				)
+				const live = identifierOf(
+					identity.rosterLive(
+						roster,
+						constantDigest(
+							"roster-live",
+							hexOfText(
+								setText(
+									r.handles.length,
+									Arr.flatMap(r.handles, (h, code) => (h === "" ? [] : [code]))
+								)
+							),
+							everyProperty
+						)
+					)
+				)
 				const sets = Arr.some(relations, (o) =>
 					o.kind === "relation"
 						? Arr.some(
@@ -145,18 +161,19 @@ export const declaredErasure = (schema: unknown): ErasureExpectation => {
 						: false
 				)
 				return [
-					[names, { kind: "names", domain: identifierOf(identity.rosterDomain(roster)) }],
-					...(sets
-						? [
-								[
-									identifierOf(identity.rosterLive(roster, digest)),
-									{
-										kind: "live",
-										domain: identifierOf(identity.bitsDomain(roster, setWidth(r.handles.length)))
-									}
-								] as const
+					[names, { kind: "names" }],
+					[
+						live,
+						{
+							kind: "live",
+							domains: [
+								identifierOf(identity.rosterDomain(roster)),
+								...(sets
+									? [identifierOf(identity.bitsDomain(roster, setWidth(r.handles.length)))]
+									: [])
 							]
-						: [])
+						}
+					]
 				]
 			})
 		]),

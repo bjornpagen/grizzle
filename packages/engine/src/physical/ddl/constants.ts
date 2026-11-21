@@ -75,7 +75,7 @@ import type {
 	PackConstant,
 	SqlStatement
 } from "#compiler/sql/ast.ts"
-import { and, arrayOf, binary, eq, lit, ne, types } from "#compiler/sql/build.ts"
+import { and, arrayOf, binary, call, cast, eq, ge, lit, lt, types } from "#compiler/sql/build.ts"
 import {
 	cellOfKey,
 	type ClosedConstant,
@@ -945,33 +945,36 @@ export const addClosedRelations = (b: InstallBuilder, plan: ClosedPlan): void =>
 	}
 }
 
-/** What one roster installs: its names constant and its domain, and, when a set is typed over it, its live-codes
- * constant and its bits domain. */
+/** What one roster installs: its names constant, its live-codes constant and its domain, and, when a set is typed over
+ * it, its bits domain. */
 export interface RosterObjects {
 	readonly roster: DeclaredName
 	readonly names: { readonly name: ObjectName; readonly node: Node<"setup"> }
+	readonly live: { readonly name: ObjectName; readonly node: Node<"setup"> }
 	readonly domain: { readonly name: ObjectName; readonly node: Node<"setup"> }
 	readonly bits:
-		| {
-				readonly live: { readonly name: ObjectName; readonly node: Node<"setup"> }
-				readonly domain: { readonly name: ObjectName; readonly node: Node<"setup"> }
-		  }
+		| { readonly domain: { readonly name: ObjectName; readonly node: Node<"setup"> } }
 		| undefined
 }
 
 /**
- * The identities of a roster's constants, each named by its roster and the digest of its names in code order: its names
- * constant, which its domain's CHECK reads, and its live-codes constant, which its sets' domain's CHECK reads.
+ * The identities of a roster's constants, each named by its roster and the digest of what it holds: its names constant,
+ * by its names in code order, which a role view's decoded column reads; and its live-codes constant, by its live codes
+ * (liveHex), which its domain's CHECK and its sets' domain's CHECK read. Both CHECKs ask only whether a code is live, so
+ * a handle's rename replaces the names constant alone and re-points neither.
  */
 export const rosterConstants = (
 	codec: RosterCodec
-): { readonly names: Identity<"rosterConstant">; readonly live: Identity<"rosterLive"> } => {
-	const digest = constantDigest("roster-names", codec.names, everyProperty)
-	return {
-		names: identity.rosterConstant(codec.roster, digest),
-		live: identity.rosterLive(codec.roster, digest)
-	}
-}
+): { readonly names: Identity<"rosterConstant">; readonly live: Identity<"rosterLive"> } => ({
+	names: identity.rosterConstant(
+		codec.roster,
+		constantDigest("roster-names", codec.names, everyProperty)
+	),
+	live: identity.rosterLive(
+		codec.roster,
+		constantDigest("roster-live", liveHex(codec), everyProperty)
+	)
+})
 
 /** A roster's names constant's function, the one its domain's CHECK and a role view's decoded column read. */
 export const namesConstant = (b: InstallBuilder, roster: DeclaredName): ObjectName => ({
@@ -981,9 +984,6 @@ export const namesConstant = (b: InstallBuilder, roster: DeclaredName): ObjectNa
 			.names
 	)
 })
-
-/** The empty name, a hole's: no handle is empty, so a code is live exactly when its name is not this. */
-const holeName = lit.text("", types.name(false))
 
 /** An integer PostgreSQL types integer, which prints bare. */
 const int = (value: number): Expr => lit.int(value, types.integer)
@@ -1068,23 +1068,26 @@ const setRosters = (b: InstallBuilder): ReadonlySet<DeclaredName> => {
  * Each roster's objects, in roster name order, after the schema:
  *
  * - its names constant, `<roster>__names__<digest>() RETURNS name[] RETURN '{"h0","h1","",…}'::name[]`, code c's handle
- *   at subscript c + 1 and a hole the empty name;
- * - its domain, `CREATE DOMAIN <roster> AS smallint CONSTRAINT check CHECK (VALUE IS NULL OR ((N())[VALUE + 1] <>
- *   ''::name) IS TRUE)`, which admits exactly the live codes: a code past either end reads NULL, and a hole the empty
- *   name;
- * - for a roster some set is typed over (`setRosters`), its live-codes constant,
- *   `<roster>__live__<digest>() RETURNS bit varying RETURN X'<hex>'::bit varying`, the set of its live codes at the
- *   width of a set over it (ir/codes.ts liveHex), and its bits domain, `CREATE DOMAIN <roster>__bits__<n> AS bit(n)
- *   CONSTRAINT check CHECK (VALUE IS NULL OR ((VALUE & L()) = VALUE) IS TRUE)`, n every code the roster has minted
- *   rounded up to whole bytes (RosterCodec.width), which admits only the live codes' bits: a hole's bit and every
- *   padding bit are 0 in L, so a set that sets one is refused.
+ *   at subscript c + 1 and a hole the empty name, which a role view's decoded column reads;
+ * - its live-codes constant, `<roster>__live__<digest>() RETURNS bit varying RETURN X'<hex>'::bit varying`, the set of
+ *   its live codes at the width of a set over it (ir/codes.ts liveHex), n every code the roster has minted rounded up
+ *   to whole bytes (RosterCodec.width), a hole's bit and every padding bit 0;
+ * - its domain, `CREATE DOMAIN <roster> AS smallint CONSTRAINT check CHECK (VALUE IS NULL OR (CASE WHEN VALUE >= 0 AND
+ *   VALUE < n THEN get_bit(L(), VALUE::integer) = 1 ELSE false END) IS TRUE)`, which admits exactly the live codes: a
+ *   code past either end is refused before any bit is read, and a hole's bit is 0;
+ * - for a roster some set is typed over (`setRosters`), its bits domain, `CREATE DOMAIN <roster>__bits__<n> AS bit(n)
+ *   CONSTRAINT check CHECK (VALUE IS NULL OR ((VALUE & L()) = VALUE) IS TRUE)`, which admits only the live codes' bits,
+ *   so a set that sets a hole's or a padding bit is refused.
+ *
+ * Both CHECKs read the live-codes constant alone, named by the live codes (rosterConstants), so a handle's rename,
+ * which moves no code, replaces the names constant alone and leaves every domain as it stands.
  *
  * Each domain admits NULL, the printer's wrapper of every domain CHECK (sql/print.ts), so a closed read at an absent key,
  * C.row's NULL prefix or a law column outside its selection is NULL of the domain's type, which the law's three-valued
  * logic judges, and a column's NOT NULL, never the domain, refuses a NULL stored.
  *
- * A changed roster is a new names constant (and live constant), and its domains' CHECKs re-point at them, keeping their
- * names; a grown one whose codes pass its width's last byte has a bits domain of the new width.
+ * A roster whose live codes change is a new live constant, and its domains' CHECKs re-point at it, keeping their names;
+ * a grown one whose codes pass its width's last byte has a bits domain of the new width.
  */
 export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 	const sets = setRosters(b)
@@ -1117,9 +1120,11 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 				},
 				[b.schemaNode]
 			)
+			const live = addLive(b, roster, codec, constants.live)
 			const domainNamed = b.names.rosterNamed(roster)
 			const domain = b.names.rosterDomain(roster)
 			const domainName: ObjectName = { schema: domain.schema, name: b.name(domainNamed) }
+			const value: Expr = { kind: "domainValue" }
 			const create: CreateDomain = {
 				kind: "createDomain",
 				name: domainName,
@@ -1128,14 +1133,20 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 				constraints: [
 					{
 						name: b.name(identity.domainCheck(domainNamed)),
-						predicate: ne(
-							{
-								kind: "subscript",
-								array: constantValue(names),
-								index: binary("+", { kind: "domainValue" }, int(1))
-							},
-							holeName
-						)
+						predicate: {
+							kind: "case",
+							operand: undefined,
+							whens: [
+								{
+									when: and([ge(value, int(0)), lt(value, int(codec.width))]),
+									result: eq(
+										call("get_bit", [constantValue(live.name), cast(value, types.integer)]),
+										int(1)
+									)
+								}
+							],
+							else: lit.bool(false)
+						}
 					}
 				]
 			}
@@ -1144,31 +1155,30 @@ export const addRosters = (b: InstallBuilder): ReadonlyArray<RosterObjects> => {
 				b.names.levelOf(roster),
 				domainNamed,
 				{ ddl: [create], reasons: why },
-				[b.levelNode(roster), namesNode]
+				[b.levelNode(roster), live.node]
 			)
 			return {
 				roster,
 				names: { name: names, node: namesNode },
+				live,
 				domain: { name: domainName, node: domainNode },
-				bits: sets.has(roster) ? addBits(b, roster, codec, constants.live) : undefined
+				bits: sets.has(roster) ? addBits(b, roster, codec, live) : undefined
 			}
 		})
 }
 
 /**
- * A roster's live-codes constant, `liveNamed` (rosterConstants), and its bits domain over it (`addRosters`). The live
- * constant's bits are a function of the roster's names, so it is named by the names constant's digest, and it reads no
- * other object.
+ * A roster's live-codes constant, `liveNamed` (rosterConstants), which its domain's CHECK and its sets' domain's read
+ * (`addRosters`): named by its bits' digest, it reads no other object.
  */
-const addBits = (
+const addLive = (
 	b: InstallBuilder,
 	roster: DeclaredName,
 	codec: RosterCodec,
 	liveNamed: Identity<"rosterLive">
-): RosterObjects["bits"] => {
-	const why = [enforcement(`the live codes of roster ${roster}, which a set over it holds`)]
+): RosterObjects["live"] => {
 	const live: ObjectName = { schema: b.schema, name: b.name(liveNamed) }
-	const liveNode = b.addConstant(
+	const node = b.addConstant(
 		liveNamed,
 		{
 			ddl: [
@@ -1182,10 +1192,21 @@ const addBits = (
 				},
 				revokeFromPublic(live)
 			],
-			reasons: why
+			reasons: [enforcement(`the live codes of roster ${roster}`)]
 		},
 		[b.schemaNode]
 	)
+	return { name: live, node }
+}
+
+/** A roster's bits domain over its live-codes constant `live` (`addRosters`), for a roster some set is typed over. */
+const addBits = (
+	b: InstallBuilder,
+	roster: DeclaredName,
+	codec: RosterCodec,
+	live: RosterObjects["live"]
+): RosterObjects["bits"] => {
+	const why = [enforcement(`the live codes of roster ${roster}, which a set over it holds`)]
 	const domainNamed = b.names.bitsNamed(roster)
 	const domain: ObjectName = {
 		schema: b.names.bitsDomain(roster).schema,
@@ -1206,16 +1227,16 @@ const addBits = (
 					constraints: [
 						{
 							name: b.name(identity.domainCheck(domainNamed)),
-							predicate: eq(binary("&", value, constantValue(live)), value)
+							predicate: eq(binary("&", value, constantValue(live.name)), value)
 						}
 					]
 				}
 			],
 			reasons: why
 		},
-		[b.levelNode(roster), liveNode]
+		[b.levelNode(roster), live.node]
 	)
-	return { live: { name: live, node: liveNode }, domain: { name: domain, node: domainNode } }
+	return { domain: { name: domain, node: domainNode } }
 }
 
 /** Each distinct side the installation's ClosedChecks read, by its side and then its target relation's name, its

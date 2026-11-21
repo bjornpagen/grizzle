@@ -358,9 +358,11 @@ const literalValue = (literal: LiteralValue): HostValue => {
 
 /**
  * A domain CHECK's term evaluated on the host at VALUE = `value`, by PostgreSQL's rules for the terms it is made of:
- * a literal, VALUE, a constant's call, a cast (which changes no value here), a subscript counted from 1 (NULL past
- * either end), `+`, `&` of two bit strings of one length, and `=` and `<>`, NULL where an operand is. Its own
- * interpreter, sharing no code with the installer, so a CHECK is judged by what it admits, whatever its shape.
+ * a literal, VALUE, a constant's call, get_bit of a bit string at a position from 0 (an error past either end, as
+ * PostgreSQL's), a cast (which changes no value here), a subscript counted from 1 (NULL past either end), `+`, `&` of
+ * two bit strings of one length, `=`, `<>`, `>=` and `<`, NULL where an operand is, AND, and a CASE that reads its
+ * branches in order. Its own interpreter, sharing no code with the installer, so a CHECK is judged by what it admits,
+ * whatever its shape.
  */
 const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: string): HostValue => {
 	const recur = (x: Expr): HostValue => evaluate(x, value, constants, schema)
@@ -369,11 +371,46 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 			return literalValue(e.value)
 		case "domainValue":
 			return value
-		case "call":
+		case "call": {
 			if (e.fn.kind === "qualified" && e.fn.schema === schema) {
 				return constantValueOf(defined(constants.get(e.fn.name), `the constant ${e.fn.name}`))
 			}
+			const [bits, at] = Arr.map(e.args, recur)
+			if (
+				e.fn.kind === "builtin" &&
+				e.fn.name === "get_bit" &&
+				bits?.kind === "bits" &&
+				at?.kind === "int"
+			) {
+				const bit = bits.value[at.value]
+				if (at.value < 0 || bit === undefined) {
+					throw new Error(
+						`get_bit at ${at.value} of a bit string of ${bits.value.length}, which PostgreSQL refuses`
+					)
+				}
+				return { kind: "int", value: bit === "1" ? 1 : 0 }
+			}
 			throw new Error("a call of no constant of the installation")
+		}
+		case "case": {
+			for (const w of e.whens) {
+				const when = recur(w.when)
+				if (when.kind === "bool" && when.value) {
+					return recur(w.result)
+				}
+			}
+			return recur(e.else)
+		}
+		case "and": {
+			const args: ReadonlyArray<HostValue> = Arr.map(e.args, recur)
+			const someFalse = Arr.some(args, (a) => a.kind === "bool" && !a.value)
+			const someNull = Arr.some(args, (a) => a.kind === "null")
+			return someFalse
+				? { kind: "bool", value: false }
+				: someNull
+					? nullValue
+					: { kind: "bool", value: true }
+		}
 		case "cast":
 			return recur(e.expr)
 		case "subscript": {
@@ -415,6 +452,9 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 				const equal = l.value === r.value
 				return { kind: "bool", value: e.op === "=" ? equal : !equal }
 			}
+			if ((e.op === ">=" || e.op === "<") && l.kind === "int" && r.kind === "int") {
+				return { kind: "bool", value: e.op === ">=" ? l.value >= r.value : l.value < r.value }
+			}
 			throw new Error(`a ${l.kind} ${e.op} ${r.kind} a domain CHECK holds`)
 		}
 		case "column":
@@ -423,7 +463,6 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "param":
 		case "collate":
 		case "negate":
-		case "and":
 		case "or":
 		case "not":
 		case "isTrue":
@@ -435,7 +474,6 @@ const evaluate = (e: Expr, value: HostValue, constants: Constants, schema: strin
 		case "subquery":
 		case "array":
 		case "row":
-		case "case":
 		case "greatest":
 		case "least":
 		case "coalesce":
@@ -466,22 +504,35 @@ export const admits = (
 		return judged.kind === "bool" && judged.value
 	})
 
-/** The names constants a domain's CHECKs read: every constant they call whose body is an array of names. */
-const namesRead = (
+/** The constants a domain's CHECKs read whose body is a bit string, by name: its roster's live-codes constant. */
+const bitsRead = (
 	d: CreateDomainStatement,
 	constants: Constants,
 	schema: string
-): ReadonlyMap<string, ReadonlyArray<string | null>> =>
+): ReadonlyMap<string, string> =>
 	new Map(
 		Arr.flatMap([...callsIn(schema, d.constraints)], (fn) => {
 			const read = constantValueOf(defined(constants.get(fn), `the constant ${fn}`))
+			return read.kind === "bits" ? [[fn, read.value] as const] : []
+		})
+	)
+
+/** Every names constant of an installation, by name: each constant whose body is an array of names. */
+const namesConstants = (constants: Constants): ReadonlyMap<string, ReadonlyArray<string | null>> =>
+	new Map(
+		Arr.flatMap([...constants], ([fn, c]) => {
+			const read =
+				c.kind === "createConstant" && c.body.kind === "literal" && c.body.value.kind === "text"
+					? constantValueOf(c)
+					: nullValue
 			return read.kind === "names" ? [[fn, read.value] as const] : []
 		})
 	)
 
 /**
  * A roster's domain, the codes it admits from one below 0 to one past every code minted and at 400, the mixed-radix
- * alias, and the names constants its CHECKs read.
+ * alias; the live-codes constants its CHECKs read; and the installation's names constants holding the roster's names in
+ * code order, which a view's decoded column reads.
  */
 export const rosterObjects = (i: Installation, s: RosterState) => {
 	const schema = i.names.schema
@@ -494,7 +545,7 @@ export const rosterObjects = (i: Installation, s: RosterState) => {
 	const admitted = Arr.filter([...upTo(s.slots.length + 2, (i) => i - 1), 400], (code) =>
 		admits(domain, { kind: "int", value: code }, constants, schema)
 	)
-	return { names: namesRead(domain, constants, schema), admitted }
+	return { live: bitsRead(domain, constants, schema), names: namesConstants(constants), admitted }
 }
 
 /** What each role holds, read from the grants the installation states. */

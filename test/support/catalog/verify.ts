@@ -12,9 +12,10 @@ import type {
  * What a function of the installation is, by the object that installs it, which decides how it is installed and who
  * may execute it: a world's function (a writable query entry's filter function, key probe or unique probe), the
  * refusal function, the snapshot guard, the
- * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, or a constant: a roster's names constant, which the roster domain `domain`'s CHECK reads; a
- * roster's live-codes constant, derived from the names constant `names` and read by the bits domain `domain`'s CHECK;
- * or a closed relation's or a side's constant, named by its content's digest.
+ * isolation guard, a rule over a query's trigger function, a retirable unit's hold or retirement, or a constant: a
+ * roster's names constant, which only a view's decoded closed id reads; a roster's live-codes constant, read by the
+ * CHECK of each of `domains`, its roster's domain and its sets' where a set is typed over it; or a closed relation's or
+ * a side's constant, named by its content's digest.
  */
 export type InstalledFunction =
 	| { readonly kind: "world" }
@@ -30,8 +31,8 @@ export type InstalledFunction =
 	| { readonly kind: "rule" }
 	| { readonly kind: "hold" }
 	| { readonly kind: "retire" }
-	| { readonly kind: "names"; readonly domain: string }
-	| { readonly kind: "live"; readonly domain: string }
+	| { readonly kind: "names" }
+	| { readonly kind: "live"; readonly domains: ReadonlyArray<string> }
 	| {
 			/** A closed relation's constant, the relation's own when `declared`, read by the CHECKs and generated columns
 			 * of `tables`, directly or through the row functions and constants they call (installed.ts tableCallers). */
@@ -945,13 +946,16 @@ const constantExecutorProblems = (
 	const required = new Set<string>(viewCallers(j, f.name))
 	switch (expected.kind) {
 		case "live":
-		case "names":
-			for (const r of [
-				...domainHolders(j, expected.domain, "USAGE"),
-				...tableWriters(j, tablesOn(j, expected.domain))
-			]) {
-				required.add(r)
+			for (const domain of expected.domains) {
+				for (const r of [
+					...domainHolders(j, domain, "USAGE"),
+					...tableWriters(j, tablesOn(j, domain))
+				]) {
+					required.add(r)
+				}
 			}
+			break
+		case "names":
 			break
 		case "closedConstant":
 			if (expected.declared) {
@@ -991,24 +995,28 @@ const constantExecutorProblems = (
 	})
 }
 
-/** A roster's and a set's domain has one CHECK, which calls exactly its constant (pg_depend). */
+/** A roster's and a set's domain has one CHECK, which calls exactly its roster's live-codes constant (pg_depend). */
 const rosterDomainProblems = (j: Judging): ReadonlyArray<ErasureProblem> =>
-	Arr.flatMap([...j.expect.functions], ([name, f]) => {
-		if (f.kind !== "names" && f.kind !== "live") {
-			return []
-		}
-		const domain = Arr.findFirst(j.catalog.domains, (d) => d.name === f.domain)
-		const calls = Option.match(domain, {
-			onNone: () => [],
-			onSome: (d) => Arr.map(d.constraints, (c) => c.calls)
-		})
-		return unless(calls.length === 1 && Arr.every(calls, (c) => c.length === 1 && c[0] === name), {
-			kind: "domainCheckCalls",
-			domain: f.domain,
-			expected: name,
-			calls
-		})
-	})
+	Arr.flatMap([...j.expect.functions], ([name, f]) =>
+		f.kind !== "live"
+			? []
+			: Arr.flatMap(f.domains, (domainName) => {
+					const domain = Arr.findFirst(j.catalog.domains, (d) => d.name === domainName)
+					const calls = Option.match(domain, {
+						onNone: () => [],
+						onSome: (d) => Arr.map(d.constraints, (c) => c.calls)
+					})
+					return unless(
+						calls.length === 1 && Arr.every(calls, (c) => c.length === 1 && c[0] === name),
+						{
+							kind: "domainCheckCalls",
+							domain: domainName,
+							expected: name,
+							calls
+						}
+					)
+				})
+	)
 
 /**
  * Every trigger is enabled, and is PostgreSQL's internal foreign-key trigger, the isolation guard (running the isolation

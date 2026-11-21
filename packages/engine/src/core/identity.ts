@@ -1163,12 +1163,12 @@ export const identity = Object.freeze({
 		),
 	/**
 	 * A roster's live codes as a bit string at a set's width, one bit per code, set where its names constant names a
-	 * handle, its padding 0: a function of the names, so it is named by that constant's digest, and a removal is a new
-	 * function.
+	 * handle, its padding 0, which its domain's CHECK and its sets' domain's read: named by those bits' digest, so a
+	 * removal or a growth is a new function and a handle's rename none.
 	 */
 	rosterLive: (
 		roster: DeclaredName,
-		digest: ConstantDigest<"roster-names">
+		digest: ConstantDigest<"roster-live">
 	): Identity<"rosterLive"> =>
 		mint(
 			"rosterLive",
