@@ -6,11 +6,16 @@
  * packages and every item of each under each term, and edullm's `sets`, each term a current package states with how
  * many current packages state it and how many items its item set holds.
  *
- * - **once**: packages stored and analyzed, then as many again and more, analyzed again, the idea terms growing with
- *   them: the terms read (`sets`) answers the host's count of every term's packages and items, the heads read
- *   (`versions`'s classifications) every current package with its three terms, and every scan either plan runs more
- *   than once, of a stored relation or of a CTE it derived once, handles fewer rows a run than there are packages, so
- *   its work grows with what it reads, not with its square. Before rule 5b a derived relation joined to another stood
+ * - **once**: packages stored, then as many again and more, the idea terms growing with them, under each statistics
+ *   state an analyzed installation is in (read-once.fixtures.ts StatsState: analyzed after each load, after the first
+ *   only, empty and then after each load, or after each load over a case rolled back): the terms read (`sets`) answers
+ *   the host's count of every term's packages and items, the heads read (`versions`'s classifications) every current
+ *   package with its three terms, and every scan either plan runs more than once, of a stored relation or of a CTE it
+ *   derived once, handles fewer rows a run than there are packages, so its work grows with what it reads, not with its
+ *   square. A parallel scan's leader and workers are one run of it. A never-analyzed installation is outside the
+ *   envelope (R1, the runbook analyzes after the first package): there every estimate is one row and PostgreSQL may
+ *   read the classifications' eight elements by unparameterized inner scans, 2.5 s at 150 packages, 12.7 s at 450,
+ *   where any analyzed state reads them in 37 ms. Before rule 5b a derived relation joined to another stood
  *   as the inner side of a nested loop PostgreSQL re-derived for each outer row, and the attachment's fold restricted
  *   ItemSet to each term inside its grouping, deriving it once per term: edullm's `sets` took six minutes at 206
  *   packages. A derived set joined as a set would be scanned whole for each row of the region's other occurrences, or
@@ -18,7 +23,10 @@
  *   LATERAL by its values (lower/shapes/region keyedByOnce). An attachment's child no fold is read for each parent key
  *   inside, never joined beside its parents' keys, where PostgreSQL derived `versions`'s classifications of every
  *   package once per head (40 s at 183 heads). The one rescan left is the items attachment's, the terms' folds scanned
- *   for each term, which grows with the square of the terms, in memory, never of a stored row.
+ *   for each term, which grows with the square of the terms, in memory, never of a stored row. This property kills
+ *   neither rule 5b's per-row reads nor the region's chain from a set derived once: without the first these reads'
+ *   SQL changes but PostgreSQL plans it within the bound under every analyzed state, and without the second it does not
+ *   change, no region of theirs being past the collapse limit (each state's plans measured on a cluster of our own).
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -26,7 +34,8 @@ import {
 	type ReadOnceFeature,
 	readOnceGen,
 	readOnceTemplate,
-	runReadOnce
+	runReadOnce,
+	statsStates
 } from "#test/pg/lower-shapes/read-once.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -41,24 +50,21 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 		needs: { ledger: Substrate.rolledBack(readOnceTemplate) },
 		situations: [
 			"a package taken away",
-			"every package current"
+			"every package current",
+			...statsStates
 		] satisfies ReadonlyArray<ReadOnceFeature>,
 		check:
 			({ ledger }, c) =>
 			(drawn) =>
-				Effect.flatMap(ledger, ({ connection, value }) => runReadOnce(value, connection, drawn, c)),
+				Effect.flatMap(ledger, ({ connection, bare, value }) =>
+					runReadOnce(value, connection, bare, drawn, c)
+				),
 		oracle: {
 			kind: "universal",
-			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes"
+			name: "the host's count of every term's current packages and items and of every current package's terms, and bound: every scan either read runs more than once, of a stored relation or of a CTE it derived, reads fewer rows a run than the packages stored, at two sizes, under each analyzed statistics state, a parallel scan's processes one run"
 		},
 		kept: [],
 		kills: [
-			{
-				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
-				original: '\tconst perRow = reads === "query" ? readPerRow(d.order) : new Set<RelNode>()',
-				replacement: "\tconst perRow = new Set<RelNode>()",
-				why: "No derived relation a workload's read reads per row is computed once, so Current stands inside the join of its terms, which PostgreSQL derives again for each, and the items attachment folds ItemSet once per term."
-			},
 			{
 				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
 				original:
@@ -72,18 +78,6 @@ export const aWorkloadReadDerivesEachDerivedRelationOncePerStatementSoNoScanRead
 				replacement:
 					'\tconst inside = attachmentRead(attach).kind === "perKey" && foldedByCorrelation(child, attach) !== undefined',
 				why: "An attachment's child that is no fold is joined to its parents' keys beside it, so PostgreSQL may plan the heads read's classifications derived for every package once per head, the head's package a filter above them."
-			},
-			{
-				file: "packages/engine/src/lower/shapes/region/index.ts",
-				original: "\t\treturn t === 0 ? 0 : once(p.placed.occurrence.source) ? 1 : t === 1 ? 2 : 3",
-				replacement: "\t\treturn t === 0 ? 0 : t === 1 ? 2 : 3",
-				why: "A region's chain starts at an occurrence with a fixed column, not at the set its statement derives once, so the set is joined further along the chain and scanned whole for each row of the occurrences before it."
-			},
-			{
-				file: "packages/engine/src/lower/shapes/region/index.ts",
-				original: "\t\tif (next === undefined || !once(start.occurrence.source)) {",
-				replacement: "\t\tif (next === undefined || start === start) {",
-				why: "A chain that starts at a set its statement derives once joins the rest of the region to it, so PostgreSQL may derive the rest's join again for each of the set's rows, or scan the set whole for each of the rest's."
 			}
 		]
 	})

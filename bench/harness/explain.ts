@@ -125,6 +125,11 @@ interface NodeKeys {
 	readonly joinFilter: JoinFilter
 	readonly orderBy: Option.Option<string>
 	readonly sortKey: Option.Option<ReadonlyArray<string>>
+	/**
+	 * Whether the node is parallel-aware: one scan the processes of the Gather above it share, the leader's and each
+	 * worker's, whose loops are theirs, every one of them a part of one run of the Gather.
+	 */
+	readonly parallelAware: boolean
 }
 
 /**
@@ -360,7 +365,8 @@ const nodeKeys = (o: Json): NodeKeys => ({
 	filter: optStr(o, "Filter"),
 	joinFilter: joinFilterOf(optStr(o, "Join Filter")),
 	orderBy: optStr(o, "Order By"),
-	sortKey: optStrings(o, "Sort Key")
+	sortKey: optStrings(o, "Sort Key"),
+	parallelAware: o["Parallel Aware"] === true
 })
 
 const cacheLookups = (o: Json): CacheStats["lookups"] =>

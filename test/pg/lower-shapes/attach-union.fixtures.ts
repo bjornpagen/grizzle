@@ -273,14 +273,24 @@ const readOf = (plan: PlanNode, table: string): Read =>
 	)
 
 /**
+ * Whether the buffers a read's scans touch, `before` at one corpus and `after` at one `growth` times as large, grew by
+ * less than half of what a read of the whole corpus's would: under the mean of constant and linear growth, with one
+ * buffer more a descent of an index at the larger size besides.
+ */
+const scaledLess = (before: Read, after: Read, growth: number): boolean =>
+	after.buffers <= (before.buffers * (1 + growth)) / 2 + after.descents
+
+/**
  * One case on a fresh clone of the template, which no other case's rows, live or dead, share pages with: `packages`
  * packages loaded with the triggers off and analyzed, the read of package `read` explained and run; then `more`
  * packages loaded and the read again. Each time
  * it answers the host's files of every document of the package, and each arm reads only what the package's documents'
  * keys match, whatever else is stored: of Reference and Candidate the documents' own rows, and of Media at most the
  * package's files for each document in each of the two arms. The buffers each arm's relations' scans touch do not grow
- * with what else is stored: with the more packages stored, at most one more a descent of an index, a level of the
- * B-tree a larger relation may add above the same leaves and heap pages.
+ * with what else is stored (scaledLess): never by half as much as the corpus grows, as a scan reading every package's
+ * rows would. They are no exact count: an Index Scan touches a heap page once for each row it holds and a Bitmap Heap
+ * Scan once, the planner choosing at each size by its estimates; the leaf pages a scan walks are where the load's page
+ * splits fell; and a larger relation's B-tree may add a level above the same leaves, one more buffer a descent.
  */
 export const runAttachUnion = (
 	installed: Installed,
@@ -319,10 +329,11 @@ export const runAttachUnion = (
 			})
 		const first = yield* atSize(10, 9 + c.packages)
 		const second = yield* atSize(10 + c.packages, 9 + c.packages + c.more)
+		const growth = (c.packages + c.more) / c.packages
 		for (const [before, after] of Arr.zip(first, second)) {
 			assert.ok(
-				after.done.buffers <= before.done.buffers + after.done.descents,
-				`${Formatter.format(c)}: the read of package ${p}'s files touches ${after.done.buffers} buffers of ${after.table} at ${c.packages + c.more} packages, ${before.done.buffers} at ${c.packages}, over ${after.done.descents} descents of its indexes`
+				scaledLess(before.done, after.done, growth),
+				`${Formatter.format(c)}: the read of package ${p}'s files touches ${after.done.buffers} buffers of ${after.table} at ${c.packages + c.more} packages, ${before.done.buffers} at ${c.packages}, over ${after.done.descents} descents of its indexes: as many as a corpus ${growth.toFixed(2)} times as large would give half its growth`
 			)
 		}
 		k.note(shared(c) ? "a file both rules name" : "no file both rules name")

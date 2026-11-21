@@ -3,8 +3,8 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Formatter, Option, Order } from "effect"
-import { type PlanNode, parsePlan, planNodes, rowsRead } from "#bench/harness/explain.ts"
+import { Array as Arr, Effect, Formatter, Option, Order, Struct } from "effect"
+import { type PlanNode, parsePlan, rowsRead } from "#bench/harness/explain.ts"
 import { identity } from "#compiler/core/identity.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { workload } from "#compiler/program/workload/value.ts"
@@ -262,12 +262,32 @@ export const readOnceTemplate = migratedTemplate({
 })
 
 /**
+ * Where the tables' statistics stand when each read is planned, each a state an analyzed installation is in, as the
+ * runbook's ANALYZE after its first package and autovacuum leave it (a never-analyzed one is outside grizzle's
+ * envelope, R1): analyzed after each load; analyzed after the first load only, so the second read is planned on the
+ * first's statistics, stale; analyzed empty before any load, as autovacuum may leave a new installation, and after each
+ * load; and analyzed after each load over a previous case rolled back, its rows dead in the tables' pages and its
+ * in-place sizes (pg_class's relpages, reltuples and relallvisible, which no rollback restores) the tables' own until
+ * the first ANALYZE, as a clone a case before this one ran in holds them.
+ */
+export type StatsState =
+	| "analyzed after each load"
+	| "analyzed after the first load only"
+	| "analyzed empty, then after each load"
+	| "analyzed after each load, over a case rolled back"
+
+export const statsStates = [
+	"analyzed after each load",
+	"analyzed after the first load only",
+	"analyzed empty, then after each load",
+	"analyzed after each load, over a case rolled back"
+] as const satisfies ReadonlyArray<StatsState>
+
+/**
  * A case: how many packages are stored, then how many more, each with its items, every item's body elements and the
  * manifest's resources beside its LOM, how many packages share each idea term (the ideas are as many as the packages
- * over that, so the terms grow with the packages, as a course's topics do with its lessons), and every how many-th
- * package a deletion
- * version took away (none at 0). The tables are analyzed before each read, as a publish's are by the runbook and
- * autovacuum.
+ * over that, so the terms grow with the packages, as a course's topics do with its lessons), every how many-th
+ * package a deletion version took away (none at 0), and where the tables' statistics stand at each read.
  */
 export interface ReadOnce {
 	readonly packages: number
@@ -277,6 +297,7 @@ export interface ReadOnce {
 	readonly resources: number
 	readonly share: number
 	readonly gone: number
+	readonly stats: StatsState
 }
 
 export const readOnceGen: Gen<ReadOnce> = (s) => ({
@@ -286,10 +307,11 @@ export const readOnceGen: Gen<ReadOnce> = (s) => ({
 	body: s.draw(int(4, 8)),
 	resources: s.draw(int(10, 30)),
 	share: s.draw(int(3, 6)),
-	gone: s.draw(boolean) ? 0 : s.draw(element([3, 5, 7] as const))
+	gone: s.draw(boolean) ? 0 : s.draw(element([3, 5, 7] as const)),
+	stats: s.draw(element(statsStates))
 })
 
-export type ReadOnceFeature = "a package taken away" | "every package current"
+export type ReadOnceFeature = "a package taken away" | "every package current" | StatsState
 
 /** The term every package states first, its last, and its idea: (purpose, source, id). */
 const termsOf = (c: ReadOnce, p: number): ReadonlyArray<readonly [number, number, number]> => [
@@ -300,6 +322,16 @@ const termsOf = (c: ReadOnce, p: number): ReadonlyArray<readonly [number, number
 
 const isGone = (c: ReadOnce, p: number): boolean => c.gone > 0 && p % c.gone === 0
 
+/** The ledger's stored tables. */
+const tablesOf = (installed: Installed): ReadonlyArray<string> => {
+	const names = namesOf(installed)
+	return [names.table(Pkg), names.table(Node), names.table(Doc), names.table(Item)]
+}
+
+/** The statements analyzing the stored tables, as the runbook and autovacuum do. */
+const analyzed = (installed: Installed): ReadonlyArray<string> =>
+	Arr.map(tablesOf(installed), (t) => `ANALYZE ${t}`)
+
 /** The statements loading packages `from` to `to`, the tables' triggers off, as a publish writes them whole. */
 const loaded = (
 	installed: Installed,
@@ -309,7 +341,7 @@ const loaded = (
 ): ReadonlyArray<string> => {
 	const names = namesOf(installed)
 	const node = names.table(Node)
-	const tables = [names.table(Pkg), node, names.table(Doc), names.table(Item)]
+	const tables = tablesOf(installed)
 	const series = `generate_series(${from}, ${to}) AS g(p)`
 	const lom = Arr.flatMap([0, 1, 2], (b) => {
 		const at = 10 + 10 * b
@@ -343,8 +375,7 @@ const loaded = (
 		`INSERT INTO ${names.table(Doc)} SELECT p, i, true FROM ${series}, generate_series(1, ${c.items}) AS h(i)`,
 		`INSERT INTO ${names.table(Doc)} SELECT p, 1000, false FROM ${series}`,
 		`INSERT INTO ${names.table(Item)} SELECT p, i, i FROM ${series}, generate_series(1, ${c.items}) AS h(i)`,
-		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`),
-		...Arr.map(tables, (t) => `ANALYZE ${t}`)
+		...Arr.map(tables, (t) => `ALTER TABLE ${t} ENABLE TRIGGER USER`)
 	]
 }
 
@@ -375,26 +406,83 @@ const rowScan = (n: PlanNode): boolean =>
 	(Option.isSome(n.relation) && Option.isNone(n.operation) && n.nodeType !== "Bitmap Index Scan") ||
 	n.nodeType === "CTE Scan"
 
-/** A scan that runs more than once, with the rows it handles a run: its output and what its filters removed. */
+/** A plan node where it stands: its parent, and the Gather or Gather Merge above it, if any. */
+interface Placed {
+	readonly node: PlanNode
+	readonly parent: Option.Option<PlanNode>
+	readonly gather: Option.Option<PlanNode>
+}
+
+/** Every node of `plan` where it stands (Placed), each before its children. */
+const placed = (plan: PlanNode): ReadonlyArray<Placed> => {
+	const out: Array<Placed> = []
+	const visit = (
+		node: PlanNode,
+		parent: Option.Option<PlanNode>,
+		gather: Option.Option<PlanNode>
+	): void => {
+		out.push({ node, parent, gather })
+		const below =
+			node.nodeType === "Gather" || node.nodeType === "Gather Merge" ? Option.some(node) : gather
+		for (const child of node.children) {
+			visit(child, Option.some(node), below)
+		}
+	}
+	visit(plan, Option.none(), Option.none())
+	return out
+}
+
+/**
+ * How many times a scan ran. A parallel-aware scan's loops are the processes of each run of the Gather above it, the
+ * leader's and each worker's, which share the one scan: it ran as often as the Gather did. Any other node's loops are
+ * its runs.
+ */
+const runsOf = (p: Placed): number =>
+	p.node.parallelAware
+		? Option.match(p.gather, { onNone: () => p.node.actualLoops, onSome: (g) => g.actualLoops })
+		: p.node.actualLoops
+
+/**
+ * A scan that runs more than once, with the rows it handles a run, its output and what its filters removed (each a
+ * loop's mean, as EXPLAIN reports it) over every loop of the run, and where it stands.
+ */
 interface Rerun {
-	readonly scan: string
-	readonly loops: number
+	readonly runs: number
 	readonly rows: number
+	readonly at: Placed
 }
 
 /** Each scan of `plan` that runs more than once (`Rerun`), heaviest first. */
 const reruns = (plan: PlanNode): ReadonlyArray<Rerun> =>
 	Arr.sort(
-		Arr.map(
-			Arr.filter(Arr.fromIterable(planNodes(plan)), (n) => rowScan(n) && n.actualLoops > 1),
-			(n): Rerun => ({
-				scan: `${n.nodeType} ${Option.getOrElse(n.relation, () => "")}${Option.getOrElse(n.cte, () => "")} ${Option.getOrElse(n.index, () => "")}`,
-				loops: n.actualLoops,
-				rows: n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByJoinFilter
-			})
-		),
+		Arr.flatMap(placed(plan), (p): ReadonlyArray<Rerun> => {
+			const n = p.node
+			const runs = runsOf(p)
+			const handled = n.actualRows + n.rowsRemovedByFilter + n.rowsRemovedByJoinFilter
+			return rowScan(n) && runs > 1 ? [{ runs, rows: (handled * n.actualLoops) / runs, at: p }] : []
+		}),
 		Order.flip(Order.mapInput(Order.Number, (r: Rerun) => r.rows))
 	)
+
+/**
+ * A rerun as a report prints it: its runs and rows a run, its node whole but for its children, the runs and workers of
+ * the Gather above it, and its parent's join.
+ */
+const reported = (r: Rerun) => ({
+	runs: r.runs,
+	rowsARun: r.rows,
+	node: Struct.omit(r.at.node, ["children"]),
+	gather: Option.map(r.at.gather, (g) => ({
+		runs: g.actualLoops,
+		workersLaunched: g.workersLaunched
+	})),
+	parent: Option.map(r.at.parent, (q) => ({
+		nodeType: q.nodeType,
+		joinType: q.joinType,
+		joinFilter: q.joinFilter,
+		loops: q.actualLoops
+	}))
+})
 
 /**
  * The read's one statement explained as it runs, and its answer: each part's rows as the delivery sends them, the
@@ -446,34 +534,55 @@ const answerOf = (rows: ReadonlyArray<ReadonlyArray<unknown>>): ReadonlyArray<st
 }
 
 /**
- * One case in its one transaction, which the case's end rolls back: `packages` packages loaded with the triggers off and
- * analyzed, the read explained and run; then `more` packages loaded and the read again. Each time it answers the
- * host's count of every term's current packages and their items, and every scan its plan runs more than once, of a
- * stored relation or of a CTE it derived once, handles fewer rows a run than there are packages: a scan per term, per
- * package or per item reads that one's rows, a few of each table, and a CTE rescanned per term holds the terms. One
- * that reads every package's rows on each run, a derivation run again for each row of another or a derived set
- * scanned whole for each, makes the read's work grow with the square of what it reads.
+ * One case in its one transaction, which the case's end rolls back: `packages` packages loaded with the triggers off,
+ * the read explained and run; then `more` packages loaded and the read again, the tables' statistics standing as the
+ * case's state puts them (StatsState). Each time it answers the host's count of every term's current packages and their
+ * items, and every scan its plan runs more than once, of a stored relation or of a CTE it derived once, handles fewer
+ * rows a run than there are packages: a scan per term, per package or per item reads that one's rows, a few of each
+ * table, and a CTE rescanned per term holds the terms. One that reads every package's rows on each run, a derivation
+ * run again for each row of another or a derived set scanned whole for each, makes the read's work grow with the
+ * square of what it reads. A parallel scan's processes are one run of it (runsOf). The previous case a state rolls back
+ * is a savepoint `bare` sets and rolls back to, where `connection`'s statements, each its own savepoint released after
+ * it, would end it.
  */
 export const runReadOnce = (
 	installed: Installed,
 	connection: PgConnection,
+	bare: PgConnection,
 	c: ReadOnce,
 	k: Case<ReadOnceFeature>
 ) =>
 	Effect.gen(function* () {
-		for (const [from, to] of [
+		const run = (statements: ReadonlyArray<string>) =>
+			Effect.forEach(statements, (sql) => connection.query(sql, []), { discard: true })
+		const rounds = [
 			[10, 9 + c.packages],
 			[10 + c.packages, 9 + c.packages + c.more]
-		] as const) {
-			for (const sql of loaded(installed, c, from, to)) {
-				yield* connection.query(sql, [])
+		] as const
+		if (c.stats === "analyzed empty, then after each load") {
+			yield* run(analyzed(installed))
+		}
+		if (c.stats === "analyzed after each load, over a case rolled back") {
+			yield* bare.query("SAVEPOINT previous_case", [])
+			yield* run(
+				Arr.flatMap(rounds, ([from, to]) => [
+					...loaded(installed, c, from, to),
+					...analyzed(installed)
+				])
+			)
+			yield* bare.query("ROLLBACK TO SAVEPOINT previous_case", [])
+		}
+		for (const [round, [from, to]] of rounds.entries()) {
+			yield* run(loaded(installed, c, from, to))
+			if (round === 0 || c.stats !== "analyzed after the first load only") {
+				yield* run(analyzed(installed))
 			}
 			const stored = to - 9
 			const bounded = (read: string, plan: PlanNode) => {
 				const heaviest = reruns(plan)
 				assert.ok(
 					Arr.every(heaviest, (r) => r.rows < stored),
-					`${Formatter.format(c)}: every scan ${read} runs more than once reads fewer rows a run than the ${stored} packages stored, ${Formatter.format(Arr.take(heaviest, 3))}, ${rowsRead(plan)} rows read of stored relations`
+					`${Formatter.format(c)}: every scan ${read} runs more than once reads fewer rows a run than the ${stored} packages stored, ${Formatter.format(Arr.map(Arr.take(heaviest, 3), reported))}, ${rowsRead(plan)} rows read of stored relations`
 				)
 			}
 			const terms = yield* measured(installed, connection, sets)
@@ -499,4 +608,5 @@ export const runReadOnce = (
 			bounded("the heads read", heads.plan)
 		}
 		k.note(c.gone > 0 ? "a package taken away" : "every package current")
+		k.note(c.stats)
 	})

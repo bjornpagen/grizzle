@@ -38,7 +38,7 @@ export const anAttachmentOverAUnionOfRulesReadsEachArmByItsParentsKeysSoItsWorkI
 				),
 		oracle: {
 			kind: "universal",
-			name: "the host's files of every document of the package read, and bound: the rows each arm's relations' scans read are at most those the documents' keys match at two corpus sizes, and the buffers they touch at the larger at most those at the smaller and one a descent of an index"
+			name: "the host's files of every document of the package read, and bound: the rows each arm's relations' scans read are at most those the documents' keys match at two corpus sizes, and the buffers they touch grow by less than half as much as the corpus does"
 		},
 		kept: [],
 		kills: [
