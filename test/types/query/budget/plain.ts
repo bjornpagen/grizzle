@@ -71,7 +71,8 @@ const step = 20
  * infers nothing (NoInfer), a rule's evidence is held where it is inferred to its keys and card alone
  * (types/evidence/evidence.ts InferredEvidence), its head origins read where they are read, and a union's further arm is
  * judged beside the arms' carriers read off their union at once, attachments and key sets first, each field's carriers
- * once (ArmsMeet): a one-rule query 1,534, a union of two rules 4,043, a union of sixteen rules 55,160.
+ * once (ArmsMeet), and a rule's keys read each key's needs and the head's terms once (types/evidence/evidence.ts
+ * NeedsOfKeys, HeadEntries): a one-rule query 1,452, a union of two rules 3,879, a union of sixteen rules 53,464.
  *
  * @limitKind measured
  * @owner the query facade's type cost gates (test/types/query/budget/plain.ts)
@@ -97,7 +98,8 @@ const step = 20
  *   60,694 (70,807 before it, 69,491 with every arm's attachment read beside each arm before it); after its fourth, a
  *   further arm met beside each carrier the arms before it deliver at a field, a union of sixteen rules 55,160 (58,474
  *   with each arm before it met apart, Mismatched pairwise) and a union of two rules 4,043, 21 more than the third left
- *   it, the price of reading a field's carriers once, and 4,059 with `At | At2`; every program clean; types are not read
+ *   it, the price of reading a field's carriers once, and 4,059 with `At | At2`; after its fifth, a rule's keys read each key's needs and the head's terms once, one rule 1,452,
+ *   a union of two rules 3,879, a union of sixteen rules 53,464; every program clean; types are not read
  *   (the checker interns them)
  * @decision the bound is the cut's own cost, exactly: a change that makes a query that attaches nothing pay more for
  *   its type's attachments, or any other cost per plain query, is refused here, and a change that lowers it lowers the
@@ -106,9 +108,9 @@ const step = 20
  *   (types/query/query.ts, types/query/rule.ts, the evidence) that moves a plain query's cost, which states its cost here
  */
 const addedAtMost: { readonly [S in PlainShape]: number } = {
-	"one rule": 1534,
-	"union of two rules": 4043,
-	"union of sixteen rules": 55160
+	"one rule": 1452,
+	"union of two rules": 3879,
+	"union of sixteen rules": 53464
 }
 
 /** How a shape prints. */

@@ -923,27 +923,46 @@ type DepsOf<S, M, FixedFields extends string> =
 	M extends SoleMatch<infer Sh, infer B>
 		? Sh extends AnyShown
 			? | KeyDeps<
-						KeysIn<S, Sh>,
-						B,
-						FixedFields,
+						NeedsOfKeys<KeysIn<S, Sh>, B, FixedFields, Sh["generations"]>,
 						BoundOrigins<B>,
-						OriginNeeds<Sh["reads"], FixedFields>,
-						Sh["generations"]
+						OriginNeeds<Sh["reads"], FixedFields>
 				  >
 				| GenerationDeps<Sh["generations"], B, FixedFields>
 			: never
 		: never
 
 /**
- * One dependency per key whose fields are all known: from what the bound terms need, and what the source's own inputs
- * need (Extra), to To. A key field is known where it is bound, or where it is a generated field whose reads are all bound
- * (KeyFieldNeeds).
+ * One dependency per key whose fields are all known: from what the bound terms need (KeyNeeds), and what the source's
+ * own inputs need (Extra), to To.
  */
-type KeyDeps<Keys, B, FixedFields extends string, To, Extra, Gen> = 0 extends 1 & Keys
+type KeyDeps<Kn, To, Extra> = Kn extends KeyNeeds<infer Needs> ? DepFrom<Needs | Extra, To> : never
+
+/**
+ * What a match's keys need to be known, one KeyNeeds per key, the needs of its fields together: a field the match binds
+ * needs what its term needs (BoundNeeds), and a field it leaves unbound what KeyFieldNeeds says. Read once per match, by
+ * its dependencies (KeyDeps) and its choices (KeyChoices) alike, a key's bound fields read off the match's needs by
+ * field at once. A key of fields typed `string`, no field named, is the field `string`'s.
+ */
+type NeedsOfKeys<Keys, B, FixedFields extends string, Gen> = 0 extends 1 & Keys
 	? never
 	: Keys extends ReadonlyArray<infer F extends string>
-		? DepFrom<{ [K in F]-?: KeyFieldNeeds<K, B, FixedFields, Gen> }[F] | Extra, To>
+		? string extends F
+			? KeyNeeds<KeyFieldNeeds<string, B, FixedFields, Gen>>
+			: KeyNeeds<
+					| BoundNeeds<B, FixedFields>[F & keyof B]
+					| UnboundNeeds<Exclude<F, keyof B>, B, FixedFields, Gen>
+				>
 		: never
+/** What the term bound at each field of a match needs (Needs): read once per match. */
+type BoundNeeds<B, FixedFields extends string> = { [K in keyof B]: Needs<B[K], FixedFields> }
+/** What each of the key fields Ks a match leaves unbound needs (KeyFieldNeeds). */
+type UnboundNeeds<Ks, B, FixedFields extends string, Gen> = Ks extends string
+	? KeyFieldNeeds<Ks, B, FixedFields, Gen>
+	: never
+/** What one key of a match needs to be known: the origin keys its fields' terms need, Lost among them where one is lost. */
+interface KeyNeeds<out Needs> {
+	readonly needs: Needs
+}
 
 /**
  * What a match's key field K needs to be known: the term bound at it; or, unbound, the terms bound at every field its
@@ -1030,18 +1049,33 @@ type ClosureStep<Deps, Known extends string> =
 	| Known
 	| (Deps extends Dep<infer F, infer T> ? ([F] extends [Known] ? T : never) : never)
 
-/** The head fields holding a non-input term of origin key Key. */
-type HeadFieldsOf<H, Key> = {
+/**
+ * Each head field holding a non-input term of one origin key, with that key (OriginKey, SoleKey): read once per head,
+ * so the fields holding what a key needs are one walk of these entries, never of the head's terms.
+ */
+type HeadEntries<H> = {
 	[N in keyof H]-?: H[N] extends Phantom<{ readonly origin: infer HO }>
 		? [HO] extends [InputOrigin]
 			? never
-			: OriginKey<H[N]> extends Key
-				? [Key] extends [OriginKey<H[N]>]
-					? N
-					: never
-				: never
+			: EntryOf<SoleKey<OriginKey<H[N]>>, N>
 		: never
 }[keyof H]
+/** A head field N's entry where its term holds one key K, none where it holds none or several. */
+type EntryOf<K, N> = [K] extends [never] ? never : HeadEntry<K, N>
+/** K where it is one key: never where it is several, or none. */
+type SoleKey<K, All = K> = K extends unknown ? ([All] extends [K] ? K : never) : never
+/** The head's entries whose key is one of Need. */
+type EntriesIn<E, Need> =
+	E extends HeadEntry<infer K, unknown> ? ([K] extends [Need] ? E : never) : never
+/** The keys entries hold. */
+type KeysOfEntries<E> = E extends HeadEntry<infer K, unknown> ? K : never
+/** The fields of entries. */
+type FieldsOfEntries<E> = E extends HeadEntry<unknown, infer N> ? N : never
+/** A head field N and the one origin key its term holds, K. */
+interface HeadEntry<out K, out N> {
+	readonly key: K
+	readonly field: N
+}
 
 /**
  * One match's candidate parts, each `readonly [Fields, Fired, Unfired]`: nothing, its dependencies left to the closure
@@ -1054,32 +1088,32 @@ type Choices<S, M, H, FixedFields extends string> =
 	| (M extends SoleMatch<infer Sh, infer B>
 			? Sh extends AnyShown
 				? KeyChoices<
-						KeysIn<S, Sh>,
-						B,
+						NeedsOfKeys<KeysIn<S, Sh>, B, FixedFields, Sh["generations"]>,
 						H,
-						FixedFields,
 						OriginNeeds<Sh["reads"], FixedFields>,
-						Sh["generations"]
+						BoundOrigins<B> & string
 					>
 				: never
 			: never)
 
-type KeyChoices<Keys, B, H, FixedFields extends string, Extra, Gen> = 0 extends 1 & Keys
-	? never
-	: Keys extends ReadonlyArray<infer F extends string>
-		? HeadSet<
-				| { [K in F]-?: HeadFieldsAt<KeyFieldNeeds<K, B, FixedFields, Gen>, H> }[F]
-				| HeadFieldsAt<Extra, H>,
-				BoundOrigins<B> & string
-			>
-		: never
-/** The head fields holding each variable a key field needs, Lost when one is held by none or the field is Lost. */
-type HeadFieldsAt<Need, H> = Lost extends Need ? Lost : HeadFieldsEach<Need, H>
-type HeadFieldsEach<Need, H> = Need extends string
-	? [HeadFieldsOf<H, Need>] extends [never]
-		? Lost
-		: HeadFieldsOf<H, Need>
-	: never
+/**
+ * The choice of each key of a match (KeyNeeds): the head fields holding what its fields need and what the source's own
+ * inputs need (Extra), each need held by some field, firing every variable the match binds (Fired).
+ */
+type KeyChoices<Kn, H, Extra, Fired> =
+	Kn extends KeyNeeds<infer Needs> ? HeadSet<HeadFieldsAt<Needs | Extra, H>, Fired> : never
+/**
+ * The head fields holding the variables Need names, Lost when one of them is held by none or Need is Lost, and none,
+ * the head unread, when Need names none (a key whose fields are inputs or fixed): what a head field holds, a term of
+ * exactly one origin key (HeadEntries), holds that variable.
+ */
+type HeadFieldsAt<Need, H> = Lost extends Need
+	? Lost
+	: [Need] extends [never]
+		? never
+		: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>
+/** The fields of the entries holding Need's keys, E, Lost when one of the keys is held by none. */
+type HeldFields<Need, E> = [Need] extends [KeysOfEntries<E>] ? FieldsOfEntries<E> : Lost
 type HeadSet<Fields, Fired> = Lost extends Fields ? never : readonly [Fields, Fired, never]
 type Cross<A, B> = A extends readonly [infer X, infer XFired, infer XUnfired]
 	? B extends readonly [infer Y, infer YFired, infer YUnfired]
@@ -1093,8 +1127,10 @@ type Candidates<S, Os, H, FixedFields extends string> = Os extends readonly [inf
 	: readonly [never, never, never]
 /** The head fields that need determining: every field but an aggregate. */
 type TargetFields<H> = Exclude<keyof H, AggregateFields<H>>
-/** The origin keys of the head fields C holds. */
-type OriginsOfFields<H, C> = { [N in keyof H & C]-?: OriginKey<H[N]> }[keyof H & C]
+/** The origin keys of the head fields C holds, read off the head's keys by field (OriginKeysOf). */
+type OriginsOfFields<H, C> = OriginKeysOf<H>[keyof H & C]
+/** Each head field's origin keys (OriginKey), read once per head. */
+type OriginKeysOf<H> = { [N in keyof H]-?: OriginKey<H[N]> }
 /**
  * The candidates whose closure holds every head field, each as `readonly [Fields]`: a field in the candidate, or a term
  * whose needs are reached (an input, a variable reached, a computation over variables reached). A candidate's closure
@@ -1117,11 +1153,12 @@ type Passing<Cs, H, Stated, FixedFields extends string> = Cs extends readonly [
 		: never
 	: never
 
-type Covers<H, C, Known extends string, FixedFields extends string> = false extends {
-	[N in TargetFields<H>]-?: N extends C ? true : DeterminedBy<Needs<H[N], FixedFields>, Known>
-}[TargetFields<H>]
-	? false
-	: true
+type Covers<H, C, Known extends string, FixedFields extends string> = DeterminedBy<
+	NeedsOf<H, FixedFields>[Exclude<TargetFields<H>, C> & keyof NeedsOf<H, FixedFields>],
+	Known
+>
+/** What each head field that needs determining needs (Needs), read once per head and fixed fields. */
+type NeedsOf<H, FixedFields extends string> = { [N in TargetFields<H>]-?: Needs<H[N], FixedFields> }
 
 /** The candidates no other candidate lies strictly within. */
 type MinimalOf<All> = All extends readonly [infer X]

@@ -92,7 +92,8 @@ const step = 10
  * @result per added unit: flat records 5,406 instantiations, records of an array of options 25,681 (TS2589 at the
  *   fragment before); every program clean. Den's probe, one fragment of nested records holding their retirable body and
  *   their laws: 1,391,643 instantiations and TS2589 at the fragment before, 87,617 and clean after; types are not read
- *   (the checker interns them)
+ *   (the checker interns them). Since a rule's keys read each key's needs and the head's terms once
+ *   (types/evidence/evidence.ts NeedsOfKeys, HeadEntries): flat records 5,328, records of an array of options 25,544
  * @decision the bound is the collected records' own cost, exactly: a change that makes a fragment of records cost more
  *   is refused here, and a change that lowers it lowers the bound
  * @revalidate a TypeScript 7 or tsgo upgrade; another machine; any change to records' types (types/schema/records.ts),
@@ -100,8 +101,8 @@ const step = 10
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in FragmentShape]: number } = {
-	"flat records": 5406,
-	"records of an array of options": 25681
+	"flat records": 5328,
+	"records of an array of options": 25544
 }
 
 /** How a shape prints. */

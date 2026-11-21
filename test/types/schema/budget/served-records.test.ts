@@ -29,6 +29,13 @@ export const cost = costGate(servedRecords, {
 			replacement:
 				"\troles: Roles & { readonly [K in keyof Roles]: RolesOver<Base, Roles[K]> } & MembersTyped<Roles>,",
 			why: "A login judges its roles by a mapped copy of their list, each member's verdict at its place, as before the verdict: the roles' array is related to that copy, its methods' generic signatures instantiated through every level of records whose attachments nest, past the checker's depth (TS2589) for records of an array of options."
+		},
+		{
+			file: "packages/engine/src/types/evidence/evidence.ts",
+			original:
+				"\t: [Need] extends [never]\n\t\t? never\n\t\t: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>",
+			replacement: "\t: HeldFields<Need, EntriesIn<HeadEntries<H>, Need>>",
+			why: "A key whose fields are inputs or fixed, which needs nothing, reads the head's entries anyway: each query's rule over P at a parameter reads its head's terms for a key it holds by the parameter, so a unit of flat records costs 12,279 instantiations against its bound of 12,178."
 		}
 	]
 })

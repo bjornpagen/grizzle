@@ -96,7 +96,8 @@ const step = 10
  *   clean. The 19 a flat unit adds are the guard that reads the laws only once the query is known: every guard-free form
  *   of the laws tried brings TS2589 back at that fragment (collected unguarded, 12,239; collected at each level; a
  *   wrapper alias) or costs more (a short circuit on a query that attaches nothing, 12,263; the public signature typed
- *   off the builder's, 12,311). One unit of records of an array of options served in a login: 2,724,435 instantiations and TS2589 at the
+ *   off the builder's, 12,311). Since a rule's keys read each key's needs and the head's terms once
+ *   (types/evidence/evidence.ts NeedsOfKeys, HeadEntries): flat records 12,178, records of an array of options 48,842. One unit of records of an array of options served in a login: 2,724,435 instantiations and TS2589 at the
  *   login under its mapped checks, 1,461,803 and clean under the verdicts; flat records 1,418,610 and 1,410,160; types
  *   are not read (the checker interns them)
  * @decision the bound is the verdicts' own cost, exactly: a change that makes a login's check of a served read of
@@ -106,8 +107,8 @@ const step = 10
  *   cost, which states its cost here
  */
 const addedAtMost: { readonly [S in ServedShape]: number } = {
-	"flat records": 12256,
-	"records of an array of options": 48979
+	"flat records": 12178,
+	"records of an array of options": 48842
 }
 
 /** How a shape prints. */
