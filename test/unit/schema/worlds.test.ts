@@ -2,8 +2,8 @@
  * The world builders' admission (context, role, login) and ownership of their decoded descriptions (ownRole,
  * ownLogin), against the rules of roles restated as the oracle:
  *
- * - a context's fields are claims of scalar types: text, uuid, boolean, the integer types, a contract over one of them,
- *   or a closed handle, which its caller writes. Each case draws a context of one to three fields of any drawn type
+ * - a context's fields are claims of scalar types: text, uuid, boolean, the integer types, inet, cidr, a contract over
+ *   one of them, or a closed handle, which its caller writes. Each case draws a context of one to three fields of any drawn type
  *   (field-sketch.ts), or drawn(natural), which grizzle writes though its type, natural, is a claim's: the builder
  *   refuses it at the first field no claim is, a description at any field whose type no claim's is;
  * - a role relation is a whole relation of the base under its own name, or a query built over the base or one of its
@@ -151,7 +151,7 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 								] as const
 						)
 					),
-					claim: undefined
+					source: { kind: "token", claim: undefined }
 				})
 				if (Arr.every(c.fields, (f) => f.field.kind === "drawn" || claimDescribed(f.field.type))) {
 					succeeded(described, "a description of claim types")
@@ -161,7 +161,7 @@ export const contextAdmissionAdmitsAContextOfScalarClaimsItsCallerStatesAndRefus
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a claim is text, uuid, boolean, an integer type, a contract over one or a closed handle, and its caller writes it"
+			name: "a claim is text, uuid, boolean, an integer type, inet, cidr, a contract over one or a closed handle, and its caller writes it"
 		},
 		kept: [],
 		kills: [

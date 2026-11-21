@@ -676,13 +676,15 @@ export const contextCaseGen: Gen<ContextCase> = (source) => {
 	}
 }
 
-/** The SQL types a claim may be read as. */
+/** The SQL types a claim may be read as (ir/desc.ts contextFieldAdmits). */
 const claimTypes: ReadonlySet<string> = new Set([
 	"smallint",
 	"integer",
 	"bigint",
 	"boolean",
-	"uuid"
+	"uuid",
+	"inet",
+	"cidr"
 ])
 
 /** Whether a context field is a claim: its caller writes it, and its type is a claim's. */
