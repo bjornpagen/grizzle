@@ -49,7 +49,7 @@ import type {
 	FillRuleData,
 	HostFill
 } from "#compiler/runtime/write/fill.ts"
-import type { LaidColumn, LaidLayout, NestedLayoutData } from "#compiler/runtime/write/nesting.ts"
+import type { LaidColumn, LaidLayout } from "#compiler/runtime/write/nesting.ts"
 import type { GroupData, InputData, SlotData } from "#compiler/runtime/write/normalize.ts"
 import type {
 	CheckTest,
@@ -61,14 +61,20 @@ import type {
 	WitnessUnique
 } from "#compiler/runtime/write/witness.ts"
 import { tablePatterns, typePatterns } from "#compiler/scalar/regex/patterns.ts"
-import { headingData, nestingData } from "#compiler/write/family/nesting.ts"
-import { endColumns, laidLayout, rowLayout } from "#compiler/write/family/statements.ts"
-import type {
-	EnumeratedInput,
-	MemberSlot,
-	SlotGroup,
-	WriteFrontend,
-	WrittenRelation
+import { headingData, nestedLayoutData, nestingData } from "#compiler/write/family/nesting.ts"
+import {
+	endColumns,
+	laidLayout,
+	memberFamilies,
+	rowLayout
+} from "#compiler/write/family/statements.ts"
+import {
+	type EnumeratedInput,
+	type MemberSlot,
+	type SlotGroup,
+	stratumLayouts,
+	type WriteFrontend,
+	type WrittenRelation
 } from "#compiler/write/frontend/compile.ts"
 import { type Proposal, proposalOf } from "#compiler/write/insert/statement.ts"
 
@@ -109,19 +115,17 @@ const ownerSlots = (
 			)
 		)
 
-/** Where the nested writes of `stratum` stand the rows of `relation`: the first that fills them, none where none does. */
+/** Where the nested writes of `stratum` stand the rows of `relation`: where the one nesting that fills them lays them
+ * out (frontend/compile.ts stratumLayouts), none where none does. */
 const nestedOwner = (
 	frontend: WriteFrontend,
 	stratum: StratumAt,
 	relation: StoredRelationName
 ): NestedOwner => {
-	for (const n of frontend.nested) {
-		const at = n.stratum === stratum ? n.nesting.layouts.get(relation) : undefined
-		if (at !== undefined) {
-			return { kind: "at", position: fillAtOf(at.position) }
-		}
-	}
-	return { kind: "none" }
+	const at = stratumLayouts(frontend.nested, stratum).get(relation)
+	return at === undefined
+		? { kind: "none" }
+		: { kind: "at", position: fillAtOf(at.layout.position) }
 }
 
 /**
@@ -513,21 +517,17 @@ const groupData = (group: SlotGroup): GroupData => ({
 	inputs: mapNonEmpty(group.inputs, inputData)
 })
 
-/** Each stratum's nested layouts (binding.ts NestedAt): each relation as the first of the stratum's nested writes that
- * fills it lays it out. */
-const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> => {
-	const byStratum = new Map<StratumAt, Map<StoredRelationName, NestedLayoutData>>()
-	for (const n of frontend.nested) {
-		const layouts = byStratum.get(n.stratum) ?? new Map<StoredRelationName, NestedLayoutData>()
-		for (const [relation, at] of nestingData(n.nesting).layouts) {
-			if (!layouts.has(relation)) {
-				layouts.set(relation, at)
-			}
-		}
-		byStratum.set(n.stratum, layouts)
-	}
-	return [...byStratum].map(([stratum, layouts]) => ({ stratum, layouts }))
-}
+/** Each stratum's nested layouts (binding.ts NestedAt), in the order its nested writes are first met: each relation as
+ * the one nesting of the stratum that fills it lays it out (frontend/compile.ts stratumLayouts). */
+const nestedAts = (frontend: WriteFrontend): ReadonlyArray<NestedAt> =>
+	[...new Set(frontend.nested.map((n) => n.stratum))].map((stratum) => ({
+		stratum,
+		layouts: new Map(
+			[...stratumLayouts(frontend.nested, stratum)].map(
+				([relation, at]) => [relation, nestedLayoutData(at.layout)] as const
+			)
+		)
+	}))
 
 /** A family as a row of it no statement carries is reported by (binding.ts FamilyNames). */
 const familyNames = (family: Family): FamilyNames => ({
@@ -536,15 +536,23 @@ const familyNames = (family: Family): FamilyNames => ({
 	member: family.member.name
 })
 
-/** Each relation a nested write fills, by name, as the first family in the law model's order it is a member of names it
- * (binding.ts FamilyNames). */
+/**
+ * Each relation a nested write fills, by name, as the first of its families as their member names it (binding.ts
+ * FamilyNames, write/family/statements.ts memberFamilies): the sequence that nests its rows, a tree's own relation's its
+ * tree, or, for the own rows of a counted family's member, the least of its counted families by key, whatever order the
+ * law model states them in. Every relation a nesting lays out is a member of a family, the one that nests it or, its own
+ * rows, the tree or counted family that makes its nesting write them (write/family/nesting.ts NestingRoot).
+ */
 const rowFamilies = (frontend: WriteFrontend): ReadonlyMap<StoredRelationName, FamilyNames> => {
 	const out = new Map<StoredRelationName, FamilyNames>()
 	for (const n of frontend.nested) {
 		for (const relation of n.nesting.layouts.keys()) {
-			const family = frontend.laws.families.find((f) => f.member.name === relation)
-			if (family !== undefined && !out.has(relation)) {
-				out.set(relation, familyNames(family))
+			if (!out.has(relation)) {
+				const [family] = memberFamilies(relation, frontend.laws.families)
+				out.set(
+					relation,
+					familyNames(defined(family, `a family of ${relation}, a relation a nesting lays out`))
+				)
 			}
 		}
 	}

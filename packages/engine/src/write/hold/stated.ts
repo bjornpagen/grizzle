@@ -24,6 +24,7 @@ import {
 import type { LawField } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { StratumAt } from "#compiler/ir/stratum.ts"
+import { memberFamilies } from "#compiler/write/family/statements.ts"
 import type { WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { familyNodeRelations } from "#compiler/write/frontend/schedule.ts"
 import type { RelationInput } from "#compiler/write/insert/input.ts"
@@ -615,8 +616,8 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 				if (place?.kind !== "body") {
 					continue
 				}
-				const outside = frontend.laws.families.find(
-					(f) => f.member.name === relation && places.get(f.owner.name)?.unit !== place.unit
+				const outside = memberFamilies(relation, frontend.laws.families).find(
+					(f) => places.get(f.owner.name)?.unit !== place.unit
 				)
 				touched(memberAt(relation), place, "written")
 				if (outside !== undefined) {

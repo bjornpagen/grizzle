@@ -97,7 +97,7 @@ import { equalQuery } from "#compiler/write/frontend/equal.ts"
 import type { HostChecks, StartData } from "#compiler/runtime/write/normalize.ts"
 import type { WitnessEntry } from "#compiler/runtime/write/witness.ts"
 import type { UnitDelete, UnitMatch, UnitMember, UnitSource } from "#compiler/write/delete/unit.ts"
-import { type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
+import { type NestedLayout, type Nesting, nestingOf } from "#compiler/write/family/nesting.ts"
 import { endColumns, memberFamilies } from "#compiler/write/family/statements.ts"
 import {
 	refuseStampsApart,
@@ -295,6 +295,42 @@ export interface NestedWrite {
 	readonly stratum: StratumAt
 	readonly nesting: Nesting
 	readonly slot: MemberSlot
+}
+
+/** A relation whose rows a stratum's nested writes fill: its layout there (write/family/nesting.ts NestedLayout) and the
+ * nesting that lays it out. */
+export interface StratumLayout {
+	readonly nesting: Nesting
+	readonly layout: NestedLayout
+}
+
+/**
+ * Each relation whose rows the nested writes `nested` fill in `stratum`, by name, laid out by the one nesting of the
+ * stratum that writes its rows, each in the order its nesting is first met. A relation's rows are nested under at most
+ * one sequence (analysis/theory/laws.ts families), a sequence's member is inserted only under its owner, and every
+ * nested insert of one relation in one stratum holds that relation's one nesting (`nestingFor`), so the stratum's
+ * distinct nestings lay out disjoint relations and no layout is picked among nested writes, whatever order the
+ * ChangeSet states them in. The one reading of a stratum's nested layouts, the binding's and its family statements'.
+ */
+export const stratumLayouts = (
+	nested: ReadonlyArray<NestedWrite>,
+	stratum: StratumAt
+): ReadonlyMap<StoredRelationName, StratumLayout> => {
+	const out = new Map<StoredRelationName, StratumLayout>()
+	for (const nesting of new Set(
+		nested.flatMap((n) => (n.stratum === stratum ? [n.nesting] : []))
+	)) {
+		for (const [relation, layout] of nesting.layouts) {
+			const other = out.get(relation)
+			if (other !== undefined) {
+				throw defect(
+					`${relation}'s rows nested by one nesting of stratum ${stratum}, ${nesting.relation.name}'s, where ${other.nesting.relation.name}'s nests them too`
+				)
+			}
+			out.set(relation, { nesting, layout })
+		}
+	}
+	return out
 }
 
 /** A declared key, its fields' handles in its object's order, a span last, and the law its object reports with its
@@ -1043,7 +1079,7 @@ const compile = (
 	}
 	/** The sequence `name` is a member of, a tree's aside: its members are written only under their owner. */
 	const sequenceOf = (name: string) =>
-		families.find((f) => f.member.name === name && isSequence(f) && !isTreeOf(f, name))
+		memberFamilies(name, families).find((f) => isSequence(f) && !isTreeOf(f, name))
 	/** The relations an insert into `name` writes rows of: its own, and every sequence's members its nesting reaches. */
 	const insertedBy = (name: string): ReadonlySet<string> => {
 		const written = new Set<string>([name])
@@ -1089,7 +1125,7 @@ const compile = (
 		)[0]
 	/** A family `name` is a member of besides its own tree, none where it is no other family's member. */
 	const otherFamilyOf = (name: string): Family | undefined =>
-		families.find((f) => f.member.name === name && !isTreeOf(f, name))
+		memberFamilies(name, families).find((f) => !isTreeOf(f, name))
 	/**
 	 * Whether a delete of `name` removes units whole (write/delete/unit.ts): it owns a family, a tree's relation its own,
 	 * and is no other family's member, so its rows and every row nested under them go together.
@@ -1126,8 +1162,8 @@ const compile = (
 		const below = reached.filter((name) => !roots.includes(name))
 		const named = roots.join(", ")
 		for (const name of below) {
-			const outside = families.find(
-				(f) => f.member.name === name && !isTreeOf(f, name) && !reached.includes(f.owner.name)
+			const outside = memberFamilies(name, families).find(
+				(f) => !isTreeOf(f, name) && !reached.includes(f.owner.name)
 			)
 			if (outside !== undefined) {
 				refuse(
@@ -1474,11 +1510,8 @@ const compile = (
 			if (tree === undefined || member.op !== "delete") {
 				refuseUnstatedKey(member, relation)
 			}
-			const fixed = families.find(
-				(f) =>
-					f.member.name === relation.name &&
-					!isTreeOf(f, relation.name) &&
-					!writtenOf(f.owner.name, loc).mutable
+			const fixed = memberFamilies(relation.name, families).find(
+				(f) => !isTreeOf(f, relation.name) && !writtenOf(f.owner.name, loc).mutable
 			)
 			if (fixed !== undefined && member.op === "delete") {
 				refuse(

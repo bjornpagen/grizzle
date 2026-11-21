@@ -6,7 +6,7 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import type { Family } from "#compiler/ir/family.ts"
+import { type Family, familyOrder } from "#compiler/ir/family.ts"
 import {
 	type LawField,
 	type NativeColumn,
@@ -44,9 +44,9 @@ export interface RowColumn {
 /**
  * A member relation's rows as every family statement writes them (draw.ts Row): its key fields, in key order; then
  * every other column the host writes, its caller's, drawn and accumulated fields in its field order, and then,
- * for each family it is a member of, in the law model's order, its drawn law columns: a counted index ‹i›, ‹n›, a
- * tree's ‹ps›, and each fold's hidden accumulators, by fold and plane, the before then the after. A generated field is
- * PostgreSQL's, so none is listed.
+ * for each family it is a member of, in their order as members (`memberFamilies`), its drawn law columns: a counted
+ * index ‹i›, ‹n›, a tree's ‹ps›, and each fold's hidden accumulators, by fold and plane, the before then the after. A
+ * generated field is PostgreSQL's, so none is listed.
  */
 export interface RowLayout {
 	readonly relation: StoredRelationName
@@ -71,11 +71,17 @@ export const laidLayout = (layout: LaidLayout): LaidLayout => {
 	}
 }
 
-/** The families `relation` is a member of, in the law model's order. */
+/**
+ * The families `relation` is a member of, in their order by what they are (ir/family.ts familyOrder): the sequence that
+ * nests its rows first, a relation being a member of at most one, then its counted families by key. The one spelling of
+ * a member's families every reader of them goes through, so its layout (`rowLayout`), the family a row of it is reported
+ * by (write/program/decide.ts rowFamilies) and every pick among them is the same whatever order the law model states its
+ * families in.
+ */
 export const memberFamilies = (
 	relation: string,
 	families: ReadonlyArray<Family>
-): ReadonlyArray<Family> => families.filter((f) => f.member.name === relation)
+): ReadonlyArray<Family> => families.filter((f) => f.member.name === relation).toSorted(familyOrder)
 
 /**
  * The row layout of `relation` over the law model's `families` (`RowLayout`): its primary key's fields, its other

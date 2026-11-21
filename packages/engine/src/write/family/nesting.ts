@@ -59,7 +59,7 @@ import {
 	type NativeColumn
 } from "#compiler/ir/law.ts"
 import type { Heading } from "#compiler/ir/rel.ts"
-import type { NestingData } from "#compiler/runtime/write/nesting.ts"
+import type { NestedLayoutData, NestingData } from "#compiler/runtime/write/nesting.ts"
 import { walkStart } from "#compiler/write/family/fold.ts"
 import { laidLayout, type RowLayout, rowLayout } from "#compiler/write/family/statements.ts"
 
@@ -110,6 +110,13 @@ const idData = (id: FamilyId): { readonly id: FamilyId } => ({
 const atData = (at: FillPosition): FillAt =>
 	at.kind === "top" ? { kind: "top" } : { kind: at.kind, family: idData(at.family.id) }
 
+/** A relation's layout in a nesting as a binding holds it (`NestedLayoutData`). */
+export const nestedLayoutData = (at: NestedLayout): NestedLayoutData => ({
+	layout: laidLayout(at.layout),
+	pending: at.pending,
+	position: atData(at.position)
+})
+
 /** A nesting as a binding holds it (`NestingData`): its own rows keyed by their key's fields but those a stamp fills,
  * which every row of a call holds alike in each group (`keyedOf`). */
 export const nestingData = (nesting: Nesting): NestingData => ({
@@ -134,12 +141,7 @@ export const nestingData = (nesting: Nesting): NestingData => ({
 		heading: headingData(heading)
 	})),
 	start: atData(nesting.start),
-	layouts: new Map(
-		[...nesting.layouts].map(([relation, at]) => [
-			relation,
-			{ layout: laidLayout(at.layout), pending: at.pending, position: atData(at.position) }
-		])
-	),
+	layouts: new Map([...nesting.layouts].map(([relation, at]) => [relation, nestedLayoutData(at)])),
 	top: headingData(nesting.top),
 	pending: nesting.pending
 })

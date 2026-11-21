@@ -131,6 +131,7 @@ import {
 	type EnumeratedInput,
 	type MemberSlot,
 	type SlotGroup,
+	stratumLayouts,
 	type WriteFrontend,
 	type WrittenRelation,
 	writingSlots
@@ -423,15 +424,12 @@ const familyProgram = (
 		stratum.family.map(({ node }): FamilyPlacement => {
 			if (node.kind === "unit") {
 				/** The rows the stratum adds of a unit's relation, which a doomed row is kept as: the rows its nested writes
-				 * fill, where one lays it out, else the facts of each slot that inserts it. */
+				 * fill, where its one nesting lays it out (frontend/compile.ts stratumLayouts), else the facts of each slot that
+				 * inserts it. */
 				const addedOf = (relation: RelationInfo): ReadonlyArray<AddedRows> => {
-					const nested = frontend.nested.flatMap((n) => {
-						const at = n.stratum === s ? n.nesting.layouts.get(relation.name) : undefined
-						return at === undefined ? [] : [sentLayout(at)]
-					})
-					const [laid] = nested
-					if (laid !== undefined) {
-						return [{ kind: "nestedRows", stratum: s, layout: laid }]
+					const at = stratumLayouts(frontend.nested, s).get(relation.name)
+					if (at !== undefined) {
+						return [{ kind: "nestedRows", stratum: s, layout: sentLayout(at.layout) }]
 					}
 					return frontend.slots.flatMap((group) =>
 						group.stratum === s && group.relation.name === relation.name
@@ -564,28 +562,25 @@ const familyProgram = (
 				})
 			}
 			if (node.kind === "additions") {
-				/** The rows the stratum's nested writes fill, by relation, as each sends them (nesting.ts sentLayout), with
-				 * the columns of them the walk fills, which they state. */
+				/** The rows the stratum's nested writes fill, by relation, as the one nesting that lays each out sends them
+				 * (frontend/compile.ts stratumLayouts, nesting.ts sentLayout), with the columns of them the walk fills, which
+				 * they state. */
 				const nestedRows = new Map(
-					frontend.nested.flatMap((n) =>
-						n.stratum === s
-							? [...n.nesting.layouts].map(([relation, at]) => {
-									const stamps = n.nesting.stamps.get(relation) ?? []
-									const stamped = new Set(stamps.map((st) => columnKeyOf(st.field.name)))
-									const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
-										kind: "nestedRows",
-										stratum: s,
-										layout: sentLayout({
-											layout: at.layout,
-											pending: new Set([...at.pending].filter((k) => !stamped.has(k)))
-										}),
-										walked: at.walked,
-										stamps
-									}
-									return [relation, source] as const
-								})
-							: []
-					)
+					[...stratumLayouts(frontend.nested, s)].map(([relation, { nesting, layout: at }]) => {
+						const stamps = nesting.stamps.get(relation) ?? []
+						const stamped = new Set(stamps.map((st) => columnKeyOf(st.field.name)))
+						const source: Extract<RowSource, { readonly kind: "nestedRows" }> = {
+							kind: "nestedRows",
+							stratum: s,
+							layout: sentLayout({
+								layout: at.layout,
+								pending: new Set([...at.pending].filter((k) => !stamped.has(k)))
+							}),
+							walked: at.walked,
+							stamps
+						}
+						return [relation, source] as const
+					})
 				)
 				/** The member relations the statement appends, or, appending none, the one whose owners it recounts. */
 				const members = node.appends === "rows" ? node.members : [node.member]

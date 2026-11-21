@@ -10,6 +10,13 @@
  */
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { ColumnIdent, Identifier, LawId } from "#compiler/core/ids.ts"
+import {
+	combineAll,
+	compareBooleans,
+	compareStrings,
+	type Comparator,
+	mapInput
+} from "#compiler/core/order.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import {
@@ -136,6 +143,19 @@ export const orderOf = (f: Pick<Family, "shape">): "ordered" | "counted" =>
 
 /** Whether a family is a sequence, ordered or a tree, whose members a write nests in order under their owner. */
 export const isSequence = (f: Pick<Family, "shape">): boolean => orderOf(f) === "ordered"
+
+/**
+ * Families in one order of what they are, a function of the families alone, never of the order a schema or its law
+ * model states them in, which moves whenever the statements' canonical order is defined anew: a sequence, ordered or a
+ * tree, before a counted family, then by key, owner then count, by code unit, one count counting one family. Among one
+ * relation's families as their member (write/family/statements.ts memberFamilies), the first is the sequence that nests
+ * its rows, a relation being a member of at most one (analysis/theory/laws.ts families).
+ */
+export const familyOrder: Comparator<Family> = combineAll([
+	mapInput(compareBooleans, (f: Family) => !isSequence(f)),
+	mapInput(compareStrings, (f: Family) => f.id.owner),
+	mapInput(compareStrings, (f: Family) => f.id.count)
+])
 
 /** Whether a family is the tree of the relation `relation`: its family over itself whose members are a tree's. */
 export const isTreeOf = (f: Family, relation: string): boolean =>
