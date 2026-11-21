@@ -5,8 +5,9 @@
  * query building blocks (Source, SelfSource, BoundSource, Carriers, Bindings, CarriersOf, ParamOrigin,
  * ConstantOrigin, LiteralOrigin, ComputedOrigin, Literal, Aggregate, Producer, ResultOf, ParamsOf, ParamType,
  * ParamArg, DeliveredKeys, DeliveredHeading), an
- * attachment's delivery (Arm, DeliveryKind), a union's arms (UnionArm, ArmStage) and the evidence vocabulary (Evidence,
- * EvidenceOf) are the public supporting types. Term and Predicate are the compute barrel's, ALLEN the allen barrel's.
+ * attachment's delivery (Arm, DeliveryKind), a union's arms (UnionArm, ArmStage), a record of reads as one query
+ * (ReadsQuery over ReadsChildren, query(S).reads(R)'s type) and the evidence vocabulary (Evidence, EvidenceOf) are the
+ * public supporting types. Term and Predicate are the compute barrel's, ALLEN the allen barrel's.
  */
 export { arm } from "#compiler/query/build/attach.ts"
 export { query, v } from "#compiler/query/build/query.ts"
@@ -43,6 +44,8 @@ export type {
 	ParamsOf,
 	Query,
 	QueryBuilder,
+	ReadsChildren,
+	ReadsQuery,
 	SelfSource,
 	UnionArm
 } from "#compiler/types/query/query.ts"
