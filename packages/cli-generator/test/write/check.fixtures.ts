@@ -56,6 +56,7 @@ const inputsUnder = (root: string, layout: Layout) =>
 		const config = path.join(root, layout.config)
 		yield* fs.makeDirectory(path.dirname(spec), { recursive: true })
 		yield* fs.makeDirectory(path.dirname(config), { recursive: true })
+		yield* fs.makeDirectory(path.dirname(path.join(root, layout.out)), { recursive: true })
 		yield* fs.writeFileString(spec, texts.spec)
 		yield* fs.writeFileString(config, texts.config)
 		const input = {
@@ -145,7 +146,7 @@ export const checkedAfter = (root: string, fault: Fault) =>
 		const path = yield* Path.Path
 		const { input, config } = yield* inputsUnder(root, Arr.headNonEmpty(LAYOUTS))
 		const result = yield* generate(input, config)
-		const written = [...result.files, manifestFileName]
+		const written = [manifestFileName, ...result.files]
 		const left = () => {
 			switch (fault.kind) {
 				case "none":

@@ -419,7 +419,7 @@ export const validateOffline = (
 			const fs = yield* FileSystem.FileSystem
 			const path = yield* Path.Path
 			const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-			const bin = path.join(checkout, "src", "bin.ts")
+			const bin = path.join(checkout, "packages", "cli-generator", "src", "bin.ts")
 			const spec = path.join(dir, "openapi.json")
 			yield* fs.writeFileString(spec, jsonText(document))
 			const handle = yield* spawner.spawn(
