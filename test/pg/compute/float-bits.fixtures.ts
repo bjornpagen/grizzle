@@ -155,8 +155,9 @@ export const runBag = (
 				[]
 			)
 		}
+		/** Ordered by the stored image, a bigint, which the table's alias names, not the select list's text of it. */
 		const stored = yield* connection.queryValues(
-			`SELECT ${b("bits")}::text, ${b("count")} FROM ${bag} ORDER BY ${b("bits")}`,
+			`SELECT bag.${b("bits")}::text, bag.${b("count")} FROM ${bag} AS bag ORDER BY bag.${b("bits")}`,
 			[]
 		)
 		assert.deepEqual(
@@ -203,8 +204,9 @@ export const runBag = (
 		yield* connection.query("SET LOCAL enable_bitmapscan = off", [])
 		c.note(drawn.shape === "seq" ? "read by a scan" : "read by index")
 		for (const [image, { value }] of counts.entries()) {
+			/** The image as a typed literal, since `-x::int8` casts x before negating it and -0's, int8's least, overflows. */
 			const byImage = yield* connection.queryValues(
-				`SELECT ${b("count")} FROM ${bag} WHERE ${b("variable")} = 'v' AND ${b("bits")} = ${image}::int8`,
+				`SELECT ${b("count")} FROM ${bag} WHERE ${b("variable")} = 'v' AND ${b("bits")} = '${image}'::int8`,
 				[]
 			)
 			assert.deepEqual(
@@ -228,6 +230,8 @@ export const runBag = (
 		yield* connection.query("SET LOCAL enable_indexscan = on", [])
 		yield* connection.query("SET LOCAL enable_seqscan = on", [])
 		yield* connection.query("SET LOCAL enable_bitmapscan = on", [])
+		/** The images the tallies accepted so far hold, under the tally's key over (variable, bits). */
+		const tallied = new Set<bigint>()
 		for (const [at, value] of drawn.tallied.entries()) {
 			const refused = yield* refusalOf(
 				connection.query(
@@ -235,18 +239,26 @@ export const runBag = (
 					[]
 				)
 			)
-			const held = counts.has(floatBits(value))
+			const image = floatBits(value)
+			const held = counts.has(image)
+			const again = tallied.has(image)
 			if (Option.isNone(refused)) {
 				assert.ok(
-					held,
-					`a tally of ${literal(value)} accepted where the bag lacks its identity: ${where}`
+					held && !again,
+					`a tally of ${literal(value)} accepted where the bag lacks its identity or a tally holds it: ${where}`
 				)
+				tallied.add(image)
 				c.note("a tally accepted")
 				continue
 			}
+			assert.equal(
+				refused.value.code,
+				held ? "23505" : "23503",
+				`a tally of ${literal(value)} refused (${refused.value.code}): by its key where a tally holds its identity, by the containment where the bag lacks it: ${where}`
+			)
 			assert.ok(
-				!held,
-				`a tally of ${literal(value)} refused (${refused.value.code}) where the bag holds its identity: ${where}`
+				!held || again,
+				`a tally of ${literal(value)} refused where the bag holds its identity and no tally does: ${where}`
 			)
 			if (Object.is(value, -0) && counts.has(floatBits(0))) {
 				c.note("a tally of -0 refused where only 0 is held")
