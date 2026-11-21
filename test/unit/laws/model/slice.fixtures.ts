@@ -34,10 +34,9 @@ import { namedRole, selectionKeysOf } from "#compiler/physical/ddl/names.ts"
 import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program/compile.ts"
 import { roleArtifacts, type SchemaArtifacts, type SchemaInput } from "#compiler/program/schema.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
-import { namedLaw } from "#compiler/runtime/law-entry.ts"
 import { fullRoleDesc, type OwnedLogin, type OwnedRole, ownLogin } from "#compiler/schema/own.ts"
 import { carrierScope } from "#compiler/sql/naming.ts"
-import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
@@ -917,7 +916,7 @@ const dischargingOnly = (
 	n: NamedNative,
 	planned: ReadonlySet<LawId>,
 	keyLaws: ReadonlyMap<LawId, string>,
-	described: (law: LawId) => OwnLaw
+	described: (law: LawId) => RecordedLaw
 ): NamedNative => {
 	const [reported] = n.object.lawIds
 	const implying =
@@ -952,10 +951,10 @@ export const heldOver = (
 	planned: ReadonlySet<LawId>,
 	writes: ReadonlySet<string>
 ): ReadonlyArray<{ readonly whole: NamedNative; readonly held: NamedNative }> => {
-	const laws = new Map<LawId, OwnLaw>(
-		Arr.map(whole.theoryLaws, (l) => [l.law, namedLaw(l.described)] as const)
+	const laws = new Map<LawId, RecordedLaw>(
+		Arr.map(whole.theoryLaws, (l) => [l.law, l.described] as const)
 	)
-	const described = (law: LawId): OwnLaw => defined(laws.get(law), `${law} is described`)
+	const described = (law: LawId): RecordedLaw => defined(laws.get(law), `${law} is described`)
 	const keyLaws = keyLawsOf(whole.laws)
 	const plannedNatives = Arr.flatMap(whole.laws.natives, (n) =>
 		Arr.some(n.object.lawIds, (l) => planned.has(l))
