@@ -480,8 +480,8 @@ SQLSTATE 23514 on the constraint `within_plan`.
 
 Every failure is one `CallError` like this one, `{ kind, retry, message }`: a dropped connection, a serialization
 failure, a rule's refusal. `retry: "safe"` means nothing committed and the same call may succeed, as after a
-`transient` one, whose `reason` says which concurrent transaction's work met it; your code may run the write again, as
-`settled(call)` does past each `transient` one, and grizzle never does by itself. [Errors and outcomes](#errors-and-outcomes) lists every outcome and error.
+`transient` one, whose `reason` says which concurrent transaction's work met it; your code may run the write again, and
+grizzle never does. [Errors and outcomes](#errors-and-outcomes) lists every outcome and error.
 
 That is the model in small: facts, laws over them, queries that are sets, and writes that move between lawful states.
 The rest of it arrives through eight cases that are hard when tables are storage, starting with the idea that what a
@@ -889,7 +889,6 @@ import {
 	Monoid,
 	mutable,
 	natural,
-	settled,
 	wholeEntriesOf,
 	workload
 } from "@bjornpagen/grizzle"
@@ -928,14 +927,14 @@ export const Credits = schema(
 
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
-/** Debit a grant for one call, run again past each transient refusal; grizzle never retries by itself. */
+/** Debit a grant for one call: a transient refusal is the caller's to run again; grizzle never retries. */
 export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
 export const metering = workload(Metering, { debitGrant })
 
 export const spend = (
 	db: Db<typeof Metering, typeof metering.programs>,
 	debit: Fact<typeof Debit>
-) => settled(db.workload.debitGrant.once({ params: {}, facts: { insert: { Debit: [debit] } } }))
+) => db.workload.debitGrant.once({ params: {}, facts: { insert: { Debit: [debit] } } })
 ```
 
 **What you get.** The rule holds at commit, for every writer. A debit is written as its own row, `{ call, grant, amount }`, a `Fact<typeof Debit>`. `debits` and `spent` are grizzle's to draw, so no insert or put takes them. `grizzle generate` compiles the family, the fold and the check to PostgreSQL's own constraints, over hidden columns of each debit that grizzle fills on every write and no query reads; abridged:
@@ -1837,14 +1836,15 @@ export const loadViews = (
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlServed.roles.etl, {})
-			return yield* settled(
-				db.workload.recordViews.once({ params: {}, facts: { put: { PostViews: views } } })
-			)
+			return yield* db.workload.recordViews.once({
+				params: {},
+				facts: { put: { PostViews: views } }
+			})
 		})
 	)
 ```
 
-`put` writes rows by primary key: after the change, the row at each key is the one given. The load is one transaction, so it lands whole or not at all: a count for a post deleted since the export is `refused` on the containment of `PostViews`' `org` and `post` in `Post`'s `org` and `slug`, and nothing is written. grizzle never retries on its own: `settled` runs the write again past each `transient` error, such as a serialization failure, which changed nothing, and ends with the write's outcome or its first failure of another kind.
+`put` writes rows by primary key: after the change, the row at each key is the one given. The load is one transaction, so it lands whole or not at all: a count for a post deleted since the export is `refused` on the containment of `PostViews`' `org` and `post` in `Post`'s `org` and `slug`, and nothing is written. grizzle never retries: a `transient` error, such as a serialization failure, changed nothing, and running the write again is the caller's decision.
 
 `EtlJob` needs no `verify` and opens with no token, since its role reads no claims. Its pool holds at most two connections and closes each five seconds after its last use.
 
@@ -4820,12 +4820,11 @@ fails with its `CallError`, by kind:
   your verifier never reads as a refused token.
 - **`transient`**: its `reason` is `SerializationFailure` (40001), `Deadlock` (40P01), or a concurrent transaction's
   work the statement met (`PutTargetConflict`, `SpanKeyChange`, `UnseenOccupant`, `ConcurrentRefresh`). grizzle never
-  retries by itself: `settled(call)` runs a call again at once past each `transient` refusal, with no bound, and ends
-  with its value or its first failure of another kind, typed `Settled` over every kind. Each refusal changed nothing and
-  came of another transaction's committed work, and PostgreSQL's serializable implementation cancels an attempt only
-  once a transaction it conflicts with has committed, "such that an immediate retry will not fail again on conflicts
-  with the same transactions" (src/backend/storage/lmgr/README-SSI), so every attempt starts past work that committed
-  and no count of attempts is a defensible bound. A deadline is yours to put on the call, `Effect.timeout`.
+  runs a call again: running it again is the caller's (a den step runs again past one). Each refusal changed nothing
+  and came of another transaction's committed work, and PostgreSQL's serializable implementation cancels an attempt
+  only once a transaction it conflicts with has committed, "such that an immediate retry will not fail again on
+  conflicts with the same transactions" (src/backend/storage/lmgr/README-SSI), so a call run again starts past work
+  that committed. A deadline is yours to put on the call, `Effect.timeout`.
 - **`commitUnknown`**: COMMIT was sent whole and no answer came, so the change may have committed. Read back before
   running it again. A write the socket failed before COMMIT's last byte left the process is `transport` instead: COMMIT
   never reached the server.

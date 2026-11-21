@@ -677,10 +677,9 @@ The command line's own refusals, by stage:
   authenticated: `passwordFailed`, `passwordRefused`, `loginRefused`, `tlsUnverified`, `driverRefused`; `stale`,
   `commitUnknown`, `failed`, and over HTTP `route`). A configuration fault is `credentialRefused`; a database
   that is down is `unavailable`. Its `message` is the failure's own words, the server's report
-  where the database refused; read facts from the kind's members, never from the message. Run a call again past its
-  `transient` refusals with `settled(call)`, which runs it again at once while it fails `transient`, with no bound, and
-  ends with its first other answer, typed `Settled`; any other `"safe"` failure is yours to run again by your own
-  `Schedule`; after `commitUnknown`, read back before running the call again. `DbLayer.make` and `Db.open` fail with `OpenError`, whose tagged `reason` `Effect.catchReason`
+  where the database refused; read facts from the kind's members, never from the message. grizzle runs no call again:
+  a `transient` or any other `"safe"` failure is yours to run again (a den step runs again past one); after
+  `commitUnknown`, read back before running the call again. `DbLayer.make` and `Db.open` fail with `OpenError`, whose tagged `reason` `Effect.catchReason`
   reaches; every error and reason class is exported as a value, so a test builds the exact value, never a cast.
 - A broken rule is a write's `refused` `CallError`, its `retry` `"never"`. It carries `refused`,
   `{ kind: "every" | "first" | "some", laws }`, whose `laws` are never empty, each `{ law, id, by }`: `law` the law as

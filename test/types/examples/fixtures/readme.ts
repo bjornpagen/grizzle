@@ -59,7 +59,6 @@ import {
 	Search,
 	searchDocument,
 	select,
-	settled,
 	type Sha256,
 	sha256,
 	span,
@@ -390,14 +389,14 @@ export const Credits = schema(
 
 export const Metering = role(Credits, "metering", wholeEntriesOf(Credits), { write: ["Debit"] })
 
-/** Debit a grant for one call, run again past each transient refusal; grizzle never retries by itself. */
+/** Debit a grant for one call: a transient refusal is the caller's to run again; grizzle never retries. */
 export const debitGrant = ChangeSet.empty(Credits).insert(Debit, [])
 export const metering = workload(Metering, { debitGrant })
 
 export const spend = (
 	db: Db<typeof Metering, typeof metering.programs>,
 	debit: Fact<typeof Debit>
-) => settled(db.workload.debitGrant.once({ params: {}, facts: { insert: { Debit: [debit] } } }))
+) => db.workload.debitGrant.once({ params: {}, facts: { insert: { Debit: [debit] } } })
 
 /** README: "Hard in Drizzle, one declaration here", 6. Books that always balance. */
 const AccountCode = str.regex("^[a-z][a-z_]{0,63}$")
@@ -793,9 +792,10 @@ export const loadViews = (
 	etl.runPromise(
 		Effect.gen(function* () {
 			const db = yield* Db.open(EtlServed.roles.etl, {})
-			return yield* settled(
-				db.workload.recordViews.once({ params: {}, facts: { put: { PostViews: views } } })
-			)
+			return yield* db.workload.recordViews.once({
+				params: {},
+				facts: { put: { PostViews: views } }
+			})
 		})
 	)
 
