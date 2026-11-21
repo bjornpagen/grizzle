@@ -15,7 +15,7 @@ import { agree } from "@bjornpagen/testing/oracle"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { type ConstraintLaws } from "#compiler/ir/products.ts"
+import { type ConstraintLaws, lawsOfConstraint } from "#compiler/ir/products.ts"
 import {
 	type HostFact,
 	type HostLaw,
@@ -39,7 +39,6 @@ import {
 
 import { defined } from "@bjornpagen/testing/assert"
 import type { ClosedField } from "#test/support/closed/stored.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type CaseSketch,
@@ -927,24 +926,22 @@ type RefusedAt =
 	| { readonly kind: "commit" }
 
 /**
- * The host law a reported constraint names, if any: a native constraint's, under the table or domain PostgreSQL reports
- * it on, as the installation maps it. Every law is native (fin.md §7), so a constraint beside no owner names none.
+ * The host laws a reported constraint names: every law of the native constraint, under the table or domain PostgreSQL
+ * reports it on, as the installation maps it (ir/products.ts ConstraintLaws), that the host holds. Every law is native
+ * (fin.md §7), so a constraint beside no owner names none.
  */
-const lawOfConstraint = (
+const lawsOfReported = (
 	host: HostSchema,
 	laws: ConstraintLaws,
 	fields: PgErrorFields
-): Option.Option<HostLaw> => {
+): ReadonlyArray<HostLaw> => {
 	const constraint = fields.constraint
-	if (constraint === undefined) {
-		return Option.none()
-	}
 	const owner = reportedOwnerOf(fields)
-	if (owner === undefined) {
-		return Option.none()
+	if (constraint === undefined || owner === undefined) {
+		return []
 	}
-	const native = soleLawOfConstraint(laws, owner, constraint)
-	return Arr.findFirst(host.laws, (l) => l.law === native)
+	const natives = lawsOfConstraint(laws, owner, constraint) ?? []
+	return Arr.filter(host.laws, (l) => Arr.contains(natives, l.law))
 }
 
 /**
@@ -974,8 +971,8 @@ const judgeRefusal = (
 					`expected a refusal at statement ${e.at}, got ${fields.code} ${Formatter.format(at)}`
 				)
 			}
-			const law = lawOfConstraint(host, laws, fields)
-			const met = Arr.findFirst(e.laws, (l) => Option.isSome(law) && l.law === law.value.law)
+			const named = lawsOfReported(host, laws, fields)
+			const met = Arr.findFirst(e.laws, (l) => Arr.some(named, (n) => n.law === l.law))
 			if (Option.isNone(met)) {
 				return problem(
 					`refused by ${String(fields.constraint)}, none of ${Formatter.format(Arr.map(e.laws, (l) => l.law))}`
@@ -993,11 +990,8 @@ const judgeRefusal = (
 			if (at.kind !== "commit") {
 				return problem(`expected a refusal at COMMIT, got ${fields.code} ${Formatter.format(at)}`)
 			}
-			const raised = lawOfConstraint(host, laws, fields)
-			const violation = Arr.findFirst(
-				e.violations,
-				(v) => Option.isSome(raised) && v.law === raised.value.law
-			)
+			const raised = lawsOfReported(host, laws, fields)
+			const violation = Arr.findFirst(e.violations, (v) => Arr.some(raised, (r) => r.law === v.law))
 			if (Option.isNone(violation)) {
 				return problem(
 					`refused by ${String(fields.constraint)}, none of ${Formatter.format(e.violations)}`

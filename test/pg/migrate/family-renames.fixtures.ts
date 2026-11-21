@@ -38,7 +38,7 @@ import {
 	kept,
 	openMigrator,
 	refusedIn,
-	refusedLaw,
+	refusedLaws,
 	reviewedSource
 } from "#test/pg/migrate/support.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -1346,7 +1346,7 @@ export const changeCase = (c: ChangeCase, k: Case<ChangeFeature>) =>
 				`the refusal names the third folder: ${failure.message}`
 			)
 			assert.ok(
-				Option.exists(refusedLaw(failure), (law) => laws.has(law)),
+				Arr.some(refusedLaws(failure), (law) => laws.has(law)),
 				`the refusal names the regrouped family's law or its fold's: ${failure.message}`
 			)
 			return

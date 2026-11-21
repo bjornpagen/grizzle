@@ -100,7 +100,7 @@ export const aContainmentIntoATargetFixedByValuesAndByItsOwnTermOnPostgreSQL19Co
 							(k) =>
 								k.kind === "foreign" &&
 								k.relation === "Document" &&
-								Option.exists(k.law, (l) => laws.includes(l))
+								Arr.some(k.laws, (l) => laws.includes(l))
 						)
 					) {
 						return yield* new Disagreed({

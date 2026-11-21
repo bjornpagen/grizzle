@@ -94,7 +94,6 @@ import { ownerSession, Substrate, type SubstrateShape } from "#test/support/subs
 
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
-import { soleLaw } from "#test/support/constraint-law.ts"
 import { paramText } from "#test/support/wire.ts"
 /** The migration identity's connection to the substrate's database.
  *
@@ -271,27 +270,26 @@ export const refusal = <A>(effect: Effect.Effect<A, MigrateError>): Effect.Effec
 	})
 
 /**
- * The law a migration's refusal names: migrate's reading of the refused constraint through its folder's laws (a
- * StatementFailed's or a FileCommitRefused's `law`, apply.ts brokenLaw), or, for a violation check, which raises
- * integrity_constraint_violation under the law's identity itself and which brokenLaw leaves unnamed, that identity, as
- * the backfill's check of a key its derivations rely on does (deploy/diff/backfill.ts keyChecks) before any of them
- * runs; none for any other failure.
+ * The laws a migration's refusal names: migrate's reading of the refused constraint through its folder's laws, every
+ * law it serves (a StatementFailed's or a FileCommitRefused's `laws`, apply.ts brokenLaws), or, for a violation check,
+ * which raises integrity_constraint_violation under the law's identity itself and which brokenLaws leaves unnamed, that
+ * identity, as the backfill's check of a key its derivations rely on does (deploy/diff/backfill.ts keyChecks) before any
+ * of them runs; none for any other failure.
  */
-export const refusedLaw = (failure: MigrateError): Option.Option<string> => {
+export const refusedLaws = (failure: MigrateError): ReadonlyArray<string> => {
 	const reason = failure.reason
 	if (reason._tag === "FileCommitRefused") {
-		return Option.fromUndefinedOr(soleLaw(reason.laws, "the COMMIT's refused constraint"))
+		return reason.laws
 	}
 	if (reason._tag !== "StatementFailed") {
-		return Option.none()
+		return []
 	}
-	const law = soleLaw(reason.laws, "the statement's refused constraint")
-	return law !== undefined
-		? Option.some(law)
+	return Arr.isReadonlyArrayNonEmpty(reason.laws)
+		? reason.laws
 		: reason.failure._tag === "ServerError" &&
 			  reason.failure.sqlstate === sqlstates.integrityConstraintViolation
-			? Option.fromUndefinedOr(reason.failure.constraint)
-			: Option.none()
+			? Option.toArray(Option.fromUndefinedOr(reason.failure.constraint))
+			: []
 }
 
 /** The folder a migration's refusal names, none for any other failure. */

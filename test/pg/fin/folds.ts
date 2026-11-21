@@ -1091,10 +1091,10 @@ export const judgedFold = (
 		}
 		if (
 			native.value !== "identity" &&
-			!Option.exists(named.value.law, (l) => j.fold.laws.includes(l))
+			!Arr.some(named.value.laws, (l) => j.fold.laws.includes(l))
 		) {
 			return yield* disagree(
-				`the ${native.value} reports ${Formatter.format(named.value.law)}, no law of the family or the fold`,
+				`the ${native.value} reports ${Formatter.format(named.value.laws)}, no law of the family or the fold`,
 				real
 			)
 		}

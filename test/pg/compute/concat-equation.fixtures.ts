@@ -9,6 +9,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -17,7 +18,6 @@ import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -295,13 +295,13 @@ class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string
 /** A text as an SQL literal: each quote doubled. */
 const literal = (text: string): string => `'${Str.replaceAll("'", "''")(text)}'`
 
-/** The law a refusal names, by the constraint and table PostgreSQL reports: one of the schema's tables'. */
-const refusedLaw = (
+/** Every law a refusal names, by the constraint and table PostgreSQL reports: one of the schema's tables'. */
+const refusedLaws = (
 	installation: Installation,
 	fields: { readonly table: Option.Option<string>; readonly constraint: string | undefined }
-): LawId | undefined => {
+): ReadonlyArray<LawId> => {
 	if (Option.isNone(fields.table) || fields.constraint === undefined) {
-		return undefined
+		return []
 	}
 	const table = fields.table.value
 	const owner = Arr.findFirst(
@@ -309,12 +309,12 @@ const refusedLaw = (
 		(r) => installation.names.relation(r).name === table
 	)
 	return Option.isNone(owner)
-		? undefined
-		: soleLawOfConstraint(
+		? []
+		: (lawsOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint
-			)
+			) ?? [])
 }
 
 /**
@@ -366,7 +366,10 @@ export const runWritten = (
 				}
 				continue
 			}
-			if (split(drawn) || refusedLaw(installed.installation, refused.value) !== inlineLaw) {
+			if (
+				split(drawn) ||
+				!Arr.contains(refusedLaws(installed.installation, refused.value), inlineLaw)
+			) {
 				return yield* new Disagreed({
 					message: `the CHECK refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} an inline reference ${split(drawn) ? "split as its lexical form is" : "naming another law"}: ${Formatter.format(drawn)}`
 				})
@@ -394,7 +397,10 @@ export const runWritten = (
 			c.note("accepted")
 			return
 		}
-		if (!broken || refusedLaw(installed.installation, refused.value) !== referenceLaw) {
+		if (
+			!broken ||
+			!Arr.contains(refusedLaws(installed.installation, refused.value), referenceLaw)
+		) {
 			return yield* new Disagreed({
 				message: `the judge refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} where ${broken ? "it names another law" : "every reference is split as its lexical form is"}: ${where}`
 			})

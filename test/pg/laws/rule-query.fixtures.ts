@@ -14,6 +14,7 @@ import { Array as Arr, Data, Effect, Layer, Option, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -36,7 +37,6 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { servedFixture } from "#test/support/served-db.ts"
@@ -1579,21 +1579,26 @@ export const judgedIn = (taken: SubstrateCase<Installed>, label: string) =>
 				Arr.findFirst(RELATIONS, (r) => installation.names.relation(r).name === ident)
 			)
 		/** The rule a refusal's raise reports, through the installation's constraint map. */
-		const refusedRule = (fields: {
+		/** Every rule of the laws a refusal's constraint serves, through the installation's constraint map. */
+		const refusedRules = (fields: {
 			readonly table: Option.Option<string>
 			readonly constraint: string | undefined
-		}): Rule | undefined => {
+		}): ReadonlyArray<Rule> => {
 			const relation = Option.isNone(fields.table) ? undefined : tableRelation(fields.table.value)
 			if (relation === undefined || fields.constraint === undefined) {
-				return undefined
+				return []
 			}
-			const law = soleLawOfConstraint(
-				installation.constraintToLaw,
-				{ kind: "table", name: installation.names.relation(relation).name },
-				fields.constraint
-			)
-			const described = law === undefined ? undefined : installation.described.get(law)
-			return described === undefined ? undefined : ruleOf(described)
+			const laws =
+				lawsOfConstraint(
+					installation.constraintToLaw,
+					{ kind: "table", name: installation.names.relation(relation).name },
+					fields.constraint
+				) ?? []
+			return Arr.flatMap(laws, (law) => {
+				const described = installation.described.get(law)
+				const rule = described === undefined ? undefined : ruleOf(described)
+				return rule === undefined ? [] : [rule]
+			})
 		}
 		/** The ChangeSet taking `before` to `after`, applied by its served member as the application's login. */
 		const write = (before: State, after: State) =>
@@ -1603,7 +1608,7 @@ export const judgedIn = (taken: SubstrateCase<Installed>, label: string) =>
 			second,
 			writer,
 			write,
-			refusedRule,
+			refusedRules,
 			checkName,
 			deltas: sessionDeltas(done),
 			judge: `${quoteIdent(installation.names.schema)}.${quoteIdent(identifierOf(identity.ruleJudge()))}()`

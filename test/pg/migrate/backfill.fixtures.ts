@@ -62,7 +62,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { AnyRelation } from "#compiler/types/schema/relation.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { FOLD_SPECS, type FoldSpec, Tag } from "#test/pg/fin/folds.ts"
-import { type Aim, refusedIn, refusedLaw } from "#test/pg/migrate/support.ts"
+import { type Aim, refusedIn, refusedLaws } from "#test/pg/migrate/support.ts"
 import { foldStoredOf } from "#test/support/families/fold.ts"
 import {
 	type Forest as KeyedForest,
@@ -1758,7 +1758,7 @@ export const rekeyed = (r: Rekey) =>
 				`the refusal names the re-key's folder, drafted at ${rekeyFolderAt}: ${failure.message}`
 			)
 			assert.ok(
-				Option.exists(refusedLaw(failure), (law) => laws.has(law)),
+				Arr.some(refusedLaws(failure), (law) => laws.has(law)),
 				`the refusal names the law of a family whose kept indices the data step broke, or of its fold: ${failure.message}`
 			)
 			return

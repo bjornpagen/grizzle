@@ -13,7 +13,7 @@ import {
 import { constant, element, type Gen, int } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, String as Str } from "effect"
 import { applyLockKey, type SchemaApplyReport } from "#adapter/migrate/apply.ts"
 import type {
 	AppliedEdit,
@@ -46,6 +46,7 @@ import {
 import { codebookOf, emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { folderOrdinal, ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { catalogExpr } from "#compiler/sql/print.ts"
 import {
@@ -61,7 +62,6 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { firstCodes } from "#test/support/compile.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { atName, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftChain,
@@ -1006,20 +1006,21 @@ const realOf = (
 				}
 				const { sqlstate, constraint } = server.error
 				assert.ok(sqlstate === "23503", "the COMMIT's SQLSTATE")
-				const law =
+				const named =
 					constraint === undefined
-						? undefined
-						: soleLawOfConstraint(
+						? []
+						: (lawsOfConstraint(
 								snapshot.constraintToLaw,
 								{ kind: "table", name: task.ident },
 								constraint
-							)
-				/** The snapshot's law the refusal names, held at COMMIT: by a deferred native, or by the judge, a
+							) ?? [])
+				/** How the snapshot holds each law the refusal names, held at COMMIT: by a deferred native, or by the judge, a
 				 * containment judged whole among them (laws/model/plan.ts containmentDischarge). */
-				const held = law === undefined ? undefined : snapshot.theory.laws[law]?.kind
+				const held = Arr.map(named, (law) => snapshot.theory.laws[law]?.kind)
 				assert.ok(
-					held === "native" || held === "trigger",
-					`a law on Task held at COMMIT refuses it, by a deferred foreign key or the judge, not ${String(held)}`
+					Arr.isReadonlyArrayNonEmpty(held) &&
+						Arr.every(held, (kind) => kind === "native" || kind === "trigger"),
+					`every law on Task the COMMIT's refusal names is held at COMMIT, by a deferred foreign key or the judge, not ${Formatter.format(held)}`
 				)
 				const afterward = yield* observe(r)
 				assert.deepEqual(afterward.ledger, before.ledger, "the refused file is unrecorded")

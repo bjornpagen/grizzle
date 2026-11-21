@@ -9,6 +9,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -19,7 +20,6 @@ import { str } from "#compiler/public/text.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
@@ -583,13 +583,13 @@ const reachedBy = (
 	return reached
 }
 
-/** The law a refusal's trigger reports, through the installation's constraint map. */
-const refusedLaw = (
+/** Every law a refusal's constraint serves, through the installation's constraint map: none for another table's. */
+const refusedLaws = (
 	installation: Installation,
 	fields: { readonly table: Option.Option<string>; readonly constraint: string | undefined }
-): LawId | undefined => {
+): ReadonlyArray<LawId> => {
 	if (Option.isNone(fields.table) || fields.constraint === undefined) {
-		return undefined
+		return []
 	}
 	const table = fields.table.value
 	const owner = Arr.findFirst(
@@ -597,12 +597,12 @@ const refusedLaw = (
 		(r) => installation.names.relation(r).name === table
 	)
 	return Option.isNone(owner)
-		? undefined
-		: soleLawOfConstraint(
+		? []
+		: (lawsOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint
-			)
+			) ?? [])
 }
 
 /**
@@ -637,8 +637,8 @@ const judged = (installed: Installed, session: RawSession, where: string) =>
 			}
 			return false
 		}
-		const law = refusedLaw(installation, refused.value)
-		if (refused.value.code !== "23503" || law === undefined || !broken.has(law)) {
+		const laws = refusedLaws(installation, refused.value)
+		if (refused.value.code !== "23503" || !Arr.some(laws, (law) => broken.has(law))) {
 			return yield* new Disagreed({
 				message: `the judge refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} where the whole checks find ${Formatter.format([...broken])}, ${where}`
 			})

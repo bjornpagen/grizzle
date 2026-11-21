@@ -398,9 +398,9 @@ export const judgedFamily = (
 					real
 				)
 			}
-			if (constraint.value !== "identity" && !Option.contains(named.value.law, f.law)) {
+			if (constraint.value !== "identity" && !Arr.contains(named.value.laws, f.law)) {
 				return yield* disagree(
-					`the ${constraint.value} reports ${Formatter.format(named.value.law)}, not the family's law ${f.law}`,
+					`the ${constraint.value} reports ${Formatter.format(named.value.laws)}, not the family's law ${f.law}`,
 					real
 				)
 			}

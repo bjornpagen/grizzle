@@ -50,6 +50,7 @@ import type { MigrationPlace, ServerReport } from "#adapter/migrate/errors.ts"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
 import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import type { LawId } from "#compiler/core/ids.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import { parsedTarget, statementRows, type TextTarget } from "#test/pg/migrate/support.ts"
 import {
@@ -89,7 +90,6 @@ import {
 	workerFields,
 	workerName
 } from "#test/schedules/migrate/validate.fixtures.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { lawIdOf, lawNamesOf } from "#test/support/kernel/naming.ts"
 import { type GrizzleActor, openActors } from "#test/support/schedules/actors.ts"
 import {
@@ -149,7 +149,10 @@ export const aMigrationsValidatePhaseOverViolatingRowsEveryKindOfLawRefusesWithI
 									const owner = reportedOwner(server.error, new Set([names.schema]))
 									return (
 										owner !== undefined &&
-										soleLawOfConstraint(tightenedLaws, owner, server.error.constraint) === id
+										Arr.contains(
+											lawsOfConstraint(tightenedLaws, owner, server.error.constraint) ?? [],
+											id
+										)
 									)
 								}
 							/**

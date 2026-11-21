@@ -160,7 +160,7 @@ export const whichContainmentTargetsHoldAKeyOnPostgreSQL19AdmitATargetExactlyWhe
 										(k) =>
 											k.kind === "foreign" &&
 											k.relation === "Src" &&
-											Option.exists(k.law, (l) => laws.includes(l))
+											Arr.some(k.laws, (l) => laws.includes(l))
 									)
 								if (!byKey && !byContainment) {
 									return yield* new Disagreed({

@@ -17,6 +17,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -32,7 +33,6 @@ import {
 	seatIn,
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	foundQueryOf,
 	judgedPlans,
@@ -896,23 +896,23 @@ export const installedIn = (taken: SeatCase, shape: Shape) =>
 			everyRow: foundQueryOf(everyRow.query)
 		} satisfies Installed
 	})
-/** The law a refusal's trigger reports, through the installation's constraint map. */
-const refusedLaw = (
+/** Every law a refusal's constraint serves, through the installation's constraint map: none for another table's. */
+const refusedLaws = (
 	installation: Installation,
 	fields: { readonly table: Option.Option<string>; readonly constraint: string | undefined }
-): LawId | undefined => {
+): ReadonlyArray<LawId> => {
 	if (Option.isNone(fields.table) || fields.constraint === undefined) {
-		return undefined
+		return []
 	}
 	const table = fields.table.value
 	const owner = Arr.findFirst(RELATIONS, (r) => installation.names.relation(r).name === table)
 	return Option.isNone(owner)
-		? undefined
-		: soleLawOfConstraint(
+		? []
+		: (lawsOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint
-			)
+			) ?? [])
 }
 
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
@@ -1005,8 +1005,8 @@ export const judgeHistory = (
 			}
 			yield* session.rollback
 			const fields = refused.value
-			const law = refusedLaw(seat.installed.installation, fields)
-			if (!broken || fields.code !== codeOf(shape) || law !== installed.law) {
+			const laws = refusedLaws(seat.installed.installation, fields)
+			if (!broken || fields.code !== codeOf(shape) || !Arr.contains(laws, installed.law)) {
 				return yield* new Disagreed({
 					message: `refused by ${fields.code} ${fields.constraint ?? "naming no constraint"} where the whole check finds ${broken ? "the rule broken" : "nothing"}, ${where}`
 				})

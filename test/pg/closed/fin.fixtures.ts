@@ -8,6 +8,7 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Codebook, codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { generatedLaw } from "#compiler/plan/change.ts"
 import { bits, closedId, generated, natural, slot } from "#compiler/public/fields.ts"
@@ -21,7 +22,6 @@ import {
 	type ModelSlot,
 	type RosterState
 } from "#test/support/closed/generate.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { PgErrorFields, SqlError } from "#test/support/pg.ts"
 
@@ -469,25 +469,25 @@ export const insertSql = (
 export const idCode = (n: number): number => codeOf(codecFor(idState), `i${n}`)
 
 /**
- * A refused write into one relation, by the law PostgreSQL's report names on the relation's table, as an outcome names
- * it (types/changeset Law), grizzle's writer's `invariant-rejected` alike: a CHECK's (23514) by the law its constraint
- * reports; a NOT NULL's (23502) on a generated field's column, which names no constraint, by that field's law, its term
+ * A refused write into one relation, by the laws PostgreSQL's report names on the relation's table, as an outcome names
+ * them (types/changeset Law), grizzle's writer's `invariant-rejected` alike: a CHECK's (23514) by every law its
+ * constraint serves; a NOT NULL's (23502) on a generated field's column, which names no constraint, by that field's law, its term
  * having no value at the row; or unnamed, a report that names no law of the relation, a roster domain's refusal among
  * them.
  */
 export type Refusal =
-	| { readonly kind: "rejected"; readonly law: Law }
+	| { readonly kind: "rejected"; readonly laws: Arr.NonEmptyReadonlyArray<Law> }
 	| { readonly kind: "unnamed"; readonly report: string }
 
-/** The law PostgreSQL's report of a refused write into `relation` names (see Refusal), or none. */
-const reportedLaw = (
+/** The laws PostgreSQL's report of a refused write into `relation` names (see Refusal): none for any other report. */
+const reportedLaws = (
 	installation: Installation,
 	relation: string,
 	fields: PgErrorFields
-): Law | undefined => {
+): ReadonlyArray<Law> => {
 	const table = installation.names.relation(relation)
 	if (!Option.contains(fields.schema, table.schema) || !Option.contains(fields.table, table.name)) {
-		return undefined
+		return []
 	}
 	if (fields.code === sqlstates.notNullViolation) {
 		const stored = defined(installation.checked.relations.get(relation))
@@ -495,19 +495,19 @@ const reportedLaw = (
 			stored.fields,
 			(f) => f.writing.kind === "generated" && Option.contains(fields.column, f.column)
 		)
-		return Option.getOrUndefined(
-			Option.map(generatedField, (f) => generatedLaw(stored.name, f.name))
-		)
+		return Option.toArray(Option.map(generatedField, (f) => generatedLaw(stored.name, f.name)))
 	}
-	const law =
+	const ids =
 		fields.code === sqlstates.checkViolation && fields.constraint !== undefined
-			? soleLawOfConstraint(
+			? (lawsOfConstraint(
 					installation.constraintToLaw,
 					{ kind: "table", name: table.name },
 					fields.constraint
-				)
-			: undefined
-	return law === undefined ? undefined : installation.described.get(law)
+				) ?? [])
+			: []
+	return Arr.flatMap(ids, (id) =>
+		Option.toArray(Option.fromUndefinedOr(installation.described.get(id)))
+	)
 }
 
 /** What PostgreSQL's report of a refused write into `relation` names (see Refusal). */
@@ -515,10 +515,10 @@ const refusalOf = (installation: Installation, relation: string, error: SqlError
 	if (error.reason._tag === "ConnectionError") {
 		return { kind: "unnamed", report: error.reason.message }
 	}
-	const law = reportedLaw(installation, relation, error.reason.fields)
-	return law === undefined
-		? { kind: "unnamed", report: Formatter.format(error.reason.fields) }
-		: { kind: "rejected", law }
+	const laws = reportedLaws(installation, relation, error.reason.fields)
+	return Arr.isReadonlyArrayNonEmpty(laws)
+		? { kind: "rejected", laws }
+		: { kind: "unnamed", report: Formatter.format(error.reason.fields) }
 }
 
 /** A write's outcome into `relation`: accepted, or its refusal. */

@@ -107,7 +107,7 @@ export const alternativesThroughGrizzlesLoweringOnPostgreSQL19CommitExactlyTheSt
 						real.fields.code !== "23503" ||
 						Option.isNone(by) ||
 						!broken.includes(by.value) ||
-						!Option.exists(named, (k) => Option.exists(k.law, (l) => laws.includes(l)))
+						!Option.exists(named, (k) => Arr.some(k.laws, (l) => laws.includes(l)))
 					) {
 						return yield* new Disagreed({
 							message: `refused ${momentText(real.moment)} by ${refusalText(real.fields)}, where the state breaks ${Formatter.format(broken)}: ${Formatter.format(s)}`

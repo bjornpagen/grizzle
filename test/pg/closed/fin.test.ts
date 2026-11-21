@@ -121,7 +121,7 @@ export const dependentKeysOnPostgreSQLEveryReaderReadsEachKeysOwnCellAndASlotCod
 						const names = compiled.names
 						const lawNames = installationNamesOf(compiled)
 						const rejected = (law: Law): Option.Option<Refusal> =>
-							Option.some({ kind: "rejected", law })
+							Option.some({ kind: "rejected", laws: [law] })
 						const checkRefused = rejected(lawNames.described(lawNames.lawOf(built.laws.checked)))
 						const projectionRefused = rejected(
 							lawNames.described(lawNames.lawOf(built.laws.projected))

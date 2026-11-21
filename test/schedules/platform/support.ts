@@ -1283,11 +1283,14 @@ const directObserved = (i: RaceInstall, result: TxnResult): Observed | string =>
 			if (owner === undefined) {
 				return `a direct transaction was refused by ${constraint}, which PostgreSQL reported on no owner`
 			}
-			const law = i.laws.get(i.names.lawOfConstraint(owner, constraint))
-			if (law === undefined) {
-				return `a direct transaction was refused by ${constraint}, a law the model does not hold`
+			const laws = Arr.flatMap(i.names.lawsOfConstraint(owner, constraint), (id) => {
+				const law = i.laws.get(id)
+				return law === undefined ? [] : [law]
+			})
+			if (!Arr.isReadonlyArrayNonEmpty(laws)) {
+				return `a direct transaction was refused by ${constraint}, serving no law the model holds`
 			}
-			return { kind: "refused", laws: [law] }
+			return { kind: "refused", laws }
 		}
 	}
 }

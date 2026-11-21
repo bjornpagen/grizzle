@@ -11,6 +11,7 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { NativeColumn, TableRelation } from "#compiler/ir/law.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import {
 	compileInstallation,
@@ -44,7 +45,6 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	type Installed,
 	type InstallVersion,
@@ -728,35 +728,35 @@ const statementOf = (seat: Seat, op: Op): string => {
 	}
 }
 
-/** The law a refusal names through `installed`'s own constraint map, by its table and constraint. */
-const lawOf = (installed: Installed, fields: PgErrorFields): LawId | undefined => {
+/** Every law a refusal names through `installed`'s own constraint map, by its table and constraint: none for another. */
+const lawsOf = (installed: Installed, fields: PgErrorFields): ReadonlyArray<LawId> => {
 	const constraint = fields.constraint
 	const table = Option.flatMap(fields.table, (ident) =>
 		Arr.findFirst(RELATIONS, (rel) => installed.names.relation(rel).name === ident)
 	)
 	return Option.isNone(table) || constraint === undefined
-		? undefined
-		: soleLawOfConstraint(
+		? []
+		: (lawsOfConstraint(
 				installed.installation.constraintToLaw,
 				{ kind: "table", name: installed.names.relation(table.value).name },
 				constraint
-			)
+			) ?? [])
 }
 
 /**
- * Who refused a statement, as the installation's schema decides: a law, by the constraint its refusal names (`lawOf`),
+ * Who refused a statement, as the installation's schema decides: the laws the constraint its refusal names serves (`lawsOf`),
  * or an immutable relation's immutability guard, by the table its insufficient_privilege names, a relation of the box
  * the checked schema holds immutable (ir/law.ts RelationInfo `mutable`, physical/ddl/immutable.ts), whose refusal of
  * an UPDATE that changes its row names no law.
  */
 type Refuser =
-	| { readonly kind: "law"; readonly law: LawId }
+	| { readonly kind: "law"; readonly laws: Arr.NonEmptyReadonlyArray<LawId> }
 	| { readonly kind: "guard"; readonly relation: (typeof RELATIONS)[number] }
 
 const refuserOf = (installed: Installed, fields: PgErrorFields): Refuser | undefined => {
-	const law = lawOf(installed, fields)
-	if (law !== undefined) {
-		return { kind: "law", law }
+	const laws = lawsOf(installed, fields)
+	if (Arr.isReadonlyArrayNonEmpty(laws)) {
+		return { kind: "law", laws }
 	}
 	const guarded = Option.flatMap(fields.table, (ident) =>
 		Arr.findFirst(
@@ -771,10 +771,10 @@ const refuserOf = (installed: Installed, fields: PgErrorFields): Refuser | undef
 		: undefined
 }
 
-/** Whether two refusers are one: one law, or one relation's guard. */
+/** Whether two refusers are one: one set of laws, each map's in code point order, or one relation's guard. */
 const sameRefuser = (a: Refuser, b: Refuser): boolean =>
 	a.kind === "law"
-		? b.kind === "law" && a.law === b.law
+		? b.kind === "law" && Arr.join(a.laws, " ") === Arr.join(b.laws, " ")
 		: b.kind === "guard" && a.relation === b.relation
 
 /** A refuser as a disagreement names it. */
@@ -782,7 +782,7 @@ const refuserText = (refuser: Refuser | undefined): string =>
 	refuser === undefined
 		? "law none"
 		: refuser.kind === "law"
-			? `law ${refuser.law}`
+			? `laws ${Arr.join(refuser.laws, ", ")}`
 			: `${refuser.relation}'s immutability guard`
 
 /** The one rule over a query of an installation: the containment of S in D. */
@@ -912,7 +912,7 @@ const carriedByForeignKey = (seat: Seat): boolean => {
 	const rule = ruleLaw(seat.installed.installation)
 	return Arr.some(
 		seat.constraints,
-		(c) => c.kind === "foreign" && Option.exists(c.law, (l) => l === rule)
+		(c) => c.kind === "foreign" && Arr.some(c.laws, (l) => l === rule)
 	)
 }
 
@@ -1039,9 +1039,9 @@ const keyJudgement = (
 		}),
 		{ onNone: (): Duplicated => ({ keys: [], lowerings: [] }), onSome: (d) => d }
 	)
-	const law = lawOf(seat.installed, refused.fields)
+	const laws = lawsOf(seat.installed, refused.fields)
 	const named = seat.refusedBy(refused.fields)
-	const key = Arr.findFirst(duplicated.keys, (k) => k.law === law)
+	const key = Arr.findFirst(duplicated.keys, (k) => Arr.contains(laws, k.law))
 	if (Option.isSome(key)) {
 		return {
 			kind: "keyed",
@@ -1069,7 +1069,7 @@ const keyJudgement = (
 	})
 	return {
 		kind: "misnamed",
-		message: `${statement} repeats ${keys}, and is refused by ${by} naming law ${law ?? "none"}: ${refusalText(refused.fields)}`
+		message: `${statement} repeats ${keys}, and is refused by ${by} naming laws ${Arr.join(laws, ", ") || "none"}: ${refusalText(refused.fields)}`
 	}
 }
 
@@ -1442,11 +1442,18 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 				)
 				const oracleRefuser =
 					verdict.kind === "refused" ? refuserOf(oracle.installed, verdict.fields) : undefined
-				const oracleLaw = oracleRefuser?.kind === "law" ? oracleRefuser.law : undefined
+				const oracleLaws: ReadonlyArray<LawId> =
+					oracleRefuser?.kind === "law" ? oracleRefuser.laws : []
 				const broken = brokenKeysOf(oracle.installed, state, facts)
-				const breaks = (law: LawId | string | undefined): boolean =>
-					broken.length === 0 ? law === oracleLaw : Arr.some(broken, (k) => k.law === law)
-				if (verdict.kind === "refused" && !breaks(oracleLaw)) {
+				const breaks = (law: LawId | string): boolean =>
+					broken.length === 0
+						? Arr.some(oracleLaws, (l) => l === law)
+						: Arr.some(broken, (k) => k.law === law)
+				if (
+					verdict.kind === "refused" &&
+					broken.length > 0 &&
+					!Arr.some(oracleLaws, (l) => Arr.some(broken, (k) => k.law === l))
+				) {
 					return yield* new Disagreed({
 						message: `${shape}: the triggers' installation ${verdictText(verdict, oracleRefuser)}, where the facts break the keys ${Formatter.format(Arr.map(broken, (k) => k.law))}: ${Formatter.format(facts)}`
 					})
@@ -1488,7 +1495,7 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 					if (facts.insert.S.length > 0) {
 						c.note("committed a source row")
 					}
-				} else if (oracleLaw === rule) {
+				} else if (Arr.contains(oracleLaws, rule)) {
 					c.note("a served write refused by the rule")
 				}
 				continue
@@ -1497,15 +1504,15 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 				oracle.session,
 				Arr.map(ops, (op) => statementOf(oracle, op))
 			)
-			const lawOracle =
-				onOracle.kind === "refused" ? lawOf(oracle.installed, onOracle.fields) : undefined
+			const lawsOracle =
+				onOracle.kind === "refused" ? lawsOf(oracle.installed, onOracle.fields) : []
 			for (const [order, low] of pair.lows) {
 				const seat = low.seat
 				const onLow = yield* attempt(
 					seat.session,
 					Arr.map(ops, (op) => statementOf(seat, op))
 				)
-				const lawLow = onLow.kind === "refused" ? lawOf(seat.installed, onLow.fields) : undefined
+				const lawsLow = onLow.kind === "refused" ? lawsOf(seat.installed, onLow.fields) : []
 				if (onLow.kind === "refused" && onLow.fields.code === "23505") {
 					const judged = keyJudgement(seat, state, ops, onLow)
 					if (judged.kind === "misnamed") {
@@ -1526,9 +1533,13 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 						)
 					}
 				}
-				if (onLow.kind === "refused" && onLow.fields.code === "23503" && lawLow !== rule) {
+				if (
+					onLow.kind === "refused" &&
+					onLow.fields.code === "23503" &&
+					!Arr.contains(lawsLow, rule)
+				) {
 					return yield* new Misnamed({
-						message: `${shape}, installed ${order}: a broken containment refused by ${refusalText(onLow.fields)} names law ${lawLow ?? "none"}, not the rule's ${rule}: ${Formatter.format(ops)}`
+						message: `${shape}, installed ${order}: a broken containment refused by ${refusalText(onLow.fields)} names laws ${Arr.join(lawsLow, ", ") || "none"}, not the rule's ${rule}: ${Formatter.format(ops)}`
 					})
 				}
 				const refuserLow =
@@ -1549,7 +1560,7 @@ export const loweringCase = (pair: Pair) => (lc: LoweringCase, c: Case<Feature>)
 				state = after
 				continue
 			}
-			if (lawOracle === rule) {
+			if (Arr.contains(lawsOracle, rule)) {
 				c.note(
 					Arr.some(ops, (op) => op.rel === "S" && op.kind !== "delete")
 						? "refused by the rule, a source row's write"

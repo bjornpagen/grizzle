@@ -332,11 +332,15 @@ export const rulesOverQueriesOnPostgreSQL19CommitExactlyTheHistoriesWhoseEverySt
 									}
 									c.note("an update of an immutable row refused by its guard")
 								} else {
-									const rule = u.refusedRule(verdict.fields)
+									const rule =
+										expected.kind === "refused"
+											? Arr.findFirst(u.refusedRules(verdict.fields), (r) =>
+													expected.breaks.includes(r)
+												).pipe(Option.getOrUndefined)
+											: undefined
 									if (
 										expected.kind !== "refused" ||
 										rule === undefined ||
-										!expected.breaks.includes(rule) ||
 										verdict.fields.code !== codeOf(rule) ||
 										(rule === "check3" && verdict.fields.constraint !== u.checkName) ||
 										!sameMoment(verdict.moment, expected.moment)

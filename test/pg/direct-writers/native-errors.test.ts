@@ -36,11 +36,11 @@ import {
 	deskTemplate,
 	type Insert,
 	insertGen,
-	lawOf,
+	lawsOf,
 	type NativeFeature,
 	pairTwiceAims,
 	predict,
-	reportedLaw,
+	reportedLaws,
 	sqlOf,
 	startingState,
 	statementOf
@@ -80,9 +80,9 @@ export const aRowCheckAndAContractRaise23514AtTheStatementUnderTheirLawsOverDraw
 								const f = fixtureIn(seat)
 								const amount = lawNamesOf(DeskReports).contract("Amount")
 								if (amount.kind === "checked") {
-									assert.equal(
-										lawOf(f, { kind: "domain", name: amount.domain }, amount.constraint),
-										amount.law
+									assert.deepEqual(
+										lawsOf(f, { kind: "domain", name: amount.domain }, amount.constraint),
+										[amount.law]
 									)
 								}
 								const w = yield* f.psql(writer)
@@ -132,8 +132,12 @@ export const aRowCheckAndAContractRaise23514AtTheStatementUnderTheirLawsOverDraw
 										`the model commits; the writer met ${fields.code}`
 									)
 									assert.deepEqual(
-										{ at: met.at, code: fields.code, law: reportedLaw(f, fields) },
-										{ at: predicted.at, code: predicted.sqlstate, law: predicted.law }
+										{ at: met.at, code: fields.code },
+										{ at: predicted.at, code: predicted.sqlstate }
+									)
+									assert.ok(
+										Arr.contains(reportedLaws(f, fields), predicted.law),
+										`the refusal names ${predicted.law} among ${Arr.join(reportedLaws(f, fields), ", ")}`
 									)
 									/** Nothing a failed transaction did stays. */
 									const after = yield* stored

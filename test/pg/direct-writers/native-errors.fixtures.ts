@@ -7,7 +7,7 @@ import { Array as Arr, Option, Record } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { type ConstraintOwner } from "#compiler/ir/products.ts"
+import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
 import {
 	Account,
 	DeskReports,
@@ -16,7 +16,6 @@ import {
 	Entry,
 	Pair
 } from "#test/pg/direct-writers/schema.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { lawIdOf, lawNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { type Fixture, openFixtureTemplate } from "#test/support/open-fixture.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"
@@ -30,20 +29,20 @@ export const startingState = (f: Fixture): ReadonlyArray<string> => {
 	]
 }
 
-/** The law the installation reports for a constraint, index or domain constraint name under the table or domain it
- * lives on. */
-export const lawOf = (
+/** Every law the installation reports for a constraint, index or domain constraint name under the table or domain it
+ * lives on, as its constraint map holds them: none for a name it does not map. */
+export const lawsOf = (
 	f: Fixture,
 	owner: ConstraintOwner | undefined,
 	constraint: ConstraintName | undefined
-): LawId | undefined =>
+): ReadonlyArray<LawId> =>
 	constraint === undefined || owner === undefined
-		? undefined
-		: soleLawOfConstraint(f.installed.installation.constraintToLaw, owner, constraint)
+		? []
+		: (lawsOfConstraint(f.installed.installation.constraintToLaw, owner, constraint) ?? [])
 
-/** The law a refusal PostgreSQL reported names: its constraint under the owner it reports. */
-export const reportedLaw = (f: Fixture, fields: PgErrorFields): LawId | undefined =>
-	lawOf(f, reportedOwnerOf(fields), fields.constraint)
+/** The laws a refusal PostgreSQL reported names: its constraint's under the owner it reports. */
+export const reportedLaws = (f: Fixture, fields: PgErrorFields): ReadonlyArray<LawId> =>
+	lawsOf(f, reportedOwnerOf(fields), fields.constraint)
 
 /** One direct INSERT as drawn. */
 export type Insert =

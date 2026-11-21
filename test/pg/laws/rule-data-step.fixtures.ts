@@ -10,7 +10,7 @@ import { quoteIdent } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, derived, mutable, relation, schema } from "#compiler/public/schema.ts"
-import { refusedLaw } from "#test/pg/migrate/support.ts"
+import { refusedLaws } from "#test/pg/migrate/support.ts"
 import { migrated } from "#test/support/installed.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -144,7 +144,7 @@ export const runDataStep = (d: DataStep, c: Case<DataStepFeature>) =>
 			`a data step that breaks Small is refused at its statement of the Structure file by check_violation, the judge's: ${failure.message}`
 		)
 		assert.ok(
-			Option.exists(refusedLaw(failure), (law) => Str.includes("small")(law)),
+			Arr.some(refusedLaws(failure), (law) => Str.includes("small")(law)),
 			`the refusal names Small's law: ${failure.message}`
 		)
 		c.note("a data step that breaks the rule refused at it")

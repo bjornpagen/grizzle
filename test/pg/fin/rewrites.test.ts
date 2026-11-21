@@ -97,7 +97,7 @@ export const orderedRewritesAndTheShrinkOrderThroughGrizzlesLoweringOnPostgreSQL
 								j.moment,
 								(m) => m.kind === "statement" && Option.contains(counted, m.index)
 							) ||
-							!Option.exists(j.refusedBy, (k) => Option.contains(k.law, f.law))
+							!Option.exists(j.refusedBy, (k) => Arr.contains(k.laws, f.law))
 						) {
 							return yield* new Disagreed({
 								message: `a shrink sent count first was ${j.verdict}, not refused at its count by the bound reporting the family's law: ${Formatter.format(r)}`

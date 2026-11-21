@@ -528,7 +528,7 @@ const matched = (expected: ActionOutcome, observed: ActionOutcome): boolean => {
 		case "migration-law-refused":
 			return (
 				observed.kind === "migration-law-refused" &&
-				Arr.every(observed.laws, (law) => expected.laws.includes(law))
+				Arr.some(observed.laws, (law) => expected.laws.includes(law))
 			)
 		case "stale-snapshot":
 			return observed.kind === "stale-snapshot" && observed.reason === expected.reason

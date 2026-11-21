@@ -209,9 +209,12 @@ export const aSpanOverAContractChecksBothEndpointsAgainstItsPredicateReportingTh
 									kind: "endpoint",
 									contract: "Tick"
 								})
-								assert.equal(
-									names.lawOfConstraint({ kind: "table", name: names.tableIdent(Plan) }, endpoints),
-									names.contract("Tick").law
+								assert.deepEqual(
+									names.lawsOfConstraint(
+										{ kind: "table", name: names.tableIdent(Plan) },
+										endpoints
+									),
+									[names.contract("Tick").law]
 								)
 								const lower = holds(d.lo)
 								const upper = holds(d.hi)

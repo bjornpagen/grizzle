@@ -95,7 +95,6 @@ import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id, idDesc } from "#test/support/ids.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -330,8 +329,6 @@ export interface LawNames {
 		owner: ConstraintOwner,
 		constraint: ConstraintName
 	) => Arr.NonEmptyReadonlyArray<LawId>
-	/** The one law a constraint serves, for a suite whose oracle names one per refusal (soleLawOfConstraint). */
-	readonly lawOfConstraint: (owner: ConstraintOwner, constraint: ConstraintName) => LawId
 	/** The laws an alternatives value expands to (a public schema). */
 	readonly alternativesOf: (value: AlternativesBase) => AlternativesLaws
 	/** The laws of an alternatives expansion as a desc fixture spells it (fixtures/ir/desc.ts alternatives(...)). */
@@ -875,15 +872,7 @@ const lawNamesOver = (
 			}
 			return laws
 		},
-		lawOfConstraint: (owner, constraint) => {
-			const law = soleLawOfConstraint(constraintToLaw, owner, constraint)
-			if (law === undefined) {
-				throw new Error(
-					`the test names the constraint ${constraint} of ${owner.kind} ${owner.name}, which reports no law`
-				)
-			}
-			return law
-		},
+
 		alternativesOf: (value) => alternativesLaws(holding, [descOf(value)]),
 		alternativesOfDesc: (expansion) => alternativesLaws(holding, expansion),
 		contract: (name) => {

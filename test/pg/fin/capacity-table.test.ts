@@ -79,8 +79,7 @@ export const finMdsCapacityTableThroughGrizzlesLoweringCommitEachRowsStatesItsLa
 									Option.exists(
 										named,
 										(k) =>
-											k.relation === refusal.relation &&
-											Option.exists(k.law, (l) => laws.includes(l))
+											k.relation === refusal.relation && Arr.some(k.laws, (l) => laws.includes(l))
 									),
 								`${sketch.row}: refused by ${refusalText(real.fields)}, not ${refusal.sqlstate} by a ${Arr.join(refusal.law, " or ")} law of ${refusal.relation}`
 							)

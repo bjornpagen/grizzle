@@ -4,11 +4,11 @@ import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/te
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -350,20 +350,19 @@ export const runPlain = (
 			const fields = outcome.fields
 			const table = Option.getOrUndefined(fields.table)
 			const relation = table === undefined ? Option.none() : relationOf(table)
-			const law =
+			const served =
 				Option.isNone(relation) || fields.constraint === undefined
-					? undefined
-					: soleLawOfConstraint(
+					? []
+					: (lawsOfConstraint(
 							installation.constraintToLaw,
 							{ kind: "table", name: installation.names.relation(relation.value).name },
 							fields.constraint
-						)
-			const name = law === undefined ? undefined : laws.get(law)
-			if (
-				name === undefined ||
-				!broken.includes(name) ||
-				fields.code !== (name === "G's key" ? "23505" : "23503")
-			) {
+						) ?? [])
+			const name = Arr.findFirst(
+				Arr.flatMap(served, (law) => Option.toArray(Option.fromUndefinedOr(laws.get(law)))),
+				(n) => broken.includes(n)
+			).pipe(Option.getOrUndefined)
+			if (name === undefined || fields.code !== (name === "G's key" ? "23505" : "23503")) {
 				return yield* new Disagreed({
 					message: `refused with ${fields.code} ${fields.constraint ?? "naming no constraint"} on ${table ?? "no table"}, where the state breaks ${Formatter.format(broken)}, ${where}`
 				})

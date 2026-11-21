@@ -6,6 +6,7 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import {
 	closed,
@@ -25,7 +26,6 @@ import {
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { foreignKeyColumns, installationNamesOf } from "#test/support/kernel/naming.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import type { OracleRelation, OracleSchema } from "#test/support/oracle/addwins.ts"
@@ -732,18 +732,30 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 	}
 	const laws = plan.installation.laws
 	const toLaw = constraintLawMap(laws.constraints)
-	/** The law an installed constraint or unique index of the relation's table reports. */
-	const lawOf = (relation: string, constraint: ConstraintName): LawId => {
+	/**
+	 * The key law of the relation that an installed key constraint or unique index of its table holds: among every law the
+	 * constraint serves (a family member's primary key serves the family's law beside the key's), the one key of the
+	 * relation.
+	 */
+	const keyLawOf = (relation: string, constraint: ConstraintName): LawId => {
 		const owned = plan.installation.owned.relations[relation]
 		if (owned?.kind !== "relation") {
 			throw new Error(`no owned stored relation ${relation}`)
 		}
-		const owner = { kind: "table", name: owned.ident } as const
-		const law = soleLawOfConstraint(toLaw, owner, constraint)
-		if (law === undefined) {
-			throw new Error(`no law reports the installed constraint ${constraint} of ${relation}`)
+		const served = lawsOfConstraint(toLaw, { kind: "table", name: owned.ident }, constraint) ?? []
+		const keys = Arr.filter(served, (id) =>
+			Arr.some(
+				laws.theory.laws,
+				(l) => l.id === id && l.detail.kind === "key" && l.detail.relation === relation
+			)
+		)
+		const [key, ...more] = keys
+		if (key === undefined || more.length > 0) {
+			throw new Error(
+				`the installed constraint ${constraint} of ${relation} serves ${keys.length} key laws of it among ${Arr.join(served, ", ")}`
+			)
 		}
-		return law
+		return key
 	}
 	/** The constraint of the relation's primary key, or of its candidate key over `fields` (as a set). */
 	const keyConstraint = (
@@ -808,8 +820,8 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 		)
 	}
 	return {
-		primaryKey: (relation) => lawOf(relation, keyConstraint(relation, { primary: true })),
-		key: (relation, fields) => lawOf(relation, keyConstraint(relation, { fields })),
+		primaryKey: (relation) => keyLawOf(relation, keyConstraint(relation, { primary: true })),
+		key: (relation, fields) => keyLawOf(relation, keyConstraint(relation, { fields })),
 		containment,
 		primaryKeyConstraint: (relation) => keyConstraint(relation, { primary: true }),
 		keyConstraint: (relation, fields) => keyConstraint(relation, { fields }),

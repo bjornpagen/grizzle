@@ -11,7 +11,6 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { soleLaw } from "#test/support/constraint-law.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
@@ -95,12 +94,10 @@ const keyLawOf = (plan: RealInstallPlan): Option.Option<string> =>
 		(law) => law.id
 	)
 
-/** The law a migration's refusal names, by migrate's reading of the refused constraint through its folder's laws. */
-const namedLaw = (failure: MigrateError): Option.Option<string> => {
+/** Every law a migration's refusal names, by migrate's reading of the refused constraint through its folder's laws. */
+const namedLaws = (failure: MigrateError): ReadonlyArray<string> => {
 	const reason = failure.reason
-	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
-		? Option.fromUndefinedOr(soleLaw(reason.laws, `${reason._tag}'s refused constraint`))
-		: Option.none()
+	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused" ? reason.laws : []
 }
 
 /** The folder a migration's refusal names, by its step's place, none for any other failure. */
@@ -167,7 +164,7 @@ export const walk = (c: KeyCase, note: (feature: Feature) => void) =>
 					`the refusal names the folder of step ${at + 1}, the first whose key the rows repeat: ${failure.message}`
 				)
 				assert.ok(
-					Option.exists(law, (id) => Option.exists(namedLaw(failure), (named) => named === id)),
+					Option.exists(law, (id) => Arr.contains(namedLaws(failure), id)),
 					`the refusal names the key law of the folder it refuses: ${failure.message}`
 				)
 				note(

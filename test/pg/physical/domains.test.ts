@@ -18,6 +18,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
 import {
 	type DomainFeature,
@@ -26,7 +27,6 @@ import {
 	same,
 	schemaOf
 } from "#test/pg/physical/domains.fixtures.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -80,18 +80,20 @@ export const sharedDomainsOnPostgreSQL19TypeTwoContractsColumnsByOneDomainExactl
 							const real = yield* write(a, b)
 							const domain =
 								real.kind === "refused" ? Option.getOrUndefined(real.fields.dataType) : undefined
-							const law =
+							const laws =
 								real.kind === "refused" &&
 								domain !== undefined &&
 								real.fields.constraint !== undefined
-									? soleLawOfConstraint(
+									? (lawsOfConstraint(
 											seat.installed.installation.constraintToLaw,
 											{ kind: "domain", name: admittedIdentifier(domain) },
 											real.fields.constraint
-										)
-									: undefined
+										) ?? [])
+									: []
 							assert.ok(
-								real.kind === "refused" && real.fields.code === "23514" && law !== undefined,
+								real.kind === "refused" &&
+									real.fields.code === "23514" &&
+									Arr.isReadonlyArrayNonEmpty(laws),
 								`${Formatter.format(p)}: column ${column} below ${d.least} is refused with 23514 on its domain reporting a contract's law: ${real.kind === "refused" ? refusalText(real.fields) : "committed"}`
 							)
 						}

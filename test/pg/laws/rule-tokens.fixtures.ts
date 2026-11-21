@@ -6,6 +6,7 @@ import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -13,7 +14,6 @@ import { check, contained, derived, key, on, relation, schema } from "#compiler/
 import { str } from "#compiler/public/text.ts"
 import { readsOf, rerunsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -253,13 +253,13 @@ const listFeatures = (written: Written): ReadonlyArray<TokensFeature> => {
 /** A disagreement between the judge and the specification, naming the case. */
 class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
-/** The law a refusal names, by the constraint and table PostgreSQL reports: one of the schema's two tables'. */
-const refusedLaw = (
+/** Every law a refusal's constraint serves, through the installation's constraint map: none for another table's. */
+const refusedLaws = (
 	installation: Installation,
 	fields: { readonly table: Option.Option<string>; readonly constraint: string | undefined }
-): LawId | undefined => {
+): ReadonlyArray<LawId> => {
 	if (Option.isNone(fields.table) || fields.constraint === undefined) {
-		return undefined
+		return []
 	}
 	const table = fields.table.value
 	const owner = Arr.findFirst(
@@ -267,12 +267,12 @@ const refusedLaw = (
 		(r) => installation.names.relation(r).name === table
 	)
 	return Option.isNone(owner)
-		? undefined
-		: soleLawOfConstraint(
+		? []
+		: (lawsOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint
-			)
+			) ?? [])
 }
 
 /** The rule law `law` of the installation states, by its name: Idref target its containment, and the key and check. */
@@ -342,9 +342,13 @@ export const runWritten = (
 			c.note("accepted")
 			return
 		}
-		const law = refusedLaw(installed.installation, refused.value)
-		const rule = law === undefined ? undefined : ruleNameOf(installed.installation, law)
-		if (rule === undefined || !broken.has(rule)) {
+		const rule = Arr.findFirst(
+			Arr.map(refusedLaws(installed.installation, refused.value), (law) =>
+				ruleNameOf(installed.installation, law)
+			),
+			(r) => broken.has(r)
+		).pipe(Option.getOrUndefined)
+		if (rule === undefined) {
 			return yield* new Disagreed({
 				message: `the judge refused under ${refused.value.code} ${refused.value.constraint ?? "naming no constraint"} where XML's reading of the lists finds ${Formatter.format([...broken])}: ${where}`
 			})

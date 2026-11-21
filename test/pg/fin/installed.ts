@@ -16,11 +16,11 @@ import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
-import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	type Installed,
 	installedTemplate,
@@ -62,8 +62,12 @@ export interface Catalogued {
 	readonly deferrable: boolean
 	/** Whether a foreign key cascades an update of its target's columns into its own. */
 	readonly cascades: boolean
-	/** The law the installation reports a violation of it as, if its constraint map holds it. */
-	readonly law: Option.Option<LawId>
+	/**
+	 * Every law the installation names a violation of it by, each once, in code point order, as its constraint map holds
+	 * them (ir/products.ts ConstraintLaws): a family's primary key serves the family's law and the key's, an axis's
+	 * foreign key and unique index each law riding it; none where the map holds no such constraint.
+	 */
+	readonly laws: ReadonlyArray<LawId>
 }
 
 /** A schema installed for a fin suite, with the session its transactions run on as the installation's owner. */
@@ -318,13 +322,12 @@ export const seatOfInstalled = (
 								}),
 					deferrable: deferrable === true,
 					cascades: updtype === "c",
-					law: Option.fromUndefinedOr(
-						soleLawOfConstraint(
+					laws:
+						lawsOfConstraint(
 							installed.installation.constraintToLaw,
 							{ kind: "table", name: installed.names.relation(relation).name },
 							String(name)
-						)
-					)
+						) ?? []
 				}
 			]
 		})

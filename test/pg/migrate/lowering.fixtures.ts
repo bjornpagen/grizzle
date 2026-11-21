@@ -7,13 +7,13 @@ import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
-import { soleLaw, soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
@@ -263,23 +263,22 @@ interface Named {
 	readonly by: Naming
 }
 
-/** The law a migration's refusal names (Named), none for a refusal that names none. */
-const namedLaw = (failure: MigrateError): Option.Option<Named> => {
+/** Every law a migration's refusal names (Named), none for a refusal that names none. */
+const namedLaws = (failure: MigrateError): ReadonlyArray<Named> => {
 	const reason = failure.reason
-	const named = (law: string | undefined, by: Naming): Option.Option<Named> =>
-		Option.map(Option.fromUndefinedOr(law), (l) => ({ law: l, by }))
+	const named = (laws: ReadonlyArray<string>, by: Naming): ReadonlyArray<Named> =>
+		Arr.map(laws, (law) => ({ law, by }))
 	if (reason._tag === "FileCommitRefused") {
-		return named(soleLaw(reason.laws, "the COMMIT's refused constraint"), "folder")
+		return named(reason.laws, "folder")
 	}
 	if (reason._tag !== "StatementFailed") {
-		return Option.none()
+		return []
 	}
-	const law = soleLaw(reason.laws, "the statement's refused constraint")
-	return law !== undefined
-		? named(law, "folder")
+	return Arr.isReadonlyArrayNonEmpty(reason.laws)
+		? named(reason.laws, "folder")
 		: reason.failure._tag === "ServerError" && reason.failure.sqlstate === "23000"
-			? named(reason.failure.constraint, "check")
-			: Option.none()
+			? named(Option.toArray(Option.fromUndefinedOr(reason.failure.constraint)), "check")
+			: []
 }
 
 /** The folder a migration's refusal names, by its step's place, none for any other failure. */
@@ -366,13 +365,13 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 				const atDraft = Arr.getUnsafe(drafted, at)
 				const atPlan = atDraft.plan
 				const law = ruleLawOf(atPlan)
-				const named = namedLaw(failure)
+				const named = namedLaws(failure)
 				assert.ok(
 					Option.exists(refusedFolder(failure), (folder) => folder === atDraft.folder.name),
 					`the refusal names the folder of step ${at + 1}, the first whose rule the rows break: ${failure.message}`
 				)
 				assert.ok(
-					Option.exists(law, (id) => Option.exists(named, (n) => n.law === id)),
+					Option.exists(law, (id) => Arr.some(named, (n) => n.law === id)),
 					`the refusal names the law over Use of the folder it refuses: ${failure.message}`
 				)
 				if (at === step) {
@@ -408,7 +407,7 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 					}
 				} else {
 					note("an intermediate folder refused, two pending")
-					if (Option.exists(named, (n) => n.by === "folder")) {
+					if (Arr.some(named, (n) => n.by === "folder")) {
 						note("an intermediate folder's foreign key refused, two pending, named by its own laws")
 					}
 				}
@@ -479,11 +478,14 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 				const reported = refused.fields.constraint
 				assert.ok(
 					reported !== undefined &&
-						soleLawOfConstraint(
-							draft.snapshot.constraintToLaw,
-							{ kind: "table", name: table },
-							reported
-						) === law.value,
+						Arr.contains(
+							lawsOfConstraint(
+								draft.snapshot.constraintToLaw,
+								{ kind: "table", name: table },
+								reported
+							) ?? [],
+							law.value
+						),
 					`step ${step + 1}: the refusing constraint ${String(reported)} reads as the law ${law.value}`
 				)
 				note(

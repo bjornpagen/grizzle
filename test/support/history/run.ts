@@ -856,7 +856,7 @@ export const classifyDirect = (
 				}
 				return {
 					kind: "invariant-rejected",
-					laws: [env.names.lawOfConstraint(owner, constraint)],
+					laws: env.names.lawsOfConstraint(owner, constraint),
 					keys: []
 				}
 			}

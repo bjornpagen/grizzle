@@ -34,7 +34,6 @@ import { storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { filledStatements } from "#test/support/compile.ts"
-import { soleLaw } from "#test/support/constraint-law.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
@@ -97,19 +96,14 @@ export const migrationRefused = (
 	const server = error.server
 	if (error.stage === "statement" && server.by === "server") {
 		return Effect.map(
-			Option.match(refusedIdentity(error, server.error), {
-				onNone: () => Effect.succeedNone,
-				onSome: lawOf
-			}),
-			(law) =>
+			Effect.map(Effect.forEach(refusedIdentities(error, server.error), lawOf), Arr.getSomes),
+			(laws) =>
 				refusedWith(
-					Option.match(law, {
-						onSome: (refused): Observation => ({ kind: "migration-law-refused", laws: [refused] }),
-						onNone: (): Observation =>
-							reason._tag === "StatementFailed" && reason.drifted
-								? { kind: "migration-drifted" }
-								: { kind: "refused", sqlstate: sqlStateOf(server.error.sqlstate) }
-					}),
+					Arr.isReadonlyArrayNonEmpty(laws)
+						? { kind: "migration-law-refused", laws }
+						: reason._tag === "StatementFailed" && reason.drifted
+							? { kind: "migration-drifted" }
+							: { kind: "refused", sqlstate: sqlStateOf(server.error.sqlstate) },
 					error
 				)
 		)
@@ -124,24 +118,23 @@ export const migrationRefused = (
 }
 
 /**
- * The identity of the law a migration's failed statement refused, as migrate reports it: any code of class 23, under
- * the law its folder's constraint map names for the refused constraint (adapter/migrate/apply.ts brokenLaw), or, for a
- * check grizzle runs itself, the law's identity the statement raised under as its constraint; none for any other
- * failure.
+ * The identities of the laws a migration's failed statement refused, as migrate reports them: any code of class 23,
+ * under every law its folder's constraint map names for the refused constraint (adapter/migrate/apply.ts brokenLaws),
+ * or, for a check grizzle runs itself, the law's identity the statement raised under as its constraint; none for any
+ * other failure.
  */
-const refusedIdentity = (
+const refusedIdentities = (
 	error: MigrateError,
 	server: Extract<MigrateError["server"], { readonly by: "server" }>["error"]
-): Option.Option<string> => {
+): ReadonlyArray<string> => {
 	const reason = error.reason
 	if (sqlstateClass(server.sqlstate) !== sqlstateClass(sqlstates.integrityConstraintViolation)) {
-		return Option.none()
+		return []
 	}
-	const law =
-		reason._tag === "StatementFailed"
-			? soleLaw(reason.laws, "the statement's refused constraint")
-			: undefined
-	return law !== undefined ? Option.some(law) : Option.fromUndefinedOr(server.constraint)
+	const laws = reason._tag === "StatementFailed" ? reason.laws : []
+	return Arr.isReadonlyArrayNonEmpty(laws)
+		? laws
+		: Option.toArray(Option.fromUndefinedOr(server.constraint))
 }
 
 /** The folder a run stopped in when one of its files failed: a statement, its ledger record or its COMMIT. */

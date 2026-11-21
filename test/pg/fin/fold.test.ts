@@ -202,7 +202,7 @@ export const foldsThroughGrizzlesLoweringAdmitATreesRootExactlyOneStateOfItsFold
 										const named = seat.refusedBy(real.fields)
 										if (
 											real.fields.code !== "23514" ||
-											!Option.exists(named, (n) => Option.exists(n.law, (l) => laws.includes(l)))
+											!Option.exists(named, (n) => Arr.some(n.laws, (l) => laws.includes(l)))
 										) {
 											return yield* new Disagreed({
 												message: `a root's accumulators ${Formatter.format(candidate)} were refused by ${attemptedText(real)}, not by a pin of the tree or the fold`

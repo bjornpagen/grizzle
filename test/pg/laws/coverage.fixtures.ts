@@ -132,7 +132,7 @@ export const insertSql = (
 export const coverageRefusalOf =
 	(laws: Names) =>
 	(c: Catalogued): Option.Option<Refusal> => {
-		const reports = (law: Statement) => Option.contains(c.law, laws.lawOf(law))
+		const reports = (law: Statement) => Arr.contains(c.laws, laws.lawOf(law))
 		switch (c.kind) {
 			case "check":
 				return c.columns.includes("during") ? Option.some("empty span") : Option.none()
