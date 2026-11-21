@@ -61,9 +61,15 @@ const DeepPart = relation(
 	["q", "due", "at", "bt"]
 )
 
+/**
+ * A plain relation keyed over a field its insert computes, as den's served rows are keyed by their environment and the
+ * instant the call casts its parameter into: Slot(env, at, v) keyed (env, at), `at` a Span, nesting nothing.
+ */
+const Slot = relation("Slot", { env: pg.integer, at: Span, v: pg.integer }, ["env", "at"])
+
 export const Computed = schema(
 	"Computed",
-	[Spans, Lease, Flat, FlatItem, Deep, DeepItem, DeepPart],
+	[Spans, Lease, Flat, FlatItem, Deep, DeepItem, DeepPart, Slot],
 	[
 		ordered(on(FlatItem, "q", "due", "at"), fin(Flat, "items")),
 		contained(on(FlatItem, "q", "due", "cu"), on(Flat, "q", "due", "until")),
@@ -106,7 +112,11 @@ const programs = Object.freeze({
 			.insertComputed(Deep, [], { due: after("delay"), until: after("budget") })
 			.read("reading", reading),
 		{ now: "micros" }
-	)
+	),
+	/** Slot's rows, `at` its key field computed as the call's parameter `t` cast into Span, as den's is. */
+	slot: ChangeSet.empty(Computed).insertComputed(Slot, [], {
+		at: Type.cast(Type.base(param("t", Span)), Span)
+	})
 })
 
 export const computedInstall = Object.freeze({ label: "computed", programs })
@@ -188,3 +198,121 @@ export const situations = [
 	"an owner nesting no member",
 	"a member nesting parts"
 ] as const satisfies ReadonlyArray<Reached<ComputedFeature>>
+
+/** One call of `slot`: its parameter `t`, every row's `at`, and its rows, each an environment and a value. */
+export interface SlotCall {
+	readonly t: bigint
+	readonly rows: ReadonlyArray<{ readonly env: number; readonly v: number }>
+}
+
+/** Calls of `slot` one after another, each on the state the ones before it left. */
+export interface Slotting {
+	readonly calls: ReadonlyArray<SlotCall>
+}
+
+export type SlotFeature =
+	| "one row"
+	| "two rows of one environment and two values in one call"
+	| "two rows of one fact in one call"
+	| "two environments in one call"
+	| "a call at a stored key's at, its value equal"
+	| "a call at a stored key's at, its value another"
+	| "two calls at two ats"
+
+/** Few environments, values and parameters, so rows of one call meet at an environment and calls meet at `t`. */
+const slotCallGen: Gen<SlotCall> = (source) => ({
+	t: BigInt(source.draw(int(0, 2))),
+	rows: source.draw(
+		array((s) => ({ env: s.draw(int(0, 2)), v: s.draw(int(0, 2)) }), { min: 1, max: 3 })
+	)
+})
+
+export const slottingGen: Gen<Slotting> = (source) => ({
+	calls: source.draw(array(slotCallGen, { min: 1, max: 2 }))
+})
+
+/** What a call does: refused at Slot's key, its state kept; or accepted, adding `added` rows, none `unchanged`. */
+export type SlotAnswer =
+	| { readonly kind: "refused" }
+	| { readonly kind: "accepted" | "unchanged"; readonly added: ReadonlyArray<SlotRow> }
+
+/** A row of Slot, `at` read as a bigint. */
+export interface SlotRow {
+	readonly env: number
+	readonly at: bigint
+	readonly v: number
+}
+
+/** The model: `call` on `stored`, every row holding the call's `t` at `at`. Its rows are one fact each per distinct row;
+ * two of them at one environment and two values share the key (env, t) and refuse the call; a row at a stored key is
+ * its repeat when its value is the stored one, else it refuses the call; every other row is added. */
+export const slotAnswer = (stored: ReadonlyArray<SlotRow>, call: SlotCall): SlotAnswer => {
+	const facts = Arr.dedupeWith(call.rows, (a, b) => a.env === b.env && a.v === b.v)
+	const shared = Arr.some(facts, (a) => Arr.some(facts, (b) => a.env === b.env && a.v !== b.v))
+	const atKey = (f: { readonly env: number }) =>
+		Arr.findFirst(stored, (r) => r.env === f.env && r.at === call.t)
+	const conflicts = Arr.some(facts, (f) => {
+		const met = atKey(f)
+		return met._tag === "Some" && met.value.v !== f.v
+	})
+	if (shared || conflicts) {
+		return { kind: "refused" }
+	}
+	const added = Arr.map(
+		Arr.filter(facts, (f) => atKey(f)._tag === "None"),
+		(f): SlotRow => ({ env: f.env, at: call.t, v: f.v })
+	)
+	return { kind: Arr.isReadonlyArrayNonEmpty(added) ? "accepted" : "unchanged", added }
+}
+
+/** The features a case reaches, read off its calls and the model's states. */
+export const slotFeatures = (c: Slotting): ReadonlyArray<SlotFeature> => {
+	const features: Array<SlotFeature> = []
+	const stored: Array<SlotRow> = []
+	for (const call of c.calls) {
+		const facts = Arr.dedupeWith(call.rows, (a, b) => a.env === b.env && a.v === b.v)
+		if (call.rows.length === 1) {
+			features.push("one row")
+		}
+		if (Arr.some(facts, (a) => Arr.some(facts, (b) => a.env === b.env && a.v !== b.v))) {
+			features.push("two rows of one environment and two values in one call")
+		}
+		if (facts.length < call.rows.length) {
+			features.push("two rows of one fact in one call")
+		}
+		if (Arr.dedupe(Arr.map(facts, (f) => f.env)).length > 1) {
+			features.push("two environments in one call")
+		}
+		for (const f of facts) {
+			const met = Arr.findFirst(stored, (r) => r.env === f.env && r.at === call.t)
+			if (met._tag === "Some") {
+				features.push(
+					met.value.v === f.v
+						? "a call at a stored key's at, its value equal"
+						: "a call at a stored key's at, its value another"
+				)
+			}
+		}
+		const answer = slotAnswer(stored, call)
+		if (answer.kind !== "refused") {
+			for (const row of answer.added) {
+				stored.push(row)
+			}
+		}
+	}
+	const [first, second] = c.calls
+	if (first !== undefined && second !== undefined && first.t !== second.t) {
+		features.push("two calls at two ats")
+	}
+	return Arr.dedupe(features)
+}
+
+export const slotSituations = [
+	"one row",
+	"two rows of one environment and two values in one call",
+	"two rows of one fact in one call",
+	"two environments in one call",
+	"a call at a stored key's at, its value equal",
+	"a call at a stored key's at, its value another",
+	"two calls at two ats"
+] as const satisfies ReadonlyArray<Reached<SlotFeature>>

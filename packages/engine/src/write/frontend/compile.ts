@@ -140,7 +140,7 @@ import {
 	type RelationUniques,
 	relationUniques
 } from "#compiler/write/insert/unique.ts"
-import { hostChecks } from "#compiler/write/normalize/normalize.ts"
+import { computedChecks, hostChecks } from "#compiler/write/normalize/normalize.ts"
 import { existingKeysProof } from "#compiler/write/put/proof.ts"
 
 export interface FrontendOptions {
@@ -1062,13 +1062,21 @@ const compile = (
 	const stampedChecksOf = (relation: WrittenRelation, nesting: Nesting): HostChecks =>
 		hostChecks(relation.keyLaws, relation.uniques, nesting.stamps.get(relation.name) ?? [])
 	/** The same-key checks a group's facts of `relation` are judged by: its nested insert's (`stampedChecksOf`), whose
-	 * stamps fill the fields every row of its relation leaves out, the group's one insert; the relation's own otherwise. */
+	 * stamps fill the fields every row of its relation leaves out, the group's one insert; where its insert computes
+	 * fields its host rows leave out, `computed` (`computedStamps`), each key over one compared for its puts and its
+	 * inserted facts apart (write/normalize/normalize.ts computedChecks); the relation's own otherwise. */
 	const groupHost = (
 		relation: WrittenRelation,
-		inputs: ReadonlyArray<EnumeratedInput>
+		inputs: ReadonlyArray<EnumeratedInput>,
+		computed: ReadonlyArray<Stamped>
 	): HostChecks => {
 		const nested = inputs.find((input) => input.kind === "nested")
-		return nested === undefined ? relation.host : stampedChecksOf(relation, nested.nesting)
+		if (nested !== undefined) {
+			return stampedChecksOf(relation, nested.nesting)
+		}
+		return computed.length === 0
+			? relation.host
+			: computedChecks(relation.keyLaws, relation.uniques, computed)
 	}
 	/** The schema's families: a nested insert reaches some of them (write/family/nesting.ts). */
 	const families = laws.families
@@ -2237,7 +2245,10 @@ const compile = (
 						facts:
 							target.kind === "entry"
 								? entryFacts(target.entry, relation.host)
-								: { stated: statedInRelation, host: groupHost(relation, groupInputs) }
+								: {
+										stated: statedInRelation,
+										host: groupHost(relation, groupInputs, computedStamps(s, relation.name))
+									}
 					})
 				)
 			}

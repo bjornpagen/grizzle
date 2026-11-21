@@ -7,7 +7,12 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { predicateTable } from "#compiler/ir/expr.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
-import type { HostChecks, HostKey, HostKeyField } from "#compiler/runtime/write/normalize.ts"
+import type {
+	HostChecks,
+	HostKey,
+	HostKeyField,
+	HostSpanKey
+} from "#compiler/runtime/write/normalize.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
@@ -83,3 +88,62 @@ export const hostChecks = (
 					]
 		)
 	})
+
+/**
+ * The host checks of a relation's additions in a stratum whose insert computes `computed`, fields its host rows leave
+ * out, every row of the call holding the call's one value of each (ir/instant.ts Stamp `call`), which only the
+ * statement that writes the rows computes: a key or span key over no computed field compares every addition, as the
+ * relation's own checks do (`hostChecks`); one over a computed field compares the puts' at all of its fields and the
+ * inserted facts' at its other fields alone (runtime/write/normalize.ts KeyCompares), since two rows of one call that
+ * agree there agree at it too; and a span key whose span the call computes is, for the inserted facts, a key of its
+ * compared fields, since every span is nonempty (scalar/values/span.ts) and the call's one span overlaps itself.
+ */
+export const computedChecks = (
+	keyLaws: ReadonlyArray<{
+		readonly fields: ReadonlyArray<LawField>
+		readonly law: LawId
+		readonly described: RecordedLaw
+	}>,
+	uniques: RelationUniques,
+	computed: ReadonlyArray<Stamped>
+): HostChecks => {
+	const own = hostChecks(keyLaws, uniques, [])
+	const computes = (f: { readonly field: string }): boolean =>
+		computed.some((s) => s.field.name === f.field)
+	const held = (fields: ReadonlyArray<HostKeyField>): ReadonlyArray<HostKeyField> =>
+		fields.filter((f) => !computes(f))
+	const keys: Array<HostKey> = []
+	const spans: Array<HostSpanKey> = []
+	/** The keys a span key whose span the call computes is for the inserted facts, after every declared key. */
+	const spanKeys: Array<HostKey> = []
+	for (const k of own.keys) {
+		if (k.fields.some(computes)) {
+			keys.push(
+				Object.freeze({ ...k, compares: "put" as const }),
+				Object.freeze({ ...k, fields: held(k.fields), compares: "insert" as const })
+			)
+		} else {
+			keys.push(k)
+		}
+	}
+	for (const check of own.spans) {
+		if (!computes(check.span) && !check.equal.some(computes)) {
+			spans.push(check)
+			continue
+		}
+		spans.push(Object.freeze({ ...check, compares: "put" as const }))
+		if (computes(check.span)) {
+			spanKeys.push(
+				Object.freeze({
+					law: check.law,
+					described: check.described,
+					fields: held(check.equal),
+					compares: "insert" as const
+				})
+			)
+		} else {
+			spans.push(Object.freeze({ ...check, equal: held(check.equal), compares: "insert" as const }))
+		}
+	}
+	return Object.freeze({ keys: [...keys, ...spanKeys], spans })
+}

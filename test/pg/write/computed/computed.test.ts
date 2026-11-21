@@ -26,11 +26,25 @@
  * whose rows state none, so each call is refused as its rows' encoding.
  *
  * Features: each depth, several owners in one call, an owner nesting no member, a member nesting parts.
+ *
+ * A key over a computed field: Slot(env, at, v) keyed (env, at), its insert computing `at` as the call's parameter `t`
+ * cast into Span, den's served rows' (environment, at). Every row of one call holds the call's one `at`, which the host
+ * never holds, so the host compares a call's rows at their environment alone, two rows of one environment and two
+ * values two facts of one key, and leaves a stored fact at the key to the statement's arbiter (write/normalize
+ * normalize.ts computedChecks, runtime/write/normalize.ts KeyCompares). Property, per case: one or two calls of `slot`
+ * in sequence, each of one to three rows, few environments, values and parameters; each call is refused at Slot's
+ * primary key exactly when two of its distinct rows share an environment or one meets a stored fact of its key with
+ * another value, and otherwise accepted, or unchanged when every row repeats a stored fact; after each call Slot holds
+ * exactly the model's rows. Oracle: the model, every row holding the call's `t` at `at` and the key compared as the
+ * table holds it (`slotAnswer`). Kills: the group's host checks the relation's own, which read `at` off host rows
+ * that hold none, a defect at the call; and the inserted facts compared at no key of the computed field, so two rows of
+ * one call at one environment reach the statement, which trusts the host's normalization and meets them at its own
+ * index.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order, Record as Rec } from "effect"
+import { Array as Arr, Effect, Formatter, Order, Record as Rec } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
@@ -44,9 +58,16 @@ import {
 	type Computing,
 	computingGen,
 	situations,
+	type SlotFeature,
+	slotAnswer,
+	slotFeatures,
+	type SlotRow,
+	slotSituations,
+	slottingGen,
 	Span
 } from "#test/pg/write/computed/computed.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
+import { refusedLaws } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -208,6 +229,104 @@ export const everyRowOfACallHoldsItsOneValueOfEachComputedFieldTheOwnerAndEveryM
 				original: "\t\tconst computed = strataComputed[s]?.get(relation)\n",
 				replacement: "\t\tconst computed = strataComputed[s + 1]?.get(relation)\n",
 				why: "No insert computes a field, so its host rows must state every one: the call's rows, which leave the computed fields out, are refused as their encoding, and no call is accepted."
+			}
+		]
+	})
+
+/** Slot's rows in key order. */
+const bySlotKey = Order.combineAll([
+	Order.mapInput(Order.Number, (r: SlotRow) => r.env),
+	Order.mapInput(Order.BigInt, (r: SlotRow) => r.at),
+	Order.mapInput(Order.Number, (r: SlotRow) => r.v)
+])
+
+/** An insert that computes a field of its relation's primary key is judged at the key as the table holds its rows. */
+export const anInsertComputingAKeyFieldIsJudgedAtTheKeyAsTheTableHoldsTheRowsItWrites =
+	property.explore(slottingGen, {
+		needs: { fixture: Substrate.seat(computedTemplate) },
+		situations: slotSituations,
+		check:
+			({ fixture }, k: Case<SlotFeature>) =>
+			(c) =>
+				Effect.flatMap(fixture, (taken) =>
+					Effect.provideService(
+						Effect.gen(function* () {
+							k.noteAll(slotFeatures(c))
+							const s = yield* Substrate
+							const o = yield* openedIn(Computed, {}, computedInstall, taken)
+							const names = o.installed.installation.names
+							const column = (f: string) => quoteIdent(names.column("Slot", f))
+							const slotRows = Effect.map(
+								s.admin.queryValues(
+									`SELECT ${column("env")}::text, ${column("at")}::text, ${column("v")}::text FROM ${printObjectName(
+										names.relation("Slot")
+									)} ORDER BY 1, 2, 3`,
+									[]
+								),
+								(rows) =>
+									Arr.sort(
+										Arr.map(rows, (row): SlotRow => ({
+											env: Number(String(row[0])),
+											at: BigInt(String(row[1])),
+											v: Number(String(row[2]))
+										})),
+										bySlotKey
+									)
+							)
+							return yield* Effect.gen(function* () {
+								const db = yield* Db.open(o.served.login.roles.app, {})
+								let stored: ReadonlyArray<SlotRow> = []
+								for (const [i, call] of c.calls.entries()) {
+									const expected = slotAnswer(stored, call)
+									const answer = yield* writeAnswerOf(
+										db.workload.slot.once({
+											params: { t: Span(call.t) },
+											facts: { insert: { Slot: call.rows } }
+										})
+									)
+									const what = `call ${i} at t ${call.t} of ${Formatter.format(call.rows)} on ${Formatter.format(stored)}`
+									if (expected.kind === "refused") {
+										assert.ok(
+											answer.kind === "refused" &&
+												Arr.every(refusedLaws(answer.refused), (l) => l.kind === "primaryKey"),
+											`${what}: refused at Slot's primary key, not ${Formatter.format(answer)}`
+										)
+									} else {
+										assert.equal(answer.kind, expected.kind, `${what}: ${Formatter.format(answer)}`)
+										stored = Arr.sort([...stored, ...expected.added], bySlotKey)
+									}
+									const held = yield* slotRows
+									assert.deepEqual<ReadonlyArray<SlotRow>>(
+										held,
+										stored,
+										`${what}: Slot holds the model's rows`
+									)
+								}
+							}).pipe(Effect.scoped, withLayer(o.served.layer))
+						}).pipe(Effect.scoped),
+						Substrate,
+						taken.substrate
+					)
+				),
+		oracle: {
+			kind: "second-implementation",
+			name: "slotAnswer, a model of Slot's rows: every row of a call holds the call's `t` at `at`, the key compared as the table holds it"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/write/frontend/compile.ts",
+				original:
+					"\t\treturn computed.length === 0\n\t\t\t? relation.host\n\t\t\t: computedChecks(relation.keyLaws, relation.uniques, computed)\n",
+				replacement: "\t\treturn relation.host\n",
+				why: "The group's host checks are the relation's own, which read every row's `at` off host rows that leave it out: a defect at every call with a row."
+			},
+			{
+				file: "packages/engine/src/write/normalize/normalize.ts",
+				original:
+					'\t\t\t\tObject.freeze({ ...k, compares: "put" as const }),\n\t\t\t\tObject.freeze({ ...k, fields: held(k.fields), compares: "insert" as const })\n',
+				replacement: '\t\t\t\tObject.freeze({ ...k, compares: "put" as const })\n',
+				why: "The inserted facts are compared at no key over a computed field: two rows of one call at one environment and two values reach the statement, which trusts the host's normalization of its input and meets the second at its own index, never as Slot's primary key refused."
 			}
 		]
 	})

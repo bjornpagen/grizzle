@@ -3742,7 +3742,9 @@ ChangeSet.empty(Blog)               a write over a schema, or over a role: Chang
   filled from a computed field of its owner, by its group or by its copy along the owner axis, holds its owner's one
   value, at any depth, never a value of its own; a generated field over one is PostgreSQL's, and a fold or a copy that
   reads one on the host is refused as `UnfillableField` (`stamped`). A computed field is part of the fact the call states, so a stored row at its key that differs there is refused
-  on the key. A stratum computes one record for each relation; a query member's head computes its own fields
+  on the key. Every row of a call holds the call's one value of a computed key field, so two of its rows that share the
+  key's other fields and differ elsewhere are two facts of one key, refused before any SQL is sent, and a put of the
+  relation in the same stratum meets the call's rows at that key in the database, as a stored row does. A stratum computes one record for each relation; a query member's head computes its own fields
   instead, and an insert through a query entry states every field.
 - **`read`** runs its query after the change, before COMMIT. `delta.added(T)` and `delta.removed(T)` are the rows the
   change added and removed, and `delta.met(T)` the stored rows its insertions met ([Rows an insertion

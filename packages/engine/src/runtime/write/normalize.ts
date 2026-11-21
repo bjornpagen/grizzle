@@ -460,23 +460,60 @@ export type HostKeyField =
  * which the host never holds, so the statement that writes the facts compares them there (insert/unique.ts
  * `hostHeld`), a key generation being one the host fills; and each span candidate key whose pairs the probe leaves to
  * the host (`checks`, `Probed`), its law, its compared fields and its span field. A conflict at a span key names its
- * compared fields, then its span field. */
+ * compared fields, then its span field. Each compares every addition, or the ones it names (`Split`). */
 export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
-	readonly spans: ReadonlyArray<{
-		readonly law: LawId
-		readonly described: RecordedLaw
-		readonly equal: ReadonlyArray<HostKeyField>
-		readonly span: { readonly field: string; readonly type: SpanType }
-	}>
+	readonly spans: ReadonlyArray<HostSpanKey>
 }
 
-/** A declared key the host compares a relation's additions at: its law and its fields. */
-export interface HostKey {
-	readonly law: LawId
-	readonly described: RecordedLaw
-	readonly fields: ReadonlyArray<HostKeyField>
-}
+/** A declared key the host compares a relation's additions at: its law and its fields, every addition's, or those of
+ * one kind (`Split`). */
+export type HostKey =
+	| {
+			readonly law: LawId
+			readonly described: RecordedLaw
+			readonly fields: ReadonlyArray<HostKeyField>
+	  }
+	| {
+			readonly law: LawId
+			readonly described: RecordedLaw
+			readonly fields: ReadonlyArray<HostKeyField>
+			readonly compares: Split
+	  }
+
+/** A span candidate key the host compares a relation's additions at (`HostChecks`), every addition's, or those of one
+ * kind (`Split`). */
+export type HostSpanKey =
+	| {
+			readonly law: LawId
+			readonly described: RecordedLaw
+			readonly equal: ReadonlyArray<HostKeyField>
+			readonly span: { readonly field: string; readonly type: SpanType }
+	  }
+	| {
+			readonly law: LawId
+			readonly described: RecordedLaw
+			readonly equal: ReadonlyArray<HostKeyField>
+			readonly span: { readonly field: string; readonly type: SpanType }
+			readonly compares: Split
+	  }
+
+/**
+ * The one kind of a stratum's additions of one relation a key or span key over a field the stratum's insert computes
+ * compares: every row of the call holds the call's one value of that field (ir/instant.ts Stamp `call`), which only the
+ * statement that writes the rows computes, so the key compares the puts' alone at all of its fields (`put`) and the
+ * inserted facts' alone at its other fields (`insert`), which tell two rows of one call apart. A put and an inserted
+ * fact meet at such a key in their statements, the insert after the put (write/frontend/schedule.ts), whose arbiter or
+ * probe meets the put's fact as a stored one. Every other key compares every addition.
+ */
+export type Split = "put" | "insert"
+
+/** Whose additions a checked key compares: every addition's, or one kind's (`Split`). */
+type KeyCompares = "every" | Split
+
+/** Whose additions `key` compares (`KeyCompares`). */
+const comparedBy = (key: HostKey | HostSpanKey): KeyCompares =>
+	"compares" in key ? key.compares : "every"
 
 /** A key field as the host compares facts at it: its name, and its carrier's spec under the installation's codes. */
 interface KeySpec {
@@ -489,6 +526,7 @@ interface CheckedKey {
 	readonly law: LawId
 	readonly described: RecordedLaw
 	readonly fields: ReadonlyArray<KeySpec>
+	readonly compares: KeyCompares
 }
 
 /** The host's same-key checks under the installation's codes (`HostChecks`): each key's fields by their specs, and each
@@ -504,6 +542,7 @@ interface CheckedKeys {
 			readonly spec: Extract<CarrierSpec, { readonly carrier: SpanCarrier }>
 		}
 		readonly witness: ReadonlyArray<KeySpec>
+		readonly compares: KeyCompares
 	}>
 }
 
@@ -554,7 +593,8 @@ const checkedFacts = (
 			keys: host.keys.map((k) => ({
 				law: k.law,
 				described: k.described,
-				fields: k.fields.map(specOf)
+				fields: k.fields.map(specOf),
+				compares: comparedBy(k)
 			})),
 			spans: host.spans.map((check) => {
 				const equal = check.equal.map(specOf)
@@ -570,7 +610,8 @@ const checkedFacts = (
 					described: check.described,
 					equal,
 					span,
-					witness: [...equal, { field: span.field, spec: span.spec }]
+					witness: [...equal, { field: span.field, spec: span.spec }],
+					compares: comparedBy(check)
 				}
 			})
 		})
@@ -734,20 +775,31 @@ const primaryConflict = <E>(
 	return conflictOf(facts, value, entry, primary.fields, primary)
 }
 
+/** A stratum's additions of one relation, its puts' and its inserted facts' apart, which a key over a field its insert
+ * computes compares each alone (`KeyCompares`). */
+interface Additions<E> {
+	readonly put: ReadonlyArray<E>
+	readonly insert: ReadonlyArray<E>
+}
+
+/** The additions a key or span key compares (`KeyCompares`), in the order `additions` holds them. */
+const compared = <E>(compares: KeyCompares, additions: Additions<E>): ReadonlyArray<E> =>
+	compares === "every" ? [...additions.put, ...additions.insert] : additions[compares]
+
 /**
  * The first of one relation's facts, in canonical order, sharing a declared key's value with an earlier one of another
- * identity under `order`, the keys tried primary key first.
+ * identity under `order`, the keys tried primary key first, each over the additions it compares, `inOrder`'s.
  */
 const keyConflictIn = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	entries: ReadonlyArray<E>
+	inOrder: (compares: KeyCompares) => ReadonlyArray<E>
 ): KeyRefusal | undefined => {
 	for (const key of facts.host.keys) {
 		const { fields } = key
 		const keyOf = reading.key(fields)
 		const seen = new TextsMap<E>()
-		for (const e of entries) {
+		for (const e of inOrder(key.compares)) {
 			const k = keyOf(e)
 			const prior = seen.get(k)
 			if (prior !== undefined && reading.order(prior, e) !== 0) {
@@ -767,16 +819,20 @@ const keyConflictIn = <E>(
 const sameKey = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	entries: Iterable<E>
+	additions: Additions<E>
 ): KeyRefusal | undefined => {
-	const additions = [...entries]
-	return facts.host.spans.length === 0 && !keyShared(facts, reading, additions)
-		? undefined
-		: firstConflict(facts, reading, sorted(reading, additions))
+	if (facts.host.spans.length === 0 && !keyShared(facts, reading, additions)) {
+		return undefined
+	}
+	/** Each kind of addition's in canonical order, sorted once where a check first compares it. */
+	const ordered = new Map<KeyCompares, ReadonlyArray<E>>()
+	return firstConflict(facts, reading, (compares) =>
+		ordered.getOrInsertComputed(compares, () => sorted(reading, compared(compares, additions)))
+	)
 }
 
 /**
- * Whether two of `entries`, complete additions alone, of different identities share a declared key's value: whether
+ * Whether two of the additions a key compares, complete additions alone, of different identities share its value: whether
  * `firstConflict` finds a key conflict among them, which no pair of complete additions escapes as one fact. A key that
  * holds two identities holds two that stand next to each other in canonical order, so whether one does depends on the
  * set alone, and is found in the order the entries came in, with no sort: only a write it refuses is sorted, to name
@@ -785,12 +841,12 @@ const sameKey = <E>(
 const keyShared = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	entries: ReadonlyArray<E>
+	additions: Additions<E>
 ): boolean => {
-	for (const { fields } of facts.host.keys) {
+	for (const { fields, compares } of facts.host.keys) {
 		const keyOf = reading.key(fields)
 		const seen = new TextsMap<E>()
-		for (const e of entries) {
+		for (const e of compared(compares, additions)) {
 			const k = keyOf(e)
 			const prior = seen.get(k)
 			if (prior === undefined) {
@@ -803,13 +859,13 @@ const keyShared = <E>(
 	return false
 }
 
-/** `sameKey`'s refusal over additions in canonical order, `additions` sorted. */
+/** `sameKey`'s refusal over additions in canonical order, each kind's `inOrder`'s. */
 const firstConflict = <E>(
 	facts: CheckedFacts,
 	reading: EntryReading<E>,
-	additions: ReadonlyArray<E>
+	inOrder: (compares: KeyCompares) => ReadonlyArray<E>
 ): KeyRefusal | undefined => {
-	const keyed = keyConflictIn(facts, reading, additions)
+	const keyed = keyConflictIn(facts, reading, inOrder)
 	if (keyed !== undefined) {
 		return keyed
 	}
@@ -818,7 +874,7 @@ const firstConflict = <E>(
 		const keyOf = reading.key(check.equal)
 		const spanValue = reading.value(span.field)
 		const groups = new TextsMap<Array<{ readonly entry: E; readonly span: HostSpan }>>()
-		for (const e of additions) {
+		for (const e of inOrder(check.compares)) {
 			const value = admitted(span.spec, spanValue(e))
 			const k = keyOf(e)
 			const group = groups.getOrInsertComputed(k, () => [])
@@ -1067,7 +1123,10 @@ export const normalizeChangeSet = (
 		for (const [id] of sets.put) {
 			sets.insert.delete(id)
 		}
-		const refused = sameKey(facts, factReading, [...sets.put.values(), ...sets.insert.values()])
+		const refused = sameKey(facts, factReading, {
+			put: [...sets.put.values()],
+			insert: [...sets.insert.values()]
+		})
 		if (refused !== undefined) {
 			return Result.ok(refused)
 		}
@@ -1098,7 +1157,10 @@ export const normalizeChangeSet = (
 		}
 		const held = nestedRowsOf(set)
 		for (const [name, relationRows] of held) {
-			const refused = sameKey(factsOf(name), rowReading(walk.columns(name)), relationRows)
+			const refused = sameKey(factsOf(name), rowReading(walk.columns(name)), {
+				put: [],
+				insert: relationRows
+			})
 			if (refused !== undefined) {
 				return Result.ok(refused)
 			}
