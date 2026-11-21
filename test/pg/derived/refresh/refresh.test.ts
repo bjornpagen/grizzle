@@ -17,6 +17,7 @@ import {
 	raisedOf,
 	type RefreshFeature,
 	refusalsOf,
+	type View,
 	reportsTemplate,
 	unbuilt,
 	viewsOf
@@ -50,7 +51,9 @@ export const aRefreshMemberIsRefusedWhereItIsBuiltOrCompiledUnlessItNamesInScope
 				Effect.flatMap(reports, (taken) =>
 					Effect.provideService(
 						Effect.gen(function* () {
-							const { leases, model } = yield* leasesNeed
+							const { leases } = yield* leasesNeed
+							/** The views this case's installation holds populated: none, its database fresh and every view emptied. */
+							const model = new Set<View>()
 							const s = yield* Substrate
 							const installed = taken.value
 							const f = build(installed.declared)
@@ -123,23 +126,27 @@ export const aRefreshMemberIsRefusedWhereItIsBuiltOrCompiledUnlessItNamesInScope
 								} else {
 									const refresh = member(succeeded(loaded, "the refresh member"), "r")
 									assertVariant(refresh, "kind", "refresh", "a refresh member")
-									const before = leases.count
-									const outcome = yield* Effect.result(
-										Effect.scoped(runRefresh(counting, refresh.refresh))
-									)
-									const leased = leases.count - before
-									if (
-										views.includes("WeekBusy") &&
-										!views.includes("StudentWeekly") &&
-										!model.has("StudentWeekly")
-									) {
-										assert.deepEqual(
-											raisedOf(outcome),
-											{ by: "server", sqlstate: "55000" },
-											"a level-2 view over an unpopulated input"
+									/** One run of the member against the model, which it then advances: twice, so a view the first run
+									 * populated is refreshed concurrently by the second. */
+									const runOnce = Effect.gen(function* () {
+										const before = leases.count
+										const outcome = yield* Effect.result(
+											Effect.scoped(runRefresh(counting, refresh.refresh))
 										)
-										c.note("an unpopulated input")
-									} else {
+										const leased = leases.count - before
+										if (
+											views.includes("WeekBusy") &&
+											!views.includes("StudentWeekly") &&
+											!model.has("StudentWeekly")
+										) {
+											assert.deepEqual(
+												raisedOf(outcome),
+												{ by: "server", sqlstate: "55000" },
+												"a level-2 view over an unpopulated input"
+											)
+											c.note("an unpopulated input")
+											return
+										}
 										assert.deepEqual(
 											Arr.map(succeeded(outcome, Arr.join(names, ", ")).statements, (st) => [
 												st.relation,
@@ -153,12 +160,14 @@ export const aRefreshMemberIsRefusedWhereItIsBuiltOrCompiledUnlessItNamesInScope
 											c.note(model.has(view) ? "refreshed concurrently" : "refreshed plain")
 											model.add(view)
 										}
-										if (listed[0] === "WeekBusy" && views.length === 2) {
-											c.note("named against level order")
-										}
-										if (listed.length > views.length) {
-											c.note("named twice")
-										}
+									})
+									yield* runOnce
+									yield* runOnce
+									if (listed[0] === "WeekBusy" && views.length === 2) {
+										c.note("named against level order")
+									}
+									if (listed.length > views.length) {
+										c.note("named twice")
 									}
 								}
 							}
@@ -177,7 +186,7 @@ export const aRefreshMemberIsRefusedWhereItIsBuiltOrCompiledUnlessItNamesInScope
 			kind: "specification",
 			name: "refresh(...)'s stated rules: refused where it is built or compiled unless it names in-scope derived relations, else one statement per relation in level order, plain until populated, against a model of the populated views"
 		},
-		box: "every member naming one to three of the two in-scope relations, the relation outside the scope, the base relation, another definition under an in-scope name, a string and two look-alikes, in every order, on one installation",
+		box: "every member naming one to three of the two in-scope relations, the relation outside the scope, the base relation, another definition under an in-scope name, a string and two look-alikes, in every order, each on an installation of its own, every view unpopulated, run twice",
 		kept: [],
 		kills: []
 	})

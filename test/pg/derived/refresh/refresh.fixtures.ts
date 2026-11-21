@@ -26,8 +26,8 @@ import { installedTemplate } from "#test/support/install-migrate.ts"
  *
  * Every member naming up to three of: the two in-scope relations, the relation outside the scope, the base relation, a
  * derived relation named like an in-scope one with another definition, a string, a JavaScript look-alike of an
- * in-scope relation and a look-alike holding a getter, is checked against the stated rules, in enumeration order on
- * one installation, against a model of which views are populated:
+ * in-scope relation and a look-alike holding a getter, is checked against the stated rules, each on an installation of
+ * its own with every view unpopulated, against a model of which views are populated, its member run twice:
  *
  * - a value derived.materialized(...) did not build (the base relation, a string, either look-alike) is refused by
  *   refresh(...) itself, a CompileError MalformedDescription thrown where the member is built;
@@ -101,8 +101,7 @@ export const build = (name: string) => {
 
 type Fixture = ReturnType<typeof build>
 
-/** What a member may name: the in-scope views, or something refresh(...) or the compile refuses. The level-2 view comes
- * first, so the first member naming it alone meets its unpopulated input. */
+/** What a member may name: the in-scope views, or something refresh(...) or the compile refuses. */
 type Named = "WeekBusy" | "StudentWeekly" | Refused
 
 /** What refresh(...) refuses where the member is built: a value derived.materialized(...) did not build. */
@@ -131,7 +130,7 @@ export const calls: Gen<Arr.NonEmptyReadonlyArray<Named>> = (source) => [
 ]
 
 /** What the resolution makes of a name: the view it refreshes, or its refusal. */
-type View = "WeekBusy" | "StudentWeekly"
+export type View = "WeekBusy" | "StudentWeekly"
 
 type Resolved =
 	| { readonly kind: "view"; readonly view: View }
@@ -238,16 +237,14 @@ export const reportsTemplate = installedTemplate({
 	options: { ambient: ordinarySession, extensions: [], label: "refresh", logins: [declared.server] }
 })
 
-/** What the search built once before its cases (leases, model), now once per worker: every case on it reads them. */
+/**
+ * The count of the sessions the Db's pool leases, once per worker, which a case reads as the difference across its own
+ * refresh: a refresh leases one session. Which views are populated is each case's own (its installation fresh), never
+ * a worker's across its cases, which run on databases of their own in whatever order the pool gives them.
+ */
 export const leasesNeed = {
 	key: "test/pg/derived/refresh/refresh.fixtures.ts leasesNeed",
 	budget: fixtureNeedBudget,
 	runNeeds: [],
-	open: Effect.sync(() => {
-		/** The Db's context over a pool that counts its leases: a refresh leases one session. */
-		const leases = { count: 0 }
-		/** The model: the views populated so far. */
-		const model = new Set<View>()
-		return Effect.succeed({ leases, model })
-	})
+	open: Effect.sync(() => Effect.succeed({ leases: { count: 0 } }))
 } as const satisfies Need<unknown>
