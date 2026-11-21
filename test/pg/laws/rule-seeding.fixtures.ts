@@ -1535,11 +1535,25 @@ export const localityGen =
 		}
 	}
 
-/** Every footprint of key `k` on `seat` once keys `from` to `to` are loaded beside those it holds. */
+/**
+ * The statements loading keys `from` to `to` (`clusterSql`) with the tables' captures off: every key's rows are lawful,
+ * so no judge of the load is the property's, and a judge that reads every key's rows, its kill's, would judge every
+ * loaded row against every key at the load's COMMIT, which grows with the cube of the keys and ends no case.
+ */
+const loadedSql = (seat: Seat, from: number, to: number): ReadonlyArray<string> => [
+	...Arr.map(RELATIONS, (r) => `ALTER TABLE ${seat.table(r)} DISABLE TRIGGER USER`),
+	...clusterSql(seat, from, to),
+	...Arr.map(RELATIONS, (r) => `ALTER TABLE ${seat.table(r)} ENABLE TRIGGER USER`)
+]
+
+/**
+ * Every footprint of key `k` on `seat` once keys `from` to `to` are loaded beside those it holds, with the captures off
+ * (`loadedSql`).
+ */
 export const footprints = (seat: Seat, k: number, from: number, to: number) =>
 	Effect.gen(function* () {
 		yield* seat.session.begin
-		for (const sql of clusterSql(seat, from, to)) {
+		for (const sql of loadedSql(seat, from, to)) {
 			yield* Effect.onError(seat.session.query(sql, []), () => Effect.ignore(seat.session.rollback))
 		}
 		yield* seat.session.commit
