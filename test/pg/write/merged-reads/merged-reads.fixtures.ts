@@ -85,12 +85,12 @@ export type Situation = (typeof situations)[number]
 const fresh: Fact = { id: 3, n: 30 }
 
 /** The fact the last stratum's put writes at id 3. */
-export const putFact: Fact = { id: 3, n: 33 }
+const putFact: Fact = { id: 3, n: 33 }
 
-export const insertedOf = (c: MergedRead): Fact =>
+const insertedOf = (c: MergedRead): Fact =>
 	c.inserted === "a fresh fact" ? fresh : { id: 1, n: 10 }
 
-export const deletedOf = (c: MergedRead): Fact =>
+const deletedOf = (c: MergedRead): Fact =>
 	c.deleted === "a stored fact" ? { id: 2, n: 20 } : insertedOf(c)
 
 /** Item's facts, as `standing` reads them, or as the query a bound standing's relation parameter is bound to. */
