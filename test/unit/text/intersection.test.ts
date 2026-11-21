@@ -13,7 +13,7 @@
  *
  * Every language's texts of an even length are its intersection with the texts of an even length, whose DFA of two
  * states moves on every code point, so one side is read through the other's and each repetition's closure is drawn
- * from both states, whichever side's DFA is the smaller; and its nonempty texts its intersection with the repetition of
+ * from both states, each side read through the other's and the smaller reading kept; and its nonempty texts its intersection with the repetition of
  * one or more, whose accepting state loops on every code point, so a repetition read there is kept whole.
  *
  * Features: a text both hold, one only the first holds, one only the second holds, one neither holds, an empty
@@ -38,7 +38,7 @@ import { codePoints, codePointsText } from "@bjornpagen/grizzle-text/text"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { array, element, type Gen } from "@bjornpagen/testing/gen"
-import { type Case, property } from "@bjornpagen/testing/property"
+import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { jsMatcher } from "#test/support/regex.ts"
 import { stringsOver, wholeLanguageGen, wordOf } from "#test/unit/text/generators.ts"
@@ -186,7 +186,16 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 			name: "ECMAScript's RegExp test of each language and of the intersection"
 		},
 		budget: { runs: 400, steered: 0 },
-		kept: [],
+		kept: [
+			{
+				token: ReplayToken(
+					"test/unit/text/intersection.test.ts#theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothDo:-:3.2.0.3.2.0.3.2.0.0.0.1.2.2.3.0.0.1.2.1.2.1.0.2.2.2.2.2.2.1.2.0.0.0.2.1.0.2.2.0.2.2.0.2.2.5.2.1.2.0.1.1.1.0.0.0.0.0.0.0.0.1.1.1.0.1.1.2.0.0.0.1.1.1.1.0.0.1.0.1.1.1.0.0.0.1.1.1.1.0.0.0.0.0.0.0.1.2.0.1.1.1.1.1.1.1.0.1.1.1.0.1.1.0.0.1.2.1.1.1.1.1.1.0.0.1.0.1.1.0.1.1.1.1.0.1.0.0.0.0.0.0.1.0.1.1.0.0.0.0.1.2.2.1.1.1.1.0.1.1.2.0.1.0.0.1.1.0.1.1.2.1.1.1.0.0.1.1.2.1.0.1.0.2.1.0.1.0.0.0.1.2.1.0.0.0.0.0.1.2.0.1.1.2.0.1.0.0.0.1.0.2.0.1.0.1.0.2.2.0.0.1.1.1.1.0.1.2.0.0.0.0.2.0.0.0.0.1.1.1.0.0.0.0.0.0.1.0.3.0.0.0.0.1.0.6.4.0.2.0.0.0.2.0.2.3.1.2xg.1.r1q.0.0.3.0.2.0.0.0.0.4.0.2.0.1.0.0.0.2.5.0.2.0.1.1.z37.2.82x.0.0.6.0.0.0.1.2.k2u5.0.1.0.2.0.1"
+				),
+				reason:
+					"nested unbounded repetitions, ((([ab]){2,}){2,}){2,}, whose texts of an even length read through the two states are exponential in the nesting",
+				since: "2026-11-21"
+			}
+		],
 		kills: [
 			{
 				file: "packages/text/src/regex/intersection.ts",
@@ -214,10 +223,15 @@ export const theIntersectionOfTwoLanguagesOfWholeTextsHoldsATextExactlyWhenBothD
 			},
 			{
 				file: "packages/text/src/regex/intersection.ts",
-				original:
-					"\tconst out = new Map<number, RegexNode>([[state, builder.alt([empty, cell(fromState, 0)])]])",
-				replacement: "\tconst out = new Map<number, RegexNode>([[state, cell(fromState, 0)]])",
+				original: '\tconst returns = builder.repeat(cell(fromState, 0), 0, "unbounded")',
+				replacement: '\tconst returns = builder.repeat(cell(fromState, 0), 1, "unbounded")',
 				why: "An unbounded repetition's closure loses its empty word: a word that iterates it no time is dropped."
+			},
+			{
+				file: "packages/text/src/regex/intersection.ts",
+				original: "\t\tofThroughMine < ofThroughTheirs ||",
+				replacement: "\t\tfalse ||",
+				why: "Each side is read through the DFA of fewer states whatever the reading's size: ((([ab]){2,}){2,}){2,}'s texts of an even length are 64,198 bytes of nested repetitions read through the two states, which ECMAScript's backtracking does not decide within the case's deadline on an odd text, where the even texts read through its own DFA are 92 bytes."
 			}
 		]
 	})

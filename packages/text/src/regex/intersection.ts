@@ -22,9 +22,12 @@ import { buildNfa } from "#text/regex/nfa.ts"
  * The intersection of two languages of whole texts as one node, exactly: both narrowed to the code points both may hold;
  * where one then includes the other, the included one, as it stands (inclusion.ts included), the one of fewer
  * positions where each includes the other, the first on a tie; otherwise one read through the other's minimal DFA
- * (`tracked`), its own shape kept, through the DFA of fewer states, so a fixed sequence of sets such as
- * `[0-9]{4}-[0-9]{2}` is a chain of states that cuts the other to its columns, and a domain's facets compose into the
- * one pattern its domain stores, no larger than its facets make it. pantry's grammar/domains.ts intersectTwo and
+ * (`tracked`), its own shape kept, each through the other's and the reading of fewer positions kept, through the DFA of
+ * fewer states on a tie, so a fixed sequence of sets such as `[0-9]{4}-[0-9]{2}` is a chain of states that cuts the
+ * other to its columns, and a domain's facets compose into the one pattern its domain stores, no larger than its facets
+ * make it. Neither reading is the smaller by its DFA alone: nested unbounded repetitions read through the two states
+ * of the texts of an even length are exponential in their nesting, where the even texts read through the repetitions'
+ * own DFA are a chain of it. pantry's grammar/domains.ts intersectTwo and
  * tracked (UNIFY's op 3) on the one IR. It is refused, never approximated, where neither DFA is built within `limits`,
  * or where either node tests an assertion, since a language of whole texts tests none.
  */
@@ -66,9 +69,12 @@ const composed = (
 }
 
 /**
- * What any number of a repetition's iterations do from a state, by Kleene's construction: the states its iterations
- * reach, then, through each of them in turn, the words of one or more iterations from each to each, and the empty word
- * at the state itself.
+ * What any number of a repetition's iterations do from a state, by eliminating states (Brzozowski and McCluskey): the
+ * states its iterations reach, then each of them but the state itself in turn, the words of one or more iterations
+ * from the state and from each state not yet eliminated, to each, through the eliminated ones; last, the words that
+ * return to the state, repeated any number of times, before each state's own. The state itself is eliminated last, so
+ * its returns are read once as a repetition, where reading it first wrote each return again inside every later
+ * state's paths, and a nested repetition multiplied those copies at each depth.
  */
 const closureFrom = (
 	builder: RegexBuilder,
@@ -87,19 +93,26 @@ const closureFrom = (
 	let paths = reached.map((from) => reached.map((to) => once(from).get(to) ?? never))
 	const cell = (row: ReadonlyArray<RegexNode>, at: number): RegexNode =>
 		defined(row[at], "a path's cell")
-	for (const [via] of reached.entries()) {
+	for (let via = 1; via < reached.length; via++) {
 		const through = defined(paths[via], "a path's row")
 		const loop = builder.repeat(cell(through, via), 0, "unbounded")
-		paths = paths.map((row) =>
-			row.map((words, to) => builder.alt([words, seq([cell(row, via), loop, cell(through, to)])]))
+		/** Whether a row is read again: the state's own, and those of the states not yet eliminated. */
+		const standing = (from: number): boolean => from === 0 || from > via
+		paths = paths.map((row, from) =>
+			standing(from)
+				? row.map((words, to) =>
+						builder.alt([words, seq([cell(row, via), loop, cell(through, to)])])
+					)
+				: row
 		)
 	}
 	/** The state itself is the first one reached, so the first row holds the words from it. */
 	const fromState = defined(paths[0], "the state's own row")
-	const out = new Map<number, RegexNode>([[state, builder.alt([empty, cell(fromState, 0)])]])
+	const returns = builder.repeat(cell(fromState, 0), 0, "unbounded")
+	const out = new Map<number, RegexNode>([[state, returns]])
 	for (const [i, to] of reached.entries()) {
-		if (to !== state) {
-			joinAt(builder, out, to, cell(fromState, i))
+		if (i !== 0) {
+			joinAt(builder, out, to, seq([returns, cell(fromState, i)]))
 		}
 	}
 	return out
@@ -257,9 +270,15 @@ export const intersect = (
 	if (mineInTheirs || theirsInMine) {
 		return Result.ok(mineInTheirs ? mine : theirs)
 	}
+	const throughMine = tracked(theirs, ofMine.dfa)
+	const throughTheirs = tracked(mine, ofTheirs.dfa)
+	const builder = new RegexBuilder()
+	const ofThroughMine = builder.expandedSize(throughMine)
+	const ofThroughTheirs = builder.expandedSize(throughTheirs)
 	return Result.ok(
-		ofMine.dfa.states.length < ofTheirs.dfa.states.length
-			? tracked(theirs, ofMine.dfa)
-			: tracked(mine, ofTheirs.dfa)
+		ofThroughMine < ofThroughTheirs ||
+			(ofThroughMine === ofThroughTheirs && ofMine.dfa.states.length < ofTheirs.dfa.states.length)
+			? throughMine
+			: throughTheirs
 	)
 }
