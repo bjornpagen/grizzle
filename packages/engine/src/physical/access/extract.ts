@@ -268,6 +268,13 @@ interface OccurrenceFacts {
 	readonly classes: Map<number, string>
 }
 
+/** A binding of a region's variable, at its occurrence's place among the region's occurrences, beside that one's facts. */
+interface SiteBinding {
+	readonly at: number
+	readonly column: string
+	readonly facts: OccurrenceFacts
+}
+
 interface RegionFacts {
 	readonly occurrences: ReadonlyArray<OccurrenceFacts>
 	/** A region heading column's variable class. */
@@ -374,18 +381,25 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 	})
 	const occurrences: Array<OccurrenceFacts> = sites.map((site) => site.facts)
 	const headingOf = (o: OccurrenceFacts): Heading => o.source.heading
-	const bindingsOf = (
-		k: number
-	): ReadonlyArray<{
-		readonly at: number
-		readonly column: string
-		readonly facts: OccurrenceFacts
-	}> =>
-		sites.flatMap(({ occurrence, facts }, at) =>
-			occurrence.bindings
-				.filter((b) => classOfVar(b.var) === k)
-				.map((b) => ({ at, column: b.column, facts }))
-		)
+	/**
+	 * Each variable class's bindings, by occurrence and then by binding, as the region states them: every binding's
+	 * class is its variable's, which the sites fixed, so one pass indexes them all, and a class's bindings are read in
+	 * the size of the class, where a scan of every binding of the region for each class read was quadratic in it.
+	 */
+	const byClass = new Map<number, Array<SiteBinding>>()
+	for (const [at, { occurrence, facts }] of sites.entries()) {
+		for (const b of occurrence.bindings) {
+			const k = classOfVar(b.var)
+			const held = byClass.get(k)
+			const binding: SiteBinding = { at, column: b.column, facts }
+			if (held === undefined) {
+				byClass.set(k, [binding])
+			} else {
+				held.push(binding)
+			}
+		}
+	}
+	const bindingsOf = (k: number): ReadonlyArray<SiteBinding> => byClass.get(k) ?? []
 	const setEq = (o: OccurrenceFacts, column: string, kind: "fixed" | "literal"): void => {
 		if (kind === "fixed" || !o.eq.has(column)) {
 			o.eq.set(column, kind)
