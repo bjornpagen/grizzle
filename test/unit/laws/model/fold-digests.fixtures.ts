@@ -55,7 +55,7 @@ const textOf = (b: Bound): FieldDesc =>
 	b === "unbounded" ? f.wildcard : f.regex("^[a-z]{0,100}$", "u")
 
 /** Crypto.sha256's value: the lowercase hexadecimal spelling of a SHA-256 digest. */
-const digestType = f.regex("^[0-9a-f]{64}$", "u")
+const digestType: FieldDesc = { kind: "sha256" }
 
 /** The field a fold's side names for the running text `v` under `n`. */
 const namedField = (v: string, n: Naming): string => {

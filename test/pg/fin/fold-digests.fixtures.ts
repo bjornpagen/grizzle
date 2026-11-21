@@ -18,7 +18,8 @@ import {
 	drawn as drawnField,
 	generated,
 	natural,
-	pg
+	pg,
+	sha256
 } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -32,7 +33,7 @@ import {
 	select,
 	tree
 } from "#compiler/public/schema.ts"
-import { sha256, str } from "#compiler/public/text.ts"
+import { str } from "#compiler/public/text.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import { fixtureTemplate } from "#test/pg/reads/support.ts"
 import { Id } from "#test/support/ids.ts"
@@ -41,15 +42,15 @@ import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
 /** A text of no bound: every running text and piece, so a running text outgrows PostgreSQL's B-tree entry. */
 const Text = str.regex("^.*$", "su")
 
-/** Crypto.sha256's value, grizzle's one digest type. */
-const DigestText = sha256
+/** Crypto.sha256's value, the 32-byte digest carrier. */
+const DigestBytes = sha256
 
 /** A document: its lines' count and their concatenation, carried by its digest. */
 const Doc = relation.generated(
 	"Doc",
 	{ id: Id, n: drawnField(natural), text: accumulated(Text, "") },
 	["id"],
-	(row) => ({ textDigest: generated(DigestText, Crypto.sha256(row.text)) })
+	(row) => ({ textDigest: generated(DigestBytes, Crypto.sha256(row.text)) })
 )
 
 /** A document's line: its piece, and the running text before and after it, each carried by its digest. */
@@ -64,8 +65,8 @@ const Line = relation.generated(
 	},
 	["doc", "at"],
 	(row) => ({
-		beforeDigest: generated(DigestText, Crypto.sha256(row.before)),
-		afterDigest: generated(DigestText, Crypto.sha256(row.after))
+		beforeDigest: generated(DigestBytes, Crypto.sha256(row.before)),
+		afterDigest: generated(DigestBytes, Crypto.sha256(row.after))
 	})
 )
 
@@ -90,9 +91,9 @@ const Node = relation.generated(
 	},
 	["doc", "start"],
 	(row) => ({
-		beforeDigest: generated(DigestText, Crypto.sha256(row.before)),
-		afterDigest: generated(DigestText, Crypto.sha256(row.after)),
-		textDigest: generated(DigestText, Crypto.sha256(row.text))
+		beforeDigest: generated(DigestBytes, Crypto.sha256(row.before)),
+		afterDigest: generated(DigestBytes, Crypto.sha256(row.after)),
+		textDigest: generated(DigestBytes, Crypto.sha256(row.text))
 	})
 )
 
@@ -152,8 +153,8 @@ export const digestsInstall = Object.freeze({ label: "folddigests", programs: pr
 export const digestsTemplate = fixtureTemplate(import.meta, Digests, digestsInstall)
 
 /**
- * A text's SHA-256 digest as Crypto.sha256 spells it, the digest of its UTF-8 by effect's WebCrypto digest, a second
- * implementation of grizzle's and PostgreSQL's.
+ * A text's SHA-256 digest, its 32 bytes in hex, the digest of its UTF-8 by effect's WebCrypto digest, a second
+ * implementation of grizzle's and PostgreSQL's, read as a stored digest's hex is (Hex.encode).
  */
 const digestOf = (text: string): Effect.Effect<string, never, Digest.Digest> =>
 	Effect.flatMap(Digest.Digest, (d) => d.digestHex(Digest.sha256, new TextEncoder().encode(text)))

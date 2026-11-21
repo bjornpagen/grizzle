@@ -76,7 +76,7 @@ const sumLines = (generated: "before" | "after" | "end", at: number): ReadonlyAr
 const cellLines = (c: FoldDigestsCell, at: number): ReadonlyArray<string> =>
 	c.monoid === "concat" ? concatLines(c.named, at) : sumLines(c.generated, at)
 
-/** The types every cell reads: a text of no bound, and Crypto.sha256's value, grizzle's one digest type. */
+/** The types every cell reads: a text of no bound, and Crypto.sha256's value, the 32-byte digest carrier. */
 const foldDigestsHeader = (): ReadonlyArray<string> => [
 	'export const Text = str.regex("^.*$", "su")',
 	"export const Digest = sha256",

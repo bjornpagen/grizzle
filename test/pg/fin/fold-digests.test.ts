@@ -29,6 +29,7 @@ import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Layer, Option, String as Str } from "effect"
 import { Digest } from "effect/crypto"
+import { Hex } from "effect/encoding"
 import { Db } from "#adapter/public/db.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { lawsOfConstraint } from "#compiler/ir/products.ts"
@@ -150,7 +151,7 @@ export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBT
 								id: d.id,
 								n: String(d.n),
 								text: d.text,
-								textDigest: d.textDigest
+								textDigest: Hex.encode(d.textDigest)
 							}))
 							const storedLines = Arr.map(readLines, (l) => ({
 								doc: l.doc,
@@ -158,8 +159,8 @@ export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBT
 								piece: l.piece,
 								before: l.before,
 								after: l.after,
-								beforeDigest: l.beforeDigest,
-								afterDigest: l.afterDigest
+								beforeDigest: Hex.encode(l.beforeDigest),
+								afterDigest: Hex.encode(l.afterDigest)
 							}))
 							const storedNodes = Arr.map(readNodes, (n) => ({
 								doc: n.doc,
@@ -168,10 +169,10 @@ export const concatFoldsCarriedByTheirDigestsStoreTheREADMEsFoldOfTextsPastTheBT
 								stepped: String(n.stepped),
 								before: n.before,
 								after: n.after,
-								beforeDigest: n.beforeDigest,
-								afterDigest: n.afterDigest,
+								beforeDigest: Hex.encode(n.beforeDigest),
+								afterDigest: Hex.encode(n.afterDigest),
 								text: n.text,
-								textDigest: n.textDigest
+								textDigest: Hex.encode(n.textDigest)
 							}))
 							assert.ok(
 								deepEquals(rowSet(storedDocs), rowSet(digested.docs)),
