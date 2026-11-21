@@ -1,6 +1,8 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import type { CharSet } from "@bjornpagen/grizzle-text/regex/charset"
+import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import type { LiveNode, RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
+import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa, type CountOp, type NfaEdge } from "@bjornpagen/grizzle-text/regex/nfa"
 import {
@@ -76,6 +78,12 @@ export interface PatternReads {
 export interface PatternAutomata extends PatternReads {
 	/** The parse of an admitted pattern: a refinement's member, a lexical form's, or a Text.matches pattern's. */
 	readonly parse: (pattern: PatternSource) => ParsedPattern
+	/**
+	 * The canonical DFA of an admitted pattern's search language within the text analysis's bounds (dfa.ts minimalDfa
+	 * of its matcher's automaton at regexDfaLimits), or its bound: what the inclusion and length proofs compare
+	 * (scalar/regex/inclusion.ts), made the first time a proof reads it and read from the table after.
+	 */
+	readonly minimal: (pattern: PatternSource) => DfaOutcome
 }
 
 /** Parses, by flags and then source. */
@@ -94,15 +102,48 @@ const entered = (table: ParseTable, pattern: PatternSource): ParsedPattern => {
 }
 
 /**
- * The patterns one compile meets, each parsed the first time it is met and read from the table after: a compile's own
- * explicit state, created where the compile begins and passed to what it compiles, so a compile parses each distinct
- * pattern once.
+ * Each parsed pattern's canonical DFA, made the first time a proof reads it: a table's own, beside its parses, so a
+ * pattern compared many times is minimized once, where each comparison minimized it again.
+ */
+class Minimized {
+	readonly #outcomes = new Map<ParsedPattern, DfaOutcome>()
+	#made = 0
+
+	/** How many patterns the table has minimized: the proofs' determinizations and minimizations. */
+	get made(): number {
+		return this.#made
+	}
+
+	of(parsed: ParsedPattern): DfaOutcome {
+		const known = this.#outcomes.get(parsed)
+		if (known !== undefined) {
+			return known
+		}
+		const outcome = minimalDfa(parsed.matcher.nfa, regexDfaLimits)
+		this.#made += 1
+		this.#outcomes.set(parsed, outcome)
+		return outcome
+	}
+}
+
+/**
+ * The patterns one compile meets, each parsed the first time it is met and minimized the first time a proof compares
+ * it, and read from the table after: a compile's own explicit state, created where the compile begins and passed to
+ * what it compiles, so a compile parses and minimizes each distinct pattern once.
  */
 export class CompilePatterns implements PatternAutomata {
 	readonly #table: ParseTable = new Map()
+	readonly #minimized = new Minimized()
 
 	readonly parse = (pattern: PatternSource): ParsedPattern =>
 		tabled(this.#table, pattern) ?? entered(this.#table, pattern)
+
+	readonly minimal = (pattern: PatternSource): DfaOutcome => this.#minimized.of(this.parse(pattern))
+
+	/** How many patterns the compile has minimized (Minimized): one for each distinct pattern a proof compared. */
+	get minimized(): number {
+		return this.#minimized.made
+	}
 
 	readonly member = (regex: RegexRef, text: string): boolean =>
 		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)
@@ -118,6 +159,7 @@ export class CompilePatterns implements PatternAutomata {
  */
 export class ProgramPatterns implements PatternAutomata {
 	readonly #table: ParseTable
+	readonly #minimized = new Minimized()
 
 	private constructor(table: ParseTable) {
 		this.#table = table
@@ -141,6 +183,8 @@ export class ProgramPatterns implements PatternAutomata {
 		}
 		return known
 	}
+
+	readonly minimal = (pattern: PatternSource): DfaOutcome => this.#minimized.of(this.parse(pattern))
 
 	readonly member = (regex: RegexRef, text: string): boolean =>
 		memberOf(regex, (pattern) => this.parse(pattern).matcher, text)

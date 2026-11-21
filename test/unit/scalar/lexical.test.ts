@@ -31,10 +31,11 @@
  * refused, a decimal's refused by its language and by its bytes; each kind of field lexicalForm reads.
  */
 
+import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
-import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
+import { buildNfa, type Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { parsePattern } from "@bjornpagen/grizzle-text/regex/parse"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
 import { assert, defined } from "@bjornpagen/testing/assert"
@@ -85,6 +86,9 @@ import {
 	type Route
 } from "#test/unit/scalar/lexical.fixtures.ts"
 import { admittedPatternOver, walkGen } from "#test/unit/text/generators.ts"
+
+/** A pattern automaton's minimization at the text analysis's bounds, what an inclusion compares. */
+const minimal = (nfa: Nfa): DfaOutcome => minimalDfa(nfa, regexDfaLimits)
 
 /**
  * Lexical forms each form's pattern and its scan agree on every candidate, and a member names XML Schema's value.
@@ -287,7 +291,7 @@ export const languageInclusionAnIncludedPairAdmitsNoMemberOfTheInnerPatternOutsi
 						}
 						const innerNfa = buildNfa(a.value)
 						const outerNfa = buildNfa(b.value)
-						const result = inclusion([innerNfa], [outerNfa], regexDfaLimits)
+						const result = inclusion([minimal(innerNfa)], [minimal(outerNfa)], regexDfaLimits)
 						run.note(result.kind)
 						const label = `/${inner}/ in /${outer}/`
 						switch (result.kind) {
@@ -364,8 +368,8 @@ export const aParsesLexicalPreconditionIsProvedExactlyWhenTheOperandsLanguageIsI
 							`${pattern}: an admitted pattern's text analyzes`
 						)
 						const verdict = inclusion(
-							[nfaOf(pattern)],
-							[nfaOf(formSource(target))],
+							[minimal(nfaOf(pattern))],
+							[minimal(nfaOf(formSource(target)))],
 							regexDfaLimits
 						).kind
 						const checked = checkedIn(schema("Lexical", [build(pattern, route)], []))
@@ -435,8 +439,8 @@ export const aDecimalsParseIsProvedExactlyWhenTheOperandsLanguageIsInsideDecimal
 							return assert.fail(`${pattern}: an admitted pattern's text analyzes`)
 						}
 						const verdict = inclusion(
-							[nfaOf(pattern)],
-							[nfaOf(decimalText.source)],
+							[minimal(nfaOf(pattern))],
+							[minimal(nfaOf(decimalText.source))],
 							regexDfaLimits
 						).kind
 						const check = analyzed.value.check

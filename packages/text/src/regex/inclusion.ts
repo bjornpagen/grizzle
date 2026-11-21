@@ -3,12 +3,13 @@ import { type CharSet, complement, intersection, isEmpty, union } from "#text/re
 import {
 	type CanonicalDfa,
 	type DfaLimits,
+	type DfaOutcome,
 	type IntersectionOutcome,
 	intersectionDfa,
 	minimalDfa
 } from "#text/regex/dfa.ts"
 import { end, type RegexNode, seq, start } from "#text/regex/ir.ts"
-import { buildNfa, type Nfa } from "#text/regex/nfa.ts"
+import { buildNfa } from "#text/regex/nfa.ts"
 import { entry } from "#text/regex/table.ts"
 import { codePointsText } from "#text/text.ts"
 
@@ -114,11 +115,9 @@ export const included = (
 	return { kind: "included" }
 }
 
-/** The canonical DFA of an automaton's search language within `limits`, or none past them. */
-const dfaOf = (nfa: Nfa, limits: DfaLimits): CanonicalDfa | undefined => {
-	const outcome = minimalDfa(nfa, limits)
-	return outcome.kind === "minimal" ? outcome.dfa : undefined
-}
+/** The canonical DFA a minimization made within its limits, or none past them. */
+const dfaOf = (outcome: DfaOutcome): CanonicalDfa | undefined =>
+	outcome.kind === "minimal" ? outcome.dfa : undefined
 
 /**
  * Whether the intersection of `inner`'s languages is included in `outer`'s language, the canonical DFA of one member of
@@ -143,26 +142,27 @@ const inclusionInto = (
 }
 
 /**
- * Whether the language of the conjunction `inner` is included in that of the conjunction `outer`, automata of the
- * admitted grammar under its search semantics (nfa.ts buildNfa): each is determinized and minimized to its canonical
- * DFA (dfa.ts minimalDfa), which reads whole values, the inner ones intersected (dfa.ts intersectionDfa), and the
+ * Whether the language of the conjunction `inner` is included in that of the conjunction `outer`, each member given by
+ * its minimization within `limits` (dfa.ts minimalDfa of its automaton under the admitted grammar's search semantics,
+ * nfa.ts buildNfa), the canonical DFA that reads whole values: a caller that compares one pattern often minimizes it
+ * once and hands the outcome to every comparison. The inner ones are intersected (dfa.ts intersectionDfa), and the
  * intersection's walked against each outer member's (inclusionInto). Refuted where it falls outside an outer member, by
  * the first such member's witness; proved where it lies inside every one; and unknown where a construction past the
  * bounds leaves one undecided.
  */
 export const inclusion = (
-	inner: NonEmptyReadonlyArray<Nfa>,
-	outer: NonEmptyReadonlyArray<Nfa>,
+	inner: NonEmptyReadonlyArray<DfaOutcome>,
+	outer: NonEmptyReadonlyArray<DfaOutcome>,
 	limits: DfaLimits
 ): Inclusion => {
-	const innerDfas = mapNonEmpty(inner, (nfa) => dfaOf(nfa, limits))
+	const innerDfas = mapNonEmpty(inner, dfaOf)
 	const known = innerDfas.filter((dfa) => dfa !== undefined)
 	const product: IntersectionOutcome =
 		known.length === innerDfas.length && isNonEmpty(known)
 			? intersectionDfa(known, limits)
 			: { kind: "bounded" }
-	const verdicts = outer.map((nfa): Inclusion => {
-		const dfa = dfaOf(nfa, limits)
+	const verdicts = outer.map((outcome): Inclusion => {
+		const dfa = dfaOf(outcome)
 		return dfa === undefined ? { kind: "bounded" } : inclusionInto(innerDfas, product, dfa, limits)
 	})
 	return (
@@ -176,4 +176,8 @@ export const inclusion = (
  * `^(?:…)$`, within `limits`.
  */
 export const includedIn = (small: RegexNode, big: RegexNode, limits: DfaLimits): Inclusion =>
-	inclusion([buildNfa(seq([start, small, end]))], [buildNfa(seq([start, big, end]))], limits)
+	inclusion(
+		[minimalDfa(buildNfa(seq([start, small, end])), limits)],
+		[minimalDfa(buildNfa(seq([start, big, end])), limits)],
+		limits
+	)

@@ -2,6 +2,7 @@ import type { QueryRead } from "#compiler/check/checker.ts"
 import type { ResolvedQuery } from "#compiler/check/params.ts"
 import type { Inferred, InferredQuery, Located, QueryDesc } from "#compiler/ir/desc.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 /**
  * How a query is entered, the one thing of its reader's context its rules read (check/description.ts): as a query of
@@ -33,10 +34,15 @@ const entries = (): Readonly<Record<QueryEntry, WeakSet<InferredQuery>>> => ({
  *   (query/build/state.ts publicDesc), so the compile's descriptions are one DAG of queries, and a query's structure
  *   under one reading and one entry is the query's alone, so one validation of it serves every reader of it in every
  *   query the compile checks, where each path to it was walked again.
+ * - The admitted patterns the checks read (scalar/regex/patterns.ts CompilePatterns), each parsed, and minimized where
+ *   a proof compares it, once for the compile: a pattern is its source and flags alone, so every check of the compile
+ *   that types a text of it, admits a literal of it or proves a cast into it reads one parse and one minimal DFA.
  */
 export class CheckSession {
 	/** Each imported query, resolved. */
 	readonly resolved = new WeakMap<QueryDesc<Located, Inferred>, ResolvedQuery>()
+	/** The admitted patterns the checks read, each parsed and minimized once. */
+	readonly patterns = new CompilePatterns()
 	/** Each query whose structure was validated, by the reading of the check that validated it and by its entry. */
 	readonly validated: Readonly<
 		Record<QueryRead, Readonly<Record<QueryEntry, WeakSet<InferredQuery>>>>

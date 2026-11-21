@@ -2,8 +2,7 @@ import { isNonEmpty, mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type IntersectionOutcome,
 	intersectionDfa,
-	longestWithin,
-	minimalDfa
+	longestWithin
 } from "@bjornpagen/grizzle-text/regex/dfa"
 import { type Inclusion, inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
@@ -24,7 +23,7 @@ export type Within =
  */
 export const bytesWithin = (inner: Patterns, octets: number, patterns: PatternAutomata): Within => {
 	const dfas = mapNonEmpty(inner, (p) => {
-		const outcome = minimalDfa(patterns.parse(p).matcher.nfa, regexDfaLimits)
+		const outcome = patterns.minimal(p)
 		return outcome.kind === "minimal" ? outcome.dfa : undefined
 	})
 	const known = dfas.filter((dfa) => dfa !== undefined)
@@ -50,8 +49,8 @@ export const patternIncludes = (
 	patterns: PatternAutomata
 ): Inclusion =>
 	inclusion(
-		mapNonEmpty(inner, (p) => patterns.parse(p).matcher.nfa),
-		mapNonEmpty(outer, (p) => patterns.parse(p).matcher.nfa),
+		mapNonEmpty(inner, (p) => patterns.minimal(p)),
+		mapNonEmpty(outer, (p) => patterns.minimal(p)),
 		regexDfaLimits
 	)
 

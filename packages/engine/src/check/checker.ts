@@ -174,7 +174,7 @@ import {
 	type ParamRef
 } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
-import { CompilePatterns, type PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
+import type { CompilePatterns, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
 import { hasCapability, inferredType, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 /**
@@ -1020,8 +1020,11 @@ export class Checker {
 	 * import's alone, never a regional one's, whose rows are its region's.
 	 */
 	readonly #importKeys = new Map<RelNode, string>()
-	/** The admitted patterns the query's compile reads (scalar/regex/patterns.ts), each parsed once per query. */
-	readonly patterns = new CompilePatterns()
+	/**
+	 * The admitted patterns the query's compile reads (scalar/regex/patterns.ts), its session's (session.ts
+	 * CheckSession patterns): each parsed, and minimized where a proof compares it, once for every check of the compile.
+	 */
+	readonly patterns: CompilePatterns
 	/** The contexts the query matches, each with its descriptor's canonical text, for DuplicateIdentity. */
 	readonly #contexts = new Map<string, { text: string; loc: SourceLoc }>()
 	/**
@@ -1054,6 +1057,7 @@ export class Checker {
 	) {
 		this.schema = schema
 		this.options = options
+		this.patterns = options.session.patterns
 		this.b = new DagBuilder(makeIdSupply())
 		this.params = params
 		this.#closedReads = closedReads

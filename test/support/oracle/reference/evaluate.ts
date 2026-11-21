@@ -170,13 +170,14 @@ export const patternMember = (regex: Pick<RegexRef, "patterns">, text: string): 
 
 /**
  * The admitted patterns a lowering under test reads, its membership and its matches the reference's (patternMember)
- * and each pattern's parse, which inclusion and translation read, the engine's own (CompilePatterns): one table per
- * call, as one compile holds one.
+ * and each pattern's parse and minimization, which inclusion and translation read, the engine's own (CompilePatterns):
+ * one table per call, as one compile holds one.
  */
 export const referencePatterns = (): PatternAutomata => {
 	const compiled = new CompilePatterns()
 	return {
 		parse: compiled.parse,
+		minimal: compiled.minimal,
 		member: patternMember,
 		matches: (source, text) => patternMember({ patterns: [{ source, flags: matchFlags }] }, text)
 	}

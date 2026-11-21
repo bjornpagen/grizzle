@@ -27,8 +27,10 @@
  * a regex check of several patterns and an IN list.
  */
 
+import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import { inclusion } from "@bjornpagen/grizzle-text/regex/inclusion"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
+import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import type { Patterns, PatternSource } from "@bjornpagen/grizzle-text/regex/parse"
 import { codePoints } from "@bjornpagen/grizzle-text/text"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
@@ -73,6 +75,9 @@ import {
 	walksOf
 } from "#test/unit/text/conjunction.fixtures.ts"
 import { stringsOver } from "#test/unit/text/generators.ts"
+
+/** A pattern automaton's minimization at the text analysis's bounds, what an inclusion compares. */
+const minimal = (nfa: Nfa): DfaOutcome => minimalDfa(nfa, regexDfaLimits)
 
 /** A conjunction's language is every member's at once, by the host and by the intersection's automaton, and is keyed by its language. Its budget is its suite's before it was a property (test/unit/text/conjunction.test.ts at 4ca3036a): 1200 runs and 1200 steered cases. */
 export const aConjunctionsLanguageIsEveryMembersAtOnceByTheHostAndByTheIntersectionsAutomatonAndIsKeyedByItsLanguage =
@@ -227,7 +232,11 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 							return
 						}
 						const label = `${Formatter.format(inner)} in ${Formatter.format(outer)}`
-						const verdict = inclusion(innerNfas, outerNfas, regexDfaLimits)
+						const verdict = inclusion(
+							Arr.map(innerNfas, minimal),
+							Arr.map(outerNfas, minimal),
+							regexDfaLimits
+						)
 						k.note(verdict.kind)
 						const ofInner = jsAll(inner)
 						const ofOuter = jsAll(outer)
@@ -243,7 +252,9 @@ export const aConjunctionsInclusionHoldsExactlyWhenNoShortTextOrInnerWalkHoldsEv
 									inner.length > 1 &&
 									Arr.every(
 										innerNfas,
-										(n) => inclusion([n], outerNfas, regexDfaLimits).kind !== "included"
+										(n) =>
+											inclusion([minimal(n)], Arr.map(outerNfas, minimal), regexDfaLimits).kind !==
+											"included"
 									)
 								) {
 									k.note("included by inner members together, by none alone")
@@ -327,12 +338,16 @@ export const aMatchGuardOverARefinedSubjectTypesItsBranchByTheSubjectsPatternsAn
 							: { kind: "refused", reason: checked.error.reason._tag }
 						assert.deepEqual(
 							actual,
-							guardOutcome[inclusion(nfas, [form], regexDfaLimits).kind],
+							guardOutcome[inclusion(Arr.map(nfas, minimal), [minimal(form)], regexDfaLimits).kind],
 							label
 						)
 						if (
 							checked.ok &&
-							Arr.every(nfas, (nfa) => inclusion([nfa], [form], regexDfaLimits).kind !== "included")
+							Arr.every(
+								nfas,
+								(nfa) =>
+									inclusion([minimal(nfa)], [minimal(form)], regexDfaLimits).kind !== "included"
+							)
 						) {
 							k.note("admitted where neither pattern alone lies inside the form")
 						}

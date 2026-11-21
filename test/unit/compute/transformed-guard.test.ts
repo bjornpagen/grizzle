@@ -17,7 +17,9 @@ import { type Case as CaseOf, property, ReplayToken } from "@bjornpagen/testing/
 import { Array as Arr, Effect, Formatter } from "effect"
 import { SourceLoc } from "#compiler/core/loc.ts"
 
+import { type DfaOutcome, minimalDfa } from "@bjornpagen/grizzle-text/regex/dfa"
 import { regexDfaLimits } from "@bjornpagen/grizzle-text/regex/limits"
+import type { Nfa } from "@bjornpagen/grizzle-text/regex/nfa"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
@@ -59,6 +61,9 @@ import {
 	typedWithin
 } from "#test/unit/compute/transformed-guard.fixtures.ts"
 
+/** A pattern automaton's minimization at the text analysis's bounds, what an inclusion compares. */
+const minimal = (nfa: Nfa): DfaOutcome => minimalDfa(nfa, regexDfaLimits)
+
 /** A guard over a transformed text proves a partial operation exactly when the transform's image and the guard's pattern together lie inside its form. Its budget is its suite's before it was a property (test/unit/compute/transformed-guard.test.ts at 4ca3036a): 800 runs and 800 steered cases. */
 export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTransformsImageAndTheGuardsPatternTogetherLieInsideItsForm =
 	property.explore(caseGen, {
@@ -84,8 +89,8 @@ export const aGuardOverATransformedTextProvesAPartialOperationExactlyWhenTheTran
 					return
 				}
 				const verdict = inclusion(
-					[nfaOf(c.guard, "u"), nfaOf(image.source, image.flags)],
-					[nfaOf(formOf(c.operation), "u")],
+					[minimal(nfaOf(c.guard, "u")), minimal(nfaOf(image.source, image.flags))],
+					[minimal(nfaOf(formOf(c.operation), "u"))],
 					regexDfaLimits
 				).kind
 				const label = `${Formatter.format(c)}: ${verdict}`
@@ -181,8 +186,8 @@ export const aTransformedTextsByteBoundAdmitsACastIntoABoundedTextExactlyWhenThe
 				run.note(`${route} ${checked.ok ? "admitted" : "refused"}`)
 				installsStored(c.steps, OperandText, TargetText)
 				const verdict = inclusion(
-					[nfaOf(languageSource(typed.language), "u")],
-					[nfaOf(target.source, target.flags)],
+					[minimal(nfaOf(languageSource(typed.language), "u"))],
+					[minimal(nfaOf(target.source, target.flags))],
 					regexDfaLimits
 				).kind
 				const longest = longestWithin(typed.language, bound)
