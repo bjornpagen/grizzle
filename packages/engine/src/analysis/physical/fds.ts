@@ -368,6 +368,18 @@ const admittedThrough = (context: EvidenceContext): Admit => {
  */
 type Admission = "every" | number
 
+/**
+ * A key reduction's key and its proof: the closure that proved the narrowest key the reduction closed for, where no
+ * column was dropped after it without one (`closed`), or none yet where a column was dropped by a dependency the
+ * rest of the key starts (`narrowed`), whose closure the key's caller runs once if it explains the proof.
+ */
+interface Minimized {
+	readonly key: KeySet
+	readonly proof:
+		| { readonly kind: "closed"; readonly staged: Staged }
+		| { readonly kind: "narrowed" }
+}
+
 /** How many facts each implication and each point rule of a table waits on as a closure starts, -1 for one it admits not. */
 interface Counts {
 	readonly implications: Int32Array
@@ -435,6 +447,8 @@ export class Dependencies {
 	readonly #stages: ReadonlyArray<EvidenceContext>
 	/** Each admission's counts a closure starts from (`#counts`), by the stage it closes through, built at its first. */
 	readonly #starts = new Map<Admission, Counts>()
+	/** Each attribute's deriving implications (`#derivers`), built at the table's first key reduction. */
+	#deriving: ReadonlyMap<string, ReadonlyArray<number>> | undefined = undefined
 	/** How many closures the table has run. */
 	#closures = 0
 	/** How many derivations the table has explained. */
@@ -826,7 +840,14 @@ export class Dependencies {
 			return undefined
 		}
 		const minimal = this.#minimized(candidate, found)
-		return { columns: minimal.key, just: this.#explained(minimal.proof) }
+		const proof =
+			minimal.proof.kind === "closed"
+				? minimal.proof.staged
+				: defined(
+						this.#staged(minimal.key, found.stage),
+						"a key the reduction narrowed identifies a row at its candidate's stage"
+					)
+		return { columns: minimal.key, just: this.#explained(proof) }
 	}
 
 	/**
@@ -839,22 +860,66 @@ export class Dependencies {
 	 * with no closure: a fact no dependency waits on fires nothing, so the rest of the key reaches what the key reached,
 	 * at every stage and by the same derivations, and the key's proof stands for the narrower key's.
 	 */
-	#minimized(candidate: KeySet, found: Staged): { readonly key: KeySet; readonly proof: Staged } {
+	#minimized(candidate: KeySet, found: Staged): Minimized {
 		let key = candidate
-		let proof = found
+		let proof: Minimized["proof"] = { kind: "closed", staged: found }
+		const held = new Set(key)
+		const counts = this.#counts(found.stage)
 		for (let i = key.length - 1; i >= 0; i--) {
+			const column = defined(key[i], "a column of the key")
 			const without = key.toSpliced(i, 1)
-			if (!this.#reads(defined(key[i], "a column of the key"))) {
+			if (!this.#reads(column)) {
 				key = without
+				held.delete(column)
 				continue
 			}
-			const narrower = this.#staged(without, proof.stage)
+			held.delete(column)
+			if (this.#derivedFrom(column, held, counts)) {
+				key = without
+				proof = { kind: "narrowed" }
+				continue
+			}
+			const narrower = this.#staged(without, found.stage)
 			if (narrower !== undefined) {
 				key = without
-				proof = narrower
+				proof = { kind: "closed", staged: narrower }
+			} else {
+				held.add(column)
 			}
 		}
 		return { key, proof }
+	}
+
+	/**
+	 * Whether a dependency the stage of `counts` admits derives `column` from columns all `held`: one whose start is the
+	 * rest of a key derives the column, so the rest reaches all the key did.
+	 */
+	#derivedFrom(column: string, held: ReadonlySet<string>, counts: Counts): boolean {
+		for (const i of this.#derivers().get(column) ?? []) {
+			const imp = defined(this.implications[i], indexedImplication)
+			if (
+				defined(counts.implications[i], indexedImplication) >= 0 &&
+				imp.from.every((c) => held.has(c)) &&
+				imp.at.every((c) => held.has(c))
+			) {
+				return true
+			}
+		}
+		return false
+	}
+
+	/** Each attribute's deriving implications, by index, in the table's order: built at the first key reduction. */
+	#derivers(): ReadonlyMap<string, ReadonlyArray<number>> {
+		if (this.#deriving === undefined) {
+			const deriving = new Map<string, Array<number>>()
+			for (const [i, imp] of this.implications.entries()) {
+				for (const t of imp.to) {
+					deriving.getOrInsertComputed(t, () => []).push(i)
+				}
+			}
+			this.#deriving = deriving
+		}
+		return this.#deriving
 	}
 }
 

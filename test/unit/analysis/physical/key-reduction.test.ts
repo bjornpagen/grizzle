@@ -17,8 +17,10 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
+import { DependencyDraft, justify } from "#compiler/analysis/physical/fds.ts"
 import { type EvidenceContext, evidenceContexts, lessDemanding } from "#compiler/ir/evidence.ts"
 import { inHeadingOrder } from "#compiler/logical/closure.ts"
 import { specGen, subsetsOf, tableOf } from "#test/unit/analysis/physical/dependencies.fixtures.ts"
@@ -114,9 +116,9 @@ export const theKeyReductionIsTheReferencesClosesEachRemovalOnlyThroughTheKeysSt
 			{
 				file: "packages/engine/src/analysis/physical/fds.ts",
 				original:
-					"\t\t\tconst narrower = this.#staged(without, proof.stage)\n\t\t\tif (narrower !== undefined) {\n",
+					"\t\t\tconst narrower = this.#staged(without, found.stage)\n\t\t\tif (narrower !== undefined) {\n",
 				replacement:
-					"\t\t\tconst narrower = this.#staged(without, this.#stages.length - 1)\n\t\t\tif (narrower !== undefined && narrower.stage <= proof.stage) {\n",
+					"\t\t\tconst narrower = this.#staged(without, this.#stages.length - 1)\n\t\t\tif (narrower !== undefined && narrower.stage <= found.stage) {\n",
 				why: "Each removal closes through every stage and refuses a proof more demanding than the key's, as the reduction at 94aa830e1 did: the same keys, but a refused removal runs every stage's closure, past the bound, and the search fails."
 			},
 			{
@@ -187,9 +189,81 @@ export const aKeyReductionClosesOnlyToTryTheColumnsSomeDependencyReads = propert
 		{
 			file: "packages/engine/src/analysis/physical/fds.ts",
 			original:
-				'\t\t\tif (!this.#reads(defined(key[i], "a column of the key"))) {\n\t\t\t\tkey = without\n\t\t\t\tcontinue\n\t\t\t}\n',
+				"\t\t\tif (!this.#reads(column)) {\n\t\t\t\tkey = without\n\t\t\t\theld.delete(column)\n\t\t\t\tcontinue\n\t\t\t}\n",
 			replacement: "",
-			why: "Every column is tried by a closure through each stage up to the key's, read or not, as the reduction did at d422b835a: a candidate with a column no dependency reads runs past the bound, and the property fails."
+			why: "A column no dependency reads is tried as any other, by a dependency the rest of the key starts or else by a closure through each stage up to the key's, as the reduction did at d422b835a: a candidate with such a column nothing derives runs past the bound, and the property fails."
 		}
 	]
 })
+
+/** The widths of the box of equated columns, one to sixteen beside the key. */
+const equatedWidths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const
+
+type EquatedSituation = "one stage" | "two stages" | "sixteen equated columns"
+
+/**
+ * A key reduction drops a column a dependency derives from the rest of the key with no closure (analysis/physical/fds.ts
+ * Dependencies `#derivedFrom`): the rest then reaches the column, so it reaches all the key did, and only the key's
+ * proof is closed again, once, for its caller. Over a table whose key `k` identifies its row and whose other columns
+ * each equal `k`, as a region's variables of one class do, all in the least demanding context (and, for a second stage,
+ * the rest identifying the row in a more demanding one), a reduction of the whole heading runs as many closures however
+ * many columns equal the key, where each was tried by a closure through every stage up to the key's.
+ */
+export const aKeyReductionDropsAColumnTheRestOfTheKeyDerivesWithNoClosure = property.exhaust(
+	finite((s) => ({
+		width: s.draw(element(equatedWidths)),
+		stages: s.draw(element<1 | 2>([1, 2]))
+	})),
+	{
+		needs: {},
+		situations: ["one stage", "two stages", "sixteen equated columns"] satisfies ReadonlyArray<
+			Reached<EquatedSituation>
+		>,
+		check:
+			(_, c: Case<EquatedSituation>) =>
+			({ width, stages }) =>
+				Effect.sync(() => {
+					/** The closures a reduction of the whole heading of the table `n` columns beside its key runs. */
+					const closuresAt = (n: number): number => {
+						const heading = ["k", ...Array.from({ length: n }, (_, at) => `c${at}`)]
+						const draft = new DependencyDraft(heading)
+						for (const column of heading.slice(1)) {
+							draft.equate("k", column, justify({ context: "queryLocal" }))
+						}
+						draft.identify(["k"], justify({ context: "queryLocal" }))
+						if (stages === 2) {
+							draft.identify(heading.slice(1), justify({ context: "immediate" }))
+						}
+						const table = draft.freeze(heading)
+						const before = table.closures
+						const key = table.keyAmong(heading)
+						assert.deepEqual(key?.columns, ["k"], `the key among ${n + 1} columns is k`)
+						return table.closures - before
+					}
+					c.note(stages === 1 ? "one stage" : "two stages")
+					if (width === 16) {
+						c.note("sixteen equated columns")
+					}
+					assert.equal(
+						closuresAt(width),
+						closuresAt(1),
+						`a reduction of k beside ${width} equated columns runs the closures it runs beside one`
+					)
+				}),
+		oracle: {
+			kind: "universal",
+			name: "invariance: a reduction's closures over a key and n columns equal to it are its closures over one such column, for every n"
+		},
+		box: "every table of a key k and one to sixteen columns each equal to k, its row identified by k in one stage or by k and the rest in two",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/analysis/physical/fds.ts",
+				original:
+					'\t\t\tif (this.#derivedFrom(column, held, counts)) {\n\t\t\t\tkey = without\n\t\t\t\tproof = { kind: "narrowed" }\n\t\t\t\tcontinue\n\t\t\t}\n',
+				replacement: "",
+				why: "Every read column is tried by a closure through each stage up to the key's, derived from the rest or not, as the reduction did at d422b835a: each column equal to the key costs a closure more, and the property fails."
+			}
+		]
+	}
+)
