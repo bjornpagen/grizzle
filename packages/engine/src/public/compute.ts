@@ -97,8 +97,8 @@ export const Range: RangeApi = Object.freeze<RangeApi>({
 })
 
 /**
- * Text: text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches, transforms,
- * references and lexical parses.
+ * Text: text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar and their
+ * matches, transforms, references and lexical parses.
  */
 export const Text: TextApi = Object.freeze<TextApi>({
 	charLength: (s) => C.charLength(s),
@@ -107,6 +107,7 @@ export const Text: TextApi = Object.freeze<TextApi>({
 	concat: (a, b) => C.concat(a, b),
 	startsWith: (a, b) => C.startsWith(a, b),
 	endsWith: (a, b) => C.endsWith(a, b),
+	contains: (haystack, needle) => C.contains(haystack, needle),
 	pattern: (source) => C.pattern(source),
 	matches: (subject, pattern) => C.matches(subject, pattern),
 	translate: (x, from, to) => C.translate(x, from, to),

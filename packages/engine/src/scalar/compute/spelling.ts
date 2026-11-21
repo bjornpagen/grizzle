@@ -58,6 +58,7 @@ export const spelling = {
 	concat: "Text.concat",
 	startsWith: "Text.startsWith",
 	endsWith: "Text.endsWith",
+	contains: "Text.contains",
 	pattern: "Text.pattern",
 	matches: "Text.matches",
 	translate: "Text.translate",

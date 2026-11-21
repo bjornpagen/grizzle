@@ -1159,8 +1159,8 @@ export interface RangeApi {
 }
 
 /**
- * The Text namespace: text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches,
- * transforms, references and lexical parses.
+ * The Text namespace: text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar
+ * and their matches, transforms, references and lexical parses.
  */
 export interface TextApi {
 	/** char_length; admitted only in contract predicates and row checks, never in a query. */
@@ -1216,6 +1216,21 @@ export interface TextApi {
 	endsWith<A extends TermBase | FirstValue, X, PA, OA, const B>(
 		a: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,
 		b: Fit<B, NoInfer<Meets<X, "text"> | string>>
+	): Admitted<
+		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
+		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">
+	>
+	/**
+	 * Whether haystack holds needle, its characters together: `strpos(haystack, needle) > 0`. No pattern: the needle is
+	 * read as its characters, `%`, `_` and `\` among them, so nothing is escaped, and the empty needle is in every text.
+	 * The second operand is a text term the first meets, a parameter among them, or a string. Defined on every pair of
+	 * texts, so it stands in a query as in a check; a query filters by it, reading no index for it and drafting none. It
+	 * folds no case: `Text.contains(Text.lowerAscii(name), Text.lowerAscii(term))` folds A to Z on both sides, and no
+	 * other letter.
+	 */
+	contains<A extends TermBase | FirstValue, X, PA, OA, const B>(
+		haystack: A & First<A, [B]> & InputTerm<X, PA, OA, "text">,
+		needle: Fit<B, NoInfer<Meets<X, "text"> | string>>
 	): Admitted<
 		Every<[TakesFirst<A, "text">, Takes<B, Meets<X, "text"> | string>]>,
 		Term<boolean, PA & P<B>, ComputedOrigin<OA | O<B>>, "boolean">

@@ -178,6 +178,17 @@ const textSuffix = (args: ReadonlyArray<Expr>): Expr | undefined => {
 }
 
 /**
+ * A text's containment test, `strpos(a, b) > 0` (scalar/compute/registry.ts textContains): b's first position in a by
+ * characters, 0 where a holds none. No pattern, so b is read as its characters and nothing in it is escaped.
+ */
+const textContains = (args: ReadonlyArray<Expr>): Expr | undefined => {
+	const [a, b] = args
+	return args.length === 2 && a !== undefined && b !== undefined
+		? binary(">", call("strpos", [a, b]), lit.int(0n, types.integer))
+		: undefined
+}
+
+/**
  * A float's identity image (scalar/compute/registry.ts floatBitsOf): NaN's one form (canonicalNanBits) where the float
  * is NaN, which `=` holds equal to every NaN, else its IEEE 754 binary64 bits, `('x' || encode(float8send(x),
  * 'hex'))::bit(64)` read as a signed bigint, a real widened to double precision first, which is exact. NULL reaches the
@@ -333,6 +344,8 @@ const registryForm = (
 			return adjoinSet(args)
 		case "endsWith":
 			return textSuffix(args)
+		case "contains":
+			return textContains(args)
 		case "floatBits":
 			return floatBitsForm(sql.from, args)
 		case "collapse":

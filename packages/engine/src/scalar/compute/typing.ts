@@ -798,7 +798,7 @@ export const stop = (
 /**
  * Where a bare literal stands opposite a term: compared with it (a comparison, an IN list, BETWEEN bounds, a
  * conditional's branch), an arithmetic operand beside it (+, -, *, /, %, quot, rem, power, gcd, lcm), or a text
- * operation's second operand (concat, startsWith, endsWith).
+ * operation's second operand (concat, startsWith, endsWith, contains).
  */
 export type Role = "compare" | "arithmetic" | "operand"
 
@@ -4300,7 +4300,8 @@ class Typing<R extends Refs> {
 				)
 				return this.concat(arg(0), arg(1), here)
 			case "startsWith":
-			case "endsWith": {
+			case "endsWith":
+			case "contains": {
 				const [a, b] = this.texts(desc.fn, arg(0), arg(1), here)
 				const op = this.overload(desc.fn, [a.actual, b.actual], here)
 				return this.native(op, [a, b], plainType("bool"), undefined, here, spelling[desc.fn])

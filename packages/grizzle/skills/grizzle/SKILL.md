@@ -733,8 +733,10 @@ The command line's own refusals, by stage:
   integer into an integer field with
   `Type.cast` under `Num.within`, and a sum, a mean or numeric arithmetic into a `pg.numeric(p, s)` field the
   same way: a ChangeSet member writes each field at its own type, a numeric of another precision or scale included.
-- Test text with `Text.matches(x, pattern)`, `Text.startsWith` and `Text.endsWith`, never a regex in your
-  code. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a `Text.pattern(source)`, made once
+- Test text with `Text.matches(x, pattern)`, `Text.startsWith`, `Text.endsWith` and `Text.contains`, never a regex
+  or a LIKE in your code. `Text.contains(haystack, needle)` reads its needle as characters, so a parameter's `%`, `_`
+  and `\` need no escaping; a query filters by it with no index, and a case-blind search folds both sides:
+  `Logic.eq(Text.contains(Text.lowerAscii(name), Text.lowerAscii(term)), true)`. A pattern is `str.regex`'s grammar under `"u"`, anchored by `^` and `$`: a `Text.pattern(source)`, made once
   as a module constant and admitted there (`const digits = Text.pattern("^[0-9]+$")`), never a bare string; or a
   closed relation's text payload, `Text.matches(lexical, ValueDomain.at("pattern", domain))`, every value of which
   the compiler measures; a pattern held in an ordinary field or a parameter is refused. A `Text.pattern`'s match is a

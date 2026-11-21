@@ -661,6 +661,8 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return (args) => Result.ok(hostOf("text", a(args)).startsWith(hostOf("text", b(args))))
 		case "endsWith":
 			return (args) => Result.ok(hostOf("text", a(args)).endsWith(hostOf("text", b(args))))
+		case "contains":
+			return (args) => Result.ok(hostOf("text", a(args)).includes(hostOf("text", b(args))))
 		case "right": {
 			const count = integerOf(baseOf(defined(argTypes[1], "right's count")).carrier)
 			return (args) => Result.ok(rightOf(hostOf("text", a(args)), count(b(args))))
@@ -693,6 +695,8 @@ const applied = (op: NativeOp, argTypes: ReadonlyArray<ScalarType>, type: Scalar
 			return refused(`${fn} alone, which only collapse's SQL reads`)
 		case "regexpCount":
 			return refused("regexp_count alone, which only utf16Length's SQL reads")
+		case "strpos":
+			return refused("strpos alone, which only contains's SQL reads")
 		case "parseDouble":
 			return (args) => {
 				const value = doubleOfText(hostOf("text", a(args)))

@@ -135,8 +135,8 @@ type Owner = "catalog" | "vector"
  * How the node is spelled in SQL. A set's difference, subset and disjointness are constructs of bit's own operators:
  * `a & ~b`, `bit_count(a & ~b) = 0` and `bit_count(a & b) = 0`; a set with one more handle is set_bit at a closed id's
  * code read as an integer, `set_bit(a, c::integer, 1)`; a text's suffix test is one of right, char_length and text's =,
- * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with, and its infix test at a start one of substring,
- * char_length and text's =, `substring(a, start, char_length(b)) = b`; a double's parse is a reading of its text's digits
+ * `right(a, char_length(b)) = b`, since PostgreSQL has no ends_with, and its containment test strpos's position of b
+ * in a past 0, `strpos(a, b) > 0` (textContains), no pattern; a double's parse is a reading of its text's digits
  * and exponent into a numeric rounded to a double (lower/conservative/expr/parse-double.ts); a decimal's parse is the
  * I/O conversion into numeric of no typmod, `x::numeric`, an op node of its own beside Type.cast's cast nodes; a text's UTF-16 code units
  * are its code points and its supplementary ones once more, `char_length(x) + regexp_count(x, '[\U00010000-\U0010FFFF]')`;
@@ -168,6 +168,7 @@ type SqlForm =
 				| "disjoint"
 				| "adjoin"
 				| "endsWith"
+				| "contains"
 				| "parseDouble"
 				| "parseDecimal"
 				| "collapse"
@@ -224,7 +225,7 @@ type CatalogRef =
  * The scalar operation a native node serves (computeSpecs), the comparisons, the boolean constructs, the set algebra
  * over a roster, the text operations, a bytes value's digest and the casts; cond has no entry, it is the IR's cond node. The complement serves
  * only the difference and the subset test: it sets a set's hole and padding bits, so no scalar operation yields it;
- * right serves only the suffix test, endsWith; replace and btrim serve only the whiteSpace collapse, and regexp_count
+ * right serves only the suffix test, endsWith; strpos only the containment test, contains; replace and btrim serve only the whiteSpace collapse, and regexp_count
  * only a text's UTF-16 code units, utf16Length. canonicalZero serves no scalar operation
  * either: it is the canonical zero a set delivers wherever it may merge -0 and +0 (check/merge.ts).
  */
@@ -261,6 +262,8 @@ export type NativeFn =
 	| "startsWith"
 	| "endsWith"
 	| "right"
+	| "contains"
+	| "strpos"
 	| "matches"
 	| "translate"
 	| "lowerAscii"
@@ -351,8 +354,8 @@ export const nullRules: { readonly [F in NativeFn]: NullRule } = Object.freeze({
 	startsWith: "strict",
 	endsWith: "strict",
 	right: "strict",
-	substring: "strict",
-	infixAt: "strict",
+	contains: "strict",
+	strpos: "strict",
 	matches: "strict",
 	translate: "strict",
 	lowerAscii: "strict",
@@ -448,6 +451,7 @@ export const computeSpecs: { readonly [F in ComputeFn]: ComputeSpec } = deepFree
 	concat: { arity: 2, check: true, nodes: ["concat"] },
 	startsWith: { arity: 2, check: true, nodes: ["startsWith"] },
 	endsWith: { arity: 2, check: true, nodes: ["endsWith"] },
+	contains: { arity: 2, check: true, nodes: ["contains"] },
 	matches: { arity: 2, check: true, nodes: ["matches"] },
 	translate: { arity: 3, check: true, nodes: ["translate"] },
 	lowerAscii: { arity: 1, check: true, nodes: ["lowerAscii"] },
@@ -945,6 +949,44 @@ const textSuffix: FixedOverload = frozen({
 })
 
 /**
+ * A text's containment test, Text.contains wherever it stands (compute/typing.ts), `strpos(a, b) > 0`: strpos's
+ * 1-based position of the first b in a, 0 where a holds none. No pattern: b is read as its characters, so no character
+ * of it, `%`, `_` and `\` among them, is escaped or special. The empty b is at position 1 of every a, the empty one
+ * included, and a b of more bytes than a is in none. Every text is collated pg_c_utf8, a deterministic collation, in a
+ * UTF8 database, so the search is of b's bytes in a's, which in UTF-8 match only at a character's start, and the test
+ * is whether b's characters stand together in a, on every pair of texts. strpos allocates nothing past its operands,
+ * so the test is defined on every pair of texts, in a query, a CHECK and a generated field alike; it reads no index,
+ * and no access reads it (physical/access/atoms.ts), so a query filters by it.
+ *
+ * @derivation strpos is "proname => 'strpos', prorettype => 'int4', proargtypes => 'text text', prosrc => 'textpos'"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/include/catalog/pg_proc.dat#L3719-L3720), whose body is
+ *   "PG_RETURN_INT32((int32) text_position(str, search_str, PG_GET_COLLATION()));"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/varlena.c#L898). text_position states
+ *   "/* Empty needle always matches at position 1 *\/ if (VARSIZE_ANY_EXHDR(t2) < 1) return 1;" and "/* Otherwise,
+ *   can't match if haystack is shorter than needle *\/ if (VARSIZE_ANY_EXHDR(t1) < VARSIZE_ANY_EXHDR(t2) &&
+ *   pg_newlocale_from_collation(collid)->deterministic) return 0;"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/varlena.c#L923-L930), and its search
+ *   "using the raw byte sequence, ignoring multibyte issues. For UTF-8, that works fine, because in UTF-8 the byte
+ *   sequence of one character cannot contain another character", "else if (GetDatabaseEncoding() == PG_UTF8)
+ *   state->is_multibyte_char_in_char = false;"
+ *   (https://github.com/postgres/postgres/blob/REL_19_0/src/backend/utils/adt/varlena.c#L980-L991).
+ * @verified 2026-11-21
+ */
+const textContains: FixedOverload = frozen({
+	fn: "contains",
+	operands: positional(["text", "text"]),
+	result: "bool",
+	sql: { kind: "contains" },
+	catalog: {
+		kind: "construct",
+		uses: Object.freeze([opId("strpos(text,text)"), opId("int4gt")])
+	},
+	volatility: "immutable",
+	totality: total,
+	reads: "value"
+})
+
+/**
  * whiteSpace collapse: each run of white space one space, then the spaces at either end trimmed, by replace alone
  * (lower/conservative/expr/ops.ts collapseText): tab, LF and CR each a space; then each pair of spaces a space and a
  * tab, each tab before a space two tabs, and every tab deleted, which leaves one space of each run, since the first
@@ -1293,18 +1335,19 @@ const endpoint = (
  *   read through cidr's binary coercion, prefixed "cidr:", as "cidr:network_eq"; and a network containment over an
  *   inet and a cidr, or two cidrs, prefixed by its operands' carriers, as "inet,cidr:network_subeq";
  * - a construct: "between:<type>", "in:<type>", "least:<type>", "greatest:<type>", "and", "or", "not", a set's
- *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text" and its ASCII case fold's
- *   "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test "isXsdPattern:text", a bytes
- *   value's "sha256:bytea", and a
- *   float's identity image "floatBits:float8" and "floatBits:float4";
+ *   "difference:bits", "subset:bits" and "disjoint:bits", a text's "endsWith:text", "contains:text" and its ASCII
+ *   case fold's "lowerAscii:text", a reference's resolution "resolveReference:text", a pattern's test
+ *   "isXsdPattern:text", a bytes value's "sha256:bytea", and a float's identity image "floatBits:float8" and
+ *   "floatBits:float4";
  * - a range-polymorphic operator or function, one catalog object for both range carriers: its code and the carrier
  *   (ir/expr.ts rangeOp), listed by both in spanOverloads;
  * - a cast: "cast:<source>-><target>" over its carriers, as castOverloads lists it.
  *
  * What the registry admits is the catalogue, not the catalog: same-type operands only, because the scalar operations
- * take two terms of one type, but right(text, integer), which only the suffix test reads, and set_bit over a set and a
- * closed id's code, which only Bits.singleton reads; of text's functions only
- * its length, concatenation, prefix and suffix tests, regex match, translate and lower under the C collation, no array
+ * take two terms of one type, but right(text, integer), which only the suffix test reads, strpos(text, text), which only
+ * the containment test reads, and set_bit over a set and a closed id's code, which only Bits.singleton reads; of text's
+ * functions only its length, concatenation, prefix, suffix and containment tests, regex match, translate and lower
+ * under the C collation, no array
  * function, of bit's only the set algebra over a roster, and of bytea's only its SHA-256 digest; no money * money,
  * money unary minus, abs(money) or float %, which PostgreSQL does not define; and no money / integer, which the public
  * signatures cannot spell. The gaps where PostgreSQL has no same-type overload are compositions of entries here,
@@ -1333,7 +1376,8 @@ const endpoint = (
  *   and disjointness composed of them, and a set with one more handle (set_bit(bit,integer,integer) at a live code),
  *   all total; bitnot only inside those, since it sets the hole and padding bits;
  * - text length in code points (char_length) and in UTF-8 bytes (octet_length), concatenation (textcat), and the
- *   prefix and suffix tests (starts_with, and right, char_length and = composed), each for checks only; and the regex match (textregexeq), whose pattern operand's every value was
+ *   prefix and suffix tests (starts_with, and right, char_length and = composed), each for checks only; the
+ *   containment test (strpos and > composed), everywhere; and the regex match (textregexeq), whose pattern operand's every value was
  *   admitted inside PostgreSQL's regex compile space where the node was typed (compute/typing.ts), everywhere. textcat
  *   allocates its result, which past PostgreSQL's MaxAllocSize raises "invalid memory alloc request size": no query
  *   holds it, an equation with a concatenation lowering without it (compute/typing.ts concatEquation), and a check or
@@ -1499,6 +1543,8 @@ const catalogOverloads = {
 	),
 	"right(text,integer)": fnCall("right", "right", ["text", "int4"], "text", total, "value"),
 	"endsWith:text": textSuffix,
+	"strpos(text,text)": fnCall("strpos", "strpos", ["text", "text"], "int4", total, "value"),
+	"contains:text": textContains,
 	textregexeq: infix("matches", "~", "text", "bool", total, "value"),
 	"replace(text,text,text)": fnCall(
 		"replace",

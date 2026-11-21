@@ -1,5 +1,5 @@
 /**
- * Text's terms: matches, concat, startsWith and endsWith, typed and lowered as a check and a query lower
+ * Text's terms: matches, concat, startsWith, endsWith and contains, typed and lowered as a check and a query lower
  * them, and evaluated on the host (scalar/compute/evaluate.ts) and by the reference evaluator
  * (test/support/oracle/evaluate/catalog.ts).
  *
@@ -10,9 +10,9 @@
  *   the code points themselves, never UTF-16's, each with the ARE str.regex's own lowering prints for it; and the node
  *   refuses exactly where str.regex refuses one of its patterns for what it is, a pattern of the empty language
  *   matching no text where str.regex refuses it as a type of no value.
- * - concat, startsWith and endsWith: by construction, a text that begins or ends with another, or a drawn pair; the
- *   host's string methods against the reference's code point walks, and the equation with a concatenation, which no
- *   lowering builds, against the concatenation itself.
+ * - concat, startsWith, endsWith and contains: by construction, a text that begins or ends with another or holds it
+ *   between two texts, or a drawn pair; the host's string methods against the reference's code point walks, and the
+ *   equation with a concatenation, which no lowering builds, against the concatenation itself.
  * - the refusals: a fault planted in a valid term, one for each refusal (a pattern past the compile space, outside the
  *   grammar or malformed, a guard's pattern with no member, a pattern no measure bounds, a subject that is no text or
  *   unbounded in a query, concat in a query, a literal the builder refuses, a literal outside a guard's language), each by its
@@ -184,8 +184,8 @@ export const computesTextTermsMatchesAgreesWithECMAScriptOnTheHostAndInTheRefere
 		]
 	})
 
-/** Text's terms concat, startsWith and endsWith agree between the host and the reference's code points. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
-export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndTheReferencesCodePoints =
+/** Text's terms concat, startsWith, endsWith and contains agree between the host and the reference's code points. Its budget is its suite's before it was a property (test/unit/compute/text.test.ts at 4ca3036a): 600 runs and 600 steered cases. */
+export const computesTextTermsConcatStartsWithEndsWithAndContainsAgreeBetweenTheHostAndTheReferencesCodePoints =
 	property.explore(affix, {
 		needs: {},
 		budget: { runs: 600, steered: 600 },
@@ -194,6 +194,8 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 			"suffix held",
 			"prefix refused",
 			"suffix refused",
+			"containment held",
+			"containment refused",
 			"equation held",
 			"equation refused"
 		] satisfies ReadonlyArray<Reached<AffixFeature>>,
@@ -230,6 +232,12 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 				}
 				k.note(starts.host === true ? "prefix held" : "prefix refused")
 				k.note(ends.host === true ? "suffix held" : "suffix refused")
+				const holds = check(computeDesc("contains", variable("w"), variable("p")), true)
+				assert.equal<unknown>(holds.host, holds.reference, "contains on both sides")
+				if (a.kind !== "drawn") {
+					assert.equal(holds.host, true, "a text holds what it was built around")
+				}
+				k.note(holds.host === true ? "containment held" : "containment refused")
 				const joined = check(computeDesc("concat", variable("p"), variable("r")), false)
 				assert.equal(joined.host, `${a.part}${a.rest}`, "concat on the host")
 				assert.equal(joined.reference, `${a.part}${a.rest}`, "concat in the reference")
@@ -250,7 +258,7 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 			}),
 		oracle: {
 			kind: "second-implementation",
-			name: "the reference evaluator's code point walks, and texts built to begin or end so"
+			name: "the reference evaluator's code point walks, and texts built to begin, end or hold so"
 		},
 		kept: [],
 		kills: [
@@ -261,6 +269,14 @@ export const computesTextTermsConcatStartsWithAndEndsWithAgreeBetweenTheHostAndT
 				replacement:
 					'\t\t\treturn (args) => Result.ok(hostOf("text", a(args)).includes(hostOf("text", b(args))))',
 				why: "The host evaluates endsWith as includes; the affix property fails."
+			},
+			{
+				file: "packages/engine/src/scalar/compute/evaluate.ts",
+				original:
+					'\t\t\treturn (args) => Result.ok(hostOf("text", a(args)).includes(hostOf("text", b(args))))',
+				replacement:
+					'\t\t\treturn (args) => Result.ok(hostOf("text", a(args)).startsWith(hostOf("text", b(args))))',
+				why: "The host evaluates contains as startsWith, so a text holding its part past its start is refused; the affix property fails."
 			}
 		]
 	})

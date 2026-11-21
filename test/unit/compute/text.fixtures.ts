@@ -92,7 +92,7 @@ export const patternLiteral = (value: PatternValue): ExprDesc => ({ kind: "liter
 const pattern = (spelling: string): ExprDesc => patternLiteral(spelled(spelling))
 
 export const computeDesc = (
-	fn: "matches" | "concat" | "startsWith" | "endsWith",
+	fn: "matches" | "concat" | "startsWith" | "endsWith" | "contains",
 	...args: ReadonlyArray<ExprDesc>
 ): ExprDesc => ({ kind: "compute", fn, args })
 
@@ -192,9 +192,12 @@ export const casePattern = (values: Arr.NonEmptyReadonlyArray<PatternValue>): Ex
 			}
 }
 
-/** A pair of texts: whether the first begins or ends with the second by construction, or a drawn pair. */
+/**
+ * A pair of texts: whether the first begins with the second, ends with it or holds it between two texts by construction,
+ * or a drawn pair.
+ */
 interface Affix {
-	readonly kind: "prefix" | "suffix" | "drawn"
+	readonly kind: "prefix" | "suffix" | "infix" | "drawn"
 	readonly whole: string
 	readonly part: string
 	readonly rest: string
@@ -206,7 +209,7 @@ const alphabet = [0x61, 0x62, 0xffff, 0x1f600, 0x1f601, 0x10ffff] as const
 const affixText = stringsOver(element(alphabet), 4)
 
 export const affix: Gen<Affix> = (source) => {
-	const kind = source.draw(element(["prefix", "suffix", "drawn"] as const))
+	const kind = source.draw(element(["prefix", "suffix", "infix", "drawn"] as const))
 	const part = source.draw(affixText)
 	const rest = source.draw(affixText)
 	const whole =
@@ -214,7 +217,9 @@ export const affix: Gen<Affix> = (source) => {
 			? `${part}${rest}`
 			: kind === "suffix"
 				? `${rest}${part}`
-				: source.draw(affixText)
+				: kind === "infix"
+					? `${rest}${part}${source.draw(affixText)}`
+					: source.draw(affixText)
 	return { kind, whole, part, rest }
 }
 
@@ -223,6 +228,8 @@ export type AffixFeature =
 	| "suffix held"
 	| "prefix refused"
 	| "suffix refused"
+	| "containment held"
+	| "containment refused"
 	| "equation held"
 	| "equation refused"
 

@@ -77,7 +77,7 @@ import { ecmaMatches } from "#test/support/regex.ts"
  * A double's parse from its decimal text is IEEE 754's conversion from decimal written from its definition
  * (double-text.ts), apart from the engine's and ECMAScript's.
  * A reference's resolution against a base is RFC 3986 read by other means than grizzle-text's (uri.ts), exact.
- * A text's concatenation, prefix and suffix tests and translation are exact over its code points, and its regex match is grizzle's own
+ * A text's concatenation, prefix, suffix and containment tests and translation are exact over its code points, and its regex match is grizzle's own
  * automaton over the pattern's parse (src's scalar/regex/nfa.ts), which PostgreSQL's `~` over the pattern's ARE agrees
  * with (test/pg/compute/text.test.ts).
  * There is no complement (OPEN-4), which PostgreSQL alone would compute over the roster's live codes, and no SHA-256 of
@@ -95,6 +95,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "replace":
 		case "btrim":
 		case "regexpCount":
+		case "strpos":
 		case "sha256":
 		case "searchPart":
 		case "searchConcat":
@@ -146,6 +147,7 @@ const evaluationOf = (op: NativeOp): Evaluation => {
 		case "startsWith":
 		case "endsWith":
 		case "right":
+		case "contains":
 		case "floatBits":
 		case "matches":
 		case "translate":
@@ -367,6 +369,20 @@ const codePrefix = (prefix: string, text: string): boolean => {
 	const p = characters(prefix)
 	const t = characters(text)
 	return p.length <= t.length && Arr.every(p, (c, i) => t[i] === c)
+}
+
+/**
+ * Whether `part`'s characters stand together in `text`, one by one at some start: strpos's code point search, past 0
+ * where it finds them, the empty part at the first start of every text. The starts are those a part of its length fits
+ * at, none where it is longer than the text.
+ */
+export const codeInfix = (part: string, text: string): boolean => {
+	const p = characters(part)
+	const t = characters(text)
+	return Arr.some(
+		Array.from({ length: Math.max(0, t.length - p.length + 1) }, (_, start) => start),
+		(start) => Arr.every(p, (c, i) => t[start + i] === c)
+	)
 }
 
 /**
@@ -798,6 +814,8 @@ const catalogApply = (
 				: mismatch(op)
 		case "right":
 			return isString(a) && isBigint(b) ? Result.succeed(lastCharacters(a, b)) : mismatch(op)
+		case "contains":
+			return isString(a) && isString(b) ? Result.succeed(codeInfix(b, a)) : mismatch(op)
 		case "floatBits":
 			return typeof a === "number" ? Result.succeed(identityBits(a)) : mismatch(op)
 		case "matches":
@@ -854,6 +872,7 @@ const catalogApply = (
 		case "replace":
 		case "btrim":
 		case "regexpCount":
+		case "strpos":
 		case "sha256":
 		case "searchPart":
 		case "searchConcat":

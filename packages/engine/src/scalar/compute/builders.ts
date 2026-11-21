@@ -1279,6 +1279,7 @@ const checks = Object.freeze({
 	concat: binary("concat", "literal"),
 	startsWith: binary("startsWith", "literal"),
 	endsWith: binary("endsWith", "literal"),
+	contains: binary("contains", "literal"),
 	matches,
 	translate,
 	lowerAscii: unary("lowerAscii"),
@@ -1441,6 +1442,7 @@ export const compute = Object.freeze({
 	concat: (a: unknown, b: unknown) => plain(checks.concat(a, b), "text"),
 	startsWith: (a: unknown, b: unknown) => plain(checks.startsWith(a, b), "boolean"),
 	endsWith: (a: unknown, b: unknown) => plain(checks.endsWith(a, b), "boolean"),
+	contains: (a: unknown, b: unknown) => plain(checks.contains(a, b), "boolean"),
 	translate: (x: unknown, from: unknown, to: unknown) =>
 		plain(checks.translate(x, from, to, []), "text"),
 	lowerAscii: (x: unknown) => plain(checks.lowerAscii(x, []), "text"),
@@ -1593,6 +1595,7 @@ export const computeCore = Object.freeze({
 	concat: (a: unknown, b: unknown) => plainBy(checks.concat(a, b)),
 	startsWith: (a: unknown, b: unknown) => plainBy(checks.startsWith(a, b)),
 	endsWith: (a: unknown, b: unknown) => plainBy(checks.endsWith(a, b)),
+	contains: (a: unknown, b: unknown) => plainBy(checks.contains(a, b)),
 	translate: (x: unknown, from: unknown, to: unknown, ...extra: ReadonlyArray<unknown>) =>
 		plainBy(checks.translate(x, from, to, extra)),
 	lowerAscii: (x: unknown, ...extra: ReadonlyArray<unknown>) =>

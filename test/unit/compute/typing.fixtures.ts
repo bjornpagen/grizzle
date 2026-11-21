@@ -203,6 +203,7 @@ const signatures: { readonly [F in ComputeFn]: Signature } = {
 	concat: { result: "text", args: ["text", "text"] },
 	startsWith: { result: "bool", args: ["text", "text"] },
 	endsWith: { result: "bool", args: ["text", "text"] },
+	contains: { result: "bool", args: ["text", "text"] },
 	matches: { result: "bool", args: ["text", "text"] },
 	translate: { result: "text", args: ["text"] },
 	lowerAscii: { result: "text", args: ["text"] },

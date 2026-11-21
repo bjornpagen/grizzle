@@ -323,6 +323,8 @@ export const predicateAtoms = (
 		case "concat":
 		case "startsWith":
 		case "right":
+		case "contains":
+		case "strpos":
 		case "matches":
 		case "translate":
 		case "lowerAscii":

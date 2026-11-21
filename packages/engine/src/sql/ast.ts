@@ -327,6 +327,7 @@ export const builtinFunctions = {
 	regexp_count: { reach: "row" },
 	starts_with: { reach: "row" },
 	right: { reach: "row" },
+	strpos: { reach: "row" },
 	translate: { reach: "row" },
 	btrim: { reach: "row" },
 	ltrim: { reach: "row" },

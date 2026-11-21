@@ -3103,7 +3103,7 @@ Rows are typed from the query: `commentsPerAuthor` gives `{ author: string; comm
 | recurse | `query(S).recursive(...)` |
 | compare spans | `r.allen` with `ALLEN` masks, `r.pointIn`, `r.intersection`, `r.difference`, `r.pack` |
 | compute | `Num.add`, `Num.mul`, `Num.round`, `Logic.cond`, `Logic.when` and the rest of the [scalar terms](#scalar-terms) |
-| match text | `Text.matches(x, pattern)`, `Text.startsWith`, `Text.endsWith`, `Xml.isPattern`; `Text.concat` in checks |
+| match text | `Text.matches(x, pattern)`, `Text.startsWith`, `Text.endsWith`, `Text.contains`, `Xml.isPattern`; `Text.concat` in checks |
 | search vectors | `.approximateNearest(...)`, with pgvector, from a parameter's vector or a stored row's ([Nearest rows](#nearest-rows)) |
 | search text | `Search.matches`, `Search.rank`, `Search.rankCd` of a search document and a `Search.websearch` or `Search.plain` ([Full text search](#full-text-search)) |
 
@@ -3132,7 +3132,7 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 | `Num` | `add`, `sub`, `mul`, `div`, `mod`, `neg`, `quot`, `rem`, `abs`, `sign`, `round`, `trunc`, `ceil`, `floor`, `gcd`, `lcm`, `power`, `sqrt`, `widthBucket`, `minScale`, `numeric`, `floatBits`, `nonzero`, `nonnegative`, `positive`, `isFinite`, `within` |
 | `Logic` | `cond`, `when`, `not`, `and`, `or`, `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `between`, `in`, `least`, `greatest` |
 | `Range` | `lower`, `upper`, `width` |
-| `Text` | `charLength`, `octetLength`, `utf16Length`, `concat`, `startsWith`, `endsWith`, `pattern`, `matches`, `translate`, `lowerAscii`, `replaceWhitespace`, `collapse`, `resolveReference`, `parseDouble`, `parseDecimal` |
+| `Text` | `charLength`, `octetLength`, `utf16Length`, `concat`, `startsWith`, `endsWith`, `contains`, `pattern`, `matches`, `translate`, `lowerAscii`, `replaceWhitespace`, `collapse`, `resolveReference`, `parseDouble`, `parseDecimal` |
 | `Xml` | `pattern`, `isPattern` |
 | `Crypto` | `sha256` |
 | `Distance` | `cosine` |
@@ -3141,7 +3141,7 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
 | `Net` | `within`, `strictlyWithin`, `overlaps` |
 | `Fn` | `call`, `rows`, `row` |
 
-`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; `Net` the containment of the network types ([Network containment](#network-containment)); and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
+`Type` writes a typed constant, drops a contract to its base and casts; `Num` is the numeric family's arithmetic, rounding and functions, and its guards; `Logic` the comparisons, `least` and `greatest`, the connectives and the conditionals, over any type they compare; `Range` a span's endpoints and width, a span being PostgreSQL's range; `Text` text's lengths, concatenation, prefixes, suffixes and containment, patterns in grizzle's grammar and their matches, transforms, references and lexical parses; `Xml` XML Schema 1.0's pattern dialect; `Crypto` a SHA-256 digest; `Distance` the cosine distance of two vectors; `Search` a full text search's queries, matches and ranks ([Full text search](#full-text-search)); `Bits` the set algebra over one roster's sets, beside `Bits.of`, a set value; `Net` the containment of the network types ([Network containment](#network-containment)); and `Fn` a declared function called for its value, its rows or its one row ([Calling a function](#calling-a-function)). No namespace is named `Number`, `Set` or `Digest`: the first two would shadow JavaScript's globals, the type `Set<T>` included, in every module that imports them, and `Digest.sha256` is `effect/crypto`'s own spelling.
 
 ### Arithmetic
 
@@ -3163,6 +3163,16 @@ PostgreSQL's scalar operators, functions and casts are typed builders of terms, 
   in the suffix test's place, `key >= chr(1) || reverse(b)` and below the least text above every key with that prefix,
   which is exactly the suffix test on every text, so a policy write reads the references it reaches and locks no whole
   table. Each write of the text keeps that B-tree, one entry more per row.
+- **`Text.contains(haystack, needle)`** tests whether `haystack` holds `needle`'s characters together, PostgreSQL's
+  `strpos(haystack, needle) > 0`. It reads no pattern, so every character of the needle is itself: a parameter's `%`,
+  `_` and `\` need no escaping, as they would in a LIKE. The empty needle is in every text, and a needle longer than
+  its haystack in none. It is defined on every pair of texts, so it stands in a query, a check, a contract predicate
+  and a generated field alike, over texts of any length. A query filters by it, with no index: a B-tree serves no
+  containment, so each row the query's other terms find is tested, and grizzle drafts no index for it. Like the prefix
+  and suffix tests it is a boolean term, so a query filters by it as `Logic.eq(Text.contains(name, term), true)`. It
+  folds no case: a search blind to ASCII's case folds both sides,
+  `Logic.eq(Text.contains(Text.lowerAscii(name), Text.lowerAscii(term)), true)`, and like `Text.lowerAscii` it folds
+  no letter past ASCII, so `É` and `é` stay apart.
 - **`Xml.pattern(source)`** is a `Text.pattern` written in XML Schema 1.0's dialect, a pattern facet (Part 2, Appendix F), anchored at both ends as XML Schema reads every facet, its escapes XML Schema's own: `\s` the four XML spaces, `\i` and `\c` XML 1.0 Second Edition's name characters, `\p{IsBasicLatin}` a block of XML Schema's table. A repetition count may be any whole number, as Appendix F sets none: PostgreSQL's RE_DUP_MAX of 255 binds only the ARE grizzle prints, which spells `x{300}` as `x{255}x{45}`, and the host counts a repetition, never copying its body, so a count costs it no state. A facet past PostgreSQL's regex compile space is refused where it is written, as `Text.pattern` refuses one, before it is printed.
 - **`Xml.isPattern(x)`** is whether `x` is an XML Schema 1.0 pattern, a string of Appendix F's `regExp` production, the language of QTI 3.0.1's `pattern-mask`, as `Xml.pattern` reads one: groups and class subtractions nested to any depth and counts of any size, refused at `(?`, a back-reference, an unclosed `[` or `(`, a `{` that opens no count, a count whose greatest is below its least, a range whose end is below its start, and a category or block escape the tables do not name. PostgreSQL judges it by the installation's own IMMUTABLE STRICT function, NULL over a NULL text as every operation is, the reader's moves as a table that a recursive query reads once over the text's characters, with no state budget and no bound on a count, so it is defined on every text and stands in checks, contract predicates, generated fields and queries alike: `contract("PatternMask", Prose, (v) => Xml.isPattern(v))` is a text type of patterns.
 - **A byte bound is a guard.** `Logic.when(Num.within(Text.octetLength(x), 0, 64), () => Type.cast(x, Name), "")`, with `Name` a `str.bytes(64, pattern)` whose pattern holds x's, reads `x` inside the branch as at most 64 UTF-8 bytes of its own pattern, so a text of no byte bound casts into `Name`. `octetLength` is total, so the guard stands everywhere, a query included, and it proves the bytes every operation that reads them needs: a query's `Text.matches` and `Text.translate`, and `Text.utf16Length`.
