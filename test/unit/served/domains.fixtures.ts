@@ -80,8 +80,15 @@ export const caseGen: Gen<TextDomainCase> = (source) => ({
 	read: source.draw(element(reads))
 })
 
-/** Any text: the type a carried value is written into, and a document's list. */
+/** Any text: a document's list. */
 const Any = str.regex("^.*$", "su")
+
+/**
+ * A word a carrying ChangeSet writes into Out, a code of the refinement or a token of a list: any text of at most 64
+ * bytes, so a B-tree entry of Out's key holds it, where a text no byte bound proves is refused as a key (no code a
+ * refinement admits passes 12 bytes, the byte-bounded pattern's bound, and no case writes a list).
+ */
+const Word = str.bytes(64, str.regex("^.*$", "su"))
 
 /** A contract the functions' results carry: grizzle's exact integer of QTI's range, edullm's QtiInteger. */
 const Count = contract("Count", pg.numeric(613, 0))
@@ -100,7 +107,7 @@ const loginOf = (c: TextDomainCase) => {
 	const R = refinements[c.refinement]
 	const Item = relation("Item", { item: pg.integer }, ["item"])
 	const Doc = relation("Doc", { doc: pg.integer, list: Any }, ["doc"])
-	const Out = relation("Out", { item: pg.integer, value: Any }, ["item", "value"])
+	const Out = relation("Out", { item: pg.integer, value: Word }, ["item", "value"])
 	const Coded = relation("Coded", { item: pg.integer, code: R, count: Count }, ["item"])
 	const Judged = rows({ code: R, count: Count })
 	/** Each body returns a member of the refinement, alpha or beta for the alternation and ab or cd for the others. */
