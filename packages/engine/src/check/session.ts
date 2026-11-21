@@ -1,5 +1,7 @@
-import type { QueryRead } from "#compiler/check/checker.ts"
+import type { ClosedImport, QueryRead } from "#compiler/check/checker.ts"
 import type { ResolvedQuery } from "#compiler/check/params.ts"
+import type { SchemaReading } from "#compiler/check/schema.ts"
+import { makeIdSupply } from "#compiler/core/ids.ts"
 import type { Inferred, InferredQuery, Located, QueryDesc } from "#compiler/ir/desc.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
@@ -26,9 +28,14 @@ const entries = (): Readonly<Record<QueryEntry, WeakSet<InferredQuery>>> => ({
  *   resolution is the query's alone, and one resolution of it serves every import of it in every query the compile
  *   checks, whose imports of one query then share one resolved query.
  * - The place of each object an import's key names (check/checker.ts importedKey), in the order the checks met it.
- * - Each closed import the checks built, by its key: an import bound to parameters and constants alone reads the same
- *   rows wherever it stands in the compile's queries, whose parameters are one namespace, so a write's DAG merges the
- *   imports of one key as one node (write/frontend/dag.ts QueryMerger).
+ * - One label space (`ids`): every check of the compile draws its labels from it, so a node one check built stands in
+ *   another check's DAG under labels no other node of it holds.
+ * - Each closed import the checks built, by the schema and the reading it was checked under and its key, checked and
+ *   completed once (check/checker.ts ClosedImport): an import bound to parameters and constants alone reads the same
+ *   rows wherever it stands in the compile's queries, whose parameters are one namespace, so every check that reads it
+ *   at its key reads that one node, adopting what its check recorded, where each check built the import again and
+ *   completed it again over its own DAG (a ChangeSet of a hundred members reading one call's six hundred imports); and a
+ *   write's DAG merges the imports of one key as one node (write/frontend/dag.ts QueryMerger).
  * - Each query whose structure the checks have validated (check/description.ts validateQueryStructure), by how the
  *   check reads its query and how the query was entered: a query is one value every reader of it shares
  *   (query/build/state.ts publicDesc), so the compile's descriptions are one DAG of queries, and a query's structure
@@ -53,9 +60,26 @@ export class CheckSession {
 		membership: entries(),
 		region: entries()
 	}
+	/** The compile's one label space, every check's. */
+	readonly ids = makeIdSupply()
 	readonly #places = new WeakMap<object, number>()
 	#placed = 0
 	readonly #closed = new WeakMap<RelNode, string>()
+	readonly #imports = new WeakMap<SchemaReading, Map<string, ClosedImport>>()
+
+	/**
+	 * The closed imports the checks of the compile built over `schema`, by their reading and key (Checker
+	 * `#closedImport`): one table for each schema, a ChangeSet's base and its role's world apart.
+	 */
+	closedImports(schema: SchemaReading): Map<string, ClosedImport> {
+		const known = this.#imports.get(schema)
+		if (known !== undefined) {
+			return known
+		}
+		const imports = new Map<string, ClosedImport>()
+		this.#imports.set(schema, imports)
+		return imports
+	}
 
 	/** `o`'s place among the objects import keys name. */
 	place(o: object): number {

@@ -202,13 +202,25 @@ export type ResolvedExpr = ExprDesc<Located, Resolved>
  * namespace (ir/desc.ts mapQueryParams), which queryParamNames reads too, so the declared parameters are exactly the
  * description's.
  */
-class ParamTable {
+export class ParamTable {
 	readonly #cells: ReadonlyArray<ParamCell>
+	readonly #named: ReadonlyMap<string, ParamCell>
 	readonly size: number
 
 	constructor(cells: ReadonlyArray<ParamCell>) {
 		this.#cells = cells.toSorted(mapInput(compareStrings, (c: ParamCell) => c.name))
+		this.#named = new Map(cells.map((c) => [c.name, c] as const))
 		this.size = cells.length
+	}
+
+	/** The query's own parameter of `name`, none where the query names none. */
+	cell(name: string): ParamCell | undefined {
+		return this.#named.get(name)
+	}
+
+	/** Whether `cell` is one of the query's own parameters, never an imported query's or one the checker writes. */
+	owns(cell: ParamCell): boolean {
+		return this.#named.get(cell.name) === cell
 	}
 
 	/** The declared parameters, in name order, refused at `loc` for a parameter no checked use typed. */

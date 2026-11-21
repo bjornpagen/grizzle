@@ -18,6 +18,13 @@
  * checker's memo (an import built at every occurrence), the merger's stand-ins (every member's imports its own), and the
  * one resolution of an imported query (each import a resolution of its own, its key its own).
  *
+ * And the checks of one compile check each closed import once (check/checker.ts #closedImport, ClosedImport): its every
+ * later reader, in any member, reads the node the first check built and completed, adopting what that check recorded,
+ * so the checks of the call's arguments (#importAt) are as many for 1, 2, 4 or 8 readers as for one, where every member
+ * built and completed the call's imports again (edullm's evaluate: 97 members each rebuilding 651 imports, 14 times the
+ * distinct nodes analyzed). Oracle: specification, a closed import is checked once for its compile. Kill: no check reads
+ * another's import, so each member checks the eight arguments again.
+ *
  * Features: one member and several; a chain of one level and of several.
  */
 
@@ -28,10 +35,12 @@ import { Array as Arr, Effect, String as Str } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import { compiled } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	chainWriteOf,
 	depthGen,
+	type Readers,
 	readersGen,
 	readersOf,
 	Shared
@@ -136,4 +145,40 @@ export const aChainOfBoundQueriesEachLevelReadingTheOneBelowInTwoRulesIsOneNodeP
 			(kill) =>
 				Str.includes("importedKey")(kill.original) || kill.file === "packages/engine/src/ir/desc.ts"
 		)
+	})
+
+/** The checks of imports (check/checker.ts #importAt) while a write of `members` readers of the call compiles. */
+const importChecks = (members: Readers): Effect.Effect<number> =>
+	Effect.map(
+		callCounts(
+			Effect.sync(() => compiled(Shared, readersOf(members))),
+			{ imports: { file: "packages/engine/src/check/checker.ts", name: "#importAt" } }
+		),
+		([, counts]) => counts.imports
+	)
+
+/** The checks of one compile check each closed import once, however many members read it. */
+export const theChecksOfOneCompileCheckEachClosedImportOnceHoweverManyMembersReadIt =
+	property.exhaust(finite(readersGen), {
+		needs: {},
+		situations: ["one member", "several members"],
+		check: (_, k) => (members) =>
+			Effect.gen(function* () {
+				k.note(members === 1 ? "one member" : "several members")
+				const one = yield* importChecks(1)
+				const many = yield* importChecks(members)
+				assert.ok(one > 0, "one reader checks the call's imports")
+				assert.equal(many, one, `${members} readers check the call's imports as one reader does`)
+			}),
+		oracle: { kind: "specification", name: "a closed import is checked once for its compile" },
+		box: "1, 2, 4 and 8 inserts, each reading one field of one call of eight rows arguments, each an import of one bound query",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original: "\t\tconst prior = compiled.get(at)\n",
+				replacement: "\t\tconst prior = undefined\n",
+				why: "No check reads an import another check of the compile built, so every member checks the call's eight arguments again and the checks grow with the members."
+			}
+		]
 	})

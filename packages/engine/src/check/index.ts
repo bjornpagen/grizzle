@@ -63,7 +63,7 @@ const run = (
 	role: RootRole
 ): AdmittedQuery => {
 	const resolved = resolveQuery(desc, options.session)
-	const dag = new Checker(schema, options).root(resolved.query, loc, role)
+	const dag = new Checker(schema, options, resolved.params).root(resolved.query, loc, role)
 	return admit({ dag, params: resolved.params.decls(loc) }, loc)
 }
 

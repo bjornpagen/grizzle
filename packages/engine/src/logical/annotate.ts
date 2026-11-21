@@ -314,9 +314,13 @@ export const analyzeLogical = <R extends Roots>(
 export const withLogicalMeta = <R extends Roots>(
 	dag: ValidDag<R>,
 	analysis: LogicalAnalysis<R>,
-	bodyOf: (node: RelNode) => RelNode
+	bodyOf: (node: RelNode) => RelNode,
+	kept: ReadonlySet<RelNode>
 ): ValidDag<R> => {
 	const restated = new Fold<RelNode, RelNode>(function* (node) {
+		if (kept.has(node)) {
+			return node
+		}
 		const source = bodyOf(node)
 		const body = yield* edgeValues<RelNode>(source)
 		const annotated = analysis.of(node).node

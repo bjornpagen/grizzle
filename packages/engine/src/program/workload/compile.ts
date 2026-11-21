@@ -271,7 +271,7 @@ const checkedQueryIr = (
  * occurrences it joins (physical/access/extract.ts), pageable where an ordered query's root is its ordered result.
  */
 const rowsIr = (analyzed: AnalyzedQuery, ordered: boolean): ProgramIr => {
-	const root = withLogicalMeta(analyzed.dag, analyzed.analysis, (node) => node).roots[0]
+	const root = withLogicalMeta(analyzed.dag, analyzed.analysis, (node) => node, new Set()).roots[0]
 	return {
 		roots: [root],
 		params: analyzed.params,

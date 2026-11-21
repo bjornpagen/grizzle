@@ -26,7 +26,8 @@ export const completeStated = <R extends Roots>(
 	dag: ValidDag<R>,
 	b: DagBuilder,
 	orders: ReadonlyMap<RelNode, StatedOrder>,
-	merges: ReadonlyMap<RelNode, StatedMerge>
+	merges: ReadonlyMap<RelNode, StatedMerge>,
+	kept: ReadonlySet<RelNode>
 ): Result.Result<ValidDag<R>, CompileError> => {
 	if (orders.size === 0 && merges.size === 0) {
 		return Result.ok(dag)
@@ -45,7 +46,8 @@ export const completeStated = <R extends Roots>(
 		withLogicalMeta(
 			dag,
 			analysis.value,
-			(node) => completed.value.get(node) ?? merged.get(node) ?? node
+			(node) => completed.value.get(node) ?? merged.get(node) ?? node,
+			kept
 		)
 	)
 }

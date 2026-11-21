@@ -1238,7 +1238,7 @@ const completedOf = (
 	t: Translation,
 	node: RelNode
 ): { readonly dag: ValidDag; readonly root: RelNode } => {
-	const completed = completeStated(t.b.build([node]), t.b, new Map(), t.merges)
+	const completed = completeStated(t.b.build([node]), t.b, new Map(), t.merges, new Set())
 	if (!completed.ok) {
 		throw new Error(`the program's meaning does not complete: ${completed.error.message}`)
 	}

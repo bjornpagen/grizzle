@@ -3122,7 +3122,7 @@ export const resolveQuery =
 					: []
 			)
 		)
-		const completed = completeStated(built, r.b, r.stated, merges)
+		const completed = completeStated(built, r.b, r.stated, merges, new Set())
 		if (!completed.ok) {
 			throw new Error(`could not complete a generated order: ${completed.error.message}`)
 		}

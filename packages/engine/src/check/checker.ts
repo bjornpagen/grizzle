@@ -3,7 +3,7 @@ import { allenExpr } from "#compiler/check/allen.ts"
 import { approximate } from "#compiler/check/approximate/index.ts"
 import { completeStated } from "#compiler/check/complete.ts"
 import type { CheckedNodeSpec, ScopedServices, StageScope } from "#compiler/check/context.ts"
-import { DeclarationTable } from "#compiler/check/declarations.ts"
+import { type Declared, DeclarationTable } from "#compiler/check/declarations.ts"
 import { only } from "#compiler/check/defined.ts"
 import { fail, failWith } from "#compiler/check/fail.ts"
 import {
@@ -18,6 +18,7 @@ import {
 import type { StatedOrder } from "#compiler/check/order.ts"
 import type {
 	ParamCell,
+	ParamTable,
 	Resolved,
 	ResolvedAttach,
 	ResolvedBound,
@@ -56,7 +57,7 @@ import type { CheckSession } from "#compiler/check/session.ts"
 import { allenMaskMax } from "#compiler/core/allen.ts"
 import { canonicalEquals, canonicalTextOf, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, unsupported } from "#compiler/core/errors.ts"
-import { makeIdSupply, type NodeId, type ParamId, type VarId } from "#compiler/core/ids.ts"
+import type { NodeId, ParamId, VarId } from "#compiler/core/ids.ts"
 import { childLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Comparator, compareStrings, mapInput } from "#compiler/core/order.ts"
 import { DagBuilder, type ReservedNode } from "#compiler/ir/builder.ts"
@@ -968,6 +969,58 @@ const int4TakeBound = (k: bigint, loc: SourceLoc): TakeBound => {
  * Recursive and approximate stages are plug-ins (context.ts). A query reads only what its schema declares: checked
  * against a role, only the role's relations.
  */
+/** A union node's arms and discriminant, as the checker records them (Checker `#unions`). */
+interface UnionArms {
+	readonly arms: NonEmptyReadonlyArray<RelNode>
+	readonly discriminant: ReadonlyArray<string>
+}
+
+/** A use of one of the query's own parameters, as its cell records it (check/params.ts ParamCell `use`, `relationUse`). */
+type ParamUse =
+	| {
+			readonly kind: "scalar"
+			readonly name: string
+			readonly type: ScalarType
+			readonly loc: SourceLoc
+	  }
+	| {
+			readonly kind: "relation"
+			readonly name: string
+			readonly heading: Heading
+			readonly loc: SourceLoc
+	  }
+
+/**
+ * A closed import checked once for its compile (check/session.ts closedImports, Checker `#closedImport`): its root, its
+ * own stated orders and merges completed over its own DAG (complete.ts), nothing outside it being in its scope, and
+ * what its check recorded beside its nodes, which every check that reads it adopts as its own check of it would have
+ * recorded it (`#adopt`): the literal head columns, union arms, delivered headings and carried attachments of its
+ * nodes, the closed imports it read by their keys, its declarations (DuplicateIdentity), its searches, and its uses of
+ * the reader's own parameters, which every reader at its key binds by name alike, so the reader's parameters are
+ * typed by them (check/params.ts).
+ */
+export interface ClosedImport {
+	readonly node: RelNode
+	readonly literals: ReadonlyArray<readonly [RelNode, Map<string, HeadLiteral>]>
+	readonly unions: ReadonlyArray<readonly [RelNode, UnionArms]>
+	readonly delivered: ReadonlyArray<readonly [RelNode, Heading]>
+	readonly attached: ReadonlyArray<readonly [RelNode, ReadonlySet<string>]>
+	readonly imports: ReadonlyArray<readonly [string, RelNode]>
+	readonly declared: ReadonlyArray<Declared>
+	readonly searches: ReadonlyArray<readonly [string, RelNode]>
+	readonly uses: ReadonlyArray<ParamUse>
+}
+
+/**
+ * A closed import's check (Checker `#checkedImport`), and whether the compile's other checks may read it: not where it
+ * holds a node of its reader's own, a search the reader built before it (Checker `#searches`) or an import no other
+ * check may read, which another reader would hold none of.
+ */
+interface CheckedImport {
+	readonly imported: ClosedImport
+	readonly shared: boolean
+}
+
 export class Checker {
 	readonly schema: SchemaReading
 	readonly options: CheckOptions
@@ -978,10 +1031,7 @@ export class Checker {
 	 */
 	readonly #literals = new Map<RelNode, Map<string, HeadLiteral>>()
 	/** The arms of every union node, for flattening a further rule and for narrowing a matched union. */
-	readonly #unions = new Map<
-		RelNode,
-		{ readonly arms: NonEmptyReadonlyArray<RelNode>; readonly discriminant: ReadonlyArray<string> }
-	>()
+	readonly #unions = new Map<RelNode, UnionArms>()
 	/**
 	 * The heading each union arm a widening projection rewrote delivered before it was widened (#widenArm): its columns'
 	 * own types, which bound the values the arm delivers, for selecting a matched union's arms (RuleCheck #delivers).
@@ -1032,12 +1082,49 @@ export class Checker {
 	readonly #reserved = new Set<NodeId>()
 	/** The approximate searches built, by the identity of their sealed source, score and bound (approximate/). */
 	readonly #searches = new Map<string, RelNode>()
+	/** The query's own parameters (check/params.ts resolveQuery), on whose cells an adopted import's uses are made again. */
+	readonly #params: ParamTable
+	/** The key of this check's closed imports among the compile's (`#closedImport`): its reading and its clock. */
+	readonly #reading: string
+	/**
+	 * The uses of the query's own parameters each closed import this check is checking made (`#checkedImport`), innermost
+	 * last: each journal takes every use made while it is open (`useParam`), an adopted import's among them.
+	 */
+	readonly #uses: Array<Array<ParamUse>> = []
+	/** The searches each closed import being checked holds, innermost last, an adopted import's among them. */
+	readonly #searchJournals: Array<Map<string, RelNode>> = []
+	/** The roots of the closed imports this check built that no other check may read (CheckedImport `shared`). */
+	readonly #private = new Set<RelNode>()
 
-	constructor(schema: SchemaReading, options: CheckOptions) {
+	constructor(schema: SchemaReading, options: CheckOptions, params: ParamTable) {
 		this.schema = schema
 		this.options = options
 		this.patterns = options.session.patterns
-		this.b = new DagBuilder(makeIdSupply())
+		this.b = new DagBuilder(options.session.ids)
+		this.#params = params
+		this.#reading = `${options.read} ${canonicalTextOf(options.clock)}`
+	}
+
+	/** Records a use of `cell` as a scalar of `type` (ParamCell `use`), journaled where it is one of the query's own. */
+	useParam(cell: ParamCell, type: ScalarType, loc: SourceLoc): ParamId {
+		const id = cell.use(type, loc)
+		if (this.#params.owns(cell)) {
+			for (const journal of this.#uses) {
+				journal.push({ kind: "scalar", name: cell.name, type, loc })
+			}
+		}
+		return id
+	}
+
+	/** Records a use of `cell` as a relation of `heading` (ParamCell `relationUse`), journaled as `useParam` journals. */
+	useRelationParam(cell: ParamCell, heading: Heading, loc: SourceLoc): ParamId {
+		const id = cell.relationUse(heading, loc)
+		if (this.#params.owns(cell)) {
+			for (const journal of this.#uses) {
+				journal.push({ kind: "relation", name: cell.name, heading, loc })
+			}
+		}
+		return id
 	}
 
 	/** Records an expression, built over its arguments with its effects (ir/expr.ts builtExpr). */
@@ -1222,7 +1309,13 @@ export class Checker {
 		const order = rootOrder(out.order, role)
 		const root = order === undefined ? out.node : this.#orderedResult(out.node, order)
 		const completed: LogicalQuery["dag"] = unwrap(
-			completeStated(this.b.build([root]), this.b, this.#stated, this.#merges)
+			completeStated(
+				this.b.build([root]),
+				this.b,
+				this.#stated,
+				this.#merges,
+				new Set(this.#imported.values())
+			)
 		)
 		/** The completion builds each node again under its label, so each closed import is keyed as it stands there. */
 		const keys = new Map([...this.#imported].map(([key, node]) => [node.id, key] as const))
@@ -1403,7 +1496,7 @@ export class Checker {
 		const resolved = this.#resolveParam(take.cell, scope, loc)
 		switch (resolved.kind) {
 			case "param":
-				return { kind: "param", param: resolved.cell.use(int4, loc) }
+				return { kind: "param", param: this.useParam(resolved.cell, int4, loc) }
 			case "literal": {
 				const v = resolved.value
 				if (typeof v === "bigint") {
@@ -2322,15 +2415,7 @@ export class Checker {
 		if (called.key === undefined) {
 			return build(called.args)
 		}
-		const key = `${read} ${called.key}`
-		const known = this.#imported.get(key)
-		if (known !== undefined) {
-			return known
-		}
-		const node = build(called.args)
-		this.#imported.set(key, node)
-		this.#importKeys.set(node, key)
-		return node
+		return this.#closedImport(`${read} ${called.key}`, () => build(called.args))
 	}
 
 	/**
@@ -2442,7 +2527,9 @@ export class Checker {
 				}
 				return this.emit(storedColumn(value.node, value.name, value.type))
 			case "param":
-				return this.emit(paramSpec(value.cell.use(type, loc), "compare", compareType(type)))
+				return this.emit(
+					paramSpec(this.useParam(value.cell, type, loc), "compare", compareType(type))
+				)
 			case "literal":
 				return this.emit(boundConstant(this.schema, value, type, this.patterns))
 			case "rows":
@@ -2573,17 +2660,195 @@ export class Checker {
 		if (key === undefined) {
 			return this.#importAt(src, values, loc)
 		}
-		const table = key.closed ? this.#imported : this.#regional
-		const known = table.get(key.text)
+		if (key.closed) {
+			return this.#closedImport(key.text, () => this.#importAt(src, values, loc))
+		}
+		const known = this.#regional.get(key.text)
 		if (known !== undefined) {
 			return known
 		}
 		const node = this.#importAt(src, values, loc)
-		table.set(key.text, node)
-		if (key.closed) {
-			this.#importKeys.set(node, key.text)
-		}
+		this.#regional.set(key.text, node)
 		return node
+	}
+
+	/**
+	 * The closed import of `key` (`importedKey`, `#closedCall`), one node for every read of it: the one this check read
+	 * at it; else the one a check of the compile built over this schema under this check's reading and clock, adopted
+	 * (`#adopt`); else `build`'s, checked here (`#checkedImport`), which every later check of the compile reads.
+	 */
+	#closedImport(key: string, build: () => RelNode): RelNode {
+		const known = this.#imported.get(key)
+		if (known !== undefined) {
+			return known
+		}
+		const compiled = this.options.session.closedImports(this.schema)
+		const at = `${this.#reading} ${key}`
+		const prior = compiled.get(at)
+		const imported = prior ?? this.#checkedImport(build, at, compiled)
+		if (prior !== undefined) {
+			this.#adopt(prior)
+		}
+		this.#imported.set(key, imported.node)
+		this.#importKeys.set(imported.node, key)
+		return imported.node
+	}
+
+	/**
+	 * A closed import checked: `build`'s node, its own stated orders and merges, which `build` stated in this check and
+	 * which no node outside it reads, taken from this check's and completed over the import's DAG alone (complete.ts),
+	 * and what its check recorded (ClosedImport), each node's facts carried over to the node the completion stands in its
+	 * place (`#adoptNodes`). The compile's other checks read it at `at` in `compiled` unless it holds a node of this
+	 * check's own (CheckedImport `shared`).
+	 */
+	#checkedImport(
+		build: () => RelNode,
+		at: string,
+		compiled: Map<string, ClosedImport>
+	): ClosedImport {
+		const checked = this.#importChecked(build)
+		if (checked.shared) {
+			compiled.set(at, checked.imported)
+		} else {
+			this.#private.add(checked.imported.node)
+		}
+		return checked.imported
+	}
+
+	#importChecked(build: () => RelNode): CheckedImport {
+		const before = {
+			stated: this.#stated.size,
+			merges: this.#merges.size,
+			searches: [...this.#searches.values()],
+			imported: this.#imported.size
+		}
+		/** The import's journals; a refusal its check throws ends this check, so one left open is never read. */
+		const uses: Array<ParamUse> = []
+		const searches = new Map<string, RelNode>()
+		this.#uses.push(uses)
+		this.#searchJournals.push(searches)
+		const checked = this.#declarations.journaled(build)
+		this.#uses.pop()
+		this.#searchJournals.pop()
+		const built = checked.value
+		const stated = new Map([...this.#stated].slice(before.stated))
+		const merges = new Map([...this.#merges].slice(before.merges))
+		for (const node of stated.keys()) {
+			this.#stated.delete(node)
+		}
+		for (const node of merges.keys()) {
+			this.#merges.delete(node)
+		}
+		const node =
+			stated.size === 0 && merges.size === 0
+				? built
+				: unwrap(
+						completeStated(
+							this.b.build([built] as const),
+							this.b,
+							stated,
+							merges,
+							new Set(this.#imported.values())
+						)
+					).roots[0]
+		const nodes = topoOrder(this.b.build([built]))
+		const held = new Set(nodes)
+		const standIns =
+			node === built
+				? undefined
+				: new Map(topoOrder(this.b.build([node])).map((n) => [n.id, n] as const))
+		const completed = (n: RelNode): RelNode => standIns?.get(n.id) ?? n
+		const factsOf = <V>(table: ReadonlyMap<RelNode, V>): ReadonlyArray<readonly [RelNode, V]> =>
+			nodes.flatMap((n) => {
+				const fact = table.get(n)
+				return fact === undefined ? [] : [[completed(n), fact] as const]
+			})
+		const own = [...this.#searches].slice(before.searches.length)
+		const imported: ClosedImport = {
+			node,
+			literals: factsOf(this.#literals),
+			unions: nodes.flatMap((n) => {
+				const union = this.#unions.get(n)
+				return union === undefined
+					? []
+					: [
+							[
+								completed(n),
+								{ arms: mapNonEmpty(union.arms, completed), discriminant: union.discriminant }
+							] as const
+						]
+			}),
+			delivered: factsOf(this.#delivered),
+			attached: factsOf(this.#attached),
+			imports: [...this.#imported]
+				.slice(before.imported)
+				.map(([key, n]) => [key, completed(n)] as const),
+			declared: checked.declared,
+			searches: [...new Map([...searches, ...own])].map(
+				([identity, n]) => [identity, completed(n)] as const
+			),
+			uses
+		}
+		if (node !== built) {
+			this.#adoptNodes(imported)
+		}
+		return {
+			imported,
+			shared:
+				!before.searches.some((s) => held.has(s)) && ![...this.#private].some((p) => held.has(p))
+		}
+	}
+
+	/**
+	 * Adopts a closed import another check of the compile checked (`#closedImport`): records what its check recorded as
+	 * this check's own check of it would have, its nodes' facts (`#adoptNodes`), its declarations, its searches and its
+	 * uses of the parameters it is bound to, which are this query's own of the same names, in the order it made them,
+	 * each journaled for every closed import this check is checking around it.
+	 */
+	#adopt(imported: ClosedImport): void {
+		this.#adoptNodes(imported)
+		this.#declarations.replay(imported.declared)
+		for (const [identity, search] of imported.searches) {
+			if (!this.#searches.has(identity)) {
+				this.#searches.set(identity, search)
+			}
+			for (const journal of this.#searchJournals) {
+				journal.set(identity, search)
+			}
+		}
+		for (const use of imported.uses) {
+			const cell = defined(
+				this.#params.cell(use.name),
+				"a parameter of the reader's own that an import of its key is bound to by name"
+			)
+			if (use.kind === "scalar") {
+				this.useParam(cell, use.type, use.loc)
+			} else {
+				this.useRelationParam(cell, use.heading, use.loc)
+			}
+		}
+	}
+
+	/** Records a closed import's nodes' facts and the closed imports it read (ClosedImport) as this check's own. */
+	#adoptNodes(imported: ClosedImport): void {
+		for (const [node, literals] of imported.literals) {
+			this.#literals.set(node, literals)
+		}
+		for (const [node, union] of imported.unions) {
+			this.#unions.set(node, union)
+		}
+		for (const [node, delivered] of imported.delivered) {
+			this.#delivered.set(node, delivered)
+		}
+		for (const [node, attached] of imported.attached) {
+			this.#attached.set(node, attached)
+		}
+		for (const [key, node] of imported.imports) {
+			if (!this.#imported.has(key)) {
+				this.#imported.set(key, node)
+				this.#importKeys.set(node, key)
+			}
+		}
 	}
 
 	/** The query `src` imports, its parameters bound to `values`, each of which it must read. */
@@ -2631,7 +2896,7 @@ export class Checker {
 		const resolved = this.#bound(src.cell, scope, loc)
 		switch (resolved.kind) {
 			case "param": {
-				const param = resolved.cell.relationUse(heading, loc)
+				const param = this.useRelationParam(resolved.cell, heading, loc)
 				return this.node({ kind: "InputSet", input: { kind: "declared", param }, heading }, loc)
 			}
 			case "rows":
@@ -2793,7 +3058,7 @@ export class Checker {
 		const type = this.paramType(param, loc)
 		return resolved.kind === "param"
 			? {
-					spec: paramSpec(resolved.cell.use(type, loc), "compare", compareType(type)),
+					spec: paramSpec(this.useParam(resolved.cell, type, loc), "compare", compareType(type)),
 					type,
 					reading: readingOf(this.options.clock, resolved.cell.name)
 				}
@@ -3627,7 +3892,7 @@ class RuleCheck {
 		if (term.kind === "param") {
 			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)
 			if (resolved.kind === "param") {
-				resolved.cell.use(this.cx.paramType(term, loc), loc)
+				this.cx.useParam(resolved.cell, this.cx.paramType(term, loc), loc)
 			}
 			return resolved.kind === "column"
 				? this.#slotValue(this.#paramSlot(term.cell, loc), node)
@@ -3751,7 +4016,7 @@ class RuleCheck {
 					)
 				}
 				const bound = compareType(declared)
-				const id = resolved.cell.use(declared, loc)
+				const id = this.cx.useParam(resolved.cell, declared, loc)
 				return {
 					kind: baseMatches(bound) ? "fix" : "filter",
 					expr: this.cx.emit(paramSpec(id, "compare", bound))
@@ -4206,7 +4471,7 @@ class RuleCheck {
 			)
 		}
 		const bound = compareType(declared)
-		const id = resolved.cell.use(declared, at)
+		const id = this.cx.useParam(resolved.cell, declared, at)
 		const value = this.cx.emit(paramSpec(id, "compare", bound))
 		return sameScalarType(baseOf(col.type), bound)
 			? { kind: "constant", column, expr: value }
@@ -4409,7 +4674,7 @@ class RuleCheck {
 		switch (resolved.kind) {
 			case "param": {
 				const declared = this.cx.paramType(param, loc)
-				const id = resolved.cell.use(declared, loc)
+				const id = this.cx.useParam(resolved.cell, declared, loc)
 				return {
 					expr: this.cx.emit(paramSpec(id, role, declared)),
 					type: declared,
