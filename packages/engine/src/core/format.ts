@@ -33,7 +33,8 @@
  * write program's carriers named by the role the program runs as beside their declaration (sql/naming.ts carrierScope),
  * each stand-up refusing a session table of its name that CURRENT_USER does not own. A primary key's generated field is
  * recorded as a key generation, its writing `keyGenerated`, a column grizzle writes and its key's CHECK proves
- * (deploy/snapshot/types.ts SnapshotWriting). A SHA-256 digest is a carrier of its own, 32 bytes of bytea under the
+ * (deploy/snapshot/types.ts SnapshotWriting). An instant field's description records its writing as `instant`, so a
+ * schema fingerprint over an instant field moves. A SHA-256 digest is a carrier of its own, 32 bytes of bytea under the
  * installation's __sha256 domain, which every Setup creates and grizzle's ledger and drift proofs type their digests
  * by; Crypto.sha256 yields it, where format 5 held 64 hex digits as text. Format 5's snapshot.json first recorded the
  * library functions the installation installs (derived.library), each one any artifact over it or any program it serves
