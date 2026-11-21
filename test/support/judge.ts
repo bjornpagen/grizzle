@@ -133,6 +133,25 @@ export const readersOf = (installation: Installation): ReadonlyMap<string, strin
 		})
 	)
 
+/** A statement the judge tests a rule by, and the deltas it reads, by name (`sessionTablesOf`). */
+export interface DeltaReads {
+	readonly statement: JudgedStatement
+	readonly deltas: ReadonlySet<string>
+}
+
+/**
+ * Every statement the judge and its parts test a rule by (`judgedStatementsOf`), each beside the deltas it reads, by
+ * name: the one way a property picks the statements over a delta, as a statement reads each delta through its reader
+ * (`readersOf`) and its text names no delta.
+ */
+export const judgedDeltaReadsOf = (installation: Installation): ReadonlyArray<DeltaReads> => {
+	const readers = readersOf(installation)
+	return Arr.map(judgedStatementsOf(installation), (statement) => ({
+		statement,
+		deltas: new Set(sessionTablesOf(statement.query, readers))
+	}))
+}
+
 /** A judged statement explained over the deltas the transaction's captures filled: the statement and its plan. */
 export interface JudgedPlan {
 	readonly statement: JudgedStatement

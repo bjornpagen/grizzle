@@ -17,7 +17,7 @@ import { printExpr } from "#compiler/sql/print.ts"
 import { suffixRange } from "#compiler/sql/suffix.ts"
 import { type Seat, type SeatTemplate, seatTemplate } from "#test/pg/fin/installed.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
+import { judgedDeltaReadsOf, plannedQueryOf } from "#test/support/judge.ts"
 import type { RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -126,8 +126,8 @@ const footprintOf = (seat: Seat, key: number) =>
 		for (const setting of largeTables) {
 			yield* session.query(setting, [])
 		}
-		const probes = Arr.filter(judgedStatementsOf(seat.installed.installation), (s) =>
-			Str.includes("__delta_news_forbidden")(plannedQueryOf(s))
+		const probes = Arr.flatMap(judgedDeltaReadsOf(seat.installed.installation), (r) =>
+			Arr.some([...r.deltas], Str.startsWith("__delta_news_forbidden_")) ? [r.statement] : []
 		)
 		assert.ok(probes.length > 0, "a judged statement reads Forbidden's side of news")
 		yield* session.begin

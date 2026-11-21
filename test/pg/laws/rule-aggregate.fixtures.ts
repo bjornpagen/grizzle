@@ -3,19 +3,9 @@
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen, int, subset } from "@bjornpagen/testing/gen"
 import type { Case } from "@bjornpagen/testing/property"
-import {
-	Array as Arr,
-	Data,
-	Effect,
-	Formatter,
-	Option,
-	Order,
-	Record as Rec,
-	String as Str
-} from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option, Order, Record as Rec } from "effect"
 import { parsePlan, rowsTouched } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
-import { quoteIdent } from "#compiler/core/text.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import type { AnyDerived, AnySchema, Relation, Statement } from "#compiler/public/schema.ts"
@@ -40,7 +30,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated, type Installed } from "#test/support/install-migrate.ts"
-import { type JudgedStatement, judgedStatementsOf, plannedQueryOf } from "#test/support/judge.ts"
+import { judgedDeltaReadsOf, type JudgedStatement, plannedQueryOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { argumentsOf } from "#test/support/list.ts"
 import { refusedLaws } from "#test/support/refused.ts"
@@ -1512,10 +1502,11 @@ const probesOfAttempt = (
 		)
 	const ofAttempt = createdBy((name) => name === capture)
 	const every = createdBy(() => true)
-	return Arr.filter(judgedStatementsOf(installation), (probe) => {
-		const text = plannedQueryOf(probe)
-		const reads = (d: string): boolean => Str.includes(`"pg_temp".${quoteIdent(d)}`)(text)
+	return Arr.flatMap(judgedDeltaReadsOf(installation), (r) => {
+		const reads = (d: string): boolean => r.deltas.has(d)
 		return Arr.some(ofAttempt, reads) && Arr.every(Arr.filter(every, reads), (d) => held.has(d))
+			? [r.statement]
+			: []
 	})
 }
 

@@ -11,7 +11,7 @@ import {
 	subset,
 	weighted
 } from "@bjornpagen/testing/gen"
-import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import { rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type LawId } from "#compiler/core/ids.ts"
@@ -35,10 +35,9 @@ import {
 } from "#test/pg/fin/installed.ts"
 import {
 	foundQueryOf,
+	judgedDeltaReadsOf,
 	judgedPlans,
-	type JudgedStatement,
-	judgedStatementsOf,
-	plannedQueryOf
+	type JudgedStatement
 } from "#test/support/judge.ts"
 import { refusalOf } from "#test/support/substrate.ts"
 import { type RawSession } from "#test/support/substrate/session.ts"
@@ -1389,10 +1388,9 @@ const bodyOf = (installation: Installation, name: string): ReadonlyArray<PlState
  */
 const probesOn = (seat: Seat, table: Table): ReadonlyArray<JudgedStatement> => {
 	const deltas = deltasOf(seat, table)
-	return Arr.filter(judgedStatementsOf(seat.installed.installation), (probe) => {
-		const text = plannedQueryOf(probe)
-		return Arr.some(deltas, (d) => Str.includes(`"pg_temp".${quoteIdent(d.name)}`)(text))
-	})
+	return Arr.flatMap(judgedDeltaReadsOf(seat.installed.installation), (r) =>
+		Arr.some(deltas, (d) => r.deltas.has(d.name)) ? [r.statement] : []
+	)
 }
 
 /** The planner settings of a table large beside one key's rows (the header). */
