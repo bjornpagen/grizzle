@@ -81,9 +81,9 @@ export const stronglyConnectedGivesEveryComponentTheRootsReachOnceInTheOrderADep
 			},
 			{
 				file: "packages/text/src/base/graph.ts",
-				original: "components.push(appendNonEmpty(above.toReversed(), frame.vertex))",
-				replacement: "components.push(appendNonEmpty(above, frame.vertex))",
-				why: "A component of three vertices or more lists those above its root first entered first; the order within it differs."
+				original: "\t\tcomponent.push(vertex)",
+				replacement: "\t\tcomponent.unshift(vertex)",
+				why: "A component of two vertices or more lists its vertices first entered first, its root first; the order within it differs."
 			}
 		]
 	})
@@ -135,9 +135,9 @@ export const aChainOfAnyDepthPastWhatASmallStacksRecursionHoldsWalksOpenOrClosed
 				{
 					file: "packages/text/src/base/graph.ts",
 					original:
-						"\tfor (const root of roots) {\n\t\tif (entered.has(root)) {\n\t\t\tcontinue\n\t\t}\n\t\tconst walk: Array<Frame<V>> = [enter(root)]\n\t\tfor (let frame = walk.at(-1); frame !== undefined; frame = walk.at(-1)) {\n\t\t\tconst successor = frame.successors[frame.next]\n\t\t\tif (successor !== undefined) {\n\t\t\t\tframe.next++\n\t\t\t\tconst index = open.get(successor)\n\t\t\t\tif (!entered.has(successor)) {\n\t\t\t\t\twalk.push(enter(successor))\n\t\t\t\t} else if (index !== undefined) {\n\t\t\t\t\tframe.low = Math.min(frame.low, index)\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\twalk.pop()\n\t\t\tconst parent = walk.at(-1)\n\t\t\tif (parent !== undefined) {\n\t\t\t\tparent.low = Math.min(parent.low, frame.low)\n\t\t\t}\n\t\t\tif (frame.low === frame.index) {\n\t\t\t\tconst above = stack.splice(frame.depth).slice(1)\n\t\t\t\tfor (const vertex of above) {\n\t\t\t\t\topen.delete(vertex)\n\t\t\t\t}\n\t\t\t\topen.delete(frame.vertex)\n\t\t\t\tcomponents.push(appendNonEmpty(above.toReversed(), frame.vertex))\n\t\t\t}\n\t\t}\n\t}\n",
+						"\tfor (const root of roots) {\n\t\tif (entered.has(root)) {\n\t\t\tcontinue\n\t\t}\n\t\tconst walk: Array<Frame<V>> = [enter(root)]\n\t\tfor (let frame = walk.at(-1); frame !== undefined; frame = walk.at(-1)) {\n\t\t\tconst successor = frame.successors[frame.next]\n\t\t\tif (successor !== undefined) {\n\t\t\t\tframe.next++\n\t\t\t\tconst index = open.get(successor)\n\t\t\t\tif (!entered.has(successor)) {\n\t\t\t\t\twalk.push(enter(successor))\n\t\t\t\t} else if (index !== undefined) {\n\t\t\t\t\tframe.low = Math.min(frame.low, index)\n\t\t\t\t}\n\t\t\t\tcontinue\n\t\t\t}\n\t\t\twalk.pop()\n\t\t\tconst parent = walk.at(-1)\n\t\t\tif (parent !== undefined) {\n\t\t\t\tparent.low = Math.min(parent.low, frame.low)\n\t\t\t}\n\t\t\tif (frame.low === frame.index) {\n\t\t\t\tconst component = closed(stack, frame.vertex)\n\t\t\t\tfor (const vertex of component) {\n\t\t\t\t\topen.delete(vertex)\n\t\t\t\t}\n\t\t\t\tcomponents.push(component)\n\t\t\t}\n\t\t}\n\t}\n",
 					replacement:
-						"\tconst strong = (vertex: V): number => {\n\t\tconst frame = enter(vertex)\n\t\tfor (const successor of frame.successors) {\n\t\t\tconst index = open.get(successor)\n\t\t\tif (!entered.has(successor)) {\n\t\t\t\tframe.low = Math.min(frame.low, strong(successor))\n\t\t\t} else if (index !== undefined) {\n\t\t\t\tframe.low = Math.min(frame.low, index)\n\t\t\t}\n\t\t}\n\t\tif (frame.low === frame.index) {\n\t\t\tconst above = stack.splice(frame.depth).slice(1)\n\t\t\tfor (const vertex of above) {\n\t\t\t\topen.delete(vertex)\n\t\t\t}\n\t\t\topen.delete(frame.vertex)\n\t\t\tcomponents.push(appendNonEmpty(above.toReversed(), frame.vertex))\n\t\t}\n\t\treturn frame.low\n\t}\n\tfor (const root of roots) {\n\t\tif (!entered.has(root)) {\n\t\t\tstrong(root)\n\t\t}\n\t}\n",
+						"\tconst strong = (vertex: V): number => {\n\t\tconst frame = enter(vertex)\n\t\tfor (const successor of frame.successors) {\n\t\t\tconst index = open.get(successor)\n\t\t\tif (!entered.has(successor)) {\n\t\t\t\tframe.low = Math.min(frame.low, strong(successor))\n\t\t\t} else if (index !== undefined) {\n\t\t\t\tframe.low = Math.min(frame.low, index)\n\t\t\t}\n\t\t}\n\t\tif (frame.low === frame.index) {\n\t\t\tconst component = closed(stack, frame.vertex)\n\t\t\tfor (const vertex of component) {\n\t\t\t\topen.delete(vertex)\n\t\t\t}\n\t\t\tcomponents.push(component)\n\t\t}\n\t\treturn frame.low\n\t}\n\tfor (const root of roots) {\n\t\tif (!entered.has(root)) {\n\t\t\tstrong(root)\n\t\t}\n\t}\n",
 					why: "stronglyConnected recurses, so a chain past a small stack's recursion overflows it; the deep chain's property fails."
 				}
 			]

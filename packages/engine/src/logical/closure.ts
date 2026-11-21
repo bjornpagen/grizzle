@@ -12,7 +12,7 @@ import {
 	type Attributes,
 	addTo,
 	type Bits,
-	bitsAt,
+	capacityOf,
 	copyBits,
 	dropFrom,
 	emptyLike,
@@ -22,7 +22,9 @@ import {
 	intersect,
 	minus,
 	namesOf,
+	noBits,
 	positions,
+	pushPositions,
 	sizeOf,
 	union,
 	subsetOf
@@ -77,29 +79,61 @@ export interface Rows {
 
 /** Rows over `attributes`, indexed: each row's determinants counted, each position's readers packed. */
 const indexed = (attributes: Attributes, rows: ReadonlyArray<Row>): Rows => {
+	const size = attributes.names.length
 	const determinants = new Int32Array(rows.length)
-	const readersAt = new Int32Array(attributes.names.length + 1)
-	const froms = rows.map((row, i) => {
-		const from = positions(row.from)
+	const readersAt = new Int32Array(size + 1)
+	/** One row's determinants at a time, read out of its set. */
+	const from: Array<number> = []
+	for (let i = 0; i < rows.length; i++) {
+		from.length = 0
+		pushPositions(from, defined(rows[i], "a row of the table").from)
 		determinants[i] = from.length
 		for (const p of from) {
 			readersAt[p + 1] = (readersAt[p + 1] ?? 0) + 1
 		}
-		return from
-	})
-	for (let p = 0; p < attributes.names.length; p++) {
+	}
+	for (let p = 0; p < size; p++) {
 		readersAt[p + 1] = (readersAt[p + 1] ?? 0) + (readersAt[p] ?? 0)
 	}
-	const readers = new Int32Array(readersAt[attributes.names.length] ?? 0)
-	const filled = readersAt.slice(0, attributes.names.length)
-	froms.forEach((from, i) => {
+	const readers = new Int32Array(readersAt[size] ?? 0)
+	const filled = readersAt.slice(0, size)
+	for (let i = 0; i < rows.length; i++) {
+		from.length = 0
+		pushPositions(from, defined(rows[i], "a row of the table").from)
 		for (const p of from) {
 			const at = filled[p] ?? 0
 			readers[at] = i
 			filled[p] = at + 1
 		}
-	})
+	}
 	return { attributes, rows, determinants, readersAt, readers }
+}
+
+/** The set of a dependency's determinants `columns`, every one an attribute of its node. */
+const determinantsAt = (attributes: Attributes, columns: ReadonlyArray<string>): Bits => {
+	const out = noBits(attributes)
+	for (const c of columns) {
+		addTo(
+			out,
+			defined(attributes.at.get(c), "a dependency's determinant is an attribute of its node")
+		)
+	}
+	return out
+}
+
+/** The positions of the attributes among `columns`, in their order; a name the node lacks has none. */
+const positionsIn = (
+	attributes: Attributes,
+	columns: ReadonlyArray<string>
+): ReadonlyArray<number> => {
+	const out: Array<number> = []
+	for (const c of columns) {
+		const p = attributes.at.get(c)
+		if (p !== undefined) {
+			out.push(p)
+		}
+	}
+	return out
 }
 
 /**
@@ -111,16 +145,8 @@ export const rowsOf = (attributes: Attributes, dependencies: ReadonlyArray<Depen
 		attributes,
 		dependencies.map((dependency) => ({
 			dependency,
-			from: bitsAt(
-				attributes,
-				dependency.from.map((c) =>
-					defined(attributes.at.get(c), "a dependency's determinant is an attribute of its node")
-				)
-			),
-			to: dependency.to.flatMap((c) => {
-				const p = attributes.at.get(c)
-				return p === undefined ? [] : [p]
-			})
+			from: determinantsAt(attributes, dependency.from),
+			to: positionsIn(attributes, dependency.to)
 		}))
 	)
 
@@ -241,91 +267,141 @@ const every: Admission<never> = Object.freeze({ kind: "every" })
  * each row counts its determinants not reached yet, each position reached counts down the rows reading it (Rows
  * readers), and a row whose count reaches nothing is due, as is an asked row once a value it copies is named (Naming
  * copiers). A row due while the passes would be at a row before it is visited in that pass, at its turn, and one due at
- * or after it in the next (passQueue), so the visits are the passes' visits that add or learn something, in the passes'
+ * or after it in the next (PassQueue), so the visits are the passes' visits that add or learn something, in the passes'
  * order. A closure that names nothing visits each row at most once and tests each row whether to visit it once and again
  * for each of its determinants reached: its work is its rows, their determinants and targets, and a word of the due rows
  * for each 32 rows a pass reads past (test/unit/analysis/logical/closure-cost.test.ts).
  */
 export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<V> => {
-	const { attributes, readersAt, readers } = rows
-	const table = rows.rows
-	const reached = copyBits(start)
-	const sequence = positions(start)
-	const by = new Int32Array(attributes.names.length)
-	const fired: Array<number> = []
+	const run = new Closing<V>(rows, start)
+	if (naming.kind === "named") {
+		run.reach(naming)
+	}
+	run.reach(every)
+	return run.closure()
+}
+
+/** One closure's run (closure): what it has reached so far and how, and each row's standing. */
+class Closing<V> {
+	readonly #rows: Rows
+	readonly #start: Bits
+	readonly #reached: Bits
+	readonly #sequence: Array<number>
+	readonly #by: Int32Array
+	readonly #fired: Array<number> = []
 	/** The values named so far, by position: none until a step names one. */
-	let named: Map<number, V> | undefined
+	#named: Map<number, V> | undefined
 	/**
 	 * Each row's marks: spent, every target it can reach reached; fired, a target reached by it; and asked, asked in the
 	 * round of namings since a value it copies was last named, so asking it again names nothing.
 	 */
-	const marks = new Uint8Array(table.length)
+	readonly #marks: Uint8Array
 	/** Each row's determinants not reached yet. */
-	const missing = rows.determinants.slice()
-	for (const p of sequence) {
-		for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
-			const i = readers[r] ?? 0
-			missing[i] = (missing[i] ?? 0) - 1
+	readonly #missing: Int32Array
+	readonly #due: PassQueue
+	/** The positions a visit adds, and those it names: one visit's at a time. */
+	readonly #added: Array<number> = []
+	readonly #namedHere: Array<number> = []
+
+	constructor(rows: Rows, start: Bits) {
+		const { attributes, readersAt, readers } = rows
+		this.#rows = rows
+		this.#start = start
+		this.#reached = copyBits(start)
+		this.#sequence = positions(start)
+		this.#by = new Int32Array(attributes.names.length)
+		this.#marks = new Uint8Array(rows.rows.length)
+		const missing = rows.determinants.slice()
+		for (const p of this.#sequence) {
+			for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
+				const i = readers[r] ?? 0
+				missing[i] = (missing[i] ?? 0) - 1
+			}
+		}
+		this.#missing = missing
+		this.#due = new PassQueue(rows.rows.length)
+	}
+
+	/** The closure reached. */
+	closure(): Closure<V> {
+		return {
+			rows: this.#rows,
+			start: this.#start,
+			reached: this.#reached,
+			sequence: this.#sequence,
+			by: this.#by,
+			fired: this.#fired,
+			named: this.#named ?? namedNothing
 		}
 	}
-	const due = passQueue(table.length)
+
 	/**
 	 * Whether a pass would visit the row at `i` and add or learn something: its determinants reached and a target left to
 	 * reach, and in the round of namings a target it names, not asked since a value it copies was last named.
 	 */
-	const visits = (i: number, admission: Admission<V>): boolean =>
-		missing[i] === 0 &&
-		((marks[i] ?? 0) & spentMark) === 0 &&
-		(admission.kind === "every" ||
-			(admission.names[i] === 1 && ((marks[i] ?? 0) & askedMark) === 0))
-	const added: Array<number> = []
-	/** The positions a visit named. */
-	const namedHere: Array<number> = []
+	visits(i: number, admission: Admission<V>): boolean {
+		const marks = this.#marks
+		return (
+			this.#missing[i] === 0 &&
+			((marks[i] ?? 0) & spentMark) === 0 &&
+			(admission.kind === "every" ||
+				(admission.names[i] === 1 && ((marks[i] ?? 0) & askedMark) === 0))
+		)
+	}
+
 	/** A visit of the row at `i`, adding the attributes it reaches, each row it makes due due. */
-	const step = (row: Row, i: number, admission: Admission<V>): void => {
+	step(row: Row, i: number, admission: Admission<V>): void {
+		const { readersAt, readers } = this.#rows
+		const reached = this.#reached
+		const marks = this.#marks
+		const missing = this.#missing
+		const added = this.#added
+		const namedHere = this.#namedHere
 		added.length = 0
 		namedHere.length = 0
 		let unreached = 0
-		row.to.forEach((p, j) => {
+		const targets = row.to
+		for (let j = 0; j < targets.length; j++) {
+			const p = targets[j] ?? 0
 			if (holdsAt(reached, p)) {
-				return
+				continue
 			}
 			unreached++
 			if (admission.kind === "every") {
 				added.push(p)
-				return
+				continue
 			}
 			const source = admission.sources[i]?.[j] ?? namesNone
 			const value =
 				source.kind === "value"
 					? source.value
 					: source.kind === "copy"
-						? named?.get(source.at)
+						? this.#named?.get(source.at)
 						: undefined
 			if (value !== undefined) {
-				named ??= new Map()
-				named.set(p, value)
+				this.#named ??= new Map()
+				this.#named.set(p, value)
 				namedHere.push(p)
 				added.push(p)
 			}
-		})
+		}
 		marks[i] = (marks[i] ?? 0) | (added.length === unreached ? spentMark : askedMark)
 		if (added.length > 0 && ((marks[i] ?? 0) & firedMark) === 0) {
 			marks[i] = (marks[i] ?? 0) | firedMark
-			fired.push(i)
+			this.#fired.push(i)
 		}
 		for (const p of added) {
 			if (holdsAt(reached, p)) {
 				continue
 			}
 			addTo(reached, p)
-			by[p] = i + 1
-			sequence.push(p)
+			this.#by[p] = i + 1
+			this.#sequence.push(p)
 			for (let r = readersAt[p] ?? 0; r < (readersAt[p + 1] ?? 0); r++) {
 				const j = readers[r] ?? 0
 				missing[j] = (missing[j] ?? 0) - 1
-				if (visits(j, admission)) {
-					due.add(j)
+				if (this.visits(j, admission)) {
+					this.#due.add(j)
 				}
 			}
 		}
@@ -334,30 +410,28 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
 				for (let r = admission.copiersAt[p] ?? 0; r < (admission.copiersAt[p + 1] ?? 0); r++) {
 					const j = admission.copiers[r] ?? 0
 					marks[j] = (marks[j] ?? 0) & ~askedMark
-					if (visits(j, admission)) {
-						due.add(j)
+					if (this.visits(j, admission)) {
+						this.#due.add(j)
 					}
 				}
 			}
 		}
 	}
+
 	/** A round: every row the first pass would visit due, then each due row visited in the passes' order. */
-	const reach = (admission: Admission<V>): void => {
+	reach(admission: Admission<V>): void {
+		const table = this.#rows.rows
+		const due = this.#due
 		due.restart()
 		for (let i = 0; i < table.length; i++) {
-			if (visits(i, admission)) {
+			if (this.visits(i, admission)) {
 				due.add(i)
 			}
 		}
 		for (let i = due.next(); i !== undefined; i = due.next()) {
-			step(defined(table[i], "a due row is its closure's"), i, admission)
+			this.step(defined(table[i], "a due row is its closure's"), i, admission)
 		}
 	}
-	if (naming.kind === "named") {
-		reach(naming)
-	}
-	reach(every)
-	return { rows, start, reached, sequence, by, fired, named: named ?? namedNothing }
 }
 
 /**
@@ -366,14 +440,47 @@ export const closure = <V>(rows: Rows, start: Bits, naming: Naming<V>): Closure<
  * rows, read upward from the row the passes are at, a word at a time; the next pass's become this pass's once this
  * pass holds none after it.
  */
-const passQueue = (size: number) => {
-	const words = (size + 31) >>> 5
-	let now = new Uint32Array(words)
-	let later = new Uint32Array(words)
-	let at = -1
+class PassQueue {
+	readonly #words: number
+	#now: Uint32Array
+	#later: Uint32Array
+	#at = -1
+
+	constructor(size: number) {
+		this.#words = (size + 31) >>> 5
+		this.#now = new Uint32Array(this.#words)
+		this.#later = new Uint32Array(this.#words)
+	}
+
+	/** Holds the row at `i` due: in this pass after the row visited, else in the next. */
+	add(i: number): void {
+		const into = i > this.#at ? this.#now : this.#later
+		into[i >>> 5] = (into[i >>> 5] ?? 0) | (1 << (i & 31))
+	}
+
+	/** The next due row in the passes' order, none when no row is due. */
+	next(): number | undefined {
+		const here = this.#take(this.#now, this.#at + 1)
+		if (here !== undefined) {
+			this.#at = here
+			return here
+		}
+		const swapped = this.#now
+		this.#now = this.#later
+		this.#later = swapped
+		const first = this.#take(this.#now, 0)
+		this.#at = first ?? -1
+		return first
+	}
+
+	/** A new round's passes: the first, before its first row. */
+	restart(): void {
+		this.#at = -1
+	}
+
 	/** The least row of `bits` at `from` or after, clearing it; none when it holds none there. */
-	const take = (bits: Uint32Array, from: number): number | undefined => {
-		for (let w = from >>> 5; w < words; w++) {
+	#take(bits: Uint32Array, from: number): number | undefined {
+		for (let w = from >>> 5; w < this.#words; w++) {
 			const word = (bits[w] ?? 0) & (w === from >>> 5 ? ~0 << (from & 31) : ~0)
 			if (word === 0) {
 				continue
@@ -383,31 +490,6 @@ const passQueue = (size: number) => {
 			return (w << 5) + bit
 		}
 		return undefined
-	}
-	return {
-		/** Holds the row at `i` due: in this pass after the row visited, else in the next. */
-		add: (i: number): void => {
-			const into = i > at ? now : later
-			into[i >>> 5] = (into[i >>> 5] ?? 0) | (1 << (i & 31))
-		},
-		/** The next due row in the passes' order, none when no row is due. */
-		next: (): number | undefined => {
-			const here = take(now, at + 1)
-			if (here !== undefined) {
-				at = here
-				return here
-			}
-			const swapped = now
-			now = later
-			later = swapped
-			const first = take(now, 0)
-			at = first ?? -1
-			return first
-		},
-		/** A new round's passes: the first, before its first row. */
-		restart: (): void => {
-			at = -1
-		}
 	}
 }
 
@@ -456,11 +538,15 @@ export const derivationRows = <V>(c: Closure<V>, targets: Iterable<number>): Rea
 			continue
 		}
 		used[how - 1] = 1
-		appendAll(stack, positions(defined(table[how - 1], "a step's row is its closure's").from))
+		pushPositions(stack, defined(table[how - 1], "a step's row is its closure's").from)
 	}
-	return c.fired.flatMap((i) =>
-		used[i] === 1 ? [defined(table[i], "a fired row is its closure's")] : []
-	)
+	const rows: Array<Row> = []
+	for (const i of c.fired) {
+		if (used[i] === 1) {
+			rows.push(defined(table[i], "a fired row is its closure's"))
+		}
+	}
+	return rows
 }
 
 /**
@@ -516,7 +602,9 @@ export const minimalKeys = <W>(
 			return
 		}
 		let shrunk = { key, witness: proved }
-		for (const p of positions(key).toReversed()) {
+		const at = positions(key)
+		for (let i = at.length - 1; i >= 0; i--) {
+			const p = at[i] ?? 0
 			const without = copyBits(shrunk.key)
 			dropFrom(without, p)
 			const w = witness(without)
@@ -626,7 +714,7 @@ const factorTable = (
 	like: Bits,
 	dependencies: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
 ): FactorTable => {
-	const size = like.length * 32
+	const size = capacityOf(like)
 	const from = dependencies.map((d) => positions(d.from))
 	const determinants = new Int32Array(from.length)
 	const readersAt = new Int32Array(size + 1)
@@ -934,20 +1022,27 @@ export const independentFactors = (
 		}
 		closures.add(set)
 	}
+	/** One question's positions at a time, read out of its set: the engine reads each list before it returns. */
+	const at: Array<number> = []
+	const read = (bits: Bits): ReadonlyArray<number> => {
+		at.length = 0
+		pushPositions(at, bits)
+		return at
+	}
 	return {
 		factors,
 		covers: (start, targets) => {
-			if (positions(targets).some((t) => !holdsAt(start, t) && (table.determiners[t] ?? 0) === 0)) {
+			if (read(targets).some((t) => !holdsAt(start, t) && (table.determiners[t] ?? 0) === 0)) {
 				return false
 			}
 			closures.begin(-1)
-			closures.want(positions(targets))
-			closures.add(positions(start))
+			closures.want(read(targets))
+			closures.add(read(start))
 			return subsetOf(targets, closures.known)
 		},
 		reached: (start) => {
 			closures.begin(-1)
-			closures.add(positions(start))
+			closures.add(read(start))
 			return copyBits(closures.known)
 		}
 	}

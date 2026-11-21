@@ -1,4 +1,5 @@
-import { appendNonEmpty, type NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
+import { defined } from "#text/base/invariant.ts"
+import type { NonEmptyReadonlyArray } from "#text/base/nonempty.ts"
 
 /**
  * The walks the engine orders a directed graph by, each once: a graph is the vertices `roots` reach through a function
@@ -58,6 +59,20 @@ interface Frame<V> {
 }
 
 /**
+ * The component whose root is `root`, taken off the walk's stack of open vertices `stack`: the vertices from the top down
+ * to the root, the one entered last first and the root, the first entered, last.
+ */
+const closed = <V>(stack: Array<V>, root: V): NonEmptyReadonlyArray<V> => {
+	const top = defined(stack.pop(), "a closed component's root is on the stack")
+	const component: [V, ...Array<V>] = [top]
+	for (let vertex = top; vertex !== root;) {
+		vertex = defined(stack.pop(), "a closed component's root is on the stack")
+		component.push(vertex)
+	}
+	return component
+}
+
+/**
  * The strongly connected components of the graph `roots` reach through `next` (Tarjan's algorithm), in the order the
  * walk closes them: a component after every component it reaches, so a reader that takes each in turn finds every
  * vertex a component reaches outside it already taken. A component's vertices are in the order the walk's stack gives
@@ -111,12 +126,11 @@ export const stronglyConnected = <V>(
 				parent.low = Math.min(parent.low, frame.low)
 			}
 			if (frame.low === frame.index) {
-				const above = stack.splice(frame.depth).slice(1)
-				for (const vertex of above) {
+				const component = closed(stack, frame.vertex)
+				for (const vertex of component) {
 					open.delete(vertex)
 				}
-				open.delete(frame.vertex)
-				components.push(appendNonEmpty(above.toReversed(), frame.vertex))
+				components.push(component)
 			}
 		}
 	}

@@ -157,16 +157,16 @@ export const aClosureFiresEachRowAsPassesInTableOrderWouldVisitingEachAtMostOnce
 			{
 				file: "packages/engine/src/logical/closure.ts",
 				original:
-					'\t\tfor (let i = due.next(); i !== undefined; i = due.next()) {\n\t\t\tstep(defined(table[i], "a due row is its closure\'s"), i, admission)\n\t\t}\n',
+					'\t\tfor (let i = due.next(); i !== undefined; i = due.next()) {\n\t\t\tthis.step(defined(table[i], "a due row is its closure\'s"), i, admission)\n\t\t}\n',
 				replacement:
-					'\t\tfor (let changed = true; changed; ) {\n\t\t\tchanged = false\n\t\t\tfor (let i = 0; i < table.length; i++) {\n\t\t\t\tif (visits(i, admission)) {\n\t\t\t\t\tstep(defined(table[i], "a due row is its closure\'s"), i, admission)\n\t\t\t\t\tchanged = true\n\t\t\t\t}\n\t\t\t}\n\t\t}\n',
+					'\t\tfor (let changed = true; changed; ) {\n\t\t\tchanged = false\n\t\t\tfor (let i = 0; i < table.length; i++) {\n\t\t\t\tif (this.visits(i, admission)) {\n\t\t\t\t\tthis.step(defined(table[i], "a due row is its closure\'s"), i, admission)\n\t\t\t\t\tchanged = true\n\t\t\t\t}\n\t\t\t}\n\t\t}\n',
 				why: "A round passes over every row until a pass adds nothing, testing each in each pass (logical/closure.ts closure); the visits property fails."
 			},
 			{
 				file: "packages/engine/src/logical/closure.ts",
-				original: "\t\t\tconst into = i > at ? now : later",
-				replacement: "\t\t\tconst into = now",
-				why: "A row due before the passes' row is visited in this pass, out of the passes' order (logical/closure.ts passQueue); the order property fails."
+				original: "\t\tconst into = i > this.#at ? this.#now : this.#later",
+				replacement: "\t\tconst into = this.#now",
+				why: "A row due before the passes' row is visited in this pass, out of the passes' order (logical/closure.ts PassQueue); the order property fails."
 			}
 		]
 	}

@@ -13,22 +13,43 @@ import { nominal } from "#compiler/core/brand.ts"
  */
 
 /**
- * The width of a word.
+ * The width of a word: the low 30 bits of a small integer, so every word of a set is one, which V8 holds unboxed in a
+ * plain array (a Smi: 31 bits signed under pointer compression), and a set of a few words is an array of a few small
+ * integers, where a typed array's view and buffer took several times its words.
  *
- * @formatConstant a word: the 32 bits JavaScript's bitwise operators read and write
+ * @formatConstant a word: the 30 low bits of a small integer, every bitwise operator's result on them one again
  */
-const wordBits = 32
+const wordBits = 30
+
+/**
+ * The highest bit of a 32-bit integer, the width Math.clz32 counts leading zeros in.
+ *
+ * @formatConstant a 32-bit integer: bits 0 to 31
+ */
+const highestBit = 31
 
 declare const bitsBrand: unique symbol
 
 /**
- * A set of a node's attributes: position p is bit p mod 32 of word ⌊p / 32⌋, in as many words as the node's attributes
+ * A set of a node's attributes: position p is bit p mod 30 of word ⌊p / 30⌋, in as many words as the node's attributes
  * take (Attributes words), every bit past the last attribute 0, minted only here, so no other array of words stands for
  * one. Only the analysis that interned the attributes reads it.
  */
-export type Bits = Uint32Array & { readonly [bitsBrand]: true }
+export type Bits = Array<number> & { readonly [bitsBrand]: true }
 
-const asBits = nominal<Uint32Array, Bits>()
+const asBits = nominal<Array<number>, Bits>()
+
+/** A word holding no bit. */
+const noWord = (): number => 0
+
+/** A set of `words` words, none of them holding a bit. */
+const emptyWords = (words: number): Bits => asBits(Array.from({ length: words }, noWord))
+
+/** The word of position `p`. */
+const wordOf = (p: number): number => Math.floor(p / wordBits)
+
+/** Position `p`'s bit in its word. */
+const bitOf = (p: number): number => 1 << (p % wordBits)
 
 /** A node's attributes, each at its position, and the words a set of them takes. */
 export interface Attributes {
@@ -57,7 +78,7 @@ const onesOf = (word: number): number => {
 }
 
 /** The position of a word's lowest one, which `word` holds. */
-const lowestOf = (word: number): number => wordBits - 1 - Math.clz32(word & -word)
+const lowestOf = (word: number): number => highestBit - Math.clz32(word & -word)
 
 /**
  * A node's attributes: its heading's columns, then each hidden attribute not already one, at the positions they take
@@ -84,7 +105,7 @@ export const attributesOver = (
 		kept.push(h)
 	}
 	const words = Math.ceil(names.length / wordBits)
-	const heading = asBits(new Uint32Array(words))
+	const heading = emptyWords(words)
 	for (const p of headingAt) {
 		addTo(heading, p)
 	}
@@ -92,10 +113,13 @@ export const attributesOver = (
 }
 
 /** The empty set of a node's attributes. */
-export const noBits = (attributes: Attributes): Bits => asBits(new Uint32Array(attributes.words))
+export const noBits = (attributes: Attributes): Bits => asBits(attributes.heading.map(noWord))
 
 /** The empty set of the attributes `like` is a set of. */
-export const emptyLike = (like: Bits): Bits => asBits(new Uint32Array(like.length))
+export const emptyLike = (like: Bits): Bits => asBits(like.map(noWord))
+
+/** How many positions a set of the words of `like` has room for: its node's, and the rest of its last word. */
+export const capacityOf = (like: Bits): number => like.length * wordBits
 
 /** A set holding what `of` holds, its holder's own to change. */
 export const copyBits = (of: Bits): Bits => asBits(of.slice())
@@ -123,7 +147,7 @@ export const bitsAt = (attributes: Attributes, positions: Iterable<number>): Bit
 
 /** Whether a set holds the attribute at `p`. */
 export const holdsAt = (bits: Bits, p: number): boolean =>
-	(wordAt(bits, p >>> 5) & (1 << (p & 31))) !== 0
+	(wordAt(bits, wordOf(p)) & bitOf(p)) !== 0
 
 /** Whether a set holds the attribute named `name` (Attributes at); never one the node lacks. */
 export const holdsName = (attributes: Attributes, bits: Bits, name: string): boolean => {
@@ -133,14 +157,14 @@ export const holdsName = (attributes: Attributes, bits: Bits, name: string): boo
 
 /** The attribute at `p` added to a set its holder owns. */
 export const addTo = (bits: Bits, p: number): void => {
-	const w = p >>> 5
-	bits[w] = wordAt(bits, w) | (1 << (p & 31))
+	const w = wordOf(p)
+	bits[w] = wordAt(bits, w) | bitOf(p)
 }
 
 /** The attribute at `p` taken from a set its holder owns. */
 export const dropFrom = (bits: Bits, p: number): void => {
-	const w = p >>> 5
-	bits[w] = wordAt(bits, w) & ~(1 << (p & 31))
+	const w = wordOf(p)
+	bits[w] = wordAt(bits, w) & ~bitOf(p)
 }
 
 /** Every attribute of `source` added to `target`, a set its holder owns. */
@@ -225,12 +249,31 @@ export const lowest = (bits: Bits): number | undefined => {
 	return undefined
 }
 
-/** A set's positions, ascending. */
-export const positions = (bits: Bits): Array<number> => {
-	const out: Array<number> = []
+/** A set's positions, ascending, each pushed onto `out`, a list its holder owns. */
+export const pushPositions = (out: Array<number>, bits: Bits): void => {
 	for (let w = 0; w < bits.length; w++) {
 		for (let word = wordAt(bits, w); word !== 0; word &= word - 1) {
 			out.push(w * wordBits + lowestOf(word))
+		}
+	}
+}
+
+/** A set's positions, ascending. */
+export const positions = (bits: Bits): Array<number> => {
+	const out: Array<number> = []
+	pushPositions(out, bits)
+	return out
+}
+
+/** The image of a set under `image`, a position of the node's attributes for each of them: a new set. */
+export const imageOf = (attributes: Attributes, bits: Bits, image: ReadonlyArray<number>): Bits => {
+	const out = noBits(attributes)
+	for (let w = 0; w < bits.length; w++) {
+		for (let word = wordAt(bits, w); word !== 0; word &= word - 1) {
+			addTo(
+				out,
+				defined(image[w * wordBits + lowestOf(word)], "a position is one of the node's attributes")
+			)
 		}
 	}
 	return out
@@ -241,5 +284,12 @@ export const nameAt = (attributes: Attributes, p: number): string =>
 	defined(attributes.names[p], "a set's position is one of its node's attributes")
 
 /** A set's attributes by name, in their order: the heading's columns in heading order, then the hidden attributes. */
-export const namesOf = (attributes: Attributes, bits: Bits): Array<string> =>
-	positions(bits).map((p) => nameAt(attributes, p))
+export const namesOf = (attributes: Attributes, bits: Bits): Array<string> => {
+	const out: Array<string> = []
+	for (let w = 0; w < bits.length; w++) {
+		for (let word = wordAt(bits, w); word !== 0; word &= word - 1) {
+			out.push(nameAt(attributes, w * wordBits + lowestOf(word)))
+		}
+	}
+	return out
+}

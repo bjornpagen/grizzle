@@ -38,11 +38,18 @@ export const isPlainRecord = (value: unknown): value is Readonly<Record<string, 
  * such as a node's inputs and expressions or a decoded Description's parts, is walked in its own new containers only.
  */
 export const deepFreeze = <A>(value: A): A => {
-	if (typeof value === "object" && value !== null && !Object.isFrozen(value)) {
+	if (isRecord(value) && !Object.isFrozen(value)) {
 		Object.freeze(value)
-		const children: ReadonlyArray<unknown> = Object.values(value)
-		for (const child of children) {
-			deepFreeze(child)
+		if (isList(value)) {
+			for (const child of value) {
+				deepFreeze(child)
+			}
+		} else {
+			for (const key in value) {
+				if (Object.hasOwn(value, key)) {
+					deepFreeze(value[key])
+				}
+			}
 		}
 	}
 	return value

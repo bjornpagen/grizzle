@@ -90,6 +90,7 @@ import {
 	copyBits,
 	dropFrom,
 	holdsAt,
+	imageOf,
 	isEmpty,
 	intersect,
 	nameAt as attributeAt,
@@ -581,14 +582,26 @@ const fixedOver = (
 ): ReadonlyMap<string, ReadonlyArray<NamedValue>> => new FixedNames(props, reached).names
 
 /**
- * A name a step offers the column it fixes (`Fixing`): with the derivation steps before the step, those that reach its
- * determinants or, for a name an equality reads, the name's own, and the step that gives it.
+ * The names a step offers the column it fixes (`Fixing`), as data: its own value's name, if it names one; the names of
+ * the column an equality reads, a list FixedNames grows as it goes; the names an input fixes the column a rule carries
+ * to, with the step like the rule's over each name's derivation; or the names a union's arms agree on, each with every
+ * arm's derivation.
  */
-interface Offer {
-	readonly name: Named
-	readonly before: () => ReadonlyArray<Dependency>
-	readonly step: () => Dependency
-}
+type Offers =
+	| { readonly kind: "own"; readonly name: Named | undefined }
+	| { readonly kind: "column"; readonly names: ReadonlyArray<NamedValue> }
+	| {
+			readonly kind: "input"
+			readonly names: ReadonlyArray<NamedValue>
+			readonly over: (derivation: Implication) => Dependency
+	  }
+	| {
+			readonly kind: "arms"
+			readonly names: ReadonlyArray<{
+				readonly name: Named
+				readonly arms: NonEmptyReadonlyArray<Implication>
+			}>
+	  }
 
 /**
  * A step of a node that fixes `column`, a column its closure of nothing reaches, as the names it offers the column
@@ -596,39 +609,97 @@ interface Offer {
  * that a union's arms agree on, where it reads them worked out once (stepSource). An equality offers its column's
  * names as FixedNames gives them, a list that only grows; every other step's offers are fixed when it is made. Each
  * offer is made once (`fresh`): one made adds nothing when made again, its name held from then on or its derivation
- * reaching the column before its last step for good.
+ * reaching the column before its last step for good. An offer's derivation is the steps before the step, those that
+ * reach its determinants (worked out once, the first time an offer needs them) or, for a name an equality reads, the
+ * name's own, and then the step that gives it.
  */
 class Fixing {
 	readonly column: string
 	/** The names `column` holds so far, which the step's offers are added to. */
 	readonly held: Array<NamedValue>
-	readonly #count: () => number
-	readonly #at: (i: number) => Offer
+	readonly #reached: Closure<Named>
+	readonly #row: Row
+	readonly #offers: Offers
 	#made = 0
+	/** The derivation steps that reach the step's determinants, once an offer has needed them. */
+	#determinants: ReadonlyArray<Dependency> | undefined
 
 	constructor(
 		column: string,
 		held: Array<NamedValue>,
-		count: () => number,
-		at: (i: number) => Offer
+		reached: Closure<Named>,
+		row: Row,
+		offers: Offers
 	) {
 		this.column = column
 		this.held = held
-		this.#count = count
-		this.#at = at
+		this.#reached = reached
+		this.#row = row
+		this.#offers = offers
 	}
 
-	/** The offers the step makes now, those it has not made, each made once from now on. */
-	fresh(): ReadonlyArray<Offer> {
+	/**
+	 * The names the offers the step makes now give the column beside the names it holds, each offer made once from now
+	 * on: those it has not made, in their order. An offer of a name the column holds gives none, nor one whose derivation
+	 * reaches the column before its last step, which names it by that earlier step.
+	 */
+	fresh(): ReadonlyArray<NamedValue> {
 		const made = this.#made
-		const count = this.#count()
+		const count = this.offered
 		this.#made = count
-		return Array.from({ length: count - made }, (_, k) => this.#at(made + k))
+		const added: Array<NamedValue> = []
+		for (let i = made; i < count; i++) {
+			const name = this.#nameAt(i)
+			if (this.held.some((h) => fixedEqual(h.name, name))) {
+				continue
+			}
+			const steps = this.#beforeAt(i)
+			if (steps.some((step) => step.to.includes(this.column))) {
+				continue
+			}
+			added.push({ name, derivation: implication([], [...steps, this.#stepAt(i)]) })
+		}
+		return added
+	}
+
+	/** How many offers the step has made. */
+	get made(): number {
+		return this.#made
 	}
 
 	/** How many offers the step offers now. */
 	get offered(): number {
-		return this.#count()
+		const offers = this.#offers
+		return offers.kind === "own" ? (offers.name === undefined ? 0 : 1) : offers.names.length
+	}
+
+	#nameAt(i: number): Named {
+		const offers = this.#offers
+		return offers.kind === "own"
+			? defined(offers.name, "an offer the step counts")
+			: defined(offers.names[i], "an offer the step counts").name
+	}
+
+	#beforeAt(i: number): ReadonlyArray<Dependency> {
+		const offers = this.#offers
+		if (offers.kind === "column") {
+			return defined(offers.names[i], "a name the equality's column holds").derivation.steps
+		}
+		this.#determinants ??= derivation(this.#reached, positions(this.#row.from)).steps
+		return this.#determinants
+	}
+
+	#stepAt(i: number): Dependency {
+		const offers = this.#offers
+		switch (offers.kind) {
+			case "own":
+			case "column":
+				return this.#row.dependency
+			case "input":
+				return offers.over(defined(offers.names[i], "an offer the step counts").derivation)
+			case "arms":
+				return armsAgree(this.column, defined(offers.names[i], "an offer the step counts").arms)
+		}
 	}
 }
 
@@ -642,66 +713,21 @@ const fixingOf = (
 	namesOf: (column: string) => ReadonlyArray<NamedValue>,
 	source: StepSource
 ): Fixing => {
-	const d = row.dependency
-	const determinants = () => derivation(reached, positions(row.from)).steps
-	const listed = (offers: ReadonlyArray<Offer>): Fixing =>
-		new Fixing(
-			column,
-			held,
-			() => offers.length,
-			(i) => defined(offers[i], "an offer the step counts")
-		)
+	const offers = (o: Offers): Fixing => new Fixing(column, held, reached, row, o)
 	switch (source.kind) {
 		case "own":
-			return listed(
-				source.name === undefined
-					? []
-					: [{ name: source.name, before: determinants, step: () => d }]
-			)
-		case "column": {
-			const names = namesOf(source.column)
-			return new Fixing(
-				column,
-				held,
-				() => names.length,
-				(i) => {
-					const v = defined(names[i], "a name the equality's column holds")
-					return { name: v.name, before: () => v.derivation.steps, step: () => d }
-				}
-			)
-		}
+			return offers({ kind: "own", name: source.name })
+		case "column":
+			return offers({ kind: "column", names: namesOf(source.column) })
 		case "input":
-			return listed(
-				namesAt(props, source.input, source.column).map((v) => ({
-					name: v.name,
-					before: determinants,
-					step: () => source.over(v.derivation)
-				}))
-			)
+			return offers({
+				kind: "input",
+				names: namesAt(props, source.input, source.column),
+				over: source.over
+			})
 		case "arms":
-			return listed(
-				commonNames(source.arms, column).map((v) => ({
-					name: v.name,
-					before: determinants,
-					step: () => armsAgree(column, v.arms)
-				}))
-			)
+			return offers({ kind: "arms", names: commonNames(source.arms, column) })
 	}
-}
-
-/**
- * The name `offer` gives the column `fixing` fixes beside the names it holds, with its derivation: the steps before the
- * step, then the step. None for a name the column holds, or whose derivation reaches the column before its last step,
- * which names it by that earlier step.
- */
-const offeredName = (fixing: Fixing, offer: Offer): ReadonlyArray<NamedValue> => {
-	if (fixing.held.some((h) => fixedEqual(h.name, offer.name))) {
-		return []
-	}
-	const steps = offer.before()
-	return steps.some((s) => s.to.includes(fixing.column))
-		? []
-		: [{ name: offer.name, derivation: implication([], [...steps, offer.step()]) }]
 }
 
 /**
@@ -738,25 +764,27 @@ export class FixedNames {
 			)
 		}
 		const namesOf = (c: string): ReadonlyArray<NamedValue> => names.get(c) ?? []
-		const fixings = props.sources.flatMap(({ row, targets }) =>
-			subsetOf(row.from, reached.reached)
-				? targets.flatMap(({ column, source }) => {
-						const held = names.get(column)
-						return held === undefined
-							? []
-							: [fixingOf(props, reached, row, column, held, namesOf, source)]
-					})
-				: []
-		)
+		const fixings: Array<Fixing> = []
+		for (const { row, targets } of props.sources) {
+			if (!subsetOf(row.from, reached.reached)) {
+				continue
+			}
+			for (const { column, source } of targets) {
+				const held = names.get(column)
+				if (held !== undefined) {
+					fixings.push(fixingOf(props, reached, row, column, held, namesOf, source))
+				}
+			}
+		}
 		let made = 0
 		let rounds = 0
 		for (let changed = true; changed;) {
 			changed = false
 			rounds += 1
 			for (const fixing of fixings) {
-				const offers = fixing.fresh()
-				made += offers.length
-				const added = offers.flatMap((offer) => offeredName(fixing, offer))
+				const before = fixing.made
+				const added = fixing.fresh()
+				made += fixing.made - before
 				appendAll(fixing.held, added)
 				changed = changed || added.length > 0
 			}
@@ -1586,7 +1614,7 @@ const keysOf = (
 		const to = represented(row.to)
 		return {
 			row,
-			from: bitsAt(attributes, represented(positions(row.from))),
+			from: imageOf(attributes, row.from, representativeAt),
 			to,
 			toBits: bitsAt(attributes, to)
 		}
@@ -2569,14 +2597,16 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 		}
 		/** A source attribute bound to no variable of the heading: a hidden attribute of the region, by its occurrence. */
 		const hide = (c: string) => hiddenAttribute(o.id, c)
-		/** Each source attribute's hidden attribute of the region, by its position. */
-		const hiddenNames = attributesOf(src).names.map(hide)
+		const srcAttributes = attributesOf(src)
+		/** Each source attribute's hidden attribute of the region, by its position: one bound to no variable alone has one. */
+		const hiddenNames = srcAttributes.names.map((c) => (varsAt.has(c) ? undefined : hide(c)))
 		const hiddenAt = (p: number): string =>
-			defined(hiddenNames[p], "a position of the source's attributes")
-		appendAll(
-			hidden,
-			attributesOf(src).names.flatMap((c, p) => (varsAt.has(c) ? [] : [hiddenAt(p)]))
-		)
+			defined(hiddenNames[p], "a position of the source's attributes bound to no variable")
+		for (const name of hiddenNames) {
+			if (name !== undefined) {
+				hidden.push(name)
+			}
+		}
 		const reads = lateral.length === 0 ? [] : varsOf(lateral)
 		if (reads === undefined) {
 			continue
@@ -2623,16 +2653,34 @@ const regionProps = (subject: Subject, node: ReadingOf<"MatchRegion">, env: Prop
 			if (!givens.every((g) => g !== undefined)) {
 				continue
 			}
-			const given = givens.flatMap((g) => g.given)
-			const from = new Set<string>([...reads, ...givens.flatMap((g) => g.from)])
-			const reached = reachedFrom(src, bitsOf(attributesOf(src), given))
-			const to = reached.sequence
-				.flatMap((p) => varsAt.get(attributeAt(attributesOf(src), p)) ?? [hiddenAt(p)])
-				.filter((v) => !from.has(v))
-			if (to.length > 0) {
-				deps.push(
-					matchBinds([...from], [...new Set(to)], o.id, derivation(reached, reached.sequence))
-				)
+			const given: Array<string> = []
+			const from = new Set<string>(reads)
+			for (const g of givens) {
+				appendAll(given, g.given)
+				for (const f of g.from) {
+					from.add(f)
+				}
+			}
+			const reached = reachedFrom(src, bitsOf(srcAttributes, given))
+			/** The variables, or hidden attributes, the closure reaches past `from`, each once, in the order reached. */
+			const to = new Set<string>()
+			for (const p of reached.sequence) {
+				const vars = varsAt.get(attributeAt(srcAttributes, p))
+				if (vars === undefined) {
+					const h = hiddenAt(p)
+					if (!from.has(h)) {
+						to.add(h)
+					}
+					continue
+				}
+				for (const v of vars) {
+					if (!from.has(v)) {
+						to.add(v)
+					}
+				}
+			}
+			if (to.size > 0) {
+				deps.push(matchBinds([...from], [...to], o.id, derivation(reached, reached.sequence)))
 			}
 		}
 	}
@@ -2770,11 +2818,13 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 	/** The input attributes the attributes here of `at` read. */
 	const readBy = (at: Bits): Bits => {
 		const read = noBits(inputAttributes)
-		readsAt.forEach((columns, p) => {
+		let p = 0
+		for (const columns of readsAt) {
 			if (holdsAt(at, p)) {
 				orInto(read, columns)
 			}
-		})
+			p++
+		}
 		return read
 	}
 	/** The images of the input's determinants, every attribute named here, then each copying output alone. */
@@ -2790,12 +2840,14 @@ const projectProps = (subject: Subject, node: ReadingOf<"ProjectSet">): Props =>
 		}
 		seen.push(at)
 		const reached = reachedFrom(input, readBy(at))
-		const to = bitsAt(
-			attributes,
-			readsAt.flatMap((columns, p) =>
-				!holdsAt(at, p) && subsetOf(columns, reached.reached) ? [p] : []
-			)
-		)
+		const to = noBits(attributes)
+		let p = 0
+		for (const columns of readsAt) {
+			if (!holdsAt(at, p) && subsetOf(columns, reached.reached)) {
+				addTo(to, p)
+			}
+			p++
+		}
 		if (!isEmpty(to)) {
 			deps.push(
 				projectionCloses(
