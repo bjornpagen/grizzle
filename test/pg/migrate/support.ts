@@ -36,7 +36,7 @@ import {
 	openMigrationSession
 } from "#adapter/migrate/session.ts"
 import { oneShotStatement, sentAnswer } from "#adapter/wire/batch.ts"
-import { identifierOf, identity } from "#compiler/core/identity.ts"
+import { identifierOf, identity, type Part } from "#compiler/core/identity.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { trusted } from "#compiler/core/trusted.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
@@ -426,25 +426,49 @@ type ComparableCatalog = WithRest<{
  * Every name an installation minted under one of its levels' schema identities whose spelling depends on it, as the
  * text that names it under any schemas. A hashed name (a filter function's or a key probe's, whose stem and digest both
  * carry the installation) names one object of the whole installation (core/identity.ts censusOf), so it maps through
- * the identity it was minted from, to that identity's canonical encoding without its level's, read off the naming
- * door's identities, never off its spelling. A readable name is its own label: it spells its identity, and one spelling
+ * the identity it was minted from, to that identity's parts with each level they carry as the level's placeholder,
+ * read off the naming door's identities, never off its spelling: a level is carried as its identity, which a hashed
+ * object of the level nests (a filter function's, a key probe's), or as its schema's installed identifier, which the
+ * installation's roles in the cluster are minted from (the live source's, the function owner's: core/identity.ts
+ * installationRoleOf). A readable name is its own label: it spells its identity, and one spelling
  * may name several objects (a role, its schema and its policies are all `<schema>__<role>`), so the identifier of the
  * level's schema it starts with is the one placeholder, the level's by its depth, as is each level's display, which its
  * hashed objects' comments hold. A role's view is named by its relation's declared name alone, the same under any
  * schema, so it is no such name.
  */
 export const installationAbstraction = (installation: Installation): ((text: string) => string) => {
-	const placeholder = (depth: number): string => `\u0000${depth === 0 ? "" : String(depth)}`
+	const markLead = "\u0000"
+	const placeholder = (depth: number): string => `${markLead}${depth === 0 ? "" : String(depth)}`
 	const levels = Arr.map(installation.names.levels, (at, depth) => ({
 		at,
 		mark: placeholder(depth)
 	}))
+	const byIdentity = new Map<string, string>(
+		Arr.map(levels, ({ at, mark }) => [at.canonical, mark])
+	)
+	const byIdentifier = new Map<string, string>(
+		Arr.map(levels, ({ at, mark }) => [at.identifier, mark])
+	)
+	/** `part` with each level it carries as the level's placeholder and every other part as itself, a text by its length
+	 * and its characters as an identity's canonical encoding spells one, so two parts read alike exactly when they are
+	 * equal but for their levels. */
+	const abstracted = (part: Part): string => {
+		if (typeof part === "string") {
+			return byIdentifier.get(part) ?? `${part.length}:${part}`
+		}
+		if ("canonical" in part) {
+			return (
+				byIdentity.get(part.canonical) ??
+				`${part.kind}(${Arr.join(Arr.map(part.parts, abstracted), ",")})`
+			)
+		}
+		return `[${Arr.join(Arr.map(part, abstracted), ",")}]`
+	}
 	const hashed = new Map<string, string>()
 	for (const i of installation.identities) {
-		for (const { at, mark } of levels) {
-			if (i.form === "hashed" && Str.includes(at.canonical)(i.canonical)) {
-				hashed.set(i.identifier, `${mark}${Str.replaceAll(at.canonical, "")(i.canonical)}`)
-			}
+		const label = abstracted(i)
+		if (i.form === "hashed" && Str.includes(markLead)(label)) {
+			hashed.set(i.identifier, label)
 		}
 	}
 	const entries: ReadonlyArray<readonly [string, string]> = [
