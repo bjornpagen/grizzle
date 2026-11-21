@@ -89,13 +89,19 @@ import {
 	type InlineConstraint,
 	type KeyColumn,
 	type ObjectName,
-	type QualifiedFunctionRef,
 	type SqlStatement,
 	type TableConstraint,
 	nameKey,
 	type NameKey
 } from "#compiler/sql/ast.ts"
-import { identityHooks, ownColumnHooks, Transform, transformExpr } from "#compiler/sql/transform.ts"
+import {
+	type AstHooks,
+	identityHooks,
+	ownColumnHooks,
+	Transform,
+	transformExpr,
+	transformStatement
+} from "#compiler/sql/transform.ts"
 
 /**
  * A draft's declarations (`--rename`, `--drop`) applied to the previous snapshot: the statements that carry out its
@@ -1091,11 +1097,17 @@ const pairedConstants = (
 			return was === undefined || now === undefined ? [] : [[was.ident, now.ident] as const]
 		})
 	)
-	const calls = {
+	/** Every name of a function renamed, a call of it, a grant of EXECUTE on it, a revoke from PUBLIC and a comment on
+	 * it alike, as PostgreSQL holds each of them by the function's OID. */
+	const calls: AstHooks = {
 		...identityHooks,
-		functionRef: (fn: QualifiedFunctionRef) => {
+		functionRef: (fn) => {
 			const to = renamedTo.get(fn.name)
 			return to === undefined ? fn : { ...fn, name: to }
+		},
+		objectName: (name, namespace) => {
+			const to = namespace === "function" ? renamedTo.get(name.name) : undefined
+			return to === undefined ? name : { ...name, name: to }
 		}
 	}
 	return {
@@ -1113,7 +1125,10 @@ const pairedConstants = (
 				edges: previous.manifest.edges.map((e) => ({
 					from: identOf.get(e.from) ?? e.from,
 					to: identOf.get(e.to) ?? e.to
-				}))
+				})),
+				roleDefaults: previous.manifest.roleDefaults.map((st) => transformStatement(st, calls)),
+				publicRevokes: previous.manifest.publicRevokes.map((st) => transformStatement(st, calls)),
+				comments: previous.manifest.comments.map((st) => transformStatement(st, calls))
 			}
 		}
 	}
