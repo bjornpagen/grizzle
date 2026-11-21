@@ -270,9 +270,17 @@ export const scaledFacts = (c: Scaled): FactSet => ({
 	Note: []
 })
 
-/** Vacuums Lesson, so the planner reads its size and its GIN index holds every entry in its tree. */
-export const vacuumed = (installed: Installed) =>
-	Effect.flatMap(Substrate, (s) => s.admin.query(`VACUUM ${namesOf(installed).table(Lesson)}`, []))
+/**
+ * Vacuums and analyzes Lesson once its lessons are loaded, as production's runbook analyzes an installation after its
+ * first load: the planner reads its size and its columns' statistics, and its GIN index holds every entry in its tree.
+ * grizzle emits no ANALYZE; this fixture models the production it plans for, where a plan read with no statistics would
+ * estimate a subject's equality and a grade's range at PostgreSQL's defaults, a third of a half percent of the rows,
+ * and read every lesson of the subject through the (subject, grade) index beside the 4 the GIN finds.
+ */
+export const analyzed = (installed: Installed) =>
+	Effect.flatMap(Substrate, (s) =>
+		s.admin.query(`VACUUM (ANALYZE) ${namesOf(installed).table(Lesson)}`, [])
+	)
 
 /** The reference's text of an english document of a lesson, PostgreSQL's own parse of its stored texts. */
 const lessonDocument = (installed: Installed): string => {

@@ -15,8 +15,9 @@
  *
  * Oracle: PostgreSQL itself, its to_tsvector, setweight, websearch_to_tsquery, plainto_tsquery, ts_rank and ts_rank_cd
  * applied in plain SQL to the stored texts, never to the stored document, read in the served Db's database after the
- * load; and PostgreSQL's executed plan as the served member's explainAnalyze reports it, naming the GIN index by the
- * installation's names. The host computes no text search: it is PostgreSQL's alone (ir/search.ts).
+ * load; and PostgreSQL's executed plan as the served member's explainAnalyze reports it over Lesson analyzed as
+ * production's runbook analyzes an installation after its first load (search.fixtures.ts analyzed), naming the GIN
+ * index by the installation's names. The host computes no text search: it is PostgreSQL's alone (ir/search.ts).
  *
  * Features: a query some lessons match and one none does, a take that cuts its matches short, a plain query some note
  * matches, and a match at scale served by the GIN index.
@@ -29,6 +30,7 @@ import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { openedIn } from "#test/pg/reads/support.ts"
 import {
+	analyzed,
 	byKey,
 	Catalog,
 	lessonReads,
@@ -44,8 +46,7 @@ import {
 	scaledGen,
 	searchCaseGen,
 	searchInstall,
-	searchTemplate,
-	vacuumed
+	searchTemplate
 } from "#test/pg/search/search.fixtures.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
@@ -189,7 +190,7 @@ export const atScaleAMatchOfAMarkerWordFewLessonsHoldReadsLessonThroughTheGINInd
 					Effect.provideService(
 						Effect.gen(function* () {
 							const o = yield* openedIn(Catalog, scaledFacts(c), searchInstall, taken)
-							yield* vacuumed(o.installed)
+							yield* analyzed(o.installed)
 							return yield* Effect.gen(function* () {
 								const db = yield* Db.open(o.served.login.roles.app, {})
 								const input = {
