@@ -996,10 +996,23 @@ const formerBuildDropped = (
  * client's close, and CREATE DATABASE ... TEMPLATE refuses a template another backend is in (55006) once its few seconds
  * of waiting pass, so a build returns only when none is left.
  */
-const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Effect<void> =>
+export const backendsEnded = (cluster: BudgetedCluster, name: string): Effect.Effect<void> =>
 	asSuperuser(cluster, pgCluster.owner, [
 		`SELECT pg_catalog.pg_terminate_backend(a.pid, ${testExitWait}) FROM pg_catalog.pg_stat_activity AS a WHERE a.datname = ${quoteString(name)}::name AND a.pid <> pg_catalog.pg_backend_pid()`
 	])
+
+/**
+ * `build` in a scope of its own, then `ended`, the end of every backend its database still holds (backendsEnded): the
+ * scope closes first, so every session the build opened has ended by its own close, its finalizers' statements answered,
+ * and `ended` meets only a backend still exiting after its client closed. Run inside the scope, `ended` terminated the
+ * build's own sessions while it still held them, and each closing statement they sent met 57P01 (TOOLCHAIN6,
+ * 2026-11-21: 49 terminations in 15 minutes, every one a template build database's).
+ */
+export const builtThenEnded = <A, E, R, E2, R2>(
+	build: Effect.Effect<A, E, R>,
+	ended: Effect.Effect<void, E2, R2>
+): Effect.Effect<void, E | E2, Exclude<R, Scope.Scope> | R2> =>
+	Effect.andThen(Effect.scoped(build), ended)
 
 /**
  * A template of an installation over the base template (InstallSpec): its database is built by planning under the
@@ -1028,7 +1041,7 @@ export const installTemplate = <P, T, E1, E2>(
 		from: baseTemplate,
 		budget: spec.budget,
 		build: (target) =>
-			Effect.scoped(
+			builtThenEnded(
 				Effect.gen(function* () {
 					const { digest, plan } = yield* planned(database)
 					const cluster = yield* memberBudget(target.member)
@@ -1059,12 +1072,9 @@ export const installTemplate = <P, T, E1, E2>(
 							Effect.andThen(Effect.provideService(spec.install(plan), Substrate, substrate), keep)
 						)
 					)
-				}).pipe(
-					Effect.andThen(
-						Effect.flatMap(memberBudget(target.member), (cluster) =>
-							backendsEnded(cluster, target.name)
-						)
-					)
+				}),
+				Effect.flatMap(memberBudget(target.member), (cluster) =>
+					backendsEnded(cluster, target.name)
 				)
 			)
 	})
