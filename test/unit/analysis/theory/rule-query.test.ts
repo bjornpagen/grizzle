@@ -37,8 +37,8 @@
  * their union (a query of two rules), the join derived on a level below, a query that aggregates or one that negates in
  * turn, alone among its filters, inside a conjunction or inside a conjunction nested in one, binding Mark's on by a
  * literal or not at all, read itself or through Item's semijoin with it under a containment into it, one out of it, a
- * check and a key. A negation of select-project-join arms is admitted, the conjunction's included, and a negation of a
- * query a rule may not read is refused UnsupportedLawFamily, naming what the query does.
+ * check and a key. A negation of select-project-join arms is admitted, the conjunction's included, and so is a negation
+ * of an aggregate, whose groups a probe reads where a write touches them (analysis/theory/query.ts GroupedMatch).
  *
  * The oracle is the builders' admission: a schema schema.extend builds compiles to its artifacts, and its laws'
  * violation queries are written as generate writes them, each rule's checked there (laws/model/violations.ts
@@ -62,13 +62,11 @@ import {
 	clashesOf,
 	compiledOf,
 	decimalOf,
-	negatedRefusals,
 	negatedSources,
 	negationCase,
 	type NegationReached,
 	negationSchemaOf,
 	type Reached,
-	reasonOf,
 	ruleCase,
 	schemaOf,
 	tagCase,
@@ -299,29 +297,20 @@ export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionADerivedRelation
 					k.note(`${c.rule} read through a semijoin`)
 				}
 				const compiled = compiledOf(negationSchemaOf(c))
-				const refusal = negatedRefusals[c.source]
-				if (refusal === undefined) {
-					assert.deepEqual(
-						compiled.ok ? undefined : compiled.error.reason,
-						undefined,
-						`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
-					)
-					assert.deepEqual(
-						compiled.ok ? clashesOf(compiled.value.laws.constraints) : [],
-						[],
-						`each constraint or trigger name of ${Formatter.format(c)} names one law on its table`
-					)
-					return
-				}
 				assert.deepEqual(
-					compiled.ok ? undefined : reasonOf(compiled.error),
-					refusal,
-					`${Formatter.format(c)} is refused for its negated source`
+					compiled.ok ? undefined : compiled.error.reason,
+					undefined,
+					`the builders admit ${Formatter.format(c)}, and its compilation refuses it`
+				)
+				assert.deepEqual(
+					compiled.ok ? clashesOf(compiled.value.laws.constraints) : [],
+					[],
+					`each constraint or trigger name of ${Formatter.format(c)} names one law on its table`
 				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a rule over a query reads a negation of select-project-join arms, each of which may negate in turn: a schema schema.extend builds compiles to its artifacts exactly when every arm it negates joins, selects and projects, and is refused otherwise, an aggregate by the rule the types name"
+			name: "a rule over a query reads a negation of select-project-join arms, each of which may negate or aggregate in turn: a schema schema.extend builds compiles to its artifacts"
 		},
 		box: "every containment into and out of, check over and key over a derived relation of Item, read itself or through a semijoin, whose definition negates Mark, a join of Mark and Note, their union, the join derived, a query that aggregates or one that negates, alone, in a conjunction or in a conjunction nested in one, binding Mark's on by a literal or not at all",
 		kept: [],
@@ -331,6 +320,13 @@ export const aRuleOverAQueryCompilesANegationOfATableAJoinAUnionADerivedRelation
 				original: '\te.kind === "and" && holdsNegation(e) ? e.args.flatMap(filtersOf) : [e]',
 				replacement: "\t[e]",
 				why: "A conjunction holding a negation read whole, which refuses it as a negation below a condition (analysis/theory/query.ts filtersOf); the fourth box fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/query.ts",
+				original:
+					"\t\treturn folds(rule.head)\n\t\t\t? [this.#groupedArm(relation, rule, groupFields(rule.head), columns)]\n\t\t\t: this.#conjunctive(relation, rule, columns)",
+				replacement: "\t\treturn this.#conjunctive(relation, rule, columns)",
+				why: "An aggregating rule read as a conjunctive arm, its folds refused as a head term no arm derives, as a rule over an aggregate was before the probes read its groups (analysis/theory/query.ts #rule); the fourth box fails at its negated aggregate."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",

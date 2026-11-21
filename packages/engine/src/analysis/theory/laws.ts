@@ -1426,6 +1426,7 @@ export class Normalizer {
 				liveArms(declared.relation, definition, {
 					definition: this.env.definition,
 					columnType: this.env.columnType,
+					live: this.env.live,
 					loc
 				})
 			),
@@ -1538,6 +1539,9 @@ export class Normalizer {
 		const held = new Set<string>()
 		const parts: Array<LoweredPart> = []
 		for (const m of arm.matches) {
+			if (m.kind !== "stored") {
+				return byTriggers
+			}
 			const target = this.env.relations.get(m.relation)
 			if (target?.kind !== "relation" || target.level > source.level) {
 				return byTriggers

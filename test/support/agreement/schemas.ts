@@ -249,6 +249,9 @@ const schemaForms = [
 	"derivedSkipsLevel",
 	"derivedRuled",
 	"derivedNegated",
+	"derivedKeyed",
+	"derivedChecked",
+	"derivedSelectedKey",
 	"finOfKey",
 	"finOfAccumulated",
 	"treeParentWritten",
@@ -390,19 +393,12 @@ type SchemaFault = (typeof schemaFaults)[number]
  * decided at compilation from what the types do not track. A containment, or a mirror, into a side that holds no key of
  * its relation (unkeyedTarget): the law family needs a key over the side's projection. A cast its operand's bounds do
  * not prove fits its target (castFits): the engine proves the value fits from the bounds its making gives it, which
- * no type carries. A key, a side, a check or a selection over the base's aggregate (keyOverDerived, sideOverDerived,
- * checkOverDerived, selectOverDerived): a rule reads an aggregate where it is unit-local (analysis/theory/unit.ts), its
- * relations immutable and its groups within one unit, which the types do not track, and its probes read none, so the
- * engine refuses one that is not and admits one that is.
+ * no type carries. A key, a side, a check or a selection over the base's aggregate both admit: a rule reads an
+ * aggregate's groups whether it is unit-local or not, judged whole where it is (analysis/theory/unit.ts) and probed at
+ * the groups a write touches where it is not (analysis/theory/query.ts GroupedMatch), so the derived probes state them
+ * as forms (derivedKeyed, derivedChecked, derivedSelectedKey, derivedLeft, derivedRight, derivedMirrors).
  */
-const declaredClasses = [
-	"unkeyedTarget",
-	"castFits",
-	"keyOverDerived",
-	"sideOverDerived",
-	"checkOverDerived",
-	"selectOverDerived"
-] as const
+const declaredClasses = ["unkeyedTarget", "castFits"] as const
 type DeclaredClass = (typeof declaredClasses)[number]
 
 /**
@@ -418,18 +414,10 @@ type Planted = SchemaFault | KeptFault | DeclaredClass
 const isDeclared = (planted: Planted): planted is DeclaredClass =>
 	Arr.contains<Planted>(declaredClasses, planted)
 
-/** A rule over an aggregate that is not unit-local, as the engine refuses it: its probes read no aggregate. */
-const aggregateRead: Refused =
-	"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-
 /** Each declared class's refusal by the engine. */
 const declared: { readonly [C in DeclaredClass]: Expected } = {
 	unkeyedTarget: { tag: "UnsupportedLawFamily" },
-	castFits: { tag: "PartialOperation", precondition: "fits" },
-	keyOverDerived: { refused: aggregateRead },
-	sideOverDerived: { refused: aggregateRead },
-	checkOverDerived: { refused: aggregateRead },
-	selectOverDerived: { refused: aggregateRead }
+	castFits: { tag: "PartialOperation", precondition: "fits" }
 }
 
 /**
@@ -3544,23 +3532,36 @@ const roleProbe = (d: Drawing, base: Base): Probe => {
 			)
 	}
 }
-/**
- * What a derived probe plants: a definition's, a level's or a fin's fault, or a law over the derived relation, the
- * declared class a rule over an aggregate is.
- */
+/** What a derived probe plants: a definition's, a level's or a fin's fault. */
 type DerivedFault = Extract<
-	SchemaFault | DeclaredClass,
+	SchemaFault,
 	| "parameterizedDefinition"
 	| "derivedAtOwnLevel"
 	| "derivedInRoot"
-	| "keyOverDerived"
-	| "checkOverDerived"
-	| "selectOverDerived"
 	| "finOverDerived"
 	| "emptyHead"
 	| "headingGroups"
 	| "derivedOverBase"
 >
+
+/** A law a derived probe states over the base's aggregate, which both admit, each noted as its form (`lawForm`). */
+type DerivedLaw = "keyOverDerived" | "checkOverDerived" | "selectOverDerived"
+
+const derivedLaws: ReadonlyArray<DerivedLaw> = [
+	"keyOverDerived",
+	"checkOverDerived",
+	"selectOverDerived"
+]
+
+const isDerivedLaw = (planted: DerivedFault | DerivedLaw): planted is DerivedLaw =>
+	Arr.contains<DerivedFault | DerivedLaw>(derivedLaws, planted)
+
+/** The form each law over the base's aggregate is noted as. */
+const lawForm: { readonly [K in DerivedLaw]: SchemaForm } = {
+	keyOverDerived: "derivedKeyed",
+	checkOverDerived: "derivedChecked",
+	selectOverDerived: "derivedSelectedKey"
+}
 
 /** The derived definitions a derived probe states that the engine admits, each noted as its form. */
 type DerivedValid =
@@ -3645,7 +3646,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const fault =
 		d.upTo(3) === 0
 			? undefined
-			: d.from<DerivedFault>([
+			: d.from<DerivedFault | DerivedLaw>([
 					"parameterizedDefinition",
 					"derivedAtOwnLevel",
 					"derivedInRoot",
@@ -3659,6 +3660,8 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 				])
 	if (fault === undefined) {
 		d.note(validForm[valid])
+	} else if (isDerivedLaw(fault)) {
+		d.note(lawForm[fault])
 	}
 	const roster = d.from(base.rosters)
 	const discriminants = [
@@ -4037,7 +4040,7 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 	}
 	return {
 		construct: "derivedProbe",
-		refused: fault,
+		refused: fault === undefined || isDerivedLaw(fault) ? undefined : fault,
 		text,
 		judge
 	}
@@ -4045,9 +4048,9 @@ const derivedProbe = (d: Drawing, base: Base): Probe | undefined => {
 
 /**
  * A law naming the derived relation on a drawn side, a containment's left side, its right side or a mirror, over its
- * group field and its relation's: the declared class sideOverDerived, since the base's derived relation aggregates,
- * which a rule reads only where it is unit-local, a case the engine admits and refuses otherwise. A rule over a derived
- * relation that joins, selects and projects is the derived probe's admitted `ruled` form.
+ * group field and its relation's, which both admit: the base's derived relation aggregates, whose groups a rule reads
+ * whether it is unit-local or not (analysis/theory/query.ts GroupedMatch). A rule over a derived relation that joins,
+ * selects and projects is the derived probe's admitted `ruled` form.
  */
 const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 	const spec = base.derived
@@ -4083,7 +4086,7 @@ const derivedSideProbe = (d: Drawing, base: Base): Probe | undefined => {
 	}
 	return {
 		construct: "derivedProbe",
-		refused: "sideOverDerived",
+		refused: undefined,
 		text,
 		judge: (env) =>
 			compiling(() =>

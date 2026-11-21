@@ -10,8 +10,8 @@
  *   and an alternatives arm name rows grizzle writes, which a derived relation's definition states, so ownership
  *   refuses each (MalformedDescription) at every entry. A key, a check and a containment are rules over the
  *   definition, which ownership owns and the analysis of derived relations reads, and AccountBudget's definition
- *   aggregates, which no rule reads, so the entry that compiles the laws refuses each, by the named refusal the types
- *   name too. Oracle: that rule, restated per law shape. Features: each law shape, a law naming both derived
+ *   aggregates, whose groups the rule's probes read where a write touches them (analysis/theory/query.ts
+ *   GroupedMatch), so the entry that compiles the laws installs each. Oracle: that rule, restated per law shape. Features: each law shape, a law naming both derived
  *   relations, a containment out of and into a derived relation.
  * - Unwritable definitions: levels, parameters and contexts an unchecked description can still write down are refused
  *   as MalformedDescription, a materialized view reading no parameter and holding no session. Each case draws a schema
@@ -50,13 +50,13 @@ import {
 } from "#test/unit/derived/refusals.fixtures.ts"
 
 /**
- * Derived relation refusals refuse a statement writing a derived relation's rows at every entry, and a rule over an
- * aggregate where the laws compile.
+ * Derived relation refusals refuse a statement writing a derived relation's rows at every entry, and install a rule over
+ * an aggregate where the laws compile.
  *
  * Budget: 100 runs and 100 steered cases, what its suite stated before it became a property
  * (test/unit/derived/refusals.test.ts:528 at 8cad5bce, its runs and its coverage's cases).
  */
-export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRowsAtEveryEntryAndARuleOverAnAggregateWhereTheLawsCompile =
+export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRowsAtEveryEntryAndInstallARuleOverAnAggregate =
 	property.explore(lawSketchGen, {
 		needs: {},
 		budget: { runs: 100, steered: 100 },
@@ -96,16 +96,12 @@ export const derivedRelationRefusalsRefuseAStatementWritingADerivedRelationsRows
 				const [owned, analyzed, installed] = entries(desc)
 				assert.ok(owned?.ok === true, "ownership owns a rule over a derived relation")
 				assert.ok(analyzed?.ok === true, "the analysis of derived relations reads it")
-				const e = refusal(defined(installed, "the installation's entry"))
-				assert.ok(e.reason._tag === "Refused", e.message)
-				assert.equal(
-					e.reason.refusal,
-					"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-				)
+				const done = defined(installed, "the installation's entry")
+				assert.ok(done.ok, done.ok ? "" : refusal(done).message)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "a statement naming rows grizzle writes is refused at every entry; a rule over a definition that aggregates is owned and refused where the laws compile"
+			name: "a statement naming rows grizzle writes is refused at every entry; a rule over a definition that aggregates is owned and installed, its probes reading the groups a write touches"
 		},
 		kept: [],
 		kills: [

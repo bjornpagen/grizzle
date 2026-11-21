@@ -57,17 +57,17 @@ export const aRulesProbeOfTheRowsATransactionAddsReadsThemFromItsNetWriteNeverFr
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original: '\t\t\t\tsource: { kind: "delta", side, relation: touched.relation },',
+				original:
+					'\t\t\t\t\t\tsource: { kind: "delta", side: region.side, relation: region.relation },',
 				replacement:
-					'\t\t\t\tsource: { kind: "delta", side: "removed", relation: touched.relation },',
+					'\t\t\t\t\t\tsource: { kind: "delta", side: "removed", relation: region.relation },',
 				why: "A probe of the rows a transaction adds reads the rows it removes as its region, so it judges the facts no added row derives and misses every one an added row breaks."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
-				original:
-					"\t\t\t\tbindings: Object.fromEntries(fields.map((f) => [f, varRef(regionId(f))] as const)),",
+				original: "\t\t\t\t\t\t\tregion.fields.map((f) => [f, varRef(regionId(f))] as const)",
 				replacement:
-					"\t\t\t\tbindings: Object.fromEntries(fields.slice(1).map((f) => [f, varRef(regionId(f))] as const)),",
+					"\t\t\t\t\t\t\tregion.fields.slice(1).map((f) => [f, varRef(regionId(f))] as const)",
 				why: "The region binds no variable to the first field its occurrence reads, so the probe reads that field of no row: the variable the occurrence's binding was replaced by stands unbound, and the probe reads T's key from nowhere."
 			}
 		]

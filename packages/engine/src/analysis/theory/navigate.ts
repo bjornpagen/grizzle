@@ -439,8 +439,37 @@ interface Flat {
 	readonly vars: ReadonlyArray<VarDesc>
 	readonly region: ReadonlyArray<Read>
 	readonly reads: ReadonlyArray<Read>
+	/**
+	 * Its reads of an aggregating rule's groups (`foldsIn`), never inlined: each is a step of its own, the rule restricted
+	 * inside to the group fields the steps before it bound (`#chain`).
+	 */
+	readonly grouped: ReadonlyArray<Grouped>
 	readonly where: ReadonlyArray<InferredExpr>
 	readonly head: InferredRule["head"]
+}
+
+/** A read of an aggregating rule's groups (Flat `grouped`): an import of the one rule, its bindings over the rule's
+ * variables. */
+interface Grouped {
+	readonly source: Imported
+	readonly bindings: InferredBindings
+	readonly loc: SourceLoc
+}
+
+/**
+ * The fields at which an import of one aggregating rule holds one fact each, its group fields, the head fields no
+ * aggregate derives; undefined for any other source. Its facts are its body's folded at each group, so navigation never
+ * inlines it, nor distributes a union its body reads into its reader's conjunctions: a fold over a union is no union
+ * of folds, two arms' facts of one group folded apart would be two facts of the group.
+ */
+const foldsIn = (source: InferredSource): ReadonlyArray<string> | undefined => {
+	if (source.kind !== "query" || source.query.stage.kind !== "rules") {
+		return undefined
+	}
+	const [rule, ...more] = source.query.stage.arms
+	return more.length === 0 && Object.values(rule.head).some((h) => h.kind === "aggregate")
+		? Object.entries(rule.head).flatMap(([field, h]) => (h.kind === "aggregate" ? [] : [field]))
+		: undefined
 }
 
 /**
@@ -483,12 +512,7 @@ function* conjunctionsOf(
 	columns: QueryColumns
 ): Generator<InferredRule, void, undefined> {
 	for (const arm of arms) {
-		const at = arm.matches.findIndex(
-			(m) =>
-				m.source.kind === "query" &&
-				m.source.query.stage.kind === "rules" &&
-				(m.source.query.stage.arms.length > 1 || m.source.query.stage.arms.some(splits))
-		)
+		const at = arm.matches.findIndex((m) => splitsAt(m.source))
 		const m = arm.matches[at]
 		const source = m?.source
 		const stage = source?.kind === "query" ? source.query.stage : undefined
@@ -531,13 +555,17 @@ function* conjunctionsOf(
  * Whether `rule` is more than one conjunction (`conjunctions`): it matches an import of several rules, or of one rule
  * that is in turn, at any depth.
  */
-const splits = (rule: InferredRule): boolean =>
-	rule.matches.some(
-		(m) =>
-			m.source.kind === "query" &&
-			m.source.query.stage.kind === "rules" &&
-			(m.source.query.stage.arms.length > 1 || m.source.query.stage.arms.some(splits))
-	)
+const splits = (rule: InferredRule): boolean => rule.matches.some((m) => splitsAt(m.source))
+
+/**
+ * Whether a match of `source` makes its rule more than one conjunction (`splits`): an import of several rules, or of
+ * one rule that splits in turn, but never of an aggregating rule (`foldsIn`), whose body's union its folds read whole.
+ */
+const splitsAt = (source: InferredSource): boolean =>
+	source.kind === "query" &&
+	source.query.stage.kind === "rules" &&
+	foldsIn(source) === undefined &&
+	(source.query.stage.arms.length > 1 || source.query.stage.arms.some(splits))
 
 /** `rule` with each bare literal of its head typed at the column of the union it is a rule of (`union`): itself where none is. */
 const headAtUnion = (rule: InferredRule, union: ColumnTypes): InferredRule => {
@@ -710,6 +738,7 @@ class Navigator {
 		const vars: Array<VarDesc> = [...rule.vars]
 		const region: Array<Read> = []
 		const reads: Array<Read> = []
+		const grouped: Array<Grouped> = []
 		const where: Array<InferredExpr> = [...rule.where]
 		for (const m of rule.matches) {
 			const source = m.source
@@ -724,6 +753,10 @@ class Navigator {
 			const binds = source.kind === "query" ? scalarBinds(source.bind) : undefined
 			if (source.kind !== "query" || binds === undefined) {
 				return this.#refuse(`a match of a ${source.kind} source`)
+			}
+			if (foldsIn(source) !== undefined) {
+				grouped.push({ source, bindings: m.bindings, loc: m.loc })
+				continue
 			}
 			const top = new Map([...binds].map(([name, e]) => [name, toTop(e)] as const))
 			if (shared.has(importKey(source.query, top))) {
@@ -758,6 +791,16 @@ class Navigator {
 			})
 			appendAll(region, inner.region.map(lifted))
 			appendAll(reads, inner.reads.map(lifted))
+			appendAll(
+				grouped,
+				inner.grouped.map((g) => ({
+					...g,
+					source: { ...g.source, bind: mapBindMap(g.source.bind, lift) },
+					bindings: Object.fromEntries(
+						Object.entries(g.bindings).map(([column, e]) => [column, lift(e)] as const)
+					)
+				}))
+			)
 			appendAll(where, inner.where.map(lift))
 			const columns = this.#columns(source.query)
 			for (const [field, outer] of Object.entries(m.bindings)) {
@@ -768,7 +811,7 @@ class Navigator {
 				where.push(equal(lift(atColumn(head, field, columns)), atColumn(outer, field, columns)))
 			}
 		}
-		return { vars, region, reads, where, head: rule.head }
+		return { vars, region, reads, grouped, where, head: rule.head }
 	}
 
 	/**
@@ -782,7 +825,7 @@ class Navigator {
 	 */
 	#defined(flat: Flat): Flat {
 		const bound = new Set(
-			[...flat.region, ...flat.reads].flatMap((r) =>
+			[...flat.region, ...flat.reads, ...flat.grouped].flatMap((r) =>
 				Object.values(r.bindings).flatMap((e) => [...readsOf(e)])
 			)
 		)
@@ -811,6 +854,7 @@ class Navigator {
 				vars: flat.vars.filter((v) => v.id !== name),
 				region: flat.region.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
 				reads: flat.reads.map((r) => ({ ...r, bindings: mapBindings(r.bindings, leaves) })),
+				grouped: flat.grouped.map((g) => ({ ...g, bindings: mapBindings(g.bindings, leaves) })),
 				where: flat.where.flatMap((x, i) => (i === at ? [] : [mapLeaves(x, leaves)])),
 				head: Object.fromEntries(
 					Object.entries(flat.head).map(([k, h]) => [
@@ -839,7 +883,10 @@ class Navigator {
 	#chain(flat: Flat, depth: number): Chain {
 		const declared = new Map(flat.vars.map((v) => [v.id, v] as const))
 		const known = new Set<string>()
-		let reads = flat.reads.filter((r) => r.source.kind !== "query")
+		let reads: ReadonlyArray<Read> = [
+			...flat.reads.filter((r) => r.source.kind !== "query"),
+			...flat.grouped
+		]
 		let pending: Array<InferredExpr> = []
 		const filters: Array<Filtered> = []
 		const head = flat.head
@@ -901,7 +948,11 @@ class Navigator {
 		): Lookup => {
 			let keyed = 0
 			let bound = 0
-			for (const e of Object.values(r.bindings)) {
+			const keys = foldsIn(r.source)
+			for (const [column, e] of Object.entries(r.bindings)) {
+				if (keys !== undefined && !keys.includes(column)) {
+					continue
+				}
 				const ids = [...readsOf(e)]
 				if (ids.every((id) => known.has(id) || values.has(id))) {
 					bound++
@@ -971,27 +1022,23 @@ class Navigator {
 			const delivered = Object.fromEntries(outputs.map((id, i) => [`o${i}`, varRef(id)] as const))
 			const source: ReadSource =
 				read.source.kind === "query"
-					? {
-							...read.source,
-							bind: mapBindMap(read.source.bind, (e) => passing.expr(e))
-						}
+					? { ...read.source, bind: mapBindMap(read.source.bind, (e) => passing.expr(e)) }
 					: read.source
+			const stepRule: InferredRule = {
+				vars: stepVars,
+				matches: [{ source, bindings, loc: read.loc }],
+				where: inner,
+				head: delivered,
+				interiors: [],
+				attach: [],
+				loc: read.loc
+			}
 			const step: InferredSource = {
 				kind: "step",
 				query: {
 					stage: {
 						kind: "rules",
-						arms: [
-							{
-								vars: stepVars,
-								matches: [{ source, bindings, loc: read.loc }],
-								where: inner,
-								head: delivered,
-								interiors: [],
-								attach: [],
-								loc: read.loc
-							}
-						],
+						arms: [source.kind === "query" ? this.#grouped(stepRule, source, bindings) : stepRule],
 						loc: read.loc
 					}
 				},
@@ -1031,6 +1078,22 @@ class Navigator {
 			return this.#refuse("a condition over variables no read binds")
 		}
 		return { vars, matches, where: [...where, ...pending], filters, head }
+	}
+
+	/**
+	 * The step `step` that reads an aggregating rule's groups, its one match `source` at `bindings` (Flat `grouped`): the
+	 * rule restricted inside to each group field the steps before it fixed, a channel bound or a condition of the step
+	 * equated with one (`fixedTerms`), its every relation then read by the group it folds (`boundInside`), and navigated
+	 * as a query of its own (`navigatedQuery`), so the step folds the rows of the groups its reader reaches alone, never
+	 * every group's. A folded field's binding stays the step's own, compared after the fold.
+	 */
+	#grouped(step: InferredRule, source: Imported, bindings: InferredBindings): InferredRule {
+		const inside = boundInside(source, bindings, fixedTerms(step), this.#columns)
+		const restricted: Imported = {
+			...inside,
+			query: navigatedQuery(inside.query, this.#loc, this.#columns, this.#sharing, this.#interned)
+		}
+		return { ...step, matches: [{ source: restricted, bindings, loc: step.loc }] }
 	}
 
 	/**
@@ -1193,6 +1256,12 @@ const ruleReads = (rule: InferredRule, of: (rule: InferredRule) => RuleReads): R
 			source.query.stage.kind !== "rules"
 		) {
 			return unread
+		}
+		if (foldsIn(source) !== undefined) {
+			one = plus(one, 1)
+			most = plus(most, 1)
+			every = plus(every, 1)
+			continue
 		}
 		const arms = mapNonEmpty(source.query.stage.arms, of)
 		one = plus(one, arms.length === 1 ? arms[0].one : undefined)

@@ -3,8 +3,7 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
-import type { CompileError, CompileReasonTag } from "#compiler/core/errors.ts"
-import type { Refused } from "#compiler/core/refusals.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import type { TableConstraintLaw } from "#compiler/laws/model/model.ts"
 import { theoryViolations } from "#compiler/laws/model/violations.ts"
@@ -542,8 +541,8 @@ export const amountSchemaOf = (c: TagCase, price: Decimal) => {
 
 /**
  * What a definition of Item negates: one table, Mark; a join of Mark and Note on the item, a query; a union of Mark's and
- * Note's items, a query of two rules; the join derived on a level below; a query that negates in turn; or a query a rule
- * may not read, one that aggregates.
+ * Note's items, a query of two rules; the join derived on a level below; a query that negates in turn; or a query that
+ * aggregates, whose groups a probe reads where a write touches them (analysis/theory/query.ts GroupedMatch).
  */
 type NegatedSource = "table" | "join" | "union" | "derived" | "aggregate" | "negating"
 
@@ -579,35 +578,6 @@ export const negationCase: Gen<NegationCase> = (s) => ({
 const Note = relation("Note", { item: pg.integer, on: pg.integer }, ["item", "on"])
 
 const Notes = schema("RuleQueryNegated", [Item, Mark, Claim, Note], [])
-
-/**
- * The reason each negated source is refused for, as a refusal reads (reasonOf), or none for one a rule reads: a
- * select-project-join query or a union of them, a relation of one, or one that negates in turn. An aggregate breaks a
- * rule the types name too (Refused).
- */
-export const negatedRefusals: { readonly [S in NegatedSource]: ReasonRead | undefined } = {
-	table: undefined,
-	join: undefined,
-	union: undefined,
-	derived: undefined,
-	aggregate: {
-		tag: "Refused",
-		refusal:
-			"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates"
-	},
-	negating: undefined
-}
-
-/** A refusal's reason as a refusal reads: a named refusal's roster member, or another reason's tag. */
-type ReasonRead =
-	| { readonly tag: "Refused"; readonly refusal: Refused }
-	| { readonly tag: Exclude<CompileReasonTag, "Refused"> }
-
-/** A refusal's reason as negatedRefusals states it. */
-export const reasonOf = (e: CompileError): ReasonRead =>
-	e.reason._tag === "Refused"
-		? { tag: "Refused", refusal: e.reason.refusal }
-		: { tag: e.reason._tag }
 
 /**
  * The case's schema: Mark joined with Note derived on a level of its own, then Item's facts negating the case's source,

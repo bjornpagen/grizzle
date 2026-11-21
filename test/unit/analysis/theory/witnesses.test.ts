@@ -129,8 +129,8 @@ export const aRuleOverAQuerysWitnessesAreTheShapesItsArmsGiveItsViolationEveryOc
 			{
 				file: "packages/engine/src/analysis/theory/query.ts",
 				original:
-					'\t\t\t[...reads(breakingArms(rule), "positive"), ...reads(targetArms(rule), "negative")],',
-				replacement: '\t\t\t[...reads(targetArms(rule), "negative")],',
+					'\t\t\t\t...storedAmong([\n\t\t\t\t\t...reads(breakingArms(rule), "positive"),\n\t\t\t\t\t...reads(targetArms(rule), "negative")\n\t\t\t\t]),',
+				replacement: '\t\t\t\t...storedAmong([...reads(targetArms(rule), "negative")]),',
 				why: "An INSERT that adds a breaking arm's facts read as breaking nothing (query.ts probedTouches): its matches' writes are never captured."
 			},
 			{

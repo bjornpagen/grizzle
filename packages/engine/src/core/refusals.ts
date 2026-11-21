@@ -75,7 +75,6 @@ export const refusals = [
 	"a retirable statement retires stored relations: a derived relation's rows are its definition's, which no write draws",
 	"a role's query entry matches only the contexts the role declares",
 	"a roster lists each handle once",
-	"a rule reads a derived relation whose definition joins, selects and projects: this one aggregates",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one approximates a search",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one attaches a nested query",
 	"a rule reads a derived relation whose definition joins, selects and projects: this one orders and takes",

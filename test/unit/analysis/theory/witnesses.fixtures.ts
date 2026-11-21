@@ -72,6 +72,7 @@ const conjunctiveOf = (relations: Arr.NonEmptyReadonlyArray<number>, prefix: str
 	return {
 		vars,
 		matches: Arr.map(relations, (relation, i) => ({
+			kind: "stored" as const,
 			relation: nameOf(relation),
 			bindings: { f: { kind: "var" as const, var: `${prefix}${i}` } },
 			loc

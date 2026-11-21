@@ -73,8 +73,8 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 				},
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
-					original: "\t\t\t\t\t\t\t\twhere: inner,",
-					replacement: "\t\t\t\t\t\t\t\twhere: [],",
+					original: "\t\t\t\twhere: inner,",
+					replacement: "\t\t\t\twhere: [],",
 					why: "A condition placed inside a step is dropped; the search fails in its steered phase."
 				},
 				{
