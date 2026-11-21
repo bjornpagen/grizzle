@@ -98,6 +98,7 @@ export type IdentityKind =
 	| "ruleJudge"
 	| "ruleJudgePart"
 	| "ruleDelta"
+	| "ruleDeltaReader"
 	| "ruleSentinel"
 	| "refusal"
 	| "snapshotGuard"

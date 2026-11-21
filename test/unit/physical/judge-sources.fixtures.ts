@@ -3,7 +3,11 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { boolean, element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
-import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
+import {
+	compileInstallation,
+	type Installation,
+	installOptions
+} from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import {
@@ -122,7 +126,7 @@ interface Scanned {
 /** The prefixes of a session's delta's table, one per side, before its relation's name and its digest. */
 const deltaPrefixes = ["__delta_news_", "__delta_olds_"] as const
 
-/** The relation a session's delta table holds a side of, by its name: what lies between its prefix and its digest. */
+/** The relation a session's delta holds a side of, by its CTE's name: what lies between its prefix and its digest. */
 const deltaOf = (name: string): Table | undefined => {
 	const prefix = Option.getOrUndefined(Arr.findFirst(deltaPrefixes, (p) => Str.startsWith(p)(name)))
 	if (prefix === undefined) {
@@ -136,16 +140,92 @@ const deltaOf = (name: string): Table | undefined => {
 	)
 }
 
-/** The table a FROM source reads, where it reads one of the installation's or a session's delta of one. */
-const scannedBy = (source: FromSource): Scanned | undefined => {
+/** A delta's reader (physical/ddl/rules.ts readers): the delta it reads, and the columns it returns, in order. */
+interface Reader {
+	readonly delta: string
+	readonly columns: ReadonlyArray<string>
+}
+
+/** Each delta's reader in `installation`, by its function's name: a PL/pgSQL function whose one statement returns the
+ * columns of one table of pg_temp, the delta. */
+const readersIn = (installation: Installation): ReadonlyMap<string, Reader> =>
+	new Map(
+		Arr.flatMap(installation.statements, (s): ReadonlyArray<readonly [string, Reader]> => {
+			if (s.kind !== "createFunction" || s.language !== "plpgsql") {
+				return []
+			}
+			const [only, ...rest] = s.body.body
+			if (only.kind !== "returnQuery" || rest.length > 0 || only.query.body.kind !== "core") {
+				return []
+			}
+			const [from, ...more] = only.query.body.from
+			if (from?.kind !== "table" || typeof from.table === "string" || more.length > 0) {
+				return []
+			}
+			const columns = Arr.flatMap(only.query.body.targets, (t) =>
+				t.expr.kind === "column" ? [t.expr.column] : []
+			)
+			return [[s.name.name, { delta: from.table.name, columns }]]
+		})
+	)
+
+/** A CTE a judged statement reads a delta through (physical/ddl/rules.ts deltaHead): the delta's table, and each of
+ * its columns' column of the delta. */
+interface Head {
+	readonly table: Table
+	readonly columnOf: ReadonlyMap<string, string>
+}
+
+/** Each CTE of `statement` that reads a delta's reader, by its name (`Head`). */
+const headsOf = (
+	statement: OperandSelect,
+	readers: ReadonlyMap<string, Reader>
+): ReadonlyMap<string, Head> => {
+	const heads = new Map<string, Head>()
+	visitSelect(statement, {
+		...inertVisitor,
+		with: (w) => {
+			for (const cte of w.ctes) {
+				const body = cte.query
+				if (body.kind !== "select" || body.body.kind !== "core") {
+					continue
+				}
+				const [from] = body.body.from
+				const reader =
+					from?.kind === "function" && from.call.fn.kind === "qualified"
+						? readers.get(from.call.fn.name)
+						: undefined
+				const table = reader === undefined ? undefined : deltaOf(reader.delta)
+				if (reader !== undefined && table !== undefined) {
+					heads.set(cte.name, {
+						table,
+						columnOf: new Map(
+							Arr.flatMap(cte.columns, (c, at) => {
+								const column = reader.columns[at]
+								return column === undefined ? [] : [[c, column] as const]
+							})
+						)
+					})
+				}
+			}
+		}
+	})
+	return heads
+}
+
+/**
+ * The table a FROM source reads, where it reads one of the installation's, or a session's delta of one, which a judged
+ * statement reads through its delta's CTE (`heads`).
+ */
+const scannedBy = (source: FromSource, heads: ReadonlyMap<string, Head>): Scanned | undefined => {
+	if (source.kind === "cte") {
+		const head = heads.get(source.name)
+		return head === undefined ? undefined : { kind: "delta", table: head.table }
+	}
 	if (source.kind !== "table" || typeof source.table === "string") {
 		return undefined
 	}
 	const { schema: holder, name } = source.table
-	if (holder === "pg_temp") {
-		const table = deltaOf(name)
-		return table === undefined ? undefined : { kind: "delta", table }
-	}
 	const table = tableNamed(name)
 	return table !== undefined && Str.startsWith("judge_sources")(holder)
 		? { kind: "stored", table }
@@ -168,25 +248,39 @@ interface Scan {
 	readonly columns: ReadonlyArray<ScanColumn>
 }
 
-/** Each scan of a table in `statement`, at any depth. */
-const scansOf = (statement: OperandSelect): ReadonlyArray<Scan> => {
+/** Each scan of a table in `statement`, at any depth, each column a delta's CTE delivers read as the delta's own. */
+const scansOf = (
+	statement: OperandSelect,
+	heads: ReadonlyMap<string, Head>
+): ReadonlyArray<Scan> => {
 	const scans: Array<Scan> = []
 	const source = (item: FromSource): void => {
 		if (item.kind !== "derived" || item.query.body.kind !== "core") {
 			return
 		}
 		const [from, ...more] = item.query.body.from
-		if (from === undefined || more.length > 0 || from.kind !== "table") {
+		if (from === undefined || more.length > 0 || (from.kind !== "table" && from.kind !== "cte")) {
 			return
 		}
-		const scanned = scannedBy(from)
+		const scanned = scannedBy(from, heads)
 		if (scanned === undefined) {
 			return
 		}
+		const alias = from.kind === "cte" ? (from.alias ?? from.name) : from.alias
+		const columnOf = from.kind === "cte" ? heads.get(from.name)?.columnOf : undefined
 		const columns = Arr.flatMap(item.query.body.targets, (t, i) => {
 			const output = item.columns[i]
-			return output !== undefined && t.expr.kind === "column" && t.expr.table === from.alias
-				? [{ read: t.expr.column, output }]
+			const read =
+				t.expr.kind !== "column"
+					? undefined
+					: columnOf === undefined
+						? t.expr.column
+						: columnOf.get(t.expr.column)
+			return output !== undefined &&
+				read !== undefined &&
+				t.expr.kind === "column" &&
+				t.expr.table === alias
+				? [{ read, output }]
 				: []
 		})
 		assert.equal(
@@ -233,10 +327,11 @@ export const judged = (shape: Shape, note: (r: Reached) => void): void => {
 	const owned = owning(schemaOf(shape))
 	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
 	const read = readFields(shape)
+	const readers = readersIn(installation)
 	for (const { query: statement } of judgedStatementsOf(installation)) {
 		note(shape.judge === "whole" ? "a whole rule's statement" : "a probe's statement")
 		const references = referencesOf(statement)
-		for (const scan of scansOf(statement)) {
+		for (const scan of scansOf(statement, headsOf(statement, readers))) {
 			const { kind, table } = scan.scanned
 			for (const { read: column, output } of scan.columns) {
 				assert.ok(

@@ -24,7 +24,7 @@ import { printTableName } from "#compiler/sql/print.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
-import { judgedStatementsOf } from "#test/support/judge.ts"
+import { judgedStatementsOf, readersOf } from "#test/support/judge.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
 import type { PgConnection } from "#test/support/pg.ts"
@@ -238,13 +238,25 @@ interface RuleStatement {
 	readonly stored: ReadonlyArray<string>
 }
 
-/** The tables `statement` reads, each once: its deltas by name, and its stored tables printed. */
-const tablesRead = (statement: OperandSelect): RuleStatement => {
+/**
+ * The tables `statement` reads, each once: its deltas by name, a delta read through its reader (`readers`, test/support/
+ * judge.ts readersOf) among them, and its stored tables printed.
+ */
+const tablesRead = (
+	statement: OperandSelect,
+	readers: ReadonlyMap<string, string>
+): RuleStatement => {
 	const deltas = new Set<string>()
 	const stored = new Set<string>()
 	visitSelect(statement, {
 		...inertVisitor,
 		fromItem: (item) => {
+			if (item.kind === "function" && item.call.fn.kind === "qualified") {
+				const delta = readers.get(item.call.fn.name)
+				if (delta !== undefined) {
+					deltas.add(delta)
+				}
+			}
 			if (item.kind === "table" && typeof item.table !== "string") {
 				if (item.table.schema === temporarySchema) {
 					deltas.add(item.table.name)
@@ -259,7 +271,9 @@ const tablesRead = (statement: OperandSelect): RuleStatement => {
 
 /** The judge's rule statements of `installed`, in its parts (`RuleStatement`). */
 const ruleStatementsOf = (installed: Installed): ReadonlyArray<RuleStatement> =>
-	Arr.map(judgedStatementsOf(installed.installation), (s) => tablesRead(s.query))
+	Arr.map(judgedStatementsOf(installed.installation), (s) =>
+		tablesRead(s.query, readersOf(installed.installation))
+	)
 
 /** The sorted text of a set of names, for a report. */
 const listed = (names: Iterable<string>): string =>

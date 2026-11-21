@@ -24,6 +24,7 @@ import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/
 import {
 	foundQueryOf,
 	judgedPlans,
+	readersOf,
 	type JudgedStatement,
 	judgedStatementsOf,
 	plannedQueryOf
@@ -159,8 +160,9 @@ const newsProbesOfA = (installation: Installation): ReadonlyArray<JudgedStatemen
 		).pipe(Option.getOrUndefined),
 		"A's side of news"
 	)
+	const readers = Arr.filter([...readersOf(installation)], ([, delta]) => delta === news.name)
 	return Arr.filter(judgedStatementsOf(installation), (probe) =>
-		Str.includes(`"pg_temp".${quoteIdent(news.name)}`)(plannedQueryOf(probe))
+		Arr.some(readers, ([reader]) => Str.includes(`.${quoteIdent(reader)}()`)(plannedQueryOf(probe)))
 	)
 }
 

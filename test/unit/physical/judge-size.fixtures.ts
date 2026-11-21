@@ -206,6 +206,72 @@ const schemaOf = (c: Chain): FixtureSchema => {
 	}
 }
 
+/**
+ * How `statement` reads the session's deltas, at any depth: the FROM sources that name a table of pg_temp, and those that
+ * call a function, a delta's reader (physical/ddl/rules.ts readers) where the judge's statement reads one.
+ */
+const deltaReadsOf = (
+	statement: OperandSelect
+): { readonly tables: number; readonly calls: number } => {
+	let tables = 0
+	let calls = 0
+	const source = (s: FromSource): void => {
+		if (s.kind === "table" && typeof s.table !== "string" && s.table.schema === "pg_temp") {
+			tables += 1
+		}
+		if (s.kind === "function" && s.call.fn.kind === "qualified") {
+			calls += 1
+		}
+	}
+	const item = (i: FromItem): void => {
+		if (i.kind === "joins") {
+			source(i.first)
+			for (const step of i.steps) {
+				source(step.source)
+			}
+			return
+		}
+		source(i)
+	}
+	visitSelect(statement, { ...inertVisitor, fromItem: item })
+	return { tables, calls }
+}
+
+/**
+ * Every statement of the chain's whole rule reads the session's deltas through their readers, never a table of pg_temp:
+ * a plan that reads a delta through its reader depends on the function, so the TRUNCATE the judge empties the delta with
+ * once it has read it leaves the plan standing for the next run, where a plan that read the table was made again at
+ * every COMMIT after one.
+ */
+export const readsDeltasThroughReaders = (c: Chain, note: (r: Reached) => void): void => {
+	const owned = owning(schemaOf(c))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const statements = judgedStatementsOf(installation)
+	assert.ok(statements.length > 0, "the check is judged")
+	note(
+		c.uses === 1
+			? "a definition read once"
+			: c.uses === 2
+				? "a definition read twice"
+				: "a definition read three times"
+	)
+	if (c.depth >= 3) {
+		note("a chain three deep")
+	}
+	for (const { query: statement } of statements) {
+		const reads = deltaReadsOf(statement)
+		assert.equal(
+			reads.tables,
+			0,
+			`a statement of the chain ${c.depth} deep reads a table of pg_temp`
+		)
+		assert.ok(
+			reads.calls > 0,
+			`a statement of the chain ${c.depth} deep reads no delta through its reader`
+		)
+	}
+}
+
 /** The reads of Node's table in `statement`, at any depth: each FROM source that names it. */
 const nodeReadsOf = (statement: OperandSelect): number => {
 	let reads = 0

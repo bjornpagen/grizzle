@@ -23,7 +23,7 @@ import { type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { check, contained, derived, key, on, relation, schema } from "#compiler/public/schema.ts"
-import { type PlStatement } from "#compiler/sql/ast.ts"
+import { type PlDeclaration, type PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import {
 	cleared,
@@ -1307,6 +1307,7 @@ const armingOf = (seat: Seat, table: Table) => {
 			statements,
 			(s) =>
 				guards(s, (inner) => inner.kind === "createSessionTable") ||
+				s.kind === "assign" ||
 				(s.kind === "modify" &&
 					s.statement.kind === "insert" &&
 					typeof s.statement.table !== "string" &&
@@ -1318,11 +1319,22 @@ const armingOf = (seat: Seat, table: Table) => {
 			guards(s, (inner) => inner.kind === "modify" && inner.statement.kind === "update")
 		)
 	)
-	return { standUp, mark }
+	const declare = Arr.flatMap(seat.installed.installation.statements, (s) =>
+		s.kind === "createFunction" &&
+		s.language === "plpgsql" &&
+		s.name.name === identifierOf(identity.ruleCapture(table))
+			? s.body.declare
+			: []
+	)
+	return { standUp, mark, declare }
 }
 
 /** `body` as a function of the session's own, pg_temp.`name`, its call printed beside it. */
-const sessionFunction = (name: string, body: ReadonlyArray<PlStatement>): ReadonlyArray<string> => {
+const sessionFunction = (
+	name: string,
+	body: ReadonlyArray<PlStatement>,
+	declare: ReadonlyArray<PlDeclaration>
+): ReadonlyArray<string> => {
 	const [first, ...rest] = body
 	return first === undefined
 		? []
@@ -1336,7 +1348,7 @@ const sessionFunction = (name: string, body: ReadonlyArray<PlStatement>): Readon
 					security: "DEFINER",
 					returns: "void",
 					params: [],
-					body: { declare: [], body: [first, ...rest] }
+					body: { declare, body: [first, ...rest] }
 				}),
 				`SELECT pg_temp.${quoteIdent(name)}()`
 			]
@@ -1444,7 +1456,7 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 		const table = touched.table
 		const t = seat.table(table)
 		const id = seat.column(table, "id")
-		const { standUp, mark } = armingOf(seat, table)
+		const { standUp, mark, declare } = armingOf(seat, table)
 		const images = Arr.map(deltasOf(seat, table), (d) => {
 			const columns = Arr.join(Arr.map(d.columns, quoteIdent), ", ")
 			return touched.stored
@@ -1464,9 +1476,9 @@ const footprintOf = (seat: Seat, touched: Touched) =>
 					)}`
 		})
 		const write = [
-			...sessionFunction("rule_seed_stand_up", standUp),
+			...sessionFunction("rule_seed_stand_up", standUp, declare),
 			...images,
-			...sessionFunction("rule_seed_mark", mark)
+			...sessionFunction("rule_seed_mark", mark, declare)
 		]
 		/** `measured` after the touch's write, in a transaction rolled back after it. */
 		const touching = <A, E>(measured: Effect.Effect<A, E>) =>

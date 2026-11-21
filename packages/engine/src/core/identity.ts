@@ -1829,6 +1829,23 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
+	 * The reader of a session's delta `delta` of `relation`'s writes on one side (physical/ddl/rules.ts addRules): the
+	 * set-returning function every statement of the judge reads the delta through, and the row type of its rows, named
+	 * by the delta's identity, so a migration that changes the delta's declaration names another reader.
+	 */
+	ruleDeltaReader: (
+		relation: string,
+		side: "news" | "olds",
+		delta: Identity<"ruleDelta">
+	): Identity<"ruleDeltaReader"> =>
+		mint(
+			"ruleDeltaReader",
+			[delta],
+			["reader", side, ...nameSegments(relation)],
+			`the reader of the delta of ${side} of ${relation}`,
+			hashed
+		),
+	/**
 	 * A session's sentinel of an installation, the identity of its root schema (physical/ddl/rules.ts addRules): a table
 	 * of pg_temp whose one row arms its deferred trigger, which runs the judge, and holds the transaction's written set,
 	 * named by its declaration's canonical text too, so a migration that changes it names another and no capture meets

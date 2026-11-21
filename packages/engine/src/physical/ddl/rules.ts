@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	headNonEmpty,
@@ -47,15 +47,18 @@ import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
+import { withLeading } from "#compiler/lower/conservative/context.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
 import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipeline.ts"
 import { extractLookups, extractSuffixSeeks } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
+import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
 	ColumnDefinition,
 	CreateTransitionTrigger,
+	Cte,
 	Expr,
 	FromSource,
 	Insert,
@@ -78,11 +81,13 @@ import {
 	cUtf8Collation,
 	derived,
 	desc,
+	distinctCore,
 	eq,
 	exists,
 	gt,
 	le,
 	lit,
+	namedType,
 	not,
 	notExists,
 	objectName,
@@ -103,6 +108,7 @@ import {
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
 import { printTableName, sessionTableOurs, sessionTableStands } from "#compiler/sql/print.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
+import { identityHooks, inertVisitor, Transform, visitSelect } from "#compiler/sql/transform.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
 interface Compiled {
@@ -180,7 +186,8 @@ const compileProbe = (
 	rule: RuleTrigger,
 	relation: RelationInfo,
 	probe: InferredQuery,
-	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
+	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
+	heads: ReadonlyMap<string, Cte>
 ): Compiled =>
 	judgedStatement(
 		b,
@@ -191,6 +198,7 @@ const compileProbe = (
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
 		deltas,
+		heads,
 		"units"
 	)
 
@@ -200,10 +208,11 @@ const compileProbe = (
  * definition included and a negated one's too, is a step read by the columns its region, its unit or the steps before
  * it bound, never a join PostgreSQL may plan as a product it filters afterwards, each import its unfolding multiplies
  * read whole (`perStatement`); then checked as a region read (check/checker.ts QueryRead `region`) and lowered by the
- * optimized pipeline under the transaction's evidence, each Delta node read from the session's delta table `deltas`
- * names (RegionLowering), to one main statement of no parameter, its outputs unaliased; with the index requests of
- * `rule` its checked DAG's access paths are (`requestsOf`). It reads each suffix test of a text its requests' indexes
- * hold the suffix key of as the key's range (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
+ * optimized pipeline under the transaction's evidence, each Delta node read from the relation `deltas` names
+ * (RegionLowering), to one main statement of no parameter, its outputs unaliased, the CTE `heads` holds of each
+ * session's delta it reads leading its WITH (`headed`); with the index requests of `rule` its checked DAG's access
+ * paths are (`requestsOf`). It reads each suffix test of a text its requests' indexes hold the suffix key of as the
+ * key's range (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
  * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
  * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule
  * `definitionOf`).
@@ -217,6 +226,7 @@ const judgedStatement = (
 	label: string,
 	loc: SourceLoc,
 	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
+	heads: ReadonlyMap<string, Cte>,
 	extent: RegionExtent
 ): Compiled => {
 	const checked = unwrap(
@@ -254,7 +264,97 @@ const judgedStatement = (
 		throw new Refusal(unsupported(loc, `${label}: a judged query that reads a parameter`))
 	}
 	const statement = main.ast
-	return { statement: { ...statement, body: unaliased(statement.body) }, requests }
+	return { statement: headed({ ...statement, body: unaliased(statement.body) }, heads), requests }
+}
+
+/**
+ * `statement` with the CTE of each session's delta it reads (`deltaHead`) leading its WITH, in the order `heads` holds
+ * them: every Delta node of the statement over a delta reads that delta's CTE, so the statement calls each delta's
+ * reader once, however many of its reads read the delta (the arms of a union over one relation, the occurrences of a
+ * region, a negation's test), where a call at each read read every row of the delta again for each.
+ */
+const headed = (statement: OperandSelect, heads: ReadonlyMap<string, Cte>): OperandSelect => {
+	const read: Array<string> = []
+	let last = 0
+	/** A generated relation name, r<n>, raises `last` to its n; any other name is none of the statement's numbering. */
+	const numbered = (name: string | undefined): void => {
+		const digits = name?.startsWith("r") === true ? name.slice(1) : ""
+		const n = Number(digits)
+		if (digits !== "" && Number.isSafeInteger(n) && String(n) === digits) {
+			last = Math.max(last, n)
+		}
+	}
+	const sourceOf = (source: FromSource): void => {
+		if (source.kind === "cte" && heads.has(source.name) && !read.includes(source.name)) {
+			read.push(source.name)
+		}
+		numbered("alias" in source ? source.alias : undefined)
+	}
+	visitSelect(statement, {
+		...inertVisitor,
+		fromItem: (item) => {
+			if (item.kind === "joins") {
+				sourceOf(item.first)
+				for (const step of item.steps) {
+					sourceOf(step.source)
+				}
+				return
+			}
+			sourceOf(item)
+		},
+		with: (w) => {
+			for (const cte of w.ctes) {
+				numbered(cte.name)
+			}
+		}
+	})
+	/** Each delta the statement reads, its head named past every relation the statement names: r<n> and its reader r<n+1>. */
+	const named = new Map(
+		read.map((delta) => {
+			const head = defined(heads.get(delta), "a delta the statement reads has its head")
+			const cte = `r${last + 1}`
+			const inner = `r${last + 2}`
+			last += 2
+			return [delta, { head, cte, inner }] as const
+		})
+	)
+	const renamed = new Transform({
+		...identityHooks,
+		fromSource: (source) => {
+			const to = source.kind === "cte" ? named.get(source.name) : undefined
+			return to === undefined || source.kind !== "cte" ? source : { ...source, name: to.cte }
+		}
+	}).select(statement)
+	return withLeading(
+		renamed,
+		[...named.values()].map(({ head, cte, inner }) => instanceOf(head, cte, inner))
+	)
+}
+
+/**
+ * A delta's head (`deltaHead`) as one statement holds it: named `cte`, its reader read under `inner`, each column c<n>
+ * by its place, as the statement's reads of the delta name them (`sessionDelta`).
+ */
+const instanceOf = (head: Cte, cte: string, inner: string): Cte => {
+	const columns = head.columns.map((_, at) => `c${at + 1}`)
+	const body = head.query
+	if (body.kind !== "select" || body.body.kind !== "core") {
+		throw defect("a delta's head is one SELECT of its reader")
+	}
+	const [source] = body.body.from
+	if (source?.kind !== "function") {
+		throw defect("a delta's head reads its reader")
+	}
+	return {
+		...head,
+		name: cte,
+		columns,
+		query: simpleSelect(
+			columns.map((c) => ({ expr: col(inner, c), alias: undefined })),
+			[{ ...source, alias: inner, columns }],
+			undefined
+		)
+	}
 }
 
 /**
@@ -476,10 +576,46 @@ const deltaStem = { added: "news", removed: "olds" } as const satisfies Record<P
  */
 interface SessionDelta {
 	readonly ident: Identity<"ruleDelta">
+	/** The function the judge's statements read the delta through, and the row type of its rows (`readerOf`). */
+	readonly reader: Identity<"ruleDeltaReader">
 	readonly name: string
 	readonly columns: NonEmptyReadonlyArray<ColumnDefinition>
 	readonly table: NonEmptyReadonlyArray<ColumnDefinition>
+	/** The CTE a judged statement that reads the delta reads it through, over its reader (`deltaHead`). */
+	readonly head: Cte
 }
+
+/**
+ * The CTE a judged statement reads the delta `name` through (`headed`), named as its table is, each of `columns`, its
+ * relation's heading's, in the column of its own name: the rows of the delta's reader `reader` (`readers`), MATERIALIZED,
+ * so the statement calls the reader once and each of its reads of the delta scans the rows the CTE holds. A call at
+ * each read would run the reader's SELECT of the whole delta there, once for each read.
+ *
+ *   WITH "<delta>"("<column>", ...) AS MATERIALIZED (SELECT "r1"."<column>", ... FROM <reader>() AS "r1")
+ */
+const deltaHead = (
+	name: string,
+	columns: NonEmptyReadonlyArray<ColumnDefinition>,
+	reader: ObjectName
+): Cte => ({
+	name,
+	columns: columns.map((c) => c.name),
+	materialized: "MATERIALIZED",
+	query: simpleSelect(
+		columns.map((c) => ({ expr: col("r1", c.name), alias: undefined })),
+		[
+			{
+				kind: "function",
+				call: qualifiedCall(reader.schema, reader.name, []),
+				alias: "r1",
+				columns: [],
+				lateral: false,
+				ordinality: false
+			}
+		],
+		undefined
+	)
+})
 
 /**
  * The column a side of news counts each image it holds in (`addRules`): the image's weight in the transaction's change,
@@ -613,7 +749,10 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
  * rows, the row fired the judge there over a written set none of them was in yet, so no write after SET CONSTRAINTS
  * ALL IMMEDIATE was judged, and its rows stood in its deltas for a later transaction's judge to read.
  */
-const arming = (sentinel: string, deltas: NonEmptyReadonlyArray<SessionDelta>): PlStatement => {
+const arming = (
+	sentinel: string,
+	deltas: NonEmptyReadonlyArray<SessionDelta>
+): readonly [PlStatement, PlStatement] => {
 	const [first, second, ...rest] = mapNonEmpty(deltas, (d, at) =>
 		provedCore(
 			"oneRow",
@@ -622,48 +761,57 @@ const arming = (sentinel: string, deltas: NonEmptyReadonlyArray<SessionDelta>): 
 			holding(d.name, `r${at + 2}`)
 		)
 	)
-	return {
-		kind: "modify",
-		statement: {
-			kind: "insert",
-			with: undefined,
-			table: sessionTable(sentinel),
-			alias: undefined,
-			onConflict: undefined,
-			returning: [],
-			columns: [writtenColumn],
-			source: {
-				kind: "query",
-				query: provedSelect(
-					"oneRow",
-					[
-						{
-							expr: {
-								kind: "array",
-								query: select(
-									second === undefined ? first : setOperation("UNION", [first, second, ...rest])
-								)
-							},
-							alias: undefined
-						}
-					],
-					[],
-					notExists(
-						simpleSelect(
-							[],
-							[{ kind: "table", table: sessionTable(sentinel), alias: "r1" }],
-							undefined
-						)
-					)
+	return [
+		{
+			kind: "assign",
+			target: armedName,
+			value: {
+				kind: "array",
+				query: select(
+					second === undefined ? first : setOperation("UNION", [first, second, ...rest])
 				)
 			}
+		},
+		{
+			kind: "modify",
+			statement: {
+				kind: "insert",
+				with: undefined,
+				table: sessionTable(sentinel),
+				alias: undefined,
+				onConflict: undefined,
+				returning: [],
+				columns: [writtenColumn],
+				source: {
+					kind: "query",
+					query: provedSelect(
+						"oneRow",
+						[{ expr: { kind: "plVar", name: armedName }, alias: undefined }],
+						[],
+						notExists(
+							simpleSelect(
+								[],
+								[{ kind: "table", table: sessionTable(sentinel), alias: "r1" }],
+								undefined
+							)
+						)
+					)
+				}
+			}
 		}
-	}
+	]
 }
 
 /**
+ * The name of a capture's variable that holds the written set its sentinel row is armed with (`arming`), read by the
+ * arming INSERT in place of the deltas, so the judge that INSERT fires, inside it after SET CONSTRAINTS ALL IMMEDIATE,
+ * finds no delta held open by a statement still running and may truncate each one it read (`emptied`).
+ */
+const armedName = "__armed"
+
+/**
  * Marks `delta` in the transaction's written set, the sentinel row's (`writtenColumn`), where the delta holds a row:
- * every row a delta holds is the transaction's, since the judge deletes every row of each delta it reads (`partBody`)
+ * every row a delta holds is the transaction's, since the judge truncates each delta it reads (`emptied`)
  * and a rolled-back write's go with it, so the
  * set names exactly the deltas the transaction wrote a row into, each once, which the judge reads in place of every
  * delta the session holds (`addRules`).
@@ -907,12 +1055,21 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 				deltaStem[side],
 				canonicalTextOf(table)
 			)
+			const reader = identity.ruleDeltaReader(relation.name, deltaStem[side], ident)
+			const name = b.name(ident)
 			return read.length === 0
 				? []
 				: [
 						{
 							side,
-							delta: { ident, name: b.name(ident), columns, table },
+							delta: {
+								ident,
+								reader,
+								name,
+								columns,
+								table,
+								head: deltaHead(name, columns, objectName(b.schema, b.name(reader)))
+							},
 							read: [...new Set(columnsOf(relation, read.flat()))]
 						}
 					]
@@ -1118,31 +1275,25 @@ const partBody = (
 }
 
 /**
- * The rows of `delta` deleted once its part has read them, where the transaction's written set names it, which a capture
- * that wrote a row there marked (`marked`), so the delta stands: the delta holds the rows of one run of the judge alone,
- * and no COMMIT truncates it (`addRules`).
+ * The rows of `delta` truncated once its part has read them, where the transaction's written set names it, which a
+ * capture that wrote a row there marked (`marked`), so the delta stands: the delta holds the rows of one run of the
+ * judge alone, and no COMMIT truncates it (`addRules`). A TRUNCATE gives the table a new file and the old one back, where
+ * a DELETE kept every page of the run, which no VACUUM of the session's table records as free, so every capture after it
+ * extended the heap and every statement that scanned the delta read every run's dead rows: a session's deltas grew by
+ * each judged write. The invalidation it sends names the table alone: the judge's statements read the delta through its
+ * reader (`readers`) and keep their plans, and the statements that read the table itself, a capture's and its marks, plan
+ * their one row again. The judge runs inside no statement that holds the delta open: after SET CONSTRAINTS ALL
+ * IMMEDIATE it runs at the end of the capture's arming INSERT, which reads the sentinel and the written set's variable
+ * alone (`arming`).
  *
- *   IF __written @> '{<delta>}' THEN DELETE FROM pg_temp.<delta> AS r1; END IF
+ *   IF __written @> '{<delta>}' THEN TRUNCATE pg_temp.<delta>; END IF
  */
 const emptied = (delta: SessionDelta): PlStatement => ({
 	kind: "if",
 	branches: [
 		{
 			condition: wrote(delta.name),
-			body: [
-				{
-					kind: "modify",
-					statement: {
-						kind: "delete",
-						with: undefined,
-						table: sessionTable(delta.name),
-						alias: "r1",
-						using: [],
-						where: undefined,
-						returning: []
-					}
-				}
-			]
+			body: [{ kind: "truncateSessionTable", name: delta.name }]
 		}
 	],
 	else: []
@@ -1174,8 +1325,8 @@ const emptied = (delta: SessionDelta): PlStatement => ({
  *   column the side reads: into the side of olds, delta.removed, the rows as the statement found them; into the side of
  *   news, the transaction's net write, each image the statement put counted 1 and each it removed counted -1. Each delta
  *   is a table of pg_temp, created at the session's first capture of that side, ON COMMIT PRESERVE ROWS, so it lives
- *   as long as the session, and holds one transaction's rows: the judge deletes every row of each delta it reads, once
- *   its part has read them, and a rolled-back write's go with it. No COMMIT truncates a delta or the sentinel:
+ *   as long as the session, and holds one transaction's rows: the judge truncates each delta it reads, once its part
+ *   has read them (`emptied`), and a rolled-back write's go with it. No COMMIT truncates a delta or the sentinel:
  *   PostgreSQL truncates every ON COMMIT DELETE ROWS table of a session at each COMMIT of a transaction that touched a
  *   temporary relation (tablecmds.c PreCommit_on_commit_actions), whether it wrote the table or not, each truncation an
  *   ACCESS EXCLUSIVE lock, a rebuild of its indexes and its TOAST table's, and invalidations every backend reads, so a
@@ -1204,8 +1355,9 @@ const emptied = (delta: SessionDelta): PlStatement => ({
  *   PostgreSQL plans for a first row a holding rule never returns: SQLSTATE 23503 for a containment, 23505 for a key and
  *   23514 for a check, naming the rule's trigger name as its constraint and
  *   the rule's table, with no DETAIL, since the writer may not see the rows. Over deltas that hold no row a rule's region
- *   is empty, so a transaction runs exactly the rules over the relations it wrote. Each part deletes every row of each
- *   delta the written set names once its rules have read them (`emptied`), so a judge that runs again after SET
+ *   is empty, so a transaction runs exactly the rules over the relations it wrote. Each part truncates each delta the
+ *   written set names once its rules have read them (`emptied`), its statements reading every delta through its reader
+ *   (`readers`), so their plans outlive the truncation, so a judge that runs again after SET
  *   CONSTRAINTS ALL IMMEDIATE reads the rows the statements since its last run wrote: each statement's rows are judged
  *   once, on the state as it stood when they were, and a later statement that breaks a rule through them writes rows of
  *   its own the rule's other side reads, which that run judges.
@@ -1256,18 +1408,23 @@ export const addRules = (
 	const requests: Array<IndexRequest> = []
 	const tableOf = (relation: string): JudgedTable | undefined =>
 		tables.find((t) => t.relation.name === relation)
+	/** The CTE of each session's delta, by its name, that a judged statement reading it holds (`headed`). */
+	const heads = new Map(
+		tables.flatMap((t) => t.sides.map((s) => [s.delta.name, s.delta.head] as const))
+	)
 	/**
-	 * The session's delta of `t`'s side `side` as a Delta node reads it, each field of its relation's heading in the
-	 * column of its own name, the delta's (`judgedTables`); none of the facts a write met.
+	 * The session's delta of `t`'s side `side` as a Delta node reads it: the CTE the judged statement reads it through
+	 * (SessionDelta `head`), each field of its relation's heading in the column of its own name, the delta's
+	 * (`judgedTables`); none of the facts a write met.
 	 */
 	const sessionDelta = (t: JudgedTable, side: DeltaSide): DeltaRelation | undefined => {
 		const delta = side === "met" ? undefined : deltaOf(t, side)
 		return delta === undefined
 			? undefined
 			: {
-					kind: "table",
-					table: sessionTable(delta.name),
-					columns: t.relation.heading.map((f) => ({ field: f.name, column: f.column }))
+					kind: "cte",
+					cte: delta.head.name,
+					columns: t.relation.heading.map((f, at) => ({ field: f.name, column: `c${at + 1}` }))
 				}
 	}
 	/**
@@ -1293,7 +1450,7 @@ export const addRules = (
 			}
 			const delta = deltaOf(t, side)
 			const compiled = probes(probed, relation.name, side, rule.law.loc).map((probe) =>
-				compileProbe(b, catalog, rule, relation, probe, deltas)
+				compileProbe(b, catalog, rule, relation, probe, deltas, heads)
 			)
 			appendAll(
 				requests,
@@ -1335,6 +1492,7 @@ export const addRules = (
 			label,
 			rule.law.loc,
 			deltas,
+			heads,
 			"units"
 		)
 		appendAll(requests, lowered.requests)
@@ -1403,6 +1561,7 @@ export const addRules = (
 				label,
 				rule.law.loc,
 				everyRow(rule),
+				new Map(),
 				"every"
 			)
 		const compiled: NonEmptyReadonlyArray<Compiled> =
@@ -1452,6 +1611,87 @@ export const addRules = (
 		[...new Set(rules.flatMap((rule) => rule.law.reads))].flatMap((name) =>
 			b.model.relations.has(name) ? [b.table(name)] : []
 		)
+	/**
+	 * Each delta's reader (SessionDelta `reader`), by the delta's name: the row type of the delta's rows, its relation's
+	 * heading's columns, and the function the judge's statements read the delta through, its rows' one SELECT, no count
+	 * of a side of news among them, which the part nets before any statement reads the delta (`netted`):
+	 *
+	 *   RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<delta> AS r1
+	 *
+	 * A plan of a statement that reads the delta through it depends on the function, never on the table, so the TRUNCATE
+	 * the judge empties the table with once it has read it (`emptied`), a new file of the table and an invalidation of
+	 * every plan that reads it, leaves the judge's plans standing for the next run, and only the reader's own SELECT is
+	 * planned again. Its EXECUTE is revoked from PUBLIC, as each part's is: only the judge's definer runs it, over a
+	 * table only that definer made (`ensured`).
+	 */
+	const readers = new Map(
+		tables.flatMap((t) =>
+			t.sides.map((s) => {
+				const delta = s.delta
+				const named = objectName(b.schema, b.name(delta.reader))
+				const rowType = b.add(
+					{
+						kind: "rowType",
+						ident: b.qualified("type", delta.reader),
+						ddl: [
+							{ kind: "createRowType", name: named, attributes: delta.columns },
+							{
+								kind: "revoke",
+								privileges: ["ALL"],
+								on: { kind: "TYPE", names: [named] },
+								from: [{ kind: "PUBLIC" }]
+							}
+						],
+						reasons,
+						phase: "setup"
+					},
+					[b.levelNode(t.relation.name)]
+				)
+				const reader: readonly [PlFunction, Revoke] = [
+					{
+						kind: "createFunction",
+						language: "plpgsql",
+						name: named,
+						params: [],
+						returns: { setOf: namedType(installationTypes(b.names.installation), named.name, []) },
+						volatility: "VOLATILE",
+						parallel: "UNSAFE",
+						security: "DEFINER",
+						body: {
+							declare: [],
+							body: [
+								{
+									kind: "returnQuery",
+									query: select(
+										distinctCore(
+											mapNonEmpty(delta.columns, (c) => ({
+												expr: col("r1", c.name),
+												alias: undefined
+											})),
+											[{ kind: "table", table: sessionTable(delta.name), alias: "r1" }],
+											undefined
+										)
+									)
+								}
+							]
+						}
+					},
+					revokeOf(named, [])
+				]
+				const node = b.add(
+					{
+						kind: "lawFunction",
+						ident: b.qualified("function", delta.reader),
+						ddl: reader,
+						reasons,
+						phase: "validate"
+					},
+					[rowType]
+				)
+				return [delta.name, node] as const
+			})
+		)
+	)
 	const parts = partsOf(judged).map((part) => {
 		const relation = defined(
 			sideOf.get(headNonEmpty(part.deltas).name),
@@ -1488,7 +1728,12 @@ export const addRules = (
 				reasons: rules.map((rule) => ({ kind: "law" as const, law: rule.law.id })),
 				phase: "validate"
 			},
-			tablesOf(rules)
+			[
+				...tablesOf(rules),
+				...part.deltas.map((d) =>
+					defined(readers.get(d.name), "a part's delta, a delta of a judged table")
+				)
+			]
 		)
 		return { part, fn, node }
 	})
@@ -1633,7 +1878,7 @@ const addCapture = (
 	): ReadonlyArray<PlStatement> => [
 		armedSentinel(sentinel, judge),
 		...writes,
-		arming(sentinel, deltas)
+		...arming(sentinel, deltas)
 	]
 	const into = (
 		s: JudgedSide,
@@ -1767,7 +2012,7 @@ const addCapture = (
 			parallel: "UNSAFE",
 			security: "DEFINER",
 			body: {
-				declare: [],
+				declare: [{ name: armedName, type: namesType }],
 				body: [
 					{
 						kind: "if",

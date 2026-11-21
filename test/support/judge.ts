@@ -86,7 +86,10 @@ export const raisedRule = (statement: JudgedStatement): Option.Option<string> =>
 	)
 
 /** The session's tables a query reads, its deltas: every table of pg_temp a FROM of it names. */
-const sessionTablesOf = (query: OperandSelect): ReadonlyArray<string> => {
+const sessionTablesOf = (
+	query: OperandSelect,
+	readers: ReadonlyMap<string, string>
+): ReadonlyArray<string> => {
 	const named: Array<string> = []
 	new Transform({
 		...identityHooks,
@@ -98,11 +101,37 @@ const sessionTablesOf = (query: OperandSelect): ReadonlyArray<string> => {
 			) {
 				named.push(source.table.name)
 			}
+			if (source.kind === "function" && source.call.fn.kind === "qualified") {
+				const delta = readers.get(source.call.fn.name)
+				if (delta !== undefined) {
+					named.push(delta)
+				}
+			}
 			return source
 		}
 	}).select(query)
 	return named
 }
+
+/**
+ * Each delta's reader in `installation` by its function's name, the delta it reads (physical/ddl/rules.ts readers): a
+ * PL/pgSQL function whose one statement returns the rows of a table of pg_temp, the delta, which the judge's statements
+ * read the delta through.
+ */
+export const readersOf = (installation: Installation): ReadonlyMap<string, string> =>
+	new Map(
+		Arr.flatMap(installation.statements, (s) => {
+			if (s.kind !== "createFunction" || s.language !== "plpgsql") {
+				return []
+			}
+			const [only, ...rest] = s.body.body
+			if (only.kind !== "returnQuery" || rest.length > 0) {
+				return []
+			}
+			const [delta, ...others] = sessionTablesOf(only.query, new Map())
+			return delta === undefined || others.length > 0 ? [] : [[s.name.name, delta] as const]
+		})
+	)
 
 /** A judged statement explained over the deltas the transaction's captures filled: the statement and its plan. */
 export interface JudgedPlan {
@@ -110,10 +139,23 @@ export interface JudgedPlan {
 	readonly plan: PlanNode
 }
 
-/** Whether `plan` reads a row of one of `deltas`: a node over one returned or filtered out a row in some loop. */
-const readsDeltaRow = (plan: PlanNode, deltas: ReadonlySet<string>): boolean =>
+/**
+ * Whether `plan` reads a row of one of `deltas`: a node over one, or over its reader, the function the judge's statements
+ * read a delta through (`readersOf`), returned or filtered out a row in some loop.
+ */
+const readsDeltaRow = (
+	plan: PlanNode,
+	deltas: ReadonlySet<string>,
+	readers: ReadonlyMap<string, string>
+): boolean =>
 	Iterator.from(planNodes(plan)).some(
-		(n) => Option.exists(n.relation, (r) => deltas.has(r)) && n.actualLoops * scannedRowsOf(n) > 0
+		(n) =>
+			(Option.exists(n.relation, (r) => deltas.has(r)) ||
+				Option.exists(n.functionName, (f) => {
+					const delta = readers.get(f)
+					return delta !== undefined && deltas.has(delta)
+				})) &&
+			n.actualLoops * scannedRowsOf(n) > 0
 	)
 
 /** Each delta the judge's parts stand up, by name: its CREATE, as the part runs it where the session holds none. */
@@ -148,8 +190,9 @@ const standUpsOf = (body: ReadonlyArray<PlStatement>): ReadonlyArray<readonly [s
  * (physical/ddl/rules.ts addCapture), as the judge runs a probe of a side and a whole rule's violation only where a
  * delta it reads holds one (rules.ts partBody), every other delta it reads stood up empty first, as the judge's
  * part stands up the deltas a whole rule's region reads beside the written ones (`standUpsOf`), explained before
- * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which deletes every row of each delta it reads
- * (rules.ts emptied), so a statement explained after it reads no row. A case writes through the captures of
+ * anything runs the judge, SET CONSTRAINTS ALL IMMEDIATE or COMMIT, which truncates each delta it reads
+ * (rules.ts emptied), so a statement explained after it reads no row. A statement reads a delta through its reader
+ * (`readersOf`), and so does each count of the rows it read. A case writes through the captures of
  * `installation`, explains, and only then runs the judge, or defers it to a COMMIT it never reaches. The one measurement
  * of the judge's statements every property makes: one where no statement reads a standing delta, or no explained
  * statement reads a row of one, is refused, so no bound over the judge's work holds over deltas the judge emptied.
@@ -165,9 +208,10 @@ export const judgedPlans = <E>(
 		)
 		const standing = new Set(Arr.map(temporary, (row) => String(row[0])))
 		const standUps = new Map(standUpsOf(judgeBodiesOf(installation)))
+		const readers = readersOf(installation)
 		/** The standing deltas that hold a row: those the transaction's captures wrote, which the judge reads. */
 		const candidates = Arr.filter(
-			Arr.dedupe(Arr.flatMap(statements, (s) => sessionTablesOf(s.query))),
+			Arr.dedupe(Arr.flatMap(statements, (s) => sessionTablesOf(s.query, readers))),
 			(d) => standing.has(d)
 		)
 		const held = Arr.isReadonlyArrayNonEmpty(candidates)
@@ -183,13 +227,13 @@ export const judgedPlans = <E>(
 			: []
 		const holding = new Set(Arr.map(held, (row) => String(row[0])))
 		const judged = Arr.filter(statements, (s) =>
-			Arr.some(sessionTablesOf(s.query), (t) => holding.has(t))
+			Arr.some(sessionTablesOf(s.query, readers), (t) => holding.has(t))
 		)
 		assert.ok(
 			Arr.isReadonlyArrayNonEmpty(judged),
 			"a judged statement reads a delta the transaction's captures wrote a row into"
 		)
-		for (const delta of new Set(Arr.flatMap(judged, (s) => sessionTablesOf(s.query)))) {
+		for (const delta of new Set(Arr.flatMap(judged, (s) => sessionTablesOf(s.query, readers)))) {
 			if (!standing.has(delta)) {
 				yield* values(
 					defined(standUps.get(delta), `the judge stands up the delta ${delta} a statement reads`)
@@ -209,12 +253,12 @@ export const judgedPlans = <E>(
 		)
 		const deltas = new Set(
 			Arr.filter(
-				Arr.flatMap(judged, (s) => sessionTablesOf(s.query)),
+				Arr.flatMap(judged, (s) => sessionTablesOf(s.query, readers)),
 				(d) => holding.has(d)
 			)
 		)
 		assert.ok(
-			Arr.some(plans, (p) => readsDeltaRow(p.plan, deltas)),
+			Arr.some(plans, (p) => readsDeltaRow(p.plan, deltas, readers)),
 			`a judged statement reads a row of the deltas ${Arr.join(Arr.map([...deltas], quoteIdent), ", ")}: none does, so the judge emptied them before the measurement (explain before SET CONSTRAINTS ALL IMMEDIATE or COMMIT runs it)`
 		)
 		return plans
