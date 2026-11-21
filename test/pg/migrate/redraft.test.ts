@@ -8,7 +8,7 @@
  * and whether the regeneration's next file is refused once. Every regeneration is a real draft, reviewed as the chain's
  * folders are: of the folder's source to a schema that differs from the folder's target by a key, a check, a mutable
  * declaration or an alternative, whose first files grizzle may draft byte for byte alike and whose later files and
- * target differ; to another version, whose first file differs; of another source to the folder's own target; or the
+ * target differ, or by a contract's name alone, whose every file is alike and whose target differs; to another version, whose first file differs; of another source to the folder's own target; or the
  * folder's own draft again. Which files agree is read off the drafts, never assumed.
  *
  * Oracle: the documented contract, restated over the drafts' texts. A completed file the regeneration does not hold

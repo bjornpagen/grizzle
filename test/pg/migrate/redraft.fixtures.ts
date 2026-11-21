@@ -32,7 +32,18 @@ import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { firstCodes, installedCodes } from "#test/support/compile.ts"
 import type { SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
-import { check, field, ge, key, literal, mutable, on } from "#test/support/fixtures/ir/desc.ts"
+import {
+	check,
+	f,
+	field,
+	ge,
+	key,
+	literal,
+	mutable,
+	on,
+	relation,
+	value
+} from "#test/support/fixtures/ir/desc.ts"
 import { atName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	compile,
@@ -86,11 +97,22 @@ const v2Tightened: SchemaDesc = {
 	)
 }
 
-/** Shop v2 with Account declared mutable too, which reads no rule its draft installs: every file alike, the target
- * not. */
-const v2AccountMutable: SchemaDesc = {
+/**
+ * Shop v2 with AutomaticTask's budget a contract of another name and the definition of v2's Cents, whose domain is named
+ * by its definition alone (core/identity.ts contractDomain), as each check of it: every file alike, the target, which
+ * records the contract a field is of by its name, not.
+ */
+const v2BudgetRenamed: SchemaDesc = {
 	...shopV2,
-	statements: [...shopV2.statements, mutable("Account")]
+	relations: Arr.map(shopV2.relations, (r) =>
+		r.name === "AutomaticTask"
+			? relation(
+					"AutomaticTask",
+					{ task: f.uuid, budget: f.contract("Money", f.bigint, ge(value, literal(1n))) },
+					["task"]
+				)
+			: r
+	)
 }
 
 /** Shop v3 with Task declared mutable. */
@@ -143,7 +165,7 @@ const folders: ReadonlyArray<{
 			toward("v2 without alternatives", v2Without(1), noDeclarations, "its source"),
 			toward("v3", shopV3, noDeclarations, "its source"),
 			toward("v2 from v1 mutable", shopV2, noDeclarations, "v1 declared mutable"),
-			toward("v2 Account mutable", v2AccountMutable, noDeclarations, "its source")
+			toward("v2 budget renamed", v2BudgetRenamed, noDeclarations, "its source")
 		]
 	},
 	{
@@ -197,9 +219,10 @@ export type Feature =
 /**
  * The case the generator draws for a turn aiming at a feature (aimed): a folder, a regeneration and a point the drafts
  * reach it at, as the drafts stand (Shop v1's and v2's first files are drafted alike under a key, a check or a mutable
- * declaration more or less, and every file of v2 alike with Account declared mutable too, where without Task's
- * mutable declaration the alternatives' containments are judged whole and its files differ; v2 drafted toward from v1
- * declared mutable holds v2's files). The features noted are still the outcome's, so a note never claims what the case
+ * declaration more or less, and every file of v2 alike with AutomaticTask's budget a contract of another name, where
+ * without Task's mutable declaration the alternatives' containments are judged whole and its files differ, and with
+ * Account declared mutable too its immutability guard is dropped; v2 drafted toward from v1 declared mutable holds v2's
+ * files). The features noted are still the outcome's, so a note never claims what the case
  * did not reach.
  */
 export const aims: ReadonlyArray<readonly [Feature, RedraftCase]> = [
