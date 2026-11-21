@@ -32,9 +32,8 @@
  *   rule that binds it (analysis/theory/unit.ts Restriction).
  * - **commuting units**: thousands of documents stored and committed, then two transactions at SERIALIZABLE each writing
  *   a document of its own, one left of every stored one and one right of them, both open before either commits: neither
- *   judge holds a SIRead lock on all of Node, Expr or an index of theirs, and both commit, the roots Reached's walk is
- *   seeded from read once per unit, restricted to it (lower/optimize/pushdown/shared.ts), never once over every
- *   document.
+ *   judge holds a SIRead lock on all of Node, Expr or an index of theirs, and both commit, each judge read per unit
+ *   of its region.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
@@ -174,24 +173,20 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 					'\t\t\t? ruleBody(r, at, aggregates, {\n\t\t\t\t\t...w,\n\t\t\t\t\trestrict: { kind: "bound", region: restriction.region }\n\t\t\t\t})',
 				replacement: "\t\t\t? ruleBody(r, at, aggregates, w)",
 				why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit, or beside it, Rooted's two sides each over a region of its own: a node run once per unit reads every written unit's rows at each run, and the statement's work grows with the square of the units written."
-			},
-			{
-				file: "packages/engine/src/lower/optimize/pipeline.ts",
-				original: '\t\t...(subject === "ruleRegion" ? [sharedPushdownPass] : []),',
-				replacement: '\t\t...(subject === "ruleRegion" ? [] : []),',
-				why: "The judge's statements are rewritten without the shared restriction (lower/optimize/pushdown/shared.ts): the roots Reached's walk is seeded from and Reach reads again are one node no reader's unit restricts, a union MATERIALIZED once in the statement over every document's nodes, so a write of one document reads a root of every one stored."
 			}
 		]
 	})
 
 /**
  * Two transactions each writing a unit of its own beside thousands stored both commit at SERIALIZABLE, and neither's
- * judge locks all of a relation the other writes: each whole rule's statement reads its own unit's rows, the roots
- * Reached's walk is seeded from among them, which both its readers keep at the unit, restricted to it inside, one node
- * computed once per unit (lower/optimize/pushdown/shared.ts, lower/optimize/cte-policy rule 3b), where they were one
- * node of every document's roots, MATERIALIZED once in the statement: metis's concurrent pantry imports, each of its own package, failed each
- * other with 40001 (2026-11-21), each import's judge reading every package through such nodes, and a publish into one
- * database cost 52 s, 172 s, 16 s, 22 s and then over 4 minutes as its 1st to 5th package.
+ * judge locks all of a relation the other writes: each whole rule's statement is read per unit of the region its
+ * transaction wrote (analysis/theory/unit.ts unitStep), so it reads its own unit's rows and the two share no page a
+ * judge reads and the other writes. metis's concurrent pantry imports, each of its own package, failed each other with
+ * 40001 (2026-11-21), each import's judge reading every package. The shared restriction, which keeps the roots this
+ * judge reads twice at the unit (lower/optimize/pushdown/shared.ts), is held to its statements by
+ * test/unit/physical/judge-units: with it off this judge's statement computes the roots once in its own WITH, yet
+ * neither this property nor the locality one tells the two apart (the mutant survived both at hub 5cea52bff, the
+ * written document placed before every stored one and after them), so neither states it as a kill.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
  */
@@ -213,10 +208,11 @@ export const twoTransactionsEachWritingAUnitOfItsOwnBothCommitAndNeithersJudgeLo
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/lower/optimize/pipeline.ts",
-				original: '\t\t...(subject === "ruleRegion" ? [sharedPushdownPass] : []),',
-				replacement: '\t\t...(subject === "ruleRegion" ? [] : []),',
-				why: "The judge's statements are rewritten without the shared restriction (lower/optimize/pushdown/shared.ts): the roots Reached's walk is seeded from and Reach reads again are one node MATERIALIZED once in each judge's statement from every document's nodes, read whole off Node, so the first judge locks all of Node and the second's write breaks it, and one of the two transactions is refused with 40001."
+				file: "packages/engine/src/analysis/theory/unit.ts",
+				original:
+					'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,',
+				replacement: "\t\t\twalkedText,",
+				why: "No rule of a whole rule's violation query is read per unit of the region the transaction wrote, so each judge reads every document stored, the other transaction's rows' pages among them, and the two transactions read what each other writes: PostgreSQL refuses one with 40001."
 			}
 		]
 	})
