@@ -12,7 +12,7 @@ import { Array as Arr, Effect, Option, Result } from "effect"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { elementAt } from "#test/support/oracle/pick.ts"
-import type { RawQueryResult, SqlError } from "#test/support/pg.ts"
+import type { PgConnection, RawQueryResult, SqlError } from "#test/support/pg.ts"
 import {
 	messageText,
 	type PgErrorFields,
@@ -54,14 +54,16 @@ interface Framed {
 }
 
 /**
- * The pipeline of one transaction of `statements`: BEGIN, each statement at its own moment, and `closing`, the COMMIT,
- * or the SET CONSTRAINTS ALL IMMEDIATE that runs the checks the commit would, at the commit's moment.
+ * The pipeline of one transaction of `statements`: `open`, the BEGIN or the SAVEPOINT it runs under, each statement at
+ * its own moment, and `closing`, the COMMIT, or the SET CONSTRAINTS ALL IMMEDIATE that runs the checks the commit
+ * would, at the commit's moment.
  */
 const framed = (
+	open: string,
 	statements: ReadonlyArray<string>,
 	closing: string
 ): Arr.NonEmptyReadonlyArray<Framed> => [
-	{ sql: beginSerializable, moment: Option.none() },
+	{ sql: open, moment: Option.none() },
 	...Arr.map(statements, (sql, index): Framed => ({
 		sql,
 		moment: Option.some({ kind: "statement", index })
@@ -69,19 +71,22 @@ const framed = (
 	{ sql: closing, moment: Option.some({ kind: "commit" }) }
 ]
 
+/** What a transaction's pipeline is written on: a session's, or a connection's own. */
+type Pipelined = Pick<PgConnection, "pipeline">
+
 /**
- * `frame` on `session` in one write, BEGIN through its closing statement, as grizzle's adapter writes a transaction
+ * `frame` on `on` in one write, its opening through its closing statement, as grizzle's adapter writes a transaction
  * (adapter/wire/batch.ts): the closing statement's answer, or the refusal of the first statement PostgreSQL refused, at
  * that statement's moment. Every statement after it was sent with it, each its own exchange ending in a Sync, and
  * PostgreSQL answers each as the aborted transaction's (25P02) and a COMMIT among them with ROLLBACK, so the first
- * refusal is the transaction's and a COMMIT has ended it. A refused BEGIN, or a failure that is no server error (a lost
- * connection), is no verdict, and fails the proof as it is.
+ * refusal is the transaction's and a COMMIT has ended it. A refused opening, or a failure that is no server error (a
+ * lost connection), is no verdict, and fails the proof as it is.
  */
 const sent = (
-	session: RawSession,
+	on: Pipelined,
 	frame: Arr.NonEmptyReadonlyArray<Framed>
 ): Effect.Effect<Result.Result<RawQueryResult, Refused>, SqlError> =>
-	session.pipeline(Arr.map(frame, (f) => f.sql)).pipe(
+	on.pipeline(Arr.map(frame, (f) => f.sql)).pipe(
 		Effect.map((answers) =>
 			Result.succeed(elementAt(answers, frame.length - 1, "the transaction's closing answer"))
 		),
@@ -107,7 +112,7 @@ export const attempt = (
 	statements: ReadonlyArray<string>
 ): Effect.Effect<Attempted, SqlError | TransactionRolledBack> =>
 	Effect.flatMap(
-		sent(session, framed(statements, "COMMIT")),
+		sent(session, framed(beginSerializable, statements, "COMMIT")),
 		Result.match({
 			onFailure: (refused): Effect.Effect<Attempted, TransactionRolledBack> =>
 				Effect.succeed(refused),
@@ -124,29 +129,85 @@ export const attempt = (
 export type Checked<A> = { readonly kind: "committed"; readonly read: A } | Refused
 
 /**
- * One transaction of `statements` on `session` checked as its COMMIT would check it, and rolled back: BEGIN, each
+ * Where a checked transaction runs: the pipeline it is written on, the statement it opens with, and what undoes it once
+ * it is read, so none of its rows stays and no case needs its rows cleared.
+ */
+interface CheckedIn {
+	readonly on: Pipelined
+	readonly open: string
+	readonly undo: Effect.Effect<void, SqlError>
+}
+
+/**
+ * One transaction of `statements` where `place` runs it, checked as its COMMIT would check it, and undone: opened, each
  * statement in order, then SET CONSTRAINTS ALL IMMEDIATE, which runs every check the transaction deferred to its commit
  * at that statement (PostgreSQL's documented retroactive switch), so a refusal there is the commit's, at the commit's
- * moment, all sent in one write; then `read` of what the transaction left, and ROLLBACK, so none of its rows stays and
- * no case needs its rows cleared. A refusal leaves the transaction aborted, and ROLLBACK ends it; so does any failure,
- * so no failure leaves the session inside a transaction PostgreSQL aborted, where every later statement, the next
- * case's BEGIN among them, is refused with 25P02 and the failure a search reports is that, not its own.
+ * moment, all sent in one write; then `read` of what the transaction left, and the undo. A refusal leaves the
+ * transaction aborted, and the undo ends it; so does any failure, so no failure leaves the connection inside a
+ * transaction PostgreSQL aborted, where every later statement, the next case's among them, is refused with 25P02 and
+ * the failure a search reports is that, not its own.
+ */
+const checkedIn = <A>(
+	place: CheckedIn,
+	statements: ReadonlyArray<string>,
+	read: Effect.Effect<A, SqlError>
+): Effect.Effect<Checked<A>, SqlError> =>
+	Effect.onError(
+		Effect.gen(function* () {
+			const answered = yield* sent(
+				place.on,
+				framed(place.open, statements, "SET CONSTRAINTS ALL IMMEDIATE")
+			)
+			const checked: Checked<A> = Result.isFailure(answered)
+				? answered.failure
+				: { kind: "committed", read: yield* read }
+			yield* place.undo
+			return checked
+		}),
+		() => Effect.ignore(place.undo)
+	)
+
+/**
+ * One transaction of `statements` checked as its COMMIT would check it (checkedIn), in a transaction of its own on
+ * `session`, begun SERIALIZABLE and rolled back.
  */
 export const attemptChecked = <A>(
 	session: RawSession,
 	statements: ReadonlyArray<string>,
 	read: Effect.Effect<A, SqlError>
 ): Effect.Effect<Checked<A>, SqlError> =>
-	Effect.onError(
-		Effect.gen(function* () {
-			const answered = yield* sent(session, framed(statements, "SET CONSTRAINTS ALL IMMEDIATE"))
-			const checked: Checked<A> = Result.isFailure(answered)
-				? answered.failure
-				: { kind: "committed", read: yield* read }
-			yield* session.rollback
-			return checked
-		}),
-		() => Effect.ignore(session.rollback)
+	checkedIn({ on: session, open: beginSerializable, undo: session.rollback }, statements, read)
+
+/** The savepoint a checked transaction runs under inside a case's own transaction. */
+const checkedSavepoint = "grizzle_checked"
+
+/**
+ * One transaction of `statements` checked as its COMMIT would check it (checkedIn), under a savepoint of the case's one
+ * transaction on `connection` (Substrate.rolledBack's bare connection, already inside it), rolled back to and released,
+ * so the case's transaction goes on as it was: a case pays no connection, no reset and no fingerprint of its clone, and
+ * the case's own rollback undoes whatever a failure leaves.
+ */
+export const attemptCheckedInCase = <A>(
+	connection: PgConnection,
+	statements: ReadonlyArray<string>,
+	read: Effect.Effect<A, SqlError>
+): Effect.Effect<Checked<A>, SqlError> =>
+	checkedIn(
+		{
+			on: connection,
+			open: `SAVEPOINT ${checkedSavepoint}`,
+			undo: Effect.asVoid(
+				Effect.mapError(
+					connection.pipeline([
+						`ROLLBACK TO SAVEPOINT ${checkedSavepoint}`,
+						`RELEASE SAVEPOINT ${checkedSavepoint}`
+					]),
+					(refused) => refused.error
+				)
+			)
+		},
+		statements,
+		read
 	)
 
 /** A moment as a report reads it. */

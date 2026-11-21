@@ -2,7 +2,7 @@
 
 import { deepEquals, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Case, Kill, Oracle } from "@bjornpagen/testing/property"
-import { Array as Arr, Data, Effect, Exit, Formatter, Option } from "effect"
+import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import {
 	type TreeBreach,
 	breachOf,
@@ -28,24 +28,16 @@ import {
 	upToTwoRoots
 } from "#test/pg/substrate/tree.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
-import type { SqlError } from "#test/support/pg.ts"
+import type { PgConnection, SqlError } from "#test/support/pg.ts"
 import {
-	attempt,
 	type Attempted,
+	attemptCheckedInCase,
 	momentText,
-	qualified,
 	refusalText,
 	sameMoment
 } from "#test/support/substrate.ts"
-import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
-import { clearRows, fixtureGroup, type ResetGroup } from "#test/support/substrate/replace.ts"
-import type { RawSession } from "#test/support/substrate/session.ts"
-import {
-	installTemplate,
-	ownerSession,
-	Substrate,
-	type SubstrateCase
-} from "#test/support/substrate/substrate.ts"
+import { noTables } from "#test/support/substrate/replace.ts"
+import { installTemplate, type RolledBack, Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A lowering's verdict on one transaction, as a feature: committed, or refused naming the constraint PostgreSQL named. */
 export type Verdict = "committed" | `refused ${NodeConstraint}`
@@ -53,12 +45,14 @@ export type Verdict = "committed" | `refused ${NodeConstraint}`
 /** PostgreSQL's disagreement with the model or with the theorem, with both sides and the SQL spelt out. */
 export class Disagreed extends Data.TaggedError("Disagreed")<{ readonly message: string }> {}
 
-/** A lowering installed in a schema of its own, with every table of it and the session its transactions run on. */
+/**
+ * A lowering installed in a schema of its own, and the connection of the case's one rolled-back transaction on the
+ * worker's clone of it (Substrate.rolledBack), which the case's transaction runs under a savepoint of.
+ */
 export interface Seat {
 	readonly lowering: Lowering
 	readonly schema: string
-	readonly tables: ResetGroup
-	readonly session: RawSession
+	readonly connection: PgConnection
 }
 
 const predictedText = (model: Predicted): string =>
@@ -99,29 +93,20 @@ interface Judged {
 /**
  * One transaction of `statements`, each an INSERT, on a seat with no rows, judged against the model: the same verdict,
  * a refusal at the same moment with the SQLSTATE of a constraint the model allows there, and a committed state that
- * reads back as written. It leaves its seat with no rows however it ends: a committed case clears its rows once it has
- * read them, and a case that ends with no verdict, its model disagreeing or a failing sibling seat interrupting it, may
- * have committed rows it never read, so it clears its seat. The next case on the seat, a shrink candidate among them,
- * never meets them (a duplicate key, 23505 on node_identity, in place of the failure being shrunk).
+ * reads back as written. Its verdict is the one its COMMIT would give, read under a savepoint of the case's transaction
+ * (substrate.ts attemptCheckedInCase) and rolled back to, so every case finds its seat with no rows: a commit's rows
+ * are read and undone, and a case that ends with no verdict leaves nothing past the case's own rollback.
  */
 const judged = (
 	seat: Seat,
 	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
-): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
-	Effect.onExitIf(verdictOf(seat, statements), Exit.isFailure, () =>
-		clearRows(seat.session, seat.tables)
-	)
-
-/** judged's verdict, its committed rows cleared once read (see judged). */
-const verdictOf = (
-	seat: Seat,
-	statements: ReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>
-): Effect.Effect<Judged, SqlError | TransactionRolledBack | Disagreed> =>
+): Effect.Effect<Judged, SqlError | Disagreed> =>
 	Effect.gen(function* () {
 		const model = predicted(seat.lowering, statements)
-		const real = yield* attempt(
-			seat.session,
-			Arr.map(statements, (rows) => insertSql(seat.schema, rows))
+		const real = yield* attemptCheckedInCase(
+			seat.connection,
+			Arr.map(statements, (rows) => insertSql(seat.schema, rows)),
+			seat.connection.queryValues(readSql(seat.schema), [])
 		)
 		const disagree = (why: string) =>
 			Effect.fail(
@@ -130,9 +115,7 @@ const verdictOf = (
 				})
 			)
 		if (model.kind === "committed" && real.kind === "committed") {
-			const values = yield* seat.session.values(readSql(seat.schema), [])
-			yield* clearRows(seat.session, seat.tables)
-			const read = rowsOfRead(values)
+			const read = rowsOfRead(real.read)
 			if (!deepEquals(canonical(read), canonical(model.after))) {
 				return yield* disagree(`the committed state reads back as ${Formatter.format(read)}`)
 			}
@@ -179,7 +162,7 @@ export const judgeCase = <F extends string>(
 	seat: Seat,
 	statements: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<TreeRow>>,
 	c: Case<F | StateFeature>
-): Effect.Effect<boolean, SqlError | TransactionRolledBack | Disagreed> =>
+): Effect.Effect<boolean, SqlError | Disagreed> =>
 	Effect.gen(function* () {
 		const rows = Arr.flatten(statements)
 		const breach = breachOf(rows)
@@ -238,8 +221,9 @@ export const THEOREM_ORACLE: Oracle = {
 
 /**
  * The RFC's lowering installed in a schema of its own once per member (substrate.ts installTemplate), where each search
- * installed a pool of seats of it beside its mutants and controls before its cases; each case's seat the schema in the
- * worker's clone with an owner session of its own, its node table emptied after the case.
+ * installed a pool of seats of it beside its mutants and controls before its cases; each case in its own rolled-back
+ * transaction on the worker's clone (Substrate.rolledBack), which undoes every row it writes, so the seat empties
+ * nothing.
  */
 export const treeTemplate = installTemplate({
 	declaredIn: import.meta,
@@ -254,20 +238,17 @@ export const treeTemplate = installTemplate({
 				yield* s.admin.query(statement, [])
 			}
 		}),
-	bind: (schema) => ({ schema, tables: fixtureGroup([qualified(schema, "node")]) }),
-	reset: (installed) => installed.tables
+	bind: (schema) => schema,
+	reset: () => noTables
 })
 
-/** The seat of a case over its clone of the template: the RFC's lowering and an owner session of its own. */
-export const seatIn = (
-	taken: SubstrateCase<{ readonly schema: string; readonly tables: ResetGroup }>
-) =>
-	Effect.map(taken.substrate.session({ ...ownerSession(), label: "tree" }), (session): Seat => ({
-		lowering: RFC,
-		schema: taken.value.schema,
-		tables: taken.value.tables,
-		session
-	}))
+/** The seat of a case in its rolled-back transaction on the worker's clone of the template: the RFC's lowering and the
+ * transaction's connection. */
+export const seatIn = (taken: RolledBack<string>): Seat => ({
+	lowering: RFC,
+	schema: taken.value,
+	connection: taken.bare
+})
 
 /** The boxes' shapes and placements, every one a box holds. */
 export const stateShapes = nonEmpty(shapesBetween(1, 2, upToTwoRoots, 2), "a box holds a shape")

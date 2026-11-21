@@ -1,7 +1,10 @@
 /**
  * trees.md's theorem, proved against PostgreSQL 19 inside stated boxes: the tree relation's DDL written by hand
  * (test/pg/substrate/tree.ts), every state, mutation and write a box holds sent to PostgreSQL as a transaction of its
- * own, and PostgreSQL's verdict judged by two oracles.
+ * own, and PostgreSQL's verdict judged by two oracles. The verdict is the one its COMMIT would give: the transaction
+ * runs under a savepoint of the case's rolled-back transaction on the worker's clone (Substrate.rolledBack), and SET
+ * CONSTRAINTS ALL IMMEDIATE after its statements runs the deferred checks at the commit's moment, so a case opens no
+ * connection and leaves no row for its clone to be reset and fingerprinted over (tree.fixtures.ts judged).
  *
  * - **The specification turned into a checker:** the theorem (trees.md §2), per value of the root field. PostgreSQL
  *   must commit exactly the states where the rows of each root value are one tree rooted at its one self-parented row,
@@ -71,14 +74,14 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
  * Commit exactly the forests of trees among every state of at most two rows, every field over its range and one past
- * it, each case on the worker's seat of the RFC's lowering.
+ * it, each case in its own rolled-back transaction on the worker's clone of the RFC's lowering.
  *
  * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
 export const commitExactlyTheForestsOfTreesAmongEveryStateOfAtMostTwoRows = property.exhaust(
 	finite(fullGen(stateShapes)),
 	{
-		needs: { tree: Substrate.seat(treeTemplate) },
+		needs: { tree: Substrate.rolledBack(treeTemplate) },
 		situations: [
 			"tree committed",
 			"tree committed a forest of two trees",
@@ -103,12 +106,7 @@ export const commitExactlyTheForestsOfTreesAmongEveryStateOfAtMostTwoRows = prop
 				Effect.scoped(
 					Effect.gen(function* () {
 						const taken = yield* tree
-						const seat = yield* seatIn(taken)
-						return yield* Effect.provideService(
-							Effect.asVoid(judgeCase(seat, [rows], c)),
-							Substrate,
-							taken.substrate
-						)
+						return yield* Effect.asVoid(judgeCase(seatIn(taken), [rows], c))
 					})
 				),
 		oracle: THEOREM_ORACLE,
@@ -121,13 +119,13 @@ export const commitExactlyTheForestsOfTreesAmongEveryStateOfAtMostTwoRows = prop
 
 /**
  * Commit exactly the pre-order intervals among every start and end of every forest shape of at most three rows, each
- * case on the worker's seat of the RFC's lowering.
+ * case in its own rolled-back transaction on the worker's clone of the RFC's lowering.
  *
  * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
 export const commitExactlyThePreOrderIntervalsOfEveryForestShapeOfAtMostThreeRows =
 	property.exhaust(finite(shapeGen(intervalShapes)), {
-		needs: { tree: Substrate.seat(treeTemplate) },
+		needs: { tree: Substrate.rolledBack(treeTemplate) },
 		situations: [
 			"tree committed",
 			"tree committed a forest of two trees",
@@ -150,12 +148,7 @@ export const commitExactlyThePreOrderIntervalsOfEveryForestShapeOfAtMostThreeRow
 				Effect.scoped(
 					Effect.gen(function* () {
 						const taken = yield* tree
-						const seat = yield* seatIn(taken)
-						return yield* Effect.provideService(
-							Effect.asVoid(judgeCase(seat, [rows], c)),
-							Substrate,
-							taken.substrate
-						)
+						return yield* Effect.asVoid(judgeCase(seatIn(taken), [rows], c))
 					})
 				),
 		oracle: THEOREM_ORACLE,
@@ -167,13 +160,14 @@ export const commitExactlyThePreOrderIntervalsOfEveryForestShapeOfAtMostThreeRow
 
 /**
  * Commit exactly the pre-order intervals among the starts and ends that pass the row checks, every shape of four and
- * five rows with every root assignment and of six with one, each case on the worker's seat of the RFC's lowering.
+ * five rows with every root assignment and of six with one, each case in its own rolled-back transaction on the
+ * worker's clone of the RFC's lowering.
  *
  * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
 export const commitExactlyThePreOrderIntervalsAmongTheStartsAndEndsThatPassTheRowChecks =
 	property.exhaust(finite(checkedGen(checkedPlacements)), {
-		needs: { tree: Substrate.seat(treeTemplate) },
+		needs: { tree: Substrate.rolledBack(treeTemplate) },
 		situations: [
 			"tree committed",
 			"tree committed a forest of two trees",
@@ -192,12 +186,7 @@ export const commitExactlyThePreOrderIntervalsAmongTheStartsAndEndsThatPassTheRo
 				Effect.scoped(
 					Effect.gen(function* () {
 						const taken = yield* tree
-						const seat = yield* seatIn(taken)
-						return yield* Effect.provideService(
-							Effect.asVoid(judgeCase(seat, [rows], c)),
-							Substrate,
-							taken.substrate
-						)
+						return yield* Effect.asVoid(judgeCase(seatIn(taken), [rows], c))
 					})
 				),
 		oracle: THEOREM_ORACLE,
@@ -209,13 +198,14 @@ export const commitExactlyThePreOrderIntervalsAmongTheStartsAndEndsThatPassTheRo
 
 /**
  * Refuse every single mutation of every tree and two-tree forest of at most six rows that leaves no forest of trees,
- * at the moment and by a constraint the model allows, each case on the worker's seat of the RFC's lowering.
+ * at the moment and by a constraint the model allows, each case in its own rolled-back transaction on the worker's
+ * clone of the RFC's lowering.
  *
  * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
 export const refuseEverySingleMutationOfEveryTreeAndTwoTreeForestThatLeavesNoForestOfTrees =
 	property.exhaust(finite(forestMutationGen(forestBox.rows)), {
-		needs: { tree: Substrate.seat(treeTemplate) },
+		needs: { tree: Substrate.rolledBack(treeTemplate) },
 		situations: [
 			"a root's at committed",
 			...Arr.map(MUTATION_KINDS, (k): MutationFeature => `${k} refused`),
@@ -231,14 +221,8 @@ export const refuseEverySingleMutationOfEveryTreeAndTwoTreeForestThatLeavesNoFor
 				Effect.scoped(
 					Effect.gen(function* () {
 						const taken = yield* tree
-						const seat = yield* seatIn(taken)
-						return yield* Effect.provideService(
-							Effect.map(judgeCase(seat, [mutation.rows], c), (committed) => {
-								c.note(`${mutation.kind} ${committed ? "committed" : "refused"}`)
-							}),
-							Substrate,
-							taken.substrate
-						)
+						const committed = yield* judgeCase(seatIn(taken), [mutation.rows], c)
+						c.note(`${mutation.kind} ${committed ? "committed" : "refused"}`)
 					})
 				),
 		oracle: THEOREM_ORACLE,
@@ -250,14 +234,14 @@ export const refuseEverySingleMutationOfEveryTreeAndTwoTreeForestThatLeavesNoFor
 
 /**
  * Commit every tree and two-tree forest of at most six rows from one INSERT in every row order and from its pre-order
- * in every split, and judge every split of its reverse pre-order by each constraint's moment, each case on the
- * worker's seat of the RFC's lowering.
+ * in every split, and judge every split of its reverse pre-order by each constraint's moment, each case in its
+ * own rolled-back transaction on the worker's clone of the RFC's lowering.
  *
  * Its pre-conversion budget: the box (test/pg/substrate/tree.test.ts at f91c01613).
  */
 export const commitEveryTreeAndTwoTreeForestFromOneInsertInEveryRowOrderAndEverySplit =
 	property.exhaust(finite(writeGen(forests)), {
-		needs: { tree: Substrate.seat(treeTemplate) },
+		needs: { tree: Substrate.rolledBack(treeTemplate) },
 		situations: [
 			"one insert in pre-order committed",
 			"one insert with a child before its parent committed",
@@ -273,13 +257,8 @@ export const commitEveryTreeAndTwoTreeForestFromOneInsertInEveryRowOrderAndEvery
 				Effect.scoped(
 					Effect.gen(function* () {
 						const taken = yield* tree
-						const seat = yield* seatIn(taken)
 						const statements = statementsOf(write)
-						const committed = yield* Effect.provideService(
-							judgeCase(seat, statements, c),
-							Substrate,
-							taken.substrate
-						)
+						const committed = yield* judgeCase(seatIn(taken), statements, c)
 						const refusedWrite = (why: string) =>
 							new Disagreed({ message: `${why}: ${Formatter.format(statements)}` })
 						switch (write.kind) {
