@@ -11,7 +11,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { NativeColumn, TableRelation } from "#compiler/ir/law.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import type { CallError } from "#compiler/live/index.ts"
 import {
 	compileInstallation,
@@ -45,6 +44,7 @@ import {
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	type Installed,
 	type InstallVersion,
@@ -56,6 +56,7 @@ import { draftCodes, fromEmpty, noDeclarations } from "#test/support/migrate/kit
 import { planRealInstall } from "#test/support/oracle/install/real.ts"
 import type { PgErrorFields } from "#test/support/pg.ts"
 import { schemaDescIn } from "#test/support/policy.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { type Attempted, attempt, momentText, refusalText } from "#test/support/substrate.ts"
 import {
@@ -735,7 +736,7 @@ const lawOf = (installed: Installed, fields: PgErrorFields): LawId | undefined =
 	)
 	return Option.isNone(table) || constraint === undefined
 		? undefined
-		: constraintLaw(
+		: soleLawOfConstraint(
 				installed.installation.constraintToLaw,
 				{ kind: "table", name: installed.names.relation(table.value).name },
 				constraint
@@ -1366,7 +1367,7 @@ const loweredIn = (taken: SubstrateCase<Installed>, shape: Shape, order: Order) 
 								case "refused":
 									return {
 										kind: "refused",
-										laws: Arr.map(outcome.refused.laws, (r) => r.id),
+										laws: Arr.map(refusedEntries(outcome.refused), (r) => r.id),
 										witness: outcome.witness
 									}
 								case "outsideWorld":

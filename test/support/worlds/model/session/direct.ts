@@ -12,7 +12,7 @@ import { keyShown, membershipOf } from "#test/support/worlds/model/session/catal
 
 import {
 	type CheckedField,
-	checkLaw,
+	checkLaws,
 	domainLawKey,
 	encodingState,
 	factCells,
@@ -105,7 +105,7 @@ const claimRefusal = (names: InstalledNames, refusal: RefusedClaim): ActionOutco
 		: {
 				kind: "law-refused",
 				sqlstate: "23514",
-				law: checkLaw(names, refusal.domain),
+				laws: checkLaws(names, refusal.domain),
 				witness: { kind: "withheld" }
 			}
 
@@ -337,7 +337,7 @@ const metBy = (
 				: undefined
 		case "check":
 			return observation.kind === "law-refused" &&
-				observation.law === checkLaw(names, refusal.domain)
+				Arr.every(checkLaws(names, refusal.domain), (law) => Arr.contains(observation.laws, law))
 				? "23514"
 				: undefined
 	}
@@ -689,7 +689,7 @@ export const directBranches = (
 			observation: {
 				kind: "law-refused",
 				sqlstate: r.meeting.sqlstate,
-				law: r.violation.law,
+				laws: [r.violation.law],
 				witness: lawWitness(state, session, view, r)
 			},
 			next: withSession(state, id, { ...session, transaction: "aborted" })
@@ -698,8 +698,8 @@ export const directBranches = (
 	 * A statement refused by a law domain's CHECK as it casts a value: 23514 on the domain's CHECK law, its witness
 	 * withheld, since a domain's CHECK reports no key.
 	 */
-	const domainRefused = (law: LawId): Branch => ({
-		observation: { kind: "law-refused", sqlstate: "23514", law, witness: { kind: "withheld" } },
+	const domainRefused = (laws: Arr.NonEmptyReadonlyArray<LawId>): Branch => ({
+		observation: { kind: "law-refused", sqlstate: "23514", laws, witness: { kind: "withheld" } },
 		next: withSession(state, id, { ...session, transaction: "aborted" })
 	})
 	const viewIs = (view: HostState): Branch => go({ ...session, view })
@@ -814,12 +814,18 @@ export const directBranches = (
 			then
 		)
 	/**
-	 * The CHECK laws of the law domains a statement's values break, each once, as PostgreSQL alone reports them: by the
-	 * domain, never the field.
+	 * The CHECK laws of each law domain a statement's values break, each domain's once, as PostgreSQL alone reports
+	 * them: by the domain, every law its CHECK serves, never the field.
 	 */
-	const lawsOf = (fields: ReadonlyArray<CheckedField>): ReadonlyArray<LawId> => [
-		...new Set(Arr.map(fields, (f) => checkLaw(state.names, f.domain)))
-	]
+	const lawsOf = (
+		fields: ReadonlyArray<CheckedField>
+	): ReadonlyArray<Arr.NonEmptyReadonlyArray<LawId>> =>
+		onceEach(Arr.map(fields, (f) => checkLaws(state.names, f.domain)))
+	/** Each set of laws once, by its laws: two fields of one domain break its one CHECK. */
+	const onceEach = (
+		sets: ReadonlyArray<Arr.NonEmptyReadonlyArray<LawId>>
+	): ReadonlyArray<Arr.NonEmptyReadonlyArray<LawId>> =>
+		Arr.dedupeWith(sets, (a, b) => Arr.join(a, " ") === Arr.join(b, " "))
 	/**
 	 * A literal's base-type fault in the values a statement names: PostgreSQL's parser runs each literal's input function
 	 * (22P02, 22003), before the executor checks privileges
@@ -857,9 +863,10 @@ export const directBranches = (
 			const law = domain === undefined ? undefined : installedCheck(state.names, domain)
 			return law === undefined ? [] : [law]
 		})
-		const [check, ...more] = [
-			...new Set([...(fault?.kind === "checks" ? lawsOf(fault.fields) : []), ...nulls])
-		]
+		const [check, ...more] = onceEach([
+			...(fault?.kind === "checks" ? lawsOf(fault.fields) : []),
+			...nulls
+		])
 		return check === undefined ? undefined : [domainRefused(check), ...Arr.map(more, domainRefused)]
 	}
 	/**
@@ -1669,7 +1676,7 @@ export const directEndBranches = (
 		observation: {
 			kind: "law-refused",
 			sqlstate: r.meeting.sqlstate,
-			law: r.violation.law,
+			laws: [r.violation.law],
 			witness: lawWitness(state, session, session.view, r)
 		},
 		next: ended

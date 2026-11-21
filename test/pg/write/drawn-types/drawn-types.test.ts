@@ -51,6 +51,7 @@ import {
 	Wide
 } from "#test/pg/write/drawn-types/drawn-types.fixtures.ts"
 import { writeAnswerOf, type WriteAnswer } from "#test/support/calls.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { withLayer } from "#test/support/with-layer.ts"
 
@@ -120,7 +121,7 @@ const answerOf = (answer: WriteAnswer<WriteOutcome<Issued>>): Answer => {
 		case "refused":
 			return {
 				kind: "refused",
-				contracts: Arr.flatMap(answer.refused.laws, (l) =>
+				contracts: Arr.flatMap(refusedEntries(answer.refused), (l) =>
 					l.law.kind === "contract" ? [l.law.contract] : []
 				),
 				text: Formatter.format(answer.refused)
@@ -458,7 +459,7 @@ export const aPutThatMovesMembersIntoAGroupPastItsCarriersBoundIsRefusedOnTheDra
 									if (answer.kind === "refused") {
 										assert.ok(
 											Arr.some(
-												answer.refused.laws,
+												refusedEntries(answer.refused),
 												(l) => l.law.kind === "contract" && l.law.contract === contractOf.Tall
 											),
 											`the refusal names the contract ${contractOf.Tall}: ${Formatter.format(answer.refused)}`

@@ -8,7 +8,6 @@ import { type PlanNode, planNodes, rowsRead } from "#bench/harness/explain.ts"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -26,6 +25,7 @@ import {
 } from "#compiler/public/schema.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
@@ -856,7 +856,7 @@ const refusedLaw = (
 	)
 	return Option.isNone(owner)
 		? undefined
-		: constraintLaw(
+		: soleLawOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint

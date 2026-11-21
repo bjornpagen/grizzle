@@ -12,7 +12,7 @@ import {
 import type { LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
-import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { TextDomain } from "#compiler/physical/ddl/domains.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import type { Statement } from "#compiler/public/schema.ts"
@@ -148,17 +148,17 @@ export const namesOfBuiltAt = (
 		/**
 		 * Each contract and refined-text field domain of the base's relations, by its key, with the law its DOMAIN's CHECK
 		 * reports where PostgreSQL alone names it (constraintToLaw): a contract's from its declaration, a text's from the
-		 * domain the installation types the field's column with, the law of the first field it types. A text whose pattern
+		 * domain the installation types the field's column with, every law of the fields it types. A text whose pattern
 		 * every text matches has no DOMAIN, and no law.
 		 */
 		const domainLaws = (
 			r: RelationSpec,
 			f: RelationSpec["fields"][number]
-		): ReadonlyArray<readonly [string, LawId]> => {
+		): ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<LawId>]> => {
 			const domain = f.domain
 			switch (domain.kind) {
 				case "contract":
-					return [[domainLawKey(domain), names.contract(domain.name).law]]
+					return [[domainLawKey(domain), [names.contract(domain.name).law]]]
 				case "text": {
 					if (!textTyped(r, f)) {
 						return []
@@ -167,17 +167,17 @@ export const namesOfBuiltAt = (
 						namedRelation(built.relations[r.name], `relation ${r.name}`),
 						f.name
 					)
-					const law = constraintLaw(
+					const laws = lawsOfConstraint(
 						installation.constraintToLaw,
 						{ kind: "domain", name: typed.domain },
 						typed.constraint
 					)
-					if (law === undefined) {
+					if (laws === undefined) {
 						throw new Error(
 							`the text domain of the stored field ${r.name}.${f.name} reports no law`
 						)
 					}
-					return [[domainLawKey(domain), law]]
+					return [[domainLawKey(domain), laws]]
 				}
 				case "uuid":
 				case "integer":
@@ -188,8 +188,8 @@ export const namesOfBuiltAt = (
 			}
 		}
 		/**
-		 * Each contract and refined-text field domain of a context the installation's roles read, by its key, with the law
-		 * its DOMAIN's CHECK reports (constraintToLaw), which a hand-set claim the domain refuses meets wherever the context
+		 * Each contract and refined-text field domain of a context the installation's roles read, by its key, with the laws
+		 * its DOMAIN's CHECK serves (constraintToLaw), which a hand-set claim the domain refuses meets wherever the context
 		 * is read: a contract's domain is named by its definition; a text's is the structural domain the installation types
 		 * the field with, a use at the context's and the field's conversions (physical/ddl/roles.ts worldTextDomainUses). A
 		 * text whose pattern every text matches has no DOMAIN, and no law; a text domain only context fields carry types no
@@ -198,19 +198,19 @@ export const namesOfBuiltAt = (
 		const claimDomainLaws = (
 			c: ContextSpec,
 			f: FieldSpec
-		): ReadonlyArray<readonly [string, LawId]> => {
+		): ReadonlyArray<readonly [string, Arr.NonEmptyReadonlyArray<LawId>]> => {
 			const domain = f.domain
 			const reported = (
 				owner: Extract<ConstraintOwner, { readonly kind: "domain" }>,
 				constraint: string
-			): LawId => {
-				const law = constraintLaw(installation.constraintToLaw, owner, constraint)
-				if (law === undefined) {
+			): Arr.NonEmptyReadonlyArray<LawId> => {
+				const laws = lawsOfConstraint(installation.constraintToLaw, owner, constraint)
+				if (laws === undefined) {
 					throw new Error(
 						`the domain ${owner.name} of the context field ${c.name}.${f.name} reports no law`
 					)
 				}
-				return law
+				return laws
 			}
 			switch (domain.kind) {
 				case "contract": {
@@ -241,12 +241,12 @@ export const namesOfBuiltAt = (
 						)
 					}
 					return Arr.flatMap(typed, (d) => {
-						const law = constraintLaw(
+						const laws = lawsOfConstraint(
 							installation.constraintToLaw,
 							{ kind: "domain", name: d.name },
 							d.constraint
 						)
-						return law === undefined ? [] : [[domainLawKey(domain), law] as const]
+						return laws === undefined ? [] : [[domainLawKey(domain), laws] as const]
 					})
 				}
 				case "uuid":

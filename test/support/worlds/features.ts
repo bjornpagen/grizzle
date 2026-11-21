@@ -1983,7 +1983,7 @@ const lawFamilyOf = (state: ModelState, law: string): Option.Option<LawFamily> =
 		)
 	}
 	if (
-		Arr.some(Record.values(state.names.domains), (id) => id === law) ||
+		Arr.some(Record.values(state.names.domains), (ids) => Arr.contains(ids, law)) ||
 		Arr.some(Record.values(state.names.patterns), (fields) =>
 			Arr.some(Record.values(fields), (id) => id === law)
 		)
@@ -2027,10 +2027,16 @@ const lawsOf = (
 			: action.kind === "direct" || action.kind === "direct-end"
 				? Option.some("direct")
 				: Option.none()
-	return Option.toArray(
-		Option.map(
-			Option.all([lawFamilyOf(state, observation.law), path]),
-			([family, through]): WorldFeature => `law:${family}:${through}:${observation.witness.kind}`
+	const laws = observation.kind === "law-refused" ? observation.laws : [observation.law]
+	return Arr.dedupe(
+		Arr.flatMap(laws, (law) =>
+			Option.toArray(
+				Option.map(
+					Option.all([lawFamilyOf(state, law), path]),
+					([family, through]): WorldFeature =>
+						`law:${family}:${through}:${observation.witness.kind}`
+				)
+			)
 		)
 	)
 }

@@ -13,7 +13,7 @@ import type {
 	RosterCodec,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
-import { constraintLaw, defect } from "#compiler/plan/runtime.ts"
+import { defect, lawsOfConstraint } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
@@ -113,9 +113,10 @@ export type HostRefusal =
  * column (a table constraint, a domain no stored column types), each described, in the order the installation lists
  * them, or a domain's that types stored columns, each column with its law (a text domain's one law per field), its laws
  * theirs, which decide among them by the table the violating statement wrote and, on the host, by the column of the
- * stated row that breaks it; or the one law of a level above its object states, as that level names it: a row check
- * over the relation of `table`, the table it is installed on, whose refusal the host judges against its own CHECKs
- * there (runtime/write/witness.ts aboveJudgement), or any other object, a foreign key or a rule over a query's trigger.
+ * stated row that breaks it; or the laws of the levels above its object serves, as those levels name them: one row
+ * check over the relation of `table`, the table it is installed on, whose refusal the host judges against its own
+ * CHECKs there (runtime/write/witness.ts aboveJudgement), or any other object's, a foreign key's, a key's index under
+ * every law it serves or a rule over a query's trigger, each once, in code point order of their identities.
  */
 export type NativeLaws =
 	| { readonly kind: "object"; readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw> }
@@ -125,7 +126,10 @@ export type NativeLaws =
 			readonly law: DescribedLaw<LawId, AboveLaw>
 			readonly table: RelationIdent
 	  }
-	| { readonly kind: "above"; readonly law: DescribedLaw<LawId, AboveLaw> }
+	| {
+			readonly kind: "above"
+			readonly laws: Arr.NonEmptyReadonlyArray<DescribedLaw<LawId, AboveLaw>>
+	  }
 
 /**
  * A domain the installation types a roster's values by: its code domain, a closed id's, or its bits domain, a set's,
@@ -244,21 +248,29 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 		Arr.map([...data.tables], ([relation, table]) => [table, relation] as const)
 	)
 	/**
-	 * The law above the Db's level its object's violation reports under `owner`: the law alone, which types no column, a
-	 * row check over a written table's relation among them, judged against the table's own CHECKs.
+	 * The laws above the Db's level an object's violation names under `owner`, among `ids`, the laws it serves: one row
+	 * check over a written table's relation, judged against the table's own CHECKs, or every law of the levels above
+	 * it serves, which types no column; none where it serves no law of theirs.
 	 */
-	const aboveLaw = (owner: ConstraintOwner, id: LawId): NativeLaws | undefined => {
-		const described = above.laws.get(id)
-		if (described === undefined) {
+	const aboveLaws = (
+		owner: ConstraintOwner,
+		ids: Arr.NonEmptyReadonlyArray<LawId>
+	): NativeLaws | undefined => {
+		const laws = Arr.flatMap(ids, (id): ReadonlyArray<DescribedLaw<LawId, AboveLaw>> => {
+			const described = above.laws.get(id)
+			return described === undefined ? [] : [{ law: id, described }]
+		})
+		if (!Arr.isReadonlyArrayNonEmpty(laws)) {
 			return undefined
 		}
-		const law = { law: id, described }
+		const [law, ...rest] = laws
 		const relation = owner.kind === "table" ? relationOf.get(owner.name) : undefined
-		return owner.kind === "table" &&
-			described.law.kind === "check" &&
-			described.law.relation === relation
+		return rest.length === 0 &&
+			owner.kind === "table" &&
+			law.described.law.kind === "check" &&
+			law.described.law.relation === relation
 			? { kind: "aboveCheck", law, table: owner.name }
-			: { kind: "above", law }
+			: { kind: "above", laws }
 	}
 	const tableOf = (relation: StoredRelationName): RelationIdent => {
 		const table = data.tables.get(relation)
@@ -300,8 +312,8 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 			if (own !== undefined) {
 				return own
 			}
-			const id = constraintLaw(above.constraints, owner, constraint)
-			return id === undefined ? undefined : aboveLaw(owner, id)
+			const ids = lawsOfConstraint(above.constraints, owner, constraint)
+			return ids === undefined ? undefined : aboveLaws(owner, ids)
 		},
 		tableOf,
 		raised: new Map(

@@ -18,7 +18,6 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { cleared, seatOf } from "#test/pg/fin/installed.ts"
 import {
 	type DomainFeature,
@@ -27,6 +26,7 @@ import {
 	same,
 	schemaOf
 } from "#test/pg/physical/domains.fixtures.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { attempt, refusalText } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -84,7 +84,7 @@ export const sharedDomainsOnPostgreSQL19TypeTwoContractsColumnsByOneDomainExactl
 								real.kind === "refused" &&
 								domain !== undefined &&
 								real.fields.constraint !== undefined
-									? constraintLaw(
+									? soleLawOfConstraint(
 											seat.installed.installation.constraintToLaw,
 											{ kind: "domain", name: admittedIdentifier(domain) },
 											real.fields.constraint

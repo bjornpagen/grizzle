@@ -20,7 +20,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
-import { refusedLaws } from "#test/support/refused.ts"
+import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -174,7 +174,9 @@ export const aLawsKeyOnACycleWithAFamilysOwnerAxisIsDeferredSoEveryLawfulWriteOf
 										if (outcome.kind === "refused") {
 											const laws = Arr.map(broken, lawOf)
 											assert.ok(
-												Arr.some(outcome.refused.laws, (law) => laws.includes(names.reported(law))),
+												Arr.some(refusedEntries(outcome.refused), (law) =>
+													laws.includes(names.reported(law))
+												),
 												`${label}: refused by ${Formatter.format(refusedLaws(outcome.refused))}, a law the model finds broken`
 											)
 										}

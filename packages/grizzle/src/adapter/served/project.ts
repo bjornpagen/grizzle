@@ -396,15 +396,18 @@ const roleOf = (
 		}
 	})
 
-/** One kind of owner's constraints above as a served file holds them: each one reporting a law of `laws`, under its
- * owner, an owner none of whose constraints does left out. */
+/** One kind of owner's constraints above as a served file holds them: each one serving a law of `laws`, with those of
+ * its laws alone, under its owner, an owner none of whose constraints serves one left out. */
 const reportingAbove = (
 	owned: LawsAbove["constraints"]["tables"],
 	laws: LawsAbove["laws"]
 ): LawsAbove["constraints"]["tables"] =>
 	Rec.fromEntries(
 		Arr.flatMap(Rec.toEntries(owned), ([owner, named]) => {
-			const reporting = Arr.filter(Rec.toEntries(named), ([, law]) => laws.has(law))
+			const reporting = Arr.flatMap(Rec.toEntries(named), ([name, served]) => {
+				const above = Arr.filter(served, (law) => laws.has(law))
+				return Arr.isReadonlyArrayNonEmpty(above) ? [[name, above] as const] : []
+			})
 			return reporting.length === 0 ? [] : [[owner, Rec.fromEntries(reporting)] as const]
 		})
 	)

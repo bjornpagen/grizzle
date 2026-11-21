@@ -93,6 +93,7 @@ import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate
 import { untilAnswered } from "#test/support/transient.ts"
 
 import { openServed } from "#adapter/db/served.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 /**
  * The platform's concurrency races: the application's writes of the usage-billing platform, raced by grizzle writers
@@ -244,7 +245,7 @@ export const answerOf = (outcome: CallAnswer<WriteOutcome<unknown>>): Answer => 
 		case "refused":
 			return {
 				kind: outcome.kind,
-				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
+				laws: Arr.map(refusedEntries(outcome.refused), (law) => platformNames.reported(law))
 			}
 		case "outsideWorld":
 			return { kind: outcome.kind, relation: outcome.relation }

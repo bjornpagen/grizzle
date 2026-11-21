@@ -316,24 +316,26 @@ const ownUnjudged: AboveJudgement = Object.freeze({ own: "unjudged" })
 const unreported: Witness = Object.freeze({ kind: "unreported" })
 
 /**
- * A refusal by `law`, of a level above, PostgreSQL named, beside what the host finds of its own CHECKs there (`own`):
- * every law of theirs the first stated row breaking one breaks, witnessed by that row, or none, or nothing said.
+ * A refusal by an object of a level above PostgreSQL named, naming every law of theirs it serves (`above`), beside what
+ * the host finds of its own CHECKs there (`own`): every law of theirs the first stated row breaking one breaks,
+ * witnessed by that row, or none, or nothing said.
  */
-const aboveRejection = (law: AboveRefusedLaw, own: AboveJudgement): Violation => {
+const aboveRejection = (
+	above: Arr.NonEmptyReadonlyArray<AboveRefusedLaw>,
+	own: AboveJudgement
+): Violation => {
 	switch (own.own) {
-		case "every": {
-			const [first, ...rest] = own.laws
+		case "every":
 			return {
 				kind: "rejected",
-				refused: { kind: "above", own: "every", laws: [law, first, ...rest] },
+				refused: { kind: "above", own: "every", above, laws: own.laws },
 				witness: own.witness
 			}
-		}
 		case "none":
 		case "unjudged":
 			return {
 				kind: "rejected",
-				refused: { kind: "above", own: own.own, laws: [law] },
+				refused: { kind: "above", own: own.own, above },
 				witness: unreported
 			}
 	}
@@ -473,9 +475,12 @@ export const violationClassifier =
 		const by = nativeObject(constraint, owner)
 		switch (native.kind) {
 			case "aboveCheck":
-				return aboveRejection(aboveRefused(native.law, by), written.above(native.table))
+				return aboveRejection([aboveRefused(native.law, by)], written.above(native.table))
 			case "above":
-				return aboveRejection(aboveRefused(native.law, by), ownUnjudged)
+				return aboveRejection(
+					Arr.map(native.laws, (law) => aboveRefused(law, by)),
+					ownUnjudged
+				)
 			case "object":
 			case "domain": {
 				const tables = new Set(Arr.map(written.relations, (relation) => laws.tableOf(relation)))

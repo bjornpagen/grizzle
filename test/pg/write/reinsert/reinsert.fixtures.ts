@@ -55,6 +55,7 @@ import {
 } from "#test/support/families/fill.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import type { Names } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -645,7 +646,7 @@ export const judgeRefused = (
 	}
 	const keyLaws = new Set(Arr.map(v.keyed, (x) => laws.primaryKey(x.relation)))
 	const familyLaws = new Set(Arr.map(v.placed, (p) => laws.family(p.family)))
-	const named = Arr.map(outcome.refused.laws, laws.reported)
+	const named = Arr.map(refusedEntries(outcome.refused), laws.reported)
 	assert.equal(outcome.refused.kind, "every", `${label}: a key's refusal decides its one law`)
 	for (const law of named) {
 		assert.ok(

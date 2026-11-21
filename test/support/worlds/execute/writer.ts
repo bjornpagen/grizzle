@@ -1,6 +1,6 @@
 import { Array as Arr, Effect, Option, Record as Rec, type Scope, String as Str } from "effect"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"
 import type { PsqlWriter } from "#test/support/substrate/psql.ts"
@@ -206,29 +206,29 @@ const nativeWitness = (reading: LawReading, fields: PgErrorFields): Effect.Effec
 	})
 
 /**
- * The law a direct writer's refusal names: a native constraint's under the table or domain PostgreSQL reports it on.
- * Every law is native (fin.md §7), so a constraint beside no owner names none.
+ * The laws a direct writer's refusal names: every law of the native constraint PostgreSQL reports, under its table or
+ * domain. Every law is native (fin.md §7), so a constraint beside no owner names none.
  */
-const reportedLaw = (
+const reportedLaws = (
 	installation: Installation,
 	fields: PgErrorFields,
 	constraint: ConstraintName
-): LawId | undefined => {
+): Arr.NonEmptyReadonlyArray<LawId> | undefined => {
 	const owner = reportedOwnerOf(fields)
 	return owner === undefined
 		? undefined
-		: constraintLaw(installation.constraintToLaw, owner, constraint)
+		: lawsOfConstraint(installation.constraintToLaw, owner, constraint)
 }
 
 /** A direct writer's refusal: a law's, with its identity and witness, or PostgreSQL's SQLSTATE alone. */
 const refusalOf = (reading: LawReading, fields: PgErrorFields): Effect.Effect<Seen> =>
 	Effect.gen(function* () {
 		const sqlstate = sqlStateOf(fields.code)
-		const law =
+		const laws =
 			fields.constraint === undefined
 				? undefined
-				: reportedLaw(reading.installation, fields, fields.constraint)
-		if (law === undefined) {
+				: reportedLaws(reading.installation, fields, fields.constraint)
+		if (laws === undefined) {
 			return {
 				observation: { kind: "refused", sqlstate },
 				found: fieldTexts(fields),
@@ -236,7 +236,7 @@ const refusalOf = (reading: LawReading, fields: PgErrorFields): Effect.Effect<Se
 			}
 		}
 		const witness = yield* nativeWitness(reading, fields)
-		const observation: Observation = { kind: "law-refused", sqlstate, law, witness }
+		const observation: Observation = { kind: "law-refused", sqlstate, laws, witness }
 		return { observation, found: fieldTexts(fields), told: toldOf(fields) }
 	})
 

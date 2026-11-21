@@ -14,7 +14,7 @@ import { Array as Arr, Effect, Formatter, Option, Order, Result } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
-import { constraintLaw, type ConstraintLaws } from "#compiler/ir/products.ts"
+import { type ConstraintLaws } from "#compiler/ir/products.ts"
 import {
 	compileInstallation,
 	type Installation,
@@ -22,6 +22,7 @@ import {
 } from "#compiler/physical/install/compile.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { contained, on, pred, relation, schema, select } from "#compiler/public/schema.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { installationNamesOf, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import type { PgConnection, PgErrorFields, SqlError } from "#test/support/pg.ts"
 import { owning } from "#test/support/policy.ts"
@@ -349,7 +350,7 @@ export const judgeState = (
 	const law =
 		owner === undefined || constraint === undefined
 			? undefined
-			: constraintLaw(laws, owner, constraint)
+			: soleLawOfConstraint(laws, owner, constraint)
 	const refusing = Arr.filter(rules, (rule) => lawOf[rule] === law)
 	if (
 		verdict.fields.code !== sqlstates.foreignKeyViolation ||

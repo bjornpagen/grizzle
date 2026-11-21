@@ -14,7 +14,6 @@ import { Array as Arr, Data, Effect, Layer, Option, Order } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -37,6 +36,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import type { Moment } from "#test/support/families/mutate.ts"
 import { type Installed, installedTemplate } from "#test/support/install-migrate.ts"
 import { servedFixture } from "#test/support/served-db.ts"
@@ -1587,7 +1587,7 @@ export const judgedIn = (taken: SubstrateCase<Installed>, label: string) =>
 			if (relation === undefined || fields.constraint === undefined) {
 				return undefined
 			}
-			const law = constraintLaw(
+			const law = soleLawOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(relation).name },
 				fields.constraint

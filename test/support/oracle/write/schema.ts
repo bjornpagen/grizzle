@@ -6,7 +6,6 @@ import { Array as Arr, Option, Record as Rec } from "effect"
 import { identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import {
 	closed,
@@ -26,6 +25,7 @@ import {
 import { relationBuilder } from "#compiler/schema/relation.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { foreignKeyColumns, installationNamesOf } from "#test/support/kernel/naming.ts"
 import { nonEmptyArgumentsOf } from "#test/support/list.ts"
 import type { OracleRelation, OracleSchema } from "#test/support/oracle/addwins.ts"
@@ -739,7 +739,7 @@ export const lawNames = (plan: RealInstallPlan): WriteLawNames => {
 			throw new Error(`no owned stored relation ${relation}`)
 		}
 		const owner = { kind: "table", name: owned.ident } as const
-		const law = constraintLaw(toLaw, owner, constraint)
+		const law = soleLawOfConstraint(toLaw, owner, constraint)
 		if (law === undefined) {
 			throw new Error(`no law reports the installed constraint ${constraint} of ${relation}`)
 		}

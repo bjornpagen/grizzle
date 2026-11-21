@@ -9,7 +9,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -20,6 +19,7 @@ import { str } from "#compiler/public/text.ts"
 import type { PlStatement } from "#compiler/sql/ast.ts"
 import { printStatement } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import {
 	foundQueryOf,
@@ -598,7 +598,7 @@ const refusedLaw = (
 	)
 	return Option.isNone(owner)
 		? undefined
-		: constraintLaw(
+		: soleLawOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint

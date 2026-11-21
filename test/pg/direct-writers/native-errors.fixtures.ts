@@ -7,7 +7,7 @@ import { Array as Arr, Option, Record } from "effect"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import type { ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import { type ConstraintOwner } from "#compiler/ir/products.ts"
 import {
 	Account,
 	DeskReports,
@@ -16,6 +16,7 @@ import {
 	Entry,
 	Pair
 } from "#test/pg/direct-writers/schema.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { lawIdOf, lawNamesOf, namesOf, parsedName } from "#test/support/kernel/naming.ts"
 import { type Fixture, openFixtureTemplate } from "#test/support/open-fixture.ts"
 import { type PgErrorFields, reportedOwnerOf } from "#test/support/substrate/errors.ts"
@@ -38,7 +39,7 @@ export const lawOf = (
 ): LawId | undefined =>
 	constraint === undefined || owner === undefined
 		? undefined
-		: constraintLaw(f.installed.installation.constraintToLaw, owner, constraint)
+		: soleLawOfConstraint(f.installed.installation.constraintToLaw, owner, constraint)
 
 /** The law a refusal PostgreSQL reported names: its constraint under the owner it reports. */
 export const reportedLaw = (f: Fixture, fields: PgErrorFields): LawId | undefined =>

@@ -47,7 +47,11 @@ import { type Codebook, codeOf, emptyCodebook, firstCodebook } from "#compiler/i
 import { type NativeColumn, type NativeObject, type NativeOf } from "#compiler/ir/law.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { type ConstraintLaws, type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import {
+	type ConstraintLaws,
+	type ConstraintOwner,
+	lawsOfConstraint
+} from "#compiler/ir/products.ts"
 import type { ContractInfo } from "#compiler/ir/scalar.ts"
 import {
 	type ConstraintLaw,
@@ -91,6 +95,7 @@ import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
 import type { AlternativesBase } from "#compiler/types/schema/statements.ts"
 import { allocatedLevels } from "#test/support/compile.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import type { AuthoredStatementDesc, SchemaDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id, idDesc } from "#test/support/ids.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
@@ -316,7 +321,15 @@ export interface LawNames {
 	 * one kind (its axes' foreign keys, its keys over the drawn index).
 	 */
 	readonly constraintsOf: (law: LawId, kind: NativeKind) => ReadonlyArray<ConstraintName>
-	/** The law a constraint reports, read under the table or domain it lives on, as PostgreSQL reports it. */
+	/**
+	 * Every law a constraint serves, read under the table or domain it lives on, as PostgreSQL reports it: what a refusal
+	 * of it names, each once, in code point order.
+	 */
+	readonly lawsOfConstraint: (
+		owner: ConstraintOwner,
+		constraint: ConstraintName
+	) => Arr.NonEmptyReadonlyArray<LawId>
+	/** The one law a constraint serves, for a suite whose oracle names one per refusal (soleLawOfConstraint). */
 	readonly lawOfConstraint: (owner: ConstraintOwner, constraint: ConstraintName) => LawId
 	/** The laws an alternatives value expands to (a public schema). */
 	readonly alternativesOf: (value: AlternativesBase) => AlternativesLaws
@@ -823,12 +836,13 @@ const lawNamesOver = (
 				(count) =>
 					`the test names the primary key of ${relation.name}, which ${count} natives install`
 			)
-			const law = constraintLaw(
-				constraintLawMap(model.constraints),
-				{ kind: "table", name: pk.owner },
-				identifierOf(pk.named)
-			)
-			const raised = Arr.findFirst(pk.object.lawIds, (l) => l === law)
+			const laws =
+				lawsOfConstraint(
+					constraintLawMap(model.constraints),
+					{ kind: "table", name: pk.owner },
+					identifierOf(pk.named)
+				) ?? []
+			const raised = Arr.findFirst(pk.object.lawIds, (l) => Arr.contains(laws, l))
 			if (Option.isNone(raised)) {
 				throw new Error(
 					`the primary key ${identifierOf(pk.named)} of ${relation.name} reports no law it holds`
@@ -851,8 +865,17 @@ const lawNamesOver = (
 					)}`
 			).name
 		},
+		lawsOfConstraint: (owner, constraint) => {
+			const laws = lawsOfConstraint(constraintToLaw, owner, constraint)
+			if (laws === undefined) {
+				throw new Error(
+					`the test names the constraint ${constraint} of ${owner.kind} ${owner.name}, which reports no law`
+				)
+			}
+			return laws
+		},
 		lawOfConstraint: (owner, constraint) => {
-			const law = constraintLaw(constraintToLaw, owner, constraint)
+			const law = soleLawOfConstraint(constraintToLaw, owner, constraint)
 			if (law === undefined) {
 				throw new Error(
 					`the test names the constraint ${constraint} of ${owner.kind} ${owner.name}, which reports no law`

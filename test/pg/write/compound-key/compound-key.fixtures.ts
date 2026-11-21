@@ -33,6 +33,7 @@ import {
 import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type { WriteAnswer } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import type { StateRow } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -771,7 +772,7 @@ export const judgeRefused = (
 		)
 	}
 	const allowed = new Set(Arr.map([...v.broken], (x) => lawOf[x]))
-	const named = Arr.map(outcome.refused.laws, reported)
+	const named = Arr.map(refusedEntries(outcome.refused), reported)
 	assert.equal(
 		outcome.refused.kind,
 		"every",

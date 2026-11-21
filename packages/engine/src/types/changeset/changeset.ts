@@ -2019,13 +2019,15 @@ export type Witness =
  *   which of them the row broke: at least one, maybe more. A family's foreign key carries every containment merged into
  *   it, and a domain every rule of the columns it types in the tables the statement writes, where the host judges no
  *   stated row whole. Two rules at least: an object of one rule is `every`, so `some` never names a decided rule.
- * - `above`: PostgreSQL named a law of a level above the Db's own, `laws[0]`, which the Db's host holds no predicate of:
- *   the one law above a refusal names, since PostgreSQL names one object, and nothing is said of any other law above.
- *   `own` is what the host finds of its own levels' CHECKs on the rows the refused statement states of that table:
- *   `every`, the rest of `laws`, every rule of them the first stated row that breaks one breaks, each judged, as the
- *   refusal would name them were no law above installed, that row the witness; `none`, every row the statement writes
- *   is a stated one and holds every one of them; `unjudged`, nothing is said of them: a refusal at COMMIT, by a foreign
- *   key or a rule over a query above, a row the ChangeSet does not state, or a CHECK the host cannot evaluate there.
+ * - `above`: PostgreSQL named an object of a level above the Db's own, which the Db's host holds no predicate of, and
+ *   `above` is every law of those levels it serves, each once, in code point order of their identities: one where it
+ *   serves one, and where it serves several (a key's index under a count's fold and its family's counted law), at least
+ *   one of them the row broke, as `some` says of the Db's own, and nothing is said of any other law above. `own` is what
+ *   the host finds of its own levels' CHECKs on the rows the refused statement states of that table: `every`, `laws`,
+ *   every rule of them the first stated row that breaks one breaks, each judged, as the refusal would name them were no
+ *   law above installed, that row the witness; `none`, every row the statement writes is a stated one and holds every
+ *   one of them; `unjudged`, nothing is said of them: a refusal at COMMIT, by a foreign key or a rule over a query
+ *   above, a row the ChangeSet does not state, or a CHECK the host cannot evaluate there. Only `every` holds `laws`.
  */
 export type Refused =
 	| { readonly kind: "every" | "first"; readonly laws: readonly [RefusedLaw, ...Array<RefusedLaw>] }
@@ -2036,12 +2038,13 @@ export type Refused =
 	| {
 			readonly kind: "above"
 			readonly own: "every"
-			readonly laws: readonly [AboveRefusedLaw, RefusedLaw, ...Array<RefusedLaw>]
+			readonly above: readonly [AboveRefusedLaw, ...Array<AboveRefusedLaw>]
+			readonly laws: readonly [RefusedLaw, ...Array<RefusedLaw>]
 	  }
 	| {
 			readonly kind: "above"
 			readonly own: "none" | "unjudged"
-			readonly laws: readonly [AboveRefusedLaw]
+			readonly above: readonly [AboveRefusedLaw, ...Array<AboveRefusedLaw>]
 	  }
 
 /**
@@ -2056,7 +2059,7 @@ export interface IdentifiedLaw<L extends Law = Law> {
 
 /**
  * One law a refusal names: the law with its identity (IdentifiedLaw), and the installed object that refused it (`by`).
- * L is a law of the Db's own levels, or, for the one law of a level above PostgreSQL named, that law (AboveRefusedLaw).
+ * L is a law of the Db's own levels, or, for a law of a level above the object PostgreSQL named serves, that law (AboveRefusedLaw).
  */
 export interface RefusedLaw<L extends Law = OwnLaw> extends IdentifiedLaw<L> {
 	readonly by: RefusingObject

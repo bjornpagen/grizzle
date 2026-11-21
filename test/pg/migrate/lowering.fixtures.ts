@@ -7,13 +7,13 @@ import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
+import { soleLaw, soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
@@ -269,13 +269,14 @@ const namedLaw = (failure: MigrateError): Option.Option<Named> => {
 	const named = (law: string | undefined, by: Naming): Option.Option<Named> =>
 		Option.map(Option.fromUndefinedOr(law), (l) => ({ law: l, by }))
 	if (reason._tag === "FileCommitRefused") {
-		return named(reason.law, "folder")
+		return named(soleLaw(reason.laws, "the COMMIT's refused constraint"), "folder")
 	}
 	if (reason._tag !== "StatementFailed") {
 		return Option.none()
 	}
-	return reason.law !== undefined
-		? named(reason.law, "folder")
+	const law = soleLaw(reason.laws, "the statement's refused constraint")
+	return law !== undefined
+		? named(law, "folder")
 		: reason.failure._tag === "ServerError" && reason.failure.sqlstate === "23000"
 			? named(reason.failure.constraint, "check")
 			: Option.none()
@@ -478,7 +479,7 @@ export const walk = (c: WalkCase, note: (feature: Feature) => void) =>
 				const reported = refused.fields.constraint
 				assert.ok(
 					reported !== undefined &&
-						constraintLaw(
+						soleLawOfConstraint(
 							draft.snapshot.constraintToLaw,
 							{ kind: "table", name: table },
 							reported

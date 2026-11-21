@@ -15,7 +15,7 @@ import { agree } from "@bjornpagen/testing/oracle"
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option, Record as Rec, Result } from "effect"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
-import { type ConstraintLaws, constraintLaw } from "#compiler/ir/products.ts"
+import { type ConstraintLaws } from "#compiler/ir/products.ts"
 import {
 	type HostFact,
 	type HostLaw,
@@ -39,6 +39,7 @@ import {
 
 import { defined } from "@bjornpagen/testing/assert"
 import type { ClosedField } from "#test/support/closed/stored.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import type { Installed } from "#test/support/install-migrate.ts"
 import {
 	type CaseSketch,
@@ -942,7 +943,7 @@ const lawOfConstraint = (
 	if (owner === undefined) {
 		return Option.none()
 	}
-	const native = constraintLaw(laws, owner, constraint)
+	const native = soleLawOfConstraint(laws, owner, constraint)
 	return Arr.findFirst(host.laws, (l) => l.law === native)
 }
 

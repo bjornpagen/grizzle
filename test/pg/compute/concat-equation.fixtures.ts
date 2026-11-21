@@ -9,7 +9,6 @@ import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option, Record as Rec, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
 import { jsonText } from "#compiler/core/trusted.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { Text } from "#compiler/public/compute.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -18,6 +17,7 @@ import { check, derived, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { lawIdOf, namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -310,7 +310,7 @@ const refusedLaw = (
 	)
 	return Option.isNone(owner)
 		? undefined
-		: constraintLaw(
+		: soleLawOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint

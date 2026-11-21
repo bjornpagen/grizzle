@@ -26,6 +26,7 @@ import {
 } from "#test/pg/write/entry-occupants/entry-occupants.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { clearRows, installationGroup } from "#test/support/substrate/replace.ts"
 import { Substrate, ownerSession } from "#test/support/substrate/substrate.ts"
@@ -150,7 +151,9 @@ export const aQueryEntrysWriteMeetsEveryUniqueObjectOfItsTargetAStoredFactAtAnyU
 											)} and answered ${outcome.kind}`
 										)
 									}
-									const [law, ...more] = Arr.map(outcome.refused.laws, (l) => names.reported(l))
+									const [law, ...more] = Arr.map(refusedEntries(outcome.refused), (l) =>
+										names.reported(l)
+									)
 									assert.deepEqual(more, [], "a key's refusal names its one law")
 									const object = Option.getOrThrowWith(
 										Arr.findFirst(met, (o) => lawOf[o.name] === law),

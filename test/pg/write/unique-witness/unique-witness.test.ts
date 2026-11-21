@@ -34,6 +34,7 @@ import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -137,7 +138,7 @@ export const aFamilyInsertMeetingAUniqueIsRefusedByALawAStatedRowBreaksWitnessed
 								"every",
 								`${label}: a key's refusal decides its laws`
 							)
-							const named = Arr.map(outcome.refused.laws, (l) => names.reported(l))
+							const named = Arr.map(refusedEntries(outcome.refused), (l) => names.reported(l))
 							const broken = Arr.map(verdict.breaks, (b) => ({ ...b, id: lawId(b.law) }))
 							for (const law of named) {
 								assert.ok(

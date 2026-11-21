@@ -139,7 +139,7 @@ export const witnessesShowTheirOwn: StepCheck = (checked) => {
 			const text = valueText(value)
 			assert.ok(
 				submitted.has(text) || held.has(text),
-				`action ${seen.index}: the witness of ${o.law} shows ${field} = ${text}, which the writer neither submitted nor holds whole`
+				`action ${seen.index}: the witness of ${o.kind === "law-refused" ? Arr.join(o.laws, ", ") : o.law} shows ${field} = ${text}, which the writer neither submitted nor holds whole`
 			)
 		}
 	}

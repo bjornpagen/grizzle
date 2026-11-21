@@ -34,6 +34,7 @@ import { storedSettingValue } from "#compiler/sql/print.ts"
 import type { AmbientOwner } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { filledStatements } from "#test/support/compile.ts"
+import { soleLaw } from "#test/support/constraint-law.ts"
 import { parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { draftedAt, fromSnapshot, generate, noDeclarations } from "#test/support/migrate/kit.ts"
 import { review } from "#test/support/migrate/review.ts"
@@ -136,9 +137,11 @@ const refusedIdentity = (
 	if (sqlstateClass(server.sqlstate) !== sqlstateClass(sqlstates.integrityConstraintViolation)) {
 		return Option.none()
 	}
-	return reason._tag === "StatementFailed" && reason.law !== undefined
-		? Option.some(reason.law)
-		: Option.fromUndefinedOr(server.constraint)
+	const law =
+		reason._tag === "StatementFailed"
+			? soleLaw(reason.laws, "the statement's refused constraint")
+			: undefined
+	return law !== undefined ? Option.some(law) : Option.fromUndefinedOr(server.constraint)
 }
 
 /** The folder a run stopped in when one of its files failed: a statement, its ledger record or its COMMIT. */

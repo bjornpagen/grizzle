@@ -70,6 +70,7 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { CaseFailed } from "#test/support/oracle/write/harness.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { pickFrom, pickGen, pickOf, pickSpan } from "#test/support/pick.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { applicationOf, openServedDb, type ServedOn } from "#test/support/served-db.ts"
 import { holdsCycle, printOrder } from "#test/support/stratum-order.ts"
 import type { TransactionRolledBack } from "#test/support/substrate/errors.ts"
@@ -1827,7 +1828,7 @@ const mismatch = (
 	if (outcome.kind !== "invariant-rejected") {
 		return `expected a refusal by one of ${Formatter.format(Arr.map(expected.violations, (v) => v.law))}, got ${Formatter.format(outcome)}`
 	}
-	const laws = Arr.map(outcome.refused.laws, session.reported)
+	const laws = Arr.map(refusedEntries(outcome.refused), session.reported)
 	const violation = Arr.findFirst(expected.violations, (v) => laws.includes(v.law))
 	if (Option.isNone(violation)) {
 		return `refused by ${Arr.join(laws, ", ")}, none of which the final state violates; violated: ${Formatter.format(expected.violations)}`
@@ -1888,7 +1889,7 @@ const outcomeFeatures = (
 			const after = transition(host, state, ops)
 			const violated = Arr.map(violations(host, after), (v) => v.law)
 			return Result.map(
-				refusingLaws(host, Arr.map(outcome.refused.laws, session.reported), violated),
+				refusingLaws(host, Arr.map(refusedEntries(outcome.refused), session.reported), violated),
 				(laws) =>
 					refusalFeatures(host, {
 						laws,

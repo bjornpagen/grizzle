@@ -1871,9 +1871,9 @@ export type LaunchOutsideWorld = Expect<
  * entry.law.name === "WithinPlan"".
  */
 type LaunchRefusal = Extract<
-	Effect.Error<ReturnType<typeof launchOrg>>,
-	{ readonly kind: "refused" }
->["refused"]["laws"][number]
+	Extract<Effect.Error<ReturnType<typeof launchOrg>>, { readonly kind: "refused" }>["refused"],
+	{ readonly laws: unknown }
+>["laws"][number]
 export const overPlan = (entry: LaunchRefusal): boolean =>
 	entry.law.kind === "check" && entry.law.name === "WithinPlan"
 

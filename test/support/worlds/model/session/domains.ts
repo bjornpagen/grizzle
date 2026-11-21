@@ -177,18 +177,25 @@ export const lawDomainsOf = (base: BaseSpec): ReadonlyArray<LawDomain> => [
 ]
 
 /**
- * The law a law domain's CHECK reports where PostgreSQL alone names it, to a direct writer or reader, by the domain and
- * never the column: the law the installation's constraint map gives the DOMAIN's CHECK. Every contract has one; a
- * refined text has one where the installation installs a DOMAIN for it that types a stored field, and none for a
+ * The laws a law domain's CHECK names where PostgreSQL alone reports it, to a direct writer or reader, by the domain and
+ * never the column: every law the installation's constraint map gives the DOMAIN's CHECK. Every contract has its one; a
+ * refined text has them where the installation installs a DOMAIN for it that types a stored field, and none for a
  * pattern that admits every text or one only a context field carries.
  */
-export const installedCheck = (names: InstalledNames, domain: LawDomain): LawId | undefined => {
+export const installedCheck = (
+	names: InstalledNames,
+	domain: LawDomain
+): Arr.NonEmptyReadonlyArray<LawId> | undefined => {
 	const key = domainLawKey(domain)
 	return Rec.has(names.domains, key) ? names.domains[key] : undefined
 }
 
-/** The CHECK law of a law domain a value breaks: a domain that refuses a value has a CHECK, so the installation names it. */
-export const checkLaw = (names: InstalledNames, domain: LawDomain): LawId => {
+/** The CHECK laws of a law domain a value breaks: a domain that refuses a value has a CHECK, so the installation names
+ * its laws. */
+export const checkLaws = (
+	names: InstalledNames,
+	domain: LawDomain
+): Arr.NonEmptyReadonlyArray<LawId> => {
 	const law = installedCheck(names, domain)
 	if (law === undefined) {
 		throw new Error(
@@ -204,7 +211,13 @@ export const checkLaw = (names: InstalledNames, domain: LawDomain): LawId => {
  */
 export const fieldLaw = (names: InstalledNames, relation: string, checked: CheckedField): LawId => {
 	if (checked.domain.kind === "contract") {
-		return checkLaw(names, checked.domain)
+		const [law, ...more] = checkLaws(names, checked.domain)
+		if (more.length > 0) {
+			throw new Error(
+				`the contract ${checked.domain.name}'s domain names ${more.length + 1} laws, where it states one`
+			)
+		}
+		return law
 	}
 	const law = names.patterns[relation]?.[checked.field]
 	if (law === undefined) {

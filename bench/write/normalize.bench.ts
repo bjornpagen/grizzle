@@ -27,7 +27,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import type { ParamMap } from "#compiler/types/core/phantom.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { has, shapeOf } from "#test/support/kernel/shape.ts"
-import { refusedLaws } from "#test/support/refused.ts"
+import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 
 /**
  * R34: normalize unnormalized input before the arbiter insert.
@@ -276,7 +276,7 @@ export default defineGate({
 					equivalence(
 						"two facts with one key and different payloads are refused with the key law, never PostgreSQL's error",
 						sameKey.value.kind === "invariant-rejected" &&
-							Arr.every(sameKey.value.refused.laws, (l) => reported(l) === itemKey) &&
+							Arr.every(refusedEntries(sameKey.value.refused), (l) => reported(l) === itemKey) &&
 							(sameKeyWire.kind === "none" ||
 								(sameKeyWire.failure.sqlstate !== "21000" &&
 									sameKeyWire.failure.sqlstate !== "23505")),

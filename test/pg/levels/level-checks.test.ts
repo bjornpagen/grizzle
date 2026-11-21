@@ -98,6 +98,7 @@ import {
 	generate,
 	noDeclarations
 } from "#test/support/migrate/kit.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { servedFixture } from "#test/support/served-db.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -241,12 +242,12 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRows
 									`${where}: the editor judges every check`
 								)
 								unorderedEqual(
-									lawsNamed(byEditor.refused.laws),
+									lawsNamed(refusedEntries(byEditor.refused)),
 									Arr.map(broken, (s) => checkLaw(s.name)),
 									`${where}: the editor names every check the row breaks`
 								)
 								assert.ok(
-									eachByItsCheck(byEditor.refused.laws),
+									eachByItsCheck(refusedEntries(byEditor.refused)),
 									`${where}: each check the editor names refused by its own CHECK`
 								)
 								assert.deepEqual(
@@ -266,7 +267,7 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRows
 								const refused = byAuthor.refused
 								const ownNamed = Arr.map(brokenOwn, (s) => checkLaw(s.name))
 								assert.ok(
-									eachByItsCheck(refused.laws),
+									eachByItsCheck(refusedEntries(refused)),
 									`${where}: each check the author names refused by its own CHECK`
 								)
 								switch (refused.kind) {
@@ -286,17 +287,18 @@ export const aLevelsRowCheckOverALowerRelationOnPostgreSQL19StoresExactlyTheRows
 										}
 										break
 									case "above": {
-										const [first, ...rest] = refused.laws
+										const [first, ...more] = refused.above
 										const law = first.law
 										assert.ok(
-											law.level === above &&
+											more.length === 0 &&
+												law.level === above &&
 												Arr.some(brokenLevel, (s) =>
 													Option.isNone(exact(law.law, checkLaw(s.name)))
 												),
-											`${where}: one check of Media's the row breaks, named by Media: ${Formatter.format(law)}`
+											`${where}: one check of Media's the row breaks, named by Media alone, a CHECK serving its one law: ${Formatter.format(refused.above)}`
 										)
 										unorderedEqual(
-											lawsNamed(rest),
+											lawsNamed(refused.own === "every" ? refused.laws : []),
 											ownNamed,
 											`${where}: beside it, every own check the row breaks`
 										)

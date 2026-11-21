@@ -59,6 +59,7 @@ import {
 	worldOf
 } from "#test/pg/write/whole/whole.fixtures.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -384,7 +385,7 @@ export const deletingAGroupWholeAndReplacingItOnPostgreSQL19EveryChangeSetStores
 														`${label}: ${verdict.refusal}`
 													)
 													if (outcome.kind === "invariant-rejected") {
-														const named = Arr.map(outcome.refused.laws, (law) =>
+														const named = Arr.map(refusedEntries(outcome.refused), (law) =>
 															names.reported(law)
 														)
 														const among = (law: LawId) => allowed.has(law)

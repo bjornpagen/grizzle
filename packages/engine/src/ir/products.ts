@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { ClockUnit } from "#compiler/core/clock.ts"
 import type { EncodingFailure } from "#compiler/core/errors.ts"
@@ -598,25 +599,32 @@ export type ConstraintOwner =
 	| { readonly kind: "table"; readonly name: RelationIdent }
 	| { readonly kind: "domain"; readonly name: DomainName }
 
-/** One kind of owner's constraint names, by owner, to the law a violation reports. */
-type OwnedConstraintLaws = Readonly<Record<string, Readonly<Record<string, LawId>>>>
+/**
+ * One kind of owner's constraint names, by owner, to every law a violation of the constraint can break: each law it
+ * serves, once, in code point order, so the set is the constraint's whatever order its schema states its laws in.
+ */
+type OwnedConstraintLaws = Readonly<
+	Record<string, Readonly<Record<string, NonEmptyReadonlyArray<LawId>>>>
+>
 
 /**
- * Each owner's constraint names to the law a violation reports: a table's constraints and unique indexes under the
- * table, a domain's constraints under the domain. A write statement's refusal raises under the law's identity itself
- * and reports no owner, so it is no entry (write/refusal.ts).
+ * Each owner's constraint names to the laws a violation names (OwnedConstraintLaws): a table's constraints and unique
+ * indexes under the table, a domain's constraints under the domain. One constraint can serve several laws (a key's
+ * unique index under a count's fold and its family's counted law), and a refusal names every one of them, the rules it
+ * broke among them. A write statement's refusal raises under the law's identity itself and reports no owner, so it is no
+ * entry (write/refusal.ts).
  */
 export type ConstraintLaws = {
 	readonly tables: OwnedConstraintLaws
 	readonly domains: OwnedConstraintLaws
 }
 
-/** The law the constraint `name` of `owner` reports, when the map holds it. */
-export const constraintLaw = (
+/** The laws the constraint `name` of `owner` serves, when the map holds it. */
+export const lawsOfConstraint = (
 	laws: ConstraintLaws,
 	owner: ConstraintOwner,
 	name: string
-): LawId | undefined => {
+): NonEmptyReadonlyArray<LawId> | undefined => {
 	const owned = owner.kind === "table" ? laws.tables : laws.domains
 	if (!Object.hasOwn(owned, owner.name)) {
 		return undefined

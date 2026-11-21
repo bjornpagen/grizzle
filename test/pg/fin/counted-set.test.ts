@@ -25,6 +25,7 @@ import {
 	verdictOf
 } from "#test/pg/fin/counted-set.fixtures.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { applicationOf, member, openServedDb } from "#test/support/served-db.ts"
 import { tableState } from "#test/support/substrate/state.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
@@ -100,7 +101,7 @@ export const aCountedSetKeyedByThreeFieldsAndANameStoresEachOwnersCountAndFoldsO
 										)
 									}
 									const allowed = new Set(Arr.map([...verdict.broken], (b) => lawOf[b]))
-									const named = Arr.map(outcome.refused.laws, names.reported)
+									const named = Arr.map(refusedEntries(outcome.refused), names.reported)
 									switch (outcome.refused.kind) {
 										case "every":
 											for (const law of named) {

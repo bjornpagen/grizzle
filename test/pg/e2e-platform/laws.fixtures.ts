@@ -34,6 +34,7 @@ import {
 	putOp
 } from "#test/support/platform/laws.ts"
 import { coveredBy, platformSpan, type TokenKind } from "#test/support/platform/model.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 
 /** The platform's law names, through the naming door. */
 const billing = lawNamesOf(P.Billing)
@@ -109,7 +110,7 @@ const decided = (outcome: WriteAnswer<WriteOutcome<unknown>>): Decided => {
 		case "refused":
 			return {
 				kind: outcome.kind,
-				laws: Arr.map(outcome.refused.laws, (law) => platformNames.reported(law))
+				laws: Arr.map(refusedEntries(outcome.refused), (law) => platformNames.reported(law))
 			}
 		case "outsideWorld":
 			return { kind: outcome.kind, relation: outcome.relation }

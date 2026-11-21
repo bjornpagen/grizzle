@@ -18,6 +18,7 @@ import {
 	tierBounds,
 	uid
 } from "#test/support/platform/generate.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { untilAnswered } from "#test/support/transient.ts"
 
 export const C = JAN + 10n * DAY
@@ -206,7 +207,8 @@ export const decided = (db: PlatformDb, f: PlatformFacts): Effect.Effect<string,
 			writeAnswerOf(db.workload.load.once({ params: {}, facts: { insert: f } })),
 			unnoted
 		),
-		(o) => (o.kind === "refused" ? `refused by ${Formatter.format(o.refused.laws)}` : o.kind)
+		(o) =>
+			o.kind === "refused" ? `refused by ${Formatter.format(refusedEntries(o.refused))}` : o.kind
 	)
 
 /** The platform with billing's workload, installed once per member: the template every point's seat clones. */

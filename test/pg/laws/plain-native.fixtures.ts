@@ -4,11 +4,11 @@ import { array, boolean, element, type Gen, int, weighted } from "@bjornpagen/te
 import type { Case } from "@bjornpagen/testing/property"
 import { Array as Arr, Data, Effect, Formatter, Option } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { contained, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -353,7 +353,7 @@ export const runPlain = (
 			const law =
 				Option.isNone(relation) || fields.constraint === undefined
 					? undefined
-					: constraintLaw(
+					: soleLawOfConstraint(
 							installation.constraintToLaw,
 							{ kind: "table", name: installation.names.relation(relation.value).name },
 							fields.constraint

@@ -13,7 +13,7 @@ import type { LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import { constraintLaw, type ConstraintLaws } from "#compiler/ir/products.ts"
+import { type ConstraintLaws, lawsOfConstraint } from "#compiler/ir/products.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation } from "#compiler/physical/install/compile.ts"
 import { Logic } from "#compiler/public/compute.ts"
@@ -209,7 +209,7 @@ const refusedBy =
 		const owner = reportedOwner(server.error, new Set([fk.schema]))
 		return server.error.sqlstate === sqlstates.foreignKeyViolation &&
 			owner !== undefined &&
-			constraintLaw(fk.laws, owner, server.error.constraint) === fk.refusing
+			Arr.contains(lawsOfConstraint(fk.laws, owner, server.error.constraint) ?? [], fk.refusing)
 			? meets(shown)
 			: misses(shown, `expected the apply refused by ${fk.refusing} with SQLSTATE 23503`)
 	}
@@ -225,7 +225,7 @@ const committedPast =
 		const owner = reportedOwnerOf(outcome.fields)
 		return outcome.fields.code === sqlstates.foreignKeyViolation &&
 			owner !== undefined &&
-			constraintLaw(fk.laws, owner, outcome.fields.constraint) === fk.refusing
+			Arr.contains(lawsOfConstraint(fk.laws, owner, outcome.fields.constraint) ?? [], fk.refusing)
 			? meets(shown)
 			: misses(shown, `expected SQLSTATE 23503 on ${fk.refusing}`)
 	}

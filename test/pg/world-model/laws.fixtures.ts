@@ -70,19 +70,23 @@ const deferredAtCommit: StepCheck = ({ seen }) => {
 	if (seen.action.kind !== "direct-end" || o.kind !== "law-refused") {
 		return
 	}
-	Option.match(
-		Arr.findFirst(seen.before.host.laws, (l) => l.law === o.law),
-		{
-			onNone: () =>
-				assert.fail(`action ${seen.index}: the COMMIT names ${o.law}, no law of the installation`),
-			onSome: (law) => {
-				assert.ok(
-					!isImmediate(seen.before.host, law),
-					`action ${seen.index}: the COMMIT names ${o.law}, a law checked at its statement`
-				)
+	for (const named of o.laws) {
+		Option.match(
+			Arr.findFirst(seen.before.host.laws, (l) => l.law === named),
+			{
+				onNone: () =>
+					assert.fail(
+						`action ${seen.index}: the COMMIT names ${named}, no law of the installation`
+					),
+				onSome: (law) => {
+					assert.ok(
+						!isImmediate(seen.before.host, law),
+						`action ${seen.index}: the COMMIT names ${named}, a law checked at its statement`
+					)
+				}
 			}
-		}
-	)
+		)
+	}
 }
 
 export const required: Situations<WorldFeature> = [

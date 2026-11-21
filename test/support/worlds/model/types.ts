@@ -251,12 +251,13 @@ export interface InstalledNames {
 	/** The law identities of each `BaseSpec.laws` entry, aligned by index and of the same kind. */
 	readonly laws: ReadonlyArray<LawIds>
 	/**
-	 * The CHECK law of each contract and refined-text DOMAIN, by its domain's name, as PostgreSQL alone reports it to a
-	 * direct writer or reader, by the domain and never the column (the installation's constraint map): a written value
+	 * The CHECK laws of each contract and refined-text DOMAIN, by its domain's name, as PostgreSQL alone reports them to a
+	 * direct writer or reader, by the domain and never the column (the installation's constraint map, every law the CHECK
+	 * serves: a contract's one, a text domain's each field's it types): a written value
 	 * outside a contract's range or a text's pattern passes grizzle's encoder (it checks the base type) and is refused
 	 * by the domain's CHECK as its statement casts it, before row constraints and policies.
 	 */
-	readonly domains: Readonly<Record<string, LawId>>
+	readonly domains: Readonly<Record<string, Arr.NonEmptyReadonlyArray<LawId>>>
 	/**
 	 * Each stored relation's refined-text fields' own pattern laws, by relation and field: what a Db's refusal names,
 	 * the host deciding the column whose value the shared DOMAIN refused.
@@ -797,7 +798,11 @@ export type ActionOutcome =
 	| {
 			readonly kind: "law-refused"
 			readonly sqlstate: SqlState
-			readonly law: LawId
+			/**
+			 * The laws PostgreSQL's refusal names, by the constraint it reports: observed, every law that constraint serves
+			 * (the installation's constraintToLaw); expected, the laws the model finds broken, each among them.
+			 */
+			readonly laws: Arr.NonEmptyReadonlyArray<LawId>
 			readonly witness: Witness
 	  }
 	| { readonly kind: "encoding-refused" }

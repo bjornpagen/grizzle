@@ -17,7 +17,6 @@ import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { baselineRuleChecks, lawChecks } from "#compiler/deploy/snapshot/violation.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { countColumn } from "#compiler/physical/ddl/rules.ts"
 import { type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -33,6 +32,7 @@ import {
 	seatIn,
 	seatTemplate
 } from "#test/pg/fin/installed.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	foundQueryOf,
 	judgedPlans,
@@ -908,7 +908,7 @@ const refusedLaw = (
 	const owner = Arr.findFirst(RELATIONS, (r) => installation.names.relation(r).name === table)
 	return Option.isNone(owner)
 		? undefined
-		: constraintLaw(
+		: soleLawOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint

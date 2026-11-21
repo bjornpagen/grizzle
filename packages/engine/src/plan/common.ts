@@ -148,7 +148,7 @@ export {
 	type RoleDesc,
 	type SchemaDesc
 } from "#compiler/ir/desc.ts"
-export { constraintLaw } from "#compiler/ir/products.ts"
+export { lawsOfConstraint } from "#compiler/ir/products.ts"
 export type {
 	CallerParamDecl,
 	ClockParamDecl,

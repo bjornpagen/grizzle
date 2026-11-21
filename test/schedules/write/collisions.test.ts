@@ -78,6 +78,7 @@ import {
 } from "#test/schedules/write/collisions.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
 import { lockWaitOf } from "#test/support/substrate/barrier.ts"
@@ -211,7 +212,7 @@ export const collidingAdditionsOfACertifiedREADCOMMITTEDRoleAnswerAsTheSerialOrd
 										return `${label} is a typed refusal of ${expected.law}, never an abort or a defect: ${Formatter.format(ran)}`
 									}
 									const outcome = ran.success
-									const [refused, ...more] = outcome.refused.laws
+									const [refused, ...more] = refusedEntries(outcome.refused)
 									if (more.length > 0 || !sameLaw(refused.law, laws[expected.law])) {
 										return `${label} refuses ${expected.law} alone: ${Formatter.format(outcome.refused)}`
 									}

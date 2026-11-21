@@ -6,7 +6,6 @@ import type { Case } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, Formatter, Option, String as Str } from "effect"
 import type { LawId } from "#compiler/core/ids.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -14,6 +13,7 @@ import { check, contained, derived, key, on, relation, schema } from "#compiler/
 import { str } from "#compiler/public/text.ts"
 import { readsOf, rerunsOf } from "#test/pg/laws/rule-whole.fixtures.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { type Installed, migratedTemplate, noPlaceholders } from "#test/support/install-migrate.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
@@ -268,7 +268,7 @@ const refusedLaw = (
 	)
 	return Option.isNone(owner)
 		? undefined
-		: constraintLaw(
+		: soleLawOfConstraint(
 				installation.constraintToLaw,
 				{ kind: "table", name: installation.names.relation(owner.value).name },
 				fields.constraint

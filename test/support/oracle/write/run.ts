@@ -486,7 +486,14 @@ const refusedIdsOf = (described: ReadonlyMap<LawId, Law>, refused: Refused): Ref
 			return { kind: "some", laws: [id(first), id(second), ...Arr.map(rest, id)] }
 		}
 		case "above":
-			return { kind: "above", own: refused.own, laws: Arr.map(refused.laws, id) }
+			return {
+				kind: "above",
+				own: refused.own,
+				laws: Arr.map(
+					refused.own === "every" ? Arr.appendAll(refused.above, refused.laws) : refused.above,
+					id
+				)
+			}
 	}
 }
 

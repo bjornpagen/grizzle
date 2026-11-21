@@ -668,8 +668,9 @@ export const reportable = (installation: Installation): ReadonlyArray<Identified
 			case "domain":
 				return Arr.map(found.uses, (u) => ({ law: u.law.described, id: u.law.law }))
 			case "aboveCheck":
-			case "above":
 				return [{ law: found.law.described, id: found.law.law }]
+			case "above":
+				return Arr.map(found.laws, (l) => ({ law: l.described, id: l.law }))
 		}
 	}
 	const ofTable = (table: ObjectName, constraint: string): ReadonlyArray<IdentifiedLaw> =>

@@ -334,14 +334,15 @@ const refusedGen: Gen<Public.Refused> = (source) => {
 	const second = source.draw(refusedLawGen)
 	const rest = source.draw(array(refusedLawGen, { min: 0, max: 2 }))
 	const above = source.draw(aboveLawGen)
+	const moreAbove = source.draw(array(aboveLawGen, { min: 0, max: 1 }))
 	return source.draw(
 		element<Public.Refused>([
 			{ kind: "every", laws: [first, ...rest] },
 			{ kind: "first", laws: [first, ...rest] },
 			{ kind: "some", laws: [first, second, ...rest] },
-			{ kind: "above", own: "every", laws: [above, first, ...rest] },
-			{ kind: "above", own: "none", laws: [above] },
-			{ kind: "above", own: "unjudged", laws: [above] }
+			{ kind: "above", own: "every", above: [above, ...moreAbove], laws: [first, ...rest] },
+			{ kind: "above", own: "none", above: [above, ...moreAbove] },
+			{ kind: "above", own: "unjudged", above: [above, ...moreAbove] }
 		])
 	)
 }

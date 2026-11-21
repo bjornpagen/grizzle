@@ -107,7 +107,7 @@ import type { CatalogQuery } from "#adapter/wire/statement.ts"
 import { reportedOwner } from "#adapter/witness/keylaw.ts"
 import { C } from "#compiler/plan/catalog.ts"
 import {
-	constraintLaw,
+	lawsOfConstraint,
 	emitCatalog,
 	type EmittedText,
 	type LawId,
@@ -675,14 +675,14 @@ const surveyAll = Effect.fn("surveyAll")(function* (
 })
 
 /**
- * The law a refusal of a file of a folder breaks, by that folder's own laws (`laws`, its meta.json's FolderLaws), which
+ * The laws a refusal of a file of a folder can break, every law the refused constraint serves, by that folder's own laws (`laws`, its meta.json's FolderLaws), which
  * generate recorded from the snapshot the folder installs, as a refused write's law is read from the installation's
  * map (witness/keylaw.ts): an integrity violation PostgreSQL reports on a constraint of a table or domain of one of the
  * levels the folder installs (reportedOwner), such as a VALIDATE CONSTRAINT of a foreign key over stored rows, or a
  * deferred one at COMMIT; none for any other failure, and none for a violation check, which raises under the law's
  * identity itself.
  */
-const brokenLaw = (laws: FolderLaws): ((failure: StatementFailure) => LawId | undefined) => {
+const brokenLaws = (laws: FolderLaws): ((failure: StatementFailure) => ReadonlyArray<LawId>) => {
 	const schemas = new Set(laws.schemas)
 	return (failure) => {
 		if (
@@ -690,17 +690,17 @@ const brokenLaw = (laws: FolderLaws): ((failure: StatementFailure) => LawId | un
 			failure.constraint === undefined ||
 			sqlstateClass(failure.sqlstate) !== sqlstateClass(sqlstates.integrityConstraintViolation)
 		) {
-			return undefined
+			return []
 		}
 		const owner = reportedOwner(failure, schemas)
 		return owner === undefined
-			? undefined
-			: constraintLaw(laws.constraintToLaw, owner, failure.constraint)
+			? []
+			: (lawsOfConstraint(laws.constraintToLaw, owner, failure.constraint) ?? [])
 	}
 }
 
 /**
- * Runs one file and records it, a refusal naming the law it breaks (`broken`, brokenLaw), its rows after the ledger
+ * Runs one file and records it, a refusal naming the laws it can break (`broken`, brokenLaws), its rows after the ledger
  * statements `redraft` its transaction runs first among them: a redraft's re-record of its folder, or none.
  *
  * Each statement alone, in a step of its own: whether it runs depends on the one before it (see the header).
@@ -712,7 +712,7 @@ const runFile = (
 	folder: ParsedFolder,
 	file: ParsedFile,
 	ledger: LedgerTable,
-	broken: (failure: StatementFailure) => LawId | undefined,
+	broken: (failure: StatementFailure) => ReadonlyArray<LawId>,
 	redraft: ReadonlyArray<BatchStatement>,
 	levels: ReadonlyArray<string>
 ): Effect.Effect<void, MigrateError> => {
@@ -726,7 +726,7 @@ const runFile = (
 				file: file.name,
 				statement: index + 1,
 				failure,
-				law: broken(failure)
+				laws: broken(failure)
 			})
 		)
 	const recordFailed = (failure: StatementFailure) =>
@@ -742,7 +742,7 @@ const runFile = (
 						folder: folder.name,
 						file: file.name,
 						failure: failure.failure,
-						law: broken(failure.failure)
+						laws: broken(failure.failure)
 					})
 				: new FileCommitLost({ schema, at })
 		)
@@ -982,7 +982,7 @@ const runPlan = Effect.fn("runPlan")(function* (
 			yield* recordFolderRow(session, plan.schema, statements, r.folder, ledger)
 			ledger = "installed"
 		}
-		const broken = brokenLaw(r.folder.meta.laws)
+		const broken = brokenLaws(r.folder.meta.laws)
 		/** A redraft's re-record, which the transaction of the first file it runs carries, and no other. */
 		let redraft: ReadonlyArray<BatchStatement> =
 			r.kind === "redraft"

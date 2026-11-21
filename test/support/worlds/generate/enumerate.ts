@@ -2105,7 +2105,7 @@ const outcomeClass = (o: ActionOutcome): string => {
 		case "invariant-rejected":
 			return `${o.kind} ${o.law} ${o.witness.kind}`
 		case "law-refused":
-			return `${o.kind} ${o.sqlstate} ${o.law} ${o.witness.kind}`
+			return `${o.kind} ${o.sqlstate} ${Arr.join(o.laws, ",")} ${o.witness.kind}`
 		case "refused":
 			return `${o.kind} ${o.sqlstate}`
 		case "migration-refused":

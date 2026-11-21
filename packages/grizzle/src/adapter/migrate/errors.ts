@@ -660,13 +660,16 @@ export class LossesUndecided extends Data.TaggedError("LossesUndecided")<{
 	}
 }
 
-/** How a refusal of a migration file names the law its constraint reports (`brokenLaw` in apply.ts), when it does. */
-const lawText = (law: LawId | undefined): string =>
-	law === undefined ? "" : `, breaking law ${law}`
+/** How a refusal of a migration file names every law its constraint serves (`brokenLaws` in apply.ts), when it does. */
+const lawText = (laws: ReadonlyArray<LawId>): string =>
+	laws.length === 0
+		? ""
+		: `, breaking ${laws.length === 1 ? "law" : "one of the laws"} ${Arr.join(laws, ", ")}`
 
 /**
- * Statement `statement` (1-based) of `folder`/`file` failed: `law` the law the refused constraint reports, by the laws
- * of `folder` itself (its meta.json's FolderLaws), as a refused write names it (apply.ts brokenLaw).
+ * Statement `statement` (1-based) of `folder`/`file` failed: `laws` every law the refused constraint serves, by the
+ * laws of `folder` itself (its meta.json's FolderLaws), as a refused write names them (apply.ts brokenLaws), none where
+ * PostgreSQL named no constraint of the folder's levels.
  */
 export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	readonly schema: string
@@ -674,7 +677,7 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	readonly file: string
 	readonly statement: number
 	readonly failure: StatementFailure
-	readonly law: LawId | undefined
+	readonly laws: ReadonlyArray<LawId>
 }> {
 	/**
 	 * Whether the statement met an object it names missing from the catalog or already in it (core/sqlstate.ts
@@ -686,7 +689,7 @@ export class StatementFailed extends Data.TaggedError("StatementFailed")<{
 	}
 
 	override get message(): string {
-		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.law)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${rowsFix(this.failure)}`
+		return `${this.folder}/${this.file} statement ${this.statement} failed${lawText(this.laws)}: ${failureText(this.failure)}${this.drifted ? driftedFix : ""}${rowsFix(this.failure)}`
 	}
 }
 
@@ -775,19 +778,19 @@ export class RecordFailed extends Data.TaggedError("RecordFailed")<{
 }
 
 /**
- * The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row: `law` the law a deferred
- * constraint the COMMIT checked reports, by the laws of `folder` itself (its meta.json's FolderLaws, apply.ts
- * brokenLaw).
+ * The COMMIT of `folder`/`file` was refused, so the file rolled back with its ledger row: `laws` every law the
+ * deferred constraint the COMMIT checked serves, by the laws of `folder` itself (its meta.json's FolderLaws, apply.ts
+ * brokenLaws).
  */
 export class FileCommitRefused extends Data.TaggedError("FileCommitRefused")<{
 	readonly schema: string
 	readonly folder: string
 	readonly file: string
 	readonly failure: ServerError
-	readonly law: LawId | undefined
+	readonly laws: ReadonlyArray<LawId>
 }> {
 	override get message(): string {
-		return `the COMMIT of ${this.folder}/${this.file} failed${lawText(this.law)}: ${failureText(this.failure)}`
+		return `the COMMIT of ${this.folder}/${this.file} failed${lawText(this.laws)}: ${failureText(this.failure)}`
 	}
 }
 

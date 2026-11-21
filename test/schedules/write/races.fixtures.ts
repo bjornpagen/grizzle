@@ -92,6 +92,7 @@ import { writeAnswerOf, type WriteAnswer, writeOnce } from "#test/support/calls.
 import { testIdleTimeout } from "#test/support/limits.ts"
 import { nonEmptyList } from "#test/support/oracle/pick.ts"
 import type { SqlError } from "#test/support/pg.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { type Retried, untilAnswered } from "#test/support/schedules/grizzle.ts"
 import {
@@ -1088,13 +1089,13 @@ const grizzleAnswer = (
 ): GrizzleAnswer => {
 	switch (value.kind) {
 		case "refused": {
-			const [law, ...more] = value.refused.laws
+			const [law, ...more] = refusedEntries(value.refused)
 			return more.length === 0
 				? { kind: "refused", law: reported(law) }
 				: {
 						kind: "failed",
-						what: `a refusal naming ${Arr.length(value.refused.laws)} laws: ${Arr.join(
-							Arr.map(value.refused.laws, reported),
+						what: `a refusal naming ${Arr.length(refusedEntries(value.refused))} laws: ${Arr.join(
+							Arr.map(refusedEntries(value.refused), reported),
 							", "
 						)}`
 					}

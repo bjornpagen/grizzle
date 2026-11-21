@@ -16,11 +16,11 @@ import { Array as Arr, Effect, Option, type Scope, String as Str } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import type { FixtureSchema } from "#test/support/compile.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import {
 	type Installed,
 	installedTemplate,
@@ -319,7 +319,7 @@ export const seatOfInstalled = (
 					deferrable: deferrable === true,
 					cascades: updtype === "c",
 					law: Option.fromUndefinedOr(
-						constraintLaw(
+						soleLawOfConstraint(
 							installed.installation.constraintToLaw,
 							{ kind: "table", name: installed.names.relation(relation).name },
 							String(name)

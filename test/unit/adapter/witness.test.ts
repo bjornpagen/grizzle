@@ -17,7 +17,7 @@ import { wild } from "#test/support/kernel/naming.ts"
 import { resolveCase } from "#test/support/oracle/public/generate.ts"
 import { lawFeatures } from "#test/support/oracle/public/laws.ts"
 import { encodeRefusalDetail } from "#test/support/oracle/write/detail.ts"
-import { refusedLaws } from "#test/support/refused.ts"
+import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 import { drawnSchema } from "#test/support/served-login.ts"
 import { nothingReported, type Reported, serverError } from "#test/support/server-error.ts"
 import {
@@ -552,7 +552,7 @@ export const aServerErrorAtAWriteMeansWhatTheClassificationRulesSayOfTheFieldsGr
 													domain: defined(reported.dataType, "the reported data type"),
 													name: defined(chosen.name, "the reported constraint")
 												}
-							for (const r of classified.refused.laws) {
+							for (const r of refusedEntries(classified.refused)) {
 								assert.deepEqual(r.by, by, "each law is refused by the object the server reported")
 							}
 							assert.deepEqual(classified.witness, meaning.witness)

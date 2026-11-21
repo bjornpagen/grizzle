@@ -90,6 +90,7 @@ import {
 } from "#test/support/install-migrate.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { openServedDb } from "#test/support/served-db.ts"
 import { type StateRow, tableState } from "#test/support/substrate/state.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -730,8 +731,8 @@ const judged = (
 			case "GeneratedNull": {
 				const refused = refusedBy(stored.answer, refusal._tag, where)
 				assert.ok(
-					Arr.some(refused.refused.laws, (l) => sameLaw(l.law, refusal.law)),
-					`the store refuses by the preview's law ${Formatter.format(refusal.law)}, among ${Formatter.format(refused.refused.laws)}: ${where}`
+					Arr.some(refusedEntries(refused.refused), (l) => sameLaw(l.law, refusal.law)),
+					`the store refuses by the preview's law ${Formatter.format(refusal.law)}, among ${Formatter.format(refusedEntries(refused.refused))}: ${where}`
 				)
 				assert.deepEqual(
 					refused.witness,
@@ -743,8 +744,8 @@ const judged = (
 			case "OwnerAbsent": {
 				const refused = refusedBy(stored.answer, refusal._tag, where)
 				assert.ok(
-					Arr.some(refused.refused.laws, (l) => sameLaw(l.law, refusal.law)),
-					`the store refuses the orphan by its counted family's law ${Formatter.format(refusal.law)}, among ${Formatter.format(refused.refused.laws)}: ${where}`
+					Arr.some(refusedEntries(refused.refused), (l) => sameLaw(l.law, refusal.law)),
+					`the store refuses the orphan by its counted family's law ${Formatter.format(refusal.law)}, among ${Formatter.format(refusedEntries(refused.refused))}: ${where}`
 				)
 				return
 			}
@@ -793,7 +794,7 @@ const judged = (
 		const refused = refusedBy(stored.answer, "a row past its domain", where)
 		assert.ok(
 			Arr.some(
-				refused.refused.laws,
+				refusedEntries(refused.refused),
 				(l) =>
 					l.law.kind === "pattern" &&
 					Arr.some(
@@ -802,7 +803,7 @@ const judged = (
 							l.law.kind === "pattern" && o.relation === l.law.relation && o.field === l.law.field
 					)
 			),
-			`the store refuses a row past its domain, ${Formatter.format(outside)}, by the field's domain law, not ${Formatter.format(refused.refused.laws)}: ${where}`
+			`the store refuses a row past its domain, ${Formatter.format(outside)}, by the field's domain law, not ${Formatter.format(refusedEntries(refused.refused))}: ${where}`
 		)
 		return
 	}
@@ -810,7 +811,7 @@ const judged = (
 		const refused = refusedBy(stored.answer, "a generated NULL", where)
 		assert.ok(
 			Arr.some(
-				refused.refused.laws,
+				refusedEntries(refused.refused),
 				(l) =>
 					l.law.kind === "generated" &&
 					Arr.some(
@@ -819,7 +820,7 @@ const judged = (
 							l.law.kind === "generated" && n.relation === l.law.relation && n.field === l.law.field
 					)
 			),
-			`the store refuses a generated field the preview's rows leave NULL, ${Formatter.format(nulls)}, not ${Formatter.format(refused.refused.laws)}: ${where}`
+			`the store refuses a generated field the preview's rows leave NULL, ${Formatter.format(nulls)}, not ${Formatter.format(refusedEntries(refused.refused))}: ${where}`
 		)
 		return
 	}

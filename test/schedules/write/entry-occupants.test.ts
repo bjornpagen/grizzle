@@ -56,6 +56,7 @@ import {
 } from "#test/schedules/write/entry-occupants.fixtures.ts"
 import { writeAnswerOf } from "#test/support/calls.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { openActors } from "#test/support/schedules/actors.ts"
 import { untilAnswered } from "#test/support/schedules/grizzle.ts"
 import { rigIn } from "#test/support/schedules/rig.ts"
@@ -234,7 +235,7 @@ export const aQueryEntrysInsertionRacingACommitAtItsKeyFailsAtAnOccupantPastItsS
 							}
 							assert.ok(
 								answer.kind === "refused" &&
-									Arr.length(answer.refused.laws) === 1 &&
+									Arr.length(refusedEntries(answer.refused)) === 1 &&
 									answer.witness.kind === "key" &&
 									deepEquals(answer.witness.values, { id: wId }),
 								`A is refused on Seat's key law at its submitted id: ${Formatter.format(answer)}`

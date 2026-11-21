@@ -45,7 +45,6 @@ import {
 import { codebookOf, emptyFingerprint } from "#compiler/deploy/snapshot/build.ts"
 import type { DeploySnapshot } from "#compiler/deploy/snapshot/types.ts"
 import { codeOf } from "#compiler/ir/codes.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import { folderOrdinal, ledgerTableName } from "#compiler/physical/ddl/ledger.ts"
 import { catalogExpr } from "#compiler/sql/print.ts"
 import {
@@ -61,6 +60,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { firstCodes } from "#test/support/compile.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { atName, parsedName, parsedSchemaName } from "#test/support/kernel/naming.ts"
 import {
 	draftChain,
@@ -1004,7 +1004,7 @@ const realOf = (
 				const law =
 					constraint === undefined
 						? undefined
-						: constraintLaw(
+						: soleLawOfConstraint(
 								snapshot.constraintToLaw,
 								{ kind: "table", name: task.ident },
 								constraint

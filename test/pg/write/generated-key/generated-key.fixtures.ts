@@ -65,7 +65,7 @@ import {
 	violations
 } from "#test/support/laws/model.ts"
 import { noDeclarations } from "#test/support/migrate/kit.ts"
-import { refusedLaws } from "#test/support/refused.ts"
+import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { clearRows, installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, ownerSession, type SubstrateCase } from "#test/support/substrate/substrate.ts"
@@ -1362,7 +1362,7 @@ export const keysCase = (taken: SubstrateCase<Generated>, k: Case, c: PropertyCa
 					)
 				}
 				assert.deepEqual(afterRows, beforeRows, "a refused write changes nothing")
-				const named = Arr.map(outcome.refused.laws, names.reported)
+				const named = Arr.map(refusedEntries(outcome.refused), names.reported)
 				const [first] = named
 				const met = Arr.findFirst(expected.violations, (v) => v.law === first)
 				if (Option.isNone(met)) {
@@ -1548,7 +1548,7 @@ export const labelsCase = (
 					)
 				}
 				assert.deepEqual(after, before, "a refused write changes nothing")
-				const [law, ...more] = Arr.map(outcome.refused.laws, names.reported)
+				const [law, ...more] = Arr.map(refusedEntries(outcome.refused), names.reported)
 				assert.deepEqual(more, [], "a key's refusal names its one law")
 				const broken = law === primaryLaw ? "primary" : law === valueLaw ? "value" : undefined
 				if (broken === undefined || !expected.laws.includes(broken)) {

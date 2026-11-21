@@ -94,6 +94,7 @@ import { ownerSession, Substrate, type SubstrateShape } from "#test/support/subs
 
 import { regex } from "arkregex"
 import type { Uuid } from "#compiler/public/fields.ts"
+import { soleLaw } from "#test/support/constraint-law.ts"
 import { paramText } from "#test/support/wire.ts"
 /** The migration identity's connection to the substrate's database.
  *
@@ -279,13 +280,14 @@ export const refusal = <A>(effect: Effect.Effect<A, MigrateError>): Effect.Effec
 export const refusedLaw = (failure: MigrateError): Option.Option<string> => {
 	const reason = failure.reason
 	if (reason._tag === "FileCommitRefused") {
-		return Option.fromUndefinedOr(reason.law)
+		return Option.fromUndefinedOr(soleLaw(reason.laws, "the COMMIT's refused constraint"))
 	}
 	if (reason._tag !== "StatementFailed") {
 		return Option.none()
 	}
-	return reason.law !== undefined
-		? Option.some(reason.law)
+	const law = soleLaw(reason.laws, "the statement's refused constraint")
+	return law !== undefined
+		? Option.some(law)
 		: reason.failure._tag === "ServerError" &&
 			  reason.failure.sqlstate === sqlstates.integrityConstraintViolation
 			? Option.fromUndefinedOr(reason.failure.constraint)

@@ -2,11 +2,11 @@ import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Record as Rec } from "effect"
+import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { maxIdentifierBytes, conversionOf, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import { expandAlternatives } from "#compiler/ir/desc.ts"
-import { type ConstraintOwner, constraintLaw } from "#compiler/ir/products.ts"
+import { type ConstraintOwner, lawsOfConstraint } from "#compiler/ir/products.ts"
 import { constraintLawMap } from "#compiler/laws/model/model.ts"
 import { schema } from "#compiler/public/schema.ts"
 import {
@@ -100,12 +100,13 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 					k.note("named native")
 					const owner: ConstraintOwner = { kind: "table", name: native.owner }
 					const ident = identifierOf(native.named)
-					const law = L.lawOfConstraint(owner, ident)
-					assert.ok(theory.has(law), `${ident} reports ${law}, which is no law of the theory`)
-					assert.ok(
-						L.constraintsOf(law, native.object.kind).includes(ident),
-						`${ident} is among the ${native.object.kind} constraints reporting ${law}`
-					)
+					for (const law of L.lawsOfConstraint(owner, ident)) {
+						assert.ok(theory.has(law), `${ident} reports ${law}, which is no law of the theory`)
+						assert.ok(
+							L.constraintsOf(law, native.object.kind).includes(ident),
+							`${ident} is among the ${native.object.kind} constraints reporting ${law}`
+						)
+					}
 				}
 				assert.equal(
 					new Set(Arr.map(named, ([space, ident]) => `${space} ${ident}`)).size,
@@ -118,23 +119,24 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 						k.note("a rule's trigger")
 					}
 					const laws = Arr.map(entry.laws, (l) => l.law)
-					const found = constraintLaw(constraintLaws, constraintOwner(entry), entry.name)
+					const found = lawsOfConstraint(constraintLaws, constraintOwner(entry), entry.name)
 					assert.ok(
-						found !== undefined && laws.includes(found),
-						`${entry.name} of ${entry.owner} is found under the owner the kit names it by, reporting one of its laws`
+						found !== undefined && Arr.every(laws, (law) => Arr.contains(found, law)),
+						`${entry.name} of ${entry.owner} is found under the owner the kit names it by, naming every one of its laws`
 					)
 				}
 				for (const statement of Arr.filter(base.statements, (s) => s.kind === "key")) {
 					k.note("a key statement")
 					const law = lawIdOf(subject, statement)
-					const reporting = Arr.filter(
-						L.model.constraints,
-						(entry) =>
-							constraintLaw(
+					const reporting = Arr.filter(L.model.constraints, (entry) =>
+						Arr.contains(
+							lawsOfConstraint(
 								constraintLawMap(L.model.constraints),
 								constraintOwner(entry),
 								entry.name
-							) === law
+							) ?? [],
+							law
+						)
 					)
 					assert.ok(reporting.length > 0, `a constraint reports the key's law ${law}`)
 				}
@@ -153,7 +155,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 						for (const handle of handlesOf(forward.right)) {
 							const arm = defined(laws.arms[handle], `${handle}'s arm law`)
 							assert.ok(
-								Arr.some(fks, (fk) => L.lawOfConstraint(fk.owner, fk.ident) === arm) !==
+								Arr.some(fks, (fk) => Arr.contains(L.lawsOfConstraint(fk.owner, fk.ident), arm)) !==
 									judgedWhole(L.model, arm),
 								`${handle}'s arm is contained in its parents one way: through a foreign key into them, or whole by the judge`
 							)
@@ -174,12 +176,14 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 							)
 							continue
 						}
-						assert.equal(
-							L.lawOfConstraint(
-								{ kind: "table", name: N.tableIdent({ name: reverse.left.relation }) },
-								L.constraintOf(law, "ForeignKey")
+						assert.ok(
+							Arr.contains(
+								L.lawsOfConstraint(
+									{ kind: "table", name: N.tableIdent({ name: reverse.left.relation }) },
+									L.constraintOf(law, "ForeignKey")
+								),
+								law
 							),
-							law,
 							`${handle}'s reverse is its own native foreign key`
 						)
 					}
@@ -204,7 +208,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 							? c.laws
 							: []
 					)
-					const reported = N.lawOfConstraint(
+					const reported = N.lawsOfConstraint(
 						{ kind: "domain", name: contract.domain },
 						contract.constraint
 					)
@@ -215,8 +219,8 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 							`${contractName}'s domain, typing no stored column, carries its law`
 						)
 						assert.ok(
-							Arr.some(unstored, (l) => l.law === reported),
-							`${contractName}'s domain reports one of the laws it carries`
+							Arr.every(reported, (law) => Arr.some(unstored, (l) => l.law === law)),
+							`${contractName}'s domain names only laws it carries`
 						)
 					} else {
 						for (const use of stored) {
@@ -234,10 +238,10 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 								`${typed.relation}.${typed.field} states its own contract's law under the domain's CHECK`
 							)
 						}
-						assert.equal(
+						assert.deepEqual<ReadonlyArray<LawId>>(
 							reported,
-							first.law.law,
-							`${contractName}'s domain reports its first use's law`
+							Arr.sort(Arr.dedupe(Arr.map(stored, (use) => use.law.law)), Order.String),
+							`${contractName}'s domain names every law its uses state, ${first.law.law} among them, each once, in code point order`
 						)
 					}
 				}
@@ -282,7 +286,7 @@ export const productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlte
 					"test/unit/kernel/naming.test.ts#productionNamesFromSrcAgreeWithSrcsRecordsAtEveryNamedNativeKeyAlternativesExpansionCheckedContractAndTextDomainEachNamedByTheDoorsRule:-:3.2.1.0.0.1.1.0"
 				),
 				reason:
-					"two contracts of one definition, the first column's named after the second's: the domain's CHECK reports its first use's law, not the first name's",
+					"two contracts of one definition, the first column's named after the second's: the domain's CHECK names both contracts' laws, in code point order, never the first use's alone",
 				since: "2026-11-11"
 			}
 		],

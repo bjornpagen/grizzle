@@ -11,6 +11,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { type Aim, apply, checkedAdmission, openMigrator } from "#test/pg/migrate/support.ts"
 import { ambientOwner, ordinarySession } from "#test/support/ambient.ts"
+import { soleLaw } from "#test/support/constraint-law.ts"
 import {
 	type DraftedVersion,
 	draftVersion,
@@ -98,7 +99,7 @@ const keyLawOf = (plan: RealInstallPlan): Option.Option<string> =>
 const namedLaw = (failure: MigrateError): Option.Option<string> => {
 	const reason = failure.reason
 	return reason._tag === "StatementFailed" || reason._tag === "FileCommitRefused"
-		? Option.fromUndefinedOr(reason.law)
+		? Option.fromUndefinedOr(soleLaw(reason.laws, `${reason._tag}'s refused constraint`))
 		: Option.none()
 }
 

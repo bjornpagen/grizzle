@@ -8,7 +8,6 @@ import { sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { type Codebook, codeOf } from "#compiler/ir/codes.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import { generatedLaw } from "#compiler/plan/change.ts"
 import { bits, closedId, generated, natural, slot } from "#compiler/public/fields.ts"
@@ -22,6 +21,7 @@ import {
 	type ModelSlot,
 	type RosterState
 } from "#test/support/closed/generate.ts"
+import { soleLawOfConstraint } from "#test/support/constraint-law.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 import type { PgErrorFields, SqlError } from "#test/support/pg.ts"
 
@@ -501,7 +501,7 @@ const reportedLaw = (
 	}
 	const law =
 		fields.code === sqlstates.checkViolation && fields.constraint !== undefined
-			? constraintLaw(
+			? soleLawOfConstraint(
 					installation.constraintToLaw,
 					{ kind: "table", name: table.name },
 					fields.constraint

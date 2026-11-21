@@ -20,7 +20,7 @@ import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { LawId, RelationIdent } from "#compiler/core/ids.ts"
 import type { ExprDesc } from "#compiler/ir/desc.ts"
-import { constraintLaw } from "#compiler/ir/products.ts"
+import { lawsOfConstraint } from "#compiler/ir/products.ts"
 import { compileLaws, triggerLawsOver } from "#compiler/laws/model/model.ts"
 import {
 	compileInstallation,
@@ -638,14 +638,12 @@ export const ruleLaw = (installation: Installation): LawId => {
 		),
 		"S's primary key"
 	).constraint.name
-	const primaryLaw = constraintLaw(
-		installation.constraintToLaw,
-		{ kind: "table", name: table },
-		primaryName
-	)
+	const primaryLaws =
+		lawsOfConstraint(installation.constraintToLaw, { kind: "table", name: table }, primaryName) ??
+		[]
 	const laws = Arr.filter(
-		Arr.dedupe(Rec.values(installation.constraintToLaw.tables[table] ?? {})),
-		(l) => l !== primaryLaw
+		Arr.dedupe(Arr.flatten(Rec.values(installation.constraintToLaw.tables[table] ?? {}))),
+		(l) => !Arr.contains(primaryLaws, l)
 	)
 	assert.equal(laws.length, 1, "S's table names one law beside its primary key's")
 	return defined(laws[0], "the rule's law")
@@ -762,9 +760,9 @@ export const assertLowered = (
 			)} into ${m.target} over ${over}, or from the paired columns alone over its own columns under the match's constants`
 		)
 		assert.equal(fk.deferrable, "INITIALLY DEFERRED", "the foreign key is deferred")
-		assert.equal(
-			constraintLaw(installation.constraintToLaw, { kind: "table", name: sTable }, fk.name),
-			law,
+		assert.deepEqual(
+			lawsOfConstraint(installation.constraintToLaw, { kind: "table", name: sTable }, fk.name),
+			[law],
 			"the foreign key names the rule's law"
 		)
 		const atOwnColumns = fk.columns.length === heads.length && constants.length > 0

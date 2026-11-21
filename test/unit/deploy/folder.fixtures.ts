@@ -304,8 +304,10 @@ const recordOf = (lossDrawn: boolean): ReadonlyArray<MetaFile> => {
 /** An installed identifier's spelling: a PostgreSQL schema's, an owner's, a constraint's or a law's. */
 const identGen: Gen<string> = matching(regex("^[a-z][a-z0-9_]{0,8}$"))
 
-/** One kind of owner's constraint names, by owner, to the laws they report. */
-const ownedLawsGen: Gen<Readonly<Record<string, Readonly<Record<string, LawId>>>>> = (source) =>
+/** One kind of owner's constraint names, by owner, to the laws each serves, one or two. */
+const ownedLawsGen: Gen<
+	Readonly<Record<string, Readonly<Record<string, Arr.NonEmptyReadonlyArray<LawId>>>>>
+> = (source) =>
 	Rec.fromEntries(
 		source.draw(
 			array(
@@ -318,7 +320,15 @@ const ownedLawsGen: Gen<Readonly<Record<string, Readonly<Record<string, LawId>>>
 									(named) =>
 										[
 											named.draw(identGen),
-											admittedIdentifier<"law">(named.draw(identGen))
+											[
+												admittedIdentifier<"law">(named.draw(identGen)),
+												...named.draw(
+													array((law) => admittedIdentifier<"law">(law.draw(identGen)), {
+														min: 0,
+														max: 1
+													})
+												)
+											] as const
 										] as const,
 									{ min: 0, max: 3 }
 								)

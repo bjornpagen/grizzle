@@ -58,6 +58,7 @@ import {
 	writeOf
 } from "#test/pg/write/merged-members/merged-members.fixtures.ts"
 import { lawNamesOf, namesOf } from "#test/support/kernel/naming.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /** A stratum's sources of one operation on one relation are one action, so a stratum that stamps a clock is one statement, writing its sources' union at one instant. */
@@ -158,7 +159,7 @@ export const aStratumsSourcesOfOneOperationOnOneRelationAreOneActionSoAStratumTh
 									`two facts of one Budget key refuse the call, not ${outcome.kind}`
 								)
 								assert.deepEqual(
-									Arr.map(outcome.refused.laws, (l) => l.id),
+									Arr.map(refusedEntries(outcome.refused), (l) => l.id),
 									[lawNamesOf(S).primaryKeyLaw(Budget)],
 									"the refusal names Budget's primary key's law"
 								)

@@ -44,6 +44,7 @@ import { distinctRows, equal, type Row, type Value } from "#test/support/oracle/
 import type { SqlError } from "#test/support/pg.ts"
 import { loadOrder, type PlatformFacts } from "#test/support/platform/generate.ts"
 import { stateOf, withDrawn } from "#test/support/platform/laws.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { type ServedFixture, servedGenerated } from "#test/support/served-db.ts"
 import { type SubstrateCase, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 
@@ -163,7 +164,7 @@ export const applyFacts = (db: PlatformDb, f: PlatformFacts) =>
 		if (outcome.kind === "refused") {
 			return yield* Effect.die(
 				new LoadRefused({
-					reason: `the load was refused by ${Formatter.format(outcome.refused.laws)}: ${Formatter.format(outcome.witness)}`
+					reason: `the load was refused by ${Formatter.format(refusedEntries(outcome.refused))}: ${Formatter.format(outcome.witness)}`
 				})
 			)
 		}

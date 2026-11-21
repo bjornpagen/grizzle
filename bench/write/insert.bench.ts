@@ -45,7 +45,7 @@ import { query } from "#compiler/public/query.ts"
 import { key, mutable, on, relation as defineRelation, schema } from "#compiler/public/schema.ts"
 import type { Insert } from "#compiler/sql/ast.ts"
 import { namesOf } from "#test/support/kernel/naming.ts"
-import { refusedLaws } from "#test/support/refused.ts"
+import { refusedLaws, refusedEntries } from "#test/support/refused.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -637,7 +637,7 @@ export default defineGate({
 					equivalence(
 						"a committed different payload is a conflict, invariant-rejected with the key law",
 						conflict.value.kind === "invariant-rejected" &&
-							Arr.every(conflict.value.refused.laws, (l) => reported(l) === itemKey),
+							Arr.every(refusedEntries(conflict.value.refused), (l) => reported(l) === itemKey),
 						outcomeText(conflict)
 					),
 					equivalence(

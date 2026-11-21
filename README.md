@@ -4062,7 +4062,7 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
 - **Every level is served.** `DbLayer.make` takes the served file of a login over any level of the installation: a
   process of `Qti` alone, such as `AuthorApp`'s, loads only what its programs over `Qti` read, and nothing above it. When a write of it breaks a law a level above states, such as deleting an `Item` a
   `Sitting` holds or inserting one `Titled` refuses, the error is `refused` with `refused.kind` `above`
-  and the law `{ kind: "above", level: "Ledger", law }`, which names the level and the law as that level states it
+  and `refused.above` naming the law `{ kind: "above", level: "Ledger", law }`, the level and the law as that level states it
   ([Errors and outcomes](#errors-and-outcomes)). `Qti`'s own laws are named as they would be were `Ledger` not
   installed: a process holds no predicate of a law above it, so it never claims to judge one, and judges each of its
   own.
@@ -4451,7 +4451,8 @@ the write, `refused`, which names the rules it broke and a row that breaks them.
   `statement`, or a generated column's `notNull`.
 - **`outsideWorld`**: `relation`, the role's table a row cannot belong to.
 
-`refused.laws` is never empty. `every`, `first` and `some` name only the laws of your Db's own level and the levels
+`refused.laws` is never empty where it stands: every refusal but an `above` one whose `own` is `none` or `unjudged`,
+which names its laws in `refused.above` alone. `every`, `first` and `some` name only the laws of your Db's own level and the levels
 below it, and a table's checks are theirs, whatever check a level above installs on the table. `refused.kind` says how
 grizzle decided them:
 
@@ -4462,8 +4463,10 @@ grizzle decided them:
   that row it types whose value it refuses: a pattern rule names its relation and field, so of two fields of one
   pattern it names the one you broke, or both. Any other refusal names the one rule its constraint states.
 - **`some`**: one PostgreSQL object that discharges two rules or more refused the write, and nothing grizzle holds says
-  which: at least one is broken, maybe more. The object is a family's foreign key, which carries every containment
-  merged into it, or a domain serving every field of one pattern or every contract of one definition, where grizzle
+  which: at least one is broken, maybe more, each named once, in the order of their identities, however you wrote the
+  schema. The object is a family's foreign key, which carries every containment merged into it, a key's index that
+  serves several rules (a counted family's numbering under a count's fold), or a domain serving every field of one
+  pattern or every contract of one definition, where grizzle
   judges no row you stated whole (a row a query computes, or a value it cannot evaluate on the host); a domain names
   the rules of the fields it types in the tables the statement writes.
 - **`first`**: a row check refused a row grizzle cannot judge: one only PostgreSQL computes, which no ChangeSet states
@@ -4472,14 +4475,16 @@ grizzle decided them:
   cannot tell apart (see the witness below). It names the rules of the check PostgreSQL tried first, never more.
   PostgreSQL orders a table's checks by installed name, which no version of grizzle keeps, so the row may break others
   too, and another version may name another.
-- **`above`**: PostgreSQL refused the write by a law of a level above your Db's, `refused.laws[0]`, as that level
-  names it, `{ kind: "above", level, law }`, which your process holds no predicate of: the one law above a refusal can
-  name, since PostgreSQL names one, and nothing is said of any other. `refused.own` is what grizzle finds of your own
-  levels' checks on the rows of that table the refused statement states: `every`, the rest of `refused.laws`, every
-  rule of them the first stated row breaking one breaks, as `every` would name them were the level's check not
-  installed, that row the witness; `none`, every row the statement writes is one you stated and holds them all, the
-  witness `unreported`; `unjudged`, nothing is said of them, the witness `unreported`: a refusal at COMMIT, by a
-  foreign key or a rule over a query of the level above, or a row grizzle cannot judge.
+- **`above`**: PostgreSQL refused the write by an object of a level above your Db's, and `refused.above` names every
+  law of those levels it serves, each `{ kind: "above", level, law }` as that level states it, which your process holds
+  no predicate of: one where the object serves one, and where it serves several, such as a key's index under a count's
+  fold and its family's counted law, at least one of them broken, as `some` says of your own. Nothing is said of any
+  other law above. `refused.own` is what grizzle finds of your own levels' checks on the rows of that table the refused
+  statement states: `every`, `refused.laws`, every rule of them the first stated row breaking one breaks, as `every`
+  would name them were the level's check not installed, that row the witness; `none`, every row the statement writes
+  is one you stated and holds them all, the witness `unreported`; `unjudged`, nothing is said of them, the witness
+  `unreported`: a refusal at COMMIT, by a foreign key or a rule over a query of the level above, or a row grizzle
+  cannot judge. Only `every` carries `refused.laws`.
 
 **Witness**: `{ kind: "key", relation, values }`, the key of one row that breaks the rule and never another column, or
 `{ kind: "unreported" }`. Every insert, a family's members and a tree's nodes included, checks each key and unique of its
@@ -4550,7 +4555,7 @@ stored members.
 | `contract`   | `contract`                                                                                                      |
 | `pattern`    | `relation`, `field`, `patterns`: each `{ source, flags }` as that field spells it, one rule per field           |
 | `generated`  | `relation`, `field`: a generated field whose term has no value at a row, a closed read at a key its relation lacks |
-| `above`      | `level`, `law`: a law of a level above the Db's, as that level states it, only ever `refused.laws[0]` of an `above` refusal |
+| `above`      | `level`, `law`: a law of a level above the Db's, as that level states it, only ever in `refused.above` of an `above` refusal |
 
 A side is `{ relation, terms, selection }`. `terms` are in the order the rule pairs them, each `{ kind: "field", field }`
 or `{ kind: "pred", field }`.

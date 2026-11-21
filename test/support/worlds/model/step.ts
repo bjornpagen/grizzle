@@ -514,7 +514,7 @@ const matched = (expected: ActionOutcome, observed: ActionOutcome): boolean => {
 			return (
 				observed.kind === "law-refused" &&
 				observed.sqlstate === expected.sqlstate &&
-				observed.law === expected.law &&
+				Arr.every(expected.laws, (law) => Arr.contains(observed.laws, law)) &&
 				within(expected.witness, observed.witness)
 			)
 		case "outside-world":

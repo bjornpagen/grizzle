@@ -1,9 +1,11 @@
 import { stronglyConnected } from "@bjornpagen/grizzle-text/base/graph"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
+	concatNonEmpty,
 	isNonEmpty,
 	mapNonEmpty,
-	type NonEmptyReadonlyArray
+	type NonEmptyReadonlyArray,
+	sortNonEmpty
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
@@ -279,11 +281,11 @@ export interface DomainUse {
 
 /**
  * A table's entry of the constraint-to-LawId map: the identifier a violation reports (a table constraint or a rule's
- * constraint trigger), the table that owns it, and every law it discharges with its description, in its native's order
- * (`NativeObject.lawIds`): the first is the one it reports when nothing narrows it, a key law's where a key plans the
- * object, and a merged family axis lists its former's law and every containment that rides it. A rule's trigger is one
- * per table the rule reads, each its one law, and no native object: its violation is the rule's query, which no host
- * judges. The law model emits these.
+ * constraint trigger), the table that owns it, and every law it discharges with its description, each once, in code
+ * point order of the laws' identities (canonicalLaws), so a refusal naming them names them alike whatever order the
+ * schema states them in: a merged family axis lists its former's law and every containment that rides it, and a key's
+ * index each law it serves. A rule's trigger is one per table the rule reads, each its one law, and no native object:
+ * its violation is the rule's query, which no host judges. The law model emits these.
  */
 export type TableConstraintLaw =
 	| {
@@ -326,31 +328,60 @@ export type DomainConstraintLaw =
 export type ConstraintLaw = TableConstraintLaw | DomainConstraintLaw
 
 /**
- * The law a violation of `c` reports when nothing narrows it: its first, a domain's that types stored columns its first
- * use's (runtime/write/laws.ts constraintLawsOf lists them all).
+ * A set of laws as a constraint's entry and the constraint map hold it: each once, in code point order of its
+ * identities, one order whatever order the schema states the laws in.
  */
-const reportedLaw = (c: ConstraintLaw): LawId =>
-	c.kind === "domainConstraint" ? c.uses[0].law.law : c.laws[0].law
+const canonicalLaws = <L>(
+	laws: NonEmptyReadonlyArray<L>,
+	idOf: (law: L) => LawId
+): NonEmptyReadonlyArray<L> => {
+	const sorted = sortNonEmpty(laws, (a, b) => compareStrings(idOf(a), idOf(b)))
+	const [first] = sorted
+	return [
+		first,
+		...sorted.slice(1).filter((law, i) => idOf(law) !== idOf(defined(sorted[i], "the law before")))
+	]
+}
 
-/** One kind of owner's constraint names to laws, frozen as the map holds them. */
+/** Every law a violation of `c` can break, by identity: a domain's that types stored columns its uses', any other's
+ * its own. */
+const lawIdsOf = (c: ConstraintLaw): NonEmptyReadonlyArray<LawId> =>
+	c.kind === "domainConstraint"
+		? mapNonEmpty(c.uses, (use) => use.law.law)
+		: mapNonEmpty(c.laws, (l) => l.law)
+
+/** One kind of owner's constraint names to their laws, each set canonical (canonicalLaws), frozen as the map holds it. */
 const frozenOwners = (
-	byOwner: ReadonlyMap<string, ReadonlyMap<string, LawId>>
-): Readonly<Record<string, Readonly<Record<string, LawId>>>> =>
+	byOwner: ReadonlyMap<string, ReadonlyMap<string, NonEmptyReadonlyArray<LawId>>>
+): Readonly<Record<string, Readonly<Record<string, NonEmptyReadonlyArray<LawId>>>>> =>
 	Object.freeze(
 		Object.fromEntries(
-			[...byOwner].map(([owner, named]) => [owner, Object.freeze(Object.fromEntries(named))])
+			[...byOwner].map(([owner, named]) => [
+				owner,
+				Object.freeze(
+					Object.fromEntries(
+						[...named].map(([name, laws]) => [
+							name,
+							Object.freeze(canonicalLaws(laws, (law) => law))
+						])
+					)
+				)
+			])
 		)
 	)
 
-/** The constraint map of a list of entries, by owner and name, each to the law it reports when nothing narrows it,
- * its first. A constraint name is scoped to its table or domain, so each owner and name is one entry. */
+/**
+ * The constraint map of a list of entries, by owner and name, each to every law a violation of it can break: the laws
+ * of every entry of that owner and name, each once, in code point order (canonicalLaws). A constraint name is scoped to
+ * its table or domain, so the entries of one owner and name are one constraint's.
+ */
 export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): ConstraintLaws => {
-	const tables = new Map<string, Map<string, LawId>>()
-	const domains = new Map<string, Map<string, LawId>>()
+	const tables = new Map<string, Map<string, NonEmptyReadonlyArray<LawId>>>()
+	const domains = new Map<string, Map<string, NonEmptyReadonlyArray<LawId>>>()
 	for (const c of entries) {
 		const byOwner = c.kind === "constraint" || c.kind === "trigger" ? tables : domains
-		const named = byOwner.get(c.owner) ?? new Map<string, LawId>()
-		named.set(c.name, reportedLaw(c))
+		const named = byOwner.get(c.owner) ?? new Map<string, NonEmptyReadonlyArray<LawId>>()
+		named.set(c.name, concatNonEmpty(named.get(c.name) ?? [], lawIdsOf(c)))
 		byOwner.set(c.owner, named)
 	}
 	return Object.freeze({ tables: frozenOwners(tables), domains: frozenOwners(domains) })
@@ -1199,10 +1230,13 @@ class Specializer {
 					kind: "constraint",
 					name: identifierOf(named.named),
 					owner: named.owner,
-					laws: mapNonEmpty(entry.laws, (law) => ({
-						law,
-						described: lawDescription(this.#lawOf(law))
-					}))
+					laws: canonicalLaws(
+						mapNonEmpty(entry.laws, (law) => ({
+							law,
+							described: lawDescription(this.#lawOf(law))
+						})),
+						(l) => l.law
+					)
 				})
 			}
 		}

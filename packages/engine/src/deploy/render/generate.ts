@@ -1,4 +1,5 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact, unsupported } from "#compiler/core/errors.ts"
@@ -99,14 +100,18 @@ export type GenerateResult = DraftOf<DraftedFolder>
 /** One table's constraint names to their laws, each also under every name `swaps` builds it under on `table`. */
 const builtUnder = (
 	table: string,
-	named: Readonly<Record<string, LawId>>,
+	named: Readonly<Record<string, NonEmptyReadonlyArray<LawId>>>,
 	swaps: ReadonlyArray<Swap>
-): Readonly<Record<string, LawId>> =>
+): Readonly<Record<string, NonEmptyReadonlyArray<LawId>>> =>
 	Object.fromEntries(
-		Object.entries(named).flatMap(([name, law]): ReadonlyArray<readonly [string, LawId]> => [
-			[name, law],
-			...swaps.filter((s) => s.table === table && s.of === name).map((s) => [s.name, law] as const)
-		])
+		Object.entries(named).flatMap(
+			([name, laws]): ReadonlyArray<readonly [string, NonEmptyReadonlyArray<LawId>]> => [
+				[name, laws],
+				...swaps
+					.filter((s) => s.table === table && s.of === name)
+					.map((s) => [s.name, laws] as const)
+			]
+		)
 	)
 
 /** The laws a refusal of a folder that installs `snapshot` names (FolderLaws): the snapshot's level schemas, and its

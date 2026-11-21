@@ -673,6 +673,12 @@ export class UnreadableAnswer extends Data.TaggedError("UnreadableAnswer")<{
 	}
 }
 
+/** How many laws `refused` names: an above refusal's laws of the levels above and, where its `own` is `every`, its own. */
+const namedLaws = (refused: Refused): number =>
+	refused.kind === "above"
+		? refused.above.length + (refused.own === "every" ? refused.laws.length : 0)
+		: refused.laws.length
+
 /**
  * A change member's explain of a call whose input the host refuses before any SQL, as the call's apply answers
  * `invariant-rejected`: two facts one stratum adds at one key that differ elsewhere, the parse of a relation's facts into
@@ -684,7 +690,7 @@ export class InputRejected extends Data.TaggedError("InputRejected")<{
 	readonly witness: Witness
 }> {
 	override get message(): string {
-		return `the ChangeSet's input breaks ${this.refused.kind} of its ${this.refused.laws.length} named laws before any SQL`
+		return `the ChangeSet's input breaks ${this.refused.kind} of its ${namedLaws(this.refused)} named laws before any SQL`
 	}
 }
 
@@ -696,7 +702,7 @@ export class InputRejected extends Data.TaggedError("InputRejected")<{
  */
 export class LawRejected extends Data.TaggedError("LawRejected")<{ readonly refused: Refused }> {
 	override get message(): string {
-		return `PostgreSQL refused a value by ${this.refused.kind} of ${this.refused.laws.length} laws`
+		return `PostgreSQL refused a value by ${this.refused.kind} of ${namedLaws(this.refused)} laws`
 	}
 }
 

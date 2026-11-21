@@ -58,6 +58,7 @@ import {
 } from "#test/support/families/fill.ts"
 import { installMigrated } from "#test/support/install-migrate.ts"
 import { oneFlight } from "#test/support/one-flight.ts"
+import { refusedEntries } from "#test/support/refused.ts"
 import { member, openServedDb } from "#test/support/served-db.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { fullWorld } from "#test/support/worlds.ts"
@@ -279,7 +280,7 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 							)
 						}
 						const member = relationName(repeat.value.appended.relation)
-						type Refused = (typeof refused.refused.laws)[number]
+						type Refused = ReturnType<typeof refusedEntries>[number]
 						const counted = (refusedLaw: Refused): boolean =>
 							refusedLaw.law.kind === "family" &&
 							refusedLaw.law.order === "counted" &&
@@ -288,8 +289,8 @@ export const aFreshCountedGroupDrawnByTheHostIsStoredAsTheFamilysScanDrawsItAndA
 							counted(refusedLaw) ||
 							(refusedLaw.law.kind === "contained" && refusedLaw.law.from.relation === member)
 						assert.ok(
-							Arr.some(refused.refused.laws, counted) &&
-								Arr.every(refused.refused.laws, alongItsOwnerAxis),
+							Arr.some(refusedEntries(refused.refused), counted) &&
+								Arr.every(refusedEntries(refused.refused), alongItsOwnerAxis),
 							`the append to a stored immutable group is refused by its counted family's count axis, and the copies its foreign key carries beside it, as the scan from slot 0 refused it before the host drew fresh groups: ${Formatter.format(refused.refused)}`
 						)
 						c.note("an exact repeat of a stored immutable owner beside an append, refused")
