@@ -34,7 +34,11 @@
  * reading (Checker held, RuleCheck #bindValue), where format 6 did so in a rule judge's region reads alone and built
  * every other such import at each read: a judge function or a served statement that reads one lookup under several
  * imports reads it once, correlated to the region that holds its values, and reads a value such a region holds as the
- * outer column it re-exposes. Format 6's snapshot.json records each schema level's fingerprint over its
+ * outer column it re-exposes. A key's constraint (a primary key, a UNIQUE, a WITHOUT OVERLAPS) maps, in snapshot.json's
+ * constraintToLaw, a served file's constraints above and meta.json's folder laws, to the laws its refusal breaks: every
+ * law it serves but a containment or a rule whose foreign key references it (laws/model/model.ts refusedLaws), where
+ * format 6 mapped it to every law it serves, so a duplicate under a superkey a containment references named that
+ * containment beside its key. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row

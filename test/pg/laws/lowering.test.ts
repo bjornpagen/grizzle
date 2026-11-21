@@ -44,7 +44,7 @@
  * never off a table of what each shape should lower to.
  */
 import type { Reached } from "@bjornpagen/testing/features"
-import { type Case, family, property } from "@bjornpagen/testing/property"
+import { type Case, family, type Kept, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Record as Rec } from "effect"
 import {
 	loweringSpaceOf,
@@ -56,6 +56,48 @@ import {
 	unloweredShapes
 } from "#test/pg/laws/lowering.fixtures.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
+
+/**
+ * The shapes whose containment references a superkey of the target's key, the superkey's UNIQUE serving the
+ * containment beside the key: candidatePair's A (grp, v, kind) over key (grp, kind), join's B (grp, tag) over key (grp).
+ */
+const superkeyShapes: ReadonlySet<string> = new Set(["candidatePair", "join"])
+
+/**
+ * A key's refusal names every law it serves (laws/model/model.ts refusedLaws), a containment it serves only as its
+ * foreign key's referenced key among them: under keyChanged, which creates the superkey's index first, a duplicate of
+ * the key is refused by the superkey naming the key and the containment, where the triggers' key names the key alone.
+ */
+const servedContainmentKill = {
+	file: "packages/engine/src/laws/model/model.ts",
+	original: '\t\t\t\treturn kind !== "containment" && kind !== "rule"\n',
+	replacement: "\t\t\t\treturn true\n",
+	why: "A key's refusal names a containment it serves only as a foreign key's referenced key (laws/model/model.ts refusedLaws): a duplicate refused by the superkey a containment references names that containment beside the key, where the triggers' installation names the key alone."
+} as const
+
+/** The cases found red each shape keeps, by its name (`kept`). */
+const keptOf: Readonly<Record<string, ReadonlyArray<Kept>>> = {
+	candidatePair: [
+		{
+			token: ReplayToken(
+				"test/pg/laws/lowering.test.ts#aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsTriggersDo/candidatePair:7fc0.9:0.0.1.0.0.0.0.1.0.0.0.0.0.1.1.0.0.1.0.0.0.0.0.1.0.0"
+			),
+			reason:
+				"Under keyChanged, two rows of A at grp 0, v 0, kind 2: the superkey (grp, v, kind), its index created first, refused the duplicate naming key (grp, kind) and the containment S in D its foreign key references, where the triggers' key named the key alone (PERF-SCHEMA on hub 60dc18f76)",
+			since: "2026-11-21"
+		}
+	],
+	join: [
+		{
+			token: ReplayToken(
+				"test/pg/laws/lowering.test.ts#aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsTriggersDo/join:ffe0.5:0.0.1.0.0.0.0.1.2.0.0.0.0.0.0.1.0.0.0"
+			),
+			reason:
+				"Under keyChanged, a second row of B at grp 0, tag 3: the superkey (grp, tag), its index created first, refused the duplicate naming key (grp) and the containment S in D its foreign key references, where the triggers' key named the key alone (PERF-SCHEMA on hub 60dc18f76)",
+			since: "2026-11-21"
+		}
+	]
+}
 
 /**
  * A lowered shape commits and refuses every history exactly as the containment's triggers do, naming the same law, and
@@ -105,8 +147,8 @@ export const aLoweredShapeCommitsAndRefusesEveryHistoryExactlyAsTheContainmentsT
 					},
 					show: Formatter.format,
 					budget: { runs: 32, steered: 240 },
-					kept: [],
-					kills: []
+					kept: keptOf[planned.shape] ?? [],
+					kills: superkeyShapes.has(planned.shape) ? [servedContainmentKill] : []
 				})
 			] as const
 		})

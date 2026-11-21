@@ -1252,10 +1252,13 @@ class Specializer {
 					name: identifierOf(named.named),
 					owner: named.owner,
 					laws: canonicalLaws(
-						mapNonEmpty(entry.laws, (law) => ({
-							law,
-							described: lawDescription(this.#lawOf(law))
-						})),
+						mapNonEmpty(
+							refusedLaws(entry, (law) => this.#lawOf(law)),
+							(law) => ({
+								law,
+								described: lawDescription(this.#lawOf(law))
+							})
+						),
 						(l) => l.law
 					)
 				})
@@ -1828,6 +1831,32 @@ class Specializer {
 				return { object, namespace: "unnamed" }
 		}
 	}
+}
+
+/**
+ * The laws a constraint's refusal names, of every law it serves (README: a refusal "names the rules it broke"): a key's
+ * (a primary key, a UNIQUE, a WITHOUT OVERLAPS), every law it serves but a containment or a rule over a query whose
+ * foreign key references it, which only that foreign key's refusal breaks and no duplicate does; every other
+ * constraint's, all of them. A reference lands on a UNIQUE only where a key of its target holds it apart (plan.ts
+ * keyHolds), which that UNIQUE serves first (`#implyingKey`), so a key's refusal names that key, never the reference
+ * it holds the target apart for: a duplicate under a superkey a containment references names the key alone, as the
+ * key's own UNIQUE does.
+ */
+const refusedLaws = (
+	entry: Merged,
+	lawOf: (law: LawId) => TheoryLaw
+): readonly [LawId, ...Array<LawId>] => {
+	const keyed =
+		entry.kind === "primary" ||
+		entry.object.kind === "Unique" ||
+		entry.object.kind === "WithoutOverlaps"
+	const [first, ...rest] = keyed
+		? entry.laws.filter((law) => {
+				const kind = lawOf(law).detail.kind
+				return kind !== "containment" && kind !== "rule"
+			})
+		: entry.laws
+	return first === undefined ? entry.laws : [first, ...rest]
 }
 
 /** Whether a law is a key, a declared one or one over a projected side, whose violation an object it plans reports. */
