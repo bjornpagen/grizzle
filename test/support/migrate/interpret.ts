@@ -254,6 +254,9 @@ export interface State {
 	 * (`view <schema>.<name>`) and each row security policy (`policy <table>.<name>`), with what it reads. */
 	readonly dependents: ReadonlyMap<string, View>
 	readonly functions: ReadonlyMap<string, Function>
+	/** The row types the schema's statements created (CREATE TYPE ... AS), by name: a declared function's, or a rule
+	 * judge's delta reader's, which a later migration drops by name. */
+	readonly rowTypes: ReadonlySet<string>
 	/** Each role's own privileges on the current database, by the role's name: what the migrations grant it there and
 	 * have not revoked. */
 	readonly databasePrivileges: ReadonlyMap<string, ReadonlySet<string>>
@@ -271,6 +274,7 @@ export const emptyState: State = {
 	views: new Map(),
 	dependents: new Map(),
 	functions: new Map(),
+	rowTypes: new Set(),
 	databasePrivileges: new Map(),
 	created: 0
 }
@@ -1512,6 +1516,9 @@ class Model {
 		}
 		for (const [name, f] of state.functions) {
 			this.#functions.set(name, f)
+		}
+		for (const name of state.rowTypes) {
+			this.#rowTypes.add(name)
 		}
 		for (const [role, held] of state.databasePrivileges) {
 			this.#databasePrivileges.set(role, held)
@@ -4008,6 +4015,7 @@ class Model {
 			views: new Map(this.#views),
 			dependents: new Map(this.#dependents),
 			functions: new Map(this.#functions),
+			rowTypes: new Set(this.#rowTypes),
 			databasePrivileges: new Map(this.#databasePrivileges),
 			created: this.#created
 		}
@@ -4210,7 +4218,8 @@ export const catalogOf = (state: State): ReadonlyArray<string> =>
 						", "
 					)})`
 			),
-			...Arr.map([...state.functions.keys()], (name) => `function ${name}`)
+			...Arr.map([...state.functions.keys()], (name) => `function ${name}`),
+			...Arr.map([...state.rowTypes], (name) => `type ${name}`)
 		],
 		Order.String
 	)
