@@ -15,7 +15,7 @@ import {
 	String as Str
 } from "effect"
 import { generate } from "#generate.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
 import { configGen, configOf, documentGen, documentOf, textOf } from "#test/support/openapi-gen.ts"
@@ -1060,7 +1060,7 @@ export const generatedAt = (dir: string, drawnCase: ConstructCase) =>
 		const outDir = path.join(dir, "out")
 		const result = yield* generate(
 			{
-				document: DocumentUri.make("file:///planted/openapi.json"),
+				document: fixedDocumentUri("file:///planted/openapi.json"),
 				outDir,
 				source: {
 					_tag: "Stream",
@@ -1068,7 +1068,7 @@ export const generatedAt = (dir: string, drawnCase: ConstructCase) =>
 				},
 				strict: false
 			},
-			{ document: DocumentUri.make("file:///planted/author-config.json"), path: configPath }
+			{ document: fixedDocumentUri("file:///planted/author-config.json"), path: configPath }
 		)
 		const { plant } = drawnCase
 		const modules = yield* Effect.forEach(["src/cli/planted.ts", "src/api/planted.ts"], (file) =>

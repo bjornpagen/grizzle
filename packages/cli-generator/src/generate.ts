@@ -1,6 +1,6 @@
 import { regex } from "arkregex"
 import { Array as Arr, Data, Effect, FileSystem, Option, Order } from "effect"
-import type { Path, PlatformError, Schema, Stream, Types } from "effect"
+import type { Path, PlatformError, Stream, Types } from "effect"
 import type { Digest } from "effect/crypto"
 import { checkSpecText } from "#check/index.ts"
 import { emitApi } from "#emit/api.ts"
@@ -137,7 +137,6 @@ export type GenerateError =
 	| RunLockUnavailable
 	| SchemaImportDefect
 	| SchemaManifestError
-	| Schema.SchemaError
 	| ValidatorError
 	| WriteRefused
 
@@ -161,7 +160,7 @@ const refused =
  */
 export const versionRefused =
 	(document: DocumentUri) =>
-	(error: UnsupportedOpenApiVersion): Effect.Effect<never, GenerateRefused | Schema.SchemaError> =>
+	(error: UnsupportedOpenApiVersion): Effect.Effect<never, GenerateRefused> =>
 		versionRefusal(error, document).pipe(
 			Effect.flatMap((diagnostic) => Effect.fail(refused("document")([diagnostic])))
 		)
@@ -584,7 +583,13 @@ const generation = (
 			order,
 			resolution
 		} = yield* analyze(input, bytes, author.value, configDocument)
-		const serversContext = { config: author.value, configDocument, document, openapi: api.openapi }
+		const serversContext = {
+			config: author.value,
+			configDocument,
+			document,
+			line: api.line,
+			openapi: api.openapi
+		}
 		const bound = boundOrigins(api.servers, serversContext)
 		const plan = yield* planNames(api, {
 			config: author.value,

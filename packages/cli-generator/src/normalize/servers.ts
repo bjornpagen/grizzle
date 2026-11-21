@@ -2,13 +2,14 @@ import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Predicate, Record, Result, String as Str } from "effect"
 import { Url } from "effect/http"
 import type { AuthorConfig } from "#model/author-config.ts"
-import { DocumentUri, isDocumentUri, isSafeText, isServerTemplate } from "#model/brands.ts"
+import { type DocumentUri, isDocumentUri, isSafeText, isServerTemplate } from "#model/brands.ts"
 import type { SafeText } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type { RowId, Server } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json, JsonPointer } from "#model/pointer.ts"
+import { type SpecLine, specSectionUrl } from "#model/spec-section.ts"
 
 /**
  * The `servers` value of one level and where it sits, as its pointer's reference tokens, which each server's origin
@@ -36,6 +37,8 @@ export interface ServersContext {
 	readonly config: AuthorConfig
 	readonly configDocument: DocumentUri
 	readonly document: DocumentUri
+	/** The line the document is read as, whose patch release its servers' citations name (spec-section.ts). */
+	readonly line: SpecLine
 	readonly openapi: string
 }
 
@@ -224,7 +227,7 @@ const refusals = {
 		message: "A server url is not a valid server URL template.",
 		scope: "operation"
 	})
-}
+} as const
 
 interface Site {
 	readonly document: DocumentUri
@@ -242,7 +245,7 @@ const diagnose = (context: ServersContext, found: Refusal, site: Site): Diagnost
 	row: found.row,
 	scope: found.scope,
 	severity: "refusal",
-	specSection: DocumentUri.make(`https://spec.openapis.org/oas/v${context.openapi}.html#server-url`)
+	specSection: specSectionUrl(context.line, "server-url")
 })
 
 const specSite = (context: ServersContext, pointer: JsonPointer): Site => ({

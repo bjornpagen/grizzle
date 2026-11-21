@@ -1,6 +1,5 @@
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
-import type { Schema } from "effect"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import { foldJson } from "#model/json-tree.ts"
 import type { JsonFold } from "#model/json-tree.ts"
@@ -53,10 +52,7 @@ export const surrogateSites = (document: Json): readonly string[] => foldJson(do
 /**
  * A document refusal for one property name that is not well-formed Unicode.
  */
-export const surrogateRefusal = (
-	where: Where,
-	pointer: string
-): Effect.Effect<Refusal, Schema.SchemaError> =>
+export const surrogateRefusal = (where: Where, pointer: string): Effect.Effect<Refusal> =>
 	makeDiagnostic({
 		code: "DOC-14/invalid-encoding",
 		document: where.document,

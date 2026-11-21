@@ -34,15 +34,14 @@ import type {
 	HelpInput
 } from "#emit/help.ts"
 import {
-	DocumentUri,
-	HeaderName,
-	JsonPointer,
-	MediaType,
-	MethodToken,
-	PathTemplate,
+	fixedDocumentUri,
+	isHeaderName,
+	isMediaType,
+	isMethodToken,
+	isPathTemplate,
+	isWireName,
 	type SafeText,
-	stripUnsafeText,
-	WireName
+	stripUnsafeText
 } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import type {
@@ -57,11 +56,12 @@ import type {
 	SecurityScheme,
 	StyleSerialization
 } from "#model/entities.ts"
-import type { Json } from "#model/pointer.ts"
+import { isJsonPointer, type Json } from "#model/pointer.ts"
+import { branded } from "#test/support/brands.ts"
 
-const document = DocumentUri.make("file:///help/openapi.json")
+const document = fixedDocumentUri("file:///help/openapi.json")
 
-const origin = { document, pointer: JsonPointer.make("/paths") } as const
+const origin = { document, pointer: branded(isJsonPointer, "/paths") } as const
 
 /** Characters help must keep out of a terminal line, beside plain, wide and separator characters. */
 const HOSTILE: ReadonlyArray<string> = [
@@ -146,10 +146,10 @@ type SchemeKind = SecurityScheme["kind"]
 const schemeKindGen: Gen<SchemeKind> = oneOf<SchemeKind>([
 	(s) => ({
 		in: "header",
-		name: HeaderName.make(s.draw(element(["X-API-Key", "Token"]))),
+		name: branded(isHeaderName, s.draw(element(["X-API-Key", "Token"]))),
 		type: "apiKey"
 	}),
-	(s) => ({ in: "query", name: WireName.make(s.draw(wireName)), type: "apiKey" }),
+	(s) => ({ in: "query", name: branded(isWireName, s.draw(wireName)), type: "apiKey" }),
 	(s) => ({ scheme: s.draw(element<"basic" | "bearer">(["basic", "bearer"])), type: "http" }),
 	(s) => ({
 		flows: Record.fromEntries(
@@ -252,7 +252,7 @@ const parameterGen =
 			style: s.draw(element(STYLES)),
 			...s.draw(marksGen)
 		},
-		wireName: WireName.make(s.draw(wireName))
+		wireName: branded(isWireName, s.draw(wireName))
 	})
 
 const jsonValue: Gen<Json> = oneOf<Json>([
@@ -361,10 +361,10 @@ const alternativeGen =
 			headers: [],
 			origin,
 			rows: [],
-			target: { kind: "property", name: WireName.make(name) },
+			target: { kind: "property", name: branded(isWireName, name) },
 			...s.draw(marksGen)
 		})),
-		mediaType: MediaType.make(mediaType),
+		mediaType: branded(isMediaType, mediaType),
 		origin,
 		prefixEncoding: [],
 		rows: [],
@@ -421,7 +421,7 @@ const responseGen: Gen<ResponseCase> = (s) => ({
 			element(["X-Request-ID", "ETag", "Retry-After"]),
 			(name) => (t) => ({
 				deprecated: t.draw(boolean),
-				name: HeaderName.make(name),
+				name: branded(isHeaderName, name),
 				required: t.draw(boolean)
 			}),
 			{ min: 0, max: 2 }
@@ -516,11 +516,11 @@ const diagnosticGen =
 			message: s.draw(textGen),
 			openapi: "3.1.0",
 			operation: { method: key.method, path: other ? "/elsewhere" : key.path },
-			pointer: JsonPointer.make("/paths"),
+			pointer: branded(isJsonPointer, "/paths"),
 			row,
 			scope: s.draw(element<Diagnostic["scope"]>(["element", "field", "operation", "document"])),
 			severity: s.draw(element<Diagnostic["severity"]>(["refusal", "notice"])),
-			specSection: DocumentUri.make("https://spec.openapis.org/oas/v3.1.0"),
+			specSection: fixedDocumentUri("https://spec.openapis.org/oas/v3.1.0"),
 			...Option.match(s.draw(option(textGen)), { onNone: () => ({}), onSome: (wire) => ({ wire }) })
 		}
 	}
@@ -528,8 +528,8 @@ const diagnosticGen =
 export const helpInputGen: Gen<HelpInput> = (s) => {
 	const schemes = s.draw(schemesGen)
 	const key = {
-		method: MethodToken.make(s.draw(element(METHODS))),
-		path: PathTemplate.make(s.draw(element(PATHS)))
+		method: branded(isMethodToken, s.draw(element(METHODS))),
+		path: branded(isPathTemplate, s.draw(element(PATHS)))
 	}
 	const tokenSchemes = Arr.filter(schemes, (scheme) => scheme.kind.type !== "mutualTls")
 	const mtlsSchemes = Arr.filter(schemes, (scheme) => scheme.kind.type === "mutualTls")

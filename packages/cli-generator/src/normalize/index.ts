@@ -105,6 +105,7 @@ export const normalize = Effect.fn("normalize.normalize")(function* normalize(
 		config: context.config,
 		configDocument: context.configDocument,
 		document: resolution.document,
+		line: resolution.line,
 		openapi
 	}
 	const schemes = yield* normalizeSecuritySchemes(

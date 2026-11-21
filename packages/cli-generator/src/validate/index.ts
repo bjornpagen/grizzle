@@ -1,3 +1,4 @@
+import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
 import { validate as validate04 } from "@hyperjump/json-schema/draft-04"
 import { registerSchema, setShouldValidateFormat } from "@hyperjump/json-schema/draft-2020-12"
 import type { SchemaObject } from "@hyperjump/json-schema/draft-2020-12"
@@ -11,7 +12,7 @@ import {
 	Option,
 	Path,
 	Record,
-	Schema,
+	Result,
 	String as Str
 } from "effect"
 import type { PlatformError } from "effect"
@@ -19,9 +20,11 @@ import type { Digest } from "effect/crypto"
 import type { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
+import { isJson, isObject, type JsonObject } from "#model/json-tree.ts"
 import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
+import { parseJson } from "#runtime/json.ts"
 import { rewriteDialect, validatorCopy } from "#validate/dialect.ts"
 import type { ValidatorInput } from "#validate/dialect.ts"
 import {
@@ -124,13 +127,12 @@ export const checkManifest = (
 	)
 
 /**
- * Decodes the text of a vendored schema: every one is a JSON object.
+ * A vendored schema's members: every one is UTF-8 JSON text of one object, or none where its bytes are not.
  */
-const decodeSchemaText = Schema.decodeUnknownEffect(
-	Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json))
-)
-
-const textDecoder = new TextDecoder()
+const schemaMembersOf = (bytes: Uint8Array): Option.Option<JsonObject> =>
+	Option.flatMap(Option.fromUndefinedOr(utf8Text(bytes)), (text) =>
+		Option.filter(Option.filter(Result.getSuccess(parseJson(text)), isJson), isObject)
+	)
 
 /**
  * A decoded schema object as the validator library's own mutable schema type.
@@ -145,12 +147,11 @@ const schemaObjectOf = (members: Readonly<Record<string, Json>>): SchemaObject =
 const register = checkManifest(readVendored).pipe(
 	Effect.flatMap((files) =>
 		Effect.forEach(files, (bytes) =>
-			decodeSchemaText(textDecoder.decode(bytes)).pipe(
-				Effect.mapBoth({
-					onFailure: (cause) => new ValidatorError({ cause }),
-					onSuccess: schemaObjectOf
-				})
-			)
+			Option.match(schemaMembersOf(bytes), {
+				onNone: () =>
+					Effect.fail(new ValidatorError({ cause: "a vendored schema is no JSON object" })),
+				onSome: (members) => Effect.succeed(schemaObjectOf(members))
+			})
 		)
 	),
 	Effect.flatMap((schemas) =>
@@ -272,11 +273,7 @@ export const diagnoseDocument = Effect.fn("validate.diagnoseDocument")(function*
 	uri: DocumentUri
 ): Effect.fn.Return<
 	Diagnosis,
-	| InvalidInstanceLocation
-	| Schema.SchemaError
-	| SchemaManifestError
-	| UnsupportedOpenApiVersion
-	| ValidatorError,
+	InvalidInstanceLocation | SchemaManifestError | UnsupportedOpenApiVersion | ValidatorError,
 	FileSystem.FileSystem | Path.Path | Digest.Digest
 > {
 	const line = yield* lineOf(document)

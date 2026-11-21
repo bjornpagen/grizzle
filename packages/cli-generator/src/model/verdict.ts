@@ -1,128 +1,101 @@
-import { Schema } from "effect"
-import { DocumentUri, JsonPointer, Sha256Hex } from "#model/brands.ts"
-import { diagnosticScopes } from "#model/diagnostic.ts"
+import type { DocumentUri } from "#model/brands.ts"
+import type { DiagnosticScope } from "#model/diagnostic.ts"
+import type { Sha256Hex } from "#model/digest.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 
-const Count = Schema.Natural
+/** An object type with its members spelled out, so an intersection of members is one plain object type. */
+type Spelled<T> = { readonly [K in keyof T]: T[K] }
 
-const Entry = Schema.Struct({
-	code: Schema.String,
-	pointer: JsonPointer,
-	row: Schema.String
-})
+type Entry = Readonly<{ code: string; pointer: JsonPointer; row: string }>
 
-/**
- * Construct a walk element (design 8.3): its use site, then its kind and the kind's value, or a
- * `field` refusal no command agrees with (rule 6) by its pointer, request media type and property
- * name.
- */
-const withSite = <const Fields extends Schema.Struct.Fields>(kind: Schema.Struct<Fields>) =>
-	Schema.Struct({ document: DocumentUri, pointer: JsonPointer, ...kind.fields })
+/** A walk element's use site (design 8.3). */
+type Site = Readonly<{ document: DocumentUri; pointer: JsonPointer }>
 
-/**
- * A `--describe` claim nothing in the spec stands behind, by the command's path and the value.
- */
-const Claim = Schema.Struct({ path: Schema.Array(Schema.String) })
+/** A `--describe` claim nothing in the spec stands behind, by the command's path. */
+type Claim = Readonly<{ path: ReadonlyArray<string> }>
 
-/**
- * Construct an invented claim: the command's path, then its kind and the kind's value.
- */
-const withClaim = <const Fields extends Schema.Struct.Fields>(kind: Schema.Struct<Fields>) =>
-	Schema.Struct({ ...Claim.fields, ...kind.fields })
+type OperationKind = Readonly<{ kind: "operation" }>
 
-const OperationKind = Schema.Struct({ kind: Schema.Literal("operation") })
+type ParameterKind = Readonly<{ in: string; kind: "parameter"; name: string }>
 
-const ParameterKind = Schema.Struct({
-	in: Schema.String,
-	kind: Schema.Literal("parameter"),
-	name: Schema.String
-})
+type CommandKind = Readonly<{ kind: "command" }>
 
-const CommandKind = Schema.Struct({ kind: Schema.Literal("command") })
+type RefusedFieldKind = Readonly<{ kind: "refusedField"; mediaType: string; name: string }>
 
-const RefusedFieldKind = Schema.Struct({
-	kind: Schema.Literal("refusedField"),
-	mediaType: Schema.String,
-	name: Schema.String
-})
+type RequestMediaKind = Readonly<{ kind: "requestMedia"; mediaType: string }>
 
-const RequestMediaKind = Schema.Struct({
-	kind: Schema.Literal("requestMedia"),
-	mediaType: Schema.String
-})
+type ResponseKind = Readonly<{ key: string; kind: "response" }>
 
-const ResponseKind = Schema.Struct({ key: Schema.String, kind: Schema.Literal("response") })
+type SecurityAlternativeKind = Readonly<{
+	kind: "securityAlternative"
+	schemes: ReadonlyArray<string>
+}>
 
-const SecurityAlternativeKind = Schema.Struct({
-	kind: Schema.Literal("securityAlternative"),
-	schemes: Schema.Array(Schema.String)
-})
-
-const ServerKind = Schema.Struct({ kind: Schema.Literal("server"), url: Schema.String })
-
-const Element = Schema.Union([
-	withSite(OperationKind),
-	withSite(ParameterKind),
-	withSite(RefusedFieldKind),
-	withSite(RequestMediaKind),
-	withSite(ResponseKind),
-	withSite(SecurityAlternativeKind),
-	withSite(ServerKind)
-])
-
-const Invented = Schema.Union([
-	withClaim(CommandKind),
-	withClaim(RefusedFieldKind),
-	withClaim(RequestMediaKind),
-	withClaim(ResponseKind),
-	withClaim(SecurityAlternativeKind),
-	withClaim(ServerKind)
-])
+type ServerKind = Readonly<{ kind: "server"; url: string }>
 
 /**
- * The coverage join (design 8.2, revision 19): `missing` lists what nothing accounts for,
- * `byNotice` what only a notice accounts for, and `invented` what nothing in the spec stands
- * behind.
+ * A walk element (design 8.3): its use site, then its kind and the kind's value, or a `field` refusal no command agrees
+ * with (rule 6) by its pointer, request media type and property name.
  */
-export const VerdictCoverage = Schema.Struct({
-	byNotice: Schema.Array(Element),
-	checked: Schema.Boolean,
-	invented: Schema.Array(Invented),
-	missing: Schema.Array(Element)
-})
+type Element = Spelled<
+	Site &
+		(
+			| OperationKind
+			| ParameterKind
+			| RefusedFieldKind
+			| RequestMediaKind
+			| ResponseKind
+			| SecurityAlternativeKind
+			| ServerKind
+		)
+>
+
+/** An invented claim: the command's path, then its kind and the kind's value. */
+type Invented = Spelled<
+	Claim &
+		(
+			| CommandKind
+			| RefusedFieldKind
+			| RequestMediaKind
+			| ResponseKind
+			| SecurityAlternativeKind
+			| ServerKind
+		)
+>
 
 /**
- * The corpus verdict file for one pinned specification (design 8.2). Fields are alphabetical.
+ * The coverage join (design 8.2, revision 19): `missing` lists what nothing accounts for, `byNotice` what only a notice
+ * accounts for, and `invented` what nothing in the spec stands behind.
  */
-export const Verdict = Schema.Struct({
-	/**
-	 * Commands by the source of their command name; `fold` covers `operationId` and route names.
-	 */
-	commandSources: Schema.Struct({ config: Count, fern: Count, fold: Count, forge: Count }),
-	corpusVersion: Count,
-	counts: Schema.Struct({
-		informational: Count,
-		nonStandard: Count,
-		notices: Count,
-		operations: Schema.Struct({ generated: Count, refused: Count, total: Count }),
-		refusals: Schema.Struct({ document: Count, element: Count, field: Count, operation: Count })
-	}),
-	coverage: VerdictCoverage,
-	generator: Schema.Struct({
-		config: Schema.String,
-		configSha256: Sha256Hex,
-		version: Schema.String
-	}),
-	/**
-	 * The report's non-standard entries; they never change `verdict`.
-	 */
-	nonStandard: Schema.Array(
-		Schema.Struct({ choice: Schema.String, pointer: JsonPointer, row: Schema.String })
-	),
-	notices: Schema.Array(Entry),
-	refusals: Schema.Array(
-		Schema.Struct({ ...Entry.fields, scope: Schema.Literals(diagnosticScopes) })
-	),
-	spec: Schema.Struct({ id: Schema.String, openapi: Schema.String, sha256: Sha256Hex }),
-	twinEquality: Schema.Struct({ checked: Schema.Boolean, equal: Schema.Boolean }),
-	verdict: Schema.Literals(["accepted", "partly-refused", "refused"])
-})
+export type VerdictCoverage = Readonly<{
+	byNotice: ReadonlyArray<Element>
+	checked: boolean
+	invented: ReadonlyArray<Invented>
+	missing: ReadonlyArray<Element>
+}>
+
+/**
+ * The corpus verdict file for one pinned specification (design 8.2). Each count is the length of what it counts, so no
+ * count is negative or fractional.
+ */
+export type Verdict = Readonly<{
+	/** Commands by the source of their command name; `fold` covers `operationId` and route names. */
+	commandSources: Readonly<{ config: number; fern: number; fold: number; forge: number }>
+	corpusVersion: number
+	counts: Readonly<{
+		informational: number
+		nonStandard: number
+		notices: number
+		operations: Readonly<{ generated: number; refused: number; total: number }>
+		refusals: Readonly<{ document: number; element: number; field: number; operation: number }>
+	}>
+	coverage: VerdictCoverage
+	generator: Readonly<{ config: string; configSha256: Sha256Hex; version: string }>
+	/** The report's non-standard entries; they never change `verdict`. */
+	nonStandard: ReadonlyArray<Readonly<{ choice: string; pointer: JsonPointer; row: string }>>
+	notices: ReadonlyArray<Entry>
+	refusals: ReadonlyArray<Spelled<Entry & Readonly<{ scope: DiagnosticScope }>>>
+	spec: Readonly<{ id: string; openapi: string; sha256: Sha256Hex }>
+	twinEquality: Readonly<{ checked: boolean; equal: boolean }>
+	verdict: "accepted" | "partly-refused" | "refused"
+}>

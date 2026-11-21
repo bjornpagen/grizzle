@@ -1,7 +1,6 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Data, Effect, Option } from "effect"
-import type { Schema } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
@@ -56,7 +55,7 @@ const declare = "Declare a 3.0.x, 3.1.x or 3.2.x version."
 export const versionRefusal = (
 	error: UnsupportedOpenApiVersion,
 	document: DocumentUri
-): Effect.Effect<Diagnostic, Schema.SchemaError> => {
+): Effect.Effect<Diagnostic> => {
 	const declared = error.openapi
 	const line = Option.getOrElse(
 		Option.flatMap(declared, (openapi) =>

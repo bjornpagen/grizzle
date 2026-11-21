@@ -1,12 +1,10 @@
 /**
- * The model's Diagnostic (design 8.1) and verdict file (design 8.2). A diagnostic of every scope and severity, each
+ * The model's Diagnostic (design 8.1). A diagnostic of every scope and severity, each
  * optional field present or not, reads as a Diagnostic (isDiagnostic), is what the factory builds from its fields
  * without a row, its members in the model's order, and reads as a refusal and a document refusal exactly as its severity and scope say;
  * a code naming another row, a malformed code, an unknown scope, a pointer that is no RFC 6901 text and a position
  * below one are each refused. Diagnostics sort by their document's place in the set (any other last), then design
- * 3.7's pointer order, then code, whatever order they arrive in, and the sort is a fixed point. A verdict whose
- * coverage holds every element and claim kind, its keys in any order, decodes and encodes back with each entry's keys
- * in the schema's order.
+ * 3.7's pointer order, then code, whatever order they arrive in, and the sort is a fixed point.
  */
 import { assert } from "@bjornpagen/testing/assert"
 import { type Case, property } from "@bjornpagen/testing/property"
@@ -18,15 +16,10 @@ import {
 	diagnosticSpace,
 	expectedCodecOf,
 	expectedSortOf,
-	expectedVerdictOf,
 	type OrderFeature,
 	orderFeaturesOf,
 	sortedOf,
-	sortSpace,
-	verdictAnswerOf,
-	type VerdictFeature,
-	verdictFeaturesOf,
-	verdictSpace
+	sortSpace
 } from "#test/model/diagnostic.fixtures.ts"
 
 /**
@@ -119,60 +112,6 @@ export const diagnosticOrder = property.explore(sortSpace, {
 			original: "\t\treturn index === -1 ? documents.length : index",
 			replacement: "\t\treturn index !== -1 ? documents.length : index",
 			why: "A document outside the set sorts first instead of last; the property fails (CATCH's evidence, mutant 9a5102f2c9)."
-		}
-	]
-})
-
-/**
- * A drawn verdict decodes and encodes back to itself, each coverage entry's keys in the schema's order. Its budget
- * replaces 2 example cases (diagnostic's verdict round trip, verdict's key order): 2 independent cases, and up to 26
- * steered while one of its 13 situations is unreached, each reached by its own aimed arm.
- */
-export const verdictCodec = property.explore(verdictSpace, {
-	needs: {},
-	situations: [
-		"a operation element",
-		"a parameter element",
-		"a refusedField element",
-		"a requestMedia element",
-		"a response element",
-		"a securityAlternative element",
-		"a server element",
-		"an invented command",
-		"an invented refusedField",
-		"an invented requestMedia",
-		"an invented response",
-		"an invented securityAlternative",
-		"an invented server"
-	],
-	check: (_, k: Case<VerdictFeature>) => (v) =>
-		Effect.gen(function* () {
-			k.noteAll(verdictFeaturesOf(v))
-			const actual = yield* verdictAnswerOf(v)
-			assert.deepEqual(actual, expectedVerdictOf(v))
-		}),
-	oracle: {
-		kind: "universal",
-		name: "the verdict round-trips, each coverage entry's site or claim first, then its kind's keys alphabetically"
-	},
-	kept: [],
-	budget: { runs: 2, steered: 26 },
-	kills: [
-		{
-			file: "packages/cli-generator/src/model/verdict.ts",
-			original:
-				"[\n\twithSite(OperationKind),\n\twithSite(ParameterKind),\n\twithSite(RefusedFieldKind),\n\twithSite(RequestMediaKind),\n\twithSite(ResponseKind),\n\twithSite(SecurityAlternativeKind),\n\twithSite(ServerKind)\n]",
-			replacement:
-				"[withSite(OperationKind), withSite(RefusedFieldKind), withSite(RequestMediaKind), withSite(ResponseKind), withSite(SecurityAlternativeKind), withSite(ServerKind)]",
-			why: "The coverage join forgets the parameter element, so a verdict holding one no longer decodes; the property fails (CATCH's evidence, mutant c1c4d5b07d)."
-		},
-		{
-			file: "packages/cli-generator/src/model/verdict.ts",
-			original:
-				"[\n\twithClaim(CommandKind),\n\twithClaim(RefusedFieldKind),\n\twithClaim(RequestMediaKind),\n\twithClaim(ResponseKind),\n\twithClaim(SecurityAlternativeKind),\n\twithClaim(ServerKind)\n]",
-			replacement:
-				"[withClaim(CommandKind), withClaim(RefusedFieldKind), withClaim(RequestMediaKind), withClaim(SecurityAlternativeKind), withClaim(ServerKind)]",
-			why: "The coverage join forgets the invented response claim, so a verdict holding one no longer decodes; the property fails (CATCH's evidence, mutant 592bf238d5)."
 		}
 	]
 })

@@ -7,13 +7,14 @@
 import { word } from "@bjornpagen/testing/dictionary"
 import { boolean, finite, type FiniteSpace } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Sink, Stdio, Stream, String as Str } from "effect"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
 import { resolve } from "#resolve/index.ts"
 import { Force, OutputPath, writeResponse } from "#runtime-src/runtime/output.ts"
 import type { SequentialCodec } from "#runtime-src/runtime/sequential.ts"
 import { essences } from "#test/runtime/sequential-media-parity.dictionary.ts"
 import { holding } from "#test/runtime/serialize.fixtures.ts"
+import { printedText } from "#test/support/printed.ts"
 
 /** A response media type as drawn: an essence and its spelling, upper-cased or not, with a parameter or not. */
 export type MediaCase = Readonly<{ essence: string; upper: boolean; parameter: boolean }>
@@ -29,7 +30,7 @@ export const mediaSpace: FiniteSpace<MediaCase> = finite((source) => ({
 export const spelled = (media: MediaCase): string =>
 	`${media.upper ? Str.toUpperCase(media.essence) : media.essence}${media.parameter ? "; charset=utf-8" : ""}`
 
-const entry = DocumentUri.make("file:///spec/openapi.json")
+const entry = fixedDocumentUri("file:///spec/openapi.json")
 
 /** The codec the generator assigns a response declared under `mediaType`, none when it assigns none or refuses it. */
 export const generatorCodec = (mediaType: string) =>
@@ -92,7 +93,7 @@ const printed = (mediaType: string, text: string) =>
 			)
 		)
 		return written._tag === "Success"
-			? Option.some(new TextDecoder().decode(Buffer.concat(captured)))
+			? Option.some(printedText(Buffer.concat(captured)))
 			: Option.none()
 	})
 

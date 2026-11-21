@@ -29,10 +29,10 @@ import {
 	String as Str
 } from "effect"
 import { loadBytes, type LoadOptions } from "#load/index.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { evaluateTokensResult, type Json } from "#model/pointer.ts"
 
-const options: LoadOptions = { document: DocumentUri.make("file:///spec.yaml") }
+const options: LoadOptions = { document: fixedDocumentUri("file:///spec.yaml") }
 
 const encoder = new TextEncoder()
 

@@ -23,10 +23,10 @@ import { decodeAuthorConfig } from "#model/author-config.ts"
 import {
 	fixedDocumentUri,
 	fixedMediaRange,
-	MethodToken,
-	PathTemplate,
-	stripUnsafeText,
-	WireName
+	isMethodToken,
+	isPathTemplate,
+	isWireName,
+	stripUnsafeText
 } from "#model/brands.ts"
 import type { Api, Body, Operation, Origin, Parameter } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
@@ -37,6 +37,7 @@ import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedCommand } from "#names/index.ts"
 import { familyOf } from "#names/plan.ts"
 import { reservedFlagNames, reservedIdentifiers } from "#names/reserved.ts"
+import { branded } from "#test/support/brands.ts"
 
 const document = "file:///spec/openapi.json"
 
@@ -125,7 +126,7 @@ const parameterOf = (
 		rules: "3.1",
 		style: parameter.location === "query" ? "form" : "simple"
 	},
-	wireName: WireName.make(parameter.name)
+	wireName: branded(isWireName, parameter.name)
 })
 
 const bodyOf = (
@@ -162,7 +163,7 @@ const operationOf = (op: OperationSketch): Operation => {
 	return {
 		deprecated: false,
 		docs: {},
-		key: { method: MethodToken.make(op.method), path: PathTemplate.make(op.path) },
+		key: { method: branded(isMethodToken, op.method), path: branded(isPathTemplate, op.path) },
 		origin: origin(home),
 		parameters: Arr.map(op.parameters, (parameter, index) => parameterOf(home, parameter, index)),
 		responses: [],

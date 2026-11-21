@@ -12,7 +12,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Cause, Effect, Exit, Option, Record, String as Str } from "effect"
 import { loadBytes } from "#load/index.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
 import type { Json } from "#model/pointer.ts"
 
@@ -463,7 +463,7 @@ export const expected = (doc: Document, rendered: Rendered): Outcome => {
 	})
 }
 
-const document = DocumentUri.make("file:///suite/openapi.json")
+const document = fixedDocumentUri("file:///suite/openapi.json")
 
 /** What the loader gave, in the oracle's terms. */
 export const actual = (doc: Document, rendered: Rendered) =>

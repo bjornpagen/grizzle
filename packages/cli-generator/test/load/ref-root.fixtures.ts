@@ -29,7 +29,7 @@ import {
 import { ChildProcess } from "effect/process"
 import { setMembers } from "#generate.ts"
 import { type DocumentPair, makeDocumentSet, resolveUnderRoot } from "#load/document-set.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { finished } from "#test/support/process.ts"
 
 /** A spec file of the base tree: the directories it lies under, below the root, and its name. */
@@ -470,7 +470,7 @@ export const actualOf = (place: Place, tree: Tree) =>
 		const entryUri = yield* urlOf(path, path.join(place.realRoot, "a.json"))
 		const entry =
 			tree.hazard.kind === "pairs beside the root" && tree.hazard.entry
-				? { entry: DocumentUri.make(entryUri) }
+				? { entry: fixedDocumentUri(entryUri) }
 				: {}
 		const exit = yield* Effect.exit(
 			tree.hazard.kind === "a ../ path"
@@ -567,7 +567,7 @@ export const membersOf = (dir: ScratchDir, entryCase: EntryCase) =>
 		const exit = yield* Effect.exit(
 			Effect.flatMap(makeDocumentSet([{ path: memberPath, uri }], {}), (set) =>
 				setMembers(
-					{ document: DocumentUri.make(entryUri), source: { _tag: "File", path: entryPath } },
+					{ document: fixedDocumentUri(entryUri), source: { _tag: "File", path: entryPath } },
 					set
 				)
 			)

@@ -4,7 +4,7 @@ import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { stringLiteral } from "#emit/escape.ts"
 import type { ReadmeInput } from "#emit/readme.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import { planNames } from "#names/index.ts"
 import type { PlannedCommand } from "#names/plan.ts"
@@ -14,9 +14,9 @@ import { resolve } from "#resolve/index.ts"
 import { configGen, configOf, documentGen, documentOf } from "#test/support/openapi-gen.ts"
 import type { ConfigSketch, DocumentSketch } from "#test/support/openapi-gen.ts"
 
-const document = DocumentUri.make("file:///readme/openapi.json")
+const document = fixedDocumentUri("file:///readme/openapi.json")
 
-const configDocument = DocumentUri.make("file:///readme/author-config.json")
+const configDocument = fixedDocumentUri("file:///readme/author-config.json")
 
 /** A generated document and an author config that fits it. */
 type ReadmeCase = Readonly<{ document: DocumentSketch; config: ConfigSketch }>

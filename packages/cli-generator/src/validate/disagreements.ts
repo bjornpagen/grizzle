@@ -1,6 +1,5 @@
 import { jsonText } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Option, Result, String as Str } from "effect"
-import type { Schema } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
@@ -141,7 +140,7 @@ export const noticeFor = (
 	where: Where,
 	pointer: string,
 	schemaSide: string
-): Effect.Effect<Diagnostic, Schema.SchemaError> =>
+): Effect.Effect<Diagnostic> =>
 	makeDiagnostic({
 		code: entry.code,
 		document: where.document,
@@ -172,10 +171,7 @@ const refusalRows: Readonly<Record<SpecLine, { readonly anchor: string; readonly
 /**
  * The document refusal for a schema error group no table entry explains.
  */
-export const refusalFor = (
-	where: Where,
-	group: ErrorGroup
-): Effect.Effect<Refusal, Schema.SchemaError> => {
+export const refusalFor = (where: Where, group: ErrorGroup): Effect.Effect<Refusal> => {
 	const { anchor, row } = refusalRows[where.line]
 	const locations = Arr.map(group.deepest, (unit) => unit.absoluteKeywordLocation)
 

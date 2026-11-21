@@ -843,6 +843,7 @@ export const actualOf = (sketch: ServersSketch) =>
 			config,
 			configDocument: configUri,
 			document: entryUri,
+			line: sketch.line,
 			openapi: openapiOf[sketch.line]
 		}
 		const result = effectiveServers(

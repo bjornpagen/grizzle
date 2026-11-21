@@ -1,14 +1,11 @@
-import { Array as Arr, Effect, Schema } from "effect"
+import { Array as Arr } from "effect"
 import { printJson } from "#emit/printer.ts"
-import { JsonLiteral } from "#model/brands.ts"
 import { isRefusal } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import { Verdict } from "#model/verdict.ts"
+import type { Verdict } from "#model/verdict.ts"
 import type { CommandNameSource } from "#names/plan.ts"
 
-export type VerdictValue = typeof Verdict.Type
-
-export type VerdictClass = VerdictValue["verdict"]
+export type VerdictClass = Verdict["verdict"]
 
 /**
  * What one corpus run knows about a pinned specification. `diagnostics` arrive already in
@@ -19,18 +16,18 @@ export interface VerdictInput {
 	/** The report's `commandNames`, by the source of each command name. */
 	readonly commandNames: readonly { readonly command: CommandNameSource }[]
 	readonly corpusVersion: number
-	readonly coverage: VerdictValue["coverage"]
+	readonly coverage: Verdict["coverage"]
 	readonly diagnostics: readonly Diagnostic[]
-	readonly generator: VerdictValue["generator"]
+	readonly generator: Verdict["generator"]
 	readonly informational: number
 	/** The report's `nonStandard` entries; only their choice, pointer and row reach the verdict. */
-	readonly nonStandard: VerdictValue["nonStandard"]
+	readonly nonStandard: Verdict["nonStandard"]
 	readonly operations: { readonly generated: number; readonly total: number }
-	readonly spec: VerdictValue["spec"]
-	readonly twinEquality: VerdictValue["twinEquality"]
+	readonly spec: Verdict["spec"]
+	readonly twinEquality: Verdict["twinEquality"]
 }
 
-type CommandSources = VerdictValue["commandSources"]
+type CommandSources = Verdict["commandSources"]
 
 const sourceBucket: Readonly<Record<CommandNameSource, keyof CommandSources>> = {
 	config: "config",
@@ -71,7 +68,7 @@ export const classifyVerdict = (diagnostics: readonly Diagnostic[]): VerdictClas
  * refusal and notice listed in the order given. Non-standard entries are counted and listed but
  * never change the class.
  */
-export const makeVerdict = (input: VerdictInput): VerdictValue => {
+export const makeVerdict = (input: VerdictInput): Verdict => {
 	const { diagnostics } = input
 	const notices = Arr.filter(diagnostics, (diagnostic) => !isRefusal(diagnostic))
 
@@ -115,12 +112,7 @@ export const makeVerdict = (input: VerdictInput): VerdictValue => {
 }
 
 /**
- * Prints the verdict file: the value is encoded through the `Verdict` schema, so an invalid count
- * or digest fails here, then written in the `docs/printer.md` JSON layout that `vp fmt --check`
- * accepts, with sorted keys and a final newline.
+ * Prints the verdict file in the `docs/printer.md` JSON layout, with sorted keys and a final newline. Its counts are
+ * lengths and its digests the generator's own (Sha256Hex), so the value is the file.
  */
-export const printVerdict = (verdict: VerdictValue): Effect.Effect<string, Schema.SchemaError> =>
-	Schema.encodeEffect(Verdict)(verdict).pipe(
-		Effect.flatMap(Schema.decodeUnknownEffect(JsonLiteral)),
-		Effect.map(printJson)
-	)
+export const printVerdict = (verdict: Verdict): string => printJson(verdict)

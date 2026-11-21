@@ -16,7 +16,7 @@ import type { ScratchDir } from "@bjornpagen/testing/resources"
 import { Array as Arr, Cause, Effect, Exit, FileSystem, Option, Path, String as Str } from "effect"
 import { Digest } from "effect/crypto"
 import { type DocumentPair, makeDocumentSet } from "#load/document-set.ts"
-import { DocumentUri } from "#model/brands.ts"
+import { fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 
 /** The host part of an absolute retrieval URI, as written: the canonical spelling or one of its other spellings. */
@@ -250,7 +250,7 @@ export const actualSet = (load: Pairs, given: ReadonlyArray<DocumentPair>) =>
 		Effect.exit(
 			makeDocumentSet(
 				given,
-				load.entry.kind === "named" ? { entry: DocumentUri.make(uriText(load.entry.uri)) } : {}
+				load.entry.kind === "named" ? { entry: fixedDocumentUri(uriText(load.entry.uri)) } : {}
 			)
 		),
 		(exit): Made =>

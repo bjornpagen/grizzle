@@ -70,7 +70,7 @@ export const escapeToken = (token: string): string => JsonPointer.escapeToken(to
  * What `parsePointer` accepts: the empty pointer or `/`-led reference tokens, each token any
  * characters but `/` and `~`, or the escapes `~0` and `~1`.
  */
-export const pointerPattern = regex("^(?:/(?:[^/~]|~[01])*)*$", "u")
+const pointerPattern = regex("^(?:/(?:[^/~]|~[01])*)*$", "u")
 
 /**
  * What `parsePointer` accepts, less the empty pointer.

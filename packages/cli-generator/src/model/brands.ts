@@ -1,6 +1,5 @@
 import { regex } from "arkregex"
-import { Array as Arr, Brand, Schema, String as Str } from "effect"
-import { pointerPattern } from "#model/pointer.ts"
+import { Array as Arr, Brand, String as Str } from "effect"
 
 const token = "[!#$%&'*+.^_`|~0-9A-Za-z-]+"
 
@@ -63,64 +62,6 @@ const safeTextCategories = "\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}\\p{Cs}"
 const safeTextPattern = regex(`^(?:[^${safeTextCategories}]|[\\n\\t])*$`, "u")
 
 const unsafeCharacter = regex(`(?![\\n\\t])[${safeTextCategories}]`, "gu")
-
-const pattern = (regExp: RegExp) => Schema.String.pipe(Schema.check(Schema.isPattern(regExp)))
-
-/**
- * A parameter, property or field name exactly as the specification spells it.
- */
-export const WireName = pattern(wireNamePattern).pipe(Schema.brand("WireName"))
-
-/**
- * An RFC 9110 header field name.
- */
-export const HeaderName = pattern(tokenPattern).pipe(Schema.brand("HeaderName"))
-
-/**
- * An RFC 9110 8.3.1 media type, parameters allowed, no wildcards.
- */
-export const MediaType = pattern(mediaTypePattern).pipe(Schema.brand("MediaType"))
-
-/**
- * An OpenAPI 3.2.1 path template: absolute, with balanced non-empty expressions, no dot segments
- * and no empty segment except the last.
- */
-export const PathTemplate = pattern(pathPattern).pipe(
-	Schema.check(Schema.makeFilter(hasValidSegments)),
-	Schema.brand("PathTemplate")
-)
-
-/**
- * An RFC 9110 method token a request is sent with, exactly as spelled: any token but `CONNECT`,
- * which asks for a tunnel instead of a response.
- */
-export const MethodToken = pattern(tokenPattern).pipe(
-	Schema.check(Schema.makeFilter((method: string) => method !== "CONNECT")),
-	Schema.brand("MethodToken")
-)
-
-/**
- * An absolute URI with ASCII characters only.
- */
-export const DocumentUri = pattern(uriPattern).pipe(Schema.brand("DocumentUri"))
-
-/**
- * An RFC 6901 JSON Pointer.
- */
-export const JsonPointer = Schema.String.pipe(
-	Schema.check(Schema.isPattern(pointerPattern)),
-	Schema.brand("JsonPointer")
-)
-
-/**
- * A finite JSON value.
- */
-export const JsonLiteral = Schema.Json.pipe(Schema.brand("JsonLiteral"))
-
-/**
- * A SHA-256 digest as 64 lowercase hexadecimal digits.
- */
-export const Sha256Hex = pattern(regex("^[0-9a-f]{64}$", "u"))
 
 /**
  * A parameter, property or field name exactly as the specification spells it: no control and no lone surrogate.

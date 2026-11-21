@@ -164,7 +164,6 @@ export const failureLine = (error: LineFailure): string =>
 		InvalidInstanceLocation: tagAlone,
 		ParameterNotReadable: tagAlone,
 		RunLockUnavailable: tagAlone,
-		SchemaError: tagAlone,
 		SchemaImportDefect: tagAlone,
 		ValidatorError: tagAlone
 	})

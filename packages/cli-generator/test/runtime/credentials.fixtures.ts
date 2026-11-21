@@ -41,7 +41,7 @@ import {
 import { TerminalCapabilities } from "effect/cli"
 import { Headers, HttpClient, HttpClientRequest, HttpClientResponse, UrlParams } from "effect/http"
 import { operationHelp } from "#emit/help.ts"
-import { fixedDocumentUri, HeaderName, MethodToken, PathTemplate } from "#model/brands.ts"
+import { fixedDocumentUri, isHeaderName, isMethodToken, isPathTemplate } from "#model/brands.ts"
 import type { Operation, Origin, SecurityScheme } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
 import * as Auth from "#runtime-src/runtime/auth.ts"
@@ -51,6 +51,7 @@ import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
 import * as Serialize from "#runtime-src/runtime/serialize.ts"
+import { branded } from "#test/support/brands.ts"
 import { appendingTo, chunkText } from "#test/support/stdio.ts"
 
 /** A scheme of the generated security table every credential case runs against. */
@@ -2063,7 +2064,7 @@ export const actualAuth = (drawn: AuthHelp): string => {
 	const schemes = Arr.map(drawn.schemes, ([name, deprecated]): SecurityScheme => ({
 		credentialSources: ["env"],
 		deprecated,
-		kind: { in: "header", name: HeaderName.make("X-Key"), type: "apiKey" },
+		kind: { in: "header", name: branded(isHeaderName, "X-Key"), type: "apiKey" },
 		name,
 		origin,
 		rows: ["SSC-11"],
@@ -2072,7 +2073,7 @@ export const actualAuth = (drawn: AuthHelp): string => {
 	const operation: Operation = {
 		deprecated: false,
 		docs: {},
-		key: { method: MethodToken.make("GET"), path: PathTemplate.make("/x") },
+		key: { method: branded(isMethodToken, "GET"), path: branded(isPathTemplate, "/x") },
 		origin,
 		parameters: [],
 		responses: [],

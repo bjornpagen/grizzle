@@ -1,13 +1,12 @@
-import { Option, Schema } from "effect"
+import { Option, Predicate, Record } from "effect"
+import { type DocumentUri, fixedDocumentUri } from "#model/brands.ts"
 import type { Json } from "#model/pointer.ts"
 
 /**
  * An OpenAPI line: the major.minor of a supported specification release. Defined once here so
  * every stage can cite the specification without importing validate.
  */
-export const SpecLine = Schema.Literals(["3.0", "3.1", "3.2"])
-
-export type SpecLine = typeof SpecLine.Type
+export type SpecLine = "3.0" | "3.1" | "3.2"
 
 /**
  * The published patch release of each OpenAPI line: the version diagnostics cite when a document's
@@ -22,14 +21,14 @@ export const patchVersion = {
 /**
  * The specification section a diagnostic cites: the anchor on the line's published patch release.
  */
-export const specSectionUrl = (line: SpecLine, anchor: string): string =>
-	`https://spec.openapis.org/oas/v${patchVersion[line]}.html#${anchor}`
-
-const decodeDeclared = Schema.decodeUnknownOption(Schema.Struct({ openapi: Schema.String }))
+export const specSectionUrl = (line: SpecLine, anchor: string): DocumentUri =>
+	fixedDocumentUri(`https://spec.openapis.org/oas/v${patchVersion[line]}.html#${anchor}`)
 
 /**
  * The `openapi` string a document declares, or `None` when the document has no `openapi` member or
  * its value is not a string. Each caller chooses its own fallback.
  */
 export const declaredOpenapi = (document: Json): Option.Option<string> =>
-	decodeDeclared(document).pipe(Option.map((found) => found.openapi))
+	Predicate.isObject(document)
+		? Option.filter(Record.get(document, "openapi"), Predicate.isString)
+		: Option.none()

@@ -17,7 +17,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record, Result, String as Str } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
-import { fixedDocumentUri, MethodToken, PathTemplate, stripUnsafeText } from "#model/brands.ts"
+import { fixedDocumentUri, isMethodToken, isPathTemplate, stripUnsafeText } from "#model/brands.ts"
 import type { Api, Naming, NamingAlias, NamingHint, Operation, Origin } from "#model/entities.ts"
 import { formatPointer, rootPointer } from "#model/pointer.ts"
 import type { Json, JsonPointer } from "#model/pointer.ts"
@@ -25,6 +25,7 @@ import { foldKebab, words } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedGroup } from "#names/index.ts"
 import type { CommandNameSource, GroupNameSource } from "#names/plan.ts"
+import { branded } from "#test/support/brands.ts"
 
 /** An extension's names: a group (its segments), a method, or both; an extension naming neither is no extension. */
 type Hint =
@@ -128,7 +129,7 @@ const namingOf = (op: OperationSketch): Option.Option<Naming> => {
 const operationOf = (op: OperationSketch): Operation => ({
 	deprecated: false,
 	docs: {},
-	key: { method: MethodToken.make("GET"), path: PathTemplate.make(pathOf(op)) },
+	key: { method: branded(isMethodToken, "GET"), path: branded(isPathTemplate, pathOf(op)) },
 	origin: origin(homeOf(op)),
 	parameters: [],
 	responses: [],

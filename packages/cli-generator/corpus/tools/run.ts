@@ -36,11 +36,10 @@ import { isDocumentUri } from "#model/brands.ts"
 import { sha256Hex } from "#model/digest.ts"
 import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi } from "#model/spec-section.ts"
-import type { VerdictCoverage } from "#model/verdict.ts"
+import type { Verdict, VerdictCoverage } from "#model/verdict.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import generatorPackage from "#package.json" with { type: "json" }
 import { makeVerdict, printVerdict } from "#report/verdict.ts"
-import type { VerdictValue } from "#report/verdict.ts"
 import { resolve } from "#resolve/index.ts"
 import { readDescription } from "#runtime/describe.ts"
 import type { Description } from "#runtime/describe.ts"
@@ -152,7 +151,7 @@ const noFindings: Findings = { coverage: [], other: [] }
 interface Run {
 	readonly findings: Findings
 	readonly summary: string
-	readonly verdict: VerdictValue
+	readonly verdict: Verdict
 }
 
 /**
@@ -247,13 +246,11 @@ const describeInvented = (invented: Invented): string => {
 	return invented.kind === "server" ? `${head} ${invented.url}` : head
 }
 
-type CoverageEntries = typeof VerdictCoverage.Type
-
 /**
  * A walk element or field refusal as the verdict lists it: its use site, its kind and the kind's
  * value.
  */
-const elementEntry = (element: Missing): CoverageEntries["missing"][number] => {
+const elementEntry = (element: Missing): VerdictCoverage["missing"][number] => {
 	const site = { document: element.document, pointer: element.pointer }
 
 	if (element.kind === "refusedField") {
@@ -282,7 +279,7 @@ const elementEntry = (element: Missing): CoverageEntries["missing"][number] => {
 }
 
 /** A claim as the verdict lists it: its kind, the command's path and the value. */
-const inventedEntry = (invented: Invented): CoverageEntries["invented"][number] => {
+const inventedEntry = (invented: Invented): VerdictCoverage["invented"][number] => {
 	const { path } = invented
 
 	if (invented.kind === "refusedField") {
@@ -307,7 +304,7 @@ const inventedEntry = (invented: Invented): CoverageEntries["invented"][number] 
 }
 
 /** The verdict's coverage (design 8.2): each list typed, none of them text. */
-const coverageEntries = (coverage: Coverage): CoverageEntries => ({
+const coverageEntries = (coverage: Coverage): VerdictCoverage => ({
 	byNotice: Arr.map(coverage.byNotice, elementEntry),
 	checked: true,
 	invented: Arr.map(coverage.invented, inventedEntry),
@@ -636,7 +633,7 @@ export const verdictFor = (
 		const result = attempt
 		yield* Effect.log(result.summary)
 
-		const printed = yield* printVerdict(result.verdict)
+		const printed = printVerdict(result.verdict)
 		const name = verdictName(entry)
 		const relative = `corpus/verdicts/${name}`
 		const target =
