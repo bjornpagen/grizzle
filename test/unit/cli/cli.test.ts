@@ -78,7 +78,7 @@ import {
 	nextOf,
 	resolvedSchemas,
 	sketchGen,
-	spelledGen,
+	spelledSpace,
 	type StampFeature,
 	stampingSpace,
 	statusOf,
@@ -93,7 +93,7 @@ import {
  * grizzle 4ca3036a).
  */
 export const theCommandLineGeneratedReadsEveryLineOfTheGrammarAsExactlyWhatItSaysItsFlagsInAnyOrderAndEitherSpelling =
-	property.explore(spelledGen, {
+	property.explore(spelledSpace, {
 		needs: {},
 		situations: grammarFeatures satisfies ReadonlyArray<Reached<GrammarFeature>>,
 		check: (_, c: Case<GrammarFeature>) => (s) =>

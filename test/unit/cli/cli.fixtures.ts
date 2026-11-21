@@ -2,6 +2,7 @@
 
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
+	type Aimed,
 	aimed,
 	array,
 	boolean,
@@ -219,11 +220,32 @@ const unitsOf =
 		]
 	}
 
-export const spelledGen: Gen<Spelled> = (source) => {
-	const line = source.draw(lineGen)
-	const units = source.draw(unitsOf(line))
-	return { line, units: source.draw(shuffled(units, { min: units.length, max: units.length })) }
-}
+/** A line `lines` draws, its units in any order. */
+const spelledOf =
+	(lines: Gen<GrammarLine>): Gen<Spelled> =>
+	(source) => {
+		const line = source.draw(lines)
+		const units = source.draw(unitsOf(line))
+		return { line, units: source.draw(shuffled(units, { min: units.length, max: units.length })) }
+	}
+
+const spelledGen: Gen<Spelled> = spelledOf(lineGen)
+
+/**
+ * The grammar's lines, and for a witness while a plain command is pending, a line of that command: half the lines are
+ * generate's, so each plain command is a fourteenth of the rest, which a floor of fifty cases misses one time in forty.
+ */
+export const spelledSpace: Aimed<Spelled, GrammarFeature> = aimed(
+	spelledGen,
+	Arr.map(
+		plainCommands,
+		(command) =>
+			[
+				command,
+				spelledOf((source): GrammarLine => ({ command, config: source.draw(configGen) }))
+			] as const
+	)
+)
 
 export const argvOf = (command: string, units: ReadonlyArray<Unit>): ReadonlyArray<string> => [
 	command,
