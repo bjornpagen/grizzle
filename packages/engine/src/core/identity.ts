@@ -1830,8 +1830,8 @@ export const identity = Object.freeze({
 		),
 	/**
 	 * The reader of a session's delta `delta` of `relation`'s writes on one side (physical/ddl/rules.ts addRules): the
-	 * set-returning function every statement of the judge reads the delta through, and the row type of its rows, named
-	 * by the delta's identity, so a migration that changes the delta's declaration names another reader.
+	 * set-returning function every statement of the judge reads the delta through, named by the delta's identity, so a
+	 * migration that changes the delta's declaration names another reader.
 	 */
 	ruleDeltaReader: (
 		relation: string,
@@ -1843,6 +1843,24 @@ export const identity = Object.freeze({
 			[delta],
 			["reader", side, ...nameSegments(relation)],
 			`the reader of the delta of ${side} of ${relation}`,
+			hashed
+		),
+	/**
+	 * The row type of the rows a session's delta `delta` of `relation`'s writes on one side holds, which its reader
+	 * returns (`ruleDeltaReader`; physical/ddl/rules.ts addRules), named by the delta's identity and apart from its
+	 * reader: an object is named by its schema and its name alone wherever a statement's text names it, so a type and a
+	 * function of one name are one name to every reader of the text.
+	 */
+	ruleDeltaRow: (
+		relation: string,
+		side: "news" | "olds",
+		delta: Identity<"ruleDelta">
+	): Identity<"ruleDeltaRow"> =>
+		mint(
+			"ruleDeltaRow",
+			[delta],
+			["row", side, ...nameSegments(relation)],
+			`the row type of the delta of ${side} of ${relation}`,
 			hashed
 		),
 	/**

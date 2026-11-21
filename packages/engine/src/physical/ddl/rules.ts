@@ -583,6 +583,8 @@ interface SessionDelta {
 	readonly ident: Identity<"ruleDelta">
 	/** The function the judge's statements read the delta through, and the row type of its rows (`readerOf`). */
 	readonly reader: Identity<"ruleDeltaReader">
+	/** The row type of the rows its reader returns. */
+	readonly row: Identity<"ruleDeltaRow">
 	readonly name: string
 	readonly columns: NonEmptyReadonlyArray<ColumnDefinition>
 	readonly table: NonEmptyReadonlyArray<ColumnDefinition>
@@ -1061,6 +1063,7 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 				canonicalTextOf(table)
 			)
 			const reader = identity.ruleDeltaReader(relation.name, deltaStem[side], ident)
+			const row = identity.ruleDeltaRow(relation.name, deltaStem[side], ident)
 			const name = b.name(ident)
 			return read.length === 0
 				? []
@@ -1070,6 +1073,7 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 							delta: {
 								ident,
 								reader,
+								row,
 								name,
 								columns,
 								table,
@@ -1617,8 +1621,9 @@ export const addRules = (
 			b.model.relations.has(name) ? [b.table(name)] : []
 		)
 	/**
-	 * Each delta's reader (SessionDelta `reader`), by the delta's name: the row type of the delta's rows, its relation's
-	 * heading's columns, and the function the judge's statements read the delta through, its rows' one SELECT, no count
+	 * Each delta's reader (SessionDelta `reader`), by the delta's name: the row type of the delta's rows (SessionDelta
+	 * `row`, named apart from the reader), its relation's heading's columns, and the function the judge's statements read
+	 * the delta through, its rows' one SELECT, no count
 	 * of a side of news among them, which the part nets before any statement reads the delta (`netted`):
 	 *
 	 *   RETURN QUERY SELECT r1.<column>, ... FROM pg_temp.<delta> AS r1
@@ -1634,16 +1639,17 @@ export const addRules = (
 			t.sides.map((s) => {
 				const delta = s.delta
 				const named = objectName(b.schema, b.name(delta.reader))
+				const rowNamed = objectName(b.schema, b.name(delta.row))
 				const rowType = b.add(
 					{
 						kind: "rowType",
-						ident: b.qualified("type", delta.reader),
+						ident: b.qualified("type", delta.row),
 						ddl: [
-							{ kind: "createRowType", name: named, attributes: delta.columns },
+							{ kind: "createRowType", name: rowNamed, attributes: delta.columns },
 							{
 								kind: "revoke",
 								privileges: ["ALL"],
-								on: { kind: "TYPE", names: [named] },
+								on: { kind: "TYPE", names: [rowNamed] },
 								from: [{ kind: "PUBLIC" }]
 							}
 						],
@@ -1658,7 +1664,9 @@ export const addRules = (
 						language: "plpgsql",
 						name: named,
 						params: [],
-						returns: { setOf: namedType(installationTypes(b.names.installation), named.name, []) },
+						returns: {
+							setOf: namedType(installationTypes(b.names.installation), rowNamed.name, [])
+						},
 						volatility: "VOLATILE",
 						parallel: "UNSAFE",
 						security: "DEFINER",
