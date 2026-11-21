@@ -3447,6 +3447,9 @@ class RuleCheck {
 	readonly hidden: Array<HiddenSlot> = []
 	/** The first match column each parent variable a match binds is bound to, which gives it its type. */
 	readonly #parentBindings = new Map<VarId, Binding>()
+	/** The parent variables some match of the rule binds, by their parent column: each one's region variable takes its
+	 * value from a match's column, not its parent's (`#defineRegion`, `#bindValue`). */
+	readonly #boundParents: ReadonlySet<string>
 	/** The imported parameters bound to an outer value that a filter, the head or a fallback equality reads. */
 	readonly #needed = new Set<VarId>()
 	readonly names = new Set<string>()
@@ -3464,6 +3467,11 @@ class RuleCheck {
 		this.scope = scope
 		this.loc = loc
 		this.region = cx.reserve()
+		this.#boundParents = new Set(
+			rule.matches.flatMap((m) =>
+				entries(m.bindings).flatMap(([, e]) => (e.kind === "parent" ? [e.column] : []))
+			)
+		)
 	}
 
 	at(...segments: ReadonlyArray<string | number>): SourceLoc {
@@ -3930,6 +3938,15 @@ class RuleCheck {
 	 * query are that query at its bind map's values, each read here as this term is (BindValue `rows`). An outer value is
 	 * read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
 	 * relational filter's over the node it filters, which delivers the region's columns unchanged (`#relational`).
+	 *
+	 * A parent variable is read there too where the region holds its value before the import's source: a match resolved
+	 * before this one binds it (`#parentBindings`), whose occurrence the region places first, or no match binds it and
+	 * the region correlates it to its parent column (`#defineRegion`). Where the match itself or a later one binds it,
+	 * the region's variable is that match's column, which no source reads before the match is placed, so the import reads
+	 * the parent's own column, the value the attachment equates the binding with: an outer reference to the parent, which
+	 * the attachment's statement carries in its parent key (lower/conservative/deliver.ts parentColumnsRead). Read
+	 * through the region's variable, the source would wait on the occurrence it is (lower/conservative/match-region
+	 * regionParts), and its region has no order to place.
 	 */
 	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc, node: NodeId): BindValue {
 		if (term.kind === "relationParam") {
@@ -3947,13 +3964,16 @@ class RuleCheck {
 		}
 		if (term.kind === "parent") {
 			const slot = this.parents.get(term.column)
-			return slot === undefined
-				? fail(
-						"MalformedDescription",
-						loc,
-						`a parent variable inside an attachment; ${term.column} is not one`
-					)
-				: this.#slotValue(slot, node)
+			if (slot === undefined) {
+				return fail(
+					"MalformedDescription",
+					loc,
+					`a parent variable inside an attachment; ${term.column} is not one`
+				)
+			}
+			return this.#parentBindings.has(slot.id) || !this.#boundParents.has(term.column)
+				? this.#slotValue(slot, node)
+				: { kind: "column", ...slot.outer }
 		}
 		if (term.kind === "param") {
 			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)
