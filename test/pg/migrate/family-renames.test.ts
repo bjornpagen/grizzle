@@ -117,6 +117,14 @@ export const declaredRenames = property.explore(renameCaseGen, {
 			reason:
 				"A counted family's hidden fold selecting by weight under its handles b and c swapped: the fold's CHECK, which calls a row function on the hidden accumulators the swap renames, was added again NOT VALID and validated, the function named by its parameters' column names (56f26ca01's row functions)",
 			since: "2026-11-21"
+		},
+		{
+			token: ReplayToken(
+				"test/pg/migrate/family-renames.test.ts#declaredRenames:140512.4:0.1.2.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0"
+			),
+			reason:
+				"A counted family whose hidden fold selects by weight, its roster renamed Kind to Sort, its handles kept, three owners and no member: the fold's CHECK calls Weight's row function, whose name digests the roster domain's name its text casts to, so the rename named it anew, and the CHECK was added again NOT VALID and validated (CLOSEDBITS's steered case 27 at seed 0x84b9c97d); a function whose definition the rename leaves is renamed in place",
+			since: "2026-11-21"
 		}
 	],
 	kills: [
