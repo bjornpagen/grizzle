@@ -59,8 +59,8 @@ export const attachments = agreement(attachAimed, {
 	kills: [
 		{
 			file: "packages/engine/src/types/query/terms.ts",
-			original: "\t]: Joined extends true ? Held<W[K], W, Os> : W[K]",
-			replacement: "\t]: Joined extends true ? W[K] : Held<W[K], W, Os>",
+			original: "\t> extends true\n\t\t? Held<W[K], W, Os>\n\t\t: W[K]\n}",
+			replacement: "\t> extends true\n\t\t? W[K]\n\t\t: Held<W[K], W, Os>\n}",
 			why: "A self-joined head's variable records no scope but its own (terms.ts OneFactScopes, HeldAt), never the other scope whose fact binds it at its own field; the kept self-join's reflexive child is refused."
 		},
 		{

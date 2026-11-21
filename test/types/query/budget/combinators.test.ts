@@ -28,9 +28,9 @@ export const cost = costGate(combinatorKinds, {
 		{
 			file: "packages/engine/src/types/query/query.ts",
 			original:
-				"\trule<Over, Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\tthis: OverSchema<Over>,\n\t\trule: (\n\t\t\tr: Rule<Over>\n\t\t) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tOver,",
+				"\trule<Over, Head2, Ev2 extends InferredEvidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\tthis: OverSchema<Over>,\n\t\trule: (\n\t\t\tr: Rule<Over>\n\t\t) => Finished<Head2, Ev2, P2, Over, IHead2, Hc2, Cx2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tOver,",
 			replacement:
-				"\trule<Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\trule: (\n\t\t\tr: Rule<S>\n\t\t) => Finished<Head2, Ev2, P2, S, IHead2, Hc2, Cx2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tS,",
+				"\trule<Head2, Ev2 extends InferredEvidence, P2, IHead2, Hc2 extends Carriers, Cx2>(\n\t\trule: (\n\t\t\tr: Rule<S>\n\t\t) => Finished<Head2, Ev2, P2, S, IHead2, Hc2, Cx2> &\n\t\t\tNoInfer<ArmsMeet<Arms, Head, ArmOf<Head2, Hc2>>>\n\t): Query<\n\t\tS,",
 			why: "A union's further arm (Query.rule) names the interface's schema, S, in its signature, so each call walks the schema, every relation of it and each relation's field record: an arm cost 1,404 more instantiations over 120 relations than over 3 (PERF-TYPES micro, union of two rules), and edullm's ledger, union arm after union arm over the Delivery level, 85.3M instantiations where it costs 45.6M."
 		},
 		{

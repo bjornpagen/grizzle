@@ -129,6 +129,16 @@ type OriginMap = { readonly [field: string]: Origin }
 /** Each head field's value per binding: one literal, a parameter by name, or a parent's field (Fixed). */
 type ValueMap = { readonly [field: string]: unknown }
 export type OriginsOf<Ev> = Ev extends { readonly origins: infer O } ? O : unknown
+/**
+ * What a site that infers an evidence requires of it: an evidence's required members, its keys and its card, never its
+ * optional ones. Every evidence grizzle's types build is an Evidence; an inferred type parameter is compared with its
+ * constraint at every call, and Evidence's optional members would have the checker read the evidence whole there, every
+ * head field's origin among them (types/query/terms.ts HeadOrigins), at every rule a query writes, where an origin is
+ * read only by what reads it (an attachment's parent variables, a delivery's claim, a take). It is a supertype of
+ * Evidence that every type reference requiring an Evidence admits, so a type a caller writes is held to Evidence whole.
+ */
+export type InferredEvidence = { readonly keys: unknown; readonly card: Card }
+
 export declare namespace Evidence {
 	/** What the type level falls back to when it cannot decide. */
 	type Unknown = { readonly keys: unknown; readonly card: "many" }

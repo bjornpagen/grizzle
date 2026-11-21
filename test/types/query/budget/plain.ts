@@ -52,9 +52,11 @@ const step = 20
 
 /**
  * What one query of each shape adds to a program's instantiations, at most: what it added when the attachments phantom
- * was cut, a one-rule query four more than before the phantom; and a union of two rules what it adds since every member
- * of a query reads its schema off its phantom (types/query/query.ts OverSchema) and its arm check infers nothing
- * (NoInfer), 22 fewer than the phantom's cut left it.
+ * was cut, a one-rule query four more than before the phantom; and since lane PERF-TYPES's cuts, what each costs now
+ * that every member of a query reads its schema off its phantom (types/query/query.ts OverSchema), a union's arm check
+ * infers nothing (NoInfer), and a rule's evidence is held where it is inferred to its keys and card alone
+ * (types/evidence/evidence.ts InferredEvidence), its head origins read where they are read: a one-rule query 1,534, a
+ * union of two rules 4,142.
  *
  * @limitKind measured
  * @owner the query facade's type cost gates (test/types/query/budget/plain.ts)
@@ -74,8 +76,9 @@ const step = 20
  *   rules, each program checked alone
  * @result per added query, one rule: 2,372 instantiations before the phantom, 2,376 with it; a union of two rules:
  *   5,843 before, 5,848 with the union keeping its receiver's attachments, 5,864 with a union holding both arms'
- *   (`At | At2`); after PERF-TYPES's cut, 5,826, and 5,842 with `At | At2`; every program clean; types are not read
- *   (the checker interns them)
+ *   (`At | At2`); after PERF-TYPES's first cut, 5,826, and 5,842 with `At | At2`; after its second, one rule 1,534, and
+ *   2,399 with the first rule's evidence held to Evidence whole, a union of two rules 4,142, and 4,158 with
+ *   `At | At2`; every program clean; types are not read (the checker interns them)
  * @decision the bound is the cut's own cost, exactly: a change that makes a query that attaches nothing pay more for
  *   its type's attachments, or any other cost per plain query, is refused here, and a change that lowers it lowers the
  *   bound
@@ -83,8 +86,8 @@ const step = 20
  *   (types/query/query.ts, types/query/rule.ts, the evidence) that moves a plain query's cost, which states its cost here
  */
 const addedAtMost: { readonly [S in PlainShape]: number } = {
-	"one rule": 2376,
-	"union of two rules": 5826
+	"one rule": 1534,
+	"union of two rules": 4142
 }
 
 /** How a shape prints. */

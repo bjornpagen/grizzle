@@ -407,7 +407,7 @@ export type BindingParams<B> = UnionToIntersection<
  * variable's origin is the parent's, not this rule's: its value here was read from the parent's fact, so it is no
  * origin of this head.
  */
-export type HeadOrigins<H, Occurrences extends ReadonlyArray<unknown>> = OneFactScopesOf<
+export type HeadOrigins<H, Occurrences extends ReadonlyArray<unknown>> = OneFactScopes<
 	Witnessed<H, Occurrences>,
 	Occurrences
 >
@@ -438,18 +438,20 @@ type WitnessedAt<H, K extends keyof H, Os extends ReadonlyArray<unknown>> =
 
 /**
  * The witnessed origins of the scopes one match holds every witnessed head variable of, each with the scopes holding
- * it (Held) where some relation has two scopes in the head (Joined), as a self-join's has, and alone otherwise.
+ * it (Held) where some relation has two scopes in the head (SelfJoined), as a self-join's has, and alone otherwise. It
+ * is a mapped type whose members are each read where they are read: whether the head is self-joined is asked in each
+ * member, never as an argument of its own, which the checker would decide where the origins are written, at every
+ * rule's find, reading every head field's origin whether anything reads the origins or not (an attachment's parent
+ * variables, a delivery's claim, a take read them; a union of arms reads none).
  */
-type OneFactScopes<W, Os extends ReadonlyArray<unknown>, Joined> = {
-	readonly [
-		K in keyof W as [SharedMatches<W, W[K], Os>] extends [never] ? never : K
-	]: Joined extends true ? Held<W[K], W, Os> : W[K]
+type OneFactScopes<W, Os extends ReadonlyArray<unknown>> = {
+	readonly [K in keyof W as [SharedMatches<W, W[K], Os>] extends [never] ? never : K]: SelfJoined<
+		W[keyof W],
+		W[keyof W]
+	> extends true
+		? Held<W[K], W, Os>
+		: W[K]
 }
-type OneFactScopesOf<W, Os extends ReadonlyArray<unknown>> = OneFactScopes<
-	W,
-	Os,
-	SelfJoined<W[keyof W], W[keyof W]>
->
 
 /** Whether some origin of O shares its relation with an origin of All of another scope, read once per head. */
 type SelfJoined<O, All> = true extends (

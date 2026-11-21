@@ -39,6 +39,7 @@ import type {
 import type {
 	DeliveryClaim,
 	Evidence,
+	InferredEvidence,
 	TakeEvidence,
 	UnionEvidence
 } from "#compiler/types/evidence/evidence.ts"
@@ -172,7 +173,7 @@ type ReadsParams<R extends ReadsChildren> = UnionToIntersection<
 type Namespaced<N extends string, P> = { readonly [Q in keyof P & string as `${N}.${Q}`]: P[Q] }
 
 /** QueryBuilder.rule over the builder it is called on. */
-type BuilderRule = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx, At>(
+type BuilderRule = <S, Head, Ev extends InferredEvidence, P, IHead, Hc extends Carriers, Cx, At>(
 	this: QueryBuilder<S>,
 	rule: (r: Rule<S>) => Finished<Head, Ev, P, S, IHead, Hc, Cx, At>
 ) => Query<S, Head, Ev, Simplify<P>, IHead, Hc, Cx, readonly [ArmOf<Head, Hc>], At>
@@ -677,7 +678,7 @@ export interface Query<
 	 * query that attaches, is of another heading than every other arm (ArmsMeet), and the records of a union of several
 	 * headings are stored nowhere (program/records.ts), so no reader of a union's attachments meets an arm's.
 	 */
-	rule<Over, Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(
+	rule<Over, Head2, Ev2 extends InferredEvidence, P2, IHead2, Hc2 extends Carriers, Cx2>(
 		this: OverSchema<Over>,
 		rule: (
 			r: Rule<Over>
