@@ -7,6 +7,7 @@
  * level reading Node `uses` to the `depth` times (edullm IMPL-TESTS on 5447: the assembled-catalog part's largest
  * statement 1.2 MB, 3798 SELECTs and 1186 reads of qti.node, whose planning at a session's first COMMIT took 12.4 GB).
  * A definition read once, and a scan of one relation, is read where it stands, by the keys the reads before it bound.
+ * The rule's check over every row, the migration's full violation query, is held to the same size over both boxes.
  *
  * Oracle: a specification, read off the chain: its leaf reads Node once, and no other definition reads it.
  *
@@ -19,6 +20,9 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
 	chainGen,
+	checkedOverEveryRow,
+	type EveryRowReached,
+	everyRowGen,
 	judged,
 	judgedUnions,
 	type Reached,
@@ -46,8 +50,8 @@ export const aWholeRulesStatementOverAChainOfDefinitionsReadsTheLeafsRelationOnc
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: "\t\tif (!isNonEmpty(joined)) {\n\t\t\treturn { kept",
-				replacement: "\t\tif (isNonEmpty(joined) || !isNonEmpty(joined)) {\n\t\t\treturn { kept",
+				original: "\t\tif (!isNonEmpty(joined)) {\n\t\t\treturn new Set(",
+				replacement: "\t\tif (isNonEmpty(joined) || !isNonEmpty(joined)) {\n\t\t\treturn new Set(",
 				why: "Navigation keeps no import whole, as before: each read of a definition inlines it, so a chain two deep of two reads per level reads Node four times and three deep eight; the property fails."
 			},
 			{
@@ -97,7 +101,7 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				file: "packages/engine/src/analysis/theory/navigate.ts",
 				original: "\t\t\t\t\tunions.add(key)",
 				replacement: "\t\t\t\t\tunions.size",
-				why: "Navigation keeps no union whole, as before: the rule over two reads of a union of two rules is distributed into its four conjunctions, each reading Node twice; the property fails."
+				why: "Navigation keeps no union whole and distributes none into the rule's conjunctions, so it reads each union's rules inline, which it refuses (\"a navigation: an imported query of one rule\"): every rule over reads of a union fails to compile; the property fails."
 			},
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
@@ -125,6 +129,51 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				original: "\t\t\t: innermost === undefined",
 				replacement: "\t\t\t: innermost !== undefined",
 				why: "A node the rules of a union read is placed in no region, one read by occurrences of several regions inlined at each (rule 3, as before), so a chain of unions spells the level below in each rule above it, and four deep reads Node sixteen times; the property fails."
+			}
+		]
+	})
+
+/**
+ * A rule's check over every row, the full violation query the migration that adds the rule runs once (deploy/snapshot
+ * violation.ts lawChecks, physical/ddl/rules.ts everyRowCheck), is the size of the definitions it reads, as the judge's
+ * statements are: every rule statement reads each import its unfolding multiplies whole (analysis/theory/navigate.ts
+ * ImportSharing `perStatement`), and the check, whose region holds every row, computes one no parameter restricts once,
+ * one node every read of which joins its rows (lower/optimize/cte-policy rules 5 and 6). Navigated as a unit's statement
+ * once was, before 142269847, it was inlined at every read and every union it reads distributed into the rule's
+ * conjunctions, the product of the unions' widths at every depth (metis's rehearsal, its reset: the full
+ * violation query of targeted_branch_rule_in_forward_branch_rule 1.15 MB, 3,571 SELECTs, 157 UNIONs and 1,281 table
+ * reads, planned 20 s over an empty installation, the reset's validate file 26 s of which 23 s its full checks).
+ *
+ * Oracle: a specification, read off the case: Node read at most as often as the definitions read it, each spelled once.
+ *
+ * Features: a definition read three times; a chain three deep; a union read three times; a union of three rules; a chain
+ * of unions four deep; a chain of unions each rule reading the level below twice.
+ */
+export const aRulesCheckOverEveryRowReadsEachDefinitionOnceHoweverItsRuleMultipliesIt =
+	property.exhaust(finite(everyRowGen), {
+		needs: {},
+		situations: [
+			"a definition read three times",
+			"a chain three deep",
+			"a union read three times",
+			"a union of three rules",
+			"a chain of unions four deep",
+			"a chain of unions each rule reading the level below twice"
+		] satisfies ReadonlyArray<ReachedOf<EveryRowReached>>,
+		check: (_, c: Case<EveryRowReached>) => (drawn) =>
+			Effect.sync(() => checkedOverEveryRow(drawn, c.note)),
+		oracle: {
+			kind: "specification",
+			name: "the definitions: the check over every row reads Node as often as they read it, each spelled once"
+		},
+		box: "the chain box's and the union box's cases, every one, under the whole rule's check over every row",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/cte-policy/index.ts",
+				original: '\t\t\tdecision = decide("materialized", "sharedExpensive", statementScope)',
+				replacement: '\t\t\tdecision = decide("inline", "sharedExpensive", statementScope)',
+				why: "A union the check reads more than once, no parameter restricting it, is inlined at each read rather than computed once (rule 5), every level's union again inside the one above, so three reads of a union of three rules read Node 9 times and a chain of unions four deep, each rule reading the level below twice, 256; the property fails."
 			}
 		]
 	})

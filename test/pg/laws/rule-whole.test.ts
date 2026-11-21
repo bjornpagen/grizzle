@@ -150,7 +150,7 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
-					'\t\t\trestriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,',
+					'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,',
 				replacement: "\t\t\twalkedText,",
 				why: "No rule of a whole rule's violation query matches the region of the units a transaction wrote, so the judge reads every unit stored, and a write of one document reads every document."
 			},

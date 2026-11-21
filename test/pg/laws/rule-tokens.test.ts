@@ -120,7 +120,7 @@ export const aWholeRuleOverATextsTokensReadsTheTokensOfTheUnitsATransactionWrote
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
-					'\t\t\trestriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,',
+					'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,',
 				replacement: "\t\t\twalkedText,",
 				why: "No rule of a whole rule's violation query matches the region of the documents a transaction wrote, so the judge reads every stored document's attributes and splits every list, and a write of one document reads all of them."
 			}

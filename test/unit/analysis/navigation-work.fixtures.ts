@@ -5,7 +5,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { queryColumns } from "#compiler/analysis/theory/columns.ts"
-import { type ImportSharing, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
@@ -22,8 +22,8 @@ const depths = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16] as const
 /**
  * One case: a chain of unions `depth` deep over Node, each level two rules, the nodes of kind 0 and of any other kind,
  * each reading the level below `reads` times, as judge-size.fixtures.ts union1 and twiceUnion1 do at every level; read
- * whole, as a whole rule's check over every row reads it (`perStatement`), or at one document, a parameter, as the
- * judge reads a whole rule's violation at its units' channels (`perUnit`).
+ * whole, as a whole rule's check over every row reads it, or at one document, a parameter, as the judge reads a whole
+ * rule's violation at its units' channels, both as every rule statement reads its imports (`perStatement`).
  */
 export interface Chain {
 	readonly reads: 1 | 2
@@ -136,10 +136,6 @@ const loc = SourceLoc("navigation work", [])
 /** The columns of each query the chains import, over Base. */
 const columns = queryColumns(checking(Base), loc)
 
-/** How a case reads its chain: whole as a check over every row reads it, at a document as the judge reads its units. */
-const sharingOf = (c: Chain): Exclude<ImportSharing, "perRead"> =>
-	c.read === "whole" ? "perStatement" : "perUnit"
-
 /** Every function of navigation's module, whose calls are its work (analysis/theory/navigate.ts). */
 const isNavigation = (file: string): boolean => Str.endsWith("analysis/theory/navigate.ts")(file)
 
@@ -147,7 +143,7 @@ const isNavigation = (file: string): boolean => Str.endsWith("analysis/theory/na
 const navigationWork = (c: Chain, depth: number): Effect.Effect<number> =>
 	Effect.map(
 		everyCallCount(
-			Effect.sync(() => navigateQuery(readAt(c, depth), loc, columns, sharingOf(c))),
+			Effect.sync(() => navigateQuery(readAt(c, depth), loc, columns, "perStatement")),
 			isNavigation
 		),
 		([, counts]) => Arr.reduce([...counts.values()], 0, (sum, n) => sum + n)

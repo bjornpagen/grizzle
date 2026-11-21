@@ -16,7 +16,7 @@
  *
  * The judge reads a whole rule's violation restricted to the units a transaction wrote (`restrictToUnits`): every
  * outermost rule of the query that binds a unit, from a stored relation it matches or a query that delivers one, is
- * read per unit (`perUnit`), the region of the units' keys first, a step made a set of them (`regionOf`), then the rule
+ * read per unit (`unitStep`), the region of the units' keys first, a step made a set of them (`regionOf`), then the rule
  * as a step, a subquery PostgreSQL plans apart and reads LATERAL once per unit, its unit's variables the step's
  * channels. The unit is bound once, there: every rule the step's imports and negations read reads it from the channels,
  * joined or correlated at them, and
@@ -106,7 +106,7 @@ const regionVar = (j: number): string => `unit.${j}`
  *
  * - `deciding`: not at all, the walk that decides whether the query is unit-local (`unitAt`);
  * - `region`: at the root, where no rule binds the unit yet: an outermost rule that reads a stored relation itself
- *   matches the region and is read per unit as a step (`perUnit`);
+ *   matches the region and is read per unit as a step (`unitStep`);
  * - `bound`: inside such a step, whose channels hold one unit at a time: every rule there reads its unit from them,
  *   through the import that joins it or the negation correlated at them, so it matches no region of its own, which
  *   would be read again for every unit of the region outside; a recursion, which PostgreSQL computes whole whatever
@@ -520,7 +520,7 @@ const ruleBody = (r: InferredRule, at: At, aggregates: boolean, w: Walk): RuleBo
  * A rule walked (`ruleBody`). An aggregating rule's matches are read at both polarities and its head delivers its unit,
  * so its groups lie inside one unit. Where the walk restricts at the root and the rule binds a unit, from a stored
  * relation it matches or a query that delivers one, the region is matched first, bound to its unit, and the rule is
- * read per unit (`perUnit`), every rule its imports and its negations read walked with the unit bound
+ * read per unit (`unitStep`), every rule its imports and its negations read walked with the unit bound
  * (`Restriction`): the unit is bound once, by the outermost rule that binds it, so the two sides of a containment
  * between two queries are read inside one step, not each per unit of a region of its own. A rule at the root that
  * binds no unit, which reads closed relations alone or a query whose unit is hidden, leaves the root's restriction to
@@ -570,7 +570,7 @@ const walkedRule = (r: InferredRule, outer: At, w: Walk): WalkedRule | NotLocal 
 	}
 	return {
 		rule:
-			restriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,
+			restriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,
 		delivered,
 		unit
 	}
@@ -591,7 +591,7 @@ const passedChannels = (query: InferredQuery): Readonly<Record<string, InferredE
 		])
 	)
 
-/** The channel a rule read per unit binds position `j` of its unit key to (`perUnit`). */
+/** The channel a rule read per unit binds position `j` of its unit key to (`unitStep`). */
 const unitParam = (j: number): InferredExpr => ({
 	kind: "param",
 	name: `unit${j}`,
@@ -609,7 +609,7 @@ const deliveredVar = (field: string): string => `delivered.${field}`
  * every read an index range at that unit's key, and an aggregate or a negation in it reads that unit alone, whatever
  * PostgreSQL estimates of the region.
  */
-const perUnit = (
+const unitStep = (
 	r: InferredRule,
 	unit: ReadonlyArray<string>,
 	region: InferredSource
@@ -741,7 +741,7 @@ const readsSelf = (r: InferredRule): boolean => r.matches.some((m) => m.source.k
  * it read from self, so every state holds its seed's unit, and the states of one unit are exactly the fixed point of the
  * seeds at that unit under the same steps, σ(lfp(B, T)) = lfp(σB, T) for σ over the carried unit fields; a step reads
  * the channel where it read self's unit, which every state it extends holds. No rule of the recursion is read per unit
- * on its own (`perUnit`): a step read so would nest self inside a subquery, which no recursion admits. A seed's bare
+ * on its own (`unitStep`): a step read so would nest self inside a subquery, which no recursion admits. A seed's bare
  * head literals are typed by the row's declared columns (`typedSeed`), as the checker types them in a recursion's arm.
  */
 const unitLocalRecursion = (

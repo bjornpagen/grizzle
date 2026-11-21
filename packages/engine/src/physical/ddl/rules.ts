@@ -9,7 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { QueryColumns } from "#compiler/analysis/theory/columns.ts"
-import { type ImportSharing, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
+import { navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import {
 	everyRowProbes,
 	type LawSide,
@@ -190,22 +190,22 @@ const compileProbe = (
 		b.columns,
 		`rule ${rule.law.named.display} on ${relation.name}`,
 		relation.loc,
-		deltas,
-		"perUnit"
+		deltas
 	)
 
 /**
  * A query the judge reads, a probe over its region or a unit-scoped rule's violation over its units: navigated wherever
  * it joins (analysis/theory/navigate.ts navigateQuery), so each relation a join of it reads, a derived relation's
- * definition included and a negated one's too, is a step read by the columns its region, its unit or the steps before it
- * bound, never a join PostgreSQL may plan as a product it filters afterwards; then checked as a region read
- * (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under the transaction's evidence, each
- * Delta node read from the session's delta table `deltas` names (RegionLowering), to one main statement of no
- * parameter, its outputs unaliased; with the index requests of `rule` its checked DAG's access paths are
- * (`requestsOf`). It reads each suffix test of a text its requests' indexes hold the suffix key of as the key's range
- * (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
+ * definition included and a negated one's too, is a step read by the columns its region, its unit or the steps before
+ * it bound, never a join PostgreSQL may plan as a product it filters afterwards, each import its unfolding multiplies
+ * read whole (`perStatement`); then checked as a region read (check/checker.ts QueryRead `region`) and lowered by the
+ * optimized pipeline under the transaction's evidence, each Delta node read from the session's delta table `deltas`
+ * names (RegionLowering), to one main statement of no parameter, its outputs unaliased; with the index requests of
+ * `rule` its checked DAG's access paths are (`requestsOf`). It reads each suffix test of a text its requests' indexes
+ * hold the suffix key of as the key's range (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
  * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
- * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule `definitionOf`).
+ * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule
+ * `definitionOf`).
  */
 const judgedStatement = (
 	b: InstallBuilder,
@@ -215,11 +215,10 @@ const judgedStatement = (
 	columns: QueryColumns,
 	label: string,
 	loc: SourceLoc,
-	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined,
-	sharing: Exclude<ImportSharing, "perRead">
+	deltas: (relation: string, side: DeltaSide) => DeltaRelation | undefined
 ): Compiled => {
 	const checked = unwrap(
-		checkQuery(b.checked, navigateQuery(query, loc, columns, sharing), {
+		checkQuery(b.checked, navigateQuery(query, loc, columns, "perStatement"), {
 			read: "region",
 			label,
 			clock: noClock,
@@ -1324,8 +1323,7 @@ export const addRules = (
 			(query) => b.columns(unit.definitionOf(query)),
 			label,
 			rule.law.loc,
-			deltas,
-			"perUnit"
+			deltas
 		)
 		appendAll(requests, lowered.requests)
 		const holder = defined(
@@ -1383,28 +1381,18 @@ export const addRules = (
 	const everyRowCheck = (rule: RuleTrigger): OperandSelect => {
 		const r = rule.rule
 		const label = `rule ${rule.law.named.display} over every row`
-		const lowered = (query: InferredQuery, sharing: Exclude<ImportSharing, "perRead">): Compiled =>
-			judgedStatement(
-				b,
-				catalog,
-				rule,
-				query,
-				b.columns,
-				label,
-				rule.law.loc,
-				everyRow(rule),
-				sharing
-			)
+		const lowered = (query: InferredQuery): Compiled =>
+			judgedStatement(b, catalog, rule, query, b.columns, label, rule.law.loc, everyRow(rule))
 		const compiled: NonEmptyReadonlyArray<Compiled> =
 			r.kind === "whole"
-				? [lowered(r.everyRow, "perStatement")]
+				? [lowered(r.everyRow)]
 				: mapNonEmpty(
 						everyRowProbes(
 							r,
 							(name) => rule.tables.some((t) => t.relation.name === name),
 							rule.law.loc
 						),
-						(probe) => lowered(probe, "perUnit")
+						lowered
 					)
 		appendAll(
 			requests,

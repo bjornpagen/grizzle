@@ -1,7 +1,9 @@
-/** What the properties of judge-size.test.ts read: their spaces, their schemas and the judge's reads of Node. */
+/** What judge-size.test.ts reads: its spaces, its schemas, and the reads of Node of the judge and the full checks. */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { element, type Gen } from "@bjornpagen/testing/gen"
+import { Formatter } from "effect"
+import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -591,6 +593,90 @@ export const judgedUnions = (u: Unions, note: (r: UnionReached) => void): void =
 		assert.ok(
 			reads <= u.arms,
 			`a statement over ${u.width} reads of a union of ${u.arms} rules over Node reads Node ${reads} times, where the union's rules read it ${u.arms} times`
+		)
+	}
+}
+
+/**
+ * One case of the box of checks over every row: the chain box's case (`Chain`) or the union box's (`Unions`), its rule
+ * the same whole rule over the same definitions.
+ */
+export type EveryRowCase =
+	| { readonly box: "chain"; readonly chain: Chain }
+	| { readonly box: "unions"; readonly unions: Unions }
+
+export const everyRowGen: Gen<EveryRowCase> = (s) =>
+	s.draw(element<EveryRowCase["box"]>(["chain", "unions"])) === "chain"
+		? { box: "chain", chain: chainGen(s) }
+		: { box: "unions", unions: unionsGen(s) }
+
+export type EveryRowReached =
+	| "a definition read three times"
+	| "a chain three deep"
+	| "a union read three times"
+	| "a union of three rules"
+	| "a chain of unions four deep"
+	| "a chain of unions each rule reading the level below twice"
+
+/**
+ * The reads of Node a statement over `c`'s definitions makes, each definition spelled once: a chain's, the `uses` of
+ * its leaf's one reader, whatever its depth; a union read side by side, one in each of its rules, whatever its reads; a
+ * chain of unions, four, the lowest level's two rules at the two sets of values a level is read at, whatever its depth
+ * (judged, judgedUnions).
+ */
+const definitionsReadsOf = (c: EveryRowCase): number => {
+	if (c.box === "chain") {
+		return c.chain.uses
+	}
+	return c.unions.form === "chain" ? 4 : c.unions.arms
+}
+
+/**
+ * Checks the full violation query of the case's whole rule, its check over every row (deploy/snapshot/violation.ts
+ * lawChecks, physical/ddl/rules.ts everyRowCheck), which the migration that adds the rule runs once: it reads Node as
+ * often as the definitions it reads read it, each spelled once (`definitionsReadsOf`), the reads the judge's statements
+ * make of them: every rule statement reads each import its unfolding multiplies whole (analysis/theory/navigate.ts
+ * ImportSharing `perStatement`), and the check over every row, whose region holds every row, computes one no parameter
+ * restricts once (lower/optimize/cte-policy rules 5 and 6). Navigated as a unit's statement once was, before 142269847,
+ * each such import was inlined at every read and each union distributed into the rule's conjunctions, the product of
+ * the unions' widths at every depth: a chain three deep of three reads per level read Node 27 times, three reads of a
+ * union of three rules 81 and a chain of unions three deep each rule reading the level below twice 384 (metis's
+ * rehearsal reset: targeted_branch_rule_in_forward_branch_rule's 1.15 MB, 3,571 SELECTs, 157 UNIONs and 1,281 table
+ * reads, 20 s planned over empty tables).
+ */
+export const checkedOverEveryRow = (c: EveryRowCase, note: (r: EveryRowReached) => void): void => {
+	const owned = owning(c.box === "chain" ? schemaOf(c.chain) : unionSchemaOf(c.unions))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const checks = lawChecks(installation).rules
+	assert.equal(checks.length, 1, "the box's one rule, checked over every row")
+	if (c.box === "chain") {
+		if (c.chain.uses === 3) {
+			note("a definition read three times")
+		}
+		if (c.chain.depth === 3) {
+			note("a chain three deep")
+		}
+	} else if (c.unions.form === "side by side") {
+		if (c.unions.width === 3) {
+			note("a union read three times")
+		}
+		if (c.unions.arms === 3) {
+			note("a union of three rules")
+		}
+	} else {
+		if (c.unions.depth === 4) {
+			note("a chain of unions four deep")
+		}
+		if (c.unions.reads === 2) {
+			note("a chain of unions each rule reading the level below twice")
+		}
+	}
+	const bound = definitionsReadsOf(c)
+	for (const rule of checks) {
+		const reads = nodeReadsOf(rule.query)
+		assert.ok(
+			reads <= bound,
+			`${Formatter.format(c)}: the check over every row of ${rule.law} reads Node ${reads} times, where its definitions, each spelled once, read it ${bound} times`
 		)
 	}
 }

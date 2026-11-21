@@ -73,7 +73,7 @@ export const transactionsWritingSpacedUnitsUnderWholeRulesAllCommitUnderSERIALIZ
 			{
 				file: "packages/engine/src/analysis/theory/unit.ts",
 				original:
-					'\t\t\trestriction.kind === "region" ? perUnit(walkedText, unit, restriction.region) : walkedText,',
+					'\t\t\trestriction.kind === "region" ? unitStep(walkedText, unit, restriction.region) : walkedText,',
 				replacement: "\t\t\twalkedText,",
 				why: "No rule of a whole rule's violation query is read per unit of the region the transaction wrote, so each judge reads every unit stored and the rows the others put, and two transactions writing spaced units depend on each other both ways: SERIALIZABLE refuses one with 40001."
 			}
