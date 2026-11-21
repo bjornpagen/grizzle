@@ -10,7 +10,7 @@
 import { Duration } from "effect"
 
 /**
- * How long one case of a search, one substrate's build past its lease, or one wait inside a test may run before it is
+ * How long one case of a search, one substrate's build, or one wait inside a test may run before it is
  * judged hung and reported, with the case's replay token: the hang guard (caseHang) and the bound of each wait derived
  * below. It bounds no test: every search runs its counted budget, and a case reported hung is a case that never ended.
  * No test states a timeout of its own.
@@ -18,7 +18,7 @@ import { Duration } from "effect"
  * @limitKind provisional
  * @owner grizzle's test tiers
  * @unit milliseconds
- * @scope one case of a search, one substrate's build past its lease, or one wait inside a test of pnpm test or pnpm
+ * @scope one case of a search, one substrate's build, or one wait inside a test of pnpm test or pnpm
  *   test:network, in each test process alone
  * @guards a case or wait that never ends would hold its test process until the run is killed, with no replay token
  *   reported, and a mutant that loops would never be judged
@@ -53,9 +53,9 @@ export const caseHang: Duration.Duration = Duration.millis(caseHangMillis)
 
 /**
  * The idle timeout of a test's session pool (PoolBounds.idleTimeoutMs): no session closes for idleness within the hang
- * limit. A test process's connections to the local cluster draw from the budget its lease grants (substrate/shared.ts
- * leaseGrant, substrate/budget.ts), so an idle session holds nothing another test file could take, and closing the
- * pool's scope closes every session.
+ * limit. A test worker's connections to the local cluster draw from its own budget (substrate/connections.ts
+ * connectionsPerWorker, substrate/budget.ts), so an idle session holds nothing another worker could take, and closing
+ * the pool's scope closes every session.
  *
  * @limitKind derived
  * @owner grizzle's test tiers

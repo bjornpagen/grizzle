@@ -10,8 +10,11 @@ counts as concurrent because the shrink's snapshot xmin precedes the grow's fini
 shrink then reads versions its write created, and the write, summarized, is looked up with no concurrency test
 (predicate.c 3980-4012, heapam.c 9504-9555).
 
-Run it on a private cluster: `TOOLCHAIN_PG_CLUSTER=<port> packages/experiments/ssi-summary/run.sh`.
-It fills the pool of finished SERIALIZABLE transactions twice over, about 50,000 transactions for 2,215 connections.
+Run it as a unit: `systemd-run --user -d -u grizzle-ssi-summary --slice=grizzle.slice --wait --
+packages/experiments/ssi-summary/run.sh`. It starts the workbench's cluster of its own, `postgres@grizzle-ssi-summary`, and
+stops it at the end, never touching the shared server. It fills the pool of finished SERIALIZABLE transactions twice
+over, ten transactions for each backend slot the cluster's settings make. The holder is a psql session idle in its
+transaction, which runs the fill and the writer's sequence from its own `\!`, so nothing runs in the background.
 
 Verdict that ends it: `run.sh` exits 1, the shrink committing with the horizon held, on a PostgreSQL grizzle pins. Then
 delete this package and the README sentence that cites it, in one commit.

@@ -239,7 +239,6 @@ packages/cli-generator/
                                  #   base-url, negotiate, response, sequential, sse
   scripts/
     runtime-gate.ts              # the generated runtime's typecheck and lint bans, in pnpm check
-    memguard.sh                  # memory ceiling for the corpus run
   test/                          # the properties, by the stage they cover; test/grizzle, the grizzle tier
   corpus/                        # pinned corpus specifications, configs, verdicts and tools
 ```

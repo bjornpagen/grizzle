@@ -31,7 +31,7 @@
 		"test": "vitest run",
 		"runtime-gate": "node scripts/runtime-gate.ts",
 		"benchmark": "node corpus/tools/benchmark.ts",
-		"corpus": "scripts/memguard.sh 6144 -- node corpus/tools/run.ts --check",
+		"corpus": "node corpus/tools/run.ts --check",
 		"ratchet:lower": "node scripts/ratchet.ts typecheck --lower -- -p tsconfig.json && node scripts/ratchet.ts oxlint --lower"
 	},
 	"dependencies": {

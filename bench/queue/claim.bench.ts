@@ -91,7 +91,7 @@ import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { Instant } from "#test/support/fixtures/api/contracts.ts"
 import type { SqlError } from "#test/support/pg.ts"
 import { member } from "#test/support/served-db.ts"
-import { leaseGrant } from "#test/support/substrate/lease.ts"
+import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
 import { beginSerializable, type RawSession } from "#test/support/substrate/session.ts"
 import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 
@@ -111,9 +111,9 @@ import { ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
  * with its own DbLayer and so its own session pool, on direct connections; a holder runs one operation at a time, so
  * its pool holds one backend but while it replaces one it retired (holderConnections), and the server-side width, the "width" the reference p95 is quoted at, is the holder count,
  * which the record reports as observed (the worker role's backends sampled from pg_stat_activity during each load).
- * The holders share the cluster's max_connections with everything else on it, so their number is what the budget the
- * process's connection lease grants (test/support/substrate/lease.ts leaseGrant, budget.ts) leaves after the bench's
- * own connections (holderCount below), at both scales. The reference's 256 holders at a width of 16 are what a record is read
+ * The holders share the cluster's max_connections with everything else on it, so their number is what the budget of the
+ * bench's database of its own (test/support/substrate/connections.ts connectionsPerWorker, budget.ts) leaves after the
+ * bench's own connections (holderCount below), at both scales. The reference's 256 holders at a width of 16 are what a record is read
  * against, not a load this machine reproduces.
  *
  * Each holder operation is a claim through the runtime's own application (the claim's served member, observed per
@@ -155,13 +155,13 @@ interface Options extends Readonly<Record<string, unknown>> {
 
 /**
  * The connections the bench holds besides its holders, at its peak (the probe beside the first group's holders), each
- * drawn from its lease's budget: the substrate's admin, the two observers, the enqueuer's Db and the probing Db, one
- * backend each. The lease's own connection is outside the budget it grants.
+ * drawn from the bench's budget: the substrate's admin, the two observers, the enqueuer's Db and the probing Db, one
+ * backend each.
  */
 const benchConnections = 5
 
 /**
- * The connections one holder holds at its peak, each drawn from its lease's budget: its pool's session, and the session
+ * The connections one holder holds at its peak, each drawn from the bench's budget: its pool's session, and the session
  * that replaces one it retired while the retired one ends. A retired session goes back to pg's Pool with an error, which
  * ends it with a Terminate and opens the next ask's client at once (packages/grizzle/src/adapter/wire/session.ts), so for
  * one round trip the holder holds both backends. The bench retries serialization failures, which retire sessions, so
@@ -170,10 +170,10 @@ const benchConnections = 5
 const holderConnections = ["its session", "the session replacing one it retired"].length
 
 /**
- * The holders, as many as the budget the process's connection lease grants leaves beside the bench's own, each at its
- * peak (holderConnections). The SKIP LOCKED baseline runs as many owner sessions, after every holder's Db is closed.
+ * The holders, as many as the bench's budget leaves beside the bench's own connections, each at its peak
+ * (holderConnections). The SKIP LOCKED baseline runs as many owner sessions, after every holder's Db is closed.
  */
-const holderCount = Math.floor((leaseGrant - benchConnections) / holderConnections)
+const holderCount = Math.floor((connectionsPerWorker - benchConnections) / holderConnections)
 
 const lane = { kind: "render", slot: 0, resource: "gpu" } as const
 const now = 1_000_000n

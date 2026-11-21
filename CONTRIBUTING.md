@@ -106,9 +106,9 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
       `wal_level`, replica, at which a live source's slot turns logical decoding on by itself, as production's will,
       `max_pred_locks_per_transaction = 2048`, production's, whose relation promotion PostgreSQL derives at 1023, and
       `timezone` and `log_timezone` at UTC whatever the machine's zone;
-    - each member sized to its share of a full-width run (`pg.config.ts` `sizing`): `max_connections` holds a connection
-      lease and its race connection for each worker it serves (`test/support/substrate/lease.ts`) and the connections no
-      lease covers, `max_replication_slots` and `max_wal_senders` a live source for each worker and each standing
+    - each member sized to its share of a full-width run (`pg.config.ts` `sizing`): `max_connections` holds each worker's
+      connections (`test/support/substrate/connections.ts` `connectionsPerWorker`) and the connections outside every
+      worker's budget, `max_replication_slots` and `max_wal_senders` a live source for each worker and each standing
       installation, and `shared_buffers` each worker's largest database, no more, since PostgreSQL scans every shared
       buffer at each commit that drops a relation;
     - the same on every member whatever the machine (the testing library's settings): `client_connection_check_interval
@@ -117,10 +117,9 @@ through (the toolchain's `vendor/toolchain/packages/devtools/bin/gate.sh`): a co
       waits behind, and `fsync = off`, a throwaway cluster's;
     - a local CA and server certificate, plus an unrelated CA for the refusal tests;
     - the role `grizzle_dev` (the migration identity and owner, not a superuser, with CREATEROLE to create the logins
-      and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout`, and on
-      `session_replication_role`, which grizzle grants itself, as the bootstrap superuser, beside the lease's tables in
-      the owner's own database, the first time a lease reaches a member (`test/support/substrate/shared.ts`
-      `ensureMemberSetUp`);
+      and world roles a migration declares, and REPLICATION), with SET on `deadlock_timeout` and on
+      `session_replication_role`, which the testing library grants as it makes a member (`pg.config.ts`
+      `ownerParameters`);
     - `grizzle_template`, carrying pgvector in `vector_ext`, from which every test database is cloned and which accepts no
       connections. A test database runs `deadlock_timeout = 10ms` and `default_transaction_isolation = serializable` as
       its own defaults, and commits synchronously, PostgreSQL's default, so a VACUUM after a load settles the visibility
@@ -188,7 +187,7 @@ The toolchain's runner (`test.config.ts`) runs every property's cases on one que
 library's `testWorkers`), never through Vite's module runner: Node runs the modules as it runs the code, by type
 stripping. A case that reaches the cluster `pg.config.ts` states takes its database through a need over a template
 (Substrate.fresh, freshOf, seat, rolledBack, transaction, installing: `test/support/substrate/substrate.ts`), each
-worker on one member under one connection lease (`test/support/runner.ts`). Every process of a run and every child a
+worker on one member under one connection budget (`test/support/runner.ts`). Every process of a run and every child a
 case spawns run under the hardened flags (`test/support/process.ts` `hardenedNode`):
 `--disable-proto=delete`, `--disable-sigusr1`, `--throw-deprecation`, `--pending-deprecation`, `--force-context-aware`,
 `--no-global-search-paths` and `--unhandled-rejections=strict`. V8's JIT and code generation from strings stay on: never `--jitless`,
@@ -552,15 +551,13 @@ text match. A type agreement's requirements are its property's situations, which
   `Installed.as`, `role` and `world` take the login or role value, never a spelled name, and a direct SQL writer is a
   session of the login that has taken on its role (`worldSession`, `worldPsql`). A schedule's direct actors take on
   their role through a login of their own, so a grizzle writer's actor is the one backend of its login.
-- **The connection lease:** every process that opens test connections first takes one of the cluster's leases
-  (`test/support/substrate/shared.ts`), slots sized from `max_connections`, each a table the first lease on a member created,
-  locked by a transaction left open, covering a test's pool, one connection per core, and the four sessions its
-  substrate holds. A process with every slot held queues at the lease's gate, in the order processes asked, and the
-  gate's holder races every slot at once, so the first slot to free admits it. Neither a lease nor a wait for one holds
-  a snapshot or a transaction id. Any number of runs, copies of the tree and benches share one cluster; a process with
-  no free slot waits in the server. That wait is queueing, not a hang: a
-  file the runner starts beyond the free slots waits its turn, its hook bounded only by the test timeout
-  (`testTimeout`, `test/support/limits.ts`), and each case's own hang guard is what stops a case that hangs.
+- **The connection budget:** every connection test support opens on the cluster draws one permit of its holder's
+  budget for its life (`test/support/substrate/budget.ts`): a runner worker's on its member (`test/support/runner.ts`
+  `WorkerBudgets`), a bench's or a Vitest file's in a database of its own (`Substrate.isolatedLayer`), each of
+  `connectionsPerWorker` permits, a test's pool, one connection per core, and the two sessions its substrate holds
+  (`test/support/substrate/connections.ts`), and a child a case spawns draws from the permits the case lends it. Past
+  its width an open is refused at once with `ConnectionBudgetExhausted`, a defect of the test that asked, and nothing
+  ever waits its turn for the cluster: no lease, no lock and no queue stand between a process and its connections.
 
 **The oracles:**
 

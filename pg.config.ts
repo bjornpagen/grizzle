@@ -1,6 +1,6 @@
 import { localCluster } from "@bjornpagen/testing/pg"
 import { pin } from "#pg/pin.ts"
-import { connectionsPerLease, unleasedConnections } from "#test/support/substrate/lease.ts"
+import { connectionsPerWorker, outsideConnections } from "#test/support/substrate/connections.ts"
 
 /**
  * c*, the test workers one member of the family serves at once, each running one property's cases at a time (a runner
@@ -56,27 +56,10 @@ import { connectionsPerLease, unleasedConnections } from "#test/support/substrat
  *   value, at one seed, on a loaded machine; below 16 is unmeasured. No headroom added
  * @revalidate a run at 8, and at 16 again, at a quiet window; a network tier whose files hold more SERIALIZABLE
  *   transactions or hold them longer, or create more databases (the checkpoints' sync work); a change of SSI's
- *   settings (max_pred_locks_*), of the checkpoint settings or of the lease's grant (leaseGrant); a PostgreSQL repin;
+ *   settings (max_pred_locks_*), of the checkpoint settings or of a worker's connections (connectionsPerWorker); a PostgreSQL repin;
  *   another machine or core count
  */
 const workersPerMember = 16
-
-/**
- * The connections one worker of a member holds at most: its lease's (lease.ts connectionsPerLease), and the one the
- * lease gate's head races a slot with while every slot is held (substrate/shared.ts takeLease), so the lease slots a
- * member of its share's connections admits (lease.ts leaseSlots) are its share, and a run alone never waits for a
- * lease.
- *
- * @limitKind derived
- * @owner grizzle's network test tier (pg.config.ts)
- * @unit connections
- * @scope the client backends one test worker holds on its member at once: its lease's connections and its race
- *   connection for a slot
- * @derivation leaseSlots admits floor((max_connections − reserved − outside + 1) / (connectionsPerLease + 1)) slots;
- *   at share × (connectionsPerLease + 1) + outside connections past the reserved, that is the share
- * @from {@link connectionsPerLease}
- */
-const connectionsPerWorker = connectionsPerLease + 1
 
 /**
  * The installations on the local cluster outside the substrate's databases that serve live reads, each its own live
@@ -121,9 +104,9 @@ const workerDatabaseBytes = 38_916_935
  * (@bjornpagen/testing/pg) the first time a need or `pnpm pg <command>` (toolchain-pg) reaches it: on port 5442, run by
  * the pinned build (scripts/pg/pin.env, `pnpm pg:build`), owned by grizzle_dev, the migration identity, its template
  * grizzle_template carrying pgvector in vector_ext, throwaway, a family of members each serving workersPerMember of a
- * run's workers, each member sized for its share: a lease's connections and its race connection for each worker and the
- * connections no lease covers; a live source's slot and walsender for each worker's substrate and each standing
- * installation; and each worker's largest database in shared buffers.
+ * run's workers, each member sized for its share: each worker's connections (connectionsPerWorker) and the connections
+ * outside every worker's budget (outsideConnections); a live source's slot and walsender for each worker's substrate and
+ * each standing installation; and each worker's largest database in shared buffers.
  */
 export default localCluster({
 	port: 5442,
@@ -137,7 +120,7 @@ export default localCluster({
 	sizing: {
 		kind: "leased",
 		family: { kind: "spread", workersPerMember },
-		connections: { perWorker: connectionsPerWorker, outside: unleasedConnections },
+		connections: { perWorker: connectionsPerWorker, outside: outsideConnections },
 		replication: { kind: "perWorker", perWorker: 1, outside: standingInstallations.length },
 		sharedBuffers: { kind: "perWorker", bytes: workerDatabaseBytes },
 		locks: { kind: "default" }

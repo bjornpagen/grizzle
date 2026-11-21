@@ -1,14 +1,14 @@
 /**
- * The lease's connection budget (test/support/substrate/budget.ts) bounds what a lease's holder holds on the cluster at
- * once, a runner worker for its life (test/support/runner.ts) or a Vitest file while they last: every connection test
+ * The connection budget (test/support/substrate/budget.ts) bounds what its holder holds on the cluster at once, a
+ * runner worker for its life (test/support/runner.ts) or a database of its own while it lasts: every connection test
  * support opens draws one of its permits for its life, and past its width an open is refused at once with
- * LeaseBudgetExhausted, before any connection is sent, never waiting.
+ * ConnectionBudgetExhausted, before any connection is sent, never waiting.
  *
  * A case draws a small width and a demand under it, opened in order and each held to the case's end: raw sessions
  * (substrate/session.ts openSession), psql writers (substrate.ts psqlWriter), and DbLayers, each with a pool of its own
  * and a number of calls at once through it, every call a Db of the login's role reading every account. The case runs in
  * a database of its own (Substrate.fresh), into which it installs the login's schema and loads its accounts. The case's
- * budget is drawn from the worker's (LeaseBudget within), and every opener reaches the cluster through it, as every
+ * budget is drawn from the worker's (ConnectionBudget within), and every opener reaches the cluster through it, as every
  * opener of the worker reaches it through the worker's. A holder outside the case's budget locks the table the reads
  * read, so each call that gets a session holds it, blocked, until the case releases the lock: a pool's demand is then
  * exactly its calls, which nothing else makes deterministic. Every opener of the case logs in as a role of the case's
@@ -17,7 +17,7 @@
  *
  * The oracle is the budget's contract. After each demand settles (each raw session and psql writer returned, each
  * call refused or blocked on the holder's lock), the case's backends are exactly the demand so far up to the width:
- * none past it, and every connection within it opened. Each opener past the width failed with LeaseBudgetExhausted
+ * none past it, and every connection within it opened. Each opener past the width failed with ConnectionBudgetExhausted
  * naming the width, as a defect, and of a pool's calls exactly those past the width did. Once the holder lets go, every
  * call that held a session reads every account.
  *
@@ -75,7 +75,7 @@ import { upTo } from "#test/support/up-to.ts"
 import { testVerify } from "#test/support/worlds.ts"
 
 /**
- * The lease's connection budget holds a case's backends to its width, opens all demand within it, and refuses each
+ * The connection budget holds a case's backends to its width, opens all demand within it, and refuses each
  * opener past it at once.
  */
 export const holdsDemandToItsWidth = property.explore(caseGen, {
@@ -294,9 +294,9 @@ export const holdsDemandToItsWidth = property.explore(caseGen, {
 		{
 			file: "test/support/substrate/budget.ts",
 			original:
-				"\t\t\t\tdraw(count) ? Effect.void : Effect.die(new LeaseBudgetExhausted({ width }))",
+				"\t\t\t\tdraw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))",
 			replacement: "\t\t\t\tdraw(count) ? Effect.void : Effect.never",
-			why: "An opener past the width waits for a permit instead of being refused at once with LeaseBudgetExhausted; the case's past-width opener never returns."
+			why: "An opener past the width waits for a permit instead of being refused at once with ConnectionBudgetExhausted; the case's past-width opener never returns."
 		},
 		{
 			file: "test/support/substrate/budget.ts",

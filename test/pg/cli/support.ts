@@ -35,7 +35,7 @@ import { repoRoot } from "#test/support/files.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { hardenedNode } from "#test/support/process.ts"
-import { type BudgetedCluster, budgeted, leaseBudget } from "#test/support/substrate/budget.ts"
+import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 import { scopedTempDir } from "#test/support/temp.ts"
 import { testVerify } from "#test/support/worlds.ts"
@@ -266,7 +266,7 @@ export const specConfig = (
 		const text = yield* fs.readFileString(`${dir}/${specFileName}`)
 		const spec = trustedJson<ConfigSpec>(text)
 		const cluster = yield* memberAt(spec.connection.port)
-		return configOf(budgeted(cluster, leaseBudget(commandConnections)), spec)
+		return configOf(budgeted(cluster, connectionBudget(commandConnections)), spec)
 	})
 
 /**

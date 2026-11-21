@@ -1,11 +1,10 @@
-import { type Need, type NeedContext, NeedFailed, WorkerIndex } from "@bjornpagen/testing/property"
+import { type Need, type NeedContext, NeedFailed } from "@bjornpagen/testing/property"
 import {
 	type Content,
 	Database,
 	type DatabaseNeed,
 	type DatabaseTemplate,
 	type Opened,
-	PgCluster,
 	Template
 } from "@bjornpagen/testing/resources"
 import * as NodeChildProcessSpawner from "@effect/platform-node/NodeChildProcessSpawner"
@@ -56,9 +55,10 @@ import {
 	sqlErrorOf,
 	type PgStatement
 } from "#test/support/pg.ts"
-import { memberLease, sqlNeedFailed, WorkerLeases } from "#test/support/runner.ts"
+import { memberBudget, sqlNeedFailed, WorkerBudgets } from "#test/support/runner.ts"
 import { awaitBlockedBy, awaitLockWait, type LockWait } from "#test/support/substrate/barrier.ts"
-import { type BudgetedCluster, budgeted, leaseBudget } from "#test/support/substrate/budget.ts"
+import { type BudgetedCluster, budgeted, connectionBudget } from "#test/support/substrate/budget.ts"
+import { connectionsPerWorker } from "#test/support/substrate/connections.ts"
 import type { PsqlProcessError } from "#test/support/substrate/errors.ts"
 import {
 	defaultSchemaLabel,
@@ -98,8 +98,6 @@ import {
 
 import {
 	type Check,
-	type Lease,
-	leaseConnections,
 	leftoversCheck,
 	superuserClient,
 	undoInstallEffects
@@ -204,20 +202,16 @@ export const worldPsql = (world: SubstrateWorld): PsqlConnectOptions => ({
 
 export interface SubstrateShape {
 	/**
-	 * The initialised cluster the substrate was built from, with the budget its lease grants the file (shared.ts
-	 * leaseConnections): a substrate exists only once the cluster parsed, so code that holds one reads the cluster's CA
-	 * certificates here and needs no InitializedCluster of its own, and every connection it opens on the cluster through
-	 * test support draws one of the budget's permits for its life, the substrate's own sessions, psql writers and
-	 * superuser clients included. The file holds at most the budget's width of connections at once.
+	 * The initialised cluster the substrate was built from, with the budget its connections draw from (budget.ts
+	 * ConnectionBudget: the worker's on its member, runner.ts WorkerBudgets, or a database of its own's, isolatedLayer):
+	 * a substrate exists only once the cluster parsed, so code that holds one reads the cluster's CA certificates here and
+	 * needs no InitializedCluster of its own, and every connection it opens on the cluster through test support draws one
+	 * of the budget's permits for its life, the substrate's own sessions, psql writers and superuser clients included. Its
+	 * holder holds at most the budget's width of connections at once.
 	 */
 	readonly cluster: BudgetedCluster
 	/** The database this file runs in, cloned from grizzle_template: a shared database, or a fresh one. */
 	readonly database: string
-	/**
-	 * The backends that hold the substrate's place on the cluster for its life: its lease's (shared.ts leaseConnections)
-	 * which holds no transaction id or snapshot.
-	 */
-	readonly held: ReadonlyArray<number>
 	/** The migration identity and database owner, with the cluster's password for it. */
 	readonly owner: Credentials
 	/** An owner connection to the database for setup and inspection. Its statements are not counted. */
@@ -475,7 +469,7 @@ const asSuperuserRead = <A, E>(
  * until that session's own release, perhaps later in the same scope. So no writer's release waits on another session.
  * Registered before the writer, that finalizer runs after the writer's own. The writer draws one of the cluster's
  * budget's permits before psql is spawned, given back once its backend has ended or psql has failed to start
- * (budget.ts LeaseBudget opened), and dies with LeaseBudgetExhausted when none is free.
+ * (budget.ts ConnectionBudget opened), and dies with ConnectionBudgetExhausted when none is free.
  */
 export const psqlWriter = (
 	cluster: BudgetedCluster,
@@ -566,7 +560,6 @@ const build = Effect.fnUntraced(function* (
 	cluster: BudgetedCluster,
 	database: string,
 	admin: PgConnection,
-	held: ReadonlyArray<number>,
 	names: Allocations
 ): Effect.fn.Return<
 	SubstrateShape,
@@ -758,7 +751,6 @@ const build = Effect.fnUntraced(function* (
 	return {
 		cluster,
 		database,
-		held,
 		owner,
 		admin,
 		schema,
@@ -780,9 +772,9 @@ const build = Effect.fnUntraced(function* (
 
 /**
  * One step of a substrate's life that waits on nothing others hold by design, bounded by the hang limit (limits.ts
- * hangLimit), so a step that never ends dies naming what hung: a layer build's work once it holds its lease (a claim or
- * a clone, its connections and its sessions), and its release. The lease wait before a build is no hang: a file queued behind others' holds waits as long as they hold
- * (shared.ts leaseConnections). Tests and the network tier's hooks are unbounded, so this is what reports such a hang.
+ * hangLimit), so a step that never ends dies naming what hung: a layer build's work (a claim or a clone, its connections
+ * and its sessions), and its release. Tests and the network tier's hooks are unbounded, so this is what reports such a
+ * hang.
  */
 const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>
 	Effect.timeoutOrElse(step, {
@@ -793,31 +785,33 @@ const hangGuarded = <A, E, R>(what: string, step: Effect.Effect<A, E, R>): Effec
 
 /**
  * The substrate in a fresh database of its own, cloned from the template (test/support/pg.ts freshDatabase) and left
- * for the sweep, which drops it once no file of this process runs.
+ * for the sweep, which drops it once no file of this process runs, its connections drawing from a budget of its own of
+ * a worker's width (connections.ts connectionsPerWorker).
  */
 const makeIsolatedSubstrate: Effect.Effect<
 	SubstrateShape,
 	SqlError,
 	Scope.Scope | InitializedCluster | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
-	const lease = yield* leaseConnections
+	const initialized = yield* InitializedCluster
+	const cluster = budgeted(initialized, connectionBudget(connectionsPerWorker))
 	return yield* hangGuarded(
 		"the substrate's build in a database of its own",
 		Effect.gen(function* () {
-			const database = yield* freshDatabase(lease.cluster)
-			const admin = yield* connect(lease.cluster, {
+			const database = yield* freshDatabase(cluster)
+			const admin = yield* connect(cluster, {
 				database,
-				credentials: ownerCredentials(lease.cluster),
+				credentials: ownerCredentials(cluster),
 				label: "admin"
 			})
-			return yield* build(lease.cluster, database, admin, lease.held, processAllocations)
+			return yield* build(cluster, database, admin, processAllocations)
 		})
 	)
 })
 
 /**
  * The substrate of a child process in the place its parent case lent it (cluster.ts lentPlace, shared.ts lend): the
- * case's database on the case's member, the permits the case set aside, no lease and no database of its own. Its
+ * case's database on the case's member, the permits the case set aside, no budget and no database of its own. Its
  * allocations are its own, released as its scope closes; the database is the case's, which the case's need drops.
  */
 const makeLentSubstrate: Effect.Effect<
@@ -834,13 +828,13 @@ const makeLentSubstrate: Effect.Effect<
 			),
 		onSome: Effect.succeed
 	})
-	const cluster = budgeted(initialized, leaseBudget(place.width))
+	const cluster = budgeted(initialized, connectionBudget(place.width))
 	const admin = yield* connect(cluster, {
 		database: place.database,
 		credentials: ownerCredentials(cluster),
 		label: "admin"
 	})
-	return yield* build(cluster, place.database, admin, [], processAllocations)
+	return yield* build(cluster, place.database, admin, processAllocations)
 })
 
 /**
@@ -1045,7 +1039,7 @@ export const installTemplate = <P, T, E1, E2>(
 			Effect.scoped(
 				Effect.gen(function* () {
 					const { digest, plan } = yield* planned(database)
-					const { cluster } = yield* memberLease(target.member)
+					const cluster = yield* memberBudget(target.member)
 					const failed = sqlNeedFailed(spec.name, `the install in ${target.name}`)
 					const settings = yield* Effect.mapError(
 						devSession(cluster, Option.some("template settings")),
@@ -1063,7 +1057,7 @@ export const installTemplate = <P, T, E1, E2>(
 					const { allocations, keep } = yield* templateAllocations(digest, cluster)
 					const spawning = yield* Layer.build(nodeSpawner)
 					const substrate = yield* Effect.mapError(
-						Effect.provideContext(build(cluster, target.name, admin, [], allocations), spawning),
+						Effect.provideContext(build(cluster, target.name, admin, allocations), spawning),
 						failed
 					)
 					yield* Effect.mapError(formerBuildDropped(substrate, digest), failed)
@@ -1075,7 +1069,7 @@ export const installTemplate = <P, T, E1, E2>(
 					)
 				}).pipe(
 					Effect.andThen(
-						Effect.flatMap(memberLease(target.member), ({ cluster }) =>
+						Effect.flatMap(memberBudget(target.member), (cluster) =>
 							backendsEnded(cluster, target.name)
 						)
 					)
@@ -1097,18 +1091,18 @@ export const installTemplate = <P, T, E1, E2>(
 /**
  * The substrate of a case over the database `take` gives it (from a need of the toolchain's resources, which a
  * runner's worker opens once and each case takes from): an admin connection to it as the owner, and the substrate built
- * over both (build), every connection drawing from the worker's lease on the database's member (test/support/runner.ts),
+ * over both (build), every connection drawing from the worker's budget on the database's member (test/support/runner.ts),
  * its schemas, roles, sessions and psql writers released as the case's scope closes, before the database goes back to
  * its need.
  */
 const substrateOver = (
 	form: string,
 	taken: Database,
-	leases: Context.Service.Shape<typeof WorkerLeases>,
+	budgets: Context.Service.Shape<typeof WorkerBudgets>,
 	spawning: Context.Context<ChildProcessSpawner.ChildProcessSpawner>
 ): Effect.Effect<SubstrateShape, NeedFailed, Scope.Scope> =>
 	Effect.gen(function* () {
-		const { cluster, held } = yield* leases.on(taken.member)
+		const cluster = budgets.on(taken.member)
 		const failed = sqlNeedFailed(form, `the substrate in ${taken.name}`)
 		const admin = yield* Effect.mapError(
 			connect(cluster, {
@@ -1119,7 +1113,7 @@ const substrateOver = (
 			failed
 		)
 		return yield* Effect.mapError(
-			Effect.provideContext(build(cluster, taken.name, admin, held, processAllocations), spawning),
+			Effect.provideContext(build(cluster, taken.name, admin, processAllocations), spawning),
 			failed
 		)
 	})
@@ -1142,12 +1136,12 @@ const substrateCases = <T>(
 			database.open,
 			Layer.build(nodeSpawner),
 			template.bound,
-			Effect.service(WorkerLeases)
+			Effect.service(WorkerBudgets)
 		]),
-		([take, spawning, bind, leases]) =>
+		([take, spawning, bind, budgets]) =>
 			Effect.gen(function* () {
 				const taken = yield* take
-				const substrate = yield* substrateOver(form, taken, leases, spawning)
+				const substrate = yield* substrateOver(form, taken, budgets, spawning)
 				const value = bind(substrate)
 				const settle = yield* settled(substrate, value)
 				yield* Effect.addFinalizer(() => settle)
@@ -1209,7 +1203,7 @@ WHERE c.relkind = 'S' AND c.relnamespace IN (SELECT oid FROM pg_catalog.pg_names
 /** Clones the template into a scope of its own under `parent` and opens the owner connection to the clone there. */
 const heldTransactions = (
 	opened: Opened<Database>,
-	leases: Context.Service.Shape<typeof WorkerLeases>,
+	budgets: Context.Service.Shape<typeof WorkerBudgets>,
 	parent: Scope.Scope
 ): Effect.Effect<HeldTransactions, NeedFailed> =>
 	Effect.gen(function* () {
@@ -1218,7 +1212,7 @@ const heldTransactions = (
 			Scope.provide(
 				Effect.gen(function* () {
 					const database = yield* opened.clone
-					const { cluster } = yield* leases.on(database.member)
+					const cluster = budgets.on(database.member)
 					const failed = sqlNeedFailed("Substrate.rolledBack", `the connection to ${database.name}`)
 					const connection = yield* Effect.mapError(
 						connect(cluster, {
@@ -1391,16 +1385,16 @@ const rolledBackCases = <T>(
 		Effect.all([
 			template.database.open,
 			template.bound,
-			Effect.service(WorkerLeases),
+			Effect.service(WorkerBudgets),
 			Effect.scope,
 			Ref.make(Option.none<HeldTransactions>())
 		]),
-		([opened, bind, leases, parent, holding]) =>
+		([opened, bind, budgets, parent, holding]) =>
 			Effect.gen(function* () {
 				const current = yield* Ref.get(holding)
 				const held = Option.isSome(current)
 					? current.value
-					: yield* Effect.tap(heldTransactions(opened, leases, parent), (made) =>
+					: yield* Effect.tap(heldTransactions(opened, budgets, parent), (made) =>
 							Ref.set(holding, Option.some(made))
 						)
 				const failed = sqlNeedFailed(form, `the case's transaction on ${held.database}`)
@@ -1447,8 +1441,8 @@ const rolledBackCases = <T>(
  * unique schema and role names; schemas, roles, sessions and psql writers are allocated in the case's own scope and
  * released when it closes. A bench builds Substrate.isolatedLayer, a database of its own.
  *
- * Every connection reaches PostgreSQL itself, directly. A substrate first takes a cluster-wide connection lease for its
- * own life (shared.ts leaseConnections), so a process holds none once its substrates are released.
+ * Every connection reaches PostgreSQL itself, directly, drawing from its holder's connection budget (budget.ts), which
+ * never waits: no substrate waits its turn for the cluster.
  *
  * Every role a test allocates is `<schema>__<name>`, the form of a login or world role (The cluster). The owner
  * creates it with CREATEROLE, which leaves the owner ADMIN OPTION only. The allocator also grants the role to the
@@ -1536,23 +1530,6 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		Option.some(leftoversCheck)
 	)
 	/**
-	 * The worker's place on its member (runner.ts WorkerLeases): its lease's budget and the backend that holds the
-	 * lease, and no database, for a case that opens connections of its own in the owner's database (a lease's own
-	 * tables).
-	 */
-	static readonly member: Need<Lease> = {
-		key: "grizzle Substrate.member",
-		open: Effect.map(
-			Effect.gen(function* () {
-				const cluster = yield* PgCluster
-				const worker = yield* WorkerIndex
-				const member = yield* cluster.memberOf(worker)
-				return yield* memberLease(member)
-			}),
-			Effect.succeed
-		)
-	}
-	/**
 	 * A case's choice among a closed set of templates, each under `form`: one need per key, to spread into a property's
 	 * needs, of which a case takes only the one it draws (`yield* resources[key]`), each opened on a worker the first time
 	 * a case there takes it (the toolchain's Database.chosen), so a worker builds only the templates its cases drew.
@@ -1570,8 +1547,8 @@ export class Substrate extends Context.Service<Substrate, SubstrateShape>()(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))
 	)
 	/**
-	 * A child process's substrate in the place the case that runs it lent it (makeLentSubstrate, shared.ts lend): a case
-	 * holds its member's lease, so its child takes none and works in the case's own database.
+	 * A child process's substrate in the place the case that runs it lent it (makeLentSubstrate, shared.ts lend): it draws
+	 * from the permits the case set aside of its worker's budget and works in the case's own database.
 	 */
 	static readonly lentLayer = Layer.effect(Substrate, makeLentSubstrate).pipe(
 		Layer.provide(Layer.mergeAll(nodeSpawner, InitializedCluster.layer))

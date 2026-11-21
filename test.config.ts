@@ -42,7 +42,7 @@ const smallStackModules: ReadonlyArray<string> = [
  * test` the tiers that need no network, test/unit and test/types, and `pnpm test:network` the tiers that talk to the
  * local cluster, test/pg and test/schedules; every property's cases on one queue over one worker a core, the
  * small-stack modules a second time on small-stack workers. The layer is grizzle's cluster (test/support/runner.ts): the
- * local family as the PgCluster every database need clones from, each worker on one member under one connection lease,
+ * local family as the PgCluster every database need clones from, each worker on one member under one connection budget,
  * built the first time a need reaches it, so a run of unit modules alone never reads the family. `pnpm mutate`
  * (`toolchain-test mutate`) alone loads its mutation (test/support/mutation/mutation.ts): grizzle's two operator
  * families beside the library's operators, set-semantics, a bag and set slip in any file, and sql-world, a compiler bug

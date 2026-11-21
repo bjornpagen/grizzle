@@ -12,26 +12,29 @@ import type { Transport } from "#adapter/types/layer.ts"
  * (packages/grizzle/src/adapter/wire/session.ts attemptFor, connectOne, cancelRequest), and the Effect openers die with
  * it alike, so a test reads one refusal however it opened the connection.
  */
-export class LeaseBudgetExhausted extends Data.TaggedError("LeaseBudgetExhausted")<{
+export class ConnectionBudgetExhausted extends Data.TaggedError("ConnectionBudgetExhausted")<{
 	readonly width: number
 }> {
 	override get message(): string {
-		return `a connection past the budget of ${this.width}: the file holds every connection its lease grants on the cluster at once`
+		return `a connection past the budget of ${this.width}: the holder holds every connection its budget grants on the cluster at once`
 	}
 }
 
 /**
- * The connections a test file may hold on the cluster at once, as permits it draws: every connection test support
- * opens on the cluster draws one for its life, a session of test/support/pg.ts, an adapter session through
- * `transport`, a psql writer and a superuser's client (substrate.ts). A plain counter, so the adapter's synchronous
- * socket factory draws from the same count as an Effect does; past `width` a draw is refused with LeaseBudgetExhausted.
+ * The connections a holder may hold on the cluster at once, a runner worker on its member (test/support/runner.ts
+ * WorkerBudgets) or a substrate in a database of its own (substrate.ts isolatedLayer), as permits it draws: every
+ * connection test support opens on the cluster draws one for its life, a session of test/support/pg.ts, an adapter
+ * session through `transport`, a psql writer and a superuser's client (substrate.ts). A plain counter, so the adapter's
+ * synchronous socket factory draws from the same count as an Effect does; past `width` a draw is refused with
+ * ConnectionBudgetExhausted. It never waits: it admits nothing, it states what the member was sized for
+ * (connections.ts connectionsPerWorker), and a holder past it is a defect.
  */
-export interface LeaseBudget {
+export interface ConnectionBudget {
 	/** The permits the budget grants at once. */
 	readonly width: number
 	/**
 	 * The connection `open` opens, in the current scope, drawing one permit for its life: drawn before `open` runs, so
-	 * nothing is sent when none is free (LeaseBudgetExhausted, a defect), given back when the scope closes, after `open`'s
+	 * nothing is sent when none is free (ConnectionBudgetExhausted, a defect), given back when the scope closes, after `open`'s
 	 * own finalizers, and at once when `open` fails, so a connection refused holds none.
 	 */
 	readonly opened: <A, E, R>(
@@ -40,12 +43,12 @@ export interface LeaseBudget {
 	/**
 	 * `width` permits drawn at once for the current scope, as a budget of exactly them: what a pool or a child process
 	 * that holds that many connections at most draws when it is built, its own connections then drawing from it.
-	 * LeaseBudgetExhausted, a defect, when fewer are free, and none is drawn.
+	 * ConnectionBudgetExhausted, a defect, when fewer are free, and none is drawn.
 	 */
-	readonly within: (width: number) => Effect.Effect<LeaseBudget, never, Scope.Scope>
+	readonly within: (width: number) => Effect.Effect<ConnectionBudget, never, Scope.Scope>
 	/**
 	 * `transport` whose every socket draws one permit as `open` makes it, before anything is sent on it, and gives it back
-	 * when the socket closes, its TLS upgrade's end included. `open` throws LeaseBudgetExhausted when none is free. A
+	 * when the socket closes, its TLS upgrade's end included. `open` throws ConnectionBudgetExhausted when none is free. A
 	 * CancelRequest's connection holds no backend, but the transport opens it as it opens a session's, so it draws one for
 	 * the moment it lives.
 	 */
@@ -73,7 +76,7 @@ export type HeldConnection =
 	| { readonly kind: "backend"; readonly pid: number }
 
 /** A budget of `width` permits, none drawn. */
-export const leaseBudget = (width: number): LeaseBudget => {
+export const connectionBudget = (width: number): ConnectionBudget => {
 	let drawn = 0
 	/** Draws `count` permits when that many are free: whether it did. */
 	const draw = (count: number): boolean => {
@@ -86,7 +89,7 @@ export const leaseBudget = (width: number): LeaseBudget => {
 	const permits = (count: number): Effect.Effect<void, never, Scope.Scope> =>
 		Effect.acquireRelease(
 			Effect.suspend(() =>
-				draw(count) ? Effect.void : Effect.die(new LeaseBudgetExhausted({ width }))
+				draw(count) ? Effect.void : Effect.die(new ConnectionBudgetExhausted({ width }))
 			),
 			() =>
 				Effect.sync(() => {
@@ -111,12 +114,12 @@ export const leaseBudget = (width: number): LeaseBudget => {
 					Scope.close(own, Exit.failCause(cause))
 				)
 			}),
-		within: (inner) => Effect.as(permits(inner), leaseBudget(inner)),
+		within: (inner) => Effect.as(permits(inner), connectionBudget(inner)),
 		transport: (transport) => ({
 			...transport,
 			open: () => {
 				if (!draw(1)) {
-					throw new LeaseBudgetExhausted({ width })
+					throw new ConnectionBudgetExhausted({ width })
 				}
 				const socket = transport.open()
 				sockets.set(socket, Option.none())
@@ -164,16 +167,17 @@ export const leaseBudget = (width: number): LeaseBudget => {
 }
 
 /**
- * The initialised cluster with the budget every connection opened on it draws from: a test file's, which its lease
- * grants (shared.ts leaseConnections), or one the lease itself or the sweep holds outside any file's.
- * Every opener of test support takes one, so no connection is opened outside a budget.
+ * The initialised cluster with the budget every connection opened on it draws from: a worker's on its member
+ * (test/support/runner.ts WorkerBudgets), a substrate's in a database of its own (substrate.ts isolatedLayer), or the
+ * sweep's outside both (shared.ts sweep). Every opener of test support takes one, so no connection is opened outside a
+ * budget.
  */
 export interface BudgetedCluster extends PgMember {
-	readonly budget: LeaseBudget
+	readonly budget: ConnectionBudget
 }
 
 /** `cluster` with `budget`. */
-export const budgeted = (cluster: PgMember, budget: LeaseBudget): BudgetedCluster => ({
+export const budgeted = (cluster: PgMember, budget: ConnectionBudget): BudgetedCluster => ({
 	...cluster,
 	budget
 })

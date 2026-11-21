@@ -38,7 +38,7 @@ import { succeeded } from "#test/support/assert.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
 import { testIdleTimeout } from "#test/support/limits.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
-import { testPoolMax } from "#test/support/substrate/lease.ts"
+import { testPoolMax } from "#test/support/substrate/connections.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
 
 import { regex } from "arkregex"
@@ -664,11 +664,10 @@ const connectOnce = (
 /**
  * The one verify-full connection every test helper opens, the raw sessions of the substrate included: the server
  * certificate must chain to the cluster's CA and name the host. It draws one of the cluster's budget's permits before it
- * connects, given back once the connection has ended or failed (substrate/budget.ts LeaseBudget opened), and dies with
- * LeaseBudgetExhausted when none is free.
- * It has no connect deadline of its own: a connect is judged by what the server answers, and the cluster-wide
- * connection lease (substrate/shared.ts), whose budget this draws from, keeps the cluster from being loaded past its
- * connections.
+ * connects, given back once the connection has ended or failed (substrate/budget.ts ConnectionBudget opened), and dies
+ * with ConnectionBudgetExhausted when none is free.
+ * It has no connect deadline of its own: a connect is judged by what the server answers, and the budget it draws from
+ * keeps its holder within the connections its member was sized for (substrate/connections.ts connectionsPerWorker).
  */
 export const session = (
 	cluster: BudgetedCluster,
@@ -700,7 +699,7 @@ export const clusterPool: PoolBounds = {
 /**
  * The local cluster's transport as a plain Node caller writes it: a new net.Socket for every connection, to the pin's
  * host and port, verify-full TLS against the cluster's CA naming the pin's host. Each socket draws one of the cluster's
- * budget's permits while it lives (substrate/budget.ts LeaseBudget transport): a DbLayer's pool stays lazy, and each
+ * budget's permits while it lives (substrate/budget.ts ConnectionBudget transport): a DbLayer's pool stays lazy, and each
  * session it opens draws as it opens.
  */
 export const clusterTransport = (cluster: BudgetedCluster): Transport =>

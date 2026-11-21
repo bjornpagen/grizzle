@@ -7,7 +7,7 @@ import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import { pin } from "#pg/pin.ts"
 import { pgCluster } from "#test/support/env.ts"
 import { configureDatabase, devSession, session, testDatabaseSettings } from "#test/support/pg.ts"
-import { memberLease, sqlNeedFailed } from "#test/support/runner.ts"
+import { memberBudget, sqlNeedFailed } from "#test/support/runner.ts"
 
 /**
  * PUBLIC's default privileges on a database, granted as the grant that states them (its ACL then reads as PostgreSQL's
@@ -51,7 +51,7 @@ export const baseTemplate: DatabaseTemplate = Template.database({
 	build: (target) =>
 		Effect.scoped(
 			Effect.gen(function* () {
-				const { cluster } = yield* memberLease(target.member)
+				const cluster = yield* memberBudget(target.member)
 				const failed = sqlNeedFailed("grizzle base template", `the settings of ${target.name}`)
 				const admin = yield* Effect.mapError(
 					devSession(cluster, Option.some("grizzle base template")),

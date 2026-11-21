@@ -385,29 +385,6 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   No suite over `migrated` watches today: none of the 20 test files that call it calls `.watch(` or memberCalls.
   The fix is for `migrated` to issue the decoder login its logins' served files name, as installGenerated does from
   generate's files.
-- **A queued file can hold a catalog snapshot's xmin for as long as it waits (LEASEBUDGET, 2026-11-14; main: log
-  only):** a lease's wait (test/support/substrate/shared.ts awaitLock) is a LOCK TABLE, which takes no snapshot, but
-  PostgreSQL resolves its table's name before it waits. When the backend's catalog caches were reset since its NOWAIT
-  try, by any commit anywhere on the cluster of more invalidations than the shared queue holds (sinval.c), a full
-  tier's DROP SCHEMA finalizers among them, the lookup reads the catalogs under a catalog snapshot. postgres.c releases
-  that snapshot only when the backend goes idle, so the waiter holds its xmin through the wait. Lease connections are
-  READ COMMITTED in grizzle_dev, so SSI is untouched, but the vacuum horizon is held back, the shared catalogs' among
-  it, for as long as the file queues. Reproduced on a private cluster with a loop of 200-table schema drops in another
-  database: a file waiting at the gate held xmin 1074 and no transaction id (3fa1c796, whose substrate/lease allows
-  exactly this snapshot and no other). PostgreSQL has no wait that takes neither a snapshot nor a name lookup, so a fix
-  is a wait outside its lock queue, a redesign of the lease. K clusters shrink the churn each member sees.
-- **The lease's gate is not in its formula's slack (LEASEBUDGET, 2026-11-14; main: log only):** leaseSlots
-  (test/support/substrate/shared.ts) sets aside, beyond s slots of connectionsPerLease each, s − 1 race connections and
-  unleasedConnections (5). A file waiting while every slot is held costs more than that. The gate's head races with its
-  queued connection and one racer per slot (takeLease), s + 1, and every other queued file holds its queued connection
-  at the gate. At this machine's sizing (n = 64 cores, connectionsPerLease 68, max_connections 4423, 3
-  superuser-reserved) there are 4420 usable connections: s = 64 slots of 68 is 4352, the head 65 more and the unleased
-  5, so 4422. With every holder at its full width (f31086cc makes 68 the most a file can hold, not what it holds), the
-  cluster is 2 connections short before any second file queues, and each queued file costs one more. A second run of
-  64 files queued behind the first overruns by 65, and the overflow is someone's 53300 (too many clients). In practice
-  holders hold at most 11 backends (CLUSTER's 64-wide run), which leaves 64 × 57 = 3648 spare connections and absorbs
-  any realistic queue, but nothing guarantees it. A K-cluster family does not make it moot: a member is sized for its
-  share of one run's workers, and another run's files queue on the same members the same way.
 - **The repeats left in a login's served file and OpenAPI document (OUTPUTSIZE, 2026-11-14; main: not now):** since
   5e47fdd7 every repeated shape is written once wherever a reference can stand, but some are still written again where
   none can. Measured on qti-pie pantry's author_app (f65ea15e plus 5e47fdd7's change) as the bytes a reference would
@@ -501,8 +478,8 @@ From the survey of pantry's test suites (~/.cache/gr8des/qti-sweep/pantry-test.m
   is max_connections 4359, shared_buffers 304,064 blocks, max_pred_locks_per_transaction 30, 66 replication slots and
   walsenders, shared_memory_size 2882 MB; init took 13 s and destroy 4 s (throwaway cluster 5460, 2026-11-14), with
   247 GB of RAM, about 75 GB available and 49 GB of swap in use at the time. Revisit with numbers only under memory
-  pressure, by sizing a cluster from what it serves (testWorkers for a test tier, one lease for a migrate or an
-  import), and mind the two catches: a down-sized cluster fails the doctor's sized checks, which test:network's global
+  pressure, by sizing a cluster from what it serves (testWorkers for a test tier, one worker's connections for a migrate
+  or an import), and mind the two catches: a down-sized cluster fails the doctor's sized checks, which test:network's global
   setup runs, so clusters would split into two kinds, one that serves migrates only; and the measured per-worker buffer
   bound (workerDatabaseBytes, 38.9 MB) is below PostgreSQL's 128 MB default shared_buffers and below a pantry
   database, so a one-run cluster may want PostgreSQL's own defaults instead (a peer's hand-made 5442 had

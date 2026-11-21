@@ -13,7 +13,7 @@ import {
 	runOracle
 } from "#test/support/oracle/runner.ts"
 import { OracleSeat } from "#test/support/oracle/seat.ts"
-import type { WorkerLeases } from "#test/support/runner.ts"
+import type { WorkerBudgets } from "#test/support/runner.ts"
 
 /** What a mutant's population reaches against the conservative lowering: a case the mutant rewrote, and one whose conservative run delivered a row. */
 type MutantFeature = "mutation applied" | "nonempty"
@@ -46,7 +46,7 @@ export const runMutant = (
 	mutant: Mutant,
 	gen: Gen<QueryCase>,
 	id: string,
-	services: Context.Context<PgCluster | WorkerLeases>
+	services: Context.Context<PgCluster | WorkerBudgets>
 ) =>
 	Effect.gen(function* () {
 		const seat = yield* OracleSeat
@@ -113,7 +113,7 @@ export const runAgainstReference = (
 	mutant: Mutant,
 	gen: Gen<QueryCase>,
 	id: string,
-	services: Context.Context<PgCluster | WorkerLeases>
+	services: Context.Context<PgCluster | WorkerBudgets>
 ) =>
 	Effect.gen(function* () {
 		const seat = yield* OracleSeat

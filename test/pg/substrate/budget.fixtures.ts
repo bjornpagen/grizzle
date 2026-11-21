@@ -9,7 +9,7 @@ import { ordinarySession } from "#test/support/ambient.ts"
 import * as W from "#test/support/fixtures/api/work.ts"
 import { workFacts } from "#test/support/fixtures/golden/work.ts"
 import { generatedTemplate } from "#test/support/install-migrate.ts"
-import { LeaseBudgetExhausted } from "#test/support/substrate/budget.ts"
+import { ConnectionBudgetExhausted } from "#test/support/substrate/budget.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 
 /**
@@ -106,11 +106,11 @@ export const wrongPassword = "not-the-password"
 /** Whether a session's failure is the server's refusal of its password (28P01). */
 export const refusedLogin = (error: unknown): boolean => pgErrorFields(error)?.code === "28P01"
 
-/** Whether an opener's failure is LeaseBudgetExhausted naming `width`, as a defect. */
+/** Whether an opener's failure is ConnectionBudgetExhausted naming `width`, as a defect. */
 export const exhaustedAt = (cause: Cause.Cause<unknown>, width: number): boolean =>
 	Result.match(Cause.findDefect(cause), {
 		onFailure: () => false,
-		onSuccess: (defect) => defect instanceof LeaseBudgetExhausted && defect.width === width
+		onSuccess: (defect) => defect instanceof ConnectionBudgetExhausted && defect.width === width
 	})
 
 /** Work (test/support/fixtures/api/work.ts) under the declared name `name`. */

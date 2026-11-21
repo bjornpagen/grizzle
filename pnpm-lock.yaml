@@ -383,8 +383,6 @@ importers:
         specifier: 'catalog:'
         version: 4.1.4
 
-  packages/experiments/checkpoint-files: {}
-
   packages/experiments/ssi-summary: {}
 
   packages/grizzle:

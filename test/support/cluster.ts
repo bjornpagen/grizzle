@@ -40,8 +40,8 @@ export const memberAt = (
 /**
  * The variable a case's child process is lent its parent's place on the cluster by (shared.ts lend):
  * `<port>:<width>:<database>`, the member the case runs on, the permits of the case's budget it set aside for the child,
- * which the child draws from instead of taking a lease of its own (a runner worker holds its member's lease slot for its
- * life, so a child that leased would wait on its own parent), and the case's database, which the child works in.
+ * which the child draws from instead of a budget of its own (so the worker and its children hold no more than the
+ * worker's budget, connections.ts connectionsPerWorker), and the case's database, which the child works in.
  */
 export const lentVariable = "GRIZZLE_PG_LENT"
 
@@ -55,9 +55,9 @@ export interface Lent {
 const lentText = regex("^([1-9][0-9]{0,4}):([1-9][0-9]*):([a-z_][a-z0-9_]*)$")
 
 /**
- * The place this process's parent lent it (lentVariable), read through Config once: none for a process that leases
- * its own (a Vitest file, a runner worker, a bench), and a defect for a variable that names no place, which only a
- * broken parent writes.
+ * The place this process's parent lent it (lentVariable), read through Config once: none for a process that holds a
+ * budget of its own (a Vitest file, a runner worker, a bench), and a defect for a variable that names no place, which
+ * only a broken parent writes.
  */
 export const lentPlace: Effect.Effect<Option.Option<Lent>> = Effect.map(
 	Effect.orDie(Config.option(Config.String(lentVariable))),

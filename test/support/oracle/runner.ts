@@ -133,7 +133,7 @@ import { type DeclineReason, ReferenceUnsupported } from "#test/support/oracle/r
 import { OracleSeat } from "#test/support/oracle/seat.ts"
 import { checkedStatements } from "#test/support/oracle/verify/index.ts"
 import type { PgConnection, PipelineRefused, SqlError } from "#test/support/pg.ts"
-import type { WorkerLeases } from "#test/support/runner.ts"
+import type { WorkerBudgets } from "#test/support/runner.ts"
 import { pgErrorFields } from "#test/support/substrate/errors.ts"
 import { Substrate, type SubstrateTemplate } from "#test/support/substrate/substrate.ts"
 import { outputRows } from "#test/support/wire.ts"
@@ -1527,7 +1527,7 @@ export interface KillSpec<S, F extends string> {
  */
 export const killSearched = <S, const F extends string>(
 	id: string,
-	services: Context.Context<PgCluster | WorkerLeases>,
+	services: Context.Context<PgCluster | WorkerBudgets>,
 	space: Space<S>,
 	spec: KillSpec<S, F>,
 	check: (
