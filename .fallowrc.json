@@ -219,7 +219,7 @@
 				]
 			},
 			{
-				// The value core: the exact values a browser decodes into and builds (Decimal, Money, Vector, Span, uuid, a calendar date, an inet or cidr) and their carrier limits, over browser-core alone.
+				// The value core: the exact values a browser decodes into and builds (Decimal, Money, Vector, Span, uuid, a calendar date, an inet or cidr, a search document's text in its one form) and their carrier limits, over browser-core alone.
 				"name": "values",
 				"patterns": [
 					"packages/engine/src/ir/carriers.ts",
@@ -231,6 +231,7 @@
 					"packages/engine/src/scalar/values/money.ts",
 					"packages/engine/src/scalar/values/net.ts",
 					"packages/engine/src/scalar/values/span.ts",
+					"packages/engine/src/scalar/values/tsvector.ts",
 					"packages/engine/src/scalar/values/uuid.ts",
 					"packages/engine/src/scalar/values/vector.ts"
 				]
