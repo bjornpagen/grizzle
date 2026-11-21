@@ -400,11 +400,9 @@ export const dagDigestIgnoresAllocationOrderLabelSpellingAndSourceLocations = pr
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/ir/dag.ts",
-				original:
-					"\t\tResult.map(digest(domain, claimedForm(normal), { omit: omitSourceLocs }), DagDigest)",
-				replacement:
-					"\t\tResult.map(digest(domain, claimedForm(normal), { omit: () => false }), DagDigest)",
+				file: "packages/engine/src/ir/dag-digest.ts",
+				original: "\t\tconst text = writeTemplate(form, { omit: omitSourceLocs }, (scalar) => {",
+				replacement: "\t\tconst text = writeTemplate(form, { omit: () => false }, (scalar) => {",
 				why: "The DAG digest reads source locations; the digest's invariance property fails on a location moved."
 			}
 		]
@@ -448,11 +446,9 @@ export const dagDigestChangesWithAnySemanticChange = property.explore(labelled, 
 	kept: [],
 	kills: [
 		{
-			file: "packages/engine/src/ir/dag.ts",
-			original:
-				"\t\tResult.map(digest(domain, claimedForm(normal), { omit: omitSourceLocs }), DagDigest)",
-			replacement:
-				'\t\tResult.map(digest("dag", claimedForm(normal), { omit: omitSourceLocs }), DagDigest)',
+			file: "packages/engine/src/ir/dag-digest.ts",
+			original: "\t\treturn Result.flatMap(fingerprintDomain(domain), (line) => {",
+			replacement: '\t\treturn Result.flatMap(fingerprintDomain("dag"), (line) => {',
 			why: "The DAG digest ignores its domain; the digest's change property fails on another domain."
 		}
 	]
@@ -511,9 +507,9 @@ export const normalizeDagRenamesPositionallyIgnoresLabelSpellingAndGivesATableTh
 			kept: [],
 			kills: [
 				{
-					file: "packages/engine/src/ir/dag.ts",
-					original: `\t\tconst name = this.#make(\`\${this.#ns}#\${this.#names.size}\`)`,
-					replacement: `\t\tconst name = this.#make(\`\${this.#ns}#\${this.#names.size + 1}\`)`,
+					file: "packages/engine/src/ir/dag-digest.ts",
+					original: "\t\tconst index = this.#indices.size\n",
+					replacement: "\t\tconst index = this.#indices.size + 1\n",
 					why: "The normal form's positional names are counted from one; the normal form property fails."
 				}
 			]

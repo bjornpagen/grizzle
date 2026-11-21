@@ -4,7 +4,7 @@ import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
-import { catchRefusal, omitSourceLocs, Refusal } from "#compiler/core/canonical.ts"
+import { catchRefusal, maxStringLength, omitSourceLocs } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { digest } from "#compiler/core/fingerprint.ts"
 import {
@@ -20,6 +20,14 @@ import {
 import { deepFreeze } from "#compiler/core/record.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
+import {
+	DagDigests,
+	digestedFields,
+	numberReach,
+	type OuterNames,
+	ReachNumbering,
+	tableExprOf
+} from "#compiler/ir/dag-digest.ts"
 import {
 	builtExpr,
 	type ExprSpec,
@@ -798,42 +806,6 @@ export class LabelSupply {
 	}
 }
 
-/** Fresh positional names of one namespace, "<ns>#<i>", by first occurrence of the label they rename. */
-class Numbering<A extends string> {
-	readonly #ns: string
-	readonly #make: (s: string) => A
-	readonly #names = new Map<string, A>()
-
-	constructor(ns: string, make: (s: string) => A) {
-		this.#ns = ns
-		this.#make = make
-	}
-
-	has(id: string): boolean {
-		return this.#names.has(id)
-	}
-
-	/** The name of `id`, minted now when it has none. */
-	name(id: string): A {
-		const known = this.#names.get(id)
-		if (known !== undefined) {
-			return known
-		}
-		const name = this.#make(`${this.#ns}#${this.#names.size}`)
-		this.#names.set(id, name)
-		return name
-	}
-
-	/** The name of `id`, which the numbering already holds; a label it never met is MalformedDescription. */
-	named(id: string, path: S.Path): A {
-		const known = this.#names.get(id)
-		if (known === undefined) {
-			throw new Refusal(malformed(path, `a reachable reference, not ${id}`))
-		}
-		return known
-	}
-}
-
 /**
  * The allocation-independent form of the DAG `roots` reach within `context`: nodes and expressions renamed "n#i" and
  * "e#i", variables, occurrences and scopes "v#i", "o#i" and "s#i", each numbered by first occurrence breadth-first
@@ -846,111 +818,66 @@ class Numbering<A extends string> {
 export const normalizeWithin = (
 	context: RelDag,
 	roots: Roots
-): Result.Result<DagTable, CompileError> => normalizedOver(context, roots, "followed")
+): Result.Result<DagTable, CompileError> => normalizeReach(context, roots, "followed")
 
 /**
- * What a name a node holds of a node the walk has not met is, as normalizedOver reads it: the node, read through the
- * context's labels and numbered as the walk's own (`followed`); or, for a node outside what the roots reach by their
- * inputs, the label itself (`labelled`), so the form reads an enclosing node by which it is and never by what it holds.
+ * normalizeWithin, every name of a node outside the roots' reach read as `outer` says (ir/dag-digest.ts OuterNames):
+ * numbered by the one numbering of a normal form (ReachNumbering, numberReach), each node and expression restated with
+ * the names it holds as it is read.
  */
-type OuterNames = "followed" | "labelled"
-
-/** normalizeWithin, every name of a node outside the roots' reach read as `outer` says (OuterNames). */
-const normalizedOver = (
+export const normalizeReach = (
 	context: RelDag,
 	roots: Roots,
 	outer: OuterNames
 ): Result.Result<DagTable, CompileError> =>
 	catchRefusal(() => {
-		const n = new Numbering("n", NodeId)
-		const e = new Numbering("e", ExprId)
-		const v = new Numbering("v", VarId)
-		const o = new Numbering("o", OccurrenceId)
-		const s = new Numbering("s", ScopeId)
-		type Item =
-			| { readonly kind: "node"; readonly node: RelNode }
-			| { readonly kind: "expr"; readonly expr: ScalarExpr }
-		const queue: Array<Item> = []
 		/** The context's labels, read only when a name the walk has not met needs its node. */
 		let index: ReadonlyMap<NodeId, RelNode> | undefined
-		const labelled = (id: NodeId): RelNode | undefined => {
+		const labels = (): ReadonlyMap<NodeId, RelNode> => {
 			const known = index ?? nodesByLabel(context)
 			index = known
-			return known.get(id)
+			return known
 		}
-		const nodeRef = (node: RelNode): NodeId => {
-			if (!n.has(node.id)) {
-				queue.push({ kind: "node", node })
-			}
-			return n.name(node.id)
-		}
-		/** What the roots reach by their inputs, when a name of a node outside it is its label (`labelled`). */
-		const reached =
-			outer === "labelled" ? new Set(postorder(roots, inputsOf).map((node) => node.id)) : undefined
-		const nodeName = (id: NodeId): NodeId => {
-			if (reached !== undefined && !reached.has(id)) {
-				return id
-			}
-			if (!n.has(id)) {
-				const node = labelled(id)
-				if (node === undefined) {
-					throw new Refusal(malformed(["nodes"], `a node named ${id} in the table`))
-				}
-				queue.push({ kind: "node", node })
-			}
-			return n.name(id)
-		}
-		const exprRef = (expr: ScalarExpr): ExprId => {
-			if (!e.has(expr.id)) {
-				queue.push({ kind: "expr", expr })
-			}
-			return e.name(expr.id)
-		}
-		const numbered: RefMap<LiveRefs, TableRefs> = {
-			expr: exprRef,
-			var: (ref) => v.name(ref.id),
-			decl: (d) => ({ ...d, id: v.name(d.id) }),
-			occurrence: (id) => o.name(id),
-			scope: (id) => s.name(id),
-			name: nodeName,
+		const numbering = new ReachNumbering(labels, roots, outer)
+		const named: RefMap<LiveRefs, TableRefs> = {
+			expr: (expr) => numbering.exprs.nameOf(numbering.expr(expr)),
+			var: (ref) => numbering.vars.name(ref.id),
+			decl: (d) => ({ ...d, id: numbering.vars.name(d.id) }),
+			occurrence: (id) => numbering.occurrences.name(id),
+			scope: (id) => numbering.scopes.name(id),
+			name: (id) => numbering.labelName(id),
 			meta: (meta) => meta
 		}
-		const tableRoots = roots.map(nodeRef)
 		const nodes: Record<NodeId, TableNode> = {}
 		const pending: Array<{
 			readonly expr: ScalarExpr
 			readonly id: ExprId
 			readonly spec: ExprSpecOver<TableArgs>
 		}> = []
-		for (const item of queue) {
-			if (item.kind === "node") {
-				const id = n.name(item.node.id)
-				const entry = drive(mapNode<LiveRefs, TableRefs>(item.node, numbered), nodeRef)
+		const tableRoots = numberReach(numbering, roots, (met) => {
+			if (met.kind === "node") {
+				const id = numbering.nodes.name(met.node.id)
+				const entry = drive(mapNode<LiveRefs, TableRefs>(met.node, named), (node) =>
+					numbering.nodes.nameOf(numbering.edge(node))
+				)
 				nodes[id] = { ...entry, id }
-				continue
+				return
 			}
-			const expr = item.expr
-			const args = withArgs<LiveArgs, TableArgs>(outsideSpec(expr), exprRef)
-			const id = e.name(expr.id)
+			const expr = met.expr
+			const args = withArgs<LiveArgs, TableArgs>(outsideSpec(expr), named.expr)
+			const id = numbering.exprs.name(expr.id)
 			const spec: ExprSpecOver<TableArgs> =
 				args.kind === "column"
-					? { ...args, column: { node: nodeName(args.column.node), name: args.column.name } }
+					? {
+							...args,
+							column: { node: numbering.labelName(args.column.node), name: args.column.name }
+						}
 					: args
 			pending.push({ expr, id, spec })
-		}
+		}).map((root) => numbering.nodes.nameOf(root))
 		const exprs: Record<ExprId, TableExpr> = {}
 		for (const { expr, id, spec } of pending) {
-			const deps = {
-				params: expr.deps.params,
-				nodes: sortedUnique(
-					expr.deps.nodes.map((label) =>
-						reached !== undefined && !reached.has(label)
-							? label
-							: n.named(label, ["exprs", id, "deps"])
-					)
-				)
-			}
-			exprs[id] = { ...spec, volatility: expr.volatility, id, deps }
+			exprs[id] = tableExprOf(expr, spec, id, numbering.deps(expr))
 		}
 		return deepFreeze({ roots: tableRoots, nodes, exprs })
 	})
@@ -964,49 +891,9 @@ declare const dagDigestBrand: unique symbol
 const DagDigest = nominal<string, DagDigest>()
 
 /**
- * What a normal DAG's digest reads: each node with its claimed keys as the columns they claim. A key's proof is a value
- * about the DAG its analysis ran over, naming that DAG's labels, which no rename carries (rel.ts MetaSpec), so two
- * sub-queries one template builds alike, each proved over its own nodes, claim the same keys under different proofs.
- */
-const claimedForm = (normal: DagTable): unknown => ({
-	roots: normal.roots,
-	nodes: Object.fromEntries(
-		Object.entries(normal.nodes).map(([id, node]) => [
-			id,
-			{
-				...digestedFields(node),
-				meta: { ...node.meta, logicalKeys: node.meta.logicalKeys.map((k) => k.key) }
-			}
-		])
-	),
-	exprs: normal.exprs
-})
-
-/**
- * A node's own fields as its digest reads them: a Delta's without its keys, and a view Base's without the keys the
- * checker stamped on it, each its relation's, named already; an Attach's without the delivered type its template's
- * analysis judged, which no SQL reads (rel.ts Attach judged).
- */
-const digestedFields = (node: TableNode): object => {
-	if (node.kind === "Delta") {
-		const { keys: _relations, ...digested } = node
-		return digested
-	}
-	if (node.kind === "Attach") {
-		const { judged: _judged, ...digested } = node
-		return digested
-	}
-	if (node.kind === "Base" && node.relationKind !== "relation") {
-		const { view: _views, ...digested } = node
-		return digested
-	}
-	return node
-}
-
-/**
  * Each node's shape, a fold over the DAG: SHA-256 of its kind, its heading's columns and their types, and, per input
  * edge in order, that input's shape. A shape is a function of exactly what a node's share or evaluation key encodes
- * (dagDigestWithin, reachDigestWithin): two nodes whose normalized reaches are one are of one kind and heading, their
+ * (ir/dag-digest.ts DagDigests): two nodes whose normalized reaches are one are of one kind and heading, their
  * edges in one order to inputs whose reaches are one, so equal keys have equal shapes, and a node whose shape no other
  * node has has a key no other node has, which no comparison need digest (lower/shapes/share/statements.ts ShareIndex,
  * lower/conservative/call/index.ts EvaluationKeys). The converse fails, a shape reading no expression, label or
@@ -1023,34 +910,16 @@ export const nodeShapes = (): Fold<RelNode, string> =>
 		return sha256Hex(wellFormed(text))
 	})
 
-/** The digest of what `roots` reach within `context`, its enclosing nodes read as `outer` says (normalizedOver). */
-const digestOver = (
-	context: RelDag,
-	roots: Roots,
-	domain: string,
-	outer: OuterNames
-): Result.Result<DagDigest, CompileError> =>
-	Result.flatMap(normalizedOver(context, roots, outer), (normal) =>
-		Result.map(digest(domain, claimedForm(normal), { omit: omitSourceLocs }), DagDigest)
-	)
-
 /** The digest of the DAG `roots` reach within `context` (normalizeWithin): a sub-query's share key. */
-export const dagDigestWithin = (
+const dagDigestWithin = (
 	context: RelDag,
 	roots: Roots,
 	domain: string
-): Result.Result<DagDigest, CompileError> => digestOver(context, roots, domain, "followed")
-
-/**
- * The digest of what `roots` reach by their inputs within `context`, each name of a node outside that reach its label
- * (OuterNames `labelled`): equal for two copies of one sub-query that read the same enclosing nodes, wherever they
- * stand among those nodes' readers, and for two that read none. A call's evaluation key (lower/conservative/call).
- */
-export const reachDigestWithin = (
-	context: RelDag,
-	roots: Roots,
-	domain: string
-): Result.Result<DagDigest, CompileError> => digestOver(context, roots, domain, "labelled")
+): Result.Result<DagDigest, CompileError> =>
+	Result.map(
+		new DagDigests(() => nodesByLabel(context), maxStringLength).digest(roots, domain, "followed"),
+		DagDigest
+	)
 
 /** The digest of a whole DAG. */
 export const dagDigest = (dag: RelDag, domain: string): Result.Result<DagDigest, CompileError> =>

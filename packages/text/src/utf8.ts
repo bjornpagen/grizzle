@@ -273,6 +273,17 @@ export class Utf8Writer {
 		this.#units += text.length
 	}
 
+	/**
+	 * Bytes a writer wrote before, a text's UTF-8 of `units` UTF-16 code units, copied as they are: a template's piece
+	 * (core/canonical.ts writeTemplate).
+	 */
+	encoded(bytes: Uint8Array, units: number): void {
+		this.#reserve(bytes.length)
+		this.#bytes.set(bytes, this.#at)
+		this.#at += bytes.length
+		this.#units += units
+	}
+
 	/** An ASCII text's bytes, one a code unit: JSON's punctuation, literals and a number's text. */
 	ascii(text: string): void {
 		this.#reserve(text.length)

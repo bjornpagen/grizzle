@@ -140,15 +140,14 @@ export const fingerprintsSeparateTheirDomainsAndRefuseADomainOfNoSingleLine = pr
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\tmessage.out.text(formatLine)\n\tmessage.out.text(domain)\n",
-				replacement: "\tmessage.out.text(formatLine)\n",
+				original: "\tout.text(formatLine)\n\tout.text(domain)\n",
+				replacement: "\tout.text(formatLine)\n",
 				why: "the domain left out of the hashed text; the domains property fails."
 			},
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original:
-					'\tif (domain.length === 0 || domain.includes("\\n") || !isWellFormedText(domain)) {',
-				replacement: "\tif (domain.length === 0 || !isWellFormedText(domain)) {",
+				original: '\tdomain.length === 0 || domain.includes("\\n") || !isWellFormedText(domain)',
+				replacement: "\tdomain.length === 0 || !isWellFormedText(domain)",
 				why: "a domain of two lines admitted; the domains property fails."
 			}
 		]
@@ -195,8 +194,8 @@ export const aDigestIsSHA256OfItsFrameAndTheSpecifiedCanonicalTextAndAnIdentityD
 			},
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\tmessage.out.text(newline)\n\treturn message\n",
-				replacement: "\treturn message\n",
+				original: "\tout.text(domain)\n\tout.text(newline)\n",
+				replacement: "\tout.text(domain)\n",
 				why: "The frame's domain is not ended by its newline; every digest differs."
 			}
 		]

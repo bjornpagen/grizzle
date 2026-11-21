@@ -1015,8 +1015,8 @@ const canonicalTextLoc = SourceLoc("canonical text", [])
  * The sink that writes the canonical text's UTF-8 into a byte writer (grizzle-text Utf8Writer) as it is read: each
  * scalar's and key's JSON literal (Utf8Writer.jsonString, jsonNumber, the ASCII of a boolean), its punctuation and the
  * canonical texts Walk.over writes, each byte written once, in place, with no string built. Past V8's longest string the
- * traversal stops with ResourceBound (stringLength), the text measured in UTF-16 code units from where the sink began,
- * after each piece is written and before anything is built of it, exactly where the text would pass it.
+ * traversal stops (boundCanonicalText), the text measured in UTF-16 code units from where the sink began, after each
+ * piece is written and before anything is built of it.
  */
 class ByteSink implements Sink {
 	readonly #out: Utf8Writer
@@ -1078,18 +1078,18 @@ class ByteSink implements Sink {
 		}
 	}
 
+	/**
+	 * A hole for a value written apart from this text (writeTemplate): the separator before it, where its text will
+	 * stand, and the next member after it.
+	 */
+	hole(): void {
+		this.#separate()
+		this.#after = true
+	}
+
 	/** Refused where the text written passes V8's longest string. */
 	#bound(): void {
-		const needed = this.#out.units - this.#start
-		if (needed > maxStringLength) {
-			throw new Refusal(
-				resourceBound(canonicalTextLoc, {
-					kind: "stringLength",
-					limit: maxStringLength,
-					needed
-				})
-			)
-		}
+		boundCanonicalText(this.#out.units - this.#start, maxStringLength)
 	}
 }
 
@@ -1103,6 +1103,118 @@ const punctuation = {
 	array: { open: wellFormed("["), close: wellFormed("]") },
 	object: { open: wellFormed("{"), close: wellFormed("}") }
 } as const
+
+/**
+ * Refuses a canonical text of which `written` UTF-16 code units are written past `limit`, V8's longest string in
+ * production (maxStringLength), as ResourceBound (stringLengthAtLeast): the text is refused as it is written, so its
+ * whole length is at least what it holds when it passes the limit, the one true number it states. The one bound every
+ * writer of a canonical text checks, whether it builds the text (TextSink) or streams it (ByteSink, ir/dag-digest.ts
+ * DagDigests).
+ */
+export const boundCanonicalText = (written: number, limit: number): void => {
+	if (written > limit) {
+		throw new Refusal(
+			resourceBound(canonicalTextLoc, { kind: "stringLengthAtLeast", limit, atLeast: written })
+		)
+	}
+}
+
+/** A well-formed string written into `out` as the canonical text writes a plain string: its "~" doubled, then its JSON
+ * literal (escapeString, Utf8Writer.jsonString). */
+export const writeCanonicalString = (out: Utf8Writer, text: WellFormedText): void => {
+	out.jsonString(escapeString(text))
+}
+
+/**
+ * The canonical text of a value with holes, as its UTF-8 (writeTemplate): the bytes before, between and after its
+ * holes, one piece more than it has holes, each a view of one copy of the text's bytes, so filling the template in
+ * copies each piece and allocates nothing; each piece's UTF-16 code units; and each hole's number in text order.
+ */
+export interface CanonicalTemplate {
+	readonly pieces: ReadonlyArray<Uint8Array>
+	readonly units: ReadonlyArray<number>
+	readonly holes: ReadonlyArray<number>
+}
+
+/**
+ * The sink that writes a template (writeTemplate): the canonical text's bytes (ByteSink), each scalar string `holeOf`
+ * reads as a hole left out of them, the text cut there into a piece.
+ */
+class TemplateSink implements Sink {
+	readonly #out: Utf8Writer
+	readonly #sink: ByteSink
+	readonly #holeOf: (scalar: string) => number | undefined
+	/** Where each hole stands, in bytes and in UTF-16 code units, and its number. */
+	readonly #at: Array<number> = []
+	readonly #unitsAt: Array<number> = []
+	readonly #holes: Array<number> = []
+
+	constructor(holeOf: (scalar: string) => number | undefined) {
+		this.#out = keptWriter()
+		this.#sink = new ByteSink(this.#out)
+		this.#holeOf = holeOf
+	}
+
+	scalar(value: string | number | boolean): void {
+		const hole = typeof value === "string" ? this.#holeOf(value) : undefined
+		if (hole === undefined) {
+			this.#sink.scalar(value)
+			return
+		}
+		this.#sink.hole()
+		this.#at.push(this.#out.length)
+		this.#unitsAt.push(this.#out.units)
+		this.#holes.push(hole)
+	}
+
+	open(kind: ContainerKind): void {
+		this.#sink.open(kind)
+	}
+
+	key(key: string): void {
+		this.#sink.key(key)
+	}
+
+	close(kind: ContainerKind): void {
+		this.#sink.close(kind)
+	}
+
+	/** The template written: its bytes copied out of the writer once, each piece a view of them. */
+	template(): CanonicalTemplate {
+		const bytes = this.#out.held().slice()
+		const cuts = [0, ...this.#at, bytes.length]
+		const unitCuts = [0, ...this.#unitsAt, this.#out.units]
+		const pieces: Array<Uint8Array> = []
+		const units: Array<number> = []
+		for (let k = 0; k + 1 < cuts.length; k++) {
+			pieces.push(bytes.subarray(defined(cuts[k], "a cut"), defined(cuts[k + 1], "the next cut")))
+			units.push(defined(unitCuts[k + 1], "the next cut") - defined(unitCuts[k], "a cut"))
+		}
+		return { pieces, units, holes: this.#holes }
+	}
+}
+
+/**
+ * The canonical text under `options` of `value` with a hole for each scalar string `holeOf` reads as one (a string as
+ * the sink receives it, its "~" doubled), refused as `encode` refuses it: a text written once and filled in again and
+ * again, each hole with a value written into its place (ir/dag-digest.ts DagDigests).
+ */
+export const writeTemplate = (
+	value: unknown,
+	options: EncodeOptions,
+	holeOf: (scalar: string) => number | undefined
+): Result.Result<CanonicalTemplate, CompileError> =>
+	catchRefusal(() => {
+		if (value === undefined) {
+			return refuseValue([], "a value, not undefined")
+		}
+		const sink = new TemplateSink(holeOf)
+		new Walk(options, sink, canonicalOf).of(value)
+		return sink.template()
+	})
+
+/** A writer whose bytes are all kept, a template's (TemplateSink). */
+const keptWriter = (): Utf8Writer => new Utf8Writer({ kind: "grow" })
 
 /**
  * The sink that writes the canonical text a caller reads as a string, appended to one string as it is read (grizzle-text
@@ -1152,16 +1264,10 @@ class TextSink implements Sink {
 	 * text they make passes V8's longest string, before it is built.
 	 */
 	#write(comma: boolean, piece: WellFormedText, colon: boolean): void {
-		const needed = this.#text.length + (comma ? 1 : 0) + piece.length + (colon ? 1 : 0)
-		if (needed > maxStringLength) {
-			throw new Refusal(
-				resourceBound(canonicalTextLoc, {
-					kind: "stringLength",
-					limit: maxStringLength,
-					needed
-				})
-			)
-		}
+		boundCanonicalText(
+			this.#text.length + (comma ? 1 : 0) + piece.length + (colon ? 1 : 0),
+			maxStringLength
+		)
 		if (comma) {
 			this.#text.append(punctuation.comma)
 		}

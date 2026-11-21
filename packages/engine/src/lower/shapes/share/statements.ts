@@ -2,9 +2,10 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
-import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
+import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
+import { DagDigests } from "#compiler/ir/dag-digest.ts"
 import {
 	freeVars,
 	type NodeScope,
@@ -33,7 +34,7 @@ import {
 	readsOutside,
 	subtreeOf
 } from "#compiler/lower/optimize/demand/editor.ts"
-import { shareKey } from "#compiler/lower/shapes/share/index.ts"
+import { shareKeyIn } from "#compiler/lower/shapes/share/index.ts"
 import type { OperandSelect } from "#compiler/sql/ast.ts"
 import { col, core, operandSelect, target } from "#compiler/sql/build.ts"
 import type { CarrierName } from "#compiler/sql/naming.ts"
@@ -75,6 +76,8 @@ export class ShareIndex {
 	readonly #feedback: ReadonlySet<RelNode>
 	readonly #scopes: Fold<RelNode, NodeScope>
 	readonly #labels: ReadonlyMap<NodeId, RelNode>
+	/** The DAG's digests, each node's template written once for every share key that reaches it. */
+	readonly #digests: DagDigests
 	/** Each node's share key or its absence, by label, computed on its first read. */
 	readonly #keys = new Map<NodeId, { readonly key: string | undefined }>()
 	/** Whether each node may be shared, by label, decided on its first read. */
@@ -99,6 +102,7 @@ export class ShareIndex {
 		this.#feedback = feedbackReadsOf(nodeGraph, topoOrder(dag))
 		this.#scopes = nodeScopes()
 		this.#labels = nodesByLabel(dag)
+		this.#digests = new DagDigests(() => this.#labels, maxStringLength)
 	}
 
 	/** The node's inputs, once per reference: a region that matches one input twice lowers it twice. */
@@ -156,7 +160,7 @@ export class ShareIndex {
 	/** The share key of an eligible node; a DAG it cannot key is refused. */
 	#shareKey(node: RelNode): string {
 		this.#digested += 1
-		return unwrap(shareKey(this.dag, node))
+		return unwrap(shareKeyIn(this.#digests, node))
 	}
 }
 

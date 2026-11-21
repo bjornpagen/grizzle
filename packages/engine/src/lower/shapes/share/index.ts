@@ -1,6 +1,8 @@
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
+import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { dagDigestWithin } from "#compiler/ir/dag.ts"
+import { DagDigests } from "#compiler/ir/dag-digest.ts"
+import { nodesByLabel } from "#compiler/ir/dag.ts"
 import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
 
 /**
@@ -25,4 +27,10 @@ import type { RelDag, RelNode } from "#compiler/ir/rel.ts"
  * The share key of the sub-query rooted at `node`, a node of `dag`, whose enclosing nodes it may read.
  */
 export const shareKey = (dag: RelDag, node: RelNode): Result.Result<string, CompileError> =>
-	dagDigestWithin(dag, [node], "share")
+	shareKeyIn(new DagDigests(() => nodesByLabel(dag), maxStringLength), node)
+
+/** The share key of `node` (shareKey) from the templates of its DAG's digests, which every key of the DAG reads. */
+export const shareKeyIn = (
+	digests: DagDigests,
+	node: RelNode
+): Result.Result<string, CompileError> => digests.digest([node], "share", "followed")

@@ -1,18 +1,19 @@
 import { defect } from "@bjornpagen/grizzle-text/base/invariant"
-import { unwrap } from "#compiler/core/canonical.ts"
+import { maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { wellFormed } from "#compiler/core/text.ts"
-import { nodeShapes, reachDigestWithin, relNode, topoOrder } from "#compiler/ir/dag.ts"
+import { DagDigests } from "#compiler/ir/dag-digest.ts"
+import { nodeShapes, nodesByLabel, relNode, topoOrder } from "#compiler/ir/dag.ts"
 import { conservativeMeta, type NodeOf, type RelDag, type RelNode } from "#compiler/ir/rel.ts"
 
 /**
  * The identity of a read's call, its evaluation key: the function and the arguments it is called at, the field it reads,
  * its heading and what an analysis claims of its rows left out, digested as a share key is but with every enclosing
- * node its arguments read named by its label (ir/dag.ts reachDigestWithin), so two reads of fields of one call at equal
+ * node its arguments read named by its label (ir/dag-digest.ts DagDigests, labelled), so two reads of fields of one call at equal
  * arguments, its function immutable or stable, read one evaluation of it: two that read only parameters wherever they
  * stand, and two that read the same enclosing row, a region's, in that region.
  */
-const evaluationDigest = (dag: RelDag, node: NodeOf<"Call">): string => {
+const evaluationDigest = (digests: DagDigests, node: NodeOf<"Call">): string => {
 	const called = node.function
 	if (called.kind !== "field") {
 		throw defect("the evaluation key of a read of a field of a call")
@@ -28,7 +29,7 @@ const evaluationDigest = (dag: RelDag, node: NodeOf<"Call">): string => {
 		heading: [],
 		meta: conservativeMeta
 	})
-	return unwrap(reachDigestWithin(dag, [evaluation], "evaluation"))
+	return unwrap(digests.digest([evaluation], "evaluation", "labelled"))
 }
 
 /**
@@ -42,7 +43,8 @@ const evaluationDigest = (dag: RelDag, node: NodeOf<"Call">): string => {
  * encoded the whole reach of its arguments.
  */
 export class EvaluationKeys {
-	readonly #dag: RelDag
+	/** The DAG's digests, each node's template written once for every evaluation key that reaches it. */
+	readonly #digests: DagDigests
 	readonly #shapes = nodeShapes()
 	/** How many reads of the DAG are of each evaluation shape, to the second. */
 	readonly #reads = new Map<string, 1 | 2>()
@@ -50,7 +52,7 @@ export class EvaluationKeys {
 	#digested = 0
 
 	constructor(dag: RelDag) {
-		this.#dag = dag
+		this.#digests = new DagDigests(() => nodesByLabel(dag), maxStringLength)
 		for (const node of topoOrder(dag)) {
 			if (node.kind === "Call" && node.function.kind === "field") {
 				const shape = this.#shapeOf(node)
@@ -74,7 +76,7 @@ export class EvaluationKeys {
 	/** A read's digested key, counted. */
 	#digest(read: NodeOf<"Call">): string {
 		this.#digested += 1
-		return evaluationDigest(this.#dag, read)
+		return evaluationDigest(this.#digests, read)
 	}
 
 	/** How many reads' keys were digested, each a normalized, encoded reach: the keying's work. */

@@ -34,10 +34,10 @@ export const generated = conservativeAgreement(
 			why: "The conservative AntiJoin lowers as a semi-join (lower/conservative/anti-join/index.ts)."
 		},
 		{
-			file: "packages/engine/src/ir/dag.ts",
-			original: "\t\t\tif (!e.has(expr.id)) {",
-			replacement: "\t\t\tif (e.has(expr.id)) {",
-			why: "Operator mutant (negation) at packages/engine/src/ir/dag.ts:856 in exprRef: `!e.has(expr.id)` becomes `e.has(expr.id)`; the property fails (lane CATCH, grizzle 0baff5d6, against the mutation tester's oracle subset scripts/dev/mutate/oracle/queries.test.ts, which this property's agreement replaces)."
+			file: "packages/engine/src/ir/dag-digest.ts",
+			original: "\t\tif (!this.exprs.has(expr.id)) {",
+			replacement: "\t\tif (this.exprs.has(expr.id)) {",
+			why: "Operator mutant (negation) at packages/engine/src/ir/dag-digest.ts ReachNumbering.expr, formerly ir/dag.ts:856 in exprRef: `!e.has(expr.id)` becomes `e.has(expr.id)`; the property fails (lane CATCH, grizzle 0baff5d6, against the mutation tester's oracle subset scripts/dev/mutate/oracle/queries.test.ts, which this property's agreement replaces)."
 		}
 	],
 	{ runs: 2000, steered: 2000 }

@@ -1,5 +1,9 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { isWellFormedText, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
+import {
+	isWellFormedText,
+	type Utf8Writer,
+	type WellFormedText
+} from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import {
 	arrayText,
@@ -37,13 +41,17 @@ export const digest = (
 	domain: string,
 	value: unknown,
 	options: EncodeOptions
-): Result.Result<string, CompileError> => {
-	if (domain.length === 0 || domain.includes("\n") || !isWellFormedText(domain)) {
-		return Result.err(malformedArtifact("fingerprint", [], "a one-line fingerprint domain"))
-	}
-	const message = framed(domain)
-	return Result.map(writeCanonical(message.out, value, options), () => message.hex())
-}
+): Result.Result<string, CompileError> =>
+	Result.flatMap(fingerprintDomain(domain), (line) => {
+		const message = framed(line)
+		return Result.map(writeCanonical(message.out, value, options), () => message.hex())
+	})
+
+/** A fingerprint's domain, one line of well-formed text, or MalformedArtifact: the one check of a caller's domain. */
+export const fingerprintDomain = (domain: string): Result.Result<WellFormedText, CompileError> =>
+	domain.length === 0 || domain.includes("\n") || !isWellFormedText(domain)
+		? Result.err(malformedArtifact("fingerprint", [], "a one-line fingerprint domain"))
+		: Result.ok(domain)
 
 declare const identityDigestBrand: unique symbol
 
@@ -200,10 +208,15 @@ const newline = wellFormed("\n")
 /** A message framed by its domain (`digest`): its frame written, the canonical text to follow. */
 const framed = (domain: WellFormedText): Sha256Messages => {
 	const message = new Sha256Messages(messageChunk)
-	message.out.text(formatLine)
-	message.out.text(domain)
-	message.out.text(newline)
+	writeFrame(message.out, domain)
 	return message
+}
+
+/** A digest's frame written into `out`: the canonical format's line and its domain's (`digest`). */
+export const writeFrame = (out: Utf8Writer, domain: WellFormedText): void => {
+	out.text(formatLine)
+	out.text(domain)
+	out.text(newline)
 }
 
 /** SHA-256 of a canonical text framed by its domain (`digest`). */

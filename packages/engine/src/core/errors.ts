@@ -161,6 +161,9 @@ const regexSpaceText = (measure: RegexSpaceMeasure): string => {
  * - `regexCompileSpace`: the pattern `pattern`, which `measure` puts past a limit of PostgreSQL's regex compiler;
  * - `stringLength`: a text grizzle builds as one string, `needed` UTF-16 code units long, past V8's longest string,
  *   `limit` (maxStringLength);
+ * - `stringLengthAtLeast`: a text grizzle writes piece by piece, refused at the piece where it passes V8's longest
+ *   string, `limit`, so its whole length, which no writer measures, is at least `atLeast` UTF-16 code units (a canonical
+ *   text, core/canonical.ts boundCanonicalText);
  * - `tableColumns`: the table, view or materialized view `table` (a write program's carrier among them), of `needed`
  *   columns, past PostgreSQL's `limit` (tableMaxColumns);
  * - `selectList`: a select list of `needed` entries, past PostgreSQL's `limit` (selectMaxEntries);
@@ -186,6 +189,7 @@ export type CompileBound =
 			readonly measure: RegexSpaceMeasure
 	  }
 	| { readonly kind: "stringLength"; readonly limit: number; readonly needed: number }
+	| { readonly kind: "stringLengthAtLeast"; readonly limit: number; readonly atLeast: number }
 	| {
 			readonly kind: "tableColumns"
 			readonly table: string
@@ -222,6 +226,8 @@ const boundText = (bound: CompileBound): string => {
 			return `${bound.pattern} ${regexSpaceText(bound.measure)}: past a limit of PostgreSQL's regex compiler (REG_MAX_COMPILE_SPACE, MAX_COLOR, max_stack_depth or MaxAllocSize), beyond which PostgreSQL refuses a pattern as "regular expression is too complex" or "too many colors", or fails each match with "invalid memory alloc request size"; write a smaller pattern, or bound the text's length with Text.charLength or Text.octetLength in a contract predicate`
 		case "stringLength":
 			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed ${bound.needed})`
+		case "stringLengthAtLeast":
+			return `a text of at most ${bound.limit} UTF-16 code units, V8's longest string (needed at least ${bound.atLeast})`
 		case "tableColumns":
 			return `a table of at most ${bound.limit} columns, PostgreSQL's limit; ${bound.table} would have ${bound.needed}`
 		case "selectList":
