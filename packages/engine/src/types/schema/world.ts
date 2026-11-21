@@ -748,25 +748,41 @@ type IsOneOf<S, Roles> = true extends (
 	? true
 	: false
 
-/** A login's workloads, checked one by one: each over the base, a level of it or a role of the login. */
-export type WorkloadsOver<Base, Roles, Ws> = {
-	readonly [I in keyof Ws]: Ws[I] extends Workload<infer S, unknown>
-		? IsLevelOf<Base, S> extends true
-			? unknown
-			: IsOneOf<S, Roles> extends true
-				? unknown
-				: Refusal<"a login's workload is over its base, a level of it, or one of its roles">
-		: unknown
-}
+/**
+ * The verdict on a login's workloads W, a union of them: unknown where each is over the base, a level of it or a role of
+ * the login, else the refusal. One verdict, never a list of them matched against the workloads, which relates the
+ * workloads' array to a mapped copy of itself, the array's methods' generic signatures instantiated over every
+ * workload's schema at every level of it: past the checker's depth for records whose attachments nest (types/schema
+ * records.ts), each relation of which carries its parent's and its attachments' types.
+ */
+export type WorkloadsOver<Base, Roles, W> = [OffLogin<Base, Roles, W>] extends [never]
+	? unknown
+	: Refusal<"a login's workload is over its base, a level of it, or one of its roles">
 
-/** Every role of a login is over its base, compared invariantly as levels are. */
-export type RolesOver<Base, Roles> = {
-	readonly [K in keyof Roles]: Roles[K] extends { readonly base: infer B }
-		? [Invariant<B>] extends [Invariant<Base>]
-			? unknown
-			: Refusal<"a login's roles share its base">
-		: unknown
-}
+/** The workloads of W over neither the base, a level of it, nor a role of the login. */
+type OffLogin<Base, Roles, W> =
+	W extends Workload<infer S, unknown>
+		? IsLevelOf<Base, S> extends true
+			? never
+			: IsOneOf<S, Roles> extends true
+				? never
+				: W
+		: never
+
+/**
+ * The verdict on a login's roles R, a union of them: unknown where each is over the base, compared invariantly as levels
+ * are, else the refusal; one verdict, as WorkloadsOver is.
+ */
+export type RolesOver<Base, R> = [OffBase<Base, R>] extends [never]
+	? unknown
+	: Refusal<"a login's roles share its base">
+
+/** The roles of R over another base than Base. */
+type OffBase<Base, R> = R extends { readonly base: infer B }
+	? [Invariant<B>] extends [Invariant<Base>]
+		? never
+		: R
+	: never
 
 export type RolesOf<L> = L extends { readonly roles: infer Rs }
 	? Rs[keyof Rs] extends infer H

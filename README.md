@@ -4100,6 +4100,23 @@ query stated its delivery, an array in its places' order, so its rows are still 
 name the records mint is the stem followed by more: name a relation of your own the stem itself, never the stem and a
 suffix.
 
+Records retire with the group their owner's key names: `on(records, ...fields)` is a side over them, its fields fields
+of the owner's key, which their heading shows and every relation of them carries, and as a body of `retirable` it
+stands for each of their relations, flat or attached, each on its own fields carrying those, a child's renamed where
+its own columns take the name. A retirement of a group removes its rows from every relation of the records at once.
+Records holding an arm are no body: no retirable unit takes an `alternatives` law over its bodies. A side over records
+is read only as a retirable body; a law over one of their relations takes `on(relation, …)`.
+
+```ts
+const kept = records("Lessons", lessonsOf, { digest: sha256, root: RootId }, ["digest", "root"])
+export const Graph = schema.extend(
+	[School],
+	"Graph",
+	[Root, ...kept.relations],
+	[...kept.rules, retirable(Root, [on(kept, "root")])]
+)
+```
+
 ## Declared functions
 
 `fn(name, { calls, args, returns, volatility, nullInput, language, body })` declares a PostgreSQL function the application writes,

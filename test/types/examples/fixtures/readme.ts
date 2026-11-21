@@ -1414,6 +1414,21 @@ ChangeSet.empty(Audit).insertAll(insert)
 /** The rows stored at one owner: rows of `lessonsOf`'s own type, read through its own decoder. */
 export const storedLessons = recordsQuery(Audit, found)
 
+/**
+ * README: "Records of a query": the found lessons kept under the root of a graph that found them, retired with it, Root
+ * the header of their retirable unit.
+ */
+const RootId = contract("RootId", pg.bigint)
+const Root = relation("Root", { id: RootId, retired: retirement }, ["id"])
+
+const kept = records("Lessons", lessonsOf, { digest: sha256, root: RootId }, ["digest", "root"])
+export const Graph = schema.extend(
+	[School],
+	"Graph",
+	[Root, ...kept.relations],
+	[...kept.rules, retirable(Root, [on(kept, "root")])]
+)
+
 /** README: "Levels". */
 /** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
 const Word = str.regex("^[a-z]+$", "u")

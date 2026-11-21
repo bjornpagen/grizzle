@@ -81,7 +81,7 @@ export const attachedCaseGen: Gen<AttachedCase> = (source) => ({
 	facts: source.draw(factsGen)
 })
 
-const shelfId = Id("00000000-0000-4000-8000-000000000001")
+export const shelfId = Id("00000000-0000-4000-8000-000000000001")
 const otherShelf = Id("00000000-0000-4000-8000-000000000002")
 const runId = Id("00000000-0000-4000-8000-0000000000aa")
 
@@ -89,7 +89,9 @@ const bookId = (shelf: number, i: number): IdValue =>
 	Id(`00000000-0000-4000-9000-0000000000${shelf}${i}`)
 
 /** Every fact of a case, under each relation's name, as an insert of Shelves takes them. */
-const shelvesFacts = (facts: ShelvesFacts): Readonly<Record<string, ReadonlyArray<unknown>>> => {
+export const shelvesFacts = (
+	facts: ShelvesFacts
+): Readonly<Record<string, ReadonlyArray<unknown>>> => {
 	const books = [
 		...Arr.map(facts.books, (b, i) => ({ id: bookId(1, i), shelf: shelfId, book: b })),
 		...(facts.other
@@ -143,7 +145,7 @@ const shelvesFacts = (facts: ShelvesFacts): Readonly<Record<string, ReadonlyArra
 }
 
 /** The relations of Shelves an insert writes, in its order. */
-const shelvesRelations = [
+export const shelvesRelations = [
 	"Shelf",
 	"Book",
 	"Paper",

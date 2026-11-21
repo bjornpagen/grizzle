@@ -1,4 +1,9 @@
-import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import {
+	isNonEmpty,
+	mapNonEmpty,
+	type NonEmptyReadonlyArray
+} from "@bjornpagen/grizzle-text/base/nonempty"
 import { hasProperties, isList, isPlainRecord } from "#compiler/core/record.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import {
@@ -33,6 +38,7 @@ import {
 	ownedKind,
 	ownValue,
 	queryHeadingOf,
+	type RecordsDesc,
 	builderRefusal,
 	requireName,
 	requireNames
@@ -203,10 +209,16 @@ export const sideDescOf = (value: unknown): SideDesc | undefined => ownedDesc(va
 
 const sideOf = (value: unknown, label: string): SideDesc => {
 	const desc = sideDescOf(value)
-	if (desc === undefined) {
-		throw malformed(label, "a law side built by on(...)")
+	if (desc !== undefined) {
+		return desc
 	}
-	return desc
+	if (ownedDesc(value, "recordsSide") !== undefined) {
+		throw builderRefusal(
+			label,
+			"a side over records is read only as a retirable body: a law over one of their relations takes on(relation, …)"
+		)
+	}
+	throw malformed(label, "a law side built by on(...)")
 }
 
 /** A key statement's side, a SideDesc built by on(...). */
@@ -457,20 +469,53 @@ const admitOn = (source: unknown, terms: unknown): SideDesc => {
 }
 
 /**
+ * A side over records (RecordsDesc): each of their relations' side, on its own fields carrying the terms, which name
+ * fields of the owner's key, each once, in any order.
+ */
+const recordsSides = (records: RecordsDesc, terms: unknown): NonEmptyReadonlyArray<SideDesc> => {
+	const label = `on ${records.name}`
+	const positions = requireTerms(terms, label).map((t) => {
+		const at = records.ownerKey.indexOf(t.field)
+		if (t.kind !== "field" || at < 0) {
+			throw builderRefusal(
+				label,
+				"a side over records names fields of their owner's key, each once"
+			)
+		}
+		return at
+	})
+	if (new Set(positions).size < positions.length) {
+		throw builderRefusal(label, "a side over records names fields of their owner's key, each once")
+	}
+	return mapNonEmpty(records.relations, ({ relation, carries }) =>
+		admitOn(
+			relation,
+			positions.map((at) =>
+				defined(carries[at], "a relation of records carrying each owner key field")
+			)
+		)
+	)
+}
+
+/**
  * A side reads at least one term of its source, each once (ir/desc.ts SideDesc); the value holds a frozen copy of
- * them, `readonly [...T]`.
+ * them, `readonly [...T]`. A side over records stands for each of their relations' (recordsSides), which only a
+ * retirable body reads (admitRetirable).
  */
 export const onBuilder = <R, const T extends ReadonlyArray<AnyTerm>>(
 	source: R,
 	terms: T
 ): Side<R, readonly [...T]> => {
-	const desc = admitOn(source, terms)
-	return ownValue({
-		kind: "side",
-		value: { source, terms: frozenTuple<T>(terms) },
-		desc: desc,
-		content: undefined
-	})
+	const value = { source, terms: frozenTuple<T>(terms) }
+	const records = ownedDesc(source, "records")
+	return records === undefined
+		? ownValue({ kind: "side", value, desc: admitOn(source, terms), content: undefined })
+		: ownValue({
+				kind: "recordsSide",
+				value,
+				desc: recordsSides(records, terms),
+				content: undefined
+			})
 }
 
 const sidePair = (left: unknown, right: unknown, label: string): readonly [SideDesc, SideDesc] => {
@@ -670,8 +715,11 @@ const admitRetirable = (header: unknown, bodies: unknown): StatementDesc => {
 	if (!isList(bodies)) {
 		throw malformed(label, "a list of body sides built by on(relation, ...group fields)")
 	}
-	const sides = bodies.map((body, at) => {
-		const side = sideOf(body, `${label} body ${at}`)
+	const sides = bodies.flatMap(
+		(body, at): ReadonlyArray<SideDesc> =>
+			ownedDesc(body, "recordsSide") ?? [sideOf(body, `${label} body ${at}`)]
+	)
+	for (const side of sides) {
 		const bodyLabel = `${label} body ${side.relation}`
 		if (side.selection.conjuncts.length > 0) {
 			throw builderRefusal(bodyLabel, "a retirable body is every fact of its relation")
@@ -682,8 +730,7 @@ const admitRetirable = (header: unknown, bodies: unknown): StatementDesc => {
 		if (side.terms.length !== headerKey.fields.length) {
 			throw builderRefusal(bodyLabel, "a body's group does not match the header key")
 		}
-		return side
-	})
+	}
 	const [first, ...rest] = sides
 	if (first === undefined) {
 		throw builderRefusal(label, "a retirable statement retires at least one body relation")

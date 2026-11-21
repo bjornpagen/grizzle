@@ -136,11 +136,21 @@ export type RecordedQuery = Decoders<unknown, unknown> & { readonly heading: Car
 export type RecordOwner = Readonly<Record<string, FieldBase>>
 
 /**
+ * The fields of an owner's key, under their names: what every relation of records carries, so what records show as a
+ * side's source (OwnerHeading), on(records, …) naming them.
+ */
+type OwnerHeading<Owner, Key extends ReadonlyArray<keyof Owner & string>> = {
+	readonly [K in Key[number]]: Owner[K]
+}
+
+/**
  * A query's records (program/records.ts records): its root relation `${Stem}Row`, the owner's fields then the query's
  * stored columns and its arrays' counts, keyed by the owner's key; the relations and laws a level lists for them, root
  * first, then each attachment's (Children, Laws); the relations an insert states apart from the root (Apart); and the
  * query's own decoders, its rows' (Head) and its read-back rows' (IHead), which the read of the records (RecordsQuery)
- * delivers through.
+ * delivers through. As a side's source records show their stem as their name and their owner's key as their heading
+ * (OwnerHeading), which every relation of them carries: on(records, …owner key fields) is a retirable body standing for
+ * each of their relations, on its own fields carrying those (schema/statements.ts admitRetirable).
  */
 export interface Records<
 	Stem extends string,
@@ -154,7 +164,8 @@ export interface Records<
 	Apart = never
 > extends Decoders<Head, IHead> {
 	readonly kind: "records"
-	readonly stem: Stem
+	readonly name: Stem
+	readonly heading: OwnerHeading<Owner, Key>
 	readonly row: RecordsRow<Stem, Fields, Key>
 	readonly relations: readonly [RecordsRow<Stem, Fields, Key>, ...ReadonlyArray<Children>]
 	readonly rules: ReadonlyArray<Laws>

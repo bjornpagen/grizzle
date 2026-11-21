@@ -99,12 +99,12 @@ export const login = <
 >(
 	base: Base,
 	name: Name,
-	roles: Roles & RolesOver<Base, Roles> & MembersTyped<Roles>,
+	roles: Roles & RolesOver<Base, Roles[number]> & MembersTyped<Roles>,
 	...options:
 		| readonly []
 		| readonly [
 				options: {
-					readonly workload: Ws & WorkloadsOver<Base, Roles[number], Ws> & MembersTyped<Ws>
+					readonly workload: Ws & WorkloadsOver<Base, Roles[number], Ws[number]> & MembersTyped<Ws>
 				} & ([SharedNames<Ws, never>] extends [never]
 					? unknown
 					: Refusal<"two programs of one name across a login's workloads">)

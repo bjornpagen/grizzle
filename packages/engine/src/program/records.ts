@@ -63,6 +63,8 @@ import {
 	type HeadingTyping,
 	malformed,
 	orThrow,
+	ownRecords,
+	type RecordsDesc,
 	requireName
 } from "#compiler/schema/protocol.ts"
 import {
@@ -596,7 +598,8 @@ export const recordsBuilder = <
 		>
 	>([
 		["kind", "records"],
-		["stem", stem],
+		["name", stem],
+		["heading", recordFields<RecordOwner>(rootKey.map((k) => [k.name, k.carried] as const))],
 		["row", row],
 		["relations", Object.freeze([row, ...built.relations])],
 		["rules", Object.freeze([...built.laws])],
@@ -606,20 +609,44 @@ export const recordsBuilder = <
 		["rows", decoderOf<HeadOf<Q>>(query.rows.form)],
 		["immediate", decoderOf<ImmediateHeadOf<Q>>(query.immediate.form)]
 	])
+	const root: Holder = {
+		relation: row,
+		key: rootKey,
+		columns: storedOf(admitted.columns).map(([column]) => column),
+		literals: literalsOf(admitted.columns),
+		attachments
+	}
 	states.set(value, {
-		root: {
-			relation: row,
-			key: rootKey,
-			columns: storedOf(admitted.columns).map(([column]) => column),
-			literals: literalsOf(admitted.columns),
-			attachments
-		},
+		root,
 		owner: Object.keys(admitted.owner),
 		ownerFields: admitted.owner,
 		apart: built.apart
 	})
+	ownRecords(value, {
+		name: stem,
+		ownerKey: admitted.key,
+		relations: carryingOf(root, admitted.key)
+	})
 	return value
 }
+
+/**
+ * Each relation of the records under `holder`, its own first, with its fields carrying the owner's key in the key's
+ * order: `carrying` for its own, and for each attachment's the fields its key carries `holder`'s under (AttachmentRecords
+ * carries), named apart from the child's own columns.
+ */
+const carryingOf = (holder: Holder, carrying: ReadonlyArray<string>): RecordsDesc["relations"] => [
+	{ relation: holder.relation, carries: carrying },
+	...holder.attachments.flatMap((a) => {
+		const carriedAs = new Map(a.carries.map(([field, from]) => [from, field] as const))
+		return carryingOf(
+			a.holder,
+			carrying.map((f) =>
+				defined(carriedAs.get(f), "a child carrying each field of its parent's key")
+			)
+		)
+	})
+]
 
 /** The state of a records value records(...) made; any other value is refused. */
 const stateOf = (records: unknown, label: string): RecordsState => {

@@ -101,6 +101,7 @@ import type {
 } from "#compiler/types/schema/schema.ts"
 
 import type { MonoidName } from "#compiler/ir/desc.ts"
+import type { AnyRecords } from "#compiler/types/schema/records.ts"
 import type {
 	Alternatives,
 	AnyFamily,
@@ -590,14 +591,17 @@ export const check = <
 
 /**
  * A side reads at least one term of its source, each once (ir/desc.ts SideDesc): a field, or pred of a natural field,
- * whose fact has no tuple on the side where the field is zero.
+ * whose fact has no tuple on the side where the field is zero. A side over records (records(...)) names fields of
+ * their owner's key, which their heading shows: a retirable body standing for each of their relations, flat or
+ * attached, each on its own fields carrying those (schema/statements.ts admitRetirable).
  */
 export const on = <
 	R extends
 		| AnyRelation
 		| AnyClosed
 		| RuleReadDerived
-		| Selection<AnyRelation | AnyClosed | RuleReadDerived>,
+		| Selection<AnyRelation | AnyClosed | RuleReadDerived>
+		| AnyRecords,
 	C,
 	const T extends readonly [TermOf<C>, ...TermOf<C>[]]
 >(

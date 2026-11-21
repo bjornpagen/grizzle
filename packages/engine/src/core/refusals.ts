@@ -93,6 +93,8 @@ export const refusals = [
 	"a served ChangeSet's facts name, under each op, only the relations of its array members of that op",
 	"a set lists each of its handles once",
 	"a side lists each term once",
+	"a side over records is read only as a retirable body: a law over one of their relations takes on(relation, …)",
+	"a side over records names fields of their owner's key, each once",
 	"a span term is required",
 	"a statement names a relation no level of the schema declares",
 	"a stratum puts no row its deletes remove whole: a delete of a tree or of a family's owner removes every row nested under it, so put in another stratum (ChangeSet.sequence), or insert the rows again whole",

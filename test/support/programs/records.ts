@@ -6,7 +6,18 @@ export { ChangeSet } from "#compiler/public/changeset.ts"
 export { pg } from "#compiler/public/fields.ts"
 export { arm, query, v } from "#compiler/public/query.ts"
 export type { HeadOf, ImmediateHeadOf } from "#compiler/public/query.ts"
-export { records, recordsFacts, recordsQuery, schema } from "#compiler/public/schema.ts"
+export {
+	login,
+	on,
+	records,
+	recordsFacts,
+	recordsQuery,
+	retirable,
+	role,
+	schema,
+	wholeEntriesOf
+} from "#compiler/public/schema.ts"
+export { workload } from "#compiler/public/workload.ts"
 export type { Fact } from "#compiler/public/schema.ts"
 export {
 	Blurb,
@@ -16,6 +27,7 @@ export {
 	Ink,
 	Paper,
 	Remark,
+	Run,
 	Shelf,
 	Shelves,
 	Spine

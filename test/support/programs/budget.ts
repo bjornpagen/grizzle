@@ -61,6 +61,8 @@ export {
 	mutable,
 	on,
 	ordered,
+	records,
+	recordsQuery,
 	relation,
 	role,
 	row,

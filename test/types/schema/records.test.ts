@@ -7,8 +7,9 @@
  * a level over Shelves lists their relations and laws as schema.extend takes them; their read (recordsQuery) delivers
  * the query's own records under either reading, HeadOf and ImmediateHeadOf; each relation's facts, but its key and its
  * arrays' counts, are the query's records at its level, but their attachments and head literals: a contract's brand, a
- * closed id's handles and each column's host type kept; and insertAll over the level takes their insert (recordsFacts). A batch's cases are one program, checked armed. Oracle: the engine's records of each drawn
- * query.
+ * closed id's handles and each column's host type kept; insertAll over the level takes their insert (recordsFacts); and
+ * on(records, "run") is a side over them that retirable takes as a body, naming the owner's key alone, never a column
+ * of the root. A batch's cases are one program, checked armed. Oracle: the engine's records of each drawn query.
  */
 import type { Reached } from "@bjornpagen/testing/features"
 import { Array as Arr, Option } from "effect"
@@ -125,6 +126,18 @@ export const recordsAgree = agreement(shapeGen, {
 			original: "\ttrue extends Repeats<Paths, Capitalize<N>>",
 			replacement: "\tfalse extends Repeats<Paths, Capitalize<N>>",
 			why: "An attachment's relation is qualified by its parent's name where its name is the tree's alone (types/schema/records.ts AttachedName), so the names disagree with the engine's."
+		},
+		{
+			file: "packages/engine/src/types/schema/records.ts",
+			original: "\treadonly heading: OwnerHeading<Owner, Key>\n",
+			replacement: "\treadonly heading: Fields\n",
+			why: "Records show every field of their root as their heading (types/schema/records.ts Records), so a side over them names label, a column of the root that no relation below it carries; the refused line compiles."
+		},
+		{
+			file: "packages/engine/src/types/schema/records.ts",
+			original: "\treadonly heading: OwnerHeading<Owner, Key>\n",
+			replacement: "",
+			why: "Records show no heading (types/schema/records.ts Records), so on(records, …) finds no field to name, and refuses the owner's own run."
 		},
 		{
 			file: "packages/engine/src/types/schema/records.ts",
