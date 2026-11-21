@@ -61,7 +61,11 @@ const stepsOf = (q: InferredQuery): number =>
 			)
 		: 0
 
-/** One query read and its navigation, each checked and evaluated by the reference, which must agree. */
+/**
+ * One query read and its navigation, each checked and evaluated by the reference, which must agree. A navigation that
+ * builds steps keeps them through the checker; one of a rule that joins nothing changes the read only by restricting an
+ * import it reads whole to the values the rule fixes (navigate.ts navigatedRule, boundInside), and builds none.
+ */
 export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => void): void => {
 	const built = buildSchema(c.schema)
 	const desc = succeeded(queryInput(buildRoot(built, built.schema, read.query))).desc
@@ -107,8 +111,10 @@ export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => vo
 		`the checker refuses a navigated read\n${printCase(c)}`
 	)
 	validateDag(nav.dag)
-	if (!Arr.some(topoOrder(nav.dag), (n) => n.kind === "Step")) {
-		throw new Error(`a navigated read's IR holds no step\n${printCase(c)}`)
+	if (stepsOf(navigated) > 0 && !Arr.some(topoOrder(nav.dag), (n) => n.kind === "Step")) {
+		throw new Error(
+			`a navigated read's IR holds none of the steps its navigation built\n${printCase(c)}`
+		)
 	}
 	const artifacts = succeeded(testArtifacts(built.schema, testCompile))
 	succeeded(

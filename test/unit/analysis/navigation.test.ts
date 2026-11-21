@@ -62,6 +62,14 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 					reason:
 						"a navigated read whose region holds a variable correlated with an attachment's parent, __p0_0 fixed to the parent's Bool, beside an occurrence whose source is correlated with the region and reads that variable: the reference fixed a correlated variable only once every occurrence was bound, so the source read a column the region did not yet hold and the reference refused the case (PERFWRITE2's replay at 0eaba136c)",
 					since: "2026-11-20"
+				},
+				{
+					token: ReplayToken(
+						"test/unit/analysis/navigation.test.ts#navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheCheckedIR:-:0.a.0.0.1.0.0.1.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.3.0.0.0.0.0.0.1.3.1.0.0.0.0.0.1.0.0.1.1.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.1.0.0.0.0.0.3.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.1.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.pa8.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.1.0.0.0.1.1.0.0.0"
+					),
+					reason:
+						"a read over Rel0x0 that matches q1 bound at its key column and negates q1 at the same binding, q1 one rule over Rel0x0 alone: no rule of it joins, so navigation builds no step and changes the read only by restricting the matched import inside to the parameter its column0 is bound at (navigate.ts navigatedRule, boundInside), where the property required a step of every read navigation changed (VALIDCOST2's rotating stream, seed 0x847460d3, case 200)",
+					since: "2026-11-21"
 				}
 			],
 			kills: [

@@ -1408,7 +1408,8 @@ type Imported = Extract<InferredSource, { readonly kind: "query" }>
 /**
  * An import a rule matches at `bindings`, which navigation reads apart from the rule (`navigatedRule`), with each
  * binding the rule fixes (`fixedTerms`), to a parameter, a channel or a literal, equated inside each rule of the import
- * with the head term it binds, every parameter it reads passed in under its own name, at every depth navigation reads
+ * with the head term it binds, every parameter it reads passed in under a name of the import's own (`received`), at
+ * every depth navigation reads
  * apart in turn: navigated apart, the
  * import's chain starts from those values. Outside it, beside steps PostgreSQL never pulls a condition into, the
  * equality left the chain's first step a read of every row: a whole rule's aggregate over the operands' join, its
