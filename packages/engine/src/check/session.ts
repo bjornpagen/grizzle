@@ -4,6 +4,7 @@ import type { SchemaReading } from "#compiler/check/schema.ts"
 import { makeIdSupply } from "#compiler/core/ids.ts"
 import type { Inferred, InferredQuery, Located, QueryDesc } from "#compiler/ir/desc.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
+import { checkerEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 
 /**
@@ -36,6 +37,9 @@ const entries = (): Readonly<Record<QueryEntry, WeakSet<InferredQuery>>> => ({
  *   at its key reads that one node, adopting what its check recorded, where each check built the import again and
  *   completed it again over its own DAG (a ChangeSet of a hundred members reading one call's six hundred imports); and a
  *   write's DAG merges the imports of one key as one node (write/frontend/dag.ts QueryMerger).
+ * - The logical analyses of its closed imports (logical/annotate.ts SharedAnalyses), under the checker's evidence: a
+ *   completion that reads a closed import another completion analyzed reads its annotations, so an import read inside
+ *   others is analyzed once for the compile, where every importer's completion analyzed it again, up its nesting.
  * - Each query whose structure the checks have validated (check/description.ts validateQueryStructure), by how the
  *   check reads its query and how the query was entered: a query is one value every reader of it shares
  *   (query/build/state.ts publicDesc), so the compile's descriptions are one DAG of queries, and a query's structure
@@ -66,6 +70,11 @@ export class CheckSession {
 	#placed = 0
 	readonly #closed = new WeakMap<RelNode, string>()
 	readonly #imports = new WeakMap<SchemaReading, Map<string, ClosedImport>>()
+	/** The analyses of the closed imports the checks built (`closed`), each read by every completion that reads it. */
+	readonly analyses = new SharedAnalyses(
+		checkerEvidence,
+		(node) => this.closedKey(node) !== undefined
+	)
 
 	/**
 	 * The closed imports the checks of the compile built over `schema`, by their reading and key (Checker

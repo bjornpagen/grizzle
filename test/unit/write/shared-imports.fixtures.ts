@@ -211,3 +211,66 @@ export const boundTakeWriteOf = (members: 1 | 8): unknown =>
 			})
 		)
 	)
+
+/** A session's readings, each a float: a rule over them delivers a float, so its head states a merge (check/merge.ts). */
+const Reading = relation("Reading", { session: pg.integer, k: pg.bigint, x: pg.real }, [
+	"session",
+	"k"
+])
+const FloatOut = relation("FloatOut", { session: pg.integer, k: pg.bigint, x: pg.real }, [
+	"session",
+	"k"
+])
+
+export const Floats = schema("FloatImports", [Reading, FloatOut], [])
+
+/** The depths of the float chain's box. */
+export type FloatDepth = 2 | 3 | 4 | 6 | 8
+
+export const floatDepthGen: Gen<FloatDepth> = element([2, 3, 4, 6, 8] as const)
+
+/** The session's readings, each with its float: the query the float chain's first level reads, bound to the session. */
+const floatRoot = query(Floats).rule((r) => {
+	const { k, x } = v(Reading, "reading")
+	return r.match(Reading, { session: r.param("session", pg.integer), k, x }).find({ k, x })
+})
+
+/**
+ * The float chain's first level: one rule reading the session's readings, bound to the session, delivering each one's
+ * float, so its head states a merge (check/merge.ts), as every level's does; each level is a closed import its check
+ * completes under the logical analysis of its own DAG, the levels below it among its nodes.
+ */
+const floatFirst = () =>
+	query(Floats).rule((r) => {
+		const b = floatRoot.bind({ session })
+		const { k, x } = v(b, "below")
+		return r.match(b, { k, x }).find({ k, x })
+	})
+
+/** A level of the float chain above the first: one rule reading the level below bound to the session. */
+const floatUp = (below: ReturnType<typeof floatFirst>): ReturnType<typeof floatFirst> =>
+	query(Floats).rule((r) => {
+		const b = below.bind({ session })
+		const { k, x } = v(b, "below")
+		return r.match(b, { k, x }).find({ k, x })
+	})
+
+/** The top of a float chain of `depth` levels over Reading. */
+const floatChainOf = (depth: number): ReturnType<typeof floatFirst> => {
+	let level = floatFirst()
+	for (let i = 1; i < depth; i++) {
+		level = floatUp(level)
+	}
+	return level
+}
+
+/** One insert of the top of a float chain of `depth` levels into FloatOut. */
+export const floatChainWriteOf = (depth: FloatDepth): unknown =>
+	ChangeSet.empty(Floats).insert(
+		FloatOut,
+		query(Floats).rule((r) => {
+			const top = floatChainOf(depth).bind({ session })
+			const { k, x } = v(top, "top")
+			return r.match(top, { k, x }).find({ session, k, x })
+		})
+	)

@@ -5,7 +5,12 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { DagBuilder } from "#compiler/ir/builder.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode, Roots, ValidDag } from "#compiler/ir/rel.ts"
-import { analyzeLogical, checkerEvidence, withLogicalMeta } from "#compiler/logical/annotate.ts"
+import {
+	analyzeLogical,
+	type LogicalEnv,
+	type SharedAnalyses,
+	withLogicalMeta
+} from "#compiler/logical/annotate.ts"
 
 /**
  * A checked DAG completed: what the checker states as it builds a node and settles only under the logical analysis of
@@ -13,26 +18,30 @@ import { analyzeLogical, checkerEvidence, withLogicalMeta } from "#compiler/logi
  * stated merge may take one of two zeros of (merge.ts canonicalMerges), under one analysis, which only a DAG stating
  * either runs.
  *
- * Every node then carries the analysis's logical metadata (logical/annotate.ts), so the relation an order rests on
+ * Every node but those it keeps (`kept`, the closed imports a check shares, which their own completions settled) then
+ * carries the analysis's logical metadata (logical/annotate.ts), so the relation an order rests on
  * records the key that makes it total, with its proof, here and after every rewrite that keeps a node's metadata. Only
  * the metadata is taken: node bodies, such as an attachment's delivered type, stay the checker's. The claims are the
  * analysis's own and are checked again wherever they are read; the conservative lowering reads no metadata. A float's
  * canonical zero changes no key: it delivers its column's value under PostgreSQL's equality (ir/injective.ts
  * comparedValue), so the analysis of the DAG as stated holds of the DAG as completed.
  *
- * `dag`, built by `b`, completed, or the first stated order that has no correct completion.
+ * `dag`, built by `b`, completed under `evidence` (the checker's, logical/annotate.ts checkerEvidence, or a compile's
+ * analyses under it, which a completion reads the shared closed imports' annotations from), or the first stated order
+ * that has no correct completion.
  */
 export const completeStated = <R extends Roots>(
 	dag: ValidDag<R>,
 	b: DagBuilder,
 	orders: ReadonlyMap<RelNode, StatedOrder>,
 	merges: ReadonlyMap<RelNode, StatedMerge>,
-	kept: ReadonlySet<RelNode>
+	kept: ReadonlySet<RelNode>,
+	evidence: LogicalEnv | SharedAnalyses
 ): Result.Result<ValidDag<R>, CompileError> => {
 	if (orders.size === 0 && merges.size === 0) {
 		return Result.ok(dag)
 	}
-	const analysis = analyzeLogical(dag, checkerEvidence)
+	const analysis = analyzeLogical(dag, evidence)
 	if (!analysis.ok) {
 		return Result.err(analysis.error)
 	}

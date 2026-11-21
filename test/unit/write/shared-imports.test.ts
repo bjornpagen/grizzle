@@ -25,7 +25,15 @@
  * distinct nodes analyzed). Oracle: specification, a closed import is checked once for its compile. Kill: no check reads
  * another's import, so each member checks the eight arguments again.
  *
- * Features: one member and several; a chain of one level and of several.
+ * And the logical analyses of one compile's completions share every closed import's annotations (check/session.ts
+ * CheckSession analyses, logical/annotate.ts SharedAnalyses): over a chain of bound queries each of whose levels states a
+ * merge, so each level's check completes it under the analysis of its own DAG, the levels below among its nodes, the
+ * annotations of the write's compile are linear in the depth, each level annotated a fixed number of times, where each
+ * level's completion annotated every level below it again, the work quadratic in the depth. Counted as calls of
+ * logical/props.ts logicalPropsOf. Oracle: linearity, read off the chain: every level is alike, so each costs the
+ * compile what the third added to the second. Kill: the session's analyses share nothing.
+ *
+ * Features: one member and several; a chain of one level and of several; a float chain of two levels and of more.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
@@ -40,6 +48,10 @@ import { compiled } from "#test/unit/write/changeset/fixtures.ts"
 import {
 	chainWriteOf,
 	depthGen,
+	type FloatDepth,
+	Floats,
+	floatChainWriteOf,
+	floatDepthGen,
 	type Readers,
 	readersGen,
 	readersOf,
@@ -179,6 +191,50 @@ export const theChecksOfOneCompileCheckEachClosedImportOnceHoweverManyMembersRea
 				original: "\t\tconst prior = compiled.get(at)\n",
 				replacement: "\t\tconst prior = undefined\n",
 				why: "No check reads an import another check of the compile built, so every member checks the call's eight arguments again and the checks grow with the members."
+			}
+		]
+	})
+
+/** The annotations (logical/props.ts logicalPropsOf) while a write of the top of a float chain `depth` deep compiles. */
+const floatAnnotations = (depth: FloatDepth): Effect.Effect<number> =>
+	Effect.map(
+		callCounts(
+			Effect.sync(() => compiled(Floats, floatChainWriteOf(depth))),
+			{ props: { file: "packages/engine/src/logical/props.ts", name: "logicalPropsOf" } }
+		),
+		([, counts]) => counts.props
+	)
+
+/** A compile's completions annotate each level of a chain of closed imports a fixed number of times, however deep. */
+export const aCompilesCompletionsAnnotateEachLevelOfAChainOfClosedImportsAFixedNumberOfTimesHoweverDeep =
+	property.exhaust(finite(floatDepthGen), {
+		needs: {},
+		situations: ["two levels", "more levels"],
+		check: (_, k) => (depth) =>
+			Effect.gen(function* () {
+				k.note(depth === 2 ? "two levels" : "more levels")
+				const two = yield* floatAnnotations(2)
+				const three = yield* floatAnnotations(3)
+				const work = yield* floatAnnotations(depth)
+				assert.ok(three > two, "a level more annotates more")
+				assert.equal(
+					work,
+					two + (depth - 2) * (three - two),
+					`a chain ${depth} deep annotates what two levels and ${depth - 2} levels more of what the third added do`
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "linearity: the annotations of a chain d deep are its two levels' and d − 2 times what the third level added"
+		},
+		box: "one insert of the top of a chain of 2, 3, 4, 6 and 8 bound queries over a float relation, each level one rule delivering its float",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/check/session.ts",
+				original: "\t\t(node) => this.closedKey(node) !== undefined\n",
+				replacement: "\t\t() => false\n",
+				why: "The session's analyses share nothing, so each level's completion annotates every level below it again and the annotations grow with the square of the depth."
 			}
 		]
 	})

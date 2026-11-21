@@ -29,6 +29,7 @@ import {
 	type TypedLiteral,
 	storedColumn
 } from "#compiler/ir/expr.ts"
+import { checkerEvidence } from "#compiler/logical/annotate.ts"
 import { noExtension } from "#test/support/compute.ts"
 
 import { defined } from "@bjornpagen/testing/assert"
@@ -1238,7 +1239,14 @@ const completedOf = (
 	t: Translation,
 	node: RelNode
 ): { readonly dag: ValidDag; readonly root: RelNode } => {
-	const completed = completeStated(t.b.build([node]), t.b, new Map(), t.merges, new Set())
+	const completed = completeStated(
+		t.b.build([node]),
+		t.b,
+		new Map(),
+		t.merges,
+		new Set(),
+		checkerEvidence
+	)
 	if (!completed.ok) {
 		throw new Error(`the program's meaning does not complete: ${completed.error.message}`)
 	}

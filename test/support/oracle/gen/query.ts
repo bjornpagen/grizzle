@@ -59,6 +59,7 @@ import {
 	type TakeBound,
 	type VarDecl
 } from "#compiler/ir/rel.ts"
+import { checkerEvidence } from "#compiler/logical/annotate.ts"
 import { normalizeDag } from "#test/support/dag.ts"
 
 import { defined } from "@bjornpagen/testing/assert"
@@ -3122,7 +3123,7 @@ export const resolveQuery =
 					: []
 			)
 		)
-		const completed = completeStated(built, r.b, r.stated, merges, new Set())
+		const completed = completeStated(built, r.b, r.stated, merges, new Set(), checkerEvidence)
 		if (!completed.ok) {
 			throw new Error(`could not complete a generated order: ${completed.error.message}`)
 		}

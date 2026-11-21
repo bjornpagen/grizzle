@@ -1075,9 +1075,9 @@ export class Checker {
 	 * The order the user stated for each Take, OrderedResult and ordered Attach, completed once the DAG is built
 	 * (order.ts).
 	 */
-	readonly #stated = new Map<RelNode, StatedOrder>()
+	#stated = new Map<RelNode, StatedOrder>()
 	/** Each projection whose floats a merge may take one of two zeros of, with its rule (check/merge.ts). */
-	readonly #merges = new Map<RelNode, StatedMerge>()
+	#merges = new Map<RelNode, StatedMerge>()
 	/** The labels reserved and not yet defined: the regions of the rules being checked, the recursions being checked. */
 	readonly #reserved = new Set<NodeId>()
 	/** The approximate searches built, by the identity of their sealed source, score and bound (approximate/). */
@@ -1095,6 +1095,10 @@ export class Checker {
 	readonly #searchJournals: Array<Map<string, RelNode>> = []
 	/** The roots of the closed imports this check built that no other check may read (CheckedImport `shared`). */
 	readonly #private = new Set<RelNode>()
+	/** The root of each closed import this check read (`#imported`), which every completion keeps as it is. */
+	readonly #importRoots = new Set<RelNode>()
+	/** The closed imports each closed import being checked read, by key, innermost last (`#readImport`). */
+	readonly #importJournals: Array<Array<readonly [string, RelNode]>> = []
 
 	constructor(schema: SchemaReading, options: CheckOptions, params: ParamTable) {
 		this.schema = schema
@@ -1295,7 +1299,9 @@ export class Checker {
 
 	/**
 	 * The query's DAG as a whole: its stages, then an OrderedResult in the order its rows are delivered in, where its
-	 * role delivers them in one (rootOrder). Its parameters are the table's once the pass is final (check/index.ts).
+	 * role delivers them in one (rootOrder). Its parameters are the table's once the pass is final (check/index.ts). Its
+	 * completion keeps every closed import's root as it is (`#importRoots`), so each stands in the DAG as this check read
+	 * it, under the key the session holds for it (`#readImport`, CheckSession `closed`).
 	 */
 	root(desc: ResolvedQuery, loc: SourceLoc, role: RootRole): LogicalQuery["dag"] {
 		if (this.options.read === "page" && desc.stage.kind !== "order") {
@@ -1314,19 +1320,10 @@ export class Checker {
 				this.b,
 				this.#stated,
 				this.#merges,
-				new Set(this.#imported.values())
+				this.#importRoots,
+				this.options.session.analyses
 			)
 		)
-		/** The completion builds each node again under its label, so each closed import is keyed as it stands there. */
-		const keys = new Map([...this.#imported].map(([key, node]) => [node.id, key] as const))
-		if (keys.size > 0) {
-			for (const node of topoOrder(completed)) {
-				const key = keys.get(node.id)
-				if (key !== undefined) {
-					this.options.session.closed(node, key)
-				}
-			}
-		}
 		return completed
 	}
 
@@ -2689,9 +2686,23 @@ export class Checker {
 		if (prior !== undefined) {
 			this.#adopt(prior)
 		}
-		this.#imported.set(key, imported.node)
-		this.#importKeys.set(imported.node, key)
+		this.#readImport(key, imported.node)
 		return imported.node
+	}
+
+	/**
+	 * Records `node` as the closed import this check read at `key`, journaled for every closed import being checked, and
+	 * keys it in the session (CheckSession `closed`): a write's DAG merges it by that key (write/frontend/dag.ts
+	 * QueryMerger), and every analysis of the compile shares its annotations by it (CheckSession `analyses`).
+	 */
+	#readImport(key: string, node: RelNode): void {
+		this.#imported.set(key, node)
+		this.#importKeys.set(node, key)
+		this.#importRoots.add(node)
+		this.options.session.closed(node, key)
+		for (const journal of this.#importJournals) {
+			journal.push([key, node])
+		}
 	}
 
 	/**
@@ -2716,29 +2727,31 @@ export class Checker {
 	}
 
 	#importChecked(build: () => RelNode): CheckedImport {
-		const before = {
-			stated: this.#stated.size,
-			merges: this.#merges.size,
-			searches: [...this.#searches.values()],
-			imported: this.#imported.size
-		}
-		/** The import's journals; a refusal its check throws ends this check, so one left open is never read. */
+		const searchesBefore = [...this.#searches.values()]
+		const searchCount = this.#searches.size
+		/**
+		 * The import's own stated orders and merges, its check's alone: nothing it reads is outside it but closed imports,
+		 * whose orders and merges their own checks took. A refusal its check throws ends this check, so the tables and
+		 * journals it leaves in place are never read.
+		 */
+		const outer = { stated: this.#stated, merges: this.#merges }
+		this.#stated = new Map()
+		this.#merges = new Map()
 		const uses: Array<ParamUse> = []
 		const searches = new Map<string, RelNode>()
+		const reads: Array<readonly [string, RelNode]> = []
 		this.#uses.push(uses)
 		this.#searchJournals.push(searches)
+		this.#importJournals.push(reads)
 		const checked = this.#declarations.journaled(build)
 		this.#uses.pop()
 		this.#searchJournals.pop()
+		this.#importJournals.pop()
 		const built = checked.value
-		const stated = new Map([...this.#stated].slice(before.stated))
-		const merges = new Map([...this.#merges].slice(before.merges))
-		for (const node of stated.keys()) {
-			this.#stated.delete(node)
-		}
-		for (const node of merges.keys()) {
-			this.#merges.delete(node)
-		}
+		const stated = this.#stated
+		const merges = this.#merges
+		this.#stated = outer.stated
+		this.#merges = outer.merges
 		const node =
 			stated.size === 0 && merges.size === 0
 				? built
@@ -2748,7 +2761,8 @@ export class Checker {
 							this.b,
 							stated,
 							merges,
-							new Set(this.#imported.values())
+							this.#importRoots,
+							this.options.session.analyses
 						)
 					).roots[0]
 		const nodes = topoOrder(this.b.build([built]))
@@ -2763,7 +2777,7 @@ export class Checker {
 				const fact = table.get(n)
 				return fact === undefined ? [] : [[completed(n), fact] as const]
 			})
-		const own = [...this.#searches].slice(before.searches.length)
+		const own = [...this.#searches].slice(searchCount)
 		const imported: ClosedImport = {
 			node,
 			literals: factsOf(this.#literals),
@@ -2780,9 +2794,7 @@ export class Checker {
 			}),
 			delivered: factsOf(this.#delivered),
 			attached: factsOf(this.#attached),
-			imports: [...this.#imported]
-				.slice(before.imported)
-				.map(([key, n]) => [key, completed(n)] as const),
+			imports: reads.map(([key, n]) => [key, completed(n)] as const),
 			declared: checked.declared,
 			searches: [...new Map([...searches, ...own])].map(
 				([identity, n]) => [identity, completed(n)] as const
@@ -2795,7 +2807,7 @@ export class Checker {
 		return {
 			imported,
 			shared:
-				!before.searches.some((s) => held.has(s)) && ![...this.#private].some((p) => held.has(p))
+				!searchesBefore.some((s) => held.has(s)) && ![...this.#private].some((p) => held.has(p))
 		}
 	}
 
@@ -2845,8 +2857,7 @@ export class Checker {
 		}
 		for (const [key, node] of imported.imports) {
 			if (!this.#imported.has(key)) {
-				this.#imported.set(key, node)
-				this.#importKeys.set(node, key)
+				this.#readImport(key, node)
 			}
 		}
 	}
