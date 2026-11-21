@@ -24,6 +24,7 @@ import {
 } from "#compiler/lower/optimize/demand/phases.ts"
 import { graphPass } from "#compiler/lower/optimize/graph/index.ts"
 import { sourcePrunePass } from "#compiler/lower/optimize/prune/index.ts"
+import { sharedPushdownPass } from "#compiler/lower/optimize/pushdown/shared.ts"
 import { catalogPass } from "#compiler/lower/shapes/catalog/rewrite.ts"
 import {
 	OptimizedDelivery,
@@ -114,6 +115,7 @@ export const rewritePipeline = (
 	sequence("rewrite pipeline", [
 		semanticSimplification,
 		relationalRewrites,
+		...(subject === "ruleRegion" ? [sharedPushdownPass] : []),
 		catalogPass(subject === "derivedDefinition" ? "whole" : "auto"),
 		graphPass,
 		sourcePrunePass

@@ -69,6 +69,7 @@ type RewriteRule =
 	| "pushdown.union"
 	| "pushdown.left"
 	| "pushdown.source"
+	| "pushdown.shared"
 	| "pushdown.semiSource"
 	| "pushdown.semiGroup"
 	| "simplify.fold"

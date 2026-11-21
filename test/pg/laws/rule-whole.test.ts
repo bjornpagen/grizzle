@@ -7,7 +7,8 @@
  * reversed, under a containment of a join into a table, a check over a join, a key over a projection of it, two
  * containments between selected sides of the stored relations, whole in the whole judge and native foreign keys in
  * its twin (laws/model/plan.ts ContainmentDischarge), and, in the whole judge alone, which no probe reads: a check over an aggregate of each node's children, a containment into
- * a recursion over the parent links, and a check over a negation of a query that negates in turn.
+ * a recursion over the parent links seeded from the roots, a union of two rules the containment's target reads again
+ * beside the recursion, and a check over a negation of a query that negates in turn.
  *
  * - **equivalence**: a schedule of direct SQL transactions at SERIALIZABLE over two documents, each a unit, run on both
  *   judges of a drawn shape in lockstep: inserts and deletes of single rows, a document written whole and one dropped whole, with the
@@ -29,13 +30,20 @@
  *   with tens of documents written, then four times as many, each node it runs once per unit reads that unit alone,
  *   so its work grows with the units written, not with their square, since the unit is bound once, by the outermost
  *   rule that binds it (analysis/theory/unit.ts Restriction).
+ * - **commuting units**: thousands of documents stored and committed, then two transactions at SERIALIZABLE each writing
+ *   a document of its own, one left of every stored one and one right of them, both open before either commits: neither
+ *   judge holds a SIRead lock on all of Node, Expr or an index of theirs, and both commit, the roots Reached's walk is
+ *   seeded from read once per unit, restricted to it (lower/optimize/pushdown/shared.ts), never once over every
+ *   document.
  */
 import { property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
+	commuteGen,
 	judgeTemplates,
 	localityGen,
 	narrowedGen,
+	runCommute,
 	runEquivalence,
 	runLocality,
 	runNarrowed,
@@ -166,6 +174,49 @@ export const aWholeRulesStatementReadsTheUnitsATransactionWroteAloneBesideAnyNum
 					'\t\t\t? ruleBody(r, at, aggregates, {\n\t\t\t\t\t...w,\n\t\t\t\t\trestrict: { kind: "bound", region: restriction.region }\n\t\t\t\t})',
 				replacement: "\t\t\t? ruleBody(r, at, aggregates, w)",
 				why: "A rule read per unit binds no unit for the rules its imports and negations read, so each matches the region again inside the step, once per written unit, or beside it, Rooted's two sides each over a region of its own: a node run once per unit reads every written unit's rows at each run, and the statement's work grows with the square of the units written."
+			},
+			{
+				file: "packages/engine/src/lower/optimize/pipeline.ts",
+				original: '\t\t...(subject === "ruleRegion" ? [sharedPushdownPass] : []),',
+				replacement: '\t\t...(subject === "ruleRegion" ? [] : []),',
+				why: "The judge's statements are rewritten without the shared restriction (lower/optimize/pushdown/shared.ts): the roots Reached's walk is seeded from and Reach reads again are one node no reader's unit restricts, a union MATERIALIZED once in the statement over every document's nodes, so a write of one document reads a root of every one stored."
+			}
+		]
+	})
+
+/**
+ * Two transactions each writing a unit of its own beside thousands stored both commit at SERIALIZABLE, and neither's
+ * judge locks all of a relation the other writes: each whole rule's statement reads its own unit's rows, the roots
+ * Reached's walk is seeded from among them, which both its readers keep at the unit, restricted to it inside, one node
+ * computed once per unit (lower/optimize/pushdown/shared.ts, lower/optimize/cte-policy rule 3b), where they were one
+ * node of every document's roots, MATERIALIZED once in the statement: metis's concurrent pantry imports, each of its own package, failed each
+ * other with 40001 (2026-11-21), each import's judge reading every package through such nodes, and a publish into one
+ * database cost 52 s, 172 s, 16 s, 22 s and then over 4 minutes as its 1st to 5th package.
+ *
+ * Its budget is the runner's: a new property, with no suite before it to carry a count from.
+ */
+export const twoTransactionsEachWritingAUnitOfItsOwnBothCommitAndNeithersJudgeLocksARelationTheOtherWrites =
+	property.explore(commuteGen, {
+		needs: Substrate.oneOf(judgeTemplates, Substrate.freshOf),
+		situations: ["two units written at once, both committed"],
+		check: (judges, c) => (drawn) =>
+			Effect.gen(function* () {
+				const w = yield* judges[`whole ${drawn.shape}`]
+				const first = yield* w.substrate.session({ ...ownerSession(), label: "first unit" })
+				const second = yield* w.substrate.session({ ...ownerSession(), label: "second unit" })
+				yield* runCommute(w.value, first, second, drawn, c)
+			}).pipe(Effect.scoped),
+		oracle: {
+			kind: "postgresql",
+			name: "PostgreSQL's SSI and its pg_locks: no SIRead lock of either judge on all of Node, Expr or an index of theirs, and both transactions committed"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/optimize/pipeline.ts",
+				original: '\t\t...(subject === "ruleRegion" ? [sharedPushdownPass] : []),',
+				replacement: '\t\t...(subject === "ruleRegion" ? [] : []),',
+				why: "The judge's statements are rewritten without the shared restriction (lower/optimize/pushdown/shared.ts): the roots Reached's walk is seeded from and Reach reads again are one node MATERIALIZED once in each judge's statement from every document's nodes, read whole off Node, so the first judge locks all of Node and the second's write breaks it, and one of the two transactions is refused with 40001."
 			}
 		]
 	})

@@ -315,13 +315,33 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 					.find({ ...at, node: start, kind, children: 0n })
 			})
 	)
+	/**
+	 * The roots, each a node its own parent, as a union of those of kind 2 and the rest: read by the walk's seed and again
+	 * by Reach beside the walk, one node a whole rule's statement reads twice, each read keeping it at the unit: the judge
+	 * reads it restricted to the unit inside, computed once per unit (lower/optimize/pushdown/shared.ts); unrestricted,
+	 * it was a union of every document's roots computed once in the statement.
+	 */
+	const roots = query(Base)
+		.rule((r) => {
+			const { doc, sub, part, start } = v(Node, "root")
+			const at = ordered({ doc, sub, part })
+			return r.match(Node, { ...at, start, parent: start, kind: 2 }).find({ ...at, node: start })
+		})
+		.rule((r) => {
+			const { doc, sub, part, start, kind } = v(Node, "root")
+			const at = ordered({ doc, sub, part })
+			return r
+				.match(Node, { ...at, start, parent: start, kind })
+				.where(r.ne(kind, 2))
+				.find({ ...at, node: start })
+		})
 	const reached = query(Base).recursive("Reached", {
 		row: { ...ordered({ doc: pg.integer, sub: pg.integer, part: pg.integer }), node: pg.integer },
 		base: [
 			(r) => {
-				const { doc, sub, part, start } = v(Node, "root")
+				const { doc, sub, part, node } = v(roots, "root")
 				const at = ordered({ doc, sub, part })
-				return r.match(Node, { ...at, start, parent: start }).find({ ...at, node: start })
+				return r.match(roots, { ...at, node }).find({ ...at, node })
 			}
 		],
 		rec: [
@@ -337,7 +357,21 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 			}
 		]
 	})
-	const Reach = derived("Reach", reached)
+	/** The nodes the walk reaches, and the roots it starts from, which it reaches too. */
+	const Reach = derived(
+		"Reach",
+		query(Base)
+			.rule((r) => {
+				const { doc, sub, part, node } = v(reached, "walked")
+				const at = ordered({ doc, sub, part })
+				return r.match(reached, { ...at, node }).find({ ...at, node })
+			})
+			.rule((r) => {
+				const { doc, sub, part, node } = v(roots, "root")
+				const at = ordered({ doc, sub, part })
+				return r.match(roots, { ...at, node }).find({ ...at, node })
+			})
+	)
 	const LeafChild = derived(
 		"LeafChild",
 		query(Base).rule((r) => {
@@ -1336,6 +1370,85 @@ export const runLocality = (
 		}
 		yield* connection.query(judgeRun, [])
 		c.note(locality.statistics === "none" ? "measured with no statistics" : "measured analyzed")
+	})
+
+/**
+ * A case of two units written at once: its judge's shape, and the lawful documents stored and committed beside them
+ * first, each a root and two children, so every stored table spans many pages.
+ */
+export interface Commute {
+	readonly shape: ShapeKey
+	readonly stored: number
+}
+
+/** Thousands of stored documents, between the two a case's transactions write. */
+export const commuteGen: Gen<Commute> = (s) => ({
+	shape: s.draw(shapeGen),
+	stored: s.draw(int(2000, 3000))
+})
+
+/**
+ * The relations, Node's and Expr's tables and their indexes, that `session`'s transaction holds a SIRead lock on whole,
+ * by name: each a relation the other transaction writes, so a lock on all of it is broken by any row the other writes.
+ */
+const wholeLocksOn = (session: RawSession, { node, expr }: Tables) =>
+	Effect.map(
+		session.values(
+			`SELECT c.relname FROM pg_catalog.pg_locks AS l JOIN pg_catalog.pg_class AS c ON c.oid = l.relation WHERE l.mode = 'SIReadLock' AND l.locktype = 'relation' AND l.pid = ${session.pid} AND l.relation IN (SELECT i.indexrelid FROM pg_catalog.pg_index AS i WHERE i.indrelid IN ('${node}'::regclass, '${expr}'::regclass) UNION ALL SELECT '${node}'::regclass UNION ALL SELECT '${expr}'::regclass) ORDER BY 1`,
+			[]
+		),
+		Arr.map(([name]) => (typeof name === "string" ? name : assert.fail("a relation's name")))
+	)
+
+/**
+ * One case of two units written at once, on a fresh clone of its shape's whole judge: `stored` lawful documents loaded
+ * and committed with the captures off, then two transactions at SERIALIZABLE on two sessions, each writing one document
+ * whole, the first left of every stored one in key order and the second right of them, and each running its judge,
+ * both open before either commits. Neither's judge may hold a SIRead lock on all of a relation the other writes, Node,
+ * Expr or an index of theirs, and both commit: each judge reads its own unit's rows, its key range's index pages, so
+ * the two writes share no row and no page and PostgreSQL's SSI finds no conflict between them. A relation neither writes
+ * is not asked after: Tag stands empty, and PostgreSQL reads a table of no page by a sequential scan and locks an empty
+ * index whole at its first scan (nbtsearch.c _bt_first), its limits on a young table, not the judge's reads.
+ */
+export const runCommute = (
+	installed: Installed,
+	first: RawSession,
+	second: RawSession,
+	commute: Commute,
+	c: Case<"two units written at once, both committed">
+) =>
+	Effect.gen(function* () {
+		const tables = tablesOf(installed, commute.shape)
+		for (const sql of loaded(tables, 10, 10 + commute.stored)) {
+			yield* first.query(sql, [])
+		}
+		const right = 20 + commute.stored
+		const written: ReadonlyArray<readonly [RawSession, number]> = [
+			[first, 0],
+			[second, right]
+		]
+		for (const [session, doc] of written) {
+			yield* session.begin
+			for (const sql of [...writtenWhole(tables, doc, doc), judgeRun]) {
+				yield* session.query(sql, [])
+			}
+			const locked = yield* wholeLocksOn(session, tables)
+			assert.deepEqual(
+				locked,
+				[],
+				`${Formatter.format(commute)}: the judge of document ${doc} holds no SIRead lock on all of a relation the other transaction writes`
+			)
+		}
+		const ended = yield* Effect.forEach(written, ([session]) => refusalOf(session.commit))
+		assert.deepEqual(
+			Arr.map(
+				ended,
+				Option.map((f) => f.code)
+			),
+			[Option.none(), Option.none()],
+			`${Formatter.format(commute)}: two transactions each writing a unit of its own beside ${commute.stored} stored both commit`
+		)
+		c.note("two units written at once, both committed")
 	})
 
 /**
