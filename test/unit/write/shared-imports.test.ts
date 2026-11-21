@@ -34,13 +34,26 @@
  * logical/props.ts logicalPropsOf. Oracle: linearity, read off the chain: every level is alike, so each costs the
  * compile what the third added to the second. Kill: the session's analyses share nothing.
  *
+ * And a closed import's record holds what its check recorded beside its own nodes alone (check/checker.ts #ownNodes,
+ * #nodeFacts): a closed import it reads stands in it by its root, its own nodes in its own record, which a reader adopts
+ * with it, so over the float chain the nodes whose facts the compile's records take are linear in the depth, each level's
+ * own taken once, where each level's record took every level below it again, the records' facts quadratic in the depth.
+ * Counted as calls of #nodeFacts. Oracle: linearity, as above. Kill: a record walks its import's whole DAG.
+ *
+ * And a compile's checks' session, which holds every closed import's record and every shared analysis of the compile, is
+ * the compile's alone: once a write is compiled and held, the sessions alive are those alive before its compile, counted
+ * by V8 after a full collection (node:v8 queryObjects over check/session.ts CheckSession). Oracle: specification. Kill:
+ * every session is held by a module.
+ *
  * Features: one member and several; a chain of one level and of several; a float chain of two levels and of more.
  */
 
+import { queryObjects } from "node:v8"
 import { assert } from "@bjornpagen/testing/assert"
 import { finite } from "@bjornpagen/testing/gen"
 import { property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, String as Str } from "effect"
+import { CheckSession } from "#compiler/check/session.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
 import { EvaluationKeys } from "#compiler/lower/conservative/call/keys.ts"
@@ -245,3 +258,76 @@ export const aCompilesCompletionsAnnotateEachLevelOfAChainOfClosedImportsAFixedN
 			}
 		]
 	})
+
+/** The nodes whose facts a closed import's record takes (check/checker.ts #nodeFacts) while a float chain compiles. */
+const recordedNodes = (depth: FloatDepth): Effect.Effect<number> =>
+	Effect.map(
+		callCounts(
+			Effect.sync(() => compiled(Floats, floatChainWriteOf(depth))),
+			{ facts: { file: "packages/engine/src/check/checker.ts", name: "#nodeFacts" } }
+		),
+		([, counts]) => counts.facts
+	)
+
+/** A compile's closed-import records take each level of a chain's own nodes once, however deep the chain. */
+export const aCompilesClosedImportRecordsTakeEachLevelsOwnNodesOnceHoweverDeepTheChain =
+	property.exhaust(finite(floatDepthGen), {
+		needs: {},
+		situations: ["two levels", "more levels"],
+		check: (_, k) => (depth) =>
+			Effect.gen(function* () {
+				k.note(depth === 2 ? "two levels" : "more levels")
+				const two = yield* recordedNodes(2)
+				const three = yield* recordedNodes(3)
+				const work = yield* recordedNodes(depth)
+				assert.ok(three > two, "a level more records more")
+				assert.equal(
+					work,
+					two + (depth - 2) * (three - two),
+					`a chain ${depth} deep records what two levels and ${depth - 2} levels more of what the third added do`
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "linearity: the nodes recorded over a chain d deep are its two levels' and d − 2 times what the third level added"
+		},
+		box: "one insert of the top of a chain of 2, 3, 4, 6 and 8 bound queries over a float relation, each level one rule delivering its float",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original: "\t\t\tif (node !== root && this.#importRoots.has(node)) {\n",
+				replacement: "\t\t\tif (false) {\n",
+				why: "A record walks its import's whole DAG, the closed imports it reads among its nodes, so each level's record takes every level below it again and the nodes recorded grow with the square of the depth."
+			}
+		]
+	})
+
+/** The checks' sessions alive, counted by V8 after a full collection. */
+const sessionsAlive = (): number => queryObjects(CheckSession, { format: "count" })
+
+/** A compiled write holds none of its checks' sessions, nor so the closed-import records and shared analyses they hold. */
+export const aCompiledWriteHoldsNoneOfItsChecksSessions = property.exhaust(finite(readersGen), {
+	needs: {},
+	situations: ["one member", "several members"],
+	check: (_, k) => (members) =>
+		Effect.sync(() => {
+			k.note(members === 1 ? "one member" : "several members")
+			const before = sessionsAlive()
+			const frontend = compiled(Shared, readersOf(members))
+			assert.equal(sessionsAlive(), before, "the compiled write holds no session")
+			assert.ok(topoOrder(frontend.ir.dag).length > 0, "the write holds its DAG")
+		}),
+	oracle: { kind: "specification", name: "a compile's session is its own" },
+	box: "1, 2, 4 and 8 inserts, each reading one field of one call of eight rows arguments, each an import of one bound query",
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/check/session.ts",
+			original: "\treadonly ids = makeIdSupply()\n",
+			replacement:
+				"\treadonly ids = (globalThis.grizzleHeldSessions ??= []).push(this) > 0 ? makeIdSupply() : makeIdSupply()\n",
+			why: "Every session is held by a module, so each compiled write leaves its session alive, its closed-import records and shared analyses with it, and the sessions alive grow with every compile."
+		}
+	]
+})

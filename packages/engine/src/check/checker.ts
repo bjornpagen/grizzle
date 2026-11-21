@@ -45,6 +45,7 @@ import {
 	splitWhere
 } from "#compiler/check/scan.ts"
 
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -67,7 +68,7 @@ import {
 	readingOf,
 	statedReading
 } from "#compiler/ir/clock.ts"
-import { deliverySpine, relNode, topoOrder } from "#compiler/ir/dag.ts"
+import { deliverySpine, relNode } from "#compiler/ir/dag.ts"
 import {
 	bindTerms,
 	descText,
@@ -99,12 +100,13 @@ import {
 	builtSides,
 	type CallArg,
 	type CompletedOrder,
-	type Correlation,
 	conservativeMeta,
+	type Correlation,
 	type DeclaredKey,
 	type FoldInput,
 	type Heading,
 	type HeadingColumn,
+	inputsOf,
 	type KeySet,
 	type LiveRefs,
 	type Occurrence,
@@ -994,8 +996,9 @@ type ParamUse =
  * A closed import checked once for its compile (check/session.ts closedImports, Checker `#closedImport`): its root, its
  * own stated orders and merges completed over its own DAG (complete.ts), nothing outside it being in its scope, and
  * what its check recorded beside its nodes, which every check that reads it adopts as its own check of it would have
- * recorded it (`#adopt`): the literal head columns, union arms, delivered headings and carried attachments of its
- * nodes, the closed imports it read by their keys, its declarations (DuplicateIdentity), its searches, and its uses of
+ * recorded it (`#adopt`): the literal head columns, union arms, delivered headings and carried attachments of its own
+ * nodes (`#ownNodes`; a closed import it reads is recorded in its own record, which its readers adopt with it), the
+ * closed imports it read by their keys, its declarations (DuplicateIdentity), its searches, and its uses of
  * the reader's own parameters, which every reader at its key binds by name alike, so the reader's parameters are
  * typed by them (check/params.ts).
  */
@@ -1009,6 +1012,14 @@ export interface ClosedImport {
 	readonly declared: ReadonlyArray<Declared>
 	readonly searches: ReadonlyArray<readonly [string, RelNode]>
 	readonly uses: ReadonlyArray<ParamUse>
+}
+
+/** What a check recorded beside a closed import's own nodes (Checker `#nodeFacts`), each fact under its node. */
+interface NodeFacts {
+	readonly literals: Array<readonly [RelNode, Map<string, HeadLiteral>]>
+	readonly unions: Array<readonly [RelNode, UnionArms]>
+	readonly delivered: Array<readonly [RelNode, Heading]>
+	readonly attached: Array<readonly [RelNode, ReadonlySet<string>]>
 }
 
 /**
@@ -2765,35 +2776,21 @@ export class Checker {
 							this.options.session.analyses
 						)
 					).roots[0]
-		const nodes = topoOrder(this.b.build([built]))
+		const nodes = this.#ownNodes(built)
 		const held = new Set(nodes)
 		const standIns =
-			node === built
-				? undefined
-				: new Map(topoOrder(this.b.build([node])).map((n) => [n.id, n] as const))
+			node === built ? undefined : new Map(this.#ownNodes(node).map((n) => [n.id, n] as const))
 		const completed = (n: RelNode): RelNode => standIns?.get(n.id) ?? n
-		const factsOf = <V>(table: ReadonlyMap<RelNode, V>): ReadonlyArray<readonly [RelNode, V]> =>
-			nodes.flatMap((n) => {
-				const fact = table.get(n)
-				return fact === undefined ? [] : [[completed(n), fact] as const]
-			})
+		const facts: NodeFacts = { literals: [], unions: [], delivered: [], attached: [] }
+		for (const n of nodes) {
+			if (n === built || !this.#importRoots.has(n)) {
+				this.#nodeFacts(n, completed, facts)
+			}
+		}
 		const own = [...this.#searches].slice(searchCount)
 		const imported: ClosedImport = {
 			node,
-			literals: factsOf(this.#literals),
-			unions: nodes.flatMap((n) => {
-				const union = this.#unions.get(n)
-				return union === undefined
-					? []
-					: [
-							[
-								completed(n),
-								{ arms: mapNonEmpty(union.arms, completed), discriminant: union.discriminant }
-							] as const
-						]
-			}),
-			delivered: factsOf(this.#delivered),
-			attached: factsOf(this.#attached),
+			...facts,
 			imports: reads.map(([key, n]) => [key, completed(n)] as const),
 			declared: checked.declared,
 			searches: [...new Map([...searches, ...own])].map(
@@ -2808,6 +2805,56 @@ export class Checker {
 			imported,
 			shared:
 				!searchesBefore.some((s) => held.has(s)) && ![...this.#private].some((p) => held.has(p))
+		}
+	}
+
+	/**
+	 * The nodes of a closed import's DAG that are its own, from `root`: every node it reaches but those of the closed
+	 * imports it reads (`#importRoots`), each of which stands among them by its root alone, its own nodes its own record's
+	 * (ClosedImport), so a record's facts are its import's own and an import read inside another is recorded once.
+	 */
+	#ownNodes(root: RelNode): ReadonlyArray<RelNode> {
+		const out: Array<RelNode> = []
+		const seen = new Set<RelNode>()
+		const pending = [root]
+		for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
+			if (seen.has(node)) {
+				continue
+			}
+			seen.add(node)
+			out.push(node)
+			if (node !== root && this.#importRoots.has(node)) {
+				continue
+			}
+			appendAll(pending, inputsOf(node))
+		}
+		return out
+	}
+
+	/**
+	 * Records what this check recorded beside `node`, a node of a closed import's own, in `facts`, under the node the
+	 * import's completion stands in its place (`completed`).
+	 */
+	#nodeFacts(node: RelNode, completed: (node: RelNode) => RelNode, facts: NodeFacts): void {
+		const at = completed(node)
+		const literals = this.#literals.get(node)
+		if (literals !== undefined) {
+			facts.literals.push([at, literals])
+		}
+		const union = this.#unions.get(node)
+		if (union !== undefined) {
+			facts.unions.push([
+				at,
+				{ arms: mapNonEmpty(union.arms, completed), discriminant: union.discriminant }
+			])
+		}
+		const delivered = this.#delivered.get(node)
+		if (delivered !== undefined) {
+			facts.delivered.push([at, delivered])
+		}
+		const attached = this.#attached.get(node)
+		if (attached !== undefined) {
+			facts.attached.push([at, attached])
 		}
 	}
 
@@ -2841,7 +2888,10 @@ export class Checker {
 		}
 	}
 
-	/** Records a closed import's nodes' facts and the closed imports it read (ClosedImport) as this check's own. */
+	/**
+	 * Records a closed import's own nodes' facts and the closed imports it read (ClosedImport) as this check's own, each
+	 * of those it has not read with its own record's, in the compile's table for this check's reading.
+	 */
 	#adoptNodes(imported: ClosedImport): void {
 		for (const [node, literals] of imported.literals) {
 			this.#literals.set(node, literals)
@@ -2856,8 +2906,13 @@ export class Checker {
 			this.#attached.set(node, attached)
 		}
 		for (const [key, node] of imported.imports) {
-			if (!this.#imported.has(key)) {
-				this.#readImport(key, node)
+			if (this.#imported.has(key)) {
+				continue
+			}
+			this.#readImport(key, node)
+			const nested = this.options.session.closedImports(this.schema).get(`${this.#reading} ${key}`)
+			if (nested !== undefined) {
+				this.#adoptNodes(nested)
 			}
 		}
 	}
