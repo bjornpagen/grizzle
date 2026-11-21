@@ -25,7 +25,7 @@ export type MemberCa = Extract<MemberTls, { readonly kind: "tls" }>
 export type TlsMember = PgMember & Readonly<{ tls: MemberCa }>
 
 /** A member whose cluster states no TLS (its network a socket alone), which no grizzle client reaches. */
-export class SocketOnlyMember extends Data.TaggedError("SocketOnlyMember")<{
+class SocketOnlyMember extends Data.TaggedError("SocketOnlyMember")<{
 	readonly member: string
 }> {
 	override get message(): string {
