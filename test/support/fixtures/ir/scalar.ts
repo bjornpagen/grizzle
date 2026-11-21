@@ -9,7 +9,7 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { RegexNode } from "@bjornpagen/grizzle-text/regex/ir"
 import { Matcher } from "@bjornpagen/grizzle-text/regex/match"
 import { buildNfa } from "@bjornpagen/grizzle-text/regex/nfa"
-import { Array as Arr } from "effect"
+import { Array as Arr, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -90,20 +90,24 @@ export const closedIdTypeOf = (
 export const normalizeExprTable = (table: ExprTable): Result.Result<ExprTable, CompileError> =>
 	Result.map(predicateTree(table), predicateTable)
 
-const plainCarriers: ReadonlySet<string> = new Set<PlainCarrier>([
-	"int2",
-	"int4",
-	"int8",
-	"float4",
-	"float8",
-	"money",
-	"bool",
-	"date",
-	"inet",
-	"cidr"
-])
+/** Each plain carrier (scalar/native.ts PlainCarrier), stated once a carrier, so a new one is a case to state here. */
+const plainCarriers: ReadonlySet<Carrier> = new Set(
+	Rec.keys({
+		int2: true,
+		int4: true,
+		int8: true,
+		float4: true,
+		float8: true,
+		money: true,
+		bool: true,
+		date: true,
+		inet: true,
+		cidr: true,
+		sha256: true
+	} satisfies { readonly [C in PlainCarrier]: true })
+)
 
-/** Whether a carrier is a plain one (scalar/compute/types.ts PlainCarrier), an operation result with no metadata. */
+/** Whether a carrier is a plain one (scalar/native.ts PlainCarrier), an operation result with no metadata. */
 export const isPlainCarrier = (carrier: Carrier): carrier is PlainCarrier =>
 	plainCarriers.has(carrier)
 

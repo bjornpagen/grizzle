@@ -111,7 +111,8 @@ export const nativeCapabilities = {
 	bytes: ["storage"],
 	/**
 	 * A digest is bytea of exactly 32 bytes: bytea_ops for B-tree, its hash class, and btree_gist's gist_bytea_ops, which
-	 * compare its bytes; PostgreSQL has no min(bytea) or max(bytea).
+	 * compare its bytes. PostgreSQL's min(bytea) and max(bytea) are none of the language's: a digest is an identifier,
+	 * ordered only so a B-tree indexes its keys, so no aggregate takes the least or greatest of digests.
 	 */
 	sha256: ["equality", "expressionIndex", "gist", "hashing", "ordering", "storage"],
 	/** A closed id is its code, a smallint under its roster's domain, ordered by code: int2's classes and order. */

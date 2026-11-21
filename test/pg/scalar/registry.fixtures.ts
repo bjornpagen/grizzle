@@ -99,6 +99,12 @@ export const exclusions: Readonly<
 	 */
 	bytes: ["equality", "gist", "hashing", "minMax", "ordering"],
 	/**
+	 * A digest is an identifier: two are one or not, and ordered only so a B-tree indexes its keys (scalar/native.ts), so
+	 * no aggregate of the language takes the least or greatest of digests, though PostgreSQL 18 and later have min(bytea)
+	 * and max(bytea).
+	 */
+	sha256: ["minMax"],
+	/**
 	 * A cidr's min and max are inet's (min(inet), max(inet)), which answer an inet: a cidr's least value is no cidr the
 	 * language types, so no aggregate of the language reads one.
 	 */
