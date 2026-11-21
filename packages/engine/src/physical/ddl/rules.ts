@@ -237,7 +237,7 @@ const judgedStatement = (
 				loc,
 				columns,
 				{ kind: "perStatement", extent },
-				new Navigation(b.model.theory.regionFacts)
+				new Navigation(b.model.theory.regionFacts, b.checked.owned.identities)
 			),
 			{ read: "region", label, clock: noClock, session: new CheckSession() }
 		)

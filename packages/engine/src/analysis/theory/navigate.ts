@@ -22,12 +22,12 @@ import {
 import type { FieldContainment, RegionFacts } from "#compiler/analysis/theory/unit.ts"
 import { leavesOf, ruleLeaves } from "#compiler/check/scan.ts"
 import { canonicalEquals } from "#compiler/core/canonical.ts"
+import type { IdentityDigests } from "#compiler/core/fingerprint.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { deepFreeze } from "#compiler/core/record.ts"
 import {
 	type Channel,
-	descIdentities,
 	exprChildren,
 	type InferredBindings,
 	type InferredExpr,
@@ -219,12 +219,13 @@ type Binds = ReadonlyMap<string, InferredExpr>
  */
 export class Navigation {
 	/**
-	 * The identity digests of what this navigation reads (ir/desc.ts descIdentities): each query's every part digested
-	 * once for every identity and import key of it, where each was digested anew for each. A query is frozen before it is
+	 * The identity digests of what this navigation reads, its caller's: the schema's it is compiled over (schema/own.ts
+	 * Owned identities), so each query's every part is digested once for every identity and import key of it in every
+	 * navigation over the schema, and once with what a ChangeSet over the schema digested. A query is frozen before it is
 	 * digested (core/record.ts deepFreeze, which walks only what is not frozen yet), as every Description is, so the
 	 * queries navigation builds, restricted inside an import and navigated, keep their tokens as the declared ones do.
 	 */
-	readonly #digests = descIdentities()
+	readonly #digests: IdentityDigests
 	/** The navigation of the first query of each identity this navigation read, by the identity. */
 	readonly #navigations = new Map<string, InferredQuery>()
 	/** What navigation reads of each rule this navigation asked about (`reads`), by the rule. */
@@ -236,7 +237,8 @@ export class Navigation {
 	 */
 	readonly #containments: ReadonlyMap<string, ReadonlyArray<FieldContainment>>
 
-	constructor(facts: RegionFacts) {
+	constructor(facts: RegionFacts, identities: IdentityDigests) {
+		this.#digests = identities
 		this.#containments = Map.groupBy(
 			facts.containments.filter((c) => c.selection.length === 0),
 			(c) => c.from

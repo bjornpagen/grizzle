@@ -76,7 +76,7 @@ export const judged = (c: ProgramCase, read: QueryRead, note: (f: Feature) => vo
 		loc,
 		queryColumns(checked, loc),
 		{ kind: "perStatement", extent: "units" },
-		new Navigation(succeeded(buildTheory(checked)).regionFacts)
+		new Navigation(succeeded(buildTheory(checked)).regionFacts, checked.owned.identities)
 	)
 	if (navigated === desc) {
 		return

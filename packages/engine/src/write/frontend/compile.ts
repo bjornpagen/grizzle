@@ -1025,7 +1025,7 @@ const compile = (
 	 * (check/session.ts), so every closed import of one key, in any of them, is one node of the DAG. */
 	const session = new CheckSession()
 	/** Its members' navigation, each query they read navigated once for the ChangeSet (analysis/theory/navigate.ts). */
-	const navigation = new Navigation(laws.theory.regionFacts)
+	const navigation = new Navigation(laws.theory.regionFacts, checked.owned.identities)
 	const merger = new QueryMerger(session)
 	const params = new Map<string, ParamDecl>()
 	/** Each ordinary relation of the base the ChangeSet writes, as a member writes it (`writtenOf`), built where the

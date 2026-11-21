@@ -8,7 +8,7 @@ import { queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { Navigation, navigateQuery } from "#compiler/analysis/theory/navigate.ts"
 import { buildTheory } from "#compiler/analysis/theory/theory.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { InferredQuery } from "#compiler/ir/desc.ts"
+import { descIdentities, type InferredQuery } from "#compiler/ir/desc.ts"
 import { queryInput } from "#compiler/program/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
@@ -153,7 +153,7 @@ const navigationWork = (c: Chain, depth: number): Effect.Effect<number> =>
 					loc,
 					columns,
 					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
-					new Navigation(facts)
+					new Navigation(facts, descIdentities())
 				)
 			),
 			isNavigation
@@ -177,7 +177,7 @@ const digestWork = (c: Chain, depth: number): Effect.Effect<number> =>
 					loc,
 					columns,
 					{ kind: "perStatement", extent: c.read === "whole" ? "every" : "units" },
-					new Navigation(facts)
+					new Navigation(facts, descIdentities())
 				)
 			),
 			isDigesting
