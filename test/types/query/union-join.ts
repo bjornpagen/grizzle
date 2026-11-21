@@ -1,0 +1,108 @@
+import { indices } from "@bjornpagen/grizzle-text/base/array"
+import { Array as Arr, Effect } from "effect"
+import { preludeAt, preludeFrom, preludeModule } from "#test/support/prelude.ts"
+import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/batch/batch.ts"
+
+/**
+ * The union-join program: queries of several arms, each further arm judged as it joins beside the arms before it
+ * (types/query/query.ts ArmsMeet), at each of the arm checks the judgement makes: an arm of one heading whose field
+ * meets every arm before it; one whose field meets none (Mismatched); one whose field only some arms before it deliver,
+ * at another type (Mismatched at a field some arms lack); arms of two headings whose constants tell no two apart
+ * (IndistinctBeside, which OneKeySet skips for a union of one key set); and an attachment on an arm whose heading an arm
+ * before it shares (AttachedBeside). Every query writes `before` arms of one heading first, so
+ * the offending arm is judged beside all of them at once, and only it is refused, at its own rule, as the checker
+ * refuses it (check/checker.ts Checker.union).
+ */
+
+/**
+ * A union shape: its name, the refusal its last arm raises (none for an admitted union), its last arm, and whether the
+ * second arm before it also delivers m, a field the other arms lack.
+ */
+interface UnionShape {
+	readonly name: string
+	readonly refusal: string | undefined
+	readonly last: string
+	readonly second: "plain" | "with m"
+}
+
+/** The arms every query writes before its last: one heading, `{ id, n, k }`, each with its own constant at k. */
+const before = 4
+
+/** The cells of unionJoinBox, minted as a dictionary in its door (test/types/query/union-join.dictionary.ts). */
+export const unionJoinBoxItems: Arr.NonEmptyReadonlyArray<UnionShape> = [
+	{
+		name: "an arm of one heading that meets every arm",
+		refusal: undefined,
+		last: 'const { id, n } = v(R, "z"); return r.match(R, { id, n }).find({ id, n, k: "e" })',
+		second: "plain"
+	},
+	{
+		name: "an arm whose field meets no arm before it",
+		refusal: "a union's arms deliver each field at one type",
+		last: 'const { id, t } = v(R, "z"); return r.match(R, { id, t }).find({ id, n: t, k: "e" })',
+		second: "plain"
+	},
+	{
+		name: "an arm whose field only some arms before it deliver, at another type",
+		refusal: "a union's arms deliver each field at one type",
+		last: 'const { id, n, t } = v(R, "z"); return r.match(R, { id, n, t }).find({ id, n, m: t, k: "e" })',
+		second: "with m"
+	},
+	{
+		name: "an arm of another heading whose constant tells it from no arm",
+		refusal: "arms of different headings share a field that holds a different constant in each",
+		last: 'const { id, t } = v(R, "z"); return r.match(R, { id, t }).find({ id, t, k: "a" })',
+		second: "plain"
+	},
+	{
+		name: "an attached arm whose heading the arms before it share",
+		refusal: "an attachment on an arm of a union whose heading several arms share",
+		last: 'const { id, n } = v(R, "z"); return r.match(R, { id, n }).find({ id, n, k: "e" }).attach("kids", (p) => query(S).rule((q) => { const { t } = v(R, "c"); return q.match(R, { id: p.id, t }).find({ t }) }), "array")',
+		second: "plain"
+	}
+]
+
+/** The constants the arms before the last hold at k, each its own. */
+const constants = ["a", "b", "c", "d"] as const
+
+/** The schema every cell reads. */
+const unionJoinHeader = (): ReadonlyArray<string> => [
+	'export const Text = str.regex("^[a-z]{1,8}$")',
+	'export const Kind = closed.ordered("Kind", ["a", "b", "c", "d", "e"])',
+	'export const R = relation("R", { id: closedId(Kind), n: pg.integer, t: Text }, ["id"])',
+	'export const S = schema("S", [Kind, R], [])',
+	""
+]
+
+/** Arm i before the last: one heading, `{ id, n, k }`, the second also delivering m at n's type where the shape says. */
+const armBefore = (c: UnionShape, i: number): string =>
+	`\t.rule((r) => { const { id, n } = v(R, "s${i}"); return r.match(R, { id, n }).find({ id, n, ${i === 1 && c.second === "with m" ? "m: n, " : ""}k: "${constants[i % constants.length] ?? "a"}" }) })`
+
+/** A cell's lines: its query, the arms before its last, and its last arm under its refusal's directive. */
+const cellLines = (c: UnionShape, at: number): ReadonlyArray<string> => [
+	`// ${c.name}`,
+	`export const u${at} = query(S)`,
+	...Arr.map(indices(before), (i) => armBefore(c, i)),
+	...(c.refusal === undefined ? [] : [`\t// @ts-expect-error -- refusal: ${c.refusal}`]),
+	`\t.rule((r) => { ${c.last} })`,
+	""
+]
+
+/** The program's prelude (test/support/programs/union-join.ts). */
+const prelude = await Effect.runPromise(preludeAt("test/support/programs/union-join.ts"))
+
+/** The program over a batch's cells, its imports read through its prelude as `entry` reaches it. */
+export const unionJoinProgram = (
+	cells: Arr.NonEmptyReadonlyArray<UnionShape>,
+	entry: Entry
+): Program => [
+	preludeModule(
+		"index.ts",
+		"// Generated by test/types/query/union-join.ts: queries of several arms, each further arm judged as it joins.",
+		preludeFrom(prelude, entry),
+		[
+			{ owner: batchOwned, lines: unionJoinHeader() },
+			...Arr.map(cells, (c, at) => ({ owner: caseOwned(at), lines: cellLines(c, at) }))
+		]
+	)
+]

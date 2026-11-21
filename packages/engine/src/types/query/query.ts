@@ -1092,14 +1092,23 @@ export interface InteriorSource<S, Head, SP, Hc, Cx, Ev> extends Built, Headed<H
 type ArmsMeet<Arms extends UnionArms, Head, New extends AnyArm> =
 	GroupedArm<Arms, Head> extends true
 		? Refusal<"an arm over a union of several headings: only a query's result delivers each heading group">
-		: true extends SharesAttachedHeading<Arms[number], New>
+		: true extends AttachedBeside<Arms[number], New>
 			? Refusal<"an attachment on an arm of a union whose heading several arms share">
-			: UnionRefusal<CarriersOfArm<Arms[number]>, New["carriers"]>
+			: UnionRefusal<Arms[number]["carriers"], New["carriers"]>
 /** Whether a query of arms Arms and records Head is one stage over a union of several headings. */
 type GroupedArm<Arms extends UnionArms, Head> = Arms extends readonly [AnyArm]
 	? Heterogeneous<Head>
 	: false
-type CarriersOfArm<A> = A extends AnyArm ? A["carriers"] : never
+/**
+ * Whether an earlier arm of Old has New's heading key set, one of the two carrying an attachment: none where no arm
+ * carries one, read off the arms' union at once (`attached`, never for an arm that attaches nothing), and otherwise
+ * each arm beside New (SharesAttachedHeading).
+ */
+type AttachedBeside<Old extends AnyArm, New extends AnyArm> = [
+	Old["attached"] | New["attached"]
+] extends [never]
+	? false
+	: SharesAttachedHeading<Old, New>
 /** Whether an earlier arm A has New's heading key set, one of the two carrying an attachment. */
 type SharesAttachedHeading<A, New extends AnyArm> = A extends AnyArm
 	? SameKeys<A["carriers"], New["carriers"]> extends true
@@ -1116,9 +1125,20 @@ type SharesAttachedHeading<A, New extends AnyArm> = A extends AnyArm
 type UnionRefusal<Old, New> =
 	true extends Mismatched<New, Old>
 		? Refusal<"a union's arms deliver each field at one type">
-		: true extends IndistinctBeside<Old, New, DiscriminantOf<Old | New, keyof (Old | New)>>
-			? Refusal<"arms of different headings share a field that holds a different constant in each">
-			: unknown
+		: OneKeySet<Old, New> extends true
+			? unknown
+			: true extends IndistinctBeside<Old, New, DiscriminantOf<Old | New, keyof (Old | New)>>
+				? Refusal<"arms of different headings share a field that holds a different constant in each">
+				: unknown
+/**
+ * Whether every arm of Old has New's key set: no two arms of different headings, so none to tell apart, and no
+ * discriminant to read. Every key any arm of Old has is one of New's, and every key of New one every arm of Old has.
+ */
+type OneKeySet<Old, New> = [KeyOfAnyArm<Old>] extends [keyof New]
+	? [keyof New] extends [keyof Old]
+		? true
+		: false
+	: false
 /**
  * Whether two arms of Old and New hold the same constants at every field of the discriminant D: New and an arm of Old,
  * and two arms of Old only where D is narrower than the discriminant of Old alone, at which they were judged apart.

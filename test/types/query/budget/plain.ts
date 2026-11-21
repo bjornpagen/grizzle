@@ -7,18 +7,27 @@ import { assertClean, type Measuring, measuredEach } from "#test/types/batch/mea
 
 /**
  * The plain-query programs (plain.test.ts): queries that attach nothing, each one rule over P of a schema of three
- * relations, or a union of two such rules, written `queries` times, the program checked at two sizes. A query's
+ * relations, a union of two such rules, or a union of sixteen, each arm's head with a constant of its own as a union of
+ * grading's values is (edullm's ledger, grade.ts), written `queries` times, the program checked at two sizes. A query's
  * attachments are a phantom of its type (types/query/query.ts At, Attachment), which a query that attaches nothing holds
  * as one alias, and a union holds as the query's it was built on; what an added query costs is the cost a program pays
  * for each query it writes, which the gate holds to its measured bound.
  */
-export type PlainShape = "one rule" | "union of two rules"
+export type PlainShape = "one rule" | "union of two rules" | "union of sixteen rules"
 
 /** The cells of plainQueries, minted as a dictionary in its door (test/types/query/budget/plain.dictionary.ts). */
 export const plainShapesItems: readonly [PlainShape, ...ReadonlyArray<PlainShape>] = [
 	"one rule",
-	"union of two rules"
+	"union of two rules",
+	"union of sixteen rules"
 ]
+
+/** The arms of the widest union a plain query is measured at. */
+const sixteen = 16
+
+/** An arm whose head holds a constant of its own at k, the j-th, as each arm of a union of grading's values does. */
+const keyedArm = (scope: string, j: number): string =>
+	`(r) => {\n\tconst { id, n } = v(P, "${scope}")\n\treturn r.match(P, { id, n }).find({ id, n, k: "k${j}" })\n}`
 
 /** One query of a shape, named q<i>. */
 const queryOf = (shape: PlainShape, i: number): string => {
@@ -29,6 +38,11 @@ const queryOf = (shape: PlainShape, i: number): string => {
 			return `export const q${i} = query(S).rule(${arm("p")})\n`
 		case "union of two rules":
 			return `export const q${i} = query(S).rule(${arm("p")}).rule(${arm("q")})\n`
+		case "union of sixteen rules":
+			return `export const q${i} = query(S)${Arr.join(
+				Arr.map(indices(sixteen), (j) => `.rule(${keyedArm(`s${j}`, j)})`),
+				""
+			)}\n`
 	}
 }
 
@@ -54,9 +68,10 @@ const step = 20
  * What one query of each shape adds to a program's instantiations, at most: what it added when the attachments phantom
  * was cut, a one-rule query four more than before the phantom; and since lane PERF-TYPES's cuts, what each costs now
  * that every member of a query reads its schema off its phantom (types/query/query.ts OverSchema), a union's arm check
- * infers nothing (NoInfer), and a rule's evidence is held where it is inferred to its keys and card alone
- * (types/evidence/evidence.ts InferredEvidence), its head origins read where they are read: a one-rule query 1,534, a
- * union of two rules 4,142.
+ * infers nothing (NoInfer), a rule's evidence is held where it is inferred to its keys and card alone
+ * (types/evidence/evidence.ts InferredEvidence), its head origins read where they are read, and a union's further arm is
+ * judged beside the arms' carriers read off their union at once, attachments and key sets first (ArmsMeet): a one-rule
+ * query 1,534, a union of two rules 4,022, a union of sixteen rules 60,694.
  *
  * @limitKind measured
  * @owner the query facade's type cost gates (test/types/query/budget/plain.ts)
@@ -72,13 +87,15 @@ const step = 20
  * @environment cassowary, Ubuntu 26.04 arm64, 64 cores, load 60 to 90 from other sessions; Node 26.13.1, TypeScript
  *   7.1.0-beta (tsgo); grizzle at pin-stack 20760a35f (the records cars) and the attachments cut over it; the union's
  *   bound at hub main 71af69764 and lane PERF-TYPES's cut over it, load 400 to 500
- * @workload a schema of three relations; 20 and 40 one-rule queries over one of them, and 20 and 40 unions of two such
- *   rules, each program checked alone
+ * @workload a schema of three relations; 20 and 40 one-rule queries over one of them, 20 and 40 unions of two such
+ *   rules, and 20 and 40 unions of sixteen, each arm's head with a constant of its own, each program checked alone
  * @result per added query, one rule: 2,372 instantiations before the phantom, 2,376 with it; a union of two rules:
  *   5,843 before, 5,848 with the union keeping its receiver's attachments, 5,864 with a union holding both arms'
  *   (`At | At2`); after PERF-TYPES's first cut, 5,826, and 5,842 with `At | At2`; after its second, one rule 1,534, and
  *   2,399 with the first rule's evidence held to Evidence whole, a union of two rules 4,142, and 4,158 with
- *   `At | At2`; every program clean; types are not read (the checker interns them)
+ *   `At | At2`; after its third, a union of two rules 4,022, and 4,038 with `At | At2`, and a union of sixteen rules
+ *   60,694 (70,807 before it, 69,491 with every arm's attachment read beside each arm before it); every program clean;
+ *   types are not read (the checker interns them)
  * @decision the bound is the cut's own cost, exactly: a change that makes a query that attaches nothing pay more for
  *   its type's attachments, or any other cost per plain query, is refused here, and a change that lowers it lowers the
  *   bound
@@ -87,7 +104,8 @@ const step = 20
  */
 const addedAtMost: { readonly [S in PlainShape]: number } = {
 	"one rule": 1534,
-	"union of two rules": 4142
+	"union of two rules": 4022,
+	"union of sixteen rules": 60694
 }
 
 /** How a shape prints. */
