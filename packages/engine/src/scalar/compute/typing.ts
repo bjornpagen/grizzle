@@ -85,8 +85,7 @@ import {
 	isTextSearchConfiguration,
 	isTextSearchWeight,
 	textQueryMaxBytes,
-	textSearchConfigurations,
-	textSearchStringMaxBytes
+	textSearchConfigurations
 } from "#compiler/ir/search.ts"
 import {
 	absBounds,
@@ -177,7 +176,6 @@ import {
 import { collapseSources } from "#compiler/scalar/regex/whitespace.ts"
 import {
 	capabilitiesOf,
-	inferredType,
 	numericValue,
 	searchType,
 	storedOnly,
@@ -185,7 +183,11 @@ import {
 } from "#compiler/scalar/registry.ts"
 import { Decimal, moneyFractionDigits, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
 import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
-import { bytesMaxLength, varlenaHeaderBytes } from "#compiler/scalar/values/fault.ts"
+import {
+	bytesMaxLength,
+	textSearchStringMaxBytes,
+	varlenaHeaderBytes
+} from "#compiler/scalar/values/fault.ts"
 import { binary32Digits } from "#compiler/scalar/values/float.ts"
 import { binary32LeastExponent } from "#compiler/scalar/values/float.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -2319,7 +2321,7 @@ class Typing<R extends Refs> {
 				return this.param(desc, at)
 			case "literal": {
 				if (desc.type !== undefined) {
-					const t = inferredType(desc.type, (d) => unwrap(this.env.fieldType(d, at)))
+					const t = unwrap(this.env.fieldType(desc.type, at))
 					return this.literal(desc.value, t, at)
 				}
 				return this.bareLiteral(desc.value, at)
@@ -3890,7 +3892,8 @@ class Typing<R extends Refs> {
 	 * cast into a contract or a regex-refined text type, or the binary coercion that drops a typmod or a regex into the
 	 * plain type, so the node delivered is of the type the cast names. A cast that changes nothing records nothing. Each
 	 * step is defined everywhere or proved where it stands (castNode, domainCast); a conversion into a float rounds as
-	 * IEEE 754 does.
+	 * IEEE 754 does. A cast into a computed numeric's bound narrower than numeric's own (pg.numeric.within) stands only
+	 * where its operand's bounds prove every value within it, since nothing rounds into it.
 	 */
 	castTo(arg: Typed, to: ScalarType, at: SourceLoc): Typed {
 		const target = baseOf(to)
@@ -3923,6 +3926,22 @@ class Typing<R extends Refs> {
 		}
 		if (numericTypmodOf(target) !== undefined && !sameShape(valueType(value.actual), target)) {
 			value = this.typmodCoercion(value, target, at)
+		}
+		const bound = numericBoundOf(target)
+		if (
+			bound !== undefined &&
+			(bound.digits < numericMaxIntegerDigits || bound.scale < numericMaxFractionDigits) &&
+			!(
+				arg.bounds !== undefined &&
+				arg.bounds.digits <= bound.digits &&
+				arg.bounds.scale <= bound.scale
+			)
+		) {
+			return stop(
+				"UnsupportedOperation",
+				at,
+				`cast: into ${typeLabel(target)}, a computed numeric's bound, which no conversion rounds into: its operand's bounds prove no value of ${typeLabel(arg.actual)} within it; cast into pg.numeric, or into pg.numeric(p, s) under a guard that proves the value fits`
+			)
 		}
 		if (isRefined(to) && !sameRefinement(arg.actual, to)) {
 			return this.domainCast(value, to, checkedKind(arg.node), at)

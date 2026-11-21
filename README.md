@@ -1917,11 +1917,13 @@ schema.
 | `pg.smallint`, `pg.integer`                        | smallint, integer                                                   | `number`                                                               |
 | `pg.bigint`                                        | bigint                                                              | `bigint`                                                               |
 | `natural`                                          | bigint, behind a domain that checks `>= 0`                          | `bigint`                                                               |
-| `instant`                                          | bigint, behind natural's domain                                     | `bigint`, microseconds since the Unix epoch, written by the database   |
+| `instant`                                          | bigint, behind natural's domain                                     | `Instant`, a `bigint` of microseconds since the Unix epoch, written by the database |
+| `instant.stored`                                   | bigint, behind natural's domain                                     | `Instant`, an instant a read delivered, written by its caller as it is |
 | `date`                                             | date, its column checked to 0001-01-01 … 9999-12-31                 | `CalendarDate`, its ISO 8601 text `"YYYY-MM-DD"`                       |
 | `pg.numeric`                                       | numeric, no typmod: every value numeric holds, NaN and ±Infinity    | `Decimal`, exact, passed as it is                                      |
 | `pg.numeric(p, 0)`                                 | numeric(p, 0), its column checked to hold no NaN                    | `bigint`, an integer of at most p digits                               |
 | `pg.numeric(p, s)`, s not 0                        | numeric(p, s)                                                       | `Decimal`, exact, no display scale                                     |
+| `pg.numeric.within(digits, scale)`                 | numeric, no typmod, its column checked to NaN, ±Infinity and the finite values below 10^digits of at most `scale` fraction digits | `Decimal`, exact, a sum's, a mean's or an operation's value stored as it was read |
 | `pg.real`, `pg["double precision"]`                | real, double precision                                              | `number`                                                               |
 | `pg.money`                                         | money                                                               | `Money`                                                                |
 | `exactInteger`                                     | numeric, its column checked to scale 0: no fraction, NaN or infinity | `bigint` of any size, integer arithmetic's exact value                 |
@@ -1939,6 +1941,7 @@ schema.
 | `span(T, width?)`, T integer, bigint or date       | int4range, int8range or daterange                                   | `{ start, end }`, start included, end excluded                         |
 | `pg.vector(n)`                                     | pgvector's vector(n)                                                | `Vector`, a Float32Array                                               |
 | `searchDocument(configuration, [w, text], ...)`, generated | tsvector, a STORED generated column                            | `SearchDocument`, the text PostgreSQL prints for it                    |
+| `pg.tsvector(configuration)`                       | tsvector                                                            | `SearchDocument`, a document a read delivered, written back as it is   |
 | `bytes`                                            | bytea, at most 1,073,741,819 bytes                                  | `Uint8Array`, a fresh one over its own buffer                          |
 
 Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `int4`; `pg["double precision"]`, never
@@ -1947,7 +1950,10 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
 - **A value is parsed exactly, once.** Every value you pass, a fact's field, a parameter or a page's boundary, is read
   as its field's type and never altered: a `Decimal` with more fractional digits than its `pg.numeric(p, s)` holds is
   an `EncodingFailure` (`numericScale`), never rounded, so `1.005` at scale 2 is refused where PostgreSQL would store
-  `1.01`; a `number` for `pg.real` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
+  `1.01`; a `Decimal` past a `pg.numeric.within(digits, scale)` bound is an `EncodingFailure` (`numericBound`); a
+  `SearchDocument` for `pg.tsvector` is the text PostgreSQL prints for a document, its lexemes in their one order,
+  each once, and anything else is an `EncodingFailure` (`searchDocumentForm`), never sent to be stored as another
+  document; a `number` for `pg.real` must be a binary32 value as it is, `Math.fround(x) === x`, or it is an
   `EncodingFailure` (`realInexact`), never rounded to the nearest one. A uuid's case is a spelling of one value, a
   float's `-0` a value of its own, kept as written, and nothing else is changed. Everything else a field's type says, its pattern and contract, is
   PostgreSQL's to check ([Errors and outcomes](#errors-and-outcomes)).
@@ -2084,7 +2090,11 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
 Every field has one writer. An insert or a put takes exactly the fields its caller writes, `Written<R>`.
 `AdditionIn<S, R>` is R's addition in S, its sequences' members nested at their count fields.
 
-- **The caller**, the default: a field declared by its type alone, `title: Title`.
+- **The caller**, the default: a field declared by its type alone, `title: Title`. A value a read delivered is
+  stored so whatever its type, so a read's rows can be kept as rows of their own: `instant.stored`, an instant as it
+  was read ([Instants](#instants)), `pg.tsvector(configuration)`, a search document as it was read
+  ([Full text search](#full-text-search)), and `pg.numeric.within(digits, scale)`, a sum's, a mean's or an
+  operation's numeric within the bound its query proves of it.
 - **PostgreSQL**: a STORED generated column,
   `relation.generated(name, written, primaryKey, (r) => ({ f: generated(type, term) }))`, or a search document PostgreSQL
   parses from the row's texts, `searchDocument(configuration, [weight, text], ...)` ([Full text search](#full-text-search)).
@@ -2096,7 +2106,7 @@ Every field has one writer. An insert or a put takes exactly the fields its call
 - **Its group's retirement:** `retirement`, a retirable header's boolean, false when its row is inserted and true once
   its group is retired ([Retirable units](#retirable-units)).
 - **The database's clock:** `instant`, stamped by the insert that adds its row where it is its relation's clock, or a
-  stored instant where it is a reference ([Instants](#instants)).
+  stored instant where it is a reference ([Instants](#instants)). The same type its caller writes is `instant.stored`.
 
 **Generated fields.** A term reads its own row and closed relations ([Closed relations](#closed-relations)). `r` holds
 every stored field of the row but the generated ones, a field grizzle draws or accumulates among them: its column holds
@@ -3353,7 +3363,9 @@ export const searchUnits = query(Course)
 	.take(10)
 ```
 
-`searchDocument(configuration, [weight, text], ...)` is a generated field PostgreSQL parses from its row's texts: `setweight(to_tsvector('pg_catalog.<configuration>', text), weight) || ...`, the parts concatenated in their order, a tsvector stored with the row. The configuration is one of pg_catalog's (`textSearchConfigurations`: `simple`, and one per Snowball language, `english` among them), named per field and the document's type: a query is parsed under the configuration of the document it meets, so no query is ever read under another, and two documents of two configurations are two types. A weight is `A`, `B`, `C` or `D`, which a rank weighs a match by. Each text is a text term of the row, as a generated field's term reads it. A read delivers the document as the text PostgreSQL prints for it, `SearchDocument`; no caller writes one, no parameter carries one, and no key, rule, comparison, contract or fold reads one.
+`searchDocument(configuration, [weight, text], ...)` is a generated field PostgreSQL parses from its row's texts: `setweight(to_tsvector('pg_catalog.<configuration>', text), weight) || ...`, the parts concatenated in their order, a tsvector stored with the row. The configuration is one of pg_catalog's (`textSearchConfigurations`: `simple`, and one per Snowball language, `english` among them), named per field and the document's type: a query is parsed under the configuration of the document it meets, so no query is ever read under another, and two documents of two configurations are two types. A weight is `A`, `B`, `C` or `D`, which a rank weighs a match by. Each text is a text term of the row, as a generated field's term reads it. A read delivers the document as the text PostgreSQL prints for it, `SearchDocument`, under the brand a read alone mints; no parameter carries one, and no key, rule, comparison, contract or fold reads one.
+
+**A stored document.** `pg.tsvector(configuration)` is a search document's field its caller writes: each value a `SearchDocument` of its configuration a read delivered, written back as it is, so a read's documents can be kept with the rest of its rows and matched and ranked there as any document is. Its value is the text PostgreSQL prints, its lexemes quoted in their one order, each once, its positions ascending; any other text, one PostgreSQL would read and store as another document, is an `EncodingFailure` (`searchDocumentForm`), and one past PostgreSQL's sizes, a lexeme over 2,047 bytes or a document over 1,048,575, is `searchDocumentSize`. A query's row states one by a term of its type.
 
 `Search.websearch(text)` reads a query's text by `websearch_to_tsquery`, a web search engine's syntax of quoted phrases, `or` and a leading `-`, and `Search.plain(text)` by `plainto_tsquery`, every word required. A query is no term: `Search.matches(document, query)`, the predicate `document @@ query`, `Search.rank(document, query)`, ts_rank's real, and `Search.rankCd(document, query)`, ts_rank_cd's, read it, each in PostgreSQL's two-argument form, its default weights (A 1.0, B 0.4, C 0.2, D 0.1) and no normalization. A match in a query's filter over a stored document requests a GIN index on the document's column, which serves it: PostgreSQL reads the rows the query's lexemes hold, never the table. `searchUnits` delivers `{ unit, rank }`, best first, ties broken by `unit`, its key.
 
@@ -3699,6 +3711,21 @@ export const signIn = ChangeSet.empty(Auth)
 - **The child is the shard key.** The theory orders one child's instants and claims nothing between two children, so
   each child needs one place that serializes its writes, its rows on one machine, which stamps them, and children
   shard freely.
+
+**An instant stored as it is.** A read delivers an instant as an `Instant`, a `bigint` under the brand grizzle's read of
+one alone mints, so a host holds an instant only where a read delivered it. `instant.stored` is a field of instant's
+type its caller writes, a copy of an instant read elsewhere, which the database draws nothing of: its writing is its
+caller's, where `instant`'s is the database's clock, two writings of one type. A host row states it as an `Instant` it
+read, and a bare `bigint`, a host's own clock or arithmetic, is a type error; a query's row states it by a term of type
+`instant`, as it states a reference. It is no clock and no reference, so it may stand anywhere in its relation, its
+primary key included, and a put and a delete of host rows state it as an insert does. Its terms meet every instant's,
+and it is still no parameter, literal, cast, contract or span. A relation that keeps a read's rows, an audit's or a
+workflow's record of what it read, is keyed by what identifies the read, never by its instants alone.
+
+```ts
+/** What a read of sign-ins delivered, kept as it was read: its instants stored as they are. */
+const SeenSignIn = relation("SeenSignIn", { user: UserId, at: instant.stored }, ["user", "at"])
+```
 
 ### Places
 
@@ -5523,7 +5550,7 @@ grizzle fits applications that own their data end to end, with rules worth decla
 
 - **No timestamp type.** When a row was written is an `instant`, stamped by the database ([Instants](#instants)); any other time is a bigint contract, and the database's clock a parameter a member binds ([The database's clock](#the-databases-clock)). A `date` holds 0001-01-01 to 9999-12-31; a lexical form has no timezone, so a timezoned `xs:date` has no typed value.
 - **A span is over `integer`, `bigint`, `date` or a contract over one** (int4range, int8range, daterange), never `smallint`, which PostgreSQL has no range over. A date span's ends are `CalendarDate`s within 0001-01-01 and an excluded 9999-12-31, as an integer span's excluded end is at most its type's greatest value; its width is a `number` of days.
-- **A numeric is `pg.numeric(p, s)` or `pg.numeric`.** `pg.numeric(p, s)` declares its precision and scale: p at most 1,000, s within ±1,000, NaN but no infinity, and at scale 0 an integer, a `bigint`, with no NaN: a cast into it is proved free of NaN, as a narrowing is proved to fit. `pg.numeric` is PostgreSQL's numeric of no typmod, every value numeric holds, NaN and the infinities among them, a `Decimal`: a field, a parameter, a contract's base or a declared function's argument or result of it passes each value as it is, never rounded to a scale nothing stated (`returns: pg.numeric` for a function whose SQL says `returns numeric`). A key over one is refused: a key needs a precision (A numeric in a key, below). A computed numeric (a sum, a mean, an operation's result, a derived field) carries the digits its computation proves; past 131,072 integer digits, PostgreSQL's limit, it is `ResourceBound` at compile time, but over a `pg.numeric` operand, bounded by nothing but that limit, PostgreSQL enforces it, and a value past it refuses its statement with 22003, numeric_value_out_of_range. `Num.numeric(x)` is `x::numeric` of an integer, money or a float, a float to the 6 or 15 significant digits PostgreSQL writes.
+- **A numeric is `pg.numeric(p, s)`, `pg.numeric` or `pg.numeric.within(digits, scale)`.** `pg.numeric(p, s)` declares its precision and scale: p at most 1,000, s within ±1,000, NaN but no infinity, and at scale 0 an integer, a `bigint`, with no NaN: a cast into it is proved free of NaN, as a narrowing is proved to fit. `pg.numeric` is PostgreSQL's numeric of no typmod, every value numeric holds, NaN and the infinities among them, a `Decimal`: a field, a parameter, a contract's base or a declared function's argument or result of it passes each value as it is, never rounded to a scale nothing stated (`returns: pg.numeric` for a function whose SQL says `returns numeric`). A key over one is refused: a key needs a precision (A numeric in a key, below). A computed numeric (a sum, a mean, an operation's result, a derived field) carries the digits its computation proves, and a field of `pg.numeric.within(digits, scale)` stores one of that bound exactly, its column checked to the bound and a `Decimal` past it refused before any SQL (`numericBound`); past 131,072 integer digits, PostgreSQL's limit, it is `ResourceBound` at compile time, but over a `pg.numeric` operand, bounded by nothing but that limit, PostgreSQL enforces it, and a value past it refuses its statement with 22003, numeric_value_out_of_range. `Num.numeric(x)` is `x::numeric` of an integer, money or a float, a float to the 6 or 15 significant digits PostgreSQL writes.
 - **A parse reads integer, numeric(p, s), double precision, boolean and date forms.** A numeric form has at most 255 digits either side of its point; a double's, 15 significant digits either side and an exponent of at most 293, so float8in neither overflows nor underflows. `Text.parseDouble` reads a double's text of any digits and exponent, and `Text.parseDecimal` a decimal text of any digits within 16,384 bytes, the most whose every value numeric holds. An `xs:duration` has no typed value, since PostgreSQL's interval orders 1 month as 30 days.
 - **A vector's norm lies in the cosine domain, 2^-68 to 2^63**, where pgvector's single-precision `cosine_distance` is in [0, 2], never NaN, for vectors of up to 16,000 dimensions. A vector outside it is refused when it is encoded, and by its column's CHECK from any writer.
 

@@ -13,14 +13,14 @@ import { instantsProgram } from "#test/types/changeset/instants.ts"
 
 /** Admits every write of an instant the rule admits, and refuses every other with the refusal its directive names. */
 export const instants = boxAgreement(finite(word(instantsBox)), {
-	box: "an insert, a put and a delete of host rows and of a query's, the rows insertAll's record types and factsDecoder decodes inserted, insertAll'd and served, an instant stated from a stored one, a parameter, a relation parameter's column, a literal, a typed constant and a cast of its type, a contract named instant or over one, a span of instants, and instants compared with a literal and with instants",
+	box: "an insert, a put and a delete of host rows and of a query's, the rows insertAll's record types and factsDecoder decodes inserted, insertAll'd and served, an instant stated from a stored one, a stored instant (instant.stored) stated from a read's instant and refused a bigint, a parameter, a relation parameter's column, a literal, a typed constant and a cast of its type, a contract named instant or over one, a span of instants, and instants compared with a literal and with instants",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
 	program: instantsProgram,
 	oracle: {
 		kind: "specification",
-		name: "an instant is the database's alone: no value a caller holds is one"
+		name: "an instant is the database's alone: no value a caller holds is one but an instant a read delivered, which a stored instant takes as it is"
 	},
 	kept: [],
 	kills: [
@@ -37,6 +37,18 @@ export const instants = boxAgreement(finite(word(instantsBox)), {
 			replacement:
 				"\treadonly [K in InsertableNameOf<S>]: ReadonlyArray<AdditionIn<S, InsertedRelation<S, K>>>",
 			why: "insertAll's record of rows, which factsDecoder decodes, types a row as an addition, its instant optional, a second spelling of a host row where every insert of host rows leaves it out (HostRowsOf), so the decoded rows of a relation with a clock are refused by its own insert, insertAll and served facts, and the program fails."
+		},
+		{
+			file: "packages/engine/src/scalar/instant.ts",
+			original: 'export type Instant = bigint & Brand.Brand<"instant">',
+			replacement: "export type Instant = bigint",
+			why: "An instant's host value is a bare bigint, so a host row stating a stored instant of a bigint, a host's own, typechecks and its directive is unused; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/query/rule.ts",
+			original: "\t[K in keyof C]-?: C[K] extends StoredInstantField ? K : never",
+			replacement: "\t[K in keyof C]-?: C[K] extends { readonly instant: true } ? K : never",
+			why: "A relation parameter's stored instant column is admitted, a parameter of instant's type a caller states; its directive is unused and the program fails."
 		},
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",

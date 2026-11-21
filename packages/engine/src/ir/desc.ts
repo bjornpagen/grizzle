@@ -68,7 +68,10 @@ import {
 import { type TextSearchConfiguration, textSearchConfigurations } from "#compiler/ir/search.ts"
 import * as S from "#compiler/ir/shape.ts"
 import { reservedSlot } from "#compiler/ir/slots.ts"
+import { numericBoundRefusal } from "#compiler/scalar/values/decimal.ts"
 import {
+	numericMaxFractionDigits,
+	numericMaxIntegerDigits,
 	numericMaxPrecision,
 	numericMaxScale,
 	numericMinScale
@@ -125,12 +128,14 @@ export const pgScalarNames = [
 export type PgScalarName = (typeof pgScalarNames)[number]
 
 /**
- * An authored field's descriptor, as a declaration states it and the Description boundary carries it
- * (fieldDescShape): numeric is numeric(p, s), its precision and scale both declared, and `pg` numeric is numeric of no
- * typmod, which holds every numeric value (ir/scalar.ts NumericValueType at numeric's own limits). No declaration
- * states a computed numeric of a narrower bound, so none has an arm here; a derived relation's inferred field is an
- * InferredFieldDesc. An exact value (exact) is an exact integer or exact money of any size, the type integer and money
- * arithmetic delivers (ir/scalar.ts ExactType) at numeric's own limit. A set over a roster
+ * A field's descriptor, as a declaration states it, the Description boundary carries it (fieldDescShape) and a derived
+ * relation's heading infers it (analysis/derived/fields.ts fieldDescOf): numeric is numeric(p, s), its precision and
+ * scale both declared, and `pg` numeric is numeric of no typmod, which holds every numeric value (ir/scalar.ts
+ * NumericValueType at numeric's own limits); computedNumeric is numeric of no typmod within a narrower bound
+ * (ir/scalar.ts NumericBound), a sum's, a mean's or an operation's, which a derived relation's column carries and a
+ * stored field holds exactly (pg.numeric.within), its bound a column CHECK; a bound at numeric's own limits is
+ * pg.numeric's, so no type has two descriptors. An exact value (exact) is an exact integer or exact money of any size,
+ * the type integer and money arithmetic delivers (ir/scalar.ts ExactType) at numeric's own limit. A set over a roster
  * (bits) is bit(n), one bit per code the roster has minted, holes included. A pattern is a closed relation's text of
  * Text.matches patterns (str.pattern), each value a pattern of grizzle's grammar admitted once where the relation is
  * read, its ARE planned beside its dictionary.
@@ -139,6 +144,7 @@ export type FieldDesc =
 	| { readonly kind: "pg"; readonly type: PgScalarName }
 	| { readonly kind: "numeric"; readonly precision: number; readonly scale: number }
 	| { readonly kind: "exact"; readonly carrier: ExactValueCarrier }
+	| { readonly kind: "computedNumeric"; readonly bound: NumericBound }
 	| { readonly kind: "uuid" }
 	| { readonly kind: "bytes" }
 	| { readonly kind: "sha256" }
@@ -190,16 +196,6 @@ export const nestedFields = (desc: FieldDesc, visit: (d: FieldDesc) => void): vo
 		nestedFields(desc.endpoint, visit)
 	}
 }
-
-/**
- * A derived relation's inferred field descriptor (analysis/derived/fields.ts fieldDescOf): the one a declaration of the
- * field's type writes, or a computed numeric, PostgreSQL's numeric of no typmod with the bound its definition proves
- * (ir/scalar.ts NumericBound), a sum's or a mean's. A contract's base and a span's endpoint are a declaration's, so
- * they stay authored.
- */
-export type InferredFieldDesc =
-	| FieldDesc
-	| { readonly kind: "computedNumeric"; readonly bound: NumericBound }
 
 /** The scalar catalogue. */
 export const computeFns = [
@@ -308,11 +304,10 @@ export interface Refs {
 	 */
 	readonly paramType: unknown
 	/**
-	 * What a typed literal states of its type beside its value: a declared field descriptor in a Description an author
-	 * writes, which states no computed numeric; in one grizzle writes itself (Inferred), an inferred field's
-	 * descriptor, a derived relation's computed numeric column among them (analysis/theory/query.ts).
+	 * What a typed literal states of its type beside its value: a field descriptor, a derived relation's computed numeric
+	 * column's among them (analysis/theory/query.ts).
 	 */
-	readonly literalType: InferredFieldDesc
+	readonly literalType: FieldDesc
 	/**
 	 * The references of the descriptions a clause holds whole: an interior stage's arms, an attachment's child and an
 	 * imported query. The builder's open clauses hold finished, spelled ones.
@@ -329,15 +324,11 @@ export type LeafShape =
 	| { readonly kind: "parent"; readonly column: unknown }
 
 /**
- * A Description's references with each parameter reference carrying `P`, a scalar parameter's type `T` and a typed
- * literal's `D`: a variable's, a parent column's and an interior stage's canonical spelling, and every leaf kind. A
- * walk over a description's parameters (mapQueryParams) changes only `P`.
+ * A Description's references with each parameter reference carrying `P` and a scalar parameter's type `T`: a
+ * variable's, a parent column's and an interior stage's canonical spelling, and every leaf kind. A walk over a
+ * description's parameters (mapQueryParams) changes only `P`.
  */
-export interface ParamsAs<
-	P extends object,
-	T = FieldDesc,
-	D extends InferredFieldDesc = FieldDesc
-> extends Refs {
+export interface ParamsAs<P extends object, T = FieldDesc> extends Refs {
 	readonly var: string
 	readonly parent: string
 	readonly interior: string
@@ -348,8 +339,8 @@ export interface ParamsAs<
 		| { readonly kind: "parent"; readonly column: string }
 	readonly param: P
 	readonly paramType: T
-	readonly literalType: D
-	readonly nested: ParamsAs<P, T, D>
+	readonly literalType: FieldDesc
+	readonly nested: ParamsAs<P, T>
 }
 
 /** A Description's references: every reference spelled canonically, a parameter by its name. */
@@ -371,11 +362,11 @@ export type ParamTyping = FieldDesc | Channel
 
 /**
  * The references of a Description grizzle writes itself, a rule's query over a derived relation's definition
- * (analysis/theory/query.ts): spelled as an author's are, but a typed literal may state any inferred field's descriptor,
- * so a definition's head literal stands at its column's own type, a computed numeric's among them, which no author
- * states, and a parameter of an imported query may be a channel (Channel). An authored Description is one of these.
+ * (analysis/theory/query.ts): spelled as an author's are, a definition's head literal standing at its column's own type,
+ * a computed numeric's among them, but a parameter of an imported query may be a channel (Channel). An authored
+ * Description is one of these.
  */
-export type Inferred = ParamsAs<{ readonly name: string }, ParamTyping, InferredFieldDesc>
+export type Inferred = ParamsAs<{ readonly name: string }, ParamTyping>
 export type InferredExpr = ExprDesc<Located, Inferred>
 export type InferredBindings = BindingsDesc<Located, Inferred>
 export type InferredHead = HeadTermDesc<Located, Inferred>
@@ -1097,6 +1088,7 @@ export const contextFieldAdmits = (desc: FieldDesc): boolean => {
 			return desc.name !== "instant" && contextFieldAdmits(desc.base)
 		case "numeric":
 		case "exact":
+		case "computedNumeric":
 		case "pattern":
 		case "bytes":
 		case "sha256":
@@ -1534,7 +1526,12 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  * How a stored relation's field is written; only a caller's field is in an insert's head. The union is closed: a way of
  * writing a field is an arm here, which every consumer handles.
  *
- * - caller: by the caller.
+ * - caller: by the caller, a field of instant's type among them, a stored copy of an instant a read delivered
+ *   (instant.stored), which the database draws nothing of.
+ * - instant: by the database's clock, a field of instant's type (ir/instant.ts instantName), stamped by the insert that
+ *   adds its row where it is its relation's clock, or carried from a stored instant where it is a reference, as the
+ *   schema's laws make it (analysis/theory/instants.ts). So an instant the database draws and one stored as it is are
+ *   two writings of one type, never a flag.
  * - generated: by PostgreSQL from the field's own row, a STORED generated column.
  * - drawn: by grizzle from the nested arrays its caller writes: a family's index or count, or a tree's start or end,
  *   which exactly one family or tree statement names.
@@ -1548,6 +1545,7 @@ export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<C
  */
 export type Writing<L = Located> =
 	| { readonly kind: "caller" }
+	| { readonly kind: "instant" }
 	| {
 			readonly kind: "generated"
 			/** A row-local expression over the relation's own fields and closed reads, of the field's declared type. */
@@ -2072,10 +2070,10 @@ export interface ParamSpelling<P extends object> {
 	readonly imported: () => ParamSpelling<P>
 }
 
-/** The references a walk over parameters reads: spelled, its scalar parameters typed by `T`, its typed literals stating `D`. */
-type SpelledAs<T, D extends InferredFieldDesc> = ParamsAs<Spelled["param"], T, D>
+/** The references a walk over parameters reads: spelled, its scalar parameters typed by `T`. */
+type SpelledAs<T> = ParamsAs<Spelled["param"], T>
 
-class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
+class ParamWalk<P extends object, T> {
 	readonly #spelling: ParamSpelling<P>
 	/**
 	 * Each imported query the walk has reached, walked: a Description shares an imported query by reference wherever it
@@ -2083,18 +2081,18 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	 * parameters only its bind map binds, so one walk of it serves every import of it, where a walk at every import
 	 * expanded the Description's sharing into a tree.
 	 */
-	readonly #imported: ImportedWalks<P, T, D>
+	readonly #imported: ImportedWalks<P, T>
 
-	constructor(spelling: ParamSpelling<P>, imported: ImportedWalks<P, T, D>) {
+	constructor(spelling: ParamSpelling<P>, imported: ImportedWalks<P, T>) {
 		this.#spelling = spelling
 		this.#imported = imported
 	}
 
-	query(q: QueryDesc<Located, SpelledAs<T, D>>): QueryDesc<Located, ParamsAs<P, T, D>> {
+	query(q: QueryDesc<Located, SpelledAs<T>>): QueryDesc<Located, ParamsAs<P, T>> {
 		return { ...q, stage: this.stage(q.stage) }
 	}
 
-	stage(s: QueryStageDesc<Located, SpelledAs<T, D>>): QueryStageDesc<Located, ParamsAs<P, T, D>> {
+	stage(s: QueryStageDesc<Located, SpelledAs<T>>): QueryStageDesc<Located, ParamsAs<P, T>> {
 		switch (s.kind) {
 			case "rules":
 				return { ...s, arms: mapNonEmpty(s.arms, (r) => this.rule(r)) }
@@ -2131,7 +2129,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 		}
 	}
 
-	rule(r: RuleDesc<Located, SpelledAs<T, D>>): RuleDesc<Located, ParamsAs<P, T, D>> {
+	rule(r: RuleDesc<Located, SpelledAs<T>>): RuleDesc<Located, ParamsAs<P, T>> {
 		return {
 			...r,
 			matches: r.matches.map((m) => ({
@@ -2146,11 +2144,11 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 		}
 	}
 
-	bindings(b: BindingsDesc<Located, SpelledAs<T, D>>): BindingsDesc<Located, ParamsAs<P, T, D>> {
+	bindings(b: BindingsDesc<Located, SpelledAs<T>>): BindingsDesc<Located, ParamsAs<P, T>> {
 		return mapBindingTerms(b, (e) => this.expr(e))
 	}
 
-	bound(b: BindTermDesc<Located, SpelledAs<T, D>>): BindTermDesc<Located, ParamsAs<P, T, D>> {
+	bound(b: BindTermDesc<Located, SpelledAs<T>>): BindTermDesc<Located, ParamsAs<P, T>> {
 		return b.kind === "relationParam"
 			? { kind: "relationParam", ...this.#spelling.param(b.name) }
 			: b.kind === "rows"
@@ -2159,7 +2157,7 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	}
 
 	/** Rows of a query: the query its own namespace, its bind map read in this one, as an import's is. */
-	rows(a: RowsDesc<Located, SpelledAs<T, D>>): RowsDesc<Located, ParamsAs<P, T, D>> {
+	rows(a: RowsDesc<Located, SpelledAs<T>>): RowsDesc<Located, ParamsAs<P, T>> {
 		return {
 			kind: "rows",
 			query: this.#importedQuery(a.query),
@@ -2168,18 +2166,18 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 	}
 
 	/** An imported query, walked once in a namespace of its own (`#imported`). */
-	#importedQuery(q: QueryDesc<Located, SpelledAs<T, D>>): QueryDesc<Located, ParamsAs<P, T, D>> {
+	#importedQuery(q: QueryDesc<Located, SpelledAs<T>>): QueryDesc<Located, ParamsAs<P, T>> {
 		const known = this.#imported.get(q)
 		if (known !== undefined) {
 			return known
 		}
-		const walked = new ParamWalk<P, T, D>(this.#spelling.imported(), this.#imported).query(q)
+		const walked = new ParamWalk<P, T>(this.#spelling.imported(), this.#imported).query(q)
 		this.#imported.set(q, walked)
 		return walked
 	}
 
 	/** An imported query is its own namespace; only its bind map is read in this one. */
-	source(s: SourceDesc<Located, SpelledAs<T, D>>): SourceDesc<Located, ParamsAs<P, T, D>> {
+	source(s: SourceDesc<Located, SpelledAs<T>>): SourceDesc<Located, ParamsAs<P, T>> {
 		switch (s.kind) {
 			case "query":
 			case "step":
@@ -2210,11 +2208,11 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
 		}
 	}
 
-	head(h: HeadTermDesc<Located, SpelledAs<T, D>>): HeadTermDesc<Located, ParamsAs<P, T, D>> {
+	head(h: HeadTermDesc<Located, SpelledAs<T>>): HeadTermDesc<Located, ParamsAs<P, T>> {
 		return mapHeadTerms(h, (e) => this.expr(e))
 	}
 
-	expr(e: ExprDesc<Located, SpelledAs<T, D>>): ExprDesc<Located, ParamsAs<P, T, D>> {
+	expr(e: ExprDesc<Located, SpelledAs<T>>): ExprDesc<Located, ParamsAs<P, T>> {
 		return mapExpr(e, {
 			leaf: (x) =>
 				x.kind === "param" ? { kind: "param", type: x.type, ...this.#spelling.param(x.name) } : x,
@@ -2233,27 +2231,20 @@ class ParamWalk<P extends object, T, D extends InferredFieldDesc> {
  * whose terms alone are the importer's. A take bound to a parameter and a relation parameter are parameters too; a
  * delta source is none, since it exists only inside the ChangeSet that defines it.
  */
-export const mapQueryParams = <
-	P extends object,
-	D extends InferredFieldDesc = FieldDesc,
-	T = FieldDesc
->(
-	q: QueryDesc<Located, SpelledAs<T, D>>,
+export const mapQueryParams = <P extends object, T = FieldDesc>(
+	q: QueryDesc<Located, SpelledAs<T>>,
 	spelling: ParamSpelling<P>,
-	imported: ImportedWalks<P, T, D>
-): QueryDesc<Located, ParamsAs<P, T, D>> => new ParamWalk<P, T, D>(spelling, imported).query(q)
+	imported: ImportedWalks<P, T>
+): QueryDesc<Located, ParamsAs<P, T>> => new ParamWalk<P, T>(spelling, imported).query(q)
 
 /**
  * Each imported query a walk over parameters has walked, by the imported query (ParamWalk `#imported`): one walk's own,
  * or, where the walk's spelling of an imported query depends on that query alone, every walk's of that spelling
  * (check/params.ts resolveQuery).
  */
-export interface ImportedWalks<P extends object, T, D extends InferredFieldDesc> {
-	get(q: QueryDesc<Located, SpelledAs<T, D>>): QueryDesc<Located, ParamsAs<P, T, D>> | undefined
-	set(
-		q: QueryDesc<Located, SpelledAs<T, D>>,
-		walked: QueryDesc<Located, ParamsAs<P, T, D>>
-	): unknown
+export interface ImportedWalks<P extends object, T> {
+	get(q: QueryDesc<Located, SpelledAs<T>>): QueryDesc<Located, ParamsAs<P, T>> | undefined
+	set(q: QueryDesc<Located, SpelledAs<T>>, walked: QueryDesc<Located, ParamsAs<P, T>>): unknown
 }
 
 /** A namespace spelled as it is: an imported query's, for a walk that reads only its importer's. */
@@ -2268,8 +2259,8 @@ const spelledAsIs: ParamSpelling<Spelled["param"]> = {
  * namespace, the union of its members' and read-backs', which ChangeSet.bind closes and the ChangeSet decoder's binding
  * check reads (changeSetDescShape).
  */
-export const queryParamNames = <D extends InferredFieldDesc = FieldDesc, T = FieldDesc>(
-	q: QueryDesc<Located, SpelledAs<T, D>>
+export const queryParamNames = <T = FieldDesc>(
+	q: QueryDesc<Located, SpelledAs<T>>
 ): ReadonlySet<string> => {
 	const names = new Set<string>()
 	mapQueryParams(
@@ -2358,7 +2349,7 @@ export const identityQuery = (
  * a query several imports share stays one value, by which a compile's checks key the imports (check/checker.ts
  * importedKey).
  */
-const unwalkedImports: ImportedWalks<Spelled["param"], FieldDesc, FieldDesc> = {
+const unwalkedImports: ImportedWalks<Spelled["param"], FieldDesc> = {
 	get: (q) => q,
 	set: () => undefined
 }
@@ -2369,7 +2360,7 @@ const unwalkedImports: ImportedWalks<Spelled["param"], FieldDesc, FieldDesc> = {
  * parameter bound to its rows. The rows are written in the namespace that binds them, so they are no use of the
  * parameter and are never bound again.
  */
-class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc, FieldDesc> {
+class RelationBinding extends ParamWalk<Spelled["param"], FieldDesc> {
 	readonly #rows: ReadonlyMap<string, RowsDesc>
 	readonly #identity: (source: RelationParamSourceDesc) => QueryDesc
 
@@ -2414,7 +2405,7 @@ export const bindRelationParams = (
  * A walk that reads a query's own parameters with what each use states of it (passedThrough): a scalar parameter's
  * declared type, a relation parameter as one, and a take bound to a parameter, whose type no use declares.
  */
-class ParamUses extends ParamWalk<Spelled["param"], FieldDesc, FieldDesc> {
+class ParamUses extends ParamWalk<Spelled["param"], FieldDesc> {
 	/** Each parameter's first use, as the term that passes it through. */
 	readonly terms = new Map<string, BindTermDesc>()
 	/** The parameters a take is bound to. */
@@ -2768,6 +2759,11 @@ const fieldDescBody: S.Shape<FieldDesc> = S.tagged("kind", {
 		`numeric(p, s), both declared, p in 1..${numericMaxPrecision} and s in ${numericMinScale}..${numericMaxScale}`
 	),
 	exact: S.struct({ carrier: S.literalsShape(exactValueCarriers) }),
+	computedNumeric: S.refine(
+		S.struct({ bound: S.struct({ digits: S.integer, scale: S.integer }) }),
+		(f) => numericBoundRefusal(f.bound.digits, f.bound.scale) === undefined,
+		`a computed numeric's bound narrower than numeric's own limits: digits -${numericMaxFractionDigits}..${numericMaxIntegerDigits} and a scale 0..${numericMaxFractionDigits}`
+	),
 	uuid: S.struct({}),
 	bytes: S.struct({}),
 	sha256: S.struct({}),
@@ -3134,6 +3130,7 @@ const statementDescShape: S.Shape<StatementDesc> = S.tagged("kind", {
 
 const writingShape: S.Shape<Writing> = S.tagged("kind", {
 	caller: S.struct({}),
+	instant: S.struct({}),
 	generated: S.struct({ expr: exprDescShape }),
 	drawn: S.struct({}),
 	accumulated: S.struct({ start: literalDescShape }),
@@ -3156,14 +3153,15 @@ const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
 
 /**
  * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
- * family's or its insert's place, or one generated from its caller's fields, a key generation, which grizzle writes as
- * its generation's value (law.ts FieldWriting keyGenerated; that it reads its caller's fields alone is
- * check/generated.ts keyGeneratedRule's, where the schema is checked). An accumulated field is computed from the row it
- * would identify, and a retirement field changes when its group is retired.
+ * family's, its insert's place or the database's clock's instant, or one generated from its caller's fields, a key
+ * generation, which grizzle writes as its generation's value (law.ts FieldWriting keyGenerated; that it reads its
+ * caller's fields alone is check/generated.ts keyGeneratedRule's, where the schema is checked). An accumulated field is
+ * computed from the row it would identify, and a retirement field changes when its group is retired.
  */
 const keyWriting = (decl: FieldDecl | undefined): boolean => {
 	switch (decl?.writing.kind) {
 		case "caller":
+		case "instant":
 		case "drawn":
 		case "place":
 		case "generated":
@@ -3187,6 +3185,7 @@ const closedFieldAdmits = (desc: FieldDesc): boolean => {
 	switch (desc.kind) {
 		case "pg":
 		case "numeric":
+		case "computedNumeric":
 		case "uuid":
 		case "text":
 		case "pattern":

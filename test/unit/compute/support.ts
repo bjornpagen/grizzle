@@ -131,6 +131,8 @@ const columnOf = (desc: FieldDesc): Column<unknown> => {
 			return carrierColumn(desc.carrier)
 		case "sha256":
 			return plainColumns.sha256
+		case "computedNumeric":
+			return plainColumns.numeric
 		case "uuid":
 			return plainColumns.uuid
 		case "text":

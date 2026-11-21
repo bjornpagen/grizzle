@@ -18,7 +18,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
@@ -105,7 +105,7 @@ interface IndexedView {
  * derived relation's inferred one, and its type. A stored relation's law column is named too (`lawColumnFields`).
  */
 export interface TargetField {
-	readonly desc: InferredFieldDesc
+	readonly desc: FieldDesc
 	readonly type: ScalarType
 }
 

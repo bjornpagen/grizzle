@@ -49,6 +49,66 @@ export const varlenaHeaderBytes = 4
 export const bytesMaxLength = maxAllocSize - varlenaHeaderBytes
 
 /**
+ * The most bytes PostgreSQL holds of a tsvector's lexemes and positions, and of a tsquery's operands: a document or a
+ * query past it is refused where it is made, "string is too long for tsvector" or "value is too big in tsquery" (54000).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's full text search
+ * @unit bytes
+ * @scope the lexemes and positions of one tsvector, and the operands of one tsquery
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/tsearch/ts_type.h#L52
+ * @quote #define MAXSTRPOS ( (1<<20) - 1)
+ * @verified 2026-11-20
+ */
+export const textSearchStringMaxBytes = (1 << 20) - 1
+
+/**
+ * The most UTF-8 bytes one lexeme of a search document holds: tsvectorin refuses a longer one, "word is too long (2048
+ * bytes, max 2047 bytes)" (54000).
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's full text search
+ * @unit bytes
+ * @scope one lexeme of one tsvector, as tsvectorin reads it
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/tsearch/ts_type.h#L51
+ * @quote #define MAXSTRLEN ( (1<<11) - 1)
+ * @verified 2026-11-21
+ */
+export const searchLexemeMaxBytes = (1 << 11) - 1
+
+/**
+ * The greatest position a lexeme of a search document holds: tsvectorin stores a greater one as this one (LIMITPOS), so
+ * a text that states one would be stored as another document than it spells.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's full text search
+ * @unit positions
+ * @scope one position of one lexeme of one tsvector
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/tsearch/ts_type.h#L91
+ * @quote #define MAXENTRYPOS (1<<14)
+ * @verified 2026-11-21
+ */
+export const searchPositionMax = (1 << 14) - 1
+
+/**
+ * The most positions one lexeme of a search document holds: tsvectorin keeps a lexeme's first this many distinct
+ * positions and drops the rest, so a text that states more would be stored as another document than it spells.
+ *
+ * @limitKind published
+ * @owner PostgreSQL 19.0's full text search
+ * @unit positions
+ * @scope the positions of one lexeme of one tsvector
+ * @constraint compile-time constant
+ * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/tsearch/ts_type.h#L82
+ * @quote #define MAXNUMPOS	(256)
+ * @verified 2026-11-21
+ */
+export const searchPositionsMax = 256
+
+/**
  * The greatest precision a numeric typmod declares.
  *
  * @limitKind published
@@ -229,6 +289,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	numericInfinity: "a finite numeric: a field with a precision cannot hold an infinite value",
 	numericNaN:
 		"an integer: numeric(p, 0) holds integers alone, its host value a bigint, so never NaN",
+	numericBound:
+		"a numeric within its computed bound (pg.numeric.within): NaN, an infinity, or a finite value below 10^digits in magnitude and a multiple of 10^-scale, a value of the bound refused rather than stored past it",
 	moneyType: "a money amount as a bigint count of minor units",
 	moneyRange: "a money amount within the signed 64-bit minor-unit range",
 	moneySpecial: "a finite money amount: NaN and infinity have no money value",
@@ -276,6 +338,8 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	vectorDimensions: `vector dimensions: an integer 1-${vectorMaxDimensions} that the components match`,
 	vectorNonFinite: "a finite vector component: NaN and infinity are not vector values",
 	vectorNorm: `a vector whose native norm lies in the cosine domain [${cosineNormMin}, ${cosineNormMax}]`,
+	searchDocumentForm: `a search document as PostgreSQL prints it (tsvectorout): its lexemes quoted, each once in ascending byte order, its positions ascending within a lexeme, each at most ${searchPositionMax} and at most ${searchPositionsMax} of them; a text tsvectorin would store as another document is refused`,
+	searchDocumentSize: `a search document tsvectorin holds: each lexeme at most ${searchLexemeMaxBytes} UTF-8 bytes, its lexemes and positions at most ${textSearchStringMaxBytes} bytes`,
 	factShape: "a fact: a plain object with exactly the heading's fields"
 }
 

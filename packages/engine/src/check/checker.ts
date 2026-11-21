@@ -174,7 +174,7 @@ import {
 } from "#compiler/scalar/compute/typing.ts"
 import { type PlainCarrier, plainType } from "#compiler/scalar/native.ts"
 import type { CompilePatterns, PatternAutomata } from "#compiler/scalar/regex/patterns.ts"
-import { hasCapability, inferredType, spanType } from "#compiler/scalar/registry.ts"
+import { hasCapability, spanType } from "#compiler/scalar/registry.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 /**
  * How a query is read: as rows (execute, get, compile, attach, derived, a ChangeSet member), as a page, as a
@@ -3621,10 +3621,7 @@ class RuleCheck {
 			return {
 				kind: "literal",
 				value: term.value,
-				stated:
-					term.type === undefined
-						? untyped
-						: typed(inferredType(term.type, (d) => this.cx.fieldType(d, loc))),
+				stated: term.type === undefined ? untyped : typed(this.cx.fieldType(term.type, loc)),
 				loc
 			}
 		}
@@ -4239,7 +4236,7 @@ class RuleCheck {
 				)
 			)
 		}
-		const t = inferredType(e.type, (d) => this.cx.fieldType(d, at))
+		const t = this.cx.fieldType(e.type, at)
 		if (!compatible(t, col.type)) {
 			fail(
 				"MalformedDescription",
@@ -4375,7 +4372,7 @@ class RuleCheck {
 		loc: SourceLoc
 	): LiteralTyping {
 		if (h.type !== undefined) {
-			return { kind: "fixed", type: inferredType(h.type, (d) => this.cx.fieldType(d, loc)) }
+			return { kind: "fixed", type: this.cx.fieldType(h.type, loc) }
 		}
 		return targetType === undefined ? { kind: "bare" } : { kind: "fixed", type: targetType }
 	}

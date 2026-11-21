@@ -76,11 +76,12 @@ import type {
 	Field,
 	FieldBase,
 	InstantDomain,
-	InstantField,
+	StoredInstantField,
 	LiteralOf,
 	NaturalDomain,
 	NaturalField,
 	NotInstant,
+	NotSearchDocument,
 	NotStoredOnly,
 	StoredOnlySql,
 	TextField
@@ -416,7 +417,7 @@ export type ParamConstructor = <
 	F extends ProvedFacts
 >(
 	name: Name,
-	type: Field<H, Sql, D, F> & NotStoredOnly<Sql> & NotInstant<D>
+	type: Field<H, Sql, D, F> & NotStoredOnly<Sql> & NotSearchDocument<Sql> & NotInstant<D>
 ) => ParamTerm<Name, H, Sql, D, F>
 
 /** What r.relation takes as a heading: a heading of fields C, or a relation, whose heading C is. */
@@ -447,19 +448,27 @@ type ParamRelationAt<R, C> = [R] extends [never]
 
 /**
  * The refusal a relation parameter's heading carries: none for a heading of at least one field, as a relation has, no
- * bytes field, which no parameter holds, and no instant, which no caller states.
+ * bytes field, which no parameter holds, no instant, which no caller states, and no search document, which no parameter
+ * holds.
  */
 type ParamFields<C> = [keyof C] extends [never]
 	? Refusal<"a relation parameter has at least one field, as a relation does">
 	: [StoredOnlyFieldsIn<C>] extends [never]
 		? [InstantFieldsIn<C>] extends [never]
-			? unknown
+			? [SearchFieldsIn<C>] extends [never]
+				? unknown
+				: NotSearchDocument<"tsvector">
 			: NotInstant<InstantDomain>
 		: NotStoredOnly<StoredOnlySql>
 
-/** The instant fields of a heading C, which no parameter holds. */
+/** The search document fields of a heading C, which no parameter holds. */
+type SearchFieldsIn<C> = {
+	[K in keyof C]-?: C[K] extends { readonly sql: "tsvector" } ? K : never
+}[keyof C]
+
+/** The instant fields of a heading C, the database's and stored ones alike, which no parameter holds. */
 type InstantFieldsIn<C> = {
-	[K in keyof C]-?: C[K] extends InstantField ? K : never
+	[K in keyof C]-?: C[K] extends StoredInstantField ? K : never
 }[keyof C]
 
 /** The bytes fields of a heading C, which no parameter holds. */

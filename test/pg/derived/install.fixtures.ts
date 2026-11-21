@@ -8,7 +8,7 @@ import type { Source } from "@bjornpagen/testing/source"
 import { Array as Arr, Effect, Order, pipe, Record as Rec, String as Str } from "effect"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
 import { trusted } from "#compiler/core/trusted.ts"
-import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { lowerConservative } from "#compiler/lower/conservative/index.ts"
 import { conservativeInput, flight } from "#compiler/lower/conservative/types.ts"
 
@@ -149,7 +149,7 @@ const workFacts = Object.freeze({
  * of two's complement (numeric.c make_numeric_typmod), a vector's its dimensions, and -1 for every other, a domain's
  * column and a computed numeric's numeric of no typmod among them.
  */
-export const typmodOf = (desc: InferredFieldDesc): number => {
+export const typmodOf = (desc: FieldDesc): number => {
 	switch (desc.kind) {
 		case "numeric":
 			return ((desc.precision << 16) | (desc.scale & 0x7ff)) + 4
@@ -455,7 +455,7 @@ export const descriptorSchemaOf = (c: DescriptorCase) => {
  * nothing and so holds no descriptor to judge: the compiler's refusals are its own suites'. */
 export type DescriptorFeature =
 	| `aggregate ${DescriptorAggregate["fn"]}`
-	| `column ${InferredFieldDesc["kind"]}`
+	| `column ${FieldDesc["kind"]}`
 	| "a schema the compiler refuses"
 
 const ownedTasks = query(W.Work).rule((r) => {

@@ -4,7 +4,7 @@ import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { closedSubset } from "#compiler/physical/closed/storage.ts"
 import { dateRange } from "#compiler/physical/date/storage.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
-import { exactNumeric, integerNumeric } from "#compiler/physical/numeric/storage.ts"
+import { boundedNumeric, exactNumeric, integerNumeric } from "#compiler/physical/numeric/storage.ts"
 import { enforcement } from "#compiler/physical/obligations/graph.ts"
 import { vectorNorm } from "#compiler/physical/vector/storage.ts"
 import type { Expr, InlineConstraint } from "#compiler/sql/ast.ts"
@@ -12,11 +12,12 @@ import { tableCol } from "#compiler/sql/build.ts"
 
 /** The identities of the column CHECKs (ColumnCheckKind), one kind each. */
 type ColumnCheckIdentity = Identity<
-	"normCheck" | "dateCheck" | "integerCheck" | "exactCheck" | "subsetCheck"
+	"normCheck" | "dateCheck" | "integerCheck" | "exactCheck" | "boundCheck" | "subsetCheck"
 >
 
 /**
- * One kind of a stored column's CHECK of the values its host type spells, where PostgreSQL's type holds more: the
+ * One kind of a stored column's CHECK of the values its host type or its bound spells, where PostgreSQL's type holds
+ * more: the
  * columns it holds of, by their type; its identity, the naming door's hashed one, which no declared check of the
  * relation can claim; its predicate over the unqualified column of the type, as a row CHECK spells it; and the reason
  * its object carries.
@@ -39,7 +40,8 @@ interface ColumnCheck {
 
 /**
  * The column CHECKs, in the order a table declares them: a vector's cosine domain (physical/vector/storage.ts), a
- * date's days (physical/date/storage.ts), an integer numeric's integers and an exact field's values at its scale
+ * date's days (physical/date/storage.ts), an integer numeric's integers, an exact field's values at its scale and a
+ * computed numeric's bound
  * (physical/numeric/storage.ts), and a closed id subset's codes (physical/closed/storage.ts).
  */
 const kinds: ReadonlyArray<ColumnCheckKind> = [
@@ -47,6 +49,7 @@ const kinds: ReadonlyArray<ColumnCheckKind> = [
 	dateRange,
 	integerNumeric,
 	exactNumeric,
+	boundedNumeric,
 	closedSubset
 ]
 

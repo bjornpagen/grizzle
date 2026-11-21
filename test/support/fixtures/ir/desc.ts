@@ -158,7 +158,9 @@ export const f = {
 	numeric: (precision: number, scale: number): FieldDesc => ({ kind: "numeric", precision, scale }),
 	natural: naturalDesc,
 	/** An instant of the database's clock, which a relation's laws make a clock or a reference (ir/instant.ts). */
-	instant: instantDesc,
+	instant: { type: instantDesc, writing: { kind: "instant" } } satisfies FieldDecl<object>,
+	/** An instant its caller writes as it read it, which the database draws nothing of (instant.stored). */
+	storedInstant: instantDesc,
 	/** A family's index or count, drawn(natural): grizzle draws it from the nested arrays its caller writes. */
 	drawn: { type: naturalDesc, writing: { kind: "drawn" } } satisfies FieldDecl<object>,
 	/** A fold's end or a copy along a family axis: grizzle fills it on the host, `start` at its axis's base. */

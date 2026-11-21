@@ -397,6 +397,12 @@ export const describes = (t: ScalarType, desc: FieldDesc, env: ScalarEnv, at: st
 			)
 			assert.deepEqual(numericBoundOf(t), undefined, at)
 			return
+		case "computedNumeric":
+			assert.equal(t.carrier, "numeric", at)
+			assert.deepEqual("typmod" in t ? t.typmod : "none", undefined, at)
+			assert.deepEqual(numericBoundOf(t), desc.bound, at)
+			assert.deepEqual(capsOf(t), capabilitiesOf("numeric"), at)
+			return
 		case "bytes":
 			assert.equal(t.carrier, "bytes", at)
 			assert.deepEqual(capsOf(t), capabilitiesOf("bytes"), at)
@@ -497,6 +503,8 @@ export const contentOf = (desc: FieldDesc, env: ScalarEnv): Content => {
 			return { kind: "numeric", typmod: { precision: desc.precision, scale: desc.scale } }
 		case "exact":
 			return { kind: "exact", carrier: desc.carrier, digits: numericMaxIntegerDigits }
+		case "computedNumeric":
+			return { kind: "numericValue", bound: { digits: desc.bound.digits, scale: desc.bound.scale } }
 		case "bytes":
 			return { kind: "bytes" }
 		case "sha256":

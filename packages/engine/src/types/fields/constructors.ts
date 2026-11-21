@@ -18,6 +18,7 @@ import type {
 	Repeats
 } from "#compiler/types/core/phantom.ts"
 
+import type { TextSearchConfiguration } from "#compiler/ir/search.ts"
 import type {
 	AccumulatedField,
 	BitsField,
@@ -34,6 +35,7 @@ import type {
 	NoWriting,
 	NotDigest,
 	NotInstant,
+	NotSearchDocument,
 	NotStoredOnly,
 	NumericField,
 	SpanEndpointLike,
@@ -44,6 +46,7 @@ import type {
 	WritingTag
 } from "#compiler/types/fields/field.ts"
 import type { AnyRoster, HandleOf } from "#compiler/types/schema/relation.ts"
+import type { SearchDocumentField } from "#compiler/types/search/search.ts"
 import type { VectorField } from "#compiler/types/vector/vector.ts"
 
 /**
@@ -83,6 +86,13 @@ export interface Pg {
 	readonly uuidv7: Refusal<typeof mintedRefusal>
 	/** pg.vector(1536): a model-agnostic vector field; the dimension count is an equality-only tag. */
 	readonly vector: <const N extends number>(dimensions: N) => VectorField<N>
+	/**
+	 * pg.tsvector("english"): a search document of the configuration, a field its caller writes, each value a document
+	 * a read delivered (SearchDocument), written back as it is; the configuration is an equality-only tag.
+	 */
+	readonly tsvector: <const C extends TextSearchConfiguration>(
+		configuration: C
+	) => SearchDocumentField<C>
 }
 
 /**
@@ -110,6 +120,7 @@ export type ContractConstructor = <
 		NotStoredOnly<B["sql"]> &
 		NotExactBase<B["sql"]> &
 		NotDigest<B["sql"]> &
+		NotSearchDocument<B["sql"]> &
 		NotInstantBase<B> &
 		ContractBase<NoInfer<Name>, B> &
 		OneContractName<NoInfer<Name>>,

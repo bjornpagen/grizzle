@@ -157,8 +157,8 @@ export const numericAgreementWithPostgreSQLNormalizesLiteralsToNumericPSExactlyA
 			},
 			{
 				file: "packages/engine/src/scalar/values/identity.ts",
-				original: "\tnumeric: (value, spec) => decimalAt(parseNumeric)(value, spec.typmod),",
-				replacement: "\tnumeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec.typmod),",
+				original: "\tnumeric: (value, spec) => decimalAt(parseNumeric)(value, spec),",
+				replacement: "\tnumeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec),",
 				why: "The encoder rounds to the scale where it must refuse."
 			},
 			{

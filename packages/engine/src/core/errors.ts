@@ -1289,6 +1289,7 @@ export const valueFaultWords = [
 	"numericOverflow",
 	"numericInfinity",
 	"numericNaN",
+	"numericBound",
 	"moneyType",
 	"moneyRange",
 	"moneySpecial",
@@ -1325,6 +1326,8 @@ export const valueFaultWords = [
 	"vectorDimensions",
 	"vectorNonFinite",
 	"vectorNorm",
+	"searchDocumentForm",
+	"searchDocumentSize",
 	"factShape"
 ] as const
 export type ValueFault = (typeof valueFaultWords)[number]

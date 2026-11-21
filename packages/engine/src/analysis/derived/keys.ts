@@ -1,7 +1,7 @@
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import {
 	btreeEntry,
@@ -19,7 +19,7 @@ export interface DerivedKeyLayout {
 /** A column of a derived relation's heading as a key's layout reads it: its name and its inferred field descriptor. */
 interface KeyColumn {
 	readonly name: string
-	readonly desc: InferredFieldDesc
+	readonly desc: FieldDesc
 }
 
 /**

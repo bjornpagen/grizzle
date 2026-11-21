@@ -637,11 +637,12 @@ interface VectorType {
 }
 
 /**
- * tsvector: a search document PostgreSQL computes from its row's texts under `configuration` (ir/search.ts), whose
+ * tsvector: a search document PostgreSQL computes from texts under `configuration` (ir/search.ts), whose
  * configuration is its identity as a type, so a query is parsed under the configuration of the document it meets and two
- * documents of two configurations are two types. It is of storage and textSearch alone (scalar/native.ts): read back
- * whole as the text PostgreSQL prints, matched and ranked by PostgreSQL, and nothing more, so no key, rule, comparison,
- * parameter or host computation reads one, and no contract is over one.
+ * documents of two configurations are two types: a generated field's parse of its row's texts (searchDocument), or a
+ * field its caller writes from a document a read delivered (pg.tsvector). It is of storage and textSearch alone
+ * (scalar/native.ts): written and read back whole as the text PostgreSQL prints, matched and ranked by PostgreSQL, and
+ * nothing more, so no key, rule, comparison, parameter or host computation reads one, and no contract is over one.
  */
 export interface SearchType {
 	readonly carrier: "tsvector"

@@ -2,7 +2,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, derivedRefused } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	isNumericValue,
@@ -12,6 +12,7 @@ import {
 	type ScalarType,
 	textPatterns
 } from "#compiler/ir/scalar.ts"
+import { numericBoundDesc } from "#compiler/scalar/registry.ts"
 import type { OwnedContract } from "#compiler/schema/own.ts"
 
 /** Why a column type has no field descriptor: a contract the owned schema does not declare. */
@@ -21,16 +22,17 @@ interface Undescribed {
 }
 
 /**
- * The field descriptor of one inferred column type: a computed numeric's bound, or the descriptor a declaration of the
- * type writes (declaredDescOf). `contracts` are the owned schema's contracts.
+ * The field descriptor of one column type, the descriptor of a field that holds every value of it and is of it exactly,
+ * so its type is the column's again (scalar/registry.ts scalarTypeOf): numeric of no typmod by its bound
+ * (numericBoundDesc), a computed numeric's or pg.numeric's, or the descriptor a declaration of the type writes
+ * (declaredDescOf). A derived relation's heading is described by it, and so is a stored field of a read's column.
+ * `contracts` are the owned schema's contracts.
  */
 export const fieldDescOf = (
 	type: ScalarType,
 	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<InferredFieldDesc, Undescribed> =>
-	isNumericValue(type)
-		? Result.ok({ kind: "computedNumeric", bound: type.bound })
-		: declaredDescOf(type, contracts)
+): Result.Result<FieldDesc, Undescribed> =>
+	isNumericValue(type) ? Result.ok(numericBoundDesc(type.bound)) : declaredDescOf(type, contracts)
 
 /**
  * The descriptor a declaration of `type` writes. A contract column's descriptor is the schema's own declaration of that
@@ -120,8 +122,8 @@ export const declaredDescOf = (
  *
  * Every term in a definition's head carries its descriptor, so a derived relation's heading needs no restatement: the
  * checker types each head term exactly as PostgreSQL types the expression it lowers to (check/checker.ts), and this
- * module states that type as the field descriptor a declaration would have written (ir/desc.ts FieldDesc), or as the
- * computed numeric no declaration writes (ir/desc.ts InferredFieldDesc). The rules it realizes, each pinned by
+ * module states that type as the field descriptor of it (ir/desc.ts FieldDesc, fieldDescOf), a computed numeric's
+ * among them. The rules it realizes, each pinned by
  * test/unit/derived/fields.test.ts:
  *
  * - `r.count()` is `natural`, which every schema holds (schema/own.ts #collectFields; test/unit/check/count.test.ts);
@@ -144,16 +146,15 @@ export const inferredFields = <C extends HeadingColumn>(
 	relation: string,
 	heading: NonEmptyReadonlyArray<C>,
 	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<NonEmptyReadonlyArray<C & { readonly desc: InferredFieldDesc }>, CompileError> => {
+): Result.Result<NonEmptyReadonlyArray<C & { readonly desc: FieldDesc }>, CompileError> => {
 	const [first, ...rest] = heading
 	const head = describedColumn(relation, first, contracts)
 	if (!head.ok) {
 		return head
 	}
-	const out: [
-		C & { readonly desc: InferredFieldDesc },
-		...Array<C & { readonly desc: InferredFieldDesc }>
-	] = [head.value]
+	const out: [C & { readonly desc: FieldDesc }, ...Array<C & { readonly desc: FieldDesc }>] = [
+		head.value
+	]
 	for (const c of rest) {
 		const described = describedColumn(relation, c, contracts)
 		if (!described.ok) {
@@ -169,7 +170,7 @@ const describedColumn = <C extends HeadingColumn>(
 	relation: string,
 	c: C,
 	contracts: Readonly<Record<string, OwnedContract>>
-): Result.Result<C & { readonly desc: InferredFieldDesc }, CompileError> => {
+): Result.Result<C & { readonly desc: FieldDesc }, CompileError> => {
 	const desc = fieldDescOf(c.type, contracts)
 	if (!desc.ok) {
 		const at = SourceLoc(`derived ${relation} field ${c.name}`, [])

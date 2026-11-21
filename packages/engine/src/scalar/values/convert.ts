@@ -11,6 +11,7 @@ import { handleAt, type RosterCodec } from "#compiler/ir/codes.ts"
 import { convertDate } from "#compiler/ir/date.ts"
 import type { Carrier } from "#compiler/ir/scalar.ts"
 import { Decimal, type NumericTypmod } from "#compiler/scalar/values/decimal.ts"
+import { numericOwnBound } from "#compiler/scalar/values/fault.ts"
 import { convertComponent, convertDouble, convertReal } from "#compiler/scalar/values/float.ts"
 import type { CarrierHost, CarrierSpec, SpecOf } from "#compiler/scalar/values/identity.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
@@ -160,7 +161,7 @@ const conversionSpecs: { readonly [C in ConvertedCarrier]: SpecOf<C> } = {
 	int2: { carrier: "int2" },
 	int4: { carrier: "int4" },
 	int8: { carrier: "int8" },
-	numeric: { carrier: "numeric", typmod: undefined },
+	numeric: { carrier: "numeric", typmod: undefined, bound: numericOwnBound },
 	float4: { carrier: "float4" },
 	float8: { carrier: "float8" },
 	money: { carrier: "money" },

@@ -1,9 +1,20 @@
 /** What the properties of fields.test.ts read: its spaces, models and helpers. */
 
 import { nonEmpty } from "@bjornpagen/testing/assert"
-import { array, boolean, constant, type Gen, int, subarray } from "@bjornpagen/testing/gen"
+import {
+	array,
+	boolean,
+	constant,
+	element,
+	type Gen,
+	int,
+	subarray,
+	weighted
+} from "@bjornpagen/testing/gen"
 import { Array as Arr } from "effect"
 import type { OpenExpr } from "#compiler/ir/open.ts"
+import { type TextSearchConfiguration, textSearchConfigurations } from "#compiler/ir/search.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { upTo } from "#test/support/up-to.ts"
 import {
 	fieldSketchGen,
@@ -69,3 +80,28 @@ export const contractCaseGen: Gen<ContractCase> = (source) => {
 		target: source.draw(int(0, contracts.length - 1))
 	}
 }
+
+/**
+ * A stored field of a read's column, one of the three kinds a records relation keeps of a read's heading: a search
+ * document of a configuration (pg.tsvector), numeric of no typmod within a computed bound (pg.numeric.within), or at
+ * numeric's own limits (pg.numeric, the bound's one descriptor), and an instant stored as it is (instant.stored).
+ */
+export type StoredKind =
+	| { readonly kind: "search"; readonly configuration: TextSearchConfiguration }
+	| { readonly kind: "bound"; readonly digits: number; readonly scale: number }
+	| { readonly kind: "own limits" }
+	| { readonly kind: "stored instant" }
+
+export const storedKindGen: Gen<StoredKind> = weighted<StoredKind>([
+	[2, (s) => ({ kind: "search", configuration: s.draw(element(textSearchConfigurations)) })],
+	[
+		3,
+		(s) => ({
+			kind: "bound",
+			digits: s.draw(int(-numericMaxFractionDigits, numericMaxIntegerDigits - 1)),
+			scale: s.draw(int(0, numericMaxFractionDigits))
+		})
+	],
+	[1, () => ({ kind: "own limits" })],
+	[1, () => ({ kind: "stored instant" })]
+])

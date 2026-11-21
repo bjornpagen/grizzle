@@ -101,8 +101,8 @@ export const aNumericDescriptorsColumnAndItsReaderReadItsOutputAsItsValueSpacesH
 				},
 				{
 					file: "packages/engine/src/codec/scalar.ts",
-					original: "\t\t\treturn type.typmod !== undefined && isIntegerTypmod(type.typmod)",
-					replacement: "\t\t\treturn false",
+					original: "\t\t\t\t: isIntegerTypmod(type.typmod)",
+					replacement: "\t\t\t\t: false",
 					why: "A numeric(p, 0)'s codec spec is the general numeric's, so the engine's reader decodes a Decimal where the column delivers a bigint; the reader's value differs."
 				}
 			]

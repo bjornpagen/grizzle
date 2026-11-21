@@ -14,7 +14,7 @@ import { hostRead } from "#compiler/core/host.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { type DecimalValue, decimalPayload, decimalTag } from "#compiler/ir/decimal.ts"
-import type { NumericTypmod } from "#compiler/ir/scalar.ts"
+import type { NumericBound, NumericTypmod } from "#compiler/ir/scalar.ts"
 import {
 	numericMaxFractionDigits,
 	numericMaxIntegerDigits,
@@ -56,7 +56,7 @@ export const moneyFractionDigits = 2
  */
 const maxExponent = Math.trunc(int4Max / 2)
 
-export type { DecimalParts, FiniteParts, NumericTypmod }
+export type { DecimalParts, FiniteParts, NumericBound, NumericTypmod }
 
 /** 10^n. */
 const pow10 = (n: number): bigint => 10n ** BigInt(n)
@@ -628,6 +628,44 @@ export const parseNumeric = (
 	}
 	return withinPrecision(units, typmod.precision) ? Result.ok(d) : Result.err("numericOverflow")
 }
+
+/**
+ * A value of numeric of no typmod within `bound` (ir/scalar.ts NumericBound), a computed numeric's or pg.numeric's at
+ * numeric's own limits: itself, NaN and the infinities among them, as numeric of no typmod holds them, and a finite
+ * value of at most bound.scale fraction digits below 10^bound.digits in magnitude; any other refused (numericBound),
+ * never rounded. Every Decimal is within numeric's own limits, so pg.numeric's bound admits each as it is.
+ */
+export const withinBound = (
+	d: Decimal,
+	bound: NumericBound
+): Result.Result<Decimal, ValueFault> => {
+	const p = d.parts
+	if (p.kind !== "finite" || p.coefficient === 0n) {
+		return Result.ok(d)
+	}
+	const integerDigits = p.coefficient.toString().length - p.minScale
+	return p.minScale <= bound.scale && integerDigits <= bound.digits
+		? Result.ok(d)
+		: Result.err("numericBound")
+}
+
+/**
+ * A computed numeric's bound as a JavaScript caller or a Description states it (pg.numeric.within(digits, scale),
+ * ir/desc.ts FieldDesc computedNumeric): both integers, its scale 0..numericMaxFractionDigits and its digits
+ * -numericMaxFractionDigits..numericMaxIntegerDigits, as numeric's own format bounds a value, and narrower than
+ * numeric's own limits, which pg.numeric is: what the bound refuses, or none.
+ */
+export const numericBoundRefusal = (digits: unknown, scale: unknown): string | undefined =>
+	!isInteger(digits) ||
+	!isInteger(scale) ||
+	scale < 0 ||
+	scale > numericMaxFractionDigits ||
+	digits < -numericMaxFractionDigits ||
+	digits > numericMaxIntegerDigits
+		? `a computed numeric's bound: integer digits -${numericMaxFractionDigits}..${numericMaxIntegerDigits} and a scale 0..${numericMaxFractionDigits}`
+		: digits === numericMaxIntegerDigits && scale === numericMaxFractionDigits
+			? "a bound narrower than numeric's own limits, which pg.numeric holds"
+			: undefined
 
 /** The bigint a finite integer Decimal is; undefined for NaN, an infinity and a value with a fraction. */
 export const integerOfDecimal = (d: Decimal): bigint | undefined => {

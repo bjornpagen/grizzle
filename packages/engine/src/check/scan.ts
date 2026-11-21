@@ -7,7 +7,6 @@ import {
 	exprChildren,
 	type HeadTermDesc,
 	headTerms,
-	type InferredFieldDesc,
 	type Located,
 	type ParamsAs,
 	type QueryDesc,
@@ -47,8 +46,8 @@ const emptyLeaves = <P extends object, T>(): Leaves<P, T> => ({
  * negation's or existence's bindings are read in the rule's scope too, and so is the bind map of the query it reads;
  * the query itself is its own scope.
  */
-const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
-	e: ExprDesc<Located, ParamsAs<P, T, D>>,
+const exprLeaves = <P extends object, T>(
+	e: ExprDesc<Located, ParamsAs<P, T>>,
 	into: Leaves<P, T>
 ): void => {
 	if (e.kind === "var") {
@@ -68,16 +67,16 @@ const exprLeaves = <P extends object, T, D extends InferredFieldDesc>(
 }
 
 /** The leaves one expression reads in its own scope (`exprLeaves`). */
-export const leavesOf = <P extends object, T, D extends InferredFieldDesc>(
-	e: ExprDesc<Located, ParamsAs<P, T, D>>
+export const leavesOf = <P extends object, T>(
+	e: ExprDesc<Located, ParamsAs<P, T>>
 ): Leaves<P, T> => {
 	const into = emptyLeaves<P, T>()
 	exprLeaves(e, into)
 	return into
 }
 
-const bindingLeaves = <P extends object, T, D extends InferredFieldDesc>(
-	bindings: BindingsDesc<Located, ParamsAs<P, T, D>>,
+const bindingLeaves = <P extends object, T>(
+	bindings: BindingsDesc<Located, ParamsAs<P, T>>,
 	into: Leaves<P, T>
 ): void => {
 	for (const [, e] of entries(bindings)) {
@@ -90,11 +89,11 @@ const bindingLeaves = <P extends object, T, D extends InferredFieldDesc>(
  * parameter to among it, and so is each argument of a call: a value's term, and a rows argument's bind map, its query
  * its own scope.
  */
-const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
-	s: SourceDesc<Located, ParamsAs<P, T, D>>,
+const sourceLeaves = <P extends object, T>(
+	s: SourceDesc<Located, ParamsAs<P, T>>,
 	into: Leaves<P, T>
 ): void => {
-	const bound = (bind: BindMapDesc<Located, ParamsAs<P, T, D>>): void => {
+	const bound = (bind: BindMapDesc<Located, ParamsAs<P, T>>): void => {
 		for (const [, b] of entries(bind)) {
 			if (b.kind === "relationParam") {
 				into.params.push(b)
@@ -120,8 +119,8 @@ const sourceLeaves = <P extends object, T, D extends InferredFieldDesc>(
 	}
 }
 
-const headLeaves = <P extends object, T, D extends InferredFieldDesc>(
-	h: HeadTermDesc<Located, ParamsAs<P, T, D>>,
+const headLeaves = <P extends object, T>(
+	h: HeadTermDesc<Located, ParamsAs<P, T>>,
 	into: Leaves<P, T>
 ): void => {
 	for (const e of headTerms(h)) {
@@ -142,8 +141,8 @@ const headLeaves = <P extends object, T, D extends InferredFieldDesc>(
  * `direct`, a parameter that a match binding is exactly is left out: it fixes its column as a constant and needs no
  * value of its own in the region.
  */
-export const ruleLeaves = <P extends object, T, D extends InferredFieldDesc>(
-	rule: RuleDesc<Located, ParamsAs<P, T, D>>,
+export const ruleLeaves = <P extends object, T>(
+	rule: RuleDesc<Located, ParamsAs<P, T>>,
 	direct: boolean
 ): Leaves<P, T> => {
 	const into = emptyLeaves<P, T>()
@@ -195,8 +194,8 @@ export const freshColumnName = (
 	return name
 }
 
-export const parentUse = <P extends object, T, D extends InferredFieldDesc>(
-	child: QueryDesc<Located, ParamsAs<P, T, D>>
+export const parentUse = <P extends object, T>(
+	child: QueryDesc<Located, ParamsAs<P, T>>
 ): ParentUse => {
 	const use: ParentUse = {
 		columns: new Set(),
@@ -205,7 +204,7 @@ export const parentUse = <P extends object, T, D extends InferredFieldDesc>(
 		headKeys: new Set(),
 		attachments: new Set()
 	}
-	const rule = (r: RuleDesc<Located, ParamsAs<P, T, D>>): void => {
+	const rule = (r: RuleDesc<Located, ParamsAs<P, T>>): void => {
 		for (const a of r.attach) {
 			use.attachments.add(a.name)
 		}
@@ -229,7 +228,7 @@ export const parentUse = <P extends object, T, D extends InferredFieldDesc>(
 	 * A nested attachment's child reads its own parent, this child's rows, not ours; its name is on this child's
 	 * rows.
 	 */
-	const stage = (s: QueryStageDesc<Located, ParamsAs<P, T, D>>): void => {
+	const stage = (s: QueryStageDesc<Located, ParamsAs<P, T>>): void => {
 		switch (s.kind) {
 			case "rules":
 				for (const r of s.arms) {

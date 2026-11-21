@@ -13,7 +13,8 @@ import {
 	Decimal,
 	integerOfDecimal,
 	normalizeNumeric,
-	parseNumeric
+	parseNumeric,
+	withinBound
 } from "#compiler/scalar/values/decimal.ts"
 import { parseReal, toReal } from "#compiler/scalar/values/float.ts"
 import { type HostValue, hostOf } from "#compiler/scalar/values/identity.ts"
@@ -249,7 +250,11 @@ const literalOf = (value: LiteralDesc, t: ScalarType): Result.Result<TypedLitera
 			 */
 			const { typmod } = base
 			if (typmod === undefined) {
-				return Result.ok({ kind: "numeric", value: parsed.value })
+				return withinBound(parsed.value, base.bound).ok
+					? Result.ok({ kind: "numeric", value: parsed.value })
+					: Result.err(
+							`a value within its computed bound: NaN, an infinity, or a value below 10^${base.bound.digits} in magnitude of at most ${base.bound.scale} fraction digits`
+						)
 			}
 			const { precision, scale } = typmod
 			const coerced = normalizeNumeric(parsed.value, typmod)

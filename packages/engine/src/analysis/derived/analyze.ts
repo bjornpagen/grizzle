@@ -25,7 +25,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ConstraintName, RelationIdent } from "#compiler/core/ids.ts"
 import { labeledChildLoc, type SourceLoc } from "#compiler/core/loc.ts"
-import type { InferredFieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	classMembers,
 	type KeyProof,
@@ -160,7 +160,7 @@ const spineObstacle = (root: RelNode): Obstacle | undefined => {
 export type DeclaredColumn = HeadingColumn & { readonly name: DeclaredName }
 
 /** A column of a derived relation's heading, with its inferred field descriptor. */
-export type DerivedColumn = DeclaredColumn & { readonly desc: InferredFieldDesc }
+export type DerivedColumn = DeclaredColumn & { readonly desc: FieldDesc }
 
 /**
  * A view's heading declared into its namespace of columns (core/identity.ts DeclaredNamespace): a derived relation's or

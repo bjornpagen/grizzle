@@ -268,7 +268,8 @@ const drawnWriting: FieldWriting = Object.freeze({ kind: "drawn" })
 /** How a header's retirement field is written: false by its column's default, true by its group's retirement. */
 const retirementWriting: FieldWriting = Object.freeze({ kind: "retirement" })
 
-/** How an instant is written: by the database's clock, as its relation's laws say (analysis/theory/instants.ts). */
+/** How an instant `instant` declares is written: by the database's clock, as its relation's laws say
+ * (analysis/theory/instants.ts). */
 const instantWriting: FieldWriting = Object.freeze({ kind: "instant" })
 
 /**
@@ -739,23 +740,27 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		patterns: PatternAutomata
 	): FieldWriting {
 		const w = f.writing
-		if (searchedOnly(type) && w.kind !== "generated") {
+		if (searchedOnly(type) && w.kind !== "generated" && w.kind !== "caller") {
 			return fail(
 				"UnsupportedOperation",
 				at,
-				`textSearch: ${r.name}.${f.name} of ${typeLabel(type)} is a search document, PostgreSQL's parse of its row's texts, which searchDocument's generation alone writes; it is ${w.kind}`
+				`textSearch: ${r.name}.${f.name} of ${typeLabel(type)} is a search document, which searchDocument's generation parses from its row's texts or its caller writes as a read delivered it (pg.tsvector); it is ${w.kind}`
 			)
 		}
-		if (isInstantDesc(f.desc) && w.kind !== "caller") {
+		if (isInstantDesc(f.desc) !== (w.kind === "instant") && w.kind !== "caller") {
 			return fail(
 				"MalformedDescription",
 				at,
-				`an instant field declared by its type alone, which the database's clock writes; ${r.name}.${f.name} is ${w.kind}`
+				isInstantDesc(f.desc)
+					? `an instant field the database's clock writes (instant) or its caller writes as it read it (instant.stored); ${r.name}.${f.name} is ${w.kind}`
+					: `a field the database's clock writes of instant's type; ${r.name}.${f.name} is ${typeLabel(type)}`
 			)
 		}
 		switch (w.kind) {
 			case "caller":
-				return isInstantDesc(f.desc) ? instantWriting : callerWriting
+				return callerWriting
+			case "instant":
+				return instantWriting
 			case "drawn":
 				if (!isDrawnType(f.desc, type)) {
 					return fail(

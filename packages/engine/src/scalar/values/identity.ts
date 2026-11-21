@@ -23,9 +23,11 @@ import {
 	Decimal,
 	integerNumeric,
 	integerOfDecimal,
+	type NumericBound,
 	type NumericTypmod,
 	normalizeNumeric,
-	parseNumeric
+	parseNumeric,
+	withinBound
 } from "#compiler/scalar/values/decimal.ts"
 import {
 	compareFloat,
@@ -51,6 +53,7 @@ import {
 	type Span,
 	spanText
 } from "#compiler/scalar/values/span.ts"
+import { parseSearchDocument } from "#compiler/scalar/values/tsvector.ts"
 import { toUuid } from "#compiler/scalar/values/uuid.ts"
 import { admitEncodable, isVector, Vector } from "#compiler/scalar/values/vector.ts"
 
@@ -77,12 +80,14 @@ type PlainCarrier = Exclude<
  * A spec is the value's, its host value's carrier, which is its type's carrier but for an integer numeric: numeric(p,
  * 0) holds integers alone, so its spec is the exact integer's, of its typmod, and its host value a bigint
  * (codec/scalar.ts carrierSpecOf), where an exact integer's own, a value grizzle computes, has no typmod. numeric's
- * typmod is then one of another scale, or none, a computed numeric's.
+ * typmod is then one of another scale, or none, numeric of no typmod's, whose values lie within its bound (ir/scalar.ts
+ * NumericBound): a computed numeric's, or numeric's own limits, pg.numeric's.
  */
 export type CarrierSpec =
 	| { readonly carrier: PlainCarrier }
 	| { readonly carrier: "bytes" }
-	| { readonly carrier: "numeric"; readonly typmod: NumericTypmod | undefined }
+	| { readonly carrier: "numeric"; readonly typmod: NumericTypmod }
+	| { readonly carrier: "numeric"; readonly typmod: undefined; readonly bound: NumericBound }
 	| { readonly carrier: "exactInteger"; readonly typmod: NumericTypmod | undefined }
 	| {
 			readonly carrier: "code"
@@ -139,7 +144,9 @@ interface SpecExtras {
 	readonly int2: unknown
 	readonly int4: unknown
 	readonly int8: unknown
-	readonly numeric: { readonly typmod: NumericTypmod | undefined }
+	readonly numeric:
+		| { readonly typmod: NumericTypmod }
+		| { readonly typmod: undefined; readonly bound: NumericBound }
 	readonly float4: unknown
 	readonly float8: unknown
 	readonly money: unknown
@@ -226,19 +233,19 @@ export type OrderSpecOf<C extends Carrier> = { readonly carrier: C } & OrderExtr
 export type OrderSpec = { readonly [C in Carrier]: OrderSpecOf<C> }[Carrier]
 
 /**
- * A numeric value at its typmod by `atTypmod`: parsed exactly (decimal.ts parseNumeric) or coerced as PostgreSQL
- * coerces a value it computes (normalizeNumeric). Without a typmod it is a computed numeric's, a window anchor's key
- * value of an aggregate column the only one a caller passes: every Decimal is within numeric's limits, and the computed
- * bound (ir/scalar.ts NumericBound) is a proof of the values the database computes, which a boundary value only meets
- * in a comparison.
+ * A numeric value at its spec: at its typmod by `atTypmod`, parsed exactly (decimal.ts parseNumeric) or coerced as
+ * PostgreSQL coerces a value it computes (normalizeNumeric); without one, within its bound (decimal.ts withinBound), a
+ * computed numeric's, which a stored field of it (pg.numeric.within) and a window anchor's key value of an aggregate
+ * column hold, or numeric's own limits, which every Decimal is within. A value of the bound is never rounded into it:
+ * PostgreSQL's numeric of no typmod stores a value as it is, so one past the bound is refused (numericBound).
  */
 const decimalAt =
-	(
-		atTypmod: (d: Decimal, typmod: NumericTypmod | undefined) => Result.Result<Decimal, ValueFault>
-	) =>
-	(value: unknown, typmod: NumericTypmod | undefined): Result.Result<Decimal, ValueFault> =>
+	(atTypmod: (d: Decimal, typmod: NumericTypmod) => Result.Result<Decimal, ValueFault>) =>
+	(value: unknown, spec: SpecExtras["numeric"]): Result.Result<Decimal, ValueFault> =>
 		value instanceof Decimal
-			? atTypmod(value, typmod)
+			? spec.typmod === undefined
+				? withinBound(value, spec.bound)
+				: atTypmod(value, spec.typmod)
 			: Result.err(typeof value === "number" ? "decimalNumber" : "decimalType")
 
 /**
@@ -343,7 +350,7 @@ const coercions: Admitters = {
 	int2: (value) => toInt2(value),
 	int4: (value) => toInt4(value),
 	int8: (value) => toInt8(value),
-	numeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec.typmod),
+	numeric: (value, spec) => decimalAt(normalizeNumeric)(value, spec),
 	float4: (value) => toReal(value),
 	float8: (value) => toDouble(value),
 	money: (value) => admitMoney(value),
@@ -361,7 +368,7 @@ const coercions: Admitters = {
 	range8: (value, spec) => admitSpan("int8", value, spec.width),
 	rangeDate: (value, spec) => admitSpan("date", value, spec.width),
 	vector: (value, spec) => admitVector(value, spec.dimensions),
-	tsvector: (value) => validateText(value),
+	tsvector: (value) => parseSearchDocument(value),
 	exactInteger: (value, spec) => integerAt(value, spec.typmod),
 	exactMoney: (value) => (value instanceof Money ? Result.ok(value) : Result.err("moneyType"))
 }
@@ -374,7 +381,7 @@ const coercions: Admitters = {
  */
 const parsers: Admitters = {
 	...coercions,
-	numeric: (value, spec) => decimalAt(parseNumeric)(value, spec.typmod),
+	numeric: (value, spec) => decimalAt(parseNumeric)(value, spec),
 	float4: (value) => parseReal(value)
 }
 
@@ -829,7 +836,14 @@ const sameExtras: { readonly [C in Carrier]: (a: SpecOf<C>, b: CarrierSpec) => b
 	int2: (_, b) => b.carrier === "int2",
 	int4: (_, b) => b.carrier === "int4",
 	int8: (_, b) => b.carrier === "int8",
-	numeric: (a, b) => b.carrier === "numeric" && sameTypmod(a.typmod, b.typmod),
+	numeric: (a, b) =>
+		b.carrier === "numeric" &&
+		(a.typmod === undefined || b.typmod === undefined
+			? a.typmod === undefined &&
+				b.typmod === undefined &&
+				a.bound.digits === b.bound.digits &&
+				a.bound.scale === b.bound.scale
+			: sameTypmod(a.typmod, b.typmod)),
 	float4: (_, b) => b.carrier === "float4",
 	float8: (_, b) => b.carrier === "float8",
 	money: (_, b) => b.carrier === "money",

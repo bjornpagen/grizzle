@@ -136,6 +136,7 @@ const descRoster = (t: FieldDesc): string | undefined => {
 		case "pg":
 		case "numeric":
 		case "exact":
+		case "computedNumeric":
 		case "uuid":
 		case "bytes":
 		case "sha256":
@@ -267,6 +268,7 @@ const restatedType = (t: FieldDesc, names: PreviousNames): FieldDesc | undefined
 		case "pg":
 		case "numeric":
 		case "exact":
+		case "computedNumeric":
 		case "uuid":
 		case "bytes":
 		case "sha256":

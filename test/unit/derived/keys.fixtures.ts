@@ -18,7 +18,7 @@ import { Array as Arr, Option, Order, Record as Rec, String as Str } from "effec
 import { derivedKeyLayout } from "#compiler/analysis/derived/keys.ts"
 import type { DerivedRefusal, KeyFault } from "#compiler/core/causes.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
-import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { natural, pg } from "#compiler/public/fields.ts"
 import { key, on, type Relation, relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, type QueryValue, varsOver } from "#compiler/query/build/query.ts"
@@ -1235,7 +1235,7 @@ export const storableOf = (c: StorableCase) => {
 /** A column of D's heading as the model reads it: its name and the descriptor its field or aggregate gives it. */
 interface ModelColumn {
 	readonly name: string
-	readonly desc: InferredFieldDesc
+	readonly desc: FieldDesc
 }
 
 /** A definition no view stores for a rule the types name too: a union of several heading groups, or no field. */

@@ -108,6 +108,7 @@ export const identityOf = (desc: FieldDesc): string => {
 			return desc.type
 		case "numeric":
 		case "exact":
+		case "computedNumeric":
 		case "bytes":
 		case "sha256":
 		case "uuid":
@@ -147,6 +148,7 @@ export const sided = (sketch: DeclaredSketch, side: string): DeclaredSketch => {
 			case "pg":
 			case "numeric":
 			case "exact":
+			case "computedNumeric":
 			case "bytes":
 			case "sha256":
 			case "uuid":
@@ -188,6 +190,7 @@ export const pairedGen = (a: DeclaredSketch): Gen<readonly [Pairing, DeclaredSke
 						return ["another roster", sided(a, "b")]
 					case "pg":
 					case "exact":
+					case "computedNumeric":
 					case "bytes":
 					case "sha256":
 					case "uuid":

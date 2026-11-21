@@ -104,9 +104,11 @@ export const carrierSpecOf = (descriptor: ScalarType, codes: Codebook): CarrierS
 		case "vector":
 			return { carrier: "vector", dimensions: type.typmod.dims }
 		case "numeric":
-			return type.typmod !== undefined && isIntegerTypmod(type.typmod)
-				? { carrier: "exactInteger", typmod: type.typmod }
-				: { carrier: "numeric", typmod: type.typmod }
+			return type.typmod === undefined
+				? { carrier: "numeric", typmod: undefined, bound: type.bound }
+				: isIntegerTypmod(type.typmod)
+					? { carrier: "exactInteger", typmod: type.typmod }
+					: { carrier: "numeric", typmod: type.typmod }
 		case "exactInteger":
 			return { carrier: "exactInteger", typmod: undefined }
 		case "code":

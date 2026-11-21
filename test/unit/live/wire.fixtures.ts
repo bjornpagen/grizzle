@@ -473,13 +473,16 @@ export const carrierSpecOf = (spec: WireScalar): CarrierSpec => {
 		case "bytes":
 			return { carrier: "bytes" }
 		case "numeric":
-			return {
-				carrier: "numeric",
-				typmod:
-					spec.numeric.kind === "typmod"
-						? { precision: spec.numeric.precision, scale: spec.numeric.scale }
-						: undefined
-			}
+			return spec.numeric.kind === "typmod"
+				? {
+						carrier: "numeric",
+						typmod: { precision: spec.numeric.precision, scale: spec.numeric.scale }
+					}
+				: {
+						carrier: "numeric",
+						typmod: undefined,
+						bound: { digits: spec.numeric.digits, scale: spec.numeric.scale }
+					}
 		case "code": {
 			const roster = Roster.of(succeeded(parseDeclaredName("Roster")), "ordered", spec.handles)
 			return { carrier: "code", roster: codecOf(firstCodebook([roster]), roster), only: undefined }

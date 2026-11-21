@@ -40,6 +40,7 @@ import { Money } from "#compiler/scalar/values/money.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { cidrValues, inetValues } from "#test/support/net-values.ts"
 import { kindCodes } from "#test/unit/codec/support.ts"
+import { printed, raw, stored } from "#test/unit/values/search-document.fixtures.ts"
 
 /** The codec's own refusal words beside the value carriers' ValueFault words (core/errors.ts CodecFault). */
 const codecWords: ReadonlySet<string> = new Set<Exclude<CodecFault, ValueFault>>(["nullValue"])
@@ -290,14 +291,8 @@ export const written: { readonly [C in Carrier]: Arr.NonEmptyReadonlyArray<Writt
 		{
 			label: "tsvector english",
 			type: { carrier: "tsvector", caps, configuration: "english" },
-			live: string(
-				weighted([
-					[1, codePoint(0x20, 0x7e)],
-					[1, codePoint(0xa0, 0xd7_ff)],
-					[1, codePoint(0xe0_00, 0x10_ffff)]
-				]),
-				{ min: 0, max: 10 }
-			)
+			/** A document as tsvectorout prints it, the one text a stored document's door admits (values/tsvector.ts). */
+			live: map(raw, (d) => printed(stored(d)))
 		}
 	],
 	exactInteger: [

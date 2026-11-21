@@ -2542,6 +2542,8 @@ const hostOfDesc = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return numericHost(desc)
 		case "exact":
 			return desc.carrier === "exactInteger" ? "bigint" : "Fi.Money"
+		case "computedNumeric":
+			return "Fi.Decimal"
 		case "uuid":
 			return "Fi.Uuid"
 		case "sha256":
@@ -5476,6 +5478,8 @@ const descriptorType = (decl: FieldDecl, base: Base, ids: Ids): string => {
 			return "Fi.PlaceField"
 		case "accumulated":
 			return `Fi.AccumulatedField<${valueDescriptorType(decl.type, base, ids)}>`
+		case "instant":
+			return "Fi.InstantField"
 		case "caller":
 		case "generated":
 			return valueDescriptorType(decl.type, base, ids)
@@ -5493,6 +5497,8 @@ const valueDescriptorType = (desc: FieldDesc, base: Base, ids: Ids): string => {
 			return `Fi.NumericTypmodField<${numericHost(desc)}>`
 		case "exact":
 			return desc.carrier === "exactInteger" ? "Fi.ExactIntegerField" : "Fi.ExactMoneyField"
+		case "computedNumeric":
+			return "Fi.NumericBoundField"
 		case "uuid":
 			return 'Fi.Field<Fi.Uuid, "uuid">'
 		case "sha256":
@@ -5541,6 +5547,8 @@ const literalType = (
 				: literalType(desc.base, base, ids)
 		case "numeric":
 			return desc.scale === 0 ? "bigint" : "Fi.Decimal | bigint | string"
+		case "computedNumeric":
+			return "Fi.Decimal | bigint | string"
 		case "bits":
 			return `ReadonlySet<${literalUnion(rosterNamed(base, desc.roster).handles)}>`
 		case "pg":

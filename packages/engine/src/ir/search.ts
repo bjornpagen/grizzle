@@ -1,3 +1,5 @@
+import { textSearchStringMaxBytes } from "#compiler/scalar/values/fault.ts"
+
 /**
  * PostgreSQL's full text search, as grizzle reads it: the configurations a search document is parsed under, the weight
  * labels its parts carry, and the parsers a query's text is read by.
@@ -86,21 +88,6 @@ export const isTextSearchWeight = (label: unknown): label is TextSearchWeight =>
  * plainto_tsquery, every word of the text required, punctuation ignored.
  */
 export type TextQueryParser = "websearch" | "plain"
-
-/**
- * The most bytes PostgreSQL holds of a tsvector's lexemes and positions, and of a tsquery's operands: a document or a
- * query past it is refused where it is made, "string is too long for tsvector" or "value is too big in tsquery" (54000).
- *
- * @limitKind published
- * @owner PostgreSQL 19.0's full text search
- * @unit bytes
- * @scope the lexemes and positions of one tsvector, and the operands of one tsquery
- * @constraint compile-time constant
- * @source https://github.com/postgres/postgres/blob/REL_19_0/src/include/tsearch/ts_type.h#L52
- * @quote #define MAXSTRPOS ( (1<<20) - 1)
- * @verified 2026-11-20
- */
-export const textSearchStringMaxBytes = (1 << 20) - 1
 
 /**
  * The longest text, in UTF-8 bytes, a query's match or rank parses into a tsquery, so a read never fails on a value: a

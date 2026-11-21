@@ -13,6 +13,7 @@ import type {
 	Proving
 } from "#compiler/core/phantom.ts"
 import type { CalendarDate } from "#compiler/ir/date.ts"
+import type { Instant } from "#compiler/scalar/instant.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { NumericHostOf } from "#compiler/scalar/values/convert.ts"
 import type { Decimal } from "#compiler/scalar/values/decimal.ts"
@@ -106,6 +107,15 @@ export type NotDigest<Sql> = [Sql] extends ["sha256"]
 	: unknown
 
 /**
+ * The refusal of a descriptor of SQL type Sql where it is a search document's, tsvector, which PostgreSQL alone makes
+ * and a field holds as a read delivered it (pg.tsvector), so no parameter, relation parameter's column or contract's
+ * base is of it; nothing for any other.
+ */
+export type NotSearchDocument<Sql> = [Sql] extends ["tsvector"]
+	? Refusal<"a search document is PostgreSQL's parse of texts, which a field holds as a read delivered it: no parameter or contract is of its type">
+	: unknown
+
+/**
  * Whether a column's type is a bare uuid: of SQL type uuid, its values every Uuid, with no brand, which a contract over
  * uuid gives them (Contract), so no contract names whose id it holds.
  */
@@ -173,11 +183,27 @@ export type { NumericHostOf }
 /**
  * pg.numeric: PostgreSQL's numeric of no typmod, every value numeric holds, its host type Decimal, which is also the one
  * call numeric(p, s), precision and scale both declared, whose host type is its scale's (NumericHostOf): a bigint at
- * scale 0, a Decimal at any other. PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts
+ * scale 0, a Decimal at any other, and whose member numeric.within(digits, scale) is numeric of no typmod within a
+ * computed numeric's bound (NumericBoundField). PostgreSQL's numerictypmodin rule is checked at runtime (ir/carriers.ts
  * numericMaxPrecision, numericMinScale and numericMaxScale).
  */
 export type NumericField = Field<Decimal, "numeric"> &
-	(<const S extends number>(precision: number, scale: S) => NumericTypmodField<NumericHostOf<S>>)
+	(<const S extends number>(
+		precision: number,
+		scale: S
+	) => NumericTypmodField<NumericHostOf<S>>) & {
+		readonly within: (digits: number, scale: number) => NumericBoundField
+	}
+
+/**
+ * pg.numeric.within(digits, scale): numeric of no typmod within a computed numeric's bound, NaN, an infinity or a finite
+ * value below 10^digits in magnitude of at most `scale` fraction digits, the type a stored field of a sum's, a mean's
+ * or an operation's value is of exactly. Its host type and domain are numeric's, Decimal, so its terms meet every
+ * numeric's; its bound is a runtime value only.
+ */
+export interface NumericBoundField extends Field<Decimal, "numeric"> {
+	readonly bound: { readonly digits: number; readonly scale: number }
+}
 
 /**
  * numeric(p, s), its precision and scale both declared, its host type its scale's (NumericHostOf). Its domain is
@@ -213,13 +239,16 @@ export interface NaturalField extends Field<
 > {
 	readonly natural: true
 }
+/** An instant's host value, a bigint a read's column alone brands (scalar/instant.ts). */
+export type { Instant } from "#compiler/scalar/instant.ts"
+
 /**
  * The identity an instant's terms meet at: a bigint of the database's clock, the domain of the builtin contract
  * `instant` over pg.bigint, proved nonnegative, a name no other contract takes (OneContractName), so an instant meets
- * only instants, never a count, a caller's bigint or a contract over one. Its values are bigints: the brand is the
- * type's alone (InstantField).
+ * only instants, never a count, a caller's bigint or a contract over one. Its values are Instant, the bigints a read
+ * delivers (InstantField).
  */
-export type InstantDomain = bigint & Brand.Brand<"instant"> & DeclaresAll<"nonnegative">
+export type InstantDomain = Instant & DeclaresAll<"nonnegative">
 
 /**
  * The refusal of a type of domain D where a caller states a value of it, a parameter, a relation parameter's column, a
@@ -236,20 +265,29 @@ export type NotInstant<D> = [D] extends [never]
 			: unknown
 
 /**
- * instant: microseconds since the Unix epoch on the database's clock, installed as natural is. No caller writes one: an
- * insert stamps its relation's clock, or states a stored instant into a reference, as the schema's laws say which a
- * field is (analysis/theory/instants.ts); no parameter, literal or cast is of its type, so no value a caller holds
- * reaches one. Its host type is bigint, unbranded, as a read delivers it; its domain is InstantDomain, so a term of it
- * meets only another instant's, and `Type.base` reads one as the bigint it is. `instant: true` is the member its
- * type is told apart by.
+ * instant.stored: a field of instant's type its caller writes as it is, a copy of an instant a read delivered, which the
+ * database draws nothing of. Its host type is Instant, so a host writes only an instant it read, never a bigint of its
+ * own; its domain is InstantDomain, so a term of it meets only another instant's, and no parameter, literal, cast,
+ * contract or span is of its type (NotInstant).
  */
-export interface InstantField extends Field<
-	bigint,
+export type StoredInstantField = Field<
+	Instant,
 	"bigint",
 	InstantDomain,
 	{ readonly nonnegative: true }
-> {
+>
+
+/**
+ * instant: microseconds since the Unix epoch on the database's clock, installed as natural is. No caller writes one: an
+ * insert stamps its relation's clock, or states a stored instant into a reference, as the schema's laws say which a
+ * field is (analysis/theory/instants.ts); no parameter, literal or cast is of its type, so no value a caller holds
+ * reaches one. Its host type is Instant, as a read delivers it; its domain is InstantDomain, so a term of it meets only
+ * another instant's, and `Type.base` reads one as the bigint it is. `instant: true` is the member its type is told apart
+ * by from instant.stored's, `stored`, the one field of its type its caller writes.
+ */
+export interface InstantField extends StoredInstantField {
 	readonly instant: true
+	readonly stored: StoredInstantField
 }
 
 /**

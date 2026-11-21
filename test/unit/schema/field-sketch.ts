@@ -18,8 +18,8 @@ import { bareContract, rawClosedId, rawSpan, regex } from "#test/unit/schema/sup
 /** A roster a closed id or a set is over, its handles at hand. */
 export type DrawnRoster = AnyRoster & { readonly handles: Arr.NonEmptyReadonlyArray<string> }
 
-/** The constructors of `pg` that take a typmod, which are no descriptor until called. */
-type PgConstructor = "numeric" | "vector"
+/** The constructors of `pg` that take a typmod or a configuration, which are no descriptor until called. */
+type PgConstructor = "numeric" | "vector" | "tsvector"
 
 /** The members of `pg` that spell the serial family: no descriptor, but grizzle's refusal of one (scalar/minted.ts). */
 type MintedMember = "smallserial" | "serial" | "bigserial" | "uuidv7"
@@ -35,7 +35,7 @@ const mintedMembers: ReadonlySet<string> = new Set<MintedMember>([
 export type PgMember = Exclude<keyof typeof pg, PgConstructor | MintedMember>
 
 const isPgMember = (key: keyof typeof pg): key is PgMember =>
-	key !== "numeric" && key !== "vector" && !mintedMembers.has(key)
+	key !== "numeric" && key !== "vector" && key !== "tsvector" && !mintedMembers.has(key)
 
 /** Every member of `pg` that is a field descriptor by itself, in the namespace's order. */
 const pgMembers: Arr.NonEmptyReadonlyArray<PgMember> = nonEmpty(

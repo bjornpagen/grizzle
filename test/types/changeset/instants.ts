@@ -6,9 +6,10 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
 
 /**
  * The instants program: every way a caller may write, state or compare an instant, each a statement over Decision,
- * whose at is a clock of child `child`, and Session, whose stage is a reference to it, under the directive the type-test
- * batch disarms exactly where the rule refuses it. The rule, the oracle: an instant is the database's alone, so no
- * value a caller holds is one. A host row leaves every instant out, which an insert stamps, so the rows insertAll's
+ * whose at is a clock of child `child`, Session, whose stage is a reference to it, and Seen, whose at is a stored
+ * instant (instant.stored), under the directive the type-test batch disarms exactly where the rule refuses it. The rule,
+ * the oracle: an instant is the database's alone, so no value a caller holds is one but an instant a read delivered
+ * (Instant), which a stored instant takes as it is, and a bigint never. A host row leaves every instant out, which an insert stamps, so the rows insertAll's
  * record types and factsDecoder decodes (InsertAllRowsOf) insert as they are, and a put or a delete of host rows names
  * none and is refused; a query's row states one from a stored instant, a variable of an instant field
  * or an aggregate over one; and no parameter, relation parameter's column, literal, typed constant, cast, contract or
@@ -83,21 +84,13 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		what: "a reference stated from a natural parameter",
 		statement:
 			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => r.find({ child: r.param("c", pg.integer), item: r.param("i", pg.integer), stage: r.param("x", natural) })))',
-		verdict: {
-			kind: "refusal",
-			refusal:
-				"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast"
-		}
+		verdict: { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
 	},
 	{
 		what: "a reference stated from a literal",
 		statement:
 			'ChangeSet.empty(S).insert(Session, query(S).rule((r) => r.find({ child: r.param("c", pg.integer), item: r.param("i", pg.integer), stage: 5n })))',
-		verdict: {
-			kind: "refusal",
-			refusal:
-				"a member's head writes each field at its type: an exact value re-enters a plain field only by Type.cast"
-		}
+		verdict: { kind: "refusal", refusal: "the query's head is not a fact of the relation" }
 	},
 	{
 		what: "a parameter of instant's type",
@@ -152,6 +145,62 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: admitted
 	},
 	{
+		what: "an insert of host rows stating a stored instant a read delivered",
+		statement:
+			"(row: ResultOf<HeadOf<typeof decisions>>) => ChangeSet.empty(S).insert(Seen, [{ child: row.child, at: row.at }])",
+		verdict: admitted
+	},
+	{
+		what: "an insert of host rows stating a stored instant of a bigint",
+		statement: "ChangeSet.empty(S).insert(Seen, [{ child: 1, at: 5n }])",
+		verdict: { kind: "refusal", refusal: "a member fact is not a fact of the relation" }
+	},
+	{
+		what: "an insert of host rows stating a stored instant of a read's max",
+		statement:
+			"(row: ResultOf<HeadOf<typeof latest>>) => ChangeSet.empty(S).insert(Seen, [{ child: row.child, at: row.m }])",
+		verdict: admitted
+	},
+	{
+		what: "an instant a read delivered is a bigint",
+		statement: "(row: ResultOf<HeadOf<typeof decisions>>): bigint => row.at",
+		verdict: admitted
+	},
+	{
+		what: "a bigint is no instant",
+		statement: "(x: bigint): Instant => x",
+		verdict: { kind: "refused", why: "a bigint is no Instant" }
+	},
+	{
+		what: "a put of host rows stating stored instants a read delivered",
+		statement:
+			"(row: ResultOf<HeadOf<typeof decisions>>) => ChangeSet.empty(S).put(Seen, [{ child: row.child, at: row.at }])",
+		verdict: admitted
+	},
+	{
+		what: "a delete of host rows stating stored instants a read delivered",
+		statement:
+			"(row: ResultOf<HeadOf<typeof decisions>>) => ChangeSet.empty(S).delete(Seen, [{ child: row.child, at: row.at }])",
+		verdict: admitted
+	},
+	{
+		what: "a parameter of a stored instant's type",
+		statement: 'query(S).rule((r) => r.find({ x: r.param("x", instant.stored) }))',
+		verdict: { kind: "refusal", refusal: inputRefusal }
+	},
+	{
+		what: "a relation parameter's stored instant column",
+		statement:
+			'query(S).rule((r) => { const p = r.relation("p", { at: instant.stored }); const { at } = v(p, "p"); return r.match(p, { at }).find({ at }) })',
+		verdict: { kind: "refusal", refusal: inputRefusal }
+	},
+	{
+		what: "a stored instant compared with a clock",
+		statement:
+			'query(S).rule((r) => { const { child, at } = v(Decision, "d"); const s = v(Seen, "s"); return r.match(Decision, { child, at }).match(Seen, { child, at: s.at }).where(r.le(s.at, at)).find({ child }) })',
+		verdict: admitted
+	},
+	{
 		what: "an instant's base and its max",
 		statement:
 			'query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, b: Type.base(at), m: r.max(at) }) })',
@@ -187,13 +236,16 @@ const caseBlock = (c: InstantsCase, index: number): ReadonlyArray<string> => [
 /** The program's prelude (test/support/programs/instants.ts). */
 const prelude = await Effect.runPromise(preludeAt("test/support/programs/instants.ts"))
 
-/** Decision, its at a clock of child `child`, and Session, its stage a reference to it. */
+/** Decision, its at a clock of child `child`, Session, its stage a reference to it, and Seen, its at a stored instant. */
 const instantsHeader = `export const Decision = relation("Decision", { child: pg.integer, at: instant, seed: pg.integer }, ["child", "at"])
 export const Session = relation("Session", { child: pg.integer, item: pg.integer, stage: instant }, ["child", "item"])
-export const S = schema("S", [Decision, Session], [contained(on(Session, "child", "stage"), on(Decision, "child", "at"))])
+export const Seen = relation("Seen", { child: pg.integer, at: instant.stored }, ["child", "at"])
+export const S = schema("S", [Decision, Session, Seen], [contained(on(Session, "child", "stage"), on(Decision, "child", "at"))])
+export const decisions = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, at }) })
+export const latest = query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, m: r.max(at) }) })
 export declare const decoder: FactsDecoder<typeof S>
 export declare const decided: InsertAllRowsOf<typeof S>["Decision"]
-export const Writer = role(S, "writer", { Decision, Session }, { write: ["Decision"], refresh: [] })
+export const Writer = role(S, "writer", { Decision, Session, Seen }, { write: ["Decision"], refresh: [] })
 export const adding = workload(Writer, { add: ChangeSet.empty(S).insert(Decision, []) })
 `
 

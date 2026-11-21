@@ -130,6 +130,7 @@ const declaredText = (field: FieldDesc): DeclaredText => {
 		case "pg":
 		case "numeric":
 		case "exact":
+		case "computedNumeric":
 		case "bytes":
 		case "sha256":
 		case "uuid":

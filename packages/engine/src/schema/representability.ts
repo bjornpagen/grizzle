@@ -7,7 +7,7 @@ import { sha256Octets } from "#compiler/core/digest.ts"
 import type { EntryRole } from "#compiler/core/identity.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
-import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
 import type { ExactValueCarrier, NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
@@ -638,7 +638,7 @@ const predicateByteBound = (predicate: ExprDesc): number =>
  * The most UTF-8 bytes a text-valued descriptor admits, declared or inferred: its pattern's bound, tightened by every
  * contract's predicate bound on the way down (predicateByteBound); Infinity when nothing bounds it.
  */
-export const textByteBound = (desc: InferredFieldDesc): number => {
+export const textByteBound = (desc: FieldDesc): number => {
 	if (desc.kind === "text") {
 		return languageByteBound(desc.language)
 	}
@@ -651,7 +651,7 @@ export const textByteBound = (desc: InferredFieldDesc): number => {
 	return Number.POSITIVE_INFINITY
 }
 
-const isTextDesc = (desc: InferredFieldDesc): boolean =>
+const isTextDesc = (desc: FieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
 
 /** Whether a span's endpoint is a date, date itself or a contract over it: a daterange's, of 4-byte bounds. */
@@ -666,6 +666,7 @@ const integerFamily = (desc: FieldDesc): "int4" | "int8" | undefined => {
 			return desc.type === "integer" ? "int4" : desc.type === "bigint" ? "int8" : undefined
 		case "numeric":
 		case "exact":
+		case "computedNumeric":
 		case "uuid":
 		case "bytes":
 		case "sha256":
@@ -747,7 +748,7 @@ const rangeBytes = (endpoint: number): number =>
  * The largest index datum of a field, declared or inferred; undefined for bytes and for text whose pattern proves no
  * byte bound. A digest is a bytea of sha256Octets bytes (core/sha256.ts), at its longest header, bytea's int alignment.
  */
-export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
+export const datumBound = (desc: FieldDesc): DatumBound | undefined => {
 	switch (desc.kind) {
 		case "contract":
 			if (isTextDesc(desc)) {
@@ -941,7 +942,7 @@ export interface KeyLayout {
 	readonly gist: { readonly span: string; readonly bytes: GistEntryBytes } | undefined
 }
 
-const isSpanDesc = (desc: InferredFieldDesc): boolean =>
+const isSpanDesc = (desc: FieldDesc): boolean =>
 	desc.kind === "span" || (desc.kind === "contract" && isSpanDesc(desc.base))
 
 /**
@@ -950,7 +951,7 @@ const isSpanDesc = (desc: InferredFieldDesc): boolean =>
  */
 export type KeyFields = ReadonlyArray<{
 	readonly field: string
-	readonly desc: InferredFieldDesc
+	readonly desc: FieldDesc
 }>
 
 /**
@@ -977,7 +978,7 @@ const exactKeyFix: {
  * model's UNIQUEs and axes (laws/model/plan.ts); a lookup sizes an exact field as a numeric's datum, which leaves it a
  * filter beside its index.
  */
-export const exactKeyFault = (field: string, desc: InferredFieldDesc): KeyFault | undefined =>
+export const exactKeyFault = (field: string, desc: FieldDesc): KeyFault | undefined =>
 	desc.kind === "exact" ? { kind: "exactValue", field, ...exactKeyFix[desc.carrier] } : undefined
 
 /** The first exact field of a key's fields, as its fault (exactKeyFault); none where the key holds none. */
@@ -998,14 +999,14 @@ export const keyDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault>
 /** A key's fields with their descriptors and the datum its index entry holds for each, in key order. */
 type KeyDatums = ReadonlyArray<{
 	readonly field: string
-	readonly desc: InferredFieldDesc
+	readonly desc: FieldDesc
 	readonly datum: DatumBound
 }>
 
 /** Each field's datum as `datumOf` reads its descriptor, or the key's fault (`keyDatums`). */
 const datumsBy = (
 	fields: KeyFields,
-	datumOf: (desc: InferredFieldDesc, at: number) => DatumBound | undefined
+	datumOf: (desc: FieldDesc, at: number) => DatumBound | undefined
 ): Result.Result<KeyDatums, KeyFault> => {
 	if (fields.length > indexMaxKeys) {
 		return Result.err({ kind: "columns", limit: indexMaxKeys })

@@ -15,7 +15,8 @@ import { bareEnv, carrierSql, type Descriptor, defineField } from "#compiler/sca
  * A search document as the host holds it: the text PostgreSQL prints for its tsvector (tsvectorout), its lexemes in
  * their one order, each with its positions and weights, under the brand "SearchDocument" and the configuration C it was
  * parsed under, an equality-only tag, so documents of two configurations are two types. The host reads one and never
- * makes one: a document is PostgreSQL's parse of its row's texts (ir/search.ts).
+ * makes one: a document is PostgreSQL's parse of texts (ir/search.ts), and the brand is minted by a read's column alone,
+ * so a stored document (pg.tsvector) holds one a read delivered, written back as it is.
  */
 export type SearchDocument<C extends TextSearchConfiguration = TextSearchConfiguration> = string &
 	Brand.Brand<"SearchDocument"> &
@@ -30,16 +31,19 @@ export interface SearchDescriptor<
 }
 
 /**
- * The descriptor of a search document parsed under `configuration`, one of pg_catalog's (ir/search.ts): a tsvector,
- * PostgreSQL's alone, which a generated field alone is of (public/fields.ts searchDocument), so no caller writes one and
- * no parameter carries one. A JavaScript caller's configuration outside the roster is MalformedDescription.
+ * The descriptor of a search document parsed under `configuration`, one of pg_catalog's (ir/search.ts), `label` the
+ * builder that names it: a tsvector, the type of a field its caller writes, pg.tsvector(configuration), whose values
+ * are documents a read delivered (SearchDocument), and of the generated field searchDocument makes, which PostgreSQL
+ * parses from its row's texts (public/fields.ts). No parameter carries one. A JavaScript caller's configuration outside
+ * the roster is MalformedDescription.
  */
 export const searchDescriptor = <C extends TextSearchConfiguration>(
-	configuration: C
+	configuration: C,
+	label: "searchDocument" | "pg.tsvector"
 ): SearchDescriptor<C> => {
 	if (!isTextSearchConfiguration(configuration)) {
 		throw malformedDescription(
-			captureLoc("searchDocument", []),
+			captureLoc(label, []),
 			`a text search configuration of pg_catalog's: ${textSearchConfigurations.join(", ")}`
 		)
 	}
@@ -48,9 +52,26 @@ export const searchDescriptor = <C extends TextSearchConfiguration>(
 		carrierSql.tsvector,
 		{ kind: "search", configuration },
 		{ configuration, column: convertColumn<SearchDocument<C>>({ carrier: "tsvector" }) },
-		SourceLoc(`searchDocument(${configuration})`, []),
+		SourceLoc(`${label}(${configuration})`, []),
 		bareEnv
 	)
+}
+
+/**
+ * pg.tsvector(configuration): a search document's field its caller writes, of the configuration `configuration`
+ * (searchDescriptor), one argument.
+ */
+export const storedSearchDescriptor = <const C extends TextSearchConfiguration>(
+	configuration: C,
+	...extra: ReadonlyArray<never>
+): SearchDescriptor<C> => {
+	if (extra.length > 0) {
+		throw malformedDescription(
+			captureLoc("pg.tsvector", []),
+			"pg.tsvector(configuration): the configuration alone"
+		)
+	}
+	return searchDescriptor(configuration, "pg.tsvector")
 }
 
 /**

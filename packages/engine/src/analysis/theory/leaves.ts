@@ -1,7 +1,7 @@
 import {
 	type InferredBindings,
 	type InferredExpr,
-	type InferredFieldDesc,
+	type FieldDesc,
 	mapBindingTerms,
 	mapExprChildren
 } from "#compiler/ir/desc.ts"
@@ -19,10 +19,10 @@ export const isBare = (e: InferredExpr): e is BareLiteral =>
 	e.kind === "literal" && e.type === undefined
 
 /** The descriptor each column of a query is delivered at, as the checker types it (analysis/theory/columns.ts). */
-export type ColumnTypes = (column: string) => InferredFieldDesc
+export type ColumnTypes = (column: string) => FieldDesc
 
 /** A bare literal under `type`, the type of the column it stands for. */
-export const typedAs = (e: BareLiteral, type: InferredFieldDesc): InferredExpr => ({ ...e, type })
+export const typedAs = (e: BareLiteral, type: FieldDesc): InferredExpr => ({ ...e, type })
 
 /**
  * `e` as a term of the column `column` of a query whose columns are `columns`: a bare literal, a head's term or a

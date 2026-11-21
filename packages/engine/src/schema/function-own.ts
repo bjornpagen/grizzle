@@ -37,8 +37,8 @@ export interface OwnedFunction {
  * Whether a declared function's signature takes a field of this type: a value of a base type PostgreSQL passes as it
  * is, a closed id, passed as its code, which the call casts to its roster's domain where it reads the function's value,
  * or a contract or a refined text over one; never money, whose text is the session's locale's, an exact value of any
- * size, whose integers or scale only a stored column's CHECK holds and no cast of a function's value checks, bytes, a
- * digest, a set, a span, a vector or a search document.
+ * size, whose integers or scale only a stored column's CHECK holds and no cast of a function's value checks, a computed
+ * numeric's bound, which no function's body is held to, bytes, a digest, a set, a span, a vector or a search document.
  */
 const signatureType = (t: FieldDesc): boolean => {
 	switch (t.kind) {
@@ -52,6 +52,7 @@ const signatureType = (t: FieldDesc): boolean => {
 		case "contract":
 			return signatureType(t.base)
 		case "exact":
+		case "computedNumeric":
 		case "bytes":
 		case "sha256":
 		case "pattern":

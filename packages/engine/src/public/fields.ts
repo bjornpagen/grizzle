@@ -21,6 +21,7 @@ import type { Uuid } from "#compiler/scalar/values/uuid.ts"
 import {
 	accumulatedField,
 	bitsOf,
+	clockInstant,
 	closedIdOf,
 	drawnField,
 	generatedField,
@@ -125,6 +126,7 @@ export type {
 	GeneratedField,
 	HandleOf,
 	Infer,
+	Instant,
 	InstantDomain,
 	InstantField,
 	IntegerLike,
@@ -132,6 +134,7 @@ export type {
 	LiteralOf,
 	NaturalDomain,
 	NaturalField,
+	NumericBoundField,
 	NumericField,
 	NumericHostOf,
 	NumericTypmodField,
@@ -142,6 +145,7 @@ export type {
 	SpanField,
 	SpanWidthOf,
 	SqlOf,
+	StoredInstantField,
 	SubsetHandles,
 	TextField,
 	WritingTag
@@ -359,7 +363,7 @@ export const searchDocument: SearchDocumentConstructor = <const C extends TextSe
 	configuration: C,
 	...parts: NonEmptyReadonlyArray<SearchPart>
 ): GeneratedField<SearchDocumentField<C>> => {
-	const descriptor = searchDescriptor(configuration)
+	const descriptor = searchDescriptor(configuration, "searchDocument")
 	return generatedField<SearchDocumentField<C>>(
 		descriptor,
 		searchDocumentTerm(descriptor, parts),
@@ -376,9 +380,11 @@ export const retirement: RetirementField = retirementField(pgDescriptors.boolean
 /**
  * instant: microseconds since the Unix epoch on the database's clock, written only by the database: an insert stamps
  * its relation's clock per child, and a reference holds a stored instant a containment carries it to
- * (scalar/instant.ts, analysis/theory/instants.ts). Installed as natural's domain.
+ * (scalar/instant.ts, analysis/theory/instants.ts). Installed as natural's domain. A read delivers its values as
+ * Instant, which `instant.stored`, a field of its type its caller writes, stores as it is, the database drawing
+ * nothing (schema/relation.ts clockInstant).
  */
-export const instant: InstantField = instantDescriptor
+export const instant: InstantField = clockInstant(instantDescriptor)
 
 /**
  * drawn(type): a value of `type`, natural or a contract over an integer, grizzle draws from the nested arrays its caller

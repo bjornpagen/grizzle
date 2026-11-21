@@ -19,7 +19,7 @@ import {
 	fieldMark
 } from "#compiler/core/phantom.ts"
 import { deepFreeze, hasProperties } from "#compiler/core/record.ts"
-import type { ExprDesc, FieldDesc, InferredFieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, PgScalarName } from "#compiler/ir/desc.ts"
 import type { ExprTable } from "#compiler/ir/expr.ts"
 import type { Fact } from "#compiler/ir/proof.ts"
 import {
@@ -82,9 +82,9 @@ export const storedOnly = (t: ScalarType): boolean => capsOf(t).every((c) => c =
 
 /**
  * Whether a type is a search document's (ir/scalar.ts SearchType), the one type of the textSearch capability: a value
- * PostgreSQL alone makes, parsing its row's texts in a generated field, and reads, matching and ranking it. So no caller
- * writes one, no parameter carries one, grizzle fills none, and no literal is of one. Each of those refusals reads it
- * here, off the capability set.
+ * PostgreSQL alone makes, parsing texts, and reads, matching and ranking it, which a generated field parses from its
+ * row's texts or a caller's field holds as a read delivered it (pg.tsvector). So no parameter carries one, grizzle fills
+ * none, and no literal is of one. Each of those refusals reads it here, off the capability set.
  */
 export const searchedOnly = (t: ScalarType): boolean => capsOf(t).includes("textSearch")
 
@@ -610,6 +610,8 @@ const scalarAt = (
 			return Result.ok(numericType(Object.freeze({ precision: desc.precision, scale: desc.scale })))
 		case "exact":
 			return Result.ok(exactFieldTypes[desc.carrier])
+		case "computedNumeric":
+			return Result.ok(numericOfBound(desc.bound))
 		case "uuid":
 			return Result.ok(plainType("uuid"))
 		case "bytes":
@@ -747,6 +749,7 @@ export const descCapabilities = (desc: FieldDesc): CapabilitySet => {
 		case "pg":
 			return capsOf(pgTypes[desc.type])
 		case "numeric":
+		case "computedNumeric":
 			return capabilitiesOf("numeric")
 		case "exact":
 			return capabilitiesOf(desc.carrier)
@@ -939,8 +942,8 @@ export const contractInfoOf = (
 }
 
 /**
- * The declared type of a FieldDesc (ir/scalar.ts DeclaredType): carrier, typmod, refinements and capability set, never
- * a computed numeric or an exact value of a narrower bound than numeric's own, which no declaration states. A span over an endpoint without the
+ * The declared type of a FieldDesc (ir/scalar.ts DeclaredType): carrier, typmod, bound, refinements and capability set,
+ * a computed numeric's and an exact field's among them. A span over an endpoint without the
  * spanEndpoint capability is a capability diagnostic and a contract over a set a refusal (both UnsupportedOperation); an unknown roster, and a contract name the declared-name rule refuses, is MalformedDescription.
  */
 export const scalarTypeOf = (
@@ -950,11 +953,10 @@ export const scalarTypeOf = (
 ): Result.Result<DeclaredType, CompileError> => scalarAt(desc, env, loc)
 
 /**
- * The type an inferred field's descriptor states (ir/desc.ts InferredFieldDesc): a computed numeric of its own bound,
- * which no declaration states, or the declared type `declared` gives a declaration's descriptor. A typed literal of a
- * Description grizzle writes itself is typed here, at its column's own type.
+ * The descriptor of numeric of no typmod within `bound` (ir/desc.ts FieldDesc): a computed numeric of it, or
+ * pg.numeric where the bound is numeric's own limits, the one descriptor of that type.
  */
-export const inferredType = (
-	desc: InferredFieldDesc,
-	declared: (desc: FieldDesc) => ScalarType
-): ScalarType => (desc.kind === "computedNumeric" ? numericValue(desc.bound) : declared(desc))
+export const numericBoundDesc = (bound: NumericBound): FieldDesc =>
+	bound.digits === numericOwnBound.digits && bound.scale === numericOwnBound.scale
+		? { kind: "pg", type: "numeric" }
+		: { kind: "computedNumeric", bound }

@@ -210,7 +210,8 @@ const binaryArray: ArrayForm = { kind: "binary" }
 /**
  * How each carrier's column travels as one placeholder's array, chosen by its type and never by its size: a text
  * column's binary text[], a bytes column's its member's binary bytea[], and any other's text array literal of its
- * canonical texts. Chosen once per column, when its relation's spec is built, so no fact meets the choice.
+ * canonical texts, a search document's among them, whose array PostgreSQL reads as tsvector[], each element by
+ * tsvectorin. Chosen once per column, when its relation's spec is built, so no fact meets the choice.
  */
 const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm } = {
 	int2: literalArray,
@@ -234,7 +235,7 @@ const arrayForms: { readonly [C in Carrier]: (codec: ScalarCodec) => ArrayForm }
 	range8: literalArray,
 	rangeDate: literalArray,
 	vector: literalArray,
-	tsvector: textBinaryArray,
+	tsvector: literalArray,
 	exactInteger: literalArray,
 	exactMoney: literalArray
 }

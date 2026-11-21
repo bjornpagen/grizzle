@@ -9,7 +9,7 @@ import type { LiteralDesc } from "#compiler/ir/desc.ts"
 import { baseOf, type PlainType, type Roster, type ScalarType } from "#compiler/ir/scalar.ts"
 import { irLiteral } from "#compiler/scalar/compute/literal.ts"
 import { statedRoster } from "#compiler/scalar/values/bits.ts"
-import { Decimal, normalizeNumeric } from "#compiler/scalar/values/decimal.ts"
+import { Decimal, normalizeNumeric, withinBound } from "#compiler/scalar/values/decimal.ts"
 import { describeFault } from "#compiler/scalar/values/fault.ts"
 import { toReal } from "#compiler/scalar/values/float.ts"
 import { unreadableOf } from "#compiler/scalar/values/identity.ts"
@@ -42,13 +42,16 @@ export const literalDescFor = (
 
 /**
  * The value PostgreSQL's assignment of a literal into a column of base type `base` stores: a numeric rounded half away
- * from zero to its typmod's scale and refused past its precision or infinite (decimal.ts normalizeNumeric), a real
+ * from zero to its typmod's scale and refused past its precision or infinite (decimal.ts normalizeNumeric), or of no
+ * typmod refused past its bound (decimal.ts withinBound), as the column CHECK of a computed numeric's refuses it, a real
  * rounded to binary32 and refused where it overflows or underflows (float.ts toReal), a handle refused where the column
  * holds a subset of its roster without it (codeSubset, the column's subset CHECK), every other literal itself.
  */
 const assigned = (base: PlainType, literal: LiteralDesc): Result.Result<LiteralDesc, ValueFault> =>
 	base.carrier === "numeric" && literal instanceof Decimal
-		? normalizeNumeric(literal, base.typmod)
+		? base.typmod === undefined
+			? withinBound(literal, base.bound)
+			: normalizeNumeric(literal, base.typmod)
 		: base.carrier === "float4" && typeof literal === "number"
 			? toReal(literal)
 			: base.carrier === "code" &&

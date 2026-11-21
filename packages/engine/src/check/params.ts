@@ -10,7 +10,6 @@ import {
 	type ExprDesc,
 	type HeadTermDesc,
 	type ImportDesc,
-	type InferredFieldDesc,
 	type Inferred,
 	type InteriorDesc,
 	type Located,
@@ -90,7 +89,7 @@ export class ParamCell {
 			return fail(
 				"UnsupportedOperation",
 				loc,
-				`textSearch: parameter ${this.name} of ${typeLabel(type)}, a search document, which PostgreSQL alone makes and never a parameter`
+				`textSearch: parameter ${this.name} of ${typeLabel(type)}, a search document, which PostgreSQL alone makes, a field holds and no parameter carries`
 			)
 		}
 		const prior = this.#entry
@@ -181,7 +180,7 @@ export const boundParam = (name: string): ParamCell => new ParamCell(name, untyp
  * A description's references once the checker resolves them: each parameter reference carries its cell, and a typed
  * literal states an inferred field's descriptor, as a Description grizzle writes itself may (ir/desc.ts Inferred).
  */
-export type Resolved = ParamsAs<{ readonly cell: ParamCell }, ParamTyping, InferredFieldDesc>
+export type Resolved = ParamsAs<{ readonly cell: ParamCell }, ParamTyping>
 
 export type ResolvedQuery = QueryDesc<Located, Resolved>
 export type ResolvedStage = QueryStageDesc<Located, Resolved>
@@ -247,7 +246,7 @@ export const resolveQuery = (
 	session: CheckSession
 ): { readonly query: ResolvedQuery; readonly params: ParamTable } => {
 	const own = new Map<string, ParamCell>()
-	const query = mapQueryParams<{ readonly cell: ParamCell }, InferredFieldDesc, ParamTyping>(
+	const query = mapQueryParams<{ readonly cell: ParamCell }, ParamTyping>(
 		q,
 		{
 			param: (name) => ({ cell: cellIn(own, name, () => new ParamCell(name, untyped)) }),

@@ -1427,6 +1427,15 @@ export const identity = Object.freeze({
 			`exact value check of ${relation}.${field}`,
 			hashed
 		),
+	/** A computed numeric column's bound CHECK, pg.numeric.within's: the values within its bound. */
+	boundCheck: (relation: string, field: string): Identity<"boundCheck"> =>
+		mint(
+			"boundCheck",
+			[relation, field],
+			[...nameSegments(relation), "bound", ...nameSegments(field)],
+			`numeric bound check of ${relation}.${field}`,
+			hashed
+		),
 	/** A closed id column's subset CHECK: the handles of its roster its field's subset holds. */
 	subsetCheck: (relation: string, field: string): Identity<"subsetCheck"> =>
 		mint(

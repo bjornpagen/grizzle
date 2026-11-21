@@ -193,7 +193,7 @@ type FieldEntry =
 			readonly type: unknown
 			readonly writing: Extract<
 				Writing,
-				{ readonly kind: "drawn" | "accumulated" | "retirement" | "place" }
+				{ readonly kind: "drawn" | "accumulated" | "retirement" | "place" | "instant" }
 			>
 	  }
 	| { readonly kind: "generated"; readonly type: Described; readonly term: unknown }
@@ -233,8 +233,8 @@ export const valueTypeOf = (
 	return describedField(value, label)
 }
 
-/** How a field value is written: as drawn(…), accumulated(…), place(…) or retirement recorded it, and by its caller
- * otherwise. */
+/** How a field value is written: as drawn(…), accumulated(…), place(…), retirement or instant recorded it, and by its
+ * caller otherwise, instant.stored among them. */
 export const writingOf = (value: unknown): Writing => {
 	const recorded = fieldEntryOf(value)
 	return recorded?.kind === "written" ? recorded.writing : callerWriting
@@ -269,6 +269,17 @@ export const drawnField = <F extends FieldBase>(
 	})
 	fieldEntries.set(value, { kind: "written", type, writing: { kind: "drawn" } })
 	registerWrittenField(value, type)
+	return value
+}
+
+/**
+ * `value`, the instant descriptor of the database's clock (scalar/instant.ts instantDescriptor), registered: a field
+ * whose instant the database writes (ir/desc.ts Writing `instant`), stamped by the insert that adds its row or carried
+ * from a stored one as the schema's laws make it (analysis/theory/instants.ts), its declared type instant's, `stored`'s,
+ * the field of that type its caller writes as it is.
+ */
+export const clockInstant = <F extends { readonly stored: object }>(value: F): F => {
+	fieldEntries.set(value, { kind: "written", type: value.stored, writing: { kind: "instant" } })
 	return value
 }
 

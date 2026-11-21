@@ -12,6 +12,11 @@
  *   refused at that field (DerivedRefused, undeclaredContract); a declared one is the derived field's descriptor, as
  *   the relation declaring it holds it. Oracle: that rule, restated. Features: declared, undeclared.
  *
+ * - Stored kinds: over drawn search documents of every configuration, computed numeric bounds, numeric's own limits and
+ *   stored instants, a stored field of each is its caller's, and its descriptor and its type each give back the other,
+ *   so a records relation's field is of its column's type exactly; numeric's own limits are pg.numeric's one descriptor,
+ *   and the database's instant is the database's clock's. Oracle: both round trips. Features: each kind.
+ *
  * That each inferred type is PostgreSQL's own result type, for every aggregate overload, refinement, roster and
  * contract, with its typmod and collation, is the database suite's, against the installed views' catalog.
  */
@@ -23,7 +28,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Record } from "effect"
 import { fieldDescOf } from "#compiler/analysis/derived/fields.ts"
 import { derivedAnalysis } from "#compiler/analysis/schema.ts"
-import { pg } from "#compiler/public/fields.ts"
+import { instant, pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
@@ -34,6 +39,7 @@ import {
 	relationBuilder
 } from "#compiler/schema/relation.ts"
 import { schemaBuilder as runtimeSchema } from "#compiler/schema/schema.ts"
+import type { FieldBase } from "#compiler/types/fields/field.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { f as field } from "#test/support/fixtures/ir/desc.ts"
 import { scalarOf } from "#test/support/fixtures/ir/scalar.ts"
@@ -44,7 +50,9 @@ import {
 	type DeclaredFeature,
 	declaredGen,
 	handlesOf,
-	nonNegative
+	nonNegative,
+	type StoredKind,
+	storedKindGen
 } from "#test/unit/derived/fields.fixtures.ts"
 import { fieldOf } from "#test/unit/schema/field-sketch.ts"
 import { bareContract, rawContract } from "#test/unit/schema/support.ts"
@@ -228,6 +236,107 @@ export const derivedFieldInferenceRefusesAContractTheSchemaDeclaresOnNoRelationI
 				replacement:
 					'\t\t\treturn Result.err({ kind: "undeclared", contract: contract.base.carrier })',
 				why: "A column whose contract is undeclared is refused naming its base's carrier for the contract; the undeclared contracts' property fails."
+			}
+		]
+	})
+
+/** The feature a stored kind's case reaches. */
+const storedFeature = (k: StoredKind): StoredFeature => {
+	switch (k.kind) {
+		case "search":
+			return "a search document"
+		case "bound":
+			return "a computed numeric"
+		case "own limits":
+			return "numeric's own limits"
+		case "stored instant":
+			return "an instant stored as it is"
+	}
+}
+
+type StoredFeature =
+	| "a search document"
+	| "a computed numeric"
+	| "numeric's own limits"
+	| "an instant stored as it is"
+
+/** The field a stored kind declares. */
+const storedField = (k: StoredKind): FieldBase => {
+	switch (k.kind) {
+		case "search":
+			return pg.tsvector(k.configuration)
+		case "bound":
+			return pg.numeric.within(k.digits, k.scale)
+		case "own limits":
+			return pg.numeric
+		case "stored instant":
+			return instant.stored
+	}
+}
+
+/**
+ * A stored field of each kind a records relation keeps of a read's column is of the column's type again: its caller's,
+ * and its declared descriptor fieldDescOf's of the type it states, whose type is that type, so a column a read delivers
+ * and the field that stores it are of one type and one descriptor; numeric's own limits are pg.numeric's one
+ * descriptor, and the database's instant, `instant`, is no caller's.
+ *
+ * Budget: 60 runs and 40 steered cases, every kind reached at its floor (written with the kinds, lane FIELDS-B).
+ */
+export const aStoredFieldOfEachKindARecordsRelationKeepsIsOfItsColumnsTypeAgainItsCallersAndOfOneDescriptor =
+	property.explore(storedKindGen, {
+		needs: {},
+		budget: { runs: 60, steered: 40 },
+		situations: [
+			"a search document",
+			"a computed numeric",
+			"numeric's own limits",
+			"an instant stored as it is"
+		] satisfies ReadonlyArray<Reached<StoredFeature>>,
+		check: (_, c: Case<StoredFeature>) => (k) =>
+			Effect.sync(() => {
+				c.note(storedFeature(k))
+				const Kept = relation("Kept", { id: Id, value: storedField(k) }, ["id"])
+				const Clocked = relation("Clocked", { id: Id, at: instant }, ["id", "at"])
+				const owned = checking(schema("K", [Kept, Clocked], [])).owned
+				const kept = defined(owned.relations["Kept"], "Kept").desc
+				const clocked = defined(owned.relations["Clocked"], "Clocked").desc
+				assert.ok(kept.kind === "relation" && clocked.kind === "relation", "both are relations")
+				const declared = defined(kept.fields["value"], "Kept.value")
+				assert.equal(declared.writing.kind, "caller", "a stored field is its caller's")
+				assert.equal(
+					defined(clocked.fields["at"], "Clocked.at").writing.kind,
+					"instant",
+					"the database's instant is the database's clock's"
+				)
+				const type = scalarOf(declared.type, {})
+				const described = succeeded(fieldDescOf(type, owned.contracts))
+				assert.deepEqual(described, declared.type, "the column's type describes the field")
+				assert.deepEqual(scalarOf(described, {}), type, "the descriptor types the column again")
+			}),
+		oracle: {
+			kind: "universal",
+			name: "fieldDescOf . scalarOf = id, and scalarOf . fieldDescOf = id, on each stored kind"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original: '\t\t? { kind: "pg", type: "numeric" }\n\t\t: { kind: "computedNumeric", bound }',
+				replacement:
+					'\t\t? { kind: "computedNumeric", bound }\n\t\t: { kind: "computedNumeric", bound }',
+				why: "numeric's own limits have two descriptors, pg.numeric's and a computed numeric's: a column of pg.numeric is described as no field of it is."
+			},
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original: "\t\t\treturn Result.ok(numericOfBound(desc.bound))",
+				replacement: "\t\t\treturn Result.ok(numericOwnLimits)",
+				why: "A computed numeric's field is typed at numeric's own limits, so it no longer holds its column's type."
+			},
+			{
+				file: "packages/engine/src/public/fields.ts",
+				original: "export const instant: InstantField = clockInstant(instantDescriptor)",
+				replacement: "export const instant: InstantField = instantDescriptor",
+				why: "The database's instant is declared as its caller's field, the stored copy's writing: one writing for two kinds."
 			}
 		]
 	})

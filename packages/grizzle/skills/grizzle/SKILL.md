@@ -116,7 +116,13 @@ export default defineConfig({
   insert leaving it out stamps with the call's instant at the user, `greatest(clock, the user's latest + 1)`, so a
   user's instants increase in the order their calls commit; a role that stamps runs SERIALIZABLE. An instant a
   containment carries into another relation's instant is a reference, stamped beside an insert of its clock or stated
-  from a stored instant (README "Instants"). A row's place in its group is `place`, last in its primary key after the
+  from a stored instant (README "Instants"). A read delivers an instant as an `Instant`, a bigint only a read mints;
+  `instant.stored` is a field of instant's type its caller writes as it read it, the database drawing nothing, so a
+  read's rows can be kept with their instants: a bare bigint at it is a type error. Kept beside it, a read's search
+  document is `pg.tsvector(configuration)`, its `SearchDocument` written back as PostgreSQL printed it (any other text
+  `searchDocumentForm`), and a read's sum or mean is `pg.numeric.within(digits, scale)`, numeric of no typmod checked to
+  the bound its query proves, a `Decimal` past it `numericBound`; numeric's own limits are `pg.numeric` (README "Tables
+  and types"). A row's place in its group is `place`, last in its primary key after the
   group: an insert leaving it out stamps one past the group's greatest, 0 first, so a group's places are gapless from 0
   in commit order; no put or delete writes its relation. A nested insert's members carry their owner's stamped place in
   their group, the owner and its members one family statement that stamps it once, and a read-back of the owner's

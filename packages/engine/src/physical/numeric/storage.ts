@@ -1,10 +1,23 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
-import { nanParts } from "#compiler/core/decimal.ts"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import {
+	exactParts,
+	type FiniteParts,
+	infinityParts,
+	nanParts,
+	negativeInfinityParts
+} from "#compiler/core/decimal.ts"
 import { identity } from "#compiler/core/identity.ts"
-import { integerTypmodOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import {
+	integerTypmodOf,
+	type NumericBound,
+	numericBoundOf,
+	type ScalarType
+} from "#compiler/ir/scalar.ts"
 import { exactScaleOf } from "#compiler/scalar/exact.ts"
+import { numericMaxFractionDigits, numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import type { Expr } from "#compiler/sql/ast.ts"
-import { binary, call, lit, types } from "#compiler/sql/build.ts"
+import { and, binary, call, isIn, lit, lt, or, types } from "#compiler/sql/build.ts"
 
 /**
  * An integer numeric column's CHECK, a column CHECK (physical/ddl/column-checks.ts ColumnCheckKind).
@@ -55,3 +68,74 @@ export const exactNumeric = Object.freeze({
 	reason: (relation: string, field: string, type: ScalarType): string =>
 		`the values its host spells of ${relation}.${field}: numeric at scale ${exactScale(type)}, never NaN or an infinity`
 })
+
+/**
+ * The bound of a column of numeric of no typmod narrower than numeric's own limits, a computed numeric's
+ * (pg.numeric.within); none for pg.numeric, whose bound PostgreSQL's own format is, and for every other type.
+ */
+const narrowerBoundOf = (type: ScalarType): NumericBound | undefined => {
+	const bound = numericBoundOf(type)
+	return bound === undefined ||
+		(bound.digits >= numericMaxIntegerDigits && bound.scale >= numericMaxFractionDigits)
+		? undefined
+		: bound
+}
+
+/**
+ * 10^digits, the magnitude a bound's finite values stay below, as a numeric literal's parts: a coefficient of `digits`
+ * zeros at scale 0, or 1 at scale -digits below one.
+ */
+const powerOfTen = (digits: number): FiniteParts =>
+	digits >= 0 ? exactParts(10n ** BigInt(digits), 0) : exactParts(1n, -digits)
+
+/**
+ * The predicate of a computed numeric column's bound (ir/scalar.ts NumericBound) over the unqualified column `column`,
+ * as a row CHECK spells it: NaN or an infinity, which numeric of no typmod holds and a computed value may be, or a
+ * finite value of at most `scale` fraction digits, `min_scale(v) <= scale`, below 10^digits in magnitude,
+ * `abs(v) < 1e<digits>`, each part left out where numeric's own limit states it already.
+ */
+const boundPredicate = (column: Expr, bound: NumericBound): Expr => {
+	const finite: Array<Expr> = []
+	if (bound.scale < numericMaxFractionDigits) {
+		finite.push(binary("<=", call("min_scale", [column]), lit.int(bound.scale, types.integer)))
+	}
+	if (bound.digits < numericMaxIntegerDigits) {
+		finite.push(lt(call("abs", [column]), lit.decimal(powerOfTen(bound.digits), types.numeric)))
+	}
+	const specials = isIn(column, [
+		lit.decimal(nanParts, types.numeric),
+		lit.decimal(infinityParts, types.numeric),
+		lit.decimal(negativeInfinityParts, types.numeric)
+	])
+	return isNonEmpty(finite) ? or([specials, and(finite)]) : specials
+}
+
+/**
+ * A computed numeric column's CHECK, a column CHECK (physical/ddl/column-checks.ts ColumnCheckKind).
+ *
+ * pg.numeric.within(digits, scale) is numeric of no typmod within a computed numeric's bound (ir/scalar.ts
+ * NumericBound): its column is `pg_catalog.numeric NOT NULL`, which holds every numeric value, so the column carries
+ * the named CHECK of the bound, NaN and the infinities passing as numeric of no typmod holds them:
+ *
+ *     CONSTRAINT "__ledger_total_bound_<digest>" CHECK ((("total" IN ('NaN'::numeric, 'Infinity'::numeric,
+ *       '-Infinity'::numeric)) OR ((min_scale("total") <= 2) AND (abs("total") < '100000'::numeric))) IS TRUE)
+ *
+ * The codec's host boundary admits a value of the bound alone, as a literal written into the column is (values/decimal.ts
+ * withinBound), so it refuses only a direct writer. Its name is the naming door's hashed boundCheck.
+ */
+export const boundedNumeric = Object.freeze({
+	holds: (type: ScalarType): boolean => narrowerBoundOf(type) !== undefined,
+	named: identity.boundCheck,
+	predicate: (_: unknown, column: Expr, type: ScalarType): Expr => {
+		const bound = narrowerBoundOf(type)
+		return bound === undefined ? lit.bool(true) : boundPredicate(column, bound)
+	},
+	reason: (relation: string, field: string, type: ScalarType): string =>
+		`the computed numeric bound of ${relation}.${field}: ${boundText(narrowerBoundOf(type))}`
+})
+
+/** What a bound holds, as a column CHECK's reason states it: numeric's own limits where it states none narrower. */
+const boundText = (bound: NumericBound | undefined): string =>
+	bound === undefined
+		? "numeric's own limits"
+		: `NaN, an infinity, or a value below 10^${bound.digits} in magnitude of at most ${bound.scale} fraction digits`

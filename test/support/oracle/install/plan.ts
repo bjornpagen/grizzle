@@ -514,6 +514,8 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 				}
 				return builtin(numericType(precision, scale), { kind: "numeric" })
 			}
+			case "computedNumeric":
+				return builtin(builtinType("numeric"), { kind: "numeric" })
 			case "uuid":
 				return builtin(builtinType("uuid"), { kind: "uuid" })
 			case "text":
