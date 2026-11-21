@@ -18,6 +18,7 @@ import { resultTextCasts } from "#compiler/codec/scalar.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { wildcardText } from "#compiler/scalar/compute/types.ts"
 import { plainType } from "#compiler/scalar/native.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	canonicalText,
 	type Carrier,
@@ -37,16 +38,29 @@ interface Column {
 	readonly values: Gen<unknown>
 }
 
-/** A numeric(p, s) column, its values any Decimal, and now and then a JavaScript number, which no numeric is. */
-const numericColumn = (precision: number, scale: number): Column => ({
-	label: `numeric(${precision}, ${scale})`,
-	type: scalarOf({ kind: "numeric", precision, scale }, {}),
-	sql: `numeric(${precision},${scale})`,
-	values: weighted<unknown>([
-		[12, decimalGen],
-		[1, element<unknown>([1.5, "1.5"])]
-	])
-})
+/**
+ * A numeric(p, s) column, its values any value of its host type, and now and then one of no numeric's: a Decimal and a
+ * JavaScript number or text, but numeric(p, 0)'s host value a bigint since 4da9792ba, an integer type's, from the edges
+ * of its precision and past them, beside a Decimal, a number and a text, none of which it admits.
+ */
+const numericColumn = (precision: number, scale: number): Column => {
+	const edge = 10n ** BigInt(precision)
+	return {
+		label: `numeric(${precision}, ${scale})`,
+		type: scalarOf({ kind: "numeric", precision, scale }, {}),
+		sql: `numeric(${precision},${scale})`,
+		values:
+			scale === 0
+				? weighted<unknown>([
+						[12, bigint(-2n * edge, 2n * edge)],
+						[1, element<unknown>([Decimal.of("1"), 1.5, "1"])]
+					])
+				: weighted<unknown>([
+						[12, decimalGen],
+						[1, element<unknown>([1.5, "1.5"])]
+					])
+	}
+}
 
 /** Doubles of every kind: binary32 values, doubles between them, the edges of binary32's range, and the specials. */
 const anyReal: Gen<number> = oneOf([
