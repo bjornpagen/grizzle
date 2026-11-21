@@ -19,10 +19,11 @@
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, String as Str } from "effect"
+import { Array as Arr, Effect, Record as Rec, String as Str } from "effect"
 import { boundIn, mapLeaves, varsOf } from "#compiler/analysis/theory/leaves.ts"
 import { leavesOf } from "#compiler/check/scan.ts"
 import {
+	callsOf,
 	exprChildren,
 	type InferredExpr,
 	type InferredQuery,
@@ -31,6 +32,7 @@ import {
 	type ParamSpelling,
 	queryParamNames
 } from "#compiler/ir/desc.ts"
+import { callCounts } from "#test/support/kernel/calls.ts"
 import {
 	bindOnly,
 	directTerms,
@@ -328,6 +330,101 @@ export const aQuerysParametersReadWithoutRebuildingItAreTheOnesItsRebuildSpellsI
 				original: 'if (b.kind === "relationParam") {\n\t\t\t\tthis.#read(b.name)\n',
 				replacement: 'if (b.kind === "relationParam") {\n',
 				why: "A relation parameter a bind map binds is read as none: its name is missing against mapQueryParams's and the oracle's."
+			}
+		]
+	})
+
+/**
+ * The references a walk reading each record and list of a value once follows: the value's own, and each member of every
+ * distinct record and list the value reaches.
+ */
+const referencesOnce = (value: unknown): number => {
+	const seen = new Set<object>()
+	let references = 1
+	const reach = (v: unknown): void => {
+		if (typeof v !== "object" || v === null || seen.has(v)) {
+			return
+		}
+		seen.add(v)
+		const members: ReadonlyArray<unknown> = Arr.isArray(v) ? v : Rec.values(v)
+		references += members.length
+		for (const member of members) {
+			reach(member)
+		}
+	}
+	reach(value)
+	return references
+}
+
+/** The functions a value names at a node of kind call or callField, walked as a tree, every reference read anew. */
+const calledInTree = (value: unknown): ReadonlySet<unknown> => {
+	const out = new Set<unknown>()
+	const reach = (v: unknown): void => {
+		if (typeof v !== "object" || v === null) {
+			return
+		}
+		if (!Arr.isArray(v)) {
+			const kind: unknown = Reflect.get(v, "kind")
+			const called: unknown = Reflect.get(v, "function")
+			if ((kind === "call" || kind === "callField") && typeof called === "string") {
+				out.add(called)
+			}
+		}
+		for (const member of Arr.isArray(v) ? v : Rec.values(v)) {
+			reach(member)
+		}
+	}
+	reach(value)
+	return out
+}
+
+/**
+ * The declared functions a Description calls (ir/desc.ts callsOf) are every function a call of it names, and the walk
+ * reads each record and list once however many times the Description shares it: an expression shared by both operands
+ * of each of twelve nested conjunctions is read once, where a walk at every reference read it 4,096 times.
+ *
+ * Oracle: the functions a tree walk of the expression names (a second implementation), and the references of the distinct
+ * parts the shared Description reaches, against V8's count of the walk's calls.
+ *
+ * Budget: 300 runs and 300 steered cases, the expression walks', over their expressions.
+ */
+export const theFunctionsADescriptionCallsAreReadOnceForEachPartItSharesAndAreEveryOneItsCallsName =
+	property.explore(exprs, {
+		needs: {},
+		budget: { runs: 300, steered: 300 },
+		situations: ["a call named"] satisfies ReadonlyArray<Reached<"a call named">>,
+		check: (_, c: Case<"a call named">) => (e) =>
+			Effect.gen(function* () {
+				let shared: unknown = e
+				for (let depth = 0; depth < 12; depth++) {
+					shared = { kind: "and", args: [shared, shared] }
+				}
+				const [found, counts] = yield* callCounts(
+					Effect.sync(() => callsOf(shared)),
+					{ walk: { file: "packages/engine/src/ir/desc.ts", name: "walk" } }
+				)
+				const expected = calledInTree(e)
+				assert.deepEqual(sorted(found), sorted(expected), "every function a call names")
+				if (expected.size > 0) {
+					c.note("a call named")
+				}
+				assert.equal(
+					counts.walk,
+					referencesOnce(shared),
+					"the walk follows each reference of each distinct part once"
+				)
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "a tree walk of the expression's functions, and the distinct parts the shared Description reaches"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/desc.ts",
+				original: '\t\tif (typeof node !== "object" || node === null || read.has(node)) {\n',
+				replacement: '\t\tif (typeof node !== "object" || node === null) {\n',
+				why: "The walk reads a shared part at every reference, as before: the twelve nested conjunctions' expression is read 4,096 times, and the reads outnumber the references of the distinct parts."
 			}
 		]
 	})

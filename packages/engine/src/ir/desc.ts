@@ -942,12 +942,20 @@ export type CallArgDesc<L = Located, R extends Refs = Spelled> = ExprDesc<L, R> 
 /**
  * The declared functions a Description calls, by name, at any depth: each call term (ExprDesc call) and each call
  * source (SourceDesc call and callField) it holds, through its imports, attachments, interiors, rows arguments, members
- * and read-backs alike. A Description is plain data, a tree of records and lists, and a call is a node of kind "call"
- * or "callField" that names a `function`, so the walk reads every node once and needs no case for any other.
+ * and read-backs alike. A Description is plain data, records and lists, and a call is a node of kind "call" or
+ * "callField" that names a `function`, so the walk needs no case for any other. A Description shares a part by
+ * reference wherever it reads it (an imported query at every import, a bound query at every read), so the walk reads
+ * each record and list once, where reading it at every reference expanded the sharing into a tree; the functions are a
+ * set, which a second reading adds nothing to.
  */
 export const callsOf = (desc: unknown): ReadonlySet<string> => {
 	const out = new Set<string>()
+	const read = new Set<object>()
 	const walk = (node: unknown): void => {
+		if (typeof node !== "object" || node === null || read.has(node)) {
+			return
+		}
+		read.add(node)
 		if (Array.isArray(node)) {
 			for (const item of node) {
 				walk(item)
