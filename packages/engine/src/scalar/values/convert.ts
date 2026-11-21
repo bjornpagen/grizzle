@@ -111,8 +111,8 @@ const convertBits =
  * | sha256 | its bytes' wire text, `encode(x, 'base64url')` (core/wire.ts bytesWireAlphabet) | a fresh Uint8Array of them, the column's Sha256 |
  * | tsvector | tsvectorout, its lexemes in order with their positions and weights | the text itself |
  * | date | date_out under DateStyle ISO, YYYY-MM-DD | the text itself, a CalendarDate |
- * | inet | network_show, its mask always stated | read and printed as inet_out prints it, a whole mask omitted |
- * | cidr | network_show, which is cidr_out's text | read and printed as cidr_out prints it, the same text |
+ * | inet | inet_out; network_show in a fused array (c::text), its mask always stated | as inet_out prints it |
+ * | cidr | cidr_out, which network_show prints alike | read and printed as cidr_out prints it, the same text |
  * | code | int2out of the code | the live handle the code names |
  * | bits | bit_out, n characters of 0 and 1 | a fresh Set of the handles of its 1 bits, position i code i |
  * | range4, range8, rangeDate | range_out of a bounded half-open range, [start,end) | a frozen { start, end } |

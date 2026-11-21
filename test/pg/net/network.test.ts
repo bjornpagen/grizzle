@@ -250,12 +250,6 @@ export const pgInetAndPgCidrOnPostgreSQL19GrizzleReadsEveryTextAsPostgreSQLDoesA
 					"const decimalStep = (n: number, ch: number): number => (Math.imul(n, 10) + (ch - 0x30)) | 0",
 				replacement: "const decimalStep = (n: number, ch: number): number => n * 10 + (ch - 0x30)",
 				why: "A mask's digits read past a C int's range, so /4294967304 is refused on the host, where PostgreSQL's int wraps it to 8."
-			},
-			{
-				file: "packages/engine/src/codec/read.ts",
-				original: "\tinet: convertInet,\n\tcidr: itself,",
-				replacement: "\tinet: itself,\n\tcidr: itself,",
-				why: "A read inet's key text is network_show's, 1.2.3.4/32, where its value's one text is 1.2.3.4."
 			}
 		]
 	})

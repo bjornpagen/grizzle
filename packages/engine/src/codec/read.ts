@@ -57,7 +57,6 @@ import {
 	keyText,
 	type SpecOf
 } from "#compiler/scalar/values/identity.ts"
-import { convertInet } from "#compiler/scalar/values/net.ts"
 
 /** A column's reader: its cell's host value, and the one text of the value its cell holds. */
 export interface ScalarReader {
@@ -147,7 +146,7 @@ const cellTextByCarrier: { readonly [C in TextCarrier]: (cell: string) => string
 	bool: boolCellText,
 	uuid: itself,
 	date: itself,
-	inet: convertInet,
+	inet: itself,
 	cidr: itself,
 	text: itself,
 	sha256: (cell) => sha256Text(ofWire(cell)),

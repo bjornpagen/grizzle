@@ -24,8 +24,8 @@ import { generatedTemplate } from "#test/support/install-migrate.ts"
  * pg.inet and pg.cidr written and read through grizzle, and an inet context's address, from a token's claim or attested
  * by the server, filtering a cidr relation by Net.within.
  *
- * README, "Tables and types", network types, and "Contexts of a role". A Host is keyed by its inet, which a read reads
- * as its key's text, network_show's, and so converts to the value's one form; a Network holds a cidr. The role
+ * README, "Tables and types", network types, and "Contexts of a role". A Host is keyed by its inet, a Network holds a
+ * cidr. The role
  * `campus` holds both whole and declares two contexts of one field, an inet `address`: Where, a token's claim, read from
  * its nested `net` object; and Origin, attested by the server where it opens the Db, never read from a token. Its login
  * serves the inserts of hosts and networks, the reads of each, and the networks within which Where's address and
