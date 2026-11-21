@@ -254,8 +254,8 @@ export const textTuplesOrderAsJSONArraysByCodeUnitAndByCodePointAndAsIdentitiesB
 			{
 				file: "packages/engine/src/core/text.ts",
 				original:
-					"\tconst text = identities.every((id) => id.belowSurrogates) ? byUnits : compareCodePoints",
-				replacement: "\tconst text = byUnits",
+					"\tconst text = identities.every((id) => id.belowSurrogates) ? compareStrings : compareCodePoints",
+				replacement: "\tconst text = compareStrings",
 				why: "A set of identities is sorted by code unit whatever its texts: a scalar past U+FFFF, spelled by a surrogate pair, sorts below a unit from U+E000, where code point order puts it above."
 			},
 			{

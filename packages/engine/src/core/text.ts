@@ -4,7 +4,7 @@ import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import { isWellFormedText, jsonEscape, type WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import type { ValueFault } from "#compiler/core/errors.ts"
-import { inOrder } from "#compiler/core/order.ts"
+import { compareStrings, inOrder } from "#compiler/core/order.ts"
 
 /**
  * Storable text: what PostgreSQL text can hold, and the orders of texts that spell lists of them, under the fixed
@@ -161,16 +161,13 @@ const listOrder =
 		return a.length === b.length ? 0 : a.length < b.length ? -1 : 1
 	}
 
-/** Strings in JavaScript's own order, by UTF-16 code unit. */
-const byUnits = (a: string, b: string): number => (a < b ? -1 : 1)
-
 /** Two lists of well-formed texts in code point order, element by element, a list before every list it begins: the
  * order of their identities (`compareTextsIds`). */
 export const compareTextLists: (a: ReadonlyArray<string>, b: ReadonlyArray<string>) => -1 | 0 | 1 =
 	listOrder(compareCodePoints)
 
 /** Two lists whose every unit is below U+D800 in code point order: JavaScript's own order of their strings. */
-const compareUnitLists = listOrder(byUnits)
+const compareUnitLists = listOrder(compareStrings)
 
 /**
  * Two identities in their lists' code point order, element by element (`compareTextLists`): JavaScript's own order of
@@ -202,7 +199,7 @@ export const inIdentityOrder = <E>(
 	}
 	const arity = identities.reduce((most, id) => Math.max(most, id.texts.length), 0)
 	const columns = Array.from({ length: arity }, (_, at) => identities.map((id) => id.texts[at]))
-	const text = identities.every((id) => id.belowSurrogates) ? byUnits : compareCodePoints
+	const text = identities.every((id) => id.belowSurrogates) ? compareStrings : compareCodePoints
 	/** Two entries by their places, their identities' texts read off the columns, position by position. */
 	const byColumns = (i: number, j: number): number => {
 		for (const column of columns) {

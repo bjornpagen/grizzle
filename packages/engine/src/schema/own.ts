@@ -2541,7 +2541,7 @@ class Owner {
 		): SchemaDesc => {
 			const relations = schema.relations
 				.filter((r) => this.#relations.get(r.name)?.level === level && !placed.has(r.name))
-				.toSorted((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+				.toSorted((a, b) => compareStrings(a.name, b.name))
 			for (const r of relations) {
 				placed.add(r.name)
 			}

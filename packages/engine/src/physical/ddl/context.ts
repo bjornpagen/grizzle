@@ -18,6 +18,7 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { compareStrings } from "#compiler/core/order.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
 import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
@@ -820,9 +821,7 @@ export class InstallBuilder {
 
 	/** Every registered view, by relation name. */
 	indexedViews(): ReadonlyArray<IndexedView> {
-		return [...this.#views.values()].toSorted((a, b) =>
-			a.relation < b.relation ? -1 : a.relation > b.relation ? 1 : 0
-		)
+		return [...this.#views.values()].toSorted((a, b) => compareStrings(a.relation, b.relation))
 	}
 }
 
