@@ -49,6 +49,9 @@ import {
 	pred,
 	query,
 	race,
+	records,
+	recordsFacts,
+	recordsQuery,
 	refresh,
 	relation,
 	retirable,
@@ -82,7 +85,7 @@ import {
 } from "@bjornpagen/grizzle/runtime"
 import { verifyToken } from "@clerk/backend"
 import { attachDatabasePool } from "@vercel/functions/db-connections"
-import { Config, Effect, Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
+import { Array, Config, Effect, Layer, ManagedRuntime, type Option, Redacted, Schema } from "effect"
 import pgDriver from "pg"
 
 type Equals<A, B> =
@@ -1308,6 +1311,32 @@ export const signIn = ChangeSet.empty(Auth)
 /** What a read of sign-ins delivered, kept as it was read: its instants stored as they are. */
 const SeenSignIn = relation("SeenSignIn", { user: UserId, at: instant.stored }, ["user", "at"])
 export const KeptSignIns = schema("KeptSignIns", [SeenSignIn], [])
+
+/**
+ * README: "Records of a query": a school's offered lessons, the query of them whose found rows an audit keeps, a run of
+ * the audit, one run's found lessons as a host holds them, and the digest each is kept under.
+ */
+const Offered = relation("Offered", { lesson: LessonSlug, minutes: natural }, ["lesson"])
+const School = schema("School", [Offered], [])
+const lessonsOf = query(School).rule((r) => {
+	const { lesson, minutes } = v(Offered, "offered")
+	return r.match(Offered, { lesson, minutes }).find({ lesson, minutes })
+})
+const RunId = contract("RunId", pg.bigint)
+declare const lessons: ReadonlyArray<HeadOf<typeof lessonsOf>>
+declare const run: Infer<typeof RunId>
+declare const digestOf: (row: HeadOf<typeof lessonsOf>) => Sha256
+
+const found = records("Lessons", lessonsOf, { digest: sha256, run: RunId }, ["digest", "run"])
+export const Audit = schema.extend([School], "Audit", found.relations, found.rules)
+
+/** The insert of one run's found rows, each under its own digest. */
+const entries = Array.map(lessons, (row) => [{ digest: digestOf(row), run }, row] as const)
+const insert = recordsFacts(Audit, found)(entries)
+ChangeSet.empty(Audit).insertAll(insert)
+
+/** The rows stored at one owner: rows of `lessonsOf`'s own type, read through its own decoder. */
+export const storedLessons = recordsQuery(Audit, found)
 
 /** README: "Levels". */
 /** "Declared functions": a function of an SQL body and one of a PL/pgSQL body that calls it, over a heading's rows. */
