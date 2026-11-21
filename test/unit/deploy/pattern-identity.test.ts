@@ -21,7 +21,7 @@
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Order } from "effect"
+import { Array as Arr, Effect, Order, Record as Rec } from "effect"
 import { compareStrings } from "#compiler/core/order.ts"
 import { installedSpellings } from "#compiler/ir/pattern.ts"
 import type { SqlStatement } from "#compiler/sql/ast.ts"
@@ -178,9 +178,11 @@ type SpellingFeature =
 
 /**
  * An installation spells each language it installs by its history, else by the least of the spellings it holds, by code
- * unit, whatever order they are held in (ir/pattern.ts installedSpellings): over one or two languages, each a pattern
- * and three respellings of its own language, held in two drawn orders, the two tables are one, each language spelled by
- * its history's spelling or its least, and each held spelling installs as its language's. The order a schema holds its
+ * unit, whatever order they are held in (ir/pattern.ts installedSpellings): over one or two drawn languages, each a
+ * pattern and three respellings of its own language, held in two drawn orders, the two tables are one, each language
+ * the held spellings spell, by its key, spelled by its history's spelling or the least of all its spellings, two drawn
+ * languages that are one language (`$` and the empty pattern) among them, and each held spelling installs as its
+ * language's. The order a schema holds its
  * patterns in is its owned statements' order, which no meaning fixes, so a first spelling met moved with it.
  *
  * Its budget is the runner's: a new property, with no suite before it to carry a count from.
@@ -207,30 +209,33 @@ export const anInstallationSpellsEachLanguageByItsHistoryElseItsLeastSpellingWha
 					Arr.sort([...installed.table], byLanguage),
 					"the spellings are one whatever order they are held in"
 				)
-				for (const language of drawn.languages) {
-					const [one] = language
-					const least = Arr.reduce(language, one.spelling, (min, p) =>
+				/** Each language the held spellings spell, by its key: two drawn languages may be one, as `$` and the
+				 * empty pattern are, each spelling the empty text's language alone, so a language is its key's spellings. */
+				const languages = Arr.groupBy(drawn.held, (p) => p.pattern)
+				for (const [pattern, spellings] of Rec.toEntries(languages)) {
+					const [one] = spellings
+					const least = Arr.reduce(spellings, one.spelling, (min, p) =>
 						compareStrings(p.spelling, min) < 0 ? p.spelling : min
 					)
-					const spelled = drawn.history.get(one.pattern) ?? least
+					const spelled = drawn.history.get(pattern) ?? least
 					assert.equal(
-						installed.table.get(one.pattern),
+						installed.table.get(pattern),
 						spelled,
-						`a language is spelled by its history, else by its least spelling, of ${language.length}`
+						`a language is spelled by its history, else by its least spelling, of ${spellings.length}`
 					)
-					for (const p of language) {
+					for (const p of spellings) {
 						assert.equal(
 							installed.of(p.spelling),
 							spelled,
 							`${p.spelling} installs as its language's`
 						)
 					}
-					if (drawn.history.has(one.pattern)) {
+					if (drawn.history.has(pattern)) {
 						k.note("a language its history spells")
 					}
 				}
 				k.note("a language of four spellings")
-				if (drawn.languages.length > 1) {
+				if (Rec.keys(languages).length > 1) {
 					k.note("two languages")
 				}
 				if (Arr.some(drawn.held, (p, i) => drawn.reordered[i] !== p)) {
