@@ -150,10 +150,12 @@ export const bindGroups = <A>(
  * - wholeEntries(relations): a full role's entries (schema/world.ts wholeEntriesOf), every relation of a schema's
  *   record under its own key but the closed relations, each kept or dropped by its kind, as its type keeps or drops it
  *   by its type: WholeEntries<Rs> (types/schema/world.ts).
- * - recordFields(entries) and recordsInsert(root, facts): a query's records (program/records.ts), the root relation's
- *   fields, each owner descriptor and each stored column's under its own key: RecordFields<Owner, Q>; and the insert of
- *   found rows, under the root's name each row's fact, its owner's values and its columns under their
- *   keys: RecordsInsert<L, R> (types/schema/records.ts), both at the type the records' caller states.
+ * - recordFields(entries), recordsValue(entries) and recordsInsert(relations): a query's records (program/records.ts):
+ *   a relation's fields, each descriptor under its own key: RecordFields<Owner, Q> for the root, and an attachment's
+ *   (types/schema/records.ts ChildRelation); the records value, its members under their keys: Records<…>; and the
+ *   insert of one owner's found rows, under each relation's name its facts, each the values under their keys and each
+ *   array's members nested at its count: RecordsInsert<L, R> (types/schema/records.ts), each at the type the records'
+ *   caller states.
  * - levelRecord(names) and levelRecordOver(base, names): a level's record (schema/schema.ts), each relation of
  *   the list under its own name, the one declaration of each name the level's build admitted (`names`, in list order),
  *   after the base's relations for an extension, which holds a name the base declares as the base's:
@@ -348,20 +350,47 @@ export const levelRecordOver = <
 	])
 
 /**
- * A query's records' root fields (see the header): `entries` the owner's descriptors and the stored columns' under their
- * keys, at the type its caller states.
+ * A query's records' relation fields (see the header): `entries` the owner's descriptors or the carried key's, the
+ * place's, the stored columns' and the counts' under their keys, at the type its caller states.
  */
 export const recordFields = <F>(entries: ReadonlyArray<readonly [string, unknown]>): F =>
 	assembled<F>(entries)
 
 /**
- * The insert of found rows into a query's records (see the header): under the root's name `root`, each row's fact,
- * assembled from its entries, at the type its caller states.
+ * A query's records (see the header): the value records(...) builds, its members under their keys, the relations and
+ * laws its attachments add among them, at the type its caller states.
+ */
+export const recordsValue = <A>(entries: ReadonlyArray<readonly [string, unknown]>): A =>
+	assembled<A>(entries)
+
+/**
+ * One fact of a query's records as an insert states it: its fields' values under their keys, and at each count of an
+ * array the members it nests, each a fact of its own.
+ */
+export interface RecordsFact {
+	readonly fields: ReadonlyArray<readonly [string, unknown]>
+	readonly nested: ReadonlyArray<readonly [string, ReadonlyArray<RecordsFact>]>
+}
+
+/** A fact of a query's records (RecordsFact) as a record, its nested members records too. */
+const recordsFactRecord = (fact: RecordsFact): unknown =>
+	assembled<unknown>([
+		...fact.fields,
+		...fact.nested.map(
+			([count, members]) => [count, Object.freeze(members.map(recordsFactRecord))] as const
+		)
+	])
+
+/**
+ * The insert of one owner's found rows into a query's records (see the header): under each relation's name, its facts
+ * (RecordsFact), each a record, at the type its caller states.
  */
 export const recordsInsert = <A>(
-	root: string,
-	facts: ReadonlyArray<ReadonlyArray<readonly [string, unknown]>>
-): A => assembled<A>([[root, Object.freeze(facts.map((entries) => assembled<unknown>(entries)))]])
+	relations: ReadonlyArray<readonly [string, ReadonlyArray<RecordsFact>]>
+): A =>
+	assembled<A>(
+		relations.map(([name, facts]) => [name, Object.freeze(facts.map(recordsFactRecord))] as const)
+	)
 
 /**
  * The heading of no column, at the type its caller states: a described query's or arm's public heading

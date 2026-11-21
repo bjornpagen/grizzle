@@ -24,9 +24,9 @@ import type { BuilderScope, OpenBound, OpenExpr, OpenRows, VarScope } from "#com
 import {
 	attachedDecoders,
 	attachmentName,
-	checkDelivery,
 	parentVars,
-	runAttach
+	runAttach,
+	statedDelivery
 } from "#compiler/query/build/attach.ts"
 
 import {
@@ -48,6 +48,7 @@ import {
 } from "#compiler/query/build/scope.ts"
 
 import {
+	type AttachedChild,
 	type DescribedOnly,
 	described,
 	headingOf,
@@ -97,6 +98,7 @@ import type { FieldBase } from "#compiler/types/fields/field.ts"
 import type {
 	BoundSource,
 	Decoders,
+	NoAttachments,
 	Ordered,
 	Query,
 	QueryBuilder,
@@ -263,18 +265,19 @@ const unionRecords = <H1, I1, H2, I2>(
 
 /**
  * The state of a stage the builder made: its Description, the stage around the parts the builder checked as it took
- * them (see query below), frozen as a decoded Description is, and the attachment children whose parent variables its
- * top-level rules spell.
+ * them (see query below), frozen as a decoded Description is, the attachment children whose parent variables its
+ * top-level rules spell, and the attachments its records carry.
  */
 const makeState = <C extends Carriers>(
 	schema: SchemaInfo,
 	stage: QueryStageDesc,
 	pending: ReadonlySet<BuilderScope>,
 	heading: Heading,
-	carriers: QueryCarriers<C>
+	carriers: QueryCarriers<C>,
+	attached: ReadonlyArray<AttachedChild>
 ): QueryState<C> => {
 	const desc: QueryDesc = deepFreeze({ stage })
-	return { desc, heading, carriers, schema, pending }
+	return { desc, heading, carriers, schema, pending, attached }
 }
 
 /** The attachment children either side's top-level rules spell parent variables of. */
@@ -293,9 +296,10 @@ const defineDesc = <T extends object>(value: T, state: QueryState, label: string
 }
 
 /**
- * A query value over a state and its records, implementing Query<S, Head, Ev, P, IHead, Hc, Cx, Arms>; each
+ * A query value over a state and its records, implementing Query<S, Head, Ev, P, IHead, Hc, Cx, Arms, At>; each
  * combinator's result type is the one its signature names, its heading of carriers the state's (headingOf), and its
- * records the ones it builds. The contexts it reads, Cx, and its arms, Arms, are phantoms.
+ * records the ones it builds. The contexts it reads, Cx, its arms, Arms, and its attachments, At, are phantoms; the
+ * state holds the attachments' runtime twin.
  */
 export const queryOf = <
 	S,
@@ -305,23 +309,35 @@ export const queryOf = <
 	IHead,
 	Hc extends Carriers,
 	Cx,
-	Arms extends UnionArms
+	Arms extends UnionArms,
+	At
 >(
 	state: QueryState<Hc>,
 	records: QueryRecords<Head, IHead>
-): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms> => {
-	const { schema, heading, pending } = state
+): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms, At> => {
+	const { schema, heading, pending, attached } = state
 	const carriers = headingOf(state.carriers)
 	const decoders = decodersOf(records)
 	const stage = state.desc.stage
-	const next = <S2, H2, E2 extends Evidence, P2, I2, C2 extends Carriers, X2, A2 extends UnionArms>(
+	const next = <
+		S2,
+		H2,
+		E2 extends Evidence,
+		P2,
+		I2,
+		C2 extends Carriers,
+		X2,
+		A2 extends UnionArms,
+		At2
+	>(
 		s: QueryStageDesc,
 		p: ReadonlySet<BuilderScope>,
 		h: Heading,
 		c: QueryCarriers<C2>,
-		r: QueryRecords<H2, I2>
-	): Query<S2, H2, E2, P2, I2, C2, X2, A2> => queryOf(makeState(schema, s, p, h, c), r)
-	const value: Query<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
+		r: QueryRecords<H2, I2>,
+		a: ReadonlyArray<AttachedChild>
+	): Query<S2, H2, E2, P2, I2, C2, X2, A2, At2> => queryOf(makeState(schema, s, p, h, c, a), r)
+	const value: Query<S, Head, Ev, P, IHead, Hc, Cx, Arms, At> & SchemaMember = {
 		...builtMark,
 		schema: schema.over.value,
 		heading: carriers,
@@ -347,9 +363,16 @@ export const queryOf = <
 			const r = unionRecords(records, armGroup(arm))
 			const p = bothPending(pending, arm.state.pending)
 			if (stage.kind === "rules" || stage.kind === "union") {
-				return next({ ...stage, arms: [...stage.arms, arm.state.rule] }, p, h, qc, r)
+				return next({ ...stage, arms: [...stage.arms, arm.state.rule] }, p, h, qc, r, attached)
 			}
-			return next({ kind: "union", input: stage, arms: [arm.state.rule], loc }, p, h, qc, r)
+			return next(
+				{ kind: "union", input: stage, arms: [arm.state.rule], loc },
+				p,
+				h,
+				qc,
+				r,
+				attached
+			)
 		},
 		/**
 		 * The parent variables are minted over the query's carriers, and the decoders are built from the stated
@@ -365,15 +388,15 @@ export const queryOf = <
 					"an attachment child, (parent) => query(S).rule(...), a query over the parent's variables"
 				)
 			}
-			checkDelivery(delivery, heading, label)
-			const attached = runAttach(
+			const stated = statedDelivery(delivery, heading, label)
+			const run = runAttach(
 				n,
 				(scope) => child(parentVars(scope, heading, carriers)),
 				label,
 				state.schema.over
 			)
 			return next(
-				{ kind: "attach", input: stage, attach: attached.desc },
+				{ kind: "attach", input: stage, attach: run.desc },
 				pending,
 				withAttachment(heading, n),
 				state.carriers,
@@ -382,9 +405,10 @@ export const queryOf = <
 					: grouped([
 							{
 								kind: "decoded",
-								decoders: attachedDecoders(decoders, name, attached.child, delivery)
+								decoders: attachedDecoders(decoders, name, run.child, delivery)
 							}
-						])
+						]),
+				[...attached, { name: n, delivery: stated, child: run.state }]
 			)
 		},
 		named: (name) => {
@@ -395,7 +419,8 @@ export const queryOf = <
 				pending,
 				heading,
 				state.carriers,
-				records
+				records,
+				attached
 			)
 		},
 		bind: (bindings) => {
@@ -405,7 +430,14 @@ export const queryOf = <
 		orderBy: (...order) => {
 			hostArguments("Query.orderBy", order)
 			return orderedOf(
-				makeState(schema, orderStage(stage, heading, order), pending, heading, state.carriers),
+				makeState(
+					schema,
+					orderStage(stage, heading, order),
+					pending,
+					heading,
+					state.carriers,
+					attached
+				),
 				records
 			)
 		},
@@ -415,7 +447,14 @@ export const queryOf = <
 		 */
 		approximateNearest: (spec) => {
 			hostArguments("Query.approximateNearest", [spec])
-			return next(approximateStage(stage, heading, spec), pending, heading, state.carriers, records)
+			return next(
+				approximateStage(stage, heading, spec),
+				pending,
+				heading,
+				state.carriers,
+				records,
+				attached
+			)
 		}
 	}
 	return defineDesc(value, state, "query")
@@ -492,21 +531,30 @@ const orderStage = (
 
 /**
  * The query `built` delivering its rows through `decoders`, a decoder of the records another query delivers whose rows
- * `built`'s rule finds again, key for key and type for type (schema/records.ts recordsQuery, the read of a query's
+ * `built`'s rule finds again, key for key and type for type (program/records.ts recordsQuery, the read of a query's
  * records through that query's own decoder): its state is `built`'s, and its phantoms are its caller's statement, as
  * queryOf's are. A layout `decoders` cannot bind is the binding's CompileError, once per compiled program, as any
  * decoder's is.
  */
-export const decodedBy = <S, Head, Ev extends Evidence, P, IHead, Cx, Arms extends UnionArms>(
+export const decodedBy = <
+	S,
+	Head,
+	Ev extends Evidence,
+	P,
+	IHead,
+	Cx,
+	Arms extends UnionArms,
+	At = NoAttachments
+>(
 	built: unknown,
 	decoders: Decoders<Head, IHead>
-): Query<S, Head, Ev, P, IHead, Carriers, Cx, Arms> =>
+): Query<S, Head, Ev, P, IHead, Carriers, Cx, Arms, At> =>
 	queryOf(
 		defined(queryState(built), "a query the builder made"),
 		grouped([{ kind: "decoded", decoders }])
 	)
 
-/** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>. */
+/** An ordered value over a state and its records, implementing Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms, At>. */
 export const orderedOf = <
 	S,
 	Head,
@@ -515,14 +563,15 @@ export const orderedOf = <
 	IHead,
 	Hc extends Carriers,
 	Cx,
-	Arms extends UnionArms
+	Arms extends UnionArms,
+	At
 >(
 	state: QueryState<Hc>,
 	records: QueryRecords<Head, IHead>
-): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms> => {
+): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms, At> => {
 	const stage = state.desc.stage
 	const decoders = decodersOf(records)
-	const value: Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms> & SchemaMember = {
+	const value: Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms, At> & SchemaMember = {
 		...builtMark,
 		schema: state.schema.over.value,
 		heading: headingOf(state.carriers),
@@ -537,7 +586,8 @@ export const orderedOf = <
 					{ kind: "take", input: stage, take: takeOf(k), loc: captureLoc("Ordered.take", []) },
 					state.pending,
 					state.heading,
-					state.carriers
+					state.carriers,
+					state.attached
 				),
 				records
 			)
@@ -731,7 +781,10 @@ const builderOf = <S>(info: SchemaInfo): QueryBuilder<S> => {
 					{ kind: "rules", arms: [arm.state.rule], loc },
 					arm.state.pending,
 					arm.state.heading,
-					group.kind === "described" ? described : { kind: "typed", carriers: arm.finished.heading }
+					group.kind === "described"
+						? described
+						: { kind: "typed", carriers: arm.finished.heading },
+					arm.state.attached
 				),
 				group.kind === "described" ? described : grouped([group])
 			)
@@ -778,10 +831,14 @@ const readsOf = <S, R extends ReadsChildren>(info: SchemaInfo, reads: R): ReadsQ
 	)
 	const state = defined(queryState(attached), "an attached query has its builder state")
 	return queryOf(
-		makeState(info, state.desc.stage, state.pending, state.heading, {
-			kind: "typed",
-			carriers: emptyHeading<ReadsCarriers<R>>()
-		}),
+		makeState(
+			info,
+			state.desc.stage,
+			state.pending,
+			state.heading,
+			{ kind: "typed", carriers: emptyHeading<ReadsCarriers<R>>() },
+			state.attached
+		),
 		grouped([
 			{
 				kind: "decoded",
@@ -809,7 +866,14 @@ const namespaced = (child: unknown, name: string, label: string): QueryValue | O
 		desc,
 		new Map([...queryParamNames(desc)].map((p) => [p, `${name}.${p}`] as const))
 	)
-	const named = makeState(state.schema, renamed.stage, state.pending, state.heading, state.carriers)
+	const named = makeState(
+		state.schema,
+		renamed.stage,
+		state.pending,
+		state.heading,
+		state.carriers,
+		state.attached
+	)
 	const records = grouped([
 		{ kind: "decoded", decoders: { rows: child.rows, immediate: child.immediate } }
 	])
@@ -892,7 +956,8 @@ const recursive = <S, const Row extends Record<string, FieldBase>>(
 		},
 		new Set([...baseRuns, ...recRuns].flatMap((run) => [...run.pending])),
 		rowHeading,
-		{ kind: "typed", carriers: row }
+		{ kind: "typed", carriers: row },
+		[]
 	)
 }
 

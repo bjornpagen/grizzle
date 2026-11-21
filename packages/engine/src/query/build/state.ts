@@ -38,6 +38,7 @@ import { emptyHeading } from "#compiler/schema/record.ts"
 import { derivedDraftOf, namedRelation, relationDescOf } from "#compiler/schema/relation.ts"
 import { contextDescOf, worldDraftOf } from "#compiler/schema/world.ts"
 import type { Carrier, Carriers, Headed } from "#compiler/types/core/phantom.ts"
+import type { StatedDelivery } from "#compiler/types/query/query.ts"
 
 /**
  * A described arm or query: some head term or source of it has no column (a source rebuilt from its Description
@@ -88,11 +89,29 @@ export interface QueryState<C extends Carriers = Carriers> {
 	readonly carriers: QueryCarriers<C>
 	readonly schema: SchemaInfo
 	/**
+	 * The attachments its records carry, in the order they were attached; a union's, the query's it was built on, as its
+	 * type states them (types/query/query.ts Query.rule): an arm that attaches makes a union of several headings, whose
+	 * records are stored nowhere.
+	 */
+	readonly attached: ReadonlyArray<AttachedChild>
+	/**
 	 * The attachment children whose parent variables this query's top-level rules spell: such a query is part of an
 	 * attachment child still being built, which checks they are its own when it returns, and is no Description of its
 	 * own yet.
 	 */
 	readonly pending: ReadonlySet<BuilderScope>
+}
+
+/**
+ * An attachment as the builder keeps it beside the value it attaches to, the runtime twin of the type's `attached`
+ * phantom (types/query Attachment): its name, the delivery its author stated, and its child's state, the heading,
+ * carriers and attachments of the query or ordered query the child callback returned, which the relations holding the
+ * records read (schema/records.ts).
+ */
+export interface AttachedChild {
+	readonly name: string
+	readonly delivery: StatedDelivery
+	readonly child: QueryState
 }
 
 const queries = new WeakMap<object, QueryState>()
@@ -107,22 +126,26 @@ export const registerQuery = <T extends object>(
 	desc: () => QueryDesc
 ): T => {
 	queries.set(value, state)
-	ownQuery(value, desc, {
-		schema: state.schema.over.value,
-		heading: new Map(
-			[...state.heading.fields].map(([name, typing]): readonly [string, HeadingTyping] => {
-				const carrier = state.carriers.kind === "typed" ? state.carriers.carriers[name] : undefined
-				return [
-					name,
-					typing.kind === "typed" && carrier !== undefined
-						? { kind: "typed", scalar: typing.type, carrier }
-						: { kind: "untyped" }
-				]
-			})
-		)
-	})
+	ownQuery(value, desc, { schema: state.schema.over.value, heading: headingTypings(state) })
 	return value
 }
+
+/**
+ * A query's heading as the builder typed it: each field's ScalarType and carrier where the builder typed both, and
+ * nothing for a field it could not type (schema/protocol.ts HeadingTyping).
+ */
+export const headingTypings = (state: QueryState): ReadonlyMap<string, HeadingTyping> =>
+	new Map(
+		[...state.heading.fields].map(([name, typing]): readonly [string, HeadingTyping] => {
+			const carrier = state.carriers.kind === "typed" ? state.carriers.carriers[name] : undefined
+			return [
+				name,
+				typing.kind === "typed" && carrier !== undefined
+					? { kind: "typed", scalar: typing.type, carrier }
+					: { kind: "untyped" }
+			]
+		})
+	)
 
 export const queryState = (value: unknown): QueryState | undefined =>
 	hasProperties(value) ? queries.get(value) : undefined

@@ -17,8 +17,11 @@ import type { HeadOf, ImmediateHeadOf } from "#compiler/types/query/query.ts"
 import type {
 	AnyRecords,
 	OwnerFacts,
+	RecordApart,
+	RecordChildren,
 	RecordedQuery,
 	RecordFields,
+	RecordLaws,
 	RecordOwner,
 	Records,
 	RecordsInsert,
@@ -238,8 +241,10 @@ export const derived: DerivedConstructor = Object.freeze(
 /**
  * records(stem, query, owner, ownerKey): the relations that hold the rows `query` found, for a level over the query's to
  * list (program/records.ts): `${stem}Row`, the owner's fields then each column of the query's heading as the query's
- * own field, keyed by `ownerKey`, a nonempty list of the owner's field names, as relation's primary key. Its
- * `relations` and `rules` are what the level lists; `row` is the root.
+ * own field, keyed by `ownerKey`, a nonempty list of the owner's field names, as relation's primary key; and each
+ * attachment's, at any depth, keyed by its parent's key and, for an array, its place, held to its parent by the law of
+ * its delivery. Its `relations` and `rules` are what the level lists; `row` is the root, `apart` the relations an insert
+ * states beside it.
  */
 export const records = <
 	const Stem extends string,
@@ -252,11 +257,20 @@ export const records = <
 	owner: Owner,
 	ownerKey: Key,
 	...extra: ReadonlyArray<never>
-): Records<Stem, HeadOf<Q>, ImmediateHeadOf<Q>, RecordFields<Owner, Q>, Owner, readonly [...Key]> =>
-	recordsBuilder<Stem, Q, Owner, readonly [...Key]>(stem, query, owner, ownerKey, extra)
+): Records<
+	Stem,
+	HeadOf<Q>,
+	ImmediateHeadOf<Q>,
+	RecordFields<Owner, Q>,
+	Owner,
+	readonly [...Key],
+	RecordChildren<Stem, Owner, readonly [...Key], Q>,
+	RecordLaws<Stem, Owner, readonly [...Key], Q>,
+	RecordApart<Stem, Owner, readonly [...Key], Q>
+> => recordsBuilder<Stem, Q, Owner, readonly [...Key]>(stem, query, owner, ownerKey, extra)
 
 /**
- * recordsQuery(level, records): the rows `records` hold at one value of their owner's key, each key field a parameter
+ * recordsQuery(level, records): the rows the records `stored` hold at one value of their owner's key, each key field a parameter
  * of its name, as `level`, which lists the records, reads them: an ordinary query, whose rows are the records' query's
  * own, HeadOf of it, read through that query's own decoder (program/records.ts).
  */
@@ -267,9 +281,10 @@ export const recordsQuery = <L, R extends AnyRecords>(
 ): RecordsQuery<L, R> => recordsQueryOver<L, R>(level, stored, extra)
 
 /**
- * recordsFacts(level, records)(entries): the insert of found rows into `records`, which `level` lists, each entry a row
- * under its owner's values, as `ChangeSet.insertAll` takes it: under the root's name each row's fact, its owner's values
- * then its columns (program/records.ts). An owner of several rows is entries that share it.
+ * recordsFacts(level, records)(entries): the insert of found rows into the records `stored`, which `level` lists, each
+ * row beside its owner's values (`[owner, row]`; one owner's several rows share it), as `ChangeSet.insertAll` takes it:
+ * under the root's name each row's fact, its owner's values then its columns, each array's members nested at its count,
+ * and under each other attachment's relation its facts (program/records.ts).
  */
 export const recordsFacts = <L, R extends AnyRecords>(
 	level: L,

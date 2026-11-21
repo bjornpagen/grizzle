@@ -17,9 +17,9 @@ import type {
 import {
 	attachedDecoders,
 	attachmentName,
-	checkDelivery,
 	parentVars,
-	runAttach
+	runAttach,
+	statedDelivery
 } from "#compiler/query/build/attach.ts"
 
 import { tokensRows } from "#compiler/query/build/call.ts"
@@ -39,6 +39,7 @@ import {
 
 import {
 	described,
+	type AttachedChild,
 	headingOf,
 	nonePending,
 	type QueryCarriers,
@@ -71,8 +72,8 @@ import type {
 import type { HeadTerms, ResultOf } from "#compiler/types/query/terms.ts"
 
 /**
- * A finished rule: its RuleDesc, heading and carriers, the rule callback it belongs to, and the attachment children
- * whose parent variables its clauses spell (finishRule).
+ * A finished rule: its RuleDesc, heading and carriers, the rule callback it belongs to, the attachment children whose
+ * parent variables its clauses spell (finishRule), and the attachments the arm made before it joins a query.
  */
 interface FinishedState<C extends Carriers = Carriers> {
 	readonly ctx: RuleContext
@@ -80,6 +81,7 @@ interface FinishedState<C extends Carriers = Carriers> {
 	readonly heading: Heading
 	readonly carriers: QueryCarriers<C>
 	readonly pending: ReadonlySet<BuilderScope>
+	readonly attached: ReadonlyArray<AttachedChild>
 }
 
 const finisheds = new WeakMap<object, FinishedState>()
@@ -330,16 +332,17 @@ export interface FinishedValue extends Built, Decoders<unknown, unknown> {
 }
 
 /**
- * A Finished over a state and its decoders, implementing Finished<Head, Ev, P, S, IHead, Hc, Cx>: its heading of
+ * A Finished over a state and its decoders, implementing Finished<Head, Ev, P, S, IHead, Hc, Cx, At>: its heading of
  * carriers is its head, or its arm's after an attachment, and the empty heading for a described arm (state.ts
- * headingOf). The contexts it reads, Cx, are a phantom.
+ * headingOf). The contexts it reads, Cx, and its attachments, At, are phantoms; the state holds the attachments'
+ * runtime twin.
  */
-const finishedValue = <Head, Ev extends Evidence, P, S, IHead, Hc extends Carriers, Cx>(
+const finishedValue = <Head, Ev extends Evidence, P, S, IHead, Hc extends Carriers, Cx, At>(
 	state: FinishedState<Hc>,
 	decoders: Decoders<Head, IHead>
-): Finished<Head, Ev, P, S, IHead, Hc, Cx> => {
+): Finished<Head, Ev, P, S, IHead, Hc, Cx, At> => {
 	const carriers = headingOf(state.carriers)
-	const value: Finished<Head, Ev, P, S, IHead, Hc, Cx> = {
+	const value: Finished<Head, Ev, P, S, IHead, Hc, Cx, At> = {
 		...builtMark,
 		heading: carriers,
 		rows: decoders.rows,
@@ -358,8 +361,8 @@ const finishedValue = <Head, Ev extends Evidence, P, S, IHead, Hc extends Carrie
 					"an attachment child, (parent) => query(S).rule(...), a query over the parent's variables"
 				)
 			}
-			checkDelivery(delivery, state.heading, label)
-			const attached = runAttach(
+			const stated = statedDelivery(delivery, state.heading, label)
+			const run = runAttach(
 				n,
 				(scope) => child(parentVars(scope, state.heading, carriers)),
 				label,
@@ -368,12 +371,13 @@ const finishedValue = <Head, Ev extends Evidence, P, S, IHead, Hc extends Carrie
 			return finishedValue(
 				{
 					ctx: state.ctx,
-					rule: { ...state.rule, attach: [...state.rule.attach, attached.desc] },
+					rule: { ...state.rule, attach: [...state.rule.attach, run.desc] },
 					heading: withAttachment(state.heading, n),
 					carriers: state.carriers,
-					pending: state.pending
+					pending: state.pending,
+					attached: [...state.attached, { name: n, delivery: stated, child: run.state }]
 				},
-				attachedDecoders(decoders, name, attached.child, delivery)
+				attachedDecoders(decoders, name, run.child, delivery)
 			)
 		}
 	}
@@ -508,7 +512,8 @@ const ruleValue = <S, Params, Sole, Facts, Cx>(
 					rule: finished.rule,
 					heading: heading(fields, []),
 					carriers,
-					pending: finished.pending
+					pending: finished.pending,
+					attached: []
 				},
 				{ rows, immediate: rows }
 			)

@@ -115,15 +115,15 @@ export const aRowAQueryFoundReadsBackFromItsRecordsExactlyAsTheQueryFoundIt = pr
 		kills: [
 			{
 				file: "packages/engine/src/program/records.ts",
-				original: "\t\t\t\t\t...state.columns.map((c) => [c, row[c]] as const)",
-				replacement: "\t\t\t\t\t...state.columns.slice(1).map((c) => [c, row[c]] as const)",
+				original: "\t\t\t\t\t...root.columns.map((c) => [c, row[c]] as const)",
+				replacement: "\t\t\t\t\t...root.columns.slice(1).map((c) => [c, row[c]] as const)",
 				why: "recordsFacts leaves a row's first stored column out, so the insert of its records is refused for the missing field and nothing reads back."
 			},
 			{
 				file: "packages/engine/src/program/records.ts",
 				original:
-					"\t\t\t...state.ownerKey.map((k) => [k, r.param(k, state.ownerFields[k])] as const),",
-				replacement: "",
+					"keyNames.map((k) => r.eq(vars[k], r.param(k, ownerField(state.ownerFields, k))))",
+				replacement: "[]",
 				why: "The read binds no owner, so at each owner it reads every stored row of the records, not the one row the query found there."
 			}
 		]

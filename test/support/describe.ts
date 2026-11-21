@@ -61,7 +61,8 @@ const writtenOver = (schema: unknown): Result.Result<Level, CompileError> => {
 /**
  * A query or ordered value rebuilt from its Description over `schema`, a schema or role value: the same combinators,
  * over a heading the Description states, typed where its descriptors say so. Its heading carries no column: it is
- * described, and delivers no records. A Description spells every name, so it waits on no attachment child.
+ * described, and delivers no records, so its records carry no attachment a builder kept. A Description spells every
+ * name, so it waits on no attachment child.
  */
 export const queryFromDesc = (
 	desc: unknown,
@@ -75,7 +76,8 @@ export const queryFromDesc = (
 				heading: stageHeading(owned.stage, info.env),
 				carriers: described,
 				schema: info,
-				pending: new Set()
+				pending: new Set(),
+				attached: []
 			}
 			return isOrdered(state) ? orderedOf(state, described) : queryOf(state, described)
 		})

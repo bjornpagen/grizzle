@@ -17,7 +17,7 @@ import {
 	requireLevel,
 	withAttach
 } from "#compiler/query/build/scope.ts"
-import { queryState } from "#compiler/query/build/state.ts"
+import { type QueryState, queryState } from "#compiler/query/build/state.ts"
 import { fieldTerm, type UntypedTerm, untypedTerm } from "#compiler/query/build/terms.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type { Level } from "#compiler/schema/level.ts"
@@ -35,6 +35,7 @@ import type {
 	DeliveryKind,
 	OneName,
 	ReadBack,
+	StatedDelivery,
 	WithChild
 } from "#compiler/types/query/query.ts"
 
@@ -63,15 +64,25 @@ export const arm = <const F extends string, const Hd extends string>(
 	return Object.freeze({ kind: "arm", field, handle })
 }
 
-const deliveryNames: ReadonlySet<unknown> = new Set<Delivery>(["array", "option", "one"])
+/** The delivery names, each the delivery it names. */
+const deliveryNames: ReadonlyMap<unknown, Delivery> = new Map<unknown, Delivery>([
+	["array", "array"],
+	["option", "option"],
+	["one", "one"]
+])
 
 /**
- * Refuses a delivery a JavaScript caller passes that is none: a delivery name, or an arm whose field is a scalar field
- * of the parent's heading.
+ * The delivery a caller states, parsed: a delivery name, or an arm whose field is a scalar field of the parent's
+ * heading, held as arm(field, handle) builds it; anything else a JavaScript caller passes is refused.
  */
-export const checkDelivery = (delivery: unknown, parent: Heading, label: string): void => {
-	if (deliveryNames.has(delivery)) {
-		return
+export const statedDelivery = (
+	delivery: unknown,
+	parent: Heading,
+	label: string
+): StatedDelivery => {
+	const stated = deliveryNames.get(delivery)
+	if (stated !== undefined) {
+		return stated
 	}
 	if (
 		!isObjectRecord(delivery) ||
@@ -81,12 +92,14 @@ export const checkDelivery = (delivery: unknown, parent: Heading, label: string)
 	) {
 		throw malformed(label, `a delivery: "array", "option", "one" or arm(field, handle)`)
 	}
-	if (!parent.fields.has(delivery["field"])) {
+	const field = delivery["field"]
+	if (!parent.fields.has(field)) {
 		throw malformed(
 			label,
-			`an arm whose field is a field of the parent's heading; ${JSON.stringify(delivery["field"])} is not one`
+			`an arm whose field is a field of the parent's heading; ${JSON.stringify(field)} is not one`
 		)
 	}
+	return arm(field, delivery["handle"])
 }
 
 /** The parent's records with the child's under `name`, in a delivery the analysis must prove. */
@@ -232,7 +245,7 @@ export const runAttach = <V>(
 	run: (scope: AttachScope) => V,
 	label: string,
 	over: Level
-): { readonly desc: AttachDesc; readonly child: V } => {
+): { readonly desc: AttachDesc; readonly child: V; readonly state: QueryState } => {
 	const loc = captureLoc(label, [name])
 	const scope = newAttachScope()
 	const child = withAttach(scope, () => run(scope))
@@ -254,5 +267,5 @@ export const runAttach = <V>(
 			)
 		}
 	}
-	return { desc: { name, child: state.desc, loc }, child }
+	return { desc: { name, child: state.desc, loc }, child, state }
 }

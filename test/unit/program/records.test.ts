@@ -159,8 +159,8 @@ export const aQuerysRecordsHoldEachColumnAsItsOwnFieldAndReadBackThroughItsOwnDe
 				},
 				{
 					file: "packages/engine/src/program/records.ts",
-					original: "\t\t\t...state.literals\n",
-					replacement: "\n",
+					original: "[...found, ...root.literals]",
+					replacement: "[...found]",
 					why: "The read finds no head literal, so the query's decoder, which reads `lit`, does not bind the read's program."
 				}
 			]

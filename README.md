@@ -3821,10 +3821,25 @@ export const storedLessons = recordsQuery(Audit, found)
 its owner's values, each fact the owner's values then the row's columns; an owner of several rows is entries that share
 it. `recordsQuery(level, records)` is an ordinary query over the level whose
 parameters are the owner's key fields and whose rows are the stored rows at that owner, delivered through the query's
-own decoder: `HeadOf<typeof storedLessons>` is `HeadOf<typeof lessonsOf>`, value for value. A query with an attachment
-or a union of several headings is refused with `UnsupportedOperation`, as is a column of a type no stored field
-declares yet (a computed numeric) and a union's literals of another type than text or boolean, which no field holds
-exactly.
+own decoder: `HeadOf<typeof storedLessons>` is `HeadOf<typeof lessonsOf>`, value for value. A union of several
+headings is refused with `UnsupportedOperation`, as is a column of a type no stored field declares yet (a computed
+numeric) and a union's literals of another type than text or boolean, which no field holds exactly.
+
+A query's attachments, at any depth, are stored too, each in a relation of its own: `${stem}${Name}`, the attachment's
+name capitalized, or, where that name is another attachment's anywhere in the tree or `Row`, its parent relation's name
+followed by it. Each holds its parent's key, every field under its own name unless the attachment's own columns or
+attachments take it, then the first free `<name>2`, `<name>3`, …; an array's place, `at` or the first of `at2`, … free;
+the attachment's stored columns; and a drawn count under the name of each array attachment of its own, the root's
+among them. Each is keyed by its parent's key, then an array's place, and held to its parent by the law its delivery
+states: an array is the parent's ordered family counted at the attachment's name, so `recordsFacts` nests its members
+under their owner in the order the query delivered them and their places are 0 … n − 1; an option is contained in its
+parent; the one child mirrors it; and the arms of one field are one `alternatives` law over the parent's discriminator.
+`R.apart` names the relations an insert states beside the root, every attachment's but an array's; `recordsFacts`
+gives each its facts under its name, its carried key's values then its own, so `insertAll(recordsFacts(level,
+records)([]))` is the member that takes them all. `recordsQuery` reads each attachment back over its relation as the
+query stated its delivery, an array in its places' order, so its rows are still the query's, value for value. Every
+name the records mint is the stem followed by more: name a relation of your own the stem itself, never the stem and a
+suffix.
 
 ## Declared functions
 

@@ -20,6 +20,7 @@ import type {
 	Meets,
 	OperandOrigin,
 	ParamNeeds,
+	PhantomOf,
 	ParamsContribution,
 	ParamsOfTerm,
 	ParamType,
@@ -98,6 +99,10 @@ import type { ApproximateNearestSpec } from "#compiler/types/vector/vector.ts"
  *   interiors and attachments: never for a query that reads none. It is carried contravariantly (`readsContexts`), so a
  *   query that reads contexts is still a query to every consumer that names no Cx; a role reads it off its query entries
  *   (types/schema/world.ts), and a derived definition must read none.
+ * - At is the query's attachments by name, its phantom `attached`: each the delivery its author stated, its child's
+ *   heading of carriers and the child's own attachments (Attachment), which the relations holding the query's records
+ *   are typed by (types/schema/records.ts). Head keeps only each child's decoded records, never their carriers. A query
+ *   that attaches nothing holds NoAttachments, one alias, so it pays nothing for the member.
  *
  * query(S).
  */
@@ -147,7 +152,8 @@ export type ReadsQuery<S, R extends ReadsChildren> = Query<
 	Simplify<{ readonly [K in keyof R]: ReadonlyArray<ImmediateHeadOf<R[K]>> }>,
 	ReadsCarriers<R>,
 	{ [K in keyof R]-?: ChildContexts<R[K]> }[keyof R],
-	readonly [UnionArm<ReadsCarriers<R>, keyof R & string, "attach", false>]
+	readonly [UnionArm<ReadsCarriers<R>, keyof R & string, "attach", false>],
+	{ readonly [K in keyof R]: Attachment<"array", ChildCarriers<R[K]>, ChildAttached<R[K]>> }
 >
 
 /** The unit row's evidence: the empty key, one row. */
@@ -166,10 +172,10 @@ type ReadsParams<R extends ReadsChildren> = UnionToIntersection<
 type Namespaced<N extends string, P> = { readonly [Q in keyof P & string as `${N}.${Q}`]: P[Q] }
 
 /** QueryBuilder.rule over the builder it is called on. */
-type BuilderRule = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx>(
+type BuilderRule = <S, Head, Ev extends Evidence, P, IHead, Hc extends Carriers, Cx, At>(
 	this: QueryBuilder<S>,
-	rule: (r: Rule<S>) => Finished<Head, Ev, P, S, IHead, Hc, Cx>
-) => Query<S, Head, Ev, Simplify<P>, IHead, Hc, Cx, readonly [ArmOf<Head, Hc>]>
+	rule: (r: Rule<S>) => Finished<Head, Ev, P, S, IHead, Hc, Cx, At>
+) => Query<S, Head, Ev, Simplify<P>, IHead, Hc, Cx, readonly [ArmOf<Head, Hc>], At>
 
 /**
  * QueryBuilder.recursive over the builder it is called on. The definition's facts are records of its row, decoded by
@@ -248,15 +254,16 @@ interface ChildBundle<S> extends ChildReads {
 }
 
 /**
- * What attach reads of its child, its evidence, parameters and contexts, each a member of the child's phantom, which
- * every query and ordered query carries. Each is read by key (ChildEvidence, ChildParams, ChildContexts), never by a
- * test of the child: the child holds its schema, and a conditional the checker resolves instantiates its operands whole,
- * every relation of the schema and each relation's field record with them.
+ * What attach reads of its child, its evidence, parameters, contexts and attachments, each a member of the child's
+ * phantom, which every query and ordered query carries. Each is read by key (ChildEvidence, ChildParams, ChildContexts,
+ * ChildAttached), never by a test of the child: the child holds its schema, and a conditional the checker resolves
+ * instantiates its operands whole, every relation of the schema and each relation's field record with them.
  */
 interface ChildReads {
 	readonly evidence: Evidence
 	readonly params: unknown
 	readonly readsContexts: (read: never) => void
+	readonly attached: unknown
 }
 type ChildPhantom<C extends Phantom<ChildReads>> = NonNullable<C[typeof phantom]>
 /**
@@ -279,6 +286,21 @@ type ChildContexts<C extends Phantom<ChildReads>> = C extends unknown
 	? string extends keyof C
 		? never
 		: ContextsRead<ChildPhantom<C>["readsContexts"]>
+	: never
+/** The attachments a child's records carry, each child of a union its own; a child typed `any` carries none. */
+type ChildAttached<C extends Phantom<ChildReads>> = C extends unknown
+	? string extends keyof C
+		? NoAttachments
+		: ChildPhantom<C>["attached"]
+	: never
+/**
+ * A child's heading of carriers, read by key, as HeadOf reads its records, each child of a union its own; a child typed
+ * `any` states none, Carriers.
+ */
+type ChildCarriers<C> = C extends unknown
+	? string extends keyof C
+		? Carriers
+		: C["heading" & keyof C]
 	: never
 /**
  * The contexts a phantom's `readsContexts` member reads, none where it reads `unknown`, as the member of a value typed
@@ -359,6 +381,45 @@ export interface Arm<out K, out F, out Hd> {
  * own kind, an arm's kind is "arm"; F and Hd are an arm's field and handle.
  */
 export type DeliveryArg<K, F, Hd> = (K & Delivery) | Arm<K, F, Hd>
+
+/**
+ * What an attachment's delivery argument states, by its kind K: a delivery name, or the arm of handle Hd held in the
+ * parent's field F.
+ */
+interface StatedDeliveries<out F, out Hd> {
+	readonly array: "array"
+	readonly option: "option"
+	readonly one: "one"
+	readonly arm: Arm<"arm", F, Hd>
+}
+/** Any delivery an attachment states. */
+export type StatedDelivery = StatedDeliveries<string, string>[DeliveryKind]
+
+/**
+ * An attachment as the relations holding its query's records read it (types/schema/records.ts): the delivery D its
+ * author stated, its child's heading of carriers Hc, and the child's own attachments At, by name. A query's attachments
+ * are a record of these by name, its phantom `attached`.
+ */
+interface Attachment<out D, out Hc, out At> {
+	readonly delivery: D
+	readonly carriers: Hc
+	readonly attached: At
+}
+
+/** The attachments of a query that attaches nothing: no name. */
+export type NoAttachments = Readonly<Record<never, never>>
+
+/** The attachments At with the child C attached under Name, as the delivery of kind K, field F and handle Hd states. */
+type AttachedWith<
+	At,
+	Name extends string,
+	C extends Phantom<ChildReads>,
+	K extends DeliveryKind,
+	F,
+	Hd
+> = At & {
+	readonly [N in Name]: Attachment<StatedDeliveries<F, Hd>[K], ChildCarriers<C>, ChildAttached<C>>
+}
 
 /**
  * The records an attachment's parent decodes to, by the stated delivery: the parent's heading with the child's records
@@ -559,9 +620,9 @@ type StandsAt<X, F> =
 
 /**
  * The phantoms of a query: its heading as a source, its schema invariantly, its evidence, its parameters, read and
- * carried invariantly, the contexts it reads, contravariantly, and its arms' carriers (Query's Arms).
+ * carried invariantly, the contexts it reads, contravariantly, its arms' carriers (Query's Arms) and its attachments.
  */
-interface QueryPhantom<S, Head, Ev, P, Cx, Arms> {
+interface QueryPhantom<S, Head, Ev, P, Cx, Arms, At> {
 	readonly heading: Head
 	readonly sourceParams: unknown
 	readonly schema: Invariant<S>
@@ -570,6 +631,7 @@ interface QueryPhantom<S, Head, Ev, P, Cx, Arms> {
 	readonly paramsInvariant: Invariant<P>
 	readonly readsContexts: (read: Cx) => void
 	readonly arms: Arms
+	readonly attached: At
 }
 
 /**
@@ -587,10 +649,11 @@ export interface Query<
 	IHead = Head,
 	Hc extends Carriers = HeadingCarriers<Head>,
 	Cx = never,
-	Arms extends UnionArms = readonly [ArmOf<Head, Hc>]
+	Arms extends UnionArms = readonly [ArmOf<Head, Hc>],
+	At = NoAttachments
 >
 	extends SchemaSource<S, Head>, Headed<Hc>, Decoders<Head, IHead>, Delivering<Head> {
-	readonly [phantom]?: QueryPhantom<S, Head, Ev, P, Cx, Arms> | undefined
+	readonly [phantom]?: QueryPhantom<S, Head, Ev, P, Cx, Arms, At> | undefined
 
 	/**
 	 * An additional arm. Its heading may differ from Head. The arms join as the checker unions them (ArmsMeet): arms of
@@ -600,7 +663,9 @@ export interface Query<
 	 * itself would be read before the arm is inferred, and leave it its constraint. The records are either arm's: arms
 	 * of one heading key set decode as one record over their carriers, arms of different key sets by oneOf. The union's
 	 * evidence is what the engine proves of a union of one heading (UnionEvidence): fields every arm fixes alike, and
-	 * keys its literals tell apart.
+	 * keys its literals tell apart. Its attachments are the query's own (At): an arm that attaches, or one beside a
+	 * query that attaches, is of another heading than every other arm (ArmsMeet), and the records of a union of several
+	 * headings are stored nowhere (program/records.ts), so no reader of a union's attachments meets an arm's.
 	 */
 	rule<Head2, Ev2 extends Evidence, P2, IHead2, Hc2 extends Carriers, Cx2>(
 		rule: (
@@ -614,7 +679,8 @@ export interface Query<
 		IHead | IHead2,
 		UnionHeading<UnionArmsOf<Hc> | UnionArmsOf<Hc2>>,
 		Cx | Cx2,
-		readonly [...Arms, ArmOf<Head2, Hc2>]
+		readonly [...Arms, ArmOf<Head2, Hc2>],
+		At
 	>
 	/**
 	 * A nested sub-result per parent fact, delivered as its author states: every child, an Option, the one child, or
@@ -658,9 +724,10 @@ export interface Query<
 				"attach",
 				AsOneArm<Arms, Head, Hc>["bounded"]
 			>
-		]
+		],
+		AttachedWith<At, Name, C, K, F, Hd>
 	>
-	named(name: string): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms>
+	named(name: string): Query<S, Head, Ev, P, IHead, Hc, Cx, Arms, At>
 	/**
 	 * The bound import is over the highest of the query's schema and the schemas of the queries its relation parameters
 	 * are bound to (BoundOver), so matching it is checked against the importing rule's levels; it reads the contexts the
@@ -684,7 +751,7 @@ export interface Query<
 	 */
 	orderBy<const O extends ReadonlyArray<readonly [DeliveredKeys<Head, Hc> & string, Direction]>>(
 		...order: O & OrderedKeys<O, Hc>
-	): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms>
+	): Ordered<S, Head, Ev, P, IHead, Hc, Cx, Arms, At>
 	/**
 	 * A search over one rule's projection, its source as the checker reads it (SearchSource), ranked by a distance of its
 	 * carriers. The search keeps a subset of its source's facts, at most `take` of them, so its evidence is a take's of
@@ -713,7 +780,8 @@ export interface Query<
 				"approximate",
 				AsOneArm<Arms, Head, Hc>["bounded"]
 			>
-		]
+		],
+		At
 	>
 }
 
@@ -1137,7 +1205,8 @@ export interface Finished<
 	S = never,
 	IHead = Head,
 	Hc extends Carriers = HeadingCarriers<Head>,
-	Cx = never
+	Cx = never,
+	At = NoAttachments
 >
 	extends
 		Phantom<{
@@ -1145,6 +1214,7 @@ export interface Finished<
 			readonly evidence: Ev
 			readonly params: P
 			readonly readsContexts: (read: Cx) => void
+			readonly attached: At
 		}>,
 		Headed<Hc>,
 		Decoders<Head, IHead> {
@@ -1173,7 +1243,8 @@ export interface Finished<
 		S,
 		WithChild<IHead, Name, CI, ReadBack[K]>,
 		Hc,
-		Cx | ChildContexts<C>
+		Cx | ChildContexts<C>,
+		AttachedWith<At, Name, C, K, F, Hd>
 	>
 }
 
@@ -1186,7 +1257,8 @@ export interface Ordered<
 	IHead = Head,
 	Hc extends Carriers = HeadingCarriers<Head>,
 	Cx = never,
-	Arms extends UnionArms = readonly [ArmOf<Head, Hc>]
+	Arms extends UnionArms = readonly [ArmOf<Head, Hc>],
+	At = NoAttachments
 >
 	extends
 		Headed<Hc>,
@@ -1199,6 +1271,7 @@ export interface Ordered<
 			readonly schema: Invariant<S>
 			readonly readsContexts: (read: Cx) => void
 			readonly arms: Arms
+			readonly attached: At
 		}> {
 	/**
 	 * The first k under the completed total order; a set again; take(1) is atMostOne (TakeEvidence). k is a positive
@@ -1215,7 +1288,10 @@ export interface Ordered<
 		IHead,
 		Hc,
 		Cx,
-		readonly [UnionArm<AsOneArm<Arms, Head, Hc>["carriers"], AttachedNames<Head, Hc>, "take", true>]
+		readonly [
+			UnionArm<AsOneArm<Arms, Head, Hc>["carriers"], AttachedNames<Head, Hc>, "take", true>
+		],
+		At
 	>
 }
 
@@ -1237,6 +1313,13 @@ export type VConstructor = <R extends VSource, const N extends string, F extends
  */
 export type HeadOf<Q> = DecodedBy<Q["rows" & keyof Q]>
 type DecodedBy<D> = D extends RowDecoder<infer H> ? H : never
+/**
+ * The attachments a query's or ordered query's records carry, by name (Attachment), read off its phantom by key, as
+ * HeadOf reads its records: a match of the query would instantiate it whole, the schema it is over with it. A value
+ * with no phantom, a query known only at run time, carries none the types know.
+ */
+export type AttachedOf<Q> = AttachedIn<PhantomOf<Q>>
+type AttachedIn<B> = [B] extends [never] ? NoAttachments : B["attached" & keyof B]
 /** Readers of a query's phantoms. */
 export type EvidenceOfQuery<Q> =
 	Q extends Phantom<infer B>
