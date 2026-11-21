@@ -908,7 +908,7 @@ const containmentReadsOf = (c: Containment): number => 3 * (c.negated ? 3 : 2) +
 /**
  * Judges each statement of the containment's whole rule: it reads Node as often as the leaf's restrictions read it,
  * each spelled once (`containmentReadsOf`). The definitions both sides read at the unit's channels are one node, bound
- * at the outermost region that re-exposes the channel (check/checker.ts #outermost), read under one name at every depth
+ * at the outermost region that re-exposes the channel (check/checker.ts Checker held), read under one name at every depth
  * (analysis/theory/navigate.ts `received`), and computed once in that region, whose filters' tests read it in the
  * filter's SELECT (lower/shapes/index.ts filteredRegion); those To's rules read at the fact's terms are one node, every
  * rule of To reading it, a filter passing a term the rule fixes as that term (navigate.ts `pinnedBy`). Before, each read

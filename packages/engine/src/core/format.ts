@@ -20,7 +20,7 @@
  * each served carrier stand-up read the table's size before they empty it. A whole rule's judged statement spells each
  * definition its containment's sides read at one set of values once: a relational filter's SELECT holds its region's
  * shared CTEs (lower/shapes/index.ts filteredRegion), an import a nested rule reads at a re-exposed value is bound at
- * its outermost re-exposure (check/checker.ts #outermost), a whole rule's unit channel keeps its name at every depth
+ * its outermost re-exposure (check/checker.ts Checker held), a whole rule's unit channel keeps its name at every depth
  * (analysis/theory/navigate.ts received) and a filter passes a term its rule fixes as that term (pinnedBy), where format
  * 6 spelled such a definition again at each read inside the negation of the met side. A judge's delta whose relation's
  * every field has a bound and whose widest row fits one heap tuple holds every value in its row, each column STORAGE
@@ -28,7 +28,13 @@
  * digests its storage beside its columns, so every delta's name moves. A fold whose body joins is read, by each judge
  * function and each served write program, over an import of its body's every bound variable, which navigation reads
  * as a chain of steps (analysis/theory/navigate.ts foldedOverBody), where format 6 left the fold's join as written for
- * PostgreSQL to order. Format 6's snapshot.json records each schema level's fingerprint over its
+ * PostgreSQL to order. An import or a call a query or a write binds to outer values is one node for every read of it at
+ * those values (check/checker.ts importedKey), and a parameter an importer bound to a value a region holds from outside
+ * it, a region's parameter or parent slot or a parent's column an attachment reads, is bound to that column in every
+ * reading (Checker held, RuleCheck #bindValue), where format 6 did so in a rule judge's region reads alone and built
+ * every other such import at each read: a judge function or a served statement that reads one lookup under several
+ * imports reads it once, correlated to the region that holds its values, and reads a value such a region holds as the
+ * outer column it re-exposes. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row

@@ -217,25 +217,21 @@ interface ParentColumn {
 
 /**
  * A bound value's part of a key (`importedKey`, Checker `#closedCall`), and whether it is closed: a parameter by its
- * name and a constant by its canonical text, closed; under region reads (`region`) an outer value by the region and
- * the column it is read through, not closed; none for an outer value elsewhere, whose rows are its reader's; and the
- * rows of a query a relation parameter is bound to by that query's own import's key, closed where it is.
+ * name and a constant by its canonical text, closed; an outer value by the node and the column it is read through, not
+ * closed, the same rows wherever that node's row is read; and the rows of a query a relation parameter is bound to by
+ * that query's own import's key, closed where it is.
  */
-const boundPart = (
-	session: CheckSession,
-	value: BindValue,
-	region: boolean
-): ImportKey | undefined => {
+const boundPart = (session: CheckSession, value: BindValue): ImportKey => {
 	switch (value.kind) {
 		case "param":
 			return { text: `p:${value.cell.name}`, closed: true }
 		case "literal":
 			return { text: `l:${canonicalTextOf([value.value, value.stated])}`, closed: true }
 		case "column":
-			return region ? { text: `c:${value.node}:${value.name}`, closed: false } : undefined
+			return { text: `c:${value.node}:${value.name}`, closed: false }
 		case "rows": {
-			const key = importedKey(session, value.query, value.values, region)
-			return key === undefined ? undefined : { text: `r(${key.text})`, closed: key.closed }
+			const key = importedKey(session, value.query, value.values)
+			return { text: `r(${key.text})`, closed: key.closed }
 		}
 	}
 }
@@ -246,26 +242,23 @@ const boundPart = (
  * (check/session.ts CheckSession), and each bound value (`boundPart`), a parameter by its name, the one parameter of
  * that name its query, or its ChangeSet, whose members' and read-backs' parameters are one namespace, declares, a
  * constant by its canonical text, the rows of a query by that query's import's key, so one guard bound into the
- * imports of several members is one node, and, under region reads (`region`), an outer value by the region and the
- * column it is read through: every match of one query at one rule statement's unit channels reads one import, which
- * the CTE policy computes once at the scope those values come from (lower/optimize/cte-policy rule 3b), where a node
- * built at every match multiplied the statement by the import's reads, at every level of a chain of definitions
- * (analysis/theory/navigate.ts sharedImports); none for an import bound to an outer value elsewhere, whose rows are
- * its reader's, built at each import.
+ * imports of several members is one node, and an outer value by the node and the column it is read through: every
+ * match of one query at one node's values reads one import, correlated to that node, which the CTE policy computes once
+ * at the scope those values come from (lower/optimize/cte-policy rule 3b), where a node built at every match multiplied
+ * the query by the import's reads, at every level of a chain of definitions (analysis/theory/navigate.ts sharedImports),
+ * and a lookup bound to an attachment's parent row at every read under it (edullm's sittingItem: one session's start,
+ * read by every value row of its record, 147K nodes). An import's key is its every bound value's, so every import has
+ * one.
  */
 const importedKey = (
 	session: CheckSession,
 	query: ResolvedQuery,
-	values: ReadonlyMap<string, BindValue>,
-	region: boolean
-): ImportKey | undefined => {
+	values: ReadonlyMap<string, BindValue>
+): ImportKey => {
 	const parts = [`q${session.place(query)}`]
 	let closed = true
 	for (const [param, value] of [...values].toSorted(([a], [b]) => compareStrings(a, b))) {
-		const part = boundPart(session, value, region)
-		if (part === undefined) {
-			return undefined
-		}
+		const part = boundPart(session, value)
 		closed = closed && part.closed
 		parts.push(`${param}=${part.text}`)
 	}
@@ -282,8 +275,8 @@ interface ImportKey {
 	readonly closed: boolean
 }
 
-/** The key of a region's column among the re-exposed ones (Checker `#reexposed`). */
-const reexposedKey = (region: NodeId, column: string): string => `${region} ${column}`
+/** The key of a node's column among the held ones (Checker `#held`). */
+const heldKey = (node: NodeId, column: string): string => `${node} ${column}`
 
 interface ParentScope {
 	/** The parent's label, which the child's correlation references name. */
@@ -1065,19 +1058,20 @@ export class Checker {
 	 * into a tree (a bound query read at many places, a call's rows argument at every read of the call's fields).
 	 */
 	readonly #imported = new Map<string, RelNode>()
-	/** The imports bound to outer values under region reads, each built once by its key (`importedKey`'s `region`). */
+	/** The imports bound to outer values, each built once by its key (`importedKey`), correlated to the values' node. */
 	readonly #regional = new Map<string, RelNode>()
 	/**
-	 * The columns of rule regions that re-expose an outer value an import binds a parameter to (RuleCheck `#declare`,
-	 * its ParamSlots), each by region and column (`reexposedKey`): a value a region is correlated to from outside, with
-	 * the outer column it re-exposes.
+	 * The columns that hold a value from outside the region reading them, each by node and column (`heldKey`): a rule
+	 * region's slot that re-exposes a parameter's value or its parent row's column (RuleCheck `#declare`), and a parent's
+	 * own column an attachment child's import reads, the outer reference its statement carries in its parent key
+	 * (RuleCheck `#bindValue`).
 	 */
-	readonly #reexposed = new Map<string, Extract<ScalarBinding, { readonly kind: "column" }>>()
+	readonly #held = new Set<string>()
 	/**
-	 * Each node of `#imported` by its key, which a call over it reads its argument's key by (`#callArgs`): a closed
-	 * import's alone, never a regional one's, whose rows are its region's.
+	 * Each import's node by its key (`#imported`, `#regional`), which a call over it reads its argument's key by
+	 * (`#callArgs`): a closed import's closed, a correlated one's correlated to the node its values are read from.
 	 */
-	readonly #importKeys = new Map<RelNode, string>()
+	readonly #importKeys = new Map<RelNode, ImportKey>()
 	/**
 	 * The admitted patterns the query's compile reads (scalar/regex/patterns.ts), its session's (session.ts
 	 * CheckSession patterns): each parsed, and minimized where a proof compares it, once for every check of the compile.
@@ -2126,7 +2120,7 @@ export class Checker {
 				)
 			}
 			case "query":
-				return this.#regionImport(src, scope, loc, bind)
+				return this.#importSource(src, loc, bind)
 			case "step": {
 				const input = this.#importSource(src, loc, bind)
 				return this.node({ kind: "Step", input, heading: input.heading }, loc)
@@ -2356,10 +2350,10 @@ export class Checker {
 		given: Extract<ResolvedSource, { readonly kind: "call" }>["args"],
 		loc: SourceLoc,
 		bind: Binder
-	): { readonly args: ReadonlyArray<CallArg<LiveRefs>>; readonly key: string | undefined } {
+	): { readonly args: ReadonlyArray<CallArg<LiveRefs>>; readonly key: ImportKey | undefined } {
 		this.#callArguments(fn, Object.keys(given), loc)
-		/** Each argument's part of the call's key (`#closedCall`), none where an argument is no closed one. */
-		const parts: Array<string | undefined> = []
+		/** Each argument's part of the call's key (`#closedCall`), none for rows no import of this check delivers. */
+		const parts: Array<ImportKey | undefined> = []
 		const args = fn.desc.args.map((declared): CallArg<LiveRefs> => {
 			const at = childLoc(childLoc(loc, "args"), declared.name)
 			const arg = defined(given[declared.name], "an argument #callArguments found")
@@ -2369,8 +2363,8 @@ export class Checker {
 				}
 				const type = this.fieldType(declared.type.type, at)
 				const value = bind(arg, declared.name, at)
-				const part = boundPart(this.options.session, value, false)
-				parts.push(part === undefined ? undefined : `${declared.name}=${part.text}`)
+				const part = boundPart(this.options.session, value)
+				parts.push({ text: `${declared.name}=${part.text}`, closed: part.closed })
 				return {
 					kind: "value",
 					name: declared.name,
@@ -2392,7 +2386,11 @@ export class Checker {
 			}
 			const rows = this.#importSource(arg, at, bind)
 			const imported = this.#importKeys.get(rows)
-			parts.push(imported === undefined ? undefined : `${declared.name}=r(${imported})`)
+			parts.push(
+				imported === undefined
+					? undefined
+					: { text: `${declared.name}=r(${imported.text})`, closed: imported.closed }
+			)
 			const columns = mapNonEmpty(heading, (f) => {
 				const type = this.fieldType(f.type, childLoc(at, f.name))
 				const delivered = columnOf(rows.heading, f.name)
@@ -2407,24 +2405,37 @@ export class Checker {
 			})
 			return { kind: "rows", name: declared.name, rows, columns }
 		})
-		const closed = parts.every((p) => p !== undefined)
-		return { args, key: closed ? parts.join(" ") : undefined }
+		const keyed = parts.flatMap((p) => (p === undefined ? [] : [p]))
+		return {
+			args,
+			key:
+				keyed.length === parts.length
+					? { text: keyed.map((p) => p.text).join(" "), closed: keyed.every((p) => p.closed) }
+					: undefined
+		}
 	}
 
 	/**
-	 * A call of a declared function as one node of the query (`#imported`, `#closedCall`): `build` builds it at `args`,
-	 * once for every read of one function at closed arguments of one key, a read of one field of it or of its rows, which
-	 * read the same rows wherever they stand, as a closed import does; at once where an argument is no closed one.
+	 * A call of a declared function as one node of the query (`#imported`, `#regional`): `build` builds it at `args`,
+	 * once for every read of one function at arguments of one key, a read of one field of it or of its rows: at closed
+	 * arguments as a closed import is (`#closedImport`), at outer values as a correlated import is, once in this check
+	 * (`#correlatedImport`); at once where a rows argument is no import's.
 	 */
 	#closedCall(
 		read: string,
-		called: { readonly args: ReadonlyArray<CallArg<LiveRefs>>; readonly key: string | undefined },
+		called: {
+			readonly args: ReadonlyArray<CallArg<LiveRefs>>
+			readonly key: ImportKey | undefined
+		},
 		build: (args: ReadonlyArray<CallArg<LiveRefs>>) => RelNode
 	): RelNode {
 		if (called.key === undefined) {
 			return build(called.args)
 		}
-		return this.#closedImport(`${read} ${called.key}`, () => build(called.args))
+		const key = { text: `${read} ${called.key.text}`, closed: called.key.closed }
+		return key.closed
+			? this.#closedImport(key.text, () => build(called.args))
+			: this.#correlatedImport(key, () => build(called.args))
 	}
 
 	/**
@@ -2594,76 +2605,26 @@ export class Checker {
 
 	#importSource(src: ResolvedImport, loc: SourceLoc, bind: Binder): RelNode {
 		const values = this.boundValues(src, loc, bind)
-		return this.#keyedImport(
-			src,
-			values,
-			loc,
-			importedKey(this.options.session, src.query, values, false)
-		)
+		return this.#keyedImport(src, values, loc, importedKey(this.options.session, src.query, values))
+	}
+
+	/** Records `column` of `node` as holding a value from outside the region that reads it (`#held`). */
+	holds(node: NodeId, column: string): void {
+		this.#held.add(heldKey(node, column))
 	}
 
 	/**
-	 * A query source's import (`#importSource`), and under region reads also one node for every match of one query at
-	 * one set of outer values (`importedKey`'s `region`): there a parameter the importer binds to a value an outer region
-	 * re-exposes (`#reexposed`), a value that region is correlated to, is bound to that region's column itself, where the
-	 * importer reads it through a column of its own region (`#bindValue`), so the import is correlated to that region,
-	 * the same node for every rule under it that reads it at that value: each rule of a union reads the definition below
-	 * it at the unit's channels, which every rule of the union re-exposes as a column of its own, and the lowering
-	 * computes it once, in that region (lower/optimize/cte-policy rule 3b), where a node of each rule's own multiplied a
-	 * chain of unions by their rules at every level.
+	 * Whether `value` holds a value from outside the region that reads it (`#held`), so an import below binds a parameter
+	 * the importer bound to it to that column itself (RuleCheck `#bindValue`). Each import binds so at every level, so a
+	 * region nested in another receives the value as the outermost region that holds it holds it, and so does every
+	 * import below: every import of one query at that value is one node (`importedKey`), whatever rule under that region
+	 * reads it, which the lowering computes once in that region (lower/optimize/cte-policy rule 3b), where bound at each
+	 * reader's own column it was a node of each reader's region, so inlined at every read: a containment's negation read
+	 * every definition its arms share, at the unit's channels, once in each arm, and edullm's decideStage read-back, each
+	 * argument of a session's run importing the session's lookup at the parent's terms, was 113K nodes in one query.
 	 */
-	#regionImport(
-		src: Pick<Extract<ResolvedSource, { readonly kind: "query" }>, "query" | "bind">,
-		scope: Scope,
-		loc: SourceLoc,
-		bind: Binder
-	): RelNode {
-		if (this.options.read !== "region") {
-			return this.#importSource(src, loc, bind)
-		}
-		const values = this.boundValues(src, loc, (term, param, at) => {
-			if (term.kind !== "param") {
-				return bind(term, param, at)
-			}
-			const outer = this.#resolveParam(term.cell, scope, at)
-			return outer.kind === "column" && this.#reexposed.has(reexposedKey(outer.node, outer.name))
-				? this.#outermost(outer)
-				: bind(term, param, at)
-		})
-		return this.#keyedImport(
-			src,
-			values,
-			loc,
-			importedKey(this.options.session, src.query, values, true)
-		)
-	}
-
-	/** Records `column` of `region` as a re-exposure of the outer value `outer` (`#reexposed`). */
-	reexposes(
-		region: NodeId,
-		column: string,
-		outer: Extract<ScalarBinding, { readonly kind: "column" }>
-	): void {
-		this.#reexposed.set(reexposedKey(region, column), outer)
-	}
-
-	/**
-	 * `column`, a re-exposed value (`#reexposed`), as the outermost region that re-exposes it holds it: each region a
-	 * rule nested in another declares re-exposes the value its reader's region re-exposes, the reader's column, so a rule
-	 * a filter navigates, or an arm of a union, reads the unit's channel through its reader's column, and that one
-	 * through the region outside it. Bound at the outermost, every import of one query at that value is one node,
-	 * whatever rule under that region reads it (`#regionImport`), which the lowering computes once in that region
-	 * (lower/optimize/cte-policy rule 3b), where bound at each reader's own column it was a node of each reader's region,
-	 * correlated to a column that region's occurrence binds, which no region holds, so inlined at every read: a
-	 * containment's negation read every definition its arms share, at the unit's channels, once in each arm.
-	 */
-	#outermost(
-		column: Extract<ScalarBinding, { readonly kind: "column" }>
-	): Extract<ScalarBinding, { readonly kind: "column" }> {
-		const outer = this.#reexposed.get(reexposedKey(column.node, column.name))
-		return outer !== undefined && this.#reexposed.has(reexposedKey(outer.node, outer.name))
-			? this.#outermost(outer)
-			: column
+	held(value: { readonly node: NodeId; readonly name: string }): boolean {
+		return this.#held.has(heldKey(value.node, value.name))
 	}
 
 	/** The values an import's bind map binds its parameters to. */
@@ -2681,26 +2642,32 @@ export class Checker {
 
 	/**
 	 * The import of `src` at `values`: one node for every import at one key, a closed one's among the closed imports
-	 * (`#imported`), another among the regional ones (`#regional`); its own where it has none.
+	 * (`#imported`), one bound to an outer value among the correlated ones (`#regional`), this check's alone.
 	 */
 	#keyedImport(
 		src: Pick<Extract<ResolvedSource, { readonly kind: "query" | "step" }>, "query">,
 		values: ReadonlyMap<string, BindValue>,
 		loc: SourceLoc,
-		key: ImportKey | undefined
+		key: ImportKey
 	): RelNode {
-		if (key === undefined) {
-			return this.#importAt(src, values, loc)
-		}
-		if (key.closed) {
-			return this.#closedImport(key.text, () => this.#importAt(src, values, loc))
-		}
+		return key.closed
+			? this.#closedImport(key.text, () => this.#importAt(src, values, loc))
+			: this.#correlatedImport(key, () => this.#importAt(src, values, loc))
+	}
+
+	/**
+	 * The correlated import of `key` (`importedKey`, `#closedCall`), bound to outer values: one node for every read of it
+	 * in this check (`#regional`), correlated to the node its values are read from, whose rows it reads wherever that
+	 * node's row is read; `build`'s at its first read.
+	 */
+	#correlatedImport(key: ImportKey, build: () => RelNode): RelNode {
 		const known = this.#regional.get(key.text)
 		if (known !== undefined) {
 			return known
 		}
-		const node = this.#importAt(src, values, loc)
+		const node = build()
 		this.#regional.set(key.text, node)
+		this.#importKeys.set(node, key)
 		return node
 	}
 
@@ -2732,7 +2699,7 @@ export class Checker {
 	 */
 	#readImport(key: string, node: RelNode): void {
 		this.#imported.set(key, node)
-		this.#importKeys.set(node, key)
+		this.#importKeys.set(node, { text: key, closed: true })
 		this.#importRoots.add(node)
 		this.options.session.closed(node, key)
 		for (const journal of this.#importJournals) {
@@ -3012,7 +2979,7 @@ export class Checker {
 			bound,
 			bound.values,
 			loc,
-			importedKey(this.options.session, bound.query, bound.values, false)
+			importedKey(this.options.session, bound.query, bound.values)
 		)
 		const stray = rows.heading.filter((c) => columnOf(heading, c.name) === undefined)
 		for (const f of heading) {
@@ -3608,6 +3575,7 @@ class RuleCheck {
 					outer: { node: origin.parent.node, name: column.parent, type: column.type }
 				}
 				this.parents.set(column.parent, slot)
+				this.cx.holds(this.region, slot.name)
 				this.correlation.push({ column, slot })
 			}
 		}
@@ -3638,7 +3606,7 @@ class RuleCheck {
 				outer: { node: value.node, name: value.name, type: value.type }
 			}
 			this.paramSlots.set(p.name, slot)
-			this.cx.reexposes(this.region, slot.name, value)
+			this.cx.holds(this.region, slot.name)
 			if (needed.has(p)) {
 				this.#needed.add(slot.id)
 			}
@@ -3959,8 +3927,8 @@ class RuleCheck {
 	/**
 	 * What an import's bind term binds a parameter to, read in this rule's scope: a scalar parameter is used at its
 	 * declared type there, a relation parameter is resolved where the import reads it as a source, and the rows of a
-	 * query are that query at its bind map's values, each read here as this term is (BindValue `rows`). An outer value is
-	 * read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
+	 * query are that query at its bind map's values, each read here as this term is (BindValue `rows`). A rule variable
+	 * is read through a column of `node`, the node the import is read over: a match's import over the rule's region, and a
 	 * relational filter's over the node it filters, which delivers the region's columns unchanged (`#relational`).
 	 *
 	 * A parent variable is read there too where the region holds its value before the import's source: a match resolved
@@ -3968,9 +3936,14 @@ class RuleCheck {
 	 * the region correlates it to its parent column (`#defineRegion`). Where the match itself or a later one binds it,
 	 * the region's variable is that match's column, which no source reads before the match is placed, so the import reads
 	 * the parent's own column, the value the attachment equates the binding with: an outer reference to the parent, which
-	 * the attachment's statement carries in its parent key (lower/conservative/deliver.ts parentColumnsRead). Read
-	 * through the region's variable, the source would wait on the occurrence it is (lower/conservative/match-region
-	 * regionParts), and its region has no order to place.
+	 * the attachment's statement carries in its parent key (lower/conservative/deliver.ts parentColumnsRead).
+	 *
+	 * A parameter the importer bound to a column that holds a value from outside its region (Checker `held`: a region's
+	 * parameter or parent slot, or a parent's column an attachment child's import reads) is bound to that column itself,
+	 * in every reading, where a column of this rule's region would read it again: so every read below that region of one
+	 * query at that value has one key (`importedKey`) and is one node, correlated to that region, which the lowering
+	 * computes once there (lower/optimize/cte-policy rule 3b). A parameter bound to any other column is read through this
+	 * region's own slot (`#paramSlot`), a value the region is correlated to.
 	 */
 	#bindValue(term: ResolvedBound, param: string, loc: SourceLoc, node: NodeId): BindValue {
 		if (term.kind === "relationParam") {
@@ -3995,18 +3968,20 @@ class RuleCheck {
 					`a parent variable inside an attachment; ${term.column} is not one`
 				)
 			}
-			return this.#parentBindings.has(slot.id) || !this.#boundParents.has(term.column)
-				? this.#slotValue(slot, node)
-				: { kind: "column", ...slot.outer }
+			if (this.#parentBindings.has(slot.id) || !this.#boundParents.has(term.column)) {
+				return this.#slotValue(slot, node)
+			}
+			this.cx.holds(slot.outer.node, slot.outer.name)
+			return { kind: "column", ...slot.outer }
 		}
 		if (term.kind === "param") {
 			const resolved = this.cx.resolveParam(term.cell, this.scope, loc)
 			if (resolved.kind === "param") {
 				this.cx.useParam(resolved.cell, this.cx.paramType(term, loc), loc)
 			}
-			return resolved.kind === "column"
-				? this.#slotValue(this.#paramSlot(term.cell, loc), node)
-				: resolved
+			return resolved.kind !== "column" || this.cx.held(resolved)
+				? resolved
+				: this.#slotValue(this.#paramSlot(term.cell, loc), node)
 		}
 		if (term.kind === "literal") {
 			return {

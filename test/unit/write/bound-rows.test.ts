@@ -56,8 +56,8 @@ export const aGuardOfALevelAboveReadByEveryMemberOfAWriteIsOneNodeOfItsDag = pro
 		kills: [
 			{
 				file: "packages/engine/src/check/checker.ts",
-				original: "\t\t\treturn key === undefined ? undefined : { text: ",
-				replacement: "\t\t\treturn undefined && { text: ",
+				original: "\t\t\tconst key = importedKey(session, value.query, value.values)\n",
+				replacement: "\t\t\tconst key = { text: String(Math.random()), closed: false }\n",
 				why: "An import bound to a query's rows has no key, so each member that reads the guard builds its own: the DAG scans Stage and Visit once for each member."
 			}
 		]
