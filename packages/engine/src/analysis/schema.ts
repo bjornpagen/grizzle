@@ -616,6 +616,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 				case "accumulated":
 				case "retirement":
 				case "place":
+				case "instant":
 					return f.writing.kind
 				case "caller":
 					return isInstantDesc(f.desc) ? "instant" : undefined
