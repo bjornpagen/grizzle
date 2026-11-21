@@ -18,6 +18,7 @@ import {
 import type { CellSide } from "#compiler/ir/cells.ts"
 import type { ExprDesc, FieldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import type { GeneratedRead } from "#compiler/ir/keys.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
 	isSpanCarrier,
@@ -170,6 +171,12 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 	 * immutability guard holds against every UPDATE, the owner's included (physical/ddl/immutable.ts).
 	 */
 	readonly inPlace: ReadonlyArray<string>
+	/**
+	 * Its generated fields whose generation determines them, each with the fields it reads, in field order (ir/keys.ts
+	 * GeneratedRead): every generated field but one whose generation reads a float. Decided once where the checked schema
+	 * types the relation (analysis/schema.ts generatedReadsOf); every Base over it carries them (rel.ts StoredBase).
+	 */
+	readonly generated: ReadonlyArray<GeneratedRead>
 }
 
 /**

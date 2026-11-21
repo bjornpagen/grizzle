@@ -18,6 +18,7 @@ import {
 	closedReadNames,
 	generatedRule,
 	generatedTypeRule,
+	generatedVolatilityRule,
 	rowNode
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
@@ -37,6 +38,7 @@ import {
 } from "#compiler/ir/desc.ts"
 import { type ExprTable, fieldReads, type TypedLiteral, storedColumn } from "#compiler/ir/expr.ts"
 import { instantInputText, isInstantDesc, isInstantType } from "#compiler/ir/instant.ts"
+import type { GeneratedRead } from "#compiler/ir/keys.ts"
 import {
 	type ClosedSlot,
 	type ClosedTheoryRelation,
@@ -51,6 +53,7 @@ import {
 import { closedCell, closedValues, type DeclaredKey } from "#compiler/ir/rel.ts"
 import {
 	enteredType,
+	isFloat,
 	isRefined,
 	Roster,
 	type ScalarType,
@@ -278,6 +281,21 @@ interface GenerationRow {
 
 /** Fields in canonical order, by name in code units: a heading's order. */
 const byFieldName = mapInput(compareStrings, (f: LawField) => f.name)
+
+/**
+ * The generated fields of `fields` each with the fields its generation reads, those that determine it (ir/keys.ts
+ * GeneratedRead): every generated field but one whose generation reads a float, in field order.
+ */
+const generatedReadsOf = (fields: ReadonlyArray<LawField>): ReadonlyArray<GeneratedRead> =>
+	fields.flatMap((f): ReadonlyArray<GeneratedRead> => {
+		if (f.writing.kind !== "generated") {
+			return []
+		}
+		const reads = fieldReads([f.writing.expr])
+		return reads.some((r) => fields.some((x) => x.name === r && isFloat(x.type)))
+			? []
+			: [Object.freeze({ field: f.name, reads })]
+	})
 
 /**
  * The handles of a key over the fields `declared` of relation `relation`, in key order, refused when it names a field
@@ -639,6 +657,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			mutable: r.mutable,
 			inserts: r.inserts,
 			inPlace: this.#inPlace(r, declared, primaryFields),
+			generated: generatedReadsOf(declared),
 			level: r.level,
 			loc
 		}
@@ -827,6 +846,10 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			generatedTypeRule(declared, operand.term.nominal, patterns) === undefined
 				? operand
 				: whole
+		const stable = generatedVolatilityRule(term.expr.volatility)
+		if (stable !== undefined) {
+			return generatedRefused(r, field, stable)
+		}
 		return {
 			kind: "generated",
 			desc,

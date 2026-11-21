@@ -202,6 +202,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		primaryKey: ["id"],
 		keys: [["account", "id"]],
 		relationKind: "relation",
+		generated: [],
 		heading: taskHeading,
 		loc: undefined,
 		meta: conservativeMeta
@@ -393,6 +394,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		primaryKey: ["id"],
 		keys: [],
 		relationKind: "relation",
+		generated: [],
 		heading: heading(["id", scalarTypes.uuid], ["during", scalarTypes.range8]),
 		loc: undefined,
 		meta: conservativeMeta
@@ -418,6 +420,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 			primaryKey: ["a", "b"],
 			keys: [],
 			relationKind: "relation",
+			generated: [],
 			heading: edgeHeading,
 			loc: undefined,
 			meta: conservativeMeta
@@ -490,6 +493,7 @@ export const everyKind = (supply: IdSupply): EveryKind => {
 		primaryKey: ["id"],
 		keys: [],
 		relationKind: "relation",
+		generated: [],
 		heading: heading(["id", scalarTypes.uuid], ["embedding", scalarTypes.vector3]),
 		loc: undefined,
 		meta: conservativeMeta

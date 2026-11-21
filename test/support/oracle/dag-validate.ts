@@ -2465,7 +2465,10 @@ const unorderedAttach = S.structStated(
 	{}
 )
 
-/** A Base's own fields beside its relation kind: a view's add the keys the checker stamped on it. */
+/**
+ * A Base's own fields beside its relation kind: a stored relation's add its generated fields' reads, a view's the keys
+ * the checker stamped on it.
+ */
 const baseFields = {
 	relation: S.nonEmptyString,
 	occurrence: occurrenceIdShape,
@@ -2475,7 +2478,15 @@ const baseFields = {
 
 const tableNodeShape: S.Shape<TableNode> = S.tagged("kind", {
 	Base: S.tagged("relationKind", {
-		relation: S.structStated({ ...common, ...baseFields }, commonStated, {}),
+		relation: S.structStated(
+			{
+				...common,
+				...baseFields,
+				generated: S.array(S.struct({ field: S.nonEmptyString, reads: S.array(S.nonEmptyString) }))
+			},
+			commonStated,
+			{}
+		),
 		derived: S.structStated(
 			{ ...common, ...baseFields, view: S.array(viewKeyShape) },
 			commonStated,

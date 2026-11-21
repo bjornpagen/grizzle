@@ -1015,7 +1015,8 @@ const statedForm = (
 
 /**
  * A node as the rows it yields read it (rowsDigestWithin): a stored relation's scan without the keys its relation's laws
- * declare beside its primary key, and a view's scan without the keys it is read by, which its definition's keys restate.
+ * declare beside its primary key and its generated fields' reads, and a view's scan without the keys it is read by, which
+ * its definition's keys restate.
  * A key is a law its relation's rows obey, never a row they hold, so a key a relation gains or loses yields no other row.
  */
 const rowsFields = (node: TableNode): object => {
@@ -1023,7 +1024,7 @@ const rowsFields = (node: TableNode): object => {
 		return digestedFields(node)
 	}
 	if (node.relationKind === "relation") {
-		const { keys: _keys, ...rows } = node
+		const { keys: _keys, generated: _generated, ...rows } = node
 		return rows
 	}
 	const { keys: _keys, view: _views, primaryKey: _primaryKey, ...rows } = node

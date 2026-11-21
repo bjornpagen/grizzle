@@ -397,6 +397,7 @@ export class ViolationBuilder {
 			primaryKey: r.primaryKey,
 			keys: r.keys,
 			relationKind: "relation",
+			generated: r.generated,
 			heading: headingColumns(r.fields),
 			loc: undefined,
 			meta: conservativeMeta

@@ -11,6 +11,7 @@ import type {
 	IsOneLiteral,
 	ContractValueOrigin,
 	Hosted,
+	OriginOfTerm,
 	Parameterless,
 	Predicate,
 	Refusal,
@@ -227,9 +228,10 @@ export type GeneratedTermOf<F extends FieldBase> = InputTerm<DomainOf<F>, never,
 /**
  * generated(type, term): a field PostgreSQL writes, a STORED generated column of `type` whose value is `term`, read off
  * the row relation.generated hands its callback. The term is of `type` exactly and reads no parameter: its row's
- * written fields and closed reads are all a generation expression may read.
+ * written fields and closed reads are all a generation expression may read. The field carries the term's origin, the
+ * fields it reads (GeneratedField O), which determine it wherever the relation is matched.
  */
 export type GeneratedConstructor = <F extends FieldBase, T extends GeneratedTermOf<F>>(
 	type: F & NoWriting & NotStoredOnly<F["sql"]> & NamedId<F>,
 	term: T & Parameterless<T> & Hosted<T>
-) => GeneratedField<F>
+) => GeneratedField<F, OriginOfTerm<T>>

@@ -446,7 +446,7 @@ export class Ir {
 		return this.b.node(
 			r.kind === "derived"
 				? { ...base, relationKind: "derived", view: [] }
-				: { ...base, relationKind: "relation" }
+				: { ...base, relationKind: "relation", generated: [] }
 		)
 	}
 

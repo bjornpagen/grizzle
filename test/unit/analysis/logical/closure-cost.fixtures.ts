@@ -337,6 +337,7 @@ export const readingQuery = (reading: TaskReading): ValidDag => {
 		primaryKey: reading.primaryKey,
 		keys: task.keys,
 		relationKind: "relation",
+		generated: [],
 		heading: task.heading,
 		loc: undefined,
 		meta: conservativeMeta

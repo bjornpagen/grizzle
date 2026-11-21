@@ -1996,6 +1996,7 @@ export class Checker {
 						primaryKey: info.primaryKey,
 						keys: info.keys,
 						relationKind: "relation",
+						generated: info.generated,
 						heading: headingColumns(info.heading)
 					},
 					loc

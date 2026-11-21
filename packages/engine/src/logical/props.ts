@@ -27,6 +27,7 @@ import {
 	correlatedVariable,
 	type Dependency,
 	declaredKey,
+	generationDetermines,
 	type EqualWitness,
 	type FixedWitness,
 	distinctColumns,
@@ -790,6 +791,7 @@ const stepSource = (props: Steps, d: Dependency, column: string): StepSource => 
 			return { kind: "arms", arms: unionArms(node.groups) }
 		case "declared":
 		case "viewAlternative":
+		case "generated":
 		case "group":
 		case "atMostOne":
 		case "distinct":
@@ -1786,7 +1788,8 @@ const keysText = (keys: ReadonlyArray<KeySet>): string =>
 
 /**
  * What a Base's properties are a function of, beside its anchor (its relation's declared key, or its view's keys): its
- * relation, the kind of it, its heading's columns, the keys it is read by, and whether the view's own keys are admitted.
+ * relation, the kind of it, its heading's columns, the keys it is read by, a stored relation's generated fields with
+ * what each reads, and whether the view's own keys are admitted.
  */
 const baseText = (reading: ReadingOf<"Base">, env: PropsEnv): string =>
 	[
@@ -1794,7 +1797,11 @@ const baseText = (reading: ReadingOf<"Base">, env: PropsEnv): string =>
 		reading.relationKind,
 		reading.heading.map((c) => c.name).join("\u0001"),
 		keysText([reading.primaryKey, ...reading.keys]),
-		reading.relationKind !== "relation" && env.keyedViews ? "viewed" : "unviewed"
+		reading.relationKind === "relation"
+			? keysText(reading.generated.map((g) => [g.field, ...g.reads]))
+			: env.keyedViews
+				? "viewed"
+				: "unviewed"
 	].join("\u0000")
 
 /** What a Delta's properties are a function of, beside its anchor (its keys): its relation, heading and keys. */
@@ -1876,9 +1883,12 @@ export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsE
 					const stated: Stated =
 						reading.relationKind === "relation"
 							? {
-									dependencies: [reading.primaryKey, ...reading.keys].map((k, i) =>
-										declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
-									),
+									dependencies: [
+										...[reading.primaryKey, ...reading.keys].map((k, i) =>
+											declaredKey(k, all, [storedKeyPremise(relation, k, i === 0)], "immediate")
+										),
+										...reading.generated.map(generationDetermines)
+									],
 									equal: []
 								}
 							: viewDependencies(env.keyedViews ? reading.view : [], all)

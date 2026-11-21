@@ -334,8 +334,8 @@ export const derivedRelationKeysIndexAProductOfRelationsKeyedByEitherOfTwoFields
 			},
 			{
 				file: "packages/engine/src/analysis/logical/derived.ts",
-				original: "\t\t...proof.factors.flatMap((f) =>",
-				replacement: "\t\t...proof.factors.slice(0, 1).flatMap((f) =>",
+				original: "\t\t...root.factors.flatMap((f) =>",
+				replacement: "\t\t...root.factors.slice(0, 1).flatMap((f) =>",
 				why: "Only the first factor's alternatives are listed; the product keys fail."
 			}
 		]

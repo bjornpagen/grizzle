@@ -230,9 +230,10 @@ export const numberReach = (
 }
 
 /**
- * A node's own fields as a digest reads them: a Delta's without its keys, and a view Base's without the keys the
- * checker stamped on it, each its relation's, named already; an Attach's without the delivered type its template's
- * analysis judged, which no SQL reads (rel.ts Attach judged).
+ * A node's own fields as a digest reads them: a Delta's without its keys, a view Base's without the keys the checker
+ * stamped on it, and a stored Base's without its generated fields' reads (rel.ts StoredBase generated), each its
+ * relation's, named already; an Attach's without the delivered type its template's analysis judged, which no SQL reads
+ * (rel.ts Attach judged).
  */
 export const digestedFields = (node: TableNode): object => {
 	if (node.kind === "Delta") {
@@ -245,6 +246,10 @@ export const digestedFields = (node: TableNode): object => {
 	}
 	if (node.kind === "Base" && node.relationKind !== "relation") {
 		const { view: _views, ...digested } = node
+		return digested
+	}
+	if (node.kind === "Base") {
+		const { generated: _generated, ...digested } = node
 		return digested
 	}
 	return node

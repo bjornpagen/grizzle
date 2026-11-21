@@ -575,7 +575,8 @@ const sketchedNode = (
 			occurrence: OccurrenceId(`o${i}`),
 			primaryKey: ["a"],
 			keys: [],
-			relationKind: "relation"
+			relationKind: "relation",
+			generated: []
 		}
 	}
 	switch (s.kind) {

@@ -214,6 +214,7 @@ export const baseOf = (b: DagBuilder, r: GenRelation): RelNode =>
 		primaryKey: nonEmpty(r.primaryKey, "a primary key"),
 		keys: Arr.map(r.keys, (k) => nonEmpty(k, "a candidate key")),
 		relationKind: "relation",
+		generated: [],
 		heading: Arr.map(r.columns, (c) => ({ name: c.name, type: c.type })),
 		loc: undefined,
 		meta: conservativeMeta

@@ -49,6 +49,18 @@ export interface Proving<out F> {
 /** The key a carrier's language rides under: a phantom, as `domain` is. */
 export declare const language: unique symbol
 
+/** The key a generated field's reads ride under: a phantom, as `domain` is. */
+declare const generation: unique symbol
+
+/**
+ * What a generated field states beside its type: the origin of its term (types/core/phantom.ts OriginOfTerm), each
+ * field of its row it reads named among its operands, which the types read as the engine reads a stored generated field,
+ * determined by the fields its generation reads (ir/keys.ts GeneratedRead, types/evidence/evidence.ts GenerationsOf).
+ */
+export interface Generating<out O> {
+	readonly [generation]?: O | undefined
+}
+
 /**
  * What a carrier or a term states beside its domain: its language, every value of its type, which a JavaScript value
  * standing at it is one of: a refined text's pattern's language, a roster's handles, uuid_out's spelling, and the base

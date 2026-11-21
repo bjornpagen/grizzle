@@ -5,6 +5,7 @@ import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { type ExprDesc, exprChildren } from "#compiler/ir/desc.ts"
+import type { Volatility } from "#compiler/ir/expr.ts"
 import {
 	entersColumn,
 	type ScalarType,
@@ -129,6 +130,16 @@ export const generatedRule = (
 	const read = reads.find(generated)
 	return read === undefined ? undefined : { kind: "readsGenerated", read }
 }
+
+/**
+ * Why a generation expression of volatility `volatility` cannot be stored, or undefined when it can: PostgreSQL stores
+ * a column only by an immutable generation (heap.c cookDefault, "generation expression is not immutable",
+ * https://github.com/postgres/postgres/blob/REL_19_0/src/backend/catalog/heap.c), and a stable one reads a setting of
+ * its session, as a conversion to money reads lc_monetary, so its installation would fail. Refused here, every generated
+ * field's expression is immutable: a function of its row's values (ir/keys.ts GeneratedRead).
+ */
+export const generatedVolatilityRule = (volatility: Volatility): GeneratedRule | undefined =>
+	volatility === "stable" ? { kind: "stable" } : undefined
 
 /**
  * Why a generation expression of type `expression` cannot fill a column of type `declared`, or undefined when it can:

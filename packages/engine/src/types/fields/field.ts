@@ -7,6 +7,7 @@ import type {
 	Domained,
 	domain,
 	FieldMarked,
+	Generating,
 	Languaged,
 	language,
 	Proving
@@ -501,10 +502,17 @@ export interface AccumulatedField<out F extends FieldBase>
 /**
  * A field PostgreSQL writes from its row (relation.generated): a STORED generated column of the declared type F. It
  * carries F's column, SQL type, domain, facts and language, so it is read as every field of F is; it is no descriptor a
- * builder made (no Built brand), so no contract, span, closed id, cast or parameter takes it as a type.
+ * builder made (no Built brand), so no contract, span, closed id, cast or parameter takes it as a type. O is the origin
+ * of its term, the fields of its row it reads (Generating), the one carrier of what a generation reads at the type
+ * level: unknown where no term's origin is traced, a field of any reads.
  */
-export interface GeneratedField<out F extends FieldBase>
-	extends UnwrittenField, Domained<DomainOf<F>>, Proving<FactsOf<F>>, Languaged<LanguageOf<F>> {
+export interface GeneratedField<out F extends FieldBase, out O = unknown>
+	extends
+		UnwrittenField,
+		Domained<DomainOf<F>>,
+		Proving<FactsOf<F>>,
+		Languaged<LanguageOf<F>>,
+		Generating<O> {
 	readonly writing: "generated"
 	readonly type: F
 	readonly column: F["column"]

@@ -29,6 +29,7 @@ import type { InferredFieldDesc, QueryDesc } from "#compiler/ir/desc.ts"
 import {
 	classMembers,
 	type KeyProof,
+	type ViewAlternative,
 	type ViewKey,
 	type ViewRead,
 	viewAlternatives
@@ -77,6 +78,12 @@ export interface DerivedRelationAnalysis {
 interface DerivedKey extends DerivedKeyLayout {
 	readonly index: ConstraintName
 	readonly proof: KeyProof
+	/**
+	 * The alternatives a Base over the view states beside the key (ir/keys.ts ViewKey alternatives): its proof's, and,
+	 * where it is one alternative from its root's own key, an unrepresentable one no index holds, its root's too, so
+	 * that key is a key of the view through this key's index.
+	 */
+	readonly alternatives: ReadonlyArray<ViewAlternative>
 }
 
 /**
@@ -89,7 +96,7 @@ const viewKeysOf = (relation: string, keys: ReadonlyArray<DerivedKey>): Readonly
 		premises: [derivedKeyPremise(relation, k.fields)],
 		context: "immediate",
 		members: classMembers(k.proof),
-		alternatives: viewAlternatives(k.proof)
+		alternatives: k.alternatives
 	}))
 
 /** A derived relation as ownership resolved it. */
@@ -262,7 +269,11 @@ export const analyzedDefinition = (
  * - a heading whose names are no declared names of one view (`declaredHeading`): a name the declared-name rule refuses
  *   (MalformedDescription), or two that convert to one column (IdentifierCollision), each at its field;
  * - an inherited key, or the full-heading fallback, whose unique index entry can exceed PostgreSQL's B-tree limit
- *   (UnrepresentableKey: inheritedKey, wholeHeading, oneFact).
+ *   (UnrepresentableKey: inheritedKey, wholeHeading, oneFact), but one an indexed key listed from the same root proof
+ *   stands one alternative from (analysis/logical/derived.ts InheritedKey root), which needs no index of its own: a
+ *   Base over the view states it beside that key (ir/keys.ts ViewKey alternatives, DerivedKey alternatives), on that
+ *   key's index, as the texts a key's generated digests read (ir/keys.ts GeneratedRead) are a key of the view through
+ *   the digests' index.
  *
  * Definitions outside the levels below (MalformedDescription) are refused by ownership (schema/own.ts), before any
  * definition is read. A rule over a derived relation reads its definition live, never its view
@@ -308,26 +319,46 @@ export const analyzeDerivedRelation = (
 	}
 	const wholeHeading =
 		!oneFact && keySets.length === 1 && keySets[0]?.columns.length === columns.length
-	const keys: Array<DerivedKey> = []
-	for (const key of keySets) {
-		const k = mapNonEmpty(key.columns, (c) => c.name)
-		const layout = derivedKeyLayout(key.columns)
-		if (!layout.ok) {
+	const laid = keySets.map((key) => ({ key, layout: derivedKeyLayout(key.columns) }))
+	/** The roots whose own key is unrepresentable: each indexed key listed from it states the root's alternatives. */
+	const skipped = new Set<KeyProof>()
+	for (const { key, layout } of laid) {
+		/** A key one alternative from an indexed key of its root is a key of the view through that key's index. */
+		const stated = laid.some((other) => other.layout.ok && other.key.root === key.root)
+		if (!layout.ok && !stated) {
 			return Result.err(
 				derivedRefused(at, {
 					kind: wholeHeading ? "wholeHeading" : "inheritedKey",
 					relation: name,
-					key: k,
+					key: mapNonEmpty(key.columns, (c) => c.name),
 					fault: layout.error
 				})
 			)
 		}
-		keys.push({
-			...layout.value,
-			index: identifierOf(identity.derivedKey(name, k)),
-			proof: key.proof
-		})
+		if (!layout.ok && key.proof === key.root) {
+			skipped.add(key.root)
+		}
 	}
+	const keys: Array<DerivedKey> = laid.flatMap(({ key, layout }): ReadonlyArray<DerivedKey> => {
+		if (!layout.ok) {
+			return []
+		}
+		return [
+			{
+				...layout.value,
+				index: identifierOf(
+					identity.derivedKey(
+						name,
+						mapNonEmpty(key.columns, (c) => c.name)
+					)
+				),
+				proof: key.proof,
+				alternatives: skipped.has(key.root)
+					? [...viewAlternatives(key.proof), ...viewAlternatives(key.root)]
+					: viewAlternatives(key.proof)
+			}
+		]
+	})
 	return Result.ok({
 		name,
 		ident: view.ident,

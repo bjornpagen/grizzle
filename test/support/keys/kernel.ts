@@ -484,6 +484,7 @@ export class KeyKernel {
 			case "declared":
 			case "viewAlternative":
 			case "correlated":
+			case "generated":
 			case "group":
 			case "atMostOne":
 			case "distinct":
@@ -782,6 +783,8 @@ export class KeyKernel {
 			}
 			case "match":
 				return this.#match(n, d, r.occurrence, r.source, checked)
+			case "generated":
+				return this.#generated(n, d)
 			case "projection":
 				return this.#projection(n, d, r.input, checked)
 			case "group":
@@ -1020,6 +1023,17 @@ export class KeyKernel {
 				: premisesAre([premise(n.relation, key, at.value === 0)], "immediate")
 		}
 		return [`a declared key on a ${n.kind}`]
+	}
+
+	/**
+	 * A generated field's dependency: at a Base over a stored relation, one of the generated fields stamped on it, from
+	 * exactly the fields its generation reads (ir/keys.ts GeneratedRead).
+	 */
+	#generated(n: RelNode, d: Dependency): ReadonlyArray<string> {
+		const stamped = n.kind === "Base" && n.relationKind === "relation" ? n.generated : []
+		return Arr.some(stamped, (g) => sameSet(g.reads, d.from) && sameSet([g.field], d.to))
+			? []
+			: ["not a generated field of the relation from what its generation reads"]
 	}
 
 	#fixed(
@@ -1274,6 +1288,7 @@ export class KeyKernel {
 			case "fixed":
 			case "correlated":
 			case "match":
+			case "generated":
 			case "group":
 			case "atMostOne":
 			case "distinct":
@@ -1520,6 +1535,7 @@ export class KeyKernel {
 			}
 			case "declared":
 			case "viewAlternative":
+			case "generated":
 			case "group":
 			case "atMostOne":
 			case "distinct":
@@ -1667,6 +1683,7 @@ export class KeyKernel {
 						}
 						break
 					case "correlated":
+					case "generated":
 					case "group":
 					case "ranked":
 					case "numbered":

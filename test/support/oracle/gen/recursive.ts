@@ -960,6 +960,7 @@ class GraphQueryBuilder {
 			primaryKey: nonEmptyList(relation.value.primaryKey, "a primary key"),
 			keys: Arr.map(relation.value.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
+			generated: [],
 			heading
 		})
 		return { node: id, heading }

@@ -34,6 +34,7 @@ import type {
 	ContractValueOrigin,
 	DomainOf,
 	Facts,
+	OriginOfTerm,
 	Parameterless,
 	Predicate
 } from "#compiler/types/core/phantom.ts"
@@ -45,7 +46,6 @@ import type {
 	ContractConstructor,
 	DrawnConstructor,
 	GeneratedConstructor,
-	GeneratedTermOf,
 	NotInstantBase,
 	OneContractName,
 	Pg,
@@ -342,11 +342,11 @@ export const Bits: BitsNamespace = Object.freeze<BitsNamespace>({
  * generated(type, term): a field PostgreSQL writes from its row, of `type`, whose value is `term`; it stands in the
  * record relation.generated's callback returns (schema/relation.ts generatedField).
  */
-export const generated: GeneratedConstructor = <F extends FieldBase>(
+export const generated: GeneratedConstructor = <F extends FieldBase, T>(
 	type: F & NoWriting,
-	term: GeneratedTermOf<F>,
+	term: T,
 	...extra: ReadonlyArray<never>
-): GeneratedField<F> => generatedField<F>(type, term, extra)
+): GeneratedField<F, OriginOfTerm<T>> => generatedField<F, OriginOfTerm<T>>(type, term, extra)
 
 /**
  * searchDocument(configuration, [weight, text], ...): a generated field PostgreSQL parses from its row's texts under

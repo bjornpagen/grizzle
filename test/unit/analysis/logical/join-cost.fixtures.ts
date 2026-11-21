@@ -36,6 +36,7 @@ export const productOf = (k: number): ValidDag => {
 				primaryKey: ["a"],
 				keys: [["b"]],
 				relationKind: "relation",
+				generated: [],
 				heading: [
 					{ name: "a", type: int4 },
 					{ name: "b", type: int4 }
@@ -84,6 +85,7 @@ export const classesOf = (k: number, s: number): ValidDag => {
 			primaryKey: [primaryKey],
 			keys,
 			relationKind: "relation",
+			generated: [],
 			heading: Arr.map(columns, (name) => ({ name, type: int4 })),
 			loc: undefined,
 			meta: conservativeMeta

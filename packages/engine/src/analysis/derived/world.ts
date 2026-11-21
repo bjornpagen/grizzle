@@ -46,7 +46,7 @@ const wholeHeadingKey = (
 	whole: WholeKey,
 	heading: NonEmptyReadonlyArray<DeclaredColumn>
 ): NonEmptyReadonlyArray<InheritedKey<DeclaredColumn>> | undefined =>
-	whole.kind === "set" ? [{ columns: heading, proof: whole.key }] : undefined
+	whole.kind === "set" ? [{ columns: heading, proof: whole.key, root: whole.key }] : undefined
 
 /**
  * The analysis of one query entry over its base's checked schema.

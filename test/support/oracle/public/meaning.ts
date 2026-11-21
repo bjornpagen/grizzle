@@ -429,6 +429,7 @@ class Translation {
 			primaryKey: nonEmptyList(relation.primaryKey, "a primary key"),
 			keys: Arr.map(relation.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
+			generated: [],
 			heading
 		})
 		return { node: id, heading }

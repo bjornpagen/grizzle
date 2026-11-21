@@ -11,6 +11,8 @@ import type { HeadingColumn } from "#compiler/ir/rel.ts"
 export interface InheritedKey<C extends HeadingColumn> {
 	readonly columns: NonEmptyReadonlyArray<C>
 	readonly proof: KeyProof
+	/** The root's proof it is listed from: `proof` itself for the proof's own key, else the one it is an alternative of. */
+	readonly root: KeyProof
 }
 
 /**
@@ -46,23 +48,23 @@ export const inheritedKeys = <C extends HeadingColumn>(
 	const empty = proved.find((k) => k.key.length === 0)
 	if (empty !== undefined) {
 		const single = heading.find((c) => representable(c))
-		return [{ columns: single === undefined ? heading : [single], proof: empty }]
+		return [{ columns: single === undefined ? heading : [single], proof: empty, root: empty }]
 	}
 	const position = new Map(heading.map((c, i) => [c.name, i]))
 	const at = (c: C) => defined(position.get(c.name), "a key's column is a column of its heading")
-	const listed = proved.flatMap((proof) => [
-		proof,
-		...proof.factors.flatMap((f) =>
+	const listed = proved.flatMap((root) => [
+		{ proof: root, root },
+		...root.factors.flatMap((f) =>
 			f.alternatives.flatMap((a) => {
-				const swapped = prove(keyWith(proof, f, a))
-				return swapped === undefined ? [] : [swapped]
+				const swapped = prove(keyWith(root, f, a))
+				return swapped === undefined ? [] : [{ proof: swapped, root }]
 			})
 		)
 	])
 	return listed
-		.flatMap((proof): ReadonlyArray<InheritedKey<C>> => {
+		.flatMap(({ proof, root }): ReadonlyArray<InheritedKey<C>> => {
 			const columns = heading.filter((c) => proof.key.includes(c.name))
-			return isNonEmpty(columns) ? [{ columns, proof }] : []
+			return isNonEmpty(columns) ? [{ columns, proof, root }] : []
 		})
 		.toSorted((a, b) => {
 			if (a.columns.length !== b.columns.length) {

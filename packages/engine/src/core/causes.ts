@@ -545,8 +545,9 @@ export const loginRuleText = (rule: LoginRule): string => {
 /**
  * Why a generated field's expression is refused: it reads generated field `read` (itself among them), which no
  * generation expression reads, as PostgreSQL's never does; it reads an input beyond its own row, `input` the description
- * kind of the first in expression order; or its type `expression` is not the field's declared `declared` (each a type
- * label) but for what the column's domain checks, with no implicit cast.
+ * kind of the first in expression order; its type `expression` is not the field's declared `declared` (each a type
+ * label) but for what the column's domain checks, with no implicit cast, or shares no value with it (`disjoint`); or it is
+ * stable, which PostgreSQL never stores (`stable`).
  */
 export type GeneratedRule =
 	| { readonly kind: "readsGenerated"; readonly read: string }
@@ -556,6 +557,7 @@ export type GeneratedRule =
 	  }
 	| { readonly kind: "type"; readonly declared: string; readonly expression: string }
 	| { readonly kind: "disjoint"; readonly declared: string; readonly expression: string }
+	| { readonly kind: "stable" }
 
 /** What each input beyond a row is, in a generated field's refusal. */
 const rowInputWords: {
@@ -581,6 +583,8 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
 			return `its expression is ${rule.expression}, not its declared ${rule.declared}: a generation expression is of its column's type, but for the pattern and byte bound its column's domain checks, with no implicit cast`
 		case "disjoint":
 			return `its expression is ${rule.expression}, of which no value is its declared ${rule.declared}: its column's domain would refuse every row, so none could ever be written`
+		case "stable":
+			return "its expression is stable, reading a setting of its session, as a conversion to money reads lc_monetary; PostgreSQL stores a generated column only by an immutable expression"
 	}
 }
 

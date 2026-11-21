@@ -20,6 +20,7 @@ import type {
 	ValueOfTerm
 } from "#compiler/types/core/phantom.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
+import type { FieldBase, GeneratedField } from "#compiler/types/fields/field.ts"
 import type { Aggregate, Producer } from "#compiler/types/query/terms.ts"
 import type { AnyClosed, AnyRelation, HeadingOf, NameOf } from "#compiler/types/schema/relation.ts"
 import type {
@@ -911,25 +912,99 @@ type BoundOrigins<B> = { [K in keyof B]-?: OriginKey<B[K]> }[keyof B]
 type DepsOf<S, M, FixedFields extends string> =
 	M extends SoleMatch<infer Sh, infer B>
 		? Sh extends AnyShown
-			? KeyDeps<
-					KeysIn<S, Sh>,
-					B,
-					FixedFields,
-					BoundOrigins<B>,
-					OriginNeeds<Sh["reads"], FixedFields>
-				>
+			? | KeyDeps<
+						KeysIn<S, Sh>,
+						B,
+						FixedFields,
+						BoundOrigins<B>,
+						OriginNeeds<Sh["reads"], FixedFields>,
+						Sh["generations"]
+				  >
+				| GenerationDeps<Sh["generations"], B, FixedFields>
 			: never
 		: never
 
 /**
- * One dependency per key whose fields are all bound: from what the bound terms need, and what the source's own inputs
- * need (Extra), to To.
+ * One dependency per key whose fields are all known: from what the bound terms need, and what the source's own inputs
+ * need (Extra), to To. A key field is known where it is bound, or where it is a generated field whose reads are all bound
+ * (KeyFieldNeeds).
  */
-type KeyDeps<Keys, B, FixedFields extends string, To, Extra> = 0 extends 1 & Keys
+type KeyDeps<Keys, B, FixedFields extends string, To, Extra, Gen> = 0 extends 1 & Keys
 	? never
 	: Keys extends ReadonlyArray<infer F extends string>
-		? DepFrom<{ [K in F]-?: K extends keyof B ? Needs<B[K], FixedFields> : Lost }[F] | Extra, To>
+		? DepFrom<{ [K in F]-?: KeyFieldNeeds<K, B, FixedFields, Gen> }[F] | Extra, To>
 		: never
+
+/**
+ * What a match's key field K needs to be known: the term bound at it; or, unbound, the terms bound at every field its
+ * generation reads, where it is a generated field of Gen (GenerationsOf), as the engine's Base states it determined by
+ * them (ir/keys.ts GeneratedRead); Lost otherwise.
+ */
+type KeyFieldNeeds<K, B, FixedFields extends string, Gen> = K extends keyof B
+	? Needs<B[K], FixedFields>
+	: GeneratedNeeds<Extract<Gen, Generation<K & string, string>>, B, FixedFields>
+/** What the generation of a key field needs, ReadNeeds; Lost where the field is no generated one of the relation. */
+type GeneratedNeeds<G, B, FixedFields extends string> = [G] extends [never]
+	? Lost
+	: G extends Generation<string, infer Reads>
+		? ReadNeeds<Reads, B, FixedFields>
+		: Lost
+
+/** What the terms bound at the fields Reads need: Lost where one of them is unbound. */
+type ReadNeeds<Reads extends string, B, FixedFields extends string> = {
+	[R in Reads]-?: R extends keyof B ? Needs<B[R], FixedFields> : Lost
+}[Reads]
+
+/**
+ * One dependency per generation of a match's relation whose field and reads are all bound: from what the terms bound at
+ * its reads need to the variable bound at its field, a function of them in every fact (ir/keys.ts GeneratedRead).
+ */
+type GenerationDeps<Gen, B, FixedFields extends string> =
+	Gen extends Generation<infer G, infer Reads>
+		? G extends keyof B
+			? DepFrom<ReadNeeds<Reads, B, FixedFields>, OriginKey<B[G]>>
+			: never
+		: never
+
+/** A stored relation's fields as it declares them, its generated ones each a GeneratedField (types/fields/field.ts). */
+type FieldsOf<R> = R extends { readonly fields: infer Fields } ? Fields : never
+
+/** A generated field G of a stored relation and the fields its generation reads, Reads, which determine it. */
+interface Generation<out G extends string, out Reads extends string> {
+	readonly field: G
+	readonly reads: Reads
+}
+
+/**
+ * The generations of a stored relation's heading H that determine their fields (ir/keys.ts GeneratedRead): each
+ * generated field whose term's origin names fields of its row alone (ReadFields), none of them a float, whose -0 and +0
+ * are one key value a generation may tell apart; a generation reading what the types do not trace is none.
+ */
+type GenerationsOf<H> = {
+	[K in keyof H]-?: H[K] extends GeneratedField<FieldBase, infer O>
+		? GenerationOver<K & string, ReadFields<O>, H>
+		: never
+}[keyof H]
+type GenerationOver<G extends string, Reads, H> = Lost extends Reads
+	? never
+	: true extends ReadsFloat<Reads, H>
+		? never
+		: Generation<G, Reads & string>
+type ReadsFloat<Reads, H> = Reads extends keyof H
+	? H[Reads] extends { readonly sql: "real" | "double precision" }
+		? true
+		: false
+	: false
+/** The fields of its row a generation's term origin O names: each field an operand is, inputs none, Lost for any other. */
+type ReadFields<O> = unknown extends O
+	? Lost
+	: O extends InputOrigin
+		? never
+		: O extends ComputedOrigin<infer Operands>
+			? ReadFields<Operands>
+			: O extends Origin<string, infer F>
+				? F
+				: Lost
 
 type KeyOfAnyArm<H> = H extends unknown ? keyof H : never
 type DepFrom<From, To> = Lost extends From ? never : Dep<From & string, To & string>
@@ -968,15 +1043,22 @@ type Choices<S, M, H, FixedFields extends string> =
 	| readonly [never, never, DepsOf<S, M, FixedFields>]
 	| (M extends SoleMatch<infer Sh, infer B>
 			? Sh extends AnyShown
-				? KeyChoices<KeysIn<S, Sh>, B, H, FixedFields, OriginNeeds<Sh["reads"], FixedFields>>
+				? KeyChoices<
+						KeysIn<S, Sh>,
+						B,
+						H,
+						FixedFields,
+						OriginNeeds<Sh["reads"], FixedFields>,
+						Sh["generations"]
+					>
 				: never
 			: never)
 
-type KeyChoices<Keys, B, H, FixedFields extends string, Extra> = 0 extends 1 & Keys
+type KeyChoices<Keys, B, H, FixedFields extends string, Extra, Gen> = 0 extends 1 & Keys
 	? never
 	: Keys extends ReadonlyArray<infer F extends string>
 		? HeadSet<
-				| { [K in F]-?: K extends keyof B ? HeadFieldsAt<Needs<B[K], FixedFields>, H> : Lost }[F]
+				| { [K in F]-?: HeadFieldsAt<KeyFieldNeeds<K, B, FixedFields, Gen>, H> }[F]
 				| HeadFieldsAt<Extra, H>,
 				BoundOrigins<B> & string
 			>
@@ -1097,27 +1179,36 @@ type Declaring = "relation" | "closed" | "derived" | "world"
  * source, and each later instantiation of a type holding it, would instantiate the schema whole. ShownOf reads the
  * source once, where the match is written, into types none of which names it.
  */
-export interface Shown<out Kind extends ShownKind, out N, out Keys, out Folds, out Rd> {
+export interface Shown<out Kind extends ShownKind, out N, out Keys, out Folds, out Rd, out Gen> {
 	readonly kind: Kind
 	readonly name: N
 	readonly keys: Keys
 	readonly folds: Folds
 	readonly reads: Rd
+	/** A stored relation's generations that determine their fields (GenerationsOf), none for any other source. */
+	readonly generations: Gen
 }
-type AnyShown = Shown<ShownKind, string, unknown, unknown, unknown>
+type AnyShown = Shown<ShownKind, string, unknown, unknown, unknown, unknown>
 /** A source a variable's origin names. */
-type NamedShown = Shown<Exclude<ShownKind, "delta" | "source">, string, unknown, unknown, unknown>
+type NamedShown = Shown<
+	Exclude<ShownKind, "delta" | "source">,
+	string,
+	unknown,
+	unknown,
+	unknown,
+	unknown
+>
 
 /** The keys of a match's source in the rule's schema S: its own, and those S declares for a named source (KeysOf). */
 type KeysIn<S, Sh> =
-	Sh extends Shown<infer Kind, infer N extends string, infer Keys, unknown, unknown>
+	Sh extends Shown<infer Kind, infer N extends string, infer Keys, unknown, unknown, unknown>
 		? Kind extends Declaring
 			? Keys | DeclaredKeysOfAll<S, N>
 			: Keys
 		: never
 /** The keys a fold reads a match's source by in the rule's schema S: its own, and those S declares (KeysOf). */
 export type FoldsIn<S, Sh> =
-	Sh extends Shown<infer Kind, infer N extends string, unknown, infer Folds, unknown>
+	Sh extends Shown<infer Kind, infer N extends string, unknown, infer Folds, unknown, unknown>
 		? Kind extends Declaring | "delta"
 			? Folds | DeclaredKeysOfAll<S, N>
 			: Folds
@@ -1139,7 +1230,7 @@ export type FoldsIn<S, Sh> =
 export type ShownOf<R> = R extends AnyContext
 	? NamedShownOf<"context", NameOf<R>, readonly []>
 	: R extends AnyRelation
-		? NamedShownOf<"relation", NameOf<R>, OwnKeysOf<R>>
+		? RelationShownOf<NameOf<R>, OwnKeysOf<R>, GenerationsOf<FieldsOf<R>>>
 		: R extends AnyClosed
 			? NamedShownOf<"closed", NameOf<R>, OwnKeysOf<R>>
 			: R extends AnyDerived
@@ -1159,9 +1250,11 @@ export type ShownOf<R> = R extends AnyContext
 								ReadsOf<R>
 							>
 /** A named source of kind Kind, its name N and its own keys K. */
-type NamedShownOf<Kind extends ShownKind, N, K> = Shown<Kind, N, K, K, never>
+type NamedShownOf<Kind extends ShownKind, N, K> = Shown<Kind, N, K, K, never, never>
+/** A stored relation of name N, its own keys K and its generations that determine their fields Gen (GenerationsOf). */
+type RelationShownOf<N, K, Gen> = Shown<"relation", N, K, K, never, Gen>
 /** A source that is no named one, keyed by Keys (ShownKeysOf), folded by Folds, its bindings reading Rd. */
-type SourceShownOf<Keys, Folds, Rd> = Shown<"source", never, Keys, Folds, Rd>
+type SourceShownOf<Keys, Folds, Rd> = Shown<"source", never, Keys, Folds, Rd, never>
 /**
  * A delta of the relation D, of heading H and keys Keys: a world relation's folded by its heading, any other's by its
  * relation's own keys and those its rule's schema declares of the relation's name (FoldsIn); one whose relation the
@@ -1172,7 +1265,7 @@ type DeltaShownOf<D, H, Keys, Rd> = [D] extends [never]
 	: D extends AnyWorld
 		? SourceShownOf<Keys, HeadingFolds<H>, Rd>
 		: DeltaRelationShownOf<NameOf<D>, Keys, OwnKeysOf<D>, Rd>
-type DeltaRelationShownOf<N, Keys, Folds, Rd> = Shown<"delta", N, Keys, Folds, Rd>
+type DeltaRelationShownOf<N, Keys, Folds, Rd> = Shown<"delta", N, Keys, Folds, Rd, never>
 /** The relation a delta source holds facts of: never where its phantom names none. */
 type DeltaOf<R> = R extends { readonly [delta]?: Invariant<infer D> | undefined } ? D : never
 
@@ -1305,7 +1398,7 @@ type HeadParentsBound<H, B, RN> = false extends {
  * parent-bound fields exactly a key of it.
  */
 type KeyedByParent<S, Sh, B, H> =
-	Sh extends Shown<"relation" | "closed", infer RN, unknown, unknown, unknown>
+	Sh extends Shown<"relation" | "closed", infer RN, unknown, unknown, unknown, unknown>
 		? "other" extends BindingKinds<B, RN>[keyof B]
 			? false
 			: HeadParentsBound<H, B, RN> extends true
@@ -1500,7 +1593,7 @@ type ArmAt<P, PKF, D extends string, Hd extends string, A, RN, B> =
 export type ReflexiveProof<Occurrences, Filters, H> = Occurrences extends readonly [
 	SoleMatch<infer Sh, infer B>
 ]
-	? Sh extends Shown<"relation" | "derived", infer RN, unknown, unknown, unknown>
+	? Sh extends Shown<"relation" | "derived", infer RN, unknown, unknown, unknown, unknown>
 		? OneRelationEach<RN, B> extends true
 			? ReflexiveOf<RN, B, Filters, H>
 			: false

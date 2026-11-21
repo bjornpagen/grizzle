@@ -235,6 +235,7 @@ export const build = (yFirst: boolean) => {
 		primaryKey: ["x", "y"],
 		keys: [],
 		relationKind: "relation",
+		generated: [],
 		heading: heading(["x", scalarTypes.uuid], ["y", scalarTypes.uuid]),
 		loc: undefined,
 		meta: conservativeMeta
@@ -418,6 +419,7 @@ export const buildNeed = {
 				primaryKey: ["amount"],
 				keys: [],
 				relationKind: "relation",
+				generated: [],
 				heading: heading(["amount", type]),
 				loc: undefined,
 				meta: conservativeMeta

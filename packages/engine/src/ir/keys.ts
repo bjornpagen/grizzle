@@ -50,6 +50,8 @@ import type { DeclaredKey, HeadingColumn, KeySet } from "#compiler/ir/rel.ts"
  *   a region column's value, and that column's variable);
  * - a correlated variable follows from the variables its expression reads;
  * - a match determines what it binds from its source's dependency;
+ * - a stored generated field is determined by the fields its generation reads, at a Base over its relation, where none
+ *   of them is a float (GeneratedRead);
  * - a projection closes over its input, its computed and constant outputs included;
  * - a group key determines the group, and a group keeps its input's dependencies among its key;
  * - a node keeping its input's rows keeps its input's dependencies;
@@ -133,6 +135,7 @@ export type Rule =
 	| { readonly rule: "equal"; readonly witness: EqualWitness }
 	| { readonly rule: "correlated"; readonly index: number }
 	| { readonly rule: "match"; readonly occurrence: OccurrenceId; readonly source: Implication }
+	| { readonly rule: "generated" }
 	| { readonly rule: "projection"; readonly input: Implication }
 	| { readonly rule: "group" }
 	| { readonly rule: "grouped"; readonly input: Implication }
@@ -155,6 +158,24 @@ export type Rule =
 			readonly premises: ReadonlyArray<Premise>
 			readonly context: EvidenceContext
 	  }
+
+/**
+ * A stored generated field of a relation and the fields its generation reads, in the order it first reads them, which
+ * determine it in every row: decided once where the checked schema types the relation (analysis/schema.ts
+ * generatedReadsOf), and stamped on every Base over the relation (rel.ts StoredBase), which states the dependency
+ * (generationDetermines). PostgreSQL computes the field from its own row whenever it writes the row, by an immutable
+ * expression of the row's written fields and closed relations (check/generated.ts; a stable one, a money conversion's,
+ * is refused), so two rows whose reads hold one value hold one value of the field: a generation whose field has a key
+ * makes its reads a key alternative, the texts a declared digest is generated from, among them. A generation reading
+ * a float states nothing: a float's -0 and +0 are one value under PostgreSQL's equality, which a key compares by, and
+ * two values a generation may tell apart (its text, its reciprocal), so the rows of one key value of the float may hold
+ * two values of the field. Every other stored value is in its one form (scalar/values/identity.ts), so its equality is
+ * its identity. No generation escapes the rule otherwise: every generated field is STORED, there being no virtual one.
+ */
+export interface GeneratedRead {
+	readonly field: string
+	readonly reads: KeySet
+}
 
 /** A dependency a node states over its heading: `from` determines `to`, by `rule`. */
 export interface Dependency {
@@ -492,6 +513,10 @@ export const matchBinds = (
 	source: Implication
 ): Dependency => dependency(from, to, { rule: "match", occurrence, source })
 
+/** A stored generated field is determined by the fields its generation reads (GeneratedRead). */
+export const generationDetermines = (generation: GeneratedRead): Dependency =>
+	dependency(generation.reads, [generation.field], { rule: "generated" })
+
 export const projectionCloses = (from: KeySet, to: KeySet, input: Implication): Dependency =>
 	dependency(from, to, { rule: "projection", input })
 
@@ -591,6 +616,7 @@ const ruleContext = (rule: Rule): EvidenceContext | undefined => {
 			return rule.witness.kind === "closedColumns" ? "queryLocal" : undefined
 		case "correlated":
 		case "match":
+		case "generated":
 		case "projection":
 		case "group":
 		case "grouped":
@@ -691,6 +717,7 @@ const groundRule = (g: Collected, rule: Rule): void => {
 			}
 			return
 		case "correlated":
+		case "generated":
 		case "group":
 		case "atMostOne":
 		case "distinct":

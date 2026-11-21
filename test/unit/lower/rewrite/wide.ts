@@ -141,6 +141,7 @@ const resolveWide = (s: WideSketch): QueryCase => {
 			primaryKey: nonEmptyList(r.primaryKey, "a primary key"),
 			keys: [],
 			relationKind: "relation",
+			generated: [],
 			heading: headingOf(r),
 			loc: undefined,
 			meta: conservativeMeta

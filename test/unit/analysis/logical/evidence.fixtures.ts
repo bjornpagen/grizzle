@@ -106,6 +106,7 @@ const provingCase = (c: QueryCase, picks: ReadonlyArray<number>): QueryCase => {
 			primaryKey: nonEmptyList(relation.primaryKey, "a primary key"),
 			keys: Arr.map(relation.keys, (k) => nonEmptyList(k, "a candidate key")),
 			relationKind: "relation",
+			generated: [],
 			heading,
 			loc: undefined,
 			meta: conservativeMeta

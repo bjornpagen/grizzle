@@ -227,6 +227,7 @@ export class Q {
 			primaryKey: nonEmptyList(relation.primaryKey, "a primary key"),
 			keys: [],
 			relationKind: "relation",
+			generated: [],
 			heading: relation.heading,
 			loc: undefined,
 			meta

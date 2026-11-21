@@ -350,6 +350,7 @@ const baseNode = (b: DagBuilder, r: GenRelation, keys: ReadonlyArray<ReadonlyArr
 		primaryKey: nonEmptyList(r.primaryKey, "a primary key"),
 		keys: Arr.map(keys, (k) => nonEmptyList(k, "a candidate key")),
 		relationKind: "relation",
+		generated: [],
 		heading: relationHeadingOf(r)
 	})
 

@@ -22,7 +22,7 @@ import type {
 	TableExpr,
 	TypedLiteral
 } from "#compiler/ir/expr.ts"
-import type { KeyProof, ViewKey } from "#compiler/ir/keys.ts"
+import type { GeneratedRead, KeyProof, ViewKey } from "#compiler/ir/keys.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 
 export const relKinds = [
@@ -396,8 +396,14 @@ interface BaseOf<R extends RefKinds, Kind extends BaseRelationKind> extends Node
 	readonly relationKind: Kind
 }
 
-/** A Base over an ordinary relation's table, keyed by its declared keys. */
-export type StoredBase<R extends RefKinds> = BaseOf<R, "relation">
+/**
+ * A Base over an ordinary relation's table, keyed by its declared keys. `generated` holds its relation's generated
+ * fields each with the fields its generation reads, those that determine it (ir/keys.ts GeneratedRead), which the
+ * checker stamps from the checked schema's reading of the relation (ir/law.ts RelationInfo generated).
+ */
+export interface StoredBase<R extends RefKinds> extends BaseOf<R, "relation"> {
+	readonly generated: ReadonlyArray<GeneratedRead>
+}
 
 /**
  * A Base over a view: a derived relation's materialized view, or a role's world relation, a plain view. `view` holds

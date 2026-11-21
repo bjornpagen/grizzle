@@ -531,13 +531,14 @@ export const admitRelation = (
 /**
  * generated(type, term): a field PostgreSQL writes, carrying its declared type's column and SQL type so that it is read
  * as every field of that type is. It records the term, which relation.generated reads against the row it was built
- * over.
+ * over. O is the term's origin as its caller's type reads it (types/fields/field.ts GeneratedField), a phantom no
+ * runtime value holds: unknown where the caller traces none.
  */
-export const generatedField = <F extends FieldBase>(
+export const generatedField = <F extends FieldBase, O = unknown>(
 	type: F,
 	term: unknown,
 	extra: ReadonlyArray<unknown>
-): GeneratedField<F> => {
+): GeneratedField<F, O> => {
 	if (extra.length > 0) {
 		throw malformed("generated", "generated(type, term): two arguments")
 	}
@@ -547,7 +548,7 @@ export const generatedField = <F extends FieldBase>(
 		),
 		"generated type"
 	)
-	const value: GeneratedField<F> = Object.freeze({
+	const value: GeneratedField<F, O> = Object.freeze({
 		writing: "generated",
 		type,
 		column: type.column,
