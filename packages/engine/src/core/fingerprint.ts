@@ -6,15 +6,16 @@ import {
 } from "@bjornpagen/grizzle-text/utf8"
 import { nominal } from "#compiler/core/brand.ts"
 import {
-	type CanonicalObject,
+	type CanonicalContainer,
+	type ContainerTokens,
 	canonicalFormat,
 	canonicalOf,
 	catchRefusal,
 	type EncodeOptions,
-	encode,
+	isCanonicalContainer,
 	unwrap,
 	writeCanonical,
-	writeCanonicalOver,
+	writeIdentityText,
 	writeOwned
 } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedArtifact } from "#compiler/core/errors.ts"
@@ -80,8 +81,8 @@ export const identityDigest = (
  */
 export class IdentityDigests {
 	readonly #options: EncodeOptions
-	/** Each frozen container's text as a member of another, its digest tagged, by the container. */
-	readonly #tokens = new WeakMap<object, WellFormedText>()
+	/** Each frozen container's identity digest, its token's payload, by the container. */
+	readonly #digests = new WeakMap<object, IdentityDigest>()
 	readonly #messages = new Sha256Messages(messageChunk)
 	#digested = 0
 
@@ -92,11 +93,9 @@ export class IdentityDigests {
 	/** The identity digest of `value` (`identityDigest`); a refused value leaves no message half written. */
 	of(value: unknown): Result.Result<IdentityDigest, CompileError> {
 		const identity = catchRefusal(() => {
-			/** Each open container's token within this value. */
-			const open = new Map<object, WellFormedText>()
 			const read = containerOf(value)
 			if (read !== undefined) {
-				return mintIdentityDigest(this.#containerDigest(read, open, unframed))
+				return mintIdentityDigest(this.#containerDigest(read, this.#within(), unframed))
 			}
 			unwrap(writeCanonical(this.#messages.out, value, this.#options))
 			return mintIdentityDigest(this.#messages.hex())
@@ -115,7 +114,7 @@ export class IdentityDigests {
 		const hashed = catchRefusal(() => {
 			const read = containerOf(value)
 			if (read !== undefined) {
-				return this.#containerDigest(read, new Map(), (out) => writeFrame(out, line))
+				return this.#containerDigest(read, this.#within(), (out) => writeFrame(out, line))
 			}
 			writeFrame(this.#messages.out, line)
 			unwrap(writeCanonical(this.#messages.out, value, this.#options))
@@ -137,64 +136,48 @@ export class IdentityDigests {
 		return this.#messages.out.length
 	}
 
-	/** A container's text as a member of another: its digest tagged, digested on its first read. */
-	#tokenOf(read: Container, open: Map<object, WellFormedText>): WellFormedText {
+	/**
+	 * The tokens of one value's containers: each a container's identity digest, a frozen one's kept across every value
+	 * these digests read, one that is not frozen within this value alone.
+	 */
+	#within(): ContainerTokens<IdentityDigest> {
+		const open = new Map<object, IdentityDigest>()
+		const tokens: ContainerTokens<IdentityDigest> = {
+			of: (read) => this.#digestOf(read, open, tokens),
+			write: writeToken
+		}
+		return tokens
+	}
+
+	/** A container's identity digest, its token's payload: digested on its first read. */
+	#digestOf(
+		read: CanonicalContainer,
+		open: Map<object, IdentityDigest>,
+		tokens: ContainerTokens<IdentityDigest>
+	): IdentityDigest {
 		const container = read.kind === "array" ? read.items : read.record
-		const tokens = Object.isFrozen(container) ? this.#tokens : open
-		const known = tokens.get(container)
+		const digests = Object.isFrozen(container) ? this.#digests : open
+		const known = digests.get(container)
 		if (known !== undefined) {
 			return known
 		}
-		const token = identityToken(this.#containerDigest(read, open, unframed))
+		const digest = mintIdentityDigest(this.#containerDigest(read, tokens, unframed))
 		this.#digested += 1
-		tokens.set(container, token)
-		return token
+		digests.set(container, digest)
+		return digest
 	}
 
 	/**
 	 * The digest of a container's own text: its scalars as `encode` writes them, its containers as their tokens, each
-	 * container's digested before the text is begun, and each member refused in order where `encode` refuses it.
+	 * container's digested before the text is begun, and each member refused in order where `encode` refuses it
+	 * (canonical.ts writeIdentityText), the text written straight into the message.
 	 */
 	#containerDigest(
-		read: Container,
-		open: Map<object, WellFormedText>,
+		read: CanonicalContainer,
+		tokens: ContainerTokens<IdentityDigest>,
 		before: (out: Utf8Writer) => void
 	): string {
-		const out = this.#messages.out
-		if (read.kind === "array") {
-			const members = read.items.map((item): Member => {
-				const at = containerOf(item)
-				if (at !== undefined) {
-					return { kind: "token", token: this.#tokenOf(at, open) }
-				}
-				refuseOutside(item, this.#options)
-				return { kind: "scalar", item }
-			})
-			before(out)
-			out.ascii("[")
-			for (const [i, member] of members.entries()) {
-				if (i > 0) {
-					out.ascii(",")
-				}
-				if (member.kind === "token") {
-					out.text(member.token)
-				} else {
-					unwrap(writeCanonical(out, member.item, this.#options))
-				}
-			}
-			out.ascii("]")
-			return this.#messages.hex()
-		}
-		const written = new Map<string, WellFormedText>()
-		for (const key of Object.keys(read.record)) {
-			const member = read.record[key]
-			const at = containerOf(member)
-			if (at !== undefined && !this.#options.omit(key, member, [])) {
-				written.set(key, this.#tokenOf(at, open))
-			}
-		}
-		before(out)
-		unwrap(writeCanonicalOver(out, read.record, this.#options, written))
+		writeIdentityText(this.#messages.out, read, this.#options, tokens, before)
 		return this.#messages.hex()
 	}
 }
@@ -202,39 +185,28 @@ export class IdentityDigests {
 /** What a message holds before a container's own identity text where no frame is: nothing. */
 const unframed = (_out: Utf8Writer): void => undefined
 
-/** A container's text as a member of another's identity text: its identity digest, tagged (`identityDigest`). */
-const identityToken = (identity: string): WellFormedText =>
-	wellFormed(`"~${identityTag}:${identity}"`)
-
-/** An array's member as its container's identity text holds it: a container's token, or a scalar written as it is. */
-type Member =
-	| { readonly kind: "token"; readonly token: WellFormedText }
-	| { readonly kind: "scalar"; readonly item: unknown }
-
 /**
- * A value no container holds refused as `encode` refuses it, where it is outside the canonical model; any other is a
- * scalar of the model, which encodes.
+ * A container's text as a member of another's identity text, its token: the JSON literal of its identity digest tagged
+ * (`identityDigest`), "~identity:<digest>", each piece ASCII, written as it is with no string built of it.
  */
-const refuseOutside = (value: unknown, options: EncodeOptions): void => {
-	const read = canonicalOf(value)
-	if (typeof read === "object" && read.kind === "outside") {
-		unwrap(encode(value, options))
-	}
-}
-
-/** A canonical object that is a container, an array or a plain record (identityDigest). */
-type Container = Extract<CanonicalObject, { readonly kind: "array" | "record" }>
-
-/** A value read as a container by the canonical model; undefined for a scalar and a value outside it. */
-const containerOf = (value: unknown): Container | undefined => {
-	const read = canonicalOf(value)
-	return typeof read === "object" && (read.kind === "array" || read.kind === "record")
-		? read
-		: undefined
+const writeToken = (out: Utf8Writer, digest: IdentityDigest): void => {
+	out.ascii(tokenOpen)
+	out.ascii(digest)
+	out.ascii(tokenClose)
 }
 
 /** The tag of a container's identity digest in its container's text (`identityDigest`). */
 const identityTag = "identity"
+
+/** What a token holds before its digest, its opening quote and its tag (`writeToken`), and after it, its closing quote. */
+const tokenOpen = `"~${identityTag}:`
+const tokenClose = '"'
+
+/** A value read as a container by the canonical model; undefined for a scalar and a value outside it. */
+const containerOf = (value: unknown): CanonicalContainer | undefined => {
+	const read = canonicalOf(value)
+	return isCanonicalContainer(read) ? read : undefined
+}
 
 /** The first line of every digest's frame, the canonical format's, and the newline that ends a domain's. */
 const formatLine = wellFormed(`${canonicalFormat}\n`)

@@ -8,9 +8,11 @@
  * value than the one the bytes hold. Its one encoder, `writeUtf8`, writes a text's bytes in place, where its caller
  * counted them (`utf8Length`, by the same rule), so a text written into a larger array is copied from nowhere; its one
  * writer of a text piece by piece as bytes, `Utf8Writer`, writes each piece, a JSON value's text among them, by it into
- * one buffer, so no text of the pieces is built. It imports nothing and runs wherever JavaScript does, a browser
- * included.
+ * one buffer, so no text of the pieces is built. It imports nothing but grizzle-text's invariants and runs wherever
+ * JavaScript does, a browser included.
  */
+
+import { defined } from "#text/base/invariant.ts"
 
 declare const wellFormedBrand: unique symbol
 
@@ -112,8 +114,14 @@ const unitsOf = (width: Width): 1 | 2 => (width === 4 ? 2 : 1)
  * it (`widthAt`), a lone surrogate counting three bytes.
  */
 export const utf8Length = (text: string): number => {
+	const length = text.length
 	let bytes = 0
-	for (let at = 0; at < text.length;) {
+	for (let at = 0; at < length;) {
+		if (text.charCodeAt(at) < 0x80) {
+			bytes += 1
+			at += 1
+			continue
+		}
 		const width = widthAt(text, at)
 		bytes += width
 		at += unitsOf(width)
@@ -158,8 +166,16 @@ const writePoint = (out: Uint8Array, to: number, text: string, i: number, width:
  * surrogate, which has no UTF-8, is no WellFormedText, so it never reaches here.
  */
 export const writeUtf8 = (out: Uint8Array, at: number, text: WellFormedText): number => {
+	const length = text.length
 	let to = at
-	for (let i = 0; i < text.length;) {
+	for (let i = 0; i < length;) {
+		const unit = text.charCodeAt(i)
+		if (unit < 0x80) {
+			out[to] = unit
+			to += 1
+			i += 1
+			continue
+		}
 		const width = widthAt(text, i)
 		writePoint(out, to, text, i, width)
 		to += width
@@ -246,6 +262,13 @@ const asciiEscapes: ReadonlyArray<string | undefined> = Array.from({ length: 0x8
 )
 
 /**
+ * Whether JSON escapes each ASCII code unit, by unit, 1 where `asciiEscapes` holds an escape and 0 where it holds none:
+ * the same table read as one byte a unit, so the writer's loop (Utf8Writer.jsonString) tests a unit with one load and
+ * reads an escape only for a unit that has one.
+ */
+const asciiEscaped = Uint8Array.from(asciiEscapes, (escape) => (escape === undefined ? 0 : 1))
+
+/**
  * The JSON escape of one UTF-16 code unit inside a string literal, as JSON.stringify writes it (escapedUnit), read from
  * the escapes made once as the module loads, so no escape is spelled again for each unit; none for a unit JSON writes
  * as itself, a surrogate among them, which is escaped only where it is lone (Utf8Writer.jsonString). The one spelling
@@ -254,6 +277,10 @@ const asciiEscapes: ReadonlyArray<string | undefined> = Array.from({ length: 0x8
  */
 export const jsonEscape = (unit: number): string | undefined =>
 	unit < 0x80 ? asciiEscapes[unit] : undefined
+
+/** The escape of an ASCII code unit JSON escapes (`asciiEscaped` holds 1 for it), which `asciiEscapes` holds. */
+const escapeOf = (unit: number): string =>
+	defined(asciiEscapes[unit], "an ASCII unit asciiEscaped marks has an escape")
 
 /** An ASCII text's bytes written into `out` from `to`, one a code unit, and the position past them. */
 const writeAscii = (out: Uint8Array, to: number, text: string): number => {
@@ -310,6 +337,14 @@ export class Utf8Writer {
 	/** The bytes held passed to `into`, and the buffer emptied for what is written next, its capacity kept. */
 	drain(into: (bytes: Uint8Array) => void): void {
 		into(this.held())
+		this.clear()
+	}
+
+	/**
+	 * The buffer emptied for what is written next, its capacity kept, the bytes it held counted as drained: what `drain`
+	 * leaves, for a caller that read them (`held`) before.
+	 */
+	clear(): void {
 		this.#drained += this.#at
 		this.#at = 0
 	}
@@ -356,12 +391,12 @@ export class Utf8Writer {
 		for (let i = 0; i < length; i++) {
 			const unit = text.charCodeAt(i)
 			if (unit < 0x80) {
-				const escape = jsonEscape(unit)
-				if (escape === undefined) {
+				if (asciiEscaped[unit] === 0) {
 					out[to] = unit
 					to += 1
 					continue
 				}
+				const escape = escapeOf(unit)
 				to = writeAscii(out, to, escape)
 				escaped += escape.length - 1
 				continue

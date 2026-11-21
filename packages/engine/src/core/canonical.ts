@@ -754,6 +754,17 @@ class Walk {
 		this.#run()
 	}
 
+	/**
+	 * Writes `value`, the member under `key` of `record`, as `over` reads a member of a record it holds no text of: under
+	 * the path [key], `record` its one ancestor (writeIdentityText).
+	 */
+	member(record: object, key: string, value: unknown): void {
+		this.#ancestors.add(record)
+		this.#path.push(key)
+		this.#readMember(value)
+		this.#run()
+	}
+
 	/** Reads the open containers' members until every container is closed. */
 	#run(): void {
 		for (let top = this.#frames.at(-1); top !== undefined; top = this.#frames.at(-1)) {
@@ -832,16 +843,10 @@ class Walk {
 		const read = this.#reading(value)
 		switch (typeof read) {
 			case "string":
-				this.#sink.scalar(escapeString(read))
-				return false
 			case "number":
-				this.#sink.scalar(read)
-				return false
 			case "boolean":
-				this.#sink.scalar(read)
-				return false
 			case "bigint":
-				this.#sink.scalar(`~${bigintTag}:${read.toString()}`)
+				writeScalar(this.#sink, read)
 				return false
 			case "object":
 				return this.#object(read)
@@ -861,7 +866,7 @@ class Walk {
 			case "vector":
 			case "floatSpecial":
 			case "tagged":
-				this.#sink.scalar(`~${read.tagged.tag}:${read.tagged.payload}`)
+				writeScalar(this.#sink, read)
 				return false
 			case "array":
 				this.#enter(read.items)
@@ -891,6 +896,193 @@ class Walk {
 		this.#ancestors.add(container)
 	}
 }
+
+/** A reading of the canonical model that is no container and no value outside it: what a scalar's text is written of. */
+type ScalarReading =
+	| string
+	| number
+	| boolean
+	| bigint
+	| Extract<CanonicalObject, { readonly kind: "vector" | "floatSpecial" | "tagged" }>
+
+/**
+ * A scalar's canonical form written to `sink`, the one spelling every traversal writes it by (Walk, writeIdentityText):
+ * a string with its "~" doubled (escapeString), a finite number and a boolean as they are, a bigint as its tagged
+ * integer, and a vector, a non-finite number or a protocol value as its tag and payload.
+ */
+const writeScalar = (sink: Sink, read: ScalarReading): void => {
+	switch (typeof read) {
+		case "string":
+			sink.scalar(escapeString(read))
+			return
+		case "number":
+		case "boolean":
+			sink.scalar(read)
+			return
+		case "bigint":
+			sink.scalar(`~${bigintTag}:${read.toString()}`)
+			return
+		case "object":
+			sink.scalar(`~${read.tagged.tag}:${read.tagged.payload}`)
+			return
+	}
+}
+
+/** A canonical object that is a container: an array, or a plain record (writeIdentityText). */
+export type CanonicalContainer = Extract<CanonicalObject, { readonly kind: "array" | "record" }>
+
+/** Whether a reading of the canonical model is a container (CanonicalContainer). */
+export const isCanonicalContainer = (read: CanonicalValue | Outside): read is CanonicalContainer =>
+	typeof read === "object" && (read.kind === "array" || read.kind === "record")
+
+/**
+ * How an identity text (writeIdentityText) takes and writes the token of each container it holds: a token is taken
+ * before anything of the container holding it is written, since taking one writes and hashes that container's own
+ * message into the same writer (core/fingerprint.ts IdentityDigests), and written where the container stands.
+ */
+export interface ContainerTokens<T> {
+	readonly of: (member: CanonicalContainer) => T
+	readonly write: (out: Utf8Writer, token: T) => void
+}
+
+/**
+ * A container's identity text under `options` written into `out` (core/fingerprint.ts IdentityDigests): its canonical
+ * text with each container it holds written as its token (`tokens`), each scalar as `encode` writes it. The tokens are
+ * taken first, a member at a time, in the order the text is written in (an array's items, a record's keys in canonical
+ * order); then `before` writes what precedes the text (a digest's frame), and the text is written. A member outside the
+ * canonical model is refused as `encode` refuses it: an array's item as the root of its own text, where its token would
+ * stand (path []), a record's member under its key. A member left out by `options` is neither taken nor written. Throws
+ * its Refusal, for the catchRefusal around the digest.
+ */
+export const writeIdentityText = <T>(
+	out: Utf8Writer,
+	container: CanonicalContainer,
+	options: EncodeOptions,
+	tokens: ContainerTokens<T>,
+	before: (out: Utf8Writer) => void
+): void => {
+	if (container.kind === "array") {
+		writeIdentityArray(out, container.items, tokens, before)
+	} else {
+		writeIdentityRecord(out, container.record, options, tokens, before)
+	}
+}
+
+/**
+ * An array's identity text (writeIdentityText): "[", each item's token or scalar text after a comma from the second,
+ * and "]", each scalar bounded by V8's longest string from its own first unit, as `encode` writes a scalar alone.
+ */
+const writeIdentityArray = <T>(
+	out: Utf8Writer,
+	items: ReadonlyArray<unknown>,
+	tokens: ContainerTokens<T>,
+	before: (out: Utf8Writer) => void
+): void => {
+	const taken: Array<T | undefined> = []
+	const scalars: Array<ScalarReading | undefined> = []
+	for (let i = 0; i < items.length; i++) {
+		const item: unknown = items[i]
+		const read = canonicalOf(item)
+		if (typeof read !== "object") {
+			taken.push(undefined)
+			scalars.push(read)
+			continue
+		}
+		switch (read.kind) {
+			case "array":
+			case "record":
+				taken.push(tokens.of(read))
+				scalars.push(undefined)
+				continue
+			case "outside":
+				return refuseValue([], item === undefined ? "a value, not undefined" : read.what)
+			case "vector":
+			case "floatSpecial":
+			case "tagged":
+				taken.push(undefined)
+				scalars.push(read)
+				continue
+		}
+	}
+	before(out)
+	out.ascii("[")
+	for (let i = 0; i < taken.length; i++) {
+		if (i > 0) {
+			out.ascii(",")
+		}
+		const token = taken[i]
+		if (token !== undefined) {
+			tokens.write(out, token)
+		} else {
+			writeScalar(
+				new ByteSink(out),
+				defined(scalars[i], "an item that is no container is a scalar")
+			)
+		}
+	}
+	out.ascii("]")
+}
+
+/**
+ * A record's identity text (writeIdentityText): `encode`'s text of it, each member a token was taken for written as
+ * that token, as Walk.over writes it, and bounded as it bounds it, from the record's opening brace. Its keys are read
+ * once, in canonical order (keysOf), for its tokens and then for its text, so a member is refused in the order `encode`
+ * refuses it.
+ */
+const writeIdentityRecord = <T>(
+	out: Utf8Writer,
+	record: Readonly<Record<string, unknown>>,
+	options: EncodeOptions,
+	tokens: ContainerTokens<T>,
+	before: (out: Utf8Writer) => void
+): void => {
+	const keys = keysOf(record)
+	const taken: Array<T | undefined> = []
+	const reads: Array<CanonicalValue | Outside> = []
+	for (const key of keys) {
+		const member: unknown = record[key]
+		const read = canonicalOf(member)
+		reads.push(read)
+		taken.push(
+			isCanonicalContainer(read) && !options.omit(key, member, noPath) ? tokens.of(read) : undefined
+		)
+	}
+	before(out)
+	const sink = new ByteSink(out)
+	sink.open("object")
+	for (let at = 0; at < keys.length; at++) {
+		const key = keyAt(keys, at)
+		const member: unknown = record[key]
+		const child = memberOf(member)
+		if (child === undefined || options.omit(key, child, noPath)) {
+			continue
+		}
+		checkText(key, [key], refuseValue)
+		sink.key(key)
+		const token = taken[at]
+		if (token !== undefined) {
+			sink.token(tokens.write, token)
+			continue
+		}
+		const read = child === member ? defined(reads[at], "a member's reading") : canonicalOf(child)
+		if (
+			typeof read !== "object" ||
+			read.kind === "vector" ||
+			read.kind === "floatSpecial" ||
+			read.kind === "tagged"
+		) {
+			writeScalar(sink, read)
+		} else if (read.kind === "outside") {
+			refuseValue([key], read.what)
+		} else {
+			new Walk(options, sink, canonicalOf).member(record, key, child)
+		}
+	}
+	sink.close("object")
+}
+
+/** The path of a record's member as an omission reads it at the root of a text (Walk.over's). */
+const noPath: Path = []
 
 /**
  * A plain record's keys in canonical order, by UTF-16 code unit (core/order.ts compareStrings): the array Object.keys
@@ -1047,6 +1239,14 @@ class ByteSink implements Sink {
 	written(text: WellFormedText): void {
 		this.#separate()
 		this.#out.text(text)
+		this.#after = true
+		this.#bound()
+	}
+
+	/** A container's token, written by `write` where the container stands (writeIdentityText). */
+	token<T>(write: (out: Utf8Writer, token: T) => void, token: T): void {
+		this.#separate()
+		write(this.#out, token)
 		this.#after = true
 		this.#bound()
 	}
@@ -1292,21 +1492,6 @@ export const writeCanonical = (
 			return refuseValue([], "a value, not undefined")
 		}
 		new Walk(options, new ByteSink(out), canonicalOf).of(value)
-	})
-
-/**
- * The canonical text under `options` of `record` written into `out` as its UTF-8, each member `written` holds written
- * from its text (`encodeOver`'s).
- */
-export const writeCanonicalOver = (
-	out: Utf8Writer,
-	record: unknown,
-	options: EncodeOptions,
-	written: ReadonlyMap<string, WellFormedText>
-): Result.Result<void, CompileError> =>
-	catchRefusal(() => {
-		const sink = new ByteSink(out)
-		new Walk(options, sink, canonicalOf).over(record, written, (text) => sink.written(text))
 	})
 
 /** The JSON form of a canonical value. */
