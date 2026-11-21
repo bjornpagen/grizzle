@@ -133,6 +133,7 @@ import {
 	type CreateIndex,
 	type CreateMaterializedView,
 	type CreateTable,
+	type InlineConstraint,
 	type Expr,
 	type ForeignKey,
 	type FunctionName,
@@ -695,8 +696,77 @@ interface TableAlteration {
  * alteration in its slot, which later visits may still add subcommands to (Differ.alter). */
 type Drafting =
 	| { readonly kind: "step"; readonly step: Step }
+	| { readonly kind: "created"; readonly table: CreatedTable }
 	| { readonly kind: "alteration"; readonly slot: TableSlot; readonly alteration: TableAlteration }
 	| { readonly kind: "fill"; readonly fill: TableFill }
+
+/**
+ * A table this migration creates, as the visits draft it: its CREATE TABLE, and the subcommands of its Structure
+ * alteration a CREATE TABLE states itself (`inline`), in the order the visits draft them: its law columns, each a
+ * column, and its own keys and CHECKs, each a constraint, so PostgreSQL creates the table whole, where they were one
+ * ALTER TABLE after it, which rewrote the empty table and built again every index it had (P5: 57 s of a fresh pantry
+ * install's 188 s in 19 such statements on a loaded machine; 5.7 s of its Structure's 7.7 s on postgres@perfphys).
+ */
+interface CreatedTable {
+	readonly create: CreateTable
+	readonly inline: Array<InlineSubcommand>
+}
+
+/** A subcommand of a new table's alteration that its CREATE TABLE states itself: a column, or a key, exclusion or CHECK
+ * added valid. A foreign key stays its own ALTER TABLE after every table (sql/ast.ts InlineConstraint), as does any
+ * other subcommand. */
+type InlineSubcommand =
+	| Extract<AlterTableAction, { readonly kind: "addColumn" }>
+	| {
+			readonly kind: "addConstraint"
+			readonly constraint: InlineConstraint
+			readonly notValid: false
+	  }
+
+/** `a` as its table's CREATE TABLE states it, where it can (InlineSubcommand); none for any other subcommand. */
+const inlineSubcommand = (a: AlterTableAction): InlineSubcommand | undefined => {
+	if (a.kind === "addColumn") {
+		return a
+	}
+	if (a.kind !== "addConstraint" || a.notValid) {
+		return undefined
+	}
+	const c = a.constraint
+	switch (c.kind) {
+		case "unique":
+		case "exclude":
+		case "check":
+			return { kind: "addConstraint", constraint: c, notValid: false }
+		case "primaryKey":
+		case "foreignKey":
+			return undefined
+	}
+}
+
+/** A new table's CREATE TABLE with the subcommands it states itself (CreatedTable `inline`): its columns, then each
+ * column added, in the order its one alteration added them (inPassOrder), so every column takes the place it took
+ * there; its constraints, then each key, exclusion and CHECK added, in that order. */
+const createdWhole = (t: CreatedTable): CreateTable => {
+	const [first, ...rest] = t.inline
+	if (first === undefined) {
+		return t.create
+	}
+	const ordered = inPassOrder({ table: t.create.table, first, rest }, noAside)
+	return {
+		...t.create,
+		columns: [
+			...t.create.columns,
+			...ordered.flatMap((a) => (a.kind === "addColumn" ? [a.column] : []))
+		],
+		secondary: [
+			...t.create.secondary,
+			...ordered.flatMap((a) => {
+				const inline = inlineSubcommand(a)
+				return inline?.kind === "addConstraint" ? [inline.constraint] : []
+			})
+		]
+	}
+}
 
 /** A table's fill of its set-aside fields (SetAside) in structure.fill, as the visits draft it: its first field, which
  * places it, and the rest in the order the visits set them aside. */
@@ -791,14 +861,22 @@ const byPass = mapInput(compareNumbers, (a: AlterTableAction) =>
 const alterationDraft = (a: TableAlteration, aside: AsideColumns): Action => ({
 	kind: "alteration",
 	table: a.table,
-	actions: sortNonEmpty(
+	actions: inPassOrder(a, aside)
+})
+
+/** An alteration's subcommands as its one ALTER TABLE runs them (alterationDraft): in pass order, each added column
+ * after the columns its generation reads. */
+const inPassOrder = (
+	a: TableAlteration,
+	aside: AsideColumns
+): NonEmptyReadonlyArray<AlterTableAction> =>
+	sortNonEmpty(
 		dependencyOrder(
 			mapNonEmpty([a.first, ...a.rest], (x) => asideSubcommand(x, aside).alteration),
 			readsAdded
 		),
 		byPass
 	)
-})
 
 /** The draw a set-aside field takes once its fill renames it into its name: its retirement default, or none for a field
  * its caller writes. */
@@ -903,6 +981,8 @@ class Differ {
 	/** The plan's steps as the visits draft them, each table's alteration in a slot that alters each table once at the
 	 * place of its first subcommand (drafted). */
 	readonly drafting: Array<Drafting> = []
+	/** Each table this migration creates, by table key (nameKey): its CREATE TABLE and what it states itself. */
+	readonly created = new Map<NameKey, CreatedTable>()
 	/** Each table's one alteration in each slot that alters each table once, by table key (nameKey). */
 	readonly alterations: { readonly [S in TableSlot]: Map<NameKey, TableAlteration> } = {
 		structure: new Map(),
@@ -1389,12 +1469,25 @@ class Differ {
 		actions: NonEmptyReadonlyArray<AlterTableAction>
 	): void {
 		const key = nameKey(table)
-		const held = this.alterations[slot].get(key)
-		if (held !== undefined) {
-			appendAll(held.rest, actions)
+		const created = slot === "structure" ? this.created.get(key) : undefined
+		const altering: Array<AlterTableAction> = []
+		for (const a of actions) {
+			const inline = created === undefined ? undefined : inlineSubcommand(a)
+			if (created !== undefined && inline !== undefined) {
+				created.inline.push(inline)
+			} else {
+				altering.push(a)
+			}
+		}
+		if (!isNonEmpty(altering)) {
 			return
 		}
-		const [first, ...rest] = actions
+		const held = this.alterations[slot].get(key)
+		if (held !== undefined) {
+			appendAll(held.rest, altering)
+			return
+		}
+		const [first, ...rest] = altering
 		const alteration: TableAlteration = { table, first, rest }
 		this.alterations[slot].set(key, alteration)
 		this.drafting.push({ kind: "alteration", slot, alteration })
@@ -1416,6 +1509,8 @@ class Differ {
 		switch (d.kind) {
 			case "step":
 				return [d.step]
+			case "created":
+				return [{ slot: "structure", draft: statement(createdWhole(d.table)) }]
 			case "alteration":
 				return [{ slot: d.slot, draft: alterationDraft(d.alteration, this.asideOf(d)) }]
 			case "fill":
@@ -2519,7 +2614,9 @@ class Differ {
 	tableObject(v: Installed & { readonly kind: "table" }): void {
 		const plan = this.keptPlans.get(v.object.ident)
 		if (plan === undefined) {
-			this.sql("structure", [v.create])
+			const created: CreatedTable = { create: v.create, inline: [] }
+			this.created.set(nameKey(v.create.table), created)
+			this.drafting.push({ kind: "created", table: created })
 			return
 		}
 		this.keptTable(plan)

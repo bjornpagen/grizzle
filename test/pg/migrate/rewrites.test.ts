@@ -53,7 +53,7 @@ export const rewrites = property.explore(steered(caseSteered), {
 		{
 			file: "packages/engine/src/deploy/diff/diff.ts",
 			original:
-				"\t\tconst held = this.alterations[slot].get(key)\n\t\tif (held !== undefined) {\n\t\t\tappendAll(held.rest, actions)\n\t\t\treturn\n\t\t}\n",
+				"\t\tconst held = this.alterations[slot].get(key)\n\t\tif (held !== undefined) {\n\t\t\tappendAll(held.rest, altering)\n\t\t\treturn\n\t\t}\n",
 			replacement: "",
 			why: "The diff drafts one ALTER TABLE per subcommand again, so a table gaining two generated columns is rewritten twice."
 		}
