@@ -25,10 +25,10 @@
  *   with 23000 naming the law, and leave the catalog and the ledger as they were.
  *
  * After every step the installation must be the model's (the oracle is PostgreSQL's catalog and verdicts against the
- * model): each roster domain's CHECK reads one names constant, which holds the model's names in code order, a hole the
- * empty name; the schema holds exactly the names constants its domains read, as a set; a constant's name changes exactly when its names
- * change (a content address); Held's codes and Sets' bit strings are the model's, and the host decodes each to the
- * model's handles.
+ * model): each roster domain's CHECK reads one live-codes constant, which holds the model's live codes as a set's bits, a
+ * hole's bit 0, and whose name changes exactly when its live codes change (a content address); the schema's names
+ * constants hold exactly each roster's names in code order, a hole the empty name, every replaced one dropped; Held's
+ * codes and Sets' bit strings are the model's, and the host decodes each to the model's handles.
  *
  * The roster is drawn by A8's generator in spellings a swarm picks per case, so its handles meet an array literal's
  * quoting (`NULL`, a comma, a quote, a brace, a 63-byte multibyte name). Each case's commands are a swarm drawn per case
@@ -159,6 +159,12 @@ export const rosterMigrations = property.explore(steered(runGen), {
 				'\t\t\tthis.sql("publish.validate", [\n\t\t\t\t{\n\t\t\t\t\tkind: "alterDomain",\n\t\t\t\t\tname: create.name,\n\t\t\t\t\taction: { kind: "validateConstraint", name: b.name }\n\t\t\t\t}\n\t\t\t])\n',
 			replacement: "",
 			why: "A domain's new CHECK added NOT VALID and never validated, which would apply a removal over rows that still hold the removed code; migrate's drift check finds the CHECK not validated first."
+		},
+		{
+			file: "packages/engine/src/ir/codes.ts",
+			original: '\t\tif (name !== "") {',
+			replacement: "\t\tif (true) {",
+			why: "A roster's live-codes constant sets a hole's bit: after a removal its domain's CHECK admits the removed code, and the constant the CHECK reads holds bits the model's live codes do not."
 		}
 	]
 })

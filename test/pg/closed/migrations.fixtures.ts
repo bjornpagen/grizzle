@@ -61,6 +61,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { readCatalog } from "#test/support/catalog/read.ts"
 import { hexOfText, setText, setWidth } from "#test/support/closed/bit-text.ts"
+import { liveConstantOf, liveHeld, modelLive } from "#test/support/closed/constants.ts"
 import {
 	codeAt,
 	type Declaration,
@@ -489,7 +490,7 @@ export interface System {
 	 * ordinal past their count on the tests' one clock (migrate/kit.ts draftedAt), so it sorts after every one of them. */
 	drafts: number
 	ids: number
-	constants: Map<string, { readonly name: string; readonly names: ReadonlyArray<string> }>
+	constants: Map<string, { readonly name: string; readonly bits: string }>
 }
 
 /** The installation a case migrates: the first version installed, with its owner's session. */
@@ -497,10 +498,6 @@ type Migrated = Effect.Success<ReturnType<typeof migrated>>
 
 /** What a real step fails with: a statement of the harness, or a migration the model says applies. */
 type StepError = SqlError | MigrateError | TransactionRolledBack
-
-/** Whether two lists of names are equal, element by element. */
-const sameNames = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
-	a.length === b.length && Arr.every(a, (x, i) => x === b[i])
 
 /** Handles in one order, so two sets compare as sets. */
 const sortedHandles = (handles: Iterable<string>): ReadonlyArray<string> =>
@@ -676,61 +673,54 @@ const codeType = (state: RosterState): ScalarType =>
 const setType = (state: RosterState): ScalarType =>
 	scalarOf({ kind: "bits", roster: state.closed }, { [state.closed]: liveOf(state) })
 
-/** The one function a roster domain's CHECK depends on, and the names it holds in subscript order. */
-const namesConstantOf = (
-	owner: RawSession,
-	domain: { readonly schema: string; readonly name: string }
-) =>
+/** The names each names constant of the schema holds, in subscript order: every function of it returning name[]. */
+const namesConstantsOf = (owner: RawSession, schema: string) =>
 	Effect.gen(function* () {
 		const rows = yield* owner.values(
-			`SELECT n.nspname::text, p.proname::text FROM pg_catalog.pg_constraint AS c JOIN pg_catalog.pg_depend AS d ON d.classid = 'pg_catalog.pg_constraint'::regclass AND d.objid = c.oid AND d.refclassid = 'pg_catalog.pg_proc'::regclass JOIN pg_catalog.pg_proc AS p ON p.oid = d.refobjid JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE c.contypid = $1::text::regtype`,
-			[printObjectName(domain)]
+			`SELECT n.nspname::text, p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
+			[schema]
 		)
-		assert.equal(rows.length, 1, `the CHECK of ${domain.name} depends on one function`)
-		const [schemaName, name] = trusted<readonly [string, string]>(defined(rows[0]))
-		const call = `${quoteIdent(schemaName)}.${quoteIdent(name)}()`
-		const held = yield* owner.values(
-			`SELECT u.n::text FROM pg_catalog.unnest(${call}) WITH ORDINALITY AS u(n, i) ORDER BY u.i`,
-			[]
+		return yield* Effect.forEach(rows, (row) =>
+			Effect.gen(function* () {
+				const [schemaName, name] = trusted<readonly [string, string]>(row)
+				const held = yield* owner.values(
+					`SELECT u.n::text FROM pg_catalog.unnest(${quoteIdent(schemaName)}.${quoteIdent(name)}()) WITH ORDINALITY AS u(n, i) ORDER BY u.i`,
+					[]
+				)
+				return Arr.map(held, (r) => String(r[0]))
+			})
 		)
-		return { name, names: Arr.map(held, (r) => String(r[0])) }
 	})
 
 /**
- * The installation is the model's: each roster's constant holds the model's names and is renamed exactly when they
- * change; the schema holds exactly the names constants its domains read; Held's codes and Sets' sets are the model's, and decode to the
- * model's handles; Sets' column is a domain over bit(n), n its codes rounded up to whole bytes.
+ * The installation is the model's: each roster's domain reads one live-codes constant, holding the model's live codes,
+ * renamed exactly when they change; the schema's names constants hold exactly each roster's names in code order, every
+ * replaced one dropped; Held's codes and Sets' sets are the model's, and decode to the model's handles; Sets' column is
+ * a domain over bit(n), n its codes rounded up to whole bytes.
  */
 export const sameAsModel = (sys: System, after: Model) =>
 	Effect.gen(function* () {
 		const owner = sys.m.owner
-		const read: Array<string> = []
-		for (const state of [after.tier, nodeState]) {
-			const constant = yield* namesConstantOf(owner, sys.names.rosterDomain(state.closed))
-			read.push(constant.name)
-			assert.deepEqual(
-				constant.names,
-				[...modelNames(state)],
-				`the names constant of ${state.closed}`
-			)
+		const rosters = [after.tier, nodeState]
+		for (const state of rosters) {
+			const live = yield* liveConstantOf(owner, sys.names.rosterDomain(state.closed))
+			const bits = yield* liveHeld(owner, live.call)
+			assert.equal(bits, modelLive(state), `the live-codes constant of ${state.closed}`)
 			const was = sys.constants.get(state.closed)
 			if (was !== undefined) {
 				assert.equal(
-					constant.name === was.name,
-					sameNames(constant.names, was.names),
-					`the constant of ${state.closed} is renamed exactly when its names change`
+					live.name === was.name,
+					bits === was.bits,
+					`the live-codes constant of ${state.closed} is renamed exactly when its live codes change`
 				)
 			}
-			sys.constants.set(state.closed, constant)
+			sys.constants.set(state.closed, { name: live.name, bits })
 		}
-		const standing = yield* owner.values(
-			`SELECT p.proname::text FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace WHERE n.nspname = $1::text AND p.prorettype = 'pg_catalog.name[]'::regtype`,
-			[sys.m.schema]
-		)
+		const names = yield* namesConstantsOf(owner, sys.m.schema)
 		unorderedEqual(
-			Arr.dedupe(Arr.map(standing, (r) => String(r[0]))),
-			Arr.dedupe(read),
-			"the schema holds exactly the names constants its roster domains read, every replaced one dropped"
+			Arr.map(names, (held) => Arr.join(held, "\u0000")),
+			Arr.map(rosters, (state) => Arr.join(modelNames(state), "\u0000")),
+			"the schema's names constants hold exactly each roster's names in code order, every replaced one dropped"
 		)
 		const codes = codebookOf(sys.snapshot)
 		const n = storedNames(sys)

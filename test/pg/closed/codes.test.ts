@@ -71,10 +71,6 @@ import {
 	type CodeFeature,
 	codeType,
 	columnTypeOf,
-	liveConstantOf,
-	liveHeld,
-	modelLive,
-	namesConstantOf,
 	decodedColumn,
 	domainCheckOf,
 	domainOf,
@@ -118,6 +114,12 @@ import {
 } from "#test/pg/closed/codes.fixtures.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { setText, setWidth } from "#test/support/closed/bit-text.ts"
+import {
+	liveConstantOf,
+	liveHeld,
+	modelLive,
+	namesConstantOf
+} from "#test/support/closed/constants.ts"
 import {
 	type RosterFeature,
 	type RosterState,
