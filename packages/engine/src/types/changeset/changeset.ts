@@ -66,6 +66,7 @@ import type {
 	AnySchema,
 	BelowOf,
 	HigherLevel,
+	IsLevelOf,
 	IsRelationOf,
 	LevelsOf,
 	NameIn,
@@ -90,6 +91,8 @@ import type {
 import type {
 	AnyRole,
 	AnyWorld,
+	RoleLeastOf,
+	RoleLeastStated,
 	WorldUnwrittenFields,
 	WritableNameOf,
 	WriteListOf
@@ -1881,6 +1884,12 @@ type LevelCheck<H> = [H] extends [never]
 	? Refusal<"the ChangeSets' schemas are not levels of one another">
 	: unknown
 
+/** A ChangeSet over S taken over the role whose least level is X (ChangeSet.over): S is one of X's levels. */
+type OverCheck<X, S> =
+	IsLevelOf<X, S> extends true
+		? unknown
+		: Refusal<"ChangeSet.over takes a ChangeSet over a level of its role">
+
 /** Whether two read-backs' rows are of one type: each assignable to the other. */
 type SameRows<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false
 
@@ -1951,6 +1960,31 @@ export interface ChangeSetConstructor {
 		Final<Aligned<readonly [...D1, L1], readonly [...D2, L2]>>,
 		A1 | A2
 	>
+	/**
+	 * A ChangeSet over a level of a role, as one over the role: the empty ChangeSet over `role` unioned with `cs`, its
+	 * strata, parameters, writes and read-backs `cs`'s, as union builds it. The role may be a parameter, for a program a
+	 * library applies through whatever role over its level it is given, bounded by that level,
+	 * `<W extends RoleOver<typeof Level>>(role: W) => ChangeSet.over(role, program)`: the call checks `cs`'s schema a
+	 * level of the bound's least level (Least, read off the bound's `least` member, RoleLeastStated), the one level the
+	 * call knows, where union's HigherLevel waits on the parameter; over a built role, a level of the role itself, so a
+	 * role of which it is no level is refused (OverCheck). A union or sequence of ChangeSets over a role parameter waits on
+	 * it as union's does, so a library builds its program over its level and takes it over the role last.
+	 */
+	over<
+		W extends AnyRole,
+		S,
+		P,
+		Wr extends string,
+		R,
+		C,
+		D extends Strata,
+		L extends Stratum,
+		A,
+		Least extends AnySchema | AnyFragment = never
+	>(
+		role: W & RoleLeastStated<Least>,
+		cs: ChangeSetOf<S, P, Wr, R, C, D, L, A> & OverCheck<RoleLeastOf<W, Least>, S>
+	): ChangeSetOf<W, P, Wr, R, C, D, L, A>
 	/**
 	 * Strata: b is evaluated against the state a produced. The result is over the higher of the two schemas, each of
 	 * which is a level of it. Strata are associative, so three are sequence(sequence(a, b), c).

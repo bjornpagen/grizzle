@@ -4279,6 +4279,17 @@ export const AuthorApp = login(Qti, "author_app", [QtiAuthor])
   another relation under, or whose statement names a relation the base lacks, is typed with its refusal, which no
   schema admits, so it is refused wherever it is taken as a schema, as a base, a role's or a login's, naming the rule
   it breaks: `Refusal<"two relations of one name across a schema's levels">`.
+- **A program over whatever role it is given.** A package's write over its level is applied through whichever role
+  over that level the application hands it, bounded by that level: `export const ledgerWrite = <W extends
+  RoleOver<typeof Qti>>(role: W) => ChangeSet.over(role, ledgerProgram)`. `ChangeSet.over(role, cs)` is `cs` taken over
+  the role, the empty ChangeSet over the role unioned with it, its strata, parameters, writes and read-backs `cs`'s, and
+  the call checks `cs`'s schema a level of the bound's least level, the one level it knows, where
+  `ChangeSet.union(ChangeSet.empty(role), cs)` waits on the parameter and is refused. `RoleOver<typeof Qti>` holds
+  `Qti`'s relations whole under their names, so `ledgerWrite(role)` admits a role that holds `Qti` whole, a full role
+  over it or over a level above it; `AnyRole` is the weakest bound, which knows no level. Over a built role the call is
+  checked against the role itself: a ChangeSet over a schema that is none of the role's levels is refused,
+  `Refusal<"ChangeSet.over takes a ChangeSet over a level of its role">`. A union or a sequence of ChangeSets over a
+  role parameter waits on it as union's does, so build the program over its level and take it over the role last.
 
 ## Fragments
 

@@ -162,6 +162,7 @@ export type {
 	ReadsToken,
 	RefreshListOf,
 	Role,
+	RoleOver,
 	RolesOf,
 	WholeEntries,
 	WholeEntriesOf,

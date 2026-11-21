@@ -389,9 +389,10 @@ export interface AnySchema extends Built {
 
 /**
  * The keys a schema type's bound and its refusal ride under, phantoms no runtime value holds (core/phantom.ts): the least
- * level a base parameter's bound states (SchemaOver), and the refusal of a level its instantiation refuses (Extended).
+ * level a base parameter's or a role parameter's bound states (SchemaOver, world.ts RoleOver), and the refusal of a level
+ * its instantiation refuses (Extended). `least` is read type-only (`import type { least }`).
  */
-declare const least: unique symbol
+export declare const least: unique symbol
 declare const refused: unique symbol
 
 /**

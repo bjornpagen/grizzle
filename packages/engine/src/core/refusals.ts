@@ -5,6 +5,7 @@
  * a named refusal from an incidental mismatch.
  */
 export const refusals = [
+	"ChangeSet.over takes a ChangeSet over a level of its role",
 	"ChangeSet.retire retires the groups of a retirable unit's header, a relation with a retirement field",
 	"PostgreSQL has no cast between these types that grizzle admits",
 	"a ChangeSet writes a family's members in one stratum: each stratum's family statements are proved against one stratum's edits alone",

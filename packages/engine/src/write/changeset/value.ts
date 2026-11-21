@@ -1618,17 +1618,38 @@ const combined = (
 
 /** ChangeSet.union(a, b): the commutative combination, strata position by position, and one set of their read-backs. */
 const unionOf = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
+	label: "ChangeSet.union" | "ChangeSet.over",
 	a: unknown,
 	b: unknown,
 	extra: ReadonlyArray<unknown>
 ): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
-	const label = "ChangeSet.union"
 	const { top, x, y, bound } = combined(label, a, b, extra)
 	const n = Math.max(x.strata.length, y.strata.length)
 	const strata = canonicalStrata(
 		indices(n).map((i) => [...(x.strata[i] ?? []), ...(y.strata[i] ?? [])])
 	)
 	return make(label, top, strata, [...x.reads, ...y.reads], bound, x.identities)
+}
+
+/**
+ * ChangeSet.over(role, cs): `cs` taken over `role`, the empty ChangeSet over the role unioned with it (`unionOf`), so its
+ * strata, parameters and read-backs are `cs`'s and the role is the higher of the two: refused where `role` is no role,
+ * or `cs`'s schema none of its levels (schema/level.ts isLevelOver), as its type refuses it (types/changeset OverCheck).
+ */
+const overOf = <S, P, W extends string, Rd, Done extends Strata, Last extends Stratum, A>(
+	role: unknown,
+	cs: unknown,
+	extra: ReadonlyArray<unknown>
+): ChangeSetOf<S, P, W, Rd, never, Done, Last, A> & SchemaMember => {
+	const label = "ChangeSet.over"
+	const level = builtOverOf(role)
+	if (level?.kind !== "role") {
+		throw malformed(label, "a role built by role(...)")
+	}
+	if (!isLevelOver(stateOf(cs, label).over, level)) {
+		throw builderRefusal(label, "ChangeSet.over takes a ChangeSet over a level of its role")
+	}
+	return unionOf(label, emptyOf(role, []), cs, extra)
 }
 
 /** ChangeSet.sequence(a, b): b evaluated against the state a produced, its strata after a's, and one set of their
@@ -1655,7 +1676,8 @@ const sequenceOf = <S, P, W extends string, Rd, Done extends Strata, Last extend
  *). */
 const constructors: ChangeSetConstructor = {
 	empty: (schema, ...extra: ReadonlyArray<unknown>) => emptyOf(schema, extra),
-	union: (a, b, ...extra: ReadonlyArray<unknown>) => unionOf(a, b, extra),
+	union: (a, b, ...extra: ReadonlyArray<unknown>) => unionOf("ChangeSet.union", a, b, extra),
+	over: (role, cs, ...extra: ReadonlyArray<unknown>) => overOf(role, cs, extra),
 	sequence: (a, b, ...extra: ReadonlyArray<unknown>) => sequenceOf(a, b, extra)
 }
 export const changeSets: ChangeSetConstructor = Object.freeze(constructors)
@@ -1665,6 +1687,7 @@ export const changeSets: ChangeSetConstructor = Object.freeze(constructors)
 interface ChangeSetOver {
 	empty(schema: unknown, ...extra: ReadonlyArray<unknown>): ChangeSetValue
 	union(a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ChangeSetValue
+	over(role: unknown, cs: unknown, ...extra: ReadonlyArray<unknown>): ChangeSetValue
 	sequence(a: unknown, b: unknown, ...extra: ReadonlyArray<unknown>): ChangeSetValue
 }
 
@@ -1672,10 +1695,12 @@ const over: ChangeSetOver = {
 	empty: (schema, ...extra) => emptyOf(schema, extra),
 	union: (a, b, ...extra) =>
 		unionOf(
+			"ChangeSet.union",
 			changeSetArgument(a, "ChangeSet.union"),
 			changeSetArgument(b, "ChangeSet.union"),
 			extra
 		),
+	over: (role, cs, ...extra) => overOf(role, changeSetArgument(cs, "ChangeSet.over"), extra),
 	sequence: (a, b, ...extra) =>
 		sequenceOf(
 			changeSetArgument(a, "ChangeSet.sequence"),

@@ -31,6 +31,7 @@ import type {
 
 import type {
 	AllFragmentsOf,
+	AnyFragment,
 	AnySchema,
 	BelowOf,
 	IsLevelOf,
@@ -38,6 +39,7 @@ import type {
 	NamedBy,
 	RelationsOf,
 	StatementsOf,
+	least,
 	UnderName
 } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
@@ -376,6 +378,32 @@ export interface AnyRole extends Built {
 	readonly write: ReadonlyArray<string>
 	readonly refresh: ReadonlyArray<string>
 }
+
+/**
+ * A role of which L is a level: the bound of a role parameter, for a program over L applied through whatever role over
+ * L it is given, `<W extends RoleOver<typeof Level>>(role: W) => ChangeSet.over(role, program)`. It holds L's relations
+ * whole under their names, as a full role over L or over a level above it does (WholeEntries), and states L as its least
+ * level, the level a call of ChangeSet.over over the parameter checks the program's schema against (RoleLeastStated):
+ * the one level the call knows. AnyRole is the weakest bound, which states none, so no program's schema is a level of a
+ * parameter it bounds.
+ */
+export interface RoleOver<L extends AnySchema | AnyFragment> extends AnyRole {
+	readonly relations: WholeEntries<L["relations"]>
+	readonly [least]?: L | undefined
+}
+
+/**
+ * What ChangeSet.over infers a role's least level Least from: the `least` member a role parameter's bound states
+ * (RoleOver), which the parameter's type reads from its constraint. A built role states none, so Least is inferred from
+ * none and stays never. `kind`, a member every role has, keeps it no weak type.
+ */
+export interface RoleLeastStated<Least> {
+	readonly kind: "role"
+	readonly [least]?: Least | undefined
+}
+
+/** A role's least level: the role itself where it states none, a built role; its bound's level where it is a parameter. */
+export type RoleLeastOf<W, Least> = [Least] extends [never] ? W : Least
 
 /**
  * A role over Base named Name: its relations, the base's laws it keeps, and its write and refresh lists, as written. A
