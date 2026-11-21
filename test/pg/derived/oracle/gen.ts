@@ -586,11 +586,15 @@ const eachOver = (fns: ReadonlyArray<number>, variables: number): ReadonlyArray<
 const factRows = (rows: ReadonlyArray<ReadonlyArray<number>>): ReadonlyArray<FactSketch> =>
 	Arr.map(rows, (values) => ({ values }))
 
-/** The sources of level 2 are R0, R1, the roster, L1a and L1b; L1a's second summed variable is its sum of f1. */
+/**
+ * The sources of level 2 are R0, R1, the roster, L1a and L1b; L1a's second summed variable is its sum of f1. R0 holds a
+ * natural last, f4, which sum and mean take as their fourth variable and min and max as their fifth, so every aggregate
+ * over every kind it takes is planted, natural's among them since 5757e399b made it a kind they take.
+ */
 export const plantedAggregates: CaseSketch = {
 	relations: [
 		{
-			fields: Arr.map(["int4", "int8", "cents", "text"] as const, (k) => ({
+			fields: Arr.map(["int4", "int8", "cents", "text", "nat"] as const, (k) => ({
 				kind: baseKinds.indexOf(k)
 			})),
 			key: 0
@@ -604,7 +608,7 @@ export const plantedAggregates: CaseSketch = {
 		{
 			naming: 0,
 			definitions: [
-				ungrouped(0, [...eachOver([0, 1], 3), ...eachOver([2, 3], 4)], false),
+				ungrouped(0, [...eachOver([0, 1], 4), ...eachOver([2, 3], 5)], false),
 				ungrouped(1, eachOver([0, 1, 2, 3], 2), true)
 			]
 		},
@@ -621,10 +625,10 @@ export const plantedAggregates: CaseSketch = {
 	],
 	facts: [
 		factRows([
-			[0, 0, 0, 0],
-			[1, 2, 3, 1],
-			[2, 4, 1, 2],
-			[4, 3, 2, 1]
+			[0, 0, 0, 0, 0],
+			[1, 2, 3, 1, 2],
+			[2, 4, 1, 2, 1],
+			[4, 3, 2, 1, 3]
 		]),
 		factRows([
 			[0, 0, 0, 0],
@@ -639,7 +643,7 @@ export const plantedAggregates: CaseSketch = {
 		{
 			change: 0,
 			drops: [0],
-			adds: [factRows([[3, 1, 0, 2]]), [], []],
+			adds: [factRows([[3, 1, 0, 2, 1]]), [], []],
 			names: 0,
 			shuffle: 0,
 			repeat: false
