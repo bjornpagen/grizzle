@@ -2,7 +2,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import { array, boolean, element, type Gen, subarray } from "@bjornpagen/testing/gen"
-import { Array as Arr, Order, Record as Rec } from "effect"
+import { Array as Arr, Option, Order, Record as Rec } from "effect"
 import type { AxisKind } from "#compiler/ir/family.ts"
 import type { NativeColumn } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
@@ -316,12 +316,24 @@ const checkCopies = (model: LawModel, s: Shape): void => {
 			`the ${axis} axis states its copies' laws`
 		)
 		const copies = named(axis === "predecessor" ? "pred" : axis, s[axis])
-		for (const [j, r] of riding.entries()) {
+		for (const r of riding) {
 			assert.ok(
 				Arr.contains(loweringOf(model, r), fk),
 				`a riding copy's lowering is its axis's foreign key`
 			)
-			const copy = copies[j]
+			/** The copy a riding law states: the one whose source field its left side carries, the theory holding its
+			 * laws in its statements' order, never the order the shape declares its copies in. */
+			const detail = Option.map(
+				Arr.findFirst(model.theory.laws, (l) => l.id === r),
+				(l) => l.detail
+			)
+			const carried =
+				Option.isSome(detail) && detail.value.kind === "containment" ? detail.value.from.terms : []
+			const copy = Option.getOrUndefined(
+				Arr.findFirst(copies, (c) =>
+					Arr.some(carried, (t) => t.kind === "field" && t.field === c.from)
+				)
+			)
 			const sourceRelation = axis === "last" ? "Owner" : "Member"
 			const pins = checksOf(model, sourceRelation, r)
 			if (copy === undefined || copy.copy === "caller" || axis === "owner") {
