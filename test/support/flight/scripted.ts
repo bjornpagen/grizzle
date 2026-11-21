@@ -521,7 +521,8 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 
 	/**
 	 * Destroying the connection ends the session at once and loses every answer the client has not read: pg fails each
-	 * query still in flight.
+	 * query still in flight. The scripted server closes a connection the moment its Terminate arrives, so a closed or
+	 * closing session (Session closed, close) is ended at once, and a retired one is destroyed.
 	 */
 	const destroy = (): void => {
 		move("end")
@@ -554,6 +555,16 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 			move("retire")
 		},
 		destroy,
+		closed: Effect.sync(() => {
+			move("end")
+		}),
+		close: Effect.sync(() => {
+			if (state === "open") {
+				move("end")
+			} else {
+				destroy()
+			}
+		}),
 		send,
 		flights: () => flights,
 		committed: () => committed,

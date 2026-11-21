@@ -599,9 +599,25 @@ export interface Session {
 	readonly retire: () => void
 	/**
 	 * Ends the connection at once, failing whatever it was waiting for: its sockets are destroyed, nothing is awaited,
-	 * and the session is ended from this call on.
+	 * and the session is ended from this call on. Only a session grizzle cannot end as it ends one it is done with
+	 * (`close`) is destroyed: one a lease may still run on, one an interrupted flight cannot account for, or one whose
+	 * close is interrupted.
 	 */
 	readonly destroy: () => void
+	/**
+	 * The wait for the connection's end, once a Terminate is on its way: done when pg reports it ended, which for a
+	 * Terminate the server read is once the server closed it, and the server closes it only once the session's backend
+	 * has exited, its temporary relations dropped and the backend out of the database's backends (makePool). The wait
+	 * has no deadline; interrupted, it destroys the connection (`destroy`) and ends at once.
+	 */
+	readonly closed: Effect.Effect<void>
+	/**
+	 * The session ended as grizzle ends every session it is done with, the one way a session ends normally: an open one
+	 * by a Terminate (pg's Client.end, which writes it and half-closes the connection), then the wait for the server's
+	 * close (`closed`); a retired or ended one destroyed, its connection unaccounted for or gone. A pool's idle sessions
+	 * are given their Terminate by pg's Pool as it ends, and their end waits for the same close (makePool).
+	 */
+	readonly close: Effect.Effect<void>
 	/**
 	 * The most bytes one write of the session's connection carries, and so one flight (flightMaxBytes):
 	 * the flight's builder refuses a longer flight before any byte of it is written (wire/batch.ts send).
@@ -763,9 +779,8 @@ const flightEnd = (): Uint8Array => new Uint8Array(0)
 
 /**
  * The whole flight is written corked and flushed at once; the stream is uncorked whatever the writes threw. The session
- * is ended at its connection's end ahead of every other listener of that end, so whoever learns of the end finds it
- * ended: the pool's end, which returns once its last connection has ended (makePool), to a caller that reads the
- * session's state at once.
+ * is ended in the step that reports its connection's end to whoever waits for it (`closed`), so a caller its close
+ * resumes finds it ended.
  */
 const makeSession = (
 	client: PgClient,
@@ -780,8 +795,22 @@ const makeSession = (
 	const end = (): void => {
 		move("end")
 	}
+	/** Done once the connection has ended, the session with it (`closed`). */
+	const ended = Deferred.makeUnsafe<void>()
+	const connectionEnded = (): void => {
+		move("end")
+		Deferred.doneUnsafe(ended, Exit.void)
+	}
 	client.on("error", end)
-	client.prependListener("end", end)
+	client.on("end", connectionEnded)
+	const destroy = (): void => {
+		destroyWire(client, socket)
+		move("end")
+	}
+	const closed: Effect.Effect<void> = Deferred.await(ended).pipe(
+		Effect.interruptible,
+		Effect.onInterrupt(() => Effect.sync(destroy))
+	)
 	const send: Session["send"] = (pipeline, onAnswer, onEnd, onCut) => {
 		const connection = client.connection
 		let answered = 0
@@ -833,10 +862,18 @@ const makeSession = (
 		retire: () => {
 			move("retire")
 		},
-		destroy: () => {
-			destroyWire(client, socket)
-			move("end")
-		},
+		destroy,
+		closed,
+		close: Effect.suspend((): Effect.Effect<void> => {
+			switch (state) {
+				case "open":
+					client.end(terminated)
+					return closed
+				case "retired":
+				case "ended":
+					return Effect.sync(destroy)
+			}
+		}),
 		send
 	}
 }
@@ -909,11 +946,12 @@ const sessionClient = (
 	}
 
 /** A client end's callback that wants nothing: pg calls it once the connection has ended. */
-const ended = (): void => undefined
+const terminated = (): void => undefined
 
 /**
- * One session outside any pool over `spec`, closed with the scope: its Terminate is written and its sockets destroyed at
- * once, nothing awaited, and the session is ended from then on. `attach` is handed its client once it is connected and
+ * One session outside any pool over `spec`, closed with the scope as every session grizzle is done with is (Session
+ * close): its Terminate written, then the wait for the server's close, which the server makes only once the session's
+ * backend has exited, so a DROP DATABASE after `grizzle migrate` finds no backend of its session. `attach` is handed its client once it is connected and
  * before the session is returned, so a listener it adds misses nothing the session receives. The attempt is
  * interruptible.
  */
@@ -960,12 +998,7 @@ const connectOne = (
 				destroy()
 				return yield* new NoCancelKey()
 			}
-			yield* Effect.addFinalizer(() =>
-				Effect.sync(() => {
-					client.end(ended)
-					session.destroy()
-				})
-			)
+			yield* Effect.addFinalizer(() => session.close)
 			attach(client)
 			return session
 		})
@@ -1399,11 +1432,10 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 		 * The session of each client pg's Pool connected, made when its client is ready, before anyone holds the
 		 * client, and kept beside it; a client with none had no BackendKeyData, and an ended session goes with its
 		 * client. `wires` holds every client constructed, with the socket the transport opened for it, until it ends: what the
-		 * pool's end destroys or waits for, and `unwired` is done once the pool has ended and the last of them has.
+		 * pool's end destroys or waits for.
 		 */
 		const sessions = new WeakMap<PgClient, Session>()
 		const wires = new Map<PgClient, PgSocket>()
-		const unwired = Deferred.makeUnsafe<void>()
 		const handshakes: Handshakes = new WeakSet()
 		const ReleasingPool = releasingPool(spec.driver.Pool)
 		const native = new ReleasingPool({
@@ -1412,9 +1444,6 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 					wires.set(client, socket)
 					client.once("end", () => {
 						wires.delete(client)
-						if (native.ending && wires.size === 0) {
-							Deferred.doneUnsafe(unwired, Exit.void)
-						}
 					})
 				},
 				ready: (client, session) => {
@@ -1560,30 +1589,27 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 			}
 		}
 
-		/** `client`'s wire destroyed, a ready client's through its session, which is ended from then on. */
-		const cut = (client: PgClient, socket: PgSocket): void => {
-			const session = sessions.get(client)
-			if (session === undefined) {
-				destroyWire(client, socket)
-			} else {
-				session.destroy()
-			}
-		}
-
 		/**
-		 * The pool's end (see makePool): pg's Pool ended, which ends each idle client with a Terminate; the wire of every
-		 * client no lease may still run on cut, one connecting, handed to a lease or leased; every ask still unsettled
-		 * refused with LayerReleased, the queue emptied with them; then the wait for every other connection's close,
-		 * which its server makes once its backend has exited, interrupted by cutting every wire still standing. A
-		 * connecting ask's attempt answers nobody after: pg's later answer, if any comes, goes back to the ended pool
-		 * with its permit.
+		 * The pool's end (see makePool): pg's Pool ended, which gives each idle client its Terminate; the wire of every
+		 * client no lease may still run on destroyed, one connecting, handed to a lease or leased, a ready one's through
+		 * its session; every ask still unsettled refused with LayerReleased, the queue emptied with them; then the wait
+		 * for every other session's close (Session closed), each the server makes once its backend has exited, all at once
+		 * and interruptible as one, though the release runs uninterruptibly, so an interruption reaches each wait and
+		 * destroys every connection still open. A connecting ask's attempt answers nobody after: pg's later
+		 * answer, if any comes, goes back to the ended pool with its permit.
 		 */
 		const end = (): Effect.Effect<void> => {
-			native.end(ended)
+			native.end(terminated)
 			const held = new Set<PgClient>([...leased, ...handed.values()])
+			const closing: Array<Effect.Effect<void>> = []
 			for (const [client, socket] of wires) {
-				if (!sessions.has(client) || held.has(client)) {
-					cut(client, socket)
+				const session = sessions.get(client)
+				if (session === undefined) {
+					destroyWire(client, socket)
+				} else if (held.has(client)) {
+					session.destroy()
+				} else {
+					closing.push(session.closed)
 				}
 			}
 			permits = permits._tag === "waiting" ? exhausted : permits
@@ -1594,19 +1620,7 @@ export const makePool = (config: PoolConfig): Effect.Effect<SessionPool, never, 
 				}
 				settle(ask, layerReleased())
 			}
-			if (wires.size === 0) {
-				Deferred.doneUnsafe(unwired, Exit.void)
-			}
-			return Deferred.await(unwired).pipe(
-				Effect.interruptible,
-				Effect.onInterrupt(() =>
-					Effect.sync(() => {
-						for (const [client, socket] of wires) {
-							cut(client, socket)
-						}
-					})
-				)
-			)
+			return Effect.interruptible(Effect.all(closing, { concurrency: "unbounded", discard: true }))
 		}
 		yield* Effect.addFinalizer(() => Effect.suspend(end))
 		yield* Effect.sync(() => {

@@ -367,14 +367,7 @@ export const adapterSessionPoolReleasesALayerWhoseTransportStallsItsSessionEnded
 		},
 		box: "a session idle, leased, or running a statement of up to three rows cut after each of its answer's first messages",
 		kept: [],
-		kills: [
-			{
-				file: "packages/grizzle/src/adapter/wire/session.ts",
-				original: '\tclient.prependListener("end", end)',
-				replacement: '\tclient.on("end", end)',
-				why: "The session ends after the pool's own listener of its connection's end, which resumes the pool's end at once: the release of an idle session returns with the session still open."
-			}
-		]
+		kills: []
 	})
 
 /**
@@ -459,8 +452,8 @@ export const adapterSessionPoolsReleaseWaitsForAnIdleSessionsBackendToExitUntilT
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/wire/session.ts",
-				original: "\t\t\t\tif (!sessions.has(client) || held.has(client)) {",
-				replacement: "\t\t\t\tif (wires.has(client)) {",
+				original: "\t\t\t\t} else if (held.has(client)) {",
+				replacement: "\t\t\t\t} else if (wires.has(client)) {",
 				why: "The end destroys every wire, an idle session's among them, as it did before it waited (d81ee19dc): the release returns while the backend's exit is still held, where it waits for the server's close."
 			}
 		]
@@ -537,8 +530,9 @@ export const adapterSessionPoolsReleaseReturnsOnceNoBackendOfItsIdleSessionsIsLe
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/wire/session.ts",
-				original: "\t\t\treturn Deferred.await(unwired).pipe(",
-				replacement: "\t\t\treturn Effect.void.pipe(",
+				original:
+					'\t\t\treturn Effect.interruptible(Effect.all(closing, { concurrency: "unbounded", discard: true }))',
+				replacement: "\t\t\treturn Effect.void",
 				why: "The end writes each idle session's Terminate and returns without waiting for its close: the backends are still dropping their temporary tables when the release returns, so pg_stat_activity still holds them, as edullm's DROP DATABASE found one (P5)."
 			}
 		]
