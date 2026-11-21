@@ -616,6 +616,30 @@ const enumerated = (op: MemberOp, relation: WRelation, facts: ReadonlyArray<Fact
 const castOtherwise = (into: NumericKind): unknown =>
 	elementAt(typeInfo[into].values, 0, `the ${into} values`)
 
+/**
+ * The bounds a cast head's query tests its source's value within before it casts: `into`'s range (typmodRange), held to
+ * what the source's own numeric type holds, so each bound is a literal of no more digits than the term it is compared
+ * with, which a comparison reads as written (scalar/compute/literal.ts). A source value always lies in its own type's
+ * range, so it lies within these bounds exactly when it lies within `into`'s, as headValue reads it.
+ */
+const withinBounds = (source: NumericKind, into: NumericKind): ReturnType<typeof typmodRange> => {
+	const [lowInto, highInto] = typmodRange(into)
+	const [lowSource, highSource] = typmodRange(source)
+	return [
+		lowInto.compare(lowSource) >= 0 ? lowInto : lowSource,
+		highInto.compare(highSource) <= 0 ? highInto : highSource
+	]
+}
+
+/** The numeric kind of `column` of `relation`, which a cast head reads (castHead: a numeric of another typmod). */
+const columnKindOf = (relation: WRelation, column: string): NumericKind => {
+	const kind = columnOf(relation, column).kind
+	if (!isNumericKind(kind)) {
+		throw new Error(`${relation.name}.${column} is ${kind}, no numeric a cast reads`)
+	}
+	return kind
+}
+
 /** The value a head term gives its field from the source's fact `fact`, as the member's query computes it. */
 const headValue = (t: HeadTerm, fact: Fact, params: ParamMap): unknown => {
 	switch (t.kind) {
@@ -1328,7 +1352,7 @@ export const buildChangeSet = (
 								head[col.name] = field(vars, t.column)
 								break
 							case "cast": {
-								const [low, high] = typmodRange(t.into)
+								const [low, high] = withinBounds(columnKindOf(from, t.column), t.into)
 								const into = descriptorOf(target.name, col.name)
 								head[col.name] = computeCore.when(
 									computeCore.within(field(vars, t.column), low, high),
