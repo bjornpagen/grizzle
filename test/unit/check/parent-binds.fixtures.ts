@@ -11,14 +11,14 @@ import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 
 /** An attempt of a child at its item `n`, at its instant: the parent rows. */
-export const Attempt = relation("Attempt", { child: pg.integer, n: pg.integer, at: pg.integer }, [
+const Attempt = relation("Attempt", { child: pg.integer, n: pg.integer, at: pg.integer }, [
 	"child",
 	"n",
 	"at"
 ])
 
 /** A mark of a child's item `n`: the rows each attempt's attachment reads through an import. */
-export const Mark = relation("Mark", { child: pg.integer, n: pg.integer, mark: pg.integer }, [
+const Mark = relation("Mark", { child: pg.integer, n: pg.integer, mark: pg.integer }, [
 	"child",
 	"n",
 	"mark"
@@ -73,7 +73,7 @@ export const forms = ["a scalar parameter", "a relation parameter's rows"] as co
 export type Form = (typeof forms)[number]
 
 /** Where the attachment is read: a query, or a ChangeSet's read-back, edullm's answerTestItem `attempt`. */
-export const readers = ["a query", "a ChangeSet's read-back"] as const
+const readers = ["a query", "a ChangeSet's read-back"] as const
 export type Reader = (typeof readers)[number]
 
 export interface BindCase {
@@ -82,7 +82,7 @@ export interface BindCase {
 	readonly reader: Reader
 }
 
-export const bindCases = Arr.flatMap(binders, (binder) =>
+const bindCases = Arr.flatMap(binders, (binder) =>
 	Arr.flatMap(forms, (form) => Arr.map(readers, (reader): BindCase => ({ binder, form, reader })))
 )
 
@@ -161,7 +161,7 @@ export const readBackOf = (binder: Binder, form: Form) =>
  * reads is in scope (lower/conservative/match-region), so a region of which none is first has an order to place; the
  * checker forms one in its matches' order, each match's bind map read once the matches before it bound what it reads.
  */
-export const unplaceable = (
+const unplaceable = (
 	region: NodeOf<"MatchRegion">,
 	outer: (source: RelNode) => ReadonlyMap<NodeId, ReadonlySet<string>>
 ): string | undefined => {
