@@ -9,7 +9,9 @@
  * - `basis`: the law model and the closed constants every installation of the schema is built over (installBasis);
  * - `workload`: the logins' workloads planned (planWorkload), and inside it `workloadLogin`, each login's programs;
  * - `changes`: the logins' ChangeSets compiled for their served files (servedWorkload), inside it `loginChanges`, each
- *   login's, inside that `changeSet`, each ChangeSet of a role at READ COMMITTED, then `certification`, every role's
+ *   login's, inside that `frontEnd`, each ChangeSet of a role prepared, its front end and put targets, which decide
+ *   whether it has a READ COMMITTED form, then `changeSet`, each ChangeSet of the role compiled at the role's level,
+ *   READ COMMITTED, or SERIALIZABLE where a member has no READ COMMITTED form, then `certification`, every role's
  *   certificate;
  * - `installation`: the installation drafted (installationOver), inside it `installPlan`, its plan, `judge`, the checks
  *   of its rules over queries, and `indexes`, its index plan;
@@ -26,6 +28,7 @@ export const phaseNames = [
 	"workloadLogin",
 	"changes",
 	"loginChanges",
+	"frontEnd",
 	"changeSet",
 	"certification",
 	"installation",

@@ -34,7 +34,7 @@ import { Id } from "#test/support/ids.ts"
 
 const note = str.regex("^[a-z]{1,8}$")
 
-/** A span primary key: its insert and its put have no READ COMMITTED form (write/schedule/plan.ts formedAt). */
+/** A span primary key: its insert and its put have no READ COMMITTED form (write/schedule/plan.ts readCommittedLack). */
 const Room = relation("Room", { room: Id, during: span(pg.bigint), guest: Id }, ["room", "during"])
 
 /** Room's mutable twin, whose put is the DELETE-then-insert pair, which has none either. */
@@ -45,12 +45,20 @@ const Plain = relation("Plain", { id: Id, note }, ["id"])
 
 const Levels = schema("PreparedLevels", [Room, Hold, Plain], [mutable(Hold), mutable(Plain)])
 
-/** The programs a role's workload may hold, by whether each has a READ COMMITTED form. */
+/** The programs a role's workload may hold, by whether each has a READ COMMITTED form, with the relation it writes. */
 export const programs = {
-	insertRoom: { formed: false, value: () => ChangeSet.empty(Levels).insert(Room, []) },
-	putHold: { formed: false, value: () => ChangeSet.empty(Levels).put(Hold, []) },
-	insertPlain: { formed: true, value: () => ChangeSet.empty(Levels).insert(Plain, []) },
-	putPlain: { formed: true, value: () => ChangeSet.empty(Levels).put(Plain, []) }
+	insertRoom: {
+		formed: false,
+		relation: "Room",
+		value: () => ChangeSet.empty(Levels).insert(Room, [])
+	},
+	putHold: { formed: false, relation: "Hold", value: () => ChangeSet.empty(Levels).put(Hold, []) },
+	insertPlain: {
+		formed: true,
+		relation: "Plain",
+		value: () => ChangeSet.empty(Levels).insert(Plain, [])
+	},
+	putPlain: { formed: true, relation: "Plain", value: () => ChangeSet.empty(Levels).put(Plain, []) }
 } as const
 
 export type Program = keyof typeof programs

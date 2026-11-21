@@ -33,6 +33,7 @@ const parentOf: { readonly [P in PhaseName]: PhaseName | undefined } = {
 	workloadLogin: "workload",
 	changes: "schema",
 	loginChanges: "changes",
+	frontEnd: "loginChanges",
 	changeSet: "loginChanges",
 	certification: "changes",
 	installation: "schema",

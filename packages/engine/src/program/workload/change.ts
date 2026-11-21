@@ -9,7 +9,7 @@ import type { SchemaFingerprint } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { once } from "#compiler/core/lazy.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { type Phases, phased } from "#compiler/core/phase.ts"
+import { type Phases, phased, silentPhases } from "#compiler/core/phase.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
@@ -41,6 +41,7 @@ import {
 	type ServableWrite,
 	servableWrite
 } from "#compiler/write/program/compile.ts"
+import type { FormLack } from "#compiler/write/schedule/plan.ts"
 
 /**
  * A ChangeSet compiled for a role: its write program as it compiled, the value parsed whole, the parameters its member
@@ -408,6 +409,25 @@ const variantsCompiledAt = <S extends ParamSource>(
 }
 
 /**
+ * Why prepared variants have no READ COMMITTED form (write/schedule/plan.ts FormLack): their first form's that has none,
+ * in the order their compile meets them (variantsCompiledAt), each form's entry prepared, where it is not yet, just
+ * before its form is read, and none prepared past the first form that has none; none where every form has one. The
+ * first refusal in that order refuses them all.
+ */
+const variantsLack = <S extends ParamSource>(
+	variants: PreparedVariants<S>
+): Result.Result<FormLack | undefined, CompileError> => {
+	switch (variants.kind) {
+		case "form":
+			return Result.map(variants.entry(), (prepared) => prepared.prepared.readCommittedLack)
+		case "split":
+			return Result.flatMap(variantsLack(variants.lacking), (lacking) =>
+				lacking === undefined ? variantsLack(variants.holding) : Result.ok(lacking)
+			)
+	}
+}
+
+/**
  * A login as its change members compile: its roles' values by their names in the login, in its order, its workloads,
  * the login owned over its base's Owned with every role named under the installation (physical/ddl/names.ts
  * namedLogin), and the artifacts its served file compiles over, its base's over every relation, which cast its
@@ -455,8 +475,8 @@ export interface ChangeRefused {
 /**
  * One role of `login` before its change members compile: its value parsed, its owned role as the installation named it,
  * its artifacts over its login's, and each ChangeSet of the login's workloads that runs on it, compiled at a level by
- * `compile`, its variants over its fill contexts, each prepared once for every level its role compiles it at
- * (PreparedVariants).
+ * `compile`, its variants over its fill contexts, each prepared once for every level its role compiles it at and for
+ * the read of why it has no READ COMMITTED form (`lack`, variantsLack) before them (PreparedVariants).
  */
 interface RoleBase<S extends ParamSource> {
 	readonly input: ParsedRole
@@ -464,6 +484,7 @@ interface RoleBase<S extends ParamSource> {
 	readonly artifacts: SchemaArtifacts<S>
 	readonly programs: ReadonlyArray<{
 		readonly name: string
+		readonly lack: () => Result.Result<FormLack | undefined, CompileError>
 		readonly compile: (level: Isolation) => Result.Result<CompiledVariants<S>, CompileError>
 	}>
 }
@@ -527,6 +548,7 @@ const roleBase = <S extends ParamSource>(
 			return [
 				{
 					name: program.name,
+					lack: () => variantsLack(variants()),
 					compile: (level: Isolation) => variantsCompiledAt(variants(), level)
 				}
 			]
@@ -534,15 +556,21 @@ const roleBase = <S extends ParamSource>(
 	})
 }
 
-/** `base`'s change members compiled at `level` (RoleChanges), or the first that refuses. */
+/**
+ * `base`'s change members compiled at `level` (RoleChanges), or the first that refuses, each member's compile a phase
+ * reported to `phases` (`changeSet`).
+ */
 const membersAt = <L extends Isolation, S extends ParamSource>(
 	name: string,
 	base: RoleBase<S>,
-	level: L
+	level: L,
+	phases: Phases
 ): Result.Result<RoleChanges<L, S>, ChangeRefused> => {
 	const members = new Map<string, CompiledVariants<S>>()
 	for (const program of base.programs) {
-		const variants = program.compile(level)
+		const variants = phased(phases, { name: "changeSet", of: [name, program.name] }, () =>
+			program.compile(level)
+		)
 		if (!variants.ok) {
 			return Result.err({ role: name, program: program.name, error: variants.error })
 		}
@@ -564,7 +592,7 @@ const roleChanges = <L extends Isolation, S extends ParamSource>(
 	login: ChangeLogin<S>,
 	level: L
 ): Result.Result<RoleChanges<L, S>, ChangeRefused> =>
-	Result.flatMap(roleBase(name, value, login), (base) => membersAt(name, base, level))
+	Result.flatMap(roleBase(name, value, login), (base) => membersAt(name, base, level, silentPhases))
 
 /**
  * One role of a login compiled for READ COMMITTED (`readCommittedChanges`): every change member formed, the role's
@@ -580,35 +608,15 @@ export type ReadCommittedRole<S extends ParamSource = ParamSource> =
 			readonly unformed: NonEmptyReadonlyArray<Unformed>
 	  }
 
-/** One role of `login` compiled for READ COMMITTED (ReadCommittedRole), each ChangeSet's compile a phase reported to
- * `phases` (`changeSet`). */
 /**
- * A role's member compiled for READ COMMITTED (readCommittedRole): its variants; or, where it has no READ COMMITTED form,
- * the relation and the reason alone, the refusal that said so dropped here, in this frame, with the stack it captured,
- * whose frames' closures held its compile's placement, the physical analysis of its write's whole DAG, for as long as
- * the role's loop held the refusal (edullm's qti: the learner role's decideStage, ~1.1 GB, alive through the next
- * member's compile); or any other refusal, which refuses the role.
+ * One role of `login` compiled for READ COMMITTED (ReadCommittedRole): each member prepared and read for why it has no
+ * READ COMMITTED form (RoleBase `lack`), a phase reported to `phases` (`frontEnd`); then, every member formed, each
+ * compiled at READ COMMITTED, or, some member lacking one, each compiled at SERIALIZABLE alone, never at READ COMMITTED,
+ * each a phase (`changeSet`, membersAt). A role with a member lacking a form compiled every member at READ COMMITTED
+ * first, each formed member's compile thrown away and each lacking one's placed for its refusal (edullm's qti: the
+ * learner role's decideStage, 52 s of its 101 s at READ COMMITTED), and then at SERIALIZABLE, every READ COMMITTED
+ * compile alive beside it.
  */
-const readCommittedMember = <S extends ParamSource>(program: {
-	readonly name: string
-	readonly compile: (level: Isolation) => Result.Result<CompiledVariants<S>, CompileError>
-}):
-	| { readonly kind: "formed"; readonly variants: CompiledVariants<S> }
-	| { readonly kind: "unformed"; readonly unformed: Unformed }
-	| { readonly kind: "refused"; readonly error: CompileError } => {
-	const variants = program.compile("readCommitted")
-	if (variants.ok) {
-		return { kind: "formed", variants: variants.value }
-	}
-	const reason = variants.error.reason
-	return reason._tag === "NoReadCommittedForm"
-		? {
-				kind: "unformed",
-				unformed: { member: program.name, relation: reason.relation }
-			}
-		: { kind: "refused", error: variants.error }
-}
-
 const readCommittedRole = <S extends ParamSource>(
 	name: string,
 	value: unknown,
@@ -616,46 +624,34 @@ const readCommittedRole = <S extends ParamSource>(
 	phases: Phases
 ): Result.Result<ReadCommittedRole<S>, ChangeRefused> =>
 	Result.flatMap(roleBase(name, value, login), (base) => {
-		const members = new Map<string, CompiledVariants<S>>()
 		const unformed: Array<Unformed> = []
 		for (const program of base.programs) {
-			const compiled = phased(phases, { name: "changeSet", of: [name, program.name] }, () =>
-				readCommittedMember(program)
+			const lack = phased(phases, { name: "frontEnd", of: [name, program.name] }, () =>
+				program.lack()
 			)
-			switch (compiled.kind) {
-				case "formed":
-					members.set(program.name, compiled.variants)
-					break
-				case "unformed":
-					unformed.push(compiled.unformed)
-					break
-				case "refused":
-					return Result.err({ role: name, program: program.name, error: compiled.error })
+			if (!lack.ok) {
+				return Result.err({ role: name, program: program.name, error: lack.error })
+			}
+			if (lack.value !== undefined) {
+				unformed.push({ member: program.name, relation: lack.value.relation })
 			}
 		}
 		return isNonEmpty(unformed)
-			? Result.map(membersAt(name, base, "serializable"), (changes): ReadCommittedRole<S> => ({
-					kind: "unformed",
-					changes,
-					unformed
-				}))
-			: Result.ok({
-					kind: "formed",
-					changes: {
-						input: base.input,
-						named: base.named,
-						artifacts: base.artifacts,
-						level: "readCommitted",
-						members
-					}
-				})
+			? Result.map(
+					membersAt(name, base, "serializable", phases),
+					(changes): ReadCommittedRole<S> => ({ kind: "unformed", changes, unformed })
+				)
+			: Result.map(
+					membersAt(name, base, "readCommitted", phases),
+					(changes): ReadCommittedRole<S> => ({ kind: "formed", changes })
+				)
 	})
 
 /**
  * Every role of a login, by its name in the login, in its order, each with the ChangeSets of the login's workloads that
  * run on it compiled once over its artifacts at `level` (RoleChanges): SERIALIZABLE for a compile no certificate covers;
- * certification compiles for READ COMMITTED through readCommittedChanges, which tells a member with no READ COMMITTED
- * form from a refusal. A role or program that does not compile is ChangeRefused.
+ * certification compiles for READ COMMITTED through readCommittedChanges, which reads whether each member has a READ
+ * COMMITTED form before it compiles any. A role or program that does not compile is ChangeRefused.
  */
 export const loginChanges = <L extends Isolation, S extends ParamSource>(
 	login: ChangeLogin<S>,
@@ -675,7 +671,8 @@ export const loginChanges = <L extends Isolation, S extends ParamSource>(
 /**
  * Every role of a login, by its name in the login, in its order, compiled for READ COMMITTED (ReadCommittedRole): what
  * the installation's certification reads first, and serves a role it certifies READ COMMITTED. A role or program that
- * does not compile for another reason is ChangeRefused. Each ChangeSet's compile is a phase reported to `phases`.
+ * does not compile is ChangeRefused. Each ChangeSet's preparation and its compile are phases reported to `phases`
+ * (`frontEnd`, `changeSet`).
  */
 export const readCommittedChanges = <S extends ParamSource>(
 	login: ChangeLogin<S>,

@@ -235,7 +235,7 @@ const verdictClass = {
  *
  * Complete facts into a primary key holding a span take `every` alone: an exclusion constraint arbitrates an INSERT by
  * ON CONFLICT ON CONSTRAINT DO NOTHING only, so no form at a scalar key tells a requested fact it met from one it made.
- * At READ COMMITTED such an insert has no form (write/schedule/plan.ts formedAt, NoReadCommittedForm).
+ * At READ COMMITTED such an insert has no form (write/schedule/plan.ts readCommittedLack, NoReadCommittedForm).
  */
 type Arbitration =
 	| { readonly kind: "returned"; readonly payload: ReadonlyArray<LawField> }
@@ -252,7 +252,7 @@ const arbitrationOf = (
 	switch (shape.variant) {
 		case "spanKey":
 			throw defect(
-				`an insert of complete facts into ${relation.name}, whose primary key holds a span, that arbitrates no object but every one: write/schedule/plan.ts formedAt refuses it at READ COMMITTED`
+				`an insert of complete facts into ${relation.name}, whose primary key holds a span, that arbitrates no object but every one: write/schedule/plan.ts readCommittedLack refuses it at READ COMMITTED`
 			)
 		case "pureSet":
 			return { kind: "returned", payload: [] }
@@ -355,7 +355,7 @@ const arbitrationOf = (
  * of complete facts into it arbitrates every object at SERIALIZABLE (Arbitration `every`), the span key among them,
  * probed for the requested pairs overlapping within the input, and its met rows are classified: one at the key's own
  * span, an exact repeat or the key law, or on a put's insert half a concurrent change, SpanKeyChange; one at another
- * overlapping span, the key law. At READ COMMITTED it has no form (write/schedule/plan.ts formedAt).
+ * overlapping span, the key law. At READ COMMITTED it has no form (write/schedule/plan.ts readCommittedLack).
  *
  * Under a transaction snapshot every stored row an insert meets is read under that snapshot, so SSI sees an exact
  * repeat, which inserts nothing, as a read of the stored fact: `every`'s met rows by their met read, and `returned`'s by

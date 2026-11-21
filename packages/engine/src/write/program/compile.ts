@@ -8,9 +8,10 @@ import {
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema, DerivedAnalysis } from "#compiler/analysis/schema.ts"
 import { canonicalEquals, catchRefusal, unwrap } from "#compiler/core/canonical.ts"
-import type { CompileError } from "#compiler/core/errors.ts"
+import { CompileError } from "#compiler/core/errors.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
+import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Certificate, localCertificate } from "#compiler/ir/certificate.ts"
 import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
@@ -204,10 +205,12 @@ import {
 } from "#compiler/write/readback/deltas.ts"
 import { type DeltasOf, deltaSourceIn, lowerReadBack } from "#compiler/write/readback/lower.ts"
 import {
+	type FormLack,
 	type PlanAction,
 	type PlannedWrite,
 	type PlanStep,
 	planWrite,
+	readCommittedLack,
 	type WritePlan
 } from "#compiler/write/schedule/plan.ts"
 
@@ -1886,10 +1889,10 @@ const checkReads = (step: Extract<PlanStep, { readonly kind: "check" }>): Readon
  *
  * It holds the write front end, the ChangeSetDesc checked against the schema and grouped into the WriteIR's actions
  * (compileChangeSet), and each put's target (choosePutTargets), which read the schema, the claims, the laws and the
- * clock but no level: `prepare` is given PrepareWriteOptions, which hold none. Everything that reads the level is
- * `compile`'s: the schedule, whose forms refuse an insert with no form at READ COMMITTED (schedule/plan.ts
- * formedAt) and whose puts choose their statements by it (putOps), the lowering's write context, and the statements
- * built over them. So is everything a compile appends to as it lowers, made afresh at each level and never held here:
+ * clock but no level: `prepare` is given PrepareWriteOptions, which hold none; and so whether it has a READ COMMITTED
+ * form (`readCommittedLack`, schedule/plan.ts), which its put targets decide, known before it compiles at any level.
+ * Everything that reads the level is `compile`'s: the lowering's write context and the statements built over it. So
+ * is everything a compile appends to as it lowers, made afresh at each level and never held here:
  * the facts whose certificates the lowering records (writeFacts), the statement share, the shape state and the share
  * index's memo, and its placement (`#place`), which reads no level but holds the physical analysis of the write's
  * whole DAG its facts read: each compile places the write for itself and drops the placement as it returns. A prepared
@@ -1900,6 +1903,12 @@ export class PreparedWrite {
 	readonly options: PrepareWriteOptions
 	readonly frontend: WriteFrontend
 	readonly chosen: ChosenTargets
+	/**
+	 * Why it has no READ COMMITTED form (schedule/plan.ts FormLack), its first insert's that has none; none where it has
+	 * one. Its put targets decide it, so a role's compile reads it before compiling any member, and compiles a role with
+	 * a member lacking one at SERIALIZABLE alone (program/workload/change.ts readCommittedChanges).
+	 */
+	readonly readCommittedLack: FormLack | undefined
 	#compiles = 0
 	#placements = 0
 
@@ -1913,6 +1922,7 @@ export class PreparedWrite {
 		this.options = options
 		this.frontend = frontend
 		this.chosen = chosen
+		this.readCommittedLack = readCommittedLack(chosen)
 	}
 
 	/** How many levels it was compiled at (`compile`): the back ends its one front end fed, the work it saved them. */
@@ -1947,8 +1957,21 @@ export class PreparedWrite {
 		})
 	}
 
-	/** The write compiled at `level` (compileWrite's steps 3 to 5), placed for this compile alone (`#place`). */
+	/**
+	 * The write compiled at `level` (compileWrite's steps 3 to 5), placed for this compile alone (`#place`); refused at
+	 * READ COMMITTED where it has no form there (NoReadCommittedForm, `readCommittedLack`), before it is placed.
+	 */
 	compile(level: Isolation): Result.Result<CompiledWrite, CompileError> {
+		const lack = this.readCommittedLack
+		if (level === "readCommitted" && lack !== undefined) {
+			return Result.err(
+				CompileError.make({
+					_tag: "NoReadCommittedForm",
+					at: childLoc(SourceLoc("ChangeSet", []), "writes", lack.relation),
+					relation: lack.relation
+				})
+			)
+		}
 		return Result.flatMap(this.#place(), (placed) => placed.compile(level))
 	}
 }
@@ -2031,7 +2054,6 @@ const compileAt = (
 		restated,
 		chosenIn(chosen, frontend.restate),
 		{
-			level: options.level,
 			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
 			shares: (members, single) => {
 				const shares = unwrap(

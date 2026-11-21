@@ -110,9 +110,9 @@ export const callsThatAppendAtOneChildTakeTurnsAndStampAsTheirSerialRunInCommitO
 		kills: [
 			{
 				file: "packages/engine/src/write/schedule/plan.ts",
-				original: '\tif (level === "readCommitted" && primaryKeyShape(relation).kind === "span") {',
+				original: '\tprimaryKeyShape(action.info.relation).kind === "span"',
 				replacement:
-					'\tif (\n\t\tlevel === "readCommitted" &&\n\t\t(primaryKeyShape(relation).kind === "span" || headStamped(action.info.stamps).length > 0)\n\t) {',
+					'\t(primaryKeyShape(action.info.relation).kind === "span" || headStamped(action.info.stamps).length > 0)',
 				why: "An insert that stamps has no READ COMMITTED form again, as before the head rows: generate certifies the writer SERIALIZABLE by `form`, and the READ COMMITTED template does not compile."
 			},
 			{

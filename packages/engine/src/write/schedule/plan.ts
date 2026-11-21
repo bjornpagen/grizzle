@@ -9,7 +9,6 @@ import type { CheckedEntry } from "#compiler/analysis/schema.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { CompileError, type NamedSide, type ReadBackCrossing } from "#compiler/core/errors.ts"
 import type { EntryName, StoredRelationName } from "#compiler/core/ids.ts"
-import type { Isolation } from "#compiler/core/isolation.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { headStamped, type Stamped } from "#compiler/ir/instant.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
@@ -349,15 +348,14 @@ const placedSteps = (
 }
 
 /** The statements of one action, in order; a put's by the target its choice chose for it (see `planWrite`). */
-const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep> => {
+const opsOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 	switch (action.op) {
 		case "delete":
 			return [{ op: "exactDelete" }]
 		case "insert":
-			formedAt(action, level)
 			return [...precheckOf(action), { op: "insert", stamps: action.info.stamps }]
 		case "put":
-			return putOps(action, level)
+			return putOps(action)
 	}
 }
 
@@ -397,35 +395,50 @@ const scopedPrecheckOf = (put: ChosenAction): ReadonlyArray<DraftStep> =>
 	put.info.entry.kind === "whole" ? precheckOf(put) : []
 
 /**
- * Refuses an insert into `relation` with no form at `level`: an insert into a span primary key at READ COMMITTED
- * (NoReadCommittedForm). An exclusion constraint arbitrates by ON CONFLICT DO NOTHING alone, so no
- * statement of the insert tells a requested fact it met from one it made; at SERIALIZABLE the insert arbitrates every
- * object and classifies what it met itself (protocol.ts Arbitration `every`). Certification reads the refusal as the
- * condition `form` of the role it compiles, which then runs SERIALIZABLE (program/workload/change.ts readCommittedChanges).
+ * Why a write has no READ COMMITTED form (core/errors.ts NoReadCommittedForm): the relation of its first insert, in its
+ * strata's order and each stratum's actions' order, that has none.
  */
-const formedAt = (action: ChosenAction, level: Isolation): void => {
-	const relation = action.info.relation
-	if (level === "readCommitted" && primaryKeyShape(relation).kind === "span") {
-		throw new Refusal(
-			CompileError.make({
-				_tag: "NoReadCommittedForm",
-				at: childLoc(SourceLoc("ChangeSet", []), "writes", relation.name),
-				relation: relation.name
-			})
-		)
+export interface FormLack {
+	readonly relation: string
+}
+
+/**
+ * Whether an action's insert has no READ COMMITTED form: an insert into a span primary key, whose exclusion constraint
+ * arbitrates by ON CONFLICT DO NOTHING alone, so no statement of the insert tells a requested fact it met from one it
+ * made, where at SERIALIZABLE the insert arbitrates every object and classifies what it met itself (protocol.ts
+ * Arbitration `every`). An insert, and a put whose target deletes then inserts or puts an owner's group, inserts so; no
+ * other action does.
+ */
+const lacksForm = (action: ChosenAction): boolean =>
+	(action.op === "insert" ||
+		(action.op === "put" &&
+			(action.choice.target === "deleteThenInsert" || action.choice.target === "ownerPut"))) &&
+	primaryKeyShape(action.info.relation).kind === "span"
+
+/**
+ * Why the write of `chosen` has no READ COMMITTED form (FormLack), its first insert's that has none; none where every
+ * insert has one. It reads the put targets alone, which read no level, so it is known before any compile: a compile at
+ * READ COMMITTED refuses such a write before it places it (write/program/compile.ts PreparedWrite.compile), and
+ * certification reads it as the condition `form` of the role it compiles, which then compiles and runs SERIALIZABLE
+ * alone (program/workload/change.ts readCommittedChanges).
+ */
+export const readCommittedLack = (chosen: ChosenTargets): FormLack | undefined => {
+	for (const { actions } of chosen.strata) {
+		for (const action of actions) {
+			if (lacksForm(action)) {
+				return { relation: action.info.relation.name }
+			}
+		}
 	}
+	return undefined
 }
 
 /** The statements of a put's chosen target. */
-const putOps = (
-	put: Extract<ChosenAction, { readonly op: "put" }>,
-	level: Isolation
-): ReadonlyArray<DraftStep> => {
+const putOps = (put: Extract<ChosenAction, { readonly op: "put" }>): ReadonlyArray<DraftStep> => {
 	const { choice } = put
 	const relation = put.info.relation
 	switch (choice.target) {
 		case "deleteThenInsert": {
-			formedAt(put, level)
 			const payload = payloadOf(relation)
 			return [
 				...(payload.kind === "pureSet"
@@ -448,7 +461,6 @@ const putOps = (
 		case "updateFrom":
 			return [...scopedPrecheckOf(put), { op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
-			formedAt(put, level)
 			return [
 				...precheckOf(put),
 				...(choice.inPlace === undefined
@@ -467,9 +479,6 @@ const putOps = (
 /** What the plan may rely on about a described member beyond the write DAG's own evidence: whether its rows, as the
  * artifact lowers them, are distinct (`distinctByEvidence`). */
 interface PlanEvidence {
-	/** The level the write runs at, at which an insert into a span primary key has a form at SERIALIZABLE alone
-	 * (`formedAt`). */
-	readonly level: Isolation
 	readonly distinct: (node: RelNode, relation: RelationInfo) => boolean
 	/** The sub-queries several of a stratum's member statements read, each statement rooted at one member's node, to be
 	 * carried across them (`planStatementShares`); where one statement realizes the stratum (`single`), each evaluation
@@ -1163,7 +1172,7 @@ export const planWrite = (
 						{
 							at: { stratum: s, index, dependsOn: action.dependsOn },
 							action,
-							steps: opsOf(action, evidence.level),
+							steps: opsOf(action),
 							excepts: exceptsOf(actions, action)
 						}
 					]
