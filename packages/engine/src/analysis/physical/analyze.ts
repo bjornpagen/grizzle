@@ -124,23 +124,7 @@ export class PropsUnder {
 
 	constructor(env: PhysicalEnv, kept: ReadonlyMap<RelNode, PhysicalProps>) {
 		this.env = env
-		/** Each node's physical properties, its inputs' first: every input is yielded before its rule reads it. */
-		const props = new Fold<RelNode, PhysicalProps>(function* (node) {
-			const carried = kept.get(node)
-			if (carried !== undefined) {
-				return carried
-			}
-			for (const input of inputsOf(node)) {
-				yield input
-			}
-			return physicalPropsOf(node, rules)
-		})
-		const rules: RuleContext = {
-			props: (input) => props.of(input),
-			catalog: env.catalog,
-			placed: env.realization
-		}
-		this.#props = props
+		this.#props = new FoldedRules(env, kept).fold
 	}
 
 	/** The physical properties of `node` under the env. */
@@ -148,6 +132,84 @@ export class PropsUnder {
 		return this.#props.of(node)
 	}
 }
+
+/**
+ * Each closure an analysis hands out, and its fold's step, is made by a function of its own that captures what it reads
+ * alone, never in PropsUnder's constructor or analysisOver's scope: V8 holds every variable any closure of a scope
+ * captures in that scope's one context, and keeps a closure past the analysis through its own metadata (a hidden
+ * class's constructor, an allocation site's boilerplate, a feedback vector) once the code that made it is optimized, so
+ * a closure made in that scope kept the PropsUnder, its fold's memo of every node's properties among it (GENMEM: six
+ * physical props contexts pinned so in edullm's qti generate at hub a212aa699), as logical/annotate.ts's are made
+ * (aa7fb978a).
+ */
+
+/** The fold's step: a node `kept` carries, its own properties computed from its inputs' otherwise, inputs first. */
+const propsStep = (kept: ReadonlyMap<RelNode, PhysicalProps>, rules: RuleContext) =>
+	function* (node: RelNode): Generator<RelNode, PhysicalProps, PhysicalProps> {
+		const carried = kept.get(node)
+		if (carried !== undefined) {
+			return carried
+		}
+		for (const input of inputsOf(node)) {
+			yield input
+		}
+		return physicalPropsOf(node, rules)
+	}
+
+/**
+ * The context a node's rule reads (rules.ts RuleContext): the env's catalog and decisions, and its inputs' properties
+ * off the fold it makes and owns, a method of its own, so no closure of an analysis's scope holds the fold.
+ */
+class FoldedRules implements RuleContext {
+	readonly catalog: EvidenceCatalog
+	readonly placed: PhysicalEnv["realization"]
+	readonly fold: Fold<RelNode, PhysicalProps>
+
+	constructor(env: PhysicalEnv, kept: ReadonlyMap<RelNode, PhysicalProps>) {
+		this.catalog = env.catalog
+		this.placed = env.realization
+		this.fold = new Fold<RelNode, PhysicalProps>(propsStep(kept, this))
+	}
+
+	/** The properties of an input of the node a rule computes, which the fold computed before the node. */
+	props(input: RelNode): PhysicalProps {
+		return this.fold.of(input)
+	}
+}
+
+/** A node's properties under one env, read off its PropsUnder. */
+const propsOf =
+	(props: PropsUnder) =>
+	(node: RelNode): PhysicalProps =>
+		props.of(node)
+
+/** A node's realization under the env's decisions. */
+const realizationIn =
+	(placed: PhysicalEnv["realization"]) =>
+	(node: RelNode): Realization =>
+		realizationOf(placed, node)
+
+/** A node's contribution (contribution.ts): an ordered-set aggregate's or a window's, over its input's properties. */
+const contributionIn =
+	(props: PropsUnder) =>
+	(n: RelNode): Contribution | undefined =>
+		n.kind === "OrderedSetAggregate" || n.kind === "Window"
+			? contributionOf(n, props.of(n.input))
+			: undefined
+
+/** What the analysis knows of a node (PhysicalAnalysis `of`): its properties, realization, observation and contribution. */
+const nodeAnalysisOf =
+	(
+		props: PropsUnder,
+		placed: PhysicalEnv["realization"],
+		observed: ReadonlySet<RelNode>
+	): PhysicalAnalysis["of"] =>
+	(node) => ({
+		props: props.of(node),
+		realization: realizationOf(placed, node),
+		observed: observed.has(node),
+		contribution: contributionIn(props)(node)
+	})
 
 /** Each node's physical properties under `env`, none carried (PropsUnder). */
 export const propsUnder = (env: PhysicalEnv): PropsUnder => new PropsUnder(env, noneKept)
@@ -198,10 +260,9 @@ const analysisOver = (
 ): PhysicalAnalysis => {
 	const { env } = props
 	const { context } = env
-	const realization = (node: RelNode): Realization => realizationOf(env.realization, node)
 	const edges = classifyEdges(dag, order, {
-		props: (node) => props.of(node),
-		realization,
+		props: propsOf(props),
+		realization: realizationIn(env.realization),
 		roots: env.roots
 	})
 	const obligations: Array<Obligation> = edges.flatMap((edge): ReadonlyArray<Obligation> => {
@@ -220,21 +281,11 @@ const analysisOver = (
 				: found.just
 		return [{ edge, heading, discharged: true, proof }]
 	})
-	const observed = observedNodes(order, edges)
-	const contributionAt = (n: RelNode): Contribution | undefined =>
-		n.kind === "OrderedSetAggregate" || n.kind === "Window"
-			? contributionOf(n, props.of(n.input))
-			: undefined
 	return {
 		dag,
 		context,
 		order,
-		of: (node) => ({
-			props: props.of(node),
-			realization: realization(node),
-			observed: observed.has(node),
-			contribution: contributionAt(node)
-		}),
+		of: nodeAnalysisOf(props, env.realization, observedNodes(order, edges)),
 		edges,
 		obligations
 	}
