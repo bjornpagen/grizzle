@@ -100,9 +100,8 @@ export const theUTF8WriterWritesJSONStringifysTextOfEveryStringAndNumberAndEvery
 			},
 			{
 				file: "packages/text/src/utf8.ts",
-				original:
-					"const asciiEscaped = Uint8Array.from(asciiEscapes, (escape) => (escape === undefined ? 0 : 1))",
-				replacement: "const asciiEscaped = new Uint8Array(asciiEscapes.length)",
+				original: "\tunit < 0x80 ? asciiEscapes[unit] : undefined",
+				replacement: "\tundefined",
 				why: "No ASCII unit is escaped: a quotation mark, a reverse solidus or a control is written as itself, and the literal is no longer JSON.stringify's."
 			},
 			{

@@ -261,13 +261,6 @@ const asciiEscapes: ReadonlyArray<string | undefined> = Array.from({ length: 0x8
 )
 
 /**
- * Whether JSON escapes each ASCII code unit, by unit, 1 where `asciiEscapes` holds an escape and 0 where it holds none:
- * the same table read as one byte a unit, so the writer's loop (Utf8Writer.jsonString) tests a unit with one load and
- * reads an escape only for a unit that has one.
- */
-const asciiEscaped = Uint8Array.from(asciiEscapes, (escape) => (escape === undefined ? 0 : 1))
-
-/**
  * The JSON escape of one UTF-16 code unit inside a string literal, as JSON.stringify writes it (escapedUnit), read from
  * the escapes made once as the module loads, so no escape is spelled again for each unit; none for a unit JSON writes
  * as itself, a surrogate among them, which is escaped only where it is lone (Utf8Writer.jsonString). The one spelling
@@ -276,12 +269,6 @@ const asciiEscaped = Uint8Array.from(asciiEscapes, (escape) => (escape === undef
  */
 export const jsonEscape = (unit: number): string | undefined =>
 	unit < 0x80 ? asciiEscapes[unit] : undefined
-
-/**
- * An ASCII code unit's text inside a JSON string literal: its escape where `asciiEscapes` holds one, which is every unit
- * `asciiEscaped` marks, else the unit itself, as JSON writes a unit it does not escape.
- */
-const escapeOf = (unit: number): string => asciiEscapes[unit] ?? String.fromCharCode(unit)
 
 /** An ASCII text's bytes written into `out` from `to`, one a code unit, and the position past them. */
 const writeAscii = (out: Uint8Array, to: number, text: string): number => {
@@ -392,12 +379,12 @@ export class Utf8Writer {
 		for (let i = 0; i < length; i++) {
 			const unit = text.charCodeAt(i)
 			if (unit < 0x80) {
-				if (asciiEscaped[unit] === 0) {
+				const escape = jsonEscape(unit)
+				if (escape === undefined) {
 					out[to] = unit
 					to += 1
 					continue
 				}
-				const escape = escapeOf(unit)
 				to = writeAscii(out, to, escape)
 				escaped += escape.length - 1
 				continue
