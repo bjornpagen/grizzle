@@ -174,7 +174,7 @@ const toastedCatalog = (
 ]
 
 /** The transaction's own id, which every transaction that writes locks in the shared table (xact.c AssignTransactionId). */
-export const transactionLock: LockTarget = target("transaction")
+const transactionLock: LockTarget = target("transaction")
 
 /**
  * What a relation's query, body or expression names: the relations it reads, the relations it writes, the functions it
@@ -703,7 +703,7 @@ const renamedRelation = (catalogOf: LockCatalog, from: ObjectName, to: ObjectNam
  * alone). What a file creates is learned as its statements are counted (transactionLocks), so count the files of a
  * migration in their order over one catalog.
  */
-export const lockCatalog = (input: {
+const lockCatalog = (input: {
 	readonly installed: Iterable<SqlStatement | RecordedStatement>
 	readonly bodies: Iterable<SqlStatement>
 }): LockCatalog => {
@@ -1033,7 +1033,7 @@ class Locks {
 
 	/** The named type a type is of, through its domains, where it is no builtin: an extension's. */
 	baseType(type: TypeRef | undefined): ObjectName | undefined {
-		if (type === undefined || type.kind !== "named") {
+		if (type?.kind !== "named") {
 			return undefined
 		}
 		const name = { schema: type.schema, name: type.name }
@@ -1746,7 +1746,7 @@ const commentLocks = (
  * One step of a migration's transaction as its locks are counted: a statement; a table's fill, an UPDATE of it at the
  * reviewer's values (deploy/diff/plan.ts Action fill); or a law's violation check, its query planned and run.
  */
-export type LockedStep =
+type LockedStep =
 	| { readonly kind: "statement"; readonly statement: SqlStatement | RecordedStatement }
 	| { readonly kind: "fill"; readonly table: ObjectName }
 	| { readonly kind: "check"; readonly query: OperandSelect }
@@ -1756,7 +1756,7 @@ export type LockedStep =
  * knows: every target each step locks, its own transaction id among them. The catalog grows by what each statement
  * creates, so a statement after it reads it.
  */
-export const transactionLocks = (
+const transactionLocks = (
 	steps: Iterable<LockedStep>,
 	catalogOf: LockCatalog
 ): ReadonlySet<LockTarget> => {
