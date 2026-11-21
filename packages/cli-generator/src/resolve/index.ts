@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -23,7 +24,6 @@ import {
 	formatPointer,
 	childPointer
 } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { resolveUri, retrievalBase, splitFragment, stripFragment } from "#model/uri.ts"

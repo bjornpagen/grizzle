@@ -1,10 +1,10 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Data, Effect, Option, Order, Record, Result } from "effect"
 import { printJson } from "#emit/printer.ts"
 import { isSha256Hex } from "#model/digest.ts"
 import type { Sha256Hex } from "#model/digest.ts"
 import { isArray, isJson, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { parseJson } from "#runtime/json.ts"
 
 /**

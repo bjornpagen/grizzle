@@ -1,6 +1,6 @@
 /** What input-refusal.test.ts's property reads: the body's reader, the planted faults, and the stdin the body check claims. */
 
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { aimed, type Aimed, constant, element, type Gen, weighted } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -13,7 +13,6 @@ import {
 	Stream,
 	String as Str
 } from "effect"
-import type { Json } from "#model/pointer.ts"
 import * as Input from "#runtime-src/runtime/input.ts"
 import * as Read from "#runtime-src/runtime/read.ts"
 

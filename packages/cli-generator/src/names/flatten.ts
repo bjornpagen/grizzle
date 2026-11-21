@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Data,
@@ -14,7 +15,6 @@ import type { MediaAlternative } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import type { FoldNote } from "#names/fold.ts"
 import { foldKebab } from "#names/fold.ts"
@@ -172,8 +172,6 @@ type Classified =
 
 const opaque: Classified = { _tag: "Opaque" }
 
-type Defs = Readonly<Record<string, Json>>
-
 const inProgress = Symbol("inProgress")
 
 /**
@@ -182,7 +180,7 @@ const inProgress = Symbol("inProgress")
  * is read once too, so a store whose definitions share each other costs its size.
  */
 interface Ctx {
-	readonly defs: Defs
+	readonly defs: JsonObject
 	/**
 	 * JSON and form bodies: a base64 string property is a `file` flag, not a `string`.
 	 */
@@ -276,7 +274,7 @@ const scalarFieldsOf = (encoding: MediaAlternative["encoding"]): ReadonlySet<str
 	)
 
 const newCtx = (
-	defs: Defs,
+	defs: JsonObject,
 	codec: "form" | "json" | "multipart",
 	encoding: MediaAlternative["encoding"],
 	refusedFields: readonly string[],
@@ -305,10 +303,7 @@ const below = (site: Site, ...tokens: readonly string[]): Site => ({
 const requiredOf = (schema: SchemaNode): ReadonlySet<string> =>
 	new Set(Arr.isArray(schema.required) ? Arr.filter(schema.required, Predicate.isString) : [])
 
-const propertiesAt = (
-	properties: Readonly<Record<string, Json>>,
-	site: Site
-): ReadonlyMap<string, Property> =>
+const propertiesAt = (properties: JsonObject, site: Site): ReadonlyMap<string, Property> =>
 	new Map(
 		Arr.map(Record.toEntries(properties), ([key, schema]) => [
 			key,
@@ -1106,7 +1101,7 @@ const clashesOf = (flag: BodyFlag): readonly ReservedClash[] => [
  * `constants`, which the request sends as it sends a constant parameter.
  */
 export const flattenBody = (
-	defs: Defs,
+	defs: JsonObject,
 	alternative: Pick<MediaAlternative, "codec" | "schema"> &
 		Partial<
 			Pick<

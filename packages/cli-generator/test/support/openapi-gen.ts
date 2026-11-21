@@ -15,7 +15,7 @@
  * alternatives share its fields, so a field is one flag; no field, part or parameter shares a flag; and a security
  * requirement uses at most one scheme that writes the Authorization header. A suite that needs a refusal plants it.
  */
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,
@@ -33,7 +33,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 
 /** The OpenAPI lines the generator reads, each written with its latest patch version. */
 export type Line = "3.0" | "3.1" | "3.2"

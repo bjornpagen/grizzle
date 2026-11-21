@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Predicate, Record, Result, String as Str } from "effect"
 import {
@@ -18,7 +19,6 @@ import { isObject, isArray, nodeAt, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { childPointer, isPointerWithin } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { specSectionUrl, patchVersion } from "#model/spec-section.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import { allOfReferrers, implicitComponent } from "#resolve/index.ts"

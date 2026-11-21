@@ -5,13 +5,13 @@
  * emitter, in process); and the specification's answer.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { aimed, type Aimed, constant, element, type Gen, map } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, Record, String as Str } from "effect"
 import { emitCli } from "#emit/cli.ts"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"

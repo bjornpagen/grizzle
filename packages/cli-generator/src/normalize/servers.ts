@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Option, Order, Predicate, Record, Result, String as Str } from "effect"
 import { Url } from "effect/http"
@@ -8,7 +9,7 @@ import type { Diagnostic } from "#model/diagnostic.ts"
 import type { RowId, Server } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json, JsonPointer } from "#model/pointer.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import { type SpecLine, specSectionUrl } from "#model/spec-section.ts"
 
 /**

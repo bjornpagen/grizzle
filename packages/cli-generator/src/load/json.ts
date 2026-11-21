@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Predicate, Result, String as Str } from "effect"
 import { byteOffset } from "#load/offset.ts"
@@ -6,7 +7,6 @@ import type { LoadRefusal, Position } from "#load/read.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { isJson } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { parseJson } from "#runtime/json.ts"
 
 const nameMapKeys: ReadonlySet<string> = new Set([

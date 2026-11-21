@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Order, Predicate, Record } from "effect"
 import { printJson } from "#emit/printer.ts"
 import type { DocumentUri } from "#model/brands.ts"
@@ -8,7 +9,7 @@ import type { Api, Operation, SecurityScheme } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { NonStandardChoice, NonStandardUse } from "#model/non-standard.ts"
 import { markedUses, nonStandardUses } from "#model/non-standard.ts"
-import type { Json, JsonPointer } from "#model/pointer.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import { documentLabel } from "#model/uri.ts"
 import type { CommandNameSource, GroupNameSource } from "#names/plan.ts"
 

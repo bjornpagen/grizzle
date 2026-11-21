@@ -28,6 +28,7 @@ import * as Negotiate from "#runtime/negotiate.ts"
 import type { JsonType, LimitKeyword, ReadIssues, Reader, Refusal } from "#runtime/read.ts"
 import type { Secret } from "#runtime/redact.ts"
 import { RunCredentials, encoder } from "#runtime/redact.ts"
+import type { Json, JsonObject } from "#runtime/serialize.ts"
 import { utf8Text } from "#runtime/utf8.ts"
 
 /**
@@ -400,28 +401,15 @@ export class JsonNull {
 export const jsonNull = new JsonNull()
 
 /**
- * A JSON value the runtime writes: a scalar, a `JsonNumber`, `JsonNull`, or an array or object of
- * them. Both a parsed body and a serializer's value are one.
- */
-export type JsonValue =
-	| JsonNull
-	| boolean
-	| number
-	| string
-	| JsonNumber
-	| readonly JsonValue[]
-	| { readonly [key: string]: JsonValue }
-
-/**
  * One step of writing a JSON text: a value still to write, or text already composed.
  */
-type JsonStep = Readonly<{ value: JsonValue }> | Readonly<{ text: string }>
+type JsonStep = Readonly<{ value: Json }> | Readonly<{ text: string }>
 
 /**
  * A container's steps in order, each child after the separator and name before it, between its brackets.
  */
-const childSteps = (value: JsonValue): Option.Option<readonly JsonStep[]> => {
-	if (Arr.isArray<JsonValue>(value)) {
+const childSteps = (value: Json): Option.Option<readonly JsonStep[]> => {
+	if (Arr.isArray<Json>(value)) {
 		return Option.some([
 			{ text: "[" },
 			...Arr.flatMap(value, (item, index): readonly JsonStep[] =>
@@ -431,7 +419,7 @@ const childSteps = (value: JsonValue): Option.Option<readonly JsonStep[]> => {
 		])
 	}
 
-	if (Predicate.isObject(value) && !(value instanceof JsonNumber) && !(value instanceof JsonNull)) {
+	if (isJsonObject(value)) {
 		return Option.some([
 			{ text: "{" },
 			...Arr.flatMap(Rec.toEntries(value), ([key, member], index): readonly JsonStep[] => [
@@ -449,7 +437,7 @@ const childSteps = (value: JsonValue): Option.Option<readonly JsonStep[]> => {
  * A scalar's JSON text: a `JsonNumber` as its digits, `JsonNull` as `null`, anything else as `Formatter.formatJson`
  * writes it.
  */
-const leafText = (value: JsonValue): string => {
+const leafText = (value: Json): string => {
 	if (value instanceof JsonNumber) {
 		return value.text
 	}
@@ -464,7 +452,7 @@ const leafText = (value: JsonValue): string => {
  * `Formatter.formatJson`; members keep their own-key order. The walk keeps its own stack, so no
  * nesting the parse admitted overflows it.
  */
-export const jsonText = (value: JsonValue): string => {
+export const jsonText = (value: Json): string => {
 	const parts: string[] = []
 	const pending: JsonStep[] = [{ value }]
 	for (let step = pending.pop(); step !== undefined; step = pending.pop()) {
@@ -484,19 +472,6 @@ export const jsonText = (value: JsonValue): string => {
 
 	return Arr.join(parts, "")
 }
-
-/**
- * A field flag's value: a scalar, a number field's text as a `JsonNumber`, or a decoded JSON
- * value (an object, an array, `JsonNull`) for a property that is not flattened (design 4.5).
- */
-export type FieldValue =
-	| JsonNull
-	| boolean
-	| number
-	| string
-	| JsonNumber
-	| readonly FieldValue[]
-	| { readonly [key: string]: FieldValue }
 
 /**
  * Text encodings a base64 body property takes (RFC 4648 section 4 and 5), padding kept for both.
@@ -572,22 +547,14 @@ export const secretPartFlag = (name: string, description: Option.Option<string>)
 	Flag.String(name).pipe(Flag.withMetavar("path|-"), Flag.withDescription(secretHelp(description)))
 
 export type Fields = Readonly<
-	Record<string, Option.Option<FieldValue | FileField | SecretField> | readonly FieldValue[]>
+	Record<string, Option.Option<Json | FileField | SecretField> | readonly Json[]>
 >
 
-export type JsonNode =
-	| JsonNull
-	| boolean
-	| number
-	| string
-	| JsonNumber
-	| readonly JsonNode[]
-	| { [key: string]: JsonNode }
-
 /**
- * A JSON object whose members a merge writes.
+ * A JSON object a merge writes members into: one it made itself (bare), or a revived one, which a parse copies with no
+ * prototype (bareCopy).
  */
-export type JsonObject = Record<string, JsonNode>
+type MergedObject = { [key: string]: Json }
 
 /**
  * Whether `value` is a revived JSON leaf: `JsonNull`, a boolean, a number, a string or a `JsonNumber`.
@@ -603,7 +570,7 @@ const isJsonLeaf = (value: unknown): boolean =>
  * Whether `value` is a revived JSON value: what a reviver returns at every level. The walk keeps its own stack, so no
  * nesting the parse admitted overflows it.
  */
-const isJsonNode = (value: unknown): value is JsonNode => {
+const isJson = (value: unknown): value is Json => {
 	const pending: unknown[] = [value]
 	while (pending.length > 0) {
 		const current = pending.pop()
@@ -737,18 +704,22 @@ export const deprecatedArgument =
 	<A>(self: Argument.Argument<A>): Argument.Argument<A> =>
 		self.pipe(Argument.mapEffect(noticeDeprecated(`<${name}>`)))
 
-const isObject = (value: JsonNode): value is JsonObject =>
+/** Whether a JSON value is an object: not an array, a `JsonNumber` or `JsonNull`. */
+export const isJsonObject = (value: Json): value is JsonObject =>
 	Predicate.isObject(value) &&
-	!Arr.isArray<JsonNode>(value) &&
+	!Arr.isArray<Json>(value) &&
 	!(value instanceof JsonNumber) &&
 	!(value instanceof JsonNull)
+
+/** Whether a JSON value of a merge's tree is an object, which the merge writes members into (MergedObject). */
+const isMergedObject = (value: Json): value is MergedObject => isJsonObject(value)
 
 /**
  * A fresh object with no prototype, so `__proto__`, `constructor` and `prototype` are ordinary own
  * keys.
  */
-const bare = (): JsonObject => {
-	const fresh: JsonObject = {}
+const bare = (): MergedObject => {
+	const fresh: MergedObject = {}
 	Reflect.setPrototypeOf(fresh, null)
 
 	return fresh
@@ -757,7 +728,7 @@ const bare = (): JsonObject => {
 /**
  * A copy of `source` with no prototype.
  */
-const bareCopy = (source: object): JsonObject => Object.assign(bare(), source)
+const bareCopy = (source: object): MergedObject => Object.assign(bare(), source)
 
 /**
  * The reviver of operator JSON: `null` as `JsonNull`, a number whose digits `JSON.parse` would change as its source
@@ -800,11 +771,9 @@ const reviveIntegers: JsonReviver = (key, value, context) => {
  */
 const revivedDecoder =
 	(reviver: JsonReviver) =>
-	(text: string): Effect.Effect<JsonNode, InvalidJsonText> =>
+	(text: string): Effect.Effect<Json, InvalidJsonText> =>
 		Effect.fromResult(
-			parseRevivedJson(text, reviver).pipe(
-				Result.filterOrFail(isJsonNode, () => new InvalidJsonText())
-			)
+			parseRevivedJson(text, reviver).pipe(Result.filterOrFail(isJson, () => new InvalidJsonText()))
 		)
 
 const decodeRevived = revivedDecoder(revive)
@@ -820,7 +789,7 @@ const decodePlain = (text: string): Effect.Effect<unknown, InvalidJsonText> =>
  */
 const parsedJson =
 	(failure: () => CliError.CliError) =>
-	(raw: string): Effect.Effect<JsonNode, CliError.CliError> =>
+	(raw: string): Effect.Effect<Json, CliError.CliError> =>
 		Effect.mapError(decodeIntegers(raw), failure)
 
 /**
@@ -852,17 +821,13 @@ const segmentsOf = (pointer: string): Option.Option<Arr.NonEmptyReadonlyArray<st
 			)
 		: Option.none()
 
-const setAt = (
-	root: JsonObject,
-	pointer: string,
-	value: JsonNode
-): Effect.Effect<void, UsageError> =>
+const setAt = (root: MergedObject, pointer: string, value: Json): Effect.Effect<void, UsageError> =>
 	Option.match(segmentsOf(pointer), {
 		onNone: () => Effect.fail(usage("body", "a field has no valid body pointer")),
 		onSome: (segments) => {
 			let node = root
 			for (const segment of Arr.initNonEmpty(segments)) {
-				const next = Option.filter(Rec.get(node, segment), isObject)
+				const next = Option.filter(Rec.get(node, segment), isMergedObject)
 
 				if (Option.isSome(next)) {
 					node = next.value
@@ -880,7 +845,7 @@ const setAt = (
 		}
 	})
 
-const supplied = (value: Fields[string]): Option.Option<FieldValue | FileField | SecretField> => {
+const supplied = (value: Fields[string]): Option.Option<Json | FileField | SecretField> => {
 	if (Option.isOption(value)) {
 		return value
 	}
@@ -889,29 +854,20 @@ const supplied = (value: Fields[string]): Option.Option<FieldValue | FileField |
 }
 
 /**
- * A field value that is a JSON object.
- */
-const isFieldObject = (value: FieldValue): value is Readonly<Record<string, FieldValue>> =>
-	Predicate.isObject(value) &&
-	!Arr.isArray<FieldValue>(value) &&
-	!(value instanceof JsonNumber) &&
-	!(value instanceof JsonNull)
-
-/**
  * Whether every `JsonNumber` of a field value is a JSON number, walked with an explicit stack, so a deep value cannot
  * overflow it. A `JsonNumber` is checked against the JSON number grammar only: whether it is an integer is the flag's
  * check (`int64Flag`, `numericFlag`).
  */
-const hasValidNumbers = (root: FieldValue): boolean => {
-	const pending: FieldValue[] = [root]
+const hasValidNumbers = (root: Json): boolean => {
+	const pending: Json[] = [root]
 
 	for (let value = pending.pop(); value !== undefined; value = pending.pop()) {
 		if (value instanceof JsonNumber) {
 			if (!isJsonNumberText(value.text)) {
 				return false
 			}
-		} else if (Arr.isArray<FieldValue>(value) || isFieldObject(value)) {
-			for (const child of Arr.isArray<FieldValue>(value) ? value : Rec.values(value)) {
+		} else if (Arr.isArray<Json>(value) || isJsonObject(value)) {
+			for (const child of Arr.isArray<Json>(value) ? value : Rec.values(value)) {
 				pending.push(child)
 			}
 		}
@@ -924,22 +880,22 @@ const hasValidNumbers = (root: FieldValue): boolean => {
  * A container of a field value with the empty copy its members are written into.
  */
 type Copying =
-	| Readonly<{ _tag: "Array"; source: readonly FieldValue[]; target: JsonNode[] }>
-	| Readonly<{ _tag: "Object"; source: { readonly [key: string]: FieldValue }; target: JsonObject }>
+	| Readonly<{ _tag: "Array"; source: readonly Json[]; target: Json[] }>
+	| Readonly<{ _tag: "Object"; source: JsonObject; target: MergedObject }>
 
 /**
  * A container's empty copy (an array, or an object with no prototype), its members left to `pending`, or a scalar
  * itself.
  */
-const copyOf = (value: FieldValue, pending: Copying[]): JsonNode => {
-	if (Arr.isArray<FieldValue>(value)) {
-		const target: JsonNode[] = []
+const copyOf = (value: Json, pending: Copying[]): Json => {
+	if (Arr.isArray<Json>(value)) {
+		const target: Json[] = []
 		pending.push({ _tag: "Array", source: value, target })
 
 		return target
 	}
 
-	if (!isFieldObject(value)) {
+	if (!isJsonObject(value)) {
 		return value
 	}
 
@@ -954,7 +910,7 @@ const copyOf = (value: FieldValue, pending: Copying[]): JsonNode => {
  * field flag that writes `__proto__` beneath it sets an own key, as it does everywhere else. The copy keeps its own
  * stack, so a deep value cannot overflow it.
  */
-const toNode = (root: FieldValue): JsonNode => {
+const toNode = (root: Json): Json => {
 	const pending: Copying[] = []
 	const top = copyOf(root, pending)
 
@@ -1152,7 +1108,7 @@ const whereRefused = (issues: ReadIssues): string => {
 type Merged =
 	| { readonly _tag: "Empty" }
 	| { readonly _tag: "Verbatim"; readonly bytes: Uint8Array; readonly text: string }
-	| { readonly _tag: "Merged"; readonly text: string; readonly value: JsonNode }
+	| { readonly _tag: "Merged"; readonly text: string; readonly value: Json }
 
 /**
  * The merge `mergeBody` and `structuredBody` share; `flag` names the source a failure blames, and
@@ -1163,7 +1119,7 @@ const mergeSources = (
 ): Effect.Effect<
 	{
 		readonly merged: Merged
-		readonly parse: (text: string) => Effect.Effect<JsonNode, UsageError>
+		readonly parse: (text: string) => Effect.Effect<Json, UsageError>
 	},
 	UsageError,
 	FileSystem.FileSystem | Stdio.Stdio | StdinClaim
@@ -1203,7 +1159,7 @@ const mergeSources = (
 			? yield* decodeText(source.value.bytes, flag).pipe(Effect.flatMap(parse))
 			: bare()
 
-		if (!isObject(base)) {
+		if (!isMergedObject(base)) {
 			return yield* usage(flag, "must be a JSON object to take field flags")
 		}
 
@@ -1268,11 +1224,7 @@ export const mergeBody = (
  */
 export const structuredBody = (
 	options: BodyOptions
-): Effect.Effect<
-	JsonNode | undefined,
-	UsageError,
-	FileSystem.FileSystem | Stdio.Stdio | StdinClaim
-> =>
+): Effect.Effect<Json | undefined, UsageError, FileSystem.FileSystem | Stdio.Stdio | StdinClaim> =>
 	mergeSources(options).pipe(
 		Effect.flatMap(({ merged, parse }) => {
 			if (merged._tag === "Empty") {

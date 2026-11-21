@@ -1,4 +1,4 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	array,
@@ -31,7 +31,6 @@ import {
 } from "effect"
 import { Headers, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import type { Json } from "#model/pointer.ts"
 import { parseJson } from "#runtime/json.ts"
 import {
 	array as arrayOf,

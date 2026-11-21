@@ -1,7 +1,7 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Record as Rec, Result } from "effect"
 import type { EventContract, EventData, RetryWhen, StreamEvent } from "#model/entities.ts"
 import { isJsonPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { childKey, nodeOption, settle } from "#normalize/document-set.ts"
 import { schemaKeyAt } from "#normalize/schemas.ts"
 import { keyOf } from "#resolve/canonical.ts"

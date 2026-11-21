@@ -1,5 +1,6 @@
 /** What the property of naming-extensions.test.ts reads: its naming sketches and the naming design 4.4 states. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
 import { pointerOrder } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { documentAt, lineGen, normalizedAt } from "#test/support/normalizing.ts"
 

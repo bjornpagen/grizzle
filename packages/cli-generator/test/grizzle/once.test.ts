@@ -34,7 +34,7 @@
  * made again, as `--retries` makes it, until it is answered. Its budget is the count the suite stated before it was
  * converted to a property: 16 independent cases, and up to 32 steered while a situation is unreached.
  */
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -63,7 +63,6 @@ import {
 	String as Str
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
-import type { Json } from "#model/pointer.ts"
 import {
 	anything,
 	array,

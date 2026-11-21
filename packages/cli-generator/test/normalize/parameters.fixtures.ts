@@ -1,5 +1,6 @@
 /** What the property of parameters.test.ts reads: Parameter Object sketches and the outcomes design 6.1 states for them. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	boolean,
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Cause, Effect, Exit, Option, Order, String as Str } from "effect"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import {

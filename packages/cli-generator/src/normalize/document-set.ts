@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Data, Effect, Option, Record, Result } from "effect"
 import type { Origin } from "#model/entities.ts"
 import { isObject } from "#model/json-tree.ts"
@@ -8,7 +9,7 @@ import {
 	evaluatePointerResult,
 	ownPointer
 } from "#model/pointer.ts"
-import type { Json, PointerEvalError, PointerSyntaxError } from "#model/pointer.ts"
+import type { PointerEvalError, PointerSyntaxError } from "#model/pointer.ts"
 import { keyOf } from "#resolve/canonical.ts"
 import type { CanonicalKey } from "#resolve/canonical.ts"
 import type { Resolution, ResolvedReference } from "#resolve/index.ts"

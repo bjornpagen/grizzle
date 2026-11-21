@@ -1,5 +1,5 @@
 import { availableParallelism } from "node:os"
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Data,
@@ -17,7 +17,6 @@ import type { Built } from "#corpus/tools/run.ts"
 import { CorpusRunFailed, spawn } from "#corpus/tools/run.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { parseJson } from "#runtime/json.ts"
 import { string } from "#runtime/read.ts"
 

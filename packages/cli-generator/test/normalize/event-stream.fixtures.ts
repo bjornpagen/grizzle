@@ -1,5 +1,6 @@
 /** What the properties of event-stream.test.ts read: its spaces, models and helpers. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	type Aimed,
 	aimed,
@@ -15,7 +16,6 @@ import { Array as Arr, Effect, Option, Record as Rec } from "effect"
 import { fixedDocumentUri } from "#model/brands.ts"
 import type { EventContract } from "#model/entities.ts"
 import { childPointer, formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { normalizeResponses } from "#normalize/responses.ts"
 import { normalizeSchemas } from "#normalize/schemas.ts"
 import { resolve } from "#resolve/index.ts"

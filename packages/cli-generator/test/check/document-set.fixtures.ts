@@ -4,12 +4,12 @@
  * second document of the set, and what the specification finds of each.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { word } from "@bjornpagen/testing/dictionary"
 import { element, finite, type FiniteSpace, type Gen } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, String as Str } from "effect"
 import { checkSpecText } from "#check/index.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 import { resolve } from "#resolve/index.ts"
 import { type Site, sites } from "#test/check/document-set.dictionary.ts"
 

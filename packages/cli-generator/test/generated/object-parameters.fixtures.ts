@@ -1,4 +1,4 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	boolean,
@@ -18,7 +18,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Duration, Effect, Option, Record as Rec, String as Str } from "effect"
-import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,

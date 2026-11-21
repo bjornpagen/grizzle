@@ -5,6 +5,7 @@
  * commandName's stated rules.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -20,7 +21,7 @@ import { decodeAuthorConfig } from "#model/author-config.ts"
 import { fixedDocumentUri, isMethodToken, isPathTemplate, stripUnsafeText } from "#model/brands.ts"
 import type { Api, Naming, NamingAlias, NamingHint, Operation, Origin } from "#model/entities.ts"
 import { formatPointer, rootPointer } from "#model/pointer.ts"
-import type { Json, JsonPointer } from "#model/pointer.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import { foldKebab, words } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"
 import type { NamePlan, PlannedGroup } from "#names/index.ts"

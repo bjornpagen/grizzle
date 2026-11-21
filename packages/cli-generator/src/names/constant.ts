@@ -1,8 +1,8 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Predicate, Record as Rec } from "effect"
 import { defsKeyOf } from "#model/defs-ref.ts"
 import type { Parameter } from "#model/entities.ts"
-import { isArray, isObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
+import { isArray, isObject, type JsonObject } from "#model/json-tree.ts"
 
 /**
  * One value a parameter admits alone, as the request sends it: a string, a number or a boolean.
@@ -24,7 +24,7 @@ const isConstantValue = (value: Json): value is ConstantValue =>
  * is no array, admits none.
  */
 const admitsOne = (
-	defs: Readonly<Record<string, Json>>,
+	defs: JsonObject,
 	key: string,
 	passed: ReadonlySet<string>
 ): Option.Option<ConstantValue> =>
@@ -64,10 +64,7 @@ const admitsOne = (
  * boolean. Such a parameter is no input: the request sends that value and no flag reads one. An
  * optional one stays an input, because sending it or not is the operator's choice.
  */
-export const constantOf = (
-	defs: Readonly<Record<string, Json>>,
-	parameter: Parameter
-): Option.Option<ConstantValue> =>
+export const constantOf = (defs: JsonObject, parameter: Parameter): Option.Option<ConstantValue> =>
 	parameter.required &&
 	parameter.serialization.kind === "style" &&
 	parameter.location !== "querystring"

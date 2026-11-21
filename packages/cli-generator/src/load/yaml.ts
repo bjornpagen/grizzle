@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Data, Effect, Option, Predicate, Record } from "effect"
 import { isAlias, isScalar, isSeq, LineCounter, parseAllDocuments } from "yaml"
 import type {
@@ -14,7 +15,6 @@ import { refuse, wholeInput } from "#load/read.ts"
 import type { LoadCode, LoadRefusal, Position } from "#load/read.ts"
 import type { DocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 
 interface Failure {
 	readonly code: LoadCode

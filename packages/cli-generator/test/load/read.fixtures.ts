@@ -1,5 +1,6 @@
 /** What the properties of read.test.ts read: the documents and carriers they draw, and the readings they expect. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	type Aimed,
 	aimed,
@@ -39,7 +40,6 @@ import { ChildProcess } from "effect/process"
 import { loadFile, type Loaded, loadStream, type LoadOptions } from "#load/index.ts"
 import { type LoadCode, LoadRefusal, readMemberFile, refuse, wholeInput } from "#load/read.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 import { finished } from "#test/support/process.ts"
 
 const document = fixedDocumentUri("file:///spec.json")

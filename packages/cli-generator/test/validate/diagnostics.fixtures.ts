@@ -5,12 +5,12 @@
  * methods as `additionalOperations` keys.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { word } from "@bjornpagen/testing/dictionary"
 import { array, finite, type FiniteSpace, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record, String as Str } from "effect"
 import { Digest } from "effect/crypto"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { documentAt, entryUri, lineGen } from "#test/support/normalizing.ts"
 import {

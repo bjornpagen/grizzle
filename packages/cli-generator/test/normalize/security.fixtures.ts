@@ -1,5 +1,6 @@
 /** What the property of security.test.ts reads: its security sketches and the model the specification states for them. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,
@@ -13,7 +14,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
 import { pointerOrder } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import {
 	configText,

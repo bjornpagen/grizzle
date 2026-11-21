@@ -1,4 +1,4 @@
-import { utf8Length, utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { utf8Length, utf8Text, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { Effect, Option, String as Str } from "effect"
 import type { FileSystem, PlatformError, Stream } from "effect"
 import { parseStrictJson } from "#load/json.ts"
@@ -6,7 +6,6 @@ import { readOperatorFile, readStreamBytes, refuse, wholeInput } from "#load/rea
 import type { LoadRefusal } from "#load/read.ts"
 import { parseStrictYaml } from "#load/yaml.ts"
 import type { DocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 
 export { LoadRefusal } from "#load/read.ts"
 

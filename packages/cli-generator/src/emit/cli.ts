@@ -1,4 +1,4 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Data,
@@ -60,8 +60,8 @@ import type {
 import type { AuthorConfig } from "#model/author-config.ts"
 import { stripUnsafeText } from "#model/brands.ts"
 import type { Api, MediaAlternative, Operation, Parameter } from "#model/entities.ts"
+import { isArray, isObject, type JsonObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { constantOf } from "#names/constant.ts"
 import { packageImports, rootNamespaceImports, runtimeNamespaces } from "#names/domain.ts"
@@ -151,8 +151,6 @@ export interface CliEmitOutput {
 	readonly refusals: readonly CliRefusal[]
 }
 
-type Defs = Record.ReadonlyRecord<string, Json>
-
 type Entry = readonly [string, Expr]
 
 const refuse = (reason: CliEmitError["reason"], subject: string) =>
@@ -222,15 +220,8 @@ const secretDescription = (description: string): Expr =>
 
 const refPrefix = "#/$defs/"
 
-type JsonObject = Record.ReadonlyRecord<string, Json>
-
 const own = (record: JsonObject, key: string): Json | undefined =>
 	Record.has(record, key) ? record[key] : undefined
-
-const isJsonObject = (json: Json | undefined): json is JsonObject =>
-	Predicate.isObject(json) && !Arr.isArray(json)
-
-const isJsonArray = (json: Json | undefined): json is readonly Json[] => Arr.isArray(json)
 
 /** A bound outside the safe-integer range makes an integer field a digit string (design 4.5). */
 const boundKeywords: readonly string[] = [
@@ -263,7 +254,7 @@ interface FieldNode {
  * `default` normalize refused reads as absent.
  */
 const fieldNode = (json: Json, refusedDefaults: ReadonlySet<Json>): Option.Option<FieldNode> => {
-	if (!isJsonObject(json)) {
+	if (!isObject(json)) {
 		return Option.none()
 	}
 
@@ -289,12 +280,12 @@ const fieldNode = (json: Json, refusedDefaults: ReadonlySet<Json>): Option.Optio
 	}
 
 	return Option.some({
-		allOf: isJsonArray(allOf) ? allOf : [],
+		allOf: isArray(allOf) ? allOf : [],
 		contentEncoding: text("contentEncoding"),
 		contentMediaType: text("contentMediaType"),
 		default: refusedDefaults.has(json) ? Option.none() : Record.get<string, Json>(json, "default"),
 		deprecated: own(json, "deprecated") === true,
-		enum: isJsonArray(values) ? Option.some(values) : Option.none(),
+		enum: isArray(values) ? Option.some(values) : Option.none(),
 		format: text("format"),
 		int64: own(json, "format") === "int64" || unsafe,
 		items: own(json, "items"),
@@ -302,7 +293,7 @@ const fieldNode = (json: Json, refusedDefaults: ReadonlySet<Json>): Option.Optio
 			Predicate.isNumber(maxLength) && Number.isSafeInteger(maxLength) && maxLength >= 0
 				? Option.some(maxLength)
 				: Option.none(),
-		properties: isJsonObject(properties) ? properties : undefined,
+		properties: isObject(properties) ? properties : undefined,
 		prose: Arr.findFirst([own(json, "description"), own(json, "title")], Predicate.isString),
 		readOnly: own(json, "readOnly") === true,
 		ref
@@ -374,7 +365,7 @@ const encodingOf = (node: FieldNode, line: SpecLine): FieldEncoding | undefined 
  * OpenAPI line, which decides whether `format: byte` is a base64 encoding.
  */
 interface FieldStore {
-	readonly defs: Defs
+	readonly defs: JsonObject
 	readonly line: SpecLine
 	readonly refusedDefaults: ReadonlySet<Json>
 }
@@ -2583,11 +2574,11 @@ const refusedDefaultCode = "S30-27/nonconforming-default"
 
 /** The member of an object, or the element of an array, that one path token names. */
 const childAt = (json: Json | undefined, token: string): Json | undefined => {
-	if (isJsonObject(json)) {
+	if (isObject(json)) {
 		return own(json, token)
 	}
 
-	return isJsonArray(json) ? json[Number(token)] : undefined
+	return isArray(json) ? json[Number(token)] : undefined
 }
 
 /**
@@ -2595,7 +2586,7 @@ const childAt = (json: Json | undefined, token: string): Json | undefined => {
  * shown): the validation copy's edits under that code, located in `defs`, so help reads the one
  * fact normalize records rather than re-checking conformance. Only the 3.0 line records one.
  */
-const refusedDefaultsOf = (edits: readonly SchemaEdit[], defs: Defs): ReadonlySet<Json> => {
+const refusedDefaultsOf = (edits: readonly SchemaEdit[], defs: JsonObject): ReadonlySet<Json> => {
 	const nodes = new Set<Json>()
 	for (const edit of edits) {
 		if (edit.code !== refusedDefaultCode) {

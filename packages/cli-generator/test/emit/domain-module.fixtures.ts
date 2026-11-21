@@ -1,5 +1,6 @@
 /** What the properties of domain-module.test.ts read: its spaces, models and helpers. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	boolean,
 	element,
@@ -25,7 +26,6 @@ import {
 	type SourceFile
 } from "typescript/ast"
 import { emitDomainSchemas } from "#emit/domain.ts"
-import type { Json } from "#model/pointer.ts"
 import { domainIdentifiers } from "#names/domain.ts"
 import { fixedSafeIdentifier } from "#names/fold.ts"
 

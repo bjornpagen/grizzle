@@ -1,8 +1,8 @@
 /** What the property of header-object.test.ts reads: its header sketches and the marks the Header Object states. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { boolean, constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect } from "effect"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { type HeaderMarks, headerMarks } from "#normalize/header-object.ts"
 import { documentAt, entryUri, lineGen, nonBoolean, resolvedAt } from "#test/support/normalizing.ts"

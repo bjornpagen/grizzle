@@ -3,6 +3,7 @@
  * model of design 3.7's diagnostic order written apart from the module's own.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -26,7 +27,6 @@ import {
 	sortDiagnostics
 } from "#model/diagnostic.ts"
 import type { Diagnostic, DiagnosticInput } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 
 type Scope = "document" | "operation" | "element" | "field"
 

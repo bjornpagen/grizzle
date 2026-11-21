@@ -5,6 +5,7 @@
  * its href at the first `#`, and a fragment from the reference's text split at every `#`.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { word } from "@bjornpagen/testing/dictionary"
 import {
 	array,
@@ -18,7 +19,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Result, String as Str } from "effect"
 import { Url } from "effect/http"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { specLines } from "#test/model/spec-section.dictionary.ts"
 

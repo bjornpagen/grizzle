@@ -3,12 +3,12 @@
  * pipeline's answer for it (resolve, normalize and the names plan, in process) and the specification's.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { word } from "@bjornpagen/testing/dictionary"
 import { boolean, finite, type FiniteSpace, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Order, Record } from "effect"
 import { decodeAuthorConfig } from "#model/author-config.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 import { planNames } from "#names/index.ts"
 import { normalize } from "#normalize/index.ts"
 import { resolve } from "#resolve/index.ts"

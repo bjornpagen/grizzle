@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Data,
@@ -33,7 +34,6 @@ import {
 import type { Expr, Identifier, Module, Statement, TypeExpr } from "#emit/printer.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { domainNamespace } from "#names/domain.ts"
 import type { SafeIdentifier } from "#names/fold.ts"
 import { codeGenerationCopy } from "#normalize/schemas.ts"

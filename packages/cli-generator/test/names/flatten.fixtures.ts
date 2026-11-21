@@ -5,6 +5,7 @@
  * and a model of design 4.5's body flags written from the rules flattenBody's JSDoc states, apart from its walk.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { deepEquals } from "@bjornpagen/testing/assert"
 import {
 	aimed,
@@ -25,7 +26,6 @@ import { fixedDocumentUri, fixedMediaRange, isWireName } from "#model/brands.ts"
 import type { WireName } from "#model/brands.ts"
 import type { EncodingRule } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { flattenBody } from "#names/flatten.ts"
 import { foldKebab } from "#names/fold.ts"
 import { reservedFlagNames } from "#names/reserved.ts"

@@ -1,10 +1,9 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Data, Effect, Option } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi, patchVersion, specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 

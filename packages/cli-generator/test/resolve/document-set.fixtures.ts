@@ -3,6 +3,7 @@
  * declarations, implicit connections and `$self` collisions, each with what the specification says its resolution is.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { word } from "@bjornpagen/testing/dictionary"
 import {
 	type Aimed,
@@ -20,7 +21,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record } from "effect"
 import { type DocumentUri, fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { type CanonicalKey, keyOf } from "#resolve/canonical.ts"
 import {

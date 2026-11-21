@@ -1,5 +1,6 @@
 /** What the property of canonical-order.test.ts reads: generated documents, their member-reversed twins, and packages. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	boolean,
@@ -24,7 +25,6 @@ import { Digest } from "effect/crypto"
 import { generate } from "#generate.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import { isObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import {
 	type ComponentSketch,
 	type ConfigSketch,

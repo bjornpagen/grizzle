@@ -1,6 +1,6 @@
 import { toolchain } from "@bjornpagen/devtools/config"
 import { standard } from "@bjornpagen/devtools/preset"
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import {
@@ -18,7 +18,6 @@ import {
 } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { isJson } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { parseJson } from "#runtime/json.ts"
 import type { InvalidJsonText } from "#runtime/json.ts"
 import { anything, array, member, members, string, struct } from "#runtime/read.ts"

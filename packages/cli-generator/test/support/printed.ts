@@ -1,8 +1,7 @@
-import { utf8Chunks, utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { utf8Chunks, utf8Text, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { defined } from "@bjornpagen/testing/assert"
 import { Effect, Option, Result, Stream } from "effect"
 import { isJson } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { parseJson } from "#runtime/json.ts"
 import {
 	anything,

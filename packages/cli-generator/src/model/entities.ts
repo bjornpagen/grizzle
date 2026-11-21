@@ -12,7 +12,8 @@ import type {
 	ServerTemplate,
 	WireName
 } from "#model/brands.ts"
-import type { Json, JsonPointer } from "#model/pointer.ts"
+import type { JsonObject } from "#model/json-tree.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 
 /**
@@ -370,7 +371,7 @@ export type SecurityPolicy = Readonly<{
 
 /** The one schema store: each stored draft 2020-12 definition by its `$defs` key. */
 export type SchemaStore = Readonly<{
-	defs: Readonly<Record<string, Json>>
+	defs: JsonObject
 	origin: Origin
 	rows: Rows
 }>

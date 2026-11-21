@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Data,
@@ -64,7 +65,6 @@ import type {
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { documentLabel } from "#model/uri.ts"
 import { constantOf } from "#names/constant.ts"
 import type { ConstantValue } from "#names/constant.ts"
@@ -119,8 +119,6 @@ export interface InputKey {
 	readonly parameter: Parameter
 }
 
-type Defs = Readonly<Record<string, Json>>
-
 const fixedInputKeys: readonly string[] = ["body", "contentType"]
 
 /**
@@ -161,7 +159,7 @@ const isNode = (json: Json | undefined): json is JsonObject => json !== undefine
  * resolve; a chain back to a node it has passed is a cycle, which resolves to none, so it ends.
  */
 const settle = (
-	defs: Defs,
+	defs: JsonObject,
 	start: Json | undefined,
 	subject: string
 ): Result.Result<JsonObject, string> => {
@@ -206,7 +204,7 @@ interface ScalarValue {
  * schema and an array without `items` have no scalar type. The failure is the store key that does
  * not resolve.
  */
-const scalarValueOf = (defs: Defs, key: string): Result.Result<ScalarValue, string> =>
+const scalarValueOf = (defs: JsonObject, key: string): Result.Result<ScalarValue, string> =>
 	Result.flatMap(settle(defs, own(defs, key), key), (node): Result.Result<ScalarValue, string> => {
 		if (own(node, "type") !== "array") {
 			return Result.succeed({ array: false, type: scalarOf(node) })
@@ -224,7 +222,10 @@ const scalarValueOf = (defs: Defs, key: string): Result.Result<ScalarValue, stri
  * the operator gives such a parameter once per item. An array without `items`, or of objects or
  * arrays, is not one. The failure is the store key that does not resolve.
  */
-export const isScalarArraySchema = (defs: Defs, key: string): Result.Result<boolean, string> =>
+export const isScalarArraySchema = (
+	defs: JsonObject,
+	key: string
+): Result.Result<boolean, string> =>
 	Result.map(scalarValueOf(defs, key), ({ array, type }) => array && type !== undefined)
 
 /**
@@ -232,7 +233,10 @@ export const isScalarArraySchema = (defs: Defs, key: string): Result.Result<bool
  * array (`"boolean"`, `"integer"`, `"number"` or `"string"`). A 3.1 type list, an untyped schema
  * and an array of objects or arrays have none. The failure is the store key that does not resolve.
  */
-export const scalarTypeOf = (defs: Defs, key: string): Result.Result<string | undefined, string> =>
+export const scalarTypeOf = (
+	defs: JsonObject,
+	key: string
+): Result.Result<string | undefined, string> =>
 	Result.map(scalarValueOf(defs, key), ({ type }) => type)
 
 const refuse = (reason: ApiEmitError["reason"], subject: string) =>
@@ -523,7 +527,7 @@ interface ObjectSchemas {
  * its own, then its members', in document order, each node read once. A member that does not
  * resolve has none.
  */
-const allOfNodes = (defs: Defs, key: string): readonly JsonObject[] => {
+const allOfNodes = (defs: JsonObject, key: string): readonly JsonObject[] => {
 	const nodes: JsonObject[] = []
 	const seen = new Set<JsonObject>()
 	const pending: (Json | undefined)[] = [own(defs, key)]
@@ -547,7 +551,7 @@ const allOfNodes = (defs: Defs, key: string): readonly JsonObject[] => {
 }
 
 /** The `allOf` nodes of a body alternative's schema (`allOfNodes`); none when it has no schema. */
-const bodyNodes = (defs: Defs, alternative: MediaAlternative): readonly JsonObject[] =>
+const bodyNodes = (defs: JsonObject, alternative: MediaAlternative): readonly JsonObject[] =>
 	alternative.schema === undefined ? [] : allOfNodes(defs, alternative.schema.key)
 
 /**
@@ -624,7 +628,7 @@ export const takesJsonContent = (location: Parameter["location"], mediaType: str
 	isJsonMedia(mediaType) || (location === "querystring" && essence(mediaType) === formMedia)
 
 interface ParameterContext {
-	readonly defs: Defs
+	readonly defs: JsonObject
 	readonly line: Api["line"]
 	readonly memo: Map<string, boolean>
 }
@@ -646,7 +650,7 @@ const parameterField = (key: string, parameter: Parameter, type: TypeExpr): Fiel
  */
 const querystringParts = (
 	entry: InputKey,
-	defs: Defs
+	defs: JsonObject
 ): Effect.Effect<ParameterParts, ApiEmitError> =>
 	Effect.gen(function* parts() {
 		const { key, parameter } = entry
@@ -1263,7 +1267,7 @@ const nestedPartOf = (
 export const formParts = (
 	command: PlannedCommand,
 	alternative: MediaAlternative,
-	defs: Defs
+	defs: JsonObject
 ): Result.Result<readonly FormPart[], string> => {
 	const problem = alternativeProblem(alternative)
 	if (Option.isSome(problem)) {
@@ -1386,7 +1390,7 @@ const partBounds = (nodes: readonly JsonObject[]): Pick<MixedPlan, "maxParts" | 
  */
 export const mixedParts = (
 	alternative: MediaAlternative,
-	defs: Defs
+	defs: JsonObject
 ): Result.Result<MixedPlan, string> => {
 	const prefix: PositionRule[] = []
 	for (const [index, rule] of alternative.prefixEncoding.entries()) {
@@ -1511,7 +1515,7 @@ const bytesEncoder: Encoder = {
  */
 interface EncoderContext {
 	readonly command: PlannedCommand
-	readonly defs: Defs
+	readonly defs: JsonObject
 	readonly media: Identifier
 	readonly required: Expr
 }
@@ -1523,7 +1527,7 @@ interface EncoderContext {
  */
 const mixedEncoder = (
 	alternative: MediaAlternative,
-	defs: Defs,
+	defs: JsonObject,
 	required: Expr
 ): Option.Option<Encoder> => {
 	const mixed = mixedParts(alternative, defs)
@@ -1783,7 +1787,7 @@ const chosenParts = (
  */
 const bodyParts = (
 	command: PlannedCommand,
-	defs: Defs,
+	defs: JsonObject,
 	bodies: Identifier,
 	formName: string,
 	media: Identifier
@@ -1911,7 +1915,7 @@ interface Markable {
  * true` or a password schema (`isPasswordSchema`), each name once in document order: the runtime's
  * `--dry-run` and `--verbose` redact their values (`Auth.sensitiveHeaderNames`).
  */
-const sensitiveHeadersOf = (operation: Operation, defs: Defs): readonly string[] => {
+const sensitiveHeadersOf = (operation: Operation, defs: JsonObject): readonly string[] => {
 	const marked = (header: Markable): boolean =>
 		header.sensitive === true || isPasswordSchema(defs, header.schema.key)
 	const parameters = pipe(

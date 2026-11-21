@@ -1,5 +1,6 @@
 /** What the property of document-set.test.ts reads: its placements of shared elements and the model they normalize to. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { boolean, constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import {
 	Array as Arr,
@@ -13,7 +14,6 @@ import {
 import { fixedDocumentUri } from "#model/brands.ts"
 import type { Api } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { nodeOption } from "#normalize/document-set.ts"
 import { normalize } from "#normalize/index.ts"
 import type { ResolveMember } from "#resolve/index.ts"

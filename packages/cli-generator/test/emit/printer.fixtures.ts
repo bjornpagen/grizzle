@@ -1,5 +1,6 @@
 /** What the properties of printer.test.ts read: its spaces, models and helpers. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { assert } from "@bjornpagen/testing/assert"
 import {
 	type Aimed,
@@ -128,7 +129,6 @@ import type {
 	Statement,
 	TypeExpr
 } from "#emit/printer.ts"
-import type { Json } from "#model/pointer.ts"
 
 type Keyword = Extract<TypeExpr, { readonly _tag: "TypeKeyword" }>["keyword"]
 

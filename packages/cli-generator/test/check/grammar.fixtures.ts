@@ -4,6 +4,7 @@
  * concerns.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	array,
@@ -23,7 +24,6 @@ import { checkGrammar } from "#check/grammar.ts"
 import { checkSpecText } from "#check/index.ts"
 import { pointerOrder } from "#model/diagnostic.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { documentAt, lineGen, resolvedAt, token } from "#test/support/normalizing.ts"
 

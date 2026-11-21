@@ -1,5 +1,6 @@
 /** What the properties of bodies.test.ts read: request body sketches and the alternatives design 6.3 states for them. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	boolean,
@@ -16,7 +17,6 @@ import { Array as Arr, Effect, FileSystem, Option, Order, Path, Record as Rec } 
 import { Digest } from "effect/crypto"
 import { checkSpecText } from "#check/index.ts"
 import { generate } from "#generate.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { hintDiscriminators, normalizeBody } from "#normalize/bodies.ts"
 import {

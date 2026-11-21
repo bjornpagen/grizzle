@@ -5,7 +5,7 @@
  * where it can reach no network.
  */
 
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import type { CheckoutDir } from "@bjornpagen/testing/checkout"
 import { word } from "@bjornpagen/testing/dictionary"
 import {
@@ -37,7 +37,6 @@ import {
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { fixedDocumentUri } from "#model/brands.ts"
 import { foldJson } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { patchVersion, type SpecLine } from "#model/spec-section.ts"
 import { specLines } from "#test/model/spec-section.dictionary.ts"
 import {

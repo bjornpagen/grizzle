@@ -1,5 +1,6 @@
 /** What the properties of responses.test.ts read: their Responses Object sketches and the cases design 6.6 states. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	boolean,
 	constant,
@@ -11,7 +12,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { dispatchOrder, normalizeResponses, precedenceOrder } from "#normalize/responses.ts"
 import { documentAt, entryText, lineGen, resolvedAt, token } from "#test/support/normalizing.ts"

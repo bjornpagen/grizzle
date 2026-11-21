@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { boolean, constant, element, type Gen, oneOf, type Space } from "@bjornpagen/testing/gen"
 import { regex } from "arkregex"
 import {
@@ -17,7 +18,6 @@ import {
 import { generate } from "#generate.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { configGen, configOf, documentGen, documentOf, textOf } from "#test/support/openapi-gen.ts"
 import type { ConfigSketch, DocumentSketch, Line } from "#test/support/openapi-gen.ts"
 

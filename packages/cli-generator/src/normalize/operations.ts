@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Effect,
@@ -29,7 +30,7 @@ import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { childPointer, formatPointer, parsePointerResult } from "#model/pointer.ts"
-import type { Json, JsonPointer } from "#model/pointer.ts"
+import type { JsonPointer } from "#model/pointer.ts"
 import { specSectionUrl } from "#model/spec-section.ts"
 import {
 	BodyOutcome,

@@ -1,10 +1,10 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { element, type Gen, oneOf, shuffled } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, FileSystem, JsonPointer, Option, Path, Record, Stream } from "effect"
 import { generate } from "#generate.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import { isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { configGen, configOf, documentGen, documentOf, textOf } from "#test/support/openapi-gen.ts"
 import type { ConfigSketch, DocumentSketch } from "#test/support/openapi-gen.ts"
 

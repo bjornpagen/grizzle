@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	Array as Arr,
 	Data,
@@ -23,7 +24,6 @@ import { isArray, isJson, isObject, stringMember } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { evaluatePointerResult, formatPointer, parsePointerResult } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi, specSectionUrl } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { nodeIn, nodeOption, referenceIn } from "#normalize/document-set.ts"

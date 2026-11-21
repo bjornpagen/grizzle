@@ -35,6 +35,7 @@ export const bodyMerge = property.explore(
 		["a file past one read chunk", mergeArms.large],
 		["two stdin consumers refused", mergeArms.twoStdin],
 		["a secret from stdin", mergeArms.secretStdin],
+		["a secret's CRLF line end stripped", mergeArms.secretCrlf],
 		["a secret not UTF-8 refused", mergeArms.secretNotUtf8],
 		["__proto__ as an own key", mergeArms.proto],
 		["a schema admits the merge", mergeArms.person],
@@ -62,6 +63,7 @@ export const bodyMerge = property.explore(
 			"a secret from a file",
 			"a secret from stdin",
 			"a secret's line end stripped",
+			"a secret's CRLF line end stripped",
 			"two stdin consumers refused",
 			"a missing file refused",
 			"a secret not UTF-8 refused",
@@ -95,7 +97,7 @@ export const bodyMerge = property.explore(
 			{
 				file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
 				original:
-					"Predicate.isObject(value) &&\n\t!Arr.isArray<FieldValue>(value) &&\n\t!(value instanceof JsonNumber) &&\n\t!(value instanceof JsonNull)",
+					"Predicate.isObject(value) &&\n\t!Arr.isArray<Json>(value) &&\n\t!(value instanceof JsonNumber) &&\n\t!(value instanceof JsonNull)",
 				replacement: "true",
 				why: "Every field value is taken for an object, so a string field (a base64 file's text) is copied as an object of its characters; the property fails (CATCH's evidence, mutant 556104f119)."
 			},
@@ -109,7 +111,7 @@ export const bodyMerge = property.explore(
 			{
 				file: "packages/cli-generator/src/runtime-src/runtime/input.ts",
 				original:
-					"Predicate.isObject(value) &&\n\t!Arr.isArray<JsonNode>(value) &&\n\t!(value instanceof JsonNumber) &&\n\t!(value instanceof JsonNull)",
+					"Predicate.isObject(value) &&\n\t!Arr.isArray<Json>(value) &&\n\t!(value instanceof JsonNumber) &&\n\t!(value instanceof JsonNull)",
 				replacement: "false",
 				why: "No parsed body is an object, so every body under field flags is refused; the property fails (CATCH's evidence, mutant 8c23d4d1b3)."
 			},

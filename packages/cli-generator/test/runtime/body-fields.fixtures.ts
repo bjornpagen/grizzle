@@ -36,6 +36,7 @@ import * as Input from "#runtime-src/runtime/input.ts"
 import * as Output from "#runtime-src/runtime/output.ts"
 import * as Read from "#runtime-src/runtime/read.ts"
 import { RunCredentials, type ScrubEntry } from "#runtime-src/runtime/redact.ts"
+import type { Json } from "#runtime-src/runtime/serialize.ts"
 
 /** A JSON value as drawn: scalars keep their source text, so a number is written exactly as it was given. */
 export type Tree =
@@ -319,6 +320,17 @@ export const mergeArms = {
 		required: false,
 		schema: "unknown"
 	})),
+	secretCrlf: constant<Merge>({
+		source: { kind: "body", text: '{"name":"x"}' },
+		fields: [
+			{
+				segments: ["user", "name"],
+				sketch: { kind: "secret", text: "pw\r\n", utf8: true, from: "stdin" }
+			}
+		],
+		required: false,
+		schema: "unknown"
+	}),
 	secretNotUtf8: withField({
 		segments: ["name"],
 		sketch: { kind: "secret", text: "pw", utf8: false, from: "file" }
@@ -797,6 +809,7 @@ export type MergeFeature =
 	| "a secret from a file"
 	| "a secret from stdin"
 	| "a secret's line end stripped"
+	| "a secret's CRLF line end stripped"
 	| "two stdin consumers refused"
 	| "a missing file refused"
 	| "a secret not UTF-8 refused"
@@ -870,6 +883,14 @@ export const mergeFeatures = (drawn: Merge): ReadonlyArray<MergeFeature> => {
 				Arr.some(sketches, (sketch) => sketch.kind === "secret" && Str.endsWith("\n")(sketch.text)),
 			"a secret's line end stripped"
 		],
+		[
+			text &&
+				Arr.some(
+					sketches,
+					(sketch) => sketch.kind === "secret" && Str.endsWith("\r\n")(sketch.text)
+				),
+			"a secret's CRLF line end stripped"
+		],
 		[Str.includes("standard input is already read")(message), "two stdin consumers refused"],
 		[Str.includes("cannot read the file or stdin")(message), "a missing file refused"],
 		[Str.includes("is not valid UTF-8")(message), "a secret not UTF-8 refused"],
@@ -933,7 +954,7 @@ const fieldsIn = (dir: ScratchDir, drawn: Merge) =>
 	Effect.gen(function* () {
 		const fs = yield* FileSystem.FileSystem
 		const entries: Array<
-			readonly [string, Option.Option<Input.FieldValue | Input.FileField | Input.SecretField>]
+			readonly [string, Option.Option<Json | Input.FileField | Input.SecretField>]
 		> = []
 		for (const field of drawn.fields) {
 			const sketch = field.sketch
@@ -969,7 +990,7 @@ const fieldsIn = (dir: ScratchDir, drawn: Merge) =>
 		return fieldRecord
 	})
 
-const fieldValueOf = (tree: Tree): Input.FieldValue => {
+const fieldValueOf = (tree: Tree): Json => {
 	switch (tree.kind) {
 		case "string":
 			return tree.text

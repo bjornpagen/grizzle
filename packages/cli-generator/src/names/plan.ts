@@ -1,4 +1,4 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -23,7 +23,6 @@ import type {
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { escapeToken, formatPointer, parsePointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { constantOf } from "#names/constant.ts"
 import { flattenBody } from "#names/flatten.ts"
@@ -402,7 +401,7 @@ class UnresolvedSchemaRef extends Data.TaggedError("UnresolvedSchemaRef")<{
  * a cycle, `UnresolvedSchemaRef`, so the chain ends.
  */
 export const isBooleanSchema = (
-	defs: Readonly<Record<string, Json>>,
+	defs: JsonObject,
 	memo: Map<string, boolean>,
 	key: string
 ): Result.Result<boolean, UnresolvedSchemaRef> => {
@@ -764,7 +763,7 @@ export interface DraftContext {
 	readonly booleans: Map<string, boolean>
 	readonly collector: Collector
 	readonly credentialFlags: ReadonlySet<string>
-	readonly defs: Readonly<Record<string, Json>>
+	readonly defs: JsonObject
 	readonly line: SpecLine
 }
 

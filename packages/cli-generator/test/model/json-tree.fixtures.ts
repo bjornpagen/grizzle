@@ -1,5 +1,6 @@
 /** What the property of json-tree.test.ts reads: JSON trees in any key order, and a reference walk of them. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -15,7 +16,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Record, String as Str } from "effect"
 import { foldJson, isArray, isObject, type JsonFold, stringMember } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 
 /** One case: a tree, the tokens a fold starts from, and a member name to read. */
 export type TreeCase = Readonly<{ tree: Json; start: ReadonlyArray<string>; name: string }>

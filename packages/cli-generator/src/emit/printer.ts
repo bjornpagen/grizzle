@@ -1,4 +1,4 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -23,7 +23,7 @@ import {
 	numberText
 } from "#emit/escape.ts"
 import type { JsDocText } from "#emit/escape.ts"
-import type { Json } from "#model/pointer.ts"
+import type { JsonObject } from "#model/json-tree.ts"
 
 const reservedWords: ReadonlySet<string> = new Set([
 	"arguments",
@@ -1542,7 +1542,7 @@ const jsonArrayLines = (
 const byJsonKey = Order.mapInput(Order.String, (entry: readonly [string, Json]) => entry[0])
 
 const jsonObjectLines = (
-	value: Record.ReadonlyRecord<string, Json>,
+	value: JsonObject,
 	indent: number,
 	renderItem: RenderJson
 ): readonly string[] => {
@@ -1628,9 +1628,7 @@ const unsupportedPackageJson = (subject: string) =>
  * The manifest's members in the `docs/printer.md` key order, its dependency maps, `bin` and `engines`
  * sorted by key.
  */
-const orderedManifest = (
-	manifest: Record.ReadonlyRecord<string, Json>
-): Record.ReadonlyRecord<string, Json> =>
+const orderedManifest = (manifest: JsonObject): JsonObject =>
 	Record.fromEntries(
 		Arr.flatMap(packageKeys, (key) =>
 			Option.match(Record.get<string, Json>(manifest, key), {

@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Option, Order, Predicate, Record, String as Str } from "effect"
 import type { AuthorConfig } from "#model/author-config.ts"
 import type { DocumentUri } from "#model/brands.ts"
@@ -7,7 +8,6 @@ import type { Api, Docs, Tag } from "#model/entities.ts"
 import { isArray, isObject } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { rootPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi } from "#model/spec-section.ts"
 import { docsOf } from "#normalize/docs.ts"
 import { collectInformational } from "#normalize/informational.ts"
@@ -78,7 +78,7 @@ const tagOf = (entry: Json): readonly Tag[] => {
 }
 
 /** The stored definitions by their `$defs` key, in key order. */
-const storeOf = (definitions: ReadonlyMap<string, Json>): Readonly<Record<string, Json>> =>
+const storeOf = (definitions: ReadonlyMap<string, Json>): JsonObject =>
 	Record.fromEntries(
 		Arr.sort(
 			Arr.fromIterable(definitions),

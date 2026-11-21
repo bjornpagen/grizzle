@@ -17,7 +17,7 @@
  * Every case the worker runs is given the same twins: each case first stores its own items in both (`store`, every item
  * deleted, then the case's put), so no case reads another's.
  */
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { handlerClient } from "@bjornpagen/grizzle/client"
 import { type HttpHandler, httpHandler } from "@bjornpagen/grizzle/http"
 import {
@@ -53,7 +53,6 @@ import { Digest } from "effect/crypto"
 import { HttpBody, type HttpClient, HttpClientRequest, HttpEffect, HttpServer } from "effect/http"
 import { ChildProcess } from "effect/process"
 import { isJson } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { type InvalidJsonText, parseJson } from "#runtime/json.ts"
 import {
 	anything,

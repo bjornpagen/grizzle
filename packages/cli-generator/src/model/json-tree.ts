@@ -1,6 +1,6 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Option, Predicate, Record, Result } from "effect"
 import { evaluatePointerResult } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 
 /**
  * A JSON object value.
@@ -8,9 +8,9 @@ import type { Json } from "#model/pointer.ts"
 export type JsonObject = Readonly<Record<string, Json>>
 
 /**
- * Whether a JSON value is an object (not an array, not null).
+ * Whether a JSON value, where there is one, is an object (not an array, not null).
  */
-export const isObject = (value: Json): value is JsonObject => Predicate.isObject(value)
+export const isObject = (value: Json | undefined): value is JsonObject => Predicate.isObject(value)
 
 /** Whether a value is a JSON scalar: null, a boolean, a finite number or a string. */
 const isJsonScalar = (value: unknown): boolean =>
@@ -54,9 +54,9 @@ export const isJson = (value: unknown): value is Json => {
 }
 
 /**
- * Whether a JSON value is an array.
+ * Whether a JSON value, where there is one, is an array.
  */
-export const isArray = (value: Json): value is readonly Json[] => Arr.isArray<Json>(value)
+export const isArray = (value: Json | undefined): value is readonly Json[] => Arr.isArray(value)
 
 /**
  * The node at `pointer`, `None` when the pointer is malformed or names no node.

@@ -1,8 +1,9 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Array as Arr, Effect, Option, Order, Predicate, Record, String as Str } from "effect"
 import type { DocumentUri } from "#model/brands.ts"
 import { isObject, isArray } from "#model/json-tree.ts"
 import { evaluatePointer, formatPointer } from "#model/pointer.ts"
-import type { Json, JsonPointer, PointerEvalError, PointerSyntaxError } from "#model/pointer.ts"
+import type { JsonPointer, PointerEvalError, PointerSyntaxError } from "#model/pointer.ts"
 import { referenceAt } from "#resolve/index.ts"
 import type { Resolution } from "#resolve/index.ts"
 

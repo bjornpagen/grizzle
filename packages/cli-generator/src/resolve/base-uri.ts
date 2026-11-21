@@ -1,6 +1,6 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Option } from "effect"
 import { stringMember } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { resolveUri, retrievalBase, stripFragment } from "#model/uri.ts"
 

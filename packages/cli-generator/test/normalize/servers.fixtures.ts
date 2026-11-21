@@ -1,5 +1,6 @@
 /** What the property of servers.test.ts reads: its server sketches and the servers and origins design 6.4 states. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	array,
@@ -13,7 +14,6 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
-import type { Json } from "#model/pointer.ts"
 import { boundOrigins, effectiveServers, type ServerSource } from "#normalize/servers.ts"
 import {
 	authorConfigOf,

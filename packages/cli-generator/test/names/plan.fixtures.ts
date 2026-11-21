@@ -5,6 +5,7 @@
  * 4.4's laws over every plan, written apart from the planner.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -30,7 +31,6 @@ import {
 } from "#model/brands.ts"
 import type { Api, Body, Operation, Origin, Parameter } from "#model/entities.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { fixedNamespaces, groupModuleNames, rootModuleNames } from "#names/domain.ts"
 import { foldIdentifier, isSafeFileSegment, isSafeIdentifier } from "#names/fold.ts"
 import { planNames } from "#names/index.ts"

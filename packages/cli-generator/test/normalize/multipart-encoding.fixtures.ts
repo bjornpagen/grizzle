@@ -1,5 +1,6 @@
 /** What the property of multipart-encoding.test.ts reads: multipart/form-data sketches and the part rules design 6.3 states. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	array,
@@ -14,7 +15,6 @@ import {
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Option, Order, Record as Rec, String as Str } from "effect"
 import { Digest } from "effect/crypto"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { normalizeBody } from "#normalize/bodies.ts"
 import { documentAt, entryUri, lineGen, openapiOf, resolvedAt } from "#test/support/normalizing.ts"

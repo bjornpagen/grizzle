@@ -1,8 +1,8 @@
 /** What the property of dynamic-parameter.test.ts reads: its parameter sketches and the outcome each must have. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { boolean, constant, type Gen, oneOf } from "@bjornpagen/testing/gen"
 import { Effect } from "effect"
-import type { Json } from "#model/pointer.ts"
 import { normalizeParameter } from "#normalize/parameters.ts"
 import { documentAt, openapiOf, resolvedAt } from "#test/support/normalizing.ts"
 

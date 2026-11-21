@@ -1,5 +1,6 @@
 /** What the property of author-config.test.ts reads: its space, its model of the refusals and its helpers. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -22,7 +23,6 @@ import { decodeAuthorConfig } from "#model/author-config.ts"
 import type { AuthorConfigContext } from "#model/author-config.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
-import type { Json } from "#model/pointer.ts"
 
 /** The rule a refusal names after `CFG-1/` (design 4.8). */
 type Rule =

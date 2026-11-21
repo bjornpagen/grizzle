@@ -3,6 +3,7 @@
  * reference RFC 6901 evaluator written from the RFC (sections 3 to 7), apart from the module's own.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	type Aimed,
@@ -32,7 +33,6 @@ import {
 	formatPointer,
 	isJsonPointer,
 	isPointerWithin,
-	type Json,
 	PointerIndexOutOfRange,
 	PointerMemberNotFound,
 	PointerNotContainer,

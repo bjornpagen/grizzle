@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import {
 	Array as Arr,
@@ -11,17 +12,6 @@ import {
 	Result,
 	String as Str
 } from "effect"
-
-/**
- * A JSON value.
- */
-export type Json =
-	| null
-	| boolean
-	| number
-	| string
-	| readonly Json[]
-	| { readonly [key: string]: Json }
 
 /**
  * The pointer or fragment text is not valid RFC 6901 syntax.

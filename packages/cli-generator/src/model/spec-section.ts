@@ -1,6 +1,6 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Option, Predicate, Record } from "effect"
 import { type DocumentUri, fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 
 /**
  * An OpenAPI line: the major.minor of a supported specification release. Defined once here so

@@ -75,7 +75,7 @@ export const namingExtensions = property.explore(namingSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/model/json-tree.ts",
-			original: "Arr.isArray<Json>(value)",
+			original: "Arr.isArray(value)",
 			replacement: "false",
 			why: "No JSON value is read as an array, so `x-forge-aliases` is never an array and an array group is never a group; the property fails (CATCH's evidence, mutant b0f3dbd970)."
 		}

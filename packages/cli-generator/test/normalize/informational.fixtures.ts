@@ -1,5 +1,6 @@
 /** What the property of informational.test.ts reads: its document sketches and the records design 2.4 states for them. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	array,
@@ -11,7 +12,7 @@ import {
 	subarray
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Effect, Exit, Option, Order, Record as Rec } from "effect"
-import { evaluatePointer, type Json } from "#model/pointer.ts"
+import { evaluatePointer } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { collectInformational } from "#normalize/informational.ts"
 import { documentAt, lineGen, resolvedAt } from "#test/support/normalizing.ts"

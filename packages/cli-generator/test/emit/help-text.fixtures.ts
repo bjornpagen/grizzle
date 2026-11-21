@@ -1,6 +1,6 @@
 /** What the properties of help-text.test.ts read: its spaces, models and helpers. */
 
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,
@@ -56,7 +56,7 @@ import type {
 	SecurityScheme,
 	StyleSerialization
 } from "#model/entities.ts"
-import { isJsonPointer, type Json } from "#model/pointer.ts"
+import { isJsonPointer } from "#model/pointer.ts"
 import { branded } from "#test/support/brands.ts"
 
 const document = fixedDocumentUri("file:///help/openapi.json")

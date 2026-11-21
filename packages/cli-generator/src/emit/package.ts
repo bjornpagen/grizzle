@@ -1,9 +1,9 @@
 import { findPackageJSON } from "node:module"
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { Data, Effect, FileSystem, Option, Predicate, Record, Result } from "effect"
 import type { Path } from "effect"
 import { printJson, printPackageJson } from "#emit/printer.ts"
 import type { AuthorConfig } from "#model/author-config.ts"
-import type { Json } from "#model/pointer.ts"
 import generatorManifest from "#package.json" with { type: "json" }
 import { parseJson } from "#runtime/json.ts"
 

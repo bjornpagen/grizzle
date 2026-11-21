@@ -1,9 +1,9 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import type { Validator } from "@hyperjump/json-schema/draft-2020-12"
 import { Array as Arr, Effect, Record } from "effect"
 import { foldJson } from "#model/json-tree.ts"
 import type { JsonFold } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import { lineOf } from "#validate/dispatch.ts"
 import type { UnsupportedOpenApiVersion } from "#validate/dispatch.ts"
 

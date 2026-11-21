@@ -3,6 +3,7 @@
  * documents whose `paths` hold drawn path items, inline or by reference, with what the specification says of each.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { word } from "@bjornpagen/testing/dictionary"
 import {
 	aimed,
@@ -19,7 +20,6 @@ import { Array as Arr, Effect, JsonPointer, Record as Rec, String as Str } from 
 import { pathItems } from "#check/path-items.ts"
 import { checkStructure } from "#check/structure.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { resolve } from "#resolve/index.ts"
 import { type Holding, holdings } from "#test/check/path-items.dictionary.ts"

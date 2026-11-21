@@ -1,4 +1,4 @@
-import { utf8Text } from "@bjornpagen/grizzle-text/utf8"
+import { utf8Text, type Json } from "@bjornpagen/grizzle-text/utf8"
 import { validate as validate04 } from "@hyperjump/json-schema/draft-04"
 import { registerSchema, setShouldValidateFormat } from "@hyperjump/json-schema/draft-2020-12"
 import type { SchemaObject } from "@hyperjump/json-schema/draft-2020-12"
@@ -21,7 +21,6 @@ import type { DocumentUri } from "#model/brands.ts"
 import type { Diagnostic } from "#model/diagnostic.ts"
 import { sha256Hex } from "#model/digest.ts"
 import { isJson, isObject, type JsonObject } from "#model/json-tree.ts"
-import type { Json } from "#model/pointer.ts"
 import { declaredOpenapi } from "#model/spec-section.ts"
 import type { SpecLine } from "#model/spec-section.ts"
 import { parseJson } from "#runtime/json.ts"
@@ -137,8 +136,7 @@ const schemaMembersOf = (bytes: Uint8Array): Option.Option<JsonObject> =>
 /**
  * A decoded schema object as the validator library's own mutable schema type.
  */
-const schemaObjectOf = (members: Readonly<Record<string, Json>>): SchemaObject =>
-	Record.map(members, validatorCopy)
+const schemaObjectOf = (members: JsonObject): SchemaObject => Record.map(members, validatorCopy)
 
 /**
  * Registers every vendored schema with the validator library, format assertion off. Registration

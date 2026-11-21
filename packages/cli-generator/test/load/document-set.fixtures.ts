@@ -1,5 +1,6 @@
 /** What the properties of document-set.test.ts read: drawn --document pairs, the files behind them, and the set they make. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	type Aimed,
 	aimed,
@@ -17,7 +18,6 @@ import { Array as Arr, Cause, Effect, Exit, FileSystem, Option, Path, String as 
 import { Digest } from "effect/crypto"
 import { type DocumentPair, makeDocumentSet } from "#load/document-set.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import type { Json } from "#model/pointer.ts"
 
 /** The host part of an absolute retrieval URI, as written: the canonical spelling or one of its other spellings. */
 type Spelling = "canonical" | "upper scheme and host" | "a dot segment" | "a fragment"

@@ -1,10 +1,10 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, String as Str } from "effect"
 import { makeDiagnostic } from "#model/diagnostic.ts"
 import { foldJson } from "#model/json-tree.ts"
 import type { JsonFold } from "#model/json-tree.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import type { Refusal, Where } from "#validate/disagreements.ts"
 
 /**

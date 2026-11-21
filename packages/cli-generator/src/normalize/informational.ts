@@ -1,3 +1,4 @@
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import { regex } from "arkregex"
 import { Array as Arr, Effect, Option, Order, Predicate, Record } from "effect"
 import { stripUnsafeText } from "#model/brands.ts"
@@ -7,7 +8,6 @@ import { isObject, isArray } from "#model/json-tree.ts"
 import type { JsonObject } from "#model/json-tree.ts"
 import { methodMembers } from "#model/path-item.ts"
 import { childPointer, ownPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 import type { Resolution } from "#resolve/index.ts"
 
 const reasons = {

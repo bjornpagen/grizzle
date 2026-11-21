@@ -5,6 +5,7 @@
  * gives the corpus walker to list.
  */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	type Aimed,
 	aimed,
@@ -22,7 +23,7 @@ import { Array as Arr, Effect, Option, Order, Record, String as Str } from "effe
 import { walk } from "#corpus/tools/walk.ts"
 import type { WalkElement } from "#corpus/tools/walk.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import { formatPointer, type Json } from "#model/pointer.ts"
+import { formatPointer } from "#model/pointer.ts"
 import { resolve } from "#resolve/index.ts"
 
 /** How a component is written where it is used: in place, or as a `$ref` to its copy under `components`. */

@@ -1,4 +1,4 @@
-import { jsonText } from "@bjornpagen/grizzle-text/utf8"
+import { jsonText, type Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	aimed,
 	boolean,
@@ -14,7 +14,6 @@ import {
 	string
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Duration, Effect, Option } from "effect"
-import type { Json } from "#model/pointer.ts"
 import {
 	type CaptureServer,
 	captureServer,

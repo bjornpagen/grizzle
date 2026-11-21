@@ -13,7 +13,13 @@ import {
 import type { Schema, Stream } from "effect"
 import { Headers, HttpBody, HttpClientRequest, UrlParams } from "effect/http"
 import { UsageError } from "#domain/errors.ts"
-import { JsonNull, JsonNumber, isJsonNumberText, jsonText as writeJson } from "#runtime/input.ts"
+import {
+	JsonNull,
+	JsonNumber,
+	isJsonNumberText,
+	isJsonObject,
+	jsonText as writeJson
+} from "#runtime/input.ts"
 import type { Chosen, SentType } from "#runtime/input.ts"
 import * as Multipart from "#runtime/multipart.ts"
 import type { MediaDeclaration } from "#runtime/negotiate.ts"
@@ -1030,8 +1036,9 @@ export const cookie = (name: string, value: Nested, options: CookieOptions): Coo
 })
 
 /**
- * A JSON value. A `JsonNumber` is a number kept as its digit text, which every encoder writes
- * unchanged.
+ * A JSON value the runtime reads and writes: a scalar, a `JsonNumber` (a number kept as its digit text, which every
+ * encoder writes unchanged), `JsonNull`, or an array or object of them. What a parse revives, a field flag holds and a
+ * serializer writes are each one (input.ts), and a generated package's JSON-typed fields are typed by it.
  */
 export type Json =
 	| string
@@ -1042,13 +1049,8 @@ export type Json =
 	| readonly Json[]
 	| { readonly [member: string]: Json }
 
-type JsonObject = Readonly<Record<string, Json>>
-
-const isJsonObject = (value: Json): value is JsonObject =>
-	Predicate.isObject(value) &&
-	!Arr.isArray<Json>(value) &&
-	!(value instanceof JsonNumber) &&
-	!(value instanceof JsonNull)
+/** A JSON object of the runtime's values. */
+export type JsonObject = Readonly<Record<string, Json>>
 
 const isJsonScalar = (value: Json): value is Exclude<Json, object> | JsonNumber | JsonNull =>
 	value instanceof JsonNumber ||

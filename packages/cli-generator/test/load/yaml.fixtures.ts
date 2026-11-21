@@ -1,5 +1,6 @@
 /** What the properties of yaml.test.ts read: drawn YAML documents, their planted hazards, and what loading them gives. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	type Aimed,
 	aimed,
@@ -30,7 +31,7 @@ import {
 } from "effect"
 import { loadBytes, type LoadOptions } from "#load/index.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
-import { evaluateTokensResult, type Json } from "#model/pointer.ts"
+import { evaluateTokensResult } from "#model/pointer.ts"
 
 const options: LoadOptions = { document: fixedDocumentUri("file:///spec.yaml") }
 

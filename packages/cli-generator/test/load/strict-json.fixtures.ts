@@ -1,5 +1,6 @@
 /** What the properties of strict-json.test.ts read: its spaces, models and helpers. */
 
+import type { Json } from "@bjornpagen/grizzle-text/utf8"
 import {
 	array,
 	boolean,
@@ -14,7 +15,6 @@ import { Array as Arr, Cause, Effect, Exit, Option, Record, String as Str } from
 import { loadBytes } from "#load/index.ts"
 import { fixedDocumentUri } from "#model/brands.ts"
 import { formatPointer } from "#model/pointer.ts"
-import type { Json } from "#model/pointer.ts"
 
 /** One character of a string or key, and how the text spells it. */
 type Char = Readonly<{ char: string; spelling: "raw" | "escaped" }>
