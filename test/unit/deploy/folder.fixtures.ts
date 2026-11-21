@@ -2,6 +2,7 @@
 
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import {
+	aimed,
 	array,
 	boolean,
 	codePoint,
@@ -17,7 +18,7 @@ import {
 } from "@bjornpagen/testing/gen"
 import { matching } from "@bjornpagen/testing/pattern"
 import { regex } from "arkregex"
-import { Array as Arr, Record as Rec, String as Str } from "effect"
+import { Array as Arr, Option, Record as Rec, String as Str } from "effect"
 import type { Json } from "#compiler/core/canonical.ts"
 import type { Named } from "#compiler/core/errors.ts"
 import { admittedIdentifier } from "#compiler/core/identity.ts"
@@ -38,16 +39,49 @@ import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
-import { digitsOf, secondGen } from "#test/support/calendar.ts"
+import { daysIn, digitsOf, type Second, secondGen, secondOfDigits } from "#test/support/calendar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 const words = regex("^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 
 export const isWordsOracle = (text: string): boolean => words.test(text)
 
-/** Fourteen ASCII digits, or a near miss: a digit too few or too many, or one character that is no ASCII digit. */
+/**
+ * The values just past a second's field: a year of three digits (written 0999, before the four-digit years), month 00
+ * or 13, day 00 or one past its month's last, hour 24, minute or second 60.
+ */
+const pastValues = (s: Second, field: keyof Second): Arr.NonEmptyReadonlyArray<number> => {
+	switch (field) {
+		case "year":
+			return [999]
+		case "month":
+			return [0, 13]
+		case "day":
+			return [0, daysIn(s.year, s.month) + 1]
+		case "hour":
+			return [24]
+		case "minute":
+		case "second":
+			return [60]
+	}
+}
+
+/** A second's fourteen digits with one of `fields` moved just past its range (pastValues), every other field its own. */
+const pastRangeGen =
+	(fields: Arr.NonEmptyReadonlyArray<keyof Second>): Gen<string> =>
+	(source) => {
+		const s = source.draw(secondGen)
+		const field = source.draw(element(fields))
+		return digitsOf({ ...s, [field]: source.draw(element(pastValues(s, field))) })
+	}
+
+/**
+ * Fourteen ASCII digits, or a near miss: a second's digits with one field just past its range (pastRangeGen), a digit
+ * too few or too many, or one character that is no ASCII digit.
+ */
 export const timestampGen: Gen<string> = weighted([
 	[4, (source) => digitsOf(source.draw(secondGen))],
+	[2, pastRangeGen(["year", "month", "day", "hour", "minute", "second"])],
 	[4, matching(regex("^[0-9]{14}$"))],
 	[1, matching(regex("^[0-9]{13}$|^[0-9]{15}$"))],
 	[
@@ -64,10 +98,13 @@ export const timestampGen: Gen<string> = weighted([
 /** The longest migration name, the bound a name is drawn around. */
 export const nameBound = maxMigrationNameLength
 
+/** Lowercase words: one to four, each of one to six ASCII letters and digits, joined by `_` or `-`. */
+const plainWordsGen: Gen<string> = matching(regex("^[a-z0-9]{1,6}(?:[_-][a-z0-9]{1,6}){0,3}$"))
+
 /** Lowercase words, or a near miss: empty, a separator first, last or doubled, an uppercase letter, a space, a dot, a
  * letter outside ASCII; and names around maxMigrationNameLength: one letter short of it, at it, and one past it. */
 export const wordsGen: Gen<string> = weighted([
-	[4, matching(regex("^[a-z0-9]{1,6}(?:[_-][a-z0-9]{1,6}){0,3}$"))],
+	[4, plainWordsGen],
 	[
 		3,
 		(source) => {
@@ -90,8 +127,29 @@ const folderSeparatorGen: Gen<string> = weighted([
 	[1, constant("x")]
 ])
 
-export const folderNameGen: Gen<string> = (source) =>
+const folderNameGen: Gen<string> = (source) =>
 	`${source.draw(timestampGen)}${source.draw(folderSeparatorGen)}${source.draw(wordsGen)}`
+
+/** The month nearest each month one past its range. */
+const nearestMonth: Readonly<Record<string, string>> = { "00": "01", "13": "12" }
+
+/** Whether fourteen digits' month is one past its range, 00 or 13, and its other fields a second's at the nearest month. */
+export const monthPastRange = (digits: string): boolean =>
+	Option.exists(Rec.get(nearestMonth, Str.slice(4, 6)(digits)), (nearest) =>
+		Option.isSome(secondOfDigits(`${Str.slice(0, 4)(digits)}${nearest}${Str.slice(6)(digits)}`))
+	)
+
+/**
+ * The folder names the grammar's property draws: folderNameGen, and while no case has reached it, a folder name whose
+ * timestamp's month is one past its range, its other fields a second's (monthPastRange), which a drawn near miss reaches
+ * about one name in two hundred.
+ */
+export const folderNameSpace = aimed(folderNameGen, [
+	[
+		"a month one past its range",
+		(source) => `${source.draw(pastRangeGen(["month"]))}_${source.draw(plainWordsGen)}`
+	]
+])
 
 /** The phases a drafted file is named after. */
 const draftedPhases = ["structure", "setup", "backfill_rows"] as const

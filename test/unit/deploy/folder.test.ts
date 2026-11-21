@@ -53,7 +53,7 @@ import {
 	faultedMeta,
 	faultGen,
 	fileOrdinalOracle,
-	folderNameGen,
+	folderNameSpace,
 	handEdited,
 	isWordsOracle,
 	type LabelFeature,
@@ -62,6 +62,7 @@ import {
 	type MetaFeature,
 	metaGen,
 	missed,
+	monthPastRange,
 	nameBound,
 	namesGen,
 	recordMisses,
@@ -70,30 +71,37 @@ import {
 	wordsGen
 } from "#test/unit/deploy/folder.fixtures.ts"
 
+/** The situations of a drawn folder name. */
+type FolderNameNote =
+	| "a folder name"
+	| "no folder name"
+	| "fourteen digits naming no second"
+	| "a month one past its range"
+
 /** Migration folders, generated a folder name is fourteen ASCII digits, an underscore and lowercase words. Its budget is its suite's before it was a property (test/unit/deploy/folder.test.ts at 4ca3036a): 400 runs and 400 steered cases. */
 export const migrationFoldersGeneratedAFolderNameIsFourteenASCIIDigitsAnUnderscoreAndLowercaseWords =
-	property.explore(folderNameGen, {
+	property.explore(folderNameSpace, {
 		needs: {},
 		budget: { runs: 400, steered: 400 },
 		situations: [
 			"a folder name",
 			"no folder name",
-			"fourteen digits naming no second"
-		] satisfies ReadonlyArray<
-			Reached<"a folder name" | "no folder name" | "fourteen digits naming no second">
-		>,
-		check:
-			(_, c: Case<"a folder name" | "no folder name" | "fourteen digits naming no second">) =>
-			(name) =>
-				Effect.sync(() => {
-					const shaped = regex("^[0-9]{14}_").test(name) && isWordsOracle(Str.slice(15)(name))
-					const expected = shaped && Option.isSome(secondOfDigits(Str.slice(0, 14)(name)))
-					if (shaped && !expected) {
-						c.note("fourteen digits naming no second")
-					}
-					c.note(expected ? "a folder name" : "no folder name")
-					assert.equal(isFolderName(name), expected, Formatter.format(name))
-				}),
+			"fourteen digits naming no second",
+			"a month one past its range"
+		] satisfies ReadonlyArray<Reached<FolderNameNote>>,
+		check: (_, c: Case<FolderNameNote>) => (name) =>
+			Effect.sync(() => {
+				const shaped = regex("^[0-9]{14}_").test(name) && isWordsOracle(Str.slice(15)(name))
+				const expected = shaped && Option.isSome(secondOfDigits(Str.slice(0, 14)(name)))
+				if (shaped && !expected) {
+					c.note("fourteen digits naming no second")
+				}
+				if (shaped && monthPastRange(Str.slice(0, 14)(name))) {
+					c.note("a month one past its range")
+				}
+				c.note(expected ? "a folder name" : "no folder name")
+				assert.equal(isFolderName(name), expected, Formatter.format(name))
+			}),
 		oracle: {
 			kind: "specification",
 			name: "the folder grammar, written apart (isWordsOracle), its timestamp the second day arithmetic reads (secondOfDigits)"
