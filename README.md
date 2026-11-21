@@ -1502,10 +1502,10 @@ In full:
 - `Compute.xsdPattern` → `Xml.pattern`
 - `Compute.isXsdPattern` → `Xml.isPattern`
 - `Compute.sha256` → `Crypto.sha256`
-- `Compute.cosineDistance` → `Distance.cosine`
-- `Compute.websearchQuery` → `Search.websearch`
+- `Distance.cosine` → `Distance.cosine`
+- `Search.websearch` → `Search.websearch`
 - `Compute.plainQuery` → `Search.plain`
-- `Compute.textMatches` → `Search.matches`
+- `Search.matches` → `Search.matches`
 - `Compute.textRank` → `Search.rank`
 - `Compute.textRankCd` → `Search.rankCd`
 - `Compute.union` → `Bits.union`
@@ -3368,6 +3368,94 @@ export const searchUnits = query(Course)
 `Search.websearch(text)` reads a query's text by `websearch_to_tsquery`, a web search engine's syntax of quoted phrases, `or` and a leading `-`, and `Search.plain(text)` by `plainto_tsquery`, every word required. A query is no term: `Search.matches(document, query)`, the predicate `document @@ query`, `Search.rank(document, query)`, ts_rank's real, and `Search.rankCd(document, query)`, ts_rank_cd's, read it, each in PostgreSQL's two-argument form, its default weights (A 1.0, B 0.4, C 0.2, D 0.1) and no normalization. A match in a query's filter over a stored document requests a GIN index on the document's column, which serves it: PostgreSQL reads the rows the query's lexemes hold, never the table. `searchUnits` delivers `{ unit, rank }`, best first, ties broken by `unit`, its key.
 
 Text search is PostgreSQL's alone. What a document holds is its configuration's parser, dictionaries and stop word files, read under the database's builtin C.UTF-8 locale, which no host reproduces, so the host evaluates no document, match or rank, and every position a host judgement stands in refuses one: a contract predicate, a row check and a generated field compute no `textMatches`, `textRank` or `textRankCd`, a type error and `UnsupportedOperation` when the schema compiles; a document is made in a generated field alone. A query's text is read within `textQueryMaxBytes`, 262,143 bytes, by its type or by a byte guard whose branch the read stands in, `Logic.when(Num.within(Text.octetLength(q), 0, 4096), () => …, otherwise)`, since PostgreSQL refuses a query whose lexemes pass 1,048,575 bytes and a read never fails on a value; any other text is `UnsupportedOperation` when the query compiles.
+
+### Hybrid search
+
+```ts
+import { Num, Type } from "@bjornpagen/grizzle"
+
+/** The twenty units of a subject up to a grade nearest a query's embedding. */
+export const nearUnits = query(Course)
+	.rule((r) => {
+		const { id, subject, grade, embedding } = v(Unit, "unit")
+		return r
+			.match(Unit, { id, subject, grade, embedding })
+			.where(
+				r.and(
+					r.eq(subject, r.param("subject", Unit.fields.subject)),
+					r.le(grade, r.param("grade", Unit.fields.grade))
+				)
+			)
+			.find({
+				unit: id,
+				distance: Distance.cosine(embedding, r.param("vector", Unit.fields.embedding))
+			})
+	})
+	.approximateNearest({ by: "distance", take: 20 })
+
+/** Each unit of either search with its place there: the count of its units at or before it, ties by unit. */
+export const unitPlaces = query(Course)
+	.rule((r) => {
+		const near = nearUnits.bind({
+			subject: r.param("subject", Unit.fields.subject),
+			grade: r.param("grade", Unit.fields.grade),
+			vector: r.param("vector", Unit.fields.embedding)
+		})
+		const x = v(near, "x")
+		const y = v(near, "y")
+		return r
+			.match(near, { unit: x.unit, distance: x.distance })
+			.match(near, { unit: y.unit, distance: y.distance })
+			.where(
+				r.or(
+					r.lt(y.distance, x.distance),
+					r.and(r.eq(y.distance, x.distance), r.le(y.unit, x.unit))
+				)
+			)
+			.find({ arm: "nearest", unit: x.unit, place: r.count() })
+	})
+	.rule((r) => {
+		const text = searchUnits.bind({
+			subject: r.param("subject", Unit.fields.subject),
+			grade: r.param("grade", Unit.fields.grade),
+			q: r.param("q", SearchText)
+		})
+		const x = v(text, "x")
+		const y = v(text, "y")
+		return r
+			.match(text, { unit: x.unit, rank: x.rank })
+			.match(text, { unit: y.unit, rank: y.rank })
+			.where(r.or(r.gt(y.rank, x.rank), r.and(r.eq(y.rank, x.rank), r.le(y.unit, x.unit))))
+			.find({ arm: "text", unit: x.unit, place: r.count() })
+	})
+
+/** The ten units both searches rank best together: reciprocal rank fusion, Σ 1 / (60 + place). */
+export const hybridUnits = query(Course)
+	.rule((r) => {
+		const places = unitPlaces.bind({
+			subject: r.param("subject", Unit.fields.subject),
+			grade: r.param("grade", Unit.fields.grade),
+			vector: r.param("vector", Unit.fields.embedding),
+			q: r.param("q", SearchText)
+		})
+		const { arm, unit, place } = v(places, "place")
+		return r.match(places, { arm, unit, place }).find({
+			unit,
+			score: r.sum(
+				Num.div(
+					Type.literal(pg["double precision"], 1),
+					Type.cast(Num.add(place, 60n), pg["double precision"])
+				)
+			)
+		})
+	})
+	.orderBy(["score", "desc"])
+	.take(10)
+```
+
+A hybrid search is one query: an approximate search and a full text search under one route's filters, each bounded, fused by reciprocal rank (Cormack, Clarke and Büttcher, 2009), each unit's score Σ 1 / (k + place) over the searches that hold it. A unit's place in a search is the count of the search's rows at or before it, nearest or best first, ties broken by its key, 1 for the first. `unitPlaces` states that order in its `where`, since an approximate search answers its candidates as a set, each with its distance, and a record of reads delivers them by key. The score is a double, each reciprocal and the sum rounded once ([Differences from SQL](#differences-from-sql)), and k is yours, a literal of the query, here the method's authors' 60. `hybridUnits` delivers `{ unit, score }`, best first, ties by `unit`, in one statement, which runs each search once however many matches read it. A record of reads holds it as it holds any query, its parameters `subject`, `grade`, `vector` and `q` under its name.
+
+A filter beside an approximate search, a range such as `grade`'s among them, restricts the rows the search ranks, never the candidates it returned: every candidate holds every filter, and the scan meets them in exact distance order. Under `hnsw.iterative_scan = strict_order`, which grizzle pins, PostgreSQL's scan of the HNSW index goes on past the rows the filters refuse until the search's bound is filled, or until the owner's `hnsw.max_scan_tuples` (20,000 by default) or `hnsw.scan_mem_multiplier` stops it; a row the scan meets after it returned a farther one is dropped to keep the order, as pgvector 0.8.7's strict order does. So a search underfills only where those bounds stop it or strict order dropped what would have filled it, and which rows it returns is HNSW's approximation, never proved the exact nearest. Where reading the rows a route admits through another index and sorting them by distance costs PostgreSQL's planner less, as it does for a selective route, it plans the search that way, and its candidates are then exactly the nearest.
 
 ## Reading
 

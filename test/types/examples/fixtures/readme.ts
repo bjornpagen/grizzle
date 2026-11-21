@@ -40,6 +40,7 @@ import {
 	mutable,
 	natural,
 	Net,
+	Num,
 	on,
 	paged,
 	type ParamsOf,
@@ -63,6 +64,7 @@ import {
 	sha256,
 	span,
 	str,
+	Type,
 	v,
 	wholeEntriesOf,
 	workload,
@@ -1128,6 +1130,85 @@ export const searchUnits = query(Course)
 			.find({ unit: id, rank: Search.rank(search, q) })
 	})
 	.orderBy(["rank", "desc"])
+	.take(10)
+
+/** README: "Queries", hybrid search. */
+/** The twenty units of a subject up to a grade nearest a query's embedding. */
+export const nearUnits = query(Course)
+	.rule((r) => {
+		const { id, subject, grade, embedding } = v(Unit, "unit")
+		return r
+			.match(Unit, { id, subject, grade, embedding })
+			.where(
+				r.and(
+					r.eq(subject, r.param("subject", Unit.fields.subject)),
+					r.le(grade, r.param("grade", Unit.fields.grade))
+				)
+			)
+			.find({
+				unit: id,
+				distance: Distance.cosine(embedding, r.param("vector", Unit.fields.embedding))
+			})
+	})
+	.approximateNearest({ by: "distance", take: 20 })
+
+/** Each unit of either search with its place there: the count of its units at or before it, ties by unit. */
+export const unitPlaces = query(Course)
+	.rule((r) => {
+		const near = nearUnits.bind({
+			subject: r.param("subject", Unit.fields.subject),
+			grade: r.param("grade", Unit.fields.grade),
+			vector: r.param("vector", Unit.fields.embedding)
+		})
+		const x = v(near, "x")
+		const y = v(near, "y")
+		return r
+			.match(near, { unit: x.unit, distance: x.distance })
+			.match(near, { unit: y.unit, distance: y.distance })
+			.where(
+				r.or(
+					r.lt(y.distance, x.distance),
+					r.and(r.eq(y.distance, x.distance), r.le(y.unit, x.unit))
+				)
+			)
+			.find({ arm: "nearest", unit: x.unit, place: r.count() })
+	})
+	.rule((r) => {
+		const text = searchUnits.bind({
+			subject: r.param("subject", Unit.fields.subject),
+			grade: r.param("grade", Unit.fields.grade),
+			q: r.param("q", SearchText)
+		})
+		const x = v(text, "x")
+		const y = v(text, "y")
+		return r
+			.match(text, { unit: x.unit, rank: x.rank })
+			.match(text, { unit: y.unit, rank: y.rank })
+			.where(r.or(r.gt(y.rank, x.rank), r.and(r.eq(y.rank, x.rank), r.le(y.unit, x.unit))))
+			.find({ arm: "text", unit: x.unit, place: r.count() })
+	})
+
+/** The ten units both searches rank best together: reciprocal rank fusion, Σ 1 / (60 + place). */
+export const hybridUnits = query(Course)
+	.rule((r) => {
+		const places = unitPlaces.bind({
+			subject: r.param("subject", Unit.fields.subject),
+			grade: r.param("grade", Unit.fields.grade),
+			vector: r.param("vector", Unit.fields.embedding),
+			q: r.param("q", SearchText)
+		})
+		const { arm, unit, place } = v(places, "place")
+		return r.match(places, { arm, unit, place }).find({
+			unit,
+			score: r.sum(
+				Num.div(
+					Type.literal(pg["double precision"], 1),
+					Type.cast(Num.add(place, 60n), pg["double precision"])
+				)
+			)
+		})
+	})
+	.orderBy(["score", "desc"])
 	.take(10)
 
 /** README: "Reading", the database's clock. */
