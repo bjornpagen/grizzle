@@ -4887,16 +4887,19 @@ the `eq` with it) and canonical order; a side that reads every row has none.
 
 Every rule carries its catalog entry, `entry: { kind, name, source }`, the same shape whatever its kind and no part of
 what it is: `sameLaw` reads it, but its identity, the schema's fingerprint and the installation do not, so a changed entry
-drafts no migration and only rewrites the snapshot's record and the served files. Declare one at a statement with
-`law({ name, source }, statement)`, any two nonempty texts (a catalog's name for the rule and the specification section it
-reads, say): every rule the statement states carries it as `{ kind: "declared", name, source }`, in `lawsOf`, in
-`lawsByStatement` and in every refusal that names it, a refusal by a rule of a level above included. A rule none of whose
-statements declares one carries `{ kind: "derived", name, source }`: a check and a contract by their own names, any other
-rule by its shape as grizzle names it (`key Grant(id)`, `Grant(owner) in Owner(id)`), and its source the statement that
-states it, as grizzle spells it. A primary key's, a pattern's and a generated field's rule are always derived. One rule
-takes one entry: two statements of it, or two copies of one statement, that declare two entries are refused as
-`MalformedDescription`, and so is `law(...)` of a `mutable` or `race`, which states no rule, or of a statement already
-given one.
+drafts no migration and only rewrites the snapshot's record and the served files. Declare one with
+`law({ name, source }, declaration)`, any two nonempty texts (a catalog's name for the rule and the specification
+section it reads, say), at the declaration the rule comes from: a statement, for every rule it states; a relation, for
+its primary key's rule; a `generated(type, term)` field, for its generated rule; a `str.regex`, `str.and` or `str.bytes`
+type, for the pattern rule of every stored field it types, one entry for the type whatever field it types; and a
+contract, for its rule. `law(...)` returns a copy of the declaration carrying the entry and leaves the declaration as it
+was, so declare the copy where you use it. Every rule so declared carries `{ kind: "declared", name, source }`, in
+`lawsOf`, in `lawsByStatement` and in every refusal that names it, a refusal by a rule of a level above included. A rule
+nothing declares one for carries `{ kind: "derived", name, source }`: a check and a contract by their own names, any
+other rule by its shape as grizzle names it (`key Grant(id)`, `Grant(owner) in Owner(id)`), and its source the statement
+that states it, as grizzle spells it. One rule takes one entry: two declarations of it that declare two entries are
+refused as `MalformedDescription`, and so is `law(...)` of a `mutable` or `race`, which states no rule, of a value that
+declares none, or of a declaration already given one.
 
 `lawsOf(schema)` lists every rule the schema states, each once, as `{ law, id }`: `law` exactly as an outcome names
 it, its entry included, so every rule an outcome over the schema names is one of them, and `id` the one a refusal names it by, a refused

@@ -403,6 +403,50 @@ export const registeredField = (
 	return written === undefined ? ownedText.get(value)?.described : registeredField(written)
 }
 
+/** Whether a value is a str.regex, str.and or str.bytes descriptor its builder registered (ownedText). */
+export const isTextDescriptor = (value: unknown): boolean =>
+	hasProperties(value) && ownedText.has(value)
+
+/**
+ * A copy of a str.regex, str.and or str.bytes descriptor, or of a contract, registered as the descriptor it copies is,
+ * so every reader reads it as it reads that one: law(...)'s value (schema/law-entries.ts), the copy the catalog entry
+ * its author declares is held for, the descriptor copied left as it was. A contract is a brand constructor, so its copy
+ * is one too, branding as the contract does. Undefined for any other value, which states no law of its own.
+ */
+export const descriptorCopy = <F extends object>(value: F): F | undefined => {
+	const text = ownedText.get(value)
+	if (text !== undefined) {
+		const copy: F = { ...value }
+		Object.freeze(copy)
+		ownedText.set(copy, text)
+		return copy
+	}
+	const contract = isOwnedDescriptor(value) && value.desc.kind === "contract"
+	if (!contract || typeof value !== "function") {
+		return undefined
+	}
+	const keys = Reflect.ownKeys(value).filter((key) => key !== "length" && key !== "prototype")
+	const call = (branded: unknown): unknown => Reflect.apply(value, undefined, [branded])
+	for (const key of keys) {
+		Object.defineProperty(call, key, {
+			value: undefined,
+			enumerable: true,
+			writable: true,
+			configurable: true
+		})
+	}
+	const copy = Object.assign(call, value)
+	for (const key of keys) {
+		const property = Object.getOwnPropertyDescriptor(value, key)
+		if (property !== undefined) {
+			Object.defineProperty(copy, key, property)
+		}
+	}
+	Object.freeze(copy)
+	owned.add(copy)
+	return copy
+}
+
 /**
  * Each field of a writing of its own a builder made (schema/relation.ts: a drawn, accumulated, generated, retirement or
  * place field), by its value, with the descriptor its values are of, a place's natural among them: where a field

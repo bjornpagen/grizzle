@@ -13,7 +13,7 @@ import type {
 	RosterCodec,
 	StoredRelationName
 } from "#compiler/plan/common.ts"
-import { defect, derivedLaw, lawsOfConstraint, namedLaw } from "#compiler/plan/runtime.ts"
+import { defect, lawsOfConstraint, namedGenerated, namedLaw } from "#compiler/plan/runtime.ts"
 import type { DescribedLaw, ServedKeyLaws, ServedSnapshot } from "#compiler/plan/serve.ts"
 
 /** The names a violation reports, as the wire admitted them (wire/failure.ts serverFailure). */
@@ -237,7 +237,11 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 	const generated = new Map<RelationIdent, Map<ColumnIdent, RefusedLaw>>()
 	const generatedFields = new Map<string, Map<string, RefusedLaw>>()
 	for (const { table, column, law, id } of data.generated) {
-		const refused: RefusedLaw = { law: derivedLaw(law), id, by: { kind: "notNull", table, column } }
+		const refused: RefusedLaw = {
+			law: namedGenerated(law),
+			id,
+			by: { kind: "notNull", table, column }
+		}
 		ownedBy(generated, table).set(column, refused)
 		ownedBy(generatedFields, law.relation).set(law.field, refused)
 	}

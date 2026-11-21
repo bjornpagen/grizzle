@@ -660,7 +660,7 @@ class Builder {
 	 * name.
 	 */
 	#entryOf(statements: ReadonlyArray<number>, k: KeptLaw): StatedEntry {
-		let entry: StatedEntry = derivedStatement
+		let entry: StatedEntry = this.#declaredFor(k)
 		for (const s of statements) {
 			const merged = mergedEntry(
 				entry,
@@ -677,6 +677,21 @@ class Builder {
 			entry = merged
 		}
 		return entry
+	}
+
+	/**
+	 * The catalog entry the schema's declarations declare for the law `k` where no statement states it (Owned declared):
+	 * a primary key's, its relation's, and a contract's, its own; none for any other law.
+	 */
+	#declaredFor(k: KeptLaw): StatedEntry {
+		const detail = k.draft.identity.detail
+		const declared =
+			detail.kind === "key" && k.draft.identity.source.kind === "relation"
+				? this.owned.declared.primaryKeys.get(detail.relation)
+				: detail.kind === "contract"
+					? this.owned.declared.contracts.get(detail.contract)
+					: undefined
+		return declared ?? derivedStatement
 	}
 
 	/**

@@ -5,6 +5,7 @@ import type {
 	FunctionVolatility
 } from "#compiler/core/function.ts"
 import { bodyBuilder, fnBuilder, rowBuilder, rowsBuilder } from "#compiler/schema/function.ts"
+import { lawBuilder } from "#compiler/schema/law-entries.ts"
 import {
 	closedBuilder,
 	closedRelation as closedRelationBuilder,
@@ -20,7 +21,6 @@ import {
 	finBuilder,
 	foldBuilder,
 	keyBuilder,
-	lawBuilder,
 	mirrorsBuilder,
 	monoids,
 	mutableBuilder,
@@ -794,16 +794,24 @@ export const fold = <
 ): Fold<Fa, M, S, E> => foldBuilder<Fa, M, S, E>(family, monoid, step, end)
 
 /**
- * law({ name, source }, statement): the statement, with the catalog entry its author declares for every law it states,
- * which lawsOf and every outcome that names one of those laws carry as the law's `entry` (types/changeset LawEntry
- * `declared`), where a law whose statement declares none carries the entry grizzle derives. `name` and `source` are any
- * nonempty texts: a catalog's name for the law, say, and the specification section it reads. The entry is no part of
- * the law's identity, so a changed entry is no migration. One statement or one law stated twice takes one entry.
+ * law({ name, source }, declaration): the declaration, with the catalog entry its author declares for the laws it
+ * states, which lawsOf and every outcome that names one of those laws carry as the law's `entry` (types/changeset
+ * LawEntry `declared`), where a law nothing declares one for carries the entry grizzle derives: a statement's laws; a
+ * relation's primary key's law; a generated(type, term) field's law; a str.regex, str.and or str.bytes type's pattern law
+ * at every stored field it types, one entry for the type; and a contract's law. `name` and `source` are any nonempty
+ * texts: a catalog's name for the law, say, and the specification section it reads. The entry is no part of the law's
+ * identity, so a changed entry is no migration. One law takes one entry.
  */
-export const law = <const S extends Exclude<Statement, Mutable<unknown> | Race<unknown>>>(
+export const law = <
+	const S extends
+		| Exclude<Statement, Mutable<unknown> | Race<unknown>>
+		| AnyRelation
+		| GeneratedField<FieldBase>
+		| FieldBase
+>(
 	entry: { readonly name: string; readonly source: string },
-	statement: S
-): S => lawBuilder<S>(entry, statement)
+	declaration: S
+): S => lawBuilder<S>(entry, declaration)
 
 /** The closed set of monoids a fold combines by: count, sum, or, twos (two planes) and max. */
 export const Monoid: { readonly [M in MonoidName]: MonoidOf<M> } = monoids

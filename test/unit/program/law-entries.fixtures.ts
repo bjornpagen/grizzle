@@ -1,19 +1,25 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Record as Rec } from "effect"
+import { Array as Arr, Option, Predicate, Record as Rec } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { lawModel } from "#compiler/program/laws.ts"
+import { Logic } from "#compiler/public/compute.ts"
+import { contract, pg } from "#compiler/public/fields.ts"
 import { schema } from "#compiler/public/schema.ts"
 import { derivedEntry, derivedLaw } from "#compiler/runtime/law-entry.ts"
+import { lawBuilder } from "#compiler/schema/law-entries.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import { ownedKind } from "#compiler/schema/protocol.ts"
-import { lawBuilder, statementDescOf } from "#compiler/schema/statements.ts"
-import type { LawEntry, OwnLaw } from "#compiler/types/changeset/changeset.ts"
+import { generatedField, generatedRelation } from "#compiler/schema/relation.ts"
+import { statementDescOf } from "#compiler/schema/statements.ts"
+import { regexField } from "#compiler/text/field.ts"
+import type { LawEntry, OwnLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { AnySchema } from "#compiler/types/schema/schema.ts"
 import type { Statement } from "#compiler/types/schema/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { Id } from "#test/support/ids.ts"
 import { caseGen as lawsCaseGen, lawText, levelsOf } from "#test/unit/program/laws.fixtures.ts"
 
 /** A drawn schema of every law kind, as lawsOf's property draws it (laws.fixtures.ts caseGen). */
@@ -44,6 +50,20 @@ const catalog: Arr.NonEmptyReadonlyArray<{
 export interface EntriesCase {
 	readonly laws: LawsCase
 	readonly declared: ReadonlyArray<Option.Option<number>>
+	readonly catalogued: Catalogued
+}
+
+/**
+ * The catalog entry its author declares, an index into `catalog`, or none, at each declaration a law no statement states
+ * comes from, on the relation Catalogued: the relation itself, for its primary key's law; its generated field `g`, for
+ * its generated law; the refined text type of its two fields `a` and `b`, for their pattern laws, one entry for the
+ * type; and the contract of its field `n`, for the contract's law.
+ */
+export interface Catalogued {
+	readonly key: Option.Option<number>
+	readonly generated: Option.Option<number>
+	readonly text: Option.Option<number>
+	readonly contract: Option.Option<number>
 }
 
 /** Every statement of a case's levels, the base's then the level above's, as levelsOf builds them. */
@@ -55,14 +75,101 @@ export const statementsOf = (c: LawsCase): ReadonlyArray<Statement> => {
 	]
 }
 
+/** A catalog entry's index, or none. */
+const entryGen: Gen<Option.Option<number>> = (source) =>
+	source.draw(boolean) ? Option.some(source.draw(int(0, catalog.length - 1))) : Option.none()
+
 export const entriesCaseGen: Gen<EntriesCase> = (source) => {
 	const laws = source.draw(lawsCaseGen)
 	return {
 		laws,
-		declared: Arr.map(statementsOf(laws), () =>
-			source.draw(boolean) ? Option.some(source.draw(int(0, catalog.length - 1))) : Option.none()
-		)
+		declared: Arr.map(statementsOf(laws), () => source.draw(entryGen)),
+		catalogued: {
+			key: source.draw(entryGen),
+			generated: source.draw(entryGen),
+			text: source.draw(entryGen),
+			contract: source.draw(entryGen)
+		}
 	}
+}
+
+/** The pattern Catalogued's two refined text fields share, which no text of every value matches. */
+const cataloguedPattern = { source: "^[a-z]{1,8}$", flags: "u" } as const
+
+/** The name of Catalogued's contract, apart from every contract lawsOf's schemas declare. */
+const cataloguedContract = "Catalogued_units"
+
+/** A declaration with the entry `at` names, law(...)'s, or as it is where `at` names none. */
+const declaredAs = <S extends object>(at: Option.Option<number>, declaration: S): S =>
+	Option.match(at, {
+		onNone: () => declaration,
+		onSome: (i) => lawBuilder(catalogAt(i), declaration)
+	})
+
+/**
+ * The relation Catalogued with the entries its case declares (Catalogued): keyed by its id, two fields `a` and `b` of one
+ * refined text type, a field `n` of a contract, a written integer `k` and a field `g` generated from it.
+ */
+export const cataloguedOf = (c: Catalogued) => {
+	const text = declaredAs(c.text, regexField(cataloguedPattern.source, [cataloguedPattern.flags]))
+	const units = declaredAs(
+		c.contract,
+		contract(cataloguedContract, pg.bigint, (u) => Logic.ge(u, 0n))
+	)
+	return declaredAs(
+		c.key,
+		generatedRelation(
+			"Catalogued",
+			{ id: Id, a: text, b: text, n: units, k: pg.integer },
+			["id"],
+			(row) => ({ g: declaredAs(c.generated, generatedField(pg.integer, row["k"], [])) }),
+			[]
+		)
+	)
+}
+
+/** Catalogued's declarations as its case names them: each a value law(...) refuses to name again where it named it. */
+export const cataloguedDeclarations = (c: Catalogued): ReadonlyArray<object> => {
+	const relation = cataloguedOf(c)
+	const fields: Readonly<Record<string, unknown>> = relation.fields
+	return Arr.filter(
+		[
+			...Option.match(c.key, { onNone: () => [], onSome: () => [relation] }),
+			...Option.match(c.generated, { onNone: () => [], onSome: () => [fields["g"]] }),
+			...Option.match(c.text, { onNone: () => [], onSome: () => [fields["a"]] }),
+			...Option.match(c.contract, { onNone: () => [], onSome: () => [fields["n"]] })
+		],
+		Predicate.isObject
+	)
+}
+
+/**
+ * The laws Catalogued's declarations state with no statement, each by its identity text, with the catalog entry its
+ * case declares: its primary key's, its generated field's, its two fields' pattern laws, the type's one entry at both,
+ * and its contract's.
+ */
+export const cataloguedEntries = (c: Catalogued): ReadonlyArray<readonly [string, number]> => {
+	const stated = (
+		at: Option.Option<number>,
+		law: StatedLaw
+	): ReadonlyArray<readonly [string, number]> =>
+		Option.match(at, {
+			onNone: () => [],
+			onSome: (i) => [[statedText(derivedLaw(law)), i] as const]
+		})
+	const pattern = (field: string): StatedLaw => ({
+		kind: "pattern",
+		relation: "Catalogued",
+		field,
+		patterns: [cataloguedPattern]
+	})
+	return [
+		...stated(c.key, { kind: "primaryKey", relation: "Catalogued", fields: ["id"] }),
+		...stated(c.generated, { kind: "generated", relation: "Catalogued", field: "g" }),
+		...stated(c.text, pattern("a")),
+		...stated(c.text, pattern("b")),
+		...stated(c.contract, { kind: "contract", contract: cataloguedContract })
+	]
 }
 
 /** The catalog entry of index `at`, as law(...) takes it. */
@@ -92,7 +199,11 @@ export const namedSubjectOf = (
 			onSome: (i) => (statesLaws(s) ? lawBuilder(catalogAt(i), s) : s)
 		})
 	const baseStatements = Arr.map(base.statements, name)
-	const declaredBase = schema("Laws", Rec.values(Rec.fromEntries(base.relations)), baseStatements)
+	const declaredBase = schema(
+		"Laws",
+		[...Rec.values(Rec.fromEntries(base.relations)), cataloguedOf(c.catalogued)],
+		baseStatements
+	)
 	return Option.match(above, {
 		onNone: () => ({ base: declaredBase, subject: declaredBase, statements: baseStatements }),
 		onSome: (level) => {

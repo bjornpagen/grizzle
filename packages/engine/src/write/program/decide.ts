@@ -28,6 +28,7 @@ import { baseOf, type ScalarType, spanOf } from "#compiler/ir/scalar.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
+import { derivedStatement, recordedLaw } from "#compiler/runtime/law-entry.ts"
 import type {
 	Binding,
 	CountedFamily,
@@ -684,7 +685,15 @@ export const lawChecksOf = (
 									contract: contract.name
 								})
 							),
-							laws: [{ law, described: contractLaw(contract.name) }],
+							laws: [
+								{
+									law,
+									described: recordedLaw(
+										contractLaw(contract.name),
+										laws.owned.declared.contracts.get(contract.name) ?? derivedStatement
+									)
+								}
+							],
 							test: { kind: "endpoint", field: field.name, level }
 						}
 					]

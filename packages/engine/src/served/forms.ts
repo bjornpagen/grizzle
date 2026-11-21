@@ -25,6 +25,7 @@ import type { PageRequestProgram } from "#compiler/lower/shapes/page/compile.ts"
 import type { PageComparator, PageVariant, VariantFill } from "#compiler/lower/shapes/page/seek.ts"
 import type { ChoiceInput } from "#compiler/lower/shapes/take/index.ts"
 import type { DescribedLaw } from "#compiler/physical/install/plan.ts"
+import type { RecordedGenerated } from "#compiler/runtime/law-entry.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
 import type { ServedWrite } from "#compiler/runtime/write/flight.ts"
 import type { ArrayMember } from "#compiler/runtime/write/members.ts"
@@ -37,7 +38,7 @@ import type {
 	ServedSpine
 } from "#compiler/served/read.ts"
 import type { EmittedText, ObjectName } from "#compiler/sql/ast.ts"
-import type { AboveLaw, RecordedLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
+import type { AboveLaw, RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import type { ParamValue } from "#compiler/types/core/phantom.ts"
 
 /**
@@ -492,7 +493,7 @@ export interface ServedKeyLaws {
 	readonly generated: ReadonlyArray<{
 		readonly table: RelationIdent
 		readonly column: ColumnIdent
-		readonly law: Extract<StatedLaw, { readonly kind: "generated" }>
+		readonly law: RecordedGenerated
 		readonly id: GeneratedLawId
 	}>
 }

@@ -44,7 +44,7 @@ import {
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { lawsByStatement, lawsOf } from "#compiler/public/schema.ts"
 import { namedAbove } from "#compiler/runtime/law-entry.ts"
-import { lawBuilder } from "#compiler/schema/statements.ts"
+import { lawBuilder } from "#compiler/schema/law-entries.ts"
 import type { Law } from "#compiler/types/changeset/changeset.ts"
 import { succeeded, throwsRefused } from "#test/support/assert.ts"
 import { testArtifacts, testCompile } from "#test/support/compile.ts"
@@ -57,6 +57,8 @@ import { keyValueGen } from "#test/unit/adapter/witness.fixtures.ts"
 import {
 	builtInstallationOf,
 	catalogAt,
+	cataloguedDeclarations,
+	cataloguedEntries,
 	type EntriesCase,
 	entriesCaseGen,
 	expectedEntry,
@@ -84,6 +86,10 @@ type EntriesFeature =
 	| "a generated field's refusal"
 	| "a law above, read back from snapshot.json"
 	| "a refusal by a law above"
+	| "a relation's declared primary-key entry"
+	| "a generated field's declared entry"
+	| "one type's declared entry at its two fields"
+	| "a contract's declared entry"
 	| (typeof lawKinds)[keyof typeof lawKinds]
 
 /** A refused statement that wrote nothing the host judges: PostgreSQL's refusal names its laws, the host none. */
@@ -111,6 +117,10 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 			"a generated field's refusal",
 			"a law above, read back from snapshot.json",
 			"a refusal by a law above",
+			"a relation's declared primary-key entry",
+			"a generated field's declared entry",
+			"one type's declared entry at its two fields",
+			"a contract's declared entry",
 			...Rec.values(lawKinds)
 		] satisfies ReadonlyArray<Reached<EntriesFeature>>,
 		check: (_2, k: Case<EntriesFeature>) => (c: EntriesCase) =>
@@ -159,11 +169,12 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 					k.note("two entries for one law refused")
 					return
 				}
-				const declared = new Map(
-					Arr.flatMap([...declaredBy], ([text, entries]) =>
+				const declared = new Map([
+					...Arr.flatMap([...declaredBy], ([text, entries]) =>
 						Arr.map(Arr.take([...entries], 1), (entry) => [text, entry] as const)
-					)
-				)
+					),
+					...cataloguedEntries(c.catalogued)
+				])
 				const { base, subject, statements } = namedSubjectOf(c)
 				/** `l`, as `site` names it, carries the entry its declaration states. */
 				const named = (l: Law, site: string): void => {
@@ -180,9 +191,49 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 					k.note(l.entry.kind === "declared" ? "a declared entry" : "a derived entry")
 				}
 
-				for (const identified of lawsOf(subject)) {
+				const listed = lawsOf(subject)
+				for (const identified of listed) {
 					named(identified.law, "lawsOf")
 					k.note(lawKinds[identified.law.kind])
+					const l = identified.law
+					if (l.entry.kind === "declared") {
+						switch (l.kind) {
+							case "primaryKey":
+								k.note("a relation's declared primary-key entry")
+								break
+							case "generated":
+								k.note("a generated field's declared entry")
+								break
+							case "contract":
+								k.note("a contract's declared entry")
+								break
+							case "pattern":
+							case "key":
+							case "check":
+							case "contained":
+							case "coverage":
+							case "family":
+							case "tree":
+							case "fold":
+								break
+						}
+					}
+				}
+				if (
+					Arr.filter(
+						listed,
+						({ law: l }) =>
+							l.kind === "pattern" && l.relation === "Catalogued" && l.entry.kind === "declared"
+					).length === 2
+				) {
+					k.note("one type's declared entry at its two fields")
+				}
+				for (const declaration of cataloguedDeclarations(c.catalogued)) {
+					throwsRefused(
+						() => lawBuilder(catalogAt(0), declaration),
+						"MalformedDescription",
+						"law(...) of a declaration law(...) has named is refused"
+					)
 				}
 				k.note("lawsOf")
 				const lookup = lawsByStatement(subject)
@@ -384,7 +435,7 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 				why: "A native refusal drops the source of each law it names."
 			},
 			{
-				file: "packages/engine/src/schema/statements.ts",
+				file: "packages/engine/src/schema/law-entries.ts",
 				original: '\treturn Object.freeze({ kind: "declared", name, source })',
 				replacement: '\treturn Object.freeze({ kind: "declared", name, source: name })',
 				why: "law(...) keeps the entry's name for its source."
@@ -394,6 +445,32 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 				original: "\t\t\t\tthis.#statements[known] = { ...first, entry: merged }",
 				replacement: "\t\t\t\tthis.#statements[known] = first",
 				why: "A statement written again keeps its first copy's entry, so the entry a later copy declares is lost."
+			},
+			{
+				file: "packages/engine/src/schema/law-entries.ts",
+				original: "\t\t\t\tatField(patterns, name, field, typeEntry)",
+				replacement:
+					'\t\t\t\tatField(patterns, name, field, { ...typeEntry, name: typeEntry.name + " " + field })',
+				why: "A text type's declared entry is one per field it types, where it is the type's one entry."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/theory.ts",
+				original: "\t\t\t\t? this.owned.declared.primaryKeys.get(detail.relation)",
+				replacement: "\t\t\t\t? undefined",
+				why: "A relation's declared entry for its primary key is dropped, the key named by its derived one."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/description.ts",
+				original: "\t\t\t\t\t\t\t\tfieldEntry(declared, relation.name, field.name)",
+				replacement: "\t\t\t\t\t\t\t\tundefined",
+				why: "A generated field's declared entry is dropped, its law named by its derived one."
+			},
+			{
+				file: "packages/engine/src/physical/install/plan.ts",
+				original:
+					"described: recordedLaw(contractLaw(contract), declared.get(contract) ?? derivedStatement)",
+				replacement: "described: recordedLaw(contractLaw(contract), derivedStatement)",
+				why: "A contract's domain names its law by its derived entry, its author's dropped."
 			},
 			{
 				file: "packages/engine/src/runtime/law-entry.ts",

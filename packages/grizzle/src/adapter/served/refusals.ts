@@ -33,6 +33,7 @@ interface KeyLawInput {
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	readonly relations: ReadonlyArray<TableRelation>
 	readonly rosters: ReadonlySet<DeclaredName>
+	readonly generatedEntries: Raisable["generatedEntries"]
 }
 
 /**
@@ -58,7 +59,7 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 			: []
 	),
 	generated: Arr.flatMap(input.relations, (r) =>
-		Arr.map(generatedFieldLaws([r]), (g) => ({
+		Arr.map(generatedFieldLaws([r], input.generatedEntries), (g) => ({
 			table: r.ident,
 			column: g.field.column,
 			law: g.law,
@@ -104,7 +105,8 @@ export const refusalsOf = (
 			constraintLaws: raisable.constraintLaws,
 			theoryLaws: raisable.theoryLaws,
 			relations,
-			rosters: raisable.rosters
+			rosters: raisable.rosters,
+			generatedEntries: raisable.generatedEntries
 		}),
 		relations: new Map(Arr.map(relations, (r) => [r.name, r.heading] as const)),
 		entries: new Map(
@@ -123,7 +125,10 @@ export const refusalsOf = (
  * (physical/ddl/names.ts levelCodes).
  */
 export const installationRefusals = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">
+	artifacts: Pick<
+		SchemaArtifacts,
+		"names" | "constraintLaws" | "theoryLaws" | "world" | "derived" | "laws"
+	>
 ): ServedRefusals =>
 	refusalsOf(
 		artifacts,
@@ -131,7 +136,8 @@ export const installationRefusals = (
 			constraintLaws: artifacts.constraintLaws,
 			theoryLaws: artifacts.theoryLaws,
 			relations: [...artifacts.derived.schema.relations.values()],
-			rosters: new Set(artifacts.names.codes.rosters.keys())
+			rosters: new Set(artifacts.names.codes.rosters.keys()),
+			generatedEntries: artifacts.laws.owned.declared.generated
 		},
 		[]
 	)
@@ -141,7 +147,10 @@ export const installationRefusals = (
  * layer rebuilds a served file's (witness/index.ts servedWitness), under the laws of the levels above `above`.
  */
 export const installationWitness = (
-	artifacts: Pick<SchemaArtifacts, "names" | "constraintLaws" | "theoryLaws" | "world" | "derived">,
+	artifacts: Pick<
+		SchemaArtifacts,
+		"names" | "constraintLaws" | "theoryLaws" | "world" | "derived" | "laws"
+	>,
 	above: LawsAbove
 ): InstallationWitness =>
 	servedWitness(installationRefusals(artifacts), above, artifacts.names.codes)

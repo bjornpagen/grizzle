@@ -7,14 +7,18 @@ import { everyFact, type ExprDesc, type SideDesc, type TermDesc } from "#compile
 import { type Family, orderOf } from "#compiler/ir/family.ts"
 import {
 	fieldNames,
-	type GeneratedLaw,
 	generatedLaw,
 	generationOf,
 	type LawField,
 	type TableRelation
 } from "#compiler/ir/law.ts"
-import { recordedLaw } from "#compiler/runtime/law-entry.ts"
-import type { RecordedLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
+import {
+	fieldEntry,
+	type RecordedGenerated,
+	recordedGenerated,
+	recordedLaw
+} from "#compiler/runtime/law-entry.ts"
+import type { DeclaredEntry, RecordedLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /**
  * The description of a law as grizzle's artifacts record it (types/changeset RecordedLaw): what the law states, which an
@@ -145,17 +149,19 @@ export const contractLaw = (contract: string): StatedLaw =>
 export interface GeneratedFieldLaw {
 	readonly relation: TableRelation
 	readonly field: LawField
-	readonly law: GeneratedLaw
+	readonly law: RecordedGenerated
 	readonly id: GeneratedLawId
 }
 
 /**
- * The generated fields of `relations`, in their order, each relation's fields in declared order, each with its law:
- * what a NOT NULL violation on a generated column reports (adapter/witness/keylaw.ts generatedOf) and what lawsOf
+ * The generated fields of `relations`, in their order, each relation's fields in declared order, each with its law,
+ * recorded with the catalog entry its field's author declares (`declared`, Owned declared's `generated`), where one
+ * does: what a NOT NULL violation on a generated column reports (adapter/witness/keylaw.ts generatedOf) and what lawsOf
  * lists, read from these same fields, so the two can never disagree.
  */
 export const generatedFieldLaws = (
-	relations: ReadonlyArray<TableRelation>
+	relations: ReadonlyArray<TableRelation>,
+	declared: ReadonlyMap<string, ReadonlyMap<string, DeclaredEntry>>
 ): ReadonlyArray<GeneratedFieldLaw> =>
 	relations.flatMap((relation) =>
 		relation.fields.flatMap((field): ReadonlyArray<GeneratedFieldLaw> =>
@@ -164,7 +170,10 @@ export const generatedFieldLaws = (
 						Object.freeze({
 							relation,
 							field,
-							law: generatedLaw(relation.name, field.name),
+							law: recordedGenerated(
+								generatedLaw(relation.name, field.name),
+								fieldEntry(declared, relation.name, field.name)
+							),
 							id: identifierOf(identity.generatedLaw(relation.name, field.name))
 						})
 					]

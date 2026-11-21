@@ -17,8 +17,10 @@ import {
 	levelChain,
 	schemaLevelDesc
 } from "#compiler/ir/desc.ts"
+import { type DeclaredEntries, mergedDeclared } from "#compiler/runtime/law-entry.ts"
 import { fragmentName, fragmentReach } from "#compiler/schema/fragment.ts"
 import { functionDescOf } from "#compiler/schema/function.ts"
+import { declaredEntriesOf } from "#compiler/schema/law-entries.ts"
 import { levelContent, type SchemaContent } from "#compiler/schema/levels.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import {
@@ -221,6 +223,25 @@ const relationValues = (
 		throw malformed(label, what)
 	}
 	return relations
+}
+
+/**
+ * The catalog entries a level's list declares (law-entries.ts declaredEntriesOf), its relations' and its listed
+ * fragments' together: two declarations of one law that declare two entries are refused (MalformedDescription), since
+ * one law has one name.
+ */
+const levelEntries = (
+	values: ReadonlyArray<unknown>,
+	fragments: ReadonlyArray<{ readonly content: FragmentContent }>,
+	label: string
+): DeclaredEntries => {
+	const conflict = (what: string): never => {
+		throw malformed(label, `one catalog entry for ${what}: one law has one entry`)
+	}
+	return mergedDeclared(
+		[declaredEntriesOf(values, conflict), ...fragments.map((f) => f.content.level.entries)],
+		conflict
+	)
 }
 
 /** The list of statements a caller handed in. */
@@ -435,7 +456,8 @@ export const admitSchema = (
 			descs.map((d) => ({ name: d.name, desc: d })),
 			stmts.map((s) => s.canonical),
 			undefined,
-			fragments.map((f) => f.content.level)
+			fragments.map((f) => f.content.level),
+			levelEntries(values, fragments, label)
 		),
 		names: namesOf(declared)
 	}
@@ -634,7 +656,8 @@ const admitExtend = (
 			ownDeclared,
 			stmts.map((s) => s.canonical),
 			baseEntry.content,
-			fragments.map((f) => f.content.level)
+			fragments.map((f) => f.content.level),
+			levelEntries(values, fragments, label)
 		),
 		names: namesOf(declared)
 	}
@@ -749,7 +772,8 @@ const admitFragment = (
 		declarations.map((d) => ({ name: d.meaning.name, desc: d.meaning })),
 		stmts.map((s) => s.canonical),
 		undefined,
-		[]
+		[],
+		levelEntries(values, [], label)
 	)
 	return {
 		desc: Object.freeze({

@@ -89,7 +89,7 @@ export {
 export { sealNonceBytes } from "#compiler/core/seal.ts"
 export { Cidr, Inet } from "#compiler/scalar/values/net.ts"
 export { explainAnalyzeOf, explainOf, type ExplainText } from "#compiler/runtime/explain.ts"
-export { derivedLaw, namedAbove, namedLaw } from "#compiler/runtime/law-entry.ts"
+export { namedAbove, namedGenerated, namedLaw } from "#compiler/runtime/law-entry.ts"
 export type { WriteText } from "#compiler/runtime/write/parted.ts"
 export { columnPosition, columnType } from "#compiler/runtime/lower/columns.ts"
 export { fusedTexts } from "#compiler/runtime/lower/fused.ts"

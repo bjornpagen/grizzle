@@ -97,6 +97,7 @@ import {
 	spanColumns,
 	spanConstraintLaws
 } from "#compiler/physical/span/storage.ts"
+import { type DeclaredEntries, derivedStatement, recordedLaw } from "#compiler/runtime/law-entry.ts"
 import { constraintLawsOf } from "#compiler/runtime/write/laws.ts"
 import { installationsOf, type Owned } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
@@ -445,11 +446,14 @@ export const contractChain = (t: ScalarType): ReadonlyArray<DeclaredName> => {
 	return contract === undefined ? [] : [contract.name, ...contractChain(contract.base)]
 }
 
-/** A contract's law with its description, as its domain's constraint reports it. */
-const describedContract = (contract: DeclaredName): ConstraintLawOf => ({
-	law: identifierOf(contractLawIdentity(contract)),
-	described: contractLaw(contract)
-})
+/** A contract's law with its description, as its domain's constraint reports it, with the entry its author declares
+ * (`declared`, Owned declared's `contracts`), where one does. */
+const describedContract =
+	(declared: DeclaredEntries["contracts"]) =>
+	(contract: DeclaredName): ConstraintLawOf => ({
+		law: identifierOf(contractLawIdentity(contract)),
+		described: recordedLaw(contractLaw(contract), declared.get(contract) ?? derivedStatement)
+	})
 
 /**
  * Each checked contract domain's constraint, of the contracts `checked` whose domains have a CHECK, a base contract's,
@@ -462,8 +466,10 @@ const describedContract = (contract: DeclaredName): ConstraintLawOf => ({
 const contractConstraintLaws = (
 	names: InstallNames,
 	checked: ReadonlyArray<DeclaredName>,
-	relations: ReadonlyArray<TableRelation>
+	relations: ReadonlyArray<TableRelation>,
+	declared: DeclaredEntries["contracts"]
 ): ReadonlyArray<ConstraintLaw> => {
+	const described = describedContract(declared)
 	const byDomain = new Map<
 		string,
 		{
@@ -489,7 +495,7 @@ const contractConstraintLaws = (
 						.map((contract): DomainUse => ({
 							table: r.ident,
 							column: f.column,
-							law: describedContract(contract)
+							law: described(contract)
 						}))
 				)
 			)
@@ -502,7 +508,7 @@ const contractConstraintLaws = (
 					kind: "unstoredDomainConstraint",
 					name,
 					owner,
-					laws: mapNonEmpty(sharing, describedContract)
+					laws: mapNonEmpty(sharing, described)
 				}
 	})
 }
@@ -711,9 +717,10 @@ export const planInstallation = (
 					),
 					...recorded.flatMap((c) => (c.checked ? [c.name] : []))
 				],
-				stored
+				stored,
+				model.owned.declared.contracts
 			),
-			...spanConstraintLaws(spans)
+			...spanConstraintLaws(spans, model.owned.declared.contracts)
 		]
 		const theoryLaws = model.theory.laws.map((law): DescribedLaw<Identifier<"law">> =>
 			Object.freeze({ law: law.id, described: lawDescription(law) })

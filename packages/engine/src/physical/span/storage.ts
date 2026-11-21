@@ -34,6 +34,7 @@ import type { ConstraintLaw, LawModel } from "#compiler/laws/model/model.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
 import { enforcement, lawReasons } from "#compiler/physical/obligations/graph.ts"
+import { type DeclaredEntries, derivedStatement, recordedLaw } from "#compiler/runtime/law-entry.ts"
 import { definedRangeOp } from "#compiler/scalar/compute/registry.ts"
 import type { Expr, TableConstraint } from "#compiler/sql/ast.ts"
 import { and, binary, call, cast, eq, lit, not, tableCol, types } from "#compiler/sql/build.ts"
@@ -253,7 +254,8 @@ export const spanColumns = (model: LawModel): ReadonlyArray<SpanColumn> =>
  * width differs from the column's fixed width before any SQL is sent (`admitSpan`), and grizzle's own span producers
  * never make one. */
 export const spanConstraintLaws = (
-	columns: ReadonlyArray<SpanColumn>
+	columns: ReadonlyArray<SpanColumn>,
+	declared: DeclaredEntries["contracts"]
 ): ReadonlyArray<ConstraintLaw> =>
 	columns.flatMap((c) =>
 		c.endpoints.flatMap((e): ReadonlyArray<ConstraintLaw> => {
@@ -265,7 +267,15 @@ export const spanConstraintLaws = (
 							kind: "constraint",
 							name: identifierOf(e.named),
 							owner: c.relation.ident,
-							laws: [{ law, described: contractLaw(e.contract.name) }]
+							laws: [
+								{
+									law,
+									described: recordedLaw(
+										contractLaw(e.contract.name),
+										declared.get(e.contract.name) ?? derivedStatement
+									)
+								}
+							]
 						}
 					]
 		})

@@ -625,7 +625,8 @@ const keyLawsOf = (installation: Installation) =>
 			constraintLaws: installation.constraintLaws,
 			theoryLaws: installation.theoryLaws,
 			relations: [...installation.checked.relations.values()],
-			rosters: new Set(installation.names.codes.rosters.keys())
+			rosters: new Set(installation.names.codes.rosters.keys()),
+			generatedEntries: installation.laws.owned.declared.generated
 		}),
 		noLevelAbove,
 		installation.names.codes

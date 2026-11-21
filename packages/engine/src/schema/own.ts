@@ -97,7 +97,14 @@ import type { Inserts } from "#compiler/ir/law.ts"
 import type { OwnedSchema } from "#compiler/ir/products.ts"
 import type { DeclaredKey } from "#compiler/ir/rel.ts"
 import { Roster } from "#compiler/ir/scalar.ts"
-import { derivedStatement, mergedEntry, type StatedEntry } from "#compiler/runtime/law-entry.ts"
+import {
+	type DeclaredEntries,
+	derivedStatement,
+	mergedDeclared,
+	mergedEntry,
+	noDeclaredEntries,
+	type StatedEntry
+} from "#compiler/runtime/law-entry.ts"
 import { isNaturalDesc, naturalDescriptor } from "#compiler/scalar/natural.ts"
 import { descCapabilities } from "#compiler/scalar/registry.ts"
 import { type WritableEntry, writableEntry } from "#compiler/schema/entry.ts"
@@ -310,6 +317,11 @@ export interface Owned extends OwnedSchema {
 	 * (law(...)), or none, so each law's is derived (runtime/law-entry.ts StatedEntry).
 	 */
 	readonly statementEntries: ReadonlyArray<StatedEntry>
+	/**
+	 * The catalog entries the schema's declarations declare for the laws no statement states: a relation's primary key's,
+	 * a generated field's, a refined text's pattern law's and a contract's (runtime/law-entry.ts DeclaredEntries).
+	 */
+	readonly declared: DeclaredEntries
 	readonly contracts: Readonly<Record<string, OwnedContract>>
 	/** Every function a level declares, by its declared name (schema/function-own.ts). */
 	readonly functions: Readonly<Record<string, OwnedFunction>>
@@ -1284,6 +1296,8 @@ class Owner {
 	 * (CanonicalStatement): read once where each statement was built or entered.
 	 */
 	readonly #written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>
+	/** The catalog entries the levels' declarations declare for the laws no statement states (Owned declared). */
+	readonly #lawEntries: DeclaredEntries
 
 	/** The declared keys whose index entry no index holds, each refused here as ownership meets it (ownKey). */
 	readonly #keys: KeyLedger
@@ -1291,12 +1305,14 @@ class Owner {
 	constructor(
 		desc: SchemaDesc,
 		written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
-		keys: KeyLedger
+		keys: KeyLedger,
+		declared: DeclaredEntries
 	) {
 		this.#levels = levelChain(desc)
 		this.#schemaName = desc.name
 		this.#written = written
 		this.#keys = keys
+		this.#lawEntries = declared
 	}
 
 	run(fingerprinted: LevelFingerprints): Owned {
@@ -1334,6 +1350,7 @@ class Owner {
 			statementAt: new Map(ordered.map((s, i) => [s.text, i] as const)),
 			statementLevels: ordered.map((s) => s.level),
 			statementEntries: ordered.map((s) => s.entry),
+			declared: this.#lawEntries,
 			contracts,
 			functions,
 			fieldIds,
@@ -2581,6 +2598,7 @@ export const own = (desc: SchemaDesc): Result.Result<Owned, CompileError> =>
 	ownWith(
 		desc,
 		mapNonEmpty(levelChain(desc), (level) => level.statements.map(everyRule.statement)),
+		() => noDeclaredEntries,
 		hashedLevels
 	)
 
@@ -2599,11 +2617,30 @@ const writtenOf = (
 		: appendNonEmpty(writtenOf(content.below), content.canonical)
 
 /**
+ * The catalog entries a built schema's levels declare for the laws no statement states, every level's together
+ * (levels.ts SchemaContent entries): two levels that declare two entries for one law are refused
+ * (MalformedDescription), since one law has one name.
+ */
+const declaredOf = (built: BuiltLevels): DeclaredEntries => {
+	const levels: Array<DeclaredEntries> = []
+	for (let at: SchemaContent | undefined = built.content; at !== undefined; at = at.below) {
+		levels.push(at.entries)
+	}
+	return mergedDeclared(levels, (what) =>
+		fail(
+			"MalformedDescription",
+			built.desc.loc,
+			`one catalog entry for ${what}: one law has one entry`
+		)
+	)
+}
+
+/**
  * own() of a schema schema(...) or schema.extend built: each level's statements read in the canonical form and text
  * its level content carries from their build (levels.ts SchemaContent.canonical), none put in canonical form again.
  */
 export const ownBuilt = (built: BuiltLevels): Result.Result<Owned, CompileError> =>
-	ownWith(built.desc, writtenOf(built.content), hashedLevels)
+	ownWith(built.desc, writtenOf(built.content), () => declaredOf(built), hashedLevels)
 
 /**
  * ownBuilt(), each level's fingerprint taken from its installation's snapshot (`recorded`, root first) rather than
@@ -2613,7 +2650,7 @@ export const ownServed = (
 	built: BuiltLevels,
 	recorded: ReadonlyArray<SchemaFingerprint>
 ): Result.Result<Owned, CompileError> =>
-	ownWith(built.desc, writtenOf(built.content), recordedLevels(recorded))
+	ownWith(built.desc, writtenOf(built.content), () => declaredOf(built), recordedLevels(recorded))
 
 /**
  * Owns `desc`, each level's statements in canonical form in `written` (root first, as levelChain gives its levels),
@@ -2624,11 +2661,12 @@ export const ownServed = (
 const ownWith = (
 	desc: SchemaDesc,
 	written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
+	declared: () => DeclaredEntries,
 	fingerprinted: LevelFingerprints
 ): Result.Result<Owned, CompileError> => {
 	const keys = new KeyLedger([])
 	return Result.map(
-		keys.first(catchRefusal(() => new Owner(desc, written, keys).run(fingerprinted))),
+		keys.first(catchRefusal(() => new Owner(desc, written, keys, declared()).run(fingerprinted))),
 		(owned) => {
 			owners.set(owned, owned)
 			return owned

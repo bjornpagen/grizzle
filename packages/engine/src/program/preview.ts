@@ -43,7 +43,12 @@ import { firstCodebook } from "#compiler/ir/codes.ts"
 import { type FieldWriting, columnKeyOf } from "#compiler/ir/law.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { type CompiledSchema, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
-import { namedGenerated, namedLaw } from "#compiler/runtime/law-entry.ts"
+import {
+	fieldEntry,
+	namedGenerated,
+	namedLaw,
+	recordedGenerated
+} from "#compiler/runtime/law-entry.ts"
 import { bindRows, type HostBinding, type InsertedRow } from "#compiler/runtime/write/bind.ts"
 import type { CountedFamily } from "#compiler/runtime/write/binding.ts"
 import type { ClosedTable } from "#compiler/runtime/write/fill.ts"
@@ -374,7 +379,16 @@ export const previewThrough = (
 			case "generated-rejected":
 				return Result.err({
 					_tag: "GeneratedNull",
-					law: namedGenerated(write.rejection.law),
+					law: namedGenerated(
+						recordedGenerated(
+							write.rejection.law,
+							fieldEntry(
+								model.owned.declared.generated,
+								write.rejection.law.relation,
+								write.rejection.law.field
+							)
+						)
+					),
 					witness: write.rejection.witness
 				})
 			case "bound":

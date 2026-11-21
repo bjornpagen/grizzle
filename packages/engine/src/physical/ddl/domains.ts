@@ -51,6 +51,7 @@ import { calledLibrary } from "#compiler/physical/ddl/library.ts"
 import type { ContractSource, InstallNames } from "#compiler/physical/ddl/names.ts"
 import { digestedHooks, digestedTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { enforcement, lawReasons, type Node } from "#compiler/physical/obligations/graph.ts"
+import { fieldEntry } from "#compiler/runtime/law-entry.ts"
 import type { Owned, OwnedRelation } from "#compiler/schema/own.ts"
 import {
 	type Collation,
@@ -65,7 +66,7 @@ import {
 import { and } from "#compiler/sql/build.ts"
 import { Transform } from "#compiler/sql/transform.ts"
 import { domainValue, membershipTerms, textDomainDefinition } from "#compiler/text/refinement.ts"
-import type { StatedLaw } from "#compiler/types/changeset/changeset.ts"
+import type { DeclaredEntry, StatedLaw } from "#compiler/types/changeset/changeset.ts"
 
 /** The regex of a column that a structural text domain types: refined text outside any contract. */
 export const structuralRegex = (t: ScalarType): RegexRef | undefined =>
@@ -160,13 +161,18 @@ export const columnDomains = (
 export const usedNodes = (use: TypeUse): ReadonlyArray<Node<"setup">> =>
 	[...use.domains.values()].flatMap((t) => (t.node === undefined ? [] : [t.node]))
 
+/** A pattern law as grizzle's artifacts record it: with the entry its field's type declares, where it declares one. */
+type RecordedPattern =
+	| Extract<StatedLaw, { readonly kind: "pattern" }>
+	| (Extract<StatedLaw, { readonly kind: "pattern" }> & { readonly entry: DeclaredEntry })
+
 /** A stored field whose patterns state a law: its relation, the field, its refinement, and the law, spelled as the
- * field declares its patterns. */
+ * field declares its patterns, with the catalog entry its type declares, the type's one at every field it types. */
 export interface FieldPatternLaw {
 	readonly relation: TableRelation
 	readonly field: LawField
 	readonly regex: RegexRef
-	readonly law: Extract<StatedLaw, { readonly kind: "pattern" }>
+	readonly law: RecordedPattern
 }
 
 /**
@@ -180,21 +186,24 @@ export const fieldPatternLaws = (model: LawModel): ReadonlyArray<FieldPatternLaw
 	[...model.relations.values()].flatMap(({ relation }) =>
 		relation.fields.flatMap((field): ReadonlyArray<FieldPatternLaw> => {
 			const regex = structuralRegex(field.type)
-			return regex === undefined
-				? []
-				: [
-						Object.freeze({
-							relation,
-							field,
-							regex,
-							law: Object.freeze({
-								kind: "pattern",
-								relation: relation.name,
-								field: field.name,
-								patterns: regex.patterns
-							})
-						})
-					]
+			if (regex === undefined) {
+				return []
+			}
+			const stated = Object.freeze({
+				kind: "pattern",
+				relation: relation.name,
+				field: field.name,
+				patterns: regex.patterns
+			} as const)
+			const entry = fieldEntry(model.owned.declared.patterns, relation.name, field.name)
+			return [
+				Object.freeze({
+					relation,
+					field,
+					regex,
+					law: entry === undefined ? stated : Object.freeze({ ...stated, entry })
+				})
+			]
 		})
 	)
 

@@ -207,6 +207,22 @@ const fieldEntries = new WeakMap<object, FieldEntry>()
 const fieldEntryOf = (value: unknown): FieldEntry | undefined =>
 	typeof value === "object" && value !== null ? fieldEntries.get(value) : undefined
 
+/**
+ * A copy of a field value generated(type, term) made, registered as the field it copies is: law(...)'s value
+ * (schema/law-entries.ts), the copy the catalog entry of its generated law is held for. Undefined for any other value.
+ */
+export const generatedFieldCopy = <F extends object>(value: F): F | undefined => {
+	const entry = fieldEntryOf(value)
+	if (entry?.kind !== "generated") {
+		return undefined
+	}
+	const copy: F = { ...value }
+	Object.freeze(copy)
+	fieldEntries.set(copy, entry)
+	registerWrittenField(copy, hasProperties(value) ? value["type"] : undefined)
+	return copy
+}
+
 /** Whether a field value is one slot(type, fin) made. */
 const isSlot = (value: unknown): boolean => fieldEntryOf(value)?.kind === "slot"
 

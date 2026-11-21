@@ -1,5 +1,6 @@
 import { sameContent } from "#compiler/core/canonical.ts"
 import { levelChain, type RelationDesc, type SchemaDesc } from "#compiler/ir/desc.ts"
+import { type DeclaredEntries, noDeclaredEntries } from "#compiler/runtime/law-entry.ts"
 import { type CanonicalStatement, canonicalStatementOf } from "#compiler/schema/own.ts"
 import type { RoleLevel } from "#compiler/schema/world.ts"
 
@@ -26,6 +27,12 @@ export interface SchemaContent {
 	 */
 	readonly canonical: ReadonlyArray<CanonicalStatement>
 	readonly below: SchemaContent | undefined
+	/**
+	 * The catalog entries the level's declarations declare for the laws no statement states (law(...),
+	 * law-entries.ts declaredEntriesOf), its listed fragments' among them: no part of the level's identity, which
+	 * sameLevel reads, and none for a level read from its description.
+	 */
+	readonly entries: DeclaredEntries
 	/**
 	 * The content of each fragment the level's list holds (schema.ts fragmentBuilder), in list order: each is a level of
 	 * every schema whose levels list it (isLevelOf). It is no part of the level's identity (sameLevel), since a listed
@@ -71,7 +78,8 @@ export const levelContent = (
 	relations: ReadonlyArray<LevelRelation>,
 	statements: ReadonlyArray<CanonicalStatement>,
 	below: SchemaContent | undefined,
-	fragments: ReadonlyArray<SchemaContent>
+	fragments: ReadonlyArray<SchemaContent>,
+	entries: DeclaredEntries
 ): SchemaContent => {
 	const own = new Map(
 		relations.flatMap((r) => (declaredBelow(below, r) ? [] : [[r.name, r.desc] as const]))
@@ -82,7 +90,8 @@ export const levelContent = (
 		statements: texts,
 		canonical: Object.freeze(statements),
 		below,
-		fragments: Object.freeze([...fragments])
+		fragments: Object.freeze([...fragments]),
+		entries
 	})
 }
 
@@ -102,7 +111,8 @@ export const contentOfDesc = (desc: SchemaDesc): SchemaContent =>
 		desc.relations.map((r) => ({ name: r.name, desc: r })),
 		desc.statements.map(canonicalStatementOf),
 		contentBelow(desc),
-		[]
+		[],
+		noDeclaredEntries
 	)
 
 /**

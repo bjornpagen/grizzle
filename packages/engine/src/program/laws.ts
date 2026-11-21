@@ -6,7 +6,7 @@ import { captureLoc } from "#compiler/core/loc.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { fieldPatternLaws, patternLawId, planTextDomains } from "#compiler/physical/ddl/domains.ts"
 import { builtLawModel, compiledSchema, parseBuiltSchema } from "#compiler/program/schema.ts"
-import { derivedLaw, namedLaw } from "#compiler/runtime/law-entry.ts"
+import { namedGenerated, namedLaw } from "#compiler/runtime/law-entry.ts"
 import { malformed, orThrow } from "#compiler/schema/protocol.ts"
 import { statementTextsOf } from "#compiler/schema/statements.ts"
 import type { IdentifiedLaw, OwnLaw, StatedLaw } from "#compiler/types/changeset/changeset.ts"
@@ -85,7 +85,7 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 			...theory.map((t): IdentifiedLaw<OwnLaw> => Object.freeze({ law: t.placed.law, id: t.id })),
 			...fieldPatternLaws(model).map((p): IdentifiedLaw<OwnLaw> =>
 				Object.freeze({
-					law: derivedLaw(p.law),
+					law: namedLaw(p.law),
 					id: patternLawId(
 						defined(
 							domains.get(p.regex.key),
@@ -95,9 +95,10 @@ const derivedLaws = (model: LawModel): SchemaLaws => {
 					)
 				})
 			),
-			...generatedFieldLaws([...model.relations.values()].map((r) => r.relation)).map(
-				(g): IdentifiedLaw<OwnLaw> => Object.freeze({ law: derivedLaw(g.law), id: g.id })
-			)
+			...generatedFieldLaws(
+				[...model.relations.values()].map((r) => r.relation),
+				model.owned.declared.generated
+			).map((g): IdentifiedLaw<OwnLaw> => Object.freeze({ law: namedGenerated(g.law), id: g.id }))
 		]),
 		byStatement: new Map(
 			[...model.owned.statementAt].map(([text, statement]) => [

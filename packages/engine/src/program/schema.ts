@@ -43,6 +43,7 @@ import type { SchemaLaws } from "#compiler/program/laws.ts"
 import type { FamilyInserts } from "#compiler/program/preview.ts"
 import { sliceRefusal } from "#compiler/program/slice.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
+import type { DeclaredEntries } from "#compiler/runtime/law-entry.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { unheldOf } from "#compiler/schema/level.ts"
 import {
@@ -561,6 +562,8 @@ export interface Raisable {
 	readonly theoryLaws: SchemaArtifacts["theoryLaws"]
 	readonly relations: ReadonlyArray<RelationInfo>
 	readonly rosters: ReadonlySet<DeclaredName>
+	/** The catalog entries the schema's authors declare for its generated fields' laws (Owned declared `generated`). */
+	readonly generatedEntries: DeclaredEntries["generated"]
 }
 
 /**
@@ -646,6 +649,7 @@ export const raisableOf = (
 		),
 		theoryLaws: artifacts.theoryLaws.filter((l) => raised.has(l.law)),
 		relations: decoded,
-		rosters: new Set(typed.flatMap((t) => rosterOf(t)?.closed ?? []))
+		rosters: new Set(typed.flatMap((t) => rosterOf(t)?.closed ?? [])),
+		generatedEntries: artifacts.laws.owned.declared.generated
 	}
 }
