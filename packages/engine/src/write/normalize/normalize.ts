@@ -1,17 +1,22 @@
 /**
  * The host's same-key checks of a written relation's additions, decided where the relation is written
- * (runtime/write/normalize.ts HostChecks): its declared keys the host holds every field of, and its span keys the probe
- * leaves to the host.
+ * (runtime/write/normalize.ts HostChecks): its declared keys the host holds every field of, a key generation's by its
+ * generation, which the host fills before it compares any, and its span keys the probe leaves to the host.
  */
 import type { LawId } from "#compiler/core/ids.ts"
+import { predicateTable } from "#compiler/ir/expr.ts"
 import type { Stamped } from "#compiler/ir/instant.ts"
 import type { LawField } from "#compiler/ir/law.ts"
 import type { HostChecks, HostKey, HostKeyField } from "#compiler/runtime/write/normalize.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { hostHeld, type RelationUniques } from "#compiler/write/insert/unique.ts"
 
-/** A key field of the relation's facts, by its name, with its type. */
-const hostKeyField = (f: LawField): HostKeyField => ({ field: f.name, type: f.type })
+/** A key field of the relation's facts, by its name, with its type, and a key generation with the table of its
+ * generation, which the host fills it by (runtime/write/normalize.ts HostKeyField). */
+const hostKeyField = (f: LawField): HostKeyField =>
+	f.writing.kind === "keyGenerated"
+		? { field: f.name, type: f.type, generation: predicateTable(f.writing.expr) }
+		: { field: f.name, type: f.type }
 
 /**
  * The fields at which the host holds a key of rows that leave out `stamped`, the fields their statement fills (ir/instant.ts

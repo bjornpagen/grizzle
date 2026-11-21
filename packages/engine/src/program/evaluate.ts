@@ -58,6 +58,7 @@ import {
 	type JudgedRow,
 	type JudgedTable,
 	type Judge,
+	judgedGeneration,
 	judgeOf,
 	type RowReading
 } from "#compiler/runtime/write/witness.ts"
@@ -198,10 +199,10 @@ const relationReading = (
 	name,
 	table: { fields, lawColumns: new Map() },
 	stated: fields.flatMap((f) =>
-		f.writing.kind === "generated" ? [] : [{ name: f.name, spec: carrierSpecOf(f.type, codes) }]
+		judgedGeneration(f) === undefined ? [{ name: f.name, spec: carrierSpecOf(f.type, codes) }] : []
 	),
-	refined: fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type)),
-	generated: fields.filter((f) => f.writing.kind === "generated"),
+	refined: fields.filter((f) => judgedGeneration(f) === undefined && isRefined(f.type)),
+	generated: fields.filter((f) => judgedGeneration(f) !== undefined),
 	checks
 })
 

@@ -107,6 +107,7 @@ export const aWriteOfLargeBytesValuesRefusesAMemberPastTheMessageFromItsLengthsA
 					const normalized = normalizeChangeSet(
 						write.prepared.groups,
 						{ fill: write.prepared.fill, codes: write.codes, columns: write.prepared.columns },
+						write.prepared.evaluate,
 						members,
 						transport
 					)

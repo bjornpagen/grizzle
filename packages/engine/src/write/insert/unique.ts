@@ -148,7 +148,9 @@ export interface Probed {
  * generated one, whose value PostgreSQL computes from the row as it stores it, so that only a statement compares it, at
  * the field's generation expression over the requested fact (statement.ts requestedValue), and the value it compares is
  * the one PostgreSQL stores; and an instant or a place, which no host row holds and its statement stamps
- * (write/insert/stamp.ts), so two facts a key over one holds apart meet only as the statement stamps them.
+ * (write/insert/stamp.ts), so two facts a key over one holds apart meet only as the statement stamps them. A key
+ * generation is the host's: it fills every stated fact's value of it by the generation (runtime/write/fill.ts generation)
+ * before any key is compared, and its statement writes that value.
  */
 export const hostHeld = (field: Pick<LawField, "writing">): boolean => {
 	switch (field.writing.kind) {

@@ -275,6 +275,7 @@ export const normalizedOf = (changes: ChangeSetValue) =>
 				normalizeChangeSet(
 					prepared.groups,
 					{ fill: prepared.fill, codes: frontend.codes, columns: prepared.columns },
+					prepared.evaluate,
 					facts,
 					inForce(bindFrame)
 				)

@@ -22,7 +22,9 @@
  *   `after = combine(before, x)` is proved in exact arithmetic.
  *
  * Generated fields a copy, a step or a selection reads are evaluated on the host (`HostEvaluator`), by the expressions
- * PostgreSQL generates them by, so the host's copies agree with PostgreSQL's columns.
+ * PostgreSQL generates them by, so the host's copies agree with PostgreSQL's columns; and every key generation (ir/law.ts
+ * FieldWriting keyGenerated), a column grizzle writes and a CHECK proves, by the same one computation (`generation`), so
+ * a row's key is filled before the nesting keys it or a member copies it.
  *
  * The fill is one iterative depth-first walk over the nesting, so any depth walks, in each row's stages: on entering it,
  * its entering columns; then the members of each sequence it owns, in its layout's order, and after each sequence's
@@ -1023,20 +1025,52 @@ const ruleValue = (
 			const after = stepped(rule.fold, rule.plane, befores, x.value, column.spec)
 			return after.ok ? after : Result.err(refusalAt(row, column, after.error))
 		}
-		case "generated": {
-			const v = evaluate(row.layout.evaluated, rule.expr, readerOf(row, evaluate))
-			return !v.ok
-				? Result.err(refusalAt(row, column, { kind: "evaluation", stop: v.error }))
-				: v.value === sqlNull
-					? Result.err(
-							refusalAt(row, column, {
-								kind: "null",
-								law: generatedLaw(row.layout.relation.name, column.name)
-							})
-						)
-					: Result.ok(heldValue(rule.type, v.value))
-		}
+		case "generated":
+			return Result.mapError(
+				generation(
+					evaluate,
+					row.layout.evaluated,
+					{
+						expr: rule.expr,
+						type: rule.type,
+						law: generatedLaw(row.layout.relation.name, column.name)
+					},
+					readerOf(row, evaluate)
+				),
+				(stop) => refusalAt(row, column, stop)
+			)
 	}
+}
+
+/**
+ * A generated field as the host computes it: the expression PostgreSQL generates it by (`expr`), of the field's type
+ * `type`, and the field's law, which its NOT NULL refuses a NULL by.
+ */
+export interface Generation {
+	readonly expr: ExprTable
+	readonly type: ScalarType
+	readonly law: GeneratedLaw
+}
+
+/**
+ * The one host computation of a generated field over a row of `relation`, each field `read` gives by its name: its
+ * expression's value as its field holds it (values/identity.ts heldValue), or why the row has none, an expression the
+ * host cannot evaluate over it, or NULL, which the field's NOT NULL refuses by its law. A nesting's walk fills a row's
+ * generated columns by it (`ruleValue`), and normalization a stated fact's key generations, before any key of it is
+ * compared (runtime/write/normalize.ts filledFacts), so every key the host compares is the key PostgreSQL stores.
+ */
+export const generation = (
+	evaluate: HostEvaluator,
+	relation: EvaluatedRelation,
+	generated: Generation,
+	read: (field: string) => unknown
+): Result.Result<HostValue, Exclude<FillStop, { readonly kind: "range" }>> => {
+	const v = evaluate(relation, generated.expr, read)
+	return !v.ok
+		? Result.err({ kind: "evaluation", stop: v.error })
+		: v.value === sqlNull
+			? Result.err({ kind: "null", law: generated.law })
+			: Result.ok(heldValue(generated.type, v.value))
 }
 
 /** A row's field, filled on demand: its value, none where the row has no such column, or why it has none. */

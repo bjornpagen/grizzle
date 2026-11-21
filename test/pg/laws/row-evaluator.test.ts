@@ -101,8 +101,8 @@ export const theHostEvaluatesARowAsPostgreSQLDoesItsDomainsRefusalItsGeneratedVa
 			},
 			{
 				file: "packages/engine/src/program/evaluate.ts",
-				original: 'fields.filter((f) => f.writing.kind !== "generated" && isRefined(f.type))',
-				replacement: 'fields.filter((f) => f.writing.kind !== "caller" && isRefined(f.type))',
+				original: "fields.filter((f) => judgedGeneration(f) === undefined && isRefined(f.type))",
+				replacement: "fields.filter((f) => judgedGeneration(f) !== undefined && isRefined(f.type))",
 				why: "A caller's field is never held to its domain, so a row PostgreSQL's domain refuses is evaluated as if admitted."
 			},
 			{

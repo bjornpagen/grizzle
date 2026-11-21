@@ -721,6 +721,7 @@ export const property = (
 			normalizeChangeSet(
 				write.prepared.groups,
 				{ fill: write.prepared.fill, codes: write.codes, columns: write.prepared.columns },
+				write.prepared.evaluate,
 				members,
 				inForce(bindFrame)
 			)

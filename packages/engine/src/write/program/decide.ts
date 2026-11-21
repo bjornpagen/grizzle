@@ -217,7 +217,9 @@ const judgedRelations = (
 	for (const relation of [...frontend.written, ...frontend.slots.map((g) => g.relation)]) {
 		if (!judged.has(relation.name)) {
 			judged.set(relation.name, {
-				stated: relation.fields.flatMap((f) => (f.writing.kind === "caller" ? [f.name] : [])),
+				stated: relation.fields.flatMap((f) =>
+					f.writing.kind === "caller" || f.writing.kind === "keyGenerated" ? [f.name] : []
+				),
 				primary: mapNonEmpty(relation.primaryFields, (f) => f.name),
 				layout: laidLayout(rowLayout(relation, families)),
 				owned: ownedColumns(relation, families)
@@ -426,12 +428,21 @@ const fillTables = (fill: HostFill): ReadonlyArray<ExprTable> =>
 		)
 	)
 
+/** The generation of each key generation a slot group's same-key checks hold (normalize.ts HostKeyField), which the
+ * host fills its facts' values by before it compares them. */
+const keyGenerationTables = (frontend: WriteFrontend): ReadonlyArray<ExprTable> =>
+	frontend.slots.flatMap(({ facts: { host } }) =>
+		[...host.keys.flatMap((k) => k.fields), ...host.spans.flatMap((check) => check.equal)].flatMap(
+			(f) => ("generation" in f ? [f.generation] : [])
+		)
+	)
+
 /**
- * What a fill's evaluator reads (binding.ts Evaluation): the name of each closed relation one of its expressions reads,
- * and every admitted pattern they are checked against, each once.
+ * What a write's evaluator reads (binding.ts Evaluation): the name of each closed relation one of its expressions reads,
+ * its fill's and then its key generations', and every admitted pattern they are checked against, each once.
  */
 export const evaluationOf = (frontend: WriteFrontend, fill: HostFill): Evaluation =>
-	evaluationOver(frontend, fillTables(fill), [])
+	evaluationOver(frontend, [...fillTables(fill), ...keyGenerationTables(frontend)], [])
 
 /** What an evaluator over `tables` reads: the name of each closed relation they read, in the order they first read it,
  * and every admitted pattern they and `patterns` hold, each once. */
@@ -557,8 +568,9 @@ const levels = (t: ScalarType): ReadonlyArray<ScalarType> => {
 	return base === undefined ? [t] : [t, ...levels(base)]
 }
 
-/** A written relation's field as the witness reads it (witness.ts WitnessField): a key generation by its generation, as
- * a generated field, since the value grizzle writes is its generation's, which its key's CHECK proves. */
+/** A written relation's field as the witness reads it (witness.ts WitnessField): a generated field and a key generation
+ * by their generations, which the judge computes, a key generation's value being its generation's, which its key's
+ * CHECK proves, and which a stated row of the write also holds, the host having filled it (witness.ts hostField). */
 export const witnessField = (f: RelationInfo["fields"][number]): WitnessField => ({
 	name: f.name,
 	column: f.column,
@@ -570,7 +582,7 @@ const witnessWriting = (w: RelationInfo["fields"][number]["writing"]): WitnessFi
 	switch (w.kind) {
 		case "generated":
 		case "keyGenerated":
-			return { kind: "generated", expr: predicateTable(w.expr) }
+			return { kind: w.kind, expr: predicateTable(w.expr) }
 		case "caller":
 		case "drawn":
 		case "accumulated":

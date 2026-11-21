@@ -24,8 +24,8 @@ import {
 import type { ParamBinary } from "#compiler/core/wire.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import { type CalendarDate, dayNumber } from "#compiler/ir/date.ts"
-import type { TypedLiteral } from "#compiler/ir/expr.ts"
-import { columnKeyOf, type GeneratedLaw, type SpanType } from "#compiler/ir/law.ts"
+import type { ExprTable, TypedLiteral } from "#compiler/ir/expr.ts"
+import { columnKeyOf, type GeneratedLaw, generatedLaw, type SpanType } from "#compiler/ir/law.ts"
 import type {
 	IdentifiedFact,
 	KeyedFacts,
@@ -39,6 +39,18 @@ import { type ScalarType, type SpanCarrier, spanOf } from "#compiler/ir/scalar.t
 import type { StratumAt } from "#compiler/ir/stratum.ts"
 import { type Columns, textAt } from "#compiler/runtime/write/cells.ts"
 import { keptReads } from "#compiler/runtime/write/decoded.ts"
+import {
+	type EvaluatedRelation,
+	evaluatedRelation,
+	type FillRefusal,
+	fillRefusal,
+	type GeneratedNull,
+	type Generation,
+	generation,
+	type HostEvaluator,
+	keyHostOf,
+	wholeKey
+} from "#compiler/runtime/write/fill.ts"
 import {
 	nestedConflict,
 	type NestedFact,
@@ -241,7 +253,9 @@ export interface InputMember<N> {
 	readonly normalize: N
 }
 
-/** An enumerated input as normalization runs it (`InputData`), each member with the normalizer that admits its facts. */
+/** An enumerated input as normalization runs it (`InputData`), each member with the normalizer that admits its facts,
+ * and a single input with the key generations its slot's heading lists, which its facts are filled with
+ * (`SlotFill`). */
 export type BindInput =
 	| {
 			readonly kind: "single"
@@ -249,6 +263,7 @@ export type BindInput =
 			readonly slot: SlotData
 			readonly members: NonEmptyReadonlyArray<InputMember<RelationNormalizer>>
 			readonly starts: ReadonlyArray<{ readonly name: string; readonly value: unknown }>
+			readonly fill: SlotFill
 	  }
 	| {
 			readonly kind: "nested"
@@ -265,6 +280,79 @@ export interface BindGroup {
 	readonly stratum: StratumAt
 	readonly facts: CheckedFacts
 	readonly inputs: NonEmptyReadonlyArray<BindInput>
+}
+
+/**
+ * What a single input's facts are filled with before any is judged (`filledFacts`): the fields its admission heading
+ * states, as the evaluator reads them (fill.ts EvaluatedRelation), and each key generation its slot's heading lists, by
+ * its field, the column its statement writes and PostgreSQL's CHECK proves again (ir/law.ts FieldWriting
+ * `keyGenerated`). A slot of none fills nothing.
+ */
+export interface SlotFill {
+	readonly stated: EvaluatedRelation
+	readonly generations: ReadonlyArray<{ readonly field: string; readonly generation: Generation }>
+}
+
+/**
+ * The single input's facts `stated`, member `member`'s, each with its key generations filled (`SlotFill`), its identity
+ * the one admission gave it, since a key generation is a function of the fields it reads; or the refusal of the first
+ * whose generation has none: an expression the host cannot evaluate over it is an encoding failure at the member slot
+ * (fill.ts fillRefusal), and NULL its field's law, its witness the fact's first declared key it states whole.
+ */
+const filledFacts = (
+	fill: SlotFill,
+	facts: CheckedFacts,
+	evaluate: HostEvaluator,
+	member: string,
+	stated: ReadonlyArray<IdentifiedFact>
+): Result.Result<
+	ReadonlyArray<IdentifiedFact>,
+	EncodingFailure | (GeneratedNull & { readonly key: FillRefusal["key"] })
+> => {
+	if (fill.generations.length === 0) {
+		return Result.ok(stated)
+	}
+	const filled: Array<IdentifiedFact> = []
+	for (const e of stated) {
+		const read = (field: string): unknown => e.fact[field]
+		const values: Array<readonly [string, unknown]> = []
+		for (const { field, generation: g } of fill.generations) {
+			const value = generation(evaluate, fill.stated, g, read)
+			if (!value.ok) {
+				const refusal = fillRefusal(value.error, slotPlace(member))
+				return Result.err(
+					refusal._tag === "GeneratedNull" ? { ...refusal, key: statedKey(facts, e.fact) } : refusal
+				)
+			}
+			values.push([field, value.value])
+		}
+		filled.push({
+			identity: e.identity,
+			fact: Object.freeze({ ...e.fact, ...Object.fromEntries(values) })
+		})
+	}
+	return Result.ok(filled)
+}
+
+/** A stated fact's first declared key, its primary key first, whose every field it holds, by field name (fill.ts
+ * wholeKey); none where it holds none whole. */
+const statedKey = (
+	facts: CheckedFacts,
+	fact: { readonly [field: string]: unknown }
+): Readonly<Record<string, KeyHost>> | undefined => {
+	const specs = new Map(
+		facts.host.keys.flatMap((k) => k.fields).map((f) => [f.field, f.spec] as const)
+	)
+	return wholeKey(
+		facts.host.keys.map((k) => k.fields.map((f) => f.field)),
+		(name) => {
+			const value = fact[name]
+			const spec = specs.get(name)
+			return value === undefined || spec === undefined
+				? undefined
+				: keyHostOf(admitted(spec, value))
+		}
+	)
 }
 
 /** The member slots a compiled ChangeSet reads, each once, in the order its slot groups name them: the slots whose
@@ -361,17 +449,20 @@ const collect = (set: TextsMap<IdentifiedFact>, entries: ReadonlyArray<Identifie
 	}
 }
 
-/** A key field of a fact, by the name the fact holds it under, and its type. */
-export interface HostKeyField {
-	readonly field: string
-	readonly type: ScalarType
-}
+/** A key field of a fact, by the name the fact holds it under, and its type: a field the fact states, or a key
+ * generation (ir/law.ts FieldWriting `keyGenerated`) with the table of the expression it is generated by, which the
+ * host fills every stated fact's value of by its one generation (fill.ts generation) before any key is compared
+ * (`filledFacts`). */
+export type HostKeyField =
+	| { readonly field: string; readonly type: ScalarType }
+	| { readonly field: string; readonly type: ScalarType; readonly generation: ExprTable }
 
 /** The host's same-key checks of one written relation's additions (see `normalizeChangeSet`, step 3), decided with the
- * relation: each declared key's law and fields, primary key first, but a key over a generated field, which PostgreSQL
- * computes and the host never does, so the statement that writes the facts compares them there (insert/unique.ts
- * `hostHeld`); and each span candidate key whose pairs the probe leaves to the host (`checks`, `Probed`), its law, its
- * compared fields and its span field. A conflict at a span key names its compared fields, then its span field. */
+ * relation: each declared key's law and fields, primary key first, but a key over a generated field PostgreSQL computes,
+ * which the host never holds, so the statement that writes the facts compares them there (insert/unique.ts
+ * `hostHeld`), a key generation being one the host fills; and each span candidate key whose pairs the probe leaves to
+ * the host (`checks`, `Probed`), its law, its compared fields and its span field. A conflict at a span key names its
+ * compared fields, then its span field. */
 export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<{
@@ -422,12 +513,14 @@ interface CheckedKeys {
  * A slot group's facts as the host checks them under the installation's codes (`SlotFacts`): `stated`, the name of the
  * relation they are stated in, which a fault and a refusal's witness name them by, the stored relation's own or a
  * query entry's; `relation`, the stored relation they write, a query entry's target, whose declared keys the checks
- * compare and whose table's constraints refuse a pair at one; and the checks.
+ * compare and whose table's constraints refuse a pair at one; the checks; and each key generation a checked key holds,
+ * by its field, as the host fills it (fill.ts Generation), each once.
  */
 export interface CheckedFacts {
 	readonly stated: RoleRelationName
 	readonly relation: StoredRelationName
 	readonly host: CheckedKeys
+	readonly generations: ReadonlyMap<string, Generation>
 }
 
 /** The host checks `host` of facts of the stored relation `relation`, stated in `stated`, under the installation's
@@ -442,9 +535,23 @@ const checkedFacts = (
 		field: f.field,
 		spec: carrierSpecOf(f.type, codes)
 	})
+	const generations = new Map<string, Generation>()
+	for (const f of [
+		...host.keys.flatMap((k) => k.fields),
+		...host.spans.flatMap((check) => check.equal)
+	]) {
+		if ("generation" in f) {
+			generations.set(f.field, {
+				expr: f.generation,
+				type: f.type,
+				law: generatedLaw(relation, f.field)
+			})
+		}
+	}
 	return Object.freeze({
 		stated,
 		relation,
+		generations,
 		host: Object.freeze({
 			keys: host.keys.map((k) => ({
 				law: k.law,
@@ -491,6 +598,7 @@ const statedName = (group: GroupData): RoleRelationName => {
  */
 export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 	const stated = statedName(group)
+	const facts = checkedFacts(stated, group.relation, group.facts.host, codes)
 	const normalizer =
 		(heading: Heading) =>
 		(member: string): RelationNormalizer =>
@@ -502,6 +610,15 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 			})
 	const startOf = (st: StartData): unknown =>
 		st.start.kind === "zero" ? 0n : hostOfLiteral(st.start.type.carrier, st.start.literal)
+	/** A single input's fill (`SlotFill`): each key generation its slot's heading lists, which a key of its group's facts
+	 * holds, so the checks the facts meet compare exactly the values its statement writes. */
+	const fillOf = (input: Extract<InputData, { readonly kind: "single" }>): SlotFill => ({
+		stated: evaluatedRelation(input.admitted),
+		generations: input.slot.heading.flatMap((column) => {
+			const generated = facts.generations.get(column.name)
+			return generated === undefined ? [] : [{ field: column.name, generation: generated }]
+		})
+	})
 	const inputOf = (input: InputData): BindInput => {
 		switch (input.kind) {
 			case "single": {
@@ -511,7 +628,8 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 					act: input.act,
 					slot: input.slot,
 					members: mapNonEmpty(input.members, (name) => ({ name, normalize: admitBy(name) })),
-					starts: input.starts.map((st) => ({ name: st.name, value: startOf(st) }))
+					starts: input.starts.map((st) => ({ name: st.name, value: startOf(st) })),
+					fill: fillOf(input)
 				}
 			}
 			case "nested": {
@@ -533,7 +651,7 @@ export const bindGroup = (group: GroupData, codes: Codebook): BindGroup => {
 	}
 	return Object.freeze({
 		stratum: group.stratum,
-		facts: checkedFacts(stated, group.relation, group.facts.host, codes),
+		facts,
 		inputs: mapNonEmpty(group.inputs, inputOf)
 	})
 }
@@ -812,7 +930,9 @@ type AdmittedGroup =
  * A retirement's facts name groups (frontend/compile.ts RetireAct): admitted and collapsed as any slot's, and judged at
  * no key and netted against nothing, since no other member of the ChangeSet writes their unit.
  *
- * A nested write's facts are filled by `walk`, the write's filler (nesting.ts NestedWalk).
+ * A nested write's facts are filled by `walk`, the write's filler (nesting.ts NestedWalk), and a single input's key
+ * generations by the one generation (fill.ts generation) over `evaluate`, the write's evaluator, each before any key of
+ * it is compared (`filledFacts`): every key the host compares is the key its statement writes.
  *
  * The result is each slot's distinct admitted facts in canonical order, the facts the statements read, which the codec
  * encodes. A described member is not normalized here: its DISTINCT and same-key check are in the
@@ -820,6 +940,7 @@ type AdmittedGroup =
 export const normalizeChangeSet = (
 	groups: ReadonlyArray<BindGroup>,
 	walk: NestedWalk,
+	evaluate: HostEvaluator,
 	inputs: MemberFacts,
 	transport: Transport
 ): Result.Result<Normalization, EncodingFailure | MessageBound | LiteralBound> => {
@@ -897,9 +1018,29 @@ export const normalizeChangeSet = (
 						if (!admittedFacts.ok) {
 							return admittedFacts
 						}
+						/** Its key generations filled before any key of it is compared (`filledFacts`); a generation
+						 * with no value refuses the application only once every input admits, as a nested write's. */
+						const filled = filledFacts(
+							input.fill,
+							facts,
+							evaluate,
+							member.name,
+							admittedFacts.value
+						)
+						if (!filled.ok) {
+							if (filled.error._tag !== "GeneratedNull") {
+								return Result.err(filled.error)
+							}
+							stopped ??= {
+								kind: "generatedNull",
+								law: filled.error.law,
+								values: filled.error.key
+							}
+							continue
+						}
 						/** A slot that carries fields beyond its facts' holds each at its start (frontend/compile.ts
 						 * EnumeratedInput "single"), its identity its facts'. */
-						const started = admittedFacts.value.map((e): IdentifiedFact =>
+						const started = filled.value.map((e): IdentifiedFact =>
 							input.starts.length === 0
 								? e
 								: {

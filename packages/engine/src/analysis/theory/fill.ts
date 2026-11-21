@@ -400,7 +400,10 @@ const entriesAt = (
  * A generation reads no generated field (check/generated.ts), so every column it reads is laid out without it. A
  * generated field that reads a column this position does not lay out, or columns two counted families' fills write, no
  * fill evaluates here: PostgreSQL alone computes it, and a column here that reads it is refused as reading a column no
- * fill that writes it reaches.
+ * fill that writes it reaches. A key generation (ir/law.ts FieldWriting `keyGenerated`) is a column grizzle writes,
+ * which PostgreSQL never computes, so it is laid out at every position: its generation reads caller fields alone, each
+ * laid out wherever its row is, and it is generated so even where it is its member's group field, a flat member's own
+ * key generation, never copied from its owner (its axis's foreign key and its CHECK prove the two agree).
  */
 const generatedAt = (
 	relation: LawRelation,
@@ -415,7 +418,7 @@ const generatedAt = (
 				defined(entries.get(columnKey(column)), `the column of ${field.name}`)
 			)
 		}
-		if (field.writing.kind !== "generated") {
+		if (field.writing.kind !== "generated" && field.writing.kind !== "keyGenerated") {
 			continue
 		}
 		const rule: FillRule = { kind: "generated", expr: field.writing.expr }
@@ -425,7 +428,13 @@ const generatedAt = (
 				e?.writer.kind === "counted" ? [[familyKey(e.writer.family.id), e.writer] as const] : []
 			)
 		)
-		if (!read.includes(undefined) && counted.size <= 1) {
+		const laidOut = !read.includes(undefined) && counted.size <= 1
+		if (field.writing.kind === "keyGenerated" && !laidOut) {
+			throw defect(
+				`the key generation ${relation.name}.${field.name}, whose reads are caller fields every position lays out`
+			)
+		}
+		if (laidOut) {
 			laid.set(columnKey(column), {
 				column,
 				name: field.name,

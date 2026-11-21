@@ -106,14 +106,34 @@ export interface StatedRows {
 }
 
 /** A field of a written relation as the witness reads it: its name, its installed column, its type, and how it is
- * written, a generated field with its generation expression's table. */
+ * written, a generated field and a key generation with their generation expression's table (`judgedGeneration`). */
 export interface WitnessField {
 	readonly name: string
 	readonly column: ColumnIdent
 	readonly type: ScalarType
 	readonly writing:
 		| { readonly kind: "caller" | "drawn" | "accumulated" | "retirement" | "instant" | "place" }
-		| { readonly kind: "generated"; readonly expr: ExprTable }
+		| { readonly kind: "generated" | "keyGenerated"; readonly expr: ExprTable }
+}
+
+/**
+ * A field's generation as the judge computes it over a row: a generated field's, which PostgreSQL computes, and a key
+ * generation's, which grizzle writes as that expression's value and its key's CHECK proves, so the judge's value of it is
+ * the one PostgreSQL holds whoever states the row; none for a field written any other way.
+ */
+export const judgedGeneration = (field: Pick<WitnessField, "writing">): ExprTable | undefined => {
+	switch (field.writing.kind) {
+		case "generated":
+		case "keyGenerated":
+			return field.writing.expr
+		case "caller":
+		case "drawn":
+		case "accumulated":
+		case "retirement":
+		case "instant":
+		case "place":
+			return undefined
+	}
 }
 
 /**
@@ -215,12 +235,14 @@ export interface WitnessData {
 	readonly evaluation: Evaluation
 }
 
-/** A stated row's field as the host holds it: a field the ChangeSet states, or one its write fills; a retirement field
- * false, the state every insert writes it at; none for a generated field, an instant, which its statement stamps or
- * reads, a place, which its insert stamps, or a column the host does not hold. */
+/** A stated row's field as the host holds it: a field the ChangeSet states, a key generation its write fills before
+ * any key is compared (runtime/write/normalize.ts filledFacts, a nesting's walk), or one its write fills; a retirement
+ * field false, the state every insert writes it at; none for a generated field, an instant, which its statement stamps
+ * or reads, a place, which its insert stamps, or a column the host does not hold. */
 const hostField = (row: JudgedRow, field: Pick<WitnessField, "name" | "writing">): unknown => {
 	switch (field.writing.kind) {
 		case "caller":
+		case "keyGenerated":
 			return row.stated[field.name]
 		case "drawn":
 		case "accumulated": {
@@ -770,11 +792,13 @@ export const judgeOf = (table: ClosedTable, patterns: PatternReads): Judge => {
 			if (known !== undefined) {
 				return known
 			}
-			const field = fields.get(name)
-			if (field?.writing.kind !== "generated") {
+			const expr = judgedGeneration(
+				defined(fields.get(name), `a field ${name} of the relation the row is read over`)
+			)
+			if (expr === undefined) {
 				throw defect(`a generated field ${name} of the relation the row is read over`)
 			}
-			const made = evaluate(field.writing.expr)
+			const made = evaluate(expr)
 			generatedValues.set(name, made)
 			return made
 		}
@@ -792,7 +816,7 @@ export const judgeOf = (table: ClosedTable, patterns: PatternReads): Judge => {
 					? undefined
 					: evaluatedValue(type, column.value)
 			}
-			if (declared.writing.kind === "generated") {
+			if (judgedGeneration(declared) !== undefined) {
 				return columnOfEvaluated(generated(name))
 			}
 			const value = hostField(row, declared)
@@ -859,7 +883,7 @@ const domainValue = (
 	row: JudgedRow,
 	field: WitnessField
 ): Evaluated => {
-	if (field.writing.kind === "generated") {
+	if (judgedGeneration(field) !== undefined) {
 		return judge.reading(relation, row).generated(field.name)
 	}
 	const host = hostField(row, field)
@@ -964,7 +988,7 @@ const generatedNotNulls = (
 ): "hold" | "refuse" | "unknown" => {
 	const reading = judge.reading(relation, row)
 	const values = relation.fields.flatMap((field) =>
-		field.writing.kind === "generated" ? [reading.generated(field.name)] : []
+		judgedGeneration(field) === undefined ? [] : [reading.generated(field.name)]
 	)
 	return values.some((v) => v.kind === "null")
 		? "refuse"
@@ -1224,7 +1248,11 @@ const refuserJudge = (w: Witnessing, refuser: Refuser): RefuserJudge => {
 			return {
 				row: (relation, row) => {
 					const field = relation.fields.find((f) => f.column === refuser.column)
-					if (relation.ident !== refuser.table || field?.writing.kind !== "generated") {
+					if (
+						relation.ident !== refuser.table ||
+						field === undefined ||
+						judgedGeneration(field) === undefined
+					) {
 						return holds
 					}
 					switch (judge.reading(relation, row).generated(field.name).kind) {

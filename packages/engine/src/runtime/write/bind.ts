@@ -347,6 +347,7 @@ const isStamped = (writing: WitnessField["writing"]["kind"]): boolean => {
 		case "accumulated":
 		case "retirement":
 		case "generated":
+		case "keyGenerated":
 			return false
 	}
 }
@@ -409,6 +410,7 @@ const hostRows = (
 	const normalization = normalizeChangeSet(
 		prepared.groups,
 		{ fill: prepared.fill, codes, columns: prepared.columns },
+		prepared.evaluate,
 		inputs.members,
 		inputs.transport
 	)
