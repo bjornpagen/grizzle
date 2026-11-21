@@ -1,20 +1,17 @@
-import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type Expr,
 	type FromItem,
 	type FromSource,
-	type JoinStep,
 	nameKey,
 	type NameKey,
 	type ObjectName,
 	type OperandBody,
 	type OperandSelect,
-	type Select,
-	type SelectCore
+	type Select
 } from "#compiler/sql/ast.ts"
 import { and, call, eq } from "#compiler/sql/build.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { identityHooks, Transform } from "#compiler/sql/transform.ts"
+import { conditionsRewritten } from "#compiler/sql/transform.ts"
 
 /** A stored column as a statement reads it: by the table or view it is a column of, and its name there. */
 export interface StoredColumn {
@@ -177,36 +174,10 @@ const imagedConjunction = (e: Expr, from: ReadonlyArray<FromItem>, imaged: Store
 	return first === undefined || rest.length + 1 === conjuncts.length ? e : and([first, ...rest])
 }
 
-/** A core whose WHERE and join conditions each state its imaged columns' equalities of images (`imagedConjunction`). */
-const imagedCore = (core: SelectCore, imaged: StoredColumns): SelectCore => {
-	const where =
-		core.where === undefined ? undefined : imagedConjunction(core.where, core.from, imaged)
-	const from = core.from.map((item): FromItem => {
-		if (item.kind !== "joins") {
-			return item
-		}
-		const steps = mapNonEmpty(item.steps, (s): JoinStep => {
-			switch (s.kind) {
-				case "on":
-				case "left": {
-					const on = imagedConjunction(s.on, core.from, imaged)
-					return on === s.on ? s : { ...s, on }
-				}
-				case "cross":
-					return s
-			}
-		})
-		return steps.every((s, i) => s === item.steps[i]) ? item : { ...item, steps }
-	})
-	return where === core.where && from.every((item, i) => item === core.from[i])
-		? core
-		: { ...core, where, from }
-}
-
 /**
  * A query whose every core states, beside each equality that compares one of `imaged`, a column a lookup index holds
  * by its image, the equality of the two sides' images (`imageOf`), so PostgreSQL reads the lookup through that index as
  * a point lookup. A query that compares none is the query itself.
  */
 export const statingImages = (query: Select, imaged: StoredColumns): Select =>
-	new Transform({ ...identityHooks, core: (core) => imagedCore(core, imaged) }).setQuery(query)
+	conditionsRewritten(query, (condition, from) => imagedConjunction(condition, from, imaged))

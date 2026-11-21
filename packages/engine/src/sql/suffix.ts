@@ -1,9 +1,9 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { Expr, FromItem, JoinStep, Select, SelectCore } from "#compiler/sql/ast.ts"
+import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
 import { and, binary, call, ge, lit, lt, types } from "#compiler/sql/build.ts"
 import { originIn, type StoredColumns } from "#compiler/sql/image.ts"
 import { printExpr } from "#compiler/sql/print.ts"
-import { identityHooks, Transform } from "#compiler/sql/transform.ts"
+import { conditionsRewritten } from "#compiler/sql/transform.ts"
 
 /**
  * The suffix key of a text, `chr(1) || reverse(text)`: what a B-tree a probe seeks a suffix through holds for a text
@@ -135,35 +135,10 @@ const seekingIn = (e: Expr, from: ReadonlyArray<FromItem>, suffixed: StoredColum
 	return e
 }
 
-/** A core whose WHERE and join conditions each read their suffix tests by their keys' ranges (`seekingIn`). */
-const seekingCore = (core: SelectCore, suffixed: StoredColumns): SelectCore => {
-	const where = core.where === undefined ? undefined : seekingIn(core.where, core.from, suffixed)
-	const from = core.from.map((item): FromItem => {
-		if (item.kind !== "joins") {
-			return item
-		}
-		const steps = mapNonEmpty(item.steps, (s): JoinStep => {
-			switch (s.kind) {
-				case "on":
-				case "left": {
-					const on = seekingIn(s.on, core.from, suffixed)
-					return on === s.on ? s : { ...s, on }
-				}
-				case "cross":
-					return s
-			}
-		})
-		return steps.every((s, i) => s === item.steps[i]) ? item : { ...item, steps }
-	})
-	return where === core.where && from.every((item, i) => item === core.from[i])
-		? core
-		: { ...core, where, from }
-}
-
 /**
  * A query whose every core reads each suffix test over one of `suffixed`, a column a B-tree holds the suffix key of, by
  * that key's range (`suffixRange`), so PostgreSQL seeks the B-tree where the suffix is the probe's bound value. A query
  * that tests no such column is the query itself.
  */
 export const seekingSuffixes = (query: Select, suffixed: StoredColumns): Select =>
-	new Transform({ ...identityHooks, core: (core) => seekingCore(core, suffixed) }).setQuery(query)
+	conditionsRewritten(query, (condition, from) => seekingIn(condition, from, suffixed))

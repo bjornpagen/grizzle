@@ -1547,6 +1547,42 @@ export class Transform {
 export const transformExpr = (e: Expr, hooks: AstHooks): Expr => new Transform(hooks).expr(e)
 
 /**
+ * `query` with each core's conditions, its WHERE and every on or left join's ON, rewritten by `rewrite`, which reads a
+ * condition beside its core's whole FROM: the one walk of a query's conditions, which sql/image.ts (statingImages) and
+ * sql/suffix.ts (seekingSuffixes) rewrite through. A core whose conditions `rewrite` keeps is the core itself.
+ */
+export const conditionsRewritten = (
+	query: Select,
+	rewrite: (condition: Expr, from: ReadonlyArray<FromItem>) => Expr
+): Select =>
+	new Transform({
+		...identityHooks,
+		core: (core) => {
+			const where = core.where === undefined ? undefined : rewrite(core.where, core.from)
+			const from = core.from.map((item): FromItem => {
+				if (item.kind !== "joins") {
+					return item
+				}
+				const steps = mapNonEmpty(item.steps, (s): JoinStep => {
+					switch (s.kind) {
+						case "on":
+						case "left": {
+							const on = rewrite(s.on, core.from)
+							return on === s.on ? s : { ...s, on }
+						}
+						case "cross":
+							return s
+					}
+				})
+				return steps.every((s, i) => s === item.steps[i]) ? item : { ...item, steps }
+			})
+			return where === core.where && from.every((item, i) => item === core.from[i])
+				? core
+				: { ...core, where, from }
+		}
+	}).setQuery(query)
+
+/**
  * The hooks that name each column of an expression's own row as `rename` names it: a column its reference names
  * without a relation, which is the row's, as every CHECK, index key and predicate, generated column and fill
  * expression over one table's row names it. Nothing else is touched.
