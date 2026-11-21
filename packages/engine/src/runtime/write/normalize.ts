@@ -460,14 +460,14 @@ export type HostKeyField =
  * which the host never holds, so the statement that writes the facts compares them there (insert/unique.ts
  * `hostHeld`), a key generation being one the host fills; and each span candidate key whose pairs the probe leaves to
  * the host (`checks`, `Probed`), its law, its compared fields and its span field. A conflict at a span key names its
- * compared fields, then its span field. Each compares every addition, or the ones it names (`Split`). */
+ * compared fields, then its span field. Each compares every addition, or the ones it names (`AdditionOp`). */
 export interface HostChecks {
 	readonly keys: ReadonlyArray<HostKey>
 	readonly spans: ReadonlyArray<HostSpanKey>
 }
 
 /** A declared key the host compares a relation's additions at: its law and its fields, every addition's, or those of
- * one kind (`Split`). */
+ * one kind (`AdditionOp`). */
 export type HostKey =
 	| {
 			readonly law: LawId
@@ -478,11 +478,11 @@ export type HostKey =
 			readonly law: LawId
 			readonly described: RecordedLaw
 			readonly fields: ReadonlyArray<HostKeyField>
-			readonly compares: Split
+			readonly compares: AdditionOp
 	  }
 
 /** A span candidate key the host compares a relation's additions at (`HostChecks`), every addition's, or those of one
- * kind (`Split`). */
+ * kind (`AdditionOp`). */
 export type HostSpanKey =
 	| {
 			readonly law: LawId
@@ -495,21 +495,21 @@ export type HostSpanKey =
 			readonly described: RecordedLaw
 			readonly equal: ReadonlyArray<HostKeyField>
 			readonly span: { readonly field: string; readonly type: SpanType }
-			readonly compares: Split
+			readonly compares: AdditionOp
 	  }
 
 /**
- * The one kind of a stratum's additions of one relation a key or span key over a field the stratum's insert computes
- * compares: every row of the call holds the call's one value of that field (ir/instant.ts Stamp `call`), which only the
+ * The operation whose additions of a stratum's one relation a key or span key over a field the stratum's insert
+ * computes compares: every row of the call holds the call's one value of that field (ir/instant.ts Stamp `call`), which only the
  * statement that writes the rows computes, so the key compares the puts' alone at all of its fields (`put`) and the
  * inserted facts' alone at its other fields (`insert`), which tell two rows of one call apart. A put and an inserted
  * fact meet at such a key in their statements, the insert after the put (write/frontend/schedule.ts), whose arbiter or
  * probe meets the put's fact as a stored one. Every other key compares every addition.
  */
-export type Split = "put" | "insert"
+export type AdditionOp = "put" | "insert"
 
-/** Whose additions a checked key compares: every addition's, or one kind's (`Split`). */
-type KeyCompares = "every" | Split
+/** Whose additions a checked key compares: every addition's, or one kind's (`AdditionOp`). */
+type KeyCompares = "every" | AdditionOp
 
 /** Whose additions `key` compares (`KeyCompares`). */
 const comparedBy = (key: HostKey | HostSpanKey): KeyCompares =>
