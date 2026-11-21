@@ -20,7 +20,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Option, Order, String as Str } from "effect"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKey, succeeded } from "#test/support/assert.ts"
 import {
 	fieldName,
 	installLookup,
@@ -81,27 +81,29 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 				)
 				switch (verdict.kind) {
 					case "unbounded": {
-						const fault = refused(installed, "UnrepresentableKey").reason
+						const { fault } = refusedKey(refused(installed, "UnrepresentableKey"))
 						assert.ok(
-							fault._tag === "UnrepresentableKey" && fault.fault.kind === "unboundedText",
+							fault.kind === "unboundedText",
 							"an ordered text of no bound refused as unbounded"
 						)
 						c.note("refused as unbounded")
 						return
 					}
 					case "ordered": {
-						const fault = refused(installed, "UnrepresentableKey").reason
-						assert.ok(fault._tag === "UnrepresentableKey" && fault.fault.kind === "orderedColumns")
+						const { fault } = refusedKey(refused(installed, "UnrepresentableKey"))
+						if (fault.kind !== "orderedColumns") {
+							return assert.fail(`refused for its ordered columns, not ${fault.kind}`)
+						}
 						assert.deepEqual(
 							Arr.sort(
-								Arr.map(fault.fault.columns, (col) => col.field),
+								Arr.map(fault.columns, (col) => col.field),
 								Order.String
 							),
 							Arr.sort(verdict.fields, Order.String),
 							"the refusal names the varlenas it reads in their order or matches a prefix of"
 						)
 						c.noteAll(
-							Arr.map(fault.fault.columns, (col) => {
+							Arr.map(fault.columns, (col) => {
 								const sketch = byName.get(col.field)
 								return sketch?.kind === "numeric" || sketch?.kind === "bare numeric"
 									? "refused naming an ordered numeric"
@@ -113,11 +115,8 @@ export const aDraftedLookupNeverIndexesAColumnThatDoesNotFitItsEntryLeavingEachS
 						return
 					}
 					case "entry": {
-						const fault = refused(installed, "UnrepresentableKey").reason
-						assert.ok(
-							fault._tag === "UnrepresentableKey" && fault.fault.kind === "btreeEntry",
-							"refused for its bytes"
-						)
+						const { fault } = refusedKey(refused(installed, "UnrepresentableKey"))
+						assert.ok(fault.kind === "btreeEntry", "refused for its bytes")
 						return
 					}
 					case "installed":

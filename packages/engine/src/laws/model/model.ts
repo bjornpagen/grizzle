@@ -35,8 +35,13 @@ import {
 	theoryEvidence,
 	typingEnv
 } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, Refusal, unwrap } from "#compiler/core/canonical.ts"
-import { CompileError, malformedDescription, prose } from "#compiler/core/errors.ts"
+import { catchRefusal, KeyLedger, Refusal, unwrap } from "#compiler/core/canonical.ts"
+import {
+	CompileError,
+	type KeyRefusal,
+	malformedDescription,
+	prose
+} from "#compiler/core/errors.ts"
 import {
 	identifierOf,
 	type Identity,
@@ -458,6 +463,13 @@ export interface LawModel {
 	 * compiles: what a write's host fill and its refusal's witness read per row, parsing none.
 	 */
 	readonly patterns: ProgramPatterns
+	/**
+	 * Every key and index the compile met whose entry no index holds, in the order it met them: ownership's declared keys
+	 * (Owned `unrepresentable`), then each index the model plans that it judged so (plan.ts `judge`), each planned all
+	 * the same. A reader that ends the compile here refuses them, all at once (core/canonical.ts settled); an
+	 * installation carries them on (physical/install/plan.ts installBasis).
+	 */
+	readonly unrepresentable: ReadonlyArray<KeyRefusal>
 }
 
 /**
@@ -1036,7 +1048,8 @@ class Specializer {
 		checked: CheckedSchema,
 		slice: Slice,
 		cycles: CycleSource,
-		discharge: RuleDischarge
+		discharge: RuleDischarge,
+		keys: KeyLedger
 	) {
 		this.theory = theory
 		this.checked = checked
@@ -1052,7 +1065,8 @@ class Specializer {
 			cycles.kind === "planned"
 				? referenceChoice(theory.laws, theory.relations, discharge, theory.regionFacts)
 				: cycles.references,
-			theory.regionFacts
+			theory.regionFacts,
+			keys
 		)
 		this.#typing = typingEnv(checked.owned)
 		this.#laws = new Map([
@@ -1281,7 +1295,8 @@ class Specializer {
 				this.checked.stored.filter((r) => this.writes.has(r.name)),
 				this.theory.families,
 				natives
-			)
+			),
+			unrepresentable: this.recognizer.keys.met()
 		}
 	}
 
@@ -1487,10 +1502,7 @@ class Specializer {
 	/** Seeds `byKey` with the primary key of `pk`'s relation, planned from its key and discharging its law. */
 	#seed(byKey: TupleMap<NativeIdentity, Merged>, pk: PrimaryKeyLaw): void {
 		const laws: [LawId, ...Array<LawId>] = [pk.law.id]
-		const object = primaryNative(
-			primaryKeyPlan(pk.relation, pk.relation.keyNames[0], pk.law.loc),
-			laws
-		)
+		const object = primaryNative(primaryKeyPlan(pk.relation, pk.relation.keyNames[0]), laws)
 		byKey.set(
 			nativeIdentity(object, (side) => this.recognizer.closedSideOrdinal(side)),
 			{
@@ -1880,9 +1892,10 @@ const specialize = (
 	checked: CheckedSchema,
 	slice: Slice,
 	cycles: CycleSource,
-	discharge: RuleDischarge
+	discharge: RuleDischarge,
+	keys: KeyLedger
 ): Result.Result<LawModel, CompileError> =>
-	catchRefusal(() => new Specializer(theory, checked, slice, cycles, discharge).run())
+	catchRefusal(() => new Specializer(theory, checked, slice, cycles, discharge, keys).run())
 
 /** Law specialization: an owned schema's CheckedTheory with every law lowered to its natives. It runs theory
  * normalization with the law identities the naming door gives (theory.ts lawIdentityOf), recognizes every normalized
@@ -1936,8 +1949,10 @@ const specialize = (
  *   readBySlice). A law's plan reads the law and the recognizer's indexes of every law, and its deferral its own plan and the cycles, so each law
  *   it plans is planned, deferred, proved immediate and gives evidence as in the whole schema's model.
  *
- * The law model of an owned schema for `slice` under `cycles`, or the first refusal: a theory refusal, a law shape the
- * compiler does not admit (UnsupportedLawFamily) or an unrepresentable key. The theory is normalized once and each law
+ * The law model of an owned schema for `slice` under `cycles`, or the first refusal: a theory refusal or a law shape the
+ * compiler does not admit (UnsupportedLawFamily), each refused in place of every unrepresentable key met before it
+ * (core/canonical.ts metFirst). An unrepresentable key refuses nothing here: the model carries every one it met, its
+ * owned schema's and its own (`unrepresentable`), for its reader to refuse all at once. The theory is normalized once and each law
  * it plans planned once: the cycles settle foreign key deferral and so the laws the plans prove immediate (immediateOf),
  * and specialization states the evidence each law gives with that validity context (theoryEvidence). */
 export const compileLaws = (
@@ -1965,12 +1980,16 @@ const dischargedLaws = (
 	slice: Slice,
 	cycles: CycleSource,
 	discharge: RuleDischarge
-): Result.Result<LawModel, CompileError> =>
-	Result.flatMap(checkedSchema(owned, slice), (checked) =>
-		Result.flatMap(buildTheory(checked), (theory) =>
-			specialize(theory, checked, slice, cycles, discharge)
+): Result.Result<LawModel, CompileError> => {
+	const keys = new KeyLedger(owned.unrepresentable)
+	return keys.first(
+		Result.flatMap(checkedSchema(owned, slice), (checked) =>
+			Result.flatMap(buildTheory(checked), (theory) =>
+				specialize(theory, checked, slice, cycles, discharge, keys)
+			)
 		)
 	)
+}
 
 /**
  * Every law the model still discharges by deferred constraint triggers, once rules that lower to foreign keys are

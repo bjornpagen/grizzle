@@ -610,12 +610,12 @@ A direct SQL writer, psql included, meets these refusals of its own, among the o
 | 42501: permission denied, or a new row violating a row-security policy | SET ROLE to a role whose world holds the relation and the row |
 | 40001 or 40P01: a serialization failure or a deadlock | run the transaction again |
 
-The command line's own refusals, by stage:
+The command line's own refusals, by stage. A refusal at stage config states its own fix: the file, setting or export
+to fix, or the compiler's refusal of a schema or login with its fix, and no line of the stage follows it.
 
 | Stage | Fix |
 | --- | --- |
 | usage | run grizzle --help for the commands |
-| config | fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: () => ({ ... }) }) |
 | environment | unset the variable it names in the environment grizzle runs in, then run the command again |
 | filesystem | fix the migrations directory, then run grizzle check |
 | snapshot | restore snapshot.json, manifest.json and the migration folders from git |
@@ -827,7 +827,8 @@ The command line's own refusals, by stage:
   `.approximateNearest` attach in a second query instead.
 - A key, a UNIQUE, a family's axis and a reference's target hold each column as itself, never by a digest grizzle
   makes: one whose widest entry, in any order of its columns, could pass PostgreSQL's 2,704-byte B-tree limit is
-  UnrepresentableKey when the schema compiles. Give each text in it a byte bound, `str.bytes(n, …)`, each numeric its
+  UnrepresentableKey when the schema compiles, one refusal naming every such key, so one generate lists them all.
+  Give each text in it a byte bound, `str.bytes(n, …)`, each numeric its
   precision, or key by a digest field you declare, `generated(sha256, Crypto.sha256(row.body))`, whose 32 bytes every
   key holds. A digest the host states is `Sha256.ofText(text)` or `Sha256.ofBytes(bytes)`; one of any other length is
   refused where it is passed (`sha256Value`).

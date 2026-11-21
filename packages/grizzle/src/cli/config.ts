@@ -28,7 +28,8 @@ import {
 	parseDeclaredName,
 	sameLevel,
 	schemaInstallation,
-	SourceLoc
+	SourceLoc,
+	unrepresentableKeys
 } from "#compiler/plan/common.ts"
 
 /**
@@ -190,33 +191,41 @@ const uncompiledSchema = (index: number) => (error: CompileError) =>
 /**
  * A configured installation compiled, for generate and check: its top level owned, once, and each of its logins owned
  * over the Owned of the level it is over, the top's itself or a lower level's owned alone, which login(...) held each
- * login's roles to; a schema or login that does not compile is its configuration entry's refusal.
+ * login's roles to; a schema or login that does not compile is its configuration entry's refusal. A schema's
+ * unrepresentable keys, which its Owned carries for the compile to refuse where it ends, come before a login's refusal,
+ * met after them: the schema entry is refused for them in its place (engine core/canonical.ts metFirst).
  */
 export const compileSchema = (schema: ConfiguredSchema): Result.Result<CompiledSchema, CliError> =>
 	Result.flatMap(
 		Result.mapError(toResult(ownBuilt(schema.built)), uncompiledSchema(schema.index)),
 		(owned) =>
-			Result.map(
-				Result.all(
-					Arr.map(schema.logins, (l) =>
-						Result.mapError(
-							Result.map(
-								Result.flatMap(
-									sameLevel(l.login.base.content, schema.built.content)
-										? Result.succeed(owned)
-										: toResult(ownBuilt(l.login.base)),
-									(base) => toResult(ownLoginOver(l.login, base))
+			Result.mapError(
+				Result.map(
+					Result.all(
+						Arr.map(schema.logins, (l) =>
+							Result.mapError(
+								Result.map(
+									Result.flatMap(
+										sameLevel(l.login.base.content, schema.built.content)
+											? Result.succeed(owned)
+											: toResult(ownBuilt(l.login.base)),
+										(base) => toResult(ownLoginOver(l.login, base))
+									),
+									(o) => ({ login: l.login, owned: o })
 								),
-								(o) => ({ login: l.login, owned: o })
-							),
-							(error) =>
-								cliError(
-									new LoginEntryRefused({ index: l.index, fault: { kind: "uncompiled", error } })
-								)
+								(error) =>
+									cliError(
+										new LoginEntryRefused({ index: l.index, fault: { kind: "uncompiled", error } })
+									)
+							)
 						)
-					)
+					),
+					(logins): CompiledSchema => ({ configured: schema, owned, logins })
 				),
-				(logins): CompiledSchema => ({ configured: schema, owned, logins })
+				(refused) =>
+					Arr.isReadonlyArrayNonEmpty(owned.unrepresentable)
+						? uncompiledSchema(schema.index)(unrepresentableKeys(owned.unrepresentable))
+						: refused
 			)
 	)
 

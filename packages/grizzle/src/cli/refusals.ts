@@ -172,11 +172,17 @@ export const migrateStageFix: Readonly<Record<MigrateStage, string>> = {
 		"nothing was dropped: revoke or drop what the DETAIL names in the database it names, a grant to a role of the installation made outside it, then run grizzle uninstall again"
 }
 
-/** The fix of each stage at which the command line itself refuses (errors.ts). */
-export const cliStageFix: Readonly<Record<CliStage, string>> = {
+/**
+ * A stage whose every refusal states its own fix, so the command line prints no fix of the stage beneath it: `config`,
+ * whose refusals each name the file, the setting or the export to fix, or the compiler's refusal of a schema or login,
+ * whose own fix (an unrepresentable key's bound, say) a line for the whole stage would only contradict.
+ */
+type OwnFixStage = Extract<CliStage, "config">
+
+/** The fix of each stage at which the command line itself refuses (errors.ts), but a stage whose refusals state their
+ * own (OwnFixStage). */
+export const cliStageFix: Readonly<Record<Exclude<CliStage, OwnFixStage>, string>> = {
 	usage: "run grizzle --help for the commands",
-	config:
-		'fix the configuration file: export default defineConfig({ schemas: [...], logins: [...], migrations: "...", connection: () => ({ ... }) })',
 	environment:
 		"unset the variable it names in the environment grizzle runs in, then run the command again",
 	filesystem: "fix the migrations directory, then run grizzle check",

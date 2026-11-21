@@ -1566,8 +1566,12 @@ const pastLimit = (h: History, before: Model, p: Params["re-key a relation past 
 		const reason = plan.error.reason
 		assert.ok(
 			reason._tag === "UnrepresentableKey" &&
-				((reason.key.includes("ka") && reason.key.includes("kb")) ||
-					(reason.key.includes(`p${p.rel}a`) && reason.key.includes(`p${p.rel}b`))),
+				Arr.some(
+					reason.keys,
+					({ key }) =>
+						(key.includes("ka") && key.includes("kb")) ||
+						(key.includes(`p${p.rel}a`) && key.includes(`p${p.rel}b`))
+				),
 			`a re-key of ${relName(p.rel)} past the limit is refused otherwise: ${plan.error.message}`
 		)
 		return refused<"UnrepresentableKey">("UnrepresentableKey")

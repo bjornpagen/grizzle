@@ -1413,9 +1413,13 @@ const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
 			: held
 	}, keys)
 
-/** A new index for an unserved request, as drafted for it (draftFor): the draft's method, and its keys in the order
- * the draft fixes, a B-tree's confined to the units of the whole rules that read its relation (`confined`), its entry
- * checked against the access method's limit. */
+/**
+ * A new index for an unserved request, as drafted for it (draftFor): the draft's method, and its keys in the order the
+ * draft fixes, a B-tree's confined to the units of the whole rules that read its relation (`confined`), its entry
+ * judged against the access method's limit: one whose entry no index holds is refused in the installation's ledger (b
+ * `keys`) as UnrepresentableKey and created over its proposed keys all the same, so the installation goes on to meet
+ * every other such index.
+ */
 const createIndex = (
 	b: InstallBuilder,
 	planned: Planned,
@@ -1431,23 +1435,22 @@ const createIndex = (
 		fail("MalformedDescription", label, `a field ${keyTermText(column)} of ${request.relation}`)
 	const drafts = keysOf(draft, rankIn(planned.keys), planned.columns)
 	const proposed = method === "btree" ? confined(drafts, reads) : drafts
-	const unrepresentable = (keys: ReadonlyArray<IndexKey>, fault: KeyFault): never => {
-		const fields = keys.map((k) => keyTermText(k.column))
-		throw new Refusal(
-			CompileError.make({
-				_tag: "UnrepresentableKey",
-				at: SourceLoc(label, []),
-				subject: `${request.role} index (${fields.join(", ")}) of ${request.relation}`,
-				key: fields,
-				fault
-			})
-		)
-	}
-	if (proposed.length > indexMaxKeys) {
-		return unrepresentable(proposed, { kind: "columns", limit: indexMaxKeys })
+	/** The index refused for `fault`, its keys the proposed ones. */
+	const unrepresentable = (fault: KeyFault): NonEmptyReadonlyArray<IndexKey> => {
+		const fields = proposed.map((k) => keyTermText(k.column))
+		b.keys.refuse({
+			at: SourceLoc(label, []),
+			subject: `${request.role} index (${fields.join(", ")}) of ${request.relation}`,
+			key: fields,
+			fault
+		})
+		return proposed
 	}
 	/** The index's keys: a B-tree's that fit its entry, every other method's as proposed. */
 	const heldKeys = (): NonEmptyReadonlyArray<IndexKey> => {
+		if (proposed.length > indexMaxKeys) {
+			return unrepresentable({ kind: "columns", limit: indexMaxKeys })
+		}
 		switch (method) {
 			case "btree": {
 				/**
@@ -1463,7 +1466,7 @@ const createIndex = (
 				const entry = fittingKeys(o, proposed, roleOf)
 				return entry.ok
 					? mapNonEmpty(entry.value.held, (at) => defined(proposed[at], "a held key"))
-					: unrepresentable(proposed, entry.error)
+					: unrepresentable(entry.error)
 			}
 			case "gist": {
 				const columns = keyDatums(
@@ -1473,13 +1476,13 @@ const createIndex = (
 					}))
 				)
 				if (!columns.ok) {
-					return unrepresentable(proposed, columns.error)
+					return unrepresentable(columns.error)
 				}
 				const bytes = gistEntryBytes(columns.value)
 				return !bytes.ok
-					? unrepresentable(proposed, { kind: "gistOperatorClass", field: bytes.error })
+					? unrepresentable({ kind: "gistOperatorClass", field: bytes.error })
 					: bytes.value > gistMaxItemSize
-						? unrepresentable(proposed, {
+						? unrepresentable({
 								kind: "gistEntry",
 								bytes: bytes.value,
 								limit: gistMaxItemSize

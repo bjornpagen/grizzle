@@ -146,29 +146,30 @@ export const compoundTextKeysAreInstalledInTheirDeclaredOrderOrRefusedAsUnrepres
 									`a schema whose keys are refused is refused as UnrepresentableKey, not ${Formatter.format(e)}`
 								)
 							}
-							const reason = e.reason
-							const fault = reason.fault
-							if (fault.kind !== "btreeEntry") {
-								return assert.fail(
-									`a byte-bounded key is refused by its entry's bytes, not ${Formatter.format(fault)}`
+							for (const key of e.reason.keys) {
+								const fault = key.fault
+								if (fault.kind !== "btreeEntry") {
+									return assert.fail(
+										`a byte-bounded key is refused by its entry's bytes, not ${Formatter.format(fault)}`
+									)
+								}
+								assert.ok(
+									fault.bytes > fault.limit && fault.limit === btreeMaxItemSize,
+									`the refusal counts the entry past BTMaxItemSize: ${Formatter.format(fault)}`
+								)
+								assert.ok(
+									deepEquals<ReadonlyArray<string>>(key.key, s.key) ||
+										deepEquals<ReadonlyArray<string>>(key.key, s.unique),
+									`the refusal names keys of Parent in their declared order, not ${Formatter.format(key.key)}`
+								)
+								const refused = yield* refusesWidest(key.key, widestRow)
+								c.note("a key refused past the item limit")
+								c.note(
+									refused
+										? "a refused key whose widest entry PostgreSQL refuses too"
+										: "a refused key whose widest entry PostgreSQL holds"
 								)
 							}
-							assert.ok(
-								fault.bytes > fault.limit && fault.limit === btreeMaxItemSize,
-								`the refusal counts the entry past BTMaxItemSize: ${Formatter.format(fault)}`
-							)
-							assert.ok(
-								deepEquals<ReadonlyArray<string>>(reason.key, s.key) ||
-									deepEquals<ReadonlyArray<string>>(reason.key, s.unique),
-								`the refusal names a key of Parent in its declared order, not ${Formatter.format(reason.key)}`
-							)
-							const refused = yield* refusesWidest(reason.key, widestRow)
-							c.note("a key refused past the item limit")
-							c.note(
-								refused
-									? "a refused key whose widest entry PostgreSQL refuses too"
-									: "a refused key whose widest entry PostgreSQL holds"
-							)
 							return
 						}
 						const done = installedOrNot.success

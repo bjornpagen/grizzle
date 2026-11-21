@@ -682,10 +682,14 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 		if (spans.length > 1) {
 			refuseWith({
 				_tag: "UnrepresentableKey",
-				at: SourceLoc(location, []),
-				subject: label,
-				key: fields,
-				fault: { kind: "spans", fields: spans }
+				keys: [
+					{
+						at: SourceLoc(location, []),
+						subject: label,
+						key: fields,
+						fault: { kind: "spans", fields: spans }
+					}
+				]
 			})
 		}
 		const [span] = spans
@@ -696,10 +700,14 @@ const build = (input: unknown, planSchema: InstalledAt, options: PlanOptions): I
 			if (fieldTypes[i]?.value.kind === "vector") {
 				refuseWith({
 					_tag: "UnrepresentableKey",
-					at: SourceLoc(location, []),
-					subject: label,
-					key: fields,
-					fault: { kind: "gistOperatorClass", field: f }
+					keys: [
+						{
+							at: SourceLoc(location, []),
+							subject: label,
+							key: fields,
+							fault: { kind: "gistOperatorClass", field: f }
+						}
+					]
 				})
 			}
 		}

@@ -22,7 +22,7 @@
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect, Option, Record as Rec } from "effect"
+import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { KeyFault } from "#compiler/core/causes.ts"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
@@ -35,7 +35,7 @@ import { relationBuilder as relation } from "#compiler/schema/relation.ts"
 import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { containedBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import { Id } from "#test/support/ids.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
@@ -48,8 +48,8 @@ import {
 	typesOf
 } from "#test/unit/laws/model/planned-entries.fixtures.ts"
 
-/** The law model's planned B-tree indexes fit their entries in any order of their columns, or the first that outgrows its entry, a text no pattern bounds among them, is UnrepresentableKey. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
-export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrowsItsEntryATextNoPatternBoundsAmongThemIsUnrepresentableKey =
+/** The law model's planned B-tree indexes fit their entries in any order of their columns, or every one that outgrows its entry, a text no pattern bounds among them, is named by one UnrepresentableKey, in compile order. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
+export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrEveryOneThatOutgrowsItsEntryATextNoPatternBoundsAmongThemIsNamedByOneUnrepresentableKey =
 	property.explore(sketchGen, {
 		needs: {},
 		budget: { runs: 300, steered: 300 },
@@ -132,8 +132,11 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 							]
 						: [])
 				]
-				const first = Arr.findFirst(checked, (index) => faultOf(index.columns) !== undefined)
-				if (Option.isNone(first)) {
+				const failing = Arr.flatMap(checked, (index) => {
+					const fault = faultOf(index.columns)
+					return fault === undefined ? [] : [{ ...index, fault }]
+				})
+				if (!Arr.isReadonlyArrayNonEmpty(failing)) {
 					succeeded(compiled, "every planned index fits")
 					c.note("admitted")
 					if (s.target.superkey && s.boundary.kind === "at") {
@@ -141,26 +144,26 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrow
 					}
 					return
 				}
-				const fault = defined(faultOf(first.value.columns), "the first index's fault")
-				const reason = refused(compiled, "UnrepresentableKey").reason
-				if (reason._tag !== "UnrepresentableKey") {
-					return assert.fail("an UnrepresentableKey reason")
-				}
+				const keys = refusedKeys(refused(compiled, "UnrepresentableKey"))
 				assert.deepEqual(
-					reason.key,
-					Arr.map(first.value.columns, (col) => col.name),
-					"the refusal names the first index that does not fit"
+					Arr.map(keys, (k) => ({ key: k.key, fault: k.fault })),
+					Arr.map(failing, (index) => ({
+						key: Arr.map(index.columns, (col) => col.name),
+						fault: index.fault
+					})),
+					"the refusal names every index that does not fit, in compile order"
 				)
-				assert.deepEqual(reason.fault, fault)
-				c.note(
-					fault.kind === "unboundedText"
-						? "a text no pattern bounds, refused"
-						: first.value.feature(fault)
+				c.noteAll(
+					Arr.map(failing, (index) =>
+						index.fault.kind === "unboundedText"
+							? "a text no pattern bounds, refused"
+							: index.feature(index.fault)
+					)
 				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "index_form_tuple's layout of each planned index's columns against nbtree.h's BTMaxItemSize, the first that fails in compile order refused"
+			name: "index_form_tuple's layout of each planned index's columns against nbtree.h's BTMaxItemSize, every one that fails refused in compile order"
 		},
 		kept: [],
 		kills: [

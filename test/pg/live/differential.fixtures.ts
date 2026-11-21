@@ -38,21 +38,26 @@ export const aims: ReadonlyArray<readonly [Feature, Gen<CaseSketch>]> = [
 ]
 
 /**
- * Whether `error` is the compile's refusal of an index over a prose field of `schema`, the generated schema's text with
- * no byte bound: UnrepresentableKey, its fault unboundedText of a prose field of a relation whose fields are every
- * field of the refused key.
+ * Whether `error` is the compile's refusal of indexes over prose fields of `schema`, the generated schema's text with
+ * no byte bound: UnrepresentableKey, each key it names faulted unboundedText of a prose field of a relation whose fields
+ * are every field of that key.
  */
 export const refusesProseKey = (schema: ProgramSchema, error: CompileError): boolean => {
 	const reason = error.reason
-	if (reason._tag !== "UnrepresentableKey" || reason.fault.kind !== "unboundedText") {
-		return false
-	}
-	const field = reason.fault.field
-	return Arr.some(
-		schema.relations,
-		(r) =>
-			Arr.some(r.fields, (f) => f.kind === "prose" && f.name === field) &&
-			Arr.every(reason.key, (k) => Arr.some(r.fields, (f) => f.name === k))
+	return (
+		reason._tag === "UnrepresentableKey" &&
+		Arr.every(reason.keys, (key) => {
+			const fault = key.fault
+			return (
+				fault.kind === "unboundedText" &&
+				Arr.some(
+					schema.relations,
+					(r) =>
+						Arr.some(r.fields, (f) => f.kind === "prose" && f.name === fault.field) &&
+						Arr.every(key.key, (k) => Arr.some(r.fields, (f) => f.name === k))
+				)
+			)
+		})
 	)
 }
 

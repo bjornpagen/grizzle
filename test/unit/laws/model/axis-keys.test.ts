@@ -38,7 +38,7 @@ import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
 import { btreeMaxItemSize, typlens } from "#compiler/schema/representability.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKey, succeeded } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
 	bytesOf,
@@ -90,10 +90,7 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 					succeeded(compiled, `an entry of ${entryBytes(bytes)} bytes fits`)
 					return
 				}
-				const reason = refused(compiled, "UnrepresentableKey").reason
-				if (reason._tag !== "UnrepresentableKey") {
-					return assert.fail("an UnrepresentableKey reason")
-				}
+				const reason = refusedKey(refused(compiled, "UnrepresentableKey"))
 				const foldAt = Arr.findFirstIndex(desc.statements, (s) => s.kind === "fold")
 				assert.deepEqual(
 					reason.at.path,
@@ -133,8 +130,9 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 			},
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t\tthis.#recognizer.foldLaw(familyKey(this.#family.id), carried.at).law.loc,",
-				replacement: "\t\t\tthis.#loc,",
+				original:
+					"\t\t\tat: this.#recognizer.foldLaw(familyKey(this.#family.id), carried.at).law.loc,",
+				replacement: "\t\t\tat: this.#loc,",
 				why: "The fold's refusal points at the statement whose law planned its family first, its ordered family's, not at the fold the author fixes; the concat fold's axis key fails."
 			},
 			{
@@ -146,8 +144,9 @@ export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarri
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					"\t\tif (carried !== undefined) {\n\t\t\tthis.#refuseUnboundedFold(carried, targetColumns)",
-				replacement: "\t\tif (false) {\n\t\t\tthis.#refuseUnboundedFold(carried, targetColumns)",
+					"\t\tconst fold = carried === undefined ? undefined : this.#unboundedFold(carried, targetColumns)",
+				replacement:
+					"\t\tconst fold = carried === undefined || true ? undefined : this.#unboundedFold(carried, targetColumns)",
 				why: "A fold's running text past the entry refused by the UNIQUE grizzle plans for its axes, (doc, at, after), which the author never declared, where the fold and its byte bound are what the author fixes."
 			},
 			{
@@ -179,10 +178,7 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 					c.note(bytes === btreeMaxItemSize ? "an entry at the bound" : "an entry within the bound")
 					return
 				}
-				const reason = refused(compiled, "UnrepresentableKey").reason
-				if (reason._tag !== "UnrepresentableKey") {
-					return assert.fail("an UnrepresentableKey reason")
-				}
+				const reason = refusedKey(refused(compiled, "UnrepresentableKey"))
 				assert.deepEqual(reason.fault, {
 					kind: "btreeEntry",
 					bytes,
@@ -226,10 +222,7 @@ export const aSumFoldOverANumericOfNoPrecisionIsRefusedByItsOwnNameItsSummedFiel
 					c.note("installed")
 					return
 				}
-				const reason = refused(compiled, "UnrepresentableKey").reason
-				if (reason._tag !== "UnrepresentableKey") {
-					return assert.fail("an UnrepresentableKey reason")
-				}
+				const reason = refusedKey(refused(compiled, "UnrepresentableKey"))
 				const foldAt = Arr.findFirstIndex(desc.statements, (s) => s.kind === "fold")
 				assert.deepEqual(
 					reason.at.path,

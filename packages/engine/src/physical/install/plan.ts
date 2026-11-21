@@ -9,7 +9,7 @@ import { closedTableOf, derivedAnalysis } from "#compiler/analysis/schema.ts"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { contractLaw, lawDescription } from "#compiler/analysis/theory/description.ts"
 import { contractLawIdentity } from "#compiler/analysis/theory/theory.ts"
-import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
+import { catchRefusal, metFirst, settled, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	type DeclaredName,
@@ -271,23 +271,27 @@ export const basisOf = (
 	model: LawModel,
 	codes: Codebook
 ): Result.Result<InstallBasis, CompileError> =>
-	catchRefusal((): InstallBasis => {
-		const { owned } = model
-		const planned = planClosed(owned, closedRelationsOf(model), codes)
-		return {
-			owned,
-			model,
-			codes,
-			closed: closedNames(planned),
-			textDomains: declaredTextDomains(model),
-			library: artifactObjects(model).library,
-			planned
-		}
-	})
+	metFirst(
+		model.unrepresentable,
+		catchRefusal((): InstallBasis => {
+			const { owned } = model
+			const planned = planClosed(owned, closedRelationsOf(model), codes)
+			return {
+				owned,
+				model,
+				codes,
+				closed: closedNames(planned),
+				textDomains: declaredTextDomains(model),
+				library: artifactObjects(model).library,
+				planned
+			}
+		})
+	)
 
 /** The plan's basis of an installation of `owned` under its codes `codes`, its law model for `slice` under `cycles`,
  * each closed relation's constants named as `closed` records them and its text domains as `textDomains` does: a Db's,
- * from its snapshot, which packs no cell and types no field its slice does not read. */
+ * from its snapshot, which packs no cell and types no field its slice does not read. Its compile ends here, so every
+ * unrepresentable key its model met is refused here, all at once (core/canonical.ts settled). */
 export const planBasis = (
 	owned: Owned,
 	codes: Codebook,
@@ -297,14 +301,9 @@ export const planBasis = (
 	library: ReadonlyArray<LibraryFn>,
 	cycles: CycleSource
 ): Result.Result<PlanBasis, CompileError> =>
-	Result.map(compileLaws(owned, slice, cycles), (model): PlanBasis => ({
-		owned,
-		model,
-		codes,
-		closed,
-		textDomains,
-		library
-	}))
+	Result.flatMap(compileLaws(owned, slice, cycles), (model) =>
+		settled(model.unrepresentable, Result.ok({ owned, model, codes, closed, textDomains, library }))
+	)
 
 /**
  * A law with its description, as grizzle's artifacts record it (types/changeset RecordedLaw), which an outcome names with

@@ -7,7 +7,7 @@ import {
 	derivedAnalysis,
 	type RoleWorld
 } from "#compiler/analysis/schema.ts"
-import { catchCompileError } from "#compiler/core/canonical.ts"
+import { catchCompileError, settled } from "#compiler/core/canonical.ts"
 import { CompileError, malformedDescription, type RoleAccess } from "#compiler/core/errors.ts"
 import { type DeclaredName, identifierOf } from "#compiler/core/identity.ts"
 import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
@@ -387,9 +387,15 @@ export const programSchema = (
 				)
 	})
 
-/** The law model of an owned schema that every installation of it plans over: its every slice's, planned. */
+/**
+ * The law model of an owned schema that every installation of it plans over: its every slice's, planned. The program
+ * layer's compile ends here, so every unrepresentable key the model met is refused here, all at once
+ * (core/canonical.ts settled).
+ */
 const plannedModel = (owned: Owned): Result.Result<LawModel, CompileError> =>
-	compileLaws(owned, everySlice(owned), { kind: "planned" })
+	Result.flatMap(compileLaws(owned, everySlice(owned), { kind: "planned" }), (model) =>
+		settled(model.unrepresentable, Result.ok(model))
+	)
 
 /**
  * What the program layer holds of a built schema value whose law model compiles: the model (plannedModel), and the

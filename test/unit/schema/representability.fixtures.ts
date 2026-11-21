@@ -14,6 +14,7 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
+import { settled } from "#compiler/core/canonical.ts"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
@@ -79,8 +80,14 @@ const utf8 = new TextEncoder()
 
 export const utf8Bytes = (text: string): number => utf8.encode(text).length
 
-/** The ownership of a schema value at the schema door. */
-export const ownValue = (value: unknown) => Result.flatMap(parseSchemaInput(value), ownInput)
+/**
+ * The ownership of a schema value at the schema door, as a compile that ends there settles it: every unrepresentable key
+ * ownership met refused at once (core/canonical.ts settled).
+ */
+export const ownValue = (value: unknown) =>
+	Result.flatMap(Result.flatMap(parseSchemaInput(value), ownInput), (owned) =>
+		settled(owned.unrepresentable, Result.ok(owned))
+	)
 
 export const ownOne = (r: AnyRelation | AnyClosed, statements: ReadonlyArray<Statement>) =>
 	ownValue(schema("Keys", [r], statements, []))

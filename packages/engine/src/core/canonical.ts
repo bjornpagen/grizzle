@@ -1,5 +1,6 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	jsonText,
@@ -10,9 +11,11 @@ import {
 import {
 	type CompileError,
 	isCompileError,
+	type KeyRefusal,
 	malformedArtifact,
 	malformedDescription,
 	resourceBound,
+	unrepresentableKeys,
 	within
 } from "#compiler/core/errors.ts"
 import { isCapturedStack, isSourceLoc, readSite, SourceLoc } from "#compiler/core/loc.ts"
@@ -265,6 +268,73 @@ export const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 		throw new Refusal(result.error)
 	}
 	return result.value
+}
+
+/**
+ * `result`, or, where it is a refusal of another kind and the compile met unrepresentable keys before it, `met`, the
+ * refusal naming those keys in its place: the compile met them first. A refusal of keys already names every key met
+ * before it, its ledger having started from them (KeyLedger), so it stands as it is.
+ */
+export const metFirst = <A>(
+	met: ReadonlyArray<KeyRefusal>,
+	result: Result.Result<A, CompileError>
+): Result.Result<A, CompileError> =>
+	result.ok || !isNonEmpty(met) || result.error.reason._tag === "UnrepresentableKey"
+		? result
+		: Result.err(unrepresentableKeys(met))
+
+/**
+ * A compile's end: its value where it met no unrepresentable key, else the one refusal naming every key it met, `met`,
+ * in the order it met them, or a refusal that stopped it first as metFirst reads it.
+ */
+export const settled = <A>(
+	met: ReadonlyArray<KeyRefusal>,
+	result: Result.Result<A, CompileError>
+): Result.Result<A, CompileError> => {
+	const first = metFirst(met, result)
+	return first.ok && isNonEmpty(met) ? Result.err(unrepresentableKeys(met)) : first
+}
+
+/**
+ * The unrepresentable keys a compile has met, in the order it met them (core/errors.ts KeyRefusal). A check that finds a
+ * key or index whose entry no index holds refuses it here and its stage goes on as though the entry fitted, so one
+ * compile meets every such key and refuses once, naming them all, where it ends (`settled`), or where a refusal of
+ * another kind stops it first, which the keys met before it stand in for (`metFirst`). A stage's ledger starts from the
+ * keys the stages before it met, which their values carry (schema/own.ts Owned and laws/model/model.ts LawModel
+ * `unrepresentable`), and its own value carries them on with its own.
+ */
+export class KeyLedger {
+	readonly #met: Array<KeyRefusal>
+
+	constructor(earlier: ReadonlyArray<KeyRefusal>) {
+		this.#met = [...earlier]
+	}
+
+	/**
+	 * Records `key`, whose entry no index holds; the caller goes on as though it fitted. A key is met once: one the
+	 * ledger holds under the same subject over the same fields, which two plans of one index judge alike (a fold's
+	 * accumulator on each axis that carries it), is that key, and the refusal names it once.
+	 */
+	refuse(key: KeyRefusal): void {
+		if (!this.#met.some((k) => k.subject === key.subject && sameContent(k.key, key.key))) {
+			this.#met.push(key)
+		}
+	}
+
+	/** Every key met so far, in the order met. */
+	met(): ReadonlyArray<KeyRefusal> {
+		return [...this.#met]
+	}
+
+	/** A stage's `result`, run over this ledger, as metFirst reads it against every key met by its end. */
+	first<A>(result: Result.Result<A, CompileError>): Result.Result<A, CompileError> {
+		return metFirst(this.met(), result)
+	}
+
+	/** A compile's `result`, run over this ledger, settled against every key met by its end. */
+	settle<A>(result: Result.Result<A, CompileError>): Result.Result<A, CompileError> {
+		return settled(this.met(), result)
+	}
 }
 
 /**

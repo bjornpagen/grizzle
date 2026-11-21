@@ -240,7 +240,8 @@ VALUES ('org_1', 'no-such-post', 1);
 Every key fits its index entry for every value its fields admit, in any order of its columns: a primary key, a
 declared key, a UNIQUE, a family's UNIQUE or axis and every reference's target whose widest entry could pass
 PostgreSQL's 2,704-byte B-tree limit, a text of no byte bound among its fields, is refused when the schema compiles,
-`UnrepresentableKey`, naming the relation, the key and the field. grizzle never hashes a key behind your back: declare
+`UnrepresentableKey`, naming the relation, the key and the field. One refusal names every such key the compile meets, so
+one `grizzle generate` lists them all. grizzle never hashes a key behind your back: declare
 a byte bound (`str.bytes(n)`) or a precision, or key by an explicit digest field you declare, such as a generated
 `Crypto.sha256(x)` ([Keys and indexes](#keys-and-indexes)). A key that large is almost always a modelling bug.
 
@@ -2046,8 +2047,8 @@ Each type has one name, the one PostgreSQL prints for it: `pg.integer`, never `i
   a family axis that carries the text, `fields` are its group fields, its natural index, its other carried values and
   a tree's `end`. So `str.bytes(keyTextBytes([uuid, natural]), str.regex("^.*$", "su"))` is held as itself in a key
   beside a uuid and a natural, declared or over a selection, and in an ordered family's axis grouped by a uuid.
-  `keyTextBytes` throws `UnrepresentableKey` for a field of no byte bound, for more fields than an index holds beside a
-  text, and for fields that leave a text no byte. `keyFits(fields)` is whether a key over `fields` holds every value
+  `keyTextBytes` throws `UnrepresentableKey` naming every fault at once: more fields than an index holds beside a text,
+  and each field of no byte bound; or, where neither is, fields that leave a text no byte. `keyFits(fields)` is whether a key over `fields` holds every value
   they admit, each as itself, the verdict a relation keyed by them meets, as a `boolean`, never thrown.
 - **A numeric in a key** needs a precision. A key's entry holds each numeric as itself, so a `pg.numeric` of no typmod,
   an `exactInteger` or `exactMoney` field, or a `pg.numeric(p, s)` of digits enough to outgrow the entry, is
@@ -5155,7 +5156,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `IdentifierCollision`                           | the `other` declaration and the `identifier` both convert to                                             |
 | `IdentifierTooLong`                             | the `declaration` whose `identifier`, a name's conversion or a login's or role's role, takes `bytes` past PostgreSQL's `limit` |
 | `DigestCollision`                               | two objects, `display` and `otherDisplay`, whose hashed names share the stem and digest of `identifier`; renaming a declaration either is built from gives it another |
-| `UnrepresentableKey`                            | the key and its `fault`                                                                                  |
+| `UnrepresentableKey`                            | every key the compile met whose entry no index holds, in `keys`, each with its `fault`                   |
 | `PartialOperation`                              | an `operation` whose `precondition` on `operand` nothing proves, and the `guard` to write                |
 | `RecursionRefused`, `DerivedRefused`            | their `cause`                                                                                            |
 | `ForeignLevel`                                  | a rule over `over` (a schema or a role) reading a query written over `written`, none of `over`'s levels  |

@@ -10,11 +10,19 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import type { WellFormedText } from "@bjornpagen/grizzle-text/utf8"
 import { utf8Length } from "@bjornpagen/grizzle-text/utf8"
-import { arrayText, catchRefusal, Refusal, sameContent, unwrap } from "#compiler/core/canonical.ts"
-import type { RoleRule } from "#compiler/core/causes.ts"
+import {
+	arrayText,
+	catchRefusal,
+	KeyLedger,
+	Refusal,
+	sameContent,
+	unwrap
+} from "#compiler/core/canonical.ts"
+import type { KeyFault, RoleRule } from "#compiler/core/causes.ts"
 import {
 	CompileError,
 	type CompileReason,
+	type KeyRefusal,
 	malformedDescription,
 	type ProseTag,
 	prose,
@@ -99,7 +107,7 @@ import {
 	ownFunctions
 } from "#compiler/schema/function-own.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
-import { keyLayout } from "#compiler/schema/representability.ts"
+import { type KeyLayout, keyLayout } from "#compiler/schema/representability.ts"
 import { determines, entryScope, type Scope } from "#compiler/schema/scope.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
@@ -254,7 +262,8 @@ export interface OwnedContract {
  *   (MalformedDescription); a key's, a check's or a containment's side may read a derived relation, its terms and
  *   selection fields of the definition's heading, and the theory reads the rule over its definition
  *   (analysis/theory/query.ts);
- * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts);
+ * - a primary or candidate key whose index entry can exceed PostgreSQL's limit (UnrepresentableKey, representability.ts),
+ *   which ownership carries in `unrepresentable` and the compile refuses where it ends, with every other such key;
  * - a declared name the naming door's rule refuses (MalformedDescription, core/identity.ts parseDeclaredName, and
  *   parseSchemaName for the schema's), and two names of one namespace that convert to one identifier
  *   (IdentifierCollision with both locations, core/identity.ts DeclaredNamespace), a role's views included.
@@ -306,6 +315,12 @@ export interface Owned extends OwnedSchema {
 	readonly functions: Readonly<Record<string, OwnedFunction>>
 	/** Every field of every relation and closed relation, sorted. */
 	readonly fieldIds: ReadonlyArray<FieldId>
+	/**
+	 * The declared keys whose index entry no index holds, in the order ownership met them (ownKey): owned all the same,
+	 * so the compile goes on to meet every other such key and refuses them all where it ends (core/canonical.ts
+	 * KeyLedger), each stage's ledger starting from these.
+	 */
+	readonly unrepresentable: ReadonlyArray<KeyRefusal>
 }
 
 /** One level of an owned schema (Owned.levels). */
@@ -1056,9 +1071,22 @@ export const statementLabel = (s: StatementDesc): string => {
 	}
 }
 
-/** The key over `keyFields` of the ordinary relation `name` described by `r`, its identity minted: refused when it names a
- * field `r` lacks, or when its index entry is unrepresentable (UnrepresentableKey). */
+/**
+ * A primary key's layout, or its fault where it is a span alone: PostgreSQL's PRIMARY KEY needs a column before WITHOUT
+ * OVERLAPS (42601), and an exclusion constraint is no primary key, so only a candidate key can be a span alone.
+ */
+const primaryLayout = (layout: KeyLayout): Result.Result<KeyLayout, KeyFault> =>
+	layout.gist !== undefined && layout.fields.length === 1
+		? Result.err({ kind: "spanAlone", field: layout.gist.span })
+		: Result.ok(layout)
+
+/**
+ * The key over `keyFields` of the ordinary relation `name` described by `r`, its identity minted: refused when it names a
+ * field `r` lacks; where its index entry is unrepresentable, the key refused in `keys` (UnrepresentableKey), and owned
+ * all the same, so ownership goes on to meet every other such key.
+ */
 const ownKey = (
+	keys: KeyLedger,
 	name: string,
 	r: RelationDesc & { readonly kind: "relation" },
 	keyFields: DeclaredKey,
@@ -1085,13 +1113,13 @@ const ownKey = (
 			return { field, desc: decl.type }
 		})
 	)
-	if (!layout.ok) {
-		failWith({
-			_tag: "UnrepresentableKey",
+	const verdict = primary ? Result.flatMap(layout, primaryLayout) : layout
+	if (!verdict.ok) {
+		keys.refuse({
 			at: loc,
 			subject: `key (${keyFields.join(", ")}) of ${name}`,
 			key: keyFields,
-			fault: layout.error
+			fault: verdict.error
 		})
 	}
 	const named = primary ? identity.primaryKey(name) : identity.key(name, keyFields)
@@ -1257,10 +1285,18 @@ class Owner {
 	 */
 	readonly #written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>
 
-	constructor(desc: SchemaDesc, written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>) {
+	/** The declared keys whose index entry no index holds, each refused here as ownership meets it (ownKey). */
+	readonly #keys: KeyLedger
+
+	constructor(
+		desc: SchemaDesc,
+		written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
+		keys: KeyLedger
+	) {
 		this.#levels = levelChain(desc)
 		this.#schemaName = desc.name
 		this.#written = written
+		this.#keys = keys
 	}
 
 	run(fingerprinted: LevelFingerprints): Owned {
@@ -1300,7 +1336,8 @@ class Owner {
 			statementEntries: ordered.map((s) => s.entry),
 			contracts,
 			functions,
-			fieldIds
+			fieldIds,
+			unrepresentable: this.#keys.met()
 		}
 	}
 
@@ -2057,7 +2094,7 @@ class Owner {
 							? { kind: "projected" }
 							: {
 									kind: "candidate",
-									key: ownKey(d.side.relation, entry.desc, fields, false, d.loc)
+									key: ownKey(this.#keys, d.side.relation, entry.desc, fields, false, d.loc)
 								}
 				}
 			}
@@ -2434,6 +2471,7 @@ class Owner {
 			}
 		}
 		const primary = ownKey(
+			this.#keys,
 			name,
 			r,
 			r.primaryKey,
@@ -2584,20 +2622,24 @@ export const ownServed = (
 
 /**
  * Owns `desc`, each level's statements in canonical form in `written` (root first, as levelChain gives its levels),
- * each level's fingerprint as `fingerprinted` gives it.
+ * each level's fingerprint as `fingerprinted` gives it. A declared key whose index entry no index holds is owned all the
+ * same and carried in the Owned's `unrepresentable`, refused where the compile ends (core/canonical.ts settled), or in
+ * place of a refusal of another kind ownership meets after it (metFirst).
  */
 const ownWith = (
 	desc: SchemaDesc,
 	written: NonEmptyReadonlyArray<ReadonlyArray<CanonicalStatement>>,
 	fingerprinted: LevelFingerprints
-): Result.Result<Owned, CompileError> =>
-	Result.map(
-		catchRefusal(() => new Owner(desc, written).run(fingerprinted)),
+): Result.Result<Owned, CompileError> => {
+	const keys = new KeyLedger([])
+	return Result.map(
+		keys.first(catchRefusal(() => new Owner(desc, written, keys).run(fingerprinted))),
 		(owned) => {
 			owners.set(owned, owned)
 			return owned
 		}
 	)
+}
 
 /**
  * A role relation as ownership admitted it: a whole entry with the base's owned relation, or a query entry with its

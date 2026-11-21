@@ -26,7 +26,7 @@ import {
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
 import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
-import type { GeneratedRule, KeyFault } from "#compiler/core/causes.ts"
+import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { StoredRelationName } from "#compiler/core/ids.ts"
 import { childLoc, labeledChildLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -92,21 +92,6 @@ import type {
 import type { Slice } from "#compiler/schema/reach.ts"
 import type { Scope } from "#compiler/schema/scope.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
-
-/** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
-const unrepresentableKey = (
-	relation: string,
-	key: DeclaredKey,
-	fault: KeyFault,
-	loc: SourceLoc
-): never =>
-	failWith({
-		_tag: "UnrepresentableKey",
-		at: loc,
-		subject: `key (${key.join(", ")}) of ${relation}`,
-		key,
-		fault
-	})
 
 /**
  * A derived relation with its analysis (analysis/derived/analyze.ts): its definition checked against the levels below
@@ -696,18 +681,14 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			patterns
 		)
 		const keyedFields = keyedBy(name, loc, declared)
-		/** A declared key's handles and its one span field, refused for two as ownership's representability already does. */
+		/**
+		 * A declared key's handles and its span field. A key of two span fields ownership refused (Owned
+		 * `unrepresentable`, KeyFault `spans`), and its first stands as its span, so the compile goes on to meet every
+		 * other unrepresentable key.
+		 */
 		const keyName = (k: OwnedKey): KeyName => {
 			const fields = keyedFields(k.fields)
-			const [span, ...more] = fields.filter(isSpanField)
-			if (more.length > 0) {
-				return unrepresentableKey(
-					name,
-					k.fields,
-					{ kind: "spans", fields: fields.filter(isSpanField).map((f) => f.name) },
-					loc
-				)
-			}
+			const [span] = fields.filter(isSpanField)
 			return { fields, span, primary: k.primary, named: k.named }
 		}
 		const heading = sortNonEmpty(declared, byFieldName)

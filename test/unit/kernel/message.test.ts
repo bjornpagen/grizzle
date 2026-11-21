@@ -83,9 +83,9 @@ export const aFailuresMessageStatesACompileErrorByItsReasonLocationAndSentenceAC
 		kills: [
 			{
 				file: "packages/engine/src/core/errors.ts",
-				original: `\t\treturn \`\${reason._tag} in the \${reason.artifact}\${reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`}: \${compileReasonText(reason)}\``,
-				replacement: `\t\treturn \`\${reason._tag} in the \${reason.artifact}\${reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""}: \${compileReasonText(reason)}\``,
-				why: `Operator mutant (arm-swap) at packages/engine/src/core/errors.ts:926 in compileErrorMessage: \`reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`\` becomes \`reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""\`; the property fails (lane CATCH, grizzle 0baff5d6).`
+				original: `\t\t\treturn \`\${reason._tag} in the \${at.reason.artifact}\${at.reason.at.length === 0 ? "" : \` at \${formatPath(at.reason.at)}\`}: \${compileReasonText(reason)}\``,
+				replacement: `\t\t\treturn \`\${reason._tag} in the \${at.reason.artifact}\${at.reason.at.length === 0 ? \` at \${formatPath(at.reason.at)}\` : ""}: \${compileReasonText(reason)}\``,
+				why: `Operator mutant (arm-swap) at packages/engine/src/core/errors.ts in compileErrorMessage: \`reason.at.length === 0 ? "" : \` at \${formatPath(reason.at)}\`\` becomes \`reason.at.length === 0 ? \` at \${formatPath(reason.at)}\` : ""\`; the property fails (lane CATCH, grizzle 0baff5d6).`
 			}
 		]
 	})

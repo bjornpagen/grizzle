@@ -24,7 +24,7 @@ import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, String as Str } from "effect"
 import type { LawModel } from "#compiler/laws/model/model.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import type { ModelValue } from "#test/support/oracle/evaluate/catalog.ts"
 import {
 	type Feature,
@@ -192,10 +192,13 @@ export const aConcatFoldsAxesCarryItsTextsOrTheDigestsItsSidesNameInTheirPlacesA
 						return
 					}
 					case "unbounded": {
-						const reason = refused(compiled, "UnrepresentableKey", `${shape} is refused`).reason
+						const keys = refusedKeys(refused(compiled, "UnrepresentableKey", `${shape} is refused`))
 						assert.ok(
-							reason._tag === "UnrepresentableKey" && reason.fault.kind === "foldAccumulator",
-							`${shape} is refused for its fold's unbounded running text, not ${reason._tag}`
+							Arr.every(keys, (k) => k.fault.kind === "foldAccumulator"),
+							`${shape} is refused for its fold's unbounded running text, not ${Arr.join(
+								Arr.map(keys, (k) => k.fault.kind),
+								", "
+							)}`
 						)
 						return
 					}

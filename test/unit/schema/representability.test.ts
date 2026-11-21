@@ -43,7 +43,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -349,9 +349,9 @@ export const aSelectedKeyOverATextOfNoByteBoundIsRefusedAsUnrepresentableKeyNami
 		check: (_, c: Case<"the text alone" | "the text beside companions">) => (g) =>
 			Effect.sync(() => {
 				c.note(g.companions.length === 0 ? "the text alone" : "the text beside companions")
-				const reason = refused(installed(guardedTextSchemaOf(g)), "UnrepresentableKey").reason
+				const keys = refusedKeys(refused(installed(guardedTextSchemaOf(g)), "UnrepresentableKey"))
 				assert.ok(
-					reason._tag === "UnrepresentableKey" && reason.fault.kind === "unboundedText",
+					Arr.every(keys, (k) => k.fault.kind === "unboundedText"),
 					"the selected key is refused for its text of no byte bound"
 				)
 			}),
@@ -363,9 +363,8 @@ export const aSelectedKeyOverATextOfNoByteBoundIsRefusedAsUnrepresentableKeyNami
 		kills: [
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
-				original:
-					'\t\tunrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })',
-				replacement: '\t\t{ bytes: 0, align: 1, family: "text" }',
+				original: '\t\t? Result.err({ kind: "unboundedText", field: plannedText(c) })',
+				replacement: '\t\t? Result.ok({ bytes: 0, align: 1, family: "text" })',
 				why: "A planned UNIQUE counts a column of no byte bound at no bytes where it should refuse it, so a selected key over a free text compiles and PostgreSQL refuses its first long value (54000)."
 			}
 		]

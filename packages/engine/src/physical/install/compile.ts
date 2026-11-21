@@ -2,7 +2,7 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
-import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
+import { catchRefusal, KeyLedger, unwrap } from "#compiler/core/canonical.ts"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
 import {
@@ -419,6 +419,16 @@ const servedPlan = (
 export const installationOver = (
 	basis: InstallBasis,
 	options: Omit<InstallOptions, "codes">
+): Result.Result<Installation, CompileError> => {
+	const keys = new KeyLedger(basis.model.unrepresentable)
+	return keys.settle(installationIn(basis, options, keys))
+}
+
+/** The installation over `basis` under `options` (installationOver), each index it judges refused in `keys`. */
+const installationIn = (
+	basis: InstallBasis,
+	options: Omit<InstallOptions, "codes">,
+	keys: KeyLedger
 ): Result.Result<Installation, CompileError> =>
 	Result.flatMap(admittedSettings(basis.owned, options), (settings) =>
 		Result.flatMap(servedPlan(basis, settings, options.extensions), (plan) =>
@@ -437,6 +447,7 @@ export const installationOver = (
 					names: plan.names,
 					settings,
 					library: plan.library,
+					keys,
 					readCommitted: readCommittedRelations(
 						plan.logins.flatMap(({ login, roles }) =>
 							roles.map(({ checked }) => ({

@@ -1,4 +1,4 @@
-import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
+import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import {
 	type ChangedColumn,
 	type ClaimRule,
@@ -431,6 +431,27 @@ const duplicateText = (duplicate: Duplicate): string => {
 }
 
 /**
+ * A key or index, `subject`, over `key`, with no representable index entry, for `fault`, where the compile met it, `at`:
+ * one of the keys an UnrepresentableKey refusal names. Each check that judges an index entry records one where the entry
+ * does not fit (core/canonical.ts KeyLedger): ownership's of a declared key (schema/own.ts ownKey), the law model's of
+ * an index it plans (laws/model/plan.ts), the index engine's of an index it creates (physical/indexes/engine.ts
+ * createIndex), and the installation's of a UNIQUE over a set its codes size (physical/ddl/tables.ts setUniqueBound).
+ */
+export interface KeyRefusal {
+	readonly at: SourceLoc
+	readonly subject: string
+	readonly key: ReadonlyArray<string>
+	readonly fault: KeyFault
+}
+
+/** The refusal naming every key of `keys`, in the order the compile met them. */
+export const unrepresentableKeys = (keys: NonEmptyReadonlyArray<KeyRefusal>): CompileError =>
+	new CompileError({ _tag: "UnrepresentableKey", keys })
+
+/** A key's sentence after its location. */
+const keyRefusalText = (key: KeyRefusal): string => keyFaultText(key.subject, key.key, key.fault)
+
+/**
  * Why a compilation refused, as plain data: each variant carries where it refused (`at`, a location in the user's
  * description or program; a path inside the artifact for MalformedArtifact and ArtifactFormat) and exactly the facts it
  * states, and renders its own sentence (compileReasonText).
@@ -445,7 +466,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `UnsupportedOperation`: a capability the compiler does not have, `capability`. A new diagnostic for a missing
  *   capability is one; no variant is added for it.
  * - `UnsupportedLawFamily`: a law of a family the compiler does not lower, `capability`.
- * - `UnrepresentableKey`: a key or index, `subject`, over `key`, with no representable index entry, for `fault`.
+ * - `UnrepresentableKey`: every key and index the compile met with no representable index entry (KeyRefusal), in the
+ *   order it met them, located at the first: a compile goes on past each such key (core/canonical.ts KeyLedger), so one
+ *   refusal names them all.
  * - `FoldOverProjection`: a fold whose rule matches `source` without binding every field of one of its keys, so the
  *   fold would read a projection of its facts; `key` is the key to bind.
  * - `QueriedOwnerAppend`: a write at `at` of `owner` from a query, its `op` an insert or a put, which may insert an
@@ -564,13 +587,7 @@ export type CompileReason =
 	| { readonly _tag: "UndeclaredDrop"; readonly at: SourceLoc; readonly dropped: Named }
 	| { readonly _tag: "Misdeclared"; readonly at: SourceLoc; readonly misdeclared: Misdeclaration }
 	| { readonly _tag: "UnsupportedLawFamily"; readonly at: SourceLoc; readonly capability: string }
-	| {
-			readonly _tag: "UnrepresentableKey"
-			readonly at: SourceLoc
-			readonly subject: string
-			readonly key: ReadonlyArray<string>
-			readonly fault: KeyFault
-	  }
+	| { readonly _tag: "UnrepresentableKey"; readonly keys: NonEmptyReadonlyArray<KeyRefusal> }
 	| {
 			readonly _tag: "FoldOverProjection"
 			readonly at: SourceLoc
@@ -1097,8 +1114,13 @@ export const compileReasonText = (reason: CompileReason): string => {
 		case "DescribedHeadingMismatch":
 		case "ContractLiteral":
 			return reason.capability
-		case "UnrepresentableKey":
-			return keyFaultText(reason.subject, reason.key, reason.fault)
+		case "UnrepresentableKey": {
+			const [first, ...rest] = reason.keys
+			return [
+				keyRefusalText(first),
+				...rest.map((k) => `${reason._tag} at ${formatLoc(k.at)}: ${keyRefusalText(k)}`)
+			].join("\n")
+		}
 		case "FoldOverProjection":
 			return foldOverProjectionText(reason.source, reason.key)
 		case "UnstatedKey":
@@ -1184,15 +1206,46 @@ type ArtifactReason = Extract<
 const isArtifactReason = (reason: CompileReason): reason is ArtifactReason =>
 	reason._tag === "MalformedArtifact" || reason._tag === "ArtifactFormat"
 
-/** The text a CompileError prints: its reason's tag, where it refused and its sentence, and a collision's other location. */
+/** A refusal of several keys, each at its own location (KeyRefusal). */
+type KeysReason = Extract<CompileReason, { readonly _tag: "UnrepresentableKey" }>
+
+/** A refusal located at one place in the user's description or program. */
+type SourcedReason = Exclude<CompileReason, ArtifactReason | KeysReason>
+
+/**
+ * How a reason is located: inside an artifact by a path, at each of its keys' locations, or at one location in the
+ * user's description or program.
+ */
+type Located =
+	| { readonly kind: "artifact"; readonly reason: ArtifactReason }
+	| { readonly kind: "keys"; readonly reason: KeysReason }
+	| { readonly kind: "sourced"; readonly reason: SourcedReason }
+
+const located = (reason: CompileReason): Located =>
+	isArtifactReason(reason)
+		? { kind: "artifact", reason }
+		: reason._tag === "UnrepresentableKey"
+			? { kind: "keys", reason }
+			: { kind: "sourced", reason }
+
+/**
+ * The text a CompileError prints: its reason's tag, where it refused and its sentence, and a collision's other location;
+ * a refusal of several keys, one such line for each, in the order the compile met them.
+ */
 const compileErrorMessage = (reason: CompileReason): string => {
-	if (isArtifactReason(reason)) {
-		return `${reason._tag} in the ${reason.artifact}${reason.at.length === 0 ? "" : ` at ${formatPath(reason.at)}`}: ${compileReasonText(reason)}`
+	const at = located(reason)
+	switch (at.kind) {
+		case "artifact":
+			return `${reason._tag} in the ${at.reason.artifact}${at.reason.at.length === 0 ? "" : ` at ${formatPath(at.reason.at)}`}: ${compileReasonText(reason)}`
+		case "keys":
+			return `${reason._tag} at ${formatLoc(at.reason.keys[0].at)}: ${compileReasonText(reason)}`
+		case "sourced": {
+			const text = `${reason._tag} at ${formatLoc(at.reason.at)}: ${compileReasonText(reason)}`
+			return at.reason._tag === "IdentifierCollision"
+				? `${text} (colliding with ${formatLoc(at.reason.other)})`
+				: text
+		}
 	}
-	const text = `${reason._tag} at ${formatLoc(reason.at)}: ${compileReasonText(reason)}`
-	return reason._tag === "IdentifierCollision"
-		? `${text} (colliding with ${formatLoc(reason.other)})`
-		: text
 }
 
 /**
@@ -1227,11 +1280,22 @@ export class CompileError extends Error {
 	}
 }
 
-/** The same reason found inside the value at `path`: its location's path prefixed by `path`. */
-const relocated = (reason: CompileReason, path: Path): CompileReason =>
-	isArtifactReason(reason)
-		? { ...reason, at: [...path, ...reason.at] }
-		: { ...reason, at: prefixedLoc(path, reason.at) }
+/** The same reason found inside the value at `path`: its location's path, each key's of a refusal of keys, prefixed by
+ * `path`. */
+const relocated = (reason: CompileReason, path: Path): CompileReason => {
+	const at = located(reason)
+	switch (at.kind) {
+		case "artifact":
+			return { ...at.reason, at: [...path, ...at.reason.at] }
+		case "keys":
+			return {
+				...at.reason,
+				keys: mapNonEmpty(at.reason.keys, (k) => ({ ...k, at: prefixedLoc(path, k.at) }))
+			}
+		case "sourced":
+			return { ...at.reason, at: prefixedLoc(path, at.reason.at) }
+	}
+}
 
 /** The user's schema or program value, refused at `at` for `refusal`, a rule the types name too. */
 export const ruleRefused = (at: SourceLoc, refusal: Refused): CompileError =>
@@ -1297,8 +1361,18 @@ export const derivedRefused = (at: SourceLoc, cause: DerivedRefusal): CompileErr
  * artifact's refusal names no source location, so it stays as it is.
  */
 export const reportedAt = (e: CompileError, at: SourceLoc): CompileError => {
-	const reason = e.reason
-	return isArtifactReason(reason) ? e : new CompileError({ ...reason, at })
+	const reason = located(e.reason)
+	switch (reason.kind) {
+		case "artifact":
+			return e
+		case "keys":
+			return new CompileError({
+				...reason.reason,
+				keys: mapNonEmpty(reason.reason.keys, (k) => ({ ...k, at }))
+			})
+		case "sourced":
+			return new CompileError({ ...reason.reason, at })
+	}
 }
 
 /** Whether `value` is a CompileError, told by its tag. */

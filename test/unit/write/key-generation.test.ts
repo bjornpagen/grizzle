@@ -152,8 +152,8 @@ export const aKeyGenerationIsAColumnGrizzleWritesProvedByItsKeysCheckAndEveryWri
 			{
 				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					"\t\t\treturn [primaryKeyPlan(rel, d.key, loc), ...(generations === undefined ? [] : [generations])]",
-				replacement: "\t\t\treturn [primaryKeyPlan(rel, d.key, loc)]",
+					"\t\t\treturn [primaryKeyPlan(rel, d.key), ...(generations === undefined ? [] : [generations])]",
+				replacement: "\t\t\treturn [primaryKeyPlan(rel, d.key)]",
 				why: "The primary key installs no CHECK holding its key generation to its generation, so a wrong digest is stored."
 			},
 			{

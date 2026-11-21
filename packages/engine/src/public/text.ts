@@ -1,4 +1,5 @@
-import { CompileError, unsupported } from "#compiler/core/errors.ts"
+import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
+import { unrepresentableKeys, unsupported } from "#compiler/core/errors.ts"
 import { captureLoc, childLoc } from "#compiler/core/loc.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
 import { formSource, type LexicalTarget, lexicalTargetOf } from "#compiler/scalar/lexical.ts"
@@ -92,8 +93,9 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * and a tree's `end`. A text field whose contract bounds it there,
  * `contract("KeyText", str.regex("^.*$", "su"), (v) => Logic.le(Text.octetLength(v), keyTextBytes(fields)))`, sits in any of
  * them. A field of a relation is read as its declared type (schema/relation.ts describeDeclared), a drawn index or a
- * generated field among them. It throws CompileError (UnrepresentableKey) for fields of no byte bound, such as an
- * unbounded text, for more fields than an index holds beside a text, and for fields that leave a text no byte.
+ * generated field among them. It throws CompileError (UnrepresentableKey) naming every fault at once: more fields than
+ * an index holds beside a text, and each field of no byte bound, such as an unbounded text; or, where neither is, fields
+ * that leave a text no byte.
  */
 /**
  * keyFits(fields): whether a key over `fields`, in any order, holds every value they admit, each field as itself: its
@@ -125,13 +127,14 @@ export const keyTextBytes = (
 		}))
 	)
 	if (!room.ok) {
-		throw CompileError.make({
-			_tag: "UnrepresentableKey",
-			at: loc,
-			subject: "a key of a text beside the fields",
-			key,
-			fault: room.error
-		})
+		throw unrepresentableKeys(
+			mapNonEmpty(room.error, (fault) => ({
+				at: loc,
+				subject: "a key of a text beside the fields",
+				key,
+				fault
+			}))
+		)
 	}
 	return room.value
 }

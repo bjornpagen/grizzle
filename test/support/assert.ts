@@ -1,3 +1,4 @@
+import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Engine from "@bjornpagen/grizzle-text/base/result"
 import { assertionFailed, type Why } from "@bjornpagen/testing/assert"
 import { Result, String as Str } from "effect"
@@ -5,7 +6,8 @@ import {
 	type CompileError,
 	type CompileReason,
 	type CompileReasonTag,
-	isCompileError
+	isCompileError,
+	type KeyRefusal
 } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { messageOf } from "#test/support/message.ts"
@@ -132,8 +134,9 @@ export function artifactRefusal(
 }
 
 /**
- * Where a CompileError refused in the user's description or program: its reason's location. A MalformedArtifact or an
- * ArtifactFormat refuses at a path inside an artifact, never at a source location, so it fails the assertion.
+ * Where a CompileError refused in the user's description or program: its reason's location, a refusal of several keys
+ * at the first key the compile met. A MalformedArtifact or an ArtifactFormat refuses at a path inside an artifact, never
+ * at a source location, so it fails the assertion.
  */
 export function refusalLoc(error: CompileError, ...why: Why): SourceLoc {
 	const reason = error.reason
@@ -146,7 +149,41 @@ export function refusalLoc(error: CompileError, ...why: Why): SourceLoc {
 			`Expected a source location, got ${reason._tag}.`
 		)
 	}
-	return reason.at
+	return reason._tag === "UnrepresentableKey" ? reason.keys[0].at : reason.at
+}
+
+/**
+ * The keys an UnrepresentableKey refusal names, in the order the compile met them: a refusal of any other reason fails
+ * the assertion.
+ */
+export function refusedKeys(error: CompileError, ...why: Why): NonEmptyReadonlyArray<KeyRefusal> {
+	const reason = error.reason
+	if (reason._tag !== "UnrepresentableKey") {
+		return assertionFailed(
+			why,
+			reason,
+			"an UnrepresentableKey",
+			"refusedKeys",
+			`Expected an UnrepresentableKey, got ${reason._tag}.`
+		)
+	}
+	return reason.keys
+}
+
+/** The one key an UnrepresentableKey refusal names: a refusal of any other reason, or of several keys, fails the
+ * assertion. */
+export function refusedKey(error: CompileError, ...why: Why): KeyRefusal {
+	const keys = refusedKeys(error, ...why)
+	if (keys.length !== 1) {
+		return assertionFailed(
+			why,
+			keys,
+			"one unrepresentable key",
+			"refusedKey",
+			`Expected one key, got ${keys.length}.`
+		)
+	}
+	return keys[0]
 }
 
 /**

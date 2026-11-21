@@ -216,10 +216,13 @@ const renderUninstall = (dropped: UninstallReport): ReadonlyArray<string> =>
 				...Arr.map(dropped.roles, (r) => `dropped role ${r}`)
 			]
 
-const renderCliError = (e: CliError): ReadonlyArray<string> => [
-	`grizzle: ${e.message}`,
-	`fix: ${cliStageFix[e.stage]}`
-]
+/** A refusal of the command line, and its stage's fix beneath it where its stage has one (cliStageFix). */
+const renderCliError = (e: CliError): ReadonlyArray<string> => {
+	const stage = e.stage
+	return stage === "config"
+		? [`grizzle: ${e.message}`]
+		: [`grizzle: ${e.message}`, `fix: ${cliStageFix[stage]}`]
+}
 
 /** Every finding, one per line with its fix; a clean schema says so. */
 const renderCheck = (checks: ReadonlyArray<SchemaCheck>): ReadonlyArray<string> =>

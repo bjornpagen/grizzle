@@ -32,9 +32,18 @@ import { assert, lacksText } from "@bjornpagen/testing/assert"
 import { Checkout } from "@bjornpagen/testing/checkout"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, DateTime, Effect, FileSystem, Formatter, Option } from "effect"
+import {
+	Array as Arr,
+	DateTime,
+	Effect,
+	FileSystem,
+	Formatter,
+	Option,
+	String as Str
+} from "effect"
 import { parseArgs } from "#cli/args.ts"
 import { formatTimestamp, nextTimestamp, parseTimestamp } from "#cli/clock.ts"
+import { cliStageFix } from "#cli/refusals.ts"
 import {
 	bin,
 	configName,
@@ -314,7 +323,8 @@ export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMi
 
 /**
  * The bin's configuration file is named by the command line, loaded and checked before any command runs: every way
- * loading fails is refused, writing nothing.
+ * loading fails is refused, writing nothing. A refusal at stage config states its own fix, and no fix of the stage
+ * follows it, where a usage error is followed by its stage's (packages/grizzle/src/cli/refusals.ts cliStageFix).
  *
  * Budget: its suite's count before the conversion (unit/cli/bin-loading: 8 independent cases and 12 steered, Vitest at
  * grizzle 4ca3036a).
@@ -343,6 +353,22 @@ export const theBinsConfigurationFileIsNamedByTheCommandLineLoadedAndCheckedBefo
 				const argv = loading.kind === "no file named" ? ["generate"] : ["generate", configName]
 				const ran = yield* bin(ws, argv, {})
 				assert.equal(ran.status, statusOf(loading), `${loading.kind}: ${ran.stderr}`)
+				const lines = Str.split("\n")(ran.stderr)
+				const fixes = Arr.filter(lines, Str.startsWith("fix: "))
+				if (Arr.some(lines, Str.startsWith("grizzle: refused at stage config"))) {
+					assert.deepEqual(
+						fixes,
+						[],
+						`${loading.kind}: a refusal at stage config states its own fix`
+					)
+				}
+				if (Arr.some(lines, Str.startsWith("grizzle: usage error"))) {
+					assert.deepEqual(
+						fixes,
+						[`fix: ${cliStageFix.usage}`],
+						`${loading.kind}: a usage error names its stage's fix`
+					)
+				}
 				const fs = yield* FileSystem.FileSystem
 				const left = yield* fs.readDirectory(ws)
 				assert.deepEqual(
@@ -363,6 +389,12 @@ export const theBinsConfigurationFileIsNamedByTheCommandLineLoadedAndCheckedBefo
 				original: 'const isHelp = (arg: string): boolean => arg === "--help" || arg === "-h"',
 				replacement: 'const isHelp = (arg: string): boolean => arg === "--help" || arg !== "-h"',
 				why: "Operator mutant (comparison) at packages/grizzle/src/cli/args.ts:117 in isHelp: `===` becomes `!==`; the property fails (lane CATCH, grizzle 0baff5d6)."
+			},
+			{
+				file: "packages/grizzle/src/cli/run.ts",
+				original: '\treturn stage === "config"',
+				replacement: '\treturn stage === "usage"',
+				why: "A refusal at stage config followed by a fix of the stage, the generic one that contradicts its own (a compile error's, an unrepresentable key's bound), and a usage error by none; the refused loadings fail."
 			}
 		]
 	})

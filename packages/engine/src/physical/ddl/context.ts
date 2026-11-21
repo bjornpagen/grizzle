@@ -7,7 +7,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { type QueryColumns, queryColumns } from "#compiler/analysis/theory/columns.ts"
-import { Refusal } from "#compiler/core/canonical.ts"
+import { type KeyLedger, Refusal } from "#compiler/core/canonical.ts"
 import { sha256Octets } from "#compiler/core/digest.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import {
@@ -260,6 +260,12 @@ export class InstallBuilder {
 	readonly columns: QueryColumns
 	readonly model: LawModel
 	readonly names: InstallNames
+	/**
+	 * The unrepresentable keys the compile has met, its law model's first: each index the installation judges, a UNIQUE
+	 * over a set its codes size (physical/ddl/tables.ts setUniqueBound) and an index the engine creates
+	 * (physical/indexes/engine.ts createIndex), is refused here where its entry no index holds, and built all the same.
+	 */
+	readonly keys: KeyLedger
 	readonly graph = new ObligationGraph()
 	readonly settings: InstallSettings
 	/** Every native object of the law model, by kind. */
@@ -318,8 +324,10 @@ export class InstallBuilder {
 		readonly settings: InstallSettings
 		readonly readCommitted: ReadonlySet<string>
 		readonly library: ReadonlyArray<LibraryFn>
+		readonly keys: KeyLedger
 	}) {
 		this.owned = input.owned
+		this.keys = input.keys
 		this.readCommitted = input.readCommitted
 		this.library = input.library
 		this.checked = input.checked

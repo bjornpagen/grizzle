@@ -1,6 +1,7 @@
 import * as EngineResult from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Option, Order, Result } from "effect"
+import { settled } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { ColumnIdent, LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr } from "#compiler/ir/expr.ts"
@@ -23,10 +24,15 @@ import { patternMember } from "#test/support/oracle/reference/evaluate.ts"
  * second implementation of the operator catalogue, never the engine's own.
  */
 
-/** A schema description's law model, or the refusal the owner or the law model gives it. */
+/**
+ * A schema description's law model, or the refusal the owner or the law model gives it, as a compile that ends at the
+ * law model settles it: every unrepresentable key it met refused at once (core/canonical.ts settled).
+ */
 export const compiledModel = (desc: SchemaDesc): EngineResult.Result<LawModel, CompileError> =>
 	EngineResult.flatMap(own(decodedSchema(desc)), (owned) =>
-		compileLaws(owned, everySlice(owned), { kind: "planned" })
+		EngineResult.flatMap(compileLaws(owned, everySlice(owned), { kind: "planned" }), (model) =>
+			settled(model.unrepresentable, EngineResult.ok(model))
+		)
 	)
 
 /** A schema description's law model, which must compile. */

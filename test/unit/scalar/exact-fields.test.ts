@@ -21,6 +21,7 @@
  * Features: each carrier, magnitude and bound; each placement of each carrier.
  */
 
+import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { assert, defined, nonEmpty } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, finite } from "@bjornpagen/testing/gen"
@@ -41,7 +42,7 @@ import { converterOf } from "#compiler/scalar/values/convert.ts"
 import { numericMaxIntegerDigits } from "#compiler/scalar/values/fault.ts"
 import { Money } from "#compiler/scalar/values/money.ts"
 import { printStatement } from "#compiler/sql/print.ts"
-import { refused, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
 import { checkedIn, ownedInput } from "#test/support/policy.ts"
 import { outputText } from "#test/support/wire.ts"
 import { codecOf } from "#test/unit/codec/support.ts"
@@ -233,16 +234,18 @@ export const noKeyHoldsAnExactFieldWhoseRefusalNamesItsPrecisionAndOneBesideItsK
 							case "in the primary key":
 							case "in a candidate key": {
 								const error = refused(
-									ownedInput(declaredSchema(carrier, placement)),
+									Result.flatMap(ownedInput(declaredSchema(carrier, placement)), (owned) =>
+										compileInstallation(owned, installOptions(owned))
+									),
 									"UnrepresentableKey",
 									shown
 								)
 								const reason = error.reason
 								assert.ok(reason._tag === "UnrepresentableKey", `${shown}: an unrepresentable key`)
 								assert.deepEqual(
-									reason.fault,
-									{ kind: "exactValue", field: "x", ...keyFaultOf[carrier] },
-									`${shown}: the fault names the exact field`
+									Arr.map(refusedKeys(error), (k) => k.fault),
+									[{ kind: "exactValue", field: "x", ...keyFaultOf[carrier] }],
+									`${shown}: the one fault names the exact field`
 								)
 								assert.ok(
 									Str.includes(precisionFix[carrier])(compileReasonText(reason)),

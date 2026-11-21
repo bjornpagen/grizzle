@@ -5,10 +5,7 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
-import { unwrap } from "#compiler/core/canonical.ts"
-import { CompileError } from "#compiler/core/errors.ts"
 import { type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { ConstraintName, IdentityKind, LawId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -189,12 +186,13 @@ const nativeColumn = (b: InstallBuilder, relation: string, c: NativeColumn): str
 	c.kind === "field" ? b.names.column(relation, c.field.name) : c.column
 
 /**
- * A UNIQUE's B-tree entry over a set, sized by the installation's codes, or the refusal of one past BTMaxItemSize. The
- * law model planned every UNIQUE with its entry proved within the limit, each column's datum bounded (laws/model/plan.ts
- * plannedEntry), a set's counted at its roster's live handles alone: a set is its roster's bit(n), n every code the
- * roster has minted, holes included, which only the installation's codebook holds, and a roster grown and pruned may
- * hold codes enough that the entry outgrows the limit, where PostgreSQL would refuse an insert with 54000. So only a
- * UNIQUE over a set is counted again, every column as the law model counted it but a set at its codes.
+ * Judges a UNIQUE's B-tree entry over a set, sized by the installation's codes: one past BTMaxItemSize is refused in the
+ * installation's ledger (b `keys`) as UnrepresentableKey, and built all the same. The law model judged every UNIQUE's
+ * entry (laws/model/plan.ts judgeEntry), a set's counted at its roster's live handles alone: a set is its roster's
+ * bit(n), n every code the roster has minted, holes included, which only the installation's codebook holds, and a roster
+ * grown and pruned may hold codes enough that the entry outgrows the limit, where PostgreSQL would refuse an insert with
+ * 54000. So only a UNIQUE over a set is counted again, every column as the law model counted it but a set at its codes;
+ * one over a column of no bound the law model refused already, so it is not counted again.
  */
 const setUniqueBound = (
 	b: InstallBuilder,
@@ -226,30 +224,28 @@ const setUniqueBound = (
 	if (!fields.some((f) => baseOf(f.field.type).carrier === "bits")) {
 		return
 	}
-	const entryColumns = fields.map(({ column, field }): EntryColumn => {
+	const entryColumns = fields.flatMap(({ column, field }): ReadonlyArray<EntryColumn> => {
 		const base = baseOf(field.type)
 		const datum =
 			base.carrier === "bits"
 				? setDatumBound(codecOf(b.names.codes, base.roster).size)
 				: datumBound(field.desc)
 		const name = column.kind === "field" ? column.field.name : column.column
-		if (datum === undefined) {
-			throw defect(`a bounded datum of ${name}, which the law model's UNIQUE of ${relation} proved`)
-		}
-		return { name, datum, nullable: column.kind === "law" }
+		return datum === undefined ? [] : [{ name, datum, nullable: column.kind === "law" }]
 	})
-	unwrap(
-		Result.mapError(btreeEntry(entryColumns), (fault) => {
-			const key = columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
-			return CompileError.make({
-				_tag: "UnrepresentableKey",
-				at: SourceLoc(relation, []),
-				subject: `the UNIQUE (${key.join(", ")}) of ${relation}, over a set its roster's codes size`,
-				key,
-				fault
-			})
+	if (entryColumns.length < fields.length) {
+		return
+	}
+	const entry = btreeEntry(entryColumns)
+	if (!entry.ok) {
+		const key = columns.map((c) => (c.kind === "field" ? c.field.name : c.column))
+		b.keys.refuse({
+			at: SourceLoc(relation, []),
+			subject: `the UNIQUE (${key.join(", ")}) of ${relation}, over a set its roster's codes size`,
+			key,
+			fault: entry.error
 		})
-	)
+	}
 }
 
 /** A field as a native column. */

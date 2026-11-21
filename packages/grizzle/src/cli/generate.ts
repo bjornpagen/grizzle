@@ -57,7 +57,8 @@ import {
 	rostersOf,
 	sameLevel,
 	transactionClock,
-	trustedJson
+	trustedJson,
+	unrepresentableKeys
 } from "#compiler/plan/common.ts"
 import {
 	type AbandonedSchema,
@@ -499,8 +500,15 @@ export const installationUnder = Effect.fn("installationUnder")(function* (
 		fromEngine(installBasis(owned, codes, everySlice(owned))),
 		refusedAt("schema")
 	)
+	/** The unrepresentable keys the schema's compile met so far, which a refusal of its logins' workloads, met after
+	 * them, gives way to (engine core/canonical.ts metFirst). */
+	const unrepresentable = basis.model.unrepresentable
 	const planned = Arr.isReadonlyArrayNonEmpty(logins)
-		? yield* plannedLogins(schema, basis, codes)
+		? yield* Effect.catch(plannedLogins(schema, basis, codes), (refused) =>
+				Arr.isReadonlyArrayNonEmpty(unrepresentable)
+					? Effect.fail(refusedAt("schema")(unrepresentableKeys(unrepresentable)))
+					: Effect.fail(refused)
+			)
 		: undefined
 	const options = completeInstallOptions(
 		owned,

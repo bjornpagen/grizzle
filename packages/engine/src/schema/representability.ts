@@ -1150,31 +1150,39 @@ export const textRoomBeside = (others: ReadonlyArray<DatumBound>, nulls: boolean
  * those columns: a declared key, a key over a selection, a containment's UNIQUE and index, a family's, a tree's and an
  * axis's UNIQUE, whose hidden law columns may hold NULL. A span key's GiST entry holds it too: each GiST key takes at
  * most twice its B-tree datum and fourteen bytes, so the at most INDEX_MAX_KEYS keys over one B-tree entry's datums fit
- * a GiST page. Its fault is the key's: more columns than an index holds with the text, a field of no byte bound, or
- * fields that leave the text no byte.
+ * a GiST page. Its faults are the key's, every one: more columns than an index holds with the text, and each field of
+ * no byte bound; or, where neither is, fields that leave the text no byte.
  */
-export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFault> => {
-	if (others.length + 1 > indexMaxKeys) {
-		return Result.err({ kind: "columns", limit: indexMaxKeys })
+export const textBytesBeside = (
+	others: KeyFields
+): Result.Result<number, NonEmptyReadonlyArray<KeyFault>> => {
+	const each = others.map((f) => keyDatums([f]))
+	const faults: ReadonlyArray<KeyFault> = [
+		...(others.length + 1 > indexMaxKeys
+			? [{ kind: "columns", limit: indexMaxKeys } as const]
+			: []),
+		...each.flatMap((d) => (d.ok ? [] : [d.error]))
+	]
+	if (isNonEmpty(faults)) {
+		return Result.err(faults)
 	}
-	const bounded = keyDatums(others)
-	if (!bounded.ok) {
-		return bounded
-	}
+	const bounded = each.flatMap((d) => (d.ok ? d.value : []))
 	const room = textRoomBeside(
-		bounded.value.map((d) => d.datum),
+		bounded.map((d) => d.datum),
 		true
 	)
 	return room < 0
-		? Result.err({
-				kind: "btreeEntry",
-				bytes: alignUp(alignDown(btreeMaxItemSize, maxAlign) - room, maxAlign),
-				limit: btreeMaxItemSize,
-				datums: [
-					...bounded.value.map((d) => ({ field: d.field, bytes: d.datum.bytes })),
-					{ field: "the text", bytes: textHeader.bytes }
-				]
-			})
+		? Result.err([
+				{
+					kind: "btreeEntry",
+					bytes: alignUp(alignDown(btreeMaxItemSize, maxAlign) - room, maxAlign),
+					limit: btreeMaxItemSize,
+					datums: [
+						...bounded.map((d) => ({ field: d.field, bytes: d.datum.bytes })),
+						{ field: "the text", bytes: textHeader.bytes }
+					]
+				}
+			])
 		: Result.ok(room)
 }
 

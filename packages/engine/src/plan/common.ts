@@ -59,6 +59,7 @@ export {
 	malformedDescription,
 	prose,
 	type TransientReason,
+	unrepresentableKeys,
 	unsupported
 } from "#compiler/core/errors.ts"
 export {
