@@ -101,7 +101,7 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { printTableName, sessionRegclass, sessionTableStands } from "#compiler/sql/print.ts"
+import { printTableName, sessionTableOurs, sessionTableStands } from "#compiler/sql/print.ts"
 import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
@@ -511,25 +511,6 @@ const holding = (name: string, alias: string): Expr =>
 	exists(simpleSelect([], [{ kind: "table", table: sessionTable(name), alias }], undefined))
 
 /**
- * That the session's relation named `name` is a temporary table the function's definer owns, CURRENT_USER inside a
- * SECURITY DEFINER function, and stands where each of `more` holds of it.
- */
-const ours = (name: string, from: ReadonlyArray<FromSource>, more: ReadonlyArray<Expr>): Expr =>
-	exists(
-		simpleSelect(
-			[],
-			[catalogTable("pg_class", "r2"), ...from],
-			and([eq(col("r2", "oid"), sessionRegclass(name)), ...owned("r2"), ...more])
-		)
-	)
-
-/** That the relation of pg_class under `alias` is a temporary table the function's definer owns (`ours`). */
-const owned = (alias: string): NonEmptyReadonlyArray<Expr> => [
-	eq(call("pg_get_userbyid", [col(alias, "relowner")]), { kind: "user", name: "CURRENT_USER" }),
-	eq(col(alias, "relpersistence"), lit.text("t", types.text))
-]
-
-/**
  * The refusal of a session table some other role made under the judge's name: a login that creates one first could
  * empty it before COMMIT, so the judge never reads a table its definer did not create.
  */
@@ -562,7 +543,7 @@ const ensured = (delta: SessionDelta): PlStatement => ({
 				}
 			]
 		},
-		{ condition: not(ours(delta.name, [], [])), body: [foreign(delta.name)] }
+		{ condition: not(sessionTableOurs(delta.name, [], [])), body: [foreign(delta.name)] }
 	],
 	else: []
 })
@@ -590,7 +571,7 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
 		},
 		{
 			condition: not(
-				ours(
+				sessionTableOurs(
 					sentinel,
 					[catalogTable("pg_trigger", "r3")],
 					[
@@ -1682,7 +1663,7 @@ const addCapture = (
 										kind: "if",
 										branches: [
 											{
-												condition: not(ours(news.delta.name, [], [])),
+												condition: not(sessionTableOurs(news.delta.name, [], [])),
 												body: [foreign(news.delta.name)]
 											}
 										],

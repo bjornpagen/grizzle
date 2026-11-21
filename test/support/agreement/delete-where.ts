@@ -9,6 +9,7 @@ import { param, query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import {
@@ -440,7 +441,8 @@ const worlds = (() => {
 				derived: wherer.derived,
 				level: "serializable" as const,
 				clock: noClock,
-				source: transactionClock
+				source: transactionClock,
+				carrierScope: carrierScope(world.role.name)
 			}
 		}
 	}

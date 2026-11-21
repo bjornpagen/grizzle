@@ -35,6 +35,7 @@ import { compileQuery, type QueryTemplate, querySchema } from "#compiler/program
 import { roleArtifacts, type SchemaArtifacts, type SchemaInput } from "#compiler/program/schema.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { fullRoleDesc, type OwnedLogin, type OwnedRole, ownLogin } from "#compiler/schema/own.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import type { OwnLaw } from "#compiler/types/changeset/changeset.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -1054,7 +1055,8 @@ export const compiledChange = (
 					derived: artifacts.derived,
 					level: "serializable",
 					clock: noClock,
-					source: transactionClock
+					source: transactionClock,
+					carrierScope: carrierScope(world.kind === "role" ? world.role.name : undefined)
 				}
 			)
 		}

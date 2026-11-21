@@ -20,6 +20,7 @@ import {
 import { str } from "#compiler/public/text.ts"
 import { type QueryValue, queryOver as query, varsOver as v } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
@@ -165,7 +166,8 @@ const shopWriter = (s: typeof Shop | typeof MutableCrewShop): ShopWriter => {
 							reads: installed,
 							level: options.level,
 							clock: noClock,
-							source: transactionClock
+							source: transactionClock,
+							carrierScope: carrierScope(undefined)
 						})
 					)
 			)

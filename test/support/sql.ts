@@ -34,7 +34,12 @@ import {
 	inSet,
 	pack
 } from "#compiler/sql/constants.ts"
-import { type CarrierDeclaration, type CarrierName, carrierName } from "#compiler/sql/naming.ts"
+import {
+	type CarrierDeclaration,
+	carrierName,
+	type CarrierName,
+	carrierScope
+} from "#compiler/sql/naming.ts"
 import { printExpr, printObjectName, printStatement, printType } from "#compiler/sql/print.ts"
 import { type AstHooks, Transform } from "#compiler/sql/transform.ts"
 import { hexOfText, installedText } from "#test/support/closed/bit-text.ts"
@@ -51,7 +56,8 @@ const keyIn = (constant: ObjectName, index: Expr, width: number): Expr =>
 const unitCarrier: CarrierDeclaration = { columns: [], primaryKey: undefined }
 
 /** The `ordinal`-th carrier of a program, of the unit relation (sql/naming.ts carrierName). */
-export const unitCarrierName = (ordinal: number): CarrierName => carrierName(ordinal, unitCarrier)
+export const unitCarrierName = (ordinal: number): CarrierName =>
+	carrierName(carrierScope(undefined), ordinal, unitCarrier)
 
 /**
  * The tests' one door of SQL text to grizzle's wire: a statement a wire suite sends that neither the engine's AST nor

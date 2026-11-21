@@ -72,6 +72,7 @@ import { plainType } from "#compiler/scalar/native.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { EmittedText, SqlStatement } from "#compiler/sql/ast.ts"
 import {
+	type CarrierScope,
 	freshNames as startNames,
 	type NameMap,
 	NameSupply,
@@ -233,6 +234,8 @@ export interface PrepareWriteOptions {
 	readonly clock: ClockBinding
 	/** Where its readings of the clock count from (write/frontend/compile.ts FrontendOptions `source`). */
 	readonly source: ClockSource
+	/** Whose session tables its carriers are: the role it runs as, or reality (sql/naming.ts CarrierScope). */
+	readonly carrierScope: CarrierScope
 }
 
 export interface CompileWriteOptions extends PrepareWriteOptions {
@@ -983,8 +986,11 @@ export const placeAdmission = (
 }
 
 /** The artifact of the statements built and their carriers. */
-export const finish = (b: ArtifactBuilder, carriers: ReadonlyArray<WriteCarrier>): WriteArtifact =>
-	settledArtifact(b.statements, Object.freeze([...carriers]))
+export const finish = (
+	b: ArtifactBuilder,
+	carriers: ReadonlyArray<WriteCarrier>,
+	scope: CarrierScope
+): WriteArtifact => settledArtifact(b.statements, Object.freeze([...carriers]), scope)
 
 /** How the optimized artifact's described members lower: its shape state, whose log holds the choices the statement
  * being lowered made in the per-execution mode it is lowered in, the sharing of sub-queries across its statements, and
@@ -1009,9 +1015,10 @@ const optimizedArtifact = (
 ): WriteArtifact => {
 	const staged = withStagedSlots(
 		optimizedPlacement(frontend, plan, lowering, admission, options).statements,
-		plan.carriers
+		plan.carriers,
+		plan.carrierScope
 	)
-	return settledArtifact(staged.statements, staged.carriers)
+	return settledArtifact(staged.statements, staged.carriers, plan.carrierScope)
 }
 
 /** The optimized artifact's statements, each with its forms.
@@ -1912,7 +1919,8 @@ const compileAt = (
 			level: options.level,
 			distinct: (node, relation) => distinctByEvidence(placed.facts, node, relation),
 			shares: (members) => unwrap(planStatementShares(sharing.index, members)),
-			carrierTyping: (t) => lowering.w.cx.typeRef(t)
+			carrierTyping: (t) => lowering.w.cx.typeRef(t),
+			carrierScope: options.carrierScope
 		},
 		heldUnits(frontend),
 		retiredUnits(frontend)

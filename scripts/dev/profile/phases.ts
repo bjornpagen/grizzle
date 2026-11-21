@@ -25,6 +25,7 @@ import { own, rostersOf } from "#compiler/schema/own.ts"
 import { ownedDesc } from "#compiler/schema/protocol.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
 import { schemaDescOf } from "#compiler/schema/schema.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetDesc, changeSetOver } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -290,7 +291,8 @@ export const compilePhases = ({ fixture: f, timed, each }: PhasesInput) => {
 								derived: artifacts.derived,
 								level: "serializable",
 								clock: noClock,
-								source: transactionClock
+								source: transactionClock,
+								carrierScope: carrierScope(undefined)
 							}
 						)
 					)

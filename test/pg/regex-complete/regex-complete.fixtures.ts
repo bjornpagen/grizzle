@@ -36,6 +36,7 @@ import { closed, mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { rostersOf } from "#compiler/schema/own.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
@@ -694,7 +695,8 @@ const articleInsert = (name: string, installation: Installation) => {
 			names: reality.names,
 			reads: reality.reads,
 			share: new StatementShare(),
-			level: "serializable"
+			level: "serializable",
+			carrierScope: carrierScope(undefined)
 		}),
 		"realize"
 	)

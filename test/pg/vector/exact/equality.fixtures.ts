@@ -35,6 +35,7 @@ import { pg, type Uuid, Vector } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
 import { isVector } from "#compiler/scalar/values/vector.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetOver as ChangeSet,
 	changeSetDesc,
@@ -182,7 +183,8 @@ const writeSteps = (
 		names: reality.names,
 		reads: reality.reads,
 		share: new StatementShare(),
-		level: "serializable"
+		level: "serializable",
+		carrierScope: carrierScope(undefined)
 	})
 	if (!realized.ok) {
 		throw new Error(realized.error.message)

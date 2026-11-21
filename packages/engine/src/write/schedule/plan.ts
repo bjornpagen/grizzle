@@ -22,6 +22,7 @@ import { type DeltaSide, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
 import { type StratumAt, strataAt } from "#compiler/ir/stratum.ts"
 import type { ReadBack } from "#compiler/ir/write.ts"
 import type { CarriedShare } from "#compiler/lower/shapes/share/statements.ts"
+import type { CarrierScope } from "#compiler/sql/naming.ts"
 import {
 	type CarrierTyping,
 	type WriteCarrier,
@@ -183,6 +184,8 @@ export type PlanStep =
 export interface WritePlan {
 	readonly steps: ReadonlyArray<PlanStep>
 	readonly carriers: ReadonlyArray<WriteCarrier>
+	/** Whose session tables its carriers are (PlanEvidence `carrierScope`), every later carrier of its program's too. */
+	readonly carrierScope: CarrierScope
 	/** The sides of each relation's delta some statement makes, by the relation's name; every other side, a world
 	 * relation's whose definition reads nothing the ChangeSet writes included, is empty by construction. */
 	readonly made: ReadonlyMap<string, ReadonlySet<DeltaSide>>
@@ -446,6 +449,8 @@ interface PlanEvidence {
 	readonly shares: (members: ReadonlyArray<RelNode>) => ReadonlyArray<CarriedShare>
 	/** The type each carrier column is declared with, which the carrier's name digests (write/carriers CarrierTyping). */
 	readonly carrierTyping: CarrierTyping
+	/** Whose session tables its carriers are, which their names digest (sql/naming.ts CarrierScope). */
+	readonly carrierScope: CarrierScope
 }
 
 /** The stored relations a member reads itself, not through a carried sub-query, whose carrier holds the state before
@@ -1048,7 +1053,7 @@ export const planWrite = (
 	holds: ReadonlyArray<HeldUnit>,
 	retires: ReadonlyArray<RetiredUnit>
 ): WritePlan => {
-	const supply = new CarrierSupply(evidence.carrierTyping)
+	const supply = new CarrierSupply(evidence.carrierTyping, evidence.carrierScope)
 	/** The strata's statements, the read-backs placed among them below. */
 	const strata: Array<PlanStep> = []
 	/** The nodes each stratum's members reach: a carried copy holds its stratum's starting state, so a node another
@@ -1163,6 +1168,7 @@ export const planWrite = (
 	return Object.freeze({
 		steps: Object.freeze(placeHolds(frontend, steps, holds)),
 		carriers: Object.freeze(supply.all()),
+		carrierScope: evidence.carrierScope,
 		made: placement.made
 	})
 }

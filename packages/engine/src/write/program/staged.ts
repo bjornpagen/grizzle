@@ -54,6 +54,7 @@ import { emitText } from "#compiler/sql/emit.ts"
 import {
 	type CarrierDeclaration,
 	type CarrierName,
+	type CarrierScope,
 	carrierName,
 	emptyNameMap
 } from "#compiler/sql/naming.ts"
@@ -96,7 +97,8 @@ const isColumnsSource = (source: FromSource): source is ColumnsSource =>
 const nestedSources = (
 	ast: SqlStatement,
 	nested: ReadonlyArray<NestedColumnSlot | undefined>,
-	first: number
+	first: number,
+	scope: CarrierScope
 ): ReadonlyArray<StagedSource> => {
 	const found: Array<StagedSource> = []
 	transformStatement(ast, {
@@ -136,7 +138,7 @@ const nestedSources = (
 				item: source,
 				columns,
 				declaration,
-				carrier: carrierName(first + found.length, declaration)
+				carrier: carrierName(scope, first + found.length, declaration)
 			})
 			return undefined
 		}
@@ -239,12 +241,13 @@ export const renumberedStatement = (
 export const stagedOf = (
 	ast: SqlStatement,
 	nested: ReadonlyArray<NestedColumnSlot | undefined>,
-	first: number
+	first: number,
+	scope: CarrierScope
 ): Staged => {
 	if (nested.every((slot) => slot === undefined)) {
 		return noStaging
 	}
-	const sources = nestedSources(ast, nested, first)
+	const sources = nestedSources(ast, nested, first, scope)
 	if (!isNonEmpty(sources)) {
 		throw defect("a statement's placeholders of nested rows read in a FROM item of their columns")
 	}

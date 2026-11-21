@@ -20,6 +20,7 @@ import {
 } from "#compiler/program/schema.ts"
 import { loginRole, programsOn } from "#compiler/program/workload/roles.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	type ChangeSetValue,
 	parseChangeSet,
@@ -136,7 +137,8 @@ const preparedParsed = <S extends ParamSource>(
 			laws: artifacts.laws,
 			derived: artifacts.derived,
 			clock,
-			source
+			source,
+			carrierScope: carrierScope(world.kind === "role" ? world.role.name : undefined)
 		}),
 		(prepared): PreparedEntry<S> => ({
 			params: artifacts.params,

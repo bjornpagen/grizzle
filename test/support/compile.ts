@@ -53,6 +53,7 @@ import {
 } from "#compiler/physical/install/extension.ts"
 import { installBasis, type ParamSource, unserved } from "#compiler/physical/install/plan.ts"
 import { everySlice } from "#compiler/schema/reach.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { textOfParam } from "#test/support/wire.ts"
 
 import {
@@ -415,7 +416,8 @@ export const realityWrite = (artifacts: SchemaArtifacts): CompileWriteOptions =>
 	derived: artifacts.derived,
 	level: "serializable",
 	clock: noClock,
-	source: transactionClock
+	source: transactionClock,
+	carrierScope: carrierScope(undefined)
 })
 
 /**

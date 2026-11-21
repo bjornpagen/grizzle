@@ -62,6 +62,7 @@ import {
 import { emitText } from "#compiler/sql/emit.ts"
 import {
 	type CarrierDeclaration,
+	type CarrierScope,
 	carrierName,
 	freshNames,
 	type NameMap,
@@ -173,7 +174,8 @@ const slotReaders = (
  * numbered after the program's `known` carriers. */
 const stagedSlots = (
 	placed: ReadonlyArray<PlacedStatement>,
-	known: number
+	known: number,
+	scope: CarrierScope
 ): ReadonlyArray<StagedSlot> => {
 	const staged: Array<StagedSlot> = []
 	for (const { first, readers } of slotReaders(placed)) {
@@ -199,7 +201,7 @@ const stagedSlots = (
 				first,
 				columns,
 				carrier: Object.freeze({
-					name: carrierName(known + staged.length + 1, declaration),
+					name: carrierName(scope, known + staged.length + 1, declaration),
 					heading: Object.freeze(
 						columns.map((c, i): CarrierColumn =>
 							Object.freeze({ name: c.name, type: c.type, column: `c${i + 1}` })
@@ -448,9 +450,10 @@ const restaged = (
  */
 export const withStagedSlots = (
 	placed: ReadonlyArray<PlacedStatement>,
-	carriers: ReadonlyArray<WriteCarrier>
+	carriers: ReadonlyArray<WriteCarrier>,
+	scope: CarrierScope
 ): StagedSlots => {
-	const staged = stagedSlots(placed, carriers.length)
+	const staged = stagedSlots(placed, carriers.length, scope)
 	if (!isNonEmpty(staged)) {
 		return { statements: placed, carriers }
 	}

@@ -8,6 +8,7 @@ import { descText } from "#compiler/ir/desc.ts"
 import { writeWorldOf } from "#compiler/program/write-world.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { role } from "#compiler/public/schema.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetOver as ChangeSet,
 	type ChangeSetValue,
@@ -220,7 +221,8 @@ const roleWorld = Object.freeze(
 				derived: artifacts.derived,
 				level: "serializable" as const,
 				clock: noClock,
-				source: transactionClock
+				source: transactionClock,
+				carrierScope: carrierScope(world.role.name)
 			}
 		}
 	})()

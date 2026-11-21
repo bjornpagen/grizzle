@@ -16,7 +16,7 @@ import type { ConservativeProgram, DeltaRelation } from "#compiler/lower/conserv
 import { roleUpdates } from "#compiler/physical/ddl/roles.ts"
 
 import type { CarrierCasts } from "#compiler/runtime/write/steps.ts"
-import { freshNames } from "#compiler/sql/naming.ts"
+import { type CarrierScope, freshNames } from "#compiler/sql/naming.ts"
 import {
 	buildCreateCarrier,
 	buildFillCarrier,
@@ -110,6 +110,8 @@ interface ConservativeWriteOptions {
 	readonly share: StatementShare
 	/** The level the write runs at, the compiled write's (write/program/compile.ts CompiledWrite `level`). */
 	readonly level: Isolation
+	/** Whose session tables its carriers are, the compiled write's (write/schedule/plan.ts WritePlan `carrierScope`). */
+	readonly carrierScope: CarrierScope
 }
 
 /** Who runs the realization's UPDATEs: reality, or the role whose checked schema the frontend was compiled over, with the
@@ -136,7 +138,7 @@ const realize = (frontend: WriteFrontend, options: ConservativeWriteOptions): Co
 		share: options.share,
 		generation: generations(frontend.laws, updaterOf(frontend))
 	})
-	const supply = new CarrierSupply((t) => w.cx.typeRef(t))
+	const supply = new CarrierSupply((t) => w.cx.typeRef(t), options.carrierScope)
 	const steps: Array<ConservativeStep> = []
 	const carry = (
 		carrier: WriteCarrier,

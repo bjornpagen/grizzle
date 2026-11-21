@@ -82,6 +82,7 @@ import { inForce } from "#compiler/runtime/write/transport.ts"
 import { ownRole } from "#compiler/schema/own.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import type { CreateFunction, SqlStatement } from "#compiler/sql/ast.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { claimsSettingName, printExpr, printObjectName } from "#compiler/sql/print.ts"
 import { changeSetOver, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { relationUniques } from "#compiler/write/insert/unique.ts"
@@ -1241,7 +1242,8 @@ const precheck = (
 				derived: artifacts.derived,
 				level: "serializable",
 				clock: noClock,
-				source: transactionClock
+				source: transactionClock,
+				carrierScope: carrierScope(world.role.name)
 			})
 		)
 		const members = yield* Effect.orDie(collectInputs(program.binding.groups, change.inputs))

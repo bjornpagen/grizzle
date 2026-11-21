@@ -22,6 +22,7 @@ import { computeCore } from "#compiler/scalar/compute/builders.ts"
 import { CompilePatterns } from "#compiler/scalar/regex/patterns.ts"
 import { carrierSql } from "#compiler/scalar/registry.ts"
 import { insertableNamesOf } from "#compiler/schema/world.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -2499,7 +2500,8 @@ const roleWorldOf = (name: RoleName) => {
 			derived: artifacts.value.derived,
 			level: "serializable" as const,
 			clock: noClock,
-			source: transactionClock
+			source: transactionClock,
+			carrierScope: carrierScope(world.role.name)
 		}
 	}
 }

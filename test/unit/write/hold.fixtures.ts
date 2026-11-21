@@ -12,6 +12,7 @@ import { contained, on, relation, retirable, schema } from "#compiler/public/sch
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import type { ObjectName } from "#compiler/sql/ast.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { identityHooks, transformStatement } from "#compiler/sql/transform.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
@@ -340,7 +341,8 @@ export const compiledOf = (d: Drawn) =>
 		derived: artifacts.derived,
 		level: "readCommitted",
 		clock: noClock,
-		source: transactionClock
+		source: transactionClock,
+		carrierScope: carrierScope(undefined)
 	})
 
 /** Every object a statement names, schema and name, as its text prints them. */

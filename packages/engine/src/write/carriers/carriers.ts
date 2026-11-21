@@ -38,7 +38,12 @@ import {
 	unitTargets
 } from "#compiler/sql/build.ts"
 import { emitText } from "#compiler/sql/emit.ts"
-import { type CarrierDeclaration, carrierName, emptyNameMap } from "#compiler/sql/naming.ts"
+import {
+	type CarrierDeclaration,
+	type CarrierScope,
+	carrierName,
+	emptyNameMap
+} from "#compiler/sql/naming.ts"
 import { printTableName } from "#compiler/sql/print.ts"
 import {
 	buildStatement,
@@ -132,8 +137,11 @@ export class CarrierSupply {
 	readonly #all: Array<WriteCarrier> = []
 	readonly #typing: CarrierTyping
 
-	constructor(typing: CarrierTyping) {
+	readonly #scope: CarrierScope
+
+	constructor(typing: CarrierTyping, scope: CarrierScope) {
 		this.#typing = typing
+		this.#scope = scope
 	}
 
 	/** A carrier of `heading`, of any width, keyed by the fields `key` names, or by none. */
@@ -162,7 +170,7 @@ export class CarrierSupply {
 						)
 		})
 		const carrier: WriteCarrier = Object.freeze({
-			name: carrierName(ordinal, declaration),
+			name: carrierName(this.#scope, ordinal, declaration),
 			heading: columns,
 			fill: "insertSelect" as const,
 			declaration

@@ -12,6 +12,7 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
 import { removedTag, type WriteStepResult } from "#compiler/runtime/write/steps.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import {
 	changeSetDesc,
 	changeSetOver,
@@ -281,7 +282,8 @@ export const compiledSketch = (s: Sketch, at: Subject) =>
 		derived: at.artifacts.derived,
 		level: "serializable",
 		clock: noClock,
-		source: transactionClock
+		source: transactionClock,
+		carrierScope: carrierScope(undefined)
 	})
 
 /** The kind of write a statement's result says made its delta. */

@@ -78,9 +78,28 @@ export type CarrierName = string & { readonly [carrierNameBrand]: true }
 declare const carrierNameBrand: unique symbol
 const CarrierName = nominal<string, CarrierName>()
 
-/** The `ordinal`-th carrier of a program, from 1, of `declaration`. */
-export const carrierName = (ordinal: number, declaration: CarrierDeclaration): CarrierName =>
-	CarrierName(identifierOf(identity.carrier(ordinal, canonicalTextOf(declaration))))
+/**
+ * Whose session tables a program's carriers are: the role it runs as, or reality's. A login's pooled session runs every
+ * role of the login, each transaction under one, and a carrier, a session table every COMMIT keeps (sql/print.ts
+ * carrierStandUp), is owned by the role whose transaction made it, which alone may truncate it, as the next use's
+ * stand-up does: so a carrier's name digests its scope beside its declaration, and two roles' programs of one
+ * declaration never meet one table, where the second's TRUNCATE of the first's was refused (42501).
+ */
+export type CarrierScope = string & { readonly [carrierScopeBrand]: true }
+declare const carrierScopeBrand: unique symbol
+const CarrierScope = nominal<string, CarrierScope>()
+
+/** The carrier scope of a program that runs as the role `role`, or as reality where none. */
+export const carrierScope = (role: string | undefined): CarrierScope =>
+	CarrierScope(role === undefined ? "reality" : `role ${role}`)
+
+/** The `ordinal`-th carrier of a program, from 1, of `declaration`, in its scope `scope`. */
+export const carrierName = (
+	scope: CarrierScope,
+	ordinal: number,
+	declaration: CarrierDeclaration
+): CarrierName =>
+	CarrierName(identifierOf(identity.carrier(scope, ordinal, canonicalTextOf(declaration))))
 
 /**
  * The first relation and column numbers: 1 for a statement of its own; the write protocols number the input arrays

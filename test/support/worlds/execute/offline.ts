@@ -10,6 +10,7 @@ import { type BindResult, bindWrite } from "#compiler/runtime/write/bind.ts"
 import { memberFactsOf } from "#compiler/runtime/write/members.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import type { UnservedMember } from "#compiler/served/unserved.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { type ParsedChangeSet, parseChangeSet } from "#compiler/write/changeset/value.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { servedMembers } from "#compiler/write/program/served-members.ts"
@@ -46,7 +47,8 @@ export const offlineCompile = (
 		derived: artifacts.derived,
 		level: "serializable",
 		clock: noClock,
-		source: transactionClock
+		source: transactionClock,
+		carrierScope: carrierScope(world.role.name)
 	})
 }
 

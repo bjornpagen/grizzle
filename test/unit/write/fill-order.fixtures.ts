@@ -19,6 +19,7 @@ import type { Cells } from "#compiler/runtime/write/cells.ts"
 import { normalizeChangeSet } from "#compiler/runtime/write/normalize.ts"
 import { inForce } from "#compiler/runtime/write/transport.ts"
 import { roleBuilder as role } from "#compiler/schema/world.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { flightOf } from "#compiler/write/program/served.ts"
@@ -545,7 +546,8 @@ export const guards = (spec: FillSpec, note: (situation: FillSituation) => void)
 						derived: roleArtifacts.derived,
 						level: "serializable",
 						clock: noClock,
-						source: transactionClock
+						source: transactionClock,
+						carrierScope: carrierScope(world.role.name)
 					})
 				)
 				const label = `a ${op} of ${written} under a role leaving out ${left}`

@@ -19,6 +19,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -147,7 +148,8 @@ export const compile = (value: unknown) =>
 		derived: artifacts.derived,
 		level: "serializable",
 		clock: noClock,
-		source: transactionClock
+		source: transactionClock,
+		carrierScope: carrierScope(undefined)
 	})
 
 /** The first stratum whose owners a query may insert beside an insert or put of their members: the refusal's place,

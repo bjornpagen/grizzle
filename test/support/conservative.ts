@@ -26,6 +26,7 @@ import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/templa
 import type { QueryTemplate } from "#compiler/program/compile.ts"
 import type { SchemaArtifacts } from "#compiler/program/schema.ts"
 import { servedReadBacks, servedSpine } from "#compiler/served/spine.ts"
+import type { CarrierScope } from "#compiler/sql/naming.ts"
 import { StatementShare } from "#compiler/write/insert/statement.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import {
@@ -189,7 +190,8 @@ const conservativeArtifact = (
 	write: ConservativeWrite,
 	codes: Codebook,
 	placements: ReadonlyArray<FamilyPlacement>,
-	admission: CompiledWrite["admission"]
+	admission: CompiledWrite["admission"],
+	scope: CarrierScope
 ): WriteArtifact => {
 	const b = newBuilder(codes)
 	placeAdmission(b, admission)
@@ -259,7 +261,7 @@ const conservativeArtifact = (
 			}
 		}
 	}
-	return finish(b, write.carriers)
+	return finish(b, write.carriers, scope)
 }
 
 /**
@@ -276,7 +278,8 @@ export const conservativeWrite = (
 			names: options.names,
 			reads: options.reads,
 			share: new StatementShare(),
-			level: program.level
+			level: program.level,
+			carrierScope: program.plan.carrierScope
 		}),
 		(write) =>
 			catchRefusal((): CompiledWrite => {
@@ -284,7 +287,8 @@ export const conservativeWrite = (
 					write,
 					options.names.codes,
 					program.placements,
-					program.admission
+					program.admission,
+					program.plan.carrierScope
 				)
 				return {
 					...program,

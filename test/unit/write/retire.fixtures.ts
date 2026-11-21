@@ -9,6 +9,7 @@ import { pg, retirement } from "#compiler/public/fields.ts"
 import { contained, on, relation, retirable, role, schema } from "#compiler/public/schema.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { FinishedValue, RuleValue } from "#compiler/query/build/rule.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetOver as ChangeSet, type ChangeSetValue } from "#compiler/write/changeset/value.ts"
 import type { DeltaValue } from "#compiler/write/delta/source.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -273,7 +274,8 @@ const compileOptions = (() => {
 				derived: artifacts.derived,
 				level: "readCommitted" as const,
 				clock: noClock,
-				source: transactionClock
+				source: transactionClock,
+				carrierScope: carrierScope(world.role.name)
 			}
 		}
 	}

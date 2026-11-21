@@ -775,14 +775,18 @@ export class TemporaryRefused extends Data.TaggedError("TemporaryRefused")<{
 
 /**
  * The refusal of an execution that creates a temporary table (ExecutionPart "create"), for the role's want of the
- * TEMPORARY privilege on the database (42501), as TemporaryRefused; none for any other execution or refusal. The one
+ * TEMPORARY privilege on the database (42501, naming no table: the privilege is the database's), as TemporaryRefused;
+ * none for any other execution or refusal, a carrier's stand-up that met a table of its name another role made among
+ * them, which names the table (sql/print.ts carrierStandUp). The one
  * reading of it, every flight that creates one shares (apply/run.ts, explain).
  */
 export const temporaryRefusal = (
 	part: ExecutionPart,
 	error: ServerError
 ): TemporaryRefused | undefined =>
-	part === "create" && error.sqlstate === sqlstates.insufficientPrivilege
+	part === "create" &&
+	error.sqlstate === sqlstates.insufficientPrivilege &&
+	error.table === undefined
 		? new TemporaryRefused({ privilege: "TEMPORARY", error })
 		: undefined
 

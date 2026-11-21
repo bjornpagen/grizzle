@@ -1830,10 +1830,10 @@ export const identity = Object.freeze({
 	 * lives in its session's pg_temp until its transaction ends, so its name is no installation's: one name stands for
 	 * one declaration, and a served statement that names it reads one row type.
 	 */
-	carrier: (ordinal: number, declaration: string): Identity<"carrier"> =>
+	carrier: (scope: string, ordinal: number, declaration: string): Identity<"carrier"> =>
 		mint(
 			"carrier",
-			[String(ordinal), declaration],
+			[scope, String(ordinal), declaration],
 			["carrier", String(ordinal)],
 			`carrier ${ordinal} of its program`,
 			hashed

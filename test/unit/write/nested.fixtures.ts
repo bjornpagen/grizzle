@@ -18,6 +18,7 @@ import {
 	schema,
 	tree
 } from "#compiler/public/schema.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import type { WriteNames } from "#compiler/write/insert/statement.ts"
 import { type CompiledWrite, compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -88,7 +89,8 @@ export const nestedCompiled = (value: unknown): CompiledWrite =>
 			derived: artifacts.derived,
 			level: "serializable",
 			clock: noClock,
-			source: transactionClock
+			source: transactionClock,
+			carrierScope: carrierScope(undefined)
 		})
 	)
 

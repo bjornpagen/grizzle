@@ -1,7 +1,7 @@
 /** What the properties of carrier-names.test.ts read: its spaces, models and helpers. */
 
 import { defined } from "@bjornpagen/testing/assert"
-import { type Gen, subarray } from "@bjornpagen/testing/gen"
+import { element, type Gen, subarray } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { identity } from "#compiler/core/identity.ts"
 import { noClock, transactionClock } from "#compiler/ir/clock.ts"
@@ -11,6 +11,7 @@ import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
 import { mutable, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { carrierScope } from "#compiler/sql/naming.ts"
 import { changeSetDesc } from "#compiler/write/changeset/value.ts"
 import type { WriteArtifact } from "#compiler/write/program/artifact.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
@@ -143,8 +144,8 @@ interface Created {
 	readonly conservative: ReadonlyArray<readonly [name: string, declaration: string]>
 }
 
-/** Every carrier a layout's programs create, in both realizations. */
-const carriersOf = (layout: Layout): Created => {
+/** Every carrier a layout's programs create, in both realizations, its programs run as `role`, or as reality. */
+const carriersOf = (layout: Layout, role: string | undefined): Created => {
 	const { S, changes } = layoutOf(layout)
 	const owned = owning(S)
 	const names = succeeded(
@@ -171,7 +172,8 @@ const carriersOf = (layout: Layout): Created => {
 			derived: artifacts.derived,
 			level: "serializable",
 			clock: noClock,
-			source: transactionClock
+			source: transactionClock,
+			carrierScope: carrierScope(role)
 		}),
 		`the ${layout} put compiles`
 	)
@@ -187,11 +189,29 @@ const carriersOf = (layout: Layout): Created => {
 
 /** Each layout's carriers, compiled once. */
 export const carriers: { readonly [L in Layout]: Created } = {
-	text: carriersOf("text"),
-	bigint: carriersOf("bigint"),
-	boolean: carriersOf("boolean"),
-	uuid: carriersOf("uuid")
+	text: carriersOf("text", undefined),
+	bigint: carriersOf("bigint", undefined),
+	boolean: carriersOf("boolean", undefined),
+	uuid: carriersOf("uuid", undefined)
 }
+
+/**
+ * Two roles of one login, which one pooled session runs, each transaction under one (adapter/served: the login's pool
+ * serves every role of it), as `roleCarriersOf` compiles a layout's put for each.
+ */
+const loginRoles = ["writer", "clerk"] as const
+
+/**
+ * The carriers a layout's put creates compiled for each role of one login: the same program, so the same declarations
+ * at every position, whose names must still differ by role, since a carrier is a session table owned by the role whose
+ * transaction made it (sql/naming.ts CarrierScope).
+ */
+export const roleCarriersOf = (
+	layout: Layout
+): { readonly [R in (typeof loginRoles)[number]]: Created } => ({
+	writer: carriersOf(layout, "writer"),
+	clerk: carriersOf(layout, "clerk")
+})
 
 export type Situation = "one layout" | "layouts of one carrier position and two declarations"
 
@@ -215,3 +235,6 @@ export const placedApart = (drawnLayouts: ReadonlyArray<Layout>): boolean =>
 	)
 
 export const layoutsGen: Gen<ReadonlyArray<Layout>> = subarray(layouts)
+
+/** One layout. */
+export const layoutGen: Gen<Layout> = element(layouts)

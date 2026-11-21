@@ -27,6 +27,7 @@ import {
 	type ColumnDef,
 	type ColumnDefinition,
 	type CreateCarrier,
+	type FromSource,
 	type ColumnGeneration,
 	type StoredGeneration,
 	type CommentTarget,
@@ -91,6 +92,7 @@ import {
 	type With
 } from "#compiler/sql/ast.ts"
 import {
+	and,
 	call as builtinCall,
 	col,
 	conjunction,
@@ -1460,8 +1462,37 @@ const sessionTableName = (name: string): string =>
 	printObjectName({ schema: temporarySchema, name })
 
 /** `name`'s relation in the session's own temporary schema, or NULL where it holds none. */
-export const sessionRegclass = (name: string): Expr =>
+const sessionRegclass = (name: string): Expr =>
 	builtinCall("to_regclass", [lit.text(sessionTableName(name), types.text)])
+
+/**
+ * That the relation of pg_class under `alias` is a temporary table CURRENT_USER owns: inside a SECURITY DEFINER function
+ * its definer, in a DO block the role its transaction runs as.
+ */
+const ownedSessionTable = (alias: string): NonEmptyReadonlyArray<Expr> => [
+	eq(builtinCall("pg_get_userbyid", [col(alias, "relowner")]), {
+		kind: "user",
+		name: "CURRENT_USER"
+	}),
+	eq(col(alias, "relpersistence"), lit.text("t", types.text))
+]
+
+/**
+ * That the session's relation named `name` is a temporary table CURRENT_USER owns (`ownedSessionTable`), read with
+ * `from` beside its pg_class row, r2, where each of `more` holds of it.
+ */
+export const sessionTableOurs = (
+	name: string,
+	from: ReadonlyArray<FromSource>,
+	more: ReadonlyArray<Expr>
+): Expr =>
+	exists(
+		simpleSelect(
+			[],
+			[{ kind: "table", table: objectName("pg_catalog", "pg_class"), alias: "r2" }, ...from],
+			and([eq(col("r2", "oid"), sessionRegclass(name)), ...ownedSessionTable("r2"), ...more])
+		)
+	)
 
 /** That the session's temporary schema holds a relation named `name`: what a session table's stand-up asks. */
 export const sessionTableStands = (name: string): Expr =>
@@ -1504,6 +1535,20 @@ const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
 							})),
 							notNull: true,
 							primaryKey: carrier.primaryKey
+						}
+					]
+				},
+				{
+					condition: not(sessionTableOurs(carrier.name, [], [])),
+					body: [
+						{
+							kind: "raise",
+							message: "a session carrier of the write that another role made",
+							using: [
+								{ option: "ERRCODE", value: lit.text("insufficient_privilege", types.text) },
+								{ option: "SCHEMA", value: lit.text(temporarySchema, types.text) },
+								{ option: "TABLE", value: lit.text(carrier.name, types.text) }
+							]
 						}
 					]
 				}

@@ -17,14 +17,16 @@
  * order, never a carrier name's spelling.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import {
 	carriers,
+	layoutGen,
 	layoutsGen,
+	roleCarriersOf,
 	placedApart,
 	type Situation
 } from "#test/unit/write/carrier-names.fixtures.ts"
@@ -69,9 +71,72 @@ export const aWriteProgramsCarriersNameOneDeclarationEachAcrossEveryProgramASess
 			{
 				file: "packages/engine/src/sql/naming.ts",
 				original:
-					"\tCarrierName(identifierOf(identity.carrier(ordinal, canonicalTextOf(declaration))))",
-				replacement: '\tCarrierName(identifierOf(identity.carrier(ordinal, "")))',
+					"\tCarrierName(identifierOf(identity.carrier(scope, ordinal, canonicalTextOf(declaration))))",
+				replacement: '\tCarrierName(identifierOf(identity.carrier(scope, ordinal, "")))',
 				why: "A carrier named by its ordinal alone, never its declaration's digest (sql/naming.ts carrierName)."
 			}
 		]
 	})
+
+/**
+ * Two roles of one login never name one carrier: a login's pooled session runs every role of the login, each
+ * transaction under one, and a carrier is a session table every COMMIT keeps (sql/print.ts carrierStandUp), owned by the
+ * role whose transaction made it, which alone may truncate it. So the put of each layout compiled for two roles of one
+ * login, the same program and the same declaration at every position, names each position's carrier apart by role, and
+ * alike within a role, in both realizations; where the names were one, the second role's stand-up met the first role's
+ * table and its TRUNCATE was refused with 42501 (den's worker login, 24 roles on one pool, at grizzle 28ffbfcdc).
+ *
+ * Oracle: a specification, read off the compiled programs: per position, the declarations agree and the names differ.
+ */
+export const twoRolesOfOneLoginNameEveryCarrierApart = property.exhaust(finite(layoutGen), {
+	needs: {},
+	situations: ["a layout's put for two roles"] satisfies ReadonlyArray<
+		Reached<"a layout's put for two roles">
+	>,
+	check: (_, c: Case<"a layout's put for two roles">) => (layout) =>
+		Effect.sync(() => {
+			const { writer, clerk } = roleCarriersOf(layout)
+			for (const realization of ["optimized", "conservative"] as const) {
+				const a = writer[realization]
+				const b = clerk[realization]
+				assert.equal(
+					a.length,
+					b.length,
+					`${layout} ${realization}: both roles create the same carriers`
+				)
+				for (const [i, [name, declaration]] of a.entries()) {
+					const other = defined(b[i], `${layout} ${realization}: the clerk's carrier ${i}`)
+					assert.equal(
+						other[1],
+						declaration,
+						`${layout} ${realization}: carrier ${i} is declared alike`
+					)
+					assert.notEqual(
+						other[0],
+						name,
+						`${layout} ${realization}: carrier ${i} is named alike for both roles`
+					)
+				}
+				assert.deepEqual(
+					roleCarriersOf(layout).writer[realization],
+					a,
+					`${layout} ${realization}: one role names its carriers alike each compile`
+				)
+			}
+			c.note("a layout's put for two roles")
+		}),
+	oracle: {
+		kind: "specification",
+		name: "per carrier position of each realization: one declaration for both roles, and a name for each"
+	},
+	box: "each layout's put from a query read back by its added facts, compiled for two roles of one login, in both realizations",
+	kept: [],
+	kills: [
+		{
+			file: "packages/engine/src/core/identity.ts",
+			original: "\t\t\t[scope, String(ordinal), declaration],",
+			replacement: "\t\t\t[String(ordinal), declaration],",
+			why: "A carrier named by its declaration alone, as be2a16b66 named it: two roles' programs of one declaration name one session table, which the second role may not truncate."
+		}
+	]
+})
