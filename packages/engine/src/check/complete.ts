@@ -1,12 +1,13 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
-import { canonicalMerges, type StatedMerge } from "#compiler/check/merge.ts"
-import { completedOrders, type StatedOrder } from "#compiler/check/order.ts"
+import { canonicalMerges, mergeReads, type StatedMerge } from "#compiler/check/merge.ts"
+import { completedOrders, orderReads, type StatedOrder } from "#compiler/check/order.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { DagBuilder } from "#compiler/ir/builder.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import type { RelNode, Roots, ValidDag } from "#compiler/ir/rel.ts"
 import {
 	analyzeLogical,
+	keptNodes,
 	type LogicalEnv,
 	type SharedAnalyses,
 	withLogicalMeta
@@ -41,7 +42,14 @@ export const completeStated = <R extends Roots>(
 	if (orders.size === 0 && merges.size === 0) {
 		return Result.ok(dag)
 	}
-	const analysis = analyzeLogical(dag, evidence)
+	const analysis = analyzeLogical(
+		dag,
+		evidence,
+		keptNodes([
+			...[...orders.values()].flatMap(orderReads),
+			...[...merges.values()].flatMap(mergeReads)
+		])
+	)
 	if (!analysis.ok) {
 		return Result.err(analysis.error)
 	}

@@ -21,6 +21,12 @@
  *   (logical/annotate.ts SharedAnalyses readers): its readers are counted once, so an attachment there whose child it
  *   alone reads revises the child as an analysis of the DAG alone does, in every order of three DAGs. Oracle: that
  *   analysis.
+ * - What an analysis holds (logical/annotate.ts Annotator, logical/props.ts PropsView): over a chain of n projections
+ *   under an attachment, an analysis whose caller keeps its root's properties holds, once made, the properties of that
+ *   one node and of no other: a node's properties hold its inputs' views, never their properties, its functions read
+ *   its own rows alone, and the analysis drops each node's properties once its readers are built. Oracle: the
+ *   specification, the functions alive with the analysis held, which its held properties' key functions count, as
+ *   many at either length.
  * - A key search's tests (logical/closure.ts minimalKeys): each candidate is tested against the keys found by their
  *   set-trie, so over n columns each alone a key the tests grow as the n² candidates do, never as n³. Oracle: that
  *   growth bound.
@@ -38,9 +44,11 @@
  * Features: a closure that adds nothing, one of three passes or more, and a dependency that never fires; a row asked
  * again once a value is named, a value named and a column reached by a row that names nothing; a search from n = 4 and
  * from n = 6; a factor search from m = 4 and from m = 6; one relation and several joined; one query of a reading and several;
- * a shared chain from n = 4 and from n = 6; a child of one column kept beside its correlated one and of two.
+ * a shared chain from n = 4 and from n = 6; a child of one column kept beside its correlated one and of two; chains of
+ * 40 and 60 analyzed and held, and of 60 and 90.
  */
 
+import { queryObjects } from "node:v8"
 import { indices } from "@bjornpagen/grizzle-text/base/array"
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
@@ -49,7 +57,14 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Order, String as Str } from "effect"
 import { analyzePhysical, type PhysicalEnv, unplaced } from "#compiler/analysis/physical/analyze.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { analyzeLogical, checkerEvidence, SharedAnalyses } from "#compiler/logical/annotate.ts"
+import type { ValidDag } from "#compiler/ir/rel.ts"
+import {
+	analyzeLogical,
+	checkerEvidence,
+	everyNode,
+	keptNodes,
+	SharedAnalyses
+} from "#compiler/logical/annotate.ts"
 import {
 	attributesOver,
 	type Bits,
@@ -389,11 +404,19 @@ export const aNodesStepsReadTheirSourcesOffItsReadingIndexedOnceAffineInItsColum
 				const counted = new Map<number, number>()
 				for (const m of [4 * step, 8 * step, 12 * step]) {
 					const [analysis, counts] = yield* callCountsIn(
-						Effect.sync(() => succeeded(analyzeLogical(indexedReading(m), checkerEvidence))),
+						Effect.sync(() => {
+							const dag = indexedReading(m)
+							return { dag, analyzed: succeeded(analyzeLogical(dag, checkerEvidence, everyNode)) }
+						}),
 						Str.endsWith("logical/props.ts")
 					)
 					const root = defined(analysis.dag.roots[0], "the projection")
-					assert.equal(analysis.of(root).props.columns.length, m, "the projection's m outputs")
+					assert.equal(
+						defined(analysis.analyzed.props.get(root), "the projection's properties, kept").columns
+							.length,
+						m,
+						"the projection's m outputs"
+					)
 					counted.set(
 						m,
 						Arr.reduce([...counts.values()], 0, (n, k) => n + k)
@@ -446,7 +469,9 @@ export const eachNodesAttributesAndDependenciesAreInternedOnceHoweverManyClosure
 			Effect.gen(function* () {
 				c.note(k === 1 ? "one relation" : "several relations")
 				const [, counts] = yield* callCounts(
-					Effect.sync(() => succeeded(analyzeLogical(productOf(k, "both keys"), checkerEvidence))),
+					Effect.sync(() =>
+						succeeded(analyzeLogical(productOf(k, "both keys"), checkerEvidence, everyNode))
+					),
 					interning
 				)
 				assert.equal(
@@ -506,7 +531,7 @@ export const aRelationsReadingIsAnalyzedOnceHoweverManyQueriesReadIt = property.
 					Effect.sync(() => {
 						for (const _ of indices(n)) {
 							analyzePhysical(
-								succeeded(analyzeLogical(readingQuery(reading), checkerEvidence)).dag,
+								succeeded(analyzeLogical(readingQuery(reading), checkerEvidence, everyNode)).dag,
 								env
 							)
 						}
@@ -574,20 +599,23 @@ export const aCompilesLaterAnalysisOfASharedSubDagReadsItsRecordAndWalksNoneOfIt
 					const { shared, inner, queries } = sharedChain(n)
 					const analyses = new SharedAnalyses(checkerEvidence, (node) => node === shared)
 					const first = succeeded(
-						analyzeLogical(queries[0], analyses),
+						analyzeLogical(queries[0], analyses, keptNodes(queries[0].roots)),
 						"the first query's analysis"
 					)
 					const [analysis, counts] = yield* callCountsIn(
 						Effect.sync(() =>
-							succeeded(analyzeLogical(queries[1], analyses), "the second query's")
+							succeeded(
+								analyzeLogical(queries[1], analyses, keptNodes(queries[1].roots)),
+								"the second query's"
+							)
 						),
 						(file) =>
 							Str.includes("engine/src/logical/")(file) ||
 							Arr.some(walks, (module) => Str.endsWith(module)(file))
 					)
 					assert.equal(
-						analysis.of(inner).props,
-						first.of(inner).props,
+						analysis.of(inner).node,
+						first.of(inner).node,
 						"the second query reads the chain's annotation the first recorded"
 					)
 					counted.set(
@@ -657,15 +685,17 @@ export const aDagReachingARecordedNodeInsideItsRecordCountsItsReadersOnce = prop
 					const analyses = new SharedAnalyses(checkerEvidence, (node) => node === shared)
 					for (const at of sequence) {
 						const dag = dags[at]
-						const reading = succeeded(analyzeLogical(dag, analyses), "a shared analysis")
+						/** Every node kept: a node's properties read where the DAG judges its record's attachments. */
+						const kept = keptNodes(topoOrder(dag))
+						const reading = succeeded(analyzeLogical(dag, analyses, kept), "a shared analysis")
 						const alone = succeeded(
-							analyzeLogical(dag, checkerEvidence),
+							analyzeLogical(dag, checkerEvidence, kept),
 							"the DAG's analysis alone"
 						)
 						for (const node of topoOrder(dag)) {
 							assert.deepEqual(
-								fixedColumns(reading.of(node).props),
-								fixedColumns(alone.of(node).props),
+								fixedColumns(defined(reading.props.get(node), "the node's properties, kept")),
+								fixedColumns(defined(alone.props.get(node), "the node's properties, kept")),
 								`${node.id} (${node.kind}) in DAG ${at} of ${Arr.join(
 									Arr.map(sequence, (i) => `${i}`),
 									""
@@ -684,6 +714,91 @@ export const aDagReachingARecordedNodeInsideItsRecordCountsItsReadersOnce = prop
 				original: "\t\t\t\twalked.set(input, (walked.get(input) ?? 0) - 1)",
 				replacement: "\t\t\t\twalked.set(input, walked.get(input) ?? 0)",
 				why: "A recorded node inside a record, reached by the walk, is counted again where its record counts it (logical/annotate.ts SharedAnalyses readers), so the attachment's child has two readers and stays unrevised; the property fails."
+			}
+		]
+	}
+)
+
+export type HeldFeature = "chains of 40 and 60" | "chains of 60 and 90"
+
+/**
+ * The functions alive, counted by V8 after a full collection (node:v8 queryObjects): a node's logical properties hold
+ * their key functions (logical/props.ts Props prove, whole) and the closures those read, so the functions an analysis
+ * holds grow with the properties it holds.
+ */
+const functionsAlive = (): number => queryObjects(Function, { format: "count" })
+
+/**
+ * A first analysis of `dag`, which reads its relation's reading every later analysis shares (logical/props.ts
+ * leafProps), made in a frame of its own: an interpreted frame holds a value it no longer reads until it returns, so
+ * one made in the caller's frame would stay alive beside the analysis the caller counts.
+ */
+const analyzedOnce = (dag: ValidDag): void => {
+	succeeded(analyzeLogical(dag, checkerEvidence, keptNodes(dag.roots)), "a first analysis")
+}
+
+/**
+ * An analysis holds the properties of the nodes its caller keeps and of no other: over chains of n and 3n/2
+ * projections under an attachment, each analyzed with its root's properties kept after a first analysis has read the
+ * chain's relation (whose reading every later analysis shares, logical/props.ts leafProps), the functions alive with
+ * the analysis held beside those alive before it are as many at either length, so it holds nothing per node of the
+ * chain but its annotated node, where it held every node's properties: through the fold's memo of every node's
+ * annotation, through each node's reading of its inputs' properties, or through its key functions' scope, which read
+ * the node's steps over that reading.
+ */
+export const anAnalysisHoldsThePropertiesOfTheNodesItsCallerKeepsAndOfNoOther = property.exhaust(
+	finite(int(2, 3)),
+	{
+		needs: {},
+		situations: ["chains of 40 and 60", "chains of 60 and 90"] satisfies ReadonlyArray<
+			Reached<HeldFeature>
+		>,
+		check: (_, c: Case<HeldFeature>) => (step) =>
+			Effect.sync(() => {
+				c.note(step === 2 ? "chains of 40 and 60" : "chains of 60 and 90")
+				const heldAt = (n: number): number => {
+					const dag = sharedChain(n).queries[0]
+					analyzedOnce(dag)
+					const before = functionsAlive()
+					const held = succeeded(
+						analyzeLogical(dag, checkerEvidence, keptNodes(dag.roots)),
+						"the analysis held"
+					)
+					const alive = functionsAlive() - before
+					assert.equal(held.props.size, 1, "the root's properties, kept")
+					return alive
+				}
+				assert.equal(
+					heldAt(30 * step),
+					heldAt(20 * step),
+					`the functions an analysis holds of a chain of ${30 * step} as of ${20 * step}`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "an analysis holds the properties its caller keeps, counted live"
+		},
+		box: "chains of 20s and 30s projections under an attachment, s at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/annotate.ts",
+				original: "\t\t\treturn { node: made.node, judged: made.judged }",
+				replacement: "\t\t\treturn made",
+				why: "The fold's memo holds each node's annotation with its properties (logical/annotate.ts run), so the analysis holds every node's for as long as it lives."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\tview: { node, reading: subject.views, provenance, fixed },",
+				replacement:
+					"\t\tview: { node, reading: subject.views, provenance, fixed },\n\t\treading: subject.reading,",
+				why: "A node's properties hold its reading, its inputs' properties (logical/props.ts finish), so the root's hold every node's."
+			},
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\tconst reached = coverOf({ stated }, key)",
+				replacement: "\t\tconst reached = coverOf(steps, key)",
+				why: "A node's key functions close over its steps (logical/props.ts finish), whose reading holds its inputs' properties, so the root's hold every node's."
 			}
 		]
 	}

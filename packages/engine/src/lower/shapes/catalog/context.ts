@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { keyEvidence } from "#compiler/analysis/physical/evidence.ts"
 import { unwrap } from "#compiler/core/canonical.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
@@ -15,7 +16,7 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { sameScalarType } from "#compiler/ir/scalar.ts"
-import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, keptNodes, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { Props } from "#compiler/logical/props.ts"
 import type { CatalogEditor } from "#compiler/lower/shapes/catalog/edit.ts"
 
@@ -132,10 +133,11 @@ export class CatalogContext {
 		const analysis = unwrap(
 			analyzeLogical(
 				this.ed.reachable().has(cell) ? finished.dag : assembledDag([node] as const),
-				queryEvidence
+				queryEvidence,
+				keptNodes([node])
 			)
 		)
-		return analysis.of(node).props
+		return defined(analysis.props.get(node), "the cell's node, kept")
 	}
 
 	/**

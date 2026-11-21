@@ -59,7 +59,7 @@ export const theAnalysesOverASmallClosedUniverseEveryCoreQueryOfUpToTwoOperators
 			{
 				file: "packages/engine/src/logical/attach.ts",
 				original:
-					"\t\tconst selected = scans.some((s) =>\n\t\t\tfact.from.selection.every((sel) => scanSelects(parent, s, sel.column, sel.value))\n\t\t)",
+					"\t\tconst selected = scans.some((s) =>\n\t\t\tfact.from.selection.every((sel) => scanSelects(parent.view, s, sel.column, sel.value))\n\t\t)",
 				replacement: "\t\tconst selected = scans.length > 0",
 				why: "A bare child proved from a containment whose source selection the parent's fact need not satisfy (logical/attach.ts); unsound for the scan of every fact of S under the selected containment."
 			},

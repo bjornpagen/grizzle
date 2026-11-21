@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Order } from "effect"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -152,7 +153,7 @@ const sorted = (texts: Iterable<string>): ReadonlyArray<string> => Arr.sort(text
  * relation's field routes by the least-named declared scalar parameter every Base over it ties it to, its carrier
  * routable; a materialized view is read whole.
  */
-export const climbedFootprint = ({ dag, analysis, params }: AnalyzedQuery): Footprint => {
+export const climbedFootprint = ({ dag, facts, params }: AnalyzedQuery): Footprint => {
 	const order = topoOrder(dag)
 	const consumers = new Map<NodeId, Array<Climb>>()
 	for (const node of order) {
@@ -163,16 +164,14 @@ export const climbedFootprint = ({ dag, analysis, params }: AnalyzedQuery): Foot
 	const roots = new Set(Arr.map(dag.roots, (r) => r.id))
 	const memo = new Map<string, ReadonlySet<ParamId>>()
 	const tied = (node: RelNode, carrying: ReadonlySet<string>): ReadonlySet<ParamId> => {
-		const props = analysis.of(node).props
-		const columns = new Set(Arr.flatMap([...carrying], (c) => [c, ...(props.classes.get(c) ?? [])]))
+		const read = defined(facts.get(node), "the node's route facts, read")
+		const columns = new Set(Arr.flatMap([...carrying], (c) => [c, ...(read.classes.get(c) ?? [])]))
 		const at = `${node.id} ${Arr.join(sorted(columns), " ")}`
 		const known = memo.get(at)
 		if (known !== undefined) {
 			return known
 		}
-		const here = Arr.flatMap([...columns], (c) =>
-			Arr.flatMap(props.fixed.get(c) ?? [], (n) => (n.name.kind === "param" ? [n.name.param] : []))
-		)
+		const here = Arr.flatMap([...columns], (c) => [...(read.fixed.get(c) ?? [])])
 		const above = [
 			...(roots.has(node.id) ? [new Set<ParamId>()] : []),
 			...Arr.map(consumers.get(node.id) ?? [], (climb) => {

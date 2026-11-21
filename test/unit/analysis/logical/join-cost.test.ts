@@ -5,7 +5,7 @@ import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { keyFactors } from "#compiler/ir/keys.ts"
-import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, checkerEvidence, everyNode } from "#compiler/logical/annotate.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { incrementsDoNotGrow } from "#test/support/growth.ts"
 import { callCounts } from "#test/support/kernel/calls.ts"
@@ -31,7 +31,7 @@ export const theAnalysisOfKJoinedRelationsOfTwoKeysEachComputesLinearlyManyClosu
 				for (const k of [2 * half, 4 * half, 6 * half]) {
 					const [, counts] = yield* callCounts(
 						Effect.sync(() =>
-							succeeded(analyzeLogical(productOf(k, "both keys"), checkerEvidence))
+							succeeded(analyzeLogical(productOf(k, "both keys"), checkerEvidence, everyNode))
 						),
 						sites
 					)
@@ -81,12 +81,18 @@ export const theAnalysisOfKClassesOfSColumnsThatDetermineOneAnotherInOneFactorCo
 				const counted = new Map<number, Readonly<Record<keyof typeof sites, number>>>()
 				for (const k of [2, 4, 6]) {
 					const [analysis, counts] = yield* callCounts(
-						Effect.sync(() => succeeded(analyzeLogical(classesOf(k, s), checkerEvidence))),
+						Effect.sync(() => {
+							const dag = classesOf(k, s)
+							return { dag, analyzed: succeeded(analyzeLogical(dag, checkerEvidence, everyNode)) }
+						}),
 						sites
 					)
 					counted.set(k, counts)
 					const region = defined(analysis.dag.roots[0], "the region")
-					const { props } = analysis.of(region)
+					const props = defined(
+						analysis.analyzed.props.get(region),
+						"the region's properties, kept"
+					)
 					const proof = defined(props.keys[0], "the region's key")
 					assert.equal(props.keys.length, 1, "one proof of the region's keys")
 					assert.deepEqual(
@@ -119,7 +125,10 @@ export const theAnalysisOfKClassesOfSColumnsThatDetermineOneAnotherInOneFactorCo
 						"the factors state every choice of one column per class"
 					)
 					assert.deepEqual(
-						new KeyKernel(analysis.dag, { keyedViews: false }).check(proof, region),
+						new KeyKernel(analysis.analyzed.dag, { keyedViews: false }).check(
+							proof,
+							analysis.analyzed.of(region).node
+						),
 						[],
 						"the key kernel accepts the proof"
 					)
@@ -165,13 +174,17 @@ export const theKeySearchsWitnessesFireRowsLinearInTheFactorsNeverClosingTheWhol
 				const counted = new Map<number, number>()
 				for (const k of [2 * half, 4 * half, 6 * half]) {
 					const [analysis, counts] = yield* callCounts(
-						Effect.sync(() =>
-							succeeded(analyzeLogical(productOf(k, "a key and a payload"), checkerEvidence))
-						),
+						Effect.sync(() => {
+							const dag = productOf(k, "a key and a payload")
+							return { dag, analyzed: succeeded(analyzeLogical(dag, checkerEvidence, everyNode)) }
+						}),
 						firings
 					)
 					const region = defined(analysis.dag.roots[0], "the region")
-					const proof = defined(analysis.of(region).props.keys[0], "the region's key")
+					const proof = defined(
+						defined(analysis.analyzed.props.get(region), "the region's properties, kept").keys[0],
+						"the region's key"
+					)
 					assert.deepEqual(
 						proof.key,
 						Arr.map(indices(k), (i) => `a${i}`),

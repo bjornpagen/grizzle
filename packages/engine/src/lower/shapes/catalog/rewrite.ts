@@ -9,7 +9,7 @@ import type { OpId } from "#compiler/ir/expr.ts"
 import type { Pass } from "#compiler/ir/pass.ts"
 import type { LogicalQuery } from "#compiler/ir/products.ts"
 import type { Cell, RelKind, Roots, ValidDag } from "#compiler/ir/rel.ts"
-import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, keptNodes, queryEvidence } from "#compiler/logical/annotate.ts"
 import {
 	CatalogContext,
 	type CatalogOptions,
@@ -130,7 +130,7 @@ const families: ReadonlyArray<{
  * as every other node is.
  */
 const annotated = <R extends Roots>(dag: ValidDag<R>): ValidDag<R> => {
-	const analysis = unwrap(analyzeLogical(dag, queryEvidence))
+	const analysis = unwrap(analyzeLogical(dag, queryEvidence, keptNodes([])))
 	return analysis.dag
 }
 

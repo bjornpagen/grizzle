@@ -36,7 +36,13 @@ import {
 	type VarDecl
 } from "#compiler/ir/rel.ts"
 import { typeLabel } from "#compiler/ir/scalar.ts"
-import { analyzeLogical, type LogicalEnv, SharedAnalyses } from "#compiler/logical/annotate.ts"
+import {
+	analyzeLogical,
+	everyNode,
+	keptNodes,
+	type LogicalEnv,
+	SharedAnalyses
+} from "#compiler/logical/annotate.ts"
 import type { ContainmentFact } from "#compiler/logical/attach.ts"
 import { fixedColumns, type Props } from "#compiler/logical/props.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -652,11 +658,11 @@ export const holdsOn = <S>(
 						c.note("a span coverage's fact covered apart from its target's spans")
 					}
 					const env = envOf({ execution, containments })
-					const analysis = analyzeLogical(contextedCase.query.dag, env)
+					const analysis = analyzeLogical(contextedCase.query.dag, env, everyNode)
 					if (!analysis.ok) {
 						throw new Error(`annotation refused: ${analysis.error.message}`)
 					}
-					const scoped = fixedNamesUnscoped(contextedCase.query.dag, analysis.value.of)
+					const scoped = fixedNamesUnscoped(contextedCase.query.dag, analysis.value.props)
 					if (scoped.kind === "unsound") {
 						throw new Error(`${scoped.why}\n${printQueryCase(contextedCase)}`)
 					}
@@ -748,27 +754,35 @@ export const sharedOn = <S>(draw: CaseDraw<S>, stated: Stated<SharedFeature>): P
 						[2, 0, 1, 2]
 					] as const) {
 						const analyses = new SharedAnalyses(env, (n) => shared.has(n))
-						const read = new Set<Props>()
+						/** The annotated nodes the sequence's analyses made so far, each rebuilt under the claims made of it. */
+						const made = new Set<RelNode>()
 						for (const at of sequence) {
 							const dag = dags[at]
-							const reading = succeeded(analyzeLogical(dag, analyses), "a shared analysis")
-							const alone = succeeded(analyzeLogical(dag, env), "an analysis of the DAG alone")
+							/** A caller reads its roots' properties: every other node's are dropped once its readers are built. */
+							const kept = keptNodes(dag.roots)
+							const reading = succeeded(analyzeLogical(dag, analyses, kept), "a shared analysis")
+							const alone = succeeded(
+								analyzeLogical(dag, env, kept),
+								"an analysis of the DAG alone"
+							)
 							assert.deepEqual(toTable(reading.dag), toTable(alone.dag), "the annotated DAG")
 							assert.deepEqual(toTable(reading.judged), toTable(alone.judged), "the judged DAG")
 							const order = topoOrder(dag)
 							for (const node of order) {
-								const props = reading.of(node).props
-								if (read.has(props)) {
+								const annotated = reading.of(node).node
+								if (annotated !== node && made.has(annotated)) {
 									c.note("a recorded annotation read again")
 								}
+							}
+							for (const root of dag.roots) {
 								assert.deepEqual(
-									claimsOf(props),
-									claimsOf(alone.of(node).props),
-									`${node.id} (${node.kind}) claimed alike`
+									claimsOf(defined(reading.props.get(root), "a root's properties, kept")),
+									claimsOf(defined(alone.props.get(root), "a root's properties, kept")),
+									`${root.id} (${root.kind}) claimed alike`
 								)
 							}
 							for (const node of order) {
-								read.add(reading.of(node).props)
+								made.add(reading.of(node).node)
 							}
 						}
 					}
@@ -793,11 +807,11 @@ export const idempotentOn = <S>(draw: CaseDraw<S>, stated: Stated<IdempotenceFea
 				Effect.sync(() => {
 					const generated = c.draw(draw.resolve(drawnSketch))
 					const env = envOf(contexted(generated, sketch))
-					const once = analyzeLogical(generated.query.dag, env)
+					const once = analyzeLogical(generated.query.dag, env, everyNode)
 					if (!once.ok) {
 						throw new Error(`annotation refused: ${once.error.message}`)
 					}
-					const twice = analyzeLogical(once.value.dag, env)
+					const twice = analyzeLogical(once.value.dag, env, everyNode)
 					if (!twice.ok) {
 						throw new Error(`a second annotation refused: ${twice.error.message}`)
 					}

@@ -215,10 +215,10 @@ const unsound = (why: string): Soundness => ({ kind: "unsound", why })
  * row of the node, so it names none of the node's values; a parent region that binds the same source would read the
  * name as its own variable's.
  */
-export const fixedNamesUnscoped = (dag: RelDag, of: LogicalAnalysis["of"]): Soundness => {
+export const fixedNamesUnscoped = (dag: RelDag, kept: LogicalAnalysis["props"]): Soundness => {
 	const scopes = nodeScopes()
 	for (const node of topoOrder(dag)) {
-		const props = of(node).props
+		const props = defined(kept.get(node), "every node's properties, kept")
 		const attach = props.attachment
 		for (const [column, names] of props.fixed) {
 			for (const { name } of names) {

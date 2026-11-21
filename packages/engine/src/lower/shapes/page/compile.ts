@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	lastNonEmpty,
@@ -23,6 +24,7 @@ import type {
 } from "#compiler/ir/rel.ts"
 import {
 	analyzeLogical,
+	keptNodes,
 	type LogicalEnv,
 	orderSubjectOf,
 	queryEvidence
@@ -706,12 +708,17 @@ const pageOrderOf = (
 	stated: StatedOrder,
 	evidence: LogicalEnv
 ): Result.Result<CompletedOrder, CompileError> => {
-	const analysis = analyzeLogical(query.dag, { ...evidence, context: "transaction" })
+	const analysis = analyzeLogical(
+		query.dag,
+		{ ...evidence, context: "transaction" },
+		keptNodes([origin])
+	)
 	if (!analysis.ok) {
 		return Result.err(analysis.error)
 	}
 	const analyzed = analysis.value.of(origin)
-	const subject = orderSubjectOf(analyzed.node, analyzed.props, [], (k) =>
+	const props = defined(analysis.value.props.get(origin), "the page's origin, kept")
+	const subject = orderSubjectOf(analyzed.node, props, [], (k) =>
 		contextAdmits("transaction", k.context)
 	)
 	return Result.mapError(completeOrder(subject, stated.keys), (e) => reportedAt(e, stated.at))

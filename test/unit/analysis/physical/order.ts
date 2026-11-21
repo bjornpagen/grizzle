@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Formatter, Order, String as Str } from "effect"
 import { analyzePhysical, type PhysicalEnv } from "#compiler/analysis/physical/analyze.ts"
 import type { FixedFacts } from "#compiler/analysis/physical/props.ts"
@@ -5,7 +6,7 @@ import { ExprId, type NodeId, ParamId } from "#compiler/core/ids.ts"
 import { relNode, topoOrder, unchangedEdges } from "#compiler/ir/dag.ts"
 import { builtExpr, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { RelDag, Roots, ValidDag } from "#compiler/ir/rel.ts"
-import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, everyNode, queryEvidence } from "#compiler/logical/annotate.ts"
 import { conjuncts, type Fixed, type NamedValue } from "#compiler/logical/props.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 import { rebuildDag } from "#test/support/dag.ts"
@@ -146,12 +147,12 @@ const physicalClaims = (dag: RelDag, env: PhysicalEnv): ReadonlyArray<string> =>
 
 /** What the logical analysis claims of each node: its keys, its cardinality and its fixed columns' names. */
 const logicalClaims = <R extends Roots>(dag: ValidDag<R>): ReadonlyArray<string> => {
-	const analysis = analyzeLogical(dag, queryEvidence)
+	const analysis = analyzeLogical(dag, queryEvidence, everyNode)
 	if (!analysis.ok) {
 		return [`logical refusal: ${analysis.error.message}`]
 	}
 	return Arr.map(topoOrder(dag), (node) => {
-		const p = analysis.value.of(node).props
+		const p = defined(analysis.value.props.get(node), "the node's properties, kept")
 		return `logical ${node.id} ${node.kind}: keys [${keysText(
 			Arr.map(p.keys, (k) => k.key)
 		)}], ${p.card}, fixed [${fixedText(p.fixed, (v: NamedValue) => valueText(v.name))}]`

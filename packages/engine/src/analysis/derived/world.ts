@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -92,7 +93,7 @@ export const analyzeWorld = (
 		return definition
 	}
 	const { checked, root, analyzed, heading, declared } = definition.value
-	const { props } = analyzed.of(root)
+	const props = defined(analyzed.props.get(root), "a definition's root, kept")
 	const inherited = inheritedKeys(declared, props.keys, props.prove, () => true)
 	/** A definition of one heading group is a set, so its whole heading is always a key. */
 	const keys = isNonEmpty(inherited) ? inherited : wholeHeadingKey(props.whole(), declared)

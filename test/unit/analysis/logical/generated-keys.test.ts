@@ -24,7 +24,7 @@
  * reading a float and over a mixed one; a stable generation refused.
  */
 
-import { assert, assertVariant } from "@bjornpagen/testing/assert"
+import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter, Option } from "effect"
@@ -36,7 +36,12 @@ import {
 	rowsKey,
 	soleFactor
 } from "#compiler/ir/keys.ts"
-import { analyzeLogical, checkerEvidence, queryEvidence } from "#compiler/logical/annotate.ts"
+import {
+	analyzeLogical,
+	checkerEvidence,
+	everyNode,
+	queryEvidence
+} from "#compiler/logical/annotate.ts"
 import { storedKeyPremise } from "#compiler/logical/props.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { KeyKernel } from "#test/support/keys/kernel.ts"
@@ -98,8 +103,14 @@ export const aRelationOfGeneratedFieldsIsKeyedByExactlyTheClosureOfItsKeysAndIts
 					),
 					"the scan checks"
 				)
-				const analysis = succeeded(analyzeLogical(query.dag, checkerEvidence), "the scan analyzes")
-				const root = analysis.of(query.dag.roots[0])
+				const analysis = succeeded(
+					analyzeLogical(query.dag, checkerEvidence, everyNode),
+					"the scan analyzes"
+				)
+				const root = {
+					node: analysis.of(query.dag.roots[0]).node,
+					props: defined(analysis.props.get(query.dag.roots[0]), "the scan's properties, kept")
+				}
 				assert.deepEqual(
 					statedKeys(root.props.keys),
 					oracleKeys(c),
@@ -155,10 +166,16 @@ export const aRelationOfGeneratedFieldsIsKeyedByExactlyTheClosureOfItsKeysAndIts
 					"the view's scan checks"
 				)
 				const viewAnalysis = succeeded(
-					analyzeLogical(overView.dag, queryEvidence),
+					analyzeLogical(overView.dag, queryEvidence, everyNode),
 					"the view's scan analyzes"
 				)
-				const viewRoot = viewAnalysis.of(overView.dag.roots[0])
+				const viewRoot = {
+					node: viewAnalysis.of(overView.dag.roots[0]).node,
+					props: defined(
+						viewAnalysis.props.get(overView.dag.roots[0]),
+						"the view scan's properties, kept"
+					)
+				}
 				assert.deepEqual(
 					statedKeys(viewRoot.props.keys),
 					oracleKeys(c),

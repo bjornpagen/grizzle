@@ -28,10 +28,11 @@ import {
 import {
 	fixedNames,
 	type Props,
-	type PropsReading,
+	type PropsView,
 	type Provenance,
 	provenanceOf,
-	relativeProps
+	relativeProps,
+	type ViewReading
 } from "#compiler/logical/props.ts"
 import { nativeOp } from "#compiler/scalar/compute/registry.ts"
 
@@ -82,26 +83,30 @@ const commonScan = (
 
 /**
  * The region whose occurrence `scan` is, with that occurrence, among the nodes `from` is computed from: a provenance a
- * node's properties carry names a scan of a region its rows were read through, so the walk down the analysis's readings
- * (Props reading) meets it. Undefined where none of them holds the scan, such as a Base's own occurrence.
+ * node's properties carry names a scan of a region its rows were read through, so the walk down the views of the
+ * analysis's readings (PropsView reading) meets it. Undefined where none of them holds the scan, such as a Base's own
+ * occurrence.
  */
 const scanOf = (
-	from: Props,
+	from: PropsView,
 	scan: OccurrenceId
 ):
-	| { readonly region: Props; readonly occurrence: OccurrenceOver<Props, ScalarExpr, VarDecl> }
+	| {
+			readonly region: PropsView
+			readonly occurrence: OccurrenceOver<PropsView, ScalarExpr, VarDecl>
+	  }
 	| undefined => {
-	const seen = new Set<Props>([from])
-	const queue: Array<Props> = [from]
+	const seen = new Set<PropsView>([from])
+	const queue: Array<PropsView> = [from]
 	for (const props of queue) {
-		const reading: PropsReading = props.reading
+		const reading: ViewReading = props.reading
 		if (reading.kind === "MatchRegion") {
 			const occurrence = reading.occurrences.find((o) => o.id === scan)
 			if (occurrence !== undefined) {
 				return { region: props, occurrence }
 			}
 		}
-		for (const input of edgesOf<Props>(reading)) {
+		for (const input of edgesOf<PropsView>(reading)) {
 			if (!seen.has(input)) {
 				seen.add(input)
 				queue.push(input)
@@ -115,10 +120,10 @@ const scanOf = (
  * The nodes every row of `parent` passes through on its way up from the scan's region: the parent, each node it reads
  * as its one input, down to the region holding `scan`, and that region, whose every row of the scan holds what it fixes.
  */
-const throughScan = (parent: Props, region: Props): ReadonlyArray<Props> => {
-	const chain: Array<Props> = [parent]
+const throughScan = (parent: PropsView, region: PropsView): ReadonlyArray<PropsView> => {
+	const chain: Array<PropsView> = [parent]
 	for (let at = parent; at !== region;) {
-		const [only, ...more] = edgesOf<Props>(at.reading)
+		const [only, ...more] = edgesOf<PropsView>(at.reading)
 		if (only === undefined || more.length > 0 || chain.includes(only)) {
 			break
 		}
@@ -134,7 +139,7 @@ const throughScan = (parent: Props, region: Props): ReadonlyArray<Props> => {
  * that literal, whether the scan's region fixes it or a filter above the region does (throughScan).
  */
 const scanSelects = (
-	parent: Props,
+	parent: PropsView,
 	scan: OccurrenceId,
 	column: string,
 	value: TypedLiteral
@@ -150,8 +155,8 @@ const scanSelects = (
 		return e.kind === "literal" && nativeEqualityKey(e.value) === want
 	}
 	return throughScan(parent, found.region).some((props) =>
-		props.columns.some(
-			(c) =>
+		props.node.heading.some(
+			({ name: c }) =>
 				provenanceOf(props, c).some((p) => p.scan === scan && p.field === column) &&
 				(fixedNames(props, c) ?? []).some((v) => v.name.kind === "literal" && v.name.key === want)
 		)
@@ -319,7 +324,7 @@ const containmentOne = (
 			fact.from.fields
 		)
 		const selected = scans.some((s) =>
-			fact.from.selection.every((sel) => scanSelects(parent, s, sel.column, sel.value))
+			fact.from.selection.every((sel) => scanSelects(parent.view, s, sel.column, sel.value))
 		)
 		if (selected) {
 			return fact.context

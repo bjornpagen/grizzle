@@ -36,7 +36,7 @@ import { element, finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { Fold } from "#compiler/ir/fold.ts"
-import { analyzeLogical } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, everyNode } from "#compiler/logical/annotate.ts"
 import { compileChangeSet } from "#compiler/write/frontend/compile.ts"
 import { compileWrite } from "#compiler/write/program/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -159,7 +159,11 @@ const foldsAtAnalyses = (
 	)
 	const before = foldsAlive()
 	const analysis = succeeded(
-		analyzeLogical(frontend.ir.dag, { context: "transaction", containments: [], keyedViews: true })
+		analyzeLogical(
+			frontend.ir.dag,
+			{ context: "transaction", containments: [], keyedViews: true },
+			everyNode
+		)
 	)
 	const held = foldsAlive() - before
 	assert.ok(analysis.dag.roots.length >= 0, "the analysis is held while its folds are counted")

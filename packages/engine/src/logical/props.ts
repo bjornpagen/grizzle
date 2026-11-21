@@ -19,6 +19,7 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
+import { drive } from "#compiler/ir/fold.ts"
 import { comparedValue } from "#compiler/ir/injective.ts"
 
 import {
@@ -75,6 +76,7 @@ import {
 	type NodeOf,
 	type NodeOver,
 	type RelNode,
+	replacedEdges,
 	unionArms,
 	type ValueRefs
 } from "#compiler/ir/rel.ts"
@@ -187,10 +189,10 @@ export interface Props {
 	/** The node the properties are of. */
 	readonly node: RelNode
 	/**
-	 * The node as the analysis read it: each input replaced by that input's properties, so a walk down a dependency's
-	 * rule (fixedNames) reads the input's properties themselves.
+	 * What the node's readers read of its properties once they are finished: the node, its columns' facts and fixed
+	 * names, and its inputs' views (PropsView), so no node's properties hold its inputs'.
 	 */
-	readonly reading: PropsReading
+	readonly view: PropsView
 	/**
 	 * The attachment these are the properties relative to (relativeProps): its correlation fixes the node's correlated
 	 * columns per parent row. Undefined for a node's own properties.
@@ -272,12 +274,44 @@ export interface Props {
 /** A node as the logical analysis reads it: each input replaced by that input's properties. */
 export type PropsReading = NodeOver<ValueRefs<Props>>
 
+/**
+ * What a node's properties hold of it for the readers that read it after its readers are built: the node, the stored
+ * facts its columns were read from, the names of its fixed columns, and its inputs' views in their places. A walk down
+ * the analysis's readings to the region holding a scan reads them (logical/attach.ts scanOf), and so does a child's
+ * revision relative to its parent, whose steps read what each input fixes (relativeProps); neither reads more of a
+ * node's properties, so a node's properties hold its inputs' views, never their properties, and an input's properties
+ * are its readers' to read only while they are built.
+ */
+export interface PropsView {
+	readonly node: RelNode
+	readonly reading: ViewReading
+	readonly provenance: ReadonlyMap<string, ReadonlyArray<Provenance>>
+	readonly fixed: ReadonlyMap<string, ReadonlyArray<NamedValue>>
+}
+
+/** A node with each input replaced by that input's view (PropsView). */
+export type ViewReading = NodeOver<ValueRefs<PropsView>>
+
+/** What a node's steps read of an input: the input, and the names it fixes its columns to (fixedNames). */
+interface Fixes {
+	readonly node: RelNode
+	readonly fixed: ReadonlyMap<string, ReadonlyArray<NamedValue>>
+}
+
+/** A node with each input replaced by what its steps read of it (Fixes). */
+type StepsReading = NodeOver<ValueRefs<Fixes>>
+
+/** One kind of node as its steps read it (StepsReading). */
+type StepsReadingOf<K extends RelNode["kind"]> = KindOver<K, ValueRefs<Fixes>>
+
 /** One kind of node as the logical analysis reads it. */
 type ReadingOf<K extends RelNode["kind"]> = KindOver<K, ValueRefs<Props>>
 
 /** The stored facts a column of the node was read from (Props.provenance): none for a column it holds none for. */
-export const provenanceOf = (props: Props, column: string): ReadonlyArray<Provenance> =>
-	props.provenance.get(column) ?? noFacts
+export const provenanceOf = (
+	props: Pick<Props, "provenance">,
+	column: string
+): ReadonlyArray<Provenance> => props.provenance.get(column) ?? noFacts
 
 /** The facts of a column read from no stored fact, one list every such column shares. */
 const noFacts: ReadonlyArray<Provenance> = Object.freeze([])
@@ -471,7 +505,7 @@ const equalityOperands = (e: ScalarExpr): readonly [ScalarExpr, ScalarExpr] | un
  * and attachment, which say what value each step fixes a column to. */
 interface Table {
 	readonly node: { readonly id: NodeId }
-	readonly reading: PropsReading
+	readonly reading: StepsReading
 	readonly attachment: NodeOf<"Attach"> | undefined
 	readonly outer: OuterRefs
 	readonly columns: ReadonlyArray<string>
@@ -551,7 +585,7 @@ const positionsOf = (attributes: Attributes, names: Iterable<string>): ReadonlyA
 export const fixedColumns = (props: Props): ReadonlyArray<string> => [...props.fixed.keys()]
 
 /** Every name of the value a fixed column holds per evaluation, undefined when the column is not fixed (Props.fixed). */
-export const fixedNames = (props: Props, column: string): ReadonlyArray<NamedValue> | undefined =>
+export const fixedNames = (props: Fixes, column: string): ReadonlyArray<NamedValue> | undefined =>
 	props.fixed.get(column)
 
 /**
@@ -571,7 +605,7 @@ const nameAt = (props: Pick<Table, "outer">, name: Named): Named | undefined =>
  */
 const firstNameAt = (
 	props: Pick<Table, "outer">,
-	input: Props,
+	input: Fixes,
 	column: string
 ): Named | undefined => {
 	const first = input.fixed.get(column)?.[0]?.name
@@ -581,7 +615,7 @@ const firstNameAt = (
 /** The names `input` fixes its column to that name values of the node `props` are of (nameAt), in the input's order. */
 const namesAt = (
 	props: Pick<Table, "outer">,
-	input: Props,
+	input: Fixes,
 	column: string
 ): ReadonlyArray<NamedValue> =>
 	(fixedNames(input, column) ?? []).filter((v) => nameAt(props, v.name) !== undefined)
@@ -750,8 +784,13 @@ const fixingOf = (
  * The names of the fixed columns of the node `props` are of, worked out again from its properties (FixedNames), its steps'
  * sources with them: what a reader that holds the node's properties, not its table, reads the work of.
  */
-export const fixedNamesOf = (props: Props): FixedNames =>
-	new FixedNames({ ...props, sources: sourcesOf(props) }, props.nothing)
+export const fixedNamesOf = (props: Props): FixedNames => {
+	const steps: Steps = { ...props, reading: props.view.reading }
+	return new FixedNames(
+		{ ...steps, naming: props.naming, sources: sourcesOf(steps) },
+		props.nothing
+	)
+}
 
 /**
  * The names of each column a node's closure of nothing `reached` reaches (fixedOver), worked out semi-naively: each
@@ -822,11 +861,11 @@ type StepSource =
 	| { readonly kind: "column"; readonly column: string }
 	| {
 			readonly kind: "input"
-			readonly input: Props
+			readonly input: Fixes
 			readonly column: string
 			readonly over: (derivation: Implication) => Dependency
 	  }
-	| { readonly kind: "arms"; readonly arms: NonEmptyReadonlyArray<Props> }
+	| { readonly kind: "arms"; readonly arms: NonEmptyReadonlyArray<Fixes> }
 
 /**
  * Each row of a node's table with where its step reads the value it fixes each of its targets to (sourcesOf): the
@@ -850,7 +889,7 @@ const opaque: StepSource = { kind: "own", name: undefined }
  * The input whose rows a node keeps, whose dependencies its `kept` rule carries (an intersection's right side's are its
  * `intersected` rule's); none for a node that keeps no input's rows.
  */
-const keptInputOf = (reading: PropsReading): Props | undefined => {
+const keptInputOf = <P>(reading: NodeOver<ValueRefs<P>>): P | undefined => {
 	switch (reading.kind) {
 		case "Filter":
 		case "Take":
@@ -888,7 +927,10 @@ const keptInputOf = (reading: PropsReading): Props | undefined => {
 }
 
 /** The input a carried rule's derivation is held at: the kept input's, an intersection's right side's, a group's input's. */
-const carriedInputOf = (reading: PropsReading, rule: "kept" | "intersected" | "grouped"): Props => {
+const carriedInputOf = <P>(
+	reading: NodeOver<ValueRefs<P>>,
+	rule: "kept" | "intersected" | "grouped"
+): P => {
 	switch (rule) {
 		case "kept":
 			return defined(keptInputOf(reading), "a kept rule's node keeps an input's rows")
@@ -914,14 +956,14 @@ const carriers = {
 
 /** A region's occurrence as its steps read it: its bindings by the variable bound and its constants by their column. */
 interface OccurrenceIndex {
-	readonly occurrence: ReadingOf<"MatchRegion">["occurrences"][number]
+	readonly occurrence: StepsReadingOf<"MatchRegion">["occurrences"][number]
 	readonly bindings: ReadonlyMap<
 		string,
-		ReadingOf<"MatchRegion">["occurrences"][number]["bindings"][number]
+		StepsReadingOf<"MatchRegion">["occurrences"][number]["bindings"][number]
 	>
 	readonly constants: ReadonlyMap<
 		string,
-		ReadingOf<"MatchRegion">["occurrences"][number]["constants"][number]
+		StepsReadingOf<"MatchRegion">["occurrences"][number]["constants"][number]
 	>
 }
 
@@ -933,12 +975,12 @@ interface OccurrenceIndex {
 type ReadingIndex =
 	| {
 			readonly kind: "projection"
-			readonly node: ReadingOf<"ProjectSet">
-			readonly outputs: ReadonlyMap<string, ReadingOf<"ProjectSet">["out"][number]>
+			readonly node: StepsReadingOf<"ProjectSet">
+			readonly outputs: ReadonlyMap<string, StepsReadingOf<"ProjectSet">["out"][number]>
 	  }
 	| {
 			readonly kind: "region"
-			readonly node: ReadingOf<"MatchRegion">
+			readonly node: StepsReadingOf<"MatchRegion">
 			readonly occurrences: ReadonlyMap<OccurrenceId, OccurrenceIndex>
 			readonly locals: ReadonlySet<NodeId>
 	  }
@@ -1101,7 +1143,7 @@ const stepSource = (
  * a shared name is one value in every arm, so the union's column holds it in every row.
  */
 const commonNames = (
-	arms: NonEmptyReadonlyArray<Props>,
+	arms: NonEmptyReadonlyArray<Fixes>,
 	column: string
 ): ReadonlyArray<{ readonly name: Named; readonly arms: NonEmptyReadonlyArray<Implication> }> =>
 	(fixedNames(arms[0], column) ?? []).flatMap((v) => {
@@ -1224,7 +1266,10 @@ const fixedWitnessValue = (
 }
 
 /** The nodes a region's own expressions read: its heading and its occurrences' sources. */
-const regionLocals = (region: NodeId, reading: ReadingOf<"MatchRegion">): ReadonlySet<NodeId> =>
+const regionLocals = (
+	region: NodeId,
+	reading: StepsReadingOf<"MatchRegion">
+): ReadonlySet<NodeId> =>
 	new Set<NodeId>([region, ...reading.occurrences.map((o) => o.source.node.id)])
 
 /** A determinant a parent may carry from a node: its columns as the node states them, and as a set of its attributes. */
@@ -1554,8 +1599,28 @@ type Reach =
 	| { readonly kind: "rows"; readonly reached: Closure<never> }
 	| { readonly kind: "within"; readonly reached: Closure<never>; readonly inner: KeyProof }
 
-/** What a node's properties are of: the node, its reading, and the attachment they are relative to, if any. */
-type Subject = Pick<Props, "node" | "reading" | "attachment" | "outer">
+/**
+ * What a node's properties are of: the node, its reading, its inputs' views in their places, and the attachment they
+ * are relative to, if any.
+ */
+interface Subject extends Pick<Props, "node" | "attachment" | "outer"> {
+	readonly reading: PropsReading
+	readonly views: ViewReading
+}
+
+/**
+ * What a node's properties are finished from (finish): its subject, its steps reading what its inputs fix, read from
+ * their properties as the node's are built or from their views as a child is revised relative to its parent
+ * (relativeProps).
+ */
+interface Finished extends Pick<Props, "node" | "attachment" | "outer"> {
+	readonly reading: StepsReading
+	readonly views: ViewReading
+}
+
+/** The views of a reading's inputs, each in its input's place (PropsView). */
+const viewsOf = (reading: PropsReading): ViewReading =>
+	drive(replacedEdges<ValueRefs<Props>, PropsView>(reading), (input) => input.view)
 
 /**
  * The props of `node` stating `dependencies`, its keys derived from them.
@@ -1848,18 +1913,23 @@ const rowKeys = (
 	return keys
 }
 
-const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
+const finish = (subject: Finished, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
 	const { node } = subject
 	const columns = node.heading.map((c) => c.name)
-	const { attributes } = rest
+	/**
+	 * What the properties' functions (prove, whole) read: the node's rows and what its rest states, never its reading or
+	 * its rest's provenance, which read its inputs' properties, so the properties hold no input's.
+	 */
+	const { attributes, discriminant, inner } = rest
 	const heading = attributes.heading
+	const stated = rowsOf(attributes, dependencies)
 	const steps: Steps = {
 		node,
 		reading: subject.reading,
 		attachment: subject.attachment,
 		outer: subject.outer,
 		columns,
-		stated: rowsOf(attributes, dependencies)
+		stated
 	}
 	const sources = sourcesOf(steps)
 	const table: Table = { ...steps, sources, naming: namingOf(steps, sources) }
@@ -1883,12 +1953,12 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	 * of several heading groups; undefined where it reaches none.
 	 */
 	const reachOf = (key: Bits): Reach | undefined => {
-		const reached = coverOf(steps, key)
-		if (rest.discriminant.length === 0) {
+		const reached = coverOf({ stated }, key)
+		if (discriminant.length === 0) {
 			return covers(reached, heading) ? { kind: "rows", reached } : undefined
 		}
-		const inner = rest.inner.find((k) => k.key.every((c) => reaches(reached, c)))
-		return inner === undefined ? undefined : { kind: "within", reached, inner }
+		const kept = inner.find((k) => k.key.every((c) => reaches(reached, c)))
+		return kept === undefined ? undefined : { kind: "within", reached, inner: kept }
 	}
 	/** The proof of `key` from the key its closure reaches. */
 	const proofOf = (key: KeySet, reach: Reach): KeyProof =>
@@ -1912,17 +1982,24 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 	}
 	/** The closure of the whole heading reaches every column of it. */
 	const whole = (): WholeKey =>
-		rest.discriminant.length === 0
-			? { kind: "set", key: proofOf(columns, { kind: "rows", reached: coverOf(steps, heading) }) }
+		discriminant.length === 0
+			? {
+					kind: "set",
+					key: proofOf(columns, { kind: "rows", reached: coverOf({ stated }, heading) })
+				}
 			: { kind: "groups" }
 	const keys = keysOf(steps, rest, classes, reachOf, proofOf, membersOf)
 	const atMostOne = keys.some((k) => k.key.length === 0)
 	const nothing = closureOf(table, noBits(attributes))
+	const provenance = provenanceOver(columns, rest.provenance)
+	const fixed = fixedOver(table, nothing)
 	return {
-		...steps,
+		columns,
+		stated,
+		outer: subject.outer,
 		naming: table.naming,
 		node,
-		reading: subject.reading,
+		view: { node, reading: subject.views, provenance, fixed },
 		attachment: subject.attachment,
 		keys,
 		classes,
@@ -1930,10 +2007,10 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		prove,
 		whole,
 		card: atMostOne ? (rest.exactlyOne ? "one" : "atMostOne") : "many",
-		provenance: provenanceOver(columns, rest.provenance),
+		provenance,
 		context: rest.context,
-		discriminant: rest.discriminant,
-		fixed: fixedOver(table, nothing),
+		discriminant,
+		fixed,
 		nothing
 	}
 }
@@ -2100,7 +2177,7 @@ const leafProps = (
 	return {
 		...read,
 		node: subject.node,
-		reading: subject.reading,
+		view: { node: subject.node, reading: subject.views, provenance, fixed: read.fixed },
 		attachment: undefined,
 		outer: subject.outer,
 		provenance
@@ -2113,7 +2190,13 @@ const leafProps = (
  * base relation's: no containment between stored facts speaks of them.
  */
 export const logicalPropsOf = (node: RelNode, reading: PropsReading, env: PropsEnv): Props => {
-	const subject: Subject = { node, reading, attachment: undefined, outer: env.scope(node).outer }
+	const subject: Subject = {
+		node,
+		reading,
+		views: viewsOf(reading),
+		attachment: undefined,
+		outer: env.scope(node).outer
+	}
 	const all = node.heading.map((c) => c.name)
 	/**
 	 * The rest of a node's props that delivers its rows as one group, with no discriminant and no inner group, and the
@@ -2934,9 +3017,9 @@ const leastSets = (
 }
 
 /** Each arm's `f`, or undefined when some arm has none. */
-const everyArm = <B>(
-	arms: NonEmptyReadonlyArray<Props>,
-	f: (arm: Props) => B | undefined
+const everyArm = <A, B>(
+	arms: NonEmptyReadonlyArray<A>,
+	f: (arm: A) => B | undefined
 ): NonEmptyReadonlyArray<B> | undefined => {
 	const [first, ...rest] = arms
 	const head = f(first)
@@ -3161,7 +3244,13 @@ const unionProps = (subject: Subject, node: ReadingOf<"Union">): Props => {
  */
 export const relativeProps = (child: Props, attach: NodeOf<"Attach">): Props =>
 	finish(
-		{ node: child.node, reading: child.reading, attachment: attach, outer: child.outer },
+		{
+			node: child.node,
+			reading: child.view.reading,
+			views: child.view.reading,
+			attachment: attach,
+			outer: child.outer
+		},
 		[
 			...child.stated.rows.map((row) => row.dependency),
 			...attach.correlation.map((pair, index) =>

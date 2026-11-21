@@ -31,7 +31,7 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { immediateEvidence } from "#compiler/analysis/theory/theory.ts"
 import type { RelNode } from "#compiler/ir/rel.ts"
-import { analyzeLogical, judgedAsDelivered } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, everyNode, judgedAsDelivered } from "#compiler/logical/annotate.ts"
 import { compileChangeSet, type WriteFrontend } from "#compiler/write/frontend/compile.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { type FixtureSchema, frontendOptions } from "#test/support/compile.ts"
@@ -175,11 +175,15 @@ export const whereNoTakeIsRestatedTheOptimizedFormIsWhatTheRestatementsAnalysisM
 					const { frontend } = frontendOf(written)
 					const options = frontendOptions(written.schema)
 					const again = succeeded(
-						analyzeLogical(frontend.ir.dag, {
-							context: "transaction",
-							containments: immediateEvidence(options.laws.theory.evidence).containments,
-							keyedViews: true
-						})
+						analyzeLogical(
+							frontend.ir.dag,
+							{
+								context: "transaction",
+								containments: immediateEvidence(options.laws.theory.evidence).containments,
+								keyedViews: true
+							},
+							everyNode
+						)
 					)
 					const judged = judgedAsDelivered(again.dag).dag
 					const ids = (roots: ReadonlyArray<RelNode>): ReadonlyArray<string> =>

@@ -1,4 +1,4 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
 	isNonEmpty,
@@ -246,10 +246,13 @@ const canonicalOuts = (analysis: LogicalAnalysis, merge: StatedMerge): ReadonlyS
 		case "matches": {
 			const determined = new Set([
 				...copiedColumns(p.out, rule.input),
-				...fixedColumns(analysis.of(rule.input).props)
+				...fixedColumns(
+					defined(analysis.props.get(rule.input), "a merge's input, kept (mergeReads)")
+				)
 			])
 			const keyed = (source: RelNode, fields: ReadonlyArray<string>): boolean =>
-				analysis.of(source).props.prove(fields) !== undefined
+				defined(analysis.props.get(source), "a matched source, kept (mergeReads)").prove(fields) !==
+				undefined
 			return new Set(
 				floats
 					.filter((o) =>
@@ -260,6 +263,20 @@ const canonicalOuts = (analysis: LogicalAnalysis, merge: StatedMerge): ReadonlyS
 					.map((o) => o.name)
 			)
 		}
+	}
+}
+
+/**
+ * The nodes a stated merge's rule reads the properties of (canonicalMerges): a rule of matches reads its input's fixed
+ * columns and each matched source's keys; `always` reads none.
+ */
+export const mergeReads = (merge: StatedMerge): ReadonlyArray<RelNode> => {
+	const rule = merge.rule
+	switch (rule.kind) {
+		case "always":
+			return []
+		case "matches":
+			return [rule.input, ...rule.region.matches.map((m) => m.source)]
 	}
 }
 

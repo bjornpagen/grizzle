@@ -21,13 +21,13 @@
  * Features: names settled in one round, names given in a later round.
  */
 
-import { assert } from "@bjornpagen/testing/assert"
+import { assert, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
-import { analyzeLogical } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, everyNode } from "#compiler/logical/annotate.ts"
 import { type FixedNames, fixedNamesOf } from "#compiler/logical/props.ts"
 import { chainGen, chainQuery } from "#test/unit/analysis/logical/fixed-names.fixtures.ts"
 
@@ -43,16 +43,21 @@ export const eachStepThatFixesAColumnMakesEachNameItOffersOnceHoweverManyRoundsT
 		] satisfies ReadonlyArray<Reached<Feature>>,
 		check: (_, c: Case<Feature>) => (chain) =>
 			Effect.sync(() => {
-				const analysis = analyzeLogical(chainQuery(chain).dag, {
-					context: "transaction",
-					containments: [],
-					keyedViews: false
-				})
+				const dag = chainQuery(chain).dag
+				const analysis = analyzeLogical(
+					dag,
+					{
+						context: "transaction",
+						containments: [],
+						keyedViews: false
+					},
+					everyNode
+				)
 				if (!analysis.ok) {
 					throw new Error(`annotation refused: ${analysis.error.message}`)
 				}
-				for (const node of topoOrder(analysis.value.dag)) {
-					const props = analysis.value.of(node).props
+				for (const node of topoOrder(dag)) {
+					const props = defined(analysis.value.props.get(node), "the node's properties, kept")
 					const fixed: FixedNames = fixedNamesOf(props)
 					assert.equal(fixed.made, fixed.offered, `${node.id}: each offer made once`)
 					c.note(fixed.rounds > 2 ? "names given in a later round" : "names settled in one round")
@@ -78,17 +83,22 @@ export const aNodesPropertiesHoldNoStepSourcesTheyAreWorkedOutAndReadInFinishAlo
 		situations: [],
 		check: () => (chain) =>
 			Effect.sync(() => {
-				const analysis = analyzeLogical(chainQuery(chain).dag, {
-					context: "transaction",
-					containments: [],
-					keyedViews: false
-				})
+				const dag = chainQuery(chain).dag
+				const analysis = analyzeLogical(
+					dag,
+					{
+						context: "transaction",
+						containments: [],
+						keyedViews: false
+					},
+					everyNode
+				)
 				if (!analysis.ok) {
 					throw new Error(`annotation refused: ${analysis.error.message}`)
 				}
-				for (const node of topoOrder(analysis.value.dag)) {
+				for (const node of topoOrder(dag)) {
 					assert.ok(
-						!("sources" in analysis.value.of(node).props),
+						!("sources" in defined(analysis.value.props.get(node), "the node's properties, kept")),
 						`${node.id}: its properties hold no step sources`
 					)
 				}
@@ -99,7 +109,8 @@ export const aNodesPropertiesHoldNoStepSourcesTheyAreWorkedOutAndReadInFinishAlo
 		kills: [
 			{
 				file: "packages/engine/src/logical/props.ts",
-				original: "\t\t...steps,\n\t\tnaming: table.naming,\n",
+				original:
+					"\t\tcolumns,\n\t\tstated,\n\t\touter: subject.outer,\n\t\tnaming: table.naming,\n",
 				replacement: "\t\t...table,\n",
 				why: "The properties spread the table, so every node's properties hold its rows' step sources for as long as the analysis lives."
 			}

@@ -25,7 +25,7 @@ import type { ElisionReason } from "#compiler/ir/certificate.ts"
 import { assembledDag, topoOrder } from "#compiler/ir/dag.ts"
 import type { TemplateContext } from "#compiler/ir/evidence.ts"
 import type { Card, NodeOf, RelDag, RelNode } from "#compiler/ir/rel.ts"
-import { analyzeLogical } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, everyNode } from "#compiler/logical/annotate.ts"
 import {
 	noBindings,
 	type Bindings,
@@ -242,7 +242,8 @@ const sharingOf = (
 	}
 	const annotated = analyzeLogical(
 		assembledDag([root, ...Arr.map(scans, (a) => a.child)]),
-		inst.logical(context)
+		inst.logical(context),
+		everyNode
 	)
 	if (!annotated.ok) {
 		throw new Error(
@@ -313,7 +314,7 @@ const judge = (inst: Installed, plan: Plan, c: Case<ClaimFeature>): void => {
 	c.noteAll(planOps(plan))
 	for (const context of contextsOf(inst.variant)) {
 		const at = `${where} (${context})`
-		const annotated = analyzeLogical(checked.value.dag, inst.logical(context))
+		const annotated = analyzeLogical(checked.value.dag, inst.logical(context), everyNode)
 		if (!annotated.ok) {
 			throw new Error(`the logical analysis refuses: ${annotated.error.message}\n${at}`)
 		}

@@ -15,7 +15,7 @@ import {
 	type RelNode
 } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { analyzeLogical, orderSubjectOf } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, everyNode, orderSubjectOf } from "#compiler/logical/annotate.ts"
 import type { OrderSubject } from "#compiler/logical/order.ts"
 import { plainType } from "#compiler/scalar/native.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -382,9 +382,12 @@ const notes = (q: Ir, columns: "task only" | "task and note"): RelNode =>
 const work = theoryUnder(W.WorkDesc, noImmediate)
 
 export const subjectAt = (built: BuiltQuery, at: RelNode) => {
-	const analysis = succeeded(analyzeLogical(built.dag, logicalEnv(work)))
-	return orderSubjectOf(at, analysis.of(at).props, [], (k) =>
-		contextAdmits("transaction", k.context)
+	const analysis = succeeded(analyzeLogical(built.dag, logicalEnv(work), everyNode))
+	return orderSubjectOf(
+		at,
+		defined(analysis.props.get(at), "the node's properties, kept"),
+		[],
+		(k) => contextAdmits("transaction", k.context)
 	)
 }
 

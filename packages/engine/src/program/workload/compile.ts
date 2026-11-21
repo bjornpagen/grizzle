@@ -35,7 +35,12 @@ import {
 	type LogicalAnalysis,
 	withLogicalMeta
 } from "#compiler/logical/annotate.ts"
-import { type Footprint, footprintOf } from "#compiler/logical/routes.ts"
+import {
+	type Footprint,
+	footprintOf,
+	type RouteFacts,
+	routeFacts
+} from "#compiler/logical/routes.ts"
 import { keyJoinNormalDag } from "#compiler/lower/optimize/eliminate/index.ts"
 import { allenNormalDag } from "#compiler/lower/optimize/simplify/allen.ts"
 import { type WorkloadPhysical, workloadRequests } from "#compiler/physical/access/extension.ts"
@@ -187,7 +192,7 @@ const programPlan = (
 							plan: {
 								kind,
 								...planned,
-								footprint: footprintOf(read.dag, read.analysis, read.params)
+								footprint: footprintOf(read.dag, read.facts, read.params)
 							}
 						}
 					case "answered":
@@ -306,6 +311,8 @@ const rowsIr = (analyzed: AnalyzedQuery, ordered: boolean): ProgramIr => {
 export interface AnalyzedQuery {
 	readonly dag: RootedDag
 	readonly analysis: LogicalAnalysis<Rooted>
+	/** What its footprint reads of each node's logical properties (logical/routes.ts RouteFacts), the rest dropped. */
+	readonly facts: ReadonlyMap<RelNode, RouteFacts>
 	readonly params: ReadonlyArray<ParamDecl>
 }
 
@@ -326,13 +333,23 @@ const analyzedQuery = (
 		checkQuery(read, query, { read: reading, label, clock, session: new CheckSession() }),
 		(checked) =>
 			Result.flatMap(allenNormalDag(checked.dag), (allen) =>
-				Result.flatMap(keyJoinNormalDag(allen), (dag) =>
-					Result.map(analyzeLogical(dag, checkerEvidence), (analysis): AnalyzedQuery => ({
-						dag,
-						analysis,
-						params: checked.params
-					}))
-				)
+				Result.flatMap(keyJoinNormalDag(allen), (dag) => {
+					const facts = new Map<RelNode, RouteFacts>()
+					return Result.map(
+						analyzeLogical(dag, checkerEvidence, {
+							kind: "read",
+							read: (node, props) => {
+								facts.set(node, routeFacts(props))
+							}
+						}),
+						(analysis): AnalyzedQuery => ({
+							dag,
+							analysis,
+							facts,
+							params: checked.params
+						})
+					)
+				})
 			)
 	)
 
@@ -541,7 +558,7 @@ const programFootprint = (
 	switch (program.kind) {
 		case "query":
 			return Result.map(queryRead(program.query, reads, clock), (read) => [
-				footprintOf(read.dag, read.analysis, read.params)
+				footprintOf(read.dag, read.facts, read.params)
 			])
 		case "answered":
 		case "changeSet":

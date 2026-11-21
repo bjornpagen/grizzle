@@ -1,4 +1,4 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { topoOrder } from "#compiler/ir/dag.ts"
@@ -11,7 +11,6 @@ import {
 	unionArms
 } from "#compiler/ir/rel.ts"
 import { routable } from "#compiler/ir/scalar.ts"
-import type { LogicalAnalysis } from "#compiler/logical/annotate.ts"
 import type { Props } from "#compiler/logical/props.ts"
 
 /**
@@ -39,6 +38,22 @@ export type Routes = ReadonlyMap<string, string>
 type Restriction = ReadonlyMap<string, ReadonlySet<ParamId>>
 
 const unrestricted: Restriction = new Map()
+
+/**
+ * What a footprint reads of a node's logical properties (footprintOf): the parameters each of its columns is fixed to
+ * per evaluation, and its classes of equal columns, kept as the analysis drops the rest (logical/annotate.ts KeptProps
+ * read).
+ */
+export interface RouteFacts {
+	readonly fixed: Restriction
+	readonly classes: Props["classes"]
+}
+
+/** What a footprint reads of a node's properties (RouteFacts). */
+export const routeFacts = (props: Props): RouteFacts => ({
+	fixed: paramFixed(props),
+	classes: props.classes
+})
 
 /** The parameters each column of a node is fixed to per evaluation (logical/props.ts Props fixed). */
 const paramFixed = (props: Props): Restriction => {
@@ -86,7 +101,7 @@ const common = (received: ReadonlyArray<Restriction>): Restriction => {
 }
 
 /** A restriction closed under a node's classes of equal columns: a column equal to a fixed one is fixed alike. */
-const closedUnder = (props: Props, r: Restriction): Restriction => {
+const closedUnder = (props: Pick<RouteFacts, "classes">, r: Restriction): Restriction => {
 	const out = new Map<string, Set<ParamId>>()
 	for (const [column, params] of r) {
 		for (const member of props.classes.get(column) ?? [column]) {
@@ -264,7 +279,7 @@ const reads = (node: RelNode, r: Restriction): ReadonlyArray<readonly [RelNode, 
  */
 export const footprintOf = (
 	dag: RelDag,
-	analysis: LogicalAnalysis,
+	facts: ReadonlyMap<RelNode, RouteFacts>,
 	params: ReadonlyArray<ParamDecl>
 ): Footprint => {
 	const received = new Map<NodeId, Array<Restriction>>()
@@ -277,8 +292,8 @@ export const footprintOf = (
 	const scans = new Map<string, Array<{ readonly heading: Heading; readonly r: Restriction }>>()
 	const views = new Set<string>()
 	for (const node of topoOrder(dag).toReversed()) {
-		const props = analysis.of(node).props
-		const r = closedUnder(props, joined(common(received.get(node.id) ?? []), paramFixed(props)))
+		const held = defined(facts.get(node), "every node's route facts, read")
+		const r = closedUnder(held, joined(common(received.get(node.id) ?? []), held.fixed))
 		if (node.kind === "Base") {
 			switch (node.relationKind) {
 				case "relation":

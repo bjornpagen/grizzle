@@ -17,6 +17,7 @@ import {
 import {
 	analyzeLogical,
 	checkerEvidence,
+	everyNode,
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
 import type { Props } from "#compiler/logical/props.ts"
@@ -118,7 +119,7 @@ export const analyzedSoundly = (
 	schema: GenSchema,
 	facts: GenFacts
 ): LogicalAnalysis => {
-	const analysis = succeeded(analyzeLogical(dag, checkerEvidence))
+	const analysis = succeeded(analyzeLogical(dag, checkerEvidence, everyNode))
 	const soundness = logicalUnsound(
 		analysis.dag,
 		{ schema, facts, params: {}, functions: noFunctions, observer: unobserved },

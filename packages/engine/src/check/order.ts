@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, reportedAt } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -46,6 +47,9 @@ export interface StatedOrder {
  * logical keys `analysis` (of the checked DAG) gives the relation it orders, in the order the orders were stated, or
  * the first order that has no correct completion.
  */
+/** The nodes a stated order's completion reads the properties of (completedOrders): its input. */
+export const orderReads = (order: StatedOrder): ReadonlyArray<RelNode> => [order.input]
+
 export const completedOrders = (
 	analysis: LogicalAnalysis,
 	reachable: ReadonlySet<RelNode>,
@@ -56,7 +60,10 @@ export const completedOrders = (
 		if (!reachable.has(node)) {
 			continue
 		}
-		const props = analysis.of(order.input).props
+		const props = defined(
+			analysis.props.get(order.input),
+			"a stated order's input, kept (orderReads)"
+		)
 		const completion = completeOrder(
 			orderSubjectOf(order.input, props, order.fixed, (k) =>
 				contextAdmits("transaction", k.context)

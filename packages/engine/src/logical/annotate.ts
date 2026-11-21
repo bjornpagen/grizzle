@@ -1,4 +1,5 @@
 import { appendAll, sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchRefusal } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
@@ -9,6 +10,7 @@ import {
 	type NodeScope,
 	relNode,
 	scopesOver,
+	topoOrder,
 	unchangedEdges
 } from "#compiler/ir/dag.ts"
 import { strongest, type TemplateContext } from "#compiler/ir/evidence.ts"
@@ -72,14 +74,38 @@ export const checkerEvidence: LogicalEnv = Object.freeze({
 export const queryEvidence: LogicalEnv = Object.freeze({ ...checkerEvidence, keyedViews: true })
 
 /**
- * A node's logical properties, the node annotated with the metadata they summarize, and the node itself with its
- * attachments judged and nothing else restated (LogicalAnalysis judged).
+ * A node annotated with the metadata its logical properties summarize, and the node itself with its attachments judged
+ * and nothing else restated (LogicalAnalysis judged).
  */
-export interface Annotated {
-	readonly props: Props
+export interface AnnotatedNode {
 	readonly node: RelNode
 	readonly judged: RelNode
 }
+
+/** A node's logical properties, with its annotated node and its judged twin. */
+interface Annotated extends AnnotatedNode {
+	readonly props: Props
+}
+
+/**
+ * The nodes whose properties an analysis's caller reads once it is made (LogicalAnalysis props): every node's, for a
+ * reader of the whole DAG's, or those it names; or none kept, every node's handed to `read` once, as they stand when
+ * the analysis drops them (an attachment's exclusive child's its revision), for a reader of the whole DAG that keeps
+ * what it reads of each node, where it kept every node's properties for as long as it read the DAG. An analysis holds a
+ * node's properties only while a node it is still building reads them, and hands its caller those it keeps, so the
+ * properties of every other node are unreachable as soon as its readers are built.
+ */
+export type KeptProps =
+	| { readonly kind: "every" }
+	| { readonly kind: "named"; readonly nodes: ReadonlySet<RelNode> }
+	| { readonly kind: "read"; readonly read: (node: RelNode, props: Props) => void }
+
+/** Every node's properties kept. */
+export const everyNode: KeptProps = Object.freeze({ kind: "every" })
+
+/** The properties of `nodes` kept, no other's. */
+export const keptNodes = (nodes: Iterable<RelNode>): KeptProps =>
+	Object.freeze({ kind: "named", nodes: new Set(nodes) })
 
 /** The logical analysis of a DAG. */
 export interface LogicalAnalysis<R extends Roots = Roots> {
@@ -91,10 +117,15 @@ export interface LogicalAnalysis<R extends Roots = Roots> {
 	 */
 	readonly judged: ValidDag<R>
 	/**
-	 * A node of the analyzed DAG (the one analyzeLogical was given): its properties, and its annotated counterpart in
-	 * `dag`. An attachment's exclusive child's are its revision relative to the parent.
+	 * A node of the analyzed DAG (the one analyzeLogical was given): its annotated counterpart in `dag` and its judged
+	 * twin. An attachment's exclusive child's are its revision relative to the parent.
 	 */
-	readonly of: (node: RelNode) => Annotated
+	readonly of: (node: RelNode) => AnnotatedNode
+	/**
+	 * The properties of each node the caller kept (KeptProps) that the DAG holds, and of no other: an attachment's
+	 * exclusive child's are its revision relative to the parent.
+	 */
+	readonly props: ReadonlyMap<RelNode, Props>
 }
 
 const sameKeySets = (a: ReadonlyArray<KeySet>, b: ReadonlyArray<KeySet>): boolean =>
@@ -154,12 +185,24 @@ interface SharedRecord {
 	readonly below: ReadonlyArray<SharedRecord>
 }
 
-/** A recorded node: its annotation and scope as the analysis that recorded it computed them, and its record. */
-interface SharedEntry {
-	readonly annotated: Annotated
-	readonly scope: NodeScope
-	readonly record: SharedRecord
-}
+/**
+ * A recorded node: its annotation and scope as the analysis that recorded it computed them, and its record. A record's
+ * root holds its properties, which a reader of the shared node outside the record reads; a node inside it holds none,
+ * since every reader of it is a node of the record, and a DAG reading it otherwise annotates the record itself.
+ */
+type SharedEntry =
+	| {
+			readonly kind: "root"
+			readonly annotated: Annotated
+			readonly scope: NodeScope
+			readonly record: SharedRecord
+	  }
+	| {
+			readonly kind: "inside"
+			readonly annotated: AnnotatedNode
+			readonly scope: NodeScope
+			readonly record: SharedRecord
+	  }
 
 /**
  * A DAG's readers (SharedAnalyses readers): how many nodes of the DAG, or roots, read each node, and whether the DAG
@@ -168,6 +211,8 @@ interface SharedEntry {
 interface DagReaders {
 	readonly count: (node: RelNode) => number
 	readonly whole: (record: SharedRecord) => boolean
+	/** Whether the DAG reads a node inside a record other than through the record's root. */
+	readonly touched: (record: SharedRecord) => boolean
 }
 
 /**
@@ -203,7 +248,8 @@ const entryOf = (state: SharedState, node: RelNode): SharedEntry | undefined =>
 
 /**
  * Records each node the compile shares among those an analysis annotated itself (`annotated`, inputs first), each
- * with the nodes of its sub-DAG no record holds: their annotations (`of`) and scopes (`scope`), the analysis's
+ * with the nodes of its sub-DAG no record holds: their annotations (`of`), the shared node's properties (`propsOf`)
+ * and their scopes (`scope`), the analysis's
  * judgments of their attachments, a child revised (`revised`) exclusive, and the records below, each one the analysis
  * read as recorded (`agreed`). Inputs come first, so a shared node inside another is recorded under its own record.
  * A sub-DAG is not recorded where it reads a recorded node the analysis annotated again, whose annotation there is
@@ -213,11 +259,14 @@ const entryOf = (state: SharedState, node: RelNode): SharedEntry | undefined =>
 const recordInto = (
 	state: SharedState,
 	annotated: ReadonlyArray<RelNode>,
-	of: (node: RelNode) => Annotated,
+	of: (node: RelNode) => AnnotatedNode,
+	propsOf: (node: RelNode) => Props,
 	scope: (node: RelNode) => NodeScope,
 	revised: ReadonlyMap<RelNode, Annotated>,
 	agreed: ReadonlyMap<SharedRecord, boolean>
 ): void => {
+	/** The records this pass made, whose nodes are this analysis's annotations as they stand. */
+	const made = new Set<SharedRecord>()
 	for (const root of annotated) {
 		if (!state.shares(root) || state.entries.has(root)) {
 			continue
@@ -229,7 +278,9 @@ const recordInto = (
 		for (let node = pending.pop(); node !== undefined && recordable; node = pending.pop()) {
 			const entry = state.entries.get(node)
 			if (entry !== undefined) {
-				recordable = entry.record.root === node && agreed.get(entry.record) === true
+				recordable =
+					entry.record.root === node &&
+					(agreed.get(entry.record) === true || made.has(entry.record))
 				below.add(entry.record)
 			} else if (!own.has(node)) {
 				own.add(node)
@@ -256,8 +307,19 @@ const recordInto = (
 			}
 		}
 		const record: SharedRecord = { root, exclusive, shared, reads, below: [...below] }
+		made.add(record)
 		for (const node of own) {
-			state.entries.set(node, { annotated: of(node), scope: scope(node), record })
+			state.entries.set(
+				node,
+				node === root
+					? {
+							kind: "root",
+							annotated: { ...of(node), props: propsOf(node) },
+							scope: scope(node),
+							record
+						}
+					: { kind: "inside", annotated: of(node), scope: scope(node), record }
+			)
 		}
 	}
 }
@@ -307,6 +369,7 @@ const readersIn = (state: SharedState, dag: RelDag): DagReaders => {
 		records.push(record)
 		appendAll(open, record.below)
 	}
+	const entered = new Set(inside.map((at) => at.record))
 	for (const { node, record } of inside) {
 		if (counted.has(record)) {
 			for (const input of inputsOf(node)) {
@@ -328,7 +391,8 @@ const readersIn = (state: SharedState, dag: RelDag): DagReaders => {
 			known.set(node, n)
 			return n
 		},
-		whole: (record) => counted.has(record)
+		whole: (record) => counted.has(record),
+		touched: (record) => entered.has(record)
 	}
 }
 
@@ -371,7 +435,7 @@ const rebuilt = (
 const reviseChild = (
 	revised: Map<RelNode, Annotated>,
 	child: RelNode,
-	value: Annotated,
+	value: AnnotatedNode,
 	relative: Props
 ): RelNode => {
 	const revision: Annotated = {
@@ -386,16 +450,35 @@ const reviseChild = (
 class Annotator<R extends Roots> {
 	readonly dag: ValidDag<R>
 	readonly shared: SharedAnalyses
+	readonly kept: KeptProps
 
-	constructor(dag: ValidDag<R>, shared: SharedAnalyses) {
+	constructor(dag: ValidDag<R>, shared: SharedAnalyses, kept: KeptProps) {
 		this.dag = dag
 		this.shared = shared
+		this.kept = kept
 	}
 
 	run(): LogicalAnalysis<R> {
-		const { shared } = this
+		const { shared, kept } = this
 		const { env } = shared
-		const { count, whole } = readersIn(shared.state, this.dag)
+		const { count, whole, touched } = readersIn(shared.state, this.dag)
+		const keeps = (node: RelNode): boolean =>
+			kept.kind === "every" || (kept.kind === "named" && kept.nodes.has(node))
+		/**
+		 * The records whose annotations this analysis may read: those of a caller that names the nodes it reads the
+		 * properties of, none of them inside the record, whose nodes hold none (SharedEntry), and that the DAG reads
+		 * only through their roots.
+		 */
+		const keptInside = new Set<SharedRecord>(
+			kept.kind !== "named"
+				? []
+				: [...kept.nodes].flatMap((node) => {
+						const entry = entryOf(shared.state, node)
+						return entry?.kind === "inside" ? [entry.record] : []
+					})
+		)
+		const readable = (record: SharedRecord): boolean =>
+			kept.kind === "named" && !keptInside.has(record) && !touched(record) && whole(record)
 		const scopes = scopesOver((node) => entryOf(shared.state, node)?.scope)
 		const propsEnv: PropsEnv = {
 			scope: (node) => scopes.of(node),
@@ -422,7 +505,7 @@ class Annotator<R extends Roots> {
 				return known
 			}
 			const holds =
-				whole(record) &&
+				readable(record) &&
 				[...record.exclusive.keys()].every((child) => count(child) === 1) &&
 				record.shared.every((child) => count(child) !== 1) &&
 				record.below.every(agrees)
@@ -437,22 +520,57 @@ class Annotator<R extends Roots> {
 		/** The nodes this analysis annotated itself, inputs first: those the compile may record (SharedAnalyses record). */
 		const annotated: Array<RelNode> = []
 		/**
+		 * The properties of each node a node still to be built reads, the caller keeps or the compile shares, until it
+		 * is recorded: a node's are dropped as soon as its last reader is built, so an analysis holds a frontier of
+		 * them, where it held every node's as long as it was read. A recorded node read as recorded holds its own
+		 * (SharedEntry).
+		 */
+		const live = new Map<RelNode, Props>()
+		const roots = new Map<RelNode, number>()
+		for (const root of this.dag.roots) {
+			roots.set(root, (roots.get(root) ?? 0) + 1)
+		}
+		/** How many readers of each node the analysis has still to build: its readers, the roots aside (readers). */
+		const unread = new Map<RelNode, number>()
+		const held = (node: RelNode): boolean => keeps(node) || shared.state.shares(node)
+		/** A node's properties as they stand once its readers are built, handed to a reader of every node's (KeptProps read). */
+		const handOff = (node: RelNode): void => {
+			const read = revised.get(node)?.props ?? live.get(node)
+			if (kept.kind === "read" && read !== undefined) {
+				kept.read(node, read)
+			}
+		}
+		const built = (node: RelNode): void => {
+			for (const input of inputsOf(node)) {
+				const left = (unread.get(input) ?? count(input) - (roots.get(input) ?? 0)) - 1
+				if (left > 0 || held(input)) {
+					unread.set(input, left)
+				} else {
+					handOff(input)
+					unread.delete(input)
+					live.delete(input)
+				}
+			}
+		}
+		const propsOf = (node: RelNode): Props => {
+			const own = live.get(node)
+			if (own !== undefined) {
+				return own
+			}
+			const entry = entryOf(shared.state, node)
+			if (entry?.kind !== "root") {
+				throw defect("a node's properties are held until its last reader is built")
+			}
+			return entry.annotated.props
+		}
+		/**
 		 * Each node's properties and annotated node, from its inputs' (ir/fold.ts): the compile's recorded annotation
 		 * where this DAG judges its sub-DAG alike, which reads no input.
 		 */
-		const fold = new Fold<RelNode, Annotated>(function* (node) {
-			const entry = entryOf(shared.state, node)
-			if (entry !== undefined && agrees(entry.record)) {
-				return entry.annotated
-			}
-			const values = yield* edgeValues<Annotated>(node)
-			annotated.push(node)
-			const reading: PropsReading = drive(
-				replacedEdges<ValueRefs<Annotated>, Props>(values),
-				(a) => a.props
-			)
-			const inputs = drive(replacedEdges<ValueRefs<Annotated>, RelNode>(values), (a) => a.node)
-			const twins = drive(replacedEdges<ValueRefs<Annotated>, RelNode>(values), (a) => a.judged)
+		const annotate = (node: RelNode, values: NodeOver<ValueRefs<AnnotatedNode>>): Annotated => {
+			const reading: PropsReading = drive(edgeValues<Props>(node), propsOf)
+			const inputs = drive(replacedEdges<ValueRefs<AnnotatedNode>, RelNode>(values), (a) => a.node)
+			const twins = drive(replacedEdges<ValueRefs<AnnotatedNode>, RelNode>(values), (a) => a.judged)
 			const unjudged = unchangedEdges(node, twins)
 				? node
 				: relNode(node.id, { ...twins, meta: metaSpecOf(node.meta) })
@@ -511,6 +629,18 @@ class Annotator<R extends Roots> {
 						? unjudged
 						: relNode(node.id, { ...twins, judged: judged.delivered, meta: metaSpecOf(node.meta) })
 			}
+		}
+		const fold = new Fold<RelNode, AnnotatedNode>(function* (node) {
+			const entry = entryOf(shared.state, node)
+			if (entry !== undefined && agrees(entry.record)) {
+				return entry.annotated
+			}
+			const values = yield* edgeValues<AnnotatedNode>(node)
+			annotated.push(node)
+			const made = annotate(node, values)
+			live.set(node, made.props)
+			built(node)
+			return { node: made.node, judged: made.judged }
 		})
 		const dag = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).node))
 		const judged = assembledDag(mapRoots(this.dag.roots, (root) => fold.of(root).judged))
@@ -518,11 +648,39 @@ class Annotator<R extends Roots> {
 			shared.state,
 			annotated,
 			(node) => fold.of(node),
+			propsOf,
 			(node) => scopes.of(node),
 			revised,
 			agreed
 		)
-		return { dag, judged, of: (node) => revised.get(node) ?? fold.of(node) }
+		for (const node of live.keys()) {
+			handOff(node)
+		}
+		const props = new Map<RelNode, Props>()
+		for (const node of kept.kind === "every"
+			? topoOrder(this.dag)
+			: kept.kind === "named"
+				? kept.nodes
+				: []) {
+			const entry = entryOf(shared.state, node)
+			const read =
+				revised.get(node)?.props ??
+				live.get(node) ??
+				(entry?.kind === "root" && agreed.get(entry.record) === true
+					? entry.annotated.props
+					: undefined)
+			if (read !== undefined) {
+				props.set(node, read)
+			}
+		}
+		const revisions = new Map<RelNode, AnnotatedNode>(
+			[...revised].map(([child, r]) => [child, { node: r.node, judged: r.judged }])
+		)
+		live.clear()
+		revised.clear()
+		unread.clear()
+		annotated.length = 0
+		return { dag, judged, of: (node) => revisions.get(node) ?? fold.of(node), props }
 	}
 }
 
@@ -533,12 +691,14 @@ class Annotator<R extends Roots> {
  */
 export const analyzeLogical = <R extends Roots>(
 	dag: ValidDag<R>,
-	env: LogicalEnv | SharedAnalyses
+	env: LogicalEnv | SharedAnalyses,
+	kept: KeptProps
 ): Result.Result<LogicalAnalysis<R>, CompileError> =>
 	catchRefusal(() =>
 		new Annotator(
 			dag,
-			env instanceof SharedAnalyses ? env : new SharedAnalyses(env, () => false)
+			env instanceof SharedAnalyses ? env : new SharedAnalyses(env, () => false),
+			kept
 		).run()
 	)
 
@@ -617,4 +777,4 @@ export const annotateQuery = <Q extends LogicalQuery>(
 	query: Q,
 	env: LogicalEnv
 ): Result.Result<Q, CompileError> =>
-	Result.map(analyzeLogical(query.dag, env), (a) => ({ ...query, dag: a.dag }))
+	Result.map(analyzeLogical(query.dag, env, keptNodes([])), (a) => ({ ...query, dag: a.dag }))

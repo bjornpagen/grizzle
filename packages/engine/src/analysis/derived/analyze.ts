@@ -1,4 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -41,7 +42,12 @@ import {
 	type RelNode,
 	type Rooted
 } from "#compiler/ir/rel.ts"
-import { analyzeLogical, type LogicalAnalysis, queryEvidence } from "#compiler/logical/annotate.ts"
+import {
+	analyzeLogical,
+	keptNodes,
+	type LogicalAnalysis,
+	queryEvidence
+} from "#compiler/logical/annotate.ts"
 import { derivedKeyPremise } from "#compiler/logical/props.ts"
 import type { OwnedRelation, OwnedView } from "#compiler/schema/own.ts"
 
@@ -218,7 +224,7 @@ export const analyzedDefinition = (
 	if (obstacle !== undefined) {
 		return Result.err(obstacleRefusals[obstacle](at, relation))
 	}
-	const analyzed = analyzeLogical(checked.dag, queryEvidence)
+	const analyzed = analyzeLogical(checked.dag, queryEvidence, keptNodes([root]))
 	if (!analyzed.ok) {
 		return analyzed
 	}
@@ -294,7 +300,7 @@ export const analyzeDerivedRelation = (
 		return definition
 	}
 	const { checked, root, analyzed, heading, declared } = definition.value
-	const { props } = analyzed.of(root)
+	const props = defined(analyzed.props.get(root), "a definition's root, kept")
 	const all = mapNonEmpty(heading, (c) => c.name)
 	const described = inferredFields(name, declared, schema.owned.contracts)
 	if (!described.ok) {

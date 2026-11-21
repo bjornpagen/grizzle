@@ -89,7 +89,7 @@ export const aClosedRelationsColumnsOfIdenticalValuesAreOneClassOfOneTypeAColumn
 					meta: conservativeMeta
 				})
 				const analysis = analyzedSoundly(b.build([closed]), schemaOf([]), {})
-				const { props } = analysis.of(closed)
+				const props = defined(analysis.props.get(closed), "the node's properties, kept")
 				const proof = onlyProof(props)
 				/** The oracle's class of a column: the columns of its type holding its values fact by fact. */
 				const classOf = (i: number) =>
@@ -257,7 +257,7 @@ export const aLateralSourcesColumnFixedToARegionColumnEqualsThatColumnsVariableB
 						S: admitted(lc.s, lc.rows[1])
 					})
 				)
-				const { props } = analysis.of(root)
+				const props = defined(analysis.props.get(root), "the node's properties, kept")
 				assert.ok(
 					defined(props.classes.get(w), "the fixed column's variable's class").includes(t),
 					`${w} and ${t} are one class`
@@ -327,7 +327,9 @@ export const keysOfJoinedRelationsAreOneProofOverIndependentFactorsWhoseChoicesA
 					const b = new DagBuilder(makeIdSupply())
 					const region = joinRegion(b, j)
 					const analysis = analyzedSoundly(b.build([region]), joinSchema(j), joinFacts(j))
-					const proof = onlyProof(analysis.of(region).props)
+					const proof = onlyProof(
+						defined(analysis.props.get(region), "the node's properties, kept")
+					)
 					const expected = minimalKeysOf(
 						Arr.map(region.heading, (h) => h.name),
 						joinDeps(j)
@@ -392,7 +394,7 @@ export const projectionsOfAJoinDetermineExactlyWhatTheJoinDeterminesAmongTheirCo
 				const deps = joinDeps(j)
 				const all = Arr.map(region.heading, (h) => h.name)
 				for (const node of [first, second]) {
-					const { props } = analysis.of(node)
+					const props = defined(analysis.props.get(node), "the node's properties, kept")
 					const heading = Arr.map(node.heading, (h) => h.name)
 					/** Only the dependencies whose determinants the node delivers: what a projection that drops would keep. */
 					const delivered = Arr.filter(deps, (d) => Arr.every(d.from, (x) => heading.includes(x)))
@@ -417,7 +419,12 @@ export const projectionsOfAJoinDetermineExactlyWhatTheJoinDeterminesAmongTheirCo
 							c.note("a dependency only a dropped column carries, from no key")
 						}
 					}
-					if (Arr.some(analysis.of(node).props.keys, (k) => k.key.length < heading.length)) {
+					if (
+						Arr.some(
+							defined(analysis.props.get(node), "the node's properties, kept").keys,
+							(k) => k.key.length < heading.length
+						)
+					) {
 						c.note("a key of the projection narrower than its heading")
 					}
 				}

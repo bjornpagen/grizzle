@@ -69,6 +69,7 @@ import { keyWitness } from "#compiler/laws/model/uniques.ts"
 import {
 	analyzeLogical,
 	judgedAsDelivered,
+	keptNodes,
 	type LogicalAnalysis
 } from "#compiler/logical/annotate.ts"
 import { everyParentTakes } from "#compiler/lower/shapes/take/decorrelate.ts"
@@ -3030,12 +3031,16 @@ const compile = (
 	/** 5. Evidence: the transaction context. */
 	const analyzed = (structure: ValidDag): LogicalAnalysis =>
 		unwrap(
-			analyzeLogical(structure, {
-				context: "transaction",
-				containments: immediateEvidence(laws.theory.evidence).containments,
-				/** A derived or world relation a member or read-back matches is keyed by its definition's keys. */
-				keyedViews: true
-			})
+			analyzeLogical(
+				structure,
+				{
+					context: "transaction",
+					containments: immediateEvidence(laws.theory.evidence).containments,
+					/** A derived or world relation a member or read-back matches is keyed by its definition's keys. */
+					keyedViews: true
+				},
+				keptNodes([])
+			)
 		)
 	const reads: ReadonlyArray<ReadBack> = readBacks.map((r) =>
 		Object.freeze({

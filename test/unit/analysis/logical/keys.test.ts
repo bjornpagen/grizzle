@@ -30,7 +30,7 @@ import {
 	projectionCloses
 } from "#compiler/ir/keys.ts"
 import { conservativeMeta, type RelNode } from "#compiler/ir/rel.ts"
-import { analyzeLogical, checkerEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, checkerEvidence, everyNode } from "#compiler/logical/annotate.ts"
 import { attributesOver, bitsOf, namesOf } from "#compiler/logical/attributes.ts"
 import { minimalKeys } from "#compiler/logical/closure.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -235,12 +235,12 @@ export const keysOverClassesOfEqualColumnsAreOneKeyForKPairsOfEqualColumnsNever2
 						)
 					: filtered
 				const built = q.build(root)
-				const analysis = succeeded(analyzeLogical(built.dag, checkerEvidence))
+				const analysis = succeeded(analyzeLogical(built.dag, checkerEvidence, everyNode))
 				const kernel = new KeyKernel(analysis.dag, {
 					keyedViews: false
 				})
 				const check = (at: RelNode, columns: ReadonlyArray<string>) => {
-					const { props } = analysis.of(at)
+					const props = defined(analysis.props.get(at), "the node's properties, kept")
 					/** Each class's columns the node has, in its heading order. */
 					const present = Arr.filter(
 						Arr.map(classes, (members) =>
@@ -399,11 +399,11 @@ export const keysOfAUnionAreClosedUnderTheColumnsEveryArmMakesEqualAndOnlyThose 
 						}
 					}
 				}
-				const analysis = succeeded(analyzeLogical(q.build(union).dag, checkerEvidence))
+				const analysis = succeeded(analyzeLogical(q.build(union).dag, checkerEvidence, everyNode))
 				const kernel = new KeyKernel(analysis.dag, {
 					keyedViews: false
 				})
-				const { props } = analysis.of(union)
+				const props = defined(analysis.props.get(union), "the node's properties, kept")
 				assert.ok(props.keys.length > 0, "the union is keyed by tag and its columns")
 				const index = (column: string) => columns.indexOf(column)
 				for (const proof of props.keys) {
@@ -543,12 +543,15 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 						[],
 						conservativeMeta
 					)
-					const analysis = succeeded(analyzeLogical(q.build(union).dag, checkerEvidence))
+					const analysis = succeeded(analyzeLogical(q.build(union).dag, checkerEvidence, everyNode))
 					const kernel = new KeyKernel(analysis.dag, {
 						keyedViews: false
 					})
 					const held = analysis.of(union).node
-					const proof = defined(analysis.of(union).props.keys[0], "a key of the union")
+					const proof = defined(
+						defined(analysis.props.get(union), "the node's properties, kept").keys[0],
+						"a key of the union"
+					)
 					assert.deepEqual(
 						kernel.check(proof, held),
 						[],
@@ -569,7 +572,7 @@ export const theKeyKernelsUnionEqualitiesRefusesAForgedEqualStepWhoseArmsOnlyDet
 					/** Each arm's derivation that `from` determines b: a projection step over its input's x and y. */
 					const derivations = (from: string) =>
 						Arr.map(arms, ({ input, mapping }) => {
-							const inputProps = analysis.of(input).props
+							const inputProps = defined(analysis.props.get(input), "the node's properties, kept")
 							const through =
 								mapping.kind === "filtered"
 									? [

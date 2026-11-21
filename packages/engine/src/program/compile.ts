@@ -18,7 +18,7 @@ import {
 } from "#compiler/ir/products.ts"
 import type { Heading, RootedDag } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import { analyzeLogical, queryEvidence } from "#compiler/logical/annotate.ts"
+import { analyzeLogical, keptNodes, queryEvidence } from "#compiler/logical/annotate.ts"
 import type { ProgramDelivery } from "#compiler/lower/conservative/types.ts"
 
 import {
@@ -236,11 +236,15 @@ export const compileQuery = (
 		...checkedQuery.value,
 		params: sourcedParams(params.value, options.source)
 	}
-	const analyzed = analyzeLogical(checked.dag, {
-		context,
-		containments: artifacts.laws.theory.evidence.containments,
-		keyedViews: true
-	})
+	const analyzed = analyzeLogical(
+		checked.dag,
+		{
+			context,
+			containments: artifacts.laws.theory.evidence.containments,
+			keyedViews: true
+		},
+		keptNodes([])
+	)
 	if (!analyzed.ok) {
 		return analyzed
 	}
