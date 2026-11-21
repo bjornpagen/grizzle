@@ -36,15 +36,16 @@
  * where format 5 held a merge tree in the order its read-backs were read, unioned and sequenced. A primary key's
  * generated field is recorded as a key generation, its writing `keyGenerated`, a column grizzle writes and its key's
  * CHECK proves (deploy/snapshot/types.ts SnapshotWriting). An instant field's description records its writing as
- * `instant`, so a schema fingerprint over an instant field moves. A SHA-256 digest is a carrier of its own, 32 bytes of
- * bytea under the installation's __sha256 domain, which every Setup creates and grizzle's ledger and drift proofs type
- * their digests by; Crypto.sha256 yields it, where format 5 held 64 hex digits as text. Format 5's snapshot.json first
- * recorded the library functions the installation installs (derived.library), each one any artifact over it or any
- * program it serves calls, beside every structural text domain it holds (derived.textDomains), each refinement any
- * artifact or served program types a value by, and every contract outside the base they type a value by
- * (derived.params.contracts). Format 3's files were written in several shapes, changes of what they hold riding its
- * number (a constant recorded with no language before 56f26ca01), so a reader that trusted a sealed record of 3 met
- * shapes it never wrote; every one is refused here
+ * `instant`, so a schema fingerprint over an instant field moves. Each drafted folder's meta.json records every file's
+ * lock demand (`locks`, deploy/locks/demand.ts), which migrate holds the server's lock table to before anything runs. A
+ * SHA-256 digest is a carrier of its own, 32 bytes of bytea under the installation's __sha256 domain, which every Setup
+ * creates and grizzle's ledger and drift proofs type their digests by; Crypto.sha256 yields it, where format 5 held 64
+ * hex digits as text. Format 5's snapshot.json first recorded the library functions the installation installs
+ * (derived.library), each one any artifact over it or any program it serves calls, beside every structural text domain
+ * it holds (derived.textDomains), each refinement any artifact or served program types a value by, and every contract
+ * outside the base they type a value by (derived.params.contracts). Format 3's files were written in several shapes,
+ * changes of what they hold riding its number (a constant recorded with no language before 56f26ca01), so a reader that
+ * trusted a sealed record of 3 met shapes it never wrote; every one is refused here
  */
 export const artifactFormat = 6
 
