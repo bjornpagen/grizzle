@@ -115,14 +115,6 @@ export const theComputeCatalogueAgainstPostgreSQL19AgreesWithPostgreSQLOnTheResu
 						"\t\troundToFloat(v, carrier, signedZeroOf(v, carrier, floatLit(0, carrier)))\n",
 					replacement: "\t\troundToFloat(v, carrier, floatLit(0, carrier))\n",
 					why: "The exact path rounds a negative value below half the least subnormal to +0: the least magnitude's negative times the least, or over 2.5, is 0 in the SQL where the host's IEEE 754 arithmetic gives -0."
-				},
-				{
-					file: "packages/engine/src/scalar/compute/evaluate.ts",
-					original:
-						'const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : quotient(a, b)',
-					replacement:
-						'const r = fn === "add" ? a + b : fn === "sub" ? a - b : fn === "mul" ? a * b : a / b',
-					why: "The host divides by -0 as IEEE 754 does, the infinity's sign the dividend's flipped, where the SQL gives the dividend's."
 				}
 			]
 		}
