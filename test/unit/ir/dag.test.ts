@@ -51,9 +51,17 @@ import {
 	relNode,
 	topoOrder
 } from "#compiler/ir/dag.ts"
-import { builtExpr, exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
+import { builtExpr, exprClosure, type ScalarExpr, sortedUnique } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
-import { type Cell, conservativeMeta, inputsOf, type RelNode } from "#compiler/ir/rel.ts"
+import {
+	type Cell,
+	conservativeMeta,
+	edgesOf,
+	exprsOf,
+	fieldParams,
+	inputsOf,
+	type RelNode
+} from "#compiler/ir/rel.ts"
 import { decodeScalarType } from "#compiler/ir/scalar-shape.ts"
 import { refusalLoc, refused, succeeded, throwsDefect } from "#test/support/assert.ts"
 import { normalizeDag, toTable } from "#test/support/dag.ts"
@@ -154,6 +162,113 @@ export const traversalsOfGeneratedDAGsOrderEveryReachableNodeAfterItsInputsAndCl
 				original: "\tpostorder(dag.roots, (node) => inputsOf(node))",
 				replacement: "\tpostorder(dag.roots, (node) => inputsOf(node)).toReversed()",
 				why: "topoOrder lists a node before its inputs; the traversal property fails."
+			}
+		]
+	})
+
+/** What the dependency-list property reaches: a list one part's very list among two or more, and one merged anew. */
+type DependencyFeature =
+	| "a list that is one of several parts' lists"
+	| "a list merged from two parts'"
+
+/**
+ * The dependency lists of every node and expression of a generated DAG are the union of their parts' (ir/dag.ts
+ * relNode, ir/expr.ts builtExpr, sortedUnion): a node's parameters its own fields', its expressions' and its inputs',
+ * its stored reads a Base's relation and its inputs', an expression's parameters and column nodes its own and its
+ * arguments', each in code unit order without repeats; and a list that adds nothing to one of its parts' is that part's
+ * very list, one value however many nodes and expressions read it, where each was a copy of its own.
+ *
+ * Oracle: the union of the parts' lists, sorted and deduplicated (sortedUnique, the old construction), and identity
+ * with the part whose content it equals.
+ *
+ * Budget: 300 runs and 300 steered cases, the traversal property's, over its space.
+ */
+export const theDependencyListsOfGeneratedNodesAndExpressionsAreTheUnionOfTheirPartsAndAListAddingNothingIsItsPartsVeryList =
+	property.explore(generatedDags, {
+		needs: {},
+		budget: { runs: 300, steered: 300 },
+		situations: [
+			"a list that is one of several parts' lists",
+			"a list merged from two parts'"
+		] satisfies ReadonlyArray<Reached<DependencyFeature>>,
+		check: (_, c: Case<DependencyFeature>) => (d) =>
+			Effect.sync(() => {
+				/** `list`, built of `own`, the constructor's own items, and `parts`, its parts' lists, checked. */
+				const union = (
+					list: ReadonlyArray<string>,
+					own: ReadonlyArray<string>,
+					parts: ReadonlyArray<ReadonlyArray<string>>,
+					what: string
+				): void => {
+					assert.deepEqual(
+						list,
+						sortedUnique([...own, ...parts.flat()]),
+						`${what} is its parts' union`
+					)
+					const nonEmpty = Arr.filter(parts, (part) => part.length > 0)
+					const covering = Arr.filter(
+						nonEmpty,
+						(part) => part.length === list.length && Arr.every(part, (x, i) => x === list[i])
+					)
+					if (covering.length > 0) {
+						assert.ok(covering.includes(list), `${what} is the very list of the part it equals`)
+						if (nonEmpty.length > 1) {
+							c.note("a list that is one of several parts' lists")
+						}
+					} else if (nonEmpty.length > 1) {
+						c.note("a list merged from two parts'")
+					}
+				}
+				for (const node of topoOrder(d)) {
+					union(
+						node.meta.paramDeps,
+						fieldParams(node),
+						[
+							...Arr.map(exprsOf(node), (e) => e.deps.params),
+							...Arr.map(edgesOf(node), (input) => input.meta.paramDeps)
+						],
+						`${node.id}'s parameters`
+					)
+					union(
+						node.meta.reads,
+						node.kind === "Base" ? [node.relation] : [],
+						Arr.map(edgesOf(node), (input) => input.meta.reads),
+						`${node.id}'s reads`
+					)
+				}
+				for (const e of exprsIn(d)) {
+					union(
+						e.deps.params,
+						e.kind === "param" ? [e.param] : [],
+						Arr.map(e.args, (a) => a.deps.params),
+						`${e.id}'s parameters`
+					)
+					union(
+						e.deps.nodes,
+						e.kind === "column" ? [e.column.node] : [],
+						Arr.map(e.args, (a) => a.deps.nodes),
+						`${e.id}'s column nodes`
+					)
+				}
+			}),
+		oracle: {
+			kind: "second-implementation",
+			name: "the parts' lists united by sortedUnique, and identity with the part a list equals"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original:
+					"\treturn out.length === b.length ? b : out.length === a.length ? a : Object.freeze(out)\n",
+				replacement: "\treturn Object.freeze(out)\n",
+				why: "A merged list is a copy even where it adds nothing to a part's, as the sorted Set of every part was: a node over an input whose list holds the rest keeps a list of its own."
+			},
+			{
+				file: "packages/engine/src/ir/expr.ts",
+				original: "\t\ti += order <= 0 ? 1 : 0\n",
+				replacement: "\t\ti += order < 0 ? 1 : 0\n",
+				why: "The merge keeps an item both lists hold twice: the union repeats it."
 			}
 		]
 	})

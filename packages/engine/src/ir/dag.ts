@@ -37,6 +37,7 @@ import {
 	mapArgs,
 	outsideSpec,
 	type ScalarExpr,
+	sortedUnion,
 	sortedUnique,
 	type TableArgs,
 	type TableExpr,
@@ -102,27 +103,22 @@ const freeze = <A>(value: A): A => {
  * input is a node this constructor built, so its fields are final, and so are the new node's.
  */
 export const relNode = (id: NodeId, spec: NodeSpec): RelNode => {
-	const params = new Set<ParamId>(fieldParams(spec))
+	const own = fieldParams(spec)
+	let paramDeps: ReadonlyArray<ParamId> = own.length === 0 ? noIds : sortedUnique(own)
 	for (const e of exprsOf(spec)) {
-		for (const p of e.deps.params) {
-			params.add(p)
-		}
+		paramDeps = sortedUnion(paramDeps, e.deps.params)
 	}
-	const reads = new Set<string>(spec.kind === "Base" ? [spec.relation] : [])
+	let reads: ReadonlyArray<string> = spec.kind === "Base" ? sortedUnique([spec.relation]) : noIds
 	for (const input of edgesOf(spec)) {
-		for (const p of input.meta.paramDeps) {
-			params.add(p)
-		}
-		for (const r of input.meta.reads) {
-			reads.add(r)
-		}
+		paramDeps = sortedUnion(paramDeps, input.meta.paramDeps)
+		reads = sortedUnion(reads, input.meta.reads)
 	}
 	const meta: NodeMeta = {
 		logicalKeys: spec.meta.logicalKeys,
 		card: spec.meta.card,
 		context: spec.meta.context,
-		paramDeps: sortedUnique(params),
-		reads: sortedUnique(reads)
+		paramDeps,
+		reads
 	}
 	return deepFreeze({ ...spec, id, meta })
 }

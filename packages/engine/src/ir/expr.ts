@@ -682,32 +682,58 @@ export const sortedUnique = <A extends string>(items: Iterable<A>): ReadonlyArra
 }
 
 /**
+ * Two lists each in code unit order without repeats (sortedUnique's), merged in one pass into one such list: either
+ * list itself where it holds every item of the other, the second first, so a union folded over its parts in turn is the
+ * very list of a part that holds every other part's items: a dependency list an expression or a node adds nothing to is
+ * its argument's or input's own, one value however many nodes and expressions read it.
+ */
+export const sortedUnion = <A extends string>(
+	a: ReadonlyArray<A>,
+	b: ReadonlyArray<A>
+): ReadonlyArray<A> => {
+	if (b.length === 0 || a === b) {
+		return a
+	}
+	if (a.length === 0) {
+		return b
+	}
+	const out: Array<A> = []
+	let i = 0
+	let j = 0
+	for (;;) {
+		const x = a[i]
+		const y = b[j]
+		if (x === undefined || y === undefined) {
+			break
+		}
+		const order = compareStrings(x, y)
+		out.push(order <= 0 ? x : y)
+		i += order <= 0 ? 1 : 0
+		j += order >= 0 ? 1 : 0
+	}
+	appendAll(out, a.slice(i))
+	appendAll(out, b.slice(j))
+	return out.length === b.length ? b : out.length === a.length ? a : Object.freeze(out)
+}
+
+/**
  * The expression of `spec` labelled `id`, with what its arguments derive: its dependencies, its own parameter or column
  * source with every argument's, and its effects (exprEffects). The one constructor of an expression, frozen; its
  * arguments are expressions built before it, so what they derive is final.
  */
 export const builtExpr = (spec: ExprSpec, id: ExprId): ScalarExpr => {
-	const params = new Set<ParamId>()
-	const nodes = new Set<NodeId>()
-	if (spec.kind === "param") {
-		params.add(spec.param)
-	}
-	if (spec.kind === "column") {
-		nodes.add(spec.column.node)
-	}
+	let params: ReadonlyArray<ParamId> = spec.kind === "param" ? sortedUnique([spec.param]) : noIds
+	let nodes: ReadonlyArray<NodeId> =
+		spec.kind === "column" ? sortedUnique([spec.column.node]) : noIds
 	for (const a of spec.args) {
-		for (const p of a.deps.params) {
-			params.add(p)
-		}
-		for (const n of a.deps.nodes) {
-			nodes.add(n)
-		}
+		params = sortedUnion(params, a.deps.params)
+		nodes = sortedUnion(nodes, a.deps.nodes)
 	}
 	return Object.freeze({
 		...spec,
 		...exprEffects(spec, spec.args),
 		id,
-		deps: Object.freeze({ params: sortedUnique(params), nodes: sortedUnique(nodes) }),
+		deps: Object.freeze({ params, nodes }),
 		pgType: pgTypeOf(spec)
 	})
 }
