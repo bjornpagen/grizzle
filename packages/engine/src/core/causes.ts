@@ -244,6 +244,7 @@ export type WritabilityReason =
 	| { readonly kind: "bindingNotVariableOrLiteral"; readonly field: string }
 	| { readonly kind: "filterReadsFamily"; readonly field: string }
 	| { readonly kind: "keyHoldsFamily"; readonly field: string }
+	| { readonly kind: "keyHoldsGeneration"; readonly field: string }
 
 /** What a role relation a write or refresh list names is: an ordinary, closed or derived whole entry, or a query entry. */
 export type EntryKind = "relation" | "closed" | "derived" | "query"
@@ -476,6 +477,8 @@ const unwritableText = (reason: WritabilityReason): string => {
 			return `the written relation's field ${reason.field} is bound to neither a variable nor a literal`
 		case "keyHoldsFamily":
 			return `a key of the written relation holds its field ${reason.field}, which its family draws: no fact through the entry states it, so no write names or probes that key`
+		case "keyHoldsGeneration":
+			return `the written relation's primary key holds its key generation ${reason.field}, which grizzle writes from its reads: a fact through the entry would state it, so this cut writes such a relation whole, never through an entry`
 		case "filterReadsFamily":
 			return `its filter reads the written relation's field ${reason.field}, which its family draws: the owner's membership would move with member writes no write through the entry states, and no policy can judge the owner at its insert`
 	}
@@ -558,6 +561,11 @@ export type GeneratedRule =
 	| { readonly kind: "type"; readonly declared: string; readonly expression: string }
 	| { readonly kind: "disjoint"; readonly declared: string; readonly expression: string }
 	| { readonly kind: "stable" }
+	| {
+			readonly kind: "keyReadsUnwritten"
+			readonly read: string
+			readonly writing: "drawn" | "accumulated" | "retirement" | "place" | "instant"
+	  }
 
 /** What each input beyond a row is, in a generated field's refusal. */
 const rowInputWords: {
@@ -585,6 +593,8 @@ export const generatedRuleText = (rule: GeneratedRule): string => {
 			return `its expression is ${rule.expression}, of which no value is its declared ${rule.declared}: its column's domain would refuse every row, so none could ever be written`
 		case "stable":
 			return "its expression is stable, reading a setting of its session, as a conversion to money reads lc_monetary; PostgreSQL stores a generated column only by an immutable expression"
+		case "keyReadsUnwritten":
+			return `is in its relation's primary key and reads ${rule.read}, a ${rule.writing} field; a key generation reads its row's caller fields alone, the heads a put, a delete or a get states its key by`
 	}
 }
 

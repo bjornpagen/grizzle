@@ -4,7 +4,7 @@ import type { GeneratedRule } from "#compiler/core/causes.ts"
 import { NodeId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import { type ExprDesc, exprChildren } from "#compiler/ir/desc.ts"
+import { type ExprDesc, exprChildren, exprFieldReads } from "#compiler/ir/desc.ts"
 import type { Volatility } from "#compiler/ir/expr.ts"
 import {
 	entersColumn,
@@ -83,17 +83,6 @@ const firstForeign = (e: ExprDesc): ForeignKind | undefined => {
 	return undefined
 }
 
-/** Every field `e` reads, each once, into `out`. */
-const fieldReads = (e: ExprDesc, out: Set<string>): Set<string> => {
-	if (e.kind === "field") {
-		out.add(e.field)
-	}
-	for (const { term } of exprChildren(e)) {
-		fieldReads(term, out)
-	}
-	return out
-}
-
 /** Every closed relation `e` reads, by C.at, C.row or C.has, each once, in the order its description states them. */
 export const closedReadNames = (e: ExprDesc): ReadonlyArray<string> => {
 	const out = new Set<string>()
@@ -126,9 +115,34 @@ export const generatedRule = (
 	if (input !== undefined) {
 		return { kind: "notRowLocal", input }
 	}
-	const reads = [...fieldReads(expr, new Set())].toSorted(compareStrings)
+	const reads = exprFieldReads(expr).toSorted(compareStrings)
 	const read = reads.find(generated)
 	return read === undefined ? undefined : { kind: "readsGenerated", read }
+}
+
+/** The writings a key generation may not read: every one but its caller's, each a field grizzle writes. */
+type UnwrittenRead = Extract<GeneratedRule, { readonly kind: "keyReadsUnwritten" }>["writing"]
+
+/**
+ * Why the generation expression `expr` of a field its relation's primary key holds (law.ts FieldWriting keyGenerated)
+ * breaks the key-generation rule, or undefined when it keeps it: the least field it reads in code-unit order that
+ * `unwritten` says grizzle or the database writes, drawn, accumulated, retirement, place or a stamped instant, with its
+ * writing. A key generation reads
+ * its row's caller fields alone, so its reads are the heads a put, a delete or a get states the key by (law.ts
+ * keyHeads), each a value the caller holds before any row is filled; a generated field it reads is generatedRule's
+ * refusal, met first.
+ */
+export const keyGeneratedRule = (
+	expr: ExprDesc,
+	unwritten: (field: string) => UnwrittenRead | undefined
+): GeneratedRule | undefined => {
+	for (const read of exprFieldReads(expr).toSorted(compareStrings)) {
+		const writing = unwritten(read)
+		if (writing !== undefined) {
+			return { kind: "keyReadsUnwritten", read, writing }
+		}
+	}
+	return undefined
 }
 
 /**

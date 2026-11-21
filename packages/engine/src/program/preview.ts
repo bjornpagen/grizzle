@@ -92,6 +92,7 @@ const previewWriting = (writing: FieldWriting): PreviewWriting | undefined => {
 		case "accumulated":
 			return writing
 		case "generated":
+		case "keyGenerated":
 		case "instant":
 		case "place":
 			return undefined

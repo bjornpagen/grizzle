@@ -108,9 +108,9 @@ export const changeSet = agreement(changeSetAimed, {
 		{
 			file: "packages/engine/src/types/changeset/changeset.ts",
 			original:
-				"\tIsTreeRow<S, R> extends true\n\t\t? Pick<Addition<R>, TreeRootOf<S, R> & keyof Addition<R>>\n\t\t: Addition<R>",
+				"\tIsTreeRow<S, R> extends true\n\t\t? Pick<Addition<R>, KeyHeadsOf<R, TreeRootOf<S, R>> & keyof Addition<R>>\n\t\t: Addition<R>",
 			replacement:
-				"\tIsTreeRow<S, R> extends true\n\t\t? Addition<R> & Pick<Addition<R>, TreeRootOf<S, R> & keyof Addition<R>>\n\t\t: Addition<R>",
+				"\tIsTreeRow<S, R> extends true\n\t\t? Addition<R> & Pick<Addition<R>, KeyHeadsOf<R, TreeRootOf<S, R>> & keyof Addition<R>>\n\t\t: Addition<R>",
 			why: "A tree's delete takes the whole written row (DeletedRow), not its root fields alone, so a tree deleted by its root is refused; the agreement's program fails."
 		}
 	]

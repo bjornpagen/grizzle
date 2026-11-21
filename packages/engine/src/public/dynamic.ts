@@ -49,7 +49,7 @@ const ordinaryRelation = (
 const generated = <const Written extends Readonly<Record<string, FieldBase>>>(
 	name: string,
 	written: Written,
-	primaryKey: NonEmptyReadonlyArray<keyof Written & string>,
+	primaryKey: NonEmptyReadonlyArray<string>,
 	generate: (
 		row: GenerationRow<Relation<string, Written, NonEmptyReadonlyArray<keyof Written & string>>>
 	) => Readonly<Record<string, GeneratedField<FieldBase>>>,

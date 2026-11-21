@@ -55,6 +55,7 @@ export type SnapshotWriting =
 	| "instant"
 	| "place"
 	| { readonly generated: string }
+	| { readonly keyGenerated: string }
 	| { readonly drawn: string }
 	| { readonly accumulated: string }
 

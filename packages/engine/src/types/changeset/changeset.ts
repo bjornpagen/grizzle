@@ -81,6 +81,7 @@ import type {
 	DrawnFieldOf,
 	Fin,
 	Key,
+	KeyHeadsOf,
 	Mutable,
 	OrderedFamily,
 	Side,
@@ -620,12 +621,13 @@ type MemberOwningSequence<S, R> =
 
 /**
  * The facts a delete of R in S takes: a tree's root value, which names one tree, removed whole with every row nested
- * under its nodes; any other relation's row as its caller writes it (Addition), an owner's removed with every row nested
- * under it (UnitWrites).
+ * under its nodes, stated by its key heads (KeyHeadsOf: a root field that is a key generation by the fields its
+ * generation reads); any other relation's row as its caller writes it (Addition), an owner's removed with every row
+ * nested under it (UnitWrites).
  */
 type DeletedRow<S, R> =
 	IsTreeRow<S, R> extends true
-		? Pick<Addition<R>, TreeRootOf<S, R> & keyof Addition<R>>
+		? Pick<Addition<R>, KeyHeadsOf<R, TreeRootOf<S, R>> & keyof Addition<R>>
 		: Addition<R>
 
 /** The root fields of R's tree in S: a tree is a family of its relation over itself, so it is among R's sequences. */

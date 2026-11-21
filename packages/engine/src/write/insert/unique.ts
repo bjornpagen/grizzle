@@ -156,6 +156,7 @@ export const hostHeld = (field: Pick<LawField, "writing">): boolean => {
 		case "drawn":
 		case "accumulated":
 		case "retirement":
+		case "keyGenerated":
 			return true
 		case "generated":
 		case "instant":

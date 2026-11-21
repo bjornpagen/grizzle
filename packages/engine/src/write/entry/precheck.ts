@@ -5,7 +5,7 @@ import type { EntryName, LawId } from "#compiler/core/ids.ts"
 import { sqlstates } from "#compiler/core/sqlstate.ts"
 import type { EvidenceCatalog } from "#compiler/ir/evidence.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
-import { fieldNames, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
+import { fieldNames, generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import { witnessFields } from "#compiler/laws/model/uniques.ts"
 import type { Cte, Expr, FunctionName, TypeRef } from "#compiler/sql/ast.ts"
 import {
@@ -234,13 +234,15 @@ export const buildEntryCheck = (
 		/** The row's value at a field, at its base type: one it states as it reads, and a generated one at its generation
 		 * expression over the fields it is generated from, written into their domains (insert/statement.ts
 		 * requestedValue), the value PostgreSQL stores. */
-		const typed = (f: LawField): Expr =>
-			cast(
-				f.writing.kind === "generated"
-					? requestedValue(w, relation, generatedFrom(relation, f.writing.expr), written)(f)
+		const typed = (f: LawField): Expr => {
+			const generation = generationOf(f)
+			return cast(
+				generation !== undefined
+					? requestedValue(w, relation, generatedFrom(relation, generation), written)(f)
 					: read(f.name).value,
 				baseType(f)
 			)
+		}
 		const rv = supply.relation(internal("verdicts"))
 		const keyColumns = fieldColumns(keyFields, (f) => supply.column(internal(`key ${f.name}`)))
 		const inside = supply.column(internal("membership"))

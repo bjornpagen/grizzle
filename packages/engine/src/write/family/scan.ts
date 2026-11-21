@@ -39,11 +39,12 @@ import { columnReads, fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { Family, FamilyFold } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import {
-	type LawRelation,
-	type NativeColumn,
 	type ColumnKey,
 	columnKey,
-	columnKeyOf
+	columnKeyOf,
+	generationOf,
+	type LawRelation,
+	type NativeColumn
 } from "#compiler/ir/law.ts"
 import {
 	type Accumulation,
@@ -251,8 +252,9 @@ const ownValue =
 				return held
 			}
 			const field = relation.fields.find((f) => columnKeyOf(f.name) === k)
-			if (field?.writing.kind === "generated") {
-				return lowering.expression(field.writing.expr, (name) => value(columnKeyOf(name)))
+			const generation = field === undefined ? undefined : generationOf(field)
+			if (generation !== undefined) {
+				return lowering.expression(generation, (name) => value(columnKeyOf(name)))
 			}
 			throw defect(`the column ${k} of ${relation.name}, which a write reads`)
 		}

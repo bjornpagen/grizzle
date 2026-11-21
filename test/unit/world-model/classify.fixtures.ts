@@ -331,6 +331,7 @@ export const allowedBy = (
 		case "bindingNotVariableOrLiteral":
 		case "filterReadsFamily":
 		case "keyHoldsFamily":
+		case "keyHoldsGeneration":
 			return []
 	}
 }

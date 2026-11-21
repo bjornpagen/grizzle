@@ -220,6 +220,8 @@ const recordedWriting = (
 			return w.kind
 		case "generated":
 			return { generated: recordedDigest("generation", w.desc, withoutSourceLocs) }
+		case "keyGenerated":
+			return { keyGenerated: recordedDigest("generation", w.desc, withoutSourceLocs) }
 		case "drawn":
 			return drawnWriting(fillerForm(field, filler, spell))
 		case "accumulated":
@@ -1103,9 +1105,11 @@ const writingForm = (w: SnapshotWriting): FormOf<never> =>
 		? w
 		: "generated" in w
 			? { generated: w.generated }
-			: "drawn" in w
-				? { drawn: w.drawn }
-				: { accumulated: w.accumulated }
+			: "keyGenerated" in w
+				? { keyGenerated: w.keyGenerated }
+				: "drawn" in w
+					? { drawn: w.drawn }
+					: { accumulated: w.accumulated }
 
 const fieldForm = (f: SnapshotField): SnapshotForm => ({
 	name: f.name,

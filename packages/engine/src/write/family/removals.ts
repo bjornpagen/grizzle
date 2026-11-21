@@ -50,13 +50,14 @@ import { fieldReads } from "#compiler/ir/expr.ts"
 import { baseLiteral, type Family, isSequence } from "#compiler/ir/family.ts"
 import type { FillColumn } from "#compiler/ir/fill.ts"
 import {
-	familyKey,
-	type LawField,
-	type NativeColumn,
-	type RelationInfo,
 	type ColumnKey,
 	columnKey,
-	columnKeyOf
+	columnKeyOf,
+	familyKey,
+	generationOf,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo
 } from "#compiler/ir/law.ts"
 import { WriteParams } from "#compiler/lower/conservative/context.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
@@ -476,7 +477,7 @@ const leftByPut = (
 	facts: Shaped
 ): Shaped => {
 	const generated = relation.fields.filter(
-		(f) => f.writing.kind === "generated" && !facts.columns.has(columnKeyOf(f.name))
+		(f) => generationOf(f) !== undefined && !facts.columns.has(columnKeyOf(f.name))
 	)
 	if (!isNonEmpty(generated)) {
 		return facts

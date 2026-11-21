@@ -1,4 +1,5 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
 	mapNonEmpty,
@@ -17,7 +18,12 @@ import {
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
 import type { ExprDesc, FieldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
-import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
+import {
+	type ExprTable,
+	fieldReads,
+	type ScalarExpr,
+	type TypedLiteral
+} from "#compiler/ir/expr.ts"
 import type { GeneratedRead } from "#compiler/ir/keys.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -68,12 +74,44 @@ export interface LawField extends HeadingColumn {
  * that adds its row, one past its group's greatest place, `order` how a migration that adds it numbers the rows it
  * finds stored (ir/desc.ts PlaceOrderDesc, ir/instant.ts PlaceOrder). Only a caller field is in an insert's head, and an instant
  * one where the insert states a stored instant into it.
+ *
+ * keyGenerated is a generated field its relation's primary key holds, decided once where the theory types the relation
+ * (analysis/schema.ts): its `expr` reads caller fields alone, and it is no GENERATED column but one grizzle writes on
+ * every insert, its generation's value (the host's fill, or insert/statement.ts requestedValue in a statement), and
+ * PostgreSQL proves by a row CHECK `field = expr`. PostgreSQL refuses ON UPDATE CASCADE on a foreign key whose
+ * referencing columns hold a GENERATED column, which every family axis over such a key is, so a key the relation is
+ * known by is a column every native reads as any other. Its key head is its generation's reads (`keyHeads`).
  */
 export type FieldWriting =
 	| { readonly kind: "caller" | "drawn" | "retirement" | "instant" }
-	| { readonly kind: "generated"; readonly desc: ExprDesc; readonly expr: ScalarExpr }
+	| {
+			readonly kind: "generated" | "keyGenerated"
+			readonly desc: ExprDesc
+			readonly expr: ScalarExpr
+	  }
 	| { readonly kind: "place"; readonly order: PlaceOrderDesc }
 	| { readonly kind: "accumulated"; readonly start: TypedLiteral }
+
+/**
+ * A field's generation, the expression of its row its value is: a generated field's, which PostgreSQL computes, and a
+ * key generation's, which grizzle writes and a CHECK proves; undefined for a field written any other way. What reads a
+ * field's value as a function of its row reads it here; what lists the columns a statement writes or PostgreSQL
+ * computes reads the writing's kind.
+ */
+export const generationOf = (field: Pick<LawField, "writing">): ScalarExpr | undefined => {
+	switch (field.writing.kind) {
+		case "generated":
+		case "keyGenerated":
+			return field.writing.expr
+		case "caller":
+		case "drawn":
+		case "retirement":
+		case "instant":
+		case "place":
+		case "accumulated":
+			return undefined
+	}
+}
 
 /**
  * A stored or closed relation, resolved once where the theory types it: its declared name and its fields in declared
@@ -177,6 +215,44 @@ export interface RelationInfo extends StoredRelationOf<"relation">, TableRelatio
 	 * types the relation (analysis/schema.ts generatedReadsOf); every Base over it carries them (rel.ts StoredBase).
 	 */
 	readonly generated: ReadonlyArray<GeneratedRead>
+}
+
+/**
+ * The fields a caller states to name a fact of `relation` by the fields `key`, its key heads: the key's fields but each
+ * key generation (FieldWriting keyGenerated), in key order, then each key generation's reads not already among them, in
+ * key order and then each generation's first-read order (fieldReads). Admission holds a key generation to reading caller
+ * fields alone, so every head a key generation adds is a caller field, a value a put, a delete or a get states; the key
+ * itself, each key generation filled from its heads, is what a statement compares. The one reading of key heads: a
+ * slot's admitted heading (write/frontend/compile.ts headsOf), a tree delete's root (types/schema KeyHeadsOf, its type).
+ */
+export const keyHeads = (
+	relation: RelationInfo,
+	key: ReadonlyArray<LawField>
+): ReadonlyArray<LawField> => {
+	const heads: Array<LawField> = []
+	const add = (f: LawField): void => {
+		if (!heads.includes(f)) {
+			heads.push(f)
+		}
+	}
+	for (const f of key) {
+		if (f.writing.kind !== "keyGenerated") {
+			add(f)
+		}
+	}
+	for (const f of key) {
+		if (f.writing.kind === "keyGenerated") {
+			for (const name of fieldReads([f.writing.expr])) {
+				add(
+					defined(
+						relation.fields.find((g) => g.name === name),
+						`the field ${name} a key generation reads`
+					)
+				)
+			}
+		}
+	}
+	return heads
 }
 
 /**

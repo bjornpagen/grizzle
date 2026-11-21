@@ -13,6 +13,7 @@ import type {
 	SqlOfCarrier,
 	Unordered
 } from "#compiler/types/core/phantom.ts"
+import type { Generation, GenerationsOf } from "#compiler/types/evidence/evidence.ts"
 import type {
 	AccumulatedField,
 	BitsField,
@@ -426,9 +427,19 @@ type RootThenStart<K, Root> =
 			: false
 		: false
 
-/** A tree's root fields are caller's fields of its relation, whose heading is C. */
+/** The generated fields of the heading C, a key generation among them where the primary key holds one. */
+type GeneratedIn<C> = {
+	[K in keyof C]-?: C[K] extends { readonly writing: "generated" } ? K : never
+}[keyof C] &
+	string
+
+/**
+ * A tree's root fields are caller's fields of its relation, whose heading is C, or key generations (ir/law.ts
+ * FieldWriting keyGenerated), a member's own generated over the reads its caller states: the primary key the root
+ * fields lead (RootThenStart) holds them, so a generated one is a key generation.
+ */
 export type TreeRootOf<C, Root> = Root extends readonly [string, ...ReadonlyArray<string>]
-	? Root[number] extends CallerIn<C>
+	? Root[number] extends CallerIn<C> | GeneratedIn<C>
 		? unknown
 		: Refusal<"a tree's root fields are distinct caller fields of its relation">
 	: Refusal<"a tree's root fields are distinct caller fields of its relation">
@@ -727,10 +738,31 @@ export type KeyFieldsOf<K> =
 					? P
 					: never
 
+/**
+ * The values a caller states to name a fact by the key K, its key heads (ir/law.ts keyHeads): each key field, a key
+ * generation (a generated field of the key) replaced by the fields its generation reads (types/evidence GenerationsOf),
+ * which the host fills it from before the key is read; a generation the types do not trace stays its own field.
+ */
 export type KeyValues<K> = Pick<
 	Fact<RelationOfKey<K>>,
-	(KeyFieldsOf<K> extends ReadonlyArray<infer F> ? F : never) & keyof Fact<RelationOfKey<K>>
+	KeyHeadFields<
+		HeadingOf<RelationOfKey<K>>,
+		KeyFieldsOf<K> extends ReadonlyArray<infer F> ? F : never
+	> &
+		keyof Fact<RelationOfKey<K>>
 >
+
+/** The key heads of the key fields F of the relation R (KeyHeadFields over its heading). */
+export type KeyHeadsOf<R, F> = KeyHeadFields<HeadingOf<R>, F>
+
+/** Each key field F of a heading H as its key heads: a traced generation's reads, else itself. */
+type KeyHeadFields<H, F> = F extends string
+	? [Extract<GenerationsOf<H>, Generation<F, string>>] extends [never]
+		? F
+		: Extract<GenerationsOf<H>, Generation<F, string>> extends Generation<F, infer Reads>
+			? Reads
+			: F
+	: never
 
 /** The join types of a KeyRef's key fields, in order. */
 type KeyHosts<K> = SideHosts<HeadingOf<RelationOfKey<K>>, KeyFieldsOf<K>>

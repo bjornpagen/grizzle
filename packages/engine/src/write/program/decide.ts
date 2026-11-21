@@ -557,16 +557,29 @@ const levels = (t: ScalarType): ReadonlyArray<ScalarType> => {
 	return base === undefined ? [t] : [t, ...levels(base)]
 }
 
-/** A written relation's field as the witness reads it (witness.ts WitnessField). */
+/** A written relation's field as the witness reads it (witness.ts WitnessField): a key generation by its generation, as
+ * a generated field, since the value grizzle writes is its generation's, which its key's CHECK proves. */
 export const witnessField = (f: RelationInfo["fields"][number]): WitnessField => ({
 	name: f.name,
 	column: f.column,
 	type: f.type,
-	writing:
-		f.writing.kind === "generated"
-			? { kind: "generated", expr: predicateTable(f.writing.expr) }
-			: { kind: f.writing.kind }
+	writing: witnessWriting(f.writing)
 })
+
+const witnessWriting = (w: RelationInfo["fields"][number]["writing"]): WitnessField["writing"] => {
+	switch (w.kind) {
+		case "generated":
+		case "keyGenerated":
+			return { kind: "generated", expr: predicateTable(w.expr) }
+		case "caller":
+		case "drawn":
+		case "accumulated":
+		case "retirement":
+		case "instant":
+		case "place":
+			return { kind: w.kind }
+	}
+}
 
 /**
  * Every CHECK of `relation`'s table that states laws (witness.ts LawCheckData): its row CHECKs and its containments into

@@ -332,6 +332,14 @@ export const writableEntry = (
 	if (drawnKey !== undefined) {
 		return refused(name, { kind: "keyHoldsFamily", field: drawnKey })
 	}
+	/** A key generation (ir/law.ts FieldWriting keyGenerated), a generated field of T's primary key, is grizzle's to
+	 * write from its reads, so no fact through an entry states it. */
+	const generatedKey = target.primaryKey.find(
+		(field) => target.fields[field]?.writing.kind === "generated"
+	)
+	if (generatedKey !== undefined) {
+		return refused(name, { kind: "keyHoldsGeneration", field: generatedKey })
+	}
 	/**
 	 * Every field of T: written by a head variable, which binds no other field of T, or fixed; one context field may
 	 * fix several. A field T's family draws is in the head or nowhere: the filter below refuses one it reads.

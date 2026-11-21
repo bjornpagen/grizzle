@@ -706,7 +706,7 @@ export const relationBuilder = <
 export const generatedRelation = <
 	const Name extends string,
 	const Written extends Readonly<Record<string, FieldBase>>,
-	const PrimaryKey extends ReadonlyArray<keyof Written & string>,
+	const PrimaryKey extends ReadonlyArray<keyof (Written & G) & string>,
 	const G extends Readonly<Record<string, GeneratedField<FieldBase>>>
 >(
 	name: Name,

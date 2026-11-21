@@ -1122,10 +1122,13 @@ class Differ {
 			const create = v.create
 			const key = nameKey(create.table)
 			const shared = sharedFields(at.old.columns, create.columns)
+			const writtenBefore = previousWritings.get(create.table.name) ?? noWritings
+			const writtenAfter = targetWritings.get(create.table.name) ?? noWritings
+			keyGenerationsKept(o.ident, create.columns, writtenBefore, writtenAfter)
 			const own = redrawn(
 				fieldChangesOf(shared, (b, c) => this.retyped(b, c)),
-				previousWritings.get(create.table.name) ?? noWritings,
-				targetWritings.get(create.table.name) ?? noWritings
+				writtenBefore,
+				writtenAfter
 			)
 			const lawColumns = (lawColumnsByTable.get(key) ?? []).map(({ object: p, column: w }) => {
 				const now = this.next.get(p.ident)
@@ -4061,6 +4064,35 @@ const writingsByTable = (
 
 /** The writings of a table no stored relation of it is installed as: none. */
 const noWritings: ReadonlyMap<string, SnapshotWriting> = new Map()
+
+/** Whether a field is a key generation (ir/law.ts FieldWriting keyGenerated), by its record. */
+const isKeyGeneration = (w: SnapshotWriting | undefined): boolean =>
+	typeof w === "object" && "keyGenerated" in w
+
+/**
+ * A table that stands keeps each key generation it holds as it was, refused (UnsupportedOperation) otherwise: a key
+ * generation added to it, one gone from it, or its generation changed. A key generation is a column of its primary key
+ * that grizzle writes as its generation's value over each row, so any change of it is a change of the key every stored
+ * row is known by, its values computed again, which this migration drafts for a table created afresh alone.
+ */
+const keyGenerationsKept = (
+	table: string,
+	columns: ReadonlyArray<ColumnDef>,
+	before: ReadonlyMap<string, SnapshotWriting>,
+	after: ReadonlyMap<string, SnapshotWriting>
+): void => {
+	const named = new Set([...before.keys(), ...after.keys(), ...columns.map((c) => c.name)])
+	for (const column of [...named].toSorted(compareStrings)) {
+		const was = before.get(column)
+		const now = after.get(column)
+		if ((isKeyGeneration(was) || isKeyGeneration(now)) && !canonicalEquals(was, now)) {
+			refuseUnsupported({
+				loc: SourceLoc(`object ${table}`, ["columns", column]),
+				capability: `migrate: the key generation ${column} of a table that stands, declared, dropped or generated otherwise; a key generation is part of the primary key every stored row is known by, so it changes only with a table created afresh`
+			})
+		}
+	}
+}
 
 /** Whether a field is grizzle's to write: drawn from the nested arrays, or accumulated on the host. */
 const isDrawn = (w: SnapshotWriting | undefined): boolean =>

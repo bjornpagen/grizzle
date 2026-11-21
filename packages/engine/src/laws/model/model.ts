@@ -79,6 +79,7 @@ import {
 	type DomainNative,
 	familyKey,
 	fieldColumn,
+	generationOf,
 	isSpanField,
 	keyTuple,
 	type LawColumnValue,
@@ -492,10 +493,13 @@ const lawPatterns = (
 	}
 	return ProgramPatterns.of([
 		...stored.flatMap((r) =>
-			r.fields.flatMap((f) => [
-				...typePatterns(f.type),
-				...(f.writing.kind === "generated" ? exprPatterns(f.writing.expr) : [])
-			])
+			r.fields.flatMap((f) => {
+				const generation = generationOf(f)
+				return [
+					...typePatterns(f.type),
+					...(generation === undefined ? [] : exprPatterns(generation))
+				]
+			})
 		),
 		...families.flatMap((f) => f.folds.flatMap((fold) => fold.where.flatMap(exprPatterns))),
 		...natives.flatMap(nativePatterns)

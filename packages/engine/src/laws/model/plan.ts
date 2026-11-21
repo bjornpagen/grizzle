@@ -1689,6 +1689,22 @@ const and = (args: NonEmptyReadonlyArray<ExprDesc>): ExprDesc =>
 	args.length === 1 ? args[0] : { kind: "and", args }
 
 /**
+ * The CHECK a primary key holding key generations installs with its PRIMARY KEY (ir/law.ts FieldWriting keyGenerated):
+ * each such field equal to its generation over its row, `field = expr`, the generation PostgreSQL would have computed
+ * for a GENERATED column, so the column grizzle writes holds exactly its generation's value; none where the key holds
+ * no generation. The key's law owns it: a fact is known by its key, a key generation by its generation's reads.
+ */
+const keyGenerationCheck = (rel: RelationInfo): NativePlan | undefined => {
+	const conditions = new RowConditions(rel)
+	for (const f of rel.primaryFields) {
+		if (f.writing.kind === "keyGenerated") {
+			conditions.add(cmp("eq", conditions.column(fieldColumn(f)), f.writing.desc))
+		}
+	}
+	return conditions.native()
+}
+
+/**
  * The row conditions one law states on one relation, gathered into the one generated CHECK the law installs there: each
  * column it reads a leaf, a field by its name and every other by a name no field has.
  */
@@ -2157,7 +2173,8 @@ export class Recognizer {
 	): ReadonlyArray<NativePlan> {
 		const { fields, span, primary, named } = d.key
 		if (primary) {
-			return [primaryKeyPlan(rel, d.key, loc)]
+			const generations = keyGenerationCheck(rel)
+			return [primaryKeyPlan(rel, d.key, loc), ...(generations === undefined ? [] : [generations])]
 		}
 		if (span === undefined) {
 			const columns = mapNonEmpty(fields, fieldColumn)

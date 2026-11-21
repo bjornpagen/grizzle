@@ -91,9 +91,8 @@ export const aGeneratedFieldsRuleAndWhereAClosedReadStandsAdmitsARelationExactly
 		kills: [
 			{
 				file: "packages/engine/src/check/generated.ts",
-				original: "\tconst reads = [...fieldReads(expr, new Set())].toSorted(compareStrings)",
-				replacement:
-					"\tconst reads = [...fieldReads(expr, new Set())].toSorted((a, b) => a.localeCompare(b))",
+				original: "\tconst reads = exprFieldReads(expr).toSorted(compareStrings)",
+				replacement: "\tconst reads = exprFieldReads(expr).toSorted((a, b) => a.localeCompare(b))",
 				why: "A generated field's reads ordered by locale (check/generated.ts); the read graphs property fails."
 			},
 			{

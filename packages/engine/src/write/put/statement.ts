@@ -63,11 +63,13 @@ import {
 	inputFamily,
 	inputNeeds,
 	inputStated,
+	keyGeneratedRead,
 	keyUniqueBy,
 	noSharedKey,
 	type RelationInput,
 	readInput,
 	sameKeyCte,
+	uncarriedKeyGenerations,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 
@@ -241,10 +243,15 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 	 * families keep them. */
 	const heading = [...inputStated(input), ...inputFamily(input)]
 	const carried = writtenFields(relation).filter((f) => heading.some((c) => c.name === f.name))
-	if (!isNonEmpty(carried)) {
+	/** The key generations the input leaves out, which its read computes over the fields it carries (input.ts
+	 * keyGeneratedRead), so the put reads each fact's whole key. */
+	const generations = uncarriedKeyGenerations(relation, carried)
+	const written = writtenFields(relation).filter(
+		(f) => carried.includes(f) || generations.includes(f)
+	)
+	if (!isNonEmpty(carried) || !isNonEmpty(written)) {
 		throw defect(`a put of ${relation.name} whose input carries none of its key`)
 	}
-	const written = carried
 	const pk = relation.primaryFields
 	const scan = supply.relation(internal("input scan"))
 	const r1 = supply.relation(internal("input"))
@@ -254,6 +261,7 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		? undefined
 		: supply.relation(internal("same-key check"))
 	const inputs = fieldColumns(written, () => supply.column(internal("input column")))
+	const carriedInputs = fieldColumns(carried, (f) => inputs.of(f))
 	const keys = fieldColumns(r4 === undefined ? [] : pk, () =>
 		supply.column(internal("same-key column"))
 	)
@@ -262,15 +270,22 @@ const putHead = (w: WriteContext, spec: PutSpec, supply: NameSupply, at: string)
 		input,
 		{
 			kind: "input",
-			fields: written,
+			fields: carried,
 			alias: scan,
-			keys: inputs,
+			keys: carriedInputs,
 			into: { as: "write" }
 		},
 		at
 	)
 	const inCol = (f: LawField): Expr => col(r1, inputs.of(f))
-	const ctes: [Cte, ...Array<Cte>] = [cte(r1, inputs.columns, read.select)]
+	const ctes: [Cte, ...Array<Cte>] = isNonEmpty(generations)
+		? [
+				...keyGeneratedRead(w, supply, relation, read.select, carriedInputs, {
+					name: r1,
+					columns: inputs
+				})
+			]
+		: [cte(r1, inputs.columns, read.select)]
 	if (r4 !== undefined) {
 		ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 	}

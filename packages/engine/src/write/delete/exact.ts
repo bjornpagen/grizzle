@@ -1,5 +1,7 @@
+import { defect } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	appendNonEmpty,
+	isNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -11,7 +13,7 @@ import { emptyEnv, extendEnv } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
 import { regionParts } from "#compiler/lower/conservative/match-region/index.ts"
 import { columnType } from "#compiler/runtime/lower/columns.ts"
-import type { Cte, Delete, Expr, FromItem } from "#compiler/sql/ast.ts"
+import type { Cte, Delete, Expr, FromItem, OperandSelect } from "#compiler/sql/ast.ts"
 import {
 	and,
 	col,
@@ -19,7 +21,10 @@ import {
 	cte,
 	cteRef,
 	operandSelect,
+	provedCore,
+	select,
 	setOp,
+	target,
 	targetAs
 } from "#compiler/sql/build.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
@@ -29,6 +34,7 @@ import {
 	inputNeeds,
 	inputSharing,
 	readOperand,
+	uncarriedKeyGenerations,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 import { joinedAtKey, keyedAmong } from "#compiler/write/probe.ts"
@@ -40,6 +46,7 @@ import {
 	keyFirst,
 	type ModifyingStatement,
 	ownBuild,
+	requestedValue,
 	type ResultColumn,
 	returnedColumn,
 	returnedRows,
@@ -153,10 +160,17 @@ const buildDelete = (
 	 * `unstated`). A generated field is a function of them, and an owner's drawn count and accumulated ends are
 	 * grizzle's, so neither decides a match. */
 	const [first, ...rest] = all
-	const compared: NonEmptyReadonlyArray<LawField> = [
+	const matched = [
 		first,
 		...rest.filter((f) => isCarried(f) || (f.writing.kind === "instant" && pk.includes(f)))
-	]
+	].filter((f) => f.writing.kind !== "keyGenerated")
+	if (!isNonEmpty(matched)) {
+		throw defect(`a deletion of ${relation.name} that matches no field`)
+	}
+	const compared: NonEmptyReadonlyArray<LawField> = matched
+	/** The key generations of its primary key, which no fact carries, a function of the fields it does: each computed
+	 * over them where the deletion reaches its target at its key (input.ts keyGeneratedRead). */
+	const generations = uncarriedKeyGenerations(relation, compared)
 	const except = mode.kind === "exact" ? mode.except : []
 	const sharing = inputSharing(
 		w.share.deletions,
@@ -168,7 +182,10 @@ const buildDelete = (
 		const r1 = supply.relation(internal("input"))
 		const r2 = supply.relation(internal("delete"))
 		const r3 = supply.relation(internal(`target ${relation.name}`))
-		const inputs = fieldColumns(compared, () => supply.column(internal("input column")))
+		const inputs = fieldColumns([...compared, ...generations], () =>
+			supply.column(internal("input column"))
+		)
+		const comparedInputs = fieldColumns(compared, (f) => inputs.of(f))
 		const returned = fieldColumns(all, () => supply.column(internal("returned column")))
 		/** Both D and A read as the relation's facts, cast into its column types (`into`), so the exact
 		 * identity, the displacing key and payload comparisons and EXCEPT compare written facts. The cast
@@ -180,7 +197,7 @@ const buildDelete = (
 		const read = readOperand(
 			w,
 			input,
-			{ kind: "input", fields: compared, alias: scan, keys: inputs, into },
+			{ kind: "input", fields: compared, alias: scan, keys: comparedInputs, into },
 			facts,
 			at
 		)
@@ -219,13 +236,66 @@ const buildDelete = (
 			mode.kind,
 			{ r2, r3, returned },
 			{
-				leading: [cte(r1, [...inputs.columns, ...signs], operandSelect(body))],
+				leading: isNonEmpty(generations)
+					? keyGeneratedLeading(w, supply, relation, {
+							body: operandSelect(body),
+							compared: comparedInputs,
+							signs,
+							name: r1,
+							columns: inputs
+						})
+					: [cte(r1, [...inputs.columns, ...signs], operandSelect(body))],
 				using: [cteRef(r1)],
 				where: [where]
 			},
 			inputNeeds(input)
 		)
 	})
+}
+
+/**
+ * A deletion's input with the key generations its facts leave out (input.ts uncarriedKeyGenerations), as two CTEs: the
+ * read `body` under a name of its own, its compared columns then its zero signs, and `name` reading it again beside each
+ * key generation over the compared fields it reads (insert/statement.ts requestedValue), so the deletion reaches its
+ * target at its whole primary key. The second reads the first's every column, a set's whole heading, so it is keyed.
+ */
+const keyGeneratedLeading = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: RelationInfo,
+	read: {
+		readonly body: OperandSelect
+		readonly compared: FieldColumns<string>
+		readonly signs: ReadonlyArray<string>
+		readonly name: string
+		readonly columns: FieldColumns<string>
+	}
+): ReadonlyArray<Cte> => {
+	const scanned = supply.relation(internal("compared input"))
+	const value = requestedValue(
+		w,
+		relation,
+		read.compared.pairs.map((p) => p.field),
+		(f) => col(scanned, read.compared.of(f))
+	)
+	return [
+		cte(scanned, [...read.compared.columns, ...read.signs], read.body),
+		cte(
+			read.name,
+			[...read.columns.columns, ...read.signs],
+			select(
+				provedCore(
+					"keyed",
+					[
+						...read.columns.pairs.map((p) => target(value(p.field))),
+						...read.signs.map((c) => target(col(scanned, c)))
+					],
+					[cteRef(scanned)],
+					undefined
+				)
+			)
+		)
+	]
 }
 
 /** Exact deletions and the deletion a put implies.

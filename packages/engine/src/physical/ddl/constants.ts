@@ -48,12 +48,13 @@ import {
 	type ScalarExpr,
 	type TypedLiteral
 } from "#compiler/ir/expr.ts"
-import type {
-	ClosedSlot,
-	ClosedTheoryRelation,
-	LawField,
-	NativeColumn,
-	NativeOf
+import {
+	type ClosedSlot,
+	type ClosedTheoryRelation,
+	generationOf,
+	type LawField,
+	type NativeColumn,
+	type NativeOf
 } from "#compiler/ir/law.ts"
 import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { PhysicalReason } from "#compiler/ir/products.ts"
@@ -998,8 +999,9 @@ export const persistentExprs = (model: LawModel): ReadonlyArray<ScalarExpr> => {
 	const roots: Array<ScalarExpr> = []
 	for (const r of model.relations.values()) {
 		for (const f of r.relation.fields) {
-			if (f.writing.kind === "generated") {
-				roots.push(f.writing.expr)
+			const generation = generationOf(f)
+			if (generation !== undefined) {
+				roots.push(generation)
 			}
 		}
 	}

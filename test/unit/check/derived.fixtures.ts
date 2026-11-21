@@ -458,6 +458,7 @@ export const inputFeatures = (fields: ReadonlyArray<InputField>): ReadonlyArray<
 		case "type":
 		case "disjoint":
 		case "stable":
+		case "keyReadsUnwritten":
 			return []
 	}
 }

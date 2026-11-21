@@ -9,6 +9,7 @@ import {
 	fieldNames,
 	type GeneratedLaw,
 	generatedLaw,
+	generationOf,
 	type LawField,
 	type TableRelation
 } from "#compiler/ir/law.ts"
@@ -130,7 +131,8 @@ export const contractLaw = (contract: string): OwnLaw =>
 	Object.freeze({ kind: "contract", contract })
 
 /**
- * A stored field PostgreSQL generates: its relation, the field, the field's law (generatedLaw) and the law's identifier
+ * A stored field generated from its row, by PostgreSQL or, a key generation, by grizzle (ir/law.ts generationOf): its
+ * relation, the field, the field's law (generatedLaw) and the law's identifier
  * (core/identity.ts generatedLaw), which no fingerprinted part of a snapshot holds.
  */
 export interface GeneratedFieldLaw {
@@ -150,7 +152,7 @@ export const generatedFieldLaws = (
 ): ReadonlyArray<GeneratedFieldLaw> =>
 	relations.flatMap((relation) =>
 		relation.fields.flatMap((field): ReadonlyArray<GeneratedFieldLaw> =>
-			field.writing.kind === "generated"
+			generationOf(field) !== undefined
 				? [
 						Object.freeze({
 							relation,

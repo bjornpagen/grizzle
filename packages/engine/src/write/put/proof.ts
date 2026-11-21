@@ -1,7 +1,7 @@
 import { TupleMap } from "@bjornpagen/grizzle-text/base/tuple-map"
 import { canonicalTextOf } from "#compiler/core/canonical.ts"
 import type { NodeId, ParamId } from "#compiler/core/ids.ts"
-import type { ScalarExpr } from "#compiler/ir/expr.ts"
+import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import { Fold } from "#compiler/ir/fold.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import {
@@ -96,8 +96,8 @@ const questionKey = (vs: ReadonlyMap<string, KeyValue>): ReadonlyArray<string> =
 	[...vs].flatMap(([field, v]) => [field, v.kind, v.kind === "column" ? v.name : v.key])
 
 /**
- * Whether every row of `root` carries at the key fields the given values (one per primary key field of `relation`)
- * the key of a stored fact of `relation`.
+ * Whether every row of `root` carries at the given fields the values (`values`, one per field `keyedBy` names) of one
+ * stored fact of `relation`, so its key is that fact's.
  *
  * Each question is about one node and the values its rows must carry, and is answered from questions about the node's
  * inputs only, so the questions form a finite acyclic graph over the query DAG: the fold (ir/fold.ts) answers each
@@ -129,10 +129,10 @@ const provesKeys = (
 				return (
 					node.relation === relation.name &&
 					node.relationKind === "relation" &&
-					relation.primaryKey.every((f) => {
-						const v = q.values.get(f)
-						return v?.kind === "column" && v.name === f && node.heading.some((c) => c.name === f)
-					})
+					[...q.values].every(
+						([f, v]) =>
+							v.kind === "column" && v.name === f && node.heading.some((c) => c.name === f)
+					)
 				)
 			case "ProjectSet": {
 				const next = throughProjection(node, q.values)
@@ -260,15 +260,32 @@ const castKeeps = (node: RelNode, relation: RelationInfo, field: string): boolea
  * Every proof is structural and conservative: a shape it does not recognize proves nothing, and the put falls back to
  * the DELETE-then-insert pair, which is always admissible. */
 export const existingKeysProof = (node: RelNode, relation: RelationInfo): boolean => {
-	if (!relation.primaryKey.every((f) => castKeeps(node, relation, f))) {
+	const fields = keyedBy(node, relation)
+	if (!fields.every((f) => castKeeps(node, relation, f))) {
 		return false
 	}
 	return provesKeys(
 		node,
 		relation,
-		new Map(relation.primaryKey.map((f) => [f, { kind: "column", name: f } as const]))
+		new Map(fields.map((f) => [f, { kind: "column", name: f } as const]))
 	)
 }
+
+/**
+ * The fields a member's rows carry the key of `relation` by: each primary key field the member delivers, and for a key
+ * generation it leaves out (ir/law.ts FieldWriting keyGenerated), which its statement computes over the fields it
+ * reads (insert/input.ts keyGeneratedRead), those fields, since rows equal at them are equal at the generation, which
+ * the key's CHECK holds every stored fact to. Each field once, in key order.
+ */
+const keyedBy = (node: RelNode, relation: RelationInfo): ReadonlyArray<string> => [
+	...new Set(
+		relation.primaryFields.flatMap((f) =>
+			f.writing.kind === "keyGenerated" && !node.heading.some((c) => c.name === f.name)
+				? fieldReads([f.writing.expr])
+				: [f.name]
+		)
+	)
+]
 
 /** The scope of a proved MERGE deletion: the scope predicate is the conjunction of `predicates` and of each field in
  * `constants` equal to its expression, every column the expressions read being a column of one of the nodes `nodes`

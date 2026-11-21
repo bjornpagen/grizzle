@@ -970,7 +970,7 @@ type GenerationDeps<Gen, B, FixedFields extends string> =
 type FieldsOf<R> = R extends { readonly fields: infer Fields } ? Fields : never
 
 /** A generated field G of a stored relation and the fields its generation reads, Reads, which determine it. */
-interface Generation<out G extends string, out Reads extends string> {
+export interface Generation<out G extends string, out Reads extends string> {
 	readonly field: G
 	readonly reads: Reads
 }
@@ -980,7 +980,7 @@ interface Generation<out G extends string, out Reads extends string> {
  * generated field whose term's origin names fields of its row alone (ReadFields), none of them a float, whose -0 and +0
  * are one key value a generation may tell apart; a generation reading what the types do not trace is none.
  */
-type GenerationsOf<H> = {
+export type GenerationsOf<H> = {
 	[K in keyof H]-?: H[K] extends GeneratedField<FieldBase, infer O>
 		? GenerationOver<K & string, ReadFields<O>, H>
 		: never

@@ -762,6 +762,21 @@ export interface ExprMap<L, R extends Refs, S extends Refs> {
 	readonly source: (s: SourceDesc<L, R>) => SourceDesc<L, S>
 }
 
+/** Every field `e` reads, each once, in the order its description states them, depth first (exprChildren). */
+export const exprFieldReads = <L, R extends Refs>(e: ExprDesc<L, R>): ReadonlyArray<string> => {
+	const out = new Set<string>()
+	const visit = (x: ExprDesc<L, R>): void => {
+		if (x.kind === "field") {
+			out.add(x.field)
+		}
+		for (const { term } of exprChildren(x)) {
+			visit(term)
+		}
+	}
+	visit(e)
+	return [...out]
+}
+
 /**
  * `e` rebuilt by `m` (ExprMap): a leaf as `m.leaf` makes it, any other node with each child (exprChildren) mapped by
  * `m.term`, an absent's source by `m.source` before its bindings, and every other part as it is.
@@ -3141,16 +3156,18 @@ const fieldDeclShape: S.Shape<FieldDecl> = S.refine(
 
 /**
  * Whether a field may be in a primary key: one whose value a fact holds when it is written, its caller's, its
- * family's or its insert's place. A generated or accumulated field is computed from the row it would identify, and a
- * retirement field changes when its group is retired.
+ * family's or its insert's place, or one generated from its caller's fields, a key generation, which grizzle writes as
+ * its generation's value (law.ts FieldWriting keyGenerated; that it reads its caller's fields alone is
+ * check/generated.ts keyGeneratedRule's, where the schema is checked). An accumulated field is computed from the row it
+ * would identify, and a retirement field changes when its group is retired.
  */
 const keyWriting = (decl: FieldDecl | undefined): boolean => {
 	switch (decl?.writing.kind) {
 		case "caller":
 		case "drawn":
 		case "place":
-			return true
 		case "generated":
+			return true
 		case "accumulated":
 		case "retirement":
 		case undefined:
@@ -3282,7 +3299,7 @@ const atLeastOneField = "a relation with at least one field"
 const primaryKeyShape = S.nonEmptyUniqueStrings("primary key fields")
 
 const keyOverOwnFields =
-	"a primary key over the relation's own fields, each one its caller writes or its family draws"
+	"a primary key over the relation's own fields, each one its caller writes, its family draws or its row generates"
 
 const relationDescShape: S.Shape<RelationDesc> = S.tagged("kind", {
 	relation: S.located(

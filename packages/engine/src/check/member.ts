@@ -22,6 +22,7 @@ const memberWrites = (writing: MemberColumn["writing"]["kind"]): boolean => {
 		case "instant":
 			return true
 		case "generated":
+		case "keyGenerated":
 		case "drawn":
 		case "accumulated":
 		case "retirement":

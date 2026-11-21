@@ -3,7 +3,7 @@ import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonemp
 import type { ConstraintName, EntryName, StoredRelationName } from "#compiler/core/ids.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
-import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
+import { generationOf, type LawField, type RelationInfo } from "#compiler/ir/law.ts"
 import type { Needs } from "#compiler/ir/needs.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
@@ -405,8 +405,9 @@ export const keyFirst = (relation: RelationInfo): NonEmptyReadonlyArray<LawField
 const isWritten = (field: LawField): boolean => field.writing.kind !== "generated"
 
 /**
- * The fields an addition writes, key first (`keyFirst`): every field but a generated one (`isWritten`). The primary
- * key is never generated (ownership refuses it), so the list leads with it.
+ * The fields an addition writes, key first (`keyFirst`): every field but a generated one (`isWritten`). A key
+ * generation is no generated column but one grizzle writes (law.ts FieldWriting keyGenerated), so the list leads with
+ * the primary key whole.
  */
 export const writtenFields = (relation: RelationInfo): NonEmptyReadonlyArray<LawField> => {
 	const key: NonEmptyReadonlyArray<LawField> = relation.primaryFields
@@ -434,6 +435,7 @@ export const startOf = (names: PhysicalNames, field: LawField): Expr | undefined
 			return lowerLiteral(names, { kind: "bool", value: false }, field.type)
 		case "caller":
 		case "generated":
+		case "keyGenerated":
 		case "instant":
 		case "place":
 			return undefined
@@ -457,8 +459,9 @@ export const requestedValue = (
 		if (carried.includes(f)) {
 			return colOf(f)
 		}
-		if (f.writing.kind === "generated") {
-			const reads = columnReads([f.writing.expr])
+		const generation = generationOf(f)
+		if (generation !== undefined) {
+			const reads = columnReads([generation])
 			const row: ColumnMap = new Map(
 				reads.map((c) => {
 					const read = defined(
@@ -469,7 +472,7 @@ export const requestedValue = (
 				})
 			)
 			const env: Env = new Map(reads.map((c) => [c.node, row] as const))
-			return lowerExpr(w.cx, f.writing.expr, env)
+			return lowerExpr(w.cx, generation, env)
 		}
 		return defined(
 			startOf(w.names, f),

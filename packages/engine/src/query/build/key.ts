@@ -1,7 +1,10 @@
-import { defect } from "@bjornpagen/grizzle-text/base/invariant"
+import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import type { RowDecoder } from "#compiler/core/decoder.ts"
+import { type ExprDesc, exprFieldReads, type FieldDecl, mapExpr } from "#compiler/ir/desc.ts"
+import type { OpenExpr } from "#compiler/ir/open.ts"
 import { queryOver, varsOver } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { predicateValue, termExpr } from "#compiler/scalar/compute/term.ts"
 import { ownedEntryOf } from "#compiler/schema/protocol.ts"
 import { admittedClosedId, type NamedRelation, namedRelation } from "#compiler/schema/relation.ts"
 import { candidateKeyOf, statementDescOf } from "#compiler/schema/statements.ts"
@@ -12,14 +15,26 @@ interface BuiltRelation {
 	readonly named: Exclude<NamedRelation, { readonly kind: "derived" }>
 	/** The relation's facts' decoder, which a keyed lookup's rows are read by. */
 	readonly fact: RowDecoder<unknown>
+	/** Its fields' declarations, an ordinary relation's; none for a roster or a closed relation. */
+	readonly decls: Readonly<Record<string, FieldDecl>>
 }
 
-/** What a key position names: the relation or closed relation it belongs to, and its key fields. */
+/** A key generation of a key position (ir/law.ts FieldWriting keyGenerated): its field and its generation. */
+interface KeyGeneration {
+	readonly field: string
+	readonly expr: ExprDesc
+}
+
+/**
+ * What a key position names: the relation or closed relation it belongs to, the fields a lookup states its key by, and
+ * the key generations among its key, each stated by the fields its generation reads (ir/law.ts keyHeads).
+ */
 export interface KeyPosition {
 	/** The key position: the relation, the closed relation or the Key value. */
 	readonly position: object
 	readonly relation: BuiltRelation
 	readonly fields: ReadonlyArray<string>
+	readonly generations: ReadonlyArray<KeyGeneration>
 }
 
 /** A keyed lookup: its query over the schema it was built over, and the key it reads through. */
@@ -43,7 +58,31 @@ const builtRelation = (value: unknown): BuiltRelation | undefined => {
 			`an owned relation, roster or closed relation ${named.name}, never a derived relation`
 		)
 	}
-	return { value: built.value, named, fact: built.value.fact }
+	return {
+		value: built.value,
+		named,
+		fact: built.value.fact,
+		decls: built.kind === "relation" ? built.desc.fields : {}
+	}
+}
+
+/**
+ * The key `key` of `relation` as a lookup states it, its key heads (ir/law.ts keyHeads): its fields but each key
+ * generation, a generated field of the relation's primary key, then each generation's reads not already among them;
+ * and the key generations, which the lookup compares with their generations over the reads' parameters, so PostgreSQL
+ * reaches the row through the key's index.
+ */
+const keyHeadsOf = (
+	relation: BuiltRelation,
+	key: ReadonlyArray<string>
+): Pick<KeyPosition, "fields" | "generations"> => {
+	const generations = key.flatMap((field): ReadonlyArray<KeyGeneration> => {
+		const writing = relation.decls[field]?.writing
+		return writing?.kind === "generated" ? [{ field, expr: writing.expr }] : []
+	})
+	const written = key.filter((field) => !generations.some((g) => g.field === field))
+	const reads = generations.flatMap((g) => exprFieldReads(g.expr))
+	return { fields: [...new Set([...written, ...reads])], generations }
 }
 
 /**
@@ -57,20 +96,21 @@ const keyTarget = (value: unknown): KeyPosition | undefined => {
 		const relation = keyed === undefined ? undefined : builtRelation(keyed.relation)
 		return keyed === undefined || relation === undefined
 			? undefined
-			: { position: keyed.key, relation, fields: keyed.fields }
+			: { position: keyed.key, relation, fields: keyed.fields, generations: [] }
 	}
 	const relation = builtRelation(value)
 	return relation === undefined
 		? undefined
-		: { position: relation.value, relation, fields: relation.named.primaryKey }
+		: { position: relation.value, relation, ...keyHeadsOf(relation, relation.named.primaryKey) }
 }
 
 /** Whether `value` names a key a workload member reads by: a relation or closed relation a builder made, or a Key over one. */
 export const isKeyPosition = (value: unknown): boolean => keyTarget(value) !== undefined
 
 /**
- * The query of a keyed lookup over `schema`: every field of the relation, the key fields equal to their parameters. A
- * workload's key program, whose key position the workload admitted, reads through it over each role it runs on.
+ * The query of a keyed lookup over `schema`: every field of the relation, the key's heads equal to their parameters and
+ * each key generation equal to its generation over them (generationMet). A workload's key program, whose key position
+ * the workload admitted, reads through it over each role it runs on.
  */
 export const keyQuery = (schema: object, target: KeyPosition): unknown => {
 	const { value, named } = target.relation
@@ -84,11 +124,63 @@ export const keyQuery = (schema: object, target: KeyPosition): unknown => {
 		const { match, eq, param } = r
 		const vars = varsOver(value, "value")
 		const matched = match(value, vars)
-		return target.fields
-			.reduce((rule, f) => rule.where(eq(vars[f], param(f, descriptor(f)))), matched)
+		const params = new Map(target.fields.map((f) => [f, param(f, descriptor(f))] as const))
+		const stated = target.fields.reduce(
+			(rule, f) => rule.where(eq(vars[f], params.get(f))),
+			matched
+		)
+		return target.generations
+			.reduce((rule, g) => rule.where(generationMet(termExpr(vars[g.field]), g, params)), stated)
 			.find(vars)
 	})
 }
+
+/**
+ * The key generation `g`'s column equal to its generation over the parameters `params` its reads are stated by: the
+ * generation's every field leaf the parameter of that field, so the lookup compares the stored column with the value
+ * grizzle wrote there, which PostgreSQL meets in the key's index.
+ *
+ * This applies the generation its author DECLARED for this key, as a put or a delete of the relation does (main's
+ * ruling, explicit cost): nothing is hidden, and nothing is hashed on grizzle's own. It is a key read's alone, a lookup
+ * through a key (reader.get, a key member); a general query that states only the texts a key generation reads gets no
+ * derived digest probe, its comparison a filter unless its author states the digest's equality.
+ */
+const generationMet = (
+	column: OpenExpr | undefined,
+	g: KeyGeneration,
+	params: ReadonlyMap<string, unknown>
+): unknown => {
+	const read = (field: string): OpenExpr =>
+		defined(termExpr(params.get(field)), `the parameter of ${field}, a field ${g.field} reads`)
+	return predicateValue({
+		kind: "compare",
+		op: "eq",
+		left: defined(column, `the variable of ${g.field}`),
+		right: overParams(g.expr, read)
+	})
+}
+
+/** A generation's expression with each field leaf the expression `read` gives it, every other node as it is. */
+const overParams = (e: ExprDesc, read: (field: string) => OpenExpr): OpenExpr =>
+	mapExpr(e, {
+		leaf: (x) => {
+			switch (x.kind) {
+				case "field":
+					return read(x.field)
+				case "literal":
+					return x
+				case "var":
+				case "value":
+				case "parent":
+				case "param":
+					throw defect(`a generation reads its row's fields alone, never a ${x.kind}`)
+			}
+		},
+		term: (x) => overParams(x, read),
+		source: () => {
+			throw defect("a generation reads no query")
+		}
+	})
 
 /**
  * A keyed lookup: get over a key, and a workload's key program.

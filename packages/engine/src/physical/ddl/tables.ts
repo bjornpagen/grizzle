@@ -94,8 +94,9 @@ const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 
 /**
  * A field's column's generation: a retirement field's `DEFAULT false`, a generated field's `GENERATED ALWAYS AS (e) STORED`, its
- * expression lowered over the row's own columns, or none for a field the caller writes and for one the host writes, a
- * family's drawn field or a fold's accumulated one.
+ * expression lowered over the row's own columns, or none for a field the caller writes and for one grizzle writes, a
+ * family's drawn field, a fold's accumulated one, or a key generation, which its key's CHECK proves (laws/model/plan.ts
+ * keyGenerationCheck).
  */
 const fieldGeneration = (
 	b: InstallBuilder,
@@ -120,6 +121,7 @@ const fieldGeneration = (
 		case "accumulated":
 		case "instant":
 		case "place":
+		case "keyGenerated":
 			return undefined
 	}
 }

@@ -55,6 +55,7 @@ import {
 	types,
 	unitTargets
 } from "#compiler/sql/build.ts"
+import type { NameSupply } from "#compiler/sql/naming.ts"
 import { type WriteCarrier, carrierField, carrierScan } from "#compiler/write/carriers/carriers.ts"
 import type { FieldColumns } from "#compiler/write/defined.ts"
 import {
@@ -64,6 +65,7 @@ import {
 	type KeyPart,
 	type Made,
 	ownBuild,
+	requestedValue,
 	rowType,
 	type Shared,
 	type Sharing,
@@ -453,6 +455,52 @@ export const readInput = (
 ): InputRead => {
 	const read = readTargets(w, input, options, at)
 	return { select: select(inputSet(input, read.targets, read.types, read.from)), types: read.types }
+}
+
+/**
+ * The key generations of `relation` (ir/law.ts FieldWriting keyGenerated) an input's `carried` fields leave out: none
+ * for a slot's facts, which the host fills them on (write/normalize), and each one a described member's head leaves out,
+ * a query entry's head stating its relation's caller fields alone.
+ */
+export const uncarriedKeyGenerations = (
+	relation: RelationInfo,
+	carried: ReadonlyArray<LawField>
+): ReadonlyArray<LawField> =>
+	relation.primaryFields.filter((f) => f.writing.kind === "keyGenerated" && !carried.includes(f))
+
+/**
+ * An input's read `read` with the key generations it leaves out, `generations`, as two CTEs: the read under a name of
+ * its own, its columns `carried`, and `into.name` reading it again beside each key generation, its generation over the
+ * carried fields it reads (statement.ts requestedValue), the value the host fills on a slot's facts and the key's CHECK
+ * holds, so every statement over the input reads each fact's whole key, its key generations among it, as it reads a
+ * slot's. The second reads the first's every column, a set's whole heading, so it is keyed.
+ */
+export const keyGeneratedRead = (
+	w: WriteContext,
+	supply: NameSupply,
+	relation: RelationInfo,
+	read: Select,
+	carried: FieldColumns<string>,
+	into: { readonly name: string; readonly columns: FieldColumns<string> }
+): readonly [Cte, Cte] => {
+	const scanned = supply.relation({ kind: "internal", purpose: "carried input" })
+	const fields = carried.pairs.map((p) => p.field)
+	const value = requestedValue(w, relation, fields, (f) => col(scanned, carried.of(f)))
+	return [
+		cte(scanned, carried.columns, read),
+		cte(
+			into.name,
+			into.columns.columns,
+			select(
+				provedCore(
+					"keyed",
+					into.columns.pairs.map((p) => target(value(p.field))),
+					[cteRef(scanned)],
+					undefined
+				)
+			)
+		)
+	]
 }
 
 /** Reads an input as an operand of the set operation that deduplicates it, an exact deletion's EXCEPT: no DISTINCT and

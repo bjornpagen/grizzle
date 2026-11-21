@@ -19,6 +19,7 @@ import {
 	generatedRule,
 	generatedTypeRule,
 	generatedVolatilityRule,
+	keyGeneratedRule,
 	rowNode
 } from "#compiler/check/generated.ts"
 import type { ClosedRelation, SchemaReading } from "#compiler/check/schema.ts"
@@ -43,6 +44,7 @@ import {
 	type ClosedSlot,
 	type ClosedTheoryRelation,
 	type FieldWriting,
+	generationOf,
 	headingColumns,
 	isSpanField,
 	type KeyName,
@@ -288,10 +290,11 @@ const byFieldName = mapInput(compareStrings, (f: LawField) => f.name)
  */
 const generatedReadsOf = (fields: ReadonlyArray<LawField>): ReadonlyArray<GeneratedRead> =>
 	fields.flatMap((f): ReadonlyArray<GeneratedRead> => {
-		if (f.writing.kind !== "generated") {
+		const generation = generationOf(f)
+		if (generation === undefined) {
 			return []
 		}
-		const reads = fieldReads([f.writing.expr])
+		const reads = fieldReads([generation])
 		return reads.some((r) => fields.some((x) => x.name === r && isFloat(x.type)))
 			? []
 			: [Object.freeze({ field: f.name, reads })]
@@ -602,9 +605,30 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			Object.values(r.fields).flatMap((f) => (f.writing.kind === "generated" ? [f.name] : []))
 		)
 		const isGenerated = (f: string): boolean => generated.has(f)
+		const keyed = new Set<string>(r.desc.primaryKey)
+		/** The writing of a field grizzle writes, which no key generation reads: none for a caller's, or a generated one,
+		 * which generatedRule refuses first. */
+		const unwritten = (field: string) => {
+			const f = r.fields[field]
+			switch (f?.writing.kind) {
+				case "drawn":
+				case "accumulated":
+				case "retirement":
+				case "place":
+					return f.writing.kind
+				case "caller":
+					return isInstantDesc(f.desc) ? "instant" : undefined
+				case "generated":
+				case undefined:
+					return undefined
+			}
+		}
 		for (const f of Object.values(r.fields).toSorted(mapInput(compareStrings, (x) => x.name))) {
 			const broken =
-				f.writing.kind === "generated" ? generatedRule(f.writing.expr, isGenerated) : undefined
+				f.writing.kind === "generated"
+					? (generatedRule(f.writing.expr, isGenerated) ??
+						(keyed.has(f.name) ? keyGeneratedRule(f.writing.expr, unwritten) : undefined))
+					: undefined
 			if (broken !== undefined) {
 				generatedRefused(r, f.name, broken)
 			}
@@ -625,10 +649,10 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			(f, type, at) => this.#writing(r, f, type, at, row, patterns),
 			patterns
 		)
-		const keyed = keyedBy(name, loc, declared)
+		const keyedFields = keyedBy(name, loc, declared)
 		/** A declared key's handles and its one span field, refused for two as ownership's representability already does. */
 		const keyName = (k: OwnedKey): KeyName => {
-			const fields = keyed(k.fields)
+			const fields = keyedFields(k.fields)
 			const [span, ...more] = fields.filter(isSpanField)
 			if (more.length > 0) {
 				return unrepresentableKey(
@@ -642,7 +666,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 		}
 		const heading = sortNonEmpty(declared, byFieldName)
 		const candidates = r.keys.filter((k) => !k.primary)
-		const primaryFields = keyed(r.desc.primaryKey)
+		const primaryFields = keyedFields(r.desc.primaryKey)
 		return {
 			kind: "relation",
 			name,
@@ -653,7 +677,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			primaryKey: r.desc.primaryKey,
 			keys: candidates.map((k) => k.fields),
 			primaryFields,
-			keyFields: candidates.map((k) => keyed(k.fields)),
+			keyFields: candidates.map((k) => keyedFields(k.fields)),
 			mutable: r.mutable,
 			inserts: r.inserts,
 			inPlace: this.#inPlace(r, declared, primaryFields),
@@ -851,7 +875,7 @@ export class CheckedSchema<World extends CheckedWorld = CheckedWorld> implements
 			return generatedRefused(r, field, stable)
 		}
 		return {
-			kind: "generated",
+			kind: r.desc.primaryKey.includes(field) ? "keyGenerated" : "generated",
 			desc,
 			expr:
 				sameScalarType(term.expr.type, term.nominal) ||

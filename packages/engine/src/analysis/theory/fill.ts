@@ -263,6 +263,7 @@ const entriesAt = (
 				set(fieldColumn(field), field.type, { kind: "given" }, walk)
 				break
 			case "generated":
+			case "keyGenerated":
 			case "drawn":
 			case "accumulated":
 			case "retirement":

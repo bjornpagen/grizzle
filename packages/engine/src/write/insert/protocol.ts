@@ -55,10 +55,12 @@ import {
 	inputNeeds,
 	inputStated,
 	inputSharing,
+	keyGeneratedRead,
 	keyUniqueBy,
 	noSharedKey,
 	readInput,
 	sameKeyCte,
+	uncarriedKeyGenerations,
 	type WriteInput
 } from "#compiler/write/insert/input.ts"
 import { stampedInput } from "#compiler/write/insert/stamp.ts"
@@ -395,9 +397,12 @@ export const buildInsert = (
 	/** The instant fields the rows leave out, which the insert stamps and so reads beside the carried ones from the
 	 * stamped input (write/insert/stamp.ts). */
 	const stamped = (f: LawField): boolean => spec.stamps.some((s) => s.field.name === f.name)
-	const fields = written.filter((f) => carries(f) || stamped(f))
+	/** The key generations the input leaves out, which its read computes over the fields it carries (input.ts
+	 * keyGeneratedRead), so the insert reads each fact's whole key. */
+	const generations = uncarriedKeyGenerations(relation, written.filter(carries))
+	const fields = written.filter((f) => carries(f) || stamped(f) || generations.includes(f))
 	const starts = written
-		.filter((f) => !carries(f) && !stamped(f))
+		.filter((f) => !carries(f) && !stamped(f) && !generations.includes(f))
 		.map((f) => ({
 			field: f,
 			value: defined(
@@ -463,15 +468,44 @@ export const buildInsert = (
 		const retCol = returned.of
 		const column = (f: LawField) => w.names.column(relation.name, f.name)
 		const [firstStamp, ...moreStamps] = spec.stamps
-		const [readCte, ...stampCtes] =
-			firstStamp === undefined
-				? [cte(r1, inputs.columns, read.select)]
-				: stampedInput(w, supply, read.select, carriedFields, [firstStamp, ...moreStamps], {
-						name: r1,
-						fields,
-						columns: inputs
-					})
-		const ctes: [Cte, ...Array<Cte>] = [readCte, ...stampCtes]
+		/** The input's read with the key generations it leaves out (keyGeneratedRead), under `name`. */
+		const generated = (name: string, columns: FieldColumns<string>): readonly [Cte, Cte] =>
+			keyGeneratedRead(w, supply, relation, read.select, carriedInputs, { name, columns })
+		/** The fields the read holds before any stamp: the carried ones and the key generations computed over them. */
+		const readFields = [...carriedFields, ...generations]
+		const readCtes = ((): [Cte, ...Array<Cte>] => {
+			if (firstStamp === undefined) {
+				return isNonEmpty(generations)
+					? [...generated(r1, inputs)]
+					: [cte(r1, inputs.columns, read.select)]
+			}
+			const stamps: NonEmptyReadonlyArray<Stamped> = [firstStamp, ...moreStamps]
+			const out = { name: r1, fields, columns: inputs }
+			if (!isNonEmpty(generations)) {
+				const [stampedRead, ...stampCtes] = stampedInput(
+					w,
+					supply,
+					read.select,
+					carriedFields,
+					stamps,
+					out
+				)
+				return [stampedRead, ...stampCtes]
+			}
+			const keyed = supply.relation(internal("keyed input"))
+			const keyedColumns = fieldColumns(readFields, (f) => inputs.of(f))
+			const [scanned, withKeys] = generated(keyed, keyedColumns)
+			const reread = select(
+				provedCore(
+					"keyed",
+					readFields.map((f) => target(col(keyed, keyedColumns.of(f)))),
+					[cteRef(keyed)],
+					undefined
+				)
+			)
+			return [scanned, withKeys, ...stampedInput(w, supply, reread, readFields, stamps, out)]
+		})()
+		const ctes: [Cte, ...Array<Cte>] = readCtes
 		if (r4 !== undefined) {
 			ctes.push(sameKeyCte(r4, r1, pk, keys, inCol))
 		}

@@ -39,13 +39,15 @@ import { type Family, isSequence, isTreeOf, type TreeShape } from "#compiler/ir/
 import { familyDrawn, layoutKey } from "#compiler/ir/fill.ts"
 import { type Computed, type Stamped, stampText } from "#compiler/ir/instant.ts"
 import {
-	familyKey,
-	type LawField,
-	type NativeColumn,
-	type RelationInfo,
 	type ColumnKey,
 	columnKey,
-	columnKeyOf
+	columnKeyOf,
+	familyKey,
+	generationOf,
+	keyHeads,
+	type LawField,
+	type NativeColumn,
+	type RelationInfo
 } from "#compiler/ir/law.ts"
 import type { LogicalQuery, ParamDecl } from "#compiler/ir/products.ts"
 import type { DeltaSide, Heading, HeadingColumn, RelNode, ValidDag } from "#compiler/ir/rel.ts"
@@ -571,7 +573,7 @@ const refuse = (tag: ProseTag, loc: SourceLoc, capability: string): never => {
  */
 const determined = (field: LawField): boolean =>
 	isCarried(field) ||
-	field.writing.kind === "generated" ||
+	generationOf(field) !== undefined ||
 	field.writing.kind === "instant" ||
 	field.writing.kind === "place"
 
@@ -662,12 +664,28 @@ const carriedColumn = (c: MemberColumn): HeadingColumn => ({
 })
 
 /**
+ * The heading a slot's members state of `heading`, its key heads (ir/law.ts keyHeads): each column but a key generation
+ * (FieldWriting keyGenerated), which no member states and the host fills from its reads before the slot is encoded
+ * (write/normalize), then each key generation's reads not already among them, at their columns in `facts`, the fields a
+ * member of `relation` states: a tree's units named by root fields holding one state its reads.
+ */
+const headsOf = (relation: RelationInfo, heading: Heading, facts: Heading): Heading =>
+	keyHeads(
+		relation,
+		heading.flatMap((c) => relation.fields.filter((f) => f.name === c.name))
+	).flatMap((f) => [...heading, ...facts].filter((c) => c.name === f.name).slice(0, 1))
+
+/**
  * The heading a member relation's additions carry: each field its caller writes, never one PostgreSQL generates, which
  * is never written, so no INSERT or UPDATE lists its column (check/member.ts memberWrites, types/changeset
- * UnwrittenFieldsOf).
+ * UnwrittenFieldsOf); and each key generation (ir/law.ts FieldWriting keyGenerated), which no member writes and the
+ * host fills from its reads before the slot is encoded (write/normalize), so every statement over the slot reads the
+ * fact's whole key.
  */
 const carriedOf = (member: MemberRelation): Heading =>
-	member.heading.filter((c) => c.writing.kind === "caller").map(carriedColumn)
+	member.heading
+		.filter((c) => c.writing.kind === "caller" || c.writing.kind === "keyGenerated")
+		.map(carriedColumn)
 
 /** What a member writes: its relation whole; or a query entry, its target its relation, `member` the entry's facts its
  * source carries, and whether the Db holds a fact of every context its fixed fields read. */
@@ -1884,7 +1902,7 @@ const compile = (
 							act,
 							slot,
 							members: memberNames,
-							admitted,
+							admitted: headsOf(relation, admitted, facts),
 							starts: Object.freeze(starts)
 						})
 					)
