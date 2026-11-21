@@ -110,7 +110,7 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 	const stored = Object.entries(artifacts.owned.relations)
 	const policed = new Set(
 		[...owned.writes.values()].flatMap((w) =>
-			w.kind === "rows" && w.writable.filter.kind === "query" && w.writable.filter.readsOther
+			w.kind !== "whole" && w.writable.filter.kind === "query" && w.writable.filter.readsOther
 				? [w.writable.target]
 				: []
 		)

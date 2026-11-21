@@ -29,9 +29,9 @@ import {
 
 import { type SpecifiedArtifact, specifiedProgram } from "#compiler/lower/template.ts"
 import {
-	levelSchema,
 	type Over,
 	parseOver,
+	programSchema,
 	type SchemaArtifacts,
 	type SchemaInput
 } from "#compiler/program/schema.ts"
@@ -137,7 +137,8 @@ export const queryInput = (query: unknown): Result.Result<QueryInput, CompileErr
 /**
  * The schema a query compiles against: for a query value the caller names no schema for, the one it was built over,
  * which a fragment is not, since it installs nothing; otherwise the one the caller names, parsed where it was given,
- * which a query value's own schema or fragment must be a level of (levelSchema). A bare Description carries no schema
+ * which a query value's own schema or fragment must be a level of, held to a role's owner's rows (programSchema). A
+ * bare Description carries no schema
  * and compiles against the named one.
  */
 const schemaOfInput = (
@@ -147,7 +148,12 @@ const schemaOfInput = (
 	switch (input.kind) {
 		case "built":
 			if (named !== undefined) {
-				return levelSchema(input.schema, named, SourceLoc("compile", []))
+				return programSchema(
+					input.schema,
+					named,
+					{ kind: "query", query: input.desc },
+					SourceLoc("compile", [])
+				)
 			}
 			return input.schema.kind === "fragment"
 				? Result.err(

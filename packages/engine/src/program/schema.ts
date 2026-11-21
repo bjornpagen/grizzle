@@ -14,7 +14,7 @@ import type { LawId, SchemaFingerprint } from "#compiler/core/ids.ts"
 import { Lazy } from "#compiler/core/lazy.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
-import type { RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
+import type { ProgramDesc, RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { regexRefOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
@@ -41,6 +41,7 @@ import {
 } from "#compiler/physical/install/plan.ts"
 import type { SchemaLaws } from "#compiler/program/laws.ts"
 import type { FamilyInserts } from "#compiler/program/preview.ts"
+import { sliceRefusal } from "#compiler/program/slice.ts"
 import { hostArguments } from "#compiler/query/build/host.ts"
 import { admitSchemaDesc } from "#compiler/schema/admit.ts"
 import { unheldOf } from "#compiler/schema/level.ts"
@@ -355,6 +356,36 @@ export const levelSchema = (
 			)
 	}
 }
+
+/**
+ * The schema a program over the schema or fragment `carried` compiles against when the caller names `named`
+ * (levelSchema), and, where `named` is a role holding relations scoped and the program is over a level of its base, the
+ * program held to its owner's rows (program/slice.ts sliceRefusal): OutsideRole crossOwner at `loc` where it reads a
+ * scoped relation other than row by row. A program over the role itself reads the role's own relations, so nothing
+ * holds it.
+ */
+export const programSchema = (
+	carried: Over,
+	named: SchemaInput,
+	program: ProgramDesc,
+	loc: SourceLoc
+): Result.Result<SchemaInput, CompileError> =>
+	Result.flatMap(levelSchema(carried, named, loc), (chosen) => {
+		const crossing =
+			named.kind === "role" && carried.kind !== "role"
+				? sliceRefusal(program, named.desc.base, named.level.scoped)
+				: undefined
+		return crossing === undefined
+			? Result.ok(chosen)
+			: Result.err(
+					CompileError.make({
+						_tag: "OutsideRole",
+						at: loc,
+						role: named.desc.name,
+						access: { kind: "crossOwner", relation: crossing.relation, read: crossing.read }
+					})
+				)
+	})
 
 /** The law model of an owned schema that every installation of it plans over: its every slice's, planned. */
 const plannedModel = (owned: Owned): Result.Result<LawModel, CompileError> =>

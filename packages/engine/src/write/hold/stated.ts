@@ -509,8 +509,8 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 			}
 		})
 	}
-	/** The base relation a member names, and the query entry it writes it through, if any; none for a name the
-	 * world writes not, which the front end has refused. */
+	/** The base relation a member names, and the query entry it writes it through, if any (a scoped entry writes its
+	 * relation whole); none for a name the world writes not, which the front end has refused. */
 	const writtenBy = (
 		name: string
 	): { readonly relation: string; readonly entry: string | undefined } | undefined => {
@@ -521,9 +521,13 @@ export const heldUnits = (frontend: WriteFrontend): ReadonlyArray<HeldUnit> => {
 		if (w === undefined) {
 			return undefined
 		}
-		return w.kind === "whole"
-			? { relation: w.relation.name, entry: undefined }
-			: { relation: w.writable.target.name, entry: name }
+		switch (w.kind) {
+			case "whole":
+			case "scoped":
+				return { relation: w.relation.name, entry: undefined }
+			case "rows":
+				return { relation: w.writable.target.name, entry: name }
+		}
 	}
 	for (const stratum of frontend.desc.strata) {
 		for (const member of stratum.members) {

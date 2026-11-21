@@ -79,6 +79,7 @@ import {
 	hostEvaluator
 } from "#compiler/runtime/write/fill.ts"
 import { sentLayout } from "#compiler/runtime/write/nesting.ts"
+import { determines } from "#compiler/schema/scope.ts"
 import { queryUses } from "#compiler/schema/walk.ts"
 import type { RecordedLaw } from "#compiler/types/changeset/changeset.ts"
 import { groupBy } from "#compiler/write/defined.ts"
@@ -135,6 +136,8 @@ import { type RelationInput, relationInput } from "#compiler/write/insert/input.
 import { isCarried, keyFirst } from "#compiler/write/insert/statement.ts"
 import {
 	entryUniques,
+	type OutsideProbe,
+	scopedProbes,
 	type RelationUniques,
 	relationUniques
 } from "#compiler/write/insert/unique.ts"
@@ -400,11 +403,29 @@ export type DeltaVia =
 	| { readonly kind: "whole" }
 	| { readonly kind: "entry"; readonly entry: CheckedEntry }
 
+/**
+ * What a whole write is held to beside its relation's laws: nothing, or a scoped entry's membership (schema/scope.ts),
+ * its additions prechecked against the entry's membership and probed at `probes`, the unique objects of its relation
+ * whose fields do not decide whether a row is the owner's (scopedProbes), before the write, which is otherwise its
+ * relation's whole write, its families, nestings and stamps drawn as any whole write's.
+ */
+export type WholeCheck =
+	| { readonly kind: "none" }
+	| {
+			readonly kind: "scoped"
+			readonly entry: CheckedEntry
+			readonly names: CheckNames
+			readonly probes: ReadonlyArray<OutsideProbe>
+	  }
+
 export type ActionEntry =
-	| { readonly kind: "whole" }
+	| { readonly kind: "whole"; readonly check: WholeCheck }
 	| { readonly kind: "entry"; readonly entry: CheckedEntry; readonly names: CheckNames }
 
-const whole: ActionEntry = Object.freeze({ kind: "whole" })
+const noCheck: WholeCheck = Object.freeze({ kind: "none" })
+
+/** A delta read of its relation whole. */
+const wholeVia: DeltaVia = Object.freeze({ kind: "whole" })
 
 const describedIn = (
 	node: RelNode,
@@ -748,7 +769,7 @@ const carriedOf = (member: MemberRelation): Heading =>
 /** What a member writes: its relation whole; or a query entry, its target its relation, `member` the entry's facts its
  * source carries, and whether the Db holds a fact of every context its fixed fields read. */
 type MemberEntry =
-	| { readonly kind: "whole" }
+	| { readonly kind: "whole"; readonly check: WholeCheck }
 	| {
 			readonly kind: "entry"
 			readonly entry: CheckedEntry
@@ -803,7 +824,7 @@ type DraftReads =
  * the fill's root in the write DAG, over its relation parameter `entryRowsParam`, which the sources are substituted
  * for (substitute). */
 type DraftEntry =
-	| { readonly kind: "whole" }
+	| { readonly kind: "whole"; readonly check: WholeCheck }
 	| {
 			readonly kind: "entry"
 			readonly entry: CheckedEntry
@@ -1285,16 +1306,16 @@ const compile = (
 			})
 		)
 	}
-	/** A relation written whole. */
-	const wholeTarget = (name: string, loc: SourceLoc): CheckedTarget => {
+	/** A relation written whole, its additions held to `check`. */
+	const wholeTarget = (name: string, loc: SourceLoc, check: WholeCheck): CheckedTarget => {
 		const relation = writtenOf(name, loc)
-		return { relation, entry: { kind: "whole" }, carried: carriedOf(relation) }
+		return { relation, entry: { kind: "whole", check }, carried: carriedOf(relation) }
 	}
 	/** What a member's relation name writes (see `compileChangeSet`), and the heading its facts carry, decided once. */
 	const targetOf = (name: string, loc: SourceLoc): CheckedTarget => {
 		const world = checked.world
 		if (world.kind === "reality") {
-			return wholeTarget(name, loc)
+			return wholeTarget(name, loc, noCheck)
 		}
 		const role = world.role
 		const write = world.writes.get(name)
@@ -1309,7 +1330,28 @@ const compile = (
 			)
 		}
 		if (write.kind === "whole") {
-			return wholeTarget(name, loc)
+			return wholeTarget(name, loc, noCheck)
+		}
+		const writeWorld = options.world
+		if (writeWorld.kind !== "role") {
+			throw new Refusal(
+				CompileError.make(
+					prose(
+						"MalformedDescription",
+						loc,
+						`a write into the entry ${write.name} of the role ${role.name} compiled in that role's world`
+					)
+				)
+			)
+		}
+		if (write.kind === "scoped") {
+			const scope = write.scope
+			return wholeTarget(name, loc, {
+				kind: "scoped",
+				entry: write.writable,
+				names: writeWorld.names,
+				probes: scopedProbes(writtenOf(name, loc).uniques, (fields) => determines(scope, fields))
+			})
 		}
 		const entry = write.writable
 		const written = writtenOf(entry.target.name, loc)
@@ -1319,18 +1361,6 @@ const compile = (
 			...written,
 			uniques: entryUniques(written.uniques)
 		})
-		const writeWorld = options.world
-		if (writeWorld.kind !== "role") {
-			throw new Refusal(
-				CompileError.make(
-					prose(
-						"MalformedDescription",
-						loc,
-						`a write into the query entry ${entry.entry} of the role ${role.name} compiled in that role's world`
-					)
-				)
-			)
-		}
 		const member = entryRelation(entry)
 		return {
 			relation,
@@ -1670,7 +1700,8 @@ const compile = (
 			)
 		}
 	}
-	/** What a refill reads and rewrites of the base, which a role holds only whole (write/frontend/refill.ts). */
+	/** What a refill reads and rewrites of the base, which a role holds only whole or scoped, a scoped relation's rows
+	 * its owner's (write/frontend/refill.ts). */
 	const holds: RefillHolds = ((): RefillHolds => {
 		const world = checked.world
 		if (world.kind === "reality") {
@@ -1681,8 +1712,12 @@ const compile = (
 			role: world.role.name,
 			base: world.base.owned.name,
 			reads: (relation) =>
+				world.role.scoped.has(relation) ||
 				checked.entries.some((e) => e.kind === "whole" && e.relation.name === relation),
-			writes: (relation) => world.writes.get(relation)?.kind === "whole"
+			writes: (relation) => {
+				const kind = world.writes.get(relation)?.kind
+				return kind === "whole" || kind === "scoped"
+			}
 		}
 	})()
 	/** Each stratum's refills, by its position among the ChangeSet's strata. */
@@ -1988,7 +2023,7 @@ const compile = (
 							relation,
 							carried,
 							reads,
-							entry: { kind: "whole" },
+							entry: target,
 							loc: site,
 							computed
 						})
@@ -2332,7 +2367,7 @@ const compile = (
 				entry:
 					entry.kind === "entry"
 						? Object.freeze({ kind: "entry", entry: entry.entry, names: entry.names })
-						: whole
+						: entry
 			})
 			return { action: { ...act, relation: relation.name, source: read.source }, info, loc }
 		})
@@ -3008,11 +3043,11 @@ const compile = (
 	const deltaOf = (name: string): DeltaOf => {
 		const world = checked.world
 		if (world.kind === "reality") {
-			return { kind: "relation", relation: name, via: whole }
+			return { kind: "relation", relation: name, via: wholeVia }
 		}
 		const held = world.role.relations[name]
-		if (held === undefined || held.kind === "whole") {
-			return { kind: "relation", relation: name, via: whole }
+		if (held === undefined || held.kind === "whole" || world.writes.get(name)?.kind === "scoped") {
+			return { kind: "relation", relation: name, via: wholeVia }
 		}
 		const moving = (relations: Iterable<string>): string | undefined =>
 			[...relations].toSorted(Order.compareStrings).find((r) => writtenThrough.has(r))
@@ -3153,7 +3188,7 @@ const compile = (
 			kind: "relation",
 			relation,
 			sides: sidesOf(named),
-			via: throughEntry === undefined ? whole : throughEntry.via
+			via: throughEntry === undefined ? wholeVia : throughEntry.via
 		})
 	})
 	/** An empty delta is carried in the heading of the Delta node that names it. */

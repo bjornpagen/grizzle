@@ -840,6 +840,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "RoleRefused":
 		case "LoginRefused":
 		case "ContextRefused":
+		case "ScopeRefused":
 			return `${reason._tag}:${reason.rule.kind}`
 		case "DerivedRefused":
 		case "RecursionRefused":

@@ -162,20 +162,47 @@ type UnwrittenOrigin<S, T> =
 			: false
 		: false
 
-/** What a role's relation record holds: a relation of the base, whole, or a query over the base, a query entry. */
-export type EntryValue = AnyRelation | AnyRoster | AnyDerived | DefinitionQuery
+/**
+ * Any scoped entry: the members every one has. scopedEntriesOf makes it, its relation's rows of one owner under the
+ * relation's own name (schema/scope.ts Scope).
+ */
+export interface AnyScoped extends Built {
+	readonly kind: "scope"
+	readonly name: string
+	readonly relation: AnyRelation | AnyDerived
+}
 
 /**
- * The role relations an entry record makes: a whole entry is the base relation itself, a query entry the world
- * relation of its key.
+ * A scoped entry of R: R under its own name and with its whole heading, its rows those of one owner. A role holding it
+ * holds R (RoleRelations), so the base's programs over R run on the role, each over the owner's rows.
+ */
+export interface Scoped<R extends AnyRelation | AnyDerived> extends AnyScoped {
+	readonly name: NameOf<R>
+	readonly relation: R
+}
+
+/**
+ * What a role's relation record holds: a relation of the base, whole; a scoped entry of one; or a query over the base,
+ * a query entry.
+ */
+export type EntryValue = AnyRelation | AnyRoster | AnyDerived | AnyScoped | DefinitionQuery
+
+/**
+ * The role relations an entry record makes: a whole entry is the base relation itself, and so is a scoped entry, its
+ * relation; a query entry is the world relation of its key.
  */
 export type RoleRelations<Rs> = {
 	readonly [K in keyof Rs]: Rs[K] extends AnyRelation | AnyRoster | AnyDerived
 		? Rs[K]
-		: Rs[K] extends DefinitionQuery
-			? World<K & string, Rs[K]>
-			: never
+		: Rs[K] extends AnyScoped | AnyRelation | AnyDerived
+			? HeldRelationOf<Rs[K]>
+			: Rs[K] extends DefinitionQuery
+				? World<K & string, Rs[K]>
+				: never
 }
+
+/** The relation a whole or scoped entry V holds, each member of a union its own: a scoped entry's relation, or V. */
+type HeldRelationOf<V> = V extends AnyScoped ? V["relation"] : V
 
 type QuerySchema<Q> = Q extends Phantom<{ readonly schema: Invariant<infer QS> }> ? QS : never
 
@@ -192,9 +219,15 @@ type EntryCheck<Base, K, V, Declared> = V extends AnyRelation | AnyRoster | AnyD
 				? unknown
 				: Refusal<"a whole entry is a relation of the base under its own name">
 			: Refusal<"a whole entry is a relation of the base under its own name">
-	: IsLevelOf<Base, QuerySchema<V>> extends true
-		? DefinitionShape<V> & EntryContextsWithin<ContextsOf<V>, Declared>
-		: Refusal<"a query entry is a query over the role's base">
+	: V extends AnyScoped
+		? IsRelationOf<Base, V["relation"]> extends true
+			? [K] extends [NameOf<V["relation"]>]
+				? unknown
+				: Refusal<"a scoped entry is a relation of the base under its own name">
+			: Refusal<"a scoped entry is a relation of the base under its own name">
+		: IsLevelOf<Base, QuerySchema<V>> extends true
+			? DefinitionShape<V> & EntryContextsWithin<ContextsOf<V>, Declared>
+			: Refusal<"a query entry is a query over the role's base">
 export type EntriesCheck<Base, Rs, Declared = never> = {
 	readonly [K in keyof Rs]: EntryCheck<Base, K, Rs[K], Declared>
 }
@@ -210,21 +243,38 @@ type EntryContextsWithin<Cx, Declared> = [Cx] extends [Declared]
 /** The names of the contexts a role declares, its options' `contexts`: never for none. */
 export type DeclaredContexts<C> = C extends ReadonlyArray<infer X> ? NameOf<X> : never
 
-/** The entries a role may write: whole ordinary relations and query entries. */
+/**
+ * The entries a role may write: whole ordinary relations, scoped entries of them, and query entries; a key whose entry
+ * may be any of several values (scopedEntriesOf's, or a record of unknown entries) where one of them is one, role(...)
+ * refusing the others when it is built (RoleRefused writeKind, writeUnwritable).
+ */
 export type WritableKeys<Rs> = {
-	[K in keyof Rs]-?: Rs[K] extends AnyRelation
-		? K
-		: Rs[K] extends AnyRoster | AnyDerived
-			? never
-			: K
+	[K in keyof Rs]-?: true extends WritableValue<Rs[K]> ? K : never
 }[keyof Rs] &
 	string
 
-/** The entries a role may refresh: whole materialized derived relations. */
+/** Whether a role may write an entry value V, each member of a union its own (WritableKeys). */
+type WritableValue<V> = V extends AnyRelation
+	? true
+	: V extends AnyScoped
+		? V["relation"] extends AnyRelation
+			? true
+			: false
+		: V extends AnyRoster | AnyDerived
+			? false
+			: true
+
+/**
+ * The entries a role may refresh: whole materialized derived relations; a key whose entry may be one (scopedEntriesOf's,
+ * whole or scoped) among them, a scoped one refused when the role is built (RoleRefused refreshKind).
+ */
 export type RefreshableKeys<Rs> = {
-	[K in keyof Rs]-?: Rs[K] extends AnyMaterialized ? K : never
+	[K in keyof Rs]-?: true extends RefreshableValue<Rs[K]> ? K : never
 }[keyof Rs] &
 	string
+
+/** Whether an entry value V is a whole materialized derived relation, each member of a union its own. */
+type RefreshableValue<V> = V extends AnyMaterialized ? true : false
 
 /**
  * The relations no role holds, since PostgreSQL holds none of their rows (desc.ts heldRelation): a closed relation,
@@ -259,6 +309,41 @@ type HeldEntries<Rs, K extends keyof Rs> = { readonly [P in K]: Rs[P] }
  * so its base is among its levels (FullBaseOf).
  */
 export type WholeEntriesOf<Base extends AnySchema> = WholeEntries<Base["relations"]>
+
+/**
+ * The entries scopedEntriesOf(base, options) makes: every relation of every level of the base under its own name, as
+ * WholeEntriesOf, each ordinary or materialized derived one whole or scoped (ScopedOrWhole), which of the two its
+ * options and the base's declared containments decide when it runs. A role holding them holds every relation of its
+ * base, each whole or scoped, so its base is among its levels (FullBaseOf).
+ */
+export type ScopedEntriesOf<Base extends AnySchema> = ScopedEntries<Base["relations"]>
+
+/** The record Rs at its held keys (HeldKeys), each relation whole or scoped (ScopedOrWhole). */
+export type ScopedEntries<Rs> = { readonly [P in HeldKeys<Rs> & string]: ScopedOrWhole<Rs[P]> }
+
+/** A relation R as scopedEntriesOf holds it: an ordinary or a materialized derived one whole or scoped, any other whole. */
+export type ScopedOrWhole<R> = R extends AnyRelation | AnyMaterialized ? R | Scoped<R> : R
+
+/** The relations of a schema scopedEntriesOf may root, by name: its ordinary and materialized derived ones. */
+export type ScopableNameOf<Base extends AnySchema> = {
+	[K in keyof Base["relations"]]-?: Base["relations"][K] extends AnyRelation | AnyMaterialized
+		? K
+		: never
+}[keyof Base["relations"]] &
+	string
+
+/**
+ * scopedEntriesOf's options: `owner`, a query over a level of the base of one field reading the role's contexts and the
+ * rows they determine by a key (schema/scope.ts ownerOf); `roots`, each relation stated a root by one of its fields,
+ * whose rows are those whose field the owner holds.
+ */
+export interface ScopeOptions<Base extends AnySchema> {
+	readonly owner: DefinitionQuery
+	readonly roots: { readonly [K in ScopableNameOf<Base>]?: HeadingNameOf<Base["relations"][K]> }
+}
+
+/** The names of a relation's fields, its heading's. */
+type HeadingNameOf<R> = R extends { readonly heading: infer H } ? keyof H & string : never
 
 /**
  * The names a role over Base writes when it writes every whole entry it may (writableNamesOf): the base's ordinary

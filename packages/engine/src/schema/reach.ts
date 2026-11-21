@@ -39,8 +39,15 @@ export const everySlice = (owned: Owned): Slice =>
 	})
 
 /** The relation a role's write writes: its relation, or its query entry's target. */
-const writtenBy = (write: OwnedWrite): string =>
-	write.kind === "whole" ? write.relation.name : write.writable.target
+const writtenBy = (write: OwnedWrite): string => {
+	switch (write.kind) {
+		case "whole":
+		case "scoped":
+			return write.relation.name
+		case "rows":
+			return write.writable.target
+	}
+}
 
 /** Each ordinary relation of `owned` with the ordinary relations a write of it writes: its families' members and
  * owners. */
@@ -122,7 +129,7 @@ export const sliceOf = (base: Owned, programs: ReadonlyArray<RoleProgram>): Slic
 			const write = role.writes.get(member.relation)
 			if (write !== undefined) {
 				written.add(writtenBy(write))
-				for (const r of write.kind === "rows" ? write.entry.reads : []) {
+				for (const r of write.kind === "whole" ? [] : write.entry.reads) {
 					named.add(r)
 				}
 			}

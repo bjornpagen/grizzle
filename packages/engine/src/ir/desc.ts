@@ -1254,6 +1254,27 @@ export interface QueryDesc<L = Located, R extends Refs = Spelled> {
 	readonly stage: QueryStageDesc<L, R>
 }
 
+/** The fields a definition derives: its first rules' head, through every stage that keeps its input's heading. */
+export const definitionFields = <L>(query: QueryDesc<L>): ReadonlyArray<string> => {
+	const fields = (stage: QueryStageDesc<L>): ReadonlyArray<string> => {
+		switch (stage.kind) {
+			case "rules":
+				return Object.keys(stage.arms[0].head)
+			case "recursive":
+				return Object.keys(stage.recursive.row)
+			case "union":
+			case "named":
+			case "order":
+			case "take":
+			case "approx":
+				return fields(stage.input)
+			case "attach":
+				return [...fields(stage.input), stage.attach.name]
+		}
+	}
+	return fields(query.stage)
+}
+
 /**
  * Whether a query is an Ordered (orderBy without take), which only attach, read-backs, readers and the workload accept.
  */
@@ -1829,12 +1850,15 @@ export type UnadmittedSchemaDesc = Located & {
 
 /**
  * Worlds. A role is relations defined over its base, a schema: each entry is a whole relation of the base under its
- * own name, or a world relation, a query over the base installed as a plain view. `write` and `refresh` name role
- * relations. A login is one credential and one pool for roles over one base.
+ * own name; a world relation, a query over the base installed as a view; or a scoped relation, a relation of the base
+ * under its own name held by its owner's rows, its query the row predicate scopedEntriesOf built (schema/scope.ts),
+ * which ownership parses as a scope. `write` and `refresh` name role relations. A login is one credential and one pool
+ * for roles over one base.
  */
 export type RoleEntryDesc<L = Located> =
 	| (L & { readonly kind: "whole"; readonly name: string })
 	| (L & { readonly kind: "world"; readonly name: string; readonly query: QueryDesc<L> })
+	| (L & { readonly kind: "scoped"; readonly name: string; readonly query: QueryDesc<L> })
 
 /**
  * How a role writes the role relations it names: by every operation its programs make (`write`), or by inserting alone
@@ -3643,7 +3667,8 @@ export const decodeUnadmittedSchema = (
 
 const roleEntryDescShape: S.Shape<RoleEntryDesc> = S.tagged("kind", {
 	whole: S.located(S.structWith({ name }, loc)),
-	world: S.located(S.structWith({ name, query: unorderedQueryShape }, loc))
+	world: S.located(S.structWith({ name, query: unorderedQueryShape }, loc)),
+	scoped: S.located(S.structWith({ name, query: unorderedQueryShape }, loc))
 })
 
 const roleRelations = S.nonEmptyUniqueArray(
@@ -3714,7 +3739,8 @@ type RoleEntryPart = Located & { readonly kind: RoleEntryDesc["kind"]; readonly 
 
 const roleEntryPartShape: S.Shape<RoleEntryPart> = S.tagged("kind", {
 	whole: S.located(S.structWith({ name }, loc)),
-	world: S.located(S.structWith({ name }, loc))
+	world: S.located(S.structWith({ name }, loc)),
+	scoped: S.located(S.structWith({ name }, loc))
 })
 
 /** A declared context as a decode of its role reads what its caller wrote of it: its name, each name once. */

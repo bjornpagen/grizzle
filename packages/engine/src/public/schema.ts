@@ -77,7 +77,12 @@ export type {
 export { type NameFault, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"
-export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
+export {
+	insertableNamesOf,
+	scopedEntriesOf,
+	wholeEntriesOf,
+	writableNamesOf
+} from "#compiler/schema/world.ts"
 export type { AnyDerived, Derived, NoParams } from "#compiler/types/derived/derived.ts"
 export type {
 	AnyRecords,
@@ -151,6 +156,7 @@ export type {
 	AnyLogin,
 	AnyLoginRole,
 	AnyRole,
+	AnyScoped,
 	AnyWorld,
 	Context,
 	ContextField,
@@ -165,6 +171,11 @@ export type {
 	Role,
 	RoleOver,
 	RolesOf,
+	ScopableNameOf,
+	Scoped,
+	ScopedEntriesOf,
+	ScopedOrWhole,
+	ScopeOptions,
 	WholeEntries,
 	WholeEntriesOf,
 	World,
@@ -200,7 +211,7 @@ export type {
 /**
  * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, fragment, the
  * statement constructors, the worlds: context, role (with wholeEntriesOf and writableNamesOf, a full role's entries and write
- * list) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
+ * list, and scopedEntriesOf, a role's entries holding each relation of its owner scoped) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
  * schemaNameOf, the installed name of a schema's or a role's PostgreSQL schema, and parseDeclaredName, the declared-name
  * rule every builder and ownership judge a name by (with its fault, NameFault, and nameFaultText, the fault as the rule
  * states it), for a generator that writes declared names to judge each where it derives it. A login's and a role's

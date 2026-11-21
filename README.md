@@ -2892,7 +2892,7 @@ Three declarations, all in the [example](#example):
   object is no row, and a payload that is not an object has none; a context read from the top level refuses such a
   payload at stage `token`. No rule reads a context, and no ChangeSet writes one.
 - **`role(schema, name, entries, { write?, insert?, refresh?, retire?, contexts? })`**: what one kind of user sees. An
-  entry is a table of the schema, whole, or a query over it. `write` lists the entries it writes, each once (a name
+  entry is a table of the schema, whole, a scoped entry of one ([Scoped entries](#scoped-entries)), or a query over it. `write` lists the entries it writes, each once (a name
   listed twice is a type error), `refresh` the derived tables it refreshes, `retire` the retirable units' headers whose
   groups it retires ([Retirable units](#retirable-units)), and `contexts` the contexts it declares
   ([Contexts of a role](#contexts-of-a-role)). `insert` lists them in place of `write` for a role that only
@@ -2927,7 +2927,8 @@ Roles:
   whole, such as `role(Blog, "staff", wholeEntriesOf(Blog))`, also runs every query and ChangeSet over the schema
   itself, such as `postPage`. So does a role over a higher level for each level below it whose every table, and every
   table below it, it holds whole: a role over `Ledger` holding `wholeEntriesOf(Qti)` runs every query over `Qti`
-  ([Levels](#levels)).
+  ([Levels](#levels)). A table held by a scoped entry counts as held: a role holding every table whole or scoped runs the
+  schema's programs too, each over its owner's rows ([Scoped entries](#scoped-entries)).
 - **`Refused`**, when you build the role, is a whole entry under another name than its table's, or not the schema's
   own, a whole entry of a live derived table, or a query entry over a role or over any schema but the role's and those
   it extends: the rules the type errors name, in their words.
@@ -3001,6 +3002,72 @@ declares, and nothing else makes a context available:
   is the token's alone. A context the server leaves out has no fact, as a token without a context's claim object has
   none; a member naming a context no served role attests, a fact of other fields, or a value its field refuses is
   `AttestationRefused`, at stage `schema`.
+
+### Scoped entries
+
+`scopedEntriesOf(S, { owner, roots })` holds each table of one owner by its owner's rows. Its result is
+`wholeEntriesOf(S)` with every such table held as a scoped entry. A scoped entry holds its table under the table's own
+name and whole heading, so a role holding them holds every table of `S` and runs `S`'s queries and ChangeSets, such as
+qti-pie's `sittingProgramsOf`, unchanged. No program binds an ownership guard: PostgreSQL holds each one to the
+owner's rows.
+
+```ts
+const Session = context("Session", { sub: ClerkUser })
+
+/** The persons the signed-in Clerk user is: the owner, read from the token and the sign-in it names. */
+const persons = query(Sitting).rule((r) => {
+	const { sub } = v(Session, "session")
+	const { person } = v(ClerkAccount, "account")
+	return r.match(Session, { sub }).match(ClerkAccount, { clerk: sub, person }).find({ person })
+})
+
+export const Student = role(
+	Sitting,
+	"student",
+	scopedEntriesOf(Sitting, { owner: persons, roots: { Assignment: "student", TestSession: "child" } }),
+	{ contexts: [Session], write: studentWriteNames }
+)
+```
+
+- **The owner** is a query over a level of `S` with one field. It reads the role's contexts, and rows of ordinary tables
+  whose key the contexts fix (`ClerkAccount`, keyed by `clerk`), and nothing else: no negation, aggregate, import or
+  interior. Each of its rows is the session's own. Any other owner is `ScopeRefused` (`owner`).
+- **A root** is stated, never inferred: `Assignment: "student"` holds the assignments whose `student` the owner holds.
+  A root names an ordinary or materialized derived table of `S` and one of its fields; anything else is `ScopeRefused`
+  (`rootRelation`, `rootField`), and a name outside `S` or a field outside the table is a type error.
+- **A reached table** is every other ordinary or materialized derived table whose fields reach a scoped table's key
+  along declared containments, each step a `contained` into a key, unselected on both sides. `SittingEvent`, with
+  `contained(on(SittingEvent, "number"), on(Assignment, "number"))`, holds the events of the owner's assignments. A chain
+  is held in its shortest form: `EventAt`, contained in `SittingEvent`'s key `(number, step)`, reaches `Assignment` by
+  its own `number`, so a stratum may write both `SittingEvent` and `EventAt`; and a table reaching a root's key that
+  holds the root's field is a root itself, by its own field. A table whose reaches hold different rows, such as
+  `Message(from, to)` with both fields contained in a root's key, is `ScopeRefused` (`ambiguous`): state it a root, or
+  keep it whole. Every other table is whole: a table that should be scoped but declares no containment needs one, or a
+  root.
+- **Spread beside entries of your own**, an entry under a table's name holds that table as you state it, whole or by a
+  query of your own, and the role holds `S` only while every table is whole or scoped.
+
+What PostgreSQL holds the role to:
+
+- **A read** of a scoped table reads its security-barrier view, which holds the owner's rows alone.
+- **A write** of a scoped table its `write` names is a write of the table itself, families, sequences and their drawn
+  values as a whole entry's, behind one row policy on the table, `FOR ALL TO` the role, whose `USING` and `WITH CHECK` are
+  both the entry's predicate: a function of the row, the claims and the rows its reach reads, run as the installation's
+  owner, a reached table's an `EXISTS` on its target's key. A row outside the owner's rows is `outsideWorld` before any
+  write, and the policy refuses it where a direct SQL writer writes it (42501). A delete or put of a row outside the
+  owner's rows meets no row.
+- **Laws hold over the whole table.** Keys, containments, families and rules are judged by the installation's owner over
+  every row, never the owner's rows alone: a key a row outside the owner's rows already holds is `refused` on that key.
+- **A program over `S` runs on the role only where it means, over the owner's rows, what it means over every row kept
+  to the owner's.** A positive match reads the owner's rows, which is that meaning. A negation, an aggregate, a take, an
+  approximate search and a declared function's rows argument also decide by the rows they do not show, so each must be
+  pinned: every row it decides by provably the owner's, or none of them. `not(TestSession, { child, stage })` beside a
+  match of `SittingTest` that binds `child`, both rooted by `child`, is pinned; so is `not(EventAt, { number, step })`
+  beside `SittingEvent` at that `number`, a count grouped by `number` over `SittingEvent`, and a take whose rows a
+  parameter fixes, such as `SittingEvent` at the number a call passes. `count()` over every `SittingEvent`, or a negation
+  at a person no match of its rule holds, is `OutsideRole` (`crossOwner`, with the scoped `relation` and the `read`:
+  `negation`, `aggregate`, `take` or `call`) for that role, naming the program, when `grizzle generate` compiles it. A
+  program over the role itself reads its own entries and is never judged so.
 
 ### Writing through a role
 
@@ -5093,6 +5160,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `RecursionRefused`, `DerivedRefused`            | their `cause`                                                                                            |
 | `ForeignLevel`                                  | a rule over `over` (a schema or a role) reading a query written over `written`, none of `over`'s levels  |
 | `RoleRefused`, `LoginRefused`, `ContextRefused` | the `rule` broken                                                                                        |
+| `ScopeRefused`                                  | the `schema` scopedEntriesOf scopes and the `rule` broken: `owner` (`why`), `rootRelation`, `rootField` or `ambiguous` |
 | `GeneratedRefused`                              | the generated `field` of a `relation` and the `rule` it breaks                                           |
 | `FoldOverProjection`                            | the match's `source` and the `key` it must bind for an aggregate to read each row once                   |
 | `QueriedOwnerAppend`                            | an insert or put (`op`), at `at`, of the `owner` from a query beside an append of `member` to its `family` (`{ owner, count }`) |
@@ -5669,8 +5737,8 @@ it is, read offline from the committed snapshot. PostgreSQL answers:
   its own schema. A table some role writes through a query entry that leaves rows out is under row-level security, with
   a policy for each role that writes it: the entry's filter, or true for a role that writes every row. A table every
   writer writes whole has no row-level security and no policy, since each policy would be true: the grants alone decide
-  its writes. A query entry's view is a security-barrier view; a whole-table entry hides nothing, so its view is plain
-  and PostgreSQL plans through it onto the table's indexes. On a table under row-level security, constraint messages
+  its writes. A query entry's view, a scoped entry's among them, is a security-barrier view; a whole-table entry hides
+  nothing, so its view is plain and PostgreSQL plans through it onto the table's indexes. On a table under row-level security, constraint messages
   omit row and key detail.
 - **What a role can learn.** Rules hold across the whole database. A delete refused by a comment you cannot see, or a
   limit that counts rows outside your view, tells you such rows exist; a collision at a key tells you a row exists at

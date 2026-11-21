@@ -24,6 +24,8 @@ import {
 	type RoleRule,
 	recursionRefusalText,
 	roleRuleText,
+	type ScopeRule,
+	scopeRuleText,
 	type StaleCause,
 	staleDerivedReadText,
 	unfillableText,
@@ -338,8 +340,10 @@ const preconditionText = (kind: PreconditionKind, operand: string): string => {
  * hold (`base` naming the base); a write of a relation outside its write list; an UPDATE or DELETE of `relation` by a
  * role that writes by its insert list, which holds neither (`insert`); a refresh of one outside its refresh list; a
  * retirement of the groups of a header outside its retire list; a match of `context`, which the role does not declare,
- * so its Db's claims hold no fact of it; or a program over the role's base, which is one only for a role holding every
- * relation of it whole.
+ * so its Db's claims hold no fact of it; a program over the role's base, which is one only for a role holding every
+ * relation of it whole or scoped; or a program over the base that reads `relation`, which the role holds scoped, other
+ * than row by row (`crossOwner`, program/slice.ts): its `read` decides by rows of `relation` it cannot show are all of
+ * the owner's, so it would mean something else over the owner's rows than over every row.
  */
 export type RoleAccess =
 	| { readonly kind: "read"; readonly relation: string; readonly base: string }
@@ -353,6 +357,22 @@ export type RoleAccess =
 	| { readonly kind: "retire"; readonly relation: string }
 	| { readonly kind: "context"; readonly context: string; readonly declared: ReadonlyArray<string> }
 	| { readonly kind: "wholeBase"; readonly base: string }
+	| { readonly kind: "crossOwner"; readonly relation: string; readonly read: CrossOwnerRead }
+
+/**
+ * How a program over the base reads a scoped relation across owners (program/slice.ts): a negation, or a test of
+ * existence anywhere but among its rule's filters, at rows no positive match of the rule shows are the owner's
+ * (`negation`); an aggregate whose group may hold rows of several owners (`aggregate`); a take or an approximate search
+ * over rows of several owners (`take`); a declared function's rows argument over rows of several owners (`call`).
+ */
+export type CrossOwnerRead = "negation" | "aggregate" | "take" | "call"
+
+const crossOwnerText: { readonly [R in CrossOwnerRead]: string } = {
+	negation: "decides by the absence of rows no positive match of its rule shows are the owner's",
+	aggregate: "aggregates over a group whose rows may be several owners'",
+	take: "takes from rows that may be several owners'",
+	call: "passes a declared function rows that may be several owners'"
+}
 
 const accessText = (role: string, access: RoleAccess): string => {
 	switch (access.kind) {
@@ -369,7 +389,9 @@ const accessText = (role: string, access: RoleAccess): string => {
 		case "context":
 			return `a context role ${role} declares, whose facts its Db's claims hold (${access.declared.length === 0 ? "it declares none" : access.declared.join(", ")}); ${access.context} is none of them`
 		case "wholeBase":
-			return `a program over a level of role ${role}; its base ${access.base} is one only for a role holding every relation of it whole, and ${role} does not`
+			return `a program over a level of role ${role}; its base ${access.base} is one only for a role holding every relation of it whole or scoped, and ${role} does not`
+		case "crossOwner":
+			return `a program over role ${role}'s base that reads ${access.relation}, which ${role} holds scoped, row by row; it ${crossOwnerText[access.read]}`
 	}
 }
 
@@ -467,6 +489,7 @@ const duplicateText = (duplicate: Duplicate): string => {
  *   there what it means over the fragment, so only the fragment states how its relations are written, and a schema that
  *   lists it may add over them only what refuses: a containment, a row check, a rule over a query.
  * - `RoleRefused`, `LoginRefused`, `ContextRefused`: a role, a login or a context breaks the rule `rule`.
+ * - `ScopeRefused`: scoped entries over `schema` break the rule `rule` (ScopeRule).
  * - `GeneratedRefused`: generated field `field` of `relation` breaks the rule `rule`.
  * - `UnfillableField`: the column `field` of `relation`, which grizzle fills by the law `law`, reads the column
  *   `source` along the `axis` of `family`, which its row fills only after it, for `later` (FilledLater), so no write
@@ -666,6 +689,12 @@ export type CompileReason =
 			readonly at: SourceLoc
 			readonly context: string
 			readonly rule: ClaimRule
+	  }
+	| {
+			readonly _tag: "ScopeRefused"
+			readonly at: SourceLoc
+			readonly schema: string
+			readonly rule: ScopeRule
 	  }
 	| {
 			readonly _tag: "UnfillableField"
@@ -1108,6 +1137,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return `login ${reason.login}: ${loginRuleText(reason.rule)}`
 		case "ContextRefused":
 			return `context ${reason.context}: ${claimRuleText(reason.rule)}`
+		case "ScopeRefused":
+			return `scoped entries of ${reason.schema}: ${scopeRuleText(reason.rule)}`
 		case "UnfillableField":
 			return unfillableText(reason)
 		case "InstantRefused":

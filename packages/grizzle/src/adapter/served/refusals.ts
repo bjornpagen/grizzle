@@ -67,8 +67,8 @@ export const keyLawsData = (input: KeyLawInput): ServedKeyLaws => ({
 	)
 })
 
-/** The query entries a role's artifacts write through whose targets are among `written`, by their targets: none for
- * reality. */
+/** The query and scoped entries a role's artifacts write through whose targets are among `written`, by their targets:
+ * none for reality. */
 const writtenEntries = (
 	artifacts: Pick<SchemaArtifacts, "world">,
 	written: ReadonlySet<string>
@@ -79,7 +79,7 @@ const writtenEntries = (
 	}
 	return new Map(
 		Arr.flatMap([...world.checked.world.writes.values()], (e) =>
-			e.kind === "rows" && written.has(e.writable.target.name)
+			e.kind !== "whole" && written.has(e.writable.target.name)
 				? [[e.writable.target.name, e.writable] as const]
 				: []
 		)
@@ -89,8 +89,8 @@ const writtenEntries = (
 /**
  * The refusals of a role's artifacts as data (served ServedRefusals), cut to `raisable`, what its writes can raise
  * (program/schema.ts raisableOf): the key-law tables of those constraints, laws and rosters, each of those stored
- * relations' heading, which a refusal's key text decodes through, the query entries the role writes through into
- * them, and the pattern domains its members' parameters `params` are cast to (physical/ddl/domains.ts paramDomainsOf).
+ * relations' heading, which a refusal's key text decodes through, the query and scoped entries the role writes through
+ * into them, each precheck's refusal naming its entry, and the pattern domains its members' parameters `params` are cast to (physical/ddl/domains.ts paramDomainsOf).
  */
 export const refusalsOf = (
 	artifacts: Pick<SchemaArtifacts, "names" | "world">,

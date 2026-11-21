@@ -50,6 +50,7 @@ import {
 } from "#compiler/write/insert/input.ts"
 import { writesMet } from "#compiler/write/insert/protocol.ts"
 import { compareHeading, factHeading, keyFirst } from "#compiler/write/insert/statement.ts"
+import type { OutsideProbe } from "#compiler/write/insert/unique.ts"
 
 import type {
 	ChosenAction,
@@ -80,6 +81,9 @@ export type PlannedCheck =
 			/** The addition it checks, which follows it. */
 			readonly action: PlanAction
 			readonly relation: WrittenRelation
+			/** The unique objects it probes for a fact outside the entry: a query entry's every probe, a scoped entry's
+			 * those its owner's rows do not determine (write/frontend/compile.ts WholeCheck). */
+			readonly probes: ReadonlyArray<OutsideProbe>
 	  }
 	| { readonly kind: "outside"; readonly entry: EntryName }
 
@@ -200,6 +204,7 @@ type DraftStep =
 			readonly op: "precheck"
 			readonly entry: CheckedEntry
 			readonly names: CheckNames
+			readonly probes: ReadonlyArray<OutsideProbe>
 	  }
 
 /** A statement that writes its relation: every one but a query entry's precheck, which reads its input. */
@@ -316,7 +321,8 @@ const statementStep = (
 					entry: step.entry,
 					names: step.names,
 					action: draft.at,
-					relation
+					relation,
+					probes: step.probes
 				}
 			}
 		case "exactDelete":
@@ -358,11 +364,42 @@ const opsOf = (action: ChosenAction, level: Isolation): ReadonlyArray<DraftStep>
 	}
 }
 
-/** The precheck of an addition into a query entry, right before its insert statement. */
+/**
+ * The precheck of an addition into a query entry, right before its insert statement, probing every unique object of
+ * its relation as the entry reaches it; or of an addition through a scoped entry, right before its first statement,
+ * probing the objects its check names (write/frontend/compile.ts WholeCheck); none for a whole write held to nothing.
+ */
 const precheckOf = (action: ChosenAction): ReadonlyArray<DraftStep> => {
 	const entry = action.info.entry
-	return entry.kind === "entry" ? [{ op: "precheck", entry: entry.entry, names: entry.names }] : []
+	switch (entry.kind) {
+		case "entry":
+			return [
+				{
+					op: "precheck",
+					entry: entry.entry,
+					names: entry.names,
+					probes: action.info.relation.uniques.probes
+				}
+			]
+		case "whole":
+			return entry.check.kind === "scoped"
+				? [
+						{
+							op: "precheck",
+							entry: entry.check.entry,
+							names: entry.check.names,
+							probes: entry.check.probes
+						}
+					]
+				: []
+	}
 }
+
+/** The precheck of a put through a scoped entry, before every form of its put: no form of a whole put meets a row
+ * outside the owner's rows as the entry's law, so the precheck refuses one first. A put of any other target is
+ * prechecked where its form inserts (`precheckOf`). */
+const scopedPrecheckOf = (put: ChosenAction): ReadonlyArray<DraftStep> =>
+	put.info.entry.kind === "whole" ? precheckOf(put) : []
 
 /**
  * Refuses an insert into `relation` with no form at `level`: an insert into a span primary key at READ COMMITTED
@@ -412,6 +449,7 @@ const putOps = (
 		}
 		case "onConflictDoUpdate":
 			return [
+				...scopedPrecheckOf(put),
 				{
 					op: "upsert",
 					input: choice.slot.input,
@@ -420,7 +458,7 @@ const putOps = (
 				}
 			]
 		case "updateFrom":
-			return [{ op: "updateFrom", inPlace: choice.inPlace }]
+			return [...scopedPrecheckOf(put), { op: "updateFrom", inPlace: choice.inPlace }]
 		case "ownerPut":
 			formedAt(put, level)
 			return [
@@ -432,6 +470,7 @@ const putOps = (
 			]
 		case "merge":
 			return [
+				...scopedPrecheckOf(put),
 				{ op: "merge", inPlace: choice.inPlace, arbiter: choice.arbiter, scope: choice.merge.scope }
 			]
 	}

@@ -40,6 +40,7 @@ import type {
 	AnyWorld,
 	EntryValue,
 	RoleRelations,
+	ScopedEntries,
 	WholeEntries
 } from "#compiler/types/schema/world.ts"
 
@@ -333,6 +334,23 @@ export const wholeEntries = <const Rs extends AnySchema["relations"]>(
 			(relation.kind === "derived" && relation.storage === "live")
 				? []
 				: [[key, relation] as const]
+		)
+	)
+
+/**
+ * scopedEntriesOf's entries over a schema's record of relations (see the header): each relation a role may hold under
+ * its own key, as wholeEntries keeps it, held as `make` holds it, whole or scoped.
+ */
+export const scopedEntries = <const Rs extends AnySchema["relations"]>(
+	relations: Rs,
+	make: (key: string, relation: AnySchema["relations"][string]) => unknown
+): ScopedEntries<Rs> =>
+	assembled<ScopedEntries<Rs>>(
+		Object.entries(relations).flatMap(([key, relation]) =>
+			relation.kind === "closedRelation" ||
+			(relation.kind === "derived" && relation.storage === "live")
+				? []
+				: [[key, make(key, relation)] as const]
 		)
 	)
 

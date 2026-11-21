@@ -6,7 +6,7 @@ import {
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { sameContent } from "#compiler/core/canonical.ts"
-import type { LoginRule, RoleRule } from "#compiler/core/causes.ts"
+import type { LoginRule, RoleRule, ScopeRule } from "#compiler/core/causes.ts"
 import { CompileError, ruleRefused } from "#compiler/core/errors.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -55,8 +55,16 @@ import {
 	querySchemaOf,
 	requireName
 } from "#compiler/schema/protocol.ts"
-import { record, roleRelations, wholeEntries } from "#compiler/schema/record.ts"
+import { record, roleRelations, scopedEntries, wholeEntries } from "#compiler/schema/record.ts"
 import { derivedDraftOf, relationDescOf, valueTypeOf } from "#compiler/schema/relation.ts"
+import {
+	deriveScopes,
+	determines,
+	entryScope,
+	ownerOf,
+	type Scope,
+	scopableFields
+} from "#compiler/schema/scope.ts"
 import { expansionDescOf, statementDescOf } from "#compiler/schema/statements.ts"
 import { loginStem, roleStem } from "#compiler/schema/stem.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
@@ -69,6 +77,7 @@ import type {
 	AnyLogin,
 	AnyLoginRole,
 	AnyRole,
+	AnyScoped,
 	Context,
 	ContextField,
 	ContextOptions,
@@ -80,6 +89,8 @@ import type {
 	RoleOptionRecord,
 	RoleOptions,
 	RoleRelations,
+	ScopedEntriesOf,
+	ScopeOptions,
 	SourceOf,
 	WholeEntriesOf,
 	World,
@@ -93,40 +104,46 @@ export const roleDescOf = (value: unknown): RoleDesc | undefined => ownedDesc(va
 /**
  * A role as a level (write/changeset/levels.ts), read once, when role(...) builds the role: its Description; its base's
  * content (levels.ts SchemaContent), which beside the Description is its identity (levels.ts sameRoleLevel); the
- * highest level of its base it holds whole, every relation of that level and below it under its own name but the closed
- * and live derived relations, which no role holds and every role reads (desc.ts heldRelation); every relation of every
- * level of its base by name (levelRelations); and its entries by name.
+ * highest level of its base it holds, every relation of that level and below it whole or scoped under its own name but
+ * the closed and live derived relations, which no role holds and every role reads (desc.ts heldRelation); every relation
+ * of every level of its base by name (levelRelations); its entries by name; and the scope of each scoped entry.
  */
 export interface RoleLevel {
 	readonly desc: RoleDesc
 	readonly base: SchemaContent
 	/**
-	 * The highest level of its base the role holds whole, every relation of that level and of every level below it under
-	 * its own name but the closed and live derived relations: programs over that level and every level below it run on
-	 * the role. Its base itself for a full role; none for a role that holds not every relation of its base's root whole.
+	 * The highest level of its base the role holds, every relation of that level and of every level below it whole or
+	 * scoped under its own name but the closed and live derived relations: programs over that level and every level below
+	 * it run on the role, each over its scoped relations' owner's rows (program/slice.ts). Its base itself for a full
+	 * role; none for a role that holds not every relation of its base's root so.
 	 */
 	readonly whole: SchemaContent | undefined
 	readonly relations: ReadonlyMap<string, RelationDesc>
 	readonly entries: ReadonlyMap<string, RoleEntryDesc>
+	/**
+	 * Each scoped entry's scope (scope.ts Scope), by its relation's name: a query entry of the role under that name, its
+	 * definition the scope's, which scopedEntriesOf made. No other query entry is scoped, whatever its shape.
+	 */
+	readonly scoped: ReadonlyMap<string, Scope>
 }
 
 export const loginDescOf = (value: unknown): LoginDesc | undefined => ownedDesc(value, "login")
 
 /**
  * The highest level of `content`, a base's levels, every relation of which and of every level below it a role holding
- * `whole` holds whole under its own name, but the relations no role holds (desc.ts heldRelation); none when the root
- * is not held so. `relations` is every relation of every level of the base, by name.
+ * `holds`, its whole and scoped entries, holds under its own name, but the relations no role holds (desc.ts
+ * heldRelation); none when the root is not held so. `relations` is every relation of every level of the base, by name.
  */
 const wholeLevel = (
 	content: SchemaContent,
 	relations: ReadonlyMap<string, RelationDesc>,
-	whole: ReadonlySet<string>
+	holds: ReadonlySet<string>
 ): SchemaContent | undefined => {
 	const held = (level: SchemaContent | undefined): boolean => {
 		for (let at = level; at !== undefined; at = at.below) {
 			for (const name of at.relations.keys()) {
 				const r = relations.get(name)
-				if (r !== undefined && heldRelation(r) && !whole.has(name)) {
+				if (r !== undefined && heldRelation(r) && !holds.has(name)) {
 					return false
 				}
 			}
@@ -300,8 +317,8 @@ const contextValue = <
  */
 interface AdmittedRole {
 	readonly desc: RoleDesc
-	/** The names of the whole entries, which the kept statements name only. */
-	readonly whole: ReadonlySet<string>
+	/** The names of the whole and scoped entries, the relations it holds, which the kept statements name only. */
+	readonly held: ReadonlySet<string>
 	readonly level: RoleLevel
 }
 
@@ -427,9 +444,35 @@ export const admitRole = (
 	const below = levelRelations(baseDesc)
 	const entries: Array<RoleEntryDesc> = []
 	const kinds = new Map<string, RelationDesc["kind"] | "world">()
+	const scoped = new Map<string, Scope>()
 	for (const [key, value] of Object.entries(relations)) {
 		const at = `${label} relation ${key}`
 		const loc = builderLoc(at, [baseDesc.name, roleName, key])
+		const scope = ownedEntry(value, "scope")
+		if (scope !== undefined) {
+			const held = Object.hasOwn(baseEntry.value.relations, key)
+				? baseEntry.value.relations[key]
+				: undefined
+			if (
+				scope.desc.name !== key ||
+				!below.has(key) ||
+				held === undefined ||
+				!sameContent(wholeOf(held, at), wholeOf(scope.value.relation, at))
+			) {
+				throw ruleRefused(
+					builderLoc(at, []),
+					"a scoped entry is a relation of the base under its own name"
+				)
+			}
+			const parsed = entryScope(baseDesc, key, scope.desc.query)
+			if (parsed === undefined) {
+				throw defect(`${label}: ${key}, a scoped entry scopedEntriesOf made, states no scope`)
+			}
+			entries.push({ kind: "scoped", name: key, query: scope.desc.query, loc })
+			kinds.set(key, "world")
+			scoped.set(key, parsed)
+			continue
+		}
 		const draft = derivedDraftOf(value)
 		const kind = ownedKind(value)
 		if (draft?.storage === "live") {
@@ -517,7 +560,7 @@ export const admitRole = (
 	}
 	const contexts = declaredContexts(opts["contexts"], `${label} contexts`)
 	for (const e of entries) {
-		if (e.kind !== "world") {
+		if (e.kind === "whole") {
 			continue
 		}
 		const contextBreak = entryContextBreak(contexts, queryUses(e.query).contexts)
@@ -580,10 +623,17 @@ export const admitRole = (
 			})
 		}
 		const entry = entries.find((e) => e.name === w)
-		if (entry?.kind !== "world") {
+		if (entry === undefined || entry.kind === "whole") {
 			throw malformed(`${label} ${listed}`, `the query entry ${w}`)
 		}
-		const analyzed = writableEntry(baseDesc, entry)
+		const holds = scoped.get(w)
+		const analyzed = writableEntry(
+			baseDesc,
+			entry,
+			holds === undefined
+				? { kind: "probed" }
+				: { kind: "scoped", determines: (fields) => determines(holds, fields) }
+		)
 		if (!analyzed.ok) {
 			throw roleRefused(`${label} ${listed} ${w}`, {
 				kind: "writeUnwritable",
@@ -620,15 +670,19 @@ export const admitRole = (
 			loc: builderLoc(label, [baseDesc.name, roleName])
 		})
 	)
-	const whole = new Set(entries.flatMap((e) => (e.kind === "whole" ? [e.name] : [])))
+	const held = new Set([
+		...entries.flatMap((e) => (e.kind === "whole" ? [e.name] : [])),
+		...scoped.keys()
+	])
 	const level: RoleLevel = Object.freeze({
 		desc,
 		base: baseEntry.content,
-		whole: wholeLevel(baseEntry.content, below, whole),
+		whole: wholeLevel(baseEntry.content, below, held),
 		relations: below,
-		entries: new Map(desc.relations.map((e) => [e.name, e]))
+		entries: new Map(desc.relations.map((e) => [e.name, e])),
+		scoped
 	})
-	return { desc, whole, level }
+	return { desc, held, level }
 }
 
 /**
@@ -655,6 +709,9 @@ const isWhole = (value: EntryValue): value is AnyRelation | AnyRoster | AnyDeriv
 	return kind === "relation" || kind === "closed" || kind === "derived"
 }
 
+/** Whether an entry value is a scoped entry: a value scopedEntriesOf made. */
+const isScoped = (value: EntryValue): value is AnyScoped => ownedKind(value) === "scope"
+
 const noNames: readonly [] = Object.freeze([] as const)
 
 /**
@@ -665,12 +722,13 @@ const noNames: readonly [] = Object.freeze([] as const)
  *   whose facts the Db's claims hold. Its fields are claims of scalar types (ir/desc.ts contextFieldAdmits);
  *   `claim` names the nested claim object they are read from.
  * - `role(base, name, relations, options?)`: a schema whose relations are defined over `base`. A whole entry is a
- *   relation of the base, itself, under its own name; a query entry is a query over the base, admitted as a definition:
- *   a Query built over the base or one of its levels, reading no parameter, attaching nothing, approximating nothing,
- *   and naming only the base's relations. The
+ *   relation of the base, itself, under its own name; a scoped entry, which scopedEntriesOf makes, holds a relation of
+ *   the base under its own name by its owner's rows (scope.ts), the role relation the base relation itself; a query entry
+ *   is a query over the base, admitted as a definition: a Query built over the base or one of its levels, reading no
+ *   parameter, attaching nothing, approximating nothing, and naming only the base's relations. The
  *   value holds each query entry as its world relation (World), which v mints variables over and a rule matches by its
- *   name. `write` names role relations: a whole ordinary relation, or a query entry the writable-entry analysis
- *   (entry.ts) admits, at most one per base relation. `insert`, in place of `write`, names them as `write` does, and
+ *   name. `write` names role relations: a whole ordinary relation, a scoped one, or a query entry the writable-entry
+ *   analysis (entry.ts) admits, at most one per base relation. `insert`, in place of `write`, names them as `write` does, and
  *   the role holds INSERT and SELECT on what they write, no DELETE or UPDATE, so a program of the role that deletes
  *   or updates there is refused (RoleAccess insert); a role stating both is refused (writeAndInsert). `refresh` names
  *   derived whole entries, and `retire` the whole entries of retirable units' headers whose groups the role retires,
@@ -716,6 +774,9 @@ export const roleBuilder = <
 		if (isWhole(value)) {
 			return value
 		}
+		if (isScoped(value)) {
+			return value.relation
+		}
 		const draft = drafts.get(key)
 		if (draft === undefined) {
 			throw malformed(`role ${name}`, `the query entry ${key}`)
@@ -724,7 +785,7 @@ export const roleBuilder = <
 	})
 	const kept = (
 		s: Base["statements"][number] | Base["listed"][number]
-	): s is KeptStatements<Base, RoleRelations<Rs>> => namesOf(s).every((n) => admitted.whole.has(n))
+	): s is KeptStatements<Base, RoleRelations<Rs>> => namesOf(s).every((n) => admitted.held.has(n))
 	const value = ownValue({
 		kind: "role",
 		value: {
@@ -787,6 +848,99 @@ const ordinaryNames = <Base extends AnySchema>(
  */
 export const wholeEntriesOf = <Base extends AnySchema>(base: Base): WholeEntriesOf<Base> =>
 	wholeEntries(schemaRelations(base, "wholeEntriesOf"))
+
+/**
+ * scopedEntriesOf(base, { owner, roots }): the entries of a role over `base` that holds every relation of every level of
+ * it under its own name, as wholeEntriesOf's do, each relation of its owner scoped (schema/scope.ts): a query entry
+ * under the relation's own name with its whole heading, holding its rows of the owner. `owner` is a query over a level
+ * of the base of one field that reads the role's contexts and the rows they determine by a key (ownerOf), refused
+ * otherwise (ScopeRefused owner). `roots` states each root, an ordinary or materialized derived relation by one of its
+ * fields: its rows whose field the owner holds. Every other such relation that a declared containment chain reaches a
+ * scoped relation's key from is scoped through it, in its shortest form; one reaching scoped keys in two forms is
+ * refused (ambiguous). Every other relation is whole. A role holding the entries holds every relation of its base, so
+ * the base's programs run on it, each over its owner's rows (program/slice.ts); spread beside entries of its own, an
+ * entry under a relation's name holds that relation as the caller states it.
+ */
+export const scopedEntriesOf = <Base extends AnySchema>(
+	base: Base,
+	options: ScopeOptions<Base>
+): ScopedEntriesOf<Base> => {
+	const entry = ownedEntry(base, "schema")
+	if (entry === undefined) {
+		throw malformed("scopedEntriesOf", "a base schema built by schema(...) or schema.extend(...)")
+	}
+	const desc = entry.desc
+	const label = `scopedEntriesOf ${desc.name}`
+	if (!isPlainRecord(options) || Object.keys(options).some((k) => k !== "owner" && k !== "roots")) {
+		throw malformed(
+			label,
+			"options { owner, roots }: the owner query and the roots by their fields"
+		)
+	}
+	const refused = (rule: ScopeRule): CompileError =>
+		CompileError.make({ _tag: "ScopeRefused", at: builderLoc(label, []), schema: desc.name, rule })
+	const ownerDesc = queryDescOf(options.owner, `${label} owner`)
+	const carried = querySchemaOf(options.owner)
+	const carriedOwner = carried === undefined ? undefined : ownedEntryOf(carried)
+	const level =
+		carriedOwner?.kind === "schema"
+			? carriedOwner.content
+			: carriedOwner?.kind === "fragment"
+				? carriedOwner.content.level
+				: undefined
+	if (level === undefined || !isLevelOf(level, entry.content)) {
+		throw malformed(`${label} owner`, "an owner query over a level of the base")
+	}
+	const owner = ownerOf(desc, ownerDesc)
+	if (!owner.ok) {
+		throw refused(owner.error)
+	}
+	const given: unknown = options.roots
+	if (!isPlainRecord(given)) {
+		throw malformed(`${label} roots`, "roots: a record of relations, each by one of its fields")
+	}
+	const roots = new Map<string, string>()
+	for (const [relation, field] of Object.entries(given)) {
+		if (typeof field !== "string") {
+			throw malformed(`${label} roots ${relation}`, "a field of the relation, by its name")
+		}
+		const fields = scopableFields(desc, relation)
+		if (fields === undefined) {
+			throw refused({ kind: "rootRelation", relation })
+		}
+		if (!fields.includes(field)) {
+			throw refused({ kind: "rootField", relation, field })
+		}
+		roots.set(relation, field)
+	}
+	const scopes = deriveScopes(desc, owner.value, roots, builderLoc(label, [desc.name]))
+	if (!scopes.ok) {
+		throw refused(scopes.error)
+	}
+	const relations: Base["relations"] = base.relations
+	return scopedEntries<Base["relations"]>(relations, (key, relation) => {
+		const scope = scopes.value.get(key)
+		return scope === undefined ? relation : scopedValue(key, relation, scope)
+	})
+}
+
+/** The scoped entry of `relation` under `key`, holding its rows by `scope`: its definition the scope's, which role(...)
+ * parses back into the scope (scope.ts scopeOf). */
+const scopedValue = (
+	key: string,
+	relation: AnySchema["relations"][string],
+	scope: Scope
+): AnyScoped => {
+	if (relation.kind !== "relation" && relation.kind !== "derived") {
+		throw defect(`scopedEntriesOf: ${key}, a roster or a closed relation, scoped`)
+	}
+	return ownValue({
+		kind: "scope",
+		value: { ...builtMark, kind: "scope", name: key, relation },
+		desc: { name: key, query: scope.definition, loc: builderLoc(`scoped entry ${key}`, [key]) },
+		content: undefined
+	})
+}
 
 /**
  * writableNamesOf(base): the names of the base's ordinary relations, every level's, in its record's order, which are

@@ -4,6 +4,7 @@ import {
 	appendNonEmpty,
 	extendNonEmpty,
 	isNonEmpty,
+	lastNonEmpty,
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
@@ -23,7 +24,7 @@ import { refuse } from "#compiler/analysis/theory/build.ts"
 import { withGenerationInputs } from "#compiler/analysis/theory/fill.ts"
 import { hnswPolicy } from "#compiler/check/approximate/policy.ts"
 import type { AdmittedQuery } from "#compiler/check/index.ts"
-import { catchRefusal, unwrap } from "#compiler/core/canonical.ts"
+import { catchRefusal, sameContent, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -89,6 +90,7 @@ import type {
 import { enforcement, type Node, type ObjectSpec } from "#compiler/physical/obligations/graph.ts"
 import type { HeadStanding } from "#compiler/schema/entry.ts"
 import type { OwnedEntry, OwnedLogin, OwnedRole, OwnedWorldEntry } from "#compiler/schema/own.ts"
+import { determines, type PinChain, pinForms, type Scope } from "#compiler/schema/scope.ts"
 
 import type {
 	ColumnPrivilege,
@@ -131,7 +133,8 @@ import {
 	type OutsideProbe,
 	probeIdentity,
 	probeParams,
-	relationUniques
+	relationUniques,
+	scopedProbes
 } from "#compiler/write/insert/unique.ts"
 import { withinRow } from "#compiler/write/probe.ts"
 import { refusalFunction } from "#compiler/write/refusal.ts"
@@ -372,7 +375,7 @@ const roleRelation = (e: RoleEntry): RoleRelation => {
 const roleWrites = (world: RoleWorld): ReadonlyArray<WrittenEntry> =>
 	[...world.writes.values()].map((write) => ({
 		write,
-		relation: write.kind === "whole" ? write.relation : write.writable.target
+		relation: write.kind === "rows" ? write.writable.target : write.relation
 	}))
 
 /** One role relation's view: its CREATE VIEW, the graph objects it reads, and its columns' types. */
@@ -621,9 +624,9 @@ const entryPrivileges = (writing: RoleWritingKey, w: WrittenEntry): EntryPrivile
 	}
 	const write = w.write
 	const updates =
-		write.kind === "whole"
-			? w.relation.mutable
-			: isNonEmpty(updatableFields(w.relation, write.writable))
+		write.kind === "rows"
+			? isNonEmpty(updatableFields(w.relation, write.writable))
+			: w.relation.mutable
 	return updates ? ["SELECT", "INSERT", "UPDATE", "DELETE"] : ["SELECT", "INSERT", "DELETE"]
 }
 
@@ -678,12 +681,19 @@ const writePlan = (
 		isNonEmpty(columns)
 			? [{ kind: "grantColumns", privilege, table: tableName, columns, to: identifierOf(theory) }]
 			: []
-	const grants: ReadonlyArray<SqlStatement> = [
-		...columnGrant("SELECT", all),
-		...columnGrant("INSERT", insertable),
-		...columnGrant("UPDATE", updatable),
-		...(held.includes("DELETE") ? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })] : [])
-	]
+	/** A scoped entry writes its table as a whole entry does, every column (its law and drawn columns among them) by a
+	 * table grant, behind its membership's policy and precheck; a query entry by column grants on its fields alone. */
+	const grants: ReadonlyArray<SqlStatement> =
+		e.kind === "scoped"
+			? [grant(held, { kind: "TABLE", names: [tableName] })]
+			: [
+					...columnGrant("SELECT", all),
+					...columnGrant("INSERT", insertable),
+					...columnGrant("UPDATE", updatable),
+					...(held.includes("DELETE")
+						? [grant(["DELETE"], { kind: "TABLE", names: [tableName] })]
+						: [])
+				]
 	/** The entry's probes (see `addWorlds`), exactly those of T's unique objects (write/insert/unique.ts
 	 * RelationUniques.probes) an entry's precheck calls: whether T holds a fact that conflicts with the submitted values
 	 * at one of its unique objects and lies outside the entry's membership, which the policy's own predicate decides
@@ -781,14 +791,20 @@ const writePlan = (
 			}
 		}
 	}
-	const probes = relationUniques(
+	const uniques = relationUniques(
 		b.model.relations.get(relation) ??
 			refuse(
 				"MalformedDescription",
 				role.loc,
 				`a writable entry over an ordinary relation, not ${relation}`
 			)
-	).probes.map(probe)
+	)
+	const scope = e.kind === "scoped" ? e.scope : undefined
+	const probes = (
+		scope === undefined
+			? uniques.probes
+			: scopedProbes(uniques, (fields) => determines(scope, fields))
+	).map(probe)
 	const probeGrants: ReadonlyArray<SqlStatement> = isNonEmpty(probes)
 		? [grant(["EXECUTE"], { kind: "FUNCTION", names: mapNonEmpty(probes, (p) => p.name) })]
 		: []
@@ -947,14 +963,15 @@ interface OwnerHold {
 	readonly update: ReadonlyArray<LawField>
 }
 
-/** The families whose members a role writes (`written`) and whose owner it does not write whole, grouped by owner, in
- * the law model's order of each owner's first family. */
+/** The families whose members a role writes (`written`) and whose owner it does not write whole or scoped, a table
+ * grant holding the owner then (`writePlan`), grouped by owner, in the law model's order of each owner's first family.
+ * A scoped owner's families agree with it by scope (`scopedCovers`, held where the role's objects are added). */
 const heldFamilies = (
 	model: LawModel,
 	written: ReadonlyArray<WrittenEntry>
 ): ReadonlyArray<NonEmptyReadonlyArray<Family>> => {
 	const writes = new Set(written.map((w) => w.relation.name))
-	const whole = new Set(written.flatMap((w) => (w.write.kind === "whole" ? [w.relation.name] : [])))
+	const whole = new Set(written.flatMap((w) => (w.write.kind === "rows" ? [] : [w.relation.name])))
 	const byOwner = new Map<string, NonEmptyReadonlyArray<Family>>()
 	for (const f of model.families) {
 		if (writes.has(f.member.name) && !whole.has(f.owner.name)) {
@@ -1033,10 +1050,10 @@ export const roleUpdates = (
 		if (!entryPrivileges(world.role.writing, w).includes("UPDATE")) {
 			continue
 		}
-		if (w.write.kind === "whole") {
-			whole.add(w.relation.name)
-		} else {
+		if (w.write.kind === "rows") {
 			hold(w.relation.name, updatableFields(w.relation, w.write.writable))
+		} else {
+			whole.add(w.relation.name)
 		}
 	}
 	for (const families of heldFamilies(model, written)) {
@@ -1198,6 +1215,38 @@ const covers = (own: Membership, family: Membership): boolean =>
 	(family.kind === "narrowed" && printExpr(own.filter) === printExpr(family.filter))
 
 /**
+ * Whether a scoped owner's own membership is a scoped member's, read through its family F: the member's scope's own pin
+ * form (schema/scope.ts pinForms, its last), each of its fields read as the field of the owner it pairs with
+ * (`ownerPaired`), is a pin form of the owner's scope, of one chain. Each pin form decides whether a row is its owner's
+ * by its fields alone, so the owner's policy then holds exactly the owner rows the member's family writes touch, as
+ * `covers` asks of one predicate, which two scoped entries state by filter functions of their own.
+ */
+const scopedCovers = (owner: Scope, member: Scope, f: Family): boolean => {
+	const last = lastNonEmpty(pinForms(member))
+	const read = last.columns.map((c) => {
+		const field = f.member.fields.find((x) => x.name === c)
+		return field === undefined ? undefined : ownerPaired(f, field)?.name
+	})
+	return pinForms(owner).some(
+		(o) =>
+			sameChain(o.chain, last.chain) &&
+			o.columns.length === read.length &&
+			o.columns.every((c, i) => read[i] === c)
+	)
+}
+
+/** Whether two pin chains are one: one owner, by its query and field, or one scope's key, by its definition. */
+const sameChain = (a: PinChain, b: PinChain): boolean =>
+	a.kind === "owner"
+		? b.kind === "owner" &&
+			a.owner.field === b.owner.field &&
+			sameContent(a.owner.query, b.owner.query)
+		: b.kind === "key" &&
+			sameContent(a.scope.definition, b.scope.definition) &&
+			a.key.length === b.key.length &&
+			a.key.every((k, i) => b.key[i] === k)
+
+/**
  * The constants a role is granted EXECUTE on, with their objects: every one its statements evaluate, transitively
  * through constants' bodies and domains' base types and CHECKs (InstallBuilder.evaluated), since PostgreSQL checks
  * EXECUTE against the invoker. Its statements evaluate the domains its own statements name, those its columns are typed
@@ -1338,6 +1387,21 @@ const addRole = (
 			entry: `${role.name}.${w.write.name}`,
 			membership: plan.membership
 		})
+	}
+	for (const f of b.model.families) {
+		const ownerWrite = written.find((w) => w.relation.name === f.owner.name)?.write
+		const memberWrite = written.find((w) => w.relation.name === f.member.name)?.write
+		if (
+			ownerWrite?.kind === "scoped" &&
+			memberWrite !== undefined &&
+			!(memberWrite.kind === "scoped" && scopedCovers(ownerWrite.scope, memberWrite.scope, f))
+		) {
+			refuse(
+				"UnsupportedOperation",
+				role.loc,
+				`the role ${role.name} writes ${f.owner.name} by its owner's rows and ${f.member.name}, a member of its family ${f.id.owner}.${f.id.count}, by other rows, whose family reads and counts ${f.owner.name} past them: one policy holds the role on ${f.owner.name}, so scope ${f.member.name} by the same owner, through the fields its family pairs with ${f.owner.name}'s key`
+			)
+		}
 	}
 	const holds = ownerHolds(b.model, role, written)
 	for (const hold of holds) {

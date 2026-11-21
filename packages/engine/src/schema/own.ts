@@ -64,8 +64,8 @@ import {
 	openHeader,
 	type QueryDesc,
 	type DerivedStorage,
+	definitionFields,
 	heldRelation,
-	type QueryStageDesc,
 	type RelationDesc,
 	type RoleDesc,
 	type RoleEntryDesc,
@@ -100,6 +100,7 @@ import {
 } from "#compiler/schema/function-own.ts"
 import type { SchemaContent } from "#compiler/schema/levels.ts"
 import { keyLayout } from "#compiler/schema/representability.ts"
+import { determines, entryScope, type Scope } from "#compiler/schema/scope.ts"
 import { foreignInput } from "#compiler/schema/terms.ts"
 import { approximates, attachesHeading, queryUses } from "#compiler/schema/walk.ts"
 
@@ -705,27 +706,6 @@ interface OrdinaryEntry extends LawRelationEntry {
 type SideRelationEntry =
 	| { readonly kind: "stored"; readonly entry: LawRelationEntry }
 	| { readonly kind: "derived"; readonly name: string; readonly fields: ReadonlySet<string> }
-
-/** The fields a definition derives: its first rules' head, through every stage that keeps its input's heading. */
-const definitionFields = (query: QueryDesc): ReadonlyArray<string> => {
-	const fields = (stage: QueryStageDesc): ReadonlyArray<string> => {
-		switch (stage.kind) {
-			case "rules":
-				return Object.keys(stage.arms[0].head)
-			case "recursive":
-				return Object.keys(stage.recursive.row)
-			case "union":
-			case "named":
-			case "order":
-			case "take":
-			case "approx":
-				return fields(stage.input)
-			case "attach":
-				return [...fields(stage.input), stage.attach.name]
-		}
-	}
-	return fields(query.stage)
-}
 
 interface StatementEntry {
 	readonly desc: StatementDesc
@@ -2632,11 +2612,11 @@ export type OwnedEntry =
 	  }
 	| OwnedWorldEntry
 
-/** A role's query entry as ownership admitted it (OwnedEntry). */
+/** A role's query entry as ownership admitted it (OwnedEntry), a scoped entry's among them, whose view is its query's. */
 export interface OwnedWorldEntry {
 	readonly kind: "world"
 	readonly name: DeclaredName
-	readonly entry: Extract<RoleEntryDesc, { readonly kind: "world" }>
+	readonly entry: Exclude<RoleEntryDesc, { readonly kind: "whole" }>
 	readonly query: QueryDesc
 	readonly reads: ReadonlyArray<string>
 	readonly contexts: ReadonlyArray<string>
@@ -2646,7 +2626,9 @@ export interface OwnedWorldEntry {
 /**
  * One entry of a role's write list as ownership admitted it: "whole", a whole entry of an ordinary relation, which
  * writes its table as it is; "rows", a query entry the writable-entry analysis admits, with its analysis, whose writes
- * the table's row security holds to the entry's membership.
+ * the table's row security holds to the entry's membership; "scoped", a scoped entry of an ordinary relation, which
+ * writes its table as a whole entry does, behind the precheck and row security of its membership (its analysis,
+ * EntryKeys scoped), under its scope.
  */
 export type OwnedWrite =
 	| {
@@ -2660,6 +2642,15 @@ export type OwnedWrite =
 			readonly name: string
 			readonly entry: OwnedWorldEntry
 			readonly writable: WritableEntry<string, string>
+			readonly loc: SourceLoc
+	  }
+	| {
+			readonly kind: "scoped"
+			readonly name: string
+			readonly relation: Extract<OwnedRelation, { readonly kind: "relation" }>
+			readonly entry: OwnedWorldEntry
+			readonly writable: WritableEntry<string, string>
+			readonly scope: Scope
 			readonly loc: SourceLoc
 	  }
 
@@ -2709,6 +2700,8 @@ export interface OwnedRole {
 	readonly retire: ReadonlyArray<string>
 	readonly full: boolean
 	readonly contexts: Readonly<Record<string, ContextDesc>>
+	/** Each scoped entry's scope (scope.ts Scope), by its relation's name, in name order: its query entry's query. */
+	readonly scoped: ReadonlyMap<string, Scope>
 }
 
 /** The owned login: its name, its base's Owned and its owned roles in name order. */
@@ -2729,6 +2722,7 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 	 * ownership holds it apart from the login's other names. */
 	const roleName = declareName(DeclaredNamespace.of("role"), desc.name, "role", desc.loc)
 	const relations: Record<string, OwnedEntry> = {}
+	const scoped = new Map<string, Scope>()
 	/** The role's schema holds one view per relation, named by the relation's declared name. */
 	const views = DeclaredNamespace.of(`${label}'s relation`)
 	for (const e of desc.relations) {
@@ -2795,6 +2789,13 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			contexts: [...uses.contexts.keys()].toSorted(compareStrings),
 			loc: e.loc
 		}
+		if (e.kind === "scoped") {
+			const scope = entryScope(base.desc, e.name, e.query)
+			if (scope === undefined) {
+				broken(e.loc, { kind: "entryScope", entry: e.name })
+			}
+			scoped.set(e.name, scope)
+		}
 	}
 	const targets = new Map<string, string>()
 	const target = (relation: string, entry: string): void => {
@@ -2823,12 +2824,35 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 			admitted.set(w, { kind: "whole", name: w, relation, loc: r.loc })
 			continue
 		}
-		const analyzed = writableEntry(base.desc, r.entry)
+		const scope = scoped.get(w)
+		const analyzed = writableEntry(
+			base.desc,
+			r.entry,
+			scope === undefined
+				? { kind: "probed" }
+				: { kind: "scoped", determines: (fields) => determines(scope, fields) }
+		)
 		if (!analyzed.ok) {
 			broken(r.loc, { kind: "writeUnwritable", entry: w, why: analyzed.error.reason })
 		}
 		target(analyzed.value.target, w)
-		admitted.set(w, { kind: "rows", name: w, entry: r, writable: analyzed.value, loc: r.loc })
+		if (scope === undefined) {
+			admitted.set(w, { kind: "rows", name: w, entry: r, writable: analyzed.value, loc: r.loc })
+			continue
+		}
+		const relation = base.relations[w]
+		if (relation?.kind !== "relation") {
+			broken(desc.loc, { kind: "writeKind", name: w, entryKind: "derived" })
+		}
+		admitted.set(w, {
+			kind: "scoped",
+			name: w,
+			relation,
+			entry: r,
+			writable: analyzed.value,
+			scope,
+			loc: r.loc
+		})
 	}
 	if (!("insert" in desc)) {
 		for (const s of base.statements) {
@@ -2882,7 +2906,8 @@ const ownRoleOf = (desc: RoleDesc, base: Owned): OwnedRole => {
 		refresh: [...desc.refresh].toSorted(compareStrings),
 		retire: [...desc.retire].toSorted(compareStrings),
 		full,
-		contexts: ownedContexts
+		contexts: ownedContexts,
+		scoped: new Map([...scoped].toSorted(([a], [b]) => compareStrings(a, b)))
 	}
 }
 

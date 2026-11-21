@@ -44,6 +44,7 @@ const DICTIONARY_MINTS = [
 	"test/types/changeset/entry-owner.dictionary.ts",
 	"test/types/changeset/instants.dictionary.ts",
 	"test/types/schema/stored-kinds.dictionary.ts",
+	"test/types/schema/scoped-entries.dictionary.ts",
 	"test/types/changeset/nesting.dictionary.ts",
 	"test/types/changeset/generic-role.dictionary.ts",
 	"test/types/compute/compute.dictionary.ts",

@@ -69,7 +69,13 @@ import type {
 	Selection,
 	Statement
 } from "#compiler/types/schema/statements.ts"
-import type { AnyContext, AnyLogin, AnyRole, AnyWorld } from "#compiler/types/schema/world.ts"
+import type {
+	AnyContext,
+	AnyLogin,
+	AnyRole,
+	AnyScoped,
+	AnyWorld
+} from "#compiler/types/schema/world.ts"
 
 /** A builder location: the label and the user's call site (core/loc.ts). */
 export const builderLoc = (label: string, path: ReadonlyArray<string | number>): SourceLoc =>
@@ -280,6 +286,11 @@ interface OwnedKinds {
 	}
 	readonly world: {
 		readonly value: AnyWorld
+		readonly desc: WorldDraft
+		readonly content: undefined
+	}
+	readonly scope: {
+		readonly value: AnyScoped
 		readonly desc: WorldDraft
 		readonly content: undefined
 	}

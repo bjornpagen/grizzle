@@ -497,7 +497,7 @@ const filterAccess = (
 ): Result.Result<ReadonlyArray<ProgramAccess>, CompileError> => {
 	const out: Array<ProgramAccess> = []
 	for (const e of role.writes.values()) {
-		if (e.kind !== "rows" || e.writable.filter.kind !== "query") {
+		if (e.kind === "whole" || e.writable.filter.kind !== "query") {
 			continue
 		}
 		const label = `write filter ${role.name}.${e.name}`

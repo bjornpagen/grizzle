@@ -143,23 +143,24 @@ const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 }
 
 /**
- * The fields of a relation's keys: its primary key and every candidate key a statement of any level declares on it, a
- * key over its whole relation's fields (ir/desc.ts candidateKeyFields).
+ * A relation's keys, each its fields: its primary key and every candidate key a statement of any level declares on it,
+ * a key over its whole relation's fields (ir/desc.ts candidateKeyFields).
  */
-const keyFieldsOf = (schema: SchemaDesc, relation: OrdinaryDesc): ReadonlySet<string> => {
-	const out = new Set<string>(relation.primaryKey)
-	for (const level of levelChain(schema)) {
-		const declared = level.statements.flatMap((s) =>
-			s.kind === "key" && s.side.relation === relation.name
-				? (candidateKeyFields(s.side) ?? [])
-				: []
-		)
-		for (const field of declared) {
-			out.add(field)
-		}
-	}
-	return out
-}
+const keysOfRelation = (
+	schema: SchemaDesc,
+	relation: OrdinaryDesc
+): ReadonlyArray<ReadonlyArray<string>> => [
+	relation.primaryKey,
+	...levelChain(schema).flatMap((level) =>
+		level.statements.flatMap((s) => {
+			const fields =
+				s.kind === "key" && s.side.relation === relation.name
+					? candidateKeyFields(s.side)
+					: undefined
+			return fields === undefined ? [] : [fields]
+		})
+	)
+]
 
 /** The variables an expression reads in its own scope (ir/desc.ts exprChildren). */
 const exprVars = (e: ExprDesc, into: Set<string>): void => {
@@ -270,11 +271,24 @@ const suppliers = (
 	})
 
 /**
- * The writable entry of `entry`, a query entry over the base `base` listed in its role's `write`, or why it is none.
+ * How a writable entry's writes meet its target's keys: `probed`, a query entry's, whose precheck probes every key of T
+ * at its submitted values, so no key holds a field T's family draws (`keyHoldsFamily`); `scoped`, a scoped entry's
+ * (schema/scope.ts), written as T whole, its families drawn as a whole entry's, whose precheck probes only the keys whose
+ * fields do not decide whether a row is the owner's (`determines`, scope.ts), so only those hold no field T's family
+ * draws.
+ */
+export type EntryKeys =
+	| { readonly kind: "probed" }
+	| { readonly kind: "scoped"; readonly determines: (fields: ReadonlyArray<string>) => boolean }
+
+/**
+ * The writable entry of `entry`, a query entry over the base `base` listed in its role's `write`, or why it is none;
+ * its keys met as `keys` states (EntryKeys).
  */
 export const writableEntry = (
 	base: SchemaDesc,
-	entry: EntryDefinition
+	entry: EntryDefinition,
+	keys: EntryKeys
 ): Result.Result<WritableEntry<string, string>, WritabilityRefused> => {
 	const name = EntryName(entry.name)
 	const stage = unnamed(entry.query.stage)
@@ -327,8 +341,13 @@ export const writableEntry = (
 	 * A key's fields are the identity a write through the entry names and its precheck probes, so none is a field T's
 	 * family draws, which no fact states.
 	 */
-	const keyed = keyFieldsOf(base, target)
-	const drawnKey = [...keyed].toSorted(compareStrings).find((field) => family(target, field))
+	const declaredKeys = keysOfRelation(base, target)
+	const keyed = new Set(declaredKeys.flat())
+	const probedKeys =
+		keys.kind === "probed" ? declaredKeys : declaredKeys.filter((k) => !keys.determines(k))
+	const drawnKey = [...new Set(probedKeys.flat())]
+		.toSorted(compareStrings)
+		.find((field) => family(target, field))
 	if (drawnKey !== undefined) {
 		return refused(name, { kind: "keyHoldsFamily", field: drawnKey })
 	}

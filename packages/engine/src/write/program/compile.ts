@@ -415,11 +415,9 @@ const familyProgram = (
 	const stored: ReadonlyMap<string, RelationInfo> = new Map(
 		[...frontend.laws.relations].map(([name, laws]) => [name, laws.relation] as const)
 	)
-	const layoutOf = (name: string): RowLayout => {
-		const info = defined(frontend.schema.relations.get(name), `the family relation ${name}`)
-		return rowLayout(info, all)
-	}
 	const info = (name: string) => defined(stored.get(name), `the family relation ${name}`)
+	/** A family relation's row layout, read off the schema's own relation, which a role writes whole or scoped. */
+	const layoutOf = (name: string): RowLayout => rowLayout(info(name), all)
 	return strataAt(frontend.ir.strata).flatMap(([s, stratum]) =>
 		stratum.family.map(({ node }): FamilyPlacement => {
 			if (node.kind === "unit") {
@@ -1756,7 +1754,7 @@ const entryCheckOf = (
 		kind: "membership",
 		entry: check.entry,
 		relation,
-		probes: relation.uniques.probes,
+		probes: check.probes,
 		base: frontend.schema.definitions(),
 		catalog: evidenceCatalog(frontend),
 		world: check.names

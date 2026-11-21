@@ -200,13 +200,14 @@ export const entryFacts = (entry: CheckedEntry, target: HostChecks): SlotFacts =
 
 /**
  * The contexts a ChangeSet's compilation depends on for a role: those the fixed fields of every query entry it writes
- * read, by name, each once in code point order (entryFillable reads exactly these). A ChangeSet compiled once, ahead of
- * the Dbs it runs on (a workload's, at startup), is compiled for each set of them that may hold a fact.
+ * read, by name, each once in code point order (entryFillable reads exactly these); a whole or scoped entry fixes no
+ * field. A ChangeSet compiled once, ahead of the Dbs it runs on (a workload's, at startup), is compiled for each set of
+ * them that may hold a fact.
  */
 export const fillContexts = <Target, F>(
 	writes: ReadonlyMap<
 		string,
-		| { readonly kind: "whole" }
+		| { readonly kind: "whole" | "scoped" }
 		| { readonly kind: "rows"; readonly writable: WritableEntry<Target, F> }
 	>,
 	changeSet: ChangeSetDesc

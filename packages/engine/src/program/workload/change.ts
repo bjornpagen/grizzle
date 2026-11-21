@@ -12,9 +12,9 @@ import type { ClockBinding, ClockSource } from "#compiler/ir/clock.ts"
 import type { NamedLogin, NamedRole } from "#compiler/physical/ddl/names.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
 import {
-	levelSchema,
 	type ParsedRole,
 	parseOver,
+	programSchema,
 	roleArtifacts,
 	type SchemaArtifacts
 } from "#compiler/program/schema.ts"
@@ -81,7 +81,8 @@ const applyLoc = SourceLoc("db.apply", [])
 
 /**
  * The parsed ChangeSet of a value, or the refusal of a value that is not one, or of one built over a schema that is no
- * level of the role's (program/schema.ts levelSchema), before any SQL.
+ * level of the role's, or that reads a relation the role holds scoped other than row by row (program/schema.ts
+ * programSchema), before any SQL.
  */
 export const parsedChange = (
 	role: ParsedRole,
@@ -97,7 +98,10 @@ export const parsedChange = (
 		)
 	}
 	return Result.flatMap(parseOver(change.over.value), (carried) =>
-		Result.map(levelSchema(carried, role, applyLoc), () => change)
+		Result.map(
+			programSchema(carried, role, { kind: "changeSet", changeSet: change.desc }, applyLoc),
+			() => change
+		)
 	)
 }
 

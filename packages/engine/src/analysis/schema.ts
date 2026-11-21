@@ -90,6 +90,7 @@ import type {
 	OwnedWrite
 } from "#compiler/schema/own.ts"
 import type { Slice } from "#compiler/schema/reach.ts"
+import type { Scope } from "#compiler/schema/scope.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 
 /** The refusal of a declared key whose index entry is unrepresentable, for `fault`, as ownership words it. */
@@ -176,6 +177,16 @@ export type RoleWrite =
 			readonly writable: CheckedEntry
 			readonly loc: SourceLoc
 	  }
+	| {
+			/** A scoped entry's write (schema/own.ts OwnedWrite scoped): its relation written whole, behind the precheck of
+			 * its membership, its analysis `writable`, under its scope. */
+			readonly kind: "scoped"
+			readonly name: string
+			readonly relation: RelationInfo
+			readonly writable: CheckedEntry
+			readonly scope: Scope
+			readonly loc: SourceLoc
+	  }
 
 /** A role's world: the owned role, its base's checked schema and its write list over the base's handles, by name. */
 export interface RoleWorld {
@@ -211,10 +222,9 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 	const ordinary = (name: string, loc: SourceLoc): RelationInfo =>
 		base.relations.get(name) ??
 		fail("MalformedDescription", loc, `a write into an ordinary relation of the base, not ${name}`)
-	const checkedWrite = (w: OwnedWrite): RoleWrite => {
-		if (w.kind === "whole") {
-			return { kind: "whole", name: w.name, relation: ordinary(w.relation.name, w.loc), loc: w.loc }
-		}
+	const checkedEntry = (
+		w: Extract<OwnedWrite, { readonly kind: "rows" | "scoped" }>
+	): CheckedEntry => {
 		const owned = w.writable
 		const target = ordinary(owned.target, w.loc)
 		const byName = new Map(target.heading.map((f) => [f.name, f] as const))
@@ -227,27 +237,47 @@ const roleWrites = (role: OwnedRole, base: CheckedSchema): ReadonlyMap<string, R
 			)
 		const filter = owned.filter
 		return {
-			kind: "rows",
-			name: w.name,
-			writable: {
-				entry: owned.entry,
-				target,
-				head: new Map(
-					[...owned.head].map(
-						([head, h]) => [head, { field: field(h.field), kind: h.kind }] as const
-					)
-				),
-				fixed: owned.fixed.map((f) => ({ field: field(f.field), value: f.value })),
-				filter: filter.kind === "none" ? filter : { ...filter, fields: filter.fields.map(field) }
-			},
-			loc: w.loc
+			entry: owned.entry,
+			target,
+			head: new Map(
+				[...owned.head].map(([head, h]) => [head, { field: field(h.field), kind: h.kind }] as const)
+			),
+			fixed: owned.fixed.map((f) => ({ field: field(f.field), value: f.value })),
+			filter: filter.kind === "none" ? filter : { ...filter, fields: filter.fields.map(field) }
+		}
+	}
+	const checkedWrite = (w: OwnedWrite): RoleWrite => {
+		switch (w.kind) {
+			case "whole":
+				return {
+					kind: "whole",
+					name: w.name,
+					relation: ordinary(w.relation.name, w.loc),
+					loc: w.loc
+				}
+			case "rows":
+				return { kind: "rows", name: w.name, writable: checkedEntry(w), loc: w.loc }
+			case "scoped":
+				return {
+					kind: "scoped",
+					name: w.name,
+					relation: ordinary(w.relation.name, w.loc),
+					writable: checkedEntry(w),
+					scope: w.scope,
+					loc: w.loc
+				}
 		}
 	}
 	const within = base.closure.relations
-	const inside = (w: OwnedWrite): boolean =>
-		w.kind === "whole"
-			? within.has(w.relation.name)
-			: within.has(w.writable.target) && w.entry.reads.every((r) => within.has(r))
+	const inside = (w: OwnedWrite): boolean => {
+		switch (w.kind) {
+			case "whole":
+				return within.has(w.relation.name)
+			case "rows":
+			case "scoped":
+				return within.has(w.writable.target) && w.entry.reads.every((r) => within.has(r))
+		}
+	}
 	return new Map(
 		[...role.writes].flatMap(([name, w]) => (inside(w) ? [[name, checkedWrite(w)] as const] : []))
 	)

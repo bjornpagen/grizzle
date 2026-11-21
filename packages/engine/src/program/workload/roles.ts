@@ -2,7 +2,12 @@ import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { levelSchema, type ParsedRole, parseSchemaInput } from "#compiler/program/schema.ts"
+import {
+	levelSchema,
+	type ParsedRole,
+	parseSchemaInput,
+	programSchema
+} from "#compiler/program/schema.ts"
 import { type WorkloadProgram, workloadState } from "#compiler/program/workload/value.ts"
 import type { OwnedLogin, OwnedRole } from "#compiler/schema/own.ts"
 
@@ -32,9 +37,10 @@ export const loginRole = (
 
 /**
  * The programs of a login's workloads that run on a role, in the workloads' order, each one's programs in its record's
- * order: a workload over the role is the role's own, and a workload over the base or a level of it runs on a full role,
- * whose levels hold the base (program/schema.ts levelSchema), and on no partial one. A workload value no workload(...)
- * built is refused.
+ * order: a workload over the role is the role's own, and a workload over the base or a level of it runs on a role that
+ * holds every relation of it whole or scoped, whose levels hold the base (program/schema.ts levelSchema), and on no
+ * other one. A program of such a workload that reads a relation the role holds scoped other than row by row is refused
+ * for the role, by its name (program/schema.ts programSchema). A workload value no workload(...) built is refused.
  */
 export const programsOn = (
 	role: ParsedRole,
@@ -47,9 +53,28 @@ export const programsOn = (
 			return Result.err(malformedDescription(loc, "a workload built by workload(...)"))
 		}
 		const over = state.schema
-		const runs = over.kind === "role" ? over.value === role.value : levelSchema(over, role, loc).ok
-		if (runs) {
-			appendAll(running, state.programs)
+		if (over.kind === "role") {
+			if (over.value === role.value) {
+				appendAll(running, state.programs)
+			}
+			continue
+		}
+		if (!levelSchema(over, role, loc).ok) {
+			continue
+		}
+		for (const program of state.programs) {
+			if (program.kind !== "refresh") {
+				const held = programSchema(
+					over,
+					role,
+					program.desc,
+					SourceLoc(`login compile program ${program.name}`, ["programs", program.name])
+				)
+				if (!held.ok) {
+					return held
+				}
+			}
+			running.push(program)
 		}
 	}
 	return Result.ok(running)
