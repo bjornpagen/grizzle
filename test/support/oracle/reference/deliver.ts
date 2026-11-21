@@ -2,6 +2,7 @@ import { Array as Arr } from "effect"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { exprClosure } from "#compiler/ir/expr.ts"
 import { exprsOf, type Heading, keptRowsOf, type NodeOf, type RelNode } from "#compiler/ir/rel.ts"
+import { baseOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { deliveredHeading } from "#compiler/runtime/lower/tree.ts"
 import {
 	type Bindings,
@@ -18,6 +19,7 @@ import {
 	equal,
 	referenceUnsupported,
 	type Row,
+	type Value,
 	valueAt
 } from "#test/support/oracle/reference/values.ts"
 
@@ -143,6 +145,16 @@ const groupRows = (
 }
 
 /**
+ * A parent key's value as its attachment delivers it: the value, but a float's zero +0, since the key is a merge of
+ * every parent row it is equal to, and wherever an operation may take one float of several equal ones the merged zero
+ * is +0 (values.ts), so no plan picks a -0 parent's key over a +0 one's.
+ */
+const mergedZero = (v: Value, type: ScalarType): Value => {
+	const { carrier } = baseOf(type)
+	return (carrier === "float4" || carrier === "float8") && Object.is(v, -0) ? 0 : v
+}
+
+/**
  * An attachment's parent keys over its parent's delivered rows: the key heading, the correlation's parent columns
  * and then any parent column the child reads in the parent's heading order, its distinct values, and for each the
  * scope its child is evaluated in, every node of the parent's rows' chain bound to the key tuple.
@@ -175,7 +187,9 @@ const parentKeysOf = (
 	const heading: Heading = Arr.filter(parent.heading, (c) => needed.has(c.name))
 	const keys = distinctRows(
 		Arr.map(parent.rows, (row) =>
-			Arr.map(heading, (c) => valueAt(row, columnIndex(parent.heading, c.name, attach.id)))
+			Arr.map(heading, (c) =>
+				mergedZero(valueAt(row, columnIndex(parent.heading, c.name, attach.id)), c.type)
+			)
 		),
 		heading,
 		`the parent keys of ${attach.id}`,
