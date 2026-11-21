@@ -89,7 +89,7 @@ export type NameSpace = "relation" | "type" | "function" | "operatorClass" | "st
 
 /** The namespace of the schema object a RENAME or a DROP names. */
 const objectSpace = (
-	object: Exclude<RenameObject["object"] | DropObject["object"], "ROLE" | "SCHEMA" | "FUNCTION">
+	object: Exclude<RenameObject["object"] | DropObject["object"], "ROLE" | "SCHEMA">
 ): NameSpace => {
 	switch (object) {
 		case "TABLE":
@@ -1285,12 +1285,11 @@ export class Transform {
 				if (s.object === "ROLE" || s.object === "SCHEMA") {
 					return s
 				}
+				const name = this.name(s.name, objectSpace(s.object))
 				if (s.object === "FUNCTION") {
-					const name = this.name(s.name, "function")
 					const args = mapList(s.args, (t) => this.type(t))
 					return name === s.name && args === s.args ? s : { ...s, name, args }
 				}
-				const name = this.name(s.name, objectSpace(s.object))
 				return name === s.name ? s : { ...s, name }
 			}
 			case "replaceConstant": {
