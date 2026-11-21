@@ -3,6 +3,7 @@ import * as Arr from "effect/Array"
 import * as Brand from "effect/Brand"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import * as Result from "effect/Result"
@@ -200,9 +201,6 @@ export interface ParsedConnection {
 	readonly password: DbConnection["password"]
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-	typeof v === "object" && v !== null && !Arr.isArray(v)
-
 /** Whether `v` is a safe integer from `least` to `most`. */
 const integerIn = (v: number, least: number, most: number): boolean =>
 	Number.isSafeInteger(v) && v >= least && v <= most
@@ -300,7 +298,7 @@ const readTransport = (
 	typed: Transport
 ): Result.Result<Option.Option<TransportRead>, undefined> => {
 	const passed: unknown = typed
-	if (!isObject(passed)) {
+	if (!Predicate.isObject(passed)) {
 		return Result.succeed(Option.none())
 	}
 	const read = readCaller(passed, typedTransportSettings)
@@ -379,7 +377,7 @@ export const parseConnection = <E>(
 ): Result.Result<ParsedConnection & E, SettingFault> => {
 	const value: unknown = block
 	const settings = [...connectionSettings, ...extras.settings]
-	if (!isObject(value)) {
+	if (!Predicate.isObject(value)) {
 		return Result.fail({ setting: where, rule: { kind: "object", settings } })
 	}
 	/**
@@ -510,7 +508,7 @@ const parsePool = (
 	setting: unknown,
 	where: SettingPath
 ): Result.Result<PoolBounds, SettingFault> => {
-	if (!isObject(setting)) {
+	if (!Predicate.isObject(setting)) {
 		return Result.fail({ setting: where, rule: { kind: "object", settings: poolSettings } })
 	}
 	const extra = unknownKey(Rec.keys(setting), poolSettings, where)

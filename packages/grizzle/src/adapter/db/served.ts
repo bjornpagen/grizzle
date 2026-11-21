@@ -1,6 +1,7 @@
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import {
@@ -99,13 +100,6 @@ export interface Opening {
 	readonly attested: Option.Option<Readonly<Record<string, unknown>>>
 }
 
-/**
- * Whether a value is an object that is no list: every property of one reads as some value, which unknown describes,
- * so this claims no more than it checks.
- */
-const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
-	typeof value === "object" && value !== null && !Arr.isArray(value)
-
 /** No key of Db.open's options is left unread: every own property is copied. */
 const optionKeys: ReadonlySet<string> = new Set()
 
@@ -122,7 +116,7 @@ const openKeys: ReadonlySet<string> = new Set(["token", "attested"])
  * token68 at stage token (TokenMalformed), before any verify runs, as an HTTP call's is.
  */
 export const openOptions = (options: unknown): Result.Result<Opening, OpenError> => {
-	if (!isRecord(options)) {
+	if (!Predicate.isObject(options)) {
 		return Result.fail(refusedOption("Db.open's options: an object, { token?, attested? }"))
 	}
 	const read = readCaller(options, optionKeys)
@@ -140,7 +134,7 @@ export const openOptions = (options: unknown): Result.Result<Opening, OpenError>
 		)
 	}
 	const attested: unknown = Rec.has(copy, "attested") ? copy["attested"] : undefined
-	if (attested !== undefined && !isRecord(attested)) {
+	if (attested !== undefined && !Predicate.isObject(attested)) {
 		return Result.fail(
 			refusedOption(
 				"Db.open's attested facts: a record of each attested context's fact, by its name"

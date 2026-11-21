@@ -314,9 +314,9 @@ export const theConfigurationFileGeneratedResolvesToExactlyItsSchemasLoginsAndMi
 		kills: [
 			{
 				file: "packages/grizzle/src/cli/config.ts",
-				original: '\ttypeof v === "object" && v !== null && !Arr.isArray(v)',
-				replacement: "\ttrue",
-				why: 'Operator mutant (boolean-return) at packages/grizzle/src/cli/config.ts:141 in isObject: `typeof v === "object" && v !== null && !Arr.isArray(v)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				original: "\tif (!Predicate.isObject(value)) {",
+				replacement: "\tif (false) {",
+				why: 'Operator mutant (boolean-return) at packages/grizzle/src/cli/config.ts:141 in isObject: `typeof v === "object" && v !== null && !Arr.isArray(v)` becomes `true`; the property fails (lane CATCH, grizzle 0baff5d6). Restated where the configuration reads Predicate.isObject (lane UNIFY7).'
 			}
 		]
 	})

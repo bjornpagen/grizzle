@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Option, Path, Record as Rec, Result } from "effect"
+import { Array as Arr, Effect, Option, Path, Predicate, Record as Rec, Result } from "effect"
 import { definedConfig } from "#adapter/config/define.ts"
 import { toResult } from "#adapter/engine.ts"
 import { type BuiltLogin, builtLogin, ownLoginOver } from "#adapter/served/login.ts"
@@ -141,9 +141,6 @@ const levelsOf = (
 	]
 }
 
-const isObject = (v: unknown): v is Record<string, unknown> =>
-	typeof v === "object" && v !== null && !Arr.isArray(v)
-
 /** Refuses a setting of a configuration `value` that no configuration has. */
 const onlyKeys = (value: Record<string, unknown>): Result.Result<void, CliError> => {
 	const allowed: ReadonlyArray<string> = configSettings
@@ -236,7 +233,7 @@ const resolveConfigWith = (
 	file: string
 ): Result.Result<ResolvedConfig, CliError> => {
 	const directory = path.dirname(file)
-	if (!isObject(value)) {
+	if (!Predicate.isObject(value)) {
 		return Result.fail(cliError(new ExportRefused({ file, fault: "notAnObject" })))
 	}
 	const typed = definedConfig(value)

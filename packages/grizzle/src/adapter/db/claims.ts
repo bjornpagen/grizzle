@@ -1,6 +1,7 @@
 import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
+import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as Str from "effect/String"
@@ -14,7 +15,7 @@ import type {
 	ScalarType
 } from "#compiler/plan/common.ts"
 import type { ScalarCodec } from "#compiler/plan/read.ts"
-import { defect, isList, isRecord, jsonText, scalarCodec } from "#compiler/plan/runtime.ts"
+import { defect, jsonText, scalarCodec } from "#compiler/plan/runtime.ts"
 
 /**
  * A Db's claims: the facts of the contexts its role declares, decoded once per Db.open, each from its context's source
@@ -180,7 +181,7 @@ const notAnObject = (context: string): ClaimRefused =>
  * no object or a list, which holds no claim object and is no context's fact.
  */
 const topLevel = (payload: unknown): Option.Option<ReadonlyMap<string, unknown>> =>
-	isRecord(payload) && !isList(payload) ? Option.some(ownMembers(payload)) : Option.none()
+	Predicate.isObject(payload) ? Option.some(ownMembers(payload)) : Option.none()
 
 /**
  * The payload as its contexts read it, each object of it read once: its top level (topLevel), and each claim object a
@@ -215,7 +216,7 @@ const claimObject = (
 		payload.claims.set(claim, undefined)
 		return Result.succeed(undefined)
 	}
-	if (!isRecord(found) || isList(found)) {
+	if (!Predicate.isObject(found)) {
 		return Result.fail(notAnObject(context.name))
 	}
 	return Result.map(
@@ -381,7 +382,7 @@ export const attestedFacts = (
 			if (fact === undefined) {
 				continue
 			}
-			if (!isRecord(fact) || isList(fact)) {
+			if (!Predicate.isObject(fact)) {
 				return yield* Result.fail(refused(name, { kind: "notAnObject" }))
 			}
 			const own = ownMembers(fact)

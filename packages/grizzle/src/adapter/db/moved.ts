@@ -1,4 +1,4 @@
-import { Array as Arr, Effect, Result, Stream } from "effect"
+import { Array as Arr, Effect, Predicate, Result, Stream } from "effect"
 import {
 	handlesOf,
 	type MemberExplains,
@@ -34,17 +34,13 @@ import { clockOffsetName } from "#compiler/plan/runtime.ts"
  * page, a refresh) is the served Db's own.
  */
 
-/** Whether a value is an object that is no list: a record of parameters, which readParams reads by name. */
-const isParams = (value: unknown): value is object =>
-	typeof value === "object" && value !== null && !Arr.isArray(value)
-
 /**
  * A call's parameters with the clock's offset among them, read as a JavaScript caller's are (reader/params.ts
  * readParams, a getter's value its read): parameters that are no record, or whose reading throws, are passed as they
  * stand, for the call to refuse as it refuses them.
  */
 const movedParams = (params: unknown, offset: bigint): unknown =>
-	isParams(params)
+	Predicate.isObject(params)
 		? Result.merge(
 				readHost<unknown, unknown>(params, () =>
 					Result.succeed({ ...params, [clockOffsetName]: offset })
