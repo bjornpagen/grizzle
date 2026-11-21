@@ -1132,7 +1132,9 @@ export type FoldsIn<S, Sh> =
  * Every part is read off R as an argument of an alias whose own arguments are the parts alone (NamedShownOf,
  * SourceShownOf), so no type it makes names R: a type reference written inside an alias whose arguments read another
  * alias is one the checker defers, holding the alias's mapper, and every later instantiation of a type that holds it
- * instantiates what that mapper holds again, a query or a derived relation whole, its schema with it.
+ * instantiates what that mapper holds again, a query whole, its schema with it. A derived relation's type holds no query
+ * (types/derived/derived.ts DefinitionView), so a reference holding it holds nothing of a schema; it is read as the other
+ * named sources are.
  */
 export type ShownOf<R> = R extends AnyContext
 	? NamedShownOf<"context", NameOf<R>, readonly []>
