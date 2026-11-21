@@ -16,7 +16,10 @@
  * fixed part and a part per row, a·n + b, at most doubles, since its fixed part does not double, whatever constant a plan
  * switch between sizes adds below that part; a cost with any term above linear more than doubles once that term
  * outgrows the fixed part, which the sizes reach: no slack, no threshold, no clock. A kept-row judgement that reads a
- * row's group, its earlier siblings or its path once per row grows by more, and so does a family additions statement
+ * row's group, its earlier siblings or its path once per row grows by more, and so does a read of the groups the
+ * members are in that hops to each stored member for a group its keyset already holds (write/delete/unit.ts groupArm),
+ * which PostgreSQL, with no statistics, reaches through the family's predecessor key binding the group alone, half the
+ * group for each member; and so does a family additions statement
  * that finds each node it inserts again among its siblings by reading them: the tree's sibling key is a UNIQUE over
  * the node's law column of its parent, which a probe reaches by binding that column (laws/model/uniques.ts
  * GuardedReach), and a probe that binds a stored row's other columns beside its key lets PostgreSQL, holding no
@@ -95,5 +98,12 @@ export const theCostOfReplacingAStoredUnitTheRowsItReadsAtMostDoubleWithEachDoub
 		},
 		box: "each situation of the box at units of n, 2n and 4n nodes, lines and tags, each size on a fresh installation, at n of 100 and of 200",
 		kept: [],
-		kills: []
+		kills: [
+			{
+				file: "packages/engine/src/write/delete/unit.ts",
+				original: "\t\tif (family.group.every((g) => keysetHolds(keys, g.member))) {\n",
+				replacement: "\t\tif (family.group.every((g) => keysetHolds(keys, g.member)) && false) {\n",
+				why: "The groups a family's members are in are read by hopping from the keyset to each stored member at its key, for a group its key already holds: with no statistics PostgreSQL reaches each member through the family's predecessor key, which binds the group alone, and reads half the group for every member, so the unit delete reads n² / 2 rows a family."
+			}
+		]
 	})

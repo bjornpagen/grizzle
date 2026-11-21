@@ -488,6 +488,10 @@ export const keysetColumn = (keyset: Keyset, field: LawField): string =>
 		`the keyset column of ${keyset.access.relation.name}.${field.name}`
 	)
 
+/** Whether a keyset's rows hold `field`: a field its access binds, whose value each row holds in its column (keysetColumn). */
+export const keysetHolds = (keyset: Keyset, field: LawField): boolean =>
+	accessFields(keyset.access).some((f) => f.name === field.name)
+
 /** The hop from a keyset's row at alias `k` to the stored rows at its keys, under alias `s`. */
 export const atKeyset = (k: string, keyset: Keyset, s: string): Hop => ({
 	...keyset.access,

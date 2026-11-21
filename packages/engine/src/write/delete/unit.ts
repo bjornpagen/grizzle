@@ -104,6 +104,7 @@ import { nestedRowsCte } from "#compiler/write/family/additions.ts"
 import {
 	type Access,
 	atKeyset,
+	keysetHolds,
 	type Flagged,
 	flaggedKeys,
 	type Hop,
@@ -315,19 +316,46 @@ export const unitSql = (
 	/** The owner key each row of `family`'s member under alias `alias` names, its group fields read through `at`. */
 	const ownerKeyOf = (family: Family, at: (field: LawField) => Expr): NonEmptyReadonlyArray<Expr> =>
 		mapNonEmpty(family.owner.primaryFields, (f) => at(memberOf(family, f)))
-	/** The groups of `family` the rows of `keys`, rows of its member `relation`, are in: a keyset at the owner's key. */
-	const groupsOf = (relation: RelationInfo, family: Family, keys: Keyset): Keyset => {
-		const k = supply.relation(internal(`grouped keys of ${relation.name}`))
-		const s = supply.relation(internal(`grouped row of ${relation.name}`))
-		return keysetFrom({ kind: "key", relation: family.owner }, [
-			{
-				held: { cte: keys.name, alias: k },
-				hops: [atKeyset(k, keys, s)],
+	/**
+	 * The arm of the groups of `family` the rows of `keys`, rows of its member `relation`, are in, at the owner's key: read
+	 * from the keyset's own columns where every member field of the group is a key field the keyset holds (keysetHolds),
+	 * as a family whose group leads its member's key has it, with no read of a stored row; otherwise from the stored rows
+	 * at its keys. A hop the keyset's own columns answer reads a stored row for a value the statement already holds, and
+	 * PostgreSQL, holding no statistics, may reach that row through another index that binds only its group, reading the
+	 * whole group for each row (test/pg/write/replace-cost: n / 2 rows a row through each family's predecessor key).
+	 */
+	const groupArm = (
+		relation: RelationInfo,
+		family: Family,
+		keys: Keyset,
+		alias: string
+	): KeyArm => {
+		if (family.group.every((g) => keysetHolds(keys, g.member))) {
+			return {
+				held: { cte: keys.name, alias },
+				hops: [],
 				where: undefined,
-				key: ownerKeyOf(family, (f) => stored(s, relation, f))
+				key: ownerKeyOf(family, (f) => col(alias, keysetColumn(keys, f)))
 			}
-		])
+		}
+		const s = supply.relation(internal(`grouped row of ${relation.name}`))
+		return {
+			held: { cte: keys.name, alias },
+			hops: [atKeyset(alias, keys, s)],
+			where: undefined,
+			key: ownerKeyOf(family, (f) => stored(s, relation, f))
+		}
 	}
+	/** The groups of `family` the rows of `keys`, rows of its member `relation`, are in: a keyset at the owner's key. */
+	const groupsOf = (relation: RelationInfo, family: Family, keys: Keyset): Keyset =>
+		keysetFrom({ kind: "key", relation: family.owner }, [
+			groupArm(
+				relation,
+				family,
+				keys,
+				supply.relation(internal(`grouped keys of ${relation.name}`))
+			)
+		])
 	/** The arm of the stored members of `family`, rows of `relation`, in each group `groups` holds, at their key. */
 	const membersOf = (relation: RelationInfo, family: Family, groups: Keyset): RowArm => {
 		const k = supply.relation(internal(`member group of ${relation.name}`))
@@ -362,8 +390,6 @@ export const unitSql = (
 		])
 		const changed = keysetWhere(supply, ctes, { all: [members], none: [again] }, "MATERIALIZED")
 		const r = supply.relation(internal(`removed owner ${family.owner.name}`))
-		const c = supply.relation(internal(`changed member of ${relation.name}`))
-		const s = supply.relation(internal(`changed row of ${relation.name}`))
 		return keysetFrom({ kind: "key", relation: family.owner }, [
 			{
 				held: { cte: owner.removed.name, alias: r },
@@ -371,12 +397,12 @@ export const unitSql = (
 				where: undefined,
 				key: mapNonEmpty(owner.removed.columns, (column) => col(r, column))
 			},
-			{
-				held: { cte: changed.name, alias: c },
-				hops: [atKeyset(c, changed, s)],
-				where: undefined,
-				key: ownerKeyOf(family, (f) => stored(s, relation, f))
-			},
+			groupArm(
+				relation,
+				family,
+				changed,
+				supply.relation(internal(`changed member of ${relation.name}`))
+			),
 			...mapNonEmpty(adds, (read): KeyArm => {
 				const n = supply.relation(internal(`added member of ${relation.name}`))
 				const m = supply.relation(internal(`stored added of ${relation.name}`))
