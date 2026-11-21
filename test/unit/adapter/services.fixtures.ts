@@ -112,7 +112,6 @@ export const shelvingConfig = (into: Array<Seen>): DbConfigShape<typeof Shelving
 			new CredentialError({ cause: "the property's password refuses every attempt" })
 		)
 	}),
-	connectTimeoutMs: 10_000,
 	pool: clusterPool,
 	login: ShelvingServed
 })

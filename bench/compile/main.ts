@@ -380,8 +380,7 @@ const offline: DbConnection = {
 		servername: "localhost"
 	},
 	database: "offline",
-	password: Redacted.make("offline"),
-	connectTimeoutMs: timerMaxMs
+	password: Redacted.make("offline")
 }
 
 const owner: MigrationConnectionConfig = { ...offline, role: "bench_owner" }

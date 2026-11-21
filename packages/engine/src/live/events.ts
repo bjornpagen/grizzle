@@ -54,7 +54,8 @@ export type CredentialReason = (typeof credentialReasons)[number]
  *   is absent;
  * - `hostUnreachable`: no route reaches the host: EHOSTUNREACH, ENETUNREACH, EHOSTDOWN, ENETDOWN;
  * - `hostUnresolved`: the host's name did not resolve: ENOTFOUND, EAI_AGAIN;
- * - `timedOut`: no answer within the connection's connect timeout, or the socket's own, ETIMEDOUT;
+ * - `timedOut`: the operating system gave up on the connection, ETIMEDOUT: no answer reached it within its TCP
+ *   timeouts;
  * - `connectionClosed`: the connection closed before the session was ready: the server closed it with no
  *   ErrorResponse, or the socket was reset, ECONNRESET, EPIPE, ECONNABORTED;
  * - `serverDown`: the server is shut down by its administrator (57P01 admin_shutdown), after a crash (57P02

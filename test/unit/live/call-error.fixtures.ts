@@ -17,7 +17,6 @@ import {
 	type ConnectRefusal,
 	ConnectionClosed,
 	ConnectionLost,
-	ConnectTimedOut,
 	CredentialError,
 	DriverFailure,
 	DriverRefused,
@@ -338,7 +337,6 @@ const expectedOfHandshake = (code: string): Expected =>
 /** Every other way a connection attempt ends, besides a SQLSTATE and a code. */
 type Ended =
 	| "the password Effect failed"
-	| "no answer within the connect timeout"
 	| "closed before ready"
 	| "pg ended the startup"
 	| "no cancellation key"
@@ -348,7 +346,6 @@ type Ended =
 /** What each other end reads as, by README "Errors and outcomes". */
 const endedOracle: { readonly [E in Ended]: Expected } = {
 	"the password Effect failed": credential("passwordFailed"),
-	"no answer within the connect timeout": unavailable("timedOut"),
 	"closed before ready": unavailable("connectionClosed"),
 	"pg ended the startup": credential("driverRefused"),
 	"no cancellation key": { kind: "failed" },
@@ -444,7 +441,6 @@ const handshakeGen: Gen<string> = weighted<string>([
 /** Every other end. */
 const endings: Arr.NonEmptyReadonlyArray<Ended> = [
 	"the password Effect failed",
-	"no answer within the connect timeout",
 	"closed before ready",
 	"pg ended the startup",
 	"no cancellation key",
@@ -527,8 +523,6 @@ const endedRefusal = (ended: Ended): ConnectRefusal => {
 	switch (ended) {
 		case "the password Effect failed":
 			return new CredentialError({ cause: "the provider resolved nothing" })
-		case "no answer within the connect timeout":
-			return new ConnectTimedOut({ millis: 1 })
 		case "closed before ready":
 			return new ConnectionClosed()
 		case "pg ended the startup":

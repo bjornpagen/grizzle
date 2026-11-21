@@ -223,6 +223,8 @@ export class FakeServer {
 	/** The open connections that answered ready, in the order they did. */
 	readonly ready = new Set<FakeConnection>()
 	readonly #held: Array<() => void> = []
+	/** The waits for a held startup, each run at the next one the server holds. */
+	readonly #holding = new Set<() => void>()
 	/** The waits on the open connections, each run again at the next close. */
 	readonly #closing = new Set<() => void>()
 	holding = false
@@ -268,6 +270,23 @@ export class FakeServer {
 			wait()
 			return Effect.sync(() => {
 				this.#closing.delete(wait)
+			})
+		})
+	}
+
+	/** Returns once the server holds a startup's answer: at once, or when the next startup arrives to be held. */
+	startupHeld(): Effect.Effect<void> {
+		return Effect.callback<void>((resume) => {
+			const wait = (): void => {
+				if (this.#held.length > 0) {
+					resume(Effect.void)
+				} else {
+					this.#holding.add(wait)
+				}
+			}
+			wait()
+			return Effect.sync(() => {
+				this.#holding.delete(wait)
 			})
 		})
 	}
@@ -333,6 +352,11 @@ export class FakeServer {
 			this.#held.push(() => {
 				this.#answer(connection, secure, startup)
 			})
+			const waits = [...this.#holding]
+			this.#holding.clear()
+			for (const wait of waits) {
+				wait()
+			}
 		} else {
 			this.#answer(connection, secure, startup)
 		}

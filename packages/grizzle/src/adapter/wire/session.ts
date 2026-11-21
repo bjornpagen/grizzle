@@ -10,7 +10,6 @@ import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
-import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Formatter from "effect/Formatter"
@@ -31,7 +30,6 @@ import {
 	type AcquireRefusal,
 	ConnectionClosed,
 	type ConnectRefusal,
-	ConnectTimedOut,
 	CredentialError,
 	DriverFailure,
 	DriverRefused,
@@ -93,7 +91,7 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  *   context. Its CredentialError fails the attempt at the stage credential, as the failure's reason; a defect or an
  *   interruption of the Effect is the operation's defect.
  * - Failure. A connection attempt that fails is classified once, here, from what pg reports (failures.ts
- *   ConnectRefusal): the CredentialError, no answer within the connection's connect timeout, a socket error code, the
+ *   ConnectRefusal): the CredentialError, a socket error code, the
  *   server's refusal of the startup with its ErrorResponse as it gave it, TLS, a connection closed before it was ready,
  *   pg's own refusal, or no cancellation key.
  * - Startup. pg sends user and database, and a login's session its pinned defaults as `options`
@@ -115,9 +113,14 @@ import type { ServedSession } from "#compiler/plan/serve.ts"
  *   executed in its own execution.
  * - Cancellation. pg's JavaScript client has no supported cancel: Client#cancel is undocumented and writes the
  *   CancelRequest on a plaintext socket. A session sends one CancelRequest over a connection of its own, which the
- *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup, within the connect
- *   timeout (Session.cancel); an interrupted flight sends one each round until the server has ended it, and destroys
- *   the session only once its connection has stayed silent past the bound (wire/batch.ts abandon).
+ *   transport opens and upgrades as a session's, with the BackendKeyData pg read at startup (Session.cancel); an
+ *   interrupted flight sends one, and another each time the server answers a query of it after the one before was
+ *   sent, until the server has ended it, and destroys the session only once a request could not reach the server
+ *   (wire/batch.ts abandon).
+ * - Waiting. No connection, CancelRequest or interrupted flight is bounded by a clock of grizzle's: each waits for its
+ *   server's own answer or failure, as the operating system reports an unreachable host (a refused or timed-out TCP
+ *   connect, a reset) and as PostgreSQL ends a startup it does not finish (authentication_timeout). A caller that
+ *   answers by a deadline states it on its own call (`Effect.timeout`).
  * - Pool. The driver's own Pool (releasing-pool.ts), handed once, when it is built, to the config's attachPool: a
  *   platform's hook for idle connections, which on Vercel is attachDatabasePool (its pg branch reads
  *   `options.idleTimeoutMillis` and subscribes to `release`), and nothing elsewhere. Its bounds are the caller's
@@ -179,7 +182,7 @@ const wireModeOf = (startup: Startup): PgWireMode =>
 
 /**
  * Where one session connects and as whom: the parsed connection (connection/config.ts ParsedConnection), its driver,
- * transport, database, password and connect timeout, the login role, whose session it is, installed already under the
+ * transport, database and password, the login role, whose session it is, installed already under the
  * connection's role space, and its transactions' control texts.
  */
 interface SessionSpec extends Omit<ParsedConnection, "roles"> {
@@ -308,15 +311,14 @@ const sessionTls = (transport: ParsedTransport, socket: PgSocket): ConnectionOpt
 })
 
 /**
- * The failures pg reports only by their message, as the pinned pg spells them: its connect timeout, which is the
- * connection's own (DbConnection.connectTimeoutMs), the server's answer to the SSLRequest (N, or neither S nor N), and
- * a connection that ended before ReadyForQuery with no ErrorResponse.
+ * The failures pg reports only by their message, as the pinned pg spells them: the server's answer to the SSLRequest (N,
+ * or neither S nor N), and a connection that ended before ReadyForQuery with no ErrorResponse. pg's own connect timeout
+ * ("timeout expired") is never set (clientConfig), so pg never reports one.
  */
 const messageRefusals: ReadonlyMap<string, (spec: SessionSpec) => ConnectRefusal> = new Map<
 	string,
 	(spec: SessionSpec) => ConnectRefusal
 >([
-	["timeout expired", (spec) => new ConnectTimedOut({ millis: spec.connectTimeoutMs })],
 	[
 		"The server does not support SSL connections",
 		() => new TlsRefused({ fault: { kind: "notOffered" } })
@@ -460,7 +462,7 @@ const clientConfig = (
 	...(spec.startup.kind === "login" ? { options: spec.startup.options } : {}),
 	...wireModeOf(spec.startup),
 	types: rawText,
-	connectionTimeoutMillis: spec.connectTimeoutMs,
+	connectionTimeoutMillis: 0,
 	ssl: verifyFull(spec.transport),
 	stream: () => socket
 })
@@ -495,49 +497,58 @@ const cancelFrame = (key: BackendKey): Uint8Array => {
 }
 
 /**
+ * How a CancelRequest ended: `sent`, written over its connection's TLS, which the server closes once it has read it and
+ * signalled the backend; or `unreached`, its connection failed or ended before the request was written, as the
+ * operating system reports an unreachable host (refused, timed out, reset), or as the server refused the SSLRequest or
+ * the TLS handshake failed. An unreached request is the server's own verdict that the client cannot reach it now.
+ */
+export type CancelEnd = "sent" | "unreached"
+
+/**
  * One CancelRequest for whatever statement the session's backend is running, over a connection of its own: a socket
  * the transport opens, connected to its host and port, then the SSLRequest and verify-full TLS exactly as a session's
- * (sessionTls). It ends when the server closes that connection, or when it fails, or once the connection's connect
- * timeout has passed on the Clock, in which case the request may not have arrived; either way its sockets are
- * destroyed.
+ * (sessionTls). It ends when that connection closes or fails (CancelEnd): `sent` once the request was written, which
+ * the server reads and then closes the connection, `unreached` if it ended before. No clock of grizzle's ends it.
+ * Either way, or when it is interrupted, its sockets are destroyed.
  */
-const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<void> =>
-	Effect.timeoutOrElse(
-		Effect.callback<void>((resume) => {
-			const transport = spec.transport
-			const raw = transport.open()
-			const sockets: Array<{ readonly destroy: () => unknown }> = [raw]
-			let finished = false
-			const finish = (): void => {
-				if (finished) {
-					return
-				}
-				finished = true
-				for (const socket of sockets) {
-					socket.destroy()
-				}
-				resume(Effect.void)
+const cancelRequest = (spec: SessionSpec, key: BackendKey): Effect.Effect<CancelEnd> =>
+	Effect.callback<CancelEnd>((resume) => {
+		const transport = spec.transport
+		const raw = transport.open()
+		const sockets: Array<{ readonly destroy: () => unknown }> = [raw]
+		let end: CancelEnd = "unreached"
+		let finished = false
+		const finish = (): void => {
+			if (finished) {
+				return
 			}
-			raw.on("error", finish)
-			raw.once("close", finish)
-			raw.once("connect", () => raw.write(sslRequest()))
-			raw.once("data", (answer: Uint8Array) => {
-				if (answer.length !== 1 || answer[0] !== 0x53) {
-					finish()
-					return
-				}
-				const secure = tlsConnect(sessionTls(transport, raw))
-				sockets.push(secure)
-				secure.on("error", finish)
-				secure.once("close", finish)
-				secure.once("secureConnect", () => secure.write(cancelFrame(key)))
+			finished = true
+			for (const socket of sockets) {
+				socket.destroy()
+			}
+			resume(Effect.succeed(end))
+		}
+		raw.on("error", finish)
+		raw.once("close", finish)
+		raw.once("connect", () => raw.write(sslRequest()))
+		raw.once("data", (answer: Uint8Array) => {
+			if (answer.length !== 1 || answer[0] !== 0x53) {
+				finish()
+				return
+			}
+			const secure = tlsConnect(sessionTls(transport, raw))
+			sockets.push(secure)
+			secure.on("error", finish)
+			secure.once("close", finish)
+			secure.once("secureConnect", () => {
+				end = "sent"
+				secure.write(cancelFrame(key))
 			})
-			raw.setNoDelay(true)
-			raw.connect(transport.port, transport.host)
-			return Effect.sync(finish)
-		}),
-		{ duration: Duration.millis(spec.connectTimeoutMs), orElse: () => Effect.void }
-	)
+		})
+		raw.setNoDelay(true)
+		raw.connect(transport.port, transport.host)
+		return Effect.sync(finish)
+	})
 
 /**
  * Where a session stands, the one state whatever reads it consults: `open`, its connection up and the session reusable;
@@ -574,17 +585,12 @@ export interface Session {
 	/** The texts its transactions' controls send (ControlTexts). */
 	readonly controls: ControlTexts
 	/**
-	 * One CancelRequest for the statement the backend is running, within the connection's connect timeout: it never
-	 * waits on the statement it cancels. The server ignores one that reaches the backend while it reads a command
-	 * (REL_19_0 src/backend/tcop/postgres.c 3536-3546), a statement not read yet among them, so it stops nothing
-	 * then.
+	 * One CancelRequest for the statement the backend is running, ended once its connection closes or fails, `sent` or
+	 * `unreached` (CancelEnd): it never waits on the statement it cancels. The server ignores one that reaches the
+	 * backend while it reads a command (REL_19_0 src/backend/tcop/postgres.c 3536-3546), a statement not read yet among
+	 * them, so it stops nothing then.
 	 */
-	readonly cancel: Effect.Effect<void>
-	/**
-	 * The connection's connect timeout (DbConnection.connectTimeoutMs): how long the caller lets its server take to
-	 * answer, which bounds a CancelRequest and each round of an abandoned flight's wait (wire/batch.ts abandon).
-	 */
-	readonly connectTimeout: Duration.Duration
+	readonly cancel: Effect.Effect<CancelEnd>
 	/** Where the session stands now (SessionState). */
 	readonly state: () => SessionState
 	/** Never reuse the session: it is retired, or stays ended. */
@@ -816,7 +822,6 @@ const makeSession = (
 		flightMaxBytes: flightMaxBytes,
 		messageMaxBytes: messageMaxBytes,
 		cancel: cancelRequest(spec, key),
-		connectTimeout: Duration.millis(spec.connectTimeoutMs),
 		state: () => state,
 		retire: () => {
 			move("retire")
@@ -849,7 +854,7 @@ interface ClientHooks {
  * The client class of the sessions over `spec`, derived from the driver's own Client. pg's Pool constructs each client
  * with its own copy of its options, from which it hides the password, and reads `connectionTimeoutMillis` from those
  * options as its own bound on the wait for a free client; so a client takes its configuration from here instead, with
- * the connection's connect timeout, and the wait stays the lease's. Each client opens its socket through the transport
+ * no connect timeout (clientConfig), and the wait stays the lease's. Each client opens its socket through the transport
  * as it is constructed. An `error` event of a client in use is also the failure of its queries, which their callbacks
  * receive, so the event is dropped rather than left to crash the process. A connection that failed is destroyed: pg
  * leaves it open when the failure is the client's own, a rejected password function or a SCRAM proof that does not
@@ -1300,7 +1305,7 @@ const answerAttempt =
 		owner.permitBack()
 	}
 
-/** Where a login's sessions connect: the driver, the transport, the database, the login role, the password and the connect timeout. */
+/** Where a login's sessions connect: the driver, the transport, the database, the login role and the password. */
 export type LoginConnection = Omit<SessionSpec, "startup" | "controls">
 
 interface PoolConfig {

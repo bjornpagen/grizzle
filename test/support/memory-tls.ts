@@ -268,6 +268,17 @@ export const memoryEndpoint = (
 }
 
 /**
+ * A connection to a server the network no longer reaches: it ends as its SSLRequest arrives, unanswered, as a
+ * connection whose host the operating system reports unreachable fails before any answer.
+ */
+export const unreachableConnection = (): PgSocket =>
+	memoryConnection((server) => {
+		server.once("data", () => {
+			server.destroy()
+		})
+	})
+
+/**
  * The transport that reaches a memory endpoint: its sockets, and its CA and servername, verified as any server's. Its
  * host is the servername and its port PostgreSQL's, which a socket in memory never dials.
  */

@@ -81,7 +81,12 @@ export interface Transport {
 
 /**
  * Where a connection goes and how it authenticates, which a DbLayer's config and the migration connection share: the
- * driver, the transport, the database and its installation's role prefix, the password, and the connect timeout.
+ * driver, the transport, the database and its installation's role prefix, and the password.
+ *
+ * It states no timeout: a connection attempt waits for its server's own answer or failure, as the operating system
+ * reports an unreachable host (a refused or timed-out TCP connect, SocketFailed with its code) and as PostgreSQL ends
+ * a startup it does not finish (its authentication_timeout). A caller that answers by a deadline states it on its own
+ * call (`Effect.timeout`), its own decision, never grizzle's.
  */
 export interface DbConnection {
 	/** node-postgres, as the caller imports it (`import pg from "pg"`): grizzle imports no driver itself. */
@@ -98,12 +103,6 @@ export interface DbConnection {
 	readonly rolePrefix?: string
 	/** Evaluated for each connection attempt when it is an Effect, so a rotating credential needs no restart. */
 	readonly password: Redacted.Redacted | Effect.Effect<Redacted.Redacted, CredentialError>
-	/**
-	 * How long one connection attempt may take, in milliseconds, an integer from 1 to 2,147,483,647: the password
-	 * Effect, TCP, TLS, startup and authentication, past which it fails with ConnectTimedOut; and how long the one
-	 * CancelRequest an interrupted statement sends may take.
-	 */
-	readonly connectTimeoutMs: number
 }
 
 /**
@@ -349,7 +348,7 @@ export interface LiveSourceConstructor {
 /**
  * DbLayer.make; packages/grizzle/src/adapter/public/layer.ts implements it. The config is parsed where it is given: one
  * no connection can use (a driver that is no driver, an empty host or one that is a path, a port outside 1 to 65535, an
- * empty CA bundle, no servername, a connect timeout or a pool bound outside its range) fails the layer with
+ * empty CA bundle, no servername, a pool bound outside its range) fails the layer with
  * OpenError{stage: "config"}, as does a served file of another login than the name served(...) was given.
  * Building the layer reads the served file once and rebuilds what runs each of its programs (codecs, readers,
  * decoders, the refusal classifier and the prologue); it compiles nothing and evaluates no schema. L is read off the

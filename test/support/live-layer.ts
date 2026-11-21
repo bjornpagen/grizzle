@@ -19,7 +19,7 @@ import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
 
 /**
  * The live source every DbLayer of a test or a bench is given (adapter types/layer.ts LiveOf): LiveSource.layer over the
- * layer's own connection (its driver, its transport, its database, its role prefix and its connect timeout) as the
+ * layer's own connection (its driver, its transport, its database and its role prefix) as the
  * installation's decoder login, built beside the login's layer. A login whose served file holds no live source gets
  * the source of no source, which connects nothing and never reads its credential, so every site gives one alike; a
  * site whose layer reads through a tap (test/support/wire-tap.ts) so reads its source's sessions too.
@@ -52,7 +52,6 @@ const sourced = <const L extends AnyLogin>(
 		transport: config.transport,
 		database: config.database,
 		password: decoder,
-		connectTimeoutMs: config.connectTimeoutMs,
 		...(config.rolePrefix === undefined ? {} : { rolePrefix: config.rolePrefix })
 	}
 	return Layer.provide(

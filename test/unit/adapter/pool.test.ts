@@ -41,7 +41,6 @@ import { Array as Arr, Effect, Exit, Fiber, Formatter, Scheduler, Scope } from "
 import pgDriver from "pg"
 import { makePool, type PoolState } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
 import { pickFrom } from "#test/support/pick.ts"
@@ -90,8 +89,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 									driver: pgDriver,
 									transport: server.transport,
 									database: "fake",
-									password: noPassword,
-									connectTimeoutMs: testConnectTimeout
+									password: noPassword
 								},
 								"fake"
 							),
@@ -336,7 +334,7 @@ export const theSessionPoolKeepsExactlyTheOpenConnectionsAndRecoversFromEveryInt
 					}
 					yield* holds
 					/**
-					 * Every attempt answered: pg's Pool answers each, a left lease's too, within its connect timeout.
+					 * Every attempt answered: pg's Pool answers each, a left lease's too, once the server has answered it.
 					 * Then every permit is free, none lost to an attempt a lease left.
 					 */
 					const answered: Effect.Effect<PoolState> = Effect.filterOrElse(

@@ -688,8 +688,7 @@ const connection = {
 		ca: caPem,
 		servername: "db.internal"
 	},
-	database: "app",
-	connectTimeoutMs: 10_000
+	database: "app"
 } as const
 
 /** The web login's committed workload, served as its type: the app evaluates no schema module. */
@@ -1455,8 +1454,7 @@ export default defineConfig({
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
 			Effect.mapError((cause) => new CredentialError({ cause }))
-		),
-		connectTimeoutMs: 10_000
+		)
 	})
 })
 

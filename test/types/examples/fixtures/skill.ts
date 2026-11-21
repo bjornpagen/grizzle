@@ -34,7 +34,6 @@ export default defineConfig({
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
 			Effect.mapError((cause) => new CredentialError({ cause }))
-		),
-		connectTimeoutMs: 10_000
+		)
 	})
 })

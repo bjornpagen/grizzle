@@ -103,7 +103,6 @@ const constructors: {
 	ConnectionClosed: Failures.ConnectionClosed,
 	ConnectionEnvironmentRefused: Public.ConnectionEnvironmentRefused,
 	ConnectionLost: Failures.ConnectionLost,
-	ConnectTimedOut: Failures.ConnectTimedOut,
 	CredentialError: Public.CredentialError,
 	DbConfigRefused: Public.DbConfigRefused,
 	Deadlock: Failures.Deadlock,

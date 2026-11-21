@@ -36,7 +36,7 @@ import type { ConstraintName } from "#compiler/core/ids.ts"
 import { trustedJson } from "#compiler/core/trusted.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
-import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
+import { testIdleTimeout } from "#test/support/limits.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { testPoolMax } from "#test/support/substrate/lease.ts"
 import { randomHex } from "#test/support/substrate/names.ts"
@@ -715,7 +715,7 @@ export const clusterTransport = (cluster: BudgetedCluster): Transport =>
 
 /**
  * A connection to the local cluster's `database` as a plain Node caller writes one, on grizzle's public path: the real
- * pg module as the driver, the cluster's transport, `password`, and a test's connect timeout (testConnectTimeout).
+ * pg module as the driver, the cluster's transport and `password`.
  */
 export const clusterConnection = (
 	cluster: BudgetedCluster,
@@ -725,8 +725,7 @@ export const clusterConnection = (
 	driver: pgDriver,
 	transport: clusterTransport(cluster),
 	database,
-	password,
-	connectTimeoutMs: testConnectTimeout
+	password
 })
 
 /**

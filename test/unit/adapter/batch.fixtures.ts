@@ -36,7 +36,7 @@ import { testSql } from "#test/support/sql.ts"
  * server does with each of its statements, on a session that answers as PostgreSQL answers a pipeline
  * (test/support/flight/scripted.ts, itself checked against the server by test/pg/adapter/flight.test.ts). The driver
  * (test/support/flight/drive.ts) makes timing an input: each case runs once uninterrupted and once interrupted after
- * every number of delivered answers, the clock moved on only through an abandoned flight's rounds, and each run must
+ * every number of delivered answers, with a clock nothing advances, since no flight waits on one, and each run must
  * observe what the model (test/support/flight/model.ts) predicts
  * from the answers the server made and the client was given: the ending, what committed (all of a transaction or none
  * of it), the retirement, and whether a CancelRequest was sent. The flight's texts must be exactly the frame's.
@@ -96,9 +96,9 @@ export const smallRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = 
 ]
 
 /**
- * The drawn population's: the exhaustive one's, a stuck statement no CancelRequest stops, so abandon severs its
- * connection once it stays silent through two rounds in a row, a change of a role certified READ COMMITTED, whose flight
- * begins at that level, and a deferrable member's read, whose flight begins DEFERRABLE.
+ * The drawn population's: the exhaustive one's, a stuck statement on a server no CancelRequest reaches, so abandon
+ * severs its connection at the round whose request was unreached, a change of a role certified READ COMMITTED, whose
+ * flight begins at that level, and a deferrable member's read, whose flight begins DEFERRABLE.
  */
 export const drawnRequired: Arr.NonEmptyReadonlyArray<Reached<FlightFeature>> = [
 	...smallRequired,

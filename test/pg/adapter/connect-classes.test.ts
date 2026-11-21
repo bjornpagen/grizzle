@@ -4,8 +4,7 @@
  *
  * The property, exhausted over every class of connection failure, each set up for real, each opened by the migration identity's session (MigrateError whose
  * reason, ConnectRefused, carries the refusal) and by a pool's lease as a Db's call takes one (ReadFailure at stage
- * acquire, its reason; Db.open leases nothing): no
- * answer within the attempt's connect timeout (a server that accepts and never answers), a refused socket (nothing listening), the server's
+ * acquire, its reason; Db.open leases nothing): a refused socket (nothing listening), the server's
  * SQLSTATE (a role over its connection limit, 53300; a wrong password, 28P01; no such database, 3D000), TLS (a CA that
  * is not the server's; a server that answers the SSLRequest with N, or with neither S nor N), a server that closes the
  * connection at once, a failing password Effect, and no password for a role SCRAM authenticates. Each attempt's

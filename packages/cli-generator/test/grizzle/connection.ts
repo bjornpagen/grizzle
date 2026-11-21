@@ -21,17 +21,16 @@ export interface Cluster {
 export const serverName = "localhost"
 
 /**
- * The bound of every wait grizzle makes its caller state for the tier's calls (a connection attempt, an idle session, a
- * heartbeat), in milliseconds: the largest grizzle admits, so none of the tier's own fires, and the runner's hang guard
+ * The bound of every wait grizzle makes its caller state for the tier's calls (an idle session, a heartbeat), in
+ * milliseconds: the largest grizzle admits, so none of the tier's own fires, and the runner's hang guard
  * on each case and each need's open is the one bound on a wait that never ends.
  *
  * @limitKind derived
  * @owner the grizzle tier (test/grizzle)
  * @unit milliseconds
- * @scope a connection attempt and its CancelRequest, a pooled session's idleness and an answer's heartbeat, each of the
- *   tier's twins and of grizzle's command line run over its databases
- * @derivation grizzle reads each of them as "an integer from 1 to 2,147,483,647" (DbConnection.connectTimeoutMs,
- *   PoolBounds.idleTimeoutMs, HttpConfig.heartbeatMs), the largest delay Node's timers take; the loopback server and the
+ * @scope a pooled session's idleness and an answer's heartbeat, each of the tier's twins
+ * @derivation grizzle reads each of them as "an integer from 1 to 2,147,483,647" (PoolBounds.idleTimeoutMs,
+ *   HttpConfig.heartbeatMs), the largest delay Node's timers take; the loopback server and the
  *   CLI have no proxy or idle timeout between them for a heartbeat to keep open
  */
 export const unboundedMillis = 2_147_483_647
@@ -52,6 +51,5 @@ export const connectionTo = (
 		servername: serverName
 	},
 	database,
-	password,
-	connectTimeoutMs: unboundedMillis
+	password
 })

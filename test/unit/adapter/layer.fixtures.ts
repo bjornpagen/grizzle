@@ -46,7 +46,7 @@ import { processValue, variableGen, type VariableValue } from "#test/support/pro
  * config no connection can use fails the layer before any connection.
  *
  * Over drawn configs (tricky hosts, never a path, servernames, databases and passwords; a Redacted or an Effect
- * password; a CA as one PEM text or a list; a connect timeout and pool bounds across their ranges, their ends included;
+ * password; a CA as one PEM text or a list; pool bounds across their ranges, their ends included;
  * a pool hook and a verify or none) for a login whose roles read no context, a valid one builds its layer, which opens
  * no session until a Db is opened on it. The same config with one fault injected, each a refusal the typed DbConfig
  * already rules out but a JavaScript caller can pass (a setting of another type, missing, empty or null; a driver that
@@ -198,7 +198,6 @@ export const drawnGen: Gen<Drawn> = (source) => {
 				servername
 			},
 			database,
-			connectTimeoutMs: source.draw(delayGen),
 			pool: { max, min, idleTimeoutMs: source.draw(delayGen) },
 			login: PlainServed,
 			password: lazy ? Effect.succeed(Redacted.make(password)) : Redacted.make(password),
@@ -220,7 +219,6 @@ type Setting =
 	| "transport.servername"
 	| "database"
 	| "password"
-	| "connectTimeoutMs"
 	| "pool"
 	| "pool.max"
 	| "pool.min"
@@ -312,8 +310,19 @@ const badDelays: Arr.NonEmptyReadonlyArray<unknown> = [
  * no Db of it could turn a token into claims.
  */
 export const faultGen: Gen<Fault> = oneOf<Fault>([
-	map(element(["role", "user", "ssl", "sslmode", "options", "host", "port", "tls"]), (key) =>
-		fault(unknownKey(key), "top", { [key]: "x" })
+	map(
+		element([
+			"role",
+			"user",
+			"ssl",
+			"sslmode",
+			"options",
+			"host",
+			"port",
+			"tls",
+			"connectTimeoutMs"
+		]),
+		(key) => fault(unknownKey(key), "top", { [key]: "x" })
 	),
 	map(
 		element<unknown>([undefined, null, 42, {}, { Client: 1, Pool: 1, DatabaseError: 1 }]),
@@ -360,9 +369,6 @@ export const faultGen: Gen<Fault> = oneOf<Fault>([
 	},
 	map(element<unknown>(["plain text", undefined, 42, { value: "x" }, null]), (password) =>
 		fault(setting("password"), "top", { password })
-	),
-	map(element(badDelays), (connectTimeoutMs) =>
-		fault(setting("connectTimeoutMs"), "top", { connectTimeoutMs })
 	),
 	map(element<unknown>([undefined, null, 10, []]), (pool) =>
 		fault(setting("pool"), "top", { pool })

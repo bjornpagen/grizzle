@@ -11,7 +11,6 @@ import { servedSession } from "#compiler/program/served.ts"
 import type { ServedSession } from "#compiler/served/forms.ts"
 import type { RoleSetting } from "#compiler/sql/ast.ts"
 import { printRoleSetting } from "#compiler/sql/print.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import {
 	clusterConnection,
 	clusterPool,
@@ -112,22 +111,19 @@ export interface PoolOptions {
 	readonly transport:
 		| { readonly kind: "cluster" }
 		| { readonly kind: "given"; readonly transport: Transport }
-	/** How long each connection attempt and each CancelRequest may take. */
-	readonly connectTimeoutMs: number
 	/** The startup options and control texts every session sends: a served file's, or ones a test plants. */
 	readonly session: ServedSession
 }
 
 /**
  * The adapter's own pool for the local cluster: the cluster's transport, the credentials' password, the test pool's
- * bounds, the cluster's connect timeout and the served session texts. A test spreads it and overrides what it means.
+ * bounds and the served session texts. A test spreads it and overrides what it means.
  */
 export const defaultPool: PoolOptions = {
 	password: { kind: "credentials" },
 	pool: clusterPool,
 	attachPool: () => undefined,
 	transport: { kind: "cluster" },
-	connectTimeoutMs: testConnectTimeout,
 	session: servedSession
 }
 
@@ -151,8 +147,7 @@ export const poolFor = (
 				{
 					...connection,
 					transport:
-						options.transport.kind === "given" ? options.transport.transport : connection.transport,
-					connectTimeoutMs: options.connectTimeoutMs
+						options.transport.kind === "given" ? options.transport.transport : connection.transport
 				},
 				credentials.role
 			),

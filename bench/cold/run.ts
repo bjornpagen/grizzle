@@ -278,7 +278,6 @@ const benchRun = Effect.fn("benchRun")(function* (options: ColdOptions) {
 		password: Redacted.value(credentials.password),
 		caFile: s.cluster.caFile,
 		account: a1,
-		connectTimeoutMs: timerMaxMs,
 		idleTimeoutMs: timerMaxMs
 	}
 	const databaseRaw = yield* Effect.forEach(

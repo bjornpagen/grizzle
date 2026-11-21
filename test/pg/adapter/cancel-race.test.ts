@@ -2,7 +2,7 @@ import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Clock, Effect, Exit, Fiber, Formatter, Order } from "effect"
+import { Array as Arr, Effect, Exit, Fiber, Formatter, Order } from "effect"
 import {
 	type BatchStatement,
 	oneShotStatement,
@@ -11,30 +11,32 @@ import {
 } from "#adapter/wire/batch.ts"
 import type { Session } from "#adapter/wire/session.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
-import { manualClock, raceCases, type RaceFeature } from "#test/pg/adapter/cancel-race.fixtures.ts"
+import { raceCases, type RaceFeature } from "#test/pg/adapter/cancel-race.fixtures.ts"
 import { backendPidOf, until } from "#test/pg/adapter/support.ts"
 import { testSql } from "#test/support/sql.ts"
 import { freshSchema, ownerSession, Substrate } from "#test/support/substrate/substrate.ts"
 import { tappedSession } from "#test/support/wire-tap.ts"
 
 /**
- * An interrupted flight's cancellation ends only once the server has stopped its statement, and within the bound when the server never answers.
+ * An interrupted flight's cancellation ends only once the server has stopped its statement, the next round started by
+ * the server's next answer when the first request landed before the read, and at once, its connection destroyed, when
+ * the server is unreachable.
  */
-export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsStatementAndWithinTheBoundWhenTheServerNeverAnswers =
+export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsStatementOrOnceItsServerIsUnreachable =
 	property.exhaust(finite(raceCases), {
 		needs: { substrate: Substrate.installing },
 		situations: [
 			"before the read",
 			"during the wait",
-			"never",
+			"unreachable",
 			"apart",
 			"transaction",
 			["before the read", "apart"],
 			["before the read", "transaction"],
 			["during the wait", "apart"],
 			["during the wait", "transaction"],
-			["never", "apart"],
-			["never", "transaction"]
+			["unreachable", "apart"],
+			["unreachable", "transaction"]
 		] satisfies ReadonlyArray<Reached<RaceFeature>>,
 		check:
 			({ substrate }, k: Case<RaceFeature>) =>
@@ -89,7 +91,7 @@ export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsS
 									role: caller.role,
 									password: caller.password
 								})
-								/** The flight a partition held never reaches the server, whatever the case asserted. */
+								/** A flight the sent gate still holds never reaches the server once the case ends, whatever it asserted. */
 								const cutHeld = Effect.addFinalizer(() =>
 									Effect.sync(() => {
 										tapped.sent.cut()
@@ -97,23 +99,13 @@ export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsS
 								)
 								yield* cutHeld
 								const pid = yield* backendPidOf(tapped.session)
-								const manual = manualClock()
-								/**
-								 * The CancelRequests the caller has started and ended, each a round's first half: while as many have
-								 * ended as started, every sleep under way is a round's wait.
-								 */
+								/** The CancelRequests the caller has started, each a round's first half. */
 								let started = 0
-								let cancelled = 0
 								const session: Session = {
 									...tapped.session,
 									cancel: Effect.suspend(() => {
 										started += 1
-										return Effect.ensuring(
-											tapped.session.cancel,
-											Effect.sync(() => {
-												cancelled += 1
-											})
-										)
+										return tapped.session.cancel
 									})
 								}
 								const before = Array.from({ length: c.before }, (_, i) => `before ${i}`)
@@ -132,81 +124,40 @@ export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsS
 													end: "COMMIT"
 												})
 											)
-								if (c.lands !== "during the wait") {
+								if (c.lands === "before the read") {
 									tapped.sent.hold()
 								}
-								if (c.lands === "never") {
-									tapped.gate.hold(0, { kind: "any" })
-									tapped.partitionCancels()
-								}
-								const call = yield* Effect.forkChild(
-									Effect.provideService(flight, Clock.Clock, manual.clock)
-								)
-								if (c.lands === "during the wait") {
-									yield* until(waitsOnLock(pid))
-								} else {
+								const call = yield* Effect.forkChild(flight)
+								if (c.lands === "before the read") {
 									yield* tapped.sent.holding
+								} else {
+									yield* until(waitsOnLock(pid))
+								}
+								if (c.lands === "unreachable") {
+									tapped.unreachable()
 								}
 								const interrupting = yield* Effect.forkChild(Fiber.interrupt(call), {
 									startImmediately: true
 								})
-								const interrupted = (): boolean => interrupting.pollUnsafe() !== undefined
-								/** Whether every CancelRequest started has ended, so every sleep under way is a round's wait. */
-								const inRoundWait = (): boolean => started === cancelled
-								/**
-								 * Ends the sleeps abandon starts, each once `wakeable` says so, until `done` holds or the interruption
-								 * has ended.
-								 */
-								const wakeUntil = (done: () => boolean, wakeable: () => boolean) =>
-									Effect.gen(function* () {
-										while (!interrupted() && !done()) {
-											yield* until(
-												Effect.sync(
-													() => interrupted() || done() || (manual.sleeping() > 0 && wakeable())
-												)
-											)
-											manual.wake()
-										}
-									})
 								/**
 								 * The race: the server has signalled the backend while it reads its next command, so the first
-								 * CancelRequest stops nothing; the flight then reaches the backend, which waits on the case's lock, and
-								 * only then does the round's wait end, so the next round's CancelRequest finds the statement waiting.
+								 * CancelRequest stops nothing. The server's answers are then held while the flight reaches the
+								 * backend, which waits on the case's lock, and let through only then, so the answer that starts
+								 * the next round comes once the statement waits, and that round's CancelRequest finds it.
 								 */
-								const raceBeforeTheRead = Effect.gen(function* () {
+								if (c.lands === "before the read") {
 									yield* until(Effect.sync(() => tapped.cancelsEnded() > 0))
+									tapped.gate.hold(0, { kind: "any" })
 									tapped.sent.release()
 									yield* until(waitsOnLock(pid))
-									yield* wakeUntil(() => started > 1, inRoundWait)
-								})
-								/**
-								 * The partition: every sleep abandon starts ends as it comes, a round's wait at once and a
-								 * CancelRequest's bound once the tap holds its request, so every round's request reaches the
-								 * partitioned server.
-								 */
-								const partitioned = wakeUntil(
-									() => false,
-									() => inRoundWait() || tapped.cancels() >= started
-								)
-								switch (c.lands) {
-									case "during the wait":
-										break
-									case "before the read":
-										yield* raceBeforeTheRead
-										break
-									case "never":
-										yield* partitioned
-										break
+									tapped.gate.release()
 								}
 								yield* Fiber.join(interrupting)
 								const exit = yield* Fiber.await(call)
 								assert.ok(Exit.hasInterrupts(exit), "the exit is the interruption")
-								if (c.lands === "never") {
-									assert.equal(
-										tapped.cancels(),
-										2,
-										"a server that never answers is given one CancelRequest per round, up to the bound"
-									)
+								if (c.lands === "unreachable") {
+									assert.equal(started, 1, "one CancelRequest, which never reaches the server")
+									assert.equal(tapped.cancels(), 0, "no CancelRequest reached the server")
 									assert.equal(tapped.session.state(), "ended", "its connection is destroyed")
 									yield* locker.rollback
 									return
@@ -228,20 +179,35 @@ export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsS
 									"retired",
 									"the session is retired, its connection kept until the server ended the flight"
 								)
-								assert.equal(
-									tapped.cancels(),
-									c.lands === "before the read" ? 2 : 1,
-									"one CancelRequest per round: a second once the first landed before the read"
+								assert.ok(
+									tapped.cancels() >= (c.lands === "before the read" ? 2 : 1),
+									`a CancelRequest per round, a second once the first landed before the read: ${tapped.cancels()}`
 								)
 								const committed = yield* s.admin.queryValues(
 									`SELECT "label" FROM ${inserted} ORDER BY "label"`,
 									[]
 								)
-								assert.deepEqual(
-									Arr.map(committed, ([label]) => String(label)),
-									c.runner === "apart" ? Arr.sort([...after, ...before], Order.String) : [],
-									"a transaction whose statement was stopped commits nothing; statements apart commit every insert"
-								)
+								const labels = Arr.map(committed, ([label]) => String(label))
+								if (c.runner === "transaction") {
+									assert.deepEqual(
+										labels,
+										[],
+										"a transaction whose statement was stopped commits nothing"
+									)
+								} else {
+									assert.deepEqual(
+										Arr.filter(labels, (label) => Arr.contains(before, label)),
+										Arr.sort(before, Order.String),
+										"statements apart commit every insert before the stopped one"
+									)
+									assert.ok(
+										Arr.every(
+											labels,
+											(label) => Arr.contains(before, label) || Arr.contains(after, label)
+										),
+										"statements apart commit no insert of another flight; one after the stopped statement commits unless a later round's CancelRequest stopped it"
+									)
+								}
 								yield* locker.rollback
 							})
 						)
@@ -251,9 +217,9 @@ export const anInterruptedFlightsCancellationEndsOnlyOnceTheServerHasStoppedItsS
 				),
 		oracle: {
 			kind: "specification",
-			name: "README: an interrupted call ends only once the server has stopped its statement, and a silent server ends it after two silent rounds"
+			name: "README: an interrupted call ends only once the server has stopped its statement, each round after the first started by the server's next answer, and a CancelRequest that cannot reach the server ends it, its connection destroyed"
 		},
-		box: "statements apart or one transaction, the locking statement among up to two inserts on either side, its CancelRequest landing before the read, during the wait, or never answered",
+		box: "statements apart or one transaction, the locking statement among up to two inserts on either side, its CancelRequest landing before the read, during the wait, or unreachable",
 		kept: [],
 		kills: []
 	})

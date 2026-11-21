@@ -21,14 +21,13 @@ import {
 } from "#compiler/plan/runtime.ts"
 
 /**
- * The least delay a Node timer waits: pg's connect timeout and pg-pool's idle timeout are Node timers, and grizzle
- * admits a connectTimeoutMs, an idleTimeoutMs or a heartbeatMs from it.
+ * The least delay a Node timer waits: pg-pool's idle timeout and an SSE heartbeat's tick are Node timers, and grizzle
+ * admits an idleTimeoutMs or a heartbeatMs from it.
  *
  * @limitKind published
  * @owner Node.js 26.13.0 timers
  * @unit milliseconds
- * @scope a connection's connectTimeoutMs, a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the
- *   delay of a Node timer
+ * @scope a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the delay of a Node timer
  * @constraint protocol constant
  * @source https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args
  * @quote When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.
@@ -37,14 +36,13 @@ import {
 export const timerMinMs = 1
 
 /**
- * The longest delay a Node timer keeps: pg's connect timeout and pg-pool's idle timeout are Node timers, and one longer
- * is set to 1, so it fires at once.
+ * The longest delay a Node timer keeps: pg-pool's idle timeout and an SSE heartbeat's tick are Node timers, and one
+ * longer is set to 1, so it fires at once.
  *
  * @limitKind published
  * @owner Node.js 26.13.0 timers
  * @unit milliseconds
- * @scope a connection's connectTimeoutMs, a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the
- *   delay of a Node timer
+ * @scope a DbConfig's pool.idleTimeoutMs and an HttpConfig's heartbeatMs, each the delay of a Node timer
  * @constraint protocol constant
  * @source https://nodejs.org/docs/v26.13.0/api/timers.html#settimeoutcallback-delay-args
  * @quote When `delay` is larger than `2147483647` or less than `1` or `NaN`, the `delay` will be set to `1`.
@@ -72,7 +70,7 @@ const portMax = 65_535
  * grizzle.config.ts types (cli/connection.ts). Its type says what a block holds, and a block written in JavaScript is
  * checked all the same; the rules no type states (a driver whose Client, Pool and DatabaseError are classes, the one
  * transport kind, a nonempty network host that is no path, a nonempty servername and database, a port from 1 to 65535,
- * a nonempty CA bundle of PEM texts, a connect timeout a timer keeps, a migration connection's nonempty role) hold for
+ * a nonempty CA bundle of PEM texts, a migration connection's nonempty role) hold for
  * every caller, and the parsed transport's type carries the host's and the bundle's (ParsedTransport). The parsed
  * block is required throughout: a session and a pool connect only with one (wire/session.ts). No refusal quotes a
  * password.
@@ -150,8 +148,7 @@ export const connectionSettings = [
 	"transport",
 	"database",
 	"rolePrefix",
-	"password",
-	"connectTimeoutMs"
+	"password"
 ] as const
 
 /** A transport's settings. */
@@ -193,15 +190,14 @@ export interface ParsedTransport {
 	readonly servername: string
 }
 
-/** A block's destination, credentials, verify-full TLS and connect timeout, as its driver connects them, and the role
- * space of the installation in its database, its `rolePrefix` read (core/identity.ts roleSpaceOf). */
+/** A block's destination, credentials and verify-full TLS, as its driver connects them, and the role space of the
+ * installation in its database, its `rolePrefix` read (core/identity.ts roleSpaceOf). */
 export interface ParsedConnection {
 	readonly driver: PgDriver
 	readonly transport: ParsedTransport
 	readonly database: string
 	readonly roles: RoleSpace
 	readonly password: DbConnection["password"]
-	readonly connectTimeoutMs: number
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -425,7 +421,7 @@ export const parseConnection = <E>(
 	if (Option.isNone(driver)) {
 		return Result.fail(faultAt(where, "driver", { kind: "driver" }))
 	}
-	const { database, rolePrefix, connectTimeoutMs } = plain
+	const { database, rolePrefix } = plain
 	if (Option.isNone(transportRead)) {
 		return Result.fail(faultAt(where, "transport", { kind: "object", settings: transportSettings }))
 	}
@@ -447,16 +443,12 @@ export const parseConnection = <E>(
 	if (Option.isNone(password)) {
 		return Result.fail(faultAt(where, "password", { kind: "password" }))
 	}
-	if (typeof connectTimeoutMs !== "number" || !timerDelay(connectTimeoutMs)) {
-		return Result.fail(faultAt(where, "connectTimeoutMs", timerRule))
-	}
 	return Result.succeed({
 		driver: driver.value,
 		transport: transport.success,
 		database,
 		roles: roles.success,
 		password: password.value,
-		connectTimeoutMs,
 		...parsedExtras.success
 	})
 }

@@ -40,8 +40,8 @@ import type { InstallationNames } from "#compiler/plan/migration.ts"
  *
  * `grizzle migrate` runs as the migration identity, which owns the schema. It is no login of the application: it has
  * none of the logins' fixed defaults and enters no role, so it does not go through the pool. It opens one session over
- * the connection's driver and transport, with the adapter's verify-full TLS, per-attempt password and the connection's
- * connect timeout (../wire/session.ts), holds it for the whole apply, and sends every step itself. A step is a list of
+ * the connection's driver and transport, with the adapter's verify-full TLS and per-attempt password, waiting for the
+ * server's own answer with no connect timeout (../wire/session.ts), holds it for the whole apply, and sends every step itself. A step is a list of
  * statements sent together, in one flight (../wire/batch.ts): every statement of it is written before any answer is
  * read, so no statement of a step can wait on another's answer, and the session sends nothing else. A step is
  * statements apart, each its own implicit transaction (`apart`); statements apart in front of one transaction that

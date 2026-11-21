@@ -46,8 +46,6 @@ export type ProbeDatabase = {
 	/** The password of the cold bench's login `server`, whose role `reader` the probe opens. */
 	readonly password: string
 	readonly caFile: string
-	/** The connect timeout of the probe's connection, its parent's: the longest delay a Node timer keeps (timerMaxMs). */
-	readonly connectTimeoutMs: number
 	/** The idle timeout of the probe's pool, its parent's: the longest delay a Node timer keeps (timerMaxMs). */
 	readonly idleTimeoutMs: number
 	/** The account whose tasks the parameterized reads read. */
@@ -146,8 +144,7 @@ const main = Effect.gen(function* () {
 				ca,
 				servername: target.host
 			},
-			database: target.database,
-			connectTimeoutMs: target.connectTimeoutMs
+			database: target.database
 		} as const
 		/**
 		 * The login's layer, given its installation's live source as an application gives it: the probe reads by once

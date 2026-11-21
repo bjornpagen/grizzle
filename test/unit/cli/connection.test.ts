@@ -2,7 +2,7 @@
  * Where `grizzle migrate` and `grizzle drift` connect, generated: the configuration's connection, and nothing else.
  *
  * - Agreement: a connection drawn with tricky parts (reserved and non-ASCII characters in the role, password, database,
- *   host and servername, the host never a path, IPv6 hosts, ports and timeouts across their ranges, a CA as one text or
+ *   host and servername, the host never a path, IPv6 hosts, ports across their range, a CA as one text or
  *   a list, a password Redacted or an Effect) resolves to exactly the drawn role and connection, its CA the bundle TLS
  *   is handed: the parse of the connection (adapter/connection/config.ts, whose faults test/unit/adapter/layer.test.ts
  *   injects through DbLayer.make) plus the role and the password kept as given, and the driver as the three classes

@@ -2,7 +2,6 @@
 
 import { createServer, type Socket } from "node:net"
 import { inspect } from "node:util"
-import { timerMinMs } from "@bjornpagen/grizzle/runtime"
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -18,12 +17,10 @@ import type { CallError } from "#compiler/live/events.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { substrateLogin } from "#test/pg/adapter/support.ts"
 import { pgPin } from "#test/support/env.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import { clusterPool, clusterTransport, noPassword, parsedConnection } from "#test/support/pg.ts"
 import type { SubstrateShape } from "#test/support/substrate/substrate.ts"
 
 const failures = [
-	"a server that never answers",
 	"nothing listening",
 	"a role over its connection limit",
 	"a wrong password",
@@ -64,8 +61,6 @@ export const failureSituations: ReadonlyArray<Reached<ConnectClassFeature>> = Ar
  */
 export const classOf = (refusal: ConnectRefusal): string => {
 	switch (refusal._tag) {
-		case "ConnectTimedOut":
-			return `timed out after ${refusal.millis}`
 		case "SocketFailed":
 			return `socket ${refusal.code}`
 		case "StartupRefused":
@@ -82,12 +77,6 @@ export const classOf = (refusal: ConnectRefusal): string => {
 			return "no cancellation key"
 	}
 }
-
-/**
- * The connect timeout of the attempts to a server that never answers: the least delay a Node timer waits, since nothing
- * will answer it, so any delay times the attempt out and the case spends none of the run waiting longer.
- */
-const silentTimeout = timerMinMs
 
 /**
  * What a call error states, as README "Errors and outcomes" names it: its kind, its reason (an unavailable reason's
@@ -112,10 +101,6 @@ const statedOf = (error: CallError): ReadonlyArray<string> => {
 export const expectedClass: {
 	readonly [P in ConnectFailure]: { readonly fact: string; readonly called: ReadonlyArray<string> }
 } = {
-	"a server that never answers": {
-		fact: `timed out after ${silentTimeout}`,
-		called: ["unavailable", "timedOut", "safe"]
-	},
 	"nothing listening": {
 		fact: "socket ECONNREFUSED",
 		called: ["unavailable", "connectionRefused", "safe"]
@@ -159,10 +144,10 @@ export const expectedClass: {
 }
 
 /**
- * A local server that is not PostgreSQL: one that reads and never answers, answers the SSLRequest with N or with E
- * (neither S nor N), or ends the connection once the SSLRequest arrives.
+ * A local server that is not PostgreSQL: one that answers the SSLRequest with N or with E (neither S nor N), or ends the
+ * connection once the SSLRequest arrives.
  */
-type Fake = "silent" | "N" | "E" | "close"
+type Fake = "N" | "E" | "close"
 
 const fakeServer = (fake: Fake) =>
 	Effect.acquireRelease(
@@ -173,10 +158,10 @@ const fakeServer = (fake: Fake) =>
 				socket.on("error", () => undefined)
 				socket.on("close", () => sockets.delete(socket))
 				socket.once("data", () => {
-					if (fake === "N" || fake === "E") {
-						socket.write(fake)
-					} else if (fake === "close") {
+					if (fake === "close") {
 						socket.end()
+					} else {
+						socket.write(fake)
 					}
 				})
 			})
@@ -220,7 +205,6 @@ interface Attempt {
 	readonly role: string
 	readonly password: Password
 	readonly ca: string
-	readonly connectTimeoutMs: number
 	/** The password texts no report may hold. */
 	readonly secrets: ReadonlyArray<string>
 }
@@ -238,16 +222,9 @@ export const attemptOf = (s: SubstrateShape, schema: string, condition: ConnectF
 			role: writer.role,
 			password: writer.password,
 			ca: s.cluster.ca,
-			connectTimeoutMs: testConnectTimeout,
 			secrets: [own]
 		}
 		switch (condition) {
-			case "a server that never answers":
-				return {
-					...direct,
-					port: (yield* fakeServer("silent")).port,
-					connectTimeoutMs: silentTimeout
-				}
 			case "nothing listening":
 				return { ...direct, port: yield* freedPort }
 			case "a role over its connection limit":
@@ -289,8 +266,7 @@ const connectionOf = (s: SubstrateShape, attempt: Attempt) =>
 			driver: pgDriver,
 			transport: { ...clusterTransport(s.cluster), port: attempt.port, ca: attempt.ca },
 			database: attempt.database,
-			password: attempt.password,
-			connectTimeoutMs: attempt.connectTimeoutMs
+			password: attempt.password
 		},
 		attempt.role
 	)

@@ -32,7 +32,6 @@ import { ledger, shop } from "#test/pg/cli/fixture.ts"
 import { clusterMembers, memberAt as clusterMemberAt } from "#test/support/cluster.ts"
 import { pgCluster, pgPin } from "#test/support/env.ts"
 import { repoRoot } from "#test/support/files.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import { decodersIn, type SourcedLayer, servedSourcedLayer } from "#test/support/live-layer.ts"
 import { clusterConnection, clusterPool, type SqlError } from "#test/support/pg.ts"
 import { hardenedNode } from "#test/support/process.ts"
@@ -157,8 +156,7 @@ export const offlineConnection: DbConnection = {
 		servername: pgPin.host
 	},
 	database: "offline",
-	password: Redacted.make(offlinePassword),
-	connectTimeoutMs: testConnectTimeout
+	password: Redacted.make(offlinePassword)
 }
 
 /** The migration identity's connection to no cluster, for a configuration no test migrates with. */

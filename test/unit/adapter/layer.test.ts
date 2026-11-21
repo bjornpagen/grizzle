@@ -63,7 +63,6 @@ export const dbLayerMakeBuildsEveryValidConfigAndRefusesEveryFaultInjectedIntoOn
 			"refused DbConfig.transport.servername",
 			"refused DbConfig.database",
 			"refused DbConfig.password",
-			"refused DbConfig.connectTimeoutMs",
 			"refused DbConfig.pool",
 			"refused DbConfig.pool.max",
 			"refused DbConfig.pool.min",

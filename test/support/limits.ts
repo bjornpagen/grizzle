@@ -52,21 +52,6 @@ const caseHangMillis = hangLimit
 export const caseHang: Duration.Duration = Duration.millis(caseHangMillis)
 
 /**
- * The connect timeout of a test's connection (DbConnection.connectTimeoutMs), to the local cluster or to a server the
- * test runs itself: the hang limit. A connect that never ends is a hang.
- *
- * @limitKind derived
- * @owner grizzle's test tiers
- * @unit milliseconds
- * @scope one connection attempt of a test, to the local cluster or a server the test runs itself, and the
- *   CancelRequest an interrupted call of it sends
- * @derivation an attempt is one wait inside a test, which the hang limit bounds: a slow connect on a loaded machine
- *   completes, and one that never ends is reported as hung
- * @from {@link hangLimit}
- */
-export const testConnectTimeout = hangLimit
-
-/**
  * The idle timeout of a test's session pool (PoolBounds.idleTimeoutMs): no session closes for idleness within the hang
  * limit. A test process's connections to the local cluster draw from the budget its lease grants (substrate/shared.ts
  * leaseGrant, substrate/budget.ts), so an idle session holds nothing another test file could take, and closing the

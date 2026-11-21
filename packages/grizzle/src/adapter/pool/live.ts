@@ -98,8 +98,7 @@ const makeLiveSource = (
 					transport: parsed.transport,
 					database: parsed.database,
 					role: decoder,
-					password: parsed.password,
-					connectTimeoutMs: parsed.connectTimeoutMs
+					password: parsed.password
 				}
 				const fanout = yield* fanoutSource({
 					connection,

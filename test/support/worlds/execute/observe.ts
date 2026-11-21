@@ -151,7 +151,6 @@ export const readFailed = (error: ReadError): Effect.Effect<Observation> => {
 		case "CredentialError":
 		case "TlsRefused":
 		case "StartupRefused":
-		case "ConnectTimedOut":
 		case "SocketFailed":
 		case "ConnectionClosed":
 		case "DriverRefused":

@@ -839,7 +839,8 @@ export type FlightFeature =
  * EXPLAIN's rollback (runFramed), whose prologue takes on the Db's role right after BEGIN, or the login's statements
  * alone in front of a transaction (runAlongside, admission's form), which has no prologue; each statement answers rows,
  * rows that doom the transaction at COMMIT, a row with a NULL cell, a refusal, a FATAL report or a lost connection, or
- * runs until a CancelRequest (a hold, or one that finishes late), or until the connection is destroyed (stuck); BEGIN
+ * runs until a CancelRequest (a hold, or one that finishes late), or, on a server no CancelRequest reaches, until the
+ * connection is destroyed (stuck); BEGIN
  * may be refused, the prologue may be refused, answer FATAL or lose the connection, and the connection may be lost
  * before COMMIT runs.
  *
@@ -858,9 +859,8 @@ export type FlightFeature =
  * - the session is retired as interrupted and sends CancelRequests, round after round, exactly when a statement the call
  *   waits for was still in flight, and keeps its connection until the server has ended the flight, which runs the rest
  *   of the flight past the statement a CancelRequest stopped; otherwise it is retired only as the answers say;
- * - a statement no CancelRequest stops (stuck) leaves the connection silent, so abandon severs it: the connection is
- *   destroyed once it has carried no answer through two rounds in a row, and the exit is
- *   the interruption, the outcome unknown;
+ * - a statement on a server no CancelRequest reaches (stuck) is severed: the connection is destroyed at the round
+ *   whose request was unreached, and the exit is the interruption, the outcome unknown;
  * - what commits is all of a transaction or none of it, as the server's answer to COMMIT says, whatever the
  *   interruption: an answer the destroyed connection never delivered is still what the server did;
  * - the server ends idle, and a session not retired ends healthy, with nothing owed.

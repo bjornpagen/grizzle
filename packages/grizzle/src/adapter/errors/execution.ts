@@ -184,7 +184,6 @@ const readStage = (reason: ReadReason): ReadStage => {
 		case "CredentialError":
 		case "TlsRefused":
 		case "StartupRefused":
-		case "ConnectTimedOut":
 		case "SocketFailed":
 		case "ConnectionClosed":
 		case "DriverRefused":

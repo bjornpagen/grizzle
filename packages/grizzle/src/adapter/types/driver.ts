@@ -95,8 +95,12 @@ export type PgWireMode =
 /**
  * The configuration of every session's client, each setting stated, so pg reads none of them from the environment
  * (connection/environment.ts): the destination and login, the password as a function pg calls when the server asks for
- * one, verify-full TLS negotiated by SSLRequest over the transport's socket, the connect timeout, its wire mode, text
+ * one, verify-full TLS negotiated by SSLRequest over the transport's socket, no connect timeout, its wire mode, text
  * results, and a login's pinned startup options, which an owner's session leaves out.
+ *
+ * `connectionTimeoutMillis` is 0, the one value pg 8.23 sets no timer for (lib/client.js `if
+ * (this._connectionTimeoutMillis > 0)`): a connection attempt waits for its server's own answer or failure, never a
+ * number of grizzle's or its caller's (types/layer.ts DbConnection).
  */
 export type PgClientConfig = PgWireMode & {
 	readonly host: string
@@ -108,7 +112,7 @@ export type PgClientConfig = PgWireMode & {
 	readonly sslnegotiation: "postgres"
 	readonly options?: string
 	readonly types: { readonly getTypeParser: () => (text: string) => string }
-	readonly connectionTimeoutMillis: number
+	readonly connectionTimeoutMillis: 0
 	readonly ssl: ConnectionOptions
 	readonly stream: () => PgSocket
 }

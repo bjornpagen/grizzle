@@ -205,7 +205,6 @@ export const outcomeReading = {
 /** Each tag of a refusal of a session (failures.ts AcquireRefusal), under itself: the roster is complete by its type. */
 const acquireTags: { readonly [T in AcquireRefusal["_tag"]]: T } = {
 	CredentialError: "CredentialError",
-	ConnectTimedOut: "ConnectTimedOut",
 	SocketFailed: "SocketFailed",
 	StartupRefused: "StartupRefused",
 	TlsRefused: "TlsRefused",
@@ -344,8 +343,8 @@ const tlsCallError = (
  * A session never had, by its cause (failures.ts AcquireRefusal), carrying a failure's own message: the password
  * Effect's failure, `passwordFailed`, and pg's own end of the startup, `driverRefused`, are `credentialRefused`; the
  * server's refusal by its SQLSTATE (serverCallError), the socket's by its code (socketCallError) and TLS's by its fault
- * (tlsCallError); no answer within the connect timeout, `timedOut`, and a connection closed before it was ready,
- * `connectionClosed`, are `unavailable`; a server that sends no cancellation key is `failed`, since every attempt
+ * (tlsCallError), an unreachable host's ETIMEDOUT `timedOut` among them; a connection closed before it was ready,
+ * `connectionClosed`, is `unavailable`; a server that sends no cancellation key is `failed`, since every attempt
  * meets it; and a released layer is `unavailable`, `layerReleased`.
  */
 const connectCallError = (refusal: AcquireRefusal, message: string): CallErrorIn<ConnectKind> => {
@@ -358,8 +357,6 @@ const connectCallError = (refusal: AcquireRefusal, message: string): CallErrorIn
 			return socketCallError(refusal.code, message)
 		case "TlsRefused":
 			return tlsCallError(refusal.fault, message)
-		case "ConnectTimedOut":
-			return unavailable("timedOut", message)
 		case "ConnectionClosed":
 			return unavailable("connectionClosed", message)
 		case "DriverRefused":

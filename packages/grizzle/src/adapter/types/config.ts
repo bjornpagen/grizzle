@@ -2,9 +2,9 @@ import type { DbConnection } from "#adapter/types/layer.ts"
 import type { AnyLogin, AnySchema } from "#compiler/plan/common.ts"
 
 /**
- * Where the migration identity connects: exactly a DbLayer's connection (its driver, transport, database, password and
- * connect timeout; no login, verify or pool: migrate opens one connection), with the migration identity's login role,
- * which owns every declared schema.
+ * Where the migration identity connects: exactly a DbLayer's connection (its driver, transport, database and password;
+ * no login, verify or pool: migrate opens one connection), with the migration identity's login role, which owns every
+ * declared schema.
  */
 export type MigrationConnectionConfig = DbConnection & { readonly role: string }
 

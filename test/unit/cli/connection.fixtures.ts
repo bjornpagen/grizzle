@@ -2,7 +2,6 @@
 
 import net from "node:net"
 import { inspect } from "node:util"
-import { timerMaxMs } from "@bjornpagen/grizzle/runtime"
 import { assert, lacksText, nonEmpty } from "@bjornpagen/testing/assert"
 import {
 	array,
@@ -112,7 +111,6 @@ interface Drawn {
 	readonly servername: string
 	readonly ca: "one" | "list"
 	readonly database: string
-	readonly connectTimeoutMs: number
 }
 
 export const drawnGen: Gen<Drawn> = (source) => ({
@@ -124,8 +122,7 @@ export const drawnGen: Gen<Drawn> = (source) => ({
 	port: source.draw(oneOf([element([1, 5432, 65535]), int(1, 65535)])),
 	servername: source.draw(oneOf([hostGen, textPart])),
 	ca: source.draw(element(["one", "list"])),
-	database: source.draw(textPart),
-	connectTimeoutMs: source.draw(oneOf([element([1, timerMaxMs]), int(1, timerMaxMs)]))
+	database: source.draw(textPart)
 })
 
 const open = (): net.Socket => new net.Socket()
@@ -146,8 +143,7 @@ export const typedOf = (d: Drawn): MigrationConnectionConfig => ({
 	password:
 		d.passwordForm === "redacted"
 			? Redacted.make(d.password)
-			: Effect.sync(() => Redacted.make(d.password)),
-	connectTimeoutMs: d.connectTimeoutMs
+			: Effect.sync(() => Redacted.make(d.password))
 })
 
 /**
@@ -157,7 +153,6 @@ export const typedOf = (d: Drawn): MigrationConnectionConfig => ({
 interface Fields {
 	readonly role: string
 	readonly database: string
-	readonly connectTimeoutMs: number
 	readonly kind: "sslRequest"
 	readonly host: string
 	readonly port: number
@@ -172,7 +167,6 @@ interface Fields {
 export const fields = (c: MigrationConnection, given: MigrationConnectionConfig): Fields => ({
 	role: c.role,
 	database: c.database,
-	connectTimeoutMs: c.connectTimeoutMs,
 	kind: c.transport.kind,
 	host: c.transport.host,
 	port: c.transport.port,
@@ -190,7 +184,6 @@ export const fields = (c: MigrationConnection, given: MigrationConnectionConfig)
 export const givenFields = (given: MigrationConnectionConfig): Fields => ({
 	role: given.role,
 	database: given.database,
-	connectTimeoutMs: given.connectTimeoutMs,
 	kind: given.transport.kind,
 	host: given.transport.host,
 	port: given.transport.port,
@@ -207,8 +200,7 @@ export const connectionFeatures = [
 	"a role outside ASCII",
 	"a password Effect",
 	"a CA list",
-	"the highest port",
-	"the longest timeout"
+	"the highest port"
 ] as const
 
 export type ConnectionFeature = (typeof connectionFeatures)[number]
@@ -221,8 +213,7 @@ export const notes = (d: Drawn): ReadonlyArray<ConnectionFeature> =>
 			["a role outside ASCII", Arr.some(Str.split(d.role, ""), (unit) => unit > "\u007f")],
 			["a password Effect", d.passwordForm === "effect"],
 			["a CA list", d.ca === "list"],
-			["the highest port", d.port === 65535],
-			["the longest timeout", d.connectTimeoutMs === timerMaxMs]
+			["the highest port", d.port === 65535]
 		] satisfies ReadonlyArray<readonly [ConnectionFeature, boolean]>,
 		([feature, holds]) => (holds ? [feature] : [])
 	)

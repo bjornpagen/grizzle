@@ -1,10 +1,11 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { Array as Arr, Duration, Effect } from "effect"
+import { Array as Arr, Effect } from "effect"
 import { Pool } from "pg"
 import type { ServerError } from "#adapter/errors/failures.ts"
 import type { BatchOutcome, BatchStatement } from "#adapter/wire/batch.ts"
 import {
 	type Answer,
+	type CancelEnd,
 	controlText,
 	type WireQuery,
 	type Session,
@@ -16,7 +17,6 @@ import {
 } from "#adapter/wire/session.ts"
 import { flightMaxBytes, messageMaxBytes } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import { nothingReported, serverError } from "#test/support/server-error.ts"
 import { outputRows } from "#test/support/wire.ts"
 
@@ -157,8 +157,8 @@ type Owed =
 	| { readonly _tag: "end"; readonly from: number; readonly fatal: ServerError | undefined }
 
 /**
- * How a statement waits: for a CancelRequest, which stops it or which it finishes just before, or for the connection
- * to be destroyed.
+ * How a statement waits: for a CancelRequest, which stops it or which it finishes just before, or, while its server is
+ * unreachable, which no CancelRequest reaches, for the connection to be destroyed.
  */
 type Waiting = "hold" | "late" | "stuck"
 
@@ -204,7 +204,8 @@ interface Running {
  *   transaction, after which every statement answers 25P02 without running and COMMIT answers ROLLBACK. `fatal` answers
  *   a FATAL ErrorResponse and ends the session; `lose` ends the connection with no answer. `hold` runs until a
  *   CancelRequest and is refused 57014 then; `late` finishes just as the CancelRequest arrives, too late to stop it, and
- *   answers its rows; `stuck` runs until the connection is destroyed, which no CancelRequest makes it notice. Past a
+ *   answers its rows; `stuck` runs while the server is unreachable, so no CancelRequest reaches it (CancelEnd
+ *   `unreached`), until the connection is destroyed. Past a
  *   statement a CancelRequest stopped, the server runs the rest of the flight in order, as PostgreSQL runs a pipeline
  *   on for a client that keeps its connection, which an abandoned flight does until the server has ended it
  *   (wire/batch.ts abandon).
@@ -445,19 +446,23 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 	}
 
 	/**
-	 * A CancelRequest stops the statement the server is running; when it is running none, or one that does not notice,
-	 * it does nothing. Past the statement it stopped, the server runs the rest of the flight.
+	 * A CancelRequest stops the statement the server is running, and is `sent`; when it is running none it does nothing,
+	 * and is `sent` all the same; at a stuck statement the server is unreachable, so the request never reaches it and is
+	 * `unreached`. Past the statement it stopped, the server runs the rest of the flight.
 	 */
-	const cancel: Effect.Effect<void> = Effect.suspend(() => {
+	const cancel: Effect.Effect<CancelEnd> = Effect.suspend((): Effect.Effect<CancelEnd> => {
 		cancels++
 		const flight = running
 		const waiting = flight?.waiting
 		if (flight === undefined) {
-			return Effect.void
+			return Effect.succeed("sent")
 		}
 		flight.cancels++
-		if (waiting === undefined || waiting.waiting === "stuck") {
-			return Effect.void
+		if (waiting === undefined) {
+			return Effect.succeed("sent")
+		}
+		if (waiting.waiting === "stuck") {
+			return Effect.succeed("unreached")
 		}
 		const query = flight.pipeline[waiting.index]
 		flight.waiting = undefined
@@ -477,7 +482,7 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		if (delivery === "immediate") {
 			deliverAll()
 		}
-		return Effect.void
+		return Effect.succeed("sent")
 	})
 
 	/**
@@ -510,7 +515,6 @@ export const scriptedSession = (script: Script, options: ScriptedOptions): Scrip
 		flightMaxBytes: flightMaxBytes,
 		messageMaxBytes: messageMaxBytes,
 		cancel,
-		connectTimeout: Duration.millis(testConnectTimeout),
 		state: () => state,
 		retire: () => {
 			move("retire")

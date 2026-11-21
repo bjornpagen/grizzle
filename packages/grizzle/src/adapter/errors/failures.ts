@@ -124,18 +124,6 @@ export class CredentialError extends Data.TaggedError("CredentialError")<{
 }
 
 /**
- * No answer came within the connection's connect timeout of `millis` (DbConnection.connectTimeoutMs): the server or a
- * waking provider took longer to reach ReadyForQuery, or nothing answered at all.
- */
-export class ConnectTimedOut extends Data.TaggedError("ConnectTimedOut")<{
-	readonly millis: number
-}> {
-	override get message(): string {
-		return `no answer within the connect timeout of ${this.millis} ms`
-	}
-}
-
-/**
  * The transport failed with a socket error code, such as ECONNREFUSED (nothing listens), ENOTFOUND (the host does not
  * resolve) or ECONNRESET.
  */
@@ -214,12 +202,11 @@ export class NoCancelKey extends Data.TaggedError("NoCancelKey") {
 
 /**
  * How a connection attempt failed, classified once, where pg reports it (adapter/wire/session.ts): the password Effect
- * failed; no answer within the connect timeout; a socket error code; the server refused the startup; TLS; a connection
- * closed before it was ready; pg's own refusal; or no cancellation key. None carries a password.
+ * failed; a socket error code, an unreachable host's ETIMEDOUT among them; the server refused the startup; TLS; a
+ * connection closed before it was ready; pg's own refusal; or no cancellation key. None carries a password.
  */
 export type ConnectRefusal =
 	| CredentialError
-	| ConnectTimedOut
 	| SocketFailed
 	| StartupRefused
 	| TlsRefused

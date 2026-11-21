@@ -55,7 +55,7 @@ import {
 import { succeeded } from "#test/support/assert.ts"
 import { writeAnswerOf, writeOnce } from "#test/support/calls.ts"
 import { pgPin } from "#test/support/env.ts"
-import { testConnectTimeout, testIdleTimeout } from "#test/support/limits.ts"
+import { testIdleTimeout } from "#test/support/limits.ts"
 import { privateCluster } from "#test/support/private-cluster.ts"
 import { hardenedNode } from "#test/support/process.ts"
 import { member, withServedDb } from "#test/support/served-db.ts"
@@ -121,7 +121,6 @@ export const thePackageAsASubmoduleConsumerTakesItOnTheDevClusterOpensARoleOfALo
 									ca: installed.cluster.ca,
 									database: installed.database,
 									password: Redacted.value(installed.as(own.server).password),
-									connectTimeoutMs: testConnectTimeout,
 									idleTimeoutMs: testIdleTimeout,
 									served
 								})

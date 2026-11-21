@@ -23,8 +23,8 @@ import type { AnyLogin } from "#compiler/plan/common.ts"
  * generate` compiles and `grizzle check` holds to the compile, served as the login's type: `served<typeof App>(file,
  * "app")`, the type imported with `import type`, so no schema module is evaluated. DbLayer.make(config) is the one
  * integration input: the served login, the driver the caller imports, the transport and its verify-full TLS, the
- * credentials, the connect timeout, the pool's bounds, and the verify that turns a Db's token into its claims. grizzle
- * states no number of its own: every bound is the caller's, and none it does not name exists (no retry, no statement or
+ * credentials, the pool's bounds, and the verify that turns a Db's token into its claims. grizzle states no number of
+ * its own: every bound is the caller's, and none it does not name exists (no retry, no connect, statement or
  * acquisition deadline). The config is parsed once, where it is given: one no connection can use fails the layer with
  * OpenError{stage: "config"}, as does an environment that sets a connection option grizzle cannot override
  * (connection/environment.ts) and a served file of another login than its name. Build the layer once per instance, in

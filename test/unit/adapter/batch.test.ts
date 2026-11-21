@@ -41,10 +41,22 @@ export const aFlightKeepsItsContractAtEveryInterruptionPointOfEveryFlightOfOneSt
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/wire/batch.ts",
+				original: "\t\t\t\t\treturn Effect.as(answeredPast(sent, answered), answeredRound)",
+				replacement: "\t\t\t\t\treturn Effect.succeed(unreachedRound)",
+				why: "abandon destroys the connection after a CancelRequest that reached the server, so the answers the server made after the request never reach the client; both flight properties fail."
+			},
+			{
+				file: "packages/grizzle/src/adapter/wire/batch.ts",
 				original:
-					"\t\t\t\treturn Effect.flatMap(round(session, sent), (end) => from(afterRound(state, end)))",
-				replacement: "\t\t\t\treturn Effect.andThen(session.cancel, from(severed))",
-				why: "abandon destroys the connection after one CancelRequest, so the answers the server made after the request never reach the client; both flight properties fail."
+					'\t\tcase "answered":\n\t\t\treturn { _tag: "cancelling", answered: answeredIn(sent) }',
+				replacement: '\t\tcase "answered":\n\t\t\treturn draining',
+				why: "abandon sends one CancelRequest and then only awaits the drain, so a second statement that waits for one, past the one the first request stopped, is never stopped: the interrupted call waits with nothing left to deliver; both flight properties fail."
+			},
+			{
+				file: "packages/grizzle/src/adapter/wire/batch.ts",
+				original: "\t\t\t\t\treturn Effect.as(answeredPast(sent, answered), answeredRound)",
+				replacement: '\t\t\t\t\treturn Effect.as(Effect.sleep("5 seconds"), answeredRound)',
+				why: "abandon paces its rounds by a clock, 5 seconds a round, the connect timeout P5 met, instead of the server's answers: the call waits on a clock nothing advances; both flight properties fail."
 			},
 			{
 				file: "packages/grizzle/src/adapter/wire/batch.ts",
@@ -95,10 +107,22 @@ export const aFlightKeepsItsContractAtEveryInterruptionPointOfDrawnFlights = pro
 		kills: [
 			{
 				file: "packages/grizzle/src/adapter/wire/batch.ts",
+				original: "\t\t\t\t\treturn Effect.as(answeredPast(sent, answered), answeredRound)",
+				replacement: "\t\t\t\t\treturn Effect.succeed(unreachedRound)",
+				why: "abandon destroys the connection after a CancelRequest that reached the server, so the answers the server made after the request never reach the client; both flight properties fail."
+			},
+			{
+				file: "packages/grizzle/src/adapter/wire/batch.ts",
 				original:
-					"\t\t\t\treturn Effect.flatMap(round(session, sent), (end) => from(afterRound(state, end)))",
-				replacement: "\t\t\t\treturn Effect.andThen(session.cancel, from(severed))",
-				why: "abandon destroys the connection after one CancelRequest, so the answers the server made after the request never reach the client; both flight properties fail."
+					'\t\tcase "answered":\n\t\t\treturn { _tag: "cancelling", answered: answeredIn(sent) }',
+				replacement: '\t\tcase "answered":\n\t\t\treturn draining',
+				why: "abandon sends one CancelRequest and then only awaits the drain, so a second statement that waits for one, past the one the first request stopped, is never stopped: the interrupted call waits with nothing left to deliver; both flight properties fail."
+			},
+			{
+				file: "packages/grizzle/src/adapter/wire/batch.ts",
+				original: "\t\t\t\t\treturn Effect.as(answeredPast(sent, answered), answeredRound)",
+				replacement: '\t\t\t\t\treturn Effect.as(Effect.sleep("5 seconds"), answeredRound)',
+				why: "abandon paces its rounds by a clock, 5 seconds a round, the connect timeout P5 met, instead of the server's answers: the call waits on a clock nothing advances; both flight properties fail."
 			},
 			{
 				file: "packages/grizzle/src/adapter/wire/batch.ts",

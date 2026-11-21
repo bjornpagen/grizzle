@@ -10,7 +10,6 @@ import { relation, schema } from "#compiler/public/schema.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
 import { generatedTemplate } from "#test/support/install-migrate.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import { fullWorld } from "#test/support/worlds.ts"
 import type { SubmoduleConsumer } from "#test/unit/dev/consumer.ts"
 
@@ -71,8 +70,7 @@ const connection = {
 		ca: config.ca,
 		servername: config.host
 	},
-	database: config.database,
-	connectTimeoutMs: config.connectTimeoutMs
+	database: config.database
 }
 const layer = Layer.provide(
 	DbLayer.make({
@@ -170,8 +168,7 @@ export default defineConfig({
 		},
 		database: ${jsonText(member.owner)},
 		role: ${jsonText(member.owner)},
-		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(member.passwordFile)}, "utf8").trim())),
-		connectTimeoutMs: ${testConnectTimeout}
+		password: Effect.succeed(Redacted.make(readFileSync(${jsonText(member.passwordFile)}, "utf8").trim()))
 	})
 })
 `

@@ -18,8 +18,12 @@ import type { Transport } from "#adapter/types/layer.ts"
 import { connectSession, type Session } from "#adapter/wire/session.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { pgPin } from "#test/support/env.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
-import { memoryEndpoint, memoryTransport, tlsMaterial } from "#test/support/memory-tls.ts"
+import {
+	memoryEndpoint,
+	memoryTransport,
+	tlsMaterial,
+	unreachableConnection
+} from "#test/support/memory-tls.ts"
 import { parsedConnection } from "#test/support/pg.ts"
 import type { BudgetedCluster } from "#test/support/substrate/budget.ts"
 import { upTo } from "#test/support/up-to.ts"
@@ -58,8 +62,9 @@ import { upTo } from "#test/support/up-to.ts"
  * that follows the data. So a test makes the server read a statement only after something else has reached it, a
  * CancelRequest among them. A cut drops what it holds instead, and ends the tap's connection to the server.
  *
- * A partitioned cancel path holds every CancelRequest's connection open and answers nothing: the request never
- * reaches the server, and its connection stays open until the client gives up on it.
+ * An unreachable server fails every connection opened through the tap from then on, a CancelRequest's among them,
+ * before its SSLRequest is answered, as a connection to a host the network no longer reaches fails: the request never
+ * reaches the server. The connections already open stay.
  *
  * One frontend message: its type byte; the statement it names for Parse, Bind and Close ("" for the unnamed one and for
  * every other type); the SQL text of a Parse or a simple Query ("" for every other type); and the parameter values a
@@ -782,10 +787,10 @@ export interface Tap {
 	/** The gate on the recorded session's bytes to the server (SentGate). */
 	readonly sent: SentGate
 	/**
-	 * Partitions the cancel path from now on: every later CancelRequest's connection is held open, never forwarded and
-	 * never answered (see the header).
+	 * Makes the server unreachable from now on: every later connection through the tap fails before its SSLRequest is
+	 * answered, a CancelRequest's among them (see the header).
 	 */
-	readonly partitionCancels: () => void
+	readonly unreachable: () => void
 	/**
 	 * The gate on the session the next flight of `role` runs on, held as `hold` says: the first of the role's sessions,
 	 * none a replication connection, to send a flight's message (isFlightMessage) once the gate is made. The flight names
@@ -806,8 +811,8 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 	const startups: Array<Startup | undefined> = []
 	const gate = new MessageGate()
 	const sent = new SentHold()
-	/** Whether the cancel path answers: a CancelRequest's connection goes to the server, or is held silent. */
-	let cancelPath: "through" | "partitioned" = "through"
+	/** Whether the server is reachable: a new connection goes to it, or fails unanswered (unreachableConnection). */
+	let reachable = true
 	/** The flight waiting for its first message, none when every flight made has named its session or been released. */
 	let waiting: PendingFlight | undefined = undefined
 	/** The waits of `until` whose traffic has not come yet, each judged again after every message recorded. */
@@ -856,9 +861,6 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 				secure.once("close", () => {
 					ended++
 				})
-				if (cancelPath === "partitioned") {
-					return
-				}
 			}
 			let closed = false
 			const push: Push = (bytes, written) => {
@@ -960,8 +962,12 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 			secure.on("error", outbound.destroy)
 		})
 	}
+	/** A new connection to the server through the tap, answered as `serve` answers it. */
+	const endpoint = memoryEndpoint(material, serve)
 	return {
-		transport: cluster.budget.transport(memoryTransport(material, memoryEndpoint(material, serve))),
+		transport: cluster.budget.transport(
+			memoryTransport(material, () => (reachable ? endpoint() : unreachableConnection()))
+		),
 		mark: () => events.length,
 		since: (mark) => windowOf(events.slice(mark)),
 		sessions: () => Arr.map(logs, (log) => windowOf(log)),
@@ -978,8 +984,8 @@ export const makeTap = (cluster: BudgetedCluster): Tap => {
 		cancelsEnded: () => ended,
 		gate,
 		sent,
-		partitionCancels: () => {
-			cancelPath = "partitioned"
+		unreachable: () => {
+			reachable = false
 		},
 		flight: (role, hold) => {
 			if (waiting !== undefined) {
@@ -1040,8 +1046,7 @@ export const tappedSession = (
 						driver: pgDriver,
 						transport: tap.transport,
 						database: options.database,
-						password: options.password,
-						connectTimeoutMs: testConnectTimeout
+						password: options.password
 					},
 					options.role
 				),
@@ -1058,7 +1063,7 @@ export const tappedSession = (
 				cancelsEnded: tap.cancelsEnded,
 				gate: tap.gate,
 				sent: tap.sent,
-				partitionCancels: tap.partitionCancels
+				unreachable: tap.unreachable
 			})
 		)
 	})

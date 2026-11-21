@@ -9,7 +9,7 @@ import net from "node:net"
 import { CredentialError, defineConfig } from "@bjornpagen/grizzle"
 import { Config, Effect } from "effect"
 import pg from "pg"
-import { serverName, unboundedMillis } from "#test/grizzle/connection.ts"
+import { serverName } from "#test/grizzle/connection.ts"
 import { Items, Server } from "#test/grizzle/world.ts"
 
 export default defineConfig({
@@ -31,7 +31,6 @@ export default defineConfig({
 		rolePrefix: Effect.runSync(Config.String("EOCG_GRIZZLE_ROLE_PREFIX")),
 		password: Config.Redacted("EOCG_GRIZZLE_PASSWORD").pipe(
 			Effect.mapError((cause) => new CredentialError({ cause }))
-		),
-		connectTimeoutMs: unboundedMillis
+		)
 	})
 })

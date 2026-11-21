@@ -46,8 +46,7 @@ export default defineConfig({
 		role: "app_owner",
 		password: Config.Redacted("MIGRATION_PASSWORD").pipe(
 			Effect.mapError((cause) => new CredentialError({ cause }))
-		),
-		connectTimeoutMs: 10_000
+		)
 	})
 })
 ```
@@ -166,8 +165,8 @@ export default defineConfig({
 - `connection` is the migration role's: `driver` (the pg module), `transport` (`kind: "sslRequest"`, `host`, `port`,
   `open`, which returns a new socket, `ca` and `servername`; TLS is always verify-full, the server certificate chaining
   to `ca` and naming `servername`), `database`, `role`, `password` (a Redacted, or an Effect yielding one, evaluated for
-  each connection attempt: an RDS IAM token, a secret manager's lookup) and `connectTimeoutMs`, the bound of each
-  connection attempt. README's Deploying shows the RDS IAM password with `@aws-sdk/rds-signer`.
+  each connection attempt: an RDS IAM token, a secret manager's lookup). grizzle bounds no connection attempt: it
+  waits for the server's answer or the operating system's failure. README's Deploying shows the RDS IAM password with `@aws-sdk/rds-signer`.
 - Never write a credential into the config file: read it where the config runs, as the password Effect does.
 - `connection` is a function: only `migrate` and `drift` call it, so `generate`, `check` and `names` read no cluster
   setting and no CA file, and `check` runs in CI where no cluster is reachable. `migrate` and `drift` refuse a process environment that
@@ -632,10 +631,11 @@ The command line's own refusals, by stage:
   `connection` is the config's connection without its `role` and its password, which are the migration role's
   (`DbLayer.make` refuses a `role` as an unknown setting): `driver: pgDriver` (`import pgDriver from "pg"`), the
   `transport` (`{ kind: "sslRequest", host, port, open: () => new net.Socket(), ca, servername }`, always
-  verify-full), the `database` and `connectTimeoutMs`. `password` is the login's own, and `pool` is
-  `{ max, min, idleTimeoutMs }`. grizzle states no number of its own: a `Db` call waits for a session until it gets
-  one or is interrupted, and an interrupted statement ends once the server has stopped it, a CancelRequest sent each
-  `connectTimeoutMs` until it has, and its session is never used again.
+  verify-full) and the `database`. `password` is the login's own, and `pool` is `{ max, min, idleTimeoutMs }`.
+  grizzle states no number of its own: a `Db` call waits for a session until it gets one or is interrupted, a
+  connection attempt for the server's answer or the operating system's failure, and an interrupted statement ends once
+  the server has stopped it, a CancelRequest sent at the interruption and again at each answer of the server until it
+  has, and its session is never used again.
 
   `DbLayer.make` loads the served file once and compiles nothing; it refuses, at stage `config`, a file of another
   login than the name `served` was given. `grizzle check` refuses a served file that is not its login's compile under

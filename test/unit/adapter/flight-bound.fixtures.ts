@@ -49,7 +49,6 @@ import { prepared } from "#compiler/core/prepared.ts"
 import type { Param } from "#compiler/core/wire.ts"
 import { servedSession } from "#compiler/program/served.ts"
 import { flightPrologue } from "#test/support/flight/model.ts"
-import { testConnectTimeout } from "#test/support/limits.ts"
 import { tlsMaterial } from "#test/support/memory-tls.ts"
 import { noPassword } from "#test/support/pg.ts"
 import { parsedConnection } from "#test/support/pg.ts"
@@ -482,8 +481,7 @@ export const historied: Effect.Effect<
 				driver: pgDriver,
 				transport: server.transport,
 				database: "flight",
-				password: noPassword,
-				connectTimeoutMs: testConnectTimeout
+				password: noPassword
 			},
 			"flight"
 		),
