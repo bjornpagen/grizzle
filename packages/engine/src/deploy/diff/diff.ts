@@ -1,5 +1,5 @@
 import { appendAll } from "@bjornpagen/grizzle-text/base/array"
-import { postorder } from "@bjornpagen/grizzle-text/base/graph"
+import { dependencyOrder } from "@bjornpagen/grizzle-text/base/graph"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	isNonEmpty,
@@ -117,6 +117,7 @@ import type { InstallationManifest, PhysicalKind } from "#compiler/ir/products.t
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import { guardBracket } from "#compiler/physical/ddl/immutable.ts"
+import { type InlineSubcommand, notInline, wholeTable } from "#compiler/physical/ddl/whole.ts"
 import { refreshStatement } from "#compiler/physical/derived/objects.ts"
 import { targetKey, touchedTargets } from "#compiler/physical/install/comments.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
@@ -133,7 +134,6 @@ import {
 	type CreateIndex,
 	type CreateMaterializedView,
 	type CreateTable,
-	type InlineConstraint,
 	type Expr,
 	type ForeignKey,
 	type FunctionName,
@@ -443,24 +443,6 @@ const heldBefore = (
 	}
 }
 
-/**
- * `items` in a topological order of `after`: each after every item of them it must follow (`after(item, other)`),
- * otherwise in the order given, so a list no item of which must follow another keeps its order. A migration drafts
- * the steps of one kind over objects that read each other so, whatever their install order: a drop after the drops
- * of what reads it, a materialized view's (dropViews) or a removed field's (planKept), since PostgreSQL drops nothing
- * another object still reads (2BP01); and an added column after the columns its generation reads (alterationDraft),
- * since an ALTER TABLE adds its columns one by one, each generation read when its column is added (42703). It is the
- * postorder of the items under `after` (core/graph.ts postorder), so an item reached again while its predecessors are
- * placed, which closes a cycle no schema's columns or views form, is not entered again.
- */
-const dependencyOrder = <A>(
-	items: NonEmptyReadonlyArray<A>,
-	after: (item: A, other: A) => boolean
-): NonEmptyReadonlyArray<A> => {
-	const [first, ...rest] = postorder(items, (item) => items.filter((other) => after(item, other)))
-	return [defined(first, "a walk from its first item, which it places"), ...rest]
-}
-
 /** A drop drafted with its kind's place in the drop order. */
 interface Drop {
 	readonly rank: number
@@ -702,70 +684,14 @@ type Drafting =
 
 /**
  * A table this migration creates, as the visits draft it: its CREATE TABLE, and the subcommands of its Structure
- * alteration a CREATE TABLE states itself (`inline`), in the order the visits draft them: its law columns, each a
- * column, and its own keys and CHECKs, each a constraint, so PostgreSQL creates the table whole, where they were one
- * ALTER TABLE after it, which rewrote the empty table and built again every index it had (P5: 57 s of a fresh pantry
- * install's 188 s in 19 such statements on a loaded machine; 5.7 s of its Structure's 7.7 s on postgres@perfphys).
+ * alteration a CREATE TABLE states itself (`inline`), in the order the visits draft them, the install order: its law
+ * columns, each a column, and its own keys and CHECKs, each a constraint, so PostgreSQL creates the table whole
+ * (physical/ddl/whole.ts wholeTable), as the installation's script creates it (wholeTables); 5.7 s of a fresh pantry
+ * install's Structure of 7.7 s on postgres@perfphys were those subcommands as one ALTER TABLE after it.
  */
 interface CreatedTable {
 	readonly create: CreateTable
 	readonly inline: Array<InlineSubcommand>
-}
-
-/** A subcommand of a new table's alteration that its CREATE TABLE states itself: a column, or a key, exclusion or CHECK
- * added valid. A foreign key stays its own ALTER TABLE after every table (sql/ast.ts InlineConstraint), as does any
- * other subcommand. */
-type InlineSubcommand =
-	| Extract<AlterTableAction, { readonly kind: "addColumn" }>
-	| {
-			readonly kind: "addConstraint"
-			readonly constraint: InlineConstraint
-			readonly notValid: false
-	  }
-
-/** `a` as its table's CREATE TABLE states it, where it can (InlineSubcommand); none for any other subcommand. */
-const inlineSubcommand = (a: AlterTableAction): InlineSubcommand | undefined => {
-	if (a.kind === "addColumn") {
-		return a
-	}
-	if (a.kind !== "addConstraint" || a.notValid) {
-		return undefined
-	}
-	const c = a.constraint
-	switch (c.kind) {
-		case "unique":
-		case "exclude":
-		case "check":
-			return { kind: "addConstraint", constraint: c, notValid: false }
-		case "primaryKey":
-		case "foreignKey":
-			return undefined
-	}
-}
-
-/** A new table's CREATE TABLE with the subcommands it states itself (CreatedTable `inline`): its columns, then each
- * column added, in the order its one alteration added them (inPassOrder), so every column takes the place it took
- * there; its constraints, then each key, exclusion and CHECK added, in that order. */
-const createdWhole = (t: CreatedTable): CreateTable => {
-	const [first, ...rest] = t.inline
-	if (first === undefined) {
-		return t.create
-	}
-	const ordered = inPassOrder({ table: t.create.table, first, rest }, noAside)
-	return {
-		...t.create,
-		columns: [
-			...t.create.columns,
-			...ordered.flatMap((a) => (a.kind === "addColumn" ? [a.column] : []))
-		],
-		secondary: [
-			...t.create.secondary,
-			...ordered.flatMap((a) => {
-				const inline = inlineSubcommand(a)
-				return inline?.kind === "addConstraint" ? [inline.constraint] : []
-			})
-		]
-	}
 }
 
 /** A table's fill of its set-aside fields (SetAside) in structure.fill, as the visits draft it: its first field, which
@@ -1470,15 +1396,7 @@ class Differ {
 	): void {
 		const key = nameKey(table)
 		const created = slot === "structure" ? this.created.get(key) : undefined
-		const altering: Array<AlterTableAction> = []
-		for (const a of actions) {
-			const inline = created === undefined ? undefined : inlineSubcommand(a)
-			if (created !== undefined && inline !== undefined) {
-				created.inline.push(inline)
-			} else {
-				altering.push(a)
-			}
-		}
+		const altering = notInline(actions, created?.inline)
 		if (!isNonEmpty(altering)) {
 			return
 		}
@@ -1510,7 +1428,7 @@ class Differ {
 			case "step":
 				return [d.step]
 			case "created":
-				return [{ slot: "structure", draft: statement(createdWhole(d.table)) }]
+				return [{ slot: "structure", draft: statement(wholeTable(d.table.create, d.table.inline)) }]
 			case "alteration":
 				return [{ slot: d.slot, draft: alterationDraft(d.alteration, this.asideOf(d)) }]
 			case "fill":

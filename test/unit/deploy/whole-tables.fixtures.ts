@@ -1,4 +1,4 @@
-/** What whole-tables.test.ts reads: its space, the family schemas, their first migration, and the judge. */
+/** What whole-tables.test.ts reads: its space, the family schemas, their first migration and script, and the judge. */
 
 import { assert, defined } from "@bjornpagen/testing/assert"
 import type { Gen } from "@bjornpagen/testing/gen"
@@ -14,6 +14,7 @@ import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
 import {
 	type AlterTableAction,
 	type CreateTable,
+	type NameKey,
 	nameKey,
 	type SqlStatement
 } from "#compiler/sql/ast.ts"
@@ -78,12 +79,35 @@ const statedBy = (t: CreateTable): ReadonlyArray<string> => [
 	...Arr.map([t.primaryKey, ...t.secondary], (c) => `constraint ${c.name}`)
 ]
 
+/** The statements of `statements` that create the table `key`. */
+const createdIn = (
+	statements: ReadonlyArray<SqlStatement>,
+	key: NameKey
+): ReadonlyArray<CreateTable> =>
+	Arr.flatMap(statements, (s) => (s.kind === "createTable" && nameKey(s.table) === key ? [s] : []))
+
+/** The subcommands of every ALTER TABLE of the table `key` among `statements`. */
+const alterationsOf = (
+	statements: ReadonlyArray<SqlStatement>,
+	key: NameKey
+): ReadonlyArray<AlterTableAction> =>
+	Arr.flatMap(statements, (s) =>
+		s.kind === "alterTable" && nameKey(s.table) === key ? s.actions : []
+	)
+
+/** What a CREATE TABLE states of `actions` (statedInline). */
+const statedOf = (actions: ReadonlyArray<AlterTableAction>): ReadonlyArray<string> =>
+	Arr.flatMap(actions, (a) => {
+		const stated = statedInline(a)
+		return stated === undefined ? [] : [stated]
+	})
+
 /**
- * Judges a drawn schema's first migration, drafted from nothing: every table it creates is one CREATE TABLE that states
- * every column and every key, exclusion and CHECK of the table, and no ALTER TABLE of it adds one; it states exactly
- * what the installation states of the table, its CREATE TABLE and every ALTER TABLE the installation adds after it,
- * each law column and own constraint its own object there (physical/ddl/tables.ts addNatives); only foreign keys and
- * what a CREATE TABLE cannot state stay an ALTER TABLE.
+ * Judges a drawn schema's first migration, drafted from nothing, and its installation's script: each creates every table
+ * by one CREATE TABLE, the same statement in both, that states exactly what the installation's objects state of the
+ * table, its table object's CREATE TABLE and every ALTER TABLE of its objects after it, each law column and own
+ * constraint its own object (physical/ddl/tables.ts addNatives); no ALTER TABLE of either adds one; only foreign keys
+ * and what a CREATE TABLE cannot state stay an ALTER TABLE.
  */
 export const judgedWhole = (spec: FillSpec, note: (f: WholeFeature) => void): void => {
 	const installation = installationOf(spec)
@@ -95,50 +119,40 @@ export const judgedWhole = (spec: FillSpec, note: (f: WholeFeature) => void): vo
 		abandoned: []
 	})
 	const drafted = statementsOf(draft)
-	const creates = Arr.flatMap(drafted, (s) => (s.kind === "createTable" ? [s] : []))
-	for (const installed of Arr.flatMap(installation.statements, (s) =>
-		s.kind === "createTable" ? [s] : []
-	)) {
-		const key = nameKey(installed.table)
-		const created = Arr.filter(creates, (s) => nameKey(s.table) === key)
-		assert.equal(created.length, 1, `${installed.table.name} is created by one CREATE TABLE`)
-		const create = defined(created[0], "the one CREATE TABLE")
-		const alterationsOf = (statements: ReadonlyArray<SqlStatement>) =>
-			Arr.flatMap(statements, (s) =>
-				s.kind === "alterTable" && nameKey(s.table) === key ? s.actions : []
-			)
-		const added = alterationsOf(drafted)
+	const objects = Arr.flatMap(installation.manifest.objects, (o) => o.ddl)
+	for (const object of Arr.flatMap(objects, (s) => (s.kind === "createTable" ? [s] : []))) {
+		const key = nameKey(object.table)
+		const name = object.table.name
+		const created = createdIn(drafted, key)
+		assert.equal(created.length, 1, `${name} is created by one CREATE TABLE of the first migration`)
 		assert.deepEqual(
-			Arr.flatMap(added, (a) => {
-				const stated = statedInline(a)
-				return stated === undefined ? [] : [stated]
-			}),
-			[],
-			`no ALTER TABLE of ${installed.table.name} adds what its CREATE TABLE states`
+			created,
+			createdIn(installation.statements, key),
+			`the first migration creates ${name} by the installation's script's CREATE TABLE`
 		)
-		const installedAdds = alterationsOf(installation.statements)
+		const create = defined(created[0], "the one CREATE TABLE")
+		const added = alterationsOf(drafted, key)
+		assert.deepEqual(
+			statedOf(added),
+			[],
+			`no ALTER TABLE of ${name} in the first migration adds what its CREATE TABLE states`
+		)
+		assert.deepEqual(
+			statedOf(alterationsOf(installation.statements, key)),
+			[],
+			`no ALTER TABLE of ${name} in the installation's script adds what its CREATE TABLE states`
+		)
+		const objectAdds = alterationsOf(objects, key)
 		assert.deepEqual(
 			Arr.sort(statedBy(create), Order.String),
-			Arr.sort(
-				[
-					...statedBy(installed),
-					...Arr.flatMap(installedAdds, (a) => {
-						const stated = statedInline(a)
-						return stated === undefined ? [] : [stated]
-					})
-				],
-				Order.String
-			),
-			`${installed.table.name}'s CREATE TABLE states what the installation states of it`
+			Arr.sort([...statedBy(object), ...statedOf(objectAdds)], Order.String),
+			`${name}'s CREATE TABLE states what the installation's objects state of it`
 		)
-		if (Arr.some(installedAdds, (a) => a.kind === "addColumn")) {
+		if (Arr.some(objectAdds, (a) => a.kind === "addColumn")) {
 			note("a law column in its table's CREATE TABLE")
 		}
 		if (
-			Arr.some(
-				installedAdds,
-				(a) => a.kind === "addConstraint" && a.constraint.kind !== "foreignKey"
-			)
+			Arr.some(objectAdds, (a) => a.kind === "addConstraint" && a.constraint.kind !== "foreignKey")
 		) {
 			note("a key or CHECK in its table's CREATE TABLE")
 		}

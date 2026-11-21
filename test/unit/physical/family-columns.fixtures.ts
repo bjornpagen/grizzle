@@ -185,11 +185,13 @@ const installationOf = (r: Resolved): Installation => {
 
 type CreateTable = Extract<SqlStatement, { readonly kind: "createTable" }>
 
+/** The CREATE TABLE of `relationName`'s table object, which states the relation's own fields alone: each law column is
+ * an object of its own, which the script states in the table's CREATE TABLE (physical/ddl/whole.ts wholeTables). */
 const tableOf = (i: Installation, relationName: string): CreateTable =>
 	defined(
 		Option.getOrUndefined(
 			Arr.findFirst(
-				i.statements,
+				Arr.flatMap(i.manifest.objects, (o) => o.ddl),
 				(s): s is CreateTable =>
 					s.kind === "createTable" && s.table.name === i.names.relation(relationName).name
 			)
@@ -299,7 +301,7 @@ export const property = (r: Resolved, k: Case<FamilyFeature>) =>
 			const table = tableOf(i, o.relation.name)
 			assert.ok(
 				!Arr.some(table.columns, (col) => col.name === o.column),
-				`${o.column} is no column of ${o.relation.name}'s CREATE TABLE`
+				`${o.column} is no column of ${o.relation.name}'s table object's CREATE TABLE`
 			)
 			const object = defined(
 				Option.getOrUndefined(

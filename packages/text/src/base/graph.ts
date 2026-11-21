@@ -46,6 +46,20 @@ export const postorder = <V>(
 }
 
 /**
+ * `items` in a topological order of `after`: each after every item of them it must follow (`after(item, other)`),
+ * otherwise in the order given, so a list no item of which must follow another keeps its order. It is the postorder of
+ * the items under `after` (postorder), so an item reached again while its predecessors are placed, which closes a
+ * cycle, is not entered again.
+ */
+export const dependencyOrder = <A>(
+	items: NonEmptyReadonlyArray<A>,
+	after: (item: A, other: A) => boolean
+): NonEmptyReadonlyArray<A> => {
+	const [first, ...rest] = postorder(items, (item) => items.filter((other) => after(item, other)))
+	return [defined(first, "a walk from its first item, which it places"), ...rest]
+}
+
+/**
  * A vertex on Tarjan's walk: its successors and how many it has walked, its discovery index, its low link, which the
  * walk lowers, and its depth on the walk's stack of open vertices, where its component starts if it is its root.
  */

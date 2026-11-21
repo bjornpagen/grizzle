@@ -42,6 +42,7 @@ import { addUnitFunctions } from "#compiler/physical/ddl/retire.ts"
 import { addWorlds, grantedPrivileges, type InstalledLogin } from "#compiler/physical/ddl/roles.ts"
 import { addRules } from "#compiler/physical/ddl/rules.ts"
 import { addTables } from "#compiler/physical/ddl/tables.ts"
+import { wholeTables } from "#compiler/physical/ddl/whole.ts"
 import {
 	type PlannedIndex,
 	planIndexes,
@@ -101,8 +102,9 @@ export const installOptions = (owned: Owned): InstallOptions => {
 export interface Installation extends InstallPlan {
 	readonly settings: InstallSettings
 	readonly manifest: InstallationManifest<SqlStatement>
-	/** The install script: every object's DDL in install order, then the PUBLIC revokes, the logins' defaults and every
-	 * installed object's COMMENT. */
+	/** The install script: every object's DDL in install order, each table created whole (physical/ddl/whole.ts
+	 * wholeTables), as a first migration creates it, then the PUBLIC revokes, the logins' defaults and every installed
+	 * object's COMMENT. */
 	readonly statements: ReadonlyArray<SqlStatement>
 	readonly textDomains: ReadonlyArray<TextDomain>
 	readonly indexes: ReadonlyArray<PlannedIndex>
@@ -533,7 +535,7 @@ const installationIn = (
 				const comments = commentsOf(created, census)
 				const manifest = { ...ordered, comments }
 				const statements = [
-					...created,
+					...wholeTables(created),
 					...worlds.publicRevokes,
 					...worlds.roleDefaults,
 					...comments
