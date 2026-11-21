@@ -304,6 +304,9 @@ const holdsLabel = (root: RelNode, label: NodeId): boolean => {
  */
 const outerReads = new WeakMap<RelNode, ReadonlyArray<OuterColumn>>()
 
+/** The evaluation reads of a node whose subtree reads no node outside it, most nodes': one list, shared. */
+const noOuterReads: ReadonlyArray<OuterColumn> = Object.freeze([])
+
 /**
  * The columns `node`'s subtree reads of nodes outside it, each once: those its own expressions read and those its data
  * inputs' subtrees read of nodes outside them, less those of a node the subtree holds (`holdsLabel`), its root or a node
@@ -358,7 +361,7 @@ const outerOf = (node: RelNode): ReadonlyArray<OuterColumn> => {
 				read(column)
 			}
 		}
-		outerReads.set(at, [...reads.values()])
+		outerReads.set(at, reads.size === 0 ? noOuterReads : [...reads.values()])
 	}
 	return defined(outerReads.get(node), "the reads of the node asked")
 }
