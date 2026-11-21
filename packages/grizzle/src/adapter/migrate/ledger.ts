@@ -43,13 +43,7 @@ export const tableExists: CatalogQuery<boolean> = {
 	sql: emitCatalog(
 		C.query(
 			[C.asText(C.countStar)],
-			[
-				C.join(
-					relations.item,
-					namespaces.item,
-					C.eq(namespaces.col("oid"), relations.col("relnamespace"))
-				)
-			],
+			[C.inNamespace(relations.item, namespaces, relations.col("relnamespace"))],
 			C.and([
 				C.eq(namespaces.col("nspname"), C.param(1, "text")),
 				C.eq(relations.col("relname"), C.param(2, "name")),

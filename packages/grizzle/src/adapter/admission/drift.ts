@@ -400,12 +400,6 @@ const when = (condition: C.CatalogExpr, then: C.CatalogExpr): C.CatalogExpr =>
 const inSchema = (n: C.CatalogSource): C.CatalogExpr => C.eq(n.col("nspname"), C.param(1, "text"))
 
 /** `from` joined to its namespace `n` by `namespace`. */
-const inNamespace = (
-	from: C.CatalogFrom,
-	n: C.CatalogSource,
-	namespace: C.CatalogExpr
-): C.CatalogFrom => C.join(from, n.item, C.eq(n.col("oid"), namespace))
-
 /**
  * A manifest identity as physical/obligations/graph.ts spells it: `<kind>:`, the schema the keys spell ($2), then each
  * name as the catalog holds it, a dot before each.
@@ -715,7 +709,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 			[{ when: C.letter("d"), result: identOf("domain", [of.col("typname")]) }],
 			identOf("type", [of.col("typname")])
 		)
-	const relations = inNamespace(c.item, n, c.col("relnamespace"))
+	const relations = C.inNamespace(c.item, n, c.col("relnamespace"))
 	return C.union([
 		C.catalogCore(
 			[
@@ -827,7 +821,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				])
 			],
 			[
-				inNamespace(
+				C.inNamespace(
 					C.join(a.item, c.item, C.eq(c.col("oid"), a.col("attrelid"))),
 					n,
 					c.col("relnamespace")
@@ -849,7 +843,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				C.catalogCall("pg_get_constraintdef", [k.col("oid")])
 			],
 			[
-				inNamespace(
+				C.inNamespace(
 					C.join(k.item, c.item, C.eq(c.col("oid"), k.col("conrelid"))),
 					n,
 					c.col("relnamespace")
@@ -869,7 +863,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				C.catalogCall("pg_get_constraintdef", [k.col("oid")])
 			],
 			[
-				inNamespace(
+				C.inNamespace(
 					C.join(k.item, t.item, C.eq(t.col("oid"), k.col("contypid"))),
 					n,
 					t.col("typnamespace")
@@ -900,7 +894,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 					)
 				])
 			],
-			[inNamespace(t.item, n, t.col("typnamespace"))],
+			[C.inNamespace(t.item, n, t.col("typnamespace"))],
 			C.and([inSchema(n), notComposite(), notArray(), notExtensionMember("pg_type", t.col("oid"))])
 		),
 		C.catalogCore(
@@ -940,7 +934,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 					)
 				])
 			],
-			[inNamespace(p.item, n, p.col("pronamespace"))],
+			[C.inNamespace(p.item, n, p.col("pronamespace"))],
 			C.and([inSchema(n), notExtensionMember("pg_proc", p.col("oid"))])
 		),
 		C.catalogCore(
@@ -957,7 +951,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				])
 			],
 			[
-				inNamespace(
+				C.inNamespace(
 					C.join(g.item, c.item, C.eq(c.col("oid"), g.col("tgrelid"))),
 					n,
 					c.col("relnamespace")
@@ -981,7 +975,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 					statisticsTable()
 				])
 			],
-			[inNamespace(x.item, n, x.col("stxnamespace"))],
+			[C.inNamespace(x.item, n, x.col("stxnamespace"))],
 			inSchema(n)
 		),
 		C.catalogCore(
@@ -1007,7 +1001,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				])
 			],
 			[
-				inNamespace(
+				C.inNamespace(
 					C.join(policy.item, c.item, C.eq(c.col("oid"), policy.col("polrelid"))),
 					n,
 					c.col("relnamespace")
@@ -1023,7 +1017,7 @@ const descriptionSelect = (): C.CatalogSelect => {
 				C.catalogCall("pg_get_ruledef", [rule.col("oid"), C.bool(false)])
 			],
 			[
-				inNamespace(
+				C.inNamespace(
 					C.join(rule.item, c.item, C.eq(c.col("oid"), rule.col("ev_class"))),
 					n,
 					c.col("relnamespace")
@@ -1079,7 +1073,7 @@ const sourcesQuery: CatalogQuery<readonly [string, string, string]> = (() => {
 						C.text("hex")
 					])
 				],
-				[inNamespace(p.item, n, p.col("pronamespace"))],
+				[C.inNamespace(p.item, n, p.col("pronamespace"))],
 				C.and([
 					C.any(n.col("nspname"), C.arrayParam(1, "text")),
 					C.eq(p.col("prokind"), C.letter("f")),
@@ -1149,7 +1143,7 @@ const extensionSchema: CatalogQuery<string> = {
 	sql: emitCatalog(
 		C.query(
 			[C.asText(extensionNamespaces.col("nspname"))],
-			[inNamespace(extensions.item, extensionNamespaces, extensions.col("extnamespace"))],
+			[C.inNamespace(extensions.item, extensionNamespaces, extensions.col("extnamespace"))],
 			C.eq(extensions.col("extname"), C.param(1, "text"))
 		)
 	),
@@ -1230,7 +1224,7 @@ const publicationQuery: CatalogQuery<readonly [string, string]> = {
 					])
 				],
 				[
-					C.join(
+					C.inNamespace(
 						C.join(
 							C.join(
 								published.item,
@@ -1240,8 +1234,8 @@ const publicationQuery: CatalogQuery<readonly [string, string]> = {
 							publishedTables.item,
 							C.eq(publishedTables.col("oid"), published.col("prrelid"))
 						),
-						publishedSchemas.item,
-						C.eq(publishedSchemas.col("oid"), publishedTables.col("relnamespace"))
+						publishedSchemas,
+						publishedTables.col("relnamespace")
 					)
 				],
 				C.eq(publications.col("pubname"), C.param(1, "name"))

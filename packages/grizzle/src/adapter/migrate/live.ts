@@ -111,8 +111,6 @@ export const membershipGrantColumn: C.CatalogExpr = C.asText(
 )
 
 const rows = C.from("pg_roles", "r")
-const memberships = C.from("pg_auth_members", "m")
-const granted = C.from("pg_roles", "g")
 
 /**
  * Whether the role $1 holds the replication right: the REPLICATION attribute or a membership in rds_replication. One
@@ -127,28 +125,7 @@ export const replicationHeldQuery: CatalogQuery<boolean> = {
 						C.query(
 							[C.bool(true)],
 							[rows.item],
-							C.and([
-								C.eq(rows.col("rolname"), C.param(1, "name")),
-								C.or([
-									rows.col("rolreplication"),
-									C.exists(
-										C.query(
-											[C.bool(true)],
-											[
-												C.join(
-													memberships.item,
-													granted.item,
-													C.eq(granted.col("oid"), memberships.col("roleid"))
-												)
-											],
-											C.and([
-												C.eq(memberships.col("member"), rows.col("oid")),
-												C.eq(granted.col("rolname"), C.literal("rds_replication", "name"))
-											])
-										)
-									)
-								])
-							])
+							C.and([C.eq(rows.col("rolname"), C.param(1, "name")), C.holdsReplicationRight(rows)])
 						)
 					)
 				)

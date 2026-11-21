@@ -424,6 +424,17 @@ export const join = (left: CatalogFrom, right: CatalogFrom, on: CatalogExpr): Ca
 	on
 })
 
+/**
+ * `rows` joined to the namespace `n` its catalog rows lie in, `namespace` the column naming it (relnamespace,
+ * typnamespace, pronamespace, ...): the one join of a namespaced catalog row and its pg_namespace row, which every
+ * catalog read that names a schema reads through.
+ */
+export const inNamespace = (
+	rows: CatalogFrom,
+	n: CatalogSource,
+	namespace: CatalogExpr
+): CatalogFrom => join(rows, n.item, eq(n.col("oid"), namespace))
+
 export const crossJoin = (left: CatalogFrom, right: CatalogFrom): CatalogFrom => ({
 	kind: "crossJoin",
 	left,
@@ -773,6 +784,30 @@ export const databaseDefaultBlock = (statement: AlterDatabaseDefault): DoBlock =
  * rds_replication, inherited and never SET, which a role holding ADMIN on rds_replication may give.
  */
 export type ReplicationGrant = "attribute" | "rdsReplication"
+
+/**
+ * Whether the role of the pg_roles row `role` holds the replication right (ReplicationGrant): the REPLICATION attribute,
+ * or a membership in rds_replication, read through pg_auth_members `m` and the granted role's pg_roles row `g`. The one
+ * reading of the right, which a role's admission (adapter/admission/roles.ts) and the migration's check that the
+ * decoder login holds it (adapter/migrate/live.ts) read.
+ */
+export const holdsReplicationRight = (role: CatalogSource): CatalogExpr => {
+	const m = from("pg_auth_members", "m")
+	const g = from("pg_roles", "g")
+	return or([
+		role.col("rolreplication"),
+		exists(
+			query(
+				[bool(true)],
+				[join(m.item, g.item, eq(g.col("oid"), m.col("roleid")))],
+				and([
+					eq(m.col("member"), role.col("oid")),
+					eq(g.col("rolname"), literal("rds_replication", "name"))
+				])
+			)
+		)
+	])
+}
 
 /** The statement `grant` gives the decoder login by, its role quoted by format (`%I`). */
 const replicationStatement: { readonly [G in ReplicationGrant]: string } = {

@@ -105,14 +105,14 @@ const publicationsOf: CatalogQuery<string> = (() => {
 			C.query(
 				[C.asText(p.col("pubname"))],
 				[
-					C.join(
+					C.inNamespace(
 						C.join(
 							C.join(p.item, r.item, C.eq(r.col("prpubid"), p.col("oid"))),
 							c.item,
 							C.eq(c.col("oid"), r.col("prrelid"))
 						),
-						n.item,
-						C.eq(n.col("oid"), c.col("relnamespace"))
+						n,
+						c.col("relnamespace")
 					)
 				],
 				C.any(C.asText(n.col("nspname")), C.arrayParam(1, "text"))

@@ -372,7 +372,7 @@ const relationOid = (e: C.CatalogSource): C.CatalogExpr => {
 	return C.scalar(
 		C.query(
 			[c.col("oid")],
-			[C.join(c.item, n.item, C.eq(n.col("oid"), c.col("relnamespace")))],
+			[C.inNamespace(c.item, n, c.col("relnamespace"))],
 			C.and([C.eq(n.col("nspname"), e.col("schema")), C.eq(c.col("relname"), e.col("name"))])
 		)
 	)
@@ -767,8 +767,6 @@ interface RoleAttributes {
 }
 
 const roles = C.from("pg_roles", "r")
-const replicationMembers = C.from("pg_auth_members", "m")
-const grantedRoles = C.from("pg_roles", "g")
 
 /** The attributes of the role $1: one row, none when it does not exist. */
 export const attributesQuery: CatalogQuery<RoleAttributes> = {
@@ -780,27 +778,7 @@ export const attributesQuery: CatalogQuery<RoleAttributes> = {
 				C.asText(roles.col("rolsuper")),
 				C.asText(roles.col("rolcreatedb")),
 				C.asText(roles.col("rolcreaterole")),
-				C.asText(
-					C.or([
-						roles.col("rolreplication"),
-						C.exists(
-							C.query(
-								[C.bool(true)],
-								[
-									C.join(
-										members.item,
-										grantedRoles.item,
-										C.eq(grantedRoles.col("oid"), members.col("roleid"))
-									)
-								],
-								C.and([
-									C.eq(replicationMembers.col("member"), roles.col("oid")),
-									C.eq(grantedRoles.col("rolname"), C.literal("rds_replication", "name"))
-								])
-							)
-						)
-					])
-				),
+				C.asText(C.holdsReplicationRight(roles)),
 				C.asText(roles.col("rolbypassrls"))
 			],
 			[roles.item],
@@ -878,10 +856,10 @@ export const policiesQuery: CatalogQuery<ExpectedPolicy> = {
 		C.query(
 			[C.asText(classes.col("relname")), C.asText(policies.col("polname"))],
 			[
-				C.join(
+				C.inNamespace(
 					C.join(policies.item, classes.item, C.eq(classes.col("oid"), policies.col("polrelid"))),
-					namespaces.item,
-					C.eq(namespaces.col("oid"), classes.col("relnamespace"))
+					namespaces,
+					classes.col("relnamespace")
 				)
 			],
 			C.and([

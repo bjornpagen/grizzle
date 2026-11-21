@@ -73,11 +73,7 @@ import type { ServedRefresh, ServedRefreshTarget } from "#compiler/plan/serve.ts
  */
 const views = C.from("pg_class", "c")
 const viewSchemas = C.from("pg_namespace", "n")
-const viewsIn = C.join(
-	views.item,
-	viewSchemas.item,
-	C.eq(viewSchemas.col("oid"), views.col("relnamespace"))
-)
+const viewsIn = C.inNamespace(views.item, viewSchemas, views.col("relnamespace"))
 const isView = C.eq(views.col("relkind"), C.letter("m"))
 
 /** The materialized views of the schema $1 among the names $2, each with whether it is populated. */
