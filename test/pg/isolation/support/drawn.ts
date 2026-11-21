@@ -486,3 +486,27 @@ export const drawnRaceGen: Gen<DrawnRace> = (source) => {
 		calls: [defined(first, "a race's first call"), ...rest]
 	}
 }
+
+/**
+ * A race whose first call is a member of two statements, each putting the call's parameters, into R0 then R1, beside a
+ * second role's member putting into R2, every other field drawn: no member reads a relation, so every condition holds
+ * and both roles are READ COMMITTED (drawnCertificates), the first a member of two statements called, which drawn races
+ * of eight runs left unreached (the pin's pg tier at bafa0de1c and at 50de8a880: no witness reached).
+ */
+export const twoStatementRace: Gen<DrawnRace> = (source) => {
+	const drawn = source.draw(drawnRaceGen)
+	const [first, ...rest] = drawn.calls
+	return {
+		...drawn,
+		installation: {
+			members: [
+				[
+					{ into: 0, read: { kind: "put" } },
+					{ into: 1, read: { kind: "put" } }
+				],
+				[{ into: 2, read: { kind: "put" } }]
+			]
+		},
+		calls: [{ ...first, role: 0 }, ...Arr.map(rest, (call) => ({ ...call, role: call.role % 2 }))]
+	}
+}

@@ -287,14 +287,27 @@ const unsettledFirst: Gen<SharedRace> = (s) => {
 }
 
 /**
- * The history a witness runs, drawn under its steering: while an unsettled invoice's refusal is pending, one after a
- * post the CHECK refuses (unsettledFirst); otherwise a drawn one. The generator draws it, so it is the history the
- * search runs, prints and keeps.
+ * A drawn history with one of its calls sent again last, as it was: an exact repeat, which a drawn history of eight
+ * runs left unreached (the pin's pg tier at bafa0de1c and at 50de8a880: no witness reached).
  */
-export const aimedHistory: Steered<SharedRace, SerialFeature>["under"] = (steering) =>
-	Option.exists(steering, (pending) => pending.names("an unsettled invoice refused"))
-		? unsettledFirst
+const repeatedLast: Gen<SharedRace> = (s) => {
+	const drawnHistory = s.draw(histories)
+	return { ...drawnHistory, calls: [...drawnHistory.calls, s.draw(element(drawnHistory.calls))] }
+}
+
+/**
+ * The history a witness runs, drawn under its steering: while an unsettled invoice's refusal is pending, one after a
+ * post the CHECK refuses (unsettledFirst); while an exact repeat is, one that sends a call again (repeatedLast);
+ * otherwise a drawn one. The generator draws it, so it is the history the search runs, prints and keeps.
+ */
+export const aimedHistory: Steered<SharedRace, SerialFeature>["under"] = (steering) => {
+	if (Option.exists(steering, (pending) => pending.names("an unsettled invoice refused"))) {
+		return unsettledFirst
+	}
+	return Option.exists(steering, (pending) => pending.names("an exact repeat"))
+		? repeatedLast
 		: histories
+}
 
 export const initialOf = (race: SharedRace) =>
 	race.initial === "doc" ? { Doc: [{ id: uuidOf(1), slug: 1, title: 0 }] } : {}

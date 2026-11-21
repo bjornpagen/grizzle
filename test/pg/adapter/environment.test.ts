@@ -20,6 +20,7 @@
 
 import { assert } from "@bjornpagen/testing/assert"
 import type { Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Exit, FileSystem, Option, Path, Redacted } from "effect"
 import type { Password } from "#adapter/wire/session.ts"
@@ -27,6 +28,7 @@ import { storedSettingValue } from "#compiler/sql/print.ts"
 import {
 	caseGen,
 	type Configured,
+	environmentAims,
 	type Feature,
 	featuresOf,
 	type Offered,
@@ -46,7 +48,7 @@ import { Substrate } from "#test/support/substrate/substrate.ts"
  * Its pre-conversion budget: runs 40, coverage cases 80 (test/pg/adapter/environment.test.ts at d8eed1786).
  */
 export const aLoginsSessionsUnderAHostileProcessEnvironmentAuthenticateWithTheConfiguredPasswordAloneAndStartUnderThePinnedDefaultsAlone =
-	property.explore(caseGen, {
+	property.explore(aimed(caseGen, environmentAims), {
 		needs: { login: Substrate.seat(serverLogin) },
 		situations: situations satisfies ReadonlyArray<Reached<Feature>>,
 		check:

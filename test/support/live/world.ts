@@ -404,6 +404,32 @@ export const liveCaseGen =
 		}
 	}
 
+/**
+ * A case that moves a row in an ordered read, its other fields drawn: one ordered read of relation 0, subscribed for
+ * group 0, over two rows of the group, id 1 at order 0 before id 0 at order 1, and one grizzle call that puts id 1 at
+ * order 1, after id 0 by its key, on a mutable relation 0. A drawn case of 24 left the move unreached (the pin's pg
+ * tier at bafa0de1c and at 50de8a880: no witness reached a move in an ordered read).
+ */
+export const orderedMoveCase =
+	(bounds: LiveBounds): Gen<LiveCase> =>
+	(source) => {
+		const drawn = source.draw(liveCaseGen(bounds))
+		const first: LiveFact = { id: 1, g: 0, o: 0, val: 0 }
+		const second: LiveFact = { id: 0, g: 0, o: 1, val: 0 }
+		return {
+			mutable: [true, drawn.mutable[1]],
+			reads: [{ kind: "ordered", relation: 0 }],
+			subscriptions: [{ read: 0, binding: { kind: "group", group: 0 } }],
+			facts: [[first, second], drawn.facts[1]],
+			history: [
+				{
+					writer: "grizzle",
+					write: { kind: "update", relation: 0, from: first, to: { ...first, o: 1 } }
+				}
+			]
+		}
+	}
+
 /** A read's member name in the login's workload, by its place. */
 export const readMember = (place: number): string => `read${place}`
 

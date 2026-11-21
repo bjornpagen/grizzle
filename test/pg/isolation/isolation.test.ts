@@ -38,6 +38,7 @@
  *   with 40P01, a transient abort the serial reference places nowhere.
  */
 import type { Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { Effect } from "effect"
 import {
@@ -68,7 +69,7 @@ import {
 	publishedValues
 } from "#test/pg/isolation/isolation.fixtures.ts"
 import type { CounterShape } from "#test/pg/isolation/support/certify.ts"
-import { drawnRaceGen } from "#test/pg/isolation/support/drawn.ts"
+import { drawnRaceGen, twoStatementRace } from "#test/pg/isolation/support/drawn.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
 /**
@@ -223,20 +224,23 @@ export const densLeaseRacesAreSerialAndEachSearchForWorkIsCaughtForcedREADCOMMIT
  * Its pre-conversion budget: runs 8, coverage cases 8 (test/pg/isolation/isolation.test.ts at fa10bca50).
  */
 export const everyRaceOverADrawnInstallationIsSerialAtGeneratesLevelsAndAtEveryOtherCertifiers =
-	property.explore(drawnRaceGen, {
-		needs: { substrate: Substrate.installing },
-		situations: [
-			"a READ COMMITTED call",
-			"a READ COMMITTED pivot",
-			"a READ COMMITTED member of two statements",
-			"two calls overlapped"
-		] satisfies ReadonlyArray<Reached<DrawnFeature>>,
-		check:
-			({ substrate }, c: Case<DrawnFeature>) =>
-			(race) =>
-				Effect.provideServiceEffect(drawnCase(race, c), Substrate, substrate),
-		oracle: { kind: "specification", name: "a serial order of the same calls" },
-		budget: { runs: 8, steered: 8 },
-		kept: [],
-		kills: []
-	})
+	property.explore(
+		aimed(drawnRaceGen, [["a READ COMMITTED member of two statements", twoStatementRace]]),
+		{
+			needs: { substrate: Substrate.installing },
+			situations: [
+				"a READ COMMITTED call",
+				"a READ COMMITTED pivot",
+				"a READ COMMITTED member of two statements",
+				"two calls overlapped"
+			] satisfies ReadonlyArray<Reached<DrawnFeature>>,
+			check:
+				({ substrate }, c: Case<DrawnFeature>) =>
+				(race) =>
+					Effect.provideServiceEffect(drawnCase(race, c), Substrate, substrate),
+			oracle: { kind: "specification", name: "a serial order of the same calls" },
+			budget: { runs: 8, steered: 8 },
+			kept: [],
+			kills: []
+		}
+	)

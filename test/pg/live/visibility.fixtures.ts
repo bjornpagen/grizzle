@@ -70,6 +70,22 @@ export const scheduleGen: Gen<Schedule> = (source) => {
 	return { writers, steps }
 }
 
+/**
+ * The schedule of a writer running across the snapshot below a later commit before it: writer 0 begins, writer 1 begins
+ * and commits, the observer takes its snapshot, and writer 0 commits, which drawn schedules of 24 left unreached (the
+ * pin's pg tier at bafa0de1c and at 50de8a880: no witness reached).
+ */
+export const laterCommitBelow: Schedule = {
+	writers: 2,
+	steps: [
+		{ kind: "begin", writer: 0 },
+		{ kind: "begin", writer: 1 },
+		{ kind: "commit", writer: 1 },
+		{ kind: "snapshot" },
+		{ kind: "commit", writer: 0 }
+	]
+}
+
 /** Where a writer's steps stand in a schedule, by their positions: its begin and its commit. */
 interface Span {
 	readonly begin: number
