@@ -190,6 +190,7 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 			"entryAttaches",
 			"entryApproximate",
 			"entryOrdered",
+			"entryContext",
 			"writeOutside",
 			"writeKind",
 			"writeUnwritable",
@@ -224,7 +225,7 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 			}),
 		oracle: {
 			kind: "specification",
-			name: "the role rules: whole entries of the base under their names, parameterless flat Query entries over it, writes of ordinary relations and writable entries once per relation, refreshes of derived ones"
+			name: "the role rules: whole entries of the base under their names, parameterless flat Query entries over it matching only the contexts the role declares, writes of ordinary relations and writable entries once per relation, refreshes of derived ones"
 		},
 		kept: [],
 		kills: [
@@ -233,6 +234,12 @@ export const roleAdmissionRefusesEveryPlantedBreachOfARolesRulesByThatRuleAtTheB
 				original: '\t\tif (draft !== undefined || kind === "relation" || kind === "closed") {',
 				replacement: '\t\tif (draft === undefined || kind === "relation" || kind === "closed") {',
 				why: "Operator mutant 23023a52cc at packages/engine/src/schema/world.ts:334 in admitRole: `!==` becomes `===`; the property fails (the census, lane TESTPOLICY2)."
+			},
+			{
+				file: "packages/engine/src/schema/own.ts",
+				original: "\t\tconst contextBreak = entryContextBreak(desc.contexts, uses.contexts)\n",
+				replacement: "\t\tconst contextBreak = entryContextBreak(desc.contexts, new Map())\n",
+				why: "ownership admits a query entry matching a context its role does not declare: the planted entryContext's description is owned."
 			}
 		]
 	})

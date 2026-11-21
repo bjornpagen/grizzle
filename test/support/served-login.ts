@@ -363,20 +363,21 @@ export const pagedLoginGen =
 const isRole = (value: unknown): value is ReturnType<typeof role> => roleDescOf(value) !== undefined
 
 /**
- * A role over `value` that writes `written` and refreshes the law level's materialized view, built as a JavaScript
- * caller builds one, since the drawn schema's type names no materialized relation.
+ * A role over `value` that writes `written`, declares `contexts` and refreshes the law level's materialized view, built
+ * as a JavaScript caller builds one, since the drawn schema's type names no materialized relation.
  */
 const refreshingRole = (
 	drawn: DrawnSchema,
 	name: string,
 	entries: Readonly<Record<string, EntryValue>>,
-	written: ReadonlyArray<string>
+	written: ReadonlyArray<string>,
+	contexts: ReadonlyArray<AnyContext>
 ): ReturnType<typeof role> => {
 	const made: unknown = Reflect.apply(role, undefined, [
 		drawn.laws.schema,
 		name,
 		entries,
-		{ write: written, refresh: [drawn.laws.view.name] }
+		{ write: written, refresh: [drawn.laws.view.name], contexts }
 	])
 	if (!isRole(made)) {
 		throw new Error(`the role ${name} is no role`)
@@ -422,23 +423,30 @@ const entryOf = (drawn: DrawnSchema, entry: EntryShape, claims: AnyContext): Ent
 	})
 }
 
-/** A drawn role's value and its workload's programs, by name. */
+/**
+ * A drawn role's value and its workload's programs, by name. The role declares the context its query entry `Mine`
+ * matches, the one its Db's claims hold, and none without the entry.
+ */
 const roleOf = (drawn: DrawnSchema, shape: RoleShape, place: number) => {
 	const value: AnySchema = drawn.laws.schema
 	const entries: Record<string, EntryValue> = { ...wholeEntriesOf(drawn.laws.schema) }
-	if (Option.isSome(shape.entry)) {
-		entries[entryName] = entryOf(
-			drawn,
-			shape.entry.value,
-			contextOf(drawn, shape.entry.value, place)
-		)
+	const mine = Option.map(shape.entry, (entry) => ({
+		entry,
+		claims: contextOf(drawn, entry, place)
+	}))
+	if (Option.isSome(mine)) {
+		entries[entryName] = entryOf(drawn, mine.value.entry, mine.value.claims)
 	}
+	const contexts = Option.match(mine, {
+		onNone: (): ReadonlyArray<AnyContext> => [],
+		onSome: (m) => [m.claims]
+	})
 	const written = Option.isSome(shape.entry) ? [...shape.writes, entryName] : shape.writes
 	const made = shape.refreshes
-		? refreshingRole(drawn, roleName(place), entries, written)
+		? refreshingRole(drawn, roleName(place), entries, written, contexts)
 		: written.length === 0
-			? role(value, roleName(place), entries)
-			: role(value, roleName(place), entries, { write: written })
+			? role(value, roleName(place), entries, { contexts })
+			: role(value, roleName(place), entries, { write: written, contexts })
 	const changes = Arr.map(shape.changes, (change, i) => {
 		const target =
 			change.target.kind === "whole"

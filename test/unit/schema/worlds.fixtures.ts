@@ -21,7 +21,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Refused } from "#compiler/core/refusals.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { query, v } from "#compiler/public/query.ts"
-import { closed, derived, relation, schema } from "#compiler/public/schema.ts"
+import { closed, context, derived, relation, schema } from "#compiler/public/schema.ts"
 import {
 	type OrderedValue,
 	queryOver,
@@ -31,7 +31,7 @@ import {
 } from "#compiler/query/build/query.ts"
 import type { RuleValue } from "#compiler/query/build/rule.ts"
 import { computeCore } from "#compiler/scalar/compute/builders.ts"
-import { admitRole } from "#compiler/schema/world.ts"
+import { admitRole, contextDescOf } from "#compiler/schema/world.ts"
 import { buildSchema } from "#test/pg/derived/oracle/gen.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickFrom, pickGen } from "#test/support/pick.ts"
@@ -68,6 +68,14 @@ const Stray = relation("Stray", { id: Id }, ["id"])
 
 export const Other = schema("Other", [Kind, Post, Stray], [])
 
+/** The context a role may declare: a viewer's id, which a claimed entry matches against its relation's own. */
+const Viewer = context("Viewer", { id: Id })
+const contextValues = { Viewer } as const
+type ContextName = keyof typeof contextValues
+/** A declared context's description, as a role's Description holds it. */
+const contextDesc = (c: ContextName) =>
+	defined(contextDescOf(contextValues[c]), `${c}'s description`)
+
 /** The base's relations by name, and the ordinary ones a role may write, each with its fields and its key. */
 const baseRelations = Reports.relations
 
@@ -97,13 +105,15 @@ const kindOfBase = (name: BaseName): "closed" | "relation" | "derived" => baseRe
 
 /**
  * A role entry as a case states it: a whole relation of the base, or of another schema, under a name; a query over an
- * ordinary relation finding its fields but `omit`; a query over another schema; a query over the base reading a
- * relation the base lacks; a query reading a parameter, attaching, searching approximately, or ordered.
+ * ordinary relation finding its fields but `omit`; one matching Viewer at the relation's id (`claimed`); a query over
+ * another schema; a query over the base reading a relation the base lacks; a query reading a parameter, attaching,
+ * searching approximately, or ordered.
  */
 type EntrySpec =
 	| { readonly kind: "whole"; readonly relation: BaseName }
 	| { readonly kind: "stray" }
 	| { readonly kind: "view"; readonly relation: Ordinary; readonly omit: ReadonlyArray<string> }
+	| { readonly kind: "claimed"; readonly relation: Ordinary }
 	| { readonly kind: "over another"; readonly relation: "Kind" | "Post" }
 	| { readonly kind: "outside" }
 	| {
@@ -120,6 +130,8 @@ interface RoleSpec {
 	readonly entries: ReadonlyArray<readonly [string, EntrySpec]>
 	readonly write: ReadonlyArray<string>
 	readonly refresh: ReadonlyArray<string>
+	/** The contexts the role declares. */
+	readonly contexts: ReadonlyArray<ContextName>
 }
 
 /** A query over `relation` matching every field and finding all but `omit`. */
@@ -142,6 +154,13 @@ const entryValue = (spec: EntrySpec): unknown => {
 			return Stray
 		case "view":
 			return viewOver(spec.relation, spec.omit)
+		case "claimed": {
+			const r = ordinaries[spec.relation]
+			return queryOver(Reports).rule((rule: RuleValue) => {
+				const vars = varsOver(r.value, "claimed")
+				return rule.match(r.value, vars).match(Viewer, { id: vars["id"] }).find(vars)
+			})
+		}
 		case "over another": {
 			const read = spec.relation === "Kind" ? Kind : Post
 			return queryOver(Other).rule((r: RuleValue) => {
@@ -215,6 +234,7 @@ const entryDesc = (name: string, spec: EntrySpec): Option.Option<unknown> => {
 		case "over another":
 			return Option.none()
 		case "view":
+		case "claimed":
 		case "outside":
 		case "parameter":
 		case "attach":
@@ -229,8 +249,12 @@ const entryDesc = (name: string, spec: EntrySpec): Option.Option<unknown> => {
 	}
 }
 
-/** The healthy role: drawn whole entries, writable views of drawn ordinary relations, and what it writes and refreshes. */
+/**
+ * The healthy role: drawn whole entries, writable views of drawn ordinary relations, and what it writes and refreshes;
+ * and, where it declares Viewer, drawn entries matching it.
+ */
 const healthyGen: Gen<RoleSpec> = (source) => {
+	const contexts: ReadonlyArray<ContextName> = source.draw(boolean) ? ["Viewer"] : []
 	const candidates: Arr.NonEmptyReadonlyArray<readonly [string, EntrySpec]> = [
 		...Arr.map(baseNames, (relation): readonly [string, EntrySpec] => [
 			relation,
@@ -239,7 +263,13 @@ const healthyGen: Gen<RoleSpec> = (source) => {
 		...Arr.map(ordinaryNames, (relation): readonly [string, EntrySpec] => [
 			`${relation}View`,
 			{ kind: "view", relation, omit: [] }
-		])
+		]),
+		...(Arr.isReadonlyArrayNonEmpty(contexts)
+			? Arr.map(ordinaryNames, (relation): readonly [string, EntrySpec] => [
+					`${relation}Mine`,
+					{ kind: "claimed", relation }
+				])
+			: [])
 	]
 	const entries = source.draw(shuffled(candidates, { min: 1, max: candidates.length }))
 	const wholes = Arr.flatMap(entries, ([, e]) => (e.kind === "whole" ? [e.relation] : []))
@@ -253,7 +283,7 @@ const healthyGen: Gen<RoleSpec> = (source) => {
 		return at === writers.length ? [] : [defined(writers[at])]
 	})
 	const refresh = source.draw(subarray(Arr.filter(wholes, (w) => kindOfBase(w) === "derived")))
-	return { entries, write, refresh }
+	return { entries, write, refresh, contexts }
 }
 
 /** A defect a case plants, each with its drawn target. */
@@ -272,6 +302,7 @@ type Defect =
 	| { readonly kind: "entryAttaches"; readonly relation: Ordinary }
 	| { readonly kind: "entryApproximate"; readonly take: number }
 	| { readonly kind: "entryOrdered"; readonly relation: Ordinary; readonly descending: boolean }
+	| { readonly kind: "entryContext"; readonly relation: Ordinary }
 	| { readonly kind: "writeOutside"; readonly name: number }
 	| { readonly kind: "writeKind"; readonly derived: boolean }
 	| { readonly kind: "writeUnwritable"; readonly relation: Ordinary; readonly omit: number }
@@ -309,6 +340,7 @@ const defectGen: Gen<Defect> = weighted<Defect>([
 		1,
 		(s) => ({ kind: "entryOrdered", relation: s.draw(ordinaryGen), descending: s.draw(boolean) })
 	],
+	[1, (s) => ({ kind: "entryContext", relation: s.draw(ordinaryGen) })],
 	[1, (s) => ({ kind: "writeOutside", name: s.draw(int(0, 9)) })],
 	[1, (s) => ({ kind: "writeKind", derived: s.draw(boolean) })],
 	[1, (s) => ({ kind: "writeUnwritable", relation: s.draw(ordinaryGen), omit: s.draw(int(1, 7)) })],
@@ -434,6 +466,19 @@ const plant = (healthy: RoleSpec, defect: Defect): RoleCase => {
 				}),
 				{ kind: "entryOrdered", entry: "Top" }
 			)
+		case "entryContext": {
+			/** The healthy role without Viewer and the entries matching it, then one entry that does. */
+			const undeclared: RoleSpec = {
+				...healthy,
+				entries: Arr.filter(healthy.entries, ([, e]) => e.kind !== "claimed"),
+				contexts: []
+			}
+			return of(entered(undeclared, "Claimed", { kind: "claimed", relation: defect.relation }), {
+				kind: "entryContext",
+				entry: "Claimed",
+				context: "Viewer"
+			})
+		}
 		case "writeOutside": {
 			const name = `Ghost${defect.name}`
 			return of({ ...healthy, write: [...healthy.write, name] }, { kind: "writeOutside", name })
@@ -542,11 +587,18 @@ export const admitted = (name: string, spec: RoleSpec) =>
 		Reports,
 		name,
 		Rec.fromEntries(Arr.map(spec.entries, ([n, entry]) => [n, entryValue(entry)] as const)),
-		{ write: spec.write, refresh: spec.refresh },
+		{
+			write: spec.write,
+			refresh: spec.refresh,
+			contexts: Arr.map(spec.contexts, (c) => contextValues[c])
+		},
 		[]
 	)
 
-/** The description of the planted spec, built on the healthy role's own: none where no description states it. */
+/**
+ * The description of the planted spec, built on the healthy role's own, holding the planted entries alone: none where no
+ * description states it.
+ */
 export const describedOf = (c: RoleCase): Option.Option<unknown> => {
 	const healthy = admitted("described", c.healthy).desc
 	const added = Arr.filter(
@@ -561,11 +613,15 @@ export const describedOf = (c: RoleCase): Option.Option<unknown> => {
 	return Option.some({
 		...healthy,
 		relations: [
-			...Arr.filter(healthy.relations, (e) => !replaced.has(e.name)),
+			...Arr.filter(
+				healthy.relations,
+				(e) => !replaced.has(e.name) && Arr.some(c.planted.entries, ([n]) => n === e.name)
+			),
 			...Arr.flatMap(descs, Option.toArray)
 		],
 		write: c.planted.write,
-		refresh: c.planted.refresh
+		refresh: c.planted.refresh,
+		contexts: Arr.map(c.planted.contexts, contextDesc)
 	})
 }
 
