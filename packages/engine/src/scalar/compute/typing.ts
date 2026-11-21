@@ -58,6 +58,7 @@ import {
 	type ContractInfo,
 	enteredType,
 	exactDigitsOf,
+	integerTypmodOf,
 	isExactValue,
 	isRefined,
 	languageOctets,
@@ -942,7 +943,9 @@ export const boundsOfType = (t: ScalarType): Bounds | undefined => {
 
 /**
  * The facts every value of `t`'s SQL type has, whatever made it: an integer's, an exact value's and money's finiteness,
- * which their types state, as the TypeScript types read finiteness off an operand's SQL type.
+ * which their types state, and numeric(p, 0)'s, an integer type that holds no NaN, which grizzle refuses at every door,
+ * and no infinity, which its typmod refuses (integerTypmodOf), as the TypeScript types read finiteness off an operand's
+ * SQL type and, for numeric(p, 0), its host type, a bigint (types/compute/compute.ts FiniteByType).
  */
 const carrierFacts = (t: ScalarType): FactSet => {
 	const carrier = baseOf(t).carrier
@@ -951,7 +954,8 @@ const carrierFacts = (t: ScalarType): FactSet => {
 		carrier === "int8" ||
 		carrier === "money" ||
 		carrier === "exactInteger" ||
-		carrier === "exactMoney"
+		carrier === "exactMoney" ||
+		integerTypmodOf(t) !== undefined
 		? finiteByType
 		: noFacts
 }
@@ -4975,34 +4979,63 @@ const zeroOf = (carrier: Carrier): LiteralDesc | undefined => {
 	}
 }
 
-/** The negative and the positive infinity of a numeric's or a float's carrier; none of another, finite by its type. */
-const infinitiesOf = (carrier: Carrier): readonly [LiteralDesc, LiteralDesc] | undefined =>
+/**
+ * The values of a numeric's or a float's carrier that are not finite, each a literal of the carrier: its negative and its
+ * positive infinity and NaN; none of another carrier, finite by its type.
+ */
+const specialsOf = (
+	carrier: Carrier
+):
+	| { readonly low: LiteralDesc; readonly high: LiteralDesc; readonly nan: LiteralDesc }
+	| undefined =>
 	carrier === "numeric"
-		? [Decimal.negativeInfinity, Decimal.infinity]
+		? { low: Decimal.negativeInfinity, high: Decimal.infinity, nan: Decimal.nan }
 		: carrier === "float4" || carrier === "float8"
-			? [{ float: "-Infinity" }, { float: "Infinity" }]
+			? { low: { float: "-Infinity" }, high: { float: "Infinity" }, nan: { float: "NaN" } }
 			: undefined
 
 /**
+ * The comparisons that hold of exactly the finite values of `value`'s type, by the values its type holds that are not
+ * (carrierBounds): `> -Infinity AND < Infinity` where it holds the infinities, as a float and a numeric of no typmod do,
+ * and NaN, which PostgreSQL orders above them; `<> 'NaN'` where it holds NaN alone, as numeric(p, s) does, its typmod
+ * refusing an infinity (PostgreSQL 19's numeric.c apply_typmod_special: "A field with precision %d, scale %d cannot
+ * hold an infinite value"), so its guard compares it with no value it cannot hold; none where its type proves it finite
+ * (carrierFacts), as numeric(p, 0)'s does, which holds neither, and every type of another carrier's.
+ */
+const finiteTests = (
+	value: ScalarType
+): NonEmptyReadonlyArray<readonly [CompareOp, LiteralDesc]> | undefined => {
+	const specials = specialsOf(baseOf(value).carrier)
+	const bounds = carrierBounds(baseOf(value))
+	if (specials === undefined || bounds === undefined || carrierFacts(value).finite !== undefined) {
+		return undefined
+	}
+	return isInfinite(bounds)
+		? [
+				["gt", specials.low],
+				["lt", specials.high]
+			]
+		: [["ne", specials.nan]]
+}
+
+/**
  * The comparisons a constant guard tests its subject's value by, each with its constant, a value of the subject's value
- * carrier: `<> 0`, `>= 0` and `> 0` of a number, `> -Infinity AND < Infinity` of a numeric or a float; or the refusal
- * of a subject of another carrier. What a guard's builder records (builders.ts factGuard) and what a Logic.when's
- * lowering tests (Typing.guardPredicate), one table.
+ * carrier: `<> 0`, `>= 0` and `> 0` of a number, and of a numeric or a float the comparisons that hold of exactly its
+ * type's finite values (finiteTests); or the refusal of a subject of another carrier, or of a type that is finite by
+ * itself. What a guard's builder records (builders.ts factGuard) and what a Logic.when's lowering tests
+ * (Typing.guardPredicate), one table.
  */
 export const constantGuardTests = (
 	guard: ConstantGuard,
 	value: ScalarType
 ): Result.Result<NonEmptyReadonlyArray<readonly [CompareOp, LiteralDesc]>, string> => {
 	if (guard === "finite") {
-		const infinities = infinitiesOf(value.carrier)
-		return infinities === undefined
+		const tests = finiteTests(value)
+		return tests === undefined
 			? Result.err(
-					`Num.isFinite over a numeric or float term, not ${typeLabel(value)}, which is finite by its type`
+					`Num.isFinite over a term that may be NaN or infinite, not ${typeLabel(value)}, which is finite by its type`
 				)
-			: Result.ok([
-					["gt", infinities[0]],
-					["lt", infinities[1]]
-				])
+			: Result.ok(tests)
 	}
 	const constant = zeroOf(value.carrier)
 	const op = guard === "nonzero" ? "ne" : guard === "nonnegative" ? "ge" : "gt"

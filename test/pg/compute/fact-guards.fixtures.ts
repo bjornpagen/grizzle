@@ -304,14 +304,23 @@ export const compiled = (
 	)
 }
 
-/** Where the types admit a guard: isFinite over numeric (InexactSql), the others over every number (NumericSql). */
-export const typesAdmit = (c: Case): boolean => c.guard !== "isFinite" || c.base.kind === "numeric"
+/**
+ * Where the types admit a guard: isFinite over a numeric that may be NaN (InexactSql), so over no numeric of scale 0,
+ * finite by its type (types/compute/compute.ts FiniteByType); the others over every number (NumericSql).
+ */
+export const typesAdmit = (c: Case): boolean =>
+	c.guard !== "isFinite" || (c.base.kind === "numeric" && c.base.scale !== 0)
 
-/** Whether the guard's constant is no value of the case's domain: an infinity of a typmod's, or a zero it keeps out. */
+/**
+ * Whether the guard's constant is no value of the case's domain: isFinite's, NaN, the one value a typmod holds that is
+ * not finite (scalar/compute/typing.ts finiteTests), where the predicate keeps NaN out; another guard's zero where it
+ * keeps zero out.
+ */
 export const constantKeptOut = (c: Case): boolean =>
-	c.guard === "isFinite"
-		? c.base.kind === "numeric"
-		: !kept(c.keeps, { kind: "exact", units: 0n, exponent: 0 })
+	!kept(
+		c.keeps,
+		c.guard === "isFinite" ? { kind: "nan" } : { kind: "exact", units: 0n, exponent: 0 }
+	)
 
 /** A value's text, as PostgreSQL's numeric and integer input functions read it. */
 export const valueText = (value: Value): string =>

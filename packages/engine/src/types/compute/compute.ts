@@ -130,35 +130,61 @@ type NonzeroDivisor<S extends SqlTag, B> = [S] extends ["real" | "double precisi
 	: Proves<B, "nonzero">
 
 /**
- * Whether a first operand a partial operation needs finite, of facts FX and value type LV (Holds), is: numeric's and a
- * float's must be proved so; an integer's, money's and an exact value's are by their types.
+ * Whether every value of a term of SQL type S and host type V is finite by its type, as compilation's facts of a type
+ * hold it (scalar/compute/typing.ts carrierFacts): an integer's, money's and an exact value's by their SQL types, and
+ * numeric(p, 0)'s by its host type, a bigint (NumericHostOf), an integer type that holds no NaN, which grizzle refuses
+ * at every door, and no infinity, which its typmod refuses. Any other numeric and a float may be NaN or infinite.
  */
-type IsFinite<S extends SqlTag, FX extends Facts, LV> = [S] extends [InexactSql]
-	? Holds<FX, LV, "finite">
+type FiniteByType<S extends SqlTag, V> = [S] extends [InexactSql]
+	? [S] extends ["numeric"]
+		? [V] extends [never]
+			? false
+			: [V] extends [bigint]
+				? true
+				: false
+		: false
 	: true
 
 /**
- * Whether a cast's operand is as finite as its target needs: from numeric or a float into an integer or money, proved
- * finite.
+ * Whether a first operand a partial operation needs finite, of SQL type S, host type V, facts FX and value type LV
+ * (Holds), is: finite by its type (FiniteByType), or proved so.
  */
-type FiniteCast<S extends SqlTag, F extends SqlTag, FX extends Facts, LV> = [F] extends [
+type IsFinite<S extends SqlTag, V, FX extends Facts, LV> =
+	FiniteByType<S, V> extends true ? true : Holds<FX, LV, "finite">
+
+/**
+ * Whether a cast's operand, of host type V, is as finite as its target needs: from numeric or a float into an integer
+ * or money, finite by its type or proved so (IsFinite).
+ */
+type FiniteCast<S extends SqlTag, F extends SqlTag, V, FX extends Facts, LV> = [F] extends [
 	"smallint" | "integer" | "bigint" | "money"
 ]
-	? IsFinite<S, FX, LV>
+	? IsFinite<S, V, FX, LV>
 	: true
 
 /**
- * The facts a cast keeps of its operand's, as compilation keeps them (typing.ts keptFacts): none into a float; every
- * one from an integer, money or an exact value, finite among them by the operand's type; and the others but nonzero
- * from numeric or a float, whose rounding at a typmod no SQL type tells apart may reach zero.
+ * A guard's subject that its type does not already prove finite: a term finite by its type (FiniteByType) has no
+ * SQL type the guard takes, so Num.isFinite refuses numeric(p, 0) as it refuses an integer, by its subject's type, and
+ * compilation as MalformedDescription (scalar/compute/typing.ts constantGuardTests).
  */
-type CastFacts<S extends SqlTag, F extends SqlTag, FX extends Facts> = [F] extends [
+type MayBeNonFinite<S extends SqlTag, V> =
+	FiniteByType<S, V> extends true ? { readonly sql: never } : unknown
+
+/**
+ * The facts a cast keeps of its operand's, of host type V, as compilation keeps them (typing.ts keptFacts): none into a
+ * float; every one from an integer, money or an exact value, finite among them by the operand's type; and the others
+ * but nonzero from numeric or a float, whose rounding at a typmod no SQL type tells apart may reach zero, finite among
+ * them from numeric(p, 0), by its type (FiniteByType).
+ */
+type CastFacts<S extends SqlTag, F extends SqlTag, V, FX extends Facts> = [F] extends [
 	"real" | "double precision"
 ]
 	? Facts
 	: [S] extends ["smallint" | "integer" | "bigint" | "exact integer" | "money" | "exact money"]
 		? FX & { readonly finite: true }
-		: Omit<FX, "nonzero"> & Facts
+		: Omit<FX, "nonzero"> &
+				Facts &
+				(FiniteByType<S, V> extends true ? { readonly finite: true } : unknown)
 
 /** Whether a power's base, of facts FA and value type LA, and exponent B meet its precondition (see power). */
 type PowerBase<FA extends Facts, LA, B> =
@@ -448,11 +474,14 @@ export interface TypeApi {
 			> &
 			Precondition<
 				Casts<A, X, S, D, F>,
-				FiniteCast<S, F, FX, LX>,
+				FiniteCast<S, F, ValueOfTerm<A>, FX, LX>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		to: Field<H, F, D> & NotInstant<D>
-	): Admitted<Casts<A, X, S, D, F>, Term<D, PA, ComputedOrigin<OA>, F, H, CastFacts<S, F, FX>>>
+	): Admitted<
+		Casts<A, X, S, D, F>,
+		Term<D, PA, ComputedOrigin<OA>, F, H, CastFacts<S, F, ValueOfTerm<A>, FX>>
+	>
 }
 
 /**
@@ -470,7 +499,14 @@ export interface NumApi {
 		x: A & FirstTerm<A> & InputTerm<X, PA, OA, S> & Proving<FX>
 	): Admitted<
 		TakesFirst<A, NumericSql>,
-		Term<Decimal, PA, UnhostedOrigin<OA>, "numeric", Decimal, CastFacts<S, "numeric", FX>>
+		Term<
+			Decimal,
+			PA,
+			UnhostedOrigin<OA>,
+			"numeric",
+			Decimal,
+			CastFacts<S, "numeric", ValueOfTerm<A>, FX>
+		>
 	>
 
 	/**
@@ -699,7 +735,7 @@ export interface NumApi {
 			Literal<LXX> &
 			Precondition<
 				Buckets<AX, AL, AH, C>,
-				Holds<FXX, LXX, "finite">,
+				IsFinite<"numeric", ValueOfTerm<AX>, FXX, LXX>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		low: AL &
@@ -709,7 +745,7 @@ export interface NumApi {
 			Literal<LXL> &
 			Precondition<
 				Buckets<AX, AL, AH, C>,
-				Holds<FXL, LXL, "finite">,
+				IsFinite<"numeric", ValueOfTerm<AL>, FXL, LXL>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		high: AH &
@@ -719,7 +755,7 @@ export interface NumApi {
 			Literal<LXH> &
 			Precondition<
 				Buckets<AX, AL, AH, C>,
-				Holds<FXH, LXH, "finite">,
+				IsFinite<"numeric", ValueOfTerm<AH>, FXH, LXH>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>,
 		count: Fit<C, NoInfer<Meets<number, SqlTag>>>
@@ -736,7 +772,7 @@ export interface NumApi {
 			Literal<LA> &
 			Precondition<
 				TakesFirst<A, "numeric">,
-				Holds<FA, LA, "finite">,
+				IsFinite<"numeric", ValueOfTerm<A>, FA, LA>,
 				"a value proved finite: guard it with Logic.when(Num.isFinite(x), (x) => …, otherwise)"
 			>
 	): Admitted<TakesFirst<A, "numeric">, Term<number, PA, UnhostedOrigin<OA>, "integer">>
@@ -792,7 +828,11 @@ export interface NumApi {
 		TakesFirst<A, NumericSql>,
 		GuardOver<X, PA, OA, S, V, FA, L, LX, { readonly nonzero: true; readonly nonnegative: true }>
 	>
-	/** A guard that its subject, numeric or a float, is finite: `x > -Infinity AND x < Infinity`. */
+	/**
+	 * A guard that its subject, numeric or a float, is finite, testing exactly the values its type holds that are not:
+	 * `x > -Infinity AND x < Infinity` of a float or a numeric of no typmod, `x <> 'NaN'` of numeric(p, s), whose typmod
+	 * holds no infinity. numeric(p, 0), finite by its type (FiniteByType), is no subject of it, as an integer is not.
+	 */
 	isFinite<
 		A extends TermBase | FirstValue,
 		X,
@@ -804,9 +844,9 @@ export interface NumApi {
 		L,
 		LX
 	>(
-		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L> & Literal<LX>
+		x: A & FirstTerm<A> & Term<X, PA, OA, S, V, FA, L> & Literal<LX> & MayBeNonFinite<S, V>
 	): Admitted<
-		TakesFirst<A, InexactSql>,
+		Every<[TakesFirst<A, InexactSql>, Not<FiniteByType<S, V>>]>,
 		GuardOver<X, PA, OA, S, V, FA, L, LX, { readonly finite: true }>
 	>
 	/**

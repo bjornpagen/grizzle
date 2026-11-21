@@ -6,10 +6,11 @@
  * guard over a parameter.
  *
  * The oracle: compilation admits the guard exactly where the types do (the compute population's verdict,
- * test/support/agreement/compute.ts: isFinite over numeric, the others over every number), whatever constant the
- * contract's domain holds; and over a batch of the domain's own values, NaN among them where the domain admits it,
- * PostgreSQL's answer to the SQL compiled for the case, its subject a value of the domain, is the host evaluator's,
- * value by value: a NaN that isFinite keeps out included, since a typmod keeps out an infinity but never NaN.
+ * test/support/agreement/compute.ts: isFinite over a numeric of a scale but 0, whose numeric(p, 0) is finite by its
+ * type, the others over every number), whatever constant the contract's domain holds; and over a batch of the domain's
+ * own values, NaN among them where the domain admits it, PostgreSQL's answer to the SQL compiled for the case, its
+ * subject a value of the domain, is the host evaluator's, value by value: a NaN that isFinite keeps out included, since
+ * a typmod keeps out an infinity but never NaN, so isFinite tests it `<> 'NaN'`.
  *
  * Features: each guard in each position over each contract predicate's relation to zero.
  */
