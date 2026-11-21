@@ -908,7 +908,8 @@ The command line's own refusals, by stage:
   `const evaluate = rowEvaluator(schema)` once, which compiles (Effect's `Result` over `CompileError`, as every `Result`
   grizzle answers is), admit each row once,
   `evaluate.admit(R, row)`, R any relation of the schema, stored, derived or closed, the row typed off R without its
-  generated fields: `DomainRefused` naming a field PostgreSQL's domain refuses, or the `AdmittedRow`; then
+  generated fields, each instant the `bigint` it is (an evaluation writes nothing, so a row it judges holds any instant;
+  an admitted row's instant is no `Instant`): `DomainRefused` naming a field PostgreSQL's domain refuses, or the `AdmittedRow`; then
   `evaluate(R, admitted)` or `evaluate(select(R, φ), admitted)` is `{ generated, checks, selected }`, each item
   computed where it is first read and shared by every source of R over the admitted row, each generated
   value (`null` for NULL), each row check's `"holds"` or `"breaks"` by name, NULL breaking a table's check and a derived
@@ -917,7 +918,8 @@ The command line's own refusals, by stage:
   on the host the rows an insertion stores, bind `const preview = insertPreview(schema)` once, which compiles the law model (a
   `Result` over `CompileError`), then call `preview(rows)`, insertAll's record over every top-level relation: every writable relation's rows as `ChangeSet.empty(schema).insertAll(rows)`
   stores them in an installation holding no row, an empty array where it stores none, each row every field but the
-  generated ones as host values, a closed id its handle, which `evaluate.admit(R, row)` reads as it is; or a tagged
+  generated ones as host values, a closed id its handle, an instant a `bigint`, which `evaluate.admit(R, row)` reads as
+  it is; or a tagged
   refusal, the write's before any SQL: `InputRefused`, `KeyConflict`, `GeneratedNull`, `OwnerAbsent`, a counted
   member whose owner the call does not insert, or `Uncompiled`, the `CompileError` of an insert of the call's families
   that does not compile. Binding compiles the law model alone; each call compiles, once, the insert of the families

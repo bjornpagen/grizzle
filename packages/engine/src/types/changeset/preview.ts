@@ -15,7 +15,8 @@ import type { WritableNameOf } from "#compiler/types/schema/world.ts"
 /**
  * Every writable relation of S (WritableNameOf), an empty array where the write stores none of it, and under each its
  * rows as the write stores them: each an EvaluatedRow, every field the relation stores but those PostgreSQL generates,
- * each its codec's host value, a closed id its handle, so `rowEvaluator(S)` evaluates it as it is. A relation's rows
+ * each its codec's host value, a closed id its handle, an instant the bigint it is, so `rowEvaluator(S)` evaluates it as
+ * it is. A relation's rows
  * are a set: each once, in no order that means anything.
  */
 export type PreviewRows<S extends AnySchema> = {

@@ -13,7 +13,7 @@ import { instantsProgram } from "#test/types/changeset/instants.ts"
 
 /** Admits every write of an instant the rule admits, and refuses every other with the refusal its directive names. */
 export const instants = boxAgreement(finite(word(instantsBox)), {
-	box: "an insert, a put and a delete of host rows and of a query's, the rows insertAll's record types and factsDecoder decodes inserted, insertAll'd and served, an instant stated from a stored one, a stored instant (instant.stored) stated from a read's instant and refused a bigint, a parameter, a relation parameter's column, a literal, a typed constant and a cast of its type, a contract named instant or over one, a span of instants, and instants compared with a literal and with instants",
+	box: "an insert, a put and a delete of host rows and of a query's, the rows insertAll's record types and factsDecoder decodes inserted, insertAll'd and served, an instant stated from a stored one, a stored instant (instant.stored) stated from a read's instant and refused a bigint, an evaluator's rows stating instants as bigints and delivering none as a read's, a parameter, a relation parameter's column, a literal, a typed constant and a cast of its type, a contract named instant or over one, a span of instants, and instants compared with a literal and with instants",
 	situations: [],
 	notes: () => [],
 	checking: "disarmed",
@@ -43,6 +43,12 @@ export const instants = boxAgreement(finite(word(instantsBox)), {
 			original: 'export type Instant = bigint & Brand.Brand<"instant">',
 			replacement: "export type Instant = bigint",
 			why: "An instant's host value is a bare bigint, so a host row stating a stored instant of a bigint, a host's own, typechecks and its directive is unused; the program fails."
+		},
+		{
+			file: "packages/engine/src/types/schema/evaluation.ts",
+			original: "type Evaluated<V> = V extends Instant ? bigint : V",
+			replacement: "type Evaluated<V> = V",
+			why: "An evaluated row's instant is the read's Instant, so a row an author states to judge, its instant a bigint, is refused by admit, and an admitted row's instant reads as one a read delivered; the program fails."
 		},
 		{
 			file: "packages/engine/src/types/query/rule.ts",

@@ -4709,7 +4709,9 @@ grizzle answers, here and in `codecText`, `insertPreview` and `indexesOf`, is Ef
 once, `evaluate.admit(Account, row)`, then evaluated as a row of any source of its relation, `evaluate(Account,
 admitted)` or `evaluate(select(Account, (a) => a.gt(a.units, 3)), admitted)` for a selection. A source is any relation of
 the schema, stored, derived or closed, a roster among the closed ones, or a selection of one. The row is typed off the
-relation: every field but the generated ones, each its codec's value, so a contract's value is its brand, `Units(5)`.
+relation: every field but the generated ones, each its codec's value, so a contract's value is its brand, `Units(5)`,
+and an instant, the database's or a stored one, the `bigint` it is: an evaluation writes nothing, so a row it judges
+holds any instant, and an admitted row's instant is no `Instant`, which only a read delivers.
 PostgreSQL reads each value as its column's type and holds it to its domain before anything else, which a brand does
 not check, and so does admit: `{ _tag: "ValueRefused", field, fault }`, a field whose value its type's input function
 refuses (an integer that is none or past its type's range, a text holding NUL, a date no calendar holds, a numeric past

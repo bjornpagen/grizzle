@@ -5,6 +5,7 @@
  */
 import type { Result } from "effect"
 import type { CodecFault } from "#compiler/core/errors.ts"
+import type { Instant } from "#compiler/scalar/instant.ts"
 import type { Fact } from "#compiler/types/schema/relation.ts"
 import type { RelationOf, StatementsOf } from "#compiler/types/schema/schema.ts"
 import type { Selection } from "#compiler/types/schema/statements.ts"
@@ -25,8 +26,19 @@ export type GeneratedFieldOf<R> = R extends { readonly fields: infer Fields }
 		}[keyof Fields]
 	: never
 
-/** A row of R as the host evaluates it: every field R stores but those PostgreSQL generates, each its host value. */
-export type EvaluatedRow<R> = Omit<Fact<R>, GeneratedFieldOf<R>>
+/** A host value as an evaluation states it: an instant (Instant) as the bigint it is, any other value as it is. */
+type Evaluated<V> = V extends Instant ? bigint : V
+
+/**
+ * A row of R as the host evaluates it: every field R stores but those PostgreSQL generates, each its host value, but an
+ * instant's, the database's (instant) or a stored one (instant.stored), which is the bigint it is (Evaluated): an
+ * evaluation reads the row it is given and writes none, so a row an author states to judge holds any instant it judges,
+ * and none of it reaches a write as an instant a read delivered (scalar/instant.ts Instant).
+ */
+export type EvaluatedRow<R> = EvaluatedFields<Omit<Fact<R>, GeneratedFieldOf<R>>>
+
+/** Each field of a row as an evaluation states it (Evaluated), each optional or readonly as the row's is. */
+type EvaluatedFields<Row> = { [K in keyof Row]: Evaluated<Row[K]> }
 
 /** The names of S's row checks over R, check(name, R, predicate), each one CHECK its verdict is of. */
 export type CheckNameOf<S, R> = Extract<

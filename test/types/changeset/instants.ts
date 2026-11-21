@@ -201,6 +201,23 @@ const boxCases: ReadonlyArray<InstantsCase> = [
 		verdict: admitted
 	},
 	{
+		what: "a row an evaluator admits stating the clock as a bigint",
+		statement:
+			"(evaluator: RowEvaluator<typeof S>) => evaluator.admit(Decision, { child: 1, at: 5n, seed: 2 })",
+		verdict: admitted
+	},
+	{
+		what: "a row an evaluator admits stating a stored instant as a bigint",
+		statement: "(evaluator: RowEvaluator<typeof S>) => evaluator.admit(Seen, { child: 1, at: 5n })",
+		verdict: admitted
+	},
+	{
+		what: "an admitted row's instant is no instant a read delivered",
+		statement:
+			"(evaluator: RowEvaluator<typeof S>) => Result.map(evaluator.admit(Seen, { child: 1, at: 5n }), (admitted): Instant => admitted.row.at)",
+		verdict: { kind: "refused", why: "an evaluated row's instant is a bigint" }
+	},
+	{
 		what: "an instant's base and its max",
 		statement:
 			'query(S).rule((r) => { const { child, at } = v(Decision, "d"); return r.match(Decision, { child, at }).find({ child, b: Type.base(at), m: r.max(at) }) })',
