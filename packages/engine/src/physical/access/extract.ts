@@ -285,11 +285,28 @@ interface RegionFacts {
 	readonly classOf: (column: string) => number | undefined
 }
 
-/** The carrier of a heading column's base type, none for a column the heading lacks. */
-const carrierOf = (heading: Heading, column: string): Carrier | undefined => {
-	const c = heading.find((h) => h.name === column)
-	return c === undefined ? undefined : baseOf(c.type).carrier
+/**
+ * Each heading's columns' carriers by name (`carrierOf`), made at the first read of the heading: a node's heading is one
+ * array, never changed, whose columns' carriers a region's contexts read for every column each context fixes, where
+ * each read scanned the heading for the column (qti's workload at hub f1bf91a2f: 3.6 s of its app login's 482 s).
+ */
+const carriers = new WeakMap<Heading, ReadonlyMap<string, Carrier>>()
+
+/** The carriers of a heading's columns' base types, by name: the first column of a name, as a scan of the heading finds
+ * it. */
+const carriersOf = (heading: Heading): ReadonlyMap<string, Carrier> => {
+	const out = new Map<string, Carrier>()
+	for (const h of heading) {
+		if (!out.has(h.name)) {
+			out.set(h.name, baseOf(h.type).carrier)
+		}
+	}
+	return out
 }
+
+/** The carrier of a heading column's base type, none for a column the heading lacks. */
+const carrierOf = (heading: Heading, column: string): Carrier | undefined =>
+	carriers.getOrInsertComputed(heading, carriersOf).get(column)
 
 const isSpanColumn = (heading: Heading, column: string): boolean => {
 	const carrier = carrierOf(heading, column)
