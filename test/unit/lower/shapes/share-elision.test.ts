@@ -29,12 +29,18 @@ import { type Case, property } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect } from "effect"
 import { topoOrder } from "#compiler/ir/dag.ts"
 import { shareKey } from "#compiler/lower/shapes/share/index.ts"
-import { planStatementShares, ShareIndex } from "#compiler/lower/shapes/share/statements.ts"
+import {
+	planStatementShares,
+	ShareIndex,
+	statementCtes
+} from "#compiler/lower/shapes/share/statements.ts"
 import { succeeded } from "#test/support/assert.ts"
 import {
 	programOf,
 	referenceShares,
 	sharedCountGen,
+	siblingCountGen,
+	siblingsOf,
 	sketchGen
 } from "#test/unit/lower/shapes/share-elision.fixtures.ts"
 
@@ -77,6 +83,11 @@ export const theSharePlanningKeysOnlyTheNodesItsDecisionsReadAndDecidesWhatItDec
 								index.shape(b.node),
 								"nodes of one key are of one shape"
 							)
+							assert.equal(
+								index.signature(a.node),
+								index.signature(b.node),
+								"nodes of one key are of one signature"
+							)
 						}
 					}
 				}
@@ -96,6 +107,12 @@ export const theSharePlanningKeysOnlyTheNodesItsDecisionsReadAndDecidesWhatItDec
 				original: `\t\tlet text = \`\${node.kind}\\u0000\${node.heading`,
 				replacement: `\t\tlet text = \`\${node.id}\${node.kind}\\u0000\${node.heading`,
 				why: "A shape reads the node's label, which no share key encodes, so two equal copies are of two shapes, each classed by itself: the copies a carried share holds are fewer than the reference's, and the search fails."
+			},
+			{
+				file: "packages/engine/src/ir/dag-digest.ts",
+				original: "\t\t\t\t\t\t\t: naming.kind\n",
+				replacement: '\t\t\t\t\t\t\t: naming.kind === "occurrence" ? naming.id : naming.kind\n',
+				why: "A signature reads an occurrence's label, which no share key encodes, so two equal copies are of two signatures, each classed by itself: the copies a carried share holds are fewer than the reference's, and the search fails."
 			}
 		]
 	})
@@ -128,7 +145,7 @@ export const overStatementsThatAllReadOneSharedSubQueryTheSharePlanningsDigestsD
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
 				original: "\t\tif (statementsOf(same) < 2) {\n",
-				replacement: "\t\tif (keyClasses(index, same).length < 0) {\n",
+				replacement: "\t\tif (same.some((n) => index.key(n) === undefined)) {\n",
 				why: "Every node the statements read is digested, its shape shared or not, so each statement's own bound sub-query is digested and the digests grow with the statements: the search fails."
 			}
 		]
@@ -163,6 +180,44 @@ export const overStatementsThatAllReadOneSharedSubQueryTheSharePlanningDigestsTh
 				original: "\t\tif (classes.length > 0) {\n",
 				replacement: "\t\tif (classes.length < 0) {\n",
 				why: "Every level of buckets two statements read is classed, below the height a choice is made at too, so the copies of the bound sub-query inside the shared pick are digested: the digests are more than one, and the search fails."
+			}
+		]
+	})
+
+/**
+ * One statement's CTE choice (statementCtes) digests no sibling bound that no other node of the statement could share a
+ * key with: the bounds of one kind, height, width and shape over the one shared pick, each of its own k, are alone in
+ * their structural signatures, so however many siblings the statement holds, its digests are those of two.
+ */
+export const aStatementsCteChoiceDigestsNoSiblingAloneInItsSignatureSoItsDigestsDoNotGrowWithItsSiblings =
+	property.explore(siblingCountGen, {
+		needs: {},
+		situations: [],
+		check: () => (siblings) =>
+			Effect.sync(() => {
+				const digestsAt = (n: number): number => {
+					const p = siblingsOf(n)
+					const index = new ShareIndex(p.dag)
+					statementCtes(index, p.root, () => false)
+					return index.digested
+				}
+				assert.equal(
+					digestsAt(siblings),
+					digestsAt(2),
+					`the digests over ${siblings} siblings are those over 2`
+				)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the digests a choice reads, the same for every count of siblings alone in their signatures"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\treturn signature !== undefined && count.get(signature) === 1\n",
+				replacement: "\t\treturn false\n",
+				why: "Every node of a kind, height and width another node of the statement has is digested, as before signatures told them apart: each sibling bound is digested, and the digests grow with the siblings."
 			}
 		]
 	})

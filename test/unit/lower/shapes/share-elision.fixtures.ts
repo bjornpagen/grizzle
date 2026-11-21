@@ -163,3 +163,54 @@ export const referenceShares = (
 		Order.mapInput(Order.Number, (c: { readonly node: RelNode }) => index.height(c.node))
 	)
 }
+
+/** A drawn count of sibling bounds over one shared sub-query, in one statement. */
+export const siblingCountGen: Gen<number> = int(2, 6)
+
+/**
+ * One statement over `count` sibling bounds of one projection of the shared pick, each taking the first `k` of its ids
+ * for its own k: nodes of one kind, height, width and shape, each of a share key of its own (its k), read once each;
+ * the projection they bound read `count` times.
+ */
+export const siblingsOf = (count: number) => {
+	const q = new Q()
+	const first = q.take(
+		q.project(
+			q.region([
+				{
+					source: q.base(Task, conservativeMeta),
+					bind: { id: "id", account: "account" },
+					constants: { account: q.param("a", T.uuid, "compare") }
+				}
+			]),
+			[["id", "id"]],
+			conservativeMeta
+		),
+		asc("id"),
+		{ kind: "literal", k: 1n },
+		[],
+		conservativeMeta
+	)
+	const pick = q.union(
+		[
+			q.project(first, [["id", "id"]], conservativeMeta),
+			q.project(first, [["id", "id"]], conservativeMeta)
+		],
+		[]
+	)
+	const projected = q.project(pick, [["id", "id"]], conservativeMeta)
+	const built = q.build(
+		q.union(
+			Arr.map(indices(count), (i) =>
+				q.project(
+					q.take(projected, asc("id"), { kind: "literal", k: BigInt(i + 1) }, [], conservativeMeta),
+					[["id", "id"]],
+					conservativeMeta
+				)
+			),
+			[]
+		)
+	)
+	const [root] = built.dag.roots
+	return { dag: built.dag, root: defined(root, "the statement's root") }
+}

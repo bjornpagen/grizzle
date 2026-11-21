@@ -455,6 +455,40 @@ const quoted: { readonly [N in Namespace]: string } = {
 	s: '"s#'
 }
 
+/** A node's or an expression's structural signature (DagDigests signature), undefined where a template is refused. */
+export type Signature = string | undefined
+
+/**
+ * Two FNV-1a 32-bit hashes of different offsets over a signature's bytes and parts, each part closed by a unit no part
+ * holds: a signature's collisions cost a digest each, never a wrong class, so a fast hash suffices.
+ */
+class SignatureHash {
+	#a = 0x811c9dc5
+	#b = 0x01000193
+
+	bytes(bytes: Uint8Array): void {
+		for (const byte of bytes) {
+			this.#unit(byte)
+		}
+	}
+
+	text(part: string): void {
+		for (let i = 0; i < part.length; i++) {
+			this.#unit(part.charCodeAt(i))
+		}
+		this.#unit(0x10000)
+	}
+
+	#unit(unit: number): void {
+		this.#a = Math.imul(this.#a ^ unit, 0x01000193)
+		this.#b = Math.imul(this.#b ^ unit, 0x01000193) ^ (this.#b >>> 15)
+	}
+
+	done(): string {
+		return `${(this.#a >>> 0).toString(36)}.${(this.#b >>> 0).toString(36)}`
+	}
+}
+
 /**
  * The claimed-form digests of one DAG's sub-queries (share and evaluation keys), each node's and expression's
  * template written once, and every digest written by one writer (Sha256Messages), so a digest copies its reach's bytes
@@ -466,6 +500,8 @@ export class DagDigests {
 	#index: ReadonlyMap<NodeId, RelNode> | undefined
 	readonly #nodes = new Map<RelNode, Template>()
 	readonly #exprs = new Map<ScalarExpr, Template>()
+	/** Each node's and expression's signature (signature), worked out on its first read. */
+	readonly #signatures = new Map<RelNode | ScalarExpr, Signature>()
 	readonly #messages = new Sha256Messages(messageChunk)
 	/** The longest table text a digest writes, past which it is refused: V8's longest string in production. */
 	readonly #limit: number
@@ -544,6 +580,82 @@ export class DagDigests {
 			boundCanonicalText(out.units - start, this.#limit)
 			return this.#messages.hex()
 		})
+	}
+
+	/**
+	 * A node's structural signature: its template's text with each hole read as what it names, the signature of a data
+	 * input or of an expression, and the kind of any other name, folded into a hash. Two nodes of one digest have tables
+	 * that correspond entry for entry, so their templates are one text and their inputs and expressions correspond: they
+	 * have one signature. Two nodes of two signatures are of two digests, and need no digest to be told apart; two of one
+	 * may still be of two, and are digested apart. Undefined where a template it reads is refused, so its reader digests
+	 * the node, which refuses as it did. Each node's and expression's is worked out once, its inputs' and arguments'
+	 * first, deepest first, so a chain of any depth signs with no deeper call stack.
+	 */
+	signature(node: RelNode): Signature {
+		const known = this.#signatures.get(node)
+		if (known !== undefined || this.#signatures.has(node)) {
+			return known
+		}
+		const edges = (at: RelNode): ReadonlyArray<RelNode> =>
+			this.#nodeTemplate(at).namings.flatMap((n) =>
+				n.kind === "edge" && !this.#signatures.has(n.node) ? [n.node] : []
+			)
+		for (const at of postorder([node], edges)) {
+			const template = this.#nodeTemplate(at)
+			for (const naming of template.namings) {
+				if (naming.kind === "expr") {
+					this.#exprSignature(naming.expr)
+				}
+			}
+			this.#signatures.set(at, this.#signed(template))
+		}
+		return this.#signatures.get(node)
+	}
+
+	/** An expression's signature (signature): its template's, its arguments' first. */
+	#exprSignature(expr: ScalarExpr): void {
+		if (this.#signatures.has(expr)) {
+			return
+		}
+		const args = (at: ScalarExpr): ReadonlyArray<ScalarExpr> =>
+			at.args.filter((arg) => !this.#signatures.has(arg))
+		for (const at of postorder([expr], args)) {
+			this.#signatures.set(at, this.#signed(this.#exprTemplate(at)))
+		}
+	}
+
+	/**
+	 * A template's signature: its pieces' bytes and, at each hole, the signature of the input or expression it names
+	 * (each signed already) or the kind of the name, folded into two FNV-1a hashes; undefined where the template, or
+	 * one it names, is refused.
+	 */
+	#signed(template: Template): Signature {
+		const text = template.text
+		if (!text.ok) {
+			return undefined
+		}
+		const hash = new SignatureHash()
+		const { pieces, holes } = text.value
+		for (const [k, hole] of holes.entries()) {
+			hash.bytes(defined(pieces[k], "a piece before each hole"))
+			const naming = template.namings[hole]
+			const part =
+				naming === undefined
+					? hole === template.namings.length
+						? "own"
+						: "deps"
+					: naming.kind === "edge"
+						? this.#signatures.get(naming.node)
+						: naming.kind === "expr"
+							? this.#signatures.get(naming.expr)
+							: naming.kind
+			if (part === undefined) {
+				return undefined
+			}
+			hash.text(part)
+		}
+		hash.bytes(defined(pieces[holes.length], "the piece after the last hole"))
+		return hash.done()
 	}
 
 	/** The context's labels, read once, where a digest first needs them. */

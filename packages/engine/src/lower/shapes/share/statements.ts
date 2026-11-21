@@ -6,7 +6,7 @@ import { outerOf } from "#compiler/analysis/physical/rules.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { NodeId } from "#compiler/core/ids.ts"
-import { DagDigests } from "#compiler/ir/dag-digest.ts"
+import { DagDigests, type Signature } from "#compiler/ir/dag-digest.ts"
 import {
 	freeVars,
 	type NodeScope,
@@ -116,6 +116,15 @@ export class ShareIndex {
 		return this.#shapes.of(node)
 	}
 
+	/**
+	 * The node's structural signature (ir/dag-digest.ts DagDigests signature), undigested: two nodes of one share key
+	 * are of one signature, so a node alone in its signature among nodes that could share its key is alone in its key.
+	 * Undefined where its digest is refused, which its reader then takes.
+	 */
+	signature(node: RelNode): Signature {
+		return this.#digests.signature(node)
+	}
+
 	/** How many share keys the index has digested, each a normalized, encoded reach: the planning's work. */
 	get digested(): number {
 		return this.#digested
@@ -209,10 +218,16 @@ export const planStatementShares = (
 		/** Each node the statements have read that may be shared, carried by no key then, in the order they first read it,
 		 * by the round they first read it in. */
 		const seen = new Map<RelNode, number>()
+		/** The structural signatures of the carried sub-queries: a copy of one is of its signature (ShareIndex.signature). */
+		const carriedSignatures = new Set<Signature>()
 		/** Whether a node is a copy of a carried sub-query, which its carrier's reader reads instead: one of a carried
-		 * shape whose key is carried. */
+		 * shape and signature whose key is carried, a node of no carried signature undigested. */
 		const carried = (node: RelNode): boolean => {
 			if (!carriedShapes.has(index.shape(node))) {
+				return false
+			}
+			const signature = index.signature(node)
+			if (signature !== undefined && !carriedSignatures.has(signature)) {
 				return false
 			}
 			const key = index.key(node)
@@ -251,6 +266,7 @@ export const planStatementShares = (
 			const winner = keyed.reduce((a, b) => (b.key < a.key ? b : a))
 			carriedKeys.add(winner.key)
 			carriedShapes.add(index.shape(defined(winner.nodes[0], "a class's first node")))
+			carriedSignatures.add(index.signature(defined(winner.nodes[0], "a class's first node")))
 			chosen.push({
 				key: winner.key,
 				node: defined(winner.nodes[0], "a class's first node"),
@@ -262,9 +278,11 @@ export const planStatementShares = (
 		return chosen
 			.map((c) => {
 				const shape = index.shape(c.node)
+				const signature = index.signature(c.node)
 				const copies = [...seen].flatMap(([node, round]) =>
 					round <= defined(roundOf.get(c.key), "a carried key's round") &&
 					index.shape(node) === shape &&
+					(signature === undefined || index.signature(node) === signature) &&
 					index.key(node) === c.key
 						? [node]
 						: []
@@ -322,17 +340,34 @@ const decidingClasses = (
 	return []
 }
 
-/** The nodes `same`, all of one shape, as classes of one share key, each in their order: every node digested. */
+/**
+ * The nodes `same`, all of one shape, as classes of one share key, each in their order, the classes in the order of
+ * their first nodes: a node alone in its structural signature among them (aloneInSignature) a class by itself,
+ * undigested, and the rest classed by their keys, digested.
+ */
 const keyClasses = (
 	index: ShareIndex,
 	same: ReadonlyArray<RelNode>
 ): ReadonlyArray<ReadonlyArray<RelNode>> => {
+	const alone = aloneInSignature(index, same)
 	const byKey = new Map<string, Array<RelNode>>()
+	const classes: Array<ReadonlyArray<RelNode>> = []
 	for (const node of same) {
+		if (alone(node)) {
+			classes.push([node])
+			continue
+		}
 		const key = defined(index.key(node), "an eligible key")
-		byKey.getOrInsertComputed(key, () => []).push(node)
+		const known = byKey.get(key)
+		if (known === undefined) {
+			const made = [node]
+			byKey.set(key, made)
+			classes.push(made)
+		} else {
+			known.push(node)
+		}
 	}
-	return [...byKey.values()]
+	return classes
 }
 
 /**
@@ -400,10 +435,35 @@ const usesOf = (
 }
 
 /**
+ * Whether a node of `nodes`, nodes any two of which could be of one share key, is the only one of its key among them:
+ * the only one of its structural signature (ShareIndex.signature), every node of a key being of one signature. A node
+ * whose signature is undefined is never alone, so its digest is taken, refused as it was.
+ */
+const aloneInSignature = (
+	index: ShareIndex,
+	nodes: ReadonlyArray<RelNode>
+): ((node: RelNode) => boolean) => {
+	if (nodes.length < 2) {
+		return () => true
+	}
+	const count = new Map<string, number>()
+	for (const node of nodes) {
+		const signature = index.signature(node)
+		if (signature !== undefined) {
+			count.set(signature, (count.get(signature) ?? 0) + 1)
+		}
+	}
+	return (node) => {
+		const signature = index.signature(node)
+		return signature !== undefined && count.get(signature) === 1
+	}
+}
+
+/**
  * The share key of each node of a statement that may be read twice in it: one the statement lowers more than once
- * (`uses`), or one whose kind, height and width another node of the statement has, as every node of its share key
- * does. Any other node is the only one of its key in the statement and lowered once, so no count of its key reaches
- * two and nothing reads its key: no digest of it is taken.
+ * (`uses`), or one another node of the statement could share a key with, of its kind, height and width and of its
+ * structural signature, as every node of its share key is. Any other node is the only one of its key in the statement
+ * and lowered once, so no count of its key reaches two and nothing reads its key: no digest of it is taken.
  */
 const keyedNodes = (
 	index: ShareIndex,
@@ -426,8 +486,9 @@ const keyedNodes = (
 	for (const byHeight of alike.values()) {
 		for (const byWidth of byHeight.values()) {
 			for (const nodes of byWidth.values()) {
+				const alone = aloneInSignature(index, nodes)
 				for (const node of nodes) {
-					if (nodes.length < 2 && (uses.get(node) ?? 0) < 2) {
+					if (alone(node) && (uses.get(node) ?? 0) < 2) {
 						continue
 					}
 					const key = index.key(node)
