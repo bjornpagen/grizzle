@@ -69,6 +69,12 @@ export const changeSet = agreement(changeSetAimed, {
 	],
 	kills: [
 		{
+			file: "packages/engine/src/types/changeset/changeset.ts",
+			original: "type BindArgOf<P> = [keyof P] extends [never]\n\t? NoParamsArg\n\t: {",
+			replacement: "type BindArgOf<P> = [keyof P] extends [never]\n\t? {}\n\t: {",
+			why: "A ChangeSet with no parameters takes `{}` for its bind map again, the map of its keys, so `.bind(42)`, which the engine refuses as no record, is admitted: the witness of a bind of a value that is no record, of a ChangeSet with no parameters, fails."
+		},
+		{
 			file: "packages/engine/src/types/schema/relation.ts",
 			original: "type NoClaims = Readonly<Record<string, string>>",
 			replacement: "type NoClaims = unknown",

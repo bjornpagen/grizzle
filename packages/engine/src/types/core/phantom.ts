@@ -933,16 +933,24 @@ export interface ParamMap {
 }
 
 /**
+ * The argument of a parameter map that names no parameter, a parameterless program's or ChangeSet's: an object with no
+ * key. Such a map is `unknown`, the identity of the intersection parameter maps accumulate by, which every value is
+ * assignable to, and an argument mapped over its keys would be `{}`, which every value but null and undefined is
+ * assignable to; this one refuses `42`, `"x"`, `[1]` and `{ extra: 1 }`, as the runtime refuses a value that is no record
+ * and a key that names no parameter, and admits `{}`.
+ */
+export type NoParamsArg = { readonly [key: string]: never }
+
+/**
  * The argument a program's parameter map P is bound with: each scalar parameter's value of its language, each relation
- * parameter's facts. A parameterless program's map is `unknown`, the identity of the intersection parameter maps
- * accumulate by, which every value is assignable to; its argument is an object with no key instead, so `42`, `"x"`,
- * `[1]` and `{ extra: 1 }` are refused as an extra key is refused for a program that has parameters. Each argument is a
- * ParamValue, which the second member of the intersection states by construction, so the runtime takes every argument
- * as a ParamMap: a Stream relation parameter is a Stream with no requirement because the program's type says so, never
- * because a run-time check claims it.
+ * parameter's facts; a parameterless program's, NoParamsArg, so `42`, `"x"`, `[1]` and `{ extra: 1 }` are refused as
+ * an extra key is refused for a program that has parameters. Each argument is a ParamValue, which the second member of
+ * the intersection states by construction, so the runtime takes every argument as a ParamMap: a Stream relation
+ * parameter is a Stream with no requirement because the program's type says so, never because a run-time check claims
+ * it.
  */
 export type ParamArg<P> = [keyof P] extends [never]
-	? { readonly [key: string]: never }
+	? NoParamsArg
 	: { readonly [K in keyof P]: ArgumentOf<P[K]> } & { readonly [K in keyof P]: ParamValue }
 
 /**

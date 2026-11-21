@@ -334,6 +334,14 @@ const sharedReads = [
 ] as const
 
 /**
+ * A bind of a ChangeSet with no parameters, whose bind map is NoParamsArg (types/core/phantom.ts), an object with no
+ * key: `.bind({})` admitted by both, and `.bind(42)`, the fault of a value that is no record, refused by both, where the
+ * map's keys once mapped to `{}`, which the types admitted `42` at. A case reaches it only where it is aimed at it, so
+ * a kept case's tape draws as it did.
+ */
+const parameterlessBinds = ["a bind of a ChangeSet with no parameters"] as const
+
+/**
  * Where a stratum's put of a mutable ordered owner and its insert with its members nested meet: at one key, two rows
  * at that key, since the put leaves the owner's sequence as it is and the insert states it (README Families), which
  * the engine refuses on the key before any SQL; or at different keys, each written.
@@ -439,7 +447,8 @@ const changeSetFeatures = [
 	...swarmedFeatures,
 	...conflictShapes,
 	...callConflicts,
-	...sharedReads
+	...sharedReads,
+	...parameterlessBinds
 ] as const
 type ChangeSetFeature = (typeof changeSetFeatures)[number]
 
@@ -1534,6 +1543,20 @@ const builtOf = (
 ): BuiltSpec => {
 	if (level === "Other" || level === "Twin") {
 		return { kind: "built", level, members: [], grouped: false, reads: [], bind: undefined }
+	}
+	if (d.aimed("a bind of a ChangeSet with no parameters")) {
+		d.note("a bind of a ChangeSet with no parameters")
+		return {
+			kind: "built",
+			level,
+			members: [],
+			grouped: false,
+			reads: [],
+			bind:
+				fault === "a bind of a value that is no record"
+					? { kind: "value", lit: { text: "42", value: 42 } }
+					: { kind: "record", entries: [] }
+		}
 	}
 	const memberFault = fault !== undefined && Arr.contains(memberFaults, fault) ? fault : undefined
 	const unbound = fault === "a parameter left unbound"
@@ -3337,8 +3360,8 @@ const insertAllFaults = [
  * The situations the witnesses reach: every construct and fault, each construct admitted and each fault refused; a value
  * outside its field in each of its shapes; a key conflict beside a fact no literal keys, refused as the engine refuses
  * it; a key two facts share and a derived relation written, under each op; a derived relation's delta, added and
- * removed; each fault an insert's member carries, at an insertAll key; and an admitted ChangeSet whose application's
- * call the key law refuses.
+ * removed; each fault an insert's member carries, at an insertAll key; a bind of a value that is no record, of a
+ * ChangeSet with no parameters; and an admitted ChangeSet whose application's call the key law refuses.
  */
 export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 	...changeSetFeatures,
@@ -3363,7 +3386,8 @@ export const changeSetRequired: ReadonlyArray<Reached<ChangeSetNote>> = [
 		["read-back of added facts", "read-back of removed facts"] as const,
 		(source) => ["a derived relation's delta read", source] as const
 	),
-	...Arr.map(insertAllFaults, (f) => [f, "insertAll"] as const)
+	...Arr.map(insertAllFaults, (f) => [f, "insertAll"] as const),
+	["a bind of a value that is no record", "a bind of a ChangeSet with no parameters"]
 ]
 
 const caseGen =

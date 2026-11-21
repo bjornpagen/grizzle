@@ -24,6 +24,7 @@ import type {
 	IsRetyped,
 	LanguageOf,
 	ArgumentOf,
+	NoParamsArg,
 	OnlyParams,
 	ParamOrigin,
 	ParamValue,
@@ -913,13 +914,17 @@ export interface ChangeSetOf<
 /**
  * What ChangeSet.bind takes for each parameter of P it names: a scalar parameter's value of its language; a relation
  * parameter's facts, an array or a Stream, or a source of its rows, a query or a bound query (BoundRows), which refuses
- * a source for a scalar parameter by name. Each value is a ParamValue or a source by construction.
+ * a source for a scalar parameter by name. Each value is a ParamValue or a source by construction. A ChangeSet with no
+ * parameters takes NoParamsArg, an object with no key, as the builder refuses a value that is no record
+ * (write/changeset/value.ts bindParams).
  */
-type BindArgOf<P> = {
-	readonly [K in keyof P]?:
-		| (ArgumentOf<P[K]> & ParamValue)
-		| Source<P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row> ? Row : unknown>
-}
+type BindArgOf<P> = [keyof P] extends [never]
+	? NoParamsArg
+	: {
+			readonly [K in keyof P]?:
+				| (ArgumentOf<P[K]> & ParamValue)
+				| Source<P[K] extends ReadonlyArray<infer Row> | Stream.Stream<infer Row> ? Row : unknown>
+		}
 
 /**
  * What ChangeSet.bind holds of each query or bound query it binds a relation parameter of P to: the parameter's rows,
