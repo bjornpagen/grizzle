@@ -52,8 +52,8 @@ export const theScriptedSessionAgainstPostgreSQLObservesWhatTheServerObservesFor
 						const s = yield* Substrate
 						const raw = yield* s.schema(freshSchema)
 						const schema = quoteIdent(raw)
-						for (const sql of fenceSql(raw, s.owner.role)) {
-							yield* s.admin.query(sql, [])
+						for (const { sql, params } of fenceSql(raw, s.owner.role)) {
+							yield* s.admin.query(sql, params)
 						}
 						const prologue = prologueIn(raw)
 						yield* s.admin.query(`CREATE TABLE ${schema}."p" ("k" int4 PRIMARY KEY)`, [])

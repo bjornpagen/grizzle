@@ -3,9 +3,17 @@
  * snapshot guard reads, and the guard itself. The ledger's own statements and its state are the deploy layer's
  * (deploy/ledger/ledger.ts), which reads these.
  */
+import { sha256Octets } from "#compiler/core/digest.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { type Sqlstate, sqlstates } from "#compiler/core/sqlstate.ts"
-import type { Expr, FunctionName, PlFunction, PlStatement, Revoke } from "#compiler/sql/ast.ts"
+import type {
+	CreateDomain,
+	Expr,
+	FunctionName,
+	PlFunction,
+	PlStatement,
+	Revoke
+} from "#compiler/sql/ast.ts"
 
 import {
 	and,
@@ -42,6 +50,31 @@ export const proofsTableName: string = identifierOf(identity.proofs())
  * @formatConstant PostgreSQL 19's encode and decode format name for hexadecimal
  */
 const hexEncoding = "hex"
+
+/**
+ * The installation's digest domain in `schema` (core/identity.ts digestDomain): every SHA-256 digest column's type, a
+ * bytea whose CHECK holds its length, 32 bytes. An installation's Setup creates it among its domains
+ * (physical/ddl/context.ts), before the ledger and the proofs, whose digest columns it types; a fence of the ledger
+ * alone creates it so too (test/support/flight/model.ts fenceSql).
+ */
+export const digestDomainDdl = (schema: string): CreateDomain => {
+	const named = identity.digestDomain()
+	return {
+		kind: "createDomain",
+		name: { schema, name: identifierOf(named) },
+		base: types.bytea,
+		collation: undefined,
+		constraints: [
+			{
+				name: identifierOf(identity.domainCheck(named)),
+				predicate: eq(
+					call("octet_length", [{ kind: "domainValue" }]),
+					lit.int(sha256Octets, types.integer)
+				)
+			}
+		]
+	}
+}
 
 /** The bytes a digest's hex spells, `decode(<hex>, 'hex')`: how a fingerprint or a file's digest enters its column. */
 export const digestOfHex = (hex: Expr): Expr =>

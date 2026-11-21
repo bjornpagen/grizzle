@@ -237,7 +237,7 @@ export const aValueOfAnotherLengthIsRefusedByTheDigestDomain = property.explore(
 	kept: [],
 	kills: [
 		{
-			file: "packages/engine/src/physical/ddl/context.ts",
+			file: "packages/engine/src/physical/ddl/ledger.ts",
 			original: "lit.int(sha256Octets, types.integer)",
 			replacement: 'call("octet_length", [{ kind: "domainValue" }])',
 			why: "The digest domain's CHECK dropped, `octet_length(VALUE) = octet_length(VALUE)`, which holds of every bytea: a direct writer's value of another length is stored."

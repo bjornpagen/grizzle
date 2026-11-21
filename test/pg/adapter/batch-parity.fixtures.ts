@@ -69,8 +69,8 @@ export const flightsTemplate = installTemplate({
 			const s = yield* Substrate
 			const raw = yield* s.schema({ create: true, label: "install" })
 			const schema = quoteIdent(raw)
-			for (const sql of fenceSql(raw, s.owner.role)) {
-				yield* s.admin.query(sql, [])
+			for (const { sql, params } of fenceSql(raw, s.owner.role)) {
+				yield* s.admin.query(sql, params)
 			}
 			yield* s.admin.query(
 				`CREATE TABLE ${schema}."t" ("k" int4 PRIMARY KEY, "v" text NOT NULL)`,

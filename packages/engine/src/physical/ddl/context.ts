@@ -8,7 +8,6 @@ import {
 import type { CheckedSchema } from "#compiler/analysis/schema.ts"
 import { type QueryColumns, queryColumns } from "#compiler/analysis/theory/columns.ts"
 import { type KeyLedger, Refusal } from "#compiler/core/canonical.ts"
-import { sha256Octets } from "#compiler/core/digest.ts"
 import { resourceBound } from "#compiler/core/errors.ts"
 import {
 	compareIdentities,
@@ -26,7 +25,7 @@ import type { KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { addIsolation } from "#compiler/physical/ddl/isolation.ts"
-import { snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
+import { digestDomainDdl, snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
 import type { InstallNames } from "#compiler/physical/ddl/names.ts"
 import {
 	rowCheck,
@@ -59,7 +58,6 @@ import {
 	type TableConstraint,
 	type TypeRef
 } from "#compiler/sql/ast.ts"
-import { call, eq, lit, types } from "#compiler/sql/build.ts"
 import { printObjectName } from "#compiler/sql/print.ts"
 import {
 	type AstHooks,
@@ -377,28 +375,14 @@ export class InstallBuilder {
 			[this.schemaNode]
 		)
 		const digestNamed = identity.digestDomain()
+		this.name(digestNamed)
+		this.name(identity.domainCheck(digestNamed))
 		this.digestDomain = this.addType(
 			"domain",
 			this.names.installation,
 			digestNamed,
 			{
-				ddl: [
-					{
-						kind: "createDomain",
-						name: { schema: this.schema, name: this.name(digestNamed) },
-						base: types.bytea,
-						collation: undefined,
-						constraints: [
-							{
-								name: this.name(identity.domainCheck(digestNamed)),
-								predicate: eq(
-									call("octet_length", [{ kind: "domainValue" }]),
-									lit.int(sha256Octets, types.integer)
-								)
-							}
-						]
-					}
-				],
+				ddl: [digestDomainDdl(this.schema)],
 				reasons: [enforcement("the length of every SHA-256 digest, 32 bytes")]
 			},
 			[this.schemaNode]

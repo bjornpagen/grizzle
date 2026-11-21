@@ -23,11 +23,13 @@ import {
 } from "#adapter/wire/batch.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import type { Interruption } from "#test/support/flight/drive.ts"
+import type { PgStatement } from "#test/support/pg.ts"
 import { textsOfParams } from "#test/support/wire.ts"
 
 import { type Answer, controlText, type WireQuery, type Session } from "#adapter/wire/session.ts"
 import { SchemaFingerprint } from "#compiler/core/ids.ts"
 import { prepared } from "#compiler/core/prepared.ts"
+import { sha256Hex } from "#compiler/core/sha256.ts"
 import {
 	type LedgerStatements,
 	ledgerStatements,
@@ -36,6 +38,7 @@ import {
 import { servedSession } from "#compiler/program/served.ts"
 
 import {
+	digestDomainDdl,
 	ledgerTableName,
 	snapshotGuardDdl,
 	snapshotGuardName
@@ -66,8 +69,11 @@ export type StatementKind = Planned["kind"]
  */
 const flightSchema = "grizzle_flight"
 
-/** The snapshot every framed call's Db was admitted at. */
-const flightSnapshot = SchemaFingerprint("flight-snapshot")
+/** A digest's hex as the ledger's digest columns take it (physical/ddl/ledger.ts digestOfHex): the SHA-256 of `text`. */
+const digestHexOf = (text: string): string => sha256Hex(new TextEncoder().encode(text))
+
+/** The snapshot every framed call's Db was admitted at: a fingerprint, as the ledger's target column holds one. */
+const flightSnapshot = SchemaFingerprint(digestHexOf("flight-snapshot"))
 
 /**
  * The frames a call is sent in: a read, and a deferrable member's read; every write and refresh at SERIALIZABLE; a
@@ -108,12 +114,14 @@ const frameOf = (name: FrameName, prologue: Prologue): Frame => {
 }
 
 /**
- * The statements that install a framed call's fence in `schema`, run by the server check's administrator: the ledger
- * and its snapshot guard as the engine emits them (deploy/ledger/ledger.ts), one complete folder whose target is
- * `flightSnapshot`, and what `grantee`, the role the checked sessions log in as, needs to take the fence: USAGE on the
- * schema, SELECT on the ledger and EXECUTE on the guard.
+ * The statements that install a framed call's fence in `schema`, run by the server check's administrator: the digest
+ * domain the ledger's digest columns are typed by, the ledger and its snapshot guard, as an installation's Setup creates
+ * them (physical/ddl/ledger.ts digestDomainDdl, deploy/ledger/ledger.ts); one complete folder whose target is
+ * `flightSnapshot`, recorded by the apply runner's own statement (ledgerStatements recordFolder); and what `grantee`,
+ * the role the checked sessions log in as, needs to take the fence: USAGE on the schema, SELECT on the ledger and
+ * EXECUTE on the guard.
  */
-export const fenceSql = (schema: string, grantee: string): ReadonlyArray<string> => {
+export const fenceSql = (schema: string, grantee: string): ReadonlyArray<PgStatement> => {
 	const [guard, revoke] = snapshotGuardDdl(schema)
 	const text = (statement: SqlStatement): string => {
 		const e = emit(statement, emptyNameMap)
@@ -122,16 +130,33 @@ export const fenceSql = (schema: string, grantee: string): ReadonlyArray<string>
 		}
 		return e.value.text
 	}
+	const statements = ledgerStatements(schema)
+	if (!statements.ok) {
+		throw new Error(`the ledger statements of ${schema}: ${statements.error.message}`)
+	}
 	const ledger = `${quoteIdent(schema)}.${quoteIdent(ledgerTableName)}`
 	const role = quoteIdent(grantee)
+	const alone = (sql: string): PgStatement => ({ sql, params: [] })
 	return [
-		text(ledgerTable(schema)),
-		text(guard),
-		text(revoke),
-		`INSERT INTO ${ledger} VALUES ('20261023000000_flight', 0, 'meta.json', 'flight-source', '${flightSnapshot}', 0, 'flight')`,
-		`GRANT USAGE ON SCHEMA ${quoteIdent(schema)} TO ${role}`,
-		`GRANT SELECT ON ${ledger} TO ${role}`,
-		`GRANT EXECUTE ON FUNCTION ${quoteIdent(schema)}.${quoteIdent(snapshotGuardName)}(text) TO ${role}`
+		alone(text(digestDomainDdl(schema))),
+		alone(text(ledgerTable(schema))),
+		alone(text(guard)),
+		alone(text(revoke)),
+		{
+			sql: statements.value.recordFolder.text,
+			params: [
+				"20261023000000_flight",
+				digestHexOf("flight-source"),
+				flightSnapshot,
+				0,
+				digestHexOf("flight")
+			]
+		},
+		alone(`GRANT USAGE ON SCHEMA ${quoteIdent(schema)} TO ${role}`),
+		alone(`GRANT SELECT ON ${ledger} TO ${role}`),
+		alone(
+			`GRANT EXECUTE ON FUNCTION ${quoteIdent(schema)}.${quoteIdent(snapshotGuardName)}(text) TO ${role}`
+		)
 	]
 }
 
