@@ -110,23 +110,41 @@ export const certifyPlan = (
 }
 
 /**
- * The position of a certificate's first output in node order. A certificate none of whose outputs the order reaches
- * sorts after every one that does.
+ * Each label's first position in the node order, by one pass over it: the inverse of the order, read for every
+ * certificate's first output (firstOutputAt), so the order is read once for a plan, where each certificate scanned it.
  */
-const firstOutputAt = (order: ReadonlyArray<NodeId>, outputs: ReadonlyArray<NodeId>): number => {
+const firstPositions = (order: ReadonlyArray<NodeId>): ReadonlyMap<NodeId, number> => {
+	const positions = new Map<NodeId, number>()
 	for (const [i, id] of order.entries()) {
-		if (outputs.includes(id)) {
-			return i
+		if (!positions.has(id)) {
+			positions.set(id, i)
 		}
 	}
-	return order.length
+	return positions
 }
 
-/** One copy of each certificate, in topological order of first output, then rule, then canonical text. */
-const canonicalCertificates = (
+/**
+ * The position of a certificate's first output in node order, the least first position of its outputs (`positions`,
+ * firstPositions): the first position whose label is one of them. A certificate none of whose outputs the order
+ * reaches sorts after every one that does, at the order's length, `end`.
+ */
+const firstOutputAt = (
+	positions: ReadonlyMap<NodeId, number>,
+	end: number,
+	outputs: ReadonlyArray<NodeId>
+): number => outputs.reduce((first, id) => Math.min(first, positions.get(id) ?? end), end)
+
+/**
+ * One copy of each certificate, in topological order of first output, then rule, then canonical text. The order is
+ * read once, into each label's first position (firstPositions), and each certificate's position is read from its
+ * outputs': linear in the order and the certificates' outputs, where a scan of the order for each certificate was
+ * their product.
+ */
+export const canonicalCertificates = (
 	order: ReadonlyArray<NodeId>,
 	certificates: ReadonlyArray<Certificate<MultiplicityRule>>
 ): Result.Result<ReadonlyArray<Certificate<MultiplicityRule>>, CompileError> => {
+	const positions = firstPositions(order)
 	const keyed: Array<{
 		readonly cert: Certificate<MultiplicityRule>
 		readonly text: string
@@ -142,7 +160,7 @@ const canonicalCertificates = (
 			continue
 		}
 		seen.add(text.value)
-		keyed.push({ cert, text: text.value, at: firstOutputAt(order, cert.outputs) })
+		keyed.push({ cert, text: text.value, at: firstOutputAt(positions, order.length, cert.outputs) })
 	}
 	keyed.sort((x, y) =>
 		x.at !== y.at
