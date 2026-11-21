@@ -38,6 +38,7 @@ import { type ParamDecl, type PhysicalReason, paramColumns } from "#compiler/ir/
 import { exprsOf, type HeadingColumn, type RelNode } from "#compiler/ir/rel.ts"
 import {
 	type ContractInfo,
+	type PlainType,
 	patternsText,
 	regexOf,
 	type RegexRef,
@@ -90,8 +91,8 @@ export interface TypeUse {
 
 export const emptyUse = (): TypeUse => ({ domains: new Map(), vector: false })
 
-/** The domains a column of type `t` names, down a contract's base chain and a span's endpoint: a contract's, a text
- * refinement's, a closed id's roster domain, a set's bits domain and a digest's domain. */
+/** The domains a column of type `t` names: a contract's and the domains its domain rests on (restingDomains), a text
+ * refinement's, a closed id's roster domain, a set's bits domain and a digest's domain, and a span endpoint's. */
 const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 	const { contract } = t
 	if (contract !== undefined) {
@@ -101,9 +102,42 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 			identity: b.names.contractNamed(contract.name),
 			node: b.typeNamed(name)
 		})
-		typeDomains(b, contract.base, use)
+		restingDomains(b, contract.base, use)
 		return
 	}
+	carrierDomains(b, t, use)
+	const span = spanOf(t)
+	if (span !== undefined) {
+		typeDomains(b, span.endpoint, use)
+	}
+	const regex = structuralRegex(t)
+	if (regex !== undefined) {
+		const name = b.names.textDomain(regex)
+		use.domains.set(nameKey(name), {
+			name,
+			identity: b.names.textNamed(regex),
+			node: b.typeNamed(name)
+		})
+	}
+}
+
+/**
+ * The domains a contract's domain rests on, as its base is installed (ir/physical.ts domainBase): an inner contract's,
+ * down its own chain, or its base carrier's own domain, a closed id's roster domain, a set's bits domain or the digest
+ * domain; never a refinement's text domain, whose pattern the contract's own CHECK carries over `text`, nor a span's
+ * endpoints', which its range holds as a builtin. A domain no column rests on is named by nothing of a role's.
+ */
+const restingDomains = (b: InstallBuilder, base: ScalarType, use: TypeUse): void => {
+	if (base.contract === undefined) {
+		carrierDomains(b, base, use)
+		return
+	}
+	typeDomains(b, base, use)
+}
+
+/** The domain a value of `t`'s carrier is held by: a closed id's roster domain, a set's bits domain, a digest's domain;
+ * and a vector's extension. */
+const carrierDomains = (b: InstallBuilder, t: PlainType, use: TypeUse): void => {
 	if (t.carrier === "code") {
 		const name = b.names.rosterDomain(t.roster.closed)
 		use.domains.set(nameKey(name), {
@@ -128,21 +162,8 @@ const typeDomains = (b: InstallBuilder, t: ScalarType, use: TypeUse): void => {
 			node: b.digestDomain
 		})
 	}
-	const span = spanOf(t)
-	if (span !== undefined) {
-		typeDomains(b, span.endpoint, use)
-	}
 	if (t.carrier === "vector") {
 		use.vector = true
-	}
-	const regex = structuralRegex(t)
-	if (regex !== undefined) {
-		const name = b.names.textDomain(regex)
-		use.domains.set(nameKey(name), {
-			name,
-			identity: b.names.textNamed(regex),
-			node: b.typeNamed(name)
-		})
 	}
 }
 
@@ -426,17 +447,15 @@ export const servedTypesOf = (
 }
 
 /**
- * The structural text refinements a value of `t` is typed by down its contract chain: its own pattern where it is
- * refined text outside any contract (structuralRegex), and each contract base's that is, which a value read at its
- * contract's base is typed by.
+ * The structural text refinement a value of `t` is typed by: its own pattern where it is refined text outside any
+ * contract (structuralRegex), and none for any other value. A contract's value is its contract's domain's, which
+ * carries its base's pattern in its own CHECK over `text` (ir/physical.ts domainBase), so a contract over a refined
+ * text names no text domain; a value read at the base is a value of the base's own type, which the node or expression
+ * holding it names. So the installation holds a text domain only where something types a value by it.
  */
 export const typeRefinements = (t: ScalarType): ReadonlyArray<RegexRef> => {
 	const own = structuralRegex(t)
-	const { contract } = t
-	return [
-		...(own === undefined ? [] : [own]),
-		...(contract === undefined ? [] : typeRefinements(contract.base))
-	]
+	return own === undefined ? [] : [own]
 }
 
 /** The objects a checked DAG's values need of its installation whatever stored field declares them (dagObjects): the
@@ -636,8 +655,9 @@ const theoryTable = (o: OwnedRelation): string => {
  * names an installed domain, and no refinement needs a stored field to exist. Its uses are the stored fields of the
  * theory's relations; `columns`, the other columns the installation types by a pattern (a derived relation's view
  * column, a role view's, a context field a role reads); and `refinements`, the refinements its artifacts type a value
- * by where no column is (a persistent expression's, a declared function's result's, a contract's base, a served
- * program's), each a domain whether or not any column carries its pattern.
+ * by where no column is (a persistent expression's, a declared function's result's, a served program's), each a domain
+ * whether or not any column carries its pattern. A contract's base is none of them: the contract's domain carries its
+ * pattern in its own CHECK over `text` (typeRefinements), so a domain exists only where something names it.
  *
  * A text refinement that is neither a tautology nor wrapped in a contract is a structural domain shared by every field
  * whose pattern recognizes the same values: `CREATE DOMAIN <schema>.<domain> AS text COLLATE pg_catalog.pg_c_utf8

@@ -3,7 +3,7 @@ import { Array as Arr, Effect, Record as Rec } from "effect"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { identifierOf, identity } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import { admitLoginRoles, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
+import { admitLoginRoles } from "#compiler/ir/desc.ts"
 import { rosterConstants } from "#compiler/physical/ddl/constants.ts"
 import {
 	compileInstallation,
@@ -287,9 +287,7 @@ export const worldsGrants = (
 	)
 	/**
 	 * The domains a full role reads: every domain of the schema but a text domain whose every use is a closed
-	 * relation's field, which no table holds and no column's declared type reaches (a contract's base text, which the
-	 * installation types by a domain of its own, eb07f21f5, is a column's through its contract, physical/ddl/roles.ts
-	 * typeDomains), the migration's validation of the closed facts alone casting to it, and a
+	 * relation's field, which no table holds, the migration's validation of the closed facts alone casting to it, and a
 	 * contract's domain no table's column is typed by, down a domain's base chain: natural's, which every schema
 	 * installs whether or not a field holds it (5757e399b), and which a role holds USAGE on only where a column of its
 	 * relations is typed by it (physical/ddl/roles.ts); and the SHA-256 digest domain, which every installation installs
@@ -304,24 +302,9 @@ export const worldsGrants = (
 	const typing = new Set<string>(
 		Arr.flatMap(catalog.tables, (t) => Arr.flatMap(t.columns, (c) => chainOf(c.type.name)))
 	)
-	/** The text domains a stored relation's declared field types reach: its refinement's, along its contract chain. */
-	const textOf = (field: FieldDesc): ReadonlyArray<string> =>
-		field.kind === "contract"
-			? textOf(field.base)
-			: field.kind === "text" && field.language.kind === "refined"
-				? [field.language.key]
-				: []
-	const reachedKeys = new Set<string>(
-		Arr.flatMap(desc.relations, (r) =>
-			r.kind === "relation" ? Arr.flatMap(Rec.values(fieldTypes(r.fields)), textOf) : []
-		)
-	)
-	const reached = new Set<string>(
-		Arr.flatMap(installation.textPlans, (p) => (reachedKeys.has(p.key) ? [p.domain.name] : []))
-	)
 	const closedOnly = new Set<string>(
 		Arr.flatMap(installation.textDomains, (d) =>
-			Arr.some(d.uses, (u) => tables.has(u.table)) || reached.has(d.name) ? [] : [d.name]
+			Arr.some(d.uses, (u) => tables.has(u.table)) ? [] : [d.name]
 		)
 	)
 	const unheldContracts = new Set<string>(

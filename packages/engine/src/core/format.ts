@@ -38,7 +38,15 @@
  * constraintToLaw, a served file's constraints above and meta.json's folder laws, to the laws its refusal breaks: every
  * law it serves but a containment or a rule whose foreign key references it (laws/model/model.ts refusedLaws), where
  * format 6 mapped it to every law it serves, so a duplicate under a superkey a containment references named that
- * containment beside its key. Format 6's snapshot.json records each schema level's fingerprint over its
+ * containment beside its key. An installation plans a domain, and grants a role USAGE on one, only where something
+ * names it: a contract's domain rests on its base's own domain (an inner contract's, a closed id's roster domain, a
+ * set's bits domain, the digest domain), never a refined base's text domain, whose pattern the contract's own CHECK
+ * carries over text (physical/ddl/domains.ts restingDomains, typeRefinements); a persistent expression names a text
+ * domain only as a cast's target; and a law's violation query only where a statement lowers it, a migration-discharged
+ * law's or a rule's (physical/install/plan.ts artifactObjects), where format 6 created the text domain of every
+ * contract's refined base and of every persistent and law term's refined type, and granted a role USAGE on its
+ * contracts' base text domains: those CREATE DOMAINs, their COMMENTs, PUBLIC revokes and USAGE grants go, and
+ * snapshot.json's derived.textDomains holds them no more. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row

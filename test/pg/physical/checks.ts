@@ -116,22 +116,15 @@ export const textProbes: ReadonlyArray<string> = [
 	"ab\nc"
 ]
 
-/**
- * The declared text refinement of a field, along a contract's chain to its text base, or none: its patterns, and the
- * key of the language they admit, as its declaration carries it (none for the wildcard's).
- */
+/** The declared text refinement of a field, along a contract's chain to its text base, or none. */
 type DeclaredText =
 	| { readonly kind: "none" }
-	| { readonly kind: "text"; readonly patterns: Patterns; readonly language: string | undefined }
+	| { readonly kind: "text"; readonly patterns: Patterns }
 
 const declaredText = (field: FieldDesc): DeclaredText => {
 	switch (field.kind) {
 		case "text":
-			return {
-				kind: "text",
-				patterns: field.patterns,
-				language: field.language.kind === "refined" ? field.language.key : undefined
-			}
+			return { kind: "text", patterns: field.patterns }
 		case "contract":
 			return declaredText(field.base)
 		case "pg":
@@ -160,10 +153,9 @@ interface TextDomainModel {
 
 /**
  * The text refinement domains of `installation`, each with the pattern of the field it types first (its uses are its
- * columns), read from the declaring description, never from src; a domain no column is typed by itself, a contract's
- * base, which the installation holds as the domain every artifact typing a value by the refinement names (eb07f21f5),
- * with the patterns of the declared text whose language it is (its plan's key). A domain that is neither is a defect
- * of the case.
+ * columns), read from the declaring description, never from src. A domain whose uses name no declared text field is a
+ * defect of the case: the installation holds a text domain only where something types a value by it, and a contract's
+ * base is no such type, its pattern carried by the contract's domain (physical/ddl/domains.ts typeRefinements).
  */
 const textDomainModels = (
 	installation: Installation,
@@ -190,28 +182,9 @@ const textDomainModels = (
 					: []
 			)
 		})
-		const planKey = Option.map(
-			Arr.findFirst(installation.textPlans, (p) => p.domain.name === d.name),
-			(p) => p.key
-		)
-		const declaredTexts = Arr.flatMap(desc.relations, (r) =>
-			Arr.map(
-				Rec.values(
-					r.kind === "relation" ? fieldTypes(r.fields) : r.kind === "closedRelation" ? r.fields : {}
-				),
-				declaredText
-			)
-		)
-		const [text] = [
-			...Arr.flatMap(fields, (t) => (t.kind === "text" ? [t] : [])),
-			...Arr.flatMap(declaredTexts, (t) =>
-				t.kind === "text" && Option.isSome(planKey) && t.language === planKey.value ? [t] : []
-			)
-		]
+		const [text] = Arr.flatMap(fields, (t) => (t.kind === "text" ? [t] : []))
 		if (text === undefined) {
-			throw new Error(
-				`the text domain ${d.name} types no declared text field and is no declared text's language`
-			)
+			throw new Error(`the text domain ${d.name} types no declared text field`)
 		}
 		return {
 			domain: d.name,

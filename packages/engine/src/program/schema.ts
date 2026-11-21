@@ -18,9 +18,10 @@ import type { Codebook } from "#compiler/ir/codes.ts"
 import type { ProgramDesc, RoleDesc, SchemaDesc } from "#compiler/ir/desc.ts"
 import type { RelationInfo } from "#compiler/ir/law.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
-import { regexRefOf, rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
+import { rosterOf, type ScalarType } from "#compiler/ir/scalar.ts"
 import { derivedKeyConstraints } from "#compiler/laws/model/catalog.ts"
 import { compileLaws, type ConstraintLaw, type LawModel } from "#compiler/laws/model/model.ts"
+import { structuralRegex } from "#compiler/physical/ddl/domains.ts"
 import {
 	type InstallNames,
 	roleReadNames,
@@ -602,9 +603,13 @@ const raisableConstraint = (
 	}
 }
 
-/** The domains a value cast to `t` meets under `names`: each contract's of its chain, outermost first, and its pattern's. */
+/**
+ * The domains a value cast to `t` meets under `names`: each contract's of its chain, outermost first, and the text
+ * domain of its pattern where it is a refined text outside any contract (structuralRegex); a contract over a refined
+ * text carries the pattern in its own domain's CHECK, which names no text domain.
+ */
 const castDomains = (names: InstallNames, t: ScalarType): ReadonlyArray<string> => {
-	const text = regexRefOf(t)
+	const text = structuralRegex(t)
 	return [
 		...contractChain(t).map((contract) => names.contractDomain(contract).name),
 		...(text === undefined ? [] : [names.textDomain(text).name])

@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import {
 	headNonEmpty,
 	isNonEmpty,
@@ -179,9 +180,9 @@ const modelObjects = new WeakMap<LawModel, ArtifactObjects>()
  * (planTextDomains, outsideContracts, physical/ddl/library.ts addLibrary), one reachability walk for every kind of
  * object: `columns`, every materialized derived
  * relation's view column a pattern types, which its definition casts to that pattern's domain (a literal or a min of
- * refined text keeps its pattern); and, where no column is, the text refinements (`texts`) and the contracts
- * (`contracts`) of each refinement down the contract chain of a stored field's type, a contract's base, which a value
- * read at that base is typed by (typeRefinements); of each type of a persistent expression (physical/ddl/constants.ts
+ * refined text keeps its pattern); and, where no column is, the text refinements (`texts`, typeRefinements: a value's
+ * own refinement, never a contract's base, whose pattern its contract's domain carries) and the contracts
+ * (`contracts`, down each contract's chain) of a stored field's type; of each type of a persistent expression (physical/ddl/constants.ts
  * persistentExprs), a generated field's, a CHECK's, a law column's, a contract predicate's, a cast's target among them;
  * of every value a materialized definition's checked DAG types, and every one a law's checked violation query does
  * (laws/model/violations.ts theoryViolations), which the judge of a rule and the migration's probe of a law lower, a
@@ -219,31 +220,58 @@ const artifactObjects = (model: LawModel): ArtifactObjects => {
 		}
 	}
 	const persistent = SourceLoc(`the persistent expressions of schema ${owned.name}`, [])
+	const persistentTerms = exprClosure(persistentExprs(model))
+	const fieldTypes = Object.values(theory.relations).flatMap((r) =>
+		r.fields.map((c) => ({ type: c.type, loc: persistent }))
+	)
+	const returnTypes = Object.values(owned.functions).flatMap((fn) =>
+		returned(fn.desc.returns, fn.desc.loc).map((type) => ({ type, loc: fn.desc.loc }))
+	)
 	const typed: ReadonlyArray<{ readonly type: ScalarType; readonly loc: SourceLoc }> = [
-		...Object.values(theory.relations).flatMap((r) =>
-			r.fields.map((c) => ({ type: c.type, loc: persistent }))
-		),
-		...exprClosure(persistentExprs(model)).map((e) => ({ type: e.type, loc: persistent })),
-		...Object.values(owned.functions).flatMap((fn) =>
-			returned(fn.desc.returns, fn.desc.loc).map((type) => ({ type, loc: fn.desc.loc }))
-		)
+		...fieldTypes,
+		...persistentTerms.map((e) => ({ type: e.type, loc: persistent })),
+		...returnTypes
 	]
+	/**
+	 * The types whose text refinements the installation's own statements name: its stored fields', its declared
+	 * functions' results', and each persistent expression's cast target, the one term whose SQL names a type's domain
+	 * (lower/conservative/expr cast and domainCast, physical/ddl/expr.ts castType); a persistent term of a refined type
+	 * that is no cast, a domain CHECK's VALUE among them, is read at its own type's base and names no domain.
+	 */
+	const textTyped = [
+		...fieldTypes,
+		...persistentTerms.flatMap((e) =>
+			e.kind === "cast" || e.kind === "domainCast" ? [{ type: e.type, loc: persistent }] : []
+		),
+		...returnTypes
+	]
+	const lawsLoc = SourceLoc(`the laws of schema ${owned.name}`, [])
+	const violations = unwrap(theoryViolations(checked, theory))
+	/**
+	 * The violation queries the installation and its migrations lower, each law's whose check a statement runs: a
+	 * migration-discharged law's, which a migration's Validate file probes, and a rule over a query's, which its judge
+	 * reads (deploy/snapshot/violation.ts lawChecks). Every other law is discharged by native objects, its violation
+	 * query lowered nowhere, so no type of it is named by any statement.
+	 */
+	const lowered = [...model.migrationLaws, ...model.rules.map((r) => r.law.id)].map((law) =>
+		defined(violations.forbids.get(law), `the violation query of law ${law}`)
+	)
 	const held = [
 		...derived.map((a) => dagObjects(a.loc, [], a.query.dag.roots)),
-		dagObjects(
-			SourceLoc(`the laws of schema ${owned.name}`, []),
-			[],
-			unwrap(theoryViolations(checked, theory)).dag.roots
-		)
+		dagObjects(lawsLoc, [], lowered)
 	]
 	const own: ArtifactObjects = {
 		columns,
-		texts: [...typed.flatMap((t) => typeRefinements(t.type)), ...held.flatMap((h) => h.texts)],
+		texts: [...textTyped.flatMap((t) => typeRefinements(t.type)), ...held.flatMap((h) => h.texts)],
 		contracts: [
 			...typed.flatMap((t) => typeContracts(t.type, t.loc)),
 			...held.flatMap((h) => h.contracts)
 		],
-		library: distinctLibrary([...libraryCalls(model), ...held.flatMap((h) => h.library)])
+		library: distinctLibrary([
+			...libraryCalls(model),
+			...held.flatMap((h) => h.library),
+			...dagObjects(lawsLoc, [], violations.dag.roots).library
+		])
 	}
 	modelObjects.set(model, own)
 	return own

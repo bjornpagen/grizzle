@@ -66,21 +66,21 @@ export const aComputedTextALawReadsOrAPersistentExpressionCastsInstallsWithItsDo
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
 				original:
-					"\t\t...exprClosure(persistentExprs(model)).map((e) => ({ type: e.type, loc: persistent })),\n",
+					'\t\t...persistentTerms.flatMap((e) =>\n\t\t\te.kind === "cast" || e.kind === "domainCast" ? [{ type: e.type, loc: persistent }] : []\n\t\t),\n',
 				replacement: "",
 				why: "A persistent expression is no place the installation types a refinement by: the generated cast names the domain of a text type no stored field declares, which the installation does not create."
 			},
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
 				original:
-					"\t\tlibrary: distinctLibrary([...libraryCalls(model), ...held.flatMap((h) => h.library)])\n",
+					"\t\tlibrary: distinctLibrary([\n\t\t\t...libraryCalls(model),\n\t\t\t...held.flatMap((h) => h.library),\n\t\t\t...dagObjects(lawsLoc, [], violations.dag.roots).library\n\t\t])\n",
 				replacement: "\t\tlibrary: distinctLibrary(libraryCalls(model))\n",
 				why: "The library functions a law's checked DAG calls are not installed, the old collector of persistent expressions alone: the pattern check's judge calls isXsdPattern, which the installation does not install, and the installation is refused as UninstalledFunction."
 			},
 			{
 				file: "packages/engine/src/physical/install/plan.ts",
-				original: "\t\t\tunwrap(theoryViolations(checked, theory)).dag.roots\n",
-				replacement: "\t\t\t[]\n",
+				original: "\t\tdagObjects(lawsLoc, [], lowered)\n",
+				replacement: "\t\tdagObjects(lawsLoc, [], [])\n",
 				why: "A law's violation query is no place the installation types a refinement by: the containment's judge relabels its sides to the live derived relation's computed text, whose domain the installation does not create."
 			}
 		]
