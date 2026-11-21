@@ -13,6 +13,11 @@
  * Property, per node: the offers made are the offers the steps offer when the names settle, each made once. Oracle:
  * specification. Kill: a step makes every offer again each round.
  *
+ * And a node's properties hold no step sources (logical/props.ts finish): the sources are worked out in finish and
+ * read there, by its naming and its fixed names, and the properties are built from the node's steps and naming alone,
+ * where built from the table they held every row's sources, each input source's closure with it, for as long as the
+ * analysis lived. Per node of the same box: its properties hold no `sources`. Kill: the properties spread the table.
+ *
  * Features: names settled in one round, names given in a later round.
  */
 
@@ -62,6 +67,41 @@ export const eachStepThatFixesAColumnMakesEachNameItOffersOnceHoweverManyRoundsT
 				original: "\t\tthis.#made = count\n",
 				replacement: "\t\tthis.#made = made\n",
 				why: "A step makes every offer again each round, as every round re-read every step: a node whose names take two rounds makes its offers twice."
+			}
+		]
+	})
+
+/** A node's properties hold no step sources: they are worked out and read in finish alone. */
+export const aNodesPropertiesHoldNoStepSourcesTheyAreWorkedOutAndReadInFinishAlone =
+	property.exhaust(finite(chainGen), {
+		needs: {},
+		situations: [],
+		check: () => (chain) =>
+			Effect.sync(() => {
+				const analysis = analyzeLogical(chainQuery(chain).dag, {
+					context: "transaction",
+					containments: [],
+					keyedViews: false
+				})
+				if (!analysis.ok) {
+					throw new Error(`annotation refused: ${analysis.error.message}`)
+				}
+				for (const node of topoOrder(analysis.value.dag)) {
+					assert.ok(
+						!("sources" in analysis.value.of(node).props),
+						`${node.id}: its properties hold no step sources`
+					)
+				}
+			}),
+		oracle: { kind: "specification", name: "the properties hold what their readers read" },
+		box: "one to three equalities chaining R's columns, the last a constant, none to two of them parameters too",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t...steps,\n\t\tnaming: table.naming,\n",
+				replacement: "\t\t...table,\n",
+				why: "The properties spread the table, so every node's properties hold its rows' step sources for as long as the analysis lives."
 			}
 		]
 	})

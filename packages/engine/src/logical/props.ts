@@ -1478,131 +1478,23 @@ type Subject = Pick<Props, "node" | "reading" | "attachment" | "outer">
  * rest's keys, the first of them each class's first column with the rest's first key, the whole search's first key.
  */
 /**
- * The keys of a constant relation's rows: every minimal set of its columns, by index in ascending order, whose value
- * tuples no two of its `rows` rows share, each value read by equality. A closed relation is keyed by every set its rows
- * key, its declared key among them (no two of its facts share it), and by no other. The sets are searched smaller
- * first, each a set no key found holds extended by a column after its last, so every set is read once and none that
- * holds a key; a set is a key when the tuples of its columns' codes, each value numbered within its column, are
- * distinct, read row by row until one repeats.
+ * The keys of a node's rows (finish): one proof over its independent factors for rows of one heading group
+ * (`productKey`), each kept input's key minimized and exchanged for rows of several (`withinKeys`), each over its
+ * dependencies by their classes' representatives (`exchange`). A function of its own, so what it builds to find them,
+ * the exchange and its bitsets, the representatives, is unreachable once they are found: built in finish's scope, it
+ * was held by the closures a node's properties keep (`prove`, `whole`), which share that scope, for the life of the
+ * properties (an in-flight analysis of edullm's qti, 848K exchanged rows of 115K nodes, 382 MB).
  */
-const rowKeys = (
-	columns: ReadonlyArray<ReadonlyArray<EqualityKey>>,
-	rows: number
-): ReadonlyArray<NonEmptyReadonlyArray<number>> => {
-	const codes = columns.map((values) => {
-		const numbered = new Map<EqualityKey, number>()
-		return values.map((value) => {
-			const known = numbered.get(value)
-			if (known !== undefined) {
-				return known
-			}
-			numbered.set(value, numbered.size)
-			return numbered.size - 1
-		})
-	})
-	const keys: Array<NonEmptyReadonlyArray<number>> = []
-	const holdsKey = (set: ReadonlyArray<number>): boolean =>
-		keys.some((key) => key.every((i) => set.includes(i)))
-	const keyed = (set: ReadonlyArray<number>): boolean => {
-		const seen = new Set<string>()
-		for (let row = 0; row < rows; row++) {
-			const tuple = set.map((i) => defined(codes[i]?.[row], "a row's code")).join(",")
-			if (seen.has(tuple)) {
-				return false
-			}
-			seen.add(tuple)
-		}
-		return true
-	}
-	let level: ReadonlyArray<NonEmptyReadonlyArray<number>> = columns.map((_, i) => [i] as const)
-	while (level.length > 0) {
-		const open: Array<NonEmptyReadonlyArray<number>> = []
-		for (const set of level) {
-			if (holdsKey(set)) {
-				continue
-			}
-			if (keyed(set)) {
-				keys.push(set)
-			} else {
-				open.push(set)
-			}
-		}
-		level = open.flatMap((set) =>
-			columns.flatMap((_, j): ReadonlyArray<NonEmptyReadonlyArray<number>> =>
-				j > lastNonEmpty(set) ? [[...set, j]] : []
-			)
-		)
-	}
-	return keys
-}
-
-const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
-	const { node } = subject
-	const columns = node.heading.map((c) => c.name)
+const keysOf = (
+	steps: Steps,
+	rest: Rest,
+	classes: ReadonlyMap<string, NonEmptyReadonlyArray<string>>,
+	reachOf: (key: Bits) => Reach | undefined,
+	proofOf: (key: KeySet, reach: Reach) => KeyProof,
+	membersOf: (cs: ReadonlyArray<string>) => ReadonlyArray<KeyMember>
+): ReadonlyArray<KeyProof> => {
 	const { attributes } = rest
 	const heading = attributes.heading
-	const steps: Steps = {
-		node,
-		reading: subject.reading,
-		attachment: subject.attachment,
-		outer: subject.outer,
-		columns,
-		stated: rowsOf(attributes, dependencies)
-	}
-	const sources = sourcesOf(steps)
-	const table: Table = { ...steps, sources, naming: namingOf(steps, sources) }
-	const forest = forestOf(columns, rest.equal)
-	const classes = classesIn(columns, forest)
-	/**
-	 * Each other column of the classes of `cs`, in heading order, with its path to the column it stands for. A hidden
-	 * attribute is of no class.
-	 */
-	const membersOf = (cs: ReadonlyArray<string>): ReadonlyArray<KeyMember> => {
-		const held = new Set(cs)
-		return cs.flatMap((k) =>
-			(classes.get(k) ?? []).flatMap((m) => {
-				const path = held.has(m) ? undefined : pathOf({ forest }, m, k)
-				return path === undefined ? [] : [keyMember(k, m, path.derivation)]
-			})
-		)
-	}
-	/**
-	 * The closure of `key` and the key it reaches: the whole heading, or the first kept input's key it covers for rows
-	 * of several heading groups; undefined where it reaches none.
-	 */
-	const reachOf = (key: Bits): Reach | undefined => {
-		const reached = coverOf(table, key)
-		if (rest.discriminant.length === 0) {
-			return covers(reached, heading) ? { kind: "rows", reached } : undefined
-		}
-		const inner = rest.inner.find((k) => k.key.every((c) => reaches(reached, c)))
-		return inner === undefined ? undefined : { kind: "within", reached, inner }
-	}
-	/** The proof of `key` from the key its closure reaches. */
-	const proofOf = (key: KeySet, reach: Reach): KeyProof =>
-		reach.kind === "rows"
-			? rowsKey(
-					key,
-					derivation(reach.reached, attributes.headingAt),
-					membersOf(key),
-					soleFactor(key)
-				)
-			: keyWithin(
-					key,
-					derivation(reach.reached, positionsOf(attributes, reach.inner.key)),
-					reach.inner,
-					membersOf(key)
-				)
-	const prove = (cs: ReadonlyArray<string>): KeyProof | undefined => {
-		const key = intersect(bitsOf(attributes, cs), heading)
-		const reach = reachOf(key)
-		return reach === undefined ? undefined : proofOf(attributeNames(attributes, key), reach)
-	}
-	/** The closure of the whole heading reaches every column of it. */
-	const whole = (): WholeKey =>
-		rest.discriminant.length === 0
-			? { kind: "set", key: proofOf(columns, { kind: "rows", reached: coverOf(table, heading) }) }
-			: { kind: "groups" }
 	/** Each attribute's class's representative, its first column, by position; a hidden attribute stands for itself. */
 	const representativeAt = attributes.names.map((c, p) => {
 		const members = classes.get(c)
@@ -1626,7 +1518,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		return out
 	}
 	/** Each dependency's determinants and targets by their classes' representatives, its targets in its order. */
-	const exchange = table.stated.rows.map((row) => {
+	const exchange = steps.stated.rows.map((row) => {
 		const to = represented(row.to)
 		return {
 			row,
@@ -1645,7 +1537,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		).map(({ key, witness }) => proofOf(attributeNames(attributes, key), witness))
 	/** The one proof of the minimal keys of rows of one heading group, over its independent factors. */
 	const productKey = (): KeyProof => {
-		const reachable = coverOf(table, heading).reached
+		const reachable = coverOf(steps, heading).reached
 		const stated = exchange.flatMap((e) =>
 			subsetOf(e.row.from, reachable)
 				? [
@@ -1662,7 +1554,7 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 			stated
 		)
 		const deps = rowsAmong(
-			table.stated,
+			steps.stated,
 			stated.map((x) => x.row)
 		)
 		/** What `cs` determine with the key columns `given` of the factors before theirs. */
@@ -1781,16 +1673,146 @@ const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest:
 		const key = attributeNames(attributes, intersect(chosen, heading))
 		return rowsKey(
 			key,
-			derivation(coverOf(table, intersect(chosen, heading)), attributes.headingAt),
+			derivation(coverOf(steps, intersect(chosen, heading)), attributes.headingAt),
 			membersOf([...key, ...found.flatMap((f) => f.alternatives.flatMap((a) => a.columns))]),
 			found
 		)
 	}
-	const keys = rest.discriminant.length === 0 ? [productKey()] : withinKeys()
+	return rest.discriminant.length === 0 ? [productKey()] : withinKeys()
+}
+
+/**
+ * The keys of a constant relation's rows: every minimal set of its columns, by index in ascending order, whose value
+ * tuples no two of its `rows` rows share, each value read by equality. A closed relation is keyed by every set its rows
+ * key, its declared key among them (no two of its facts share it), and by no other. The sets are searched smaller
+ * first, each a set no key found holds extended by a column after its last, so every set is read once and none that
+ * holds a key; a set is a key when the tuples of its columns' codes, each value numbered within its column, are
+ * distinct, read row by row until one repeats.
+ */
+const rowKeys = (
+	columns: ReadonlyArray<ReadonlyArray<EqualityKey>>,
+	rows: number
+): ReadonlyArray<NonEmptyReadonlyArray<number>> => {
+	const codes = columns.map((values) => {
+		const numbered = new Map<EqualityKey, number>()
+		return values.map((value) => {
+			const known = numbered.get(value)
+			if (known !== undefined) {
+				return known
+			}
+			numbered.set(value, numbered.size)
+			return numbered.size - 1
+		})
+	})
+	const keys: Array<NonEmptyReadonlyArray<number>> = []
+	const holdsKey = (set: ReadonlyArray<number>): boolean =>
+		keys.some((key) => key.every((i) => set.includes(i)))
+	const keyed = (set: ReadonlyArray<number>): boolean => {
+		const seen = new Set<string>()
+		for (let row = 0; row < rows; row++) {
+			const tuple = set.map((i) => defined(codes[i]?.[row], "a row's code")).join(",")
+			if (seen.has(tuple)) {
+				return false
+			}
+			seen.add(tuple)
+		}
+		return true
+	}
+	let level: ReadonlyArray<NonEmptyReadonlyArray<number>> = columns.map((_, i) => [i] as const)
+	while (level.length > 0) {
+		const open: Array<NonEmptyReadonlyArray<number>> = []
+		for (const set of level) {
+			if (holdsKey(set)) {
+				continue
+			}
+			if (keyed(set)) {
+				keys.push(set)
+			} else {
+				open.push(set)
+			}
+		}
+		level = open.flatMap((set) =>
+			columns.flatMap((_, j): ReadonlyArray<NonEmptyReadonlyArray<number>> =>
+				j > lastNonEmpty(set) ? [[...set, j]] : []
+			)
+		)
+	}
+	return keys
+}
+
+const finish = (subject: Subject, dependencies: ReadonlyArray<Dependency>, rest: Rest): Props => {
+	const { node } = subject
+	const columns = node.heading.map((c) => c.name)
+	const { attributes } = rest
+	const heading = attributes.heading
+	const steps: Steps = {
+		node,
+		reading: subject.reading,
+		attachment: subject.attachment,
+		outer: subject.outer,
+		columns,
+		stated: rowsOf(attributes, dependencies)
+	}
+	const sources = sourcesOf(steps)
+	const table: Table = { ...steps, sources, naming: namingOf(steps, sources) }
+	const forest = forestOf(columns, rest.equal)
+	const classes = classesIn(columns, forest)
+	/**
+	 * Each other column of the classes of `cs`, in heading order, with its path to the column it stands for. A hidden
+	 * attribute is of no class.
+	 */
+	const membersOf = (cs: ReadonlyArray<string>): ReadonlyArray<KeyMember> => {
+		const held = new Set(cs)
+		return cs.flatMap((k) =>
+			(classes.get(k) ?? []).flatMap((m) => {
+				const path = held.has(m) ? undefined : pathOf({ forest }, m, k)
+				return path === undefined ? [] : [keyMember(k, m, path.derivation)]
+			})
+		)
+	}
+	/**
+	 * The closure of `key` and the key it reaches: the whole heading, or the first kept input's key it covers for rows
+	 * of several heading groups; undefined where it reaches none.
+	 */
+	const reachOf = (key: Bits): Reach | undefined => {
+		const reached = coverOf(steps, key)
+		if (rest.discriminant.length === 0) {
+			return covers(reached, heading) ? { kind: "rows", reached } : undefined
+		}
+		const inner = rest.inner.find((k) => k.key.every((c) => reaches(reached, c)))
+		return inner === undefined ? undefined : { kind: "within", reached, inner }
+	}
+	/** The proof of `key` from the key its closure reaches. */
+	const proofOf = (key: KeySet, reach: Reach): KeyProof =>
+		reach.kind === "rows"
+			? rowsKey(
+					key,
+					derivation(reach.reached, attributes.headingAt),
+					membersOf(key),
+					soleFactor(key)
+				)
+			: keyWithin(
+					key,
+					derivation(reach.reached, positionsOf(attributes, reach.inner.key)),
+					reach.inner,
+					membersOf(key)
+				)
+	const prove = (cs: ReadonlyArray<string>): KeyProof | undefined => {
+		const key = intersect(bitsOf(attributes, cs), heading)
+		const reach = reachOf(key)
+		return reach === undefined ? undefined : proofOf(attributeNames(attributes, key), reach)
+	}
+	/** The closure of the whole heading reaches every column of it. */
+	const whole = (): WholeKey =>
+		rest.discriminant.length === 0
+			? { kind: "set", key: proofOf(columns, { kind: "rows", reached: coverOf(steps, heading) }) }
+			: { kind: "groups" }
+	const keys = keysOf(steps, rest, classes, reachOf, proofOf, membersOf)
 	const atMostOne = keys.some((k) => k.key.length === 0)
 	const nothing = closureOf(table, noBits(attributes))
 	return {
-		...table,
+		...steps,
+		naming: table.naming,
 		node,
 		reading: subject.reading,
 		attachment: subject.attachment,
