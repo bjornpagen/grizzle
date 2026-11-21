@@ -272,8 +272,10 @@ export const aSchemaLevelsFingerprintHashesBytesLinearInItsDistinctPartsAUnionCh
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\tconst digests = Object.isFrozen(container) ? this.#digests : open\n",
-				replacement: "\t\tconst digests = new Map<object, IdentityDigest>()\n",
+				original:
+					"\t\tconst tableOf = (container: object) => (Object.isFrozen(container) ? this.#digests : open)\n",
+				replacement:
+					"\t\tconst tableOf = (_container: object) => new Map<object, IdentityDigest>()\n",
 				why: "No container's token is kept, so each is digested at every path that reaches it: a chain one level deeper hashes reads times the bytes."
 			},
 			{
@@ -326,9 +328,8 @@ export const identityDigestsTakeEachFrozenContainersIdentityOnceHoweverOftenItIs
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\t\t\treturn this.#within().of(read)\n",
-				replacement:
-					"\t\t\t\treturn mintIdentityDigest(this.#containerDigest(read, this.#within(), unframed))\n",
+				original: "\t\t\t\tconst known = tokens.known(read)\n",
+				replacement: "\t\t\t\tconst known = undefined\n",
 				why: "A value asked is digested anew, its kept identity unread: each ask of the level, and of each part, hashes its text again."
 			}
 		]

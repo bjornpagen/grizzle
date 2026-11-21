@@ -1076,12 +1076,14 @@ export const isCanonicalContainer = (read: CanonicalValue | Outside): read is Ca
 	typeof read === "object" && (read.kind === "array" || read.kind === "record")
 
 /**
- * How an identity text (writeIdentityText) takes and writes the token of each container it holds: a token is taken
- * before anything of the container holding it is written, since taking one writes and hashes that container's own
- * message into the same writer (core/fingerprint.ts IdentityDigests), and written where the container stands.
+ * How an identity text (writeIdentityText) takes and writes the token of each container it holds: a container's token
+ * is the one taken for it before (`known`), or taken from its own identity text, written whole into the writer just
+ * before (`written`), since a token's message is hashed in the same writer as every other (core/fingerprint.ts
+ * IdentityDigests); and it is written where the container stands.
  */
 export interface ContainerTokens<T> {
-	readonly of: (member: CanonicalContainer) => T
+	readonly known: (member: CanonicalContainer) => T | undefined
+	readonly written: (member: CanonicalContainer) => T
 	readonly write: (out: Utf8Writer, token: T) => void
 }
 
@@ -1089,10 +1091,16 @@ export interface ContainerTokens<T> {
  * A container's identity text under `options` written into `out` (core/fingerprint.ts IdentityDigests): its canonical
  * text with each container it holds written as its token (`tokens`), each scalar as `encode` writes it. The tokens are
  * taken first, a member at a time, in the order the text is written in (an array's items, a record's keys in canonical
- * order); then `before` writes what precedes the text (a digest's frame), and the text is written. A member outside the
+ * order), a member whose token was never taken having its own identity text written first and its token taken from it;
+ * then `before` writes what precedes the text (a digest's frame), and the text is written. A member outside the
  * canonical model is refused as `encode` refuses it: an array's item as the root of its own text, where its token would
- * stand (path []), a record's member under its key. A member left out by `options` is neither taken nor written. Throws
- * its Refusal, for the catchRefusal around the digest.
+ * stand (path []), a record's member under its key; so is a container that holds itself, a cycle. A member left out by
+ * `options` is neither taken nor written. Throws its Refusal, for the catchRefusal around the digest.
+ *
+ * The containers whose texts are pending are a stack on the heap (Pending), each read up to its first member whose
+ * token is not yet taken, that member's text written before its holder's reading goes on, so a container's depth costs
+ * the heap one entry and the call stack nothing, where a recursion through each member's token took several frames a
+ * level and ran out of stack within a few hundred levels under a small one.
  */
 export const writeIdentityText = <T>(
 	out: Utf8Writer,
@@ -1101,10 +1109,174 @@ export const writeIdentityText = <T>(
 	tokens: ContainerTokens<T>,
 	before: (out: Utf8Writer) => void
 ): void => {
-	if (container.kind === "array") {
-		writeIdentityArray(out, container.items, tokens, before)
+	const pending: Array<Pending<T>> = [pendingOf(container)]
+	/** The containers whose texts are pending, each an ancestor of the next: one met again among them is a cycle. */
+	const open = new Set<object>([heldOf(container)])
+	for (;;) {
+		const top = defined(pending.at(-1), "a pending container")
+		const member = readPending(top, options, tokens)
+		if (member !== undefined) {
+			const held = heldOf(member)
+			if (open.has(held)) {
+				refuseValue(pathOfNext(top), "an acyclic value")
+			}
+			open.add(held)
+			pending.push(pendingOf(member))
+			continue
+		}
+		pending.pop()
+		open.delete(heldOf(top.read))
+		const holder = pending.at(-1)
+		if (holder === undefined) {
+			before(out)
+			writePending(out, top, options, tokens)
+			return
+		}
+		writePending(out, top, options, tokens)
+		takeToken(holder, top.read, tokens.written(top.read))
+	}
+}
+
+/**
+ * A container whose identity text is pending, its members read in its text's order up to the first whose token is not
+ * yet taken: each read member's token, where it is a container written as one, and otherwise its reading. As many
+ * members are read as tokens are held, so the next to read is at `taken.length`.
+ */
+type Pending<T> = PendingArray<T> | PendingRecord<T>
+
+interface PendingArray<T> {
+	readonly kind: "array"
+	readonly read: Extract<CanonicalContainer, { readonly kind: "array" }>
+	readonly taken: Array<T | undefined>
+	readonly scalars: Array<ScalarReading | undefined>
+}
+
+interface PendingRecord<T> {
+	readonly kind: "record"
+	readonly read: Extract<CanonicalContainer, { readonly kind: "record" }>
+	/** The record's keys in canonical order (keysOf), read once for its tokens and then for its text. */
+	readonly keys: ReadonlyArray<string>
+	/** Each member's reading as the text holds it (memberOf), undefined where it holds none: unstated, or left out. */
+	readonly reads: Array<CanonicalValue | Outside | undefined>
+	readonly taken: Array<T | undefined>
+}
+
+const pendingOf = <T>(read: CanonicalContainer): Pending<T> =>
+	read.kind === "array"
+		? { kind: "array", read, taken: [], scalars: [] }
+		: { kind: "record", read, keys: keysOf(read.record), reads: [], taken: [] }
+
+/** The object a container reading reads: an array's items, or a record. */
+const heldOf = (read: CanonicalContainer): object =>
+	read.kind === "array" ? read.items : read.record
+
+/** Where the next member of a pending container is refused: an array's item at the root of its own text, a record's under its key. */
+const pathOfNext = <T>(p: Pending<T>): Path =>
+	p.kind === "array" ? [] : [keyAt(p.keys, p.taken.length)]
+
+/** The token of the member a pending container stopped at, taken from its text: the member read, the next one next. */
+const takeToken = <T>(p: Pending<T>, member: CanonicalContainer, token: T): void => {
+	if (p.kind === "array") {
+		p.taken.push(token)
+		p.scalars.push(undefined)
 	} else {
-		writeIdentityRecord(out, container.record, options, tokens, before)
+		p.reads.push(member)
+		p.taken.push(token)
+	}
+}
+
+/** A pending container's members read on, to the first container whose token is not yet taken; undefined at its end. */
+const readPending = <T>(
+	p: Pending<T>,
+	options: EncodeOptions,
+	tokens: ContainerTokens<T>
+): CanonicalContainer | undefined =>
+	p.kind === "array" ? readItems(p, tokens) : readMembers(p, options, tokens)
+
+/** An array's items read on (readPending): a container by its token, a scalar by its reading, one outside refused. */
+const readItems = <T>(
+	p: PendingArray<T>,
+	tokens: ContainerTokens<T>
+): CanonicalContainer | undefined => {
+	const items = p.read.items
+	for (let i = p.taken.length; i < items.length; i++) {
+		const item: unknown = items[i]
+		const read = canonicalOf(item)
+		if (typeof read !== "object") {
+			p.taken.push(undefined)
+			p.scalars.push(read)
+			continue
+		}
+		switch (read.kind) {
+			case "array":
+			case "record": {
+				const token = tokens.known(read)
+				if (token === undefined) {
+					return read
+				}
+				p.taken.push(token)
+				p.scalars.push(undefined)
+				continue
+			}
+			case "outside":
+				return refuseValue([], item === undefined ? "a value, not undefined" : read.what)
+			case "vector":
+			case "floatSpecial":
+			case "tagged":
+				p.taken.push(undefined)
+				p.scalars.push(read)
+				continue
+		}
+	}
+	return undefined
+}
+
+/**
+ * A record's members read on (readPending), in canonical order: a member the text holds as it stands and that is a
+ * container by its token, any other by its reading, written as Walk.over writes it.
+ */
+const readMembers = <T>(
+	p: PendingRecord<T>,
+	options: EncodeOptions,
+	tokens: ContainerTokens<T>
+): CanonicalContainer | undefined => {
+	const record = p.read.record
+	for (let at = p.taken.length; at < p.keys.length; at++) {
+		const key = keyAt(p.keys, at)
+		const member: unknown = record[key]
+		const child = memberOf(member)
+		if (child === undefined || options.omit(key, child)) {
+			p.reads.push(undefined)
+			p.taken.push(undefined)
+			continue
+		}
+		const read = canonicalOf(child)
+		if (child === member && isCanonicalContainer(read)) {
+			const token = tokens.known(read)
+			if (token === undefined) {
+				return read
+			}
+			p.reads.push(read)
+			p.taken.push(token)
+			continue
+		}
+		p.reads.push(read)
+		p.taken.push(undefined)
+	}
+	return undefined
+}
+
+/** A pending container's text, every member read: an array's or a record's. */
+const writePending = <T>(
+	out: Utf8Writer,
+	p: Pending<T>,
+	options: EncodeOptions,
+	tokens: ContainerTokens<T>
+): void => {
+	if (p.kind === "array") {
+		writeIdentityArray(out, p, tokens)
+	} else {
+		writeIdentityRecord(out, p, options, tokens)
 	}
 }
 
@@ -1114,37 +1286,10 @@ export const writeIdentityText = <T>(
  */
 const writeIdentityArray = <T>(
 	out: Utf8Writer,
-	items: ReadonlyArray<unknown>,
-	tokens: ContainerTokens<T>,
-	before: (out: Utf8Writer) => void
+	p: PendingArray<T>,
+	tokens: ContainerTokens<T>
 ): void => {
-	const taken: Array<T | undefined> = []
-	const scalars: Array<ScalarReading | undefined> = []
-	for (let i = 0; i < items.length; i++) {
-		const item: unknown = items[i]
-		const read = canonicalOf(item)
-		if (typeof read !== "object") {
-			taken.push(undefined)
-			scalars.push(read)
-			continue
-		}
-		switch (read.kind) {
-			case "array":
-			case "record":
-				taken.push(tokens.of(read))
-				scalars.push(undefined)
-				continue
-			case "outside":
-				return refuseValue([], item === undefined ? "a value, not undefined" : read.what)
-			case "vector":
-			case "floatSpecial":
-			case "tagged":
-				taken.push(undefined)
-				scalars.push(read)
-				continue
-		}
-	}
-	before(out)
+	const { taken, scalars } = p
 	out.ascii("[")
 	for (let i = 0; i < taken.length; i++) {
 		if (i > 0) {
@@ -1165,34 +1310,17 @@ const writeIdentityArray = <T>(
 
 /**
  * A record's identity text (writeIdentityText): `encode`'s text of it, each member a token was taken for written as
- * that token, as Walk.over writes it, and bounded as it bounds it, from the record's opening brace. Its keys are read
- * once, in canonical order (keysOf), for its tokens and then for its text, so a member is refused in the order `encode`
- * refuses it.
+ * that token, as Walk.over writes it, and bounded as it bounds it, from the record's opening brace, so a member is
+ * refused in the order `encode` refuses it.
  */
 const writeIdentityRecord = <T>(
 	out: Utf8Writer,
-	record: Readonly<Record<string, unknown>>,
+	p: PendingRecord<T>,
 	options: EncodeOptions,
-	tokens: ContainerTokens<T>,
-	before: (out: Utf8Writer) => void
+	tokens: ContainerTokens<T>
 ): void => {
-	const keys = keysOf(record)
-	/** Each member's reading as the text holds it (memberOf), undefined where it holds none: unstated, or left out. */
-	const reads: Array<CanonicalValue | Outside | undefined> = []
-	const taken: Array<T | undefined> = []
-	for (const key of keys) {
-		const member: unknown = record[key]
-		const child = memberOf(member)
-		if (child === undefined || options.omit(key, child)) {
-			reads.push(undefined)
-			taken.push(undefined)
-			continue
-		}
-		const read = canonicalOf(child)
-		reads.push(read)
-		taken.push(child === member && isCanonicalContainer(read) ? tokens.of(read) : undefined)
-	}
-	before(out)
+	const { keys, reads, taken } = p
+	const record = p.read.record
 	const sink = new ByteSink(out)
 	sink.open("object")
 	for (let at = 0; at < keys.length; at++) {

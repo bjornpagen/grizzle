@@ -120,7 +120,13 @@ export class IdentityDigests {
 		const identity = catchRefusal(() => {
 			const read = containerOf(value)
 			if (read !== undefined) {
-				return this.#within().of(read)
+				const tokens = this.#within()
+				const known = tokens.known(read)
+				if (known !== undefined) {
+					return known
+				}
+				writeIdentityText(this.#messages.out, read, this.#options, tokens, unframed)
+				return tokens.written(read)
 			}
 			unwrap(writeCanonical(this.#messages.out, value, this.#options))
 			return mintIdentityDigest(this.#messages.hex())
@@ -139,7 +145,10 @@ export class IdentityDigests {
 		const hashed = catchRefusal(() => {
 			const read = containerOf(value)
 			if (read !== undefined) {
-				return this.#containerDigest(read, this.#within(), (out) => writeFrame(out, line))
+				writeIdentityText(this.#messages.out, read, this.#options, this.#within(), (out) =>
+					writeFrame(out, line)
+				)
+				return this.#messages.hex()
 			}
 			writeFrame(this.#messages.out, line)
 			unwrap(writeCanonical(this.#messages.out, value, this.#options))
@@ -163,47 +172,28 @@ export class IdentityDigests {
 
 	/**
 	 * The tokens of one value's containers: each a container's identity digest, a frozen one's kept across every value
-	 * these digests read, one that is not frozen within this value alone.
+	 * these digests read, one that is not frozen within this value alone; a container's taken from its identity text,
+	 * just written whole into the message (canonical.ts writeIdentityText), on its first read.
 	 */
 	#within(): ContainerTokens<IdentityDigest> {
 		const open = new Map<object, IdentityDigest>()
-		const tokens: ContainerTokens<IdentityDigest> = {
-			of: (read) => this.#digestOf(read, open, tokens),
+		const held = (read: CanonicalContainer): object =>
+			read.kind === "array" ? read.items : read.record
+		const tableOf = (container: object) => (Object.isFrozen(container) ? this.#digests : open)
+		return {
+			known: (read) => {
+				const container = held(read)
+				return tableOf(container).get(container)
+			},
+			written: (read) => {
+				const container = held(read)
+				const identity = mintIdentityDigest(this.#messages.hex())
+				this.#digested += 1
+				tableOf(container).set(container, identity)
+				return identity
+			},
 			write: writeToken
 		}
-		return tokens
-	}
-
-	/** A container's identity digest, its token's payload: digested on its first read. */
-	#digestOf(
-		read: CanonicalContainer,
-		open: Map<object, IdentityDigest>,
-		tokens: ContainerTokens<IdentityDigest>
-	): IdentityDigest {
-		const container = read.kind === "array" ? read.items : read.record
-		const digests = Object.isFrozen(container) ? this.#digests : open
-		const known = digests.get(container)
-		if (known !== undefined) {
-			return known
-		}
-		const identity = mintIdentityDigest(this.#containerDigest(read, tokens, unframed))
-		this.#digested += 1
-		digests.set(container, identity)
-		return identity
-	}
-
-	/**
-	 * The digest of a container's own text: its scalars as `encode` writes them, its containers as their tokens, each
-	 * container's digested before the text is begun, and each member refused in order where `encode` refuses it
-	 * (canonical.ts writeIdentityText), the text written straight into the message.
-	 */
-	#containerDigest(
-		read: CanonicalContainer,
-		tokens: ContainerTokens<IdentityDigest>,
-		before: (out: Utf8Writer) => void
-	): string {
-		writeIdentityText(this.#messages.out, read, this.#options, tokens, before)
-		return this.#messages.hex()
 	}
 }
 

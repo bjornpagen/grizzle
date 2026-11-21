@@ -5,15 +5,18 @@
  * a member whose Description shares its imports, and whose canonical text is the size of the tree that sharing expands
  * into, is placed and deduplicated in time linear in its distinct parts.
  *
- * The box, exhausted: one insert of the top of a chain of 2, 8 or 32 bound queries, each level two rules that read the
- * level below (test/unit/write/shared-imports.fixtures.ts), unioned with the same insert built again, equal and of no
- * object in common, and with a variant reading one filter more. At 32 levels the chain's canonical text would be
- * about 2^32 times a level's, past the longest string a process holds.
+ * The box, exhausted: one insert of the top of a chain of 2, 8, 32, 128 or 512 bound queries, each level two rules
+ * that read the level below (test/unit/write/shared-imports.fixtures.ts), unioned with the same insert built again,
+ * equal and of no object in common, and with a variant reading one filter more. At 32 levels the chain's canonical text
+ * would be about 2^32 times a level's, past the longest string a process holds; at 512 its Description nests 3,601
+ * containers deep, which the identity text walks on the heap (core/canonical.ts writeIdentityText), the small stack the
+ * file runs on no deeper for it.
  *
  * Properties, per case: the union of the insert with its rebuilt twin is one member, and with the variant two; and, at
  * the depth whose canonical texts the process can write, two members are one exactly when their canonical texts are
- * (ir/desc.ts descText, the second implementation). Kill: the identity digest over the canonical text whole, which no
- * process writes at 32 levels.
+ * (ir/desc.ts descText, the second implementation). Kills: the identity digest over the canonical text whole, which no
+ * process writes at 32 levels; the identity text recursing into each member, a frame a level, which runs out of the
+ * small stack at 512.
  *
  * And the ChangeSets over a level digest each part they share once for the level (core/fingerprint.ts IdentityDigests,
  * owned by the level: schema/level.ts Level identities): over the same chains, eight inserts each reading the top of one
@@ -47,8 +50,8 @@ import {
 	sharedChain
 } from "#test/unit/write/shared-imports.fixtures.ts"
 
-/** The depths of the box: 2, 8 and 32, each four times the one before. */
-const depthGen: Gen<number> = map(int(0, 2), (i) => 2 * 4 ** i)
+/** The depths of the box: 2, 8, 32, 128, 512 and 2,048, each four times the one before. */
+const depthGen: Gen<number> = map(int(0, 5), (i) => 2 * 4 ** i)
 
 /** The canonical text of a member's Description, at a depth whose text the process writes. */
 const textOf = (member: unknown): string => {
@@ -87,15 +90,22 @@ export const aMembersIdentityIsItsDescriptionsIdentityDigestEqualMembersOneAndEv
 			kind: "second-implementation",
 			name: "the canonical texts' equality (ir/desc.ts descText), where the process can write them"
 		},
-		box: "an insert of the top of a chain of 2, 8 and 32 bound queries, each level two rules reading the one below, beside its rebuilt twin and a variant",
+		box: "an insert of the top of a chain of 2, 8, 32, 128, 512 and 2,048 bound queries, each level two rules reading the one below, beside its rebuilt twin and a variant",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\t\t\treturn this.#within().of(read)\n",
+				original: "\t\t\t\tconst tokens = this.#within()\n",
 				replacement:
 					"\t\t\t\tunwrap(writeCanonical(this.#messages.out, value, this.#options))\n\t\t\t\treturn mintIdentityDigest(this.#messages.hex())\n",
 				why: "The identity digest is the canonical text's, written whole: at 32 levels the text is past the longest string a process holds, so the member is refused where the property builds it."
+			},
+			{
+				file: "packages/engine/src/core/canonical.ts",
+				original: "\t\t\tpending.push(pendingOf(member))\n",
+				replacement:
+					"\t\t\twriteIdentityText(out, member, options, tokens, () => undefined)\n\t\t\ttakeToken(top, member, tokens.written(member))\n\t\t\topen.delete(held)\n",
+				why: "The identity text recurses into each member whose token it takes, a frame a level, as it did: on the small stack a chain of 512 levels, its Description 3,601 containers deep, runs out of stack where the property builds the member (RangeError), where the walk on the heap digests one of 2,048 levels, 14,353 deep."
 			}
 		]
 	})
@@ -130,13 +140,14 @@ export const aChangeSetsChainOfMembersDigestsEachPartTheyShareOnceSoMembersPastT
 				)
 			}),
 		oracle: { kind: "specification", name: "a part one member digested is never digested again" },
-		box: "one and eight inserts each reading the top of one chain of 2, 8 and 32 bound queries, each level two rules reading the one below",
+		box: "one and eight inserts each reading the top of one chain of 2, 8, 32, 128, 512 and 2,048 bound queries, each level two rules reading the one below",
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/core/fingerprint.ts",
-				original: "\t\tconst digests = Object.isFrozen(container) ? this.#digests : open\n",
-				replacement: "\t\tconst digests = open\n",
+				original:
+					"\t\tconst tableOf = (container: object) => (Object.isFrozen(container) ? this.#digests : open)\n",
+				replacement: "\t\tconst tableOf = (_container: object) => open\n",
 				why: "Each member's digest keeps its containers' tokens for itself alone, so every member digests the whole chain again and the parts members past the first digest grow with the depth."
 			}
 		]
@@ -165,7 +176,7 @@ export const aSecondChangeSetOverALevelReadingTheChainAFirstOneReadDigestsOnlyIt
 			kind: "specification",
 			name: "a part a ChangeSet over a level digested is never digested again for that level"
 		},
-		box: "two ChangeSets of eight inserts each reading the top of one chain of 2, 8 and 32 bound queries, each level two rules reading the one below",
+		box: "two ChangeSets of eight inserts each reading the top of one chain of 2, 8, 32, 128, 512 and 2,048 bound queries, each level two rules reading the one below",
 		kept: [],
 		kills: [
 			{
