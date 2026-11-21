@@ -388,15 +388,7 @@ const sharedWithin = (
 	sharing: ImportSharing,
 	interned: Navigation
 ): { readonly flat: Flat; readonly unrestricted: ReadonlySet<string> } => {
-	const fixed = fixedTerms({
-		vars: flat.vars,
-		matches: [],
-		where: flat.where,
-		head: flat.head,
-		interiors: [],
-		attach: [],
-		loc
-	})
+	const fixed = flatFixed(flat, loc)
 	/** A fixed term an import is restricted inside to: one that reads a parameter, a channel among them. */
 	const byParameter = (term: InferredExpr): InferredExpr | undefined => {
 		const held = fixed(term)
@@ -768,12 +760,13 @@ class Navigator {
 			read = within()
 		}
 		const chain = this.#chain(read.flat, depth)
+		const pinned = pinnedBy(flatFixed(read.flat, rule.loc))
 		const kept = Object.fromEntries(chain.vars.map((v, i) => [`k${i}`, varRef(v.id)] as const))
 		const gates = chain.filters.filter(readsNoVariable)
 		let current: InferredRule = {
 			vars: chain.vars,
 			matches: chain.matches,
-			where: [...chain.where, ...gates.map((a) => this.#filtered(a, depth))],
+			where: [...chain.where, ...gates.map((a) => this.#filtered(a, depth, pinned))],
 			head: kept,
 			interiors: [],
 			attach: [],
@@ -798,7 +791,7 @@ class Navigator {
 						loc: rule.loc
 					}
 				],
-				where: [this.#filtered(a, depth)],
+				where: [this.#filtered(a, depth, pinned)],
 				head: kept,
 				interiors: [],
 				attach: [],
@@ -1222,13 +1215,15 @@ class Navigator {
 	 * relation one step reading it by the terms it is filtered at, a filtered arm its rule navigated with its head
 	 * equated with those terms, each passed in through the filter's channels.
 	 */
-	#filtered(a: Filtered, depth: number): InferredExpr {
+	#filtered(a: Filtered, depth: number, pinned: (e: InferredExpr) => InferredExpr): InferredExpr {
 		const passing = new Passing(depth)
 		const source = a.source
 		switch (source.kind) {
 			case "relation": {
 				const bindings = Object.fromEntries(
-					Object.entries(a.bindings).map(([column, e]) => [column, passing.expr(e)] as const)
+					Object.entries(a.bindings).map(
+						([column, e]) => [column, passing.expr(pinned(e))] as const
+					)
 				)
 				const step: InferredSource = {
 					kind: "step",
@@ -1271,7 +1266,10 @@ class Navigator {
 							return this.#refuse(`a filtered query whose head derives ${field}`)
 						}
 						at.push(
-							equal(atColumn(head, field, columns), passing.expr(atColumn(outer, field, columns)))
+							equal(
+								atColumn(head, field, columns),
+								passing.expr(atColumn(pinned(outer), field, columns))
+							)
 						)
 					}
 					return this.rule({ ...arm, where: [...arm.where, ...at] }, depth + 1, keptOf(arm))
@@ -1525,6 +1523,32 @@ const fixedTerms = (rule: InferredRule): ((term: InferredExpr) => InferredExpr |
 	return (term) => (term.kind === "var" ? vars.get(term.var) : isFixed(term) ? term : undefined)
 }
 
+/** The terms `flat`'s conditions fix its variables to (`fixedTerms`). */
+const flatFixed = (
+	flat: Flat,
+	loc: SourceLoc
+): ((term: InferredExpr) => InferredExpr | undefined) =>
+	fixedTerms({
+		vars: flat.vars,
+		matches: [],
+		where: flat.where,
+		head: flat.head,
+		interiors: [],
+		attach: [],
+		loc
+	})
+
+/**
+ * A term of a rule as a filter of it is passed it (`Navigator.#filtered`): each variable the rule's conditions fix to a
+ * parameter or a literal (`fixedTerms`) that term itself, a whole rule's unit channel or the literal, never a channel
+ * of the filter's own bound to the variable. `fixedTerms` maps a variable only to a term `isFixed` admits, one that reads
+ * no variable, so the filter is passed no variable of the rule in place of another.
+ */
+const pinnedBy =
+	(fixed: (term: InferredExpr) => InferredExpr | undefined) =>
+	(e: InferredExpr): InferredExpr =>
+		mapLeaves(e, { var: (id) => fixed(varRef(id)), field: () => undefined })
+
 /**
  * The parameter an import restricted inside (`boundInside`) receives its reader's parameter `name` under, a name its
  * own navigation never mints. That navigation is a Navigator of its own, which names its channels `via<depth>.<variable>`
@@ -1534,7 +1558,19 @@ const fixedTerms = (rule: InferredRule): ((term: InferredExpr) => InferredExpr |
  * variable for the reader's value, and the import's bind map named a parameter no rule of it read, which the checker
  * refuses (check/checker.ts #importAt), as it did a containment into a union of rules each inlining one import.
  */
-const received = (name: string): string => `in.${name}`
+const received = (name: string): string => (minted(name) ? `in.${name}` : name)
+
+/**
+ * Whether navigation minted the parameter `name`: a filter's channel (`Passing`, `via<depth>.`) or a parameter an
+ * import received under a name of its own (`received`, `in.`); a declared parameter whose name starts so is renamed as
+ * one, as every parameter was. Any other is the statement's own, a whole rule's unit
+ * channel (analysis/theory/unit.ts `unit<j>`) or a query's declared parameter, which no navigation mints, so an import
+ * receives it under its own name at every depth: an import restricted to the unit is one query wherever the statement
+ * reads it, at the top or inside an import or a filter, where renamed at each depth it was a query of each depth. An
+ * import that reads a parameter of that name itself keeps its own: `boundInside` holds no binding it would pass under
+ * a name the import reads (`own`), so a reader's parameter never captures an import's.
+ */
+const minted = (name: string): boolean => name.startsWith("in.") || name.startsWith("via")
 
 const boundInside = (
 	source: Imported,

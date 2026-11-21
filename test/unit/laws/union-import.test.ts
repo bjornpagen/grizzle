@@ -47,7 +47,7 @@ export const aContainmentIntoAUnionOfDerivedRulesThatEachInlineOneImportCompiles
 		kills: [
 			{
 				file: "packages/engine/src/analysis/theory/navigate.ts",
-				original: `const received = (name: string): string => \`in.\${name}\``,
+				original: `const received = (name: string): string => (minted(name) ? \`in.\${name}\` : name)`,
 				replacement: "const received = (name: string): string => name",
 				why: "A union read whole receives its reader's channels under their own names, which its own navigation mints again for its own variables: a step's channel takes the entry, the union's bind map names a parameter none of its rules reads, and the checker refuses the judge of every union of two rules or more."
 			}

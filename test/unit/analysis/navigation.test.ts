@@ -90,9 +90,9 @@ export const navigationKeepsEveryGeneratedReadsAnswerByTheReferenceOverTheChecke
 				{
 					file: "packages/engine/src/analysis/theory/navigate.ts",
 					original:
-						"\t\t\t\t\tObject.entries(a.bindings).map(([column, e]) => [column, passing.expr(e)] as const)",
+						"\t\t\t\t\tObject.entries(a.bindings).map(\n\t\t\t\t\t\t([column, e]) => [column, passing.expr(pinned(e))] as const\n\t\t\t\t\t)",
 					replacement:
-						"\t\t\t\t\tObject.entries(a.bindings).slice(1).map(([column, e]) => [column, passing.expr(e)] as const)",
+						"\t\t\t\t\tObject.entries(a.bindings).slice(1).map(\n\t\t\t\t\t\t([column, e]) => [column, passing.expr(pinned(e))] as const\n\t\t\t\t\t)",
 					why: "A negated relation's step reads one column fewer than the negation binds; the search fails in its steered phase."
 				}
 			]

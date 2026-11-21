@@ -21,9 +21,12 @@ import { Effect } from "effect"
 import {
 	chainGen,
 	checkedOverEveryRow,
+	type ContainmentReached,
+	containmentGen,
 	type EveryRowReached,
 	everyRowGen,
 	judged,
+	judgedContainment,
 	judgedUnions,
 	type Reached,
 	readsDeltasThroughReaders,
@@ -130,6 +133,65 @@ export const aWholeRulesStatementOverReadsOfAUnionReadsEachOfItsRulesOnceHowever
 				original: "\t\t\t: innermost === undefined",
 				replacement: "\t\t\t: innermost !== undefined",
 				why: "A node the rules of a union read is placed in no region, one read by occurrences of several regions inlined at each (rule 3, as before), so a chain of unions spells the level below in each rule above it, and four deep reads Node sixteen times; the property fails."
+			}
+		]
+	})
+
+/**
+ * A whole rule's containment reads each definition its sides share once per set of values it reads it at, however many
+ * rules of the met side, levels above the leaf or negations inside it read it: the definitions both sides read at the
+ * unit's channels one node, computed once in the unit's region, whose negation of the met side reads it there, and those
+ * the met side's rules read at the fact's terms one node every rule reads. Before, every read inside the negation was a
+ * node of its own region, correlated to a column that region's occurrence binds, which no region holds, so spelled at
+ * every read, a level's restrictions renamed at every depth (the reset line's targeted_branch_rule_in_forward_branch_rule
+ * on edullm's pantry: 465 KB, 2,097 SELECTs and 128 reads of qti.node, a definition at the package spelled 3, 4, 7 and
+ * 18 times, planned in 12.1 s at a fresh backend's first COMMIT, 58% of the judge's first-call planning).
+ *
+ * Oracle: a specification, read off the case: Node read three times for each set of values the leaf is read at, and once
+ * for each further rule of the met side.
+ *
+ * Features: a met side of three rules; a negation inside the met side; a union two levels above the leaf.
+ */
+export const aWholeRulesContainmentReadsEachDefinitionItsSidesShareOncePerSetOfValues =
+	property.exhaust(finite(containmentGen), {
+		needs: {},
+		situations: [
+			"a met side of three rules",
+			"a negation inside the met side",
+			"a union two levels above the leaf"
+		] satisfies ReadonlyArray<ReachedOf<ContainmentReached>>,
+		check: (_, c: Case<ContainmentReached>) => (containment) =>
+			Effect.sync(() => judgedContainment(containment, c.note)),
+		oracle: {
+			kind: "specification",
+			name: "the leaf's restrictions: Node read three times at each set of values the statement reads the leaf at, once more for each further rule of the met side"
+		},
+		box: "every containment From ⊆ To over a union zero to two levels above a union over Node, To one to three rules each reading it at the fact's terms, with or without a rule that negates a definition over it",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/index.ts",
+				original: "\t\t\tconst region = filteredRegion(node)\n",
+				replacement: '\t\t\tconst region = node.kind === "MatchRegion" ? node.id : undefined\n',
+				why: "A region's CTEs stand in its own SELECT alone, as before, so the negation of To, a SELECT over the region, reads none of them and spells each definition again at every read, each level's inside the one above, and the reads of Node grow with the depth; the property fails."
+			},
+			{
+				file: "packages/engine/src/check/checker.ts",
+				original: "\t\t\t\t? this.#outermost(outer)\n\t\t\t\t: bind(term, param, at)",
+				replacement: "\t\t\t\t? outer\n\t\t\t\t: bind(term, param, at)",
+				why: "An import at the unit's channels is bound at its reader's region's column, as before, so each rule inside the negation reads a node of its own region, spelled at its read, and a containment with the negation reads Node 15 times, past its 9; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: `const received = (name: string): string => (minted(name) ? \`in.\${name}\` : name)`,
+				replacement: `const received = (name: string): string => \`in.\${name}\``,
+				why: "An import receives the unit's channel under a name of each depth, as before, so the leaf restricted to the unit inside a level is another query than the leaf restricted to it at the top, spelled again, and a containment with the negation reads Node 12 times, past its 9; the property fails."
+			},
+			{
+				file: "packages/engine/src/analysis/theory/navigate.ts",
+				original: "\t\tconst pinned = pinnedBy(flatFixed(read.flat, rule.loc))\n",
+				replacement: "\t\tconst pinned = (e: InferredExpr): InferredExpr => e\n",
+				why: "A filter passes a term its rule fixes to the unit's channel through a channel of its own, as before, so a negation inside To reads the leaf at that channel, another set of values than the unit's, spelled again, and a containment with the negation a level above the leaf reads Node 12 times, past its 9; the property fails."
 			}
 		]
 	})

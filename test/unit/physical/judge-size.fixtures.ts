@@ -6,8 +6,8 @@ import { Formatter } from "effect"
 import { lawChecks } from "#compiler/deploy/snapshot/violation.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { pg } from "#compiler/public/fields.ts"
-import { query, v } from "#compiler/public/query.ts"
-import { check, derived, relation, schema } from "#compiler/public/schema.ts"
+import { query, type Rule, v } from "#compiler/public/query.ts"
+import { check, contained, derived, on, relation, schema } from "#compiler/public/schema.ts"
 import type { FromItem, FromSource, OperandSelect } from "#compiler/sql/ast.ts"
 import { inertVisitor, visitSelect } from "#compiler/sql/transform.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -743,6 +743,199 @@ export const checkedOverEveryRow = (c: EveryRowCase, note: (r: EveryRowReached) 
 		assert.ok(
 			reads <= bound,
 			`${Formatter.format(c)}: the check over every row of ${rule.law} reads Node ${reads} times, where its definitions, each spelled once, read it ${bound} times`
+		)
+	}
+}
+
+/**
+ * One case of the containment box: a whole rule From ⊆ To over a union `depth` levels above a union of two rules over
+ * Node (`meetLeaf`), From its every fact and To, the side its facts meet, a union of `width` rules each reading it at
+ * the fact's terms, and, where `negated`, one rule more that reads it twice and negates a definition over it at the
+ * second read's `b`: the shape of the reset line's targeted_branch_rule_in_forward_branch_rule, ForwardBranchRule's
+ * two rules each over TargetedBranchRule's definition, one of them negating fixedBackwardRows.
+ */
+export interface Containment {
+	readonly depth: 0 | 1 | 2
+	readonly width: 1 | 2 | 3
+	readonly negated: boolean
+}
+
+export const containmentGen: Gen<Containment> = (s) => ({
+	depth: s.draw(element<Containment["depth"]>([0, 1, 2])),
+	width: s.draw(element<Containment["width"]>([1, 2, 3])),
+	negated: s.draw(element([false, true]))
+})
+
+export type ContainmentReached =
+	| "a met side of three rules"
+	| "a negation inside the met side"
+	| "a union two levels above the leaf"
+
+/** The nodes of kind 1, and those whose parent is of kind 2: Node read three times. */
+const meetLeaf = query(Base)
+	.rule((r) => {
+		const { doc, start, parent } = v(Node, "n")
+		return r.match(Node, { doc, start, parent, kind: 1 }).find({ doc, a: start, b: parent })
+	})
+	.rule((r) => {
+		const { doc, start, parent, kind } = v(Node, "n")
+		return r
+			.match(Node, { doc, start, parent, kind })
+			.match(Node, { doc, start: parent, kind: 2 })
+			.find({ doc, a: start, b: parent })
+	})
+
+/**
+ * The levels over the leaf (meetAbove1 over meetLeaf, meetAbove2 over meetAbove1): two rules, a walk of two of the level
+ * below's rows, the second at the first's `b`, and its rows as they are. Each level is its own value, its heading typed
+ * by the level it reads.
+ */
+const meetAbove1 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(meetLeaf, "x")
+		const { b: b1 } = v(meetLeaf, "y")
+		return r
+			.match(meetLeaf, { doc, a, b })
+			.match(meetLeaf, { doc, a: b, b: b1 })
+			.find({ doc, a, b: b1 })
+	})
+	.rule((r) => {
+		const { doc, a, b } = v(meetLeaf, "x")
+		return r.match(meetLeaf, { doc, a, b }).find({ doc, a, b })
+	})
+
+const meetAbove2 = query(Base)
+	.rule((r) => {
+		const { doc, a, b } = v(meetAbove1, "x")
+		const { b: b1 } = v(meetAbove1, "y")
+		return r
+			.match(meetAbove1, { doc, a, b })
+			.match(meetAbove1, { doc, a: b, b: b1 })
+			.find({ doc, a, b: b1 })
+	})
+	.rule((r) => {
+		const { doc, a, b } = v(meetAbove1, "x")
+		return r.match(meetAbove1, { doc, a, b }).find({ doc, a, b })
+	})
+
+/** A level the containment's sides read: the leaf or a level above it. */
+type MeetLevel = typeof meetLeaf | typeof meetAbove1 | typeof meetAbove2
+
+const meetLevels = [meetLeaf, meetAbove1, meetAbove2] as const
+
+/** A rule of To reading the level at the fact's terms where the level's `b` is at least its `a`. */
+const metAt = (level: MeetLevel) => (r: Rule<typeof Base>) => {
+	const { doc, a, b } = v(level, "t0")
+	return r.match(level, { doc, a, b }).where(r.ge(b, a)).find({ doc, a })
+}
+
+/** A rule of To reading the level at the fact's terms beside a node of kind `kind` at the level's `b`. */
+const metBeside = (level: MeetLevel, kind: number) => (r: Rule<typeof Base>) => {
+	const { doc, a, b } = v(level, "t")
+	return r.match(level, { doc, a, b }).match(Node, { doc, start: b, kind }).find({ doc, a })
+}
+
+/**
+ * The rule of To that reads the level twice, the second read at the first's `b`, and negates `lower`, a definition over
+ * the level, at the second read's `b`.
+ */
+const metNegating =
+	(level: MeetLevel, lower: ReturnType<typeof lowerOf>) => (r: Rule<typeof Base>) => {
+		const { doc, a, b } = v(level, "s0")
+		const { b: c1 } = v(level, "s1")
+		return r
+			.match(level, { doc, a, b })
+			.match(level, { doc, a: b, b: c1 })
+			.where(r.not(lower, { doc, a: c1 }))
+			.find({ doc, a })
+	}
+
+/** The level's rows whose `b` is below their `a`, by `doc` and `a`: what the negating rule of To negates. */
+const lowerOf = (level: MeetLevel) =>
+	query(Base).rule((r) => {
+		const { doc, a, b } = v(level, "w")
+		return r.match(level, { doc, a, b }).where(r.lt(b, a)).find({ doc, a })
+	})
+
+/** To over the case's level: its first rule, `width - 1` rules beside a node, and the negating rule where `negated`. */
+const metSideOf = (c: Containment, level: MeetLevel) => {
+	const negating = metNegating(level, lowerOf(level))
+	const one = query(Base).rule(metAt(level))
+	switch (`${c.width} ${c.negated}` as const) {
+		case "1 false":
+			return one
+		case "1 true":
+			return one.rule(negating)
+		case "2 false":
+			return one.rule(metBeside(level, 3))
+		case "2 true":
+			return one.rule(metBeside(level, 3)).rule(negating)
+		case "3 false":
+			return one.rule(metBeside(level, 3)).rule(metBeside(level, 4))
+		case "3 true":
+			return one.rule(metBeside(level, 3)).rule(metBeside(level, 4)).rule(negating)
+	}
+}
+
+/** The containment box's schema: Base, From and To over the case's level, and the containment From ⊆ To. */
+const containmentSchemaOf = (c: Containment): FixtureSchema => {
+	const level = meetLevels[c.depth]
+	const From = derived(
+		"From",
+		query(Base).rule((r) => {
+			const { doc, a, b } = v(level, "f")
+			return r.match(level, { doc, a, b }).find({ doc, a, b })
+		})
+	)
+	const To = derived("To", metSideOf(c, level))
+	return schema.extend(
+		[Base],
+		"judge_size_1",
+		[From, To],
+		[contained(on(From, "doc", "a"), on(To, "doc", "a"))]
+	)
+}
+
+/**
+ * The reads of Node the containment's statement makes, each restriction of the leaf union spelled once: three, its
+ * reads, for each set of values the statement reads the leaf at, the unit's, the fact's (`doc` and `a`, at which every
+ * rule of To reads the level), and, with the negation, the negated definition's (the unit's and the second read's
+ * `b`); and one for each rule of To past the first, its read of Node beside the level. Whatever the depth: each level
+ * reads the one below at its own values or at the unit's alone, both already read.
+ */
+const containmentReadsOf = (c: Containment): number => 3 * (c.negated ? 3 : 2) + (c.width - 1)
+
+/**
+ * Judges each statement of the containment's whole rule: it reads Node as often as the leaf's restrictions read it,
+ * each spelled once (`containmentReadsOf`). The definitions both sides read at the unit's channels are one node, bound
+ * at the outermost region that re-exposes the channel (check/checker.ts #outermost), read under one name at every depth
+ * (analysis/theory/navigate.ts `received`), and computed once in that region, whose filters' tests read it in the
+ * filter's SELECT (lower/shapes/index.ts filteredRegion); those To's rules read at the fact's terms are one node, every
+ * rule of To reading it, a filter passing a term the rule fixes as that term (navigate.ts `pinnedBy`). Before, each read
+ * inside the negation of To was a node of its own region, spelled at every read: the reset line's
+ * targeted_branch_rule_in_forward_branch_rule, 465 KB with a definition at the package spelled 3, 4, 7 and 18 times,
+ * planned in 12.1 s at a fresh backend's first COMMIT.
+ */
+export const judgedContainment = (c: Containment, note: (r: ContainmentReached) => void): void => {
+	const owned = owning(containmentSchemaOf(c))
+	const installation = succeeded(compileInstallation(owned, installOptions(owned)))
+	const statements = judgedStatementsOf(installation)
+	assert.ok(statements.length > 0, "the containment is judged")
+	if (c.width === 3) {
+		note("a met side of three rules")
+	}
+	if (c.negated) {
+		note("a negation inside the met side")
+	}
+	if (c.depth === 2) {
+		note("a union two levels above the leaf")
+	}
+	const bound = containmentReadsOf(c)
+	for (const { query: statement } of statements) {
+		const reads = nodeReadsOf(statement)
+		assert.ok(
+			reads <= bound,
+			`${Formatter.format(c)}: a statement of the containment reads Node ${reads} times, where the leaf's restrictions, each spelled once, read it ${bound} times`
 		)
 	}
 }

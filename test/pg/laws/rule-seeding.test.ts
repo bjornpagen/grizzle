@@ -144,8 +144,10 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 						? [
 								{
 									file: "packages/engine/src/analysis/theory/query.ts",
-									original: '\t\tside === "removed" ? odd : even,',
-									replacement: '\t\tside === "removed" ? (depth: number) => depth === 1 : even,',
+									original:
+										'\t\t(nesting, direction) => (direction === "removed" ? odd(nesting) : even(nesting)),',
+									replacement:
+										'\t\t(nesting, direction) => (direction === "removed" ? nesting === 1 : even(nesting)),',
 									why: "A relation under three negations probed by no deletion: a block deleted, which makes its member paceless and its root no longer rate-paced, brings back a fact the check refuses, and it commits."
 								}
 							]
@@ -153,8 +155,10 @@ export const commitExactlyTheTransactionsWhoseStateTheRulesWholeCheckFindsLawful
 							? [
 									{
 										file: "packages/engine/src/analysis/theory/query.ts",
-										original: '\t\tside === "added" ? odd : even,',
-										replacement: '\t\tside === "added" ? odd : odd,',
+										original:
+											'\t\t(nesting, direction) => (direction === "added" ? odd(nesting) : even(nesting)),',
+										replacement:
+											'\t\t(nesting, direction) => (direction === "added" ? odd(nesting) : odd(nesting)),',
 										why: "A target's relation under two negations probed by no deletion: a mark deleted, which lets a block stand again and withdraws the target facts it holds out, is judged by no probe, so the containment it breaks commits."
 									}
 								]

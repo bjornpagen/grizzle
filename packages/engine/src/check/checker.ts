@@ -1069,9 +1069,10 @@ export class Checker {
 	readonly #regional = new Map<string, RelNode>()
 	/**
 	 * The columns of rule regions that re-expose an outer value an import binds a parameter to (RuleCheck `#declare`,
-	 * its ParamSlots), each by region and column (`reexposedKey`): a value a region is correlated to from outside.
+	 * its ParamSlots), each by region and column (`reexposedKey`): a value a region is correlated to from outside, with
+	 * the outer column it re-exposes.
 	 */
-	readonly #reexposed = new Set<string>()
+	readonly #reexposed = new Map<string, Extract<ScalarBinding, { readonly kind: "column" }>>()
 	/**
 	 * Each node of `#imported` by its key, which a call over it reads its argument's key by (`#callArgs`): a closed
 	 * import's alone, never a regional one's, whose rows are its region's.
@@ -2626,7 +2627,7 @@ export class Checker {
 			}
 			const outer = this.#resolveParam(term.cell, scope, at)
 			return outer.kind === "column" && this.#reexposed.has(reexposedKey(outer.node, outer.name))
-				? outer
+				? this.#outermost(outer)
 				: bind(term, param, at)
 		})
 		return this.#keyedImport(
@@ -2637,9 +2638,32 @@ export class Checker {
 		)
 	}
 
-	/** Records `column` of `region` as a re-exposure of an outer value (`#reexposed`). */
-	reexposes(region: NodeId, column: string): void {
-		this.#reexposed.add(reexposedKey(region, column))
+	/** Records `column` of `region` as a re-exposure of the outer value `outer` (`#reexposed`). */
+	reexposes(
+		region: NodeId,
+		column: string,
+		outer: Extract<ScalarBinding, { readonly kind: "column" }>
+	): void {
+		this.#reexposed.set(reexposedKey(region, column), outer)
+	}
+
+	/**
+	 * `column`, a re-exposed value (`#reexposed`), as the outermost region that re-exposes it holds it: each region a
+	 * rule nested in another declares re-exposes the value its reader's region re-exposes, the reader's column, so a rule
+	 * a filter navigates, or an arm of a union, reads the unit's channel through its reader's column, and that one
+	 * through the region outside it. Bound at the outermost, every import of one query at that value is one node,
+	 * whatever rule under that region reads it (`#regionImport`), which the lowering computes once in that region
+	 * (lower/optimize/cte-policy rule 3b), where bound at each reader's own column it was a node of each reader's region,
+	 * correlated to a column that region's occurrence binds, which no region holds, so inlined at every read: a
+	 * containment's negation read every definition its arms share, at the unit's channels, once in each arm.
+	 */
+	#outermost(
+		column: Extract<ScalarBinding, { readonly kind: "column" }>
+	): Extract<ScalarBinding, { readonly kind: "column" }> {
+		const outer = this.#reexposed.get(reexposedKey(column.node, column.name))
+		return outer !== undefined && this.#reexposed.has(reexposedKey(outer.node, outer.name))
+			? this.#outermost(outer)
+			: column
 	}
 
 	/** The values an import's bind map binds its parameters to. */
@@ -3614,7 +3638,7 @@ class RuleCheck {
 				outer: { node: value.node, name: value.name, type: value.type }
 			}
 			this.paramSlots.set(p.name, slot)
-			this.cx.reexposes(this.region, slot.name)
+			this.cx.reexposes(this.region, slot.name, value)
 			if (needed.has(p)) {
 				this.#needed.add(slot.id)
 			}

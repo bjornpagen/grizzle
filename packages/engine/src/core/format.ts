@@ -17,7 +17,12 @@
  * emptied) or a write program's carrier (sql/print.ts carrierStandUp), is emptied by DELETE, and by TRUNCATE only once
  * its heap or its TOAST table's heap holds more than its one page (sql/print.ts sessionTableEmptied), where format 6
  * truncated each written delta at every judged COMMIT and each carrier at every use, so each judge function's body and
- * each served carrier stand-up read the table's size before they empty it. Format 6's snapshot.json records each schema level's fingerprint over its
+ * each served carrier stand-up read the table's size before they empty it. A whole rule's judged statement spells each
+ * definition its containment's sides read at one set of values once: a relational filter's SELECT holds its region's
+ * shared CTEs (lower/shapes/index.ts filteredRegion), an import a nested rule reads at a re-exposed value is bound at
+ * its outermost re-exposure (check/checker.ts #outermost), a whole rule's unit channel keeps its name at every depth
+ * (analysis/theory/navigate.ts received) and a filter passes a term its rule fixes as that term (pinnedBy), where format
+ * 6 spelled such a definition again at each read inside the negation of the met side. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row
