@@ -10,6 +10,7 @@ import { Crypto } from "#compiler/public/compute.ts"
 import { generated, pg, sha256 } from "#compiler/public/fields.ts"
 import { check, key, on, relation, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
+import { sameBytes } from "#compiler/scalar/values/bytes.ts"
 import { btreeMaxItemSize } from "#compiler/schema/representability.ts"
 import { ordinarySession } from "#test/support/ambient.ts"
 import { succeeded } from "#test/support/assert.ts"
@@ -127,10 +128,6 @@ const oracleDigest = (text: string) =>
 		),
 		(digest) => new Uint8Array(digest)
 	)
-
-/** Whether two digests hold the same bytes, one by one. */
-const sameBytes = (x: Uint8Array, y: Uint8Array): boolean =>
-	x.length === y.length && x.every((byte, at) => byte === y[at])
 
 /** A character past ASCII. */
 const multibyte = regex("[^\\u0000-\\u007f]", "u")

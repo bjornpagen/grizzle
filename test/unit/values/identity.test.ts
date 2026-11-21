@@ -328,6 +328,16 @@ export const twoDigestsAreOneKeyExactlyWhereTheirBytesAreOneAndOrderAsTheirBytes
 					one,
 					"two digests share a key exactly where their bytes are one"
 				)
+				const digested: ReadonlyArray<HeadingField> = [{ name: "digest", spec }]
+				const identityOf = (digest: Uint8Array) =>
+					succeeded(factIdentity(digested, { digest })).identity
+				const facts =
+					"two facts of a digest are one fact exactly where their digests' bytes are one"
+				if (one) {
+					assert.deepEqual(identityOf(pair.first), identityOf(pair.second), facts)
+				} else {
+					assert.notDeepEqual(identityOf(pair.first), identityOf(pair.second), facts)
+				}
 				assert.equal(
 					compareValues(spec, first, second),
 					byteOrder(pair.first, pair.second),
@@ -360,6 +370,12 @@ export const twoDigestsAreOneKeyExactlyWhereTheirBytesAreOneAndOrderAsTheirBytes
 					"\tsha256: (value) => Result.map(toSha256(value), (digest) => Uint8Array.from(digest)),",
 				replacement: "\tsha256: (value) => toSha256(value),",
 				why: "Admission keeps the caller's array, so the caller's change after admission moves its key."
+			},
+			{
+				file: "packages/engine/src/scalar/values/identity.ts",
+				original: '\tspec.carrier === "bytes" && value instanceof Uint8Array',
+				replacement: "\tvalue instanceof Uint8Array",
+				why: "A digest's part in its fact's identity is its length, as a bytes value's is before its digest, so every two facts of two digests are one fact and a write takes one for the other."
 			}
 		]
 	})

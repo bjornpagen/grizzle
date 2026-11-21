@@ -48,7 +48,7 @@ import { type Codebook, firstCodebook } from "#compiler/ir/codes.ts"
 import { connectiveExpr, type ExprDesc } from "#compiler/ir/desc.ts"
 import { type ExprTable, predicateTable, storedColumn } from "#compiler/ir/expr.ts"
 import type { HeadingColumn } from "#compiler/ir/rel.ts"
-import { isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
+import { baseOf, type Carrier, isRefined, type ScalarType } from "#compiler/ir/scalar.ts"
 import type { LawModel } from "#compiler/laws/model/model.ts"
 import { lawModel } from "#compiler/program/laws.ts"
 import {
@@ -484,9 +484,12 @@ const isItemsOf = <S, R>(
 	relation: RelationReading
 ): items is Items & Pick<RowEvaluation<S, R>, "generated" | "checks"> => items.relation === relation
 
-/** A value admitValue read as a fact holds it: a bytes value with its digest (values/bytes.ts AdmittedBytes). */
-const heldRead = (value: unknown): unknown =>
-	value instanceof Uint8Array ? new AdmittedBytes(value) : value
+/**
+ * A value admitValue read at `carrier` as a fact holds it: a bytes value with its digest (values/bytes.ts
+ * AdmittedBytes), every other value itself, a digest's array among them, which is its carrier's host value as it is.
+ */
+const heldRead = (carrier: Carrier, value: unknown): unknown =>
+	carrier === "bytes" && value instanceof Uint8Array ? new AdmittedBytes(value) : value
 
 /**
  * The first refined field of `refined` whose value is outside its domain, its contract and its patterns, as PostgreSQL
@@ -501,7 +504,10 @@ export const domainRefusal = (
 	held: (field: string) => unknown
 ): string | undefined => {
 	for (const field of refined) {
-		const member = judge.member(evaluatedValue(field.type, heldRead(held(field.name))), field.type)
+		const member = judge.member(
+			evaluatedValue(field.type, heldRead(baseOf(field.type).carrier, held(field.name))),
+			field.type
+		)
 		if (member === undefined) {
 			throw defect(`the domain of ${field.name}, a contract and a pattern the host evaluates`)
 		}
@@ -537,7 +543,7 @@ const admission = <R>(
 			}
 			return Result.err({ _tag: "ValueRefused", field: field.name, fault: read.error })
 		}
-		values[field.name] = heldRead(read.value)
+		values[field.name] = heldRead(field.spec.carrier, read.value)
 	}
 	const refused = domainRefusal(judge, relation.refined, (name) => values[name])
 	if (refused === undefined) {

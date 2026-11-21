@@ -19,27 +19,40 @@ export const sha256Octets = 32
 const hexInput = "\\x"
 
 /**
- * A digest's one text: `\\x` and two lowercase hex digits a byte, byteain's hex input, which PostgreSQL reads into the
- * digest's bytes and which no other digest shares: its parameter text, its array element, its fact identity and its
- * literal's value.
+ * A digest's hex: two lowercase hex digits a byte, as PostgreSQL's `encode(<digest>, 'hex')` and core/sha256.ts
+ * sha256Hex spell one, which no other digest shares: the digest's text where something renders it as an outside
+ * name, a queue message's key among them (scalar/values/sha256.ts Sha256.toHex, read back by Sha256.fromHex), and the
+ * digits of its one text (`sha256Text`).
  */
-export const sha256Text = (digest: Uint8Array): string => `${hexInput}${digest.toHex()}`
+export const digestHex = (digest: Uint8Array): string => digest.toHex()
+
+/**
+ * A digest's one text: `\\x` and its hex (`digestHex`), byteain's hex input, which PostgreSQL reads into the digest's
+ * bytes and which no other digest shares: its parameter text, its array element, its fact identity and its literal's
+ * value.
+ */
+export const sha256Text = (digest: Uint8Array): string => `${hexInput}${digestHex(digest)}`
 
 /** The bytes a digest's one text (`sha256Text`) spells, in a fresh array: the inverse of sha256Text. */
 export const sha256FromText = (text: string): Uint8Array<ArrayBuffer> =>
 	Uint8Array.fromHex(text.slice(hexInput.length))
 
-/** Lowercase hex digits, the digits sha256Text writes. */
+/** Lowercase hex digits, the digits digestHex writes. */
 const lowerHex = regex("^[0-9a-f]*$", "u")
 
-/** The length of every digest's one text (`sha256Text`). */
-const sha256TextLength = sha256Text(new Uint8Array(sha256Octets)).length
+/** The length of every digest's hex (`digestHex`): two digits a byte. */
+const digestHexLength = digestHex(new Uint8Array(sha256Octets)).length
 
-/** Whether `text` is a digest's one text (`sha256Text`): `\\x` and a lowercase hex digit pair for each of its bytes. */
+/**
+ * Whether `text` is a digest's hex (`digestHex`): a lowercase hex digit pair for each of its bytes, and nothing else, so
+ * no uppercase digit, no other length and no character but a hex digit.
+ */
+export const isDigestHex = (text: string): boolean =>
+	text.length === digestHexLength && lowerHex.test(text)
+
+/** Whether `text` is a digest's one text (`sha256Text`): `\\x` and a digest's hex. */
 export const isSha256Text = (text: string): boolean =>
-	text.length === sha256TextLength &&
-	text.startsWith(hexInput) &&
-	lowerHex.test(text.slice(hexInput.length))
+	text.startsWith(hexInput) && isDigestHex(text.slice(hexInput.length))
 
 /**
  * The admission of a digest a caller passes in: a Uint8Array of exactly sha256Octets bytes, or sha256Value, so a value

@@ -325,6 +325,7 @@ const valueFaults: { readonly [F in ValueFault]: string } = {
 	bytesLiteral:
 		"bytes in no literal: a bytes value is written and read back whole, never a rule's or a query's constant",
 	sha256Value: `a SHA-256 digest: a Uint8Array of exactly ${sha256Octets} bytes`,
+	sha256Syntax: `a SHA-256 digest's hex: exactly ${sha256Octets} pairs of lowercase hex digits`,
 	codeHandle: "a handle of the closed relation's roster",
 	codeSubset: "a handle of the subset of its roster the closed id holds",
 	bitsType: "a set of handles: a Set whose members are strings",

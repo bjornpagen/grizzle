@@ -997,11 +997,12 @@ export const admitValue = (
 				: checkBytes(value)
 
 /**
- * A read value's part of its fact's identity (ReadFact `parts`), from the value admitValue read: a bytes value's length,
- * the caller's array's or an admitted value's, and any other's canonical text.
+ * A read value's part of its fact's identity (ReadFact `parts`), from the value admitValue read, by its field's carrier: a
+ * bytes value's length, the caller's array's or an admitted value's, and any other's canonical text, a digest's its one
+ * text (core/digest.ts sha256Text), though a digest is an array too, so two facts of two digests are two facts.
  */
 const partOf = (spec: CarrierSpec, value: HostValue | Uint8Array): string =>
-	value instanceof Uint8Array
+	spec.carrier === "bytes" && value instanceof Uint8Array
 		? String(value.length)
 		: spec.carrier === "bytes" && value instanceof AdmittedBytes
 			? String(value.bytes.length)
