@@ -237,12 +237,9 @@ export const planStatementShares = (
 					if (!index.eligible(node) || node.heading.length === 0 || carried(node)) {
 						continue
 					}
-					const set = readers.get(node) ?? new Set<number>()
+					const set = readers.getOrInsertComputed(node, () => new Set<number>())
 					set.add(u)
-					readers.set(node, set)
-					if (!seen.has(node)) {
-						seen.set(node, round)
-					}
+					seen.getOrInsert(node, round)
 				}
 			}
 			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen,
@@ -307,12 +304,7 @@ const decidingClasses = (
 	const byShape = new Map<string, Array<RelNode>>()
 	for (const node of nodes) {
 		const shape = index.shape(node)
-		const same = byShape.get(shape)
-		if (same === undefined) {
-			byShape.set(shape, [node])
-		} else {
-			same.push(node)
-		}
+		byShape.getOrInsertComputed(shape, () => []).push(node)
 	}
 	/** The buckets two statements read, by their height, each level's in the order the statements first read them. */
 	const levels = new Map<number, Array<ReadonlyArray<RelNode>>>()
@@ -321,12 +313,7 @@ const decidingClasses = (
 			continue
 		}
 		const height = index.height(defined(same[0], "a bucket's first node"))
-		const level = levels.get(height)
-		if (level === undefined) {
-			levels.set(height, [same])
-		} else {
-			level.push(same)
-		}
+		levels.getOrInsertComputed(height, () => []).push(same)
 	}
 	for (const height of [...levels.keys()].toSorted((a, b) => b - a)) {
 		const classes = defined(levels.get(height), "a level of buckets")
@@ -347,12 +334,7 @@ const keyClasses = (
 	const byKey = new Map<string, Array<RelNode>>()
 	for (const node of same) {
 		const key = defined(index.key(node), "an eligible key")
-		const nodesOf = byKey.get(key)
-		if (nodesOf === undefined) {
-			byKey.set(key, [node])
-		} else {
-			nodesOf.push(node)
-		}
+		byKey.getOrInsertComputed(key, () => []).push(node)
 	}
 	return [...byKey.values()]
 }
@@ -434,14 +416,14 @@ const keyedNodes = (
 ): ReadonlyMap<NodeId, string> => {
 	const alike = new Map<string, Map<number, Map<number, Array<RelNode>>>>()
 	for (const node of order) {
-		const byHeight = alike.get(node.kind) ?? new Map<number, Map<number, Array<RelNode>>>()
-		alike.set(node.kind, byHeight)
+		const byHeight = alike.getOrInsertComputed(
+			node.kind,
+			() => new Map<number, Map<number, Array<RelNode>>>()
+		)
 		const height = index.height(node)
-		const byWidth = byHeight.get(height) ?? new Map<number, Array<RelNode>>()
-		byHeight.set(height, byWidth)
+		const byWidth = byHeight.getOrInsertComputed(height, () => new Map<number, Array<RelNode>>())
 		const width = node.heading.length
-		const nodes = byWidth.get(width) ?? []
-		byWidth.set(width, nodes)
+		const nodes = byWidth.getOrInsertComputed(width, () => [])
 		nodes.push(node)
 	}
 	const keyed = new Map<NodeId, string>()

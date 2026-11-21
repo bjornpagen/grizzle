@@ -561,9 +561,7 @@ const objectSchemas = (nodes: readonly JsonObject[]): ObjectSchemas => {
 	for (const node of nodes) {
 		const declared = own(node, "properties")
 		for (const [name, schema] of isNode(declared) ? Record.toEntries(declared) : []) {
-			if (!properties.has(name)) {
-				properties.set(name, schema)
-			}
+			properties.getOrInsert(name, schema)
 		}
 
 		const names = own(node, "required")

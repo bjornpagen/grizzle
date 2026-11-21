@@ -1259,8 +1259,7 @@ export const planSides = (b: InstallBuilder): SidePlans => {
 			continue
 		}
 		const closed = check.target
-		const byTarget = out.get(check.side) ?? new Map<string, PlannedSide>()
-		out.set(check.side, byTarget)
+		const byTarget = out.getOrInsertComputed(check.side, () => new Map<string, PlannedSide>())
 		if (!byTarget.has(closed.name)) {
 			byTarget.set(
 				closed.name,

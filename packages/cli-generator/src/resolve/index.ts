@@ -763,9 +763,7 @@ class Resolver {
 		this.all = [entry, ...others]
 		const byDocument = new Map<DocumentUri, Member>()
 		for (const member of this.all) {
-			if (!byDocument.has(member.document)) {
-				byDocument.set(member.document, member)
-			}
+			byDocument.getOrInsert(member.document, member)
 		}
 
 		this.byDocument = byDocument
@@ -1411,12 +1409,7 @@ class Resolver {
 				const outcome =
 					entry.site.kind === "schema" ? this.schemaSite(entry.site) : this.chainSite(entry.site)
 				if (outcome !== undefined && "waitOn" in outcome) {
-					const list = waiting.get(outcome.waitOn)
-					if (list === undefined) {
-						waiting.set(outcome.waitOn, [entry])
-					} else {
-						list.push(entry)
-					}
+					waiting.getOrInsertComputed(outcome.waitOn, () => []).push(entry)
 				} else if (outcome !== undefined) {
 					return outcome
 				}

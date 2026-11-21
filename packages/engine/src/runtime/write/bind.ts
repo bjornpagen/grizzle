@@ -721,8 +721,7 @@ const hostRows = (
 				/** A row of `relation` at its key: its source's cells themselves, and where another source gave the key cells
 				 * before, those cells with this one's over them (`overlaid`). */
 				const add = (relation: StoredRelationName, key: TextsId, filled: Cells): void => {
-					const of = keyed.get(relation) ?? new TextsMap<KeyedRow>()
-					keyed.set(relation, of)
+					const of = keyed.getOrInsertComputed(relation, () => new TextsMap<KeyedRow>())
 					const row = of.get(key)
 					if (row === undefined) {
 						of.set(key, { values: filled, scanned: [] })
@@ -1316,8 +1315,10 @@ const freshOwners = (
 		): void => {
 			for (const [place, g] of filled.families.entries()) {
 				const input = defined(inputs[place], "the members a filled family was given")
-				const groups = drawnMembers.get(input.family) ?? new TextsMap<ReadonlyArray<CellRow>>()
-				drawnMembers.set(input.family, groups)
+				const groups = drawnMembers.getOrInsertComputed(
+					input.family,
+					() => new TextsMap<ReadonlyArray<CellRow>>()
+				)
 				groups.set(input.group, g.members)
 			}
 		}
@@ -1351,9 +1352,8 @@ const freshOwners = (
 				const groups = new TextsMap<Array<CellRow>>()
 				for (const member of membersOf(f.member)) {
 					const group = groupOf(member.values, member.texts)
-					const list = groups.get(group) ?? []
+					const list = groups.getOrInsertComputed(group, () => [])
 					list.push(member)
-					groups.set(group, list)
 				}
 				const order = keyOrder(f)
 				for (const [group, list] of groups) {

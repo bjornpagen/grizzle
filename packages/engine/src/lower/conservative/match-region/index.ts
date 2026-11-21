@@ -563,8 +563,7 @@ const placedEvaluation = (
 	evaluated: Map<string, NonEmptyReadonlyArray<Expr>>,
 	items: Array<FromSource>
 ): EvaluationLookup => {
-	const attributes = evaluated.get(key) ?? placeEvaluation(cx, read, env, items)
-	evaluated.set(key, attributes)
+	const attributes = evaluated.getOrInsertComputed(key, () => placeEvaluation(cx, read, env, items))
 	return (_read, asked) => (asked === key ? { from: [], attributes } : undefined)
 }
 

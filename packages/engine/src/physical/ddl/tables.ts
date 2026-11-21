@@ -281,12 +281,7 @@ type Inline = Map<string, Array<InlineConstraint>>
 
 /** Declares `constraint` inline in `relation`'s table. */
 const declareInline = (inline: Inline, relation: string, constraint: InlineConstraint): void => {
-	const own = inline.get(relation)
-	if (own === undefined) {
-		inline.set(relation, [constraint])
-		return
-	}
-	own.push(constraint)
+	inline.getOrInsertComputed(relation, () => []).push(constraint)
 }
 
 /** A key or CHECK native before its table stands: the constraint its table's CREATE TABLE declares inline, whose own
@@ -853,10 +848,7 @@ const addNatives = (
 			},
 			[b.table(o.relation.name)]
 		)
-		lawColumns.set(
-			o.relation.name,
-			new Map([...(lawColumns.get(o.relation.name) ?? []), [column, added]])
-		)
+		lawColumns.getOrInsertComputed(o.relation.name, () => new Map()).set(column, added)
 	}
 	/** The objects of the law columns of `relation` among `columns`. */
 	const lawColumnsOf = (

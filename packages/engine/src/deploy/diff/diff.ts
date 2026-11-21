@@ -477,9 +477,8 @@ const stampedHeadsOf = (
 	const put = (head: Head): void => {
 		const table = installation.names.relation(head.relation)
 		const key = nameKey(objectName(table.schema, table.name))
-		const of = out.get(key) ?? new Map<string, Head>()
+		const of = out.getOrInsertComputed(key, () => new Map<string, Head>())
 		of.set(head.field.column, head)
-		out.set(key, of)
 	}
 	for (const roles of installation.laws.theory.instants.roles.values()) {
 		for (const role of roles.values()) {
@@ -1177,12 +1176,7 @@ class Differ {
 				continue
 			}
 			const key = nameKey(w.table)
-			const held = lawColumnsByTable.get(key)
-			if (held === undefined) {
-				lawColumnsByTable.set(key, [{ object: p, column: w }])
-			} else {
-				held.push({ object: p, column: w })
-			}
+			lawColumnsByTable.getOrInsertComputed(key, () => []).push({ object: p, column: w })
 		}
 		const tables = this.input.target.manifest.objects.flatMap((o) => {
 			const v = installed(o)
@@ -1807,9 +1801,9 @@ class Differ {
 			}
 			const key = nameKey(v.table)
 			const columns = constraintColumns(keyOrCheckDefinition(v, this.prev))
-			keys.set(key, [...(keys.get(key) ?? []), { object: o, columns }])
+			keys.getOrInsertComputed(key, () => []).push({ object: o, columns })
 			if (keptAsIs(o) && columns.every((c) => fateAt(v.table, c) === "kept")) {
-				stable.set(key, [...(stable.get(key) ?? []), columns])
+				stable.getOrInsertComputed(key, () => []).push(columns)
 			}
 		}
 		/** Whether a revaluation takes the key `o` of `table` over `columns`: unless the target keeps it as it is and its
@@ -3708,11 +3702,10 @@ class Differ {
 		/** The parameters each kept role still sets. */
 		const kept = new Map<string, Set<string>>()
 		for (const { statement: s } of roleSettings(targetDefaults)) {
-			const set = kept.get(s.name) ?? new Set<string>()
+			const set = kept.getOrInsertComputed(s.name, () => new Set<string>())
 			if (s.action.kind === "set") {
 				set.add(s.action.setting.parameter)
 			}
-			kept.set(s.name, set)
 		}
 		for (const { statement: s, prelude } of roleSettings(previousDefaults)) {
 			if (s.action.kind === "set" && kept.get(s.name)?.has(s.action.setting.parameter) === false) {
@@ -4480,9 +4473,8 @@ const installedReads = (
 		if (view === relation) {
 			return
 		}
-		const set = out.get(view) ?? new Set<NameKey>()
+		const set = out.getOrInsertComputed(view, () => new Set<NameKey>())
 		set.add(relation)
-		out.set(view, set)
 	}
 	for (const e of previous.manifest.edges) {
 		const from = parseIdent(e.from)
@@ -4500,9 +4492,7 @@ const installedReads = (
 			continue
 		}
 		const view = nameKey(v.create.name)
-		if (!out.has(view)) {
-			out.set(view, new Set())
-		}
+		out.getOrInsertComputed(view, () => new Set())
 		for (const name of qualifiedNames((hooks) => {
 			transformSelect(v.create.query, hooks)
 		}, schemas)) {
@@ -4712,7 +4702,7 @@ const worldChangesOf = (
 	}
 	const waitsFor = new Map<string, Array<string>>()
 	for (const e of target.edges) {
-		waitsFor.set(e.to, [...(waitsFor.get(e.to) ?? []), e.from])
+		waitsFor.getOrInsertComputed(e.to, () => []).push(e.from)
 	}
 	const creates = new Set<string>()
 	for (const o of target.objects) {

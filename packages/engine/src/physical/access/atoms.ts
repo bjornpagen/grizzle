@@ -368,9 +368,7 @@ export const predicateAtoms = (
 const dedupe = (atoms: ReadonlyArray<Atom>): ReadonlyArray<Atom> => {
 	const seen = new Map<string, Atom>()
 	for (const a of atoms) {
-		if (!seen.has(atomKey(a))) {
-			seen.set(atomKey(a), a)
-		}
+		seen.getOrInsert(atomKey(a), a)
 	}
 	return [...seen.values()]
 }

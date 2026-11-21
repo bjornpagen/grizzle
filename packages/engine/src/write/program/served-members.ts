@@ -27,8 +27,7 @@ export const servedMembers = (
 			reasons.push({ kind: "stream", slot: member.slot, relation: member.relation })
 			continue
 		}
-		const byRelation = slots.get(member.op) ?? new Map<string, string>()
-		slots.set(member.op, byRelation)
+		const byRelation = slots.getOrInsertComputed(member.op, () => new Map<string, string>())
 		const earlier = byRelation.get(member.relation)
 		if (earlier !== undefined) {
 			reasons.push({

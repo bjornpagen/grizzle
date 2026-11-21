@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { NodeId } from "#compiler/core/ids.ts"
 import { localCertificate } from "#compiler/ir/certificate.ts"
@@ -66,7 +67,8 @@ const valuesOf = (physical: CellPhysical, order: ReadonlyArray<Cell>): Values =>
 const unionKept = (a: Kept, b: Kept): Kept => {
 	const out = new Map<string, ReadonlyArray<Outer>>(a)
 	for (const [column, outers] of b) {
-		out.set(column, [...(out.get(column) ?? []), ...outers])
+		const held = a.get(column)
+		out.set(column, held === undefined ? outers : [...held, ...outers])
 	}
 	return out
 }
@@ -120,7 +122,10 @@ const keptRows = (
 					}
 					const held = new Map<string, Array<Outer>>()
 					const hold = (column: string, outers: ReadonlyArray<Outer>): void => {
-						held.set(column, [...(held.get(column) ?? []), ...outers])
+						appendAll(
+							held.getOrInsertComputed(column, () => []),
+							outers
+						)
 					}
 					for (const c of o.constants) {
 						if (c.expr.kind === "column") {

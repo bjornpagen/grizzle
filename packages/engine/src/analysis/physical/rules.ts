@@ -1457,7 +1457,7 @@ const projectProps = (node: NodeOf<"ProjectSet">, cx: RuleContext): PhysicalProp
 				inj.coercions.length === 0
 					? structural
 					: withReason(justify({ coercions: inj.coercions }), ["injectiveRepresentation"])
-			reps.set(inj.column, [...(reps.get(inj.column) ?? []), { column: o.name, just }])
+			reps.getOrInsertComputed(inj.column, () => []).push({ column: o.name, just })
 			continue
 		}
 		const r = valueRep(o.expr, locals)

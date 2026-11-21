@@ -95,9 +95,8 @@ export const fillersOf = (theory: Theory): ReadonlyMap<string, ReadonlyMap<strin
 	}
 	const out = new Map<string, Map<string, Filler>>()
 	const put = (relation: string, field: string, filler: Filler): void => {
-		const of = out.get(relation) ?? new Map<string, Filler>()
+		const of = out.getOrInsertComputed(relation, () => new Map<string, Filler>())
 		of.set(field, filler)
-		out.set(relation, of)
 	}
 	const filled = (relation: string, field: string): boolean =>
 		out.get(relation)?.has(field) === true

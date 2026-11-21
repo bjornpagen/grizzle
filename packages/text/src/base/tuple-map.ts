@@ -88,6 +88,17 @@ export class TupleMap<K extends ReadonlyArray<unknown>, V> implements ReadonlyTu
 		return this.#found(key) !== undefined
 	}
 
+	/** The value held at `key`, made by `compute` and set first where none is: Map.prototype.getOrInsertComputed's. */
+	getOrInsertComputed(key: K, compute: (key: K) => V): V {
+		const held = this.#found(key)
+		if (held !== undefined) {
+			return held.value
+		}
+		const value = compute(key)
+		this.set(key, value)
+		return value
+	}
+
 	/** A new entry, last in iteration order. */
 	#added(key: K, value: V): Slot<K, V> {
 		const slot = new Slot(key, value)

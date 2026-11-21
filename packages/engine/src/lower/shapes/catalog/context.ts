@@ -76,11 +76,10 @@ export class CatalogContext {
 	#consumerTable(): ReadonlyMap<NodeId, ReadonlyArray<Cell>> {
 		const map = new Map<NodeId, Array<Cell>>()
 		const add = (from: Cell, to: NodeId) => {
-			const list = map.get(to) ?? []
+			const list = map.getOrInsertComputed(to, () => [])
 			if (!list.includes(from)) {
 				list.push(from)
 			}
-			map.set(to, list)
 		}
 		for (const cell of this.ed.cells()) {
 			for (const input of inputsOf(cell.current)) {
@@ -209,9 +208,8 @@ export const bindingsByVar = (
 	const map = new Map<VarDecl, Array<{ occurrence: number; column: string }>>()
 	for (const [i, o] of region.occurrences.entries()) {
 		for (const b of o.bindings) {
-			const list = map.get(b.var) ?? []
+			const list = map.getOrInsertComputed(b.var, () => [])
 			list.push({ occurrence: i, column: b.column })
-			map.set(b.var, list)
 		}
 	}
 	return map

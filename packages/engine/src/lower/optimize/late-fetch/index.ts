@@ -95,7 +95,7 @@ const lateFetchPlans = (
 	/** Each stage column by the region variable it carries. */
 	const columnsOf = new Map<VarId, Array<string>>()
 	for (const [col, v] of chain.columns) {
-		columnsOf.set(v.id, [...(columnsOf.get(v.id) ?? []), col])
+		columnsOf.getOrInsertComputed(v.id, () => []).push(col)
 	}
 	/** For each stored occurrence, the plan of the one key the stage carries, when its payload is wide. */
 	const plans: Array<Plan> = []
@@ -106,9 +106,7 @@ const lateFetchPlans = (
 		}
 		const bound = new Map<string, VarDecl>()
 		for (const b of o.bindings) {
-			if (!bound.has(b.column)) {
-				bound.set(b.column, b.var)
-			}
+			bound.getOrInsert(b.column, b.var)
 		}
 		/** The columns of the scan the stage carries, each with the stage column carrying it. */
 		const carried = new Map<string, readonly [HeadingColumn, string]>()

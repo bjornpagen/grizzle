@@ -1242,24 +1242,14 @@ export const planIndexes = (
 		 * first (canonical), is walked relation by relation in its own order. */
 		const candidatesOf = new Map<string, Array<Candidate>>()
 		const hold = (c: Candidate): void => {
-			const held = candidatesOf.get(c.index.relation)
-			if (held === undefined) {
-				candidatesOf.set(c.index.relation, [c])
-			} else {
-				held.push(c)
-			}
+			candidatesOf.getOrInsertComputed(c.index.relation, () => []).push(c)
 		}
 		for (const c of candidates) {
 			hold(c)
 		}
 		const planOf = new Map<string, Array<Planned>>()
 		for (const entry of plan) {
-			const held = planOf.get(entry.request.relation)
-			if (held === undefined) {
-				planOf.set(entry.request.relation, [entry])
-			} else {
-				held.push(entry)
-			}
+			planOf.getOrInsertComputed(entry.request.relation, () => []).push(entry)
 		}
 		for (const relationPlan of planOf.values()) {
 			for (const entry of relationPlan) {

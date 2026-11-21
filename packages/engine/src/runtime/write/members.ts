@@ -30,9 +30,8 @@ const relationsByOp = (
 ): ReadonlyMap<string, ReadonlySet<string>> => {
 	const out = new Map<string, Set<string>>()
 	for (const member of members) {
-		const relations = out.get(member.op) ?? new Set<string>()
+		const relations = out.getOrInsertComputed(member.op, () => new Set<string>())
 		relations.add(member.relation)
-		out.set(member.op, relations)
 	}
 	return out
 }

@@ -304,8 +304,10 @@ export const nestedRows = (
 	}
 	const tops: Array<NestedFact> = []
 	const relation = nesting.relation
-	const byKey = into.tops.get(relation) ?? new TextsMap<AtKey<ReadonlyArray<Signed>, NestedFact>>()
-	into.tops.set(relation, byKey)
+	const byKey = into.tops.getOrInsertComputed(
+		relation,
+		() => new TextsMap<AtKey<ReadonlyArray<Signed>, NestedFact>>()
+	)
 	const own = walk.columns(relation)
 	/** A field of the insert's own row as its facts are read: its name, its position among its relation's columns and its
 	 * carrier's spec. */
@@ -740,9 +742,8 @@ const rowsOf = (
 	const pending: Array<FilledNode> = [root]
 	for (let row = pending.pop(); row !== undefined; row = pending.pop()) {
 		if (row !== root || nesting.root.kind !== "plain") {
-			const list = out.get(row.relation) ?? []
+			const list = out.getOrInsertComputed(row.relation, () => [])
 			list.push(nestedRowOf(shapeOf(row.relation), row))
-			out.set(row.relation, list)
 		}
 		const members = row.families.flatMap((g) => g.members)
 		for (let i = members.length - 1; i >= 0; i -= 1) {

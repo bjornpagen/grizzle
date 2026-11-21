@@ -84,9 +84,8 @@ export const insertOnly = (
 	const tables = new Map<string, Map<string, string>>()
 	for (const relation of laws.relations.keys()) {
 		const table = names.relation(relation)
-		const inSchema = tables.get(table.schema) ?? new Map<string, string>()
+		const inSchema = tables.getOrInsertComputed(table.schema, () => new Map<string, string>())
 		inSchema.set(table.name, relation)
-		tables.set(table.schema, inSchema)
 	}
 	for (const statement of statements) {
 		for (const modified of bodiesOf(statement.ast).flatMap(modifiedBy)) {

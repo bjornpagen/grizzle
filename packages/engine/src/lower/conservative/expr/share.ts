@@ -354,11 +354,7 @@ class Sharing {
 		if (e === s) {
 			return true
 		}
-		let memo = this.#anticipated.get(s)
-		if (memo === undefined) {
-			memo = new Map()
-			this.#anticipated.set(s, memo)
-		}
+		const memo = this.#anticipated.getOrInsertComputed(s, () => new Map())
 		const known = memo.get(e)
 		if (known !== undefined) {
 			return known
@@ -472,11 +468,7 @@ class Sharing {
 	 * declared function's call always (its NULL is refused).
 	 */
 	#nonNullAt(e: ScalarExpr, facts: Facts): boolean {
-		let memo = this.#nonNull.get(facts)
-		if (memo === undefined) {
-			memo = new Map()
-			this.#nonNull.set(facts, memo)
-		}
+		const memo = this.#nonNull.getOrInsertComputed(facts, () => new Map())
 		const known = memo.get(e)
 		if (known !== undefined) {
 			return known
@@ -819,9 +811,8 @@ class Sharing {
 			}
 			return pair
 		})()
-		const row = memo.get(a) ?? new Map<ScalarExpr, Differing>()
+		const row = memo.getOrInsertComputed(a, () => new Map<ScalarExpr, Differing>())
 		row.set(b, found)
-		memo.set(a, row)
 		return found
 	}
 
@@ -901,8 +892,7 @@ class Sharing {
 			if (!reads(n)) {
 				return n === o
 			}
-			const row = made.get(n) ?? new Map<ScalarExpr, boolean>()
-			made.set(n, row)
+			const row = made.getOrInsertComputed(n, () => new Map<ScalarExpr, boolean>())
 			const known = row.get(o)
 			if (known !== undefined) {
 				return known
@@ -1039,11 +1029,7 @@ class Sharing {
 	 * rewritten; and that otherwise. A subterm that is the subject of a chain `e` already is never split again.
 	 */
 	#rewrite(e: ScalarExpr, facts: Facts): ScalarExpr {
-		let memo = this.#rewritten.get(facts)
-		if (memo === undefined) {
-			memo = new Map()
-			this.#rewritten.set(facts, memo)
-		}
+		const memo = this.#rewritten.getOrInsertComputed(facts, () => new Map())
 		const known = memo.get(e)
 		if (known !== undefined) {
 			return known

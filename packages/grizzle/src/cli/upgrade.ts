@@ -277,7 +277,7 @@ const keptObjects = (
 ): ReadonlySet<string> => {
 	const after = new Map<string, Array<string>>()
 	for (const e of target.manifest.edges) {
-		after.set(e.to, [...(after.get(e.to) ?? []), e.from])
+		after.getOrInsertComputed(e.to, () => []).push(e.from)
 	}
 	const kept = new Set<string>()
 	for (const o of target.manifest.objects) {

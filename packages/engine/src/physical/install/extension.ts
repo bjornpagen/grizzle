@@ -143,9 +143,8 @@ export const noFences: ReadonlyArray<LoginFence> = []
 export const loginFences = (fences: ReadonlyArray<Fence>): ReadonlyArray<LoginFence> => {
 	const by = new Map<string, Array<string>>()
 	for (const f of fences) {
-		const relations = by.get(f.login) ?? []
+		const relations = by.getOrInsertComputed(f.login, () => [])
 		relations.push(f.relation)
-		by.set(f.login, relations)
 	}
 	return [...by].flatMap(([login, relations]): ReadonlyArray<LoginFence> =>
 		isNonEmpty(relations) ? [{ login, relations }] : []

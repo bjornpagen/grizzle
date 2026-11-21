@@ -335,12 +335,7 @@ const standIns = (
 ): ReadonlyMap<string, ReadonlyArray<string>> => {
 	const out = new Map<string, Array<string>>()
 	for (const m of members) {
-		const held = out.get(m.of)
-		if (held === undefined) {
-			out.set(m.of, [m.column])
-		} else {
-			held.push(m.column)
-		}
+		out.getOrInsertComputed(m.of, () => []).push(m.column)
 	}
 	return out
 }

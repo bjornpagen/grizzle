@@ -36,12 +36,7 @@ const createdAfter = (
 ): ReadonlyMap<string, ReadonlyArray<string>> => {
 	const after = new Map<string, Array<string>>()
 	for (const edge of edges) {
-		const known = after.get(edge.to)
-		if (known === undefined) {
-			after.set(edge.to, [edge.from])
-		} else {
-			known.push(edge.from)
-		}
+		after.getOrInsertComputed(edge.to, () => []).push(edge.from)
 	}
 	return after
 }

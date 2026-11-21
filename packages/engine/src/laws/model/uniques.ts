@@ -189,9 +189,11 @@ const compared = (
 			return undefined
 		}
 		for (const g of native.value.guard) {
-			if (!guards.has(g)) {
-				guards.set(g, { predicate: g, reads: readsOf(relation, g), relation: relation.name })
-			}
+			guards.getOrInsertComputed(g, () => ({
+				predicate: g,
+				reads: readsOf(relation, g),
+				relation: relation.name
+			}))
 		}
 		appendAll(equal, fields)
 		const [only, ...others] = fields

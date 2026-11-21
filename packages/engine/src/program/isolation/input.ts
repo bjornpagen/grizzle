@@ -73,12 +73,7 @@ const byRelation = <V>(
 ): ReadonlyMap<string, ReadonlyArray<V>> => {
 	const grouped = new Map<string, Array<V>>()
 	for (const [relation, value] of entries) {
-		const held = grouped.get(relation)
-		if (held === undefined) {
-			grouped.set(relation, [value])
-		} else {
-			held.push(value)
-		}
+		grouped.getOrInsertComputed(relation, () => []).push(value)
 	}
 	return grouped
 }

@@ -784,8 +784,7 @@ const canonicalBindings = (scope: Scope): Scope => {
 			kept.set(name, param)
 			continue
 		}
-		const keys = keyed.get(param.origin) ?? new TextsMap<string>()
-		keyed.set(param.origin, keys)
+		const keys = keyed.getOrInsertComputed(param.origin, () => new TextsMap<string>())
 		const same = keys.get(param.key.id)
 		if (same === undefined) {
 			keys.set(param.key.id, name)

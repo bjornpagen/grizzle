@@ -780,10 +780,8 @@ export class FamilyEntry implements RiddenFamily {
 	carry(axis: AxisKind, from: NativeColumn, to: NativeColumn, rank: PairRank, law: LawId): void {
 		const key = `${columnKey(from)}\u0001${columnKey(to)}`
 		const pairs = this.#axes[axis]
-		const known = pairs.get(key)
-		if (known === undefined) {
-			pairs.set(key, { from, to, rank, laws: [law] })
-		} else if (!known.laws.includes(law)) {
+		const known = pairs.getOrInsertComputed(key, () => ({ from, to, rank, laws: [] }))
+		if (!known.laws.includes(law)) {
 			known.laws.push(law)
 		}
 	}
@@ -1077,20 +1075,13 @@ export class Namings {
 	/** `by` names `field` of `relation`. */
 	name(relation: RelationInfo, field: LawField, by: string): void {
 		const key = `${relation.name}\u0000${field.name}`
-		const known = this.#names.get(key)
-		if (known === undefined) {
-			this.#names.set(key, { field, relation, by: [by] })
-		} else {
-			known.by.push(by)
-		}
+		this.#names.getOrInsertComputed(key, () => ({ field, relation, by: [] })).by.push(by)
 	}
 
 	/** The containment `by` reads the accumulated `field` as a source column but rides no axis, so it fills nothing. */
 	unridden(relation: string, field: string, by: string): void {
 		const key = `${relation}\u0000${field}`
-		if (!this.#unridden.has(key)) {
-			this.#unridden.set(key, by)
-		}
+		this.#unridden.getOrInsert(key, by)
 	}
 
 	/** Refuses a drawn or accumulated field of `relations` that no statement names, or that two do. */

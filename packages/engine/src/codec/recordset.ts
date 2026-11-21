@@ -385,9 +385,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 		let widest = 0
 		for (const one of reads) {
 			const parts = textsId(one.parts)
-			if (!distinct.has(parts)) {
-				distinct.set(parts, one)
-			}
+			distinct.getOrInsertComputed(parts, () => one)
 			widest = Math.max(widest, alone(one))
 		}
 		let together = 0
@@ -449,9 +447,7 @@ const normalizerOf = (s: BuiltSpec): RelationNormalizer => {
 				return admittedFact
 			}
 			const entry = admittedFact.value
-			if (!byIdentity.has(entry.identity)) {
-				byIdentity.set(entry.identity, entry)
-			}
+			byIdentity.getOrInsertComputed(entry.identity, () => entry)
 		}
 		const normal = normalFacts(byIdentity)
 		return Result.ok(Object.freeze({ ...normal, count: normal.facts.length }))

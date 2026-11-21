@@ -219,11 +219,10 @@ const liveOf = (extensions: ReadonlyArray<InstallExtension>): LivePlan => {
 	}
 	const routes = new Map<string, Set<string>>()
 	for (const table of plans.flatMap((plan) => plan.tables)) {
-		const held = routes.get(table.relation) ?? new Set<string>()
+		const held = routes.getOrInsertComputed(table.relation, () => new Set<string>())
 		for (const field of table.routes) {
 			held.add(field)
 		}
-		routes.set(table.relation, held)
 	}
 	return {
 		kind: "reads",

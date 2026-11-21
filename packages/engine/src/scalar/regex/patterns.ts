@@ -95,8 +95,7 @@ const tabled = (table: ParseTable, pattern: PatternSource): ParsedPattern | unde
 /** `pattern`'s parse, entered into `table`. */
 const entered = (table: ParseTable, pattern: PatternSource): ParsedPattern => {
 	const made = admittedParse(pattern)
-	const bySource = table.get(pattern.flags) ?? new Map<string, ParsedPattern>()
-	table.set(pattern.flags, bySource)
+	const bySource = table.getOrInsertComputed(pattern.flags, () => new Map<string, ParsedPattern>())
 	bySource.set(pattern.source, made)
 	return made
 }
@@ -260,8 +259,7 @@ class SetTable {
 	}
 
 	#indexOf(set: CharSet): number {
-		const candidates = this.#byLength.get(set.length) ?? []
-		this.#byLength.set(set.length, candidates)
+		const candidates = this.#byLength.getOrInsertComputed(set.length, () => [])
 		for (const at of candidates) {
 			if (sameSet(entry(this.sets, at), set)) {
 				return at

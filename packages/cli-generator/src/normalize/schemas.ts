@@ -392,8 +392,10 @@ const memberLayouts = (resolution: Resolution): ReadonlyMap<DocumentUri, Layout>
 			continue
 		}
 
-		const layout = layouts.get(target.document) ?? { roots: [], structural: new Set() }
-		layouts.set(target.document, layout)
+		const layout = layouts.getOrInsertComputed(target.document, () => ({
+			roots: [],
+			structural: new Set()
+		}))
 		const node = Result.getSuccess(evaluatePointerResult(value, target.pointer))
 		if (Option.isSome(node)) {
 			walkLayout(layout, start, node.value, target.pointer)

@@ -726,9 +726,8 @@ export const ledgerState = (
 	catchRefusal(() => {
 		const byFolder = new Map<string, Array<LedgerRow>>()
 		for (const r of rows) {
-			const list = byFolder.get(r.folder) ?? []
+			const list = byFolder.getOrInsertComputed(r.folder, () => [])
 			list.push(r)
-			byFolder.set(r.folder, list)
 		}
 		const complete: Array<RecordedFolder> = []
 		let partial: RecordedFolder | undefined

@@ -881,9 +881,7 @@ const firstOfEach = (reads: ReadonlyArray<StatedRead>): ReadonlyMap<string, Read
 	const first = new Map<string, ReadAt>()
 	for (const { at, read } of reads) {
 		const g = groupOf(read)
-		if (!first.has(g)) {
-			first.set(g, at)
-		}
+		first.getOrInsert(g, at)
 	}
 	return first
 }
@@ -1165,8 +1163,7 @@ const reachesOf = (
 					continue
 				}
 				seen.add([use.cte, from, place, neutral])
-				const ownProbes = owned.get(use.cte) ?? own(use.cte, instance)
-				owned.set(use.cte, ownProbes)
+				const ownProbes = owned.getOrInsertComputed(use.cte, () => own(use.cte, instance))
 				const probes = instance.probes.map((probe, id) =>
 					probe.core === "site"
 						? probeJudgement(
@@ -1185,9 +1182,8 @@ const reachesOf = (
 							)
 						: ownProbes[id]
 				)
-				const held = reaches.get(use.cte) ?? []
+				const held = reaches.getOrInsertComputed(use.cte, () => [])
 				held.push({ from: { body: from, place, use }, neutral, probes })
-				reaches.set(use.cte, held)
 			}
 		}
 	}
@@ -1690,9 +1686,8 @@ const roleView = (at: Installation, served: Served): RoleView => {
 	const members = served.members.map((m) => memberView(at, m))
 	const sites = new Map<string, Array<ReadSite>>()
 	const site = (relation: string, s: ReadSite): void => {
-		const held = sites.get(relation) ?? []
+		const held = sites.getOrInsertComputed(relation, () => [])
 		held.push(s)
-		sites.set(relation, held)
 	}
 	for (const v of members) {
 		for (const p of v.reads) {
@@ -1843,9 +1838,8 @@ const absenceSites = (
 ): ReadonlyMap<string, ReadonlyArray<AbsenceSite>> => {
 	const out = new Map<string, Array<AbsenceSite>>()
 	const add = (relation: string, s: AbsenceSite): void => {
-		const held = out.get(relation) ?? []
+		const held = out.getOrInsertComputed(relation, () => [])
 		held.push(s)
-		out.set(relation, held)
 	}
 	for (const view of views) {
 		for (const v of view.members) {
@@ -1931,12 +1925,7 @@ const byStatement = (
 ): ReadonlyMap<number, ReadonlyArray<PlacedRead>> => {
 	const by = new Map<number, Array<PlacedRead>>()
 	for (const p of placed) {
-		const held = by.get(p.statement)
-		if (held === undefined) {
-			by.set(p.statement, [p])
-		} else {
-			held.push(p)
-		}
+		by.getOrInsertComputed(p.statement, () => []).push(p)
 	}
 	return by
 }
@@ -2375,9 +2364,8 @@ const fencesOf = <R, S, E>(
 			view.members.flatMap((v) => v.checks.flatMap((c) => (lockedSeal(c.seal) ? [c.relation] : [])))
 		)
 		for (const relation of checked) {
-			const roles = relying.get(relation) ?? []
+			const roles = relying.getOrInsertComputed(relation, () => [])
 			roles.push({ login, role })
-			relying.set(relation, roles)
 		}
 	}
 	return [...relying]

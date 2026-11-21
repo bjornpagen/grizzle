@@ -183,9 +183,9 @@ export const relationInputsAgainstPostgreSQLSendsPostgreSQLASetTheEncodersArrays
 			},
 			{
 				file: "packages/engine/src/codec/recordset.ts",
-				original: "\t\t\t\tbyIdentity.set(entry.identity, entry)",
+				original: "\t\t\tbyIdentity.getOrInsertComputed(entry.identity, () => entry)",
 				replacement:
-					"\t\t\t\tbyIdentity.set(textsId([...entry.identity.texts, String(byIdentity.size)]), entry)",
+					"\t\t\tbyIdentity.set(textsId([...entry.identity.texts, String(byIdentity.size)]), entry)",
 				why: "The normalizer keeps every fact, so the arrays hold one value twice; the DISTINCT property fails."
 			}
 		]

@@ -187,9 +187,7 @@ const ownedColumns = (
 ): ReadonlyMap<ColumnKey, OwnedColumn> => {
 	const owned = new Map<ColumnKey, OwnedColumn>()
 	const claim = (key: ColumnKey, column: OwnedColumn): void => {
-		if (!owned.has(key)) {
-			owned.set(key, column)
-		}
+		owned.getOrInsert(key, column)
 	}
 	for (const family of families) {
 		if (family.owner.name !== relation.name || isSequence(family)) {
@@ -407,13 +405,9 @@ export const hostFillOf = (
 			columns: layout.columns.map(columnData),
 			owns: layout.owns.map((f) => familyIdOf(f.id))
 		})
-		if (!relations.has(layout.relation.name)) {
-			relations.set(layout.relation.name, fillRelation(layout.relation))
-		}
+		relations.getOrInsertComputed(layout.relation.name, () => fillRelation(layout.relation))
 		for (const f of layout.owns) {
-			if (!families.has(familyKey(f.id))) {
-				families.set(familyKey(f.id), fillFamily(f))
-			}
+			families.getOrInsertComputed(familyKey(f.id), () => fillFamily(f))
 			queue.push({ relation: f.member.name, position: { kind: "member", family: f } })
 		}
 	}

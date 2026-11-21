@@ -1348,8 +1348,7 @@ class Statement {
 			probes: [],
 			core: "site"
 		})
-		const query = this.#queries.get(cte.query) ?? this.#queries.size
-		this.#queries.set(cte.query, query)
+		const query = this.#queries.getOrInsertComputed(cte.query, () => this.#queries.size)
 		const place = this.instances.length
 		this.instances.push({ walk, rows, query })
 		this.#keyed.set(key, place)
@@ -1436,9 +1435,7 @@ const bindingsOf = (
 	for (const { expr: e, scope } of conditions) {
 		if (e.kind === "binary" && e.op === "=") {
 			for (const b of [...side(e.left, e.right, scope), ...side(e.right, e.left, scope)]) {
-				if (!out.has(b.column)) {
-					out.set(b.column, b)
-				}
+				out.getOrInsert(b.column, b)
 			}
 		}
 	}

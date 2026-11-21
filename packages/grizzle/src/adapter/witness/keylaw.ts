@@ -209,9 +209,7 @@ export const keyLawsOf = (data: ServedKeyLaws, above: LawsAbove, codes: Codebook
 				ownedBy(tables, c.owner).set(c.name, { kind: "object", laws: c.laws })
 				const byLaw = ownedBy(discharging, c.owner)
 				for (const { law } of c.laws) {
-					if (!byLaw.has(law)) {
-						byLaw.set(law, c.name)
-					}
+					byLaw.getOrInsert(law, c.name)
 				}
 				break
 			}

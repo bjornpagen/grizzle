@@ -134,9 +134,7 @@ const relationsOf = (schema: SchemaDesc): ReadonlyMap<string, RelationDesc> => {
 	const out = new Map<string, RelationDesc>()
 	for (const level of levelChain(schema).toReversed()) {
 		for (const relation of level.relations) {
-			if (!out.has(relation.name)) {
-				out.set(relation.name, relation)
-			}
+			out.getOrInsert(relation.name, relation)
 		}
 	}
 	return out

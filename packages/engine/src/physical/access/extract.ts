@@ -364,9 +364,7 @@ const regionFacts = (n: NodeOf<"MatchRegion">, pushed: Pushed): RegionFacts => {
 		const classes = new Map<number, string>()
 		for (const b of o.bindings) {
 			const k = classOfVar(b.var)
-			if (!classes.has(k)) {
-				classes.set(k, b.column)
-			}
+			classes.getOrInsert(k, b.column)
 		}
 		const facts: OccurrenceFacts = {
 			source: o.source,
@@ -1174,9 +1172,7 @@ class Extractor {
 
 	addStatistics(s: StatisticsShape): void {
 		const key = `${s.relation}\u0000${s.columns.join("\u0001")}\u0000${s.use}`
-		if (!this.statistics.has(key)) {
-			this.statistics.set(key, s)
-		}
+		this.statistics.getOrInsert(key, s)
 	}
 
 	/** Resolves requested heading columns of `n` to one stored occurrence under the facts pushed on `n`: the
@@ -1643,9 +1639,7 @@ export const extractSuffixSeeks = (
 	const once = new Map<string, SuffixSeek>()
 	for (const seek of extracted(roots, options).seeks) {
 		const key = [seek.relation, seek.column, ...seek.fixed].join("\u0000")
-		if (!once.has(key)) {
-			once.set(key, seek)
-		}
+		once.getOrInsert(key, seek)
 	}
 	return [...once.values()]
 }

@@ -661,9 +661,8 @@ const valueAt = <K, V>(
 
 /** `value` set at `outer`, then `inner`, of a two-level map. */
 const setAt = <K, V>(map: Map<K, Map<string, V>>, outer: K, inner: string, value: V): void => {
-	const within = map.get(outer) ?? new Map<string, V>()
+	const within = map.getOrInsertComputed(outer, () => new Map<string, V>())
 	within.set(inner, value)
-	map.set(outer, within)
 }
 
 /** What a law column the law model planned holds (LawColumnHolds), by the field whose values it holds. */

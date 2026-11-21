@@ -225,12 +225,7 @@ const edgesInto = (
 ): ReadonlyMap<RelNode, ReadonlyArray<ConsumerEdge>> => {
 	const into = new Map<RelNode, Array<ConsumerEdge>>()
 	for (const e of edges) {
-		const list = into.get(e.input)
-		if (list === undefined) {
-			into.set(e.input, [e])
-		} else {
-			list.push(e)
-		}
+		into.getOrInsertComputed(e.input, () => []).push(e)
 	}
 	return into
 }

@@ -334,13 +334,15 @@ export const aChangeMembersFactsNameEveryReadByItsModeItsOwnItsGroupAndItsBindin
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original: "\t\tconst query = this.#queries.get(cte.query) ?? this.#queries.size",
+				original:
+					"\t\tconst query = this.#queries.getOrInsertComputed(cte.query, () => this.#queries.size)",
 				replacement: "\t\tconst query = this.instances.length",
 				why: "Every instance of a query CTE walks a query of its own, numbered by the instances, so two instances of one query are no longer read as one query; the check that the instances walk one query for each query CTE a source reads fails."
 			},
 			{
 				file: "packages/engine/src/program/isolation/extract.ts",
-				original: "\t\tconst query = this.#queries.get(cte.query) ?? this.#queries.size",
+				original:
+					"\t\tconst query = this.#queries.getOrInsertComputed(cte.query, () => this.#queries.size)",
 				replacement: "\t\tconst query = this.#queries.size > 0 ? 0 : this.#queries.size",
 				why: "Every query CTE after the first takes the first's query, so the instances of different queries read as one query; the same check fails."
 			}

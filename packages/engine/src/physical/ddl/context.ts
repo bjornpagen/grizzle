@@ -145,9 +145,8 @@ const lawColumnFields = (
 			continue
 		}
 		const o = n.object
-		const own = out.get(o.relation.name) ?? new Map<string, TargetField>()
+		const own = out.getOrInsertComputed(o.relation.name, () => new Map<string, TargetField>())
 		own.set(o.column, { desc: o.field.desc, type: o.field.type })
-		out.set(o.relation.name, own)
 	}
 	return out
 }
@@ -459,12 +458,7 @@ export class InstallBuilder {
 			this.#countColumns(statement)
 			const table = evaluatedTable(statement)
 			if (table !== undefined && this.names.installed.has(table.schema)) {
-				const known = this.#evaluatedOn.get(table.name)
-				if (known === undefined) {
-					this.#evaluatedOn.set(table.name, [statement])
-				} else {
-					known.push(statement)
-				}
+				this.#evaluatedOn.getOrInsertComputed(table.name, () => []).push(statement)
 			}
 		}
 		return this.graph.add({ ...spec, ddl }, after)
@@ -485,8 +479,7 @@ export class InstallBuilder {
 			return statement
 		}
 		const table = printObjectName(statement.table)
-		const columns = this.#columnTypes.get(table) ?? new Map<string, TypeRef>()
-		this.#columnTypes.set(table, columns)
+		const columns = this.#columnTypes.getOrInsertComputed(table, () => new Map<string, TypeRef>())
 		const scope: RowScope = {
 			schema: this.schema,
 			installed: this.names.installed,

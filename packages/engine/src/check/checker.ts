@@ -1636,12 +1636,7 @@ export class Checker {
 				if (bareOf(literals?.get(column.name)) !== undefined) {
 					continue
 				}
-				const known = termTypes.get(column.name)
-				if (known === undefined) {
-					termTypes.set(column.name, [column.type])
-				} else {
-					known.push(column.type)
-				}
+				termTypes.getOrInsertComputed(column.name, () => []).push(column.type)
 			}
 		}
 		const positions = new Map<string, ScalarType>()

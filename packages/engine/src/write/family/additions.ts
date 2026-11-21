@@ -340,9 +340,7 @@ const ownedColumns = (member: AppendedMember): ReadonlyMap<ColumnKey, OwnedColum
 	const owned = new Map<ColumnKey, OwnedColumn>()
 	const claim = (field: LawField, family: Family, held: NativeColumn): void => {
 		const key = columnKeyOf(field.name)
-		if (!owned.has(key)) {
-			owned.set(key, { field, family, held })
-		}
+		owned.getOrInsertComputed(key, () => ({ field, family, held }))
 	}
 	for (const family of member.owns) {
 		claim(family.count, family, { kind: "law", column: family.copy })
@@ -513,8 +511,10 @@ export const additionsSql = (
 	 * name. */
 	const owners = new Map<string, Map<Family, Recounted>>()
 	const recountedOf = (family: Family): Recounted => {
-		const byFamily = owners.get(family.owner.name) ?? new Map<Family, Recounted>()
-		owners.set(family.owner.name, byFamily)
+		const byFamily = owners.getOrInsertComputed(
+			family.owner.name,
+			() => new Map<Family, Recounted>()
+		)
 		const known = byFamily.get(family)
 		if (known !== undefined) {
 			return known
@@ -941,9 +941,10 @@ const stampedSources = (
 	for (const x of stamping) {
 		for (const st of headStamped(x.stamps)) {
 			const at = headText(st.stamp.head)
-			if (!heads.has(at)) {
-				heads.set(at, { head: st.stamp.head, names: headStampsNames(supply, st.stamp.head) })
-			}
+			heads.getOrInsertComputed(at, () => ({
+				head: st.stamp.head,
+				names: headStampsNames(supply, st.stamp.head)
+			}))
 		}
 	}
 	for (const [at, { head, names }] of heads) {

@@ -327,9 +327,8 @@ export const rosterRenames = (
 			return refused({ kind: "unknownRoster", roster: to.roster })
 		}
 		const closed = roster.value.closed
-		const handles = byRoster.get(closed) ?? new Map<string, string>()
+		const handles = byRoster.getOrInsertComputed(closed, () => new Map<string, string>())
 		handles.set(from.handle, to.handle)
-		byRoster.set(closed, handles)
 	}
 	return Result.succeed(
 		new Map(

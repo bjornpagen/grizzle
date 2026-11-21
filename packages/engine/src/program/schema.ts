@@ -622,9 +622,8 @@ export const raisableOf = (
 		) {
 			continue
 		}
-		const named = into.get(n.owner) ?? new Set<string>()
+		const named = into.getOrInsertComputed(n.owner, () => new Set<string>())
 		named.add(identifierOf(n.named))
-		into.set(n.owner, named)
 	}
 	const cast = new Set(judged.cast.flatMap((t) => castDomains(artifacts.names, t)))
 	const fences = artifacts.laws.theory.laws.filter(

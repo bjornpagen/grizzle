@@ -2362,12 +2362,7 @@ class Owner {
 		const keys = new Map<string, Array<OwnedKey>>()
 		const checks = new Map<string, Array<OwnedCheck>>()
 		const add = <A>(by: Map<string, Array<A>>, relation: string, item: A): void => {
-			const held = by.get(relation)
-			if (held === undefined) {
-				by.set(relation, [item])
-			} else {
-				held.push(item)
-			}
+			by.getOrInsertComputed(relation, () => []).push(item)
 		}
 		for (const s of statements) {
 			if (s.kind === "key" && s.key.kind === "candidate") {

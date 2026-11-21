@@ -790,12 +790,7 @@ interface Owner {
 type Owners = Map<string, Owner[]>
 
 const addOwner = (owners: Owners, name: string, owner: Owner): void => {
-	const list = owners.get(name)
-	if (list === undefined) {
-		owners.set(name, [owner])
-	} else {
-		list.push(owner)
-	}
+	owners.getOrInsertComputed(name, () => []).push(owner)
 }
 
 const parameterHint = (site: OverrideSite, key: string): string =>

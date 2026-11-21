@@ -99,9 +99,8 @@ const carriersOf = (
 				continue
 			}
 			const key = instantKey(d.from.rel.name, p.from.column.name)
-			const carried = out.get(key) ?? []
+			const carried = out.getOrInsertComputed(key, () => [])
 			carried.push({ law: law.id, target, field: p.to.column.name, pairs })
-			out.set(key, carried)
 		}
 	}
 	return new Map(

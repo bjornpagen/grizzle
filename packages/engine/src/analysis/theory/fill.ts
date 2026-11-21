@@ -446,9 +446,7 @@ const generatedAt = (
 		}
 	}
 	for (const [key, entry] of entries) {
-		if (!laid.has(key)) {
-			laid.set(key, entry)
-		}
+		laid.getOrInsert(key, entry)
 	}
 	return laid
 }
@@ -913,11 +911,9 @@ export const fillOrder = (
 								refusal("owner", rule.family, rule.law, source, { kind: "afterMembers" })
 							)
 						}
-						const order = before.get(at) ?? new Map<string, Set<string>>()
-						const after = order.get(to) ?? new Set<string>()
+						const order = before.getOrInsertComputed(at, () => new Map<string, Set<string>>())
+						const after = order.getOrInsertComputed(to, () => new Set<string>())
 						after.add(from)
-						order.set(to, after)
-						before.set(at, order)
 					}
 				}
 			}

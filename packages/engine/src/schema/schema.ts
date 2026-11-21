@@ -488,9 +488,7 @@ const levelRelations = (desc: SchemaDesc): Map<string, RelationDesc> => {
 	const out = new Map<string, RelationDesc>()
 	for (const level of levelChain(desc)) {
 		for (const r of level.relations) {
-			if (!out.has(r.name)) {
-				out.set(r.name, r)
-			}
+			out.getOrInsert(r.name, r)
 		}
 	}
 	return out

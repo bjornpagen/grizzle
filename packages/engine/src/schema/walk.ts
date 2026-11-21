@@ -115,9 +115,7 @@ class Collector {
 			this.deltas.add(r)
 		}
 		for (const [name, c] of inner.contexts) {
-			if (!this.contexts.has(name)) {
-				this.contexts.set(name, c)
-			}
+			this.contexts.getOrInsert(name, c)
 		}
 		const bound = new Set(Object.keys(bind))
 		for (const input of inner.inputs) {
@@ -178,9 +176,7 @@ class Collector {
 				this.inputs.add("row")
 				return
 			case "context":
-				if (!this.contexts.has(s.context.name)) {
-					this.contexts.set(s.context.name, s.context)
-				}
+				this.contexts.getOrInsert(s.context.name, s.context)
 				return
 			case "interior":
 			case "self":

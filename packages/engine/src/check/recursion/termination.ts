@@ -101,7 +101,7 @@ const boundVars = (m: ResolvedMatch): ReadonlyArray<string> =>
  * map reads no state binds data, which can only shrink the reads, until neither changes.
  */
 const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
-	const state = new Map<string, ReadonlyArray<string>>()
+	const state = new Map<string, Array<string>>()
 	const selfBound = rule.matches.flatMap((m, i) =>
 		i === self
 			? entries(m.bindings).flatMap(([column, e]) =>
@@ -110,7 +110,7 @@ const bindingsOf = (rule: ResolvedRule, self: number): Bindings => {
 			: []
 	)
 	for (const [x, column] of selfBound) {
-		state.set(x, [...(state.get(x) ?? []), column])
+		state.getOrInsertComputed(x, () => []).push(column)
 	}
 	const imports: ReadonlyArray<Import> = rule.matches.flatMap((m, i) =>
 		i !== self && (m.source.kind === "query" || m.source.kind === "step")
@@ -323,12 +323,7 @@ class Analysis {
 	}
 
 	add(column: string, value: Value, loc: SourceLoc): void {
-		const forms = this.#forms.get(column)
-		if (forms === undefined) {
-			this.#forms.set(column, [{ value, loc }])
-		} else {
-			forms.push({ value, loc })
-		}
+		this.#forms.getOrInsertComputed(column, () => []).push({ value, loc })
 	}
 
 	range(column: string): readonly [bigint, bigint] | undefined {

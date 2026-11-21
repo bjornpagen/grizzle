@@ -1039,12 +1039,12 @@ export const roleUpdates = (
 ): ((relation: string, column: string) => boolean) => {
 	const written = roleWrites(world)
 	const whole = new Set<string>()
-	const columns = new Map<string, ReadonlySet<string>>()
+	const columns = new Map<string, Set<string>>()
 	const hold = (relation: string, fields: ReadonlyArray<LawField>): void => {
-		columns.set(
-			relation,
-			new Set([...(columns.get(relation) ?? []), ...fields.map((f) => f.column)])
-		)
+		const at = columns.getOrInsertComputed(relation, () => new Set())
+		for (const f of fields) {
+			at.add(f.column)
+		}
 	}
 	for (const w of written) {
 		if (!entryPrivileges(world.role.writing, w).includes("UPDATE")) {
@@ -1077,11 +1077,7 @@ export const grantedPrivileges = (
 	const written = roleWrites(checked.world)
 	const held = new Map<string, Set<TablePrivilege>>()
 	const hold = (relation: string, privileges: ReadonlyArray<TablePrivilege>): void => {
-		const at = held.get(relation)
-		if (at === undefined) {
-			held.set(relation, new Set(privileges))
-			return
-		}
+		const at = held.getOrInsertComputed(relation, () => new Set())
 		for (const p of privileges) {
 			at.add(p)
 		}

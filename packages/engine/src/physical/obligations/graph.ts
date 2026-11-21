@@ -1,3 +1,4 @@
+import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { compareIdentities, type Identity, identifierOf } from "#compiler/core/identity.ts"
 import type { IdentityKind, LawId } from "#compiler/core/ids.ts"
@@ -606,7 +607,10 @@ export class ObligationGraph {
 
 	/** Adds reasons to an object: a law-maintenance request a key index already serves. */
 	addReasons(node: Node<DeployPhase>, reasons: ReadonlyArray<PhysicalReason>): void {
-		this.#reasons.set(node, [...(this.#reasons.get(node) ?? []), ...reasons])
+		appendAll(
+			this.#reasons.getOrInsertComputed(node, () => []),
+			reasons
+		)
 	}
 
 	/**
@@ -650,12 +654,7 @@ export class ObligationGraph {
 		for (const node of this.#nodes) {
 			waiting.set(node, afterOf(node).size)
 			for (const from of afterOf(node)) {
-				const own = next.get(from)
-				if (own === undefined) {
-					next.set(from, [node])
-				} else {
-					own.push(node)
-				}
+				next.getOrInsertComputed(from, () => []).push(node)
 			}
 		}
 		const ready = new ReadyHeap()

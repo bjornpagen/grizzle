@@ -112,9 +112,9 @@ export const theWritableEntryRuleClassifiesEveryEntryOfTheSmallSpaceAsGrizzlesWr
 		kills: [
 			{
 				file: "packages/engine/src/schema/entry.ts",
-				original: "\t\t\t\tout.set(relation.name, relation)",
-				replacement: "\t\t\t\t{}",
-				why: "Operator mutant (statement) at packages/engine/src/schema/entry.ts:138 in relationsOf: `out.set(relation.name, relation)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6)."
+				original: "\t\t\tout.getOrInsert(relation.name, relation)",
+				replacement: "\t\t\t{}",
+				why: "Operator mutant (statement) at packages/engine/src/schema/entry.ts:138 in relationsOf: `out.set(relation.name, relation)` becomes `{}`; the property fails (lane CATCH, grizzle 0baff5d6). Restated over its getOrInsert spelling (lane UNIFY7)."
 			}
 		]
 	})

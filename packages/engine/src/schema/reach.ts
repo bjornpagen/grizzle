@@ -53,15 +53,15 @@ const writtenBy = (write: OwnedWrite): string => {
  * owners. */
 const coupled = (owned: Owned): ReadonlyMap<string, ReadonlyArray<string>> => {
 	const ordinary = (name: string): boolean => owned.relations[name]?.kind === "relation"
-	const out = new Map<string, ReadonlyArray<string>>()
+	const out = new Map<string, Array<string>>()
 	for (const s of owned.statements) {
 		if (
 			(s.kind === "family" || s.kind === "tree") &&
 			ordinary(s.member.relation) &&
 			ordinary(s.slots.owner)
 		) {
-			out.set(s.member.relation, [...(out.get(s.member.relation) ?? []), s.slots.owner])
-			out.set(s.slots.owner, [...(out.get(s.slots.owner) ?? []), s.member.relation])
+			out.getOrInsertComputed(s.member.relation, () => []).push(s.slots.owner)
+			out.getOrInsertComputed(s.slots.owner, () => []).push(s.member.relation)
 		}
 	}
 	return out

@@ -82,7 +82,7 @@ export const tableGeneration = (
 	const readers = new Map<string, Array<StoredGenerated>>()
 	for (const g of generated) {
 		for (const column of new Set(g.reads)) {
-			readers.set(column, [...(readers.get(column) ?? []), g])
+			readers.getOrInsertComputed(column, () => []).push(g)
 		}
 	}
 	let anchor: GenerationAnchor | undefined

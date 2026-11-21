@@ -196,9 +196,9 @@ export const theFreshInstallationCompilesByteIdenticalSQLWhateverOrderTheRelatio
 			kills: [
 				{
 					file: "packages/engine/src/laws/model/model.ts",
-					original: "next.set(b, [])",
+					original: "next.getOrInsertComputed(b, () => [])",
 					replacement: "{}",
-					why: "Operator mutant 486fb72f4f at packages/engine/src/laws/model/model.ts:611 in fkCyclesOf: `next.set(b, [])` becomes `{}`; the property fails (the census, lane TESTPOLICY2)."
+					why: "Operator mutant 486fb72f4f at packages/engine/src/laws/model/model.ts:611 in fkCyclesOf: `next.set(b, [])` becomes `{}`; the property fails (the census, lane TESTPOLICY2). Restated over its getOrInsertComputed spelling (lane UNIFY7)."
 				}
 			]
 		}

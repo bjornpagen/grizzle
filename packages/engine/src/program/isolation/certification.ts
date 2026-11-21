@@ -167,9 +167,8 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 		if (arbiter === undefined) {
 			continue
 		}
-		const held = arbiters.get(arbiter.relation) ?? []
+		const held = arbiters.getOrInsertComputed(arbiter.relation, () => [])
 		held.push(arbiter.fields.map((field) => names.column(arbiter.relation, field)))
-		arbiters.set(arbiter.relation, held)
 	}
 	return {
 		relationOf: (table) => relations.get([table.schema, table.name]),
@@ -446,19 +445,20 @@ export const certification = <S extends ParamSource>(
 	}
 	const fenced = new Map<string, Set<string>>()
 	for (const f of certified.value.fences) {
-		const relations = fenced.get(f.login) ?? new Set<string>()
+		const relations = fenced.getOrInsertComputed(f.login, () => new Set<string>())
 		relations.add(f.relation)
-		fenced.set(f.login, relations)
 	}
 	const served = new Map<string, Map<string, RoleChanges<Isolation, S>>>()
 	for (const [c, { source }] of zipped(certified.value.roles, sources)) {
-		const logged = served.get(c.role.login) ?? new Map<string, RoleChanges<Isolation, S>>()
+		const logged = served.getOrInsertComputed(
+			c.role.login,
+			() => new Map<string, RoleChanges<Isolation, S>>()
+		)
 		const relations = fenced.get(c.role.login)
 		logged.set(
 			c.role.role,
 			relations === undefined ? c.form : fencedChanges(c.form, relations, source.names)
 		)
-		served.set(c.role.login, logged)
 	}
 	return Result.ok({
 		certificates: certified.value.roles.map(isolationOf),

@@ -147,15 +147,6 @@ const maxParentHops = 64
 const withHint = (hint: string | undefined, options: ReportOptions): ReportOptions =>
 	hint === undefined ? options : { ...options, hint }
 
-const push = <K, V>(map: Map<K, V[]>, key: K, value: V): void => {
-	const list = map.get(key)
-	if (list === undefined) {
-		map.set(key, [value])
-	} else {
-		list.push(value)
-	}
-}
-
 /**
  * File segments the package always owns: `api/root.ts` for untagged commands, `api/servers.ts`
  * and `api/security.ts`.
@@ -280,8 +271,7 @@ const makeChains = (api: Api) => {
 	const declared = new Map(Arr.map(api.tags, (tag) => [tag.name, tag.parent] as const))
 	const nodes = new Map<string, Result.Result<GroupNode, ChainError>>()
 	const nodeOf = (tag: string): Result.Result<GroupNode, ChainError> => {
-		const node = nodes.get(tag) ?? groupNode(tag, declared.get(tag))
-		nodes.set(tag, node)
+		const node = nodes.getOrInsertComputed(tag, () => groupNode(tag, declared.get(tag)))
 
 		return node
 	}
@@ -320,8 +310,7 @@ const makeChains = (api: Api) => {
 	const chains = new Map<string, Result.Result<readonly GroupNode[], ChainError>>()
 
 	return (tag: string): Result.Result<readonly GroupNode[], ChainError> => {
-		const chain = chains.get(tag) ?? walk(tag)
-		chains.set(tag, chain)
+		const chain = chains.getOrInsertComputed(tag, () => walk(tag))
 
 		return chain
 	}
@@ -417,9 +406,7 @@ const tagKeys = (
 				Arr.map(chain.success, (link) => link.name),
 				"."
 			)
-			if (!keys.has(key)) {
-				keys.set(key, node)
-			}
+			keys.getOrInsert(key, node)
 		}
 	}
 
@@ -610,9 +597,7 @@ const firstUses = <C extends Candidate>(candidates: readonly C[]): ReadonlyMap<G
 	const first = new Map<GroupNode, C>()
 	for (const candidate of candidates) {
 		for (const node of candidate.chain) {
-			if (!first.has(node)) {
-				first.set(node, candidate)
-			}
+			first.getOrInsert(node, candidate)
 		}
 	}
 
@@ -650,7 +635,7 @@ const checkGroups = (
 	const firstSite = makeFirstSite(candidates)
 	const bySegment = new Map<string, GroupNode[]>()
 	for (const node of groupNodesOf(candidates)) {
-		push(bySegment, node.segment, node)
+		bySegment.getOrInsertComputed(node.segment, () => []).push(node)
 	}
 
 	const relatedOf = new Map<GroupNode, ReturnType<typeof firstSite>>()
@@ -753,18 +738,14 @@ const nameCommands = (
 	const firstSite = makeFirstSite(candidates)
 	const siblings = new Map<string | undefined, Map<string, GroupNode>>()
 	for (const node of groupNodesOf(candidates)) {
-		const names = siblings.get(node.parent) ?? new Map<string, GroupNode>()
-		siblings.set(node.parent, names)
-		if (!names.has(node.name)) {
-			names.set(node.name, node)
-		}
+		const names = siblings.getOrInsertComputed(node.parent, () => new Map<string, GroupNode>())
+		names.getOrInsert(node.name, node)
 	}
 
 	const byName = new Map<string, Map<string, Named[]>>()
 	for (const entry of named) {
-		const names = byName.get(entry.container) ?? new Map<string, Named[]>()
-		byName.set(entry.container, names)
-		push(names, entry.name, entry)
+		const names = byName.getOrInsertComputed(entry.container, () => new Map<string, Named[]>())
+		names.getOrInsertComputed(entry.name, () => []).push(entry)
 	}
 
 	for (const entry of named) {
@@ -1235,12 +1216,6 @@ interface AliasLinks {
 	readonly targets: ReadonlyMap<string, ReadonlySet<string>>
 }
 
-const link = (map: Map<string, Set<string>>, key: string, value: string): void => {
-	const set = map.get(key) ?? new Set<string>()
-	set.add(value)
-	map.set(key, set)
-}
-
 const aliasLinks = (entries: readonly Named[]): AliasLinks => {
 	const primaries = new Map<Operation, string>()
 	for (const entry of entries) {
@@ -1254,8 +1229,8 @@ const aliasLinks = (entries: readonly Named[]): AliasLinks => {
 	for (const entry of entries) {
 		const primary = primaries.get(entry.operation)
 		if (entry.alias !== undefined && primary !== undefined && primary !== entry.container) {
-			link(hosts, primary, entry.container)
-			link(targets, entry.container, primary)
+			hosts.getOrInsertComputed(primary, () => new Set<string>()).add(entry.container)
+			targets.getOrInsertComputed(entry.container, () => new Set<string>()).add(primary)
 		}
 	}
 
@@ -1358,7 +1333,7 @@ export const planNames = (api: Api, options: PlanOptions): Effect.Effect<NamePla
 		const finals = Arr.filter(named, (entry) => !collector.refused.has(entry.operation))
 		const byContainer = new Map<string, Named[]>()
 		for (const entry of finals) {
-			push(byContainer, entry.container, entry)
+			byContainer.getOrInsertComputed(entry.container, () => []).push(entry)
 		}
 
 		const imports = (container: string): ReadonlySet<string> =>

@@ -443,9 +443,7 @@ const admit = (
 /** Each admitted entry of `entries` into `set`, the first of each identity kept. */
 const collect = (set: TextsMap<IdentifiedFact>, entries: ReadonlyArray<IdentifiedFact>): void => {
 	for (const e of entries) {
-		if (!set.has(e.identity)) {
-			set.set(e.identity, e)
-		}
+		set.getOrInsertComputed(e.identity, () => e)
 	}
 }
 
@@ -823,9 +821,8 @@ const firstConflict = <E>(
 		for (const e of additions) {
 			const value = admitted(span.spec, spanValue(e))
 			const k = keyOf(e)
-			const group = groups.get(k) ?? []
+			const group = groups.getOrInsertComputed(k, () => [])
 			group.push({ entry: e, span: value })
-			groups.set(k, group)
 		}
 		for (const group of groups.values()) {
 			/** In start order, a span overlaps an earlier one of its group exactly when it starts before the latest
@@ -977,10 +974,11 @@ export const normalizeChangeSet = (
 			switch (input.kind) {
 				case "nested": {
 					slotOf.set("insert", input.slot)
-					const set = nested.get(stratum) ?? nestedSet()
-					nested.set(stratum, set)
-					const relations = reached.get(stratum) ?? new Map<StoredRelationName, CheckedFacts>()
-					reached.set(stratum, relations)
+					const set = nested.getOrInsertComputed(stratum, () => nestedSet())
+					const relations = reached.getOrInsertComputed(
+						stratum,
+						() => new Map<StoredRelationName, CheckedFacts>()
+					)
 					relations.set(input.nesting.relation, facts)
 					for (const [name, reachedFacts] of input.reached) {
 						relations.set(name, reachedFacts)

@@ -529,11 +529,10 @@ const livePlanOf = (footprints: WorkloadFootprints): LivePlan => {
 	for (const programs of footprints.values()) {
 		for (const footprint of programs.values()) {
 			for (const [relation, routes] of footprint.tables) {
-				const fields = tables.get(relation) ?? new Set<string>()
+				const fields = tables.getOrInsertComputed(relation, () => new Set<string>())
 				for (const field of routes.keys()) {
 					fields.add(field)
 				}
-				tables.set(relation, fields)
 			}
 			for (const view of footprint.views) {
 				views.add(view)

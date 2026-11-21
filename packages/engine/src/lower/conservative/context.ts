@@ -254,11 +254,7 @@ export class StatementParams<in out Own extends OwnParamSlot> {
 	 * placeholders, each always cast the same way (the kernel audit's param rule, test/support/oracle/verify/sql.ts).
 	 */
 	scalar(param: ParamId, type: ScalarType, sqlType: TypeRef): Expr {
-		let casts = this.#scalars.get(param)
-		if (casts === undefined) {
-			casts = []
-			this.#scalars.set(param, casts)
-		}
+		const casts = this.#scalars.getOrInsertComputed(param, () => [])
 		const found = casts.find((c) => sameTypeRef(c.type, sqlType))
 		if (found !== undefined) {
 			return slotParam(found.slot, sqlType)
@@ -1072,9 +1068,8 @@ export class LowerContext {
 			if (e.kind !== "column" || labels.has(e.column.node)) {
 				continue
 			}
-			const set = free.get(e.column.node) ?? new Set<string>()
+			const set = free.getOrInsertComputed(e.column.node, () => new Set<string>())
 			set.add(e.column.name)
-			free.set(e.column.node, set)
 		}
 		this.#shared.free.set(node, free)
 		return free

@@ -1351,8 +1351,7 @@ export class OptimizedDelivery<
 		const parentKey = parentColumnsOf(cx, attach, spine, rows.heading)
 		const role: StatementRole = { kind: "attachment", parentKey }
 		const childSpine = this.spine(child)
-		const siblings = this.#siblings.get(rows) ?? []
-		this.#siblings.set(rows, siblings)
+		const siblings = this.#siblings.getOrInsertComputed(rows, () => [])
 		const placed = (part: DeliveredPart): DeliveredPart => {
 			siblings.push({ attach, parentKey, part })
 			return part

@@ -112,8 +112,10 @@ const provesKeys = (
 	const asked = new Map<RelNode, TupleMap<ReadonlyArray<string>, KeyQuestion>>()
 	const question = (node: RelNode, vs: ReadonlyMap<string, KeyValue>): KeyQuestion => {
 		const key = questionKey(vs)
-		const byNode = asked.get(node) ?? new TupleMap<ReadonlyArray<string>, KeyQuestion>()
-		asked.set(node, byNode)
+		const byNode = asked.getOrInsertComputed(
+			node,
+			() => new TupleMap<ReadonlyArray<string>, KeyQuestion>()
+		)
 		const known = byNode.get(key)
 		if (known !== undefined) {
 			return known

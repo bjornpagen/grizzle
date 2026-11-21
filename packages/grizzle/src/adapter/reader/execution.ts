@@ -671,12 +671,7 @@ export const recordRowsOf = (
 		const groups = new TextsMap<Array<Row>>()
 		for (const row of childRows.success) {
 			const key = keyOf(row.cells, child.child)
-			const known = groups.get(key)
-			if (known === undefined) {
-				groups.set(key, [row])
-			} else {
-				known.push(row)
-			}
+			groups.getOrInsertComputed(key, () => []).push(row)
 		}
 		grouped.push({ child, groups })
 	}

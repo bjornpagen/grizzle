@@ -158,8 +158,10 @@ export class ServedPatterns {
 	static of(served: ServedMatchers): ServedPatterns {
 		const table = new Map<RegexFlags, Map<string, Matcher>>()
 		for (const matcher of served.matchers) {
-			const bySource = table.get(matcher.pattern.flags) ?? new Map<string, Matcher>()
-			table.set(matcher.pattern.flags, bySource)
+			const bySource = table.getOrInsertComputed(
+				matcher.pattern.flags,
+				() => new Map<string, Matcher>()
+			)
 			bySource.set(matcher.pattern.source, Matcher.of(nfaOf(served.sets, matcher)))
 		}
 		return new ServedPatterns(table)

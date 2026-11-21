@@ -259,8 +259,7 @@ export const factsDecoderOver = <S extends AnySchema>(
 				if (!isList(facts)) {
 					return Result.err({ _tag: "RowsRefused" })
 				}
-				const compiled = decoders.get(relation) ?? decoderOf(relation)
-				decoders.set(relation, compiled)
+				const compiled = decoders.getOrInsertComputed(relation, () => decoderOf(relation))
 				if (!compiled.ok) {
 					return Result.err({ _tag: "Uncompiled", error: compiled.error })
 				}

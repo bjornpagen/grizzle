@@ -136,9 +136,8 @@ const cut = (g: Grant, kept: (h: HeldPrivilege) => boolean): ReadonlyArray<Grant
 				continue
 			}
 			const key = privileges.join("\u0000")
-			const group = groups.get(key) ?? { privileges, objects: [] }
+			const group = groups.getOrInsertComputed(key, () => ({ privileges, objects: [] }))
 			group.objects.push(object)
-			groups.set(key, group)
 		}
 		return [...groups.values()].flatMap(({ privileges, objects }): ReadonlyArray<Grant> => {
 			const on = isNonEmpty(objects) ? namedAs(g.on, objects) : undefined

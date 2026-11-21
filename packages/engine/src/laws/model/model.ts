@@ -386,9 +386,11 @@ export const constraintLawMap = (entries: ReadonlyArray<ConstraintLaw>): Constra
 	const domains = new Map<string, Map<string, NonEmptyReadonlyArray<LawId>>>()
 	for (const c of entries) {
 		const byOwner = c.kind === "constraint" || c.kind === "trigger" ? tables : domains
-		const named = byOwner.get(c.owner) ?? new Map<string, NonEmptyReadonlyArray<LawId>>()
+		const named = byOwner.getOrInsertComputed(
+			c.owner,
+			() => new Map<string, NonEmptyReadonlyArray<LawId>>()
+		)
 		named.set(c.name, concatNonEmpty(named.get(c.name) ?? [], lawIdsOf(c)))
-		byOwner.set(c.owner, named)
 	}
 	return Object.freeze({ tables: frozenOwners(tables), domains: frozenOwners(domains) })
 }
@@ -653,10 +655,8 @@ export type FkCycles = ReadonlyArray<NonEmptyReadonlyArray<string>>
 const fkCyclesOf = (edges: ReadonlyArray<readonly [string, string]>): FkCycles => {
 	const next = new Map<string, Array<string>>()
 	for (const [a, b] of edges) {
-		next.set(a, [...(next.get(a) ?? []), b])
-		if (!next.has(b)) {
-			next.set(b, [])
-		}
+		next.getOrInsertComputed(a, () => []).push(b)
+		next.getOrInsertComputed(b, () => [])
 	}
 	return stronglyConnected([...next.keys()], (relation) =>
 		defined(next.get(relation), `the references of ${relation}, a relation of the graph`)
@@ -1380,9 +1380,8 @@ class Specializer {
 			if (n.namespace !== "column") {
 				continue
 			}
-			const own = lawColumns.get(n.object.relation.name) ?? []
+			const own = lawColumns.getOrInsertComputed(n.object.relation.name, () => [])
 			own.push(n.object)
-			lawColumns.set(n.object.relation.name, own)
 		}
 		for (const r of Object.values(this.theory.relations)) {
 			if (r.kind !== "relation" || !this.writes.has(r.name)) {
@@ -1473,7 +1472,7 @@ class Specializer {
 	) => TheoryLaw | undefined {
 		const keys = new Map<string, Array<{ readonly key: TargetKey; readonly law: TheoryLaw }>>()
 		const add = (relation: string, key: TargetKey, law: TheoryLaw): void => {
-			keys.set(relation, [...(keys.get(relation) ?? []), { key, law }])
+			keys.getOrInsertComputed(relation, () => []).push({ key, law })
 		}
 		const declared = (fields: NonEmptyReadonlyArray<LawField>): TargetKey => ({
 			selection: { conjuncts: [] },

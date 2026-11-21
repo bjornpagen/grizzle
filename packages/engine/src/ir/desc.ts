@@ -1519,12 +1519,7 @@ const discriminated = (a: AlternativesDesc, handles: NonEmptyReadonlyArray<strin
 export const expandAlternatives = (a: AlternativesDesc): NonEmptyReadonlyArray<ContainedDesc> => {
 	const byRelation = new Map<string, { readonly arm: SideDesc; readonly handles: Array<string> }>()
 	for (const { handle, arm } of a.arms) {
-		const group = byRelation.get(arm.relation)
-		if (group === undefined) {
-			byRelation.set(arm.relation, { arm, handles: [handle] })
-		} else {
-			group.handles.push(handle)
-		}
+		byRelation.getOrInsertComputed(arm.relation, () => ({ arm, handles: [] })).handles.push(handle)
 	}
 	const forward = [...byRelation.values()].flatMap(
 		({ arm, handles }): ReadonlyArray<ContainedDesc> => {
@@ -2593,9 +2588,7 @@ class ParamUses extends ParamWalk<Spelled["param"], FieldDesc> {
 	}
 
 	#use(name: string, term: BindTermDesc): void {
-		if (!this.terms.has(name)) {
-			this.terms.set(name, term)
-		}
+		this.terms.getOrInsert(name, term)
 	}
 
 	override stage(s: QueryStageDesc): QueryStageDesc {

@@ -360,9 +360,8 @@ export const closureOf = (
 			const key = familyKey(l.id)
 			if (change.kind === "refill") {
 				const from = familyKey(change.family.id)
-				const out = next.get(from) ?? new Set<string>()
+				const out = next.getOrInsertComputed(from, () => new Set<string>())
 				out.add(key)
-				next.set(from, out)
 			}
 			if (!refilled.has(key)) {
 				refilled.set(key, l)

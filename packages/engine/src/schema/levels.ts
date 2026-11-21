@@ -165,9 +165,7 @@ export const levelRelations = (desc: SchemaDesc): ReadonlyMap<string, RelationDe
 	const out = new Map<string, RelationDesc>()
 	for (const at of levelChain(desc).toReversed()) {
 		for (const r of at.relations) {
-			if (!out.has(r.name)) {
-				out.set(r.name, r)
-			}
+			out.getOrInsert(r.name, r)
 		}
 	}
 	return out

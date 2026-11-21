@@ -424,9 +424,8 @@ const factsByOp = <L>(
 ): ReadonlyArray<readonly [string, ReadonlyArray<WireFacts<L>>]> => {
 	const out = new Map<string, Array<WireFacts<L>>>()
 	for (const member of facts) {
-		const members = out.get(member.op) ?? []
+		const members = out.getOrInsertComputed(member.op, () => [])
 		members.push(member)
-		out.set(member.op, members)
 	}
 	return [...out]
 }

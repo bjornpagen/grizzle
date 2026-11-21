@@ -178,7 +178,7 @@ export const liveObjects = (
 			})
 		}
 		const owner = matched === undefined ? ownerOf(found.described, f) : matched.owner
-		installedBy.set(owner, [...(installedBy.get(owner) ?? []), f])
+		installedBy.getOrInsertComputed(owner, () => []).push(f)
 	}
 	const expectedBy = Arr.groupBy(Arr.fromIterable(expectedOwner.values()), (f) => f.owner)
 	const held = new Set<string>()

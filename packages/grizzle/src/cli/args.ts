@@ -192,9 +192,8 @@ const scan = (
 			if (value === undefined || value.length === 0 || Str.startsWith("-")(value)) {
 				return malformed({ kind: "flagWithoutValue", flag })
 			}
-			const given = repeated.get(flag) ?? []
+			const given = repeated.getOrInsertComputed(flag, () => [])
 			given.push(value)
-			repeated.set(flag, given)
 			continue
 		}
 		const valued = Arr.findFirst(

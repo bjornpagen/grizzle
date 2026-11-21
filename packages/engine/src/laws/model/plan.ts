@@ -1536,7 +1536,7 @@ const projectedKeysOf = (
 	for (const law of laws) {
 		if (law.detail.kind === "projectedKey") {
 			const side = law.detail.side
-			keys.set(side.relation, [...(keys.get(side.relation) ?? []), side])
+			keys.getOrInsertComputed(side.relation, () => []).push(side)
 		}
 	}
 	return keys
@@ -2038,9 +2038,11 @@ export class Recognizer {
 					familyLaws.set(familyKey(d.family.id), law)
 					break
 				case "fold": {
-					const own = foldLaws.get(familyKey(d.family)) ?? new Map<number, FoldLaw>()
+					const own = foldLaws.getOrInsertComputed(
+						familyKey(d.family),
+						() => new Map<number, FoldLaw>()
+					)
 					own.set(d.fold, { law, detail: d })
-					foldLaws.set(familyKey(d.family), own)
 					break
 				}
 				case "key":
@@ -2061,11 +2063,10 @@ export class Recognizer {
 		this.#foldLaws = foldLaws
 		const cascaded = new Map<string, Set<string>>()
 		for (const f of families) {
-			const own = cascaded.get(f.member.name) ?? new Set<string>()
+			const own = cascaded.getOrInsertComputed(f.member.name, () => new Set<string>())
 			for (const c of ownerSources(f)) {
 				own.add(columnKey(c))
 			}
-			cascaded.set(f.member.name, own)
 		}
 		this.#cascaded = cascaded
 		this.#refill = refillDeferral(families)
@@ -3239,8 +3240,7 @@ class FamilyPlanner {
 
 	/** The row conditions `law` states on `relation`, gathered into its one CHECK there. */
 	#conditionsFor(law: LawId, relation: RelationInfo): RowConditions {
-		const own = this.#conditions.get(law) ?? new Map<string, RowConditions>()
-		this.#conditions.set(law, own)
+		const own = this.#conditions.getOrInsertComputed(law, () => new Map<string, RowConditions>())
 		const known = own.get(relation.name)
 		if (known !== undefined) {
 			return known

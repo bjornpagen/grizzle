@@ -57,11 +57,10 @@ const joined = (a: Restriction, b: Restriction): Restriction => {
 	const out = new Map<string, Set<ParamId>>()
 	for (const r of [a, b]) {
 		for (const [column, params] of r) {
-			const held = out.get(column) ?? new Set<ParamId>()
+			const held = out.getOrInsertComputed(column, () => new Set<ParamId>())
 			for (const p of params) {
 				held.add(p)
 			}
-			out.set(column, held)
 		}
 	}
 	return out
@@ -91,11 +90,10 @@ const closedUnder = (props: Props, r: Restriction): Restriction => {
 	const out = new Map<string, Set<ParamId>>()
 	for (const [column, params] of r) {
 		for (const member of props.classes.get(column) ?? [column]) {
-			const held = out.get(member) ?? new Set<ParamId>()
+			const held = out.getOrInsertComputed(member, () => new Set<ParamId>())
 			for (const p of params) {
 				held.add(p)
 			}
-			out.set(member, held)
 		}
 	}
 	return out
@@ -131,11 +129,10 @@ const carried = (
 		if (params === undefined) {
 			continue
 		}
-		const held = out.get(to) ?? new Set<ParamId>()
+		const held = out.getOrInsertComputed(to, () => new Set<ParamId>())
 		for (const p of params) {
 			held.add(p)
 		}
-		out.set(to, held)
 	}
 	return out
 }
@@ -272,12 +269,7 @@ export const footprintOf = (
 ): Footprint => {
 	const received = new Map<NodeId, Array<Restriction>>()
 	const receive = (node: RelNode, r: Restriction): void => {
-		const held = received.get(node.id)
-		if (held === undefined) {
-			received.set(node.id, [r])
-		} else {
-			held.push(r)
-		}
+		received.getOrInsertComputed(node.id, () => []).push(r)
 	}
 	for (const root of dag.roots) {
 		receive(root, unrestricted)

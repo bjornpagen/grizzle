@@ -311,9 +311,8 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 	const families = familyCells(installation)
 	const put = (relation: string, column: string, value: DrawnColumn): void => {
 		const key = nameKey(tableOf(installation, relation))
-		const of = out.get(key) ?? new Map<string, DrawnColumn>()
+		const of = out.getOrInsertComputed(key, () => new Map<string, DrawnColumn>())
 		of.set(column, value)
-		out.set(key, of)
 	}
 	for (const family of installation.laws.families) {
 		const member = family.member.name
@@ -456,9 +455,8 @@ export const changedOver = (reads: FillReads, seeds: Iterable<FillNode>): Readon
 	const readers = new Map<FillNode, Array<StoredColumnKey>>()
 	for (const [node, of] of reads) {
 		for (const read of of) {
-			const by = readers.get(read) ?? []
+			const by = readers.getOrInsertComputed(read, () => [])
 			by.push(node)
-			readers.set(read, by)
 		}
 	}
 	const changed = new Set<FillNode>()
@@ -1620,7 +1618,7 @@ const copyLayers = (
 ): ReadonlyArray<NonEmptyReadonlyArray<Streamed>> => {
 	const axes = new Map<Streamed["axis"], Array<Streamed>>()
 	for (const c of copies) {
-		axes.set(c.axis, [...(axes.get(c.axis) ?? []), c])
+		axes.getOrInsertComputed(c.axis, () => []).push(c)
 	}
 	return [...axes.values()].flatMap((along) => {
 		const layers: Array<NonEmptyReadonlyArray<Streamed>> = []
@@ -2235,7 +2233,7 @@ const derivationCte = (
 	const columnsOn = new Map<NameKey, Array<string>>()
 	for (const cell of derivation.reads) {
 		const key = nameKey(cell.table)
-		columnsOn.set(key, [...(columnsOn.get(key) ?? []), cell.column])
+		columnsOn.getOrInsertComputed(key, () => []).push(cell.column)
 	}
 	const views: Array<Cte> = []
 	const viewOf = new Map<NameKey, string>()

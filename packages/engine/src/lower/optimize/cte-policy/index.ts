@@ -410,12 +410,7 @@ const readingRegion = (
 	for (const n of order) {
 		byId.set(n.id, n)
 		for (const input of inputsOf(n)) {
-			const known = readers.get(input)
-			if (known === undefined) {
-				readers.set(input, new Set([n]))
-			} else {
-				known.add(n)
-			}
+			readers.getOrInsertComputed(input, () => new Set<RelNode>()).add(n)
 		}
 	}
 	return (node, references) => {

@@ -101,8 +101,8 @@ export const namePlan = property.explore(planSpace, {
 		},
 		{
 			file: "packages/cli-generator/src/names/index.ts",
-			original: "byName.get(entry.container) ?? new Map<string, Named[]>()",
-			replacement: "byName.get(entry.container)",
+			original: "byName.getOrInsertComputed(entry.container, () => new Map<string, Named[]>())",
+			replacement: "new Map<string, Named[]>()",
 			why: "Commands are tallied by name into a container that was never made, so planning any operation fails; the property fails (CATCH's evidence, mutant eee6e19c02)."
 		},
 		{

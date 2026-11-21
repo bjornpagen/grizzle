@@ -54,11 +54,13 @@ export interface Lookup {
 export const uniqueLookups = (lookups: ReadonlyArray<Lookup>): ReadonlyArray<Lookup> => {
 	const through = new Map<string, Map<string, ReadonlyArray<string>>>()
 	for (const { path, binds } of lookups) {
-		const sets = through.get(pathKey(path)) ?? new Map<string, ReadonlyArray<string>>()
+		const sets = through.getOrInsertComputed(
+			pathKey(path),
+			() => new Map<string, ReadonlyArray<string>>()
+		)
 		for (const columns of binds) {
 			sets.set(columns.join("\u0001"), columns)
 		}
-		through.set(pathKey(path), sets)
 	}
 	return uniquePaths(lookups.map((l) => l.path)).map((path) => ({
 		path,
@@ -70,9 +72,7 @@ export const uniqueLookups = (lookups: ReadonlyArray<Lookup>): ReadonlyArray<Loo
 export const uniquePaths = (paths: ReadonlyArray<AccessPath>): ReadonlyArray<AccessPath> => {
 	const byKey = new Map<string, AccessPath>()
 	for (const p of paths) {
-		if (!byKey.has(pathKey(p))) {
-			byKey.set(pathKey(p), p)
-		}
+		byKey.getOrInsert(pathKey(p), p)
 	}
 	return [...byKey.values()].toSorted(pathOrder)
 }

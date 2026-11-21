@@ -432,7 +432,10 @@ const scopeOf = (
 	const add = (from: OuterRefs, rows: ReadonlyArray<NodeId>): void => {
 		for (const [id, columns] of from) {
 			if (!binds(rows, id)) {
-				outer.set(id, new Set([...(outer.get(id) ?? []), ...columns]))
+				const held = outer.getOrInsertComputed(id, () => new Set<string>())
+				for (const column of columns) {
+					held.add(column)
+				}
 			}
 		}
 	}

@@ -528,7 +528,7 @@ const hostLayout = (
 				break
 			case "after": {
 				const family = targets.family(c.stage.family)
-				after.set(family, [...(after.get(family) ?? []), column])
+				after.getOrInsertComputed(family, () => []).push(column)
 				break
 			}
 			case "settling":
@@ -625,9 +625,8 @@ const indexedClosed = (c: ClosedRows): IndexedClosed => {
 			continue
 		}
 		const prefix = key.slice(0, c.key - 1)
-		const set = completions.get(prefix) ?? new Set<string>()
+		const set = completions.getOrInsertComputed(prefix, () => new Set<string>())
 		set.add(last)
-		completions.set(prefix, set)
 	}
 	return Object.freeze({ heading: c.heading, rows, completions })
 }

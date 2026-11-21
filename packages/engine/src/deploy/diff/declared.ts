@@ -151,12 +151,7 @@ class AlikeNames {
 		this.#names = new Set(names)
 		for (const name of names) {
 			const conversion = conversionOf(declared(name))
-			const group = this.#groups.get(conversion)
-			if (group === undefined) {
-				this.#groups.set(conversion, [name])
-			} else {
-				group.push(name)
-			}
+			this.#groups.getOrInsertComputed(conversion, () => []).push(name)
 		}
 	}
 
@@ -308,12 +303,10 @@ export const applyDeclarations = (
 		if (!alike(targetName(from.relation), to.relation)) {
 			return refuse(from, { kind: "renameAcross", from, to })
 		}
-		const of = fields.get(from.relation) ?? new Map<string, string>()
+		const of = fields.getOrInsertComputed(from.relation, () => new Map<string, string>())
 		of.set(from.field, to.field)
-		fields.set(from.relation, of)
-		const columns = takenColumns.get(from.relation) ?? new Set<string>()
+		const columns = takenColumns.getOrInsertComputed(from.relation, () => new Set<string>())
 		columns.add(into.column)
-		takenColumns.set(from.relation, columns)
 	}
 	/** Whether a previous field's column is taken by a rename of another field of its relation. */
 	const fieldTaken = (
@@ -366,12 +359,10 @@ export const applyDeclarations = (
 		if (!alike(targetName(from.roster), to.roster)) {
 			return refuse(from, { kind: "renameAcross", from, to })
 		}
-		const into = handles.get(to.roster) ?? new Map<string, string>()
+		const into = handles.getOrInsertComputed(to.roster, () => new Map<string, string>())
 		into.set(to.handle, from.handle)
-		handles.set(to.roster, into)
-		const away = handlesAway.get(from.roster) ?? new Set<string>()
+		const away = handlesAway.getOrInsertComputed(from.roster, () => new Set<string>())
 		away.add(from.handle)
-		handlesAway.set(from.roster, away)
 	}
 	/** The login renames, by the previous login's record name, to the target's login. */
 	const logins = new Map<string, HeldLogin>()
@@ -537,7 +528,7 @@ export const applyDeclarations = (
 		const was = heldIn(before, d.relation)
 		const f = was?.kind === "relation" ? was.fields.find((x) => x.name === d.field) : undefined
 		if (f !== undefined && drawnAnew(d.relation, f)) {
-			anew.set(d.relation, (anew.get(d.relation) ?? new Set<string>()).add(d.field))
+			anew.getOrInsertComputed(d.relation, () => new Set<string>()).add(d.field)
 		}
 	}
 	const relations = renamedSnapshot(previous, target, renamed, fields, anew, temporaries)
@@ -911,7 +902,7 @@ const lawColumnDefinitions = (
 		const v = installed(o)
 		if (v.kind === "lawColumn") {
 			const key = nameKey(v.table)
-			out.set(key, (out.get(key) ?? new Map<string, ColumnDef>()).set(v.column, v.definition))
+			out.getOrInsertComputed(key, () => new Map<string, ColumnDef>()).set(v.column, v.definition)
 		}
 	}
 	return out
@@ -1190,9 +1181,8 @@ const lawColumnRenames = (
 			name: n.owner
 		}
 		const key = nameKey(table)
-		const of = targets.get(key) ?? { table, natives: [] }
+		const of = targets.getOrInsertComputed(key, () => ({ table, natives: [] }))
 		of.natives.push({ column: n.object.column, plan: n.plan })
-		targets.set(key, of)
 	}
 	const columnsOf = new Map(
 		[...targets].map(([key, { table, natives }]) => {

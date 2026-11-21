@@ -478,12 +478,7 @@ export class DagEditor<R extends Roots = Roots> {
 		const out = new Map<Cell, Array<Cell>>()
 		for (const cell of order) {
 			for (const input of edgesOf(cell.current)) {
-				const known = out.get(input)
-				if (known === undefined) {
-					out.set(input, [cell])
-				} else {
-					known.push(cell)
-				}
+				out.getOrInsertComputed(input, () => []).push(cell)
 			}
 		}
 		return (cell) => out.get(cell) ?? []

@@ -363,9 +363,8 @@ const memberWrites = (
 		if (!r.family.owner.mutable || isTree(r.family)) {
 			continue
 		}
-		const list = owners.get(r.family.owner.name) ?? []
+		const list = owners.getOrInsertComputed(r.family.owner.name, () => [])
 		list.push(r)
-		owners.set(r.family.owner.name, list)
 	}
 	for (const [ownerName, list] of owners) {
 		const [first, ...rest] = list

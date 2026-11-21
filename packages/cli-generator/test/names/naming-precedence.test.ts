@@ -57,8 +57,8 @@ export const namingPrecedence = property.explore(precedenceSpace, {
 	kills: [
 		{
 			file: "packages/cli-generator/src/names/index.ts",
-			original: "map.set(key, [value])",
-			replacement: "{}",
+			original: "\t\tnames.getOrInsertComputed(entry.name, () => []).push(entry)",
+			replacement: "\t\t[].push(entry)",
 			why: "Grouping by key never starts a key's list, so commands and groups are never gathered and the plan names nothing; the property fails (CATCH's evidence, mutant e77c4f92f1)."
 		},
 		{
