@@ -4,7 +4,12 @@ import {
 	mergedEntry,
 	noDeclaredEntries
 } from "#compiler/runtime/law-entry.ts"
-import { descriptorCopy, isOwnedDescriptor, isTextDescriptor } from "#compiler/scalar/registry.ts"
+import {
+	descriptorCopy,
+	isOwnedDescriptor,
+	isTextDescriptor,
+	writtenTypeOf
+} from "#compiler/scalar/registry.ts"
 import type { CanonicalStatement } from "#compiler/schema/own.ts"
 import { isName, malformed, ownedCopy, ownedEntry } from "#compiler/schema/protocol.ts"
 import { generatedFieldCopy } from "#compiler/schema/relation.ts"
@@ -139,8 +144,10 @@ const membersOf = (value: unknown): Readonly<Record<string, unknown>> | undefine
  * The entries the declarations `values` of one level declare (runtime/law-entry.ts DeclaredEntries): each ordinary
  * relation's, for its primary key; each of its fields' a generated law's, where law(...) named the field; the entry of
  * the type of each of its stored fields, where law(...) named a str.regex, str.and or str.bytes type, for the field's
- * pattern law, the type's one entry at every field it types; and each contract's down every field's chain, by the
- * contract's name. Two contracts of one name that declare two entries are refused where the level is owned.
+ * pattern law, the type's one entry at every field it types, a field of a writing of its own (a drawn, accumulated or
+ * generated one) typed by the descriptor its values are of (registry.ts writtenTypeOf), as every reader types it; and
+ * each contract's down every field's chain, grizzle's own natural as any other, by the contract's name. Two contracts
+ * of one name that declare two entries are refused where the level is owned.
  */
 export const declaredEntriesOf = (
 	values: ReadonlyArray<unknown>,
@@ -175,8 +182,7 @@ export const declaredEntriesOf = (
 			if (generatedEntry !== undefined) {
 				atField(generated, name, field, generatedEntry)
 			}
-			const writing = membersOf(member)?.["writing"]
-			const type = writing === "generated" ? membersOf(member)?.["type"] : member
+			const type = writtenTypeOf(member) ?? member
 			const typeEntry = declaredAt(declaredTypes, type)
 			if (typeEntry !== undefined && isTextDescriptor(type)) {
 				atField(patterns, name, field, typeEntry)

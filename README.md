@@ -4891,8 +4891,8 @@ drafts no migration and only rewrites the snapshot's record and the served files
 `law({ name, source }, declaration)`, any two nonempty texts (a catalog's name for the rule and the specification
 section it reads, say), at the declaration the rule comes from: a statement, for every rule it states; a relation, for
 its primary key's rule; a `generated(type, term)` field, for its generated rule; a `str.regex`, `str.and` or `str.bytes`
-type, for the pattern rule of every stored field it types, one entry for the type whatever field it types; and a
-contract, for its rule. `law(...)` returns a copy of the declaration carrying the entry and leaves the declaration as it
+type, for the pattern rule of every stored field it types, one entry for the type whatever field it types, a drawn,
+accumulated or generated field of it included; and a contract, grizzle's own `natural` among them, for its rule. `law(...)` returns a copy of the declaration carrying the entry and leaves the declaration as it
 was, so declare the copy where you use it. Every rule so declared carries `{ kind: "declared", name, source }`, in
 `lawsOf`, in `lawsByStatement` and in every refusal that names it, a refusal by a rule of a level above included. A rule
 nothing declares one for carries `{ kind: "derived", name, source }`: a check and a contract by their own names, any

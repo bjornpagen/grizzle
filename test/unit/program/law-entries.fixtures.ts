@@ -1,13 +1,23 @@
 import { defined } from "@bjornpagen/testing/assert"
 import { boolean, type Gen, int } from "@bjornpagen/testing/gen"
-import { Array as Arr, Option, Predicate, Record as Rec } from "effect"
+import { Array as Arr, Option, Record as Rec } from "effect"
 import { firstCodebook } from "#compiler/ir/codes.ts"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, type Installation } from "#compiler/physical/install/compile.ts"
 import { lawModel } from "#compiler/program/laws.ts"
 import { Logic } from "#compiler/public/compute.ts"
-import { contract, pg } from "#compiler/public/fields.ts"
-import { schema } from "#compiler/public/schema.ts"
+import { accumulated, contract, drawn, natural, pg } from "#compiler/public/fields.ts"
+import {
+	type AnyRelation,
+	fin,
+	fold,
+	Monoid,
+	on,
+	ordered,
+	relation,
+	schema
+} from "#compiler/public/schema.ts"
+import { str } from "#compiler/public/text.ts"
 import { derivedEntry, derivedLaw } from "#compiler/runtime/law-entry.ts"
 import { lawBuilder } from "#compiler/schema/law-entries.ts"
 import { installationsOf, rostersOf } from "#compiler/schema/own.ts"
@@ -57,13 +67,18 @@ export interface EntriesCase {
  * The catalog entry its author declares, an index into `catalog`, or none, at each declaration a law no statement states
  * comes from, on the relation Catalogued: the relation itself, for its primary key's law; its generated field `g`, for
  * its generated law; the refined text type of its two fields `a` and `b`, for their pattern laws, one entry for the
- * type; and the contract of its field `n`, for the contract's law.
+ * type; the contract of its field `n`, for the contract's law; grizzle's own contract natural, the type of its field
+ * `m`, for natural's law; and the refined text type of CatalogLine's pieces, whose concat fold accumulates them into
+ * CatalogLine's and CatalogDoc's accumulated fields, for the pattern laws of the written field and the accumulated
+ * ones alike.
  */
 export interface Catalogued {
 	readonly key: Option.Option<number>
 	readonly generated: Option.Option<number>
 	readonly text: Option.Option<number>
 	readonly contract: Option.Option<number>
+	readonly natural: Option.Option<number>
+	readonly joined: Option.Option<number>
 }
 
 /** Every statement of a case's levels, the base's then the level above's, as levelsOf builds them. */
@@ -88,13 +103,18 @@ export const entriesCaseGen: Gen<EntriesCase> = (source) => {
 			key: source.draw(entryGen),
 			generated: source.draw(entryGen),
 			text: source.draw(entryGen),
-			contract: source.draw(entryGen)
+			contract: source.draw(entryGen),
+			natural: source.draw(entryGen),
+			joined: source.draw(entryGen)
 		}
 	}
 }
 
 /** The pattern Catalogued's two refined text fields share, which no text of every value matches. */
 const cataloguedPattern = { source: "^[a-z]{1,8}$", flags: "u" } as const
+
+/** The pattern of CatalogLine's pieces, which their concat fold accumulates into texts of the same pattern. */
+const joinedPattern = { source: "^[a-z]*$", flags: "u" } as const
 
 /** The name of Catalogued's contract, apart from every contract lawsOf's schemas declare. */
 const cataloguedContract = "Catalogued_units"
@@ -107,41 +127,75 @@ const declaredAs = <S extends object>(at: Option.Option<number>, declaration: S)
 	})
 
 /**
- * The relation Catalogued with the entries its case declares (Catalogued): keyed by its id, two fields `a` and `b` of one
- * refined text type, a field `n` of a contract, a written integer `k` and a field `g` generated from it.
+ * The relations the case's Catalogued declarations are made at (Catalogued), with the entries it declares: Catalogued,
+ * keyed by its id, two fields `a` and `b` of one refined text type, a field `n` of a contract, a field `m` of natural, a
+ * written integer `k` and a field `g` generated from it; and CatalogDoc and its ordered CatalogLines, whose pieces, of
+ * one refined text type, a concat fold accumulates into each line's `before` and `after` and each document's `text`.
  */
-export const cataloguedOf = (c: Catalogued) => {
+const cataloguedOf = (
+	c: Catalogued
+): {
+	readonly relations: ReadonlyArray<AnyRelation>
+	readonly statements: ReadonlyArray<Statement>
+	readonly declarations: ReadonlyArray<object>
+} => {
 	const text = declaredAs(c.text, regexField(cataloguedPattern.source, [cataloguedPattern.flags]))
 	const units = declaredAs(
 		c.contract,
 		contract(cataloguedContract, pg.bigint, (u) => Logic.ge(u, 0n))
 	)
-	return declaredAs(
+	const count = declaredAs(c.natural, natural)
+	const joined = declaredAs(
+		c.joined,
+		str.bytes(64, str.regex(joinedPattern.source, joinedPattern.flags))
+	)
+	const Catalogued = declaredAs(
 		c.key,
 		generatedRelation(
 			"Catalogued",
-			{ id: Id, a: text, b: text, n: units, k: pg.integer },
+			{ id: Id, a: text, b: text, n: units, m: count, k: pg.integer },
 			["id"],
 			(row) => ({ g: declaredAs(c.generated, generatedField(pg.integer, row["k"], [])) }),
 			[]
 		)
 	)
+	const Doc = relation("CatalogDoc", { id: Id, n: drawn(natural), text: accumulated(joined, "") }, [
+		"id"
+	])
+	const Line = relation(
+		"CatalogLine",
+		{
+			doc: Id,
+			at: drawn(natural),
+			piece: joined,
+			before: accumulated(joined, ""),
+			after: accumulated(joined, "")
+		},
+		["doc", "at"]
+	)
+	const lines = ordered(on(Line, "doc", "at"), fin(Doc, "n"))
+	const at = (drawn: Option.Option<number>, d: object): ReadonlyArray<object> =>
+		Option.isSome(drawn) ? [d] : []
+	return {
+		relations: [Catalogued, Doc, Line],
+		statements: [
+			lines,
+			fold(lines, Monoid.concat, on(Line, "doc", "piece", "before", "after"), on(Doc, "id", "text"))
+		],
+		declarations: [
+			...at(c.key, Catalogued),
+			...at(c.generated, Catalogued.fields.g),
+			...at(c.text, text),
+			...at(c.contract, units),
+			...at(c.natural, count),
+			...at(c.joined, joined)
+		]
+	}
 }
 
 /** Catalogued's declarations as its case names them: each a value law(...) refuses to name again where it named it. */
-export const cataloguedDeclarations = (c: Catalogued): ReadonlyArray<object> => {
-	const relation = cataloguedOf(c)
-	const fields: Readonly<Record<string, unknown>> = relation.fields
-	return Arr.filter(
-		[
-			...Option.match(c.key, { onNone: () => [], onSome: () => [relation] }),
-			...Option.match(c.generated, { onNone: () => [], onSome: () => [fields["g"]] }),
-			...Option.match(c.text, { onNone: () => [], onSome: () => [fields["a"]] }),
-			...Option.match(c.contract, { onNone: () => [], onSome: () => [fields["n"]] })
-		],
-		Predicate.isObject
-	)
-}
+export const cataloguedDeclarations = (c: Catalogued): ReadonlyArray<object> =>
+	cataloguedOf(c).declarations
 
 /**
  * The laws Catalogued's declarations state with no statement, each by its identity text, with the catalog entry its
@@ -157,18 +211,22 @@ export const cataloguedEntries = (c: Catalogued): ReadonlyArray<readonly [string
 			onNone: () => [],
 			onSome: (i) => [[statedText(derivedLaw(law)), i] as const]
 		})
-	const pattern = (field: string): StatedLaw => ({
-		kind: "pattern",
-		relation: "Catalogued",
-		field,
-		patterns: [cataloguedPattern]
-	})
+	const pattern = (
+		relation: string,
+		field: string,
+		spelled: { readonly source: string; readonly flags: "u" }
+	): StatedLaw => ({ kind: "pattern", relation, field, patterns: [spelled] })
 	return [
 		...stated(c.key, { kind: "primaryKey", relation: "Catalogued", fields: ["id"] }),
 		...stated(c.generated, { kind: "generated", relation: "Catalogued", field: "g" }),
-		...stated(c.text, pattern("a")),
-		...stated(c.text, pattern("b")),
-		...stated(c.contract, { kind: "contract", contract: cataloguedContract })
+		...stated(c.text, pattern("Catalogued", "a", cataloguedPattern)),
+		...stated(c.text, pattern("Catalogued", "b", cataloguedPattern)),
+		...stated(c.contract, { kind: "contract", contract: cataloguedContract }),
+		...stated(c.natural, { kind: "contract", contract: "natural" }),
+		...stated(c.joined, pattern("CatalogLine", "piece", joinedPattern)),
+		...stated(c.joined, pattern("CatalogLine", "before", joinedPattern)),
+		...stated(c.joined, pattern("CatalogLine", "after", joinedPattern)),
+		...stated(c.joined, pattern("CatalogDoc", "text", joinedPattern))
 	]
 }
 
@@ -199,10 +257,11 @@ export const namedSubjectOf = (
 			onSome: (i) => (statesLaws(s) ? lawBuilder(catalogAt(i), s) : s)
 		})
 	const baseStatements = Arr.map(base.statements, name)
+	const catalogued = cataloguedOf(c.catalogued)
 	const declaredBase = schema(
 		"Laws",
-		[...Rec.values(Rec.fromEntries(base.relations)), cataloguedOf(c.catalogued)],
-		baseStatements
+		[...Rec.values(Rec.fromEntries(base.relations)), ...catalogued.relations],
+		[...baseStatements, ...catalogued.statements]
 	)
 	return Option.match(above, {
 		onNone: () => ({ base: declaredBase, subject: declaredBase, statements: baseStatements }),

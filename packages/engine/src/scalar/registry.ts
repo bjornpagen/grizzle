@@ -408,46 +408,6 @@ export const isTextDescriptor = (value: unknown): boolean =>
 	hasProperties(value) && ownedText.has(value)
 
 /**
- * A copy of a str.regex, str.and or str.bytes descriptor, or of a contract, registered as the descriptor it copies is,
- * so every reader reads it as it reads that one: law(...)'s value (schema/law-entries.ts), the copy the catalog entry
- * its author declares is held for, the descriptor copied left as it was. A contract is a brand constructor, so its copy
- * is one too, branding as the contract does. Undefined for any other value, which states no law of its own.
- */
-export const descriptorCopy = <F extends object>(value: F): F | undefined => {
-	const text = ownedText.get(value)
-	if (text !== undefined) {
-		const copy: F = { ...value }
-		Object.freeze(copy)
-		ownedText.set(copy, text)
-		return copy
-	}
-	const contract = isOwnedDescriptor(value) && value.desc.kind === "contract"
-	if (!contract || typeof value !== "function") {
-		return undefined
-	}
-	const keys = Reflect.ownKeys(value).filter((key) => key !== "length" && key !== "prototype")
-	const call = (branded: unknown): unknown => Reflect.apply(value, undefined, [branded])
-	for (const key of keys) {
-		Object.defineProperty(call, key, {
-			value: undefined,
-			enumerable: true,
-			writable: true,
-			configurable: true
-		})
-	}
-	const copy = Object.assign(call, value)
-	for (const key of keys) {
-		const property = Object.getOwnPropertyDescriptor(value, key)
-		if (property !== undefined) {
-			Object.defineProperty(copy, key, property)
-		}
-	}
-	Object.freeze(copy)
-	owned.add(copy)
-	return copy
-}
-
-/**
  * Each field of a writing of its own a builder made (schema/relation.ts: a drawn, accumulated, generated, retirement or
  * place field), by its value, with the descriptor its values are of, a place's natural among them: where a field
  * descriptor is asked of it, it describes as that value type, one rule for every field, since a caller that states a
@@ -460,6 +420,66 @@ const writtenFields = new WeakMap<object, unknown>()
 export const registerWrittenField = (value: object, type: unknown): void => {
 	writtenFields.set(value, type)
 }
+
+/**
+ * Whether a descriptor states a law of its own wherever it types a stored field: a str.regex, str.and or str.bytes
+ * text, its pattern law, or a contract, grizzle's own (natural) as any other, its contract's law.
+ */
+const statesLaw = (value: object): boolean =>
+	ownedText.has(value) || (isOwnedDescriptor(value) && value.desc.kind === "contract")
+
+/**
+ * A copy of a descriptor that states a law (statesLaw), registered wherever the descriptor it copies is, so every
+ * reader reads it as it reads that one: law(...)'s value (schema/law-entries.ts), the copy the catalog entry its author
+ * declares is held for, the descriptor copied left as it was. Every own property is copied as it stands, onto a brand
+ * constructor where the descriptor is one, which brands as it does, and onto a record otherwise. Undefined for any
+ * other value, which states no law of its own.
+ */
+export const descriptorCopy = <F extends object>(value: F): F | undefined => {
+	if (!statesLaw(value)) {
+		return undefined
+	}
+	const keys = Reflect.ownKeys(value).filter((key) => key !== "length" && key !== "prototype")
+	const target =
+		typeof value === "function"
+			? (branded: unknown): unknown => Reflect.apply(value, undefined, [branded])
+			: {}
+	for (const key of keys) {
+		Object.defineProperty(target, key, {
+			value: undefined,
+			enumerable: true,
+			writable: true,
+			configurable: true
+		})
+	}
+	const copy = Object.assign(target, value)
+	for (const key of keys) {
+		const property = Object.getOwnPropertyDescriptor(value, key)
+		if (property !== undefined) {
+			Object.defineProperty(copy, key, property)
+		}
+	}
+	Object.freeze(copy)
+	if (owned.has(value)) {
+		owned.add(copy)
+	}
+	const text = ownedText.get(value)
+	if (text !== undefined) {
+		ownedText.set(copy, text)
+	}
+	const written = writtenFields.get(value)
+	if (written !== undefined) {
+		writtenFields.set(copy, written)
+	}
+	return copy
+}
+
+/**
+ * The descriptor a field of a writing of its own is of (writtenFields): what a drawn, accumulated, generated,
+ * retirement or place field's values are; none for any other value, a descriptor among them, which is its own type.
+ */
+export const writtenTypeOf = (value: unknown): unknown =>
+	hasProperties(value) ? writtenFields.get(value) : undefined
 
 /**
  * The FieldDesc, ScalarType and column of a field descriptor a builder made, or MalformedDescription, Refused for a

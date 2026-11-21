@@ -90,6 +90,8 @@ type EntriesFeature =
 	| "a generated field's declared entry"
 	| "one type's declared entry at its two fields"
 	| "a contract's declared entry"
+	| "a builtin contract's declared entry"
+	| "an accumulated field of an entried type"
 	| (typeof lawKinds)[keyof typeof lawKinds]
 
 /** A refused statement that wrote nothing the host judges: PostgreSQL's refusal names its laws, the host none. */
@@ -121,6 +123,8 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 			"a generated field's declared entry",
 			"one type's declared entry at its two fields",
 			"a contract's declared entry",
+			"a builtin contract's declared entry",
+			"an accumulated field of an entried type",
 			...Rec.values(lawKinds)
 		] satisfies ReadonlyArray<Reached<EntriesFeature>>,
 		check: (_2, k: Case<EntriesFeature>) => (c: EntriesCase) =>
@@ -205,9 +209,17 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 								k.note("a generated field's declared entry")
 								break
 							case "contract":
-								k.note("a contract's declared entry")
+								k.note(
+									l.contract === "natural"
+										? "a builtin contract's declared entry"
+										: "a contract's declared entry"
+								)
 								break
 							case "pattern":
+								if (l.relation === "CatalogDoc") {
+									k.note("an accumulated field of an entried type")
+								}
+								break
 							case "key":
 							case "check":
 							case "contained":
@@ -471,6 +483,20 @@ export const everyLawCarriesTheCatalogEntryItsDeclarationStatesToEveryPlaceThatN
 					"described: recordedLaw(contractLaw(contract), declared.get(contract) ?? derivedStatement)",
 				replacement: "described: recordedLaw(contractLaw(contract), derivedStatement)",
 				why: "A contract's domain names its law by its derived entry, its author's dropped."
+			},
+			{
+				file: "packages/engine/src/scalar/registry.ts",
+				original:
+					'\townedText.has(value) || (isOwnedDescriptor(value) && value.desc.kind === "contract")',
+				replacement:
+					'\townedText.has(value) || (typeof value === "function" && isOwnedDescriptor(value) && value.desc.kind === "contract")',
+				why: "A contract that is no brand constructor, grizzle's own natural, takes no entry: law(...) of it is refused."
+			},
+			{
+				file: "packages/engine/src/schema/law-entries.ts",
+				original: "\t\t\tconst type = writtenTypeOf(member) ?? member",
+				replacement: "\t\t\tconst type = member",
+				why: "A field of a writing of its own reads none of its type's entry: an accumulated field's pattern law is derived where its type declares one."
 			},
 			{
 				file: "packages/engine/src/runtime/law-entry.ts",
