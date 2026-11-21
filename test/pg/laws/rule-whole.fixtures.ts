@@ -316,10 +316,11 @@ const judgeSchema = (judge: Judge, shape: ShapeKey) => {
 			})
 	)
 	/**
-	 * The roots, each a node its own parent, as a union of those of kind 2 and the rest: read by the walk's seed and again
-	 * by Reach beside the walk, one node a whole rule's statement reads twice, each read keeping it at the unit: the judge
-	 * reads it restricted to the unit inside, computed once per unit (lower/optimize/pushdown/shared.ts); unrestricted,
-	 * it was a union of every document's roots computed once in the statement.
+	 * The roots, each a node its own parent, as a union of those of kind 2 and the rest: read by the walk's seed, inside
+	 * Reached's recursion, and again by Reach beside the walk, each read keeping it at the unit: the judge's statement
+	 * inlines the union at each read, each correlated to the unit, so PostgreSQL seeks each arm by the unit's key. The two
+	 * reads are no one node, so the shared restriction (lower/optimize/pushdown/shared.ts) changes no statement of this
+	 * judge (rule-whole.test.ts, the commute property).
 	 */
 	const roots = query(Base)
 		.rule((r) => {
