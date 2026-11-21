@@ -22,7 +22,7 @@ import {
  * What a history reached, as the live database holds it: a hole, a renamed handle, a live code past a hole (a growth or a
  * re-add after a removal), an unordered roster whose codes run out of its handles' order, and both rosters changed.
  */
-export type Situation =
+export type LiveCodesSituation =
 	| "a hole"
 	| "a renamed handle"
 	| "a live code past a hole"
@@ -53,7 +53,7 @@ const unrelated: LiveNames = { constant: { schema, name: "__unrelated_names" }, 
  * rosters, whatever the order the constants are read in, beside a constant that is no roster's; a roster whose names
  * constant the database lacks is RosterUnread `none`, and one two schemas hold a names constant of is `several`.
  */
-export const recovered = (history: ReadonlyArray<Command>, c: Case<Situation>) =>
+export const recovered = (history: ReadonlyArray<Command>, c: Case<LiveCodesSituation>) =>
 	Effect.sync(() => {
 		const models = modelsAfter(history)
 		const rosters = [rosterOf(0, live(models[0])), rosterOf(1, live(models[1]))]

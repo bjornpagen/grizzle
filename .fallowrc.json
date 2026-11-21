@@ -175,13 +175,16 @@
 				]
 			},
 			{
-				// The shell's migration, drift and manifest readers, which only generate, check and migrate run, the one compile
+				// The shell's migration, drift and manifest readers, which only generate, check, migrate and upgrade run (upgrade's
+				// history and live objects among them), the one compile
 				// of a login's workload, whose served file generate writes and check holds to it, and the lock demand a
 				// migrations directory states (@bjornpagen/grizzle/locks).
 				"name": "adapter-install",
 				"patterns": [
 					"packages/grizzle/src/adapter/admission/drift.ts",
 					"packages/grizzle/src/adapter/admission/expectation.ts",
+					"packages/grizzle/src/adapter/admission/history.ts",
+					"packages/grizzle/src/adapter/admission/upgrade.ts",
 					"packages/grizzle/src/adapter/boundary/meta.ts",
 					"packages/grizzle/src/adapter/migrate/**",
 					"packages/grizzle/src/adapter/public/compile.ts",

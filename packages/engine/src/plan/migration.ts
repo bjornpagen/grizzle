@@ -82,12 +82,8 @@ export {
 export { type Departure, departureDrop } from "#compiler/deploy/diff/departed.ts"
 export { staleReplaced } from "#compiler/deploy/diff/diff.ts"
 export type { PhysicalKind } from "#compiler/ir/products.ts"
-export {
-	type LiveNames,
-	liveRosters,
-	type RosterUnread,
-	spellingReaders
-} from "#compiler/deploy/upgrade/history.ts"
+export { type LiveNames, liveRosters } from "#compiler/deploy/upgrade/history.ts"
+export { spellingReaders } from "#compiler/physical/ddl/spellings.ts"
 export { type Spellings, spellingsHeld } from "#compiler/ir/pattern.ts"
 export {
 	findMarkers,

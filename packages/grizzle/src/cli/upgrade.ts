@@ -3,7 +3,7 @@ import type { DriftFound } from "#adapter/admission/drift.ts"
 import { readHistory } from "#adapter/admission/history.ts"
 import { type LiveObjects, liveObjects } from "#adapter/admission/upgrade.ts"
 import { fromEngine, toResult } from "#adapter/engine.ts"
-import { readCatalogDrift, readLedger } from "#adapter/migrate/apply.ts"
+import { readCatalogDrift, readLedgerState } from "#adapter/migrate/apply.ts"
 import type { MigrateError } from "#adapter/migrate/errors.ts"
 import { statementsFor } from "#adapter/migrate/ledger.ts"
 import {
@@ -140,7 +140,7 @@ const upgradeSchema = Effect.fn("upgradeSchema")(function* (
 	)
 	const judged = yield* provenSpellings(session, compiled, rosters)
 	const statements = yield* Effect.fromResult(statementsFor(ident))
-	const ledger = yield* readLedger(session, ident, statements)
+	const ledger = yield* readLedgerState(session, ident, statements)
 	if (ledger.latest !== chain.reached || ledger.partial !== undefined) {
 		return yield* refused(compiled, {
 			kind: "pending",

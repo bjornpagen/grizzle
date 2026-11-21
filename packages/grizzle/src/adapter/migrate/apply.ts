@@ -1126,10 +1126,9 @@ export const checkDrift = Effect.fn("checkDrift")(function* (
 
 /**
  * The drift check of one schema's catalog against `snapshot` as checkDrift runs it, its verdict and the ledger it read
- * beside it, judged by neither: what checkDrift refuses drift by, and what `grizzle upgrade` reads a live installation
- * by (cli/upgrade.ts), whose snapshot is the compile of the source it was deployed from.
+ * beside it, judged by neither: what checkDrift refuses drift by.
  */
-export const readDrift = Effect.fn("readDrift")(function* (
+const readDrift = Effect.fn("readDrift")(function* (
 	session: MigrationSession,
 	snapshot: DeploySnapshot,
 	statements: LedgerStatements,
@@ -1157,16 +1156,19 @@ export const readDrift = Effect.fn("readDrift")(function* (
 	/** The rows of each that exists, apart in front of the check's transaction: the ledger's, then the proofs'. */
 	const ledgerRows = ledger === "installed" ? [ledgerRowsRead(statements)] : []
 	const proofRows = proven === "present" ? [proofRowsRead(proofs)] : []
+	/** The proofs the rows read apart hold; no proofs' table holds no proof: everything is unproven, and the replay whole. */
+	const held = (
+		answers: ReadonlyArray<ApartAnswer>
+	): Result.Result<ReadonlyMap<string, ProofRow>, ServerError | CatalogRowRefused> =>
+		proven === "present"
+			? heldProofs(proofs, sentAnswer(answers, ledgerRows.length))
+			: Result.succeed(new Map())
 	const { verdict, alone } = yield* driftAlongside(
 		session,
 		snapshot,
 		folders,
 		[...ledgerRows, ...proofRows],
-		(answers) =>
-			/** No proofs' table holds no proof: everything is unproven, and the replay whole. */
-			proven === "present"
-				? heldProofs(proofs, sentAnswer(answers, ledgerRows.length))
-				: Result.succeed(new Map())
+		held
 	)
 	const read: LedgerRead =
 		ledger === "absent"
@@ -1242,7 +1244,7 @@ export const readCatalogDrift = (
 	)
 
 /** `schema`'s ledger as an apply reads it (ledger.ts ledgerStateOf), in a step of statements apart. */
-export const readLedger = Effect.fn("readLedger")(function* (
+export const readLedgerState = Effect.fn("readLedgerState")(function* (
 	session: MigrationSession,
 	schema: string,
 	statements: LedgerStatements

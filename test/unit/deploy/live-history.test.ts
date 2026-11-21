@@ -15,7 +15,7 @@
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { recovered, type Situation } from "#test/unit/deploy/live-history.fixtures.ts"
+import { recovered, type LiveCodesSituation } from "#test/unit/deploy/live-history.fixtures.ts"
 import { histories } from "#test/unit/ir/codes.fixtures.ts"
 
 /** The codes read off a live installation are exactly its history's, for every roster, holes and renamed handles included, and a roster whose names constant the database does not hold once is refused. */
@@ -28,8 +28,8 @@ export const theCodesReadOffALiveInstallationAreExactlyItsHistorysForEveryRoster
 			"a live code past a hole",
 			"an unordered roster's codes out of its handles' order",
 			"both rosters changed"
-		] satisfies ReadonlyArray<Reached<Situation>>,
-		check: (_, c: Case<Situation>) => (history) => recovered(history, c),
+		] satisfies ReadonlyArray<Reached<LiveCodesSituation>>,
+		check: (_, c: Case<LiveCodesSituation>) => (history) => recovered(history, c),
 		oracle: { kind: "second-implementation", name: "the naive history model of each roster" },
 		box: "two rosters over four names, every history of up to five commands",
 		kept: [],

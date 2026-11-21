@@ -66,7 +66,7 @@ export const kinds = (name: string, version: Version) => {
  */
 export type Shift = "a function renamed" | "a stray constant" | "a function defined otherwise"
 
-export const shifts: readonly [Shift, ...Array<Shift>] = [
+const shifts: readonly [Shift, ...Array<Shift>] = [
 	"a function renamed",
 	"a stray constant",
 	"a function defined otherwise"
@@ -131,7 +131,7 @@ const formatMember = regex('"format": [0-9]+')
  * The items stored at `version`: one of each live handle a later version keeps, by its code, named after it; none of
  * b, whose removal validates Kind's domain over every stored code.
  */
-export const itemsAt = (version: Version): ReadonlyArray<readonly [string, number, string]> =>
+const itemsAt = (version: Version): ReadonlyArray<readonly [string, number, string]> =>
 	Arr.flatMap(handlesAt[version], (handle, at) =>
 		handle === "b"
 			? []
