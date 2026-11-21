@@ -1549,7 +1549,7 @@ const keysOf = (
 					]
 				: []
 		)
-		const factors = independentFactors(
+		const search = independentFactors(
 			union(representatives, intersect(reachable, bitsOf(attributes, attributes.hidden))),
 			stated
 		)
@@ -1575,7 +1575,7 @@ const keysOf = (
 			}
 			const reached = at.map((p) => ({
 				p,
-				reached: closes(bitsAt(attributes, [p]), before).reached
+				reached: search.reached(union(bitsAt(attributes, [p]), before))
 			}))
 			const grouped: Array<[(typeof reached)[number], ...Array<(typeof reached)[number]>]> = []
 			for (const column of reached) {
@@ -1615,7 +1615,7 @@ const keysOf = (
 			minimalKeys(
 				among,
 				[among],
-				(cs) => (covers(closes(cs, before), factor) ? true : undefined),
+				(cs) => (search.covers(union(cs, before), factor) ? true : undefined),
 				stated.flatMap((x) => {
 					const to = x.to.filter((c) => holdsAt(factor, c))
 					return to.length === 0 ? [] : [{ from: x.from, to: bitsAt(attributes, to) }]
@@ -1644,7 +1644,7 @@ const keysOf = (
 				)
 			}
 		}
-		for (const factor of factors) {
+		for (const factor of search.factors) {
 			const before = copyBits(chosen)
 			const delivered = intersect(factor, heading)
 			const remaining = copyBits(delivered)
@@ -1654,7 +1654,7 @@ const keysOf = (
 				for (const m of members) {
 					dropFrom(others, m)
 				}
-				if (!holdsAt(closes(others, before).reached, members[0])) {
+				if (!search.covers(union(others, before), bitsAt(attributes, [members[0]]))) {
 					const ofClass = bitsAt(attributes, members)
 					choose(
 						members.map((m) => bitsAt(attributes, [m])),

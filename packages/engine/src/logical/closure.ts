@@ -605,7 +605,9 @@ const keyWithin = (
  * The dependencies of the factor search, indexed as a closure reads them (as Rows are, for Beeri and Bernstein's
  * counters): each one's determinants, each once, and their count; each position's dependencies reading it, packed:
  * position p's are `readers` from `readersAt[p]` to `readersAt[p + 1]`; the dependencies of no determinant, which every
- * closure fires; and the positions each determines as it now stands, which irredundant shrinks.
+ * closure fires; the positions each determines as it now stands, which irredundant shrinks; and how many of them
+ * determine each position as they now stand, so a position none determines is known reached by no closure that does not
+ * start from it.
  */
 interface FactorTable {
 	/** A set of the table's positions, whose words every set of them takes. */
@@ -616,6 +618,7 @@ interface FactorTable {
 	readonly readersAt: Int32Array
 	readonly readers: Int32Array
 	readonly given: ReadonlyArray<number>
+	readonly determiners: Int32Array
 }
 
 /** The factor table of `dependencies`, over positions whose sets take the words of `like`. */
@@ -645,10 +648,17 @@ const factorTable = (
 			filled[p] = at + 1
 		}
 	})
+	const determiners = new Int32Array(size)
+	for (const d of dependencies) {
+		for (const t of d.to) {
+			determiners[t] = (determiners[t] ?? 0) + 1
+		}
+	}
 	return {
 		like,
 		from,
 		to: dependencies.map((d) => d.to),
+		determiners,
 		determinants,
 		readersAt,
 		readers,
@@ -788,13 +798,7 @@ const factorClosures = (table: FactorTable): FactorClosures => {
  * one judged, so it is not asked for, and a dependency with no other target is judged by no closure at all.
  */
 const irredundant = (table: FactorTable, closures: FactorClosures): void => {
-	/** How many dependencies determine each position, as they now stand. */
-	const targeted = new Int32Array(table.like.length * 32)
-	for (const to of table.to) {
-		for (const t of to) {
-			targeted[t] = (targeted[t] ?? 0) + 1
-		}
-	}
+	const targeted = table.determiners
 	table.from.forEach((from, judged) => {
 		if (from.length < 2) {
 			return
@@ -876,11 +880,28 @@ const connectedSets = (
  * factor's key determines, an attribute two factors each determine. Each factor is a set of attributes.
  *
  * Linear in the table's size after the irredundant dependencies.
+ *
+ * The search keeps its table and its engine, so the key search over its factors (logical/props.ts finish) asks them
+ * whether a set of positions determines a factor, a closure that stops as soon as it holds the factor, over the
+ * dependencies by their classes' representatives, irredundant, which have every closure the node's dependencies have
+ * among those positions.
  */
+export interface FactorSearch {
+	readonly factors: ReadonlyArray<Bits>
+	/**
+	 * Whether `start` determines every position of `targets` under the table's dependencies: a closure of the search's
+	 * engine (factorClosures) asked for them, which stops as soon as it holds every one, and none where a target outside
+	 * `start` is one no dependency determines.
+	 */
+	readonly covers: (start: Bits, targets: Bits) => boolean
+	/** What `start` determines under the table's dependencies: a closure of the search's engine, whole. */
+	readonly reached: (start: Bits) => Bits
+}
+
 export const independentFactors = (
 	columns: Bits,
 	stated: ReadonlyArray<{ readonly from: Bits; readonly to: ReadonlyArray<number> }>
-): ReadonlyArray<Bits> => {
+): FactorSearch => {
 	const table = factorTable(columns, stated)
 	const closures = factorClosures(table)
 	irredundant(table, closures)
@@ -913,5 +934,21 @@ export const independentFactors = (
 		}
 		closures.add(set)
 	}
-	return factors
+	return {
+		factors,
+		covers: (start, targets) => {
+			if (positions(targets).some((t) => !holdsAt(start, t) && (table.determiners[t] ?? 0) === 0)) {
+				return false
+			}
+			closures.begin(-1)
+			closures.want(positions(targets))
+			closures.add(positions(start))
+			return subsetOf(targets, closures.known)
+		},
+		reached: (start) => {
+			closures.begin(-1)
+			closures.add(positions(start))
+			return copyBits(closures.known)
+		}
+	}
 }

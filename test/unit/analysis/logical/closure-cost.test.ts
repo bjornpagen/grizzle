@@ -322,7 +322,7 @@ export const theFactorSearchJudgesADependencyByAClosureThatStopsAtItsTargetsFiri
 				for (const m of [2 * half, 4 * half, 6 * half]) {
 					const table = redundantTable(m)
 					const [factors, counts] = yield* callCounts(
-						Effect.sync(() => independentFactors(table.columns, table.stated)),
+						Effect.sync(() => independentFactors(table.columns, table.stated).factors),
 						factorSites
 					)
 					assert.deepEqual(
@@ -365,7 +365,7 @@ export const eachNodesAttributesAndDependenciesAreInternedOnceHoweverManyClosure
 			Effect.gen(function* () {
 				c.note(k === 1 ? "one relation" : "several relations")
 				const [, counts] = yield* callCounts(
-					Effect.sync(() => succeeded(analyzeLogical(productOf(k), checkerEvidence))),
+					Effect.sync(() => succeeded(analyzeLogical(productOf(k, "both keys"), checkerEvidence))),
 					interning
 				)
 				assert.equal(

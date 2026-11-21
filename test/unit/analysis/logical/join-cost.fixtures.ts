@@ -17,8 +17,11 @@ export const sites = Object.freeze({
 	minimalKeys: { file: "packages/engine/src/logical/closure.ts", name: "minimalKeys" }
 } satisfies Readonly<Record<string, CountedFunction>>)
 
-/** k relations R0.. of columns a and b, each its own key, matched in one region delivering every variable. */
-export const productOf = (k: number): ValidDag => {
+/**
+ * k relations R0.. of columns a and b, each its own key (`keyed`), or a alone the key of each, b its payload, matched
+ * in one region delivering every variable.
+ */
+export const productOf = (k: number, keyed: "both keys" | "a key and a payload"): ValidDag => {
 	const b = new DagBuilder(makeIdSupply())
 	const vars: Array<VarDecl> = []
 	const occurrences = Arr.map(indices(k), (i) => {
@@ -34,7 +37,7 @@ export const productOf = (k: number): ValidDag => {
 				relation: `R${i}`,
 				occurrence: b.ids.occurrence(),
 				primaryKey: ["a"],
-				keys: [["b"]],
+				keys: keyed === "both keys" ? [["b"]] : [],
 				relationKind: "relation",
 				generated: [],
 				heading: [
@@ -141,3 +144,9 @@ export const classesOf = (k: number, s: number): ValidDag => {
 export type Point = "from k = 4" | "from k = 6"
 
 export type ClassPoint = "classes of two columns" | "classes of three columns"
+
+/** Every row a closure fires: a node's closures' visits (closure.ts closure) and the factor search's firings. */
+export const firings = Object.freeze({
+	step: { file: "packages/engine/src/logical/closure.ts", name: "step" },
+	fire: { file: "packages/engine/src/logical/closure.ts", name: "fire" }
+} satisfies Readonly<Record<string, CountedFunction>>)

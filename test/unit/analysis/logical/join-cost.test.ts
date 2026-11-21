@@ -13,6 +13,7 @@ import { KeyKernel } from "#test/support/keys/kernel.ts"
 import {
 	type ClassPoint,
 	classesOf,
+	firings,
 	type Point,
 	productOf,
 	sites
@@ -29,7 +30,9 @@ export const theAnalysisOfKJoinedRelationsOfTwoKeysEachComputesLinearlyManyClosu
 				const counted = new Map<number, Readonly<Record<keyof typeof sites, number>>>()
 				for (const k of [2 * half, 4 * half, 6 * half]) {
 					const [, counts] = yield* callCounts(
-						Effect.sync(() => succeeded(analyzeLogical(productOf(k), checkerEvidence))),
+						Effect.sync(() =>
+							succeeded(analyzeLogical(productOf(k, "both keys"), checkerEvidence))
+						),
 						sites
 					)
 					counted.set(k, counts)
@@ -141,6 +144,60 @@ export const theAnalysisOfKClassesOfSColumnsThatDetermineOneAnotherInOneFactorCo
 				original: "\t\t\tif (at.length < 2) {",
 				replacement: "\t\t\tif (at.length > 0) {",
 				why: "No class is found, so the factor is searched whole, s^k minimal keys each found (logical/props.ts finish); the property fails."
+			}
+		]
+	})
+
+/**
+ * The key search asks the factor search's engine whether a set determines a factor, a closure that stops as soon as it
+ * holds the factor and answers no at once for a factor column no dependency determines (logical/props.ts finish,
+ * closure.ts FactorSearch covers): over k relations of a key a and a payload b matched in one region, whose key is every
+ * a_i, a factor each, the rows its closures fire grow no faster than k, where each witness closed over the region's
+ * dependencies whole, firing every earlier factor's rows again, k² of them.
+ */
+export const theKeySearchsWitnessesFireRowsLinearInTheFactorsNeverClosingTheWholeTableForEach =
+	property.exhaust(finite(int(2, 3)), {
+		needs: {},
+		situations: ["from k = 4", "from k = 6"] satisfies ReadonlyArray<Reached<Point>>,
+		check: (_, c: Case<Point>) => (half) =>
+			Effect.gen(function* () {
+				c.note(half === 2 ? "from k = 4" : "from k = 6")
+				const counted = new Map<number, number>()
+				for (const k of [2 * half, 4 * half, 6 * half]) {
+					const [analysis, counts] = yield* callCounts(
+						Effect.sync(() =>
+							succeeded(analyzeLogical(productOf(k, "a key and a payload"), checkerEvidence))
+						),
+						firings
+					)
+					const region = defined(analysis.dag.roots[0], "the region")
+					const proof = defined(analysis.of(region).props.keys[0], "the region's key")
+					assert.deepEqual(
+						proof.key,
+						Arr.map(indices(k), (i) => `a${i}`),
+						"the key is every a_i"
+					)
+					assert.equal(proof.factors.length, k, "a factor each")
+					counted.set(k, counts.step + counts.fire)
+				}
+				incrementsDoNotGrow(
+					(k) => defined(counted.get(k), `the firings at k = ${k}`),
+					half,
+					"the rows the analysis's closures fire"
+				)
+			}),
+		oracle: {
+			kind: "universal",
+			name: "a count that grows no faster than linearly increments no more over its second equal step than over its first"
+		},
+		box: "k relations of a key and a payload at 2h, 4h and 6h, h at 2 and 3",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/logical/props.ts",
+				original: "\t\t\t\t(cs) => (search.covers(union(cs, before), factor) ? true : undefined),",
+				replacement: "\t\t\t\t(cs) => (covers(closes(cs, before), factor) ? true : undefined),",
+				why: "Each witness closes over the region's dependencies whole (logical/props.ts finish keysAmong); the firings grow as k²."
 			}
 		]
 	})
