@@ -56,6 +56,7 @@ import {
 	changeCaseGen,
 	type ChangeFeature,
 	kinds,
+	redrawAims,
 	redrawCase,
 	redrawCaseGen,
 	type RedrawFeature,
@@ -197,7 +198,7 @@ export const changedFills = property.explore(aimed(changeCaseGen, changeAims), {
 })
 
 /** A family over stored rows renamed or refilled through grizzle's migrations on PostgreSQL 19 a fold's step, an axis copy's target or a counted family's group changed over stored rows, a fold added, or the closed relation of weights a fold's selection by weight reads given other rows, is drawn again in place and writes exactly the rows whose values it changes: none where the new filler draws every row as the old one did, k where it moves k rows' values, every law validated over what it leaves, and builds again no constraint the target holds as it is that no state of the backfill can break. */
-export const redrawWrites = property.explore(redrawCaseGen, {
+export const redrawWrites = property.explore(aimed(redrawCaseGen, redrawAims), {
 	needs: { substrate: Substrate.installing },
 	situations: [
 		...kinds,

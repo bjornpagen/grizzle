@@ -1423,42 +1423,75 @@ const alikeRows = (
 		})
 	}))
 
-/** A changed filler on a counted, ordered or tree family, a group change on a counted one alone, or the weights a fold's
- * selection by weight reads, whose stored rows are alike as drawn: no data step runs between its versions, so every row
- * the third version's migration writes is one its backfill writes. */
-export const redrawCaseGen: Gen<RedrawCase> = (source) => {
-	const change = source.draw(
-		changeCaseOf(
-			element<Change>(["fold step", "copy target", "group", "fold added", "weights"]),
-			(drawn) => (drawn === "group" ? ["counted"] : kinds),
-			rowsOf,
-			swarmedRegroup
+/** A changed filler among `changes` on a family among `among`, a group change on a counted one alone, the weights change
+ * the closed relation a fold's selection by weight reads, whose stored rows are alike as drawn and whose fold over a
+ * copy target's change steps over the copy as `overCopy` says: no data step runs between its versions, so every row the
+ * third version's migration writes is one its backfill writes. */
+const redrawCaseOf =
+	(
+		changes: Arr.NonEmptyReadonlyArray<Change>,
+		among: Arr.NonEmptyReadonlyArray<Kind>,
+		overCopy: "drawn" | "always"
+	): Gen<RedrawCase> =>
+	(source) => {
+		const drawn = source.draw(
+			changeCaseOf(
+				element(changes),
+				(c) => (c === "group" ? ["counted"] : among),
+				rowsOf,
+				swarmedRegroup
+			)
 		)
-	)
-	const alike = source.draw(element(alikes))
-	const picks = new Map<string, boolean>()
-	const chosen = (relation: RelationName, i: number): boolean => {
-		switch (alike) {
-			case "drawn":
-				return false
-			case "every":
-				return true
-			case "some": {
-				const at = `${relation}:${i}`
-				const known = picks.get(at)
-				if (known !== undefined) {
-					return known
+		const change =
+			overCopy === "always" && drawn.shape.fold === "none"
+				? { ...drawn, shape: { ...drawn.shape, fold: "hidden" as const } }
+				: drawn
+		return source.draw(redrawnOver(change, overCopy))
+	}
+
+/** A changed filler's stored rows made alike as drawn, and whether its fold steps over the copy: always, or as drawn. */
+const redrawnOver =
+	(change: ChangeCase, overCopy: "drawn" | "always"): Gen<RedrawCase> =>
+	(source) => {
+		const alike = source.draw(element(alikes))
+		const picks = new Map<string, boolean>()
+		const chosen = (relation: RelationName, i: number): boolean => {
+			switch (alike) {
+				case "drawn":
+					return false
+				case "every":
+					return true
+				case "some": {
+					const at = `${relation}:${i}`
+					const known = picks.get(at)
+					if (known !== undefined) {
+						return known
+					}
+					const pick = source.draw(boolean)
+					picks.set(at, pick)
+					return pick
 				}
-				const pick = source.draw(boolean)
-				picks.set(at, pick)
-				return pick
 			}
 		}
+		const foldsCopy =
+			change.change === "copy target" &&
+			change.shape.fold !== "none" &&
+			(overCopy === "always" || source.draw(boolean))
+		return { change: { ...change, stored: alikeRows(change.stored, chosen) }, alike, foldsCopy }
 	}
-	const foldsCopy =
-		change.change === "copy target" && change.shape.fold !== "none" && source.draw(boolean)
-	return { change: { ...change, stored: alikeRows(change.stored, chosen) }, alike, foldsCopy }
-}
+
+export const redrawCaseGen: Gen<RedrawCase> = redrawCaseOf(
+	["fold step", "copy target", "group", "fold added", "weights"],
+	kinds,
+	"drawn"
+)
+
+/** The cases each required situation the plain draw reaches too rarely is aimed at while it is pending (aimed): a
+ * tree's change, and a copy target's change under a fold that steps over the copy. */
+export const redrawAims: ReadonlyArray<Aim<RedrawCase, RedrawFeature>> = [
+	["tree", redrawCaseOf(["fold step", "copy target", "fold added", "weights"], ["tree"], "drawn")],
+	["a fold over the copy", redrawCaseOf(["copy target"], kinds, "always")]
+]
 
 export type RedrawFeature =
 	| Kind
