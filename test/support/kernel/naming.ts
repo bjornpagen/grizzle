@@ -5,9 +5,10 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import {
 	admittedIdentifier,
 	type DeclaredName,
-	type Identity,
 	identifierOf,
+	type Identity,
 	identity,
+	nameFaultText,
 	parseDeclaredName,
 	parseSchemaName,
 	type SchemaName
@@ -109,7 +110,7 @@ export const parsedName = (name: string): DeclaredName => {
 	const parsed = parseDeclaredName(name)
 	if (!parsed.ok) {
 		throw new Error(
-			`the test declares ${Formatter.format(name)}, a name the naming door refuses: ${parsed.error}`
+			`the test declares ${Formatter.format(name)}, a name the naming door refuses: ${nameFaultText(parsed.error)}`
 		)
 	}
 	return parsed.value
@@ -121,7 +122,7 @@ export const parsedSchemaName = (name: string): SchemaName => {
 	const parsed = parseSchemaName(name)
 	if (!parsed.ok) {
 		throw new Error(
-			`the test names the schema ${Formatter.format(name)}, which the naming door refuses: ${parsed.error}`
+			`the test names the schema ${Formatter.format(name)}, which the naming door refuses: ${nameFaultText(parsed.error)}`
 		)
 	}
 	return parsed.value

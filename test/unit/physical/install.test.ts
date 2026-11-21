@@ -14,7 +14,8 @@
  * - **Declaration order (metamorphic):** the SQL is byte for byte the same whatever order the relations and statements
  *   are declared in.
  * - **Identifiers:** the installed schema is the conversion of the schema's declared name, and a declared name the rule
- *   refuses (its own, or a conversion PostgreSQL reserves with pg_) is refused at its declaration; only an admitted
+ *   refuses (its own, or a conversion PostgreSQL reserves with pg_) is refused at its declaration, IdentifierTooLong for
+ *   a conversion past 63 bytes and MalformedDescription for any other; only an admitted
  *   identifier (plain lowercase, at most 63 bytes, outside pg_, drawn up to that bound) names the vector schema or the
  *   extension schema, which lies outside the installed one; the installation's roles never take a schema
  *   it names, and its relations lie in the installed schema.
@@ -258,7 +259,9 @@ export const theFreshInstallationNamesItsSchemaVectorSchemaAndExtensionSchemaByA
 						c.note("schema refused")
 						refused(
 							ownedInput({ ...work.WorkDesc, name: n.broken.name.name }),
-							"MalformedDescription"
+							n.broken.name.rule === "a conversion past 63 bytes"
+								? "IdentifierTooLong"
+								: "MalformedDescription"
 						)
 						return
 					}

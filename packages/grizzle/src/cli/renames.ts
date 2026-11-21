@@ -29,6 +29,7 @@ import {
 	type DeclaredName,
 	handleMaxBytes,
 	type HandleRenames,
+	nameFaultText,
 	parseDeclaredName,
 	type Roster,
 	type RosterRenames
@@ -106,7 +107,7 @@ const declared = (
 				kind: "spelling",
 				flag,
 				given,
-				problem: `${Str.isEmpty(text) ? "an empty name" : Formatter.format(text)}: ${parsed.error}`
+				problem: `${Str.isEmpty(text) ? "an empty name" : Formatter.format(text)}: ${nameFaultText(parsed.error)}`
 			})
 }
 

@@ -7,9 +7,11 @@ import * as Result from "@bjornpagen/grizzle-text/base/result"
 import {
 	type DeclaredName,
 	identity as door,
+	nameFaultText,
 	parseDeclaredName,
 	parseSchemaName,
 	type SchemaName,
+	type SchemaNameFault,
 	maxIdentifierBytes
 } from "#compiler/core/identity.ts"
 import { formatLoc, SourceLoc } from "#compiler/core/loc.ts"
@@ -111,33 +113,44 @@ const unwrap = <A>(result: Result.Result<A, CompileError>): A => {
 const identity = (value: unknown): string => unwrap(descText(value))
 
 /**
+ * The refusal of the declared `what` `declared` at `location` for `fault`: IdentifierTooLong of its conversion past
+ * PostgreSQL's identifiers, MalformedDescription for any other fault.
+ */
+const nameRefused = (
+	what: string,
+	declared: string,
+	location: string,
+	fault: SchemaNameFault
+): never =>
+	fault.kind === "length"
+		? refuseWith({
+				_tag: "IdentifierTooLong",
+				at: SourceLoc(location, []),
+				declaration: `${what} ${Formatter.format(declared)}`,
+				identifier: fault.conversion,
+				bytes: fault.bytes,
+				limit: maxIdentifierBytes
+			})
+		: refuse(
+				"MalformedDescription",
+				location,
+				`the declared ${what} ${Formatter.format(declared)}: ${nameFaultText(fault)}`
+			)
+
+/**
  * A declared name that keeps the naming door's rule (core/identity.ts parseDeclaredName), which every name the oracle
- * derives from it is minted from; a name that breaks it is refused as malformed.
+ * derives from it is minted from; a name that breaks it is refused (nameRefused).
  */
 const declaredAt = (declared: string, location: string): DeclaredName => {
 	const kept = parseDeclaredName(declared)
-	if (!kept.ok) {
-		return refuse(
-			"MalformedDescription",
-			location,
-			`the declared name ${Formatter.format(declared)}: ${kept.error}`
-		)
-	}
-	return kept.value
+	return kept.ok ? kept.value : nameRefused("name", declared, location, kept.error)
 }
 
 /** A schema's declared name that keeps the naming door's rule for schemas (core/identity.ts parseSchemaName), or its
- * refusal as malformed. */
+ * refusal (nameRefused). */
 const schemaAt = (declared: string, location: string): SchemaName => {
 	const kept = parseSchemaName(declared)
-	if (!kept.ok) {
-		return refuse(
-			"MalformedDescription",
-			location,
-			`the declared schema name ${Formatter.format(declared)}: ${kept.error}`
-		)
-	}
-	return kept.value
+	return kept.ok ? kept.value : nameRefused("schema name", declared, location, kept.error)
 }
 
 /** A CHECK of a table. */

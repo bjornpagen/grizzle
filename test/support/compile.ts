@@ -8,7 +8,13 @@ import {
 	positionalColumns
 } from "#compiler/codec/recordset.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { type Identity, identifierOf, identity, parseSchemaName } from "#compiler/core/identity.ts"
+import {
+	type Identity,
+	identifierOf,
+	identity,
+	nameFaultText,
+	parseSchemaName
+} from "#compiler/core/identity.ts"
 import type { ParamId } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import type { Param } from "#compiler/core/wire.ts"
@@ -293,7 +299,7 @@ export const allocatedLevels = (
 		const name = parseSchemaName(`${identifierOf(installation)}_${depth}`)
 		if (!name.ok) {
 			throw new Error(
-				`the allocated level name of ${installation.display} at ${depth}: ${name.error}`
+				`the allocated level name of ${installation.display} at ${depth}: ${nameFaultText(name.error)}`
 			)
 		}
 		return identity.schema(name.value)

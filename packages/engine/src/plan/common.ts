@@ -67,6 +67,7 @@ export {
 	declaredAlike,
 	type DeclaredName,
 	identifierOf,
+	nameFaultText,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 export {

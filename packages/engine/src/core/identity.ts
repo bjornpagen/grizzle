@@ -294,41 +294,112 @@ interface ParsedName {
 	readonly conversion: string
 }
 
-/** A name parsed by the declared-name rule (`parseDeclaredName`), with its conversion, or the reason it breaks the rule. */
-const parsedName = (name: string): Result.Result<ParsedName, string> =>
-	Result.flatMap(parseNameCharacters(name), (named): Result.Result<ParsedName, string> => {
-		const conversion = conversionOf(named)
-		const bytes = utf8Length(conversion)
-		return bytes > maxIdentifierBytes
-			? Result.err(
-					`a name whose conversion fits ${maxIdentifierBytes} bytes; its conversion ${conversion} takes ${bytes}`
-				)
-			: Result.ok({ name: declaredNameOf(named), conversion })
-	})
+/**
+ * How a name breaks the declared-name rule: its characters (parseNameCharacters's reason), or its conversion, the
+ * identifier PostgreSQL would be given, whose `bytes` pass maxIdentifierBytes, which PostgreSQL would cut short.
+ */
+export type NameFault =
+	| { readonly kind: "characters"; readonly why: string }
+	| { readonly kind: "length"; readonly conversion: string; readonly bytes: number }
+
+/** How a schema's declared name breaks its rule: as any declared name does (NameFault), or by a conversion starting
+ * with `pg_`, which PostgreSQL reserves. */
+export type SchemaNameFault = NameFault | { readonly kind: "reserved"; readonly conversion: string }
+
+/**
+ * The declared-name rule, the one judgement of a name every declaration of one reads (`parseDeclaredName`,
+ * `admitDeclaredName`, `parseSchemaName`, `DeclaredNamespace`): its characters (parseNameCharacters), then its
+ * conversion within maxIdentifierBytes. The name parsed, with its conversion, or how it breaks the rule.
+ */
+const parsedName = (name: string): Result.Result<ParsedName, NameFault> => {
+	const named = parseNameCharacters(name)
+	if (!named.ok) {
+		return Result.err({ kind: "characters", why: named.error })
+	}
+	const conversion = conversionOf(named.value)
+	const bytes = utf8Length(conversion)
+	return bytes > maxIdentifierBytes
+		? Result.err({ kind: "length", conversion, bytes })
+		: Result.ok({ name: declaredNameOf(named.value), conversion })
+}
+
+/** A name fault as the rule states it. */
+export const nameFaultText = (fault: SchemaNameFault): string => {
+	switch (fault.kind) {
+		case "characters":
+			return fault.why
+		case "length":
+			return `a name whose conversion fits ${maxIdentifierBytes} bytes; its conversion ${fault.conversion} takes ${fault.bytes}`
+		case "reserved":
+			return `a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion ${fault.conversion} starts with it`
+	}
+}
+
+/**
+ * A name fault as the refusal of `declaration` (a kind and a name: `roster name "CatalogSyncNodesKind"`) at `loc`:
+ * IdentifierTooLong, naming the identifier PostgreSQL would cut short and its bytes, for a conversion past
+ * maxIdentifierBytes; MalformedDescription, the rule's statement of it, for any other.
+ */
+const faultRefusal = (fault: SchemaNameFault, declaration: string, loc: SourceLoc): CompileError =>
+	fault.kind === "length"
+		? CompileError.make({
+				_tag: "IdentifierTooLong",
+				at: loc,
+				declaration,
+				identifier: fault.conversion,
+				bytes: fault.bytes,
+				limit: maxIdentifierBytes
+			})
+		: malformedDescription(loc, `the declared ${declaration} as ${nameFaultText(fault)}`)
 
 /**
  * The rule a declared name keeps: its characters' (parseNameCharacters), and a conversion (its segments, lowercased,
  * joined by single underscores) within maxIdentifierBytes. Two declared names of one namespace whose conversions agree are one
- * name, which the declaring passes refuse (`DeclaredNamespace`). The name, parsed, or the reason it breaks the rule.
+ * name, which the declaring passes refuse (`DeclaredNamespace`). The name, parsed, or how it breaks the rule
+ * (`nameFaultText` states it). The package root exports it, so a generator that writes declared names (den's lowering)
+ * judges each by this rule where it derives it, never by a rule of its own.
  */
-export const parseDeclaredName = (name: string): Result.Result<DeclaredName, string> =>
+export const parseDeclaredName = (name: string): Result.Result<DeclaredName, NameFault> =>
 	Result.map(parsedName(name), (parsed) => parsed.name)
+
+/**
+ * A declared name admitted where it is written, `declaration` (its kind and name) at `loc`: the name, parsed by the
+ * declared-name rule, or its refusal (`faultRefusal`), IdentifierTooLong for an identifier PostgreSQL would cut short.
+ * Every builder that takes a declared name admits it here (schema/protocol.ts requireDeclaredName), so a name past
+ * PostgreSQL's identifiers is refused where it is written, never where a later stage reads it; ownership declares it by
+ * the same rule (DeclaredNamespace).
+ */
+export const admitDeclaredName = (
+	name: string,
+	declaration: string,
+	loc: SourceLoc
+): Result.Result<DeclaredName, CompileError> =>
+	Result.mapError(parseDeclaredName(name), (fault) => faultRefusal(fault, declaration, loc))
 
 /**
  * The rule a schema's declared name keeps: `parseDeclaredName`'s, and a conversion not starting with `pg_`, which
  * PostgreSQL reserves in the two namespaces the conversion leads in, its schemas' (the installed schema, each role's
- * schema) and its roles' (each login's and role's `<schema>__<name>`). The name, parsed, or the reason it breaks the
- * rule.
+ * schema) and its roles' (each login's and role's `<schema>__<name>`). The name, parsed, or how it breaks the rule.
  */
-export const parseSchemaName = (name: string): Result.Result<SchemaName, string> =>
+export const parseSchemaName = (name: string): Result.Result<SchemaName, SchemaNameFault> =>
 	Result.flatMap(
 		parsedName(name),
-		({ name: declared, conversion }): Result.Result<SchemaName, string> =>
+		({ name: declared, conversion }): Result.Result<SchemaName, SchemaNameFault> =>
 			conversion.startsWith("pg_")
-				? Result.err(
-						`a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion ${conversion} starts with it`
-					)
+				? Result.err({ kind: "reserved", conversion })
 				: Result.ok(schemaName(declared))
+	)
+
+/**
+ * A schema's declared name admitted where it is declared, at `loc`: the name, parsed by the schema's rule
+ * (parseSchemaName), or its refusal (`faultRefusal`), IdentifierTooLong for an identifier PostgreSQL would cut short.
+ */
+export const admitSchemaName = (
+	name: string,
+	loc: SourceLoc
+): Result.Result<SchemaName, CompileError> =>
+	Result.mapError(parseSchemaName(name), (fault) =>
+		faultRefusal(fault, `schema name ${JSON.stringify(name)}`, loc)
 	)
 
 declare const rolePrefixBrand: unique symbol
@@ -586,19 +657,15 @@ export class DeclaredNamespace {
 
 	/**
 	 * Declares `name`, a `kind` (relation, field, check...) at `loc`: the name, parsed, or its refusal,
-	 * MalformedDescription for a name `parseDeclaredName` refuses or whose conversion PostgreSQL holds in the namespace,
+	 * IdentifierTooLong for a conversion past maxIdentifierBytes, MalformedDescription for a name whose characters
+	 * `parseDeclaredName` refuses or whose conversion PostgreSQL holds in the namespace,
 	 * and IdentifierCollision, with both places, for a name whose conversion an earlier declaration took, the same name
 	 * declared twice included.
 	 */
 	declare(name: string, kind: string, loc: SourceLoc): Result.Result<DeclaredName, CompileError> {
 		const parsed = parsedName(name)
 		if (!parsed.ok) {
-			return Result.err(
-				malformedDescription(
-					loc,
-					`the declared ${kind} name ${JSON.stringify(name)} as ${parsed.error}`
-				)
-			)
+			return Result.err(faultRefusal(parsed.error, `${kind} name ${JSON.stringify(name)}`, loc))
 		}
 		const { conversion } = parsed.value
 		if (this.#held.has(conversion)) {

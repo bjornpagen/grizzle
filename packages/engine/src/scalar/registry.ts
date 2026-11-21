@@ -9,7 +9,7 @@ import {
 	unsupported
 } from "#compiler/core/errors.ts"
 import { hostRead } from "#compiler/core/host.ts"
-import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import { admitDeclaredName, type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
 import { childLoc, SourceLoc } from "#compiler/core/loc.ts"
 import {
 	type Built,
@@ -869,14 +869,9 @@ export const contractInfoOf = (
 	env: ScalarEnv,
 	loc: SourceLoc
 ): Result.Result<ContractInfo, CompileError> => {
-	const name = parseDeclaredName(desc.name)
+	const name = admitDeclaredName(desc.name, `contract name ${JSON.stringify(desc.name)}`, loc)
 	if (!name.ok) {
-		return Result.err(
-			malformedDescription(
-				loc,
-				`the declared contract name ${JSON.stringify(desc.name)} as ${name.error}`
-			)
-		)
+		return name
 	}
 	return Result.flatMap(scalarAt(desc.base, env, childLoc(loc, "base")), (base) =>
 		env.kind === "builder" || desc.predicate === undefined

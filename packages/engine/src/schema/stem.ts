@@ -1,12 +1,12 @@
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { catchCompileError } from "#compiler/core/canonical.ts"
-import { type CompileError, malformedDescription } from "#compiler/core/errors.ts"
+import type { CompileError } from "#compiler/core/errors.ts"
 import {
+	admitDeclaredName,
 	type DeclaredName,
 	type Identity,
 	identifierOf,
 	loginIdentity,
-	parseDeclaredName,
 	roleIdentity
 } from "#compiler/core/identity.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
@@ -26,9 +26,7 @@ const worldName = (
 	kind: "login" | "role",
 	loc: SourceLoc
 ): Result.Result<DeclaredName, CompileError> =>
-	Result.mapError(parseDeclaredName(name), (why) =>
-		malformedDescription(loc, `the declared ${kind} name ${JSON.stringify(name)} as ${why}`)
-	)
+	admitDeclaredName(name, `${kind} name ${JSON.stringify(name)}`, loc)
 
 /**
  * A login's stem, minted by the installer's function (core/identity.ts loginIdentity) under the installation its

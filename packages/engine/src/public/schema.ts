@@ -57,6 +57,7 @@ export type {
 	Unevaluated,
 	ValueRefused
 } from "#compiler/types/schema/evaluation.ts"
+export { type NameFault, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 export { schemaNameOf } from "#compiler/program/names.ts"
 export { login } from "#compiler/program/workload/login.ts"
 export { insertableNamesOf, wholeEntriesOf, writableNamesOf } from "#compiler/schema/world.ts"
@@ -167,8 +168,10 @@ export type {
  * Public barrel: relation (and relation.generated), closed (and closed.relation), derived, schema, fragment, the
  * statement constructors, the worlds: context, role (with wholeEntriesOf and writableNamesOf, a full role's entries and write
  * list) and login, insertableNamesOf, the relations a ChangeSet over a schema inserts at its top level, and
- * schemaNameOf, the installed name of a schema's or a role's PostgreSQL schema. A login's and a role's PostgreSQL role is
- * roleNameOf's, the runtime's one function, which the package root re-exports.
+ * schemaNameOf, the installed name of a schema's or a role's PostgreSQL schema, and parseDeclaredName, the declared-name
+ * rule every builder and ownership judge a name by (with its fault, NameFault, and nameFaultText, the fault as the rule
+ * states it), for a generator that writes declared names to judge each where it derives it. A login's and a role's
+ * PostgreSQL role is roleNameOf's, the runtime's one function, which the package root re-exports.
  *
  * relation, closed, schema, fragment and the statement constructors are the typed schema facade's (schema/api.ts), and login,
  * which admits the workloads it owns, the workload program's (program/workload/login.ts). derived's

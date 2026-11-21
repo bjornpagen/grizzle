@@ -10,7 +10,7 @@ import { nominal } from "#compiler/core/brand.ts"
 import { sameContent } from "#compiler/core/canonical.ts"
 import { bitsColumn, codeColumn } from "#compiler/core/decoder.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
-import { parseDeclaredName } from "#compiler/core/identity.ts"
+import type { DeclaredName } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { builtMark, fieldMark } from "#compiler/core/phantom.ts"
@@ -92,6 +92,7 @@ import {
 	ownValue,
 	queryDescOf,
 	builderRefusal,
+	requireDeclaredName,
 	requireName,
 	requireNames
 } from "#compiler/schema/protocol.ts"
@@ -518,7 +519,7 @@ export const admitRelation = (
 	 * and a nonempty primary key over the relation's own fields. The builder checks only what it reads before then: the
 	 * name its location is built from, its arity, and the descriptors, which only a builder made.
 	 */
-	const relationName = requireName(name, label, "a relation name")
+	const relationName = requireDeclaredName(name, label, "relation")
 	if (extra.length > 0) {
 		throw malformed(label, "relation(name, fields, primaryKey): three arguments")
 	}
@@ -601,7 +602,7 @@ const admitGenerated = <G>(
 	extra: ReadonlyArray<unknown>
 ): { readonly desc: OrdinaryRelationDesc; readonly generated: G } => {
 	const label = `relation ${typeof name === "string" ? name : "?"}`
-	const relationName = requireName(name, label, "a relation name")
+	const relationName = requireDeclaredName(name, label, "relation")
 	if (extra.length > 0) {
 		throw malformed(
 			label,
@@ -761,16 +762,17 @@ const handleList = (value: unknown, label: string): ReadonlyArray<string> => {
 /**
  * The admission core of closed.ordered(...) and closed.unordered(...): a JavaScript caller's arguments checked and
  * described, an unordered roster's handles held in its canonical order (ir/scalar.ts handlesInOrder) and its order
- * stated, an ordered roster's in declared order, which is its order.
+ * stated, an ordered roster's in declared order, which is its order; and its name, parsed by the declared-name rule
+ * (requireDeclaredName), which names the roster it types.
  */
 export const admitRoster = (
 	name: unknown,
 	handles: unknown,
 	order: RosterOrder,
 	extra: ReadonlyArray<unknown>
-): RosterDesc => {
+): { readonly desc: RosterDesc; readonly declared: DeclaredName } => {
 	const label = `closed ${typeof name === "string" ? name : "?"}`
-	const rosterName = requireName(name, label, "a roster name")
+	const rosterName = requireDeclaredName(name, label, "roster")
 	if (extra.length > 0) {
 		throw malformed(
 			label,
@@ -779,21 +781,19 @@ export const admitRoster = (
 	}
 	const held = Object.freeze(handlesInOrder(order, handleList(handles, label)))
 	const loc = builderLoc(label, [rosterName])
-	switch (order) {
-		case "ordered":
-			return builtNode({ kind: "closed", name: rosterName, handles: held, loc })
-		case "unordered":
-			return builtNode({ kind: "closed", name: rosterName, handles: held, order, loc })
-	}
+	const desc: RosterDesc =
+		order === "ordered"
+			? builtNode({ kind: "closed", name: rosterName, handles: held, loc })
+			: builtNode({ kind: "closed", name: rosterName, handles: held, order, loc })
+	return { desc, declared: rosterName }
 }
 
 /**
  * closed.ordered(name, handles) and closed.unordered(name, handles): a roster of `order`. The id of every fact is the
  * roster's closed id column, over the caller's handles, which admission read; a fact is the handle under id.
  * `handle(member)` is the member as a typed constant (scalar/compute/builders.ts handleTerm). Its owned entry holds the
- * roster its admitted handles type, their digest taken once (ir/scalar.ts Roster), which every closed id over it reads
- * (closedIdOf): none when the name is no declared name, which every reader of the roster refuses before it resolves one
- * (scalar/registry.ts rosterAt).
+ * roster its admitted name and handles type, their digest taken once (ir/scalar.ts Roster), which every closed id over
+ * it reads (closedIdOf). A name the declared-name rule refuses is refused here, so every built roster types one.
  */
 export const closedBuilder = <
 	const Name extends string,
@@ -805,13 +805,12 @@ export const closedBuilder = <
 	order: Order,
 	extra: ReadonlyArray<unknown>
 ): Roster<Name, readonly [...Handles], Order> => {
-	const desc = admitRoster(name, handles, order, extra)
+	const { desc, declared } = admitRoster(name, handles, order, extra)
 	const roster = frozenTuple<Handles>(handles)
 	const id: ClosedId<Handles[number], Name, Order> = Object.freeze({
 		id: Object.freeze({ column: codeColumn<Handles[number]>(name, handles), sql: carrierSql.code })
 	})
-	const declared = parseDeclaredName(desc.name)
-	const typed = declared.ok ? IrRoster.of(declared.value, order, desc.handles) : undefined
+	const typed = IrRoster.of(declared, order, desc.handles)
 	const parts = builtRosterParts(desc.name, { order, handles: desc.handles }, [], typed)
 	const value: Roster<Name, readonly [...Handles], Order> = ownValue({
 		kind: "closed",
@@ -925,7 +924,7 @@ export const admitClosedRelation = (
 	readonly written: ReadonlyMap<ClosedRow, number>
 } => {
 	const label = `closed.relation ${typeof name === "string" ? name : "?"}`
-	const relationName = requireName(name, label, "a closed relation name")
+	const relationName = requireDeclaredName(name, label, "closed relation")
 	if (extra.length > 0) {
 		throw malformed(label, "closed.relation(name, fields, key, rows): four arguments")
 	}
@@ -1096,7 +1095,7 @@ export const admitDerived = (
 	extra: ReadonlyArray<unknown>
 ): DerivedDraft => {
 	const label = `${storage === "live" ? "derived" : "derived.materialized"} ${typeof name === "string" ? name : "?"}`
-	const derivedName = requireName(name, label, "a derived relation name")
+	const derivedName = requireDeclaredName(name, label, "derived relation")
 	if (extra.length > 0) {
 		throw malformed(label, "derived(name, definition): two arguments")
 	}
@@ -1191,7 +1190,7 @@ export const relationDescOf = (
 				value["handles"],
 				rosterOrderRead(value["order"], label),
 				[]
-			)
+			).desc
 		}
 		if (value["kind"] === "closedRelation") {
 			return admitClosedRelation(value["name"], value["fields"], value["key"], value["rows"], [])

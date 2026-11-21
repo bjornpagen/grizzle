@@ -223,18 +223,17 @@ export const closedIdParts = (closed: unknown, rest: ReadonlyArray<unknown>): Cl
 /**
  * The parts of a closed id over a roster closed.ordered(name, handles) or closed.unordered(name, handles) built: the
  * name, order and handles its admission read, the subset of them the arguments after the roster state (readSubset),
- * and the roster it typed once, absent when its name is no declared name, which the registry refuses before it resolves
- * one (scalar/registry.ts rosterAt).
+ * and the roster it typed once, under the declared name its build admitted (schema/relation.ts admitRoster).
  */
 export const builtRosterParts = (
 	closed: string,
 	roster: RosterHandles,
 	rest: ReadonlyArray<unknown>,
-	typed: Roster | undefined
+	typed: Roster
 ): ClosedIdParts => {
 	const admitted = { closed, order: roster.order, handles: roster.handles }
 	return partsOf(admitted, subsetOf(admitted, rest), (name) =>
-		typed?.closed === name ? typed : undefined
+		typed.closed === name ? typed : undefined
 	)
 }
 

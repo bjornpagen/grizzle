@@ -7,13 +7,21 @@
  * against a letter, an underscore), so the conversion is known before the door reads it. Lengths are steered to the
  * limit: a name's conversion ends at a drawn target byte count around 63, the last word sized to meet it.
  *
- * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart.
+ * Every builder that takes a declared name for an object grizzle installs under its conversion (the dynamic door's
+ * relations and rosters, derived relations, schemas and levels, contracts) refuses a name past the limit where it is
+ * built, IdentifierTooLong naming the name, its conversion and the conversion's bytes, and builds one within it: no
+ * value carries a name a later stage must refuse for a reason it cannot name (a closed id over a roster resolves its
+ * roster by name). Same oracle, the generator's segments.
+ *
+ * Features: a conversion under the limit, at it, one byte past and far past, and two names at the limit apart; each
+ * builder building a name and refusing one, and a name within the limit whose conversion passes it.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
+import { aimed } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Array as Arr, Effect } from "effect"
+import { Array as Arr, Effect, String as Str } from "effect"
 import {
 	maxIdentifierBytes,
 	conversionOf,
@@ -22,10 +30,17 @@ import {
 } from "#compiler/core/identity.ts"
 import { pg } from "#compiler/public/fields.ts"
 import { relation, schema } from "#compiler/public/schema.ts"
+import { throwsRefused } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
+	builderAims,
+	type BuilderCase,
+	builderCaseGen,
+	type BuilderFeature,
+	builtNamed,
 	fieldNamedGen,
 	type LimitFeature,
+	nameBuilders,
 	nameOf,
 	pgSystemColumns,
 	situationOf,
@@ -93,8 +108,8 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 			kills: [
 				{
 					file: "packages/engine/src/core/identity.ts",
-					original: "\t\treturn bytes > maxIdentifierBytes",
-					replacement: "\t\treturn bytes >= maxIdentifierBytes",
+					original: "\treturn bytes > maxIdentifierBytes",
+					replacement: "\treturn bytes >= maxIdentifierBytes",
 					why: "A conversion of exactly maxIdentifierBytes is refused; the byte-limit property fails."
 				},
 				{
@@ -107,6 +122,73 @@ export const theNamingDoorsByteLimitAdmitsADeclaredNameExactlyWhenItsConversionF
 			]
 		}
 	)
+
+/**
+ * Every builder of a declared name builds a name whose conversion fits the limit, and refuses one past it where it is
+ * built: IdentifierTooLong naming the name, its conversion and the conversion's bytes.
+ */
+export const everyBuilderOfADeclaredNameBuildsOneWithinTheLimitAndRefusesOnePastItWhereItIsBuilt =
+	property.explore(aimed<BuilderCase, BuilderFeature>(builderCaseGen, builderAims), {
+		needs: {},
+		situations: [
+			...Arr.map(nameBuilders, (b) => `${b} built` as const),
+			...Arr.map(nameBuilders, (b) => `${b} refused` as const),
+			"at the limit",
+			"one byte past",
+			"far past",
+			"a name within the limit whose conversion passes it"
+		] satisfies ReadonlyArray<Reached<BuilderFeature>>,
+		check:
+			(_, c: Case<BuilderFeature>) =>
+			([builder, { declared, converted }]) =>
+				Effect.sync(() => {
+					assert.equal(conversionOf(declared), converted, declared)
+					const bytes = Buffer.byteLength(converted)
+					const situation = situationOf(bytes)
+					if (situation !== "under the limit") {
+						c.note(situation)
+					}
+					if (bytes <= maxIdentifierBytes) {
+						builtNamed(builder, declared)
+						c.note(`${builder} built`)
+						return
+					}
+					if (Buffer.byteLength(declared) <= maxIdentifierBytes) {
+						c.note("a name within the limit whose conversion passes it")
+					}
+					const { reason } = throwsRefused(
+						() => builtNamed(builder, declared),
+						"IdentifierTooLong",
+						`${builder} ${declared}`
+					)
+					if (reason._tag !== "IdentifierTooLong") {
+						return assert.fail(`${builder} ${declared} is refused as IdentifierTooLong`)
+					}
+					assert.deepEqual(
+						[reason.identifier, reason.bytes, reason.limit],
+						[converted, bytes, maxIdentifierBytes],
+						`${builder} ${declared}`
+					)
+					assert.ok(
+						Str.includes(declared)(reason.declaration),
+						`${builder}'s refusal names ${declared}: ${reason.declaration}`
+					)
+					c.note(`${builder} refused`)
+				}),
+		oracle: {
+			kind: "specification",
+			name: "the generator's own segments, lowercased and joined by underscores, and the limit on their bytes"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/schema/relation.ts",
+				original: '\tconst rosterName = requireDeclaredName(name, label, "roster")',
+				replacement: '\tconst rosterName = requireName(name, label, "a roster name")',
+				why: "closed.ordered and closed.unordered take any storable name, as they did: a roster past the limit builds, typed under no roster, and a closed id over it is refused when its schema compiles as no closed relation of its name, never as a name too long (metis's catalog-sync refusal); the builder property fails at a roster past the limit."
+			}
+		]
+	})
 
 /**
  * A relation's field is admitted exactly when its conversion is none of PostgreSQL's system columns: a schema whose

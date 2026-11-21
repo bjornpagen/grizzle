@@ -4331,7 +4331,11 @@ deploy.
   `roleNameOf(login or role, connection)`, and a schema's or a role's schema from `schemaNameOf(schema or role)`, never
   spell one. Refused: two names that convert to one, a conversion over 63 bytes (a login's or role's with its schema's,
   and with the role prefix, which `migrate`, `DbLayer.make` and `roleNameOf` refuse before they connect), and a schema
-  name or a role prefix starting with `pg_`. Everything else (keys, foreign keys, indexes, functions, triggers) is
+  name or a role prefix starting with `pg_`. A relation's, roster's, derived relation's or schema's name over 63 bytes
+  is refused by its builder, `IdentifierTooLong` naming it and its conversion's bytes, and a field's or a check's by
+  its schema's compilation. A program that writes declared names judges each by the same rule,
+  `parseDeclaredName(name)`: the name, or its `NameFault`, its characters or its conversion and that conversion's
+  bytes, which `nameFaultText` states. Everything else (keys, foreign keys, indexes, functions, triggers) is
   named `__<readable part>_<digest>`, with a COMMENT saying what it is, and listed by `grizzle names`. grizzle's SQL
   qualifies every name: a table as `"shop"."task"`, a type as `"pg_catalog"."text"` or its keyword (`integer`), a
   function as `"pg_catalog"."count"`. So a relation may be called `Text` or `Uuid`, and no search_path, the
@@ -4757,6 +4761,7 @@ creates one, and `grizzle drift` reports a grant revoked since.
 | `OutsideRole`                                   | the `role` and the `access` it doesn't hold                                                              |
 | `DuplicateIdentity`                             | the `earlier` declaration                                                                                |
 | `IdentifierCollision`                           | the `other` declaration and the `identifier` both convert to                                             |
+| `IdentifierTooLong`                             | the `declaration` whose `identifier` takes `bytes` past PostgreSQL's `limit`, refused where it's written |
 | `DigestCollision`                               | two objects, `display` and `otherDisplay`, whose hashed names share the stem and digest of `identifier`; renaming a declaration either is built from gives it another |
 | `UnrepresentableKey`                            | the key and its `fault`                                                                                  |
 | `PartialOperation`                              | an `operation` whose `precondition` on `operand` nothing proves, and the `guard` to write                |

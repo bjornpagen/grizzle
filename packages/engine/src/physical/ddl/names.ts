@@ -11,6 +11,7 @@ import {
 	identifierOf,
 	identity,
 	type ParamPlace,
+	nameFaultText,
 	parseDeclaredName,
 	roleIdentity
 } from "#compiler/core/identity.ts"
@@ -274,7 +275,9 @@ export const roleView = (role: Identity<"role">, e: OwnedEntry): Identity<"roleV
 const viewColumn = (field: string): Identity<"column"> => {
 	const parsed = parseDeclaredName(field)
 	if (!parsed.ok) {
-		missing(`physical: the view field ${JSON.stringify(field)}, a name ${parsed.error}`)
+		missing(
+			`physical: the view field ${JSON.stringify(field)}, a name ${nameFaultText(parsed.error)}`
+		)
 	}
 	return identity.column(parsed.value)
 }

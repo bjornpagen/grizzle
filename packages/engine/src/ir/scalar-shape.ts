@@ -6,7 +6,7 @@ import { floatSpecialNames } from "#compiler/core/canonical.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import { admittedFunctionDigest } from "#compiler/core/fingerprint.ts"
 import { functionVolatilities } from "#compiler/core/function.ts"
-import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import { type DeclaredName, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 import { ExprId, NodeId, ParamId } from "#compiler/core/ids.ts"
 import {
 	MoneyText,
@@ -257,7 +257,9 @@ const declaredNameShape: S.Shape<DeclaredName> = S.plain({
 	expected: "a declared name",
 	parse: function* (value, path) {
 		const parsed = parseDeclaredName(yield* S.nonEmptyString.parse(value, path))
-		return parsed.ok ? parsed.value : S.refuse(path, `a declared name: ${parsed.error}`)
+		return parsed.ok
+			? parsed.value
+			: S.refuse(path, `a declared name: ${nameFaultText(parsed.error)}`)
 	}
 })
 

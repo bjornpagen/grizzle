@@ -1,6 +1,5 @@
-import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
-import { parseDeclaredName } from "#compiler/core/identity.ts"
+import { admitDeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -172,13 +171,16 @@ export const contractParts = (
 	base: unknown,
 	rest: ReadonlyArray<unknown>
 ): ContractParts => {
-	const declared =
-		typeof name === "string" ? parseDeclaredName(name) : Result.err("a name given as a string")
-	if (!declared.ok) {
+	const nameLoc = captureLoc("contract name", [])
+	if (typeof name !== "string") {
 		throw malformedDescription(
-			captureLoc("contract name", []),
-			`a contract name: a declared name, the contract's identity; ${declared.error}`
+			nameLoc,
+			"a contract name: a declared name, the contract's identity; a name given as a string"
 		)
+	}
+	const declared = admitDeclaredName(name, `contract name ${JSON.stringify(name)}`, nameLoc)
+	if (!declared.ok) {
+		throw declared.error
 	}
 	const contract = declared.value
 	const [predicate, declaration, ...extra] = rest

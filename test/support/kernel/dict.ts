@@ -6,6 +6,7 @@ import { Array as Arr, Order, String as Str } from "effect"
 import {
 	maxIdentifierBytes,
 	conversionOf,
+	nameFaultText,
 	parseDeclaredName,
 	parseSchemaName
 } from "#compiler/core/identity.ts"
@@ -189,7 +190,8 @@ export const admittedNames: ReadonlyArray<Admitted> = Arr.flatMap(
 /** The candidates it refuses, with its reasons. */
 export const refusedNames: ReadonlyArray<RefusedName> = Arr.flatMap(
 	classified,
-	({ candidate, parsed }) => (parsed.ok ? [] : [{ ...candidate, reason: parsed.error }])
+	({ candidate, parsed }) =>
+		parsed.ok ? [] : [{ ...candidate, reason: nameFaultText(parsed.error) }]
 )
 
 /**

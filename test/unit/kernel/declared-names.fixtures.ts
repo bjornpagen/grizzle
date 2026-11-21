@@ -4,6 +4,14 @@ import { nonEmpty } from "@bjornpagen/testing/assert"
 import { characterOf, element, type Gen, int, string, weighted } from "@bjornpagen/testing/gen"
 import { Array as Arr, String as Str } from "effect"
 import { maxIdentifierBytes } from "#compiler/core/identity.ts"
+import { closed as dynamicClosed, relation as dynamicRelation } from "#compiler/public/dynamic.ts"
+import { closedId, generated, pg } from "#compiler/public/fields.ts"
+import { closed, relation } from "#compiler/public/schema.ts"
+import { queryOver, varsOver } from "#compiler/query/build/query.ts"
+import type { RuleValue } from "#compiler/query/build/rule.ts"
+import { contractParts } from "#compiler/scalar/contract.ts"
+import { derivedBuilder, materializedDerived } from "#compiler/schema/relation.ts"
+import { schemaBuilder } from "#compiler/schema/schema.ts"
 
 const lowercase = nonEmpty(Arr.fromIterable("abcdefghijklmnopqrstuvwxyz"), "lowercase letters")
 
@@ -76,14 +84,12 @@ export const targetGen: Gen<number> = weighted<number>([
 	[1, int(20, maxIdentifierBytes + 12)]
 ])
 
-export type LimitFeature =
-	| "under the limit"
-	| "at the limit"
-	| "one byte past"
-	| "far past"
-	| "two at the limit apart"
+/** Where a conversion's bytes fall against the limit. */
+export type ByteFeature = "under the limit" | "at the limit" | "one byte past" | "far past"
 
-export const situationOf = (bytes: number): LimitFeature =>
+export type LimitFeature = ByteFeature | "two at the limit apart"
+
+export const situationOf = (bytes: number): ByteFeature =>
 	bytes < maxIdentifierBytes
 		? "under the limit"
 		: bytes === maxIdentifierBytes
@@ -136,3 +142,109 @@ export const fieldNamedGen: Gen<FieldNamed> = weighted<FieldNamed>([
 ])
 
 export type SystemColumnFeature = `${(typeof pgSystemColumns)[number]} refused` | "admitted"
+
+/**
+ * The builders that take a declared name for an object grizzle installs under its conversion, each by the callee a
+ * caller writes: the box of the builder-boundary property.
+ */
+export const nameBuilders = [
+	"relation",
+	"relation.generated",
+	"closed.ordered",
+	"closed.unordered",
+	"closed.relation",
+	"derived",
+	"derived.materialized",
+	"schema",
+	"schema.extend",
+	"contract"
+] as const
+
+export type NameBuilder = (typeof nameBuilders)[number]
+
+/** A case of the builder property: a builder, and a declared name with its conversion. */
+export type BuilderCase = readonly [
+	NameBuilder,
+	{ readonly declared: string; readonly converted: string }
+]
+
+/** A builder and a name whose conversion is drawn around the limit (targetGen). */
+export const builderCaseGen: Gen<BuilderCase> = (source) =>
+	[source.draw(element(nameBuilders)), source.draw(nameOf(source.draw(targetGen)))] as const
+
+/** `builder` with a name whose conversion is drawn from `bytes`: within the limit, or past it. */
+const builderAt =
+	(builder: NameBuilder, bytes: Gen<number>): Gen<BuilderCase> =>
+	(source) =>
+		[builder, source.draw(nameOf(source.draw(bytes)))] as const
+
+/**
+ * The builder property's aims: for each builder, a name within the limit (at most maxIdentifierBytes) and one past it,
+ * so each builder's build and its refusal are reached, where a drawn case meets one builder's refusal in about one in
+ * twenty-five.
+ */
+export const builderAims: ReadonlyArray<readonly [BuilderFeature, Gen<BuilderCase>]> = Arr.flatMap(
+	nameBuilders,
+	(builder) => [
+		[
+			`${builder} built`,
+			builderAt(builder, int(maxIdentifierBytes - 12, maxIdentifierBytes))
+		] as const,
+		[
+			`${builder} refused`,
+			builderAt(builder, int(maxIdentifierBytes + 1, maxIdentifierBytes + 12))
+		] as const
+	]
+)
+
+/** Each builder building a name within the limit and refusing one past it, and where the name's bytes fall. */
+export type BuilderFeature =
+	| `${NameBuilder} built`
+	| `${NameBuilder} refused`
+	| Exclude<ByteFeature, "under the limit">
+	| "a name within the limit whose conversion passes it"
+
+/** The roster a closed relation's key is over, the relation a derived relation reads, and the level they are in. */
+const Kind = closed.ordered("Kind", ["a", "b"])
+const Item = relation("Item", { id: pg.integer }, ["id"])
+const Level = schemaBuilder("Level", [Item], [], [])
+const itemIds = queryOver(Level).rule((r: RuleValue) => {
+	const { id } = varsOver(Item, "item")
+	return r.match(Item, { id }).find({ id })
+})
+
+/**
+ * `builder` called with `name`, a name typed `string` as a generator's is, and every other argument one it builds
+ * over, so a name its builder admits builds.
+ */
+export const builtNamed = (builder: NameBuilder, name: string): unknown => {
+	switch (builder) {
+		case "relation":
+			return dynamicRelation(name, { id: pg.integer }, ["id"])
+		case "relation.generated":
+			return dynamicRelation.generated(name, { id: pg.integer, n: pg.integer }, ["id"], (r) => ({
+				m: generated(pg.integer, r.n)
+			}))
+		case "closed.ordered":
+			return dynamicClosed.ordered(name, ["a", "b"])
+		case "closed.unordered":
+			return dynamicClosed.unordered(name, ["b", "a"])
+		case "closed.relation":
+			return dynamicClosed.relation(
+				name,
+				{ kind: closedId(Kind), w: pg.integer },
+				["kind"],
+				[{ kind: "a", w: 1 }]
+			)
+		case "derived":
+			return derivedBuilder(name, itemIds, [])
+		case "derived.materialized":
+			return materializedDerived(name, itemIds, [])
+		case "schema":
+			return schemaBuilder(name, [Item], [], [])
+		case "schema.extend":
+			return schemaBuilder.extend([Level], name, [], [], [])
+		case "contract":
+			return contractParts(name, pg.integer, [])
+	}
+}

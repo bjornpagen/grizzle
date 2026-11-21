@@ -430,6 +430,9 @@ const duplicateText = (duplicate: Duplicate): string => {
  * - `OutsideRole`: a program over `role` makes an access the role does not hold (RoleAccess).
  * - `IdentifierCollision`: two declarations whose `what` names, `declaration` and `otherDeclaration`, both convert to
  *   the identifier `identifier`; the one refused is `at`, the other `other`.
+ * - `IdentifierTooLong`: a declaration, `declaration` (its kind and name), whose identifier, `identifier`, its name's
+ *   conversion, takes `bytes` bytes, past PostgreSQL's `limit` (core/identity.ts maxIdentifierBytes), which PostgreSQL
+ *   would cut short: refused where the name is written (admitDeclaredName) and where it is declared.
  * - `DigestCollision`: two distinct objects, `display` and `otherDisplay`, whose hashed names share the stem and the
  *   digest of `identifier` (core/identity.ts digestChars): two of one installation (censusOf), or a migration's
  *   temporary and an object standing while it runs or another temporary (TemporaryCensus); renaming a declaration
@@ -585,6 +588,14 @@ export type CompileReason =
 			readonly what: string
 			readonly declaration: string
 			readonly otherDeclaration: string
+	  }
+	| {
+			readonly _tag: "IdentifierTooLong"
+			readonly at: SourceLoc
+			readonly declaration: string
+			readonly identifier: string
+			readonly bytes: number
+			readonly limit: number
 	  }
 	| {
 			readonly _tag: "DigestCollision"
@@ -1072,6 +1083,8 @@ export const compileReasonText = (reason: CompileReason): string => {
 			return accessText(reason.role, reason.access)
 		case "IdentifierCollision":
 			return `${reason.what} names that convert apart; ${reason.declaration} and ${reason.otherDeclaration} both convert to ${reason.identifier}`
+		case "IdentifierTooLong":
+			return `a name whose identifier fits PostgreSQL's ${reason.limit} bytes; the ${reason.declaration}'s identifier ${reason.identifier} takes ${reason.bytes}`
 		case "DigestCollision":
 			return `distinct hashed names for distinct objects; ${reason.display} and ${reason.otherDisplay} are both ${reason.identifier}: rename a declaration either is built from`
 		case "ResourceBound":

@@ -10,7 +10,8 @@
  *   field's row function of no parameter each read the installation's schema;
  * - a COMMENT names a hashed object only, and says what its identity is: a readable name spells its identity itself;
  * - two declared names of one namespace that convert alike are one name, refused as IdentifierCollision, and a name the
- *   rule refuses (a leading `_`, a conversion past maxIdentifierBytes) is refused as MalformedDescription;
+ *   rule refuses is refused: by its characters (a leading `_`) as MalformedDescription, by a conversion past
+ *   maxIdentifierBytes as IdentifierTooLong;
  * - the census admits distinct hashed identities of distinct identifiers, and refuses two distinct identities of one
  *   identifier, a digest collision, as DigestCollision naming both, before anything is installed;
  * - a migration's census of its temporaries (TemporaryCensus), over the hashed names an installed snapshot leaves
@@ -37,6 +38,7 @@ import {
 	censusOf,
 	type Identity,
 	identity,
+	parseNameCharacters,
 	TemporaryCensus,
 	type TemporaryKind
 } from "#compiler/core/identity.ts"
@@ -151,6 +153,13 @@ export const theNamingDoorInstallsOneSchemaUnderTwoSchemaNamesAlikeAndCommentsEx
 		]
 	})
 
+/**
+ * The refusal of a name the declared-name rule refuses, by the rule's own classification: IdentifierTooLong where its
+ * characters keep the rule and so its conversion passes PostgreSQL's identifiers, MalformedDescription where they don't.
+ */
+const ruleRefusalOf = (name: string): "IdentifierTooLong" | "MalformedDescription" =>
+	parseNameCharacters(name).ok ? "IdentifierTooLong" : "MalformedDescription"
+
 /** The naming door refuses two declared names of one namespace that convert alike, and every name the rule refuses. */
 export const theNamingDoorRefusesTwoDeclaredNamesOfOneNamespaceThatConvertAlikeAndEveryNameTheRuleRefuses =
 	property.exhaust(finite(declaredNamesGen), {
@@ -192,14 +201,14 @@ export const theNamingDoorRefusesTwoDeclaredNamesOfOneNamespaceThatConvertAlikeA
 					case "a refused relation name":
 						refused(
 							ownedInput(schemaOf([relation(drawn.p, { id: f.uuid }, ["id"])])),
-							"MalformedDescription",
+							ruleRefusalOf(drawn.p),
 							drawn.p
 						)
 						return
 					case "a refused field name":
 						refused(
 							ownedInput(schemaOf([relation("Item", { id: f.uuid, [drawn.p]: f.bigint }, ["id"])])),
-							"MalformedDescription",
+							ruleRefusalOf(drawn.p),
 							drawn.p
 						)
 				}

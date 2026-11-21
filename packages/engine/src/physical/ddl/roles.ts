@@ -32,6 +32,7 @@ import {
 	identifierOf,
 	identity,
 	loginIdentity,
+	nameFaultText,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -407,7 +408,7 @@ const viewColumns = <C extends HeadingColumn>(
 		const field = parseDeclaredName(c.name)
 		if (!field.ok) {
 			return missing(
-				`physical: the closed id field ${JSON.stringify(c.name)}, a name ${field.error}`
+				`physical: the closed id field ${JSON.stringify(c.name)}, a name ${nameFaultText(field.error)}`
 			)
 		}
 		return [

@@ -11,7 +11,7 @@ import {
 import { exact, set, structuralHash } from "@bjornpagen/testing/oracle"
 import { fullSwarm, keep, type Swarm, weightOf } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, Record as Rec } from "effect"
-import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import { type DeclaredName, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec } from "#compiler/ir/codes.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
@@ -132,7 +132,7 @@ export const schemaName = "Oracle"
 const rosterName = (name: string): DeclaredName => {
 	const parsed = parseDeclaredName(name)
 	if (!parsed.ok) {
-		throw new Error(`the generated roster name ${name}: ${parsed.error}`)
+		throw new Error(`the generated roster name ${name}: ${nameFaultText(parsed.error)}`)
 	}
 	return parsed.value
 }

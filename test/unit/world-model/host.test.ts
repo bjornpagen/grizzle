@@ -164,9 +164,11 @@ export const theWorldsModelsHostSemanticsHoldsInAWritableEntryExactlyTheTargetFa
 		kills: [
 			{
 				file: "packages/engine/src/core/identity.ts",
-				original: `\t\t\tconversion.startsWith("pg_")\n\t\t\t\t? Result.err(\n\t\t\t\t\t\t\`a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion \${conversion} starts with it\`\n\t\t\t\t\t)\n\t\t\t\t: Result.ok(schemaName(declared))`,
-				replacement: `\t\t\tconversion.startsWith("pg_") ? Result.ok(schemaName(declared)) : Result.err(\n\t\t\t\t\t\t\`a name whose conversion does not start with pg_, which PostgreSQL reserves; its conversion \${conversion} starts with it\`\n\t\t\t\t\t)`,
-				why: 'Operator mutant (arm-swap) at packages/engine/src/core/identity.ts:292 in parseSchemaName: `conversion.startsWith("pg_")\n\t\t\t\t? Result.err(\n\t\t\t\t\t\t`a name whose conversion do` becomes `conversion.startsWith("pg_") ? Result.ok(schemaName(declared)) : Result.err(\n\t\t\t`; the property fails (lane CATCH, grizzle 0baff5d6).'
+				original:
+					'\t\t\tconversion.startsWith("pg_")\n\t\t\t\t? Result.err({ kind: "reserved", conversion })\n\t\t\t\t: Result.ok(schemaName(declared))',
+				replacement:
+					'\t\t\tconversion.startsWith("pg_")\n\t\t\t\t? Result.ok(schemaName(declared))\n\t\t\t\t: Result.err({ kind: "reserved", conversion })',
+				why: "Operator mutant (arm-swap) in parseSchemaName: its pg_ arms swapped, so a pg_ conversion is admitted and every other schema name refused as reserved; the property fails (lane CATCH, grizzle 0baff5d6, quoted as the fault reads since lane REDFIX2)."
 			}
 		]
 	})

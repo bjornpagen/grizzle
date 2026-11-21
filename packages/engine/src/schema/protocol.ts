@@ -27,6 +27,7 @@
  */
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { type CompileError, malformedDescription, ruleRefused } from "#compiler/core/errors.ts"
+import { admitDeclaredName, type DeclaredName } from "#compiler/core/identity.ts"
 import { captureLoc, type SourceLoc } from "#compiler/core/loc.ts"
 import { type Built, builtMark } from "#compiler/core/phantom.ts"
 import { hasProperties, isList } from "#compiler/core/record.ts"
@@ -102,6 +103,19 @@ export const requireName = (value: unknown, label: string, what: string): string
 		throw malformed(label, `${what}: a nonempty storable string`)
 	}
 	return value
+}
+
+/**
+ * A declared name a builder takes for an object grizzle installs under it (a relation's table, a roster's domain, a
+ * derived relation's view, a schema's or a level's schema): requireName's, parsed by the declared-name rule where it is
+ * written (core/identity.ts admitDeclaredName), so a name PostgreSQL would cut short is refused when it is built,
+ * IdentifierTooLong naming `kind`, the name and its identifier's bytes, never where something reads it later.
+ */
+export const requireDeclaredName = (value: unknown, label: string, kind: string): DeclaredName => {
+	const name = requireName(value, label, `a ${kind} name`)
+	return orThrow(
+		admitDeclaredName(name, `${kind} name ${JSON.stringify(name)}`, builderLoc(label, []))
+	)
 }
 
 /**
@@ -215,7 +229,7 @@ interface OwnedKinds {
 	readonly closed: {
 		readonly value: AnyRoster
 		readonly desc: RosterDesc
-		readonly content: TypedRoster | undefined
+		readonly content: TypedRoster
 	}
 	readonly closedRelation: {
 		readonly value: AnyClosedRelation

@@ -1,5 +1,5 @@
 import { Array as Arr, Formatter, pipe, Record as Rec, String as Str } from "effect"
-import { parseDeclaredName } from "#compiler/core/identity.ts"
+import { nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 import { floatLiteral, isIntegerTypmod } from "#compiler/ir/carriers.ts"
 import { type RosterCodec, rosterCodec } from "#compiler/ir/codes.ts"
 import type { TypedLiteral } from "#compiler/ir/expr.ts"
@@ -71,7 +71,7 @@ export const rosterHandles: readonly [string, ...Array<string>] = ["H0", "H1", "
 const rosterCodes: RosterCodec = (() => {
 	const name = parseDeclaredName(rosterName)
 	if (!name.ok) {
-		throw new Error(`the write roster's name ${rosterName}: ${name.error}`)
+		throw new Error(`the write roster's name ${rosterName}: ${nameFaultText(name.error)}`)
 	}
 	return rosterCodec(
 		name.value,

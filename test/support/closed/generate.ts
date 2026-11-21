@@ -38,7 +38,7 @@ import type { Reached } from "@bjornpagen/testing/features"
 import { element, type Gen, int, type Size, subset } from "@bjornpagen/testing/gen"
 import { type Swarm, swarm, swarmChoice } from "@bjornpagen/testing/swarm"
 import { Array as Arr, Option, String as Str } from "effect"
-import { type DeclaredName, parseDeclaredName } from "#compiler/core/identity.ts"
+import { type DeclaredName, nameFaultText, parseDeclaredName } from "#compiler/core/identity.ts"
 import type { CodeSlot, RosterCodes } from "#compiler/ir/cells.ts"
 import { type Codebook, rosterCodec, type RosterCodec } from "#compiler/ir/codes.ts"
 import { noSpellings } from "#compiler/ir/pattern.ts"
@@ -97,7 +97,7 @@ const declared = (name: string): DeclaredName => {
 	const parsed = parseDeclaredName(name)
 	if (!parsed.ok) {
 		throw new Error(
-			`the roster pool holds the name "${name}", which the naming door refuses: ${parsed.error}`
+			`the roster pool holds the name "${name}", which the naming door refuses: ${nameFaultText(parsed.error)}`
 		)
 	}
 	return parsed.value

@@ -891,6 +891,7 @@ const reasonKey = (reason: CompileReason): string => {
 		case "DescribedHeadingMismatch":
 		case "ContractLiteral":
 		case "IdentifierCollision":
+		case "IdentifierTooLong":
 		case "DigestCollision":
 		case "ResourceBound":
 		case "GeneratedRefused":

@@ -29,7 +29,7 @@ import {
 	ownedDesc,
 	ownedEntry,
 	ownValue,
-	requireName
+	requireDeclaredName
 } from "#compiler/schema/protocol.ts"
 import { levelRecord, levelRecordOver } from "#compiler/schema/record.ts"
 import {
@@ -370,7 +370,7 @@ export const admitSchema = (
 	extra: ReadonlyArray<unknown>
 ): AdmittedLevel => {
 	const label = `schema ${typeof name === "string" ? name : "?"}`
-	const schemaName = requireName(name, label, "a schema name")
+	const schemaName = requireDeclaredName(name, label, "schema")
 	if (extra.length > 0) {
 		throw malformed(label, "schema(name, relations, statements): three arguments")
 	}
@@ -531,7 +531,7 @@ const admitExtend = (
 	const baseEntry = oneBase(bases)
 	const baseDesc = baseEntry.desc
 	const label = `schema.extend ${baseDesc.name} ${typeof name === "string" ? name : "?"}`
-	const levelName = requireName(name, label, "a schema name")
+	const levelName = requireDeclaredName(name, label, "schema")
 	if (extra.length > 0) {
 		throw malformed(label, "schema.extend([base], name, relations, statements): four arguments")
 	}

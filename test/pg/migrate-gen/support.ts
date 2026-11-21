@@ -18,6 +18,7 @@ import {
 	conversionOf as converts,
 	identity,
 	maxIdentifierBytes,
+	nameFaultText,
 	parseDeclaredName
 } from "#compiler/core/identity.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
@@ -1038,7 +1039,7 @@ const conversionOf = (declared: string): string => {
 	const r = parseDeclaredName(declared)
 	if (!r.ok) {
 		throw new Error(
-			`the generator drew ${Formatter.format(declared)}, which the naming rule refuses: ${r.error}`
+			`the generator drew ${Formatter.format(declared)}, which the naming rule refuses: ${nameFaultText(r.error)}`
 		)
 	}
 	return converts(r.value)

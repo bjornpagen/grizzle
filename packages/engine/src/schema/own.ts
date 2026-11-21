@@ -22,14 +22,14 @@ import {
 } from "#compiler/core/errors.ts"
 import { type SchemaLevel, schemaLevel } from "#compiler/core/fingerprint.ts"
 import {
+	admitSchemaName,
 	conversionOf,
 	type DeclaredName,
 	DeclaredNamespace,
 	decodedColumnFits,
 	type Identity,
 	identifierOf,
-	identity,
-	parseSchemaName
+	identity
 } from "#compiler/core/identity.ts"
 import { namedatalen } from "#compiler/core/identity.ts"
 import {
@@ -1104,23 +1104,15 @@ const ownKey = (
 
 /**
  * The identity at the naming door of a schema's installation under its declared name `name`, declared at `loc`: refused
- * as MalformedDescription when the name breaks a schema name's rule (core/identity.ts parseSchemaName). A command that
- * only places a schema's migrations reads it without owning the schema.
+ * when the name breaks a schema name's rule (core/identity.ts admitSchemaName), IdentifierTooLong past PostgreSQL's
+ * identifiers and MalformedDescription otherwise. A command that only places a schema's migrations reads it without
+ * owning the schema.
  */
 export const schemaInstallation = (
 	name: string,
 	loc: SourceLoc
-): Result.Result<Identity<"schema">, CompileError> => {
-	const schemaName = parseSchemaName(name)
-	return schemaName.ok
-		? Result.ok(identity.schema(schemaName.value))
-		: Result.err(
-				malformedDescription(
-					loc,
-					`the declared schema name ${JSON.stringify(name)} as ${schemaName.error}`
-				)
-			)
-}
+): Result.Result<Identity<"schema">, CompileError> =>
+	Result.map(admitSchemaName(name, loc), (schemaName) => identity.schema(schemaName))
 
 /** The field a selection's conjunct fixes to a literal, `field = literal` either way round; none for any other. */
 const fixedField = (e: ExprDesc): string | undefined => {
