@@ -77,8 +77,8 @@ export const theLoopOverAGeneratedProjectEveryCommandsExitStatusRefusalAndFolder
 		kills: [
 			{
 				file: "packages/grizzle/src/cli/clock.ts",
-				original: "\tif (current > latest) {",
-				replacement: "\tif (current >= latest) {",
+				original: "\treturn current > timestampText(newest)",
+				replacement: "\treturn current >= timestampText(newest)",
 				why: "A folder's timestamp repeats the newest folder's."
 			},
 			{

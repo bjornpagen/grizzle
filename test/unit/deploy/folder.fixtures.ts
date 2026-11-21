@@ -38,6 +38,7 @@ import { closedId } from "#compiler/public/fields.ts"
 import { closed, schema } from "#compiler/public/schema.ts"
 import { str } from "#compiler/public/text.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { digitsOf, secondGen } from "#test/support/calendar.ts"
 import { parsedName } from "#test/support/kernel/naming.ts"
 
 const words = regex("^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
@@ -46,6 +47,7 @@ export const isWordsOracle = (text: string): boolean => words.test(text)
 
 /** Fourteen ASCII digits, or a near miss: a digit too few or too many, or one character that is no ASCII digit. */
 export const timestampGen: Gen<string> = weighted([
+	[4, (source) => digitsOf(source.draw(secondGen))],
 	[4, matching(regex("^[0-9]{14}$"))],
 	[1, matching(regex("^[0-9]{13}$|^[0-9]{15}$"))],
 	[

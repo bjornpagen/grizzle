@@ -236,7 +236,7 @@ const checkCommitted = Effect.fn("checkCommitted")(function* (
 	const chain = committedChain(schema, sources)
 	const packs: Array<PackStatement> = []
 	for (const folder of chain.folders) {
-		if (folder.place === "misnamed") {
+		if (folder.place.kind === "misnamed") {
 			at("folderName", path(folder.name), refusalText.folderName.problem)
 		}
 		const m = folder.meta

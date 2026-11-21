@@ -14,7 +14,7 @@ import {
 } from "#cli/errors.ts"
 import type { SchemaTree } from "#cli/files.ts"
 import type { CompileError } from "#compiler/plan/common.ts"
-import { folderTimestamp, isFolderName, type ReadMeta } from "#compiler/plan/migration.ts"
+import { folderParts, type ReadMeta, type TimestampParts } from "#compiler/plan/migration.ts"
 import { type DeploySnapshot, emptyFingerprint, emptySnapshot } from "#compiler/plan/serve.ts"
 
 /**
@@ -98,12 +98,17 @@ type FolderMeta =
 	| { readonly kind: "foreign" | "unlinked" | "sound"; readonly meta: ReadMeta }
 
 /**
- * A committed folder, read once: its name places it in chain order, the timestamp of `<YYYYMMDDHHMMSS>_<name>`
- * (`placed`), or does not (`misnamed`), and its meta.json, as the chain judges it.
+ * Where a folder's name places it: by the second its `<YYYYMMDDHHMMSS>_<name>` names (`placed`, deploy/render/folder.ts
+ * folderParts), or nowhere (`misnamed`), a name of no folder, a hand-made one whose digits name no second among them.
  */
+type FolderPlace =
+	| { readonly kind: "placed"; readonly timestamp: TimestampParts }
+	| { readonly kind: "misnamed" }
+
+/** A committed folder, read once: where its name places it in chain order, and its meta.json, as the chain judges it. */
 interface ReadFolder<F extends FileText = FileText> {
 	readonly name: string
-	readonly place: "placed" | "misnamed"
+	readonly place: FolderPlace
 	readonly meta: FolderMeta
 	readonly files: ReadonlyArray<F>
 }
@@ -141,7 +146,7 @@ const folderFault = (folder: ReadFolder): ChainFault | undefined => {
 
 /** Whether every folder is placed and none is a fault: the chain a draft may continue. */
 export const chainWhole = (chain: CommittedChain): boolean =>
-	Arr.every(chain.folders, (f) => f.place === "placed" && f.meta.kind === "sound")
+	Arr.every(chain.folders, (f) => f.place.kind === "placed" && f.meta.kind === "sound")
 
 /** A folder with its meta.json read, as the walk reads it: what check reads it from (adapter/migrate/input.ts
  * FolderSource), and generate from its texts. */
@@ -162,16 +167,19 @@ export const committedChain = <F extends FileText>(
 	schema: ConfiguredSchema,
 	folders: ReadonlyArray<MetaFolder<F>>
 ): CommittedChain<F> => {
-	const read = Arr.map(folders, (f): ReadFolderInput<F> => ({
-		name: f.name,
-		place: isFolderName(f.name) ? "placed" : "misnamed",
-		meta: f.meta,
-		files: f.files
-	}))
+	const read = Arr.map(folders, (f): ReadFolderInput<F> => {
+		const timestamp = folderParts(f.name)
+		return {
+			name: f.name,
+			place: timestamp === undefined ? { kind: "misnamed" } : { kind: "placed", timestamp },
+			meta: f.meta,
+			files: f.files
+		}
+	})
 	const own = (meta: Result.Result<ReadMeta, CompileError>): ReadMeta | undefined =>
 		Result.isSuccess(meta) && meta.success.schema === schema.ident ? meta.success : undefined
 	/** The placed folders are in folder order, which is their timestamps' order, the timestamp leading the name. */
-	const placed = Arr.filter(read, (f) => f.place === "placed")
+	const placed = Arr.filter(read, (f) => f.place.kind === "placed")
 	/** The walk from the placed folder at `at`, which the fingerprint `reached` must link: where it stops, and what it reached. */
 	const walk = (
 		at: number,
@@ -207,7 +215,7 @@ export const committedChain = <F extends FileText>(
 
 /** A schema's committed chain read whole (wholeChain): its folders' timestamps, its folders, and what its links reach. */
 export interface WholeChain {
-	readonly timestamps: ReadonlyArray<string>
+	readonly timestamps: ReadonlyArray<TimestampParts>
 	readonly folders: ReadonlyArray<CommittedFolder>
 	readonly reached: string
 }
@@ -235,7 +243,7 @@ export const wholeChain = Effect.fn("wholeChain")(function* (
 		schema,
 		Arr.map(tree.folders, (f) => ({ name: f.name, meta: readMeta(f.metaText), files: f.files }))
 	)
-	const misnamed = Arr.findFirst(chain.folders, (f) => f.place === "misnamed")
+	const misnamed = Arr.findFirst(chain.folders, (f) => f.place.kind === "misnamed")
 	if (Option.isSome(misnamed)) {
 		return yield* breaks({ kind: "misnamed", folder: misnamed.value.name })
 	}
@@ -247,7 +255,9 @@ export const wholeChain = Effect.fn("wholeChain")(function* (
 		f.meta.kind === "unreadable" ? [] : [{ name: f.name, meta: f.meta.meta, files: f.files }]
 	)
 	return {
-		timestamps: Arr.map(folders, (f) => folderTimestamp(f.name)),
+		timestamps: Arr.flatMap(chain.folders, (f) =>
+			f.place.kind === "placed" ? [f.place.timestamp] : []
+		),
 		folders,
 		reached: chain.reached
 	}
@@ -263,7 +273,7 @@ export const continuedChain = Effect.fn("continuedChain")(function* (
 	snapshot: DeploySnapshot
 ): Effect.fn.Return<
 	{
-		readonly timestamps: ReadonlyArray<string>
+		readonly timestamps: ReadonlyArray<TimestampParts>
 		readonly folders: ReadonlyArray<CommittedFolder>
 	},
 	CliError

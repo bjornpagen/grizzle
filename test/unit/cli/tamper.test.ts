@@ -84,9 +84,8 @@ export const aCommittedMigrationsDirectoryTamperedWithGeneratedGenerateRefusesBy
 			},
 			{
 				file: "packages/engine/src/deploy/render/folder.ts",
-				original:
-					"export const isFolderName = (name: string): boolean => {\n\tconst timestamp = folderTimestamp(name)\n\tconst prefix = folderPrefix(timestamp)\n\treturn isTimestamp(timestamp) && name.startsWith(prefix) && isWords(name.slice(prefix.length))\n}",
-				replacement: "export const isFolderName = (name: string): boolean => { return false }",
+				original: "\t\t? timestampParts(timestamp)\n",
+				replacement: "\t\t? undefined\n",
 				why: "Operator mutant (boolean-return) at packages/engine/src/deploy/render/folder.ts:477 in isFolderName: `{\n\tconst timestamp = folderTimestamp(name)\n\tconst prefix = folderPrefix(timestam` becomes `{ return false }`; the property fails (lane CATCH, grizzle 0baff5d6)."
 			}
 		]

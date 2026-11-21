@@ -48,7 +48,7 @@ export { replayLocks } from "#compiler/deploy/locks/demand.ts"
 export {
 	type FolderLaws,
 	type FolderNaming,
-	folderTimestamp,
+	folderParts,
 	isFolderName,
 	lossDecisions,
 	lossText,
@@ -64,7 +64,9 @@ export {
 	type ReadMeta,
 	statedLocks,
 	timestampLength,
-	timestampWidths
+	type TimestampParts,
+	timestampParts,
+	timestampText
 } from "#compiler/deploy/render/folder.ts"
 export {
 	customMigration,

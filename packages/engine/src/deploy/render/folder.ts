@@ -22,6 +22,7 @@ import {
 	writtenAs
 } from "#compiler/deploy/render/markers.ts"
 import { writeJsonText } from "#compiler/deploy/snapshot/build.ts"
+import { daysInMonth } from "#compiler/ir/date.ts"
 import type { ConstraintLaws } from "#compiler/ir/products.ts"
 
 /**
@@ -395,7 +396,6 @@ export interface DraftedFolder extends MigrationFolder {
 	readonly meta: DraftedMeta
 }
 
-
 /**
  * A migration folder's timestamp, the UTC second it is drafted at, which the CLI reads off its clock (cli/clock.ts)
  * since the compiler reads none: its fields in the order it writes them, each with its width in digits, YYYYMMDDHHMMSS,
@@ -403,7 +403,10 @@ export interface DraftedFolder extends MigrationFolder {
  *
  * @formatConstant the digits of each field of a migration folder's timestamp
  */
-export const timestampWidths = { year: 4, month: 2, day: 2, hour: 2, minute: 2, second: 2 } as const
+const timestampWidths = { year: 4, month: 2, day: 2, hour: 2, minute: 2, second: 2 } as const
+
+/** The UTC second a timestamp names: each of its fields' values, the month and the day counted from 1. */
+export type TimestampParts = { readonly [F in keyof typeof timestampWidths]: number }
 
 /** The digits of a timestamp's fields, summed: its length. */
 /* @__NO_SIDE_EFFECTS__ */
@@ -418,7 +421,68 @@ const digitsOf = (widths: Readonly<Record<string, number>>): number => {
 /** A timestamp's length: the digits of all its fields. */
 export const timestampLength: number = digitsOf(timestampWidths)
 
-const isTimestamp = (text: string): boolean => text.length === timestampLength && isAsciiDigits(text, 0, text.length)
+/**
+ * The least year a timestamp's four digits name: one below it writes a leading zero, which names no four-digit year.
+ *
+ * @formatConstant a timestamp's four-digit year
+ */
+const leastYear = 1000
+
+/**
+ * The greatest hour, minute and second of a UTC day, past which a field names no time of day: a timestamp writes no
+ * leap second.
+ *
+ * @formatConstant a UTC day's hours, minutes and seconds
+ */
+const dayTimeMax = { hour: 23, minute: 59, second: 59 } as const
+
+/**
+ * The UTC second a timestamp names, its fields read off its digits, or none for a text that names none: fourteen ASCII
+ * digits YYYYMMDDHHMMSS, a year from leastYear (four digits, no leading zero), a month, a day of that month in that year
+ * of the proleptic Gregorian calendar (ir/date.ts daysInMonth), an hour, a minute and a second of a day. The one grammar
+ * of a folder's timestamp: a folder's name is one by it (folderParts), a draft's folder is named by it (folderName), and
+ * the CLI reads a folder's instant from the parts it gives and writes its clock's second through timestampText.
+ */
+export const timestampParts = (text: string): TimestampParts | undefined => {
+	if (text.length !== timestampLength || !isAsciiDigits(text, 0, text.length)) {
+		return undefined
+	}
+	let at = 0
+	/** The next field's value, `width` digits on from the last field read. */
+	const next = (width: number): number => {
+		const value = Number(text.slice(at, at + width))
+		at += width
+		return value
+	}
+	const parts: TimestampParts = {
+		year: next(timestampWidths.year),
+		month: next(timestampWidths.month),
+		day: next(timestampWidths.day),
+		hour: next(timestampWidths.hour),
+		minute: next(timestampWidths.minute),
+		second: next(timestampWidths.second)
+	}
+	const days = daysInMonth(parts.year, parts.month)
+	return parts.year >= leastYear &&
+		days !== undefined &&
+		parts.day >= 1 &&
+		parts.day <= days &&
+		parts.hour <= dayTimeMax.hour &&
+		parts.minute <= dayTimeMax.minute &&
+		parts.second <= dayTimeMax.second
+		? parts
+		: undefined
+}
+
+/** `value` in at least `width` digits, a leading zero padding it. */
+const padded = (value: number, width: number): string => String(value).padStart(width, "0")
+
+/**
+ * A second's timestamp: each field's value in its width's digits, a leading zero padding it. A year past 9999 writes
+ * more than four, a text timestampParts reads as no timestamp, which the draft's folder name refuses (folderName).
+ */
+export const timestampText = (parts: TimestampParts): string =>
+	`${padded(parts.year, timestampWidths.year)}${padded(parts.month, timestampWidths.month)}${padded(parts.day, timestampWidths.day)}${padded(parts.hour, timestampWidths.hour)}${padded(parts.minute, timestampWidths.minute)}${padded(parts.second, timestampWidths.second)}`
 
 /** What separates a migration folder's timestamp from its name. */
 const folderSeparator = "_"
@@ -491,29 +555,35 @@ export const changeMigrationName = (
 	return migrationName(`${cut.endsWith("_") ? cut.slice(0, -1) : cut}${suffix}`)
 }
 
-/** The folder name of a migration: its timestamp, then `_`, then its name. */
+/** The folder name of a migration: its timestamp, then `_`, then its name; refused for a timestamp naming no second. */
 export const folderName = (
 	timestamp: string,
 	name: MigrationName
 ): Result.Result<string, CompileError> =>
-	isTimestamp(timestamp)
+	timestampParts(timestamp) !== undefined
 		? Result.ok(`${folderPrefix(timestamp)}${name}`)
 		: Result.err(
 				malformedDescription(
 					SourceLoc("migration folder", []),
-					`a timestamp of fourteen digits YYYYMMDDHHMMSS, not ${JSON.stringify(timestamp)}`
+					`a timestamp YYYYMMDDHHMMSS naming a UTC second, not ${JSON.stringify(timestamp)}`
 				)
 			)
 
-/** The timestamp a migration folder's name begins with, its first timestampLength characters. */
-export const folderTimestamp = (name: string): string => name.slice(0, timestampLength)
-
-/** Whether a directory name is a migration folder's: `<14 digits>_<words>`. */
-export const isFolderName = (name: string): boolean => {
-	const timestamp = folderTimestamp(name)
+/**
+ * The UTC second a directory name names as a migration folder's, `<YYYYMMDDHHMMSS>_<words>` (timestampParts), or none
+ * for a name of no folder: a hand-made folder whose digits name no second is no folder, refused by name where a chain is
+ * read (cli/committed.ts, adapter/migrate/input.ts).
+ */
+export const folderParts = (name: string): TimestampParts | undefined => {
+	const timestamp = name.slice(0, timestampLength)
 	const prefix = folderPrefix(timestamp)
-	return isTimestamp(timestamp) && name.startsWith(prefix) && isWords(name.slice(prefix.length))
+	return name.startsWith(prefix) && isWords(name.slice(prefix.length))
+		? timestampParts(timestamp)
+		: undefined
 }
+
+/** Whether a directory name is a migration folder's (folderParts). */
+export const isFolderName = (name: string): boolean => folderParts(name) !== undefined
 
 /** A drafted SQL file's ordinal: `NN-<phase>.sql`, or any `NN-<words>.sql` a reviewer adds, NN at least two digits and
  * positive. */

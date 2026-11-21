@@ -41,6 +41,15 @@ import { login, role } from "#compiler/public/schema.ts"
 import { defineConfig } from "#index.ts"
 import { shop, type ShopWorkload } from "#test/pg/cli/fixture.ts"
 import { offlineOwner, writeConfigText } from "#test/pg/cli/support.ts"
+import {
+	daysIn,
+	digitsOf,
+	edged,
+	millisOf,
+	type Second,
+	secondAt,
+	secondGen
+} from "#test/support/calendar.ts"
 import { repoRoot } from "#test/support/files.ts"
 import { parsedSchemaName } from "#test/support/kernel/naming.ts"
 import { noDeclarations, parsedMigrationName } from "#test/support/migrate/kit.ts"
@@ -520,119 +529,6 @@ export const helpGen: Gen<Help> = weighted<Help>([
 	]
 ])
 
-/** A UTC second by its fields, as the calendar writes it. */
-interface Second {
-	readonly year: number
-	readonly month: number
-	readonly day: number
-	readonly hour: number
-	readonly minute: number
-	readonly second: number
-}
-
-/** Whether `year` is a leap year of the Gregorian calendar. */
-const leap = (year: number): boolean => (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
-
-/** The days of each month of a common year. */
-const monthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31] as const
-
-/** The days of `month` in `year`. */
-const daysIn = (year: number, month: number): number =>
-	month === 2 && leap(year) ? 29 : defined(monthDays[month - 1], "a month of the year")
-
-const secondsPerDay = 86_400
-
-/** The days from 1970-01-01 to a date, by day arithmetic over the Gregorian calendar's 400-year eras. */
-const daysOf = (year: number, month: number, day: number): number => {
-	const y = month <= 2 ? year - 1 : year
-	const era = Math.floor(y / 400)
-	const yearOfEra = y - era * 400
-	const dayOfYear = Math.floor((153 * (month > 2 ? month - 3 : month + 9) + 2) / 5) + day - 1
-	const dayOfEra =
-		yearOfEra * 365 + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100) + dayOfYear
-	return era * 146_097 + dayOfEra - 719_468
-}
-
-/** A field drawn among its edges more often than its middle. */
-const edged = (lo: number, hi: number, edges: Arr.NonEmptyReadonlyArray<number>): Gen<number> =>
-	weighted([
-		[1, element(edges)],
-		[2, int(lo, hi)]
-	])
-
-/** A UTC second, its calendar's edges drawn often: year ends, month ends, leap days, centuries, 1970 and 9999. */
-const secondGen: Gen<Second> = (source) => {
-	const year = source.draw(edged(1970, 9999, [1970, 2000, 2024, 2026, 2100, 9999]))
-	const month = source.draw(edged(1, 12, [1, 2, 12]))
-	const last = daysIn(year, month)
-	return {
-		year,
-		month,
-		day: source.draw(edged(1, last, [1, last])),
-		hour: source.draw(edged(0, 23, [0, 23])),
-		minute: source.draw(edged(0, 59, [0, 59])),
-		second: source.draw(edged(0, 59, [0, 59]))
-	}
-}
-
-/** The epoch milliseconds of a second. */
-export const millisOf = (s: Second): number =>
-	(daysOf(s.year, s.month, s.day) * secondsPerDay + s.hour * 3600 + s.minute * 60 + s.second) * 1000
-
-/** The fields of the second at `millis`, by day arithmetic over the Gregorian calendar's 400-year eras. */
-const secondAt = (millis: number): Second => {
-	const seconds = Math.floor(millis / 1000)
-	const days = Math.floor(seconds / secondsPerDay)
-	const time = seconds - days * secondsPerDay
-	const shifted = days + 719_468
-	const era = Math.floor(shifted / 146_097)
-	const dayOfEra = shifted - era * 146_097
-	const yearOfEra = Math.floor(
-		(dayOfEra -
-			Math.floor(dayOfEra / 1460) +
-			Math.floor(dayOfEra / 36_524) -
-			Math.floor(dayOfEra / 146_096)) /
-			365
-	)
-	const dayOfYear =
-		dayOfEra - (365 * yearOfEra + Math.floor(yearOfEra / 4) - Math.floor(yearOfEra / 100))
-	const shiftedMonth = Math.floor((5 * dayOfYear + 2) / 153)
-	const month = shiftedMonth < 10 ? shiftedMonth + 3 : shiftedMonth - 9
-	return {
-		year: yearOfEra + era * 400 + (month <= 2 ? 1 : 0),
-		month,
-		day: dayOfYear - Math.floor((153 * shiftedMonth + 2) / 5) + 1,
-		hour: Math.floor(time / 3600),
-		minute: Math.floor((time % 3600) / 60),
-		second: time % 60
-	}
-}
-
-const padded = (n: number, width: number): string => Str.padStart(width, "0")(String(n))
-
-/** The oracle's timestamp of a second: its fields' digits, the year in four or more. */
-export const digitsOf = (s: Second): string =>
-	`${padded(s.year, 4)}${padded(s.month, 2)}${padded(s.day, 2)}${padded(s.hour, 2)}${padded(s.minute, 2)}${padded(s.second, 2)}`
-
-/** The oracle's reading of fourteen digits: the second they name, with a year of four digits, or none. */
-export const secondOfDigits = (text: string): Option.Option<number> => {
-	const digits = Arr.every(Str.split(text, ""), (c) => c >= "0" && c <= "9")
-	if (text.length !== 14 || !digits || Str.startsWith("0")(text)) {
-		return Option.none()
-	}
-	const field = (from: number, width: number) => Number(Str.slice(from, from + width)(text))
-	const s: Second = {
-		year: field(0, 4),
-		month: field(4, 2),
-		day: field(6, 2),
-		hour: field(8, 2),
-		minute: field(10, 2),
-		second: field(12, 2)
-	}
-	const millis = millisOf(s)
-	return digitsOf(secondAt(millis)) === text ? Option.some(millis) : Option.none()
-}
-
 /**
  * Fourteen digits that name no second: a drawn second with one field pushed out of its range, a month or a day of 0, a
  * month past 12, a day past its month's last, an hour past 23, a minute or a second past 59, or a year below 1000,
@@ -653,43 +549,49 @@ const nonsenseGen: Gen<string> = (source) => {
 	return digitsOf(broken)
 }
 
-/** The digits of the second at `millis`, or of `fallback` past year 9999, which no folder's fourteen digits name. */
-const fourteenAt = (millis: number, fallback: number): string => {
+/** The second at `millis`, or `fallback`'s past year 9999, which no folder's fourteen digits name. */
+const secondWithin = (millis: number, fallback: number): Second => {
 	const s = secondAt(millis)
-	return digitsOf(s.year > 9999 ? secondAt(fallback) : s)
+	return s.year > 9999 ? secondAt(fallback) : s
 }
 
-/** A folder's timestamp around the clock's: before it, at it, after it, a year's last second after it, or nonsense. */
-const existingGen = (now: number): Gen<string> =>
+/**
+ * A folder's second around the clock's: before it, at it, after it, or a year's last second after it. A committed
+ * folder's name names its second (deploy/render/folder.ts folderParts), so every one is a second.
+ */
+const existingGen = (now: number): Gen<Second> =>
 	weighted([
-		[3, map(int(-3, 3), (offset) => fourteenAt(now + offset * 1000, now))],
+		[3, map(int(-3, 3), (offset) => secondWithin(now + offset * 1000, now))],
 		[
 			1,
-			map(int(0, 2), (ahead) =>
-				digitsOf({
-					year: Math.min(secondAt(now).year + ahead, 9999),
-					month: 12,
-					day: 31,
-					hour: 23,
-					minute: 59,
-					second: 59
-				})
-			)
-		],
-		[1, nonsenseGen]
+			map(int(0, 2), (ahead) => ({
+				year: Math.min(secondAt(now).year + ahead, 9999),
+				month: 12,
+				day: 31,
+				hour: 23,
+				minute: 59,
+				second: 59
+			}))
+		]
 	])
 
 interface Stamping {
 	readonly now: Second
-	readonly existing: ReadonlyArray<string>
+	readonly existing: ReadonlyArray<Second>
+	/** Fourteen digits naming no second, which no folder's name holds: read as no timestamp. */
+	readonly nonsense: ReadonlyArray<string>
 }
 
-/** A clock at the second `nowGen` draws, beside up to three folders around it. */
+/** A clock at the second `nowGen` draws, beside up to three folders around it and up to two texts naming no second. */
 const stampingOf =
 	(nowGen: Gen<Second>): Gen<Stamping> =>
 	(source) => {
 		const now = source.draw(nowGen)
-		return { now, existing: source.draw(array(existingGen(millisOf(now)), { min: 0, max: 3 })) }
+		return {
+			now,
+			existing: source.draw(array(existingGen(millisOf(now)), { min: 0, max: 3 })),
+			nonsense: source.draw(array(nonsenseGen, { min: 0, max: 2 }))
+		}
 	}
 
 /** A leap year from 1972 to 9996: a year of four, a century's only where it is the fourth, moved back four otherwise. */
@@ -715,7 +617,7 @@ export type StampFeature =
 	| "the clock past the newest folder"
 	| "the clock at the newest folder's second"
 	| "the clock behind the newest folder"
-	| "a newest folder naming no second"
+	| "a text naming no second"
 	| "a day rolled over"
 	| "a year rolled over"
 	| "a timestamp past year 9999"
@@ -724,42 +626,36 @@ export type StampFeature =
 /** What a new folder's timestamp is by the oracle: the current second, or the second after the newest folder's. */
 export const nextOf = (s: Stamping, c: Case<StampFeature>): string => {
 	const current = digitsOf(s.now)
-	const newest = Arr.reduce(s.existing, Option.none<string>(), (best, e) =>
-		Option.isSome(best) && best.value >= e ? best : Option.some(e)
+	const newest = Arr.reduce(s.existing, Option.none<Second>(), (best, e) =>
+		Option.isSome(best) && digitsOf(best.value) >= digitsOf(e) ? best : Option.some(e)
 	)
 	if (Option.isNone(newest)) {
 		c.note("no folder")
 		return current
 	}
-	if (current > newest.value) {
+	const newestDigits = digitsOf(newest.value)
+	if (current > newestDigits) {
 		c.note("the clock past the newest folder")
 		return current
 	}
 	c.note(
-		current === newest.value
+		current === newestDigits
 			? "the clock at the newest folder's second"
 			: "the clock behind the newest folder"
 	)
-	return Option.match(secondOfDigits(newest.value), {
-		onNone: () => {
-			c.note("a newest folder naming no second")
-			return Str.padStart(14, "0")(String(BigInt(newest.value) + 1n))
-		},
-		onSome: (millis) => {
-			const next = secondAt(millis + 1000)
-			const was = secondAt(millis)
-			if (next.day !== was.day) {
-				c.note("a day rolled over")
-			}
-			if (next.year !== was.year) {
-				c.note("a year rolled over")
-			}
-			if (next.year > 9999) {
-				c.note("a timestamp past year 9999")
-			}
-			return digitsOf(next)
-		}
-	})
+	const millis = millisOf(newest.value)
+	const next = secondAt(millis + 1000)
+	const was = secondAt(millis)
+	if (next.day !== was.day) {
+		c.note("a day rolled over")
+	}
+	if (next.year !== was.year) {
+		c.note("a year rolled over")
+	}
+	if (next.year > 9999) {
+		c.note("a timestamp past year 9999")
+	}
+	return digitsOf(next)
 }
 
 /** The declared schemas a configuration draws from, each the shop fixture under its own name. */

@@ -57,7 +57,7 @@ const isLeapYear = (year: number): boolean =>
 	year % leapCycle.year === 0 && (year % leapCycle.century !== 0 || year % leapCycle.era === 0)
 
 /** The days of a month of a year, January as 1; undefined for a number that is no month. */
-const daysInMonth = (year: number, month: number): number | undefined => {
+export const daysInMonth = (year: number, month: number): number | undefined => {
 	const common: number | undefined = monthDays[month - 1]
 	return common === undefined
 		? undefined

@@ -1,3 +1,4 @@
+import { defined } from "@bjornpagen/testing/assert"
 import { Array as Arr, Effect, Option, Record as Rec, Result, String as Str } from "effect"
 import { fromEngine } from "#adapter/engine.ts"
 import { applyOnSession } from "#adapter/migrate/apply.ts"
@@ -14,6 +15,7 @@ import { SourceLoc } from "#compiler/core/loc.ts"
 import { sqlstateClass, sqlstates } from "#compiler/core/sqlstate.ts"
 import { quoteIdent, quoteString } from "#compiler/core/text.ts"
 import type { Declarations } from "#compiler/deploy/diff/plan.ts"
+import { folderParts } from "#compiler/deploy/render/folder.ts"
 import {
 	emptySnapshot,
 	noWorkload,
@@ -987,7 +989,9 @@ export const draftNext = (
 		/** The CLI's timestamp: its clock's second, or one after the newest folder applied, so the folder sorts last. */
 		const timestamp = nextTimestamp(
 			now.value,
-			Arr.map(previous.folders, (f) => Str.slice(0, 14)(f.name))
+			Arr.map(previous.folders, (f) =>
+				defined(folderParts(f.name), "a drafted folder's name names its second")
+			)
 		)
 		const { plan, owned } = yield* plannedVersion(declared, logins, schema, previous.snapshot)
 		const drops = dropsOf(

@@ -52,12 +52,12 @@ import {
 	workspace
 } from "#test/pg/cli/support.ts"
 import { refusedAt, succeeded } from "#test/support/assert.ts"
+import { digitsOf, millisOf, secondOfDigits } from "#test/support/calendar.ts"
 import {
 	argvOf,
 	type ConfigFeature,
 	configFaultKinds,
 	configFile,
-	digitsOf,
 	expectedOf,
 	faultGen,
 	type FaultKind,
@@ -73,12 +73,10 @@ import {
 	loadingSpace,
 	meaningOf,
 	migrationsOf,
-	millisOf,
 	modelSchemas,
 	namedBy,
 	nextOf,
 	resolvedSchemas,
-	secondOfDigits,
 	sketchGen,
 	spelledGen,
 	type StampFeature,
@@ -215,7 +213,7 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 			"the clock past the newest folder",
 			"the clock at the newest folder's second",
 			"the clock behind the newest folder",
-			"a newest folder naming no second",
+			"a text naming no second",
 			"a day rolled over",
 			"a year rolled over",
 			"a timestamp past year 9999",
@@ -230,7 +228,11 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 				}
 				const digits = digitsOf(s.now)
 				assert.equal(formatTimestamp(now), digits, "the UTC second's digits")
-				for (const text of [digits, ...s.existing]) {
+				for (const text of s.nonsense) {
+					c.note("a text naming no second")
+					assert.ok(Option.isNone(parseTimestamp(text)), `${text} names no second`)
+				}
+				for (const text of [digits, ...Arr.map(s.existing, digitsOf), ...s.nonsense]) {
 					assert.deepEqual(
 						Option.map(parseTimestamp(text), DateTime.toEpochMillis),
 						secondOfDigits(text),
@@ -248,8 +250,8 @@ export const folderTimestampsGeneratedAreTheUTCSecondAsFourteenDigitsReadBackAsT
 		kills: [
 			{
 				file: "packages/grizzle/src/cli/clock.ts",
-				original: "\tif (current > latest) {",
-				replacement: "\tif (current >= latest) {",
+				original: "\treturn current > timestampText(newest)",
+				replacement: "\treturn current >= timestampText(newest)",
 				why: "A new folder's timestamp repeats the newest folder's when the clock reads it."
 			},
 			{

@@ -24,7 +24,7 @@ import { assert, assertVariant, defined } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { type Case, property } from "@bjornpagen/testing/property"
 import { regex } from "arkregex"
-import { Array as Arr, Effect, Formatter, Order, Result, String as Str } from "effect"
+import { Array as Arr, Effect, Formatter, Option, Order, Result, String as Str } from "effect"
 import { decodeMeta, readMeta } from "#adapter/boundary/meta.ts"
 import {
 	folderName,
@@ -39,6 +39,7 @@ import {
 import { generateMigration } from "#compiler/deploy/render/generate.ts"
 import { noWorkload } from "#compiler/deploy/snapshot/build.ts"
 import { succeeded } from "#test/support/assert.ts"
+import { secondOfDigits } from "#test/support/calendar.ts"
 import {
 	asDrafted,
 	compile,
@@ -74,27 +75,43 @@ export const migrationFoldersGeneratedAFolderNameIsFourteenASCIIDigitsAnUndersco
 	property.explore(folderNameGen, {
 		needs: {},
 		budget: { runs: 400, steered: 400 },
-		situations: ["a folder name", "no folder name"] satisfies ReadonlyArray<
-			Reached<"a folder name" | "no folder name">
+		situations: [
+			"a folder name",
+			"no folder name",
+			"fourteen digits naming no second"
+		] satisfies ReadonlyArray<
+			Reached<"a folder name" | "no folder name" | "fourteen digits naming no second">
 		>,
-		check: (_, c: Case<"a folder name" | "no folder name">) => (name) =>
-			Effect.sync(() => {
-				const expected = regex("^[0-9]{14}_").test(name) && isWordsOracle(Str.slice(15)(name))
-				c.note(expected ? "a folder name" : "no folder name")
-				assert.equal(isFolderName(name), expected, Formatter.format(name))
-			}),
+		check:
+			(_, c: Case<"a folder name" | "no folder name" | "fourteen digits naming no second">) =>
+			(name) =>
+				Effect.sync(() => {
+					const shaped = regex("^[0-9]{14}_").test(name) && isWordsOracle(Str.slice(15)(name))
+					const expected = shaped && Option.isSome(secondOfDigits(Str.slice(0, 14)(name)))
+					if (shaped && !expected) {
+						c.note("fourteen digits naming no second")
+					}
+					c.note(expected ? "a folder name" : "no folder name")
+					assert.equal(isFolderName(name), expected, Formatter.format(name))
+				}),
 		oracle: {
 			kind: "specification",
-			name: "the folder grammar, written apart (isWordsOracle)"
+			name: "the folder grammar, written apart (isWordsOracle), its timestamp the second day arithmetic reads (secondOfDigits)"
 		},
 		kept: [],
 		kills: [
 			{
 				file: "packages/engine/src/deploy/render/folder.ts",
-				original:
-					"\treturn isTimestamp(timestamp) && name.startsWith(prefix) && isWords(name.slice(prefix.length))",
-				replacement: "\treturn name.startsWith(prefix) && isWords(name.slice(prefix.length))",
+				original: "\t\t? timestampParts(timestamp)\n",
+				replacement: "\t\t? { year: 1, month: 1, day: 1, hour: 0, minute: 0, second: 0 }\n",
 				why: "A folder name's timestamp is unread, so any fourteen characters before the separator pass."
+			},
+			{
+				file: "packages/engine/src/deploy/render/folder.ts",
+				original: "\tconst days = daysInMonth(parts.year, parts.month)\n",
+				replacement:
+					"\tconst days = daysInMonth(parts.year, Math.min(Math.max(parts.month, 1), 12))\n",
+				why: "A month out of 1 to 12 read as the nearest month: a hand-made folder of month 00 or 13 is admitted, its digits naming no second."
 			}
 		]
 	})
@@ -128,7 +145,7 @@ export const migrationFoldersGeneratedParseMigrationNameAdmitsExactlyTheWordsOfA
 					const built = folderName(timestamp, parsed)
 					assert.equal(
 						built.ok,
-						regex("^[0-9]{14}$").test(timestamp),
+						Option.isSome(secondOfDigits(timestamp)),
 						Formatter.format([timestamp, name])
 					)
 					if (built.ok) {
