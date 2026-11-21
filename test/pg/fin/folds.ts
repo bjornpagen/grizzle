@@ -210,11 +210,11 @@ const sumNumeric = (() => {
 	)
 })()
 
-const sumPgNumeric = (() => {
+const sumWideNumeric = (() => {
 	const zero = Decimal.of("0")
 	const Owner = relation(
 		"Owner",
-		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.numeric, zero) },
+		{ id: pg.integer, n: drawn(natural), end: accumulated(pg.numeric(60, 20), zero) },
 		["id"]
 	)
 	const Member = relation(
@@ -223,15 +223,15 @@ const sumPgNumeric = (() => {
 			member: pg.integer,
 			g: pg.integer,
 			at: drawn(natural),
-			x: pg.numeric,
-			before: accumulated(pg.numeric, zero),
-			after: accumulated(pg.numeric, zero)
+			x: pg.numeric(60, 20),
+			before: accumulated(pg.numeric(60, 20), zero),
+			after: accumulated(pg.numeric(60, 20), zero)
 		},
 		["member"]
 	)
 	const family = ordered(on(Member, "g", "at"), fin(Owner, "n"))
 	return schema(
-		"fin_fold_sum_pg_numeric",
+		"fin_fold_sum_wide_numeric",
 		[Owner, Member],
 		[
 			family,
@@ -481,7 +481,7 @@ const decimalUnits = (scale: number): Carrier => {
 /** numeric(10, 2) in hundredths. */
 const hundredths = decimalUnits(2)
 
-/** pg.numeric in units of 10^-20, past what numeric(10, 2) holds at both ends. */
+/** numeric(60, 20) in units of 10^-20, past what numeric(10, 2) holds at both ends. */
 const fineUnits = decimalUnits(20)
 
 /**
@@ -597,8 +597,8 @@ export const FOLD_SPECS: Arr.NonEmptyReadonlyArray<FoldSpec> = [
 		check: Option.none()
 	},
 	{
-		label: "sum of pg.numeric",
-		schema: sumPgNumeric,
+		label: "sum of numeric(60, 20)",
+		schema: sumWideNumeric,
 		monoid: { name: "sum", least: 0n },
 		shape: "ordered",
 		carrier: fineUnits,

@@ -17,7 +17,6 @@ import {
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { LaidColumn, LaidLayout } from "#compiler/runtime/write/nesting.ts"
-import { bytesType } from "#compiler/scalar/compute/types.ts"
 import type { Cte, Expr } from "#compiler/sql/ast.ts"
 import type { NameSupply } from "#compiler/sql/naming.ts"
 import { fieldColumns } from "#compiler/write/defined.ts"
@@ -81,8 +80,7 @@ export const memberFamilies = (
 /**
  * The row layout of `relation` over the law model's `families` (`RowLayout`): its primary key's fields, its other
  * written fields, and each law column its families draw on it, each of the type its family gives it: a counted index
- * and ‹n› the count's, a group field's image its owner axis carries a bytea, a tree's ‹ps› its start's, a hidden
- * accumulator its plane's end's.
+ * and ‹n› the count's, a tree's ‹ps› its start's, a hidden accumulator its plane's end's.
  */
 export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family>): RowLayout => {
 	const mine = memberFamilies(relation.name, families)
@@ -100,7 +98,6 @@ export const rowLayout = (relation: RelationInfo, families: ReadonlyArray<Family
 	const law = mine.flatMap((f): ReadonlyArray<RowColumn> => [
 		...(f.shape.kind === "counted" ? [of(f.shape.index, f.count.type)] : []),
 		of({ kind: "law", column: f.copy }, f.count.type),
-		...f.images.map((image) => of({ kind: "law", column: image.column }, bytesType)),
 		...f.folds.flatMap((fold) =>
 			fold.planes.flatMap((plane) =>
 				[plane.before, plane.after].flatMap((c) =>

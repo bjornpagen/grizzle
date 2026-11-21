@@ -1,7 +1,7 @@
 import { sameOrder } from "@bjornpagen/grizzle-text/base/array"
 import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import { nominal } from "#compiler/core/brand.ts"
-import type { DeclaredName, Identity, IndexMethod, KeyImage } from "#compiler/core/identity.ts"
+import type { DeclaredName, Identity, IndexMethod } from "#compiler/core/identity.ts"
 import type { ColumnIdent, LawId, RelationIdent, StoredRelationName } from "#compiler/core/ids.ts"
 import type { SourceLoc } from "#compiler/core/loc.ts"
 import type { Direction } from "#compiler/core/order.ts"
@@ -12,7 +12,13 @@ import {
 	nonEmptyNameSet
 } from "#compiler/core/set.ts"
 import type { CellSide } from "#compiler/ir/cells.ts"
-import type { ExprDesc, FieldDesc, HeldDesc, PlaceOrderDesc, TermDesc } from "#compiler/ir/desc.ts"
+import type {
+	ExprDesc,
+	FieldDesc,
+	InferredFieldDesc,
+	PlaceOrderDesc,
+	TermDesc
+} from "#compiler/ir/desc.ts"
 import type { ExprTable, ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import type { DeclaredKey, HeadingColumn } from "#compiler/ir/rel.ts"
 import {
@@ -483,24 +489,15 @@ export type LawColumnValue =
 			readonly guard: ReadonlyArray<ScalarExpr>
 			readonly term: ScalarExpr
 	  }
-	| {
-			/** A key's image (laws/model/plan.ts keyedAs): the digest `image` of its term where every conjunct of its
-			 * guard holds, and null elsewhere, generated STORED from the row as a term is. */
-			readonly kind: "image"
-			readonly image: KeyImage
-			readonly guard: ReadonlyArray<ScalarExpr>
-			readonly term: ScalarExpr
-	  }
 	| { readonly kind: "drawn"; readonly draws: Drawn }
 
 /**
  * The values a law column holds, by the type and descriptor of a field of them: a term's own field's, x's of pred(x),
- * the target field's a constant meets, a drawn column's or a counted predecessor's count's; or an image's, a digest of
- * 32 bytes (HeldDesc `digest`, core/identity.ts KeyImage), whatever the field it is the image of.
+ * the target field's a constant meets, a drawn column's or a counted predecessor's count's.
  */
 export interface LawColumnValues {
 	readonly type: ScalarType
-	readonly desc: HeldDesc
+	readonly desc: InferredFieldDesc
 	/** Whether the column may hold NULL (laws/model/plan.ts mayHoldNull), which an index entry over it counts. */
 	readonly nullable: boolean
 }
@@ -539,13 +536,6 @@ export const generatedLaw = (relation: StoredRelationName, field: string): Gener
 export type Drawn =
 	| { readonly kind: "copy" | "index"; readonly family: FamilyId }
 	| {
-			/** A group field's image the family's owner axis carries (ir/family.ts GroupImage), the digest of `field`. */
-			readonly kind: "imageCopy"
-			readonly family: FamilyId
-			readonly field: string
-			readonly image: KeyImage
-	  }
-	| {
 			readonly kind: "before" | "after"
 			readonly family: FamilyId
 			readonly fold: number
@@ -558,8 +548,7 @@ export type Drawn =
  */
 type NativeBody =
 	| {
-			/** A PRIMARY KEY over its key's columns, each a field's or the law column of a field's image in its place
-			 * (laws/model/plan.ts keyedAs). */
+			/** A PRIMARY KEY over its key's columns. */
 			readonly kind: "PrimaryKey"
 			readonly relation: TableRelation
 			readonly columns: NonEmptyReadonlyArray<NativeColumn>

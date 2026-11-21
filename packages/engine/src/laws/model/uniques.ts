@@ -9,7 +9,7 @@ import {
 } from "@bjornpagen/grizzle-text/base/nonempty"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
-import { identifierOf, type KeyImage } from "#compiler/core/identity.ts"
+import { identifierOf } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, LawId } from "#compiler/core/ids.ts"
 import { fieldReads, type ScalarExpr } from "#compiler/ir/expr.ts"
 import {
@@ -55,23 +55,13 @@ const sameGuard = (a: UniqueGuard, b: UniqueGuard): boolean =>
 	a.relation === b.relation && a.predicate.id === b.predicate.id
 
 /**
- * What a key's column holds of the field it is bound against: the field's own value, or its image `image`, the digest a
- * key installs a text of no byte bound over in its place (laws/model/plan.ts keyedAs), which a probe binds to the
- * value's image (write/probe.ts boundHeld).
- */
-export type HeldForm =
-	| { readonly kind: "value" }
-	| { readonly kind: "image"; readonly image: KeyImage }
-
-/**
- * A column of a guarded object's UNIQUE paired with the field it holds and the form it holds it in (`HeldForm`): the
- * field itself, or a law column holding the field's own value, or its image, wherever the object's guards hold and NULL
- * elsewhere, so that two rows agree at the column exactly where both meet the guards and agree at the field.
+ * A column of a guarded object's UNIQUE paired with the field it holds: the field itself, or a law column holding the
+ * field's own value wherever the object's guards hold and NULL elsewhere, so that two rows agree at the column exactly
+ * where both meet the guards and agree at the field.
  */
 export interface HeldColumn {
 	readonly field: LawField
 	readonly column: NativeColumn
-	readonly form: HeldForm
 }
 
 /**
@@ -106,8 +96,8 @@ export type UniqueObject = Named &
 	)
 
 /** A declared key's object: a PRIMARY KEY or UNIQUE constraint, or one WITHOUT OVERLAPS when it holds a span field, over
- * the key's own handles, and the columns its constraint is installed over, each a field or a field's image in its place
- * (laws/model/plan.ts keyedAs), which an ON CONFLICT naming it by its columns lists. */
+ * the key's own handles, and the columns its constraint is installed over, which an ON CONFLICT naming it by its columns
+ * lists. */
 export type PrimaryKeyObject = Named & {
 	readonly installed: NonEmptyReadonlyArray<NativeColumn>
 } & (
@@ -187,7 +177,7 @@ const compared = (
 	for (const c of columns) {
 		if (c.kind === "field") {
 			equal.push(c.field)
-			held.push({ field: c.field, column: c, form: { kind: "value" } })
+			held.push({ field: c.field, column: c })
 			continue
 		}
 		const native = defined(
@@ -210,14 +200,7 @@ const compared = (
 		const [only, ...others] = fields
 		held.push(
 			native.value.term.kind === "column" && only !== undefined && !isNonEmpty(others)
-				? {
-						field: only,
-						column: c,
-						form:
-							native.value.kind === "image"
-								? { kind: "image", image: native.value.image }
-								: { kind: "value" }
-					}
+				? { field: only, column: c }
 				: "another term"
 		)
 	}
@@ -300,8 +283,8 @@ const uniqueOf = (n: NamedNative, lawColumns: LawColumns): ReadonlyArray<Placed>
 			if (object?.kind !== "key") {
 				return object === undefined ? [] : [{ relation: o.relation, role: "other", object }]
 			}
-			/** A UNIQUE over a declared candidate key's set is that key's (model.ts nativeIdentity), each field of it
-			 * its own column or its image's (plan.ts keyedAs); any other is generated. */
+			/** A UNIQUE over a declared candidate key's set is that key's (model.ts nativeIdentity); any other is
+			 * generated. */
 			const declared = declaredKeyOf(
 				o.relation,
 				scalarKeySet(o.relation.name, mapNonEmpty(object.equal, fieldColumn))
@@ -404,9 +387,8 @@ const beyondPrimary = (uniques: UniqueObjects): ReadonlyArray<UniqueObject> =>
 			!uniques.others.some((w, j) => j !== i && subsumes(w, u) && (j < i || !subsumes(u, w)))
 	)
 
-/** A primary key as a unique object: its relation's primary key fields, those a PRIMARY KEY compares, each through its
- * image where it has one, or a primary key WITHOUT OVERLAPS's scalar fields and span, with the law its violation
- * reports. */
+/** A primary key as a unique object: its relation's primary key fields, those a PRIMARY KEY compares, or a primary key
+ * WITHOUT OVERLAPS's scalar fields and span, with the law its violation reports. */
 const primaryObject = (relation: RelationInfo, pk: NamedPrimaryKey): PrimaryKeyObject => {
 	const o = pk.object
 	const named = { name: identifierOf(pk.named), law: o.lawIds[0], described: pk.described }

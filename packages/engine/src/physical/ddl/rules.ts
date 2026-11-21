@@ -52,7 +52,6 @@ import { lowerOptimized, optimizedInput } from "#compiler/lower/optimize/pipelin
 import { extractLookups, extractSuffixSeeks } from "#compiler/physical/access/extract.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
-import { requestImaged } from "#compiler/physical/indexes/engine.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type {
 	ColumnDefinition,
@@ -102,8 +101,8 @@ import {
 	windowOf
 } from "#compiler/sql/build.ts"
 import { assignments, ungenerated } from "#compiler/sql/generation.ts"
-import { type StoredColumns, storedColumns } from "#compiler/sql/image.ts"
 import { printTableName, sessionRegclass, sessionTableStands } from "#compiler/sql/print.ts"
+import { type StoredColumns, storedColumns } from "#compiler/sql/stored.ts"
 
 /** A compiled probe: the statement whose rows break the rule, its outputs unaliased, and its index requests. */
 interface Compiled {
@@ -203,9 +202,8 @@ const compileProbe = (
  * (check/checker.ts QueryRead `region`) and lowered by the optimized pipeline under the transaction's evidence, each
  * Delta node read from the session's delta table `deltas` names (RegionLowering), to one main statement of no
  * parameter, its outputs unaliased; with the index requests of `rule` its checked DAG's access paths are
- * (`requestsOf`). It states the images' equality beside each equality of a text its requests' indexes hold by its image
- * (sql/image.ts) and of no other: its lookups are those requests', and a text it compares that none of them
- * holds is read through no image, so the judge of a schema whose indexes hold none is as it was. Navigation reads the
+ * (`requestsOf`). It reads each suffix test of a text its requests' indexes hold the suffix key of as the key's range
+ * (sql/suffix.ts seekingSuffixes), and of no other. Navigation reads the
  * heading of each union it splits in `columns`: the installation's (InstallBuilder `columns`), at the definition a
  * walked copy of it was walked from where the query is a whole rule's violation over its units (WholeRule `definitionOf`).
  */
@@ -232,11 +230,7 @@ const judgedStatement = (
 	const lowered = unwrap(
 		Result.flatMap(optimizedInput(checked, queryEvidence), (annotated) =>
 			lowerOptimized(annotated, {
-				names: {
-					...b.names,
-					imaged: imagedBy(b, requests),
-					suffixed: suffixedBy(b, requests)
-				},
+				names: { ...b.names, suffixed: suffixedBy(b, requests) },
 				subject: { kind: "ruleRegion", deltas },
 				context: "transaction",
 				catalog
@@ -261,24 +255,6 @@ const judgedStatement = (
 	const statement = main.ast
 	return { statement: { ...statement, body: unaliased(statement.body) }, requests }
 }
-
-/**
- * The columns the indexes of law `requests` hold by their image (physical/indexes/engine.ts requestImaged, the one rule
- * the engine plans them by), by its table and column: a judged read states the images' equality of those its own
- * lookups read through and of no other.
- */
-const imagedBy = (b: InstallBuilder, requests: ReadonlyArray<IndexRequest>): StoredColumns =>
-	storedColumns(
-		requests.flatMap((r) => {
-			const target = b.target(r.relation)
-			return r.role === "lawMaintenance" && target.kind === "built"
-				? requestImaged(r, target).map((column) => ({
-						table: b.names.relation(r.relation),
-						column: target.column(column)
-					}))
-				: []
-		})
-	)
 
 /**
  * The text columns the indexes of law `requests` hold the suffix key of (physical/indexes/engine.ts KeyTerm `suffix`),

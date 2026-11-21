@@ -1,8 +1,8 @@
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type { Expr, FromItem, Select } from "#compiler/sql/ast.ts"
 import { and, binary, call, ge, lit, lt, types } from "#compiler/sql/build.ts"
-import { originIn, type StoredColumns } from "#compiler/sql/image.ts"
 import { printExpr } from "#compiler/sql/print.ts"
+import { originIn, type StoredColumns } from "#compiler/sql/stored.ts"
 import { conditionsRewritten } from "#compiler/sql/transform.ts"
 
 /**

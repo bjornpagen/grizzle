@@ -38,10 +38,7 @@ import { encodeFailure } from "#compiler/codec/fault.ts"
 import { carrierSpecOf } from "#compiler/codec/scalar.ts"
 import { maxStringLength } from "#compiler/core/canonical.ts"
 import type { EncodingFailure, EncodingPlace } from "#compiler/core/errors.ts"
-import type { KeyImage } from "#compiler/core/identity.ts"
 import type { StoredRelationName } from "#compiler/core/ids.ts"
-import { textDigest } from "#compiler/core/sha256.ts"
-import { wellFormed } from "#compiler/core/text.ts"
 import type { Codebook } from "#compiler/ir/codes.ts"
 import type { MonoidName } from "#compiler/ir/desc.ts"
 import { type ExprTable, tableReads, type TypedLiteral } from "#compiler/ir/expr.ts"
@@ -68,7 +65,7 @@ import {
 import { hostOfLiteral, integerHostOf } from "#compiler/scalar/compute/literal.ts"
 import * as N from "#compiler/scalar/compute/numeric.ts"
 import type { PatternReads } from "#compiler/scalar/regex/patterns.ts"
-import { AdmittedBytes, isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
+import { isAdmittedBytes } from "#compiler/scalar/values/bytes.ts"
 import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import {
 	admitted,
@@ -314,7 +311,6 @@ export type FillRuleData =
 			readonly step: FillStep<ColumnKey>
 	  }
 	| { readonly kind: "generated"; readonly expr: ExprTable }
-	| { readonly kind: "image"; readonly image: KeyImage; readonly of: ColumnKey }
 
 /** A column of a relation at one position, as data (ir/fill.ts FillColumn): its key, its name as a refusal names it, its
  * type, its rule, and the stage that fills it, a sequence's members' by the family's id. */
@@ -388,7 +384,6 @@ type Rule =
 			readonly step: FillStep<number>
 	  }
 	| { readonly kind: "generated"; readonly expr: ExprTable; readonly type: ScalarType }
-	| { readonly kind: "image"; readonly image: KeyImage; readonly of: number }
 
 /** A fold as the host steps it (`FillFold`): its monoid, and each conjunct of its step side's selection with the fields
  * it reads (`Selection`). */
@@ -460,8 +455,6 @@ const hostRule = (
 		}
 		case "self":
 			return { kind: "self", to: targets.own.at(rule.to) }
-		case "image":
-			return { kind: "image", image: rule.image, of: targets.own.at(rule.of) }
 		case "base":
 			return { kind: "base", base: hostOfLiteral(spec.carrier, rule.base) }
 		case "count":
@@ -958,34 +951,6 @@ const ownerOf = (row: Row): Row => {
 	return row.place.owner
 }
 
-/**
- * Each image as the host writes it (FillRule `image`), by its kind, the bytes the key's image column holds, as an
- * admitted bytes value: a text's digest, the SHA-256 of its UTF-8 (core/sha256.ts textDigest); and a numeric's, the
- * digest of its one text, a Decimal's own (scalar/values/decimal.ts Decimal.text) and an integer numeric's bigint's
- * decimal digits, each numeric_out of trim_scale of the value, as PostgreSQL computes it (lower/conservative/expr/ops.ts
- * keyImageForm).
- */
-const imagesOf: { readonly [K in KeyImage]: (value: unknown) => AdmittedBytes } = {
-	textDigest: (value) => {
-		if (typeof value !== "string") {
-			throw defect(`a text, the column a digest image is of; the walk holds ${typeof value}`)
-		}
-		return new AdmittedBytes(textDigest(wellFormed(value)))
-	},
-	numericDigest: (value) => {
-		if (value instanceof Decimal) {
-			return new AdmittedBytes(textDigest(wellFormed(value.text)))
-		}
-		if (typeof value !== "bigint") {
-			throw defect(`a numeric, the column a digest image is of; the walk holds ${typeof value}`)
-		}
-		return new AdmittedBytes(textDigest(wellFormed(value.toString())))
-	}
-}
-
-/** A column's image as the host writes it, by its image's kind (`imagesOf`). */
-const imageOf = (image: KeyImage, value: unknown): AdmittedBytes => imagesOf[image](value)
-
 const ruleValue = (
 	row: Row,
 	column: Column,
@@ -1000,8 +965,6 @@ const ruleValue = (
 			return filledBefore(ownerOf(row), rule.to, row, evaluate)
 		case "self":
 			return valueOf(row, rule.to, evaluate)
-		case "image":
-			return Result.map(valueOf(row, rule.of, evaluate), (text) => imageOf(rule.image, text))
 		case "base":
 			return Result.ok(rule.base)
 		case "index":

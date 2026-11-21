@@ -1,5 +1,4 @@
 import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { KeyImage } from "#compiler/core/identity.ts"
 import type { OpId, ScalarExpr } from "#compiler/ir/expr.ts"
 import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import { baseOf } from "#compiler/ir/scalar.ts"
@@ -384,28 +383,11 @@ const registryForm = (
 
 /**
  * A text's SHA-256 digest, the 32 bytes of its UTF-8's: `<textDigest>(x)`, the installation's library function
- * `library` names (physical/ddl/library.ts textDigest). The one SQL form of the digest: a key's image column holds it,
- * a write's probe of the key reads it, and Crypto.sha256 of a text writes it as hex.
+ * `library` names (physical/ddl/library.ts textDigest), which Crypto.sha256 of a text writes as hex.
  */
 const textDigestForm = (library: PhysicalNames["library"], x: Expr): Expr => {
 	const fn = library("textDigest")
 	return qualifiedCall(fn.schema, fn.name, [x])
-}
-
-/**
- * The image a key holds `x` by (core/identity.ts KeyImage), the one SQL form of each: a text's digest of its bytes
- * (textDigestForm), and a numeric's the digest of its one text, `<textDigest>(trim_scale(x)::text)`: numeric_out of its
- * value at its least scale, NaN's "NaN" and an infinity's "Infinity" or "-Infinity", the text the host writes a Decimal
- * as (scalar/values/decimal.ts Decimal.text), so equal numerics have one image, wherever it is computed. A key's image
- * column holds it, and a write's probe of the key reads it.
- */
-export const keyImageForm = (library: PhysicalNames["library"], image: KeyImage, x: Expr): Expr => {
-	switch (image) {
-		case "textDigest":
-			return textDigestForm(library, x)
-		case "numericDigest":
-			return textDigestForm(library, cast(call("trim_scale", [x]), types.text))
-	}
 }
 
 /**

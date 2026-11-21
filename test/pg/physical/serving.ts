@@ -264,11 +264,11 @@ const requestKeys = (
 			}))
 		: Arr.map(request.keys, (k) => ({ field: String(k.expr), dir: k.dir, opclass: k.opclass }))
 
-/** An index key's column as text (the engine's keyTermText): a field's name, a law column's identifier, an image's. */
+/** An index key's column as text (the engine's keyTermText): a field's name, a law column's identifier, a suffix key's. */
 const keyText = (key: { readonly column: KeyTerm }): string => keyTermText(key.column)
 
 /**
- * The installed column an index key of `relation` holds or holds the image of: a field's, or a law column, its
+ * The installed column an index key of `relation` holds or holds the suffix key of: a field's, or a law column, its
  * identifier its column's name.
  */
 const keyColumn = (
@@ -276,10 +276,7 @@ const keyColumn = (
 	relation: string,
 	key: { readonly column: KeyTerm }
 ): string => {
-	const column =
-		key.column.kind === "image" || key.column.kind === "suffix" || key.column.kind === "bound"
-			? key.column.of
-			: key.column
+	const column = key.column.kind === "suffix" ? key.column.of : key.column
 	return column.kind === "field"
 		? installed.installation.names.column(relation, column.field)
 		: column.column

@@ -1,30 +1,38 @@
 /**
- * The keys a family axis references fit a B-tree entry for every value their columns admit: a text by its digest where
- * it would outgrow one, and anything else as itself or refused when the schema compiles with UnrepresentableKey, where
- * PostgreSQL would refuse the first write that outgrew it (54000).
+ * The keys a family axis references fit a B-tree entry for every value their columns admit, in any order of their
+ * columns, or the schema is refused when it compiles with UnrepresentableKey, where PostgreSQL would refuse the first
+ * write that outgrew them (54000). A fold's running value rides the axes in the UNIQUE grizzle plans for them, which the
+ * author never declared, so a fold refused for it is refused by its own name, the field it steps and the bound its
+ * fields declare (KeyFault `foldAccumulator`), never by that UNIQUE.
  *
  * - A concat fold's axis key: the UNIQUE its predecessor and last axes reference, Line's (doc, at, after) for a concat
  *   fold that carries its running text `after` along them (laws/model/plan.ts #axis). The box: the fold's text, its
  *   pieces and accumulators one type, of no bound, or bounded by a contract to at most n bytes, or to at most n code
  *   points of 4 bytes each, with n every bound whose entry lies within one MAXALIGN step of BTMaxItemSize on either
- *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts as
- *   schema/representability.ts documents the count (entryBytes): the UNIQUE holds `after` as itself where its entry fits
- *   BTMaxItemSize, and by its digest, 32 bytes, exactly where it would outgrow it, a text of no bound among them
- *   (schema/representability.ts entryImages), so the fold is admitted at every bound. Features: unbounded, and each
- *   bound's kind with each verdict.
+ *   side, exhausted. The oracle: the B-tree entry nbtree.h bounds, counted by hand from the columns' layouts in any
+ *   order as schema/representability.ts documents the count (entryBytes), refused exactly past BTMaxItemSize at the
+ *   fold, by the fold's name and its byte bound, and an unbounded text refused whatever its entry. Features: unbounded,
+ *   and each bound's kind with each verdict.
+ * - A sum fold's numeric: Entry's (account, at, after) for a sum of `amount` into Account's `total`, the amounts and
+ *   accumulators one numeric type. The box: PostgreSQL's numeric of no typmod, and numeric(p, 2) at the least and the
+ *   greatest precisions a field declares, exhausted. The oracle: a numeric of no typmod reaches numeric's own limit,
+ *   far past BTMaxItemSize, and numeric(1000, 2), the widest a field declares, takes numeric_maximum_size's 512 bytes
+ *   beside a uuid and a bigint: refused for no precision by the fold's name, installed for any. Features: refused,
+ *   installed.
  * - A carried set's key: a set an axis carries is its roster's bit(n), n every code the roster has minted, holes
  *   included, sized exactly by the installation's codes (physical/ddl/tables.ts setUniqueBound), so a roster pruned of
  *   many handles refuses the UNIQUE when it is compiled rather than at an insert. The box: Tag's codes its two live
  *   handles, then every count of holes whose codes lie within a MAXALIGN step's worth of bytes of the most that fit,
  *   exhausted. The oracle: the entry counted by hand, a bit(n)'s varlena header, its 4-byte bit count and a byte per
- *   eight codes after Line's (order, at) at their exact offsets. Features: an entry at the bound, an entry past it.
+ *   eight codes after Line's (order, at), each datum after its worst padding. Features: an entry at the bound, an entry
+ *   past it.
  */
 
 import { assert } from "@bjornpagen/testing/assert"
 import { type Reached } from "@bjornpagen/testing/features"
 import { finite, int } from "@bjornpagen/testing/gen"
 import { type Case, property } from "@bjornpagen/testing/property"
-import { Effect } from "effect"
+import { Array as Arr, Effect, Option } from "effect"
 import { completeInstallOptions } from "#compiler/physical/complete.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { installationsOf } from "#compiler/schema/own.ts"
@@ -32,7 +40,6 @@ import { btreeMaxItemSize, typlens } from "#compiler/schema/representability.ts"
 import { refused, succeeded } from "#test/support/assert.ts"
 import { ownedInput } from "#test/support/policy.ts"
 import {
-	axisKeyImaged,
 	bytesOf,
 	codesWith,
 	docSchema,
@@ -41,16 +48,20 @@ import {
 	type Feature,
 	fittingCodes,
 	live,
+	type NumericFeature,
+	numericGen,
+	type NumericType,
 	owned,
 	setBytes,
 	type SetFeature,
+	sumSchema,
 	textGen,
 	type TextType,
 	verdictOf
 } from "#test/unit/laws/model/axis-keys.fixtures.ts"
 
-/** A family axis's key holds the text it carries as itself where its entry fits, and by its digest exactly where it would outgrow BTMaxItemSize. */
-export const aFamilyAxissKeyHoldsTheTextItCarriesAsItselfWhereItsEntryFitsAndByItsDigestExactlyWhereItWouldOutgrowBTMaxItemSize =
+/** A family axis's key fits a B-tree entry for every value of the accumulators it carries, in any order of its columns, or is refused as UnrepresentableKey. */
+export const aFamilyAxissKeyFitsABTreeEntryForEveryValueOfTheAccumulatorsItCarriesOrIsRefusedAsUnrepresentableKey =
 	property.exhaust(finite(textGen), {
 		needs: {},
 		situations: [
@@ -68,22 +79,38 @@ export const aFamilyAxissKeyHoldsTheTextItCarriesAsItselfWhereItsEntryFitsAndByI
 				const owned = succeeded(ownedInput(desc))
 				const compiled = compileInstallation(owned, installOptions(owned))
 				const bytes = bytesOf(t)
-				const model = succeeded(
-					compiled,
-					"a concat fold's axis key, its text held as itself or by its digest"
-				).laws
-				const imaged = axisKeyImaged(model)
 				if (bytes === undefined) {
 					c.note("unbounded")
-					assert.ok(imaged, "a text of no bound held by its digest, 32 bytes, whatever its values")
+				} else {
+					c.pair(t.kind, verdictOf(bytes))
+				}
+				if (bytes !== undefined && entryBytes(bytes) <= btreeMaxItemSize) {
+					succeeded(compiled, `an entry of ${entryBytes(bytes)} bytes fits`)
 					return
 				}
-				c.pair(t.kind, verdictOf(bytes))
-				assert.equal(
-					imaged,
-					entryBytes(bytes) > btreeMaxItemSize,
-					`an entry of ${entryBytes(bytes)} bytes held by the text's digest exactly where it outgrows BTMaxItemSize`
+				const reason = refused(compiled, "UnrepresentableKey").reason
+				if (reason._tag !== "UnrepresentableKey") {
+					return assert.fail("an UnrepresentableKey reason")
+				}
+				const foldAt = Arr.findFirstIndex(desc.statements, (s) => s.kind === "fold")
+				assert.deepEqual(
+					reason.at.path,
+					["statements", ...Option.toArray(foldAt)],
+					"the refusal is the fold's"
 				)
+				assert.equal(
+					reason.subject,
+					"the concat fold of Line.piece into Doc.text",
+					"the fold the author declared"
+				)
+				assert.deepEqual(reason.key, ["piece"], "the field the fold steps")
+				assert.deepEqual(reason.fault, {
+					kind: "foldAccumulator",
+					accumulator: "after",
+					bytes: bytes === undefined ? undefined : entryBytes(bytes),
+					limit: btreeMaxItemSize,
+					bound: "byteBound"
+				})
 			}),
 		oracle: {
 			kind: "specification",
@@ -99,12 +126,17 @@ export const aFamilyAxissKeyHoldsTheTextItCarriesAsItselfWhereItsEntryFitsAndByI
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry); the concat fold's axis key fails."
 			},
 			{
-				file: "packages/engine/src/schema/representability.ts",
+				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					"\tconst fits = entry.length === columns.length && btreeEntryBytes(entry) <= btreeMaxItemSize",
-				replacement:
-					"\tconst fits = entry.length === columns.length && btreeEntryBytes(entry) < btreeMaxItemSize",
-				why: "A key whose entry is exactly BTMaxItemSize holds its text by its digest: the fold's text at the bound is imaged where it fits as itself."
+					"\t\tif (carried !== undefined) {\n\t\t\tthis.#refuseUnboundedFold(carried, targetColumns)",
+				replacement: "\t\tif (false) {\n\t\t\tthis.#refuseUnboundedFold(carried, targetColumns)",
+				why: "A fold's running text past the entry refused by the UNIQUE grizzle plans for its axes, (doc, at, after), which the author never declared, where the fold and its byte bound are what the author fixes."
+			},
+			{
+				file: "packages/engine/src/schema/representability.ts",
+				original: "\t\t\t(offset, c) => afterAtWorst(offset, c.datum),",
+				replacement: "\t\t\t(offset, c) => alignUp(offset, c.datum.align) + c.datum.bytes,",
+				why: "An entry measured in its own order as if every offset were exact: the fold's text past the any-order bound is admitted, its UNIQUE and the axes referencing it deciding apart."
 			}
 		]
 	})
@@ -157,6 +189,63 @@ export const aCarriedSetsKeyIsSizedByItsRostersCodesHolesIncludedAndRefusedPastT
 				original: "\t\t\t\t? setDatumBound(codecOf(b.names.codes, base.roster).size)",
 				replacement: "\t\t\t\t? setDatumBound(codecOf(b.names.codes, base.roster).size - 8)",
 				why: "A set's datum counted a byte short (physical/ddl/tables.ts setUniqueBound); the carried set's key fails."
+			}
+		]
+	})
+
+/** A sum fold over a numeric of no precision is refused by its own name, its summed field and its precision; a sum of a declared precision installs. */
+export const aSumFoldOverANumericOfNoPrecisionIsRefusedByItsOwnNameItsSummedFieldAndItsPrecisionAndOneOfADeclaredPrecisionInstalls =
+	property.exhaust(finite(numericGen), {
+		needs: {},
+		situations: ["refused", "installed"] satisfies ReadonlyArray<Reached<NumericFeature>>,
+		check: (_, c: Case<NumericFeature>) => (t: NumericType) =>
+			Effect.sync(() => {
+				const desc = sumSchema(t)
+				const owned = succeeded(ownedInput(desc))
+				const compiled = compileInstallation(owned, installOptions(owned))
+				if (t.kind === "precise") {
+					succeeded(compiled, `a sum of numeric(${t.precision}, ${t.scale}) installs`)
+					c.note("installed")
+					return
+				}
+				const reason = refused(compiled, "UnrepresentableKey").reason
+				if (reason._tag !== "UnrepresentableKey") {
+					return assert.fail("an UnrepresentableKey reason")
+				}
+				const foldAt = Arr.findFirstIndex(desc.statements, (s) => s.kind === "fold")
+				assert.deepEqual(
+					reason.at.path,
+					["statements", ...Option.toArray(foldAt)],
+					"the refusal is the fold's"
+				)
+				assert.equal(
+					reason.subject,
+					"the sum fold of Entry.amount into Account.total",
+					"the fold the author declared"
+				)
+				assert.deepEqual(reason.key, ["amount"], "the field the fold sums")
+				assert.ok(
+					reason.fault.kind === "foldAccumulator" &&
+						reason.fault.accumulator === "after" &&
+						reason.fault.bound === "precision" &&
+						reason.fault.bytes !== undefined &&
+						reason.fault.bytes > btreeMaxItemSize,
+					"refused for the precision its running sum lacks, past the item limit"
+				)
+				c.note("refused")
+			}),
+		oracle: {
+			kind: "specification",
+			name: "numeric.c's limit on a numeric of no typmod and numeric_maximum_size of a declared precision, against nbtree.h's BTMaxItemSize"
+		},
+		box: "PostgreSQL's numeric of no typmod, and numeric(p, 2) at the least and the greatest precisions a field declares",
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/laws/model/plan.ts",
+				original: "\t\tif (datum !== undefined && bytes <= btreeMaxItemSize) {",
+				replacement: "\t\tif (datum !== undefined) {",
+				why: "The bound check on a fold's running value dropped where the value has a bound at all: a sum of a numeric of no typmod passes the fold, so the UNIQUE grizzle plans for its axes refuses it, a key the author never declared, where the fold and the precision its fields lack are what the author fixes."
 			}
 		]
 	})

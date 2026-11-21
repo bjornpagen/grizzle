@@ -1,9 +1,7 @@
 /** What the properties of axis-keys.test.ts read: its spaces, models and helpers. */
 
 import { constant, type Gen, int, map, oneOf } from "@bjornpagen/testing/gen"
-import { Array as Arr } from "effect"
 import type { ExprDesc, FieldDesc } from "#compiler/ir/desc.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
 import { accumulated, Bits, bits, drawn, natural } from "#compiler/public/fields.ts"
 import {
 	closed,
@@ -15,6 +13,7 @@ import {
 	relation as relationOf,
 	schema
 } from "#compiler/public/schema.ts"
+import { Decimal } from "#compiler/scalar/values/decimal.ts"
 import { alignUp, btreeMaxItemSize, maxAlign, typlens } from "#compiler/schema/representability.ts"
 import { succeeded } from "#test/support/assert.ts"
 import { codebookOfStates } from "#test/support/closed/generate.ts"
@@ -41,16 +40,20 @@ export type TextType =
 	| Readonly<{ kind: "octets"; n: number }>
 	| Readonly<{ kind: "code points"; n: number }>
 
-/** The bytes the IndexTupleData header, a uuid and a bigint aligned to 8 take, at exact offsets since no varlena or
- * NULL comes before them. */
-const keyPrefixBytes = alignUp(8 + typlens.uuid, typlens.int8) + typlens.int8
+/**
+ * The bytes the IndexTupleData header, a uuid (1-aligned) and a bigint (8-aligned) take in any order of a key's columns,
+ * which decides whether the key fits (schema/representability.ts btreeEntryBytes, a function of the column set): each
+ * datum after its worst alignment padding, align - 1.
+ */
+const keyPrefixBytes = 8 + (1 - 1 + typlens.uuid) + (typlens.int8 - 1 + typlens.int8)
 
-/** The bytes of the entry before the text's data: its prefix, aligned to 4 for the text, and the text's varlena header. */
-const textStartBytes = alignUp(keyPrefixBytes, 4) + 4
+/** The bytes of the entry before the text's data: its prefix, then the text's 4-byte varlena header after its worst
+ * padding to 4. */
+const textStartBytes = keyPrefixBytes + (4 - 1) + 4
 
 /**
- * The B-tree entry of Line's (doc, at, after) as index_form_tuple lays it out: its prefix, then the text's 4-byte
- * varlena header and its longest value aligned to 4, the whole MAXALIGNed.
+ * The B-tree entry of Line's (doc, at, after) in any order of its columns: its prefix, then the text's varlena header and
+ * its longest value, the whole MAXALIGNed.
  */
 export const entryBytes = (textBytes: number): number =>
 	alignUp(textStartBytes + textBytes, maxAlign)
@@ -143,6 +146,59 @@ type Verdict = "an entry within the bound" | "an entry at the bound" | "an entry
 
 export type Feature = Verdict | TextType["kind"]
 
+/** A sum fold's numeric: PostgreSQL's numeric of no typmod, or numeric(precision, scale). */
+export type NumericType =
+	| Readonly<{ kind: "bare" }>
+	| Readonly<{ kind: "precise"; precision: number; scale: number }>
+
+export type NumericFeature = "refused" | "installed"
+
+/** The box: the numeric of no typmod, and numeric(p, 2) at the least and the greatest precisions a field declares. */
+export const numericGen: Gen<NumericType> = oneOf<NumericType>([
+	constant<NumericType>({ kind: "bare" }),
+	map(oneOf([constant(2), constant(1000)]), (precision): NumericType => ({
+		kind: "precise",
+		precision,
+		scale: 2
+	}))
+])
+
+/**
+ * Account(id, n, total) and its ordered family Entry(account, at), whose sum fold steps each entry's `amount` into the
+ * account's `total` through its running `before` and `after`, every one of them of the numeric type `t`.
+ */
+export const sumSchema = (t: NumericType): SchemaDesc => {
+	const type = t.kind === "bare" ? f.pg("numeric") : f.numeric(t.precision, t.scale)
+	const zero = Decimal.of("0")
+	return {
+		name: "Ledger",
+		relations: [
+			relation("Account", { id: f.uuid, n: f.drawn, total: f.accumulated(type, zero) }, ["id"]),
+			relation(
+				"Entry",
+				{
+					account: f.uuid,
+					at: f.drawn,
+					amount: type,
+					before: f.accumulated(type, zero),
+					after: f.accumulated(type, zero)
+				},
+				["account", "at"]
+			)
+		],
+		statements: [
+			ordered(on("Entry", ["account", "at"]), fin("Account", "n")),
+			fold(
+				fin("Account", "n"),
+				"sum",
+				on("Entry", ["account", "amount", "before", "after"]),
+				on("Account", ["id", "total"])
+			)
+		],
+		bases: []
+	}
+}
+
 export const verdictOf = (bytes: number): Verdict => {
 	const entry = entryBytes(bytes)
 	return entry < btreeMaxItemSize
@@ -216,29 +272,12 @@ const setHeaderBytes = 4 + typlens.int4
 /** A bit(n) of `codes` codes. */
 export const setBytes = (codes: number): number => setHeaderBytes + Math.ceil(codes / 8)
 
-/** Line's (order, at, after) entry: its prefix, a bit(n) aligned to 4, MAXALIGNed. */
+/** Line's (order, at, after) entry in any order of its columns: its prefix, then a bit(n) after its worst padding to 4,
+ * MAXALIGNed. */
 export const entryOf = (codes: number): number =>
-	alignUp(alignUp(keyPrefixBytes, 4) + setBytes(codes), maxAlign)
+	alignUp(keyPrefixBytes + (4 - 1) + setBytes(codes), maxAlign)
 
 /** The most codes whose entry fits: each eight codes take a byte, and BTMaxItemSize is itself MAXALIGNed. */
-export const fittingCodes = 8 * (btreeMaxItemSize - alignUp(keyPrefixBytes, 4) - setHeaderBytes)
+export const fittingCodes = 8 * (btreeMaxItemSize - (keyPrefixBytes + (4 - 1)) - setHeaderBytes)
 
 export type SetFeature = "an entry within the bound" | "an entry at the bound" | "an entry past it"
-
-/** Whether the UNIQUE Line's predecessor and last axes reference, over (doc, at, after), holds `after` by its image. */
-export const axisKeyImaged = (model: LawModel): boolean => {
-	const images = new Set(
-		Arr.flatMap(model.natives, (n) =>
-			n.namespace === "column" && n.object.relation.name === "Line" && n.plan.kind === "image"
-				? [n.object.column]
-				: []
-		)
-	)
-	return Arr.some(
-		model.natives,
-		({ object }) =>
-			object.kind === "Unique" &&
-			object.relation.name === "Line" &&
-			Arr.some(object.columns, (c) => c.kind === "law" && images.has(c.column))
-	)
-}

@@ -477,9 +477,7 @@ export const roleArtifacts = <S extends ParamSource>(
 		return read
 	}
 	const names = worldNames(named, base.names)
-	const reads = catchCompileError(() =>
-		roleReadNames(base.names, names, role, read.value.checked.entries)
-	)
+	const reads = catchCompileError(() => roleReadNames(base.names, names, role))
 	if (!reads.ok) {
 		return reads
 	}

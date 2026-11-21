@@ -79,7 +79,7 @@ export const isolationFactsGiveOneFactForEveryRelationAndEveryMemberEachItsBuild
 			{
 				file: "packages/engine/src/program/isolation/input.ts",
 				original:
-					"\t\t\t\t\tcolumns: object.targetColumns.map((c) => text(object.target.name, c)),\n\t\t\t\t\tonUpdate: object.onUpdate",
+					"\t\t\t\t\tcolumns: object.targetColumns.map(columnKey),\n\t\t\t\t\tonUpdate: object.onUpdate",
 				replacement:
 					'\t\t\t\t\tcolumns: object.targetColumns.flatMap((c) => (c.kind === "field" ? [c.field.name] : [])),\n\t\t\t\t\tonUpdate: object.onUpdate',
 				why: "A foreign key's law columns left out of its referenced columns, so its check by an alternatives arm's or a family slot's key binds no whole key."

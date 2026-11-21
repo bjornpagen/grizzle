@@ -24,7 +24,6 @@ import {
 import { operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import type { Family, TreeShape } from "#compiler/ir/family.ts"
 import type { LawField, RelationInfo } from "#compiler/ir/law.ts"
-import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	Cte,
 	Expr,
@@ -173,26 +172,15 @@ export const heldAmong = (
 			...identityHooks,
 			expr: (e) => (e.kind === "column" && e.table === held.alias ? { ...e, table: h } : e)
 		})
-	/** The stored field `field` of `relation` among the held rows' values of it, or, where a key installs it over its
-	 * image, its image's column among their images, whose index the key's holds in its place. */
-	const among = (relation: RelationInfo, field: LawField, value: Expr): Expr => {
-		const image = w.image(relation.name, field.name)
-		return image === undefined
-			? amongHeld(
-					supply,
-					storedAt(w, relation, hop.alias, field),
-					held.cte,
-					(h) => readAt(value, h),
-					operatorSchemaOf(w.names, field.type)
-				)
-			: amongHeld(
-					supply,
-					col(hop.alias, image.column),
-					held.cte,
-					(h) => keyImageForm(w.names.library, image.image, readAt(value, h)),
-					undefined
-				)
-	}
+	/** The stored field `field` of `relation` among the held rows' values of it. */
+	const among = (relation: RelationInfo, field: LawField, value: Expr): Expr =>
+		amongHeld(
+			supply,
+			storedAt(w, relation, hop.alias, field),
+			held.cte,
+			(h) => readAt(value, h),
+			operatorSchemaOf(w.names, field.type)
+		)
 	return hop.kind === "group"
 		? mapNonEmpty(hop.family.group, (g) => among(hop.family.member, g.member, hop.at(g)))
 		: mapNonEmpty(accessFields(hop), (f) => among(hop.relation, f, hop.at(f)))

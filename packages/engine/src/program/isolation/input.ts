@@ -8,8 +8,8 @@ import type {
 	TriggerLaw
 } from "#compiler/analysis/isolation/facts.ts"
 import type { TablePrivilege } from "#compiler/core/privilege.ts"
-import { columnKey, type NativeColumn } from "#compiler/ir/law.ts"
-import { fieldImages, type LawModel } from "#compiler/laws/model/model.ts"
+import { columnKey } from "#compiler/ir/law.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { OwnedRelation } from "#compiler/schema/own.ts"
 
 /**
@@ -84,28 +84,17 @@ const byRelation = <V>(
 }
 
 /**
- * A native column of a relation by its text (ir/law.ts columnKey), a field's image by the field it compares
- * (laws/model/model.ts fieldImages), any other law column by its identifier.
- */
-const columnText = (model: LawModel): ((relation: string, c: NativeColumn) => string) => {
-	const compared = fieldImages(model.natives).compared
-	return (relation, c) => compared(relation, c)?.name ?? columnKey(c)
-}
-
-/**
  * The declared keys of each relation by its declared name, each by its columns' texts (ir/law.ts columnKey): its
- * primary key's native and each UNIQUE native, a field's image by the field it compares (laws/model/model.ts
- * fieldImages), any other law column by its identifier, so a key a law adds over law columns (an
+ * primary key's native and each UNIQUE native, a law column by its identifier, so a key a law adds over law columns (an
  * alternatives arm's, a selected side's, a family's slot) is the key PostgreSQL enforces, which a check by those columns
  * finds one row of at most and no read of fields alone binds whole. A span key (WITHOUT OVERLAPS) is no key a read by its
  * columns is a point read of.
  */
 const nativeKeys = (model: LawModel): ReadonlyMap<string, ReadonlyArray<ReadonlyArray<string>>> => {
-	const text = columnText(model)
 	return byRelation(
 		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, ReadonlyArray<string>]> =>
 			object.kind === "PrimaryKey" || object.kind === "Unique"
-				? [[object.relation.name, object.columns.map((c) => text(object.relation.name, c))]]
+				? [[object.relation.name, object.columns.map(columnKey)]]
 				: []
 		)
 	)
@@ -127,17 +116,16 @@ const countedGroups = (
 /**
  * The references of each relation by its declared name: every foreign key it holds, deferrable or not, a native one, a
  * lowered containment's and a PERIOD key's alike, by the relation it references, that relation's columns it references
- * by their texts in the order of its key, as the relation's keys name them (columnText), and its ON
+ * by their texts in the order of its key (ir/law.ts columnKey), as the relation's keys name them, and its ON
  * UPDATE action. A PERIOD key's span is left out, which its check reads by overlap, and its action is NO ACTION.
  */
-const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Reference>> => {
-	const text = columnText(model)
-	return byRelation(
+const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Reference>> =>
+	byRelation(
 		model.natives.flatMap(({ object }): ReadonlyArray<readonly [string, Reference]> => {
 			if (object.kind === "ForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					columns: object.targetColumns.map((c) => text(object.target.name, c)),
+					columns: object.targetColumns.map(columnKey),
 					onUpdate: object.onUpdate
 				}
 				return [[object.relation.name, reference]]
@@ -145,7 +133,7 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			if (object.kind === "PeriodForeignKey") {
 				const reference: Reference = {
 					relation: object.target.name,
-					columns: object.targetColumns.map((c) => text(object.target.name, c)),
+					columns: object.targetColumns.map(columnKey),
 					onUpdate: "noAction"
 				}
 				return [[object.relation.name, reference]]
@@ -153,7 +141,6 @@ const nativeReferences = (model: LawModel): ReadonlyMap<string, ReadonlyArray<Re
 			return []
 		})
 	)
-}
 
 /** The relations of every retirable unit of the model's owned schema, its header and its bodies, by declared name. */
 const unitRelations = (model: LawModel): ReadonlySet<string> =>

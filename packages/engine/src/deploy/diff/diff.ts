@@ -487,7 +487,7 @@ interface KeptTable {
 
 /**
  * A table's primary key columns, in key order: as its CREATE TABLE declares the key, or, where the key reads a column a
- * law adds, a field's image, as the key's own ALTER TABLE ... ADD CONSTRAINT among `objects` adds it.
+ * law adds, as the key's own ALTER TABLE ... ADD CONSTRAINT among `objects` adds it.
  */
 const primaryKeyColumns = (
 	objects: ReadonlyArray<AnyObject>,

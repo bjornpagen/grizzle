@@ -136,7 +136,6 @@ import {
 	target
 } from "#compiler/sql/build.ts"
 import { emit } from "#compiler/sql/emit.ts"
-import { statingImages } from "#compiler/sql/image.ts"
 import {
 	freshNames,
 	type NameMap,
@@ -187,14 +186,11 @@ import { seekingSuffixes } from "#compiler/sql/suffix.ts"
 export const lateralParentMax = 256
 
 /**
- * A statement as its relations' indexes read it: each equality of a text a lookup index holds by its image stating the
- * images' equality beside it (sql/image.ts statingImages), and each suffix test of a text a B-tree holds the suffix key
- * of read as that key's range (sql/suffix.ts seekingSuffixes).
+ * A statement as its relations' indexes read it: each suffix test of a text a B-tree holds the suffix key of read as
+ * that key's range (sql/suffix.ts seekingSuffixes).
  */
-const readByItsIndexes = (
-	query: Select,
-	names: Pick<PhysicalNames, "imaged" | "suffixed">
-): Select => seekingSuffixes(statingImages(query, names.imaged), names.suffixed)
+const readByItsIndexes = (query: Select, names: Pick<PhysicalNames, "suffixed">): Select =>
+	seekingSuffixes(query, names.suffixed)
 
 /**
  * Which form a per-execution take choice lowers to in one lowering of a statement: the LATERAL form for a small parent

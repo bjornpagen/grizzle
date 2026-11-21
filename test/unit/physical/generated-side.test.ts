@@ -98,8 +98,8 @@ export const aLawColumnOverAGeneratedFieldReadsTheRowsWrittenFieldsAloneNeverAGe
 		kills: [
 			{
 				file: "packages/engine/src/physical/ddl/tables.ts",
-				original: "\tconst term = lowerWrittenRow(b, o.relation, value.term, label)",
-				replacement: "\tconst term = lowerRow(b, o.relation, value.term, label)",
+				original: "\tconst expr = lowerWrittenRow(b, o.relation, value.term, label)",
+				replacement: "\tconst expr = lowerRow(b, o.relation, value.term, label)",
 				why: "A law column's generation term reads a generated field's column where it should read that field's own generation."
 			}
 		]

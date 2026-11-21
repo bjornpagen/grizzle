@@ -2480,9 +2480,7 @@ class Typing<R extends Refs> {
 	 * An equation of a text with a concatenation, `t = p1 || … || pn` or its negation, its parts read through every nested
 	 * concatenation (concatParts), so n is at least two: `octet_length(t) = Σ octet_length(pi) AND t = CASE WHEN
 	 * Σ octet_length(pi) > bytesMaxLength THEN '' ELSE p1 || … || pn END`, an equality of t with the parts built in order,
-	 * so a probe that knows the parts reads t by its key, and by its image where an index holds t by one (sql/image.ts
-	 * statingImages states `md5(t) = md5(…)` beside every equality of an imaged column), never every t of the rows its other
-	 * columns find.
+	 * so a probe that knows the parts reads t by its key, never every t of the rows its other columns find.
 	 *
 	 * It is total: the concatenation is built only where its bytes, Σ octet_length(pi) summed exactly (exact integers,
 	 * bigint), are within the most bytes one varlena holds (values/fault.ts bytesMaxLength), so textcat never allocates

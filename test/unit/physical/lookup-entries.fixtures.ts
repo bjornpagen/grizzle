@@ -1,4 +1,4 @@
-/** What the property of lookup-images.test.ts reads: its space, its model of a lookup's entry and each case's schema. */
+/** What the property of lookup-entries.test.ts reads: its space, its model of a lookup's entry and each case's schema. */
 
 import { defined } from "@bjornpagen/testing/assert"
 import { type Aimed, aimed, array, boolean, element, type Gen, int } from "@bjornpagen/testing/gen"
@@ -17,10 +17,7 @@ import {
 	btreeTupleBytes,
 	type Datum,
 	datumOf,
-	textImageDatum,
-	isTextSketch,
 	Kind,
-	keyedDatums,
 	keyFieldDescriptor,
 	keyFieldGen,
 	type KeyFieldSketch,
@@ -47,7 +44,7 @@ type Use = (typeof uses)[number]
 /**
  * A case: the request's keys, each a field of R drawn over pg_type's sizes (a fixed-width type, numeric(p, s), a text
  * bounded by its pattern or a contract, or of no byte bound), its use, and whether R declares a candidate key over the
- * same fields, whose index holds its texts by SHA-256 where its own entry could outgrow BTMaxItemSize.
+ * same fields, refused where it could outgrow BTMaxItemSize.
  */
 export interface LookupSketch {
 	readonly fields: Arr.NonEmptyReadonlyArray<KeyFieldSketch>
@@ -86,8 +83,8 @@ const drawnGen: Gen<LookupSketch> = (source) => {
 }
 
 /**
- * A seek whose fixed prefix leads with a text of no byte bound, then any keys it fixes or orders: its entry can outgrow
- * BTMaxItemSize, so it holds the fixed text by its image and reads its entries in the order of the rest.
+ * A seek whose fixed prefix leads with a text of no byte bound, then any keys it fixes or orders: no entry holds the
+ * fixed text, so the index leaves it out, a filter beside it, and reads its entries in the order of the rest.
  */
 const seekGen: Gen<LookupSketch> = (source) => {
 	const others = source.draw(array(keyFieldGen, { min: 1, max: 3 }))
@@ -97,8 +94,8 @@ const seekGen: Gen<LookupSketch> = (source) => {
 }
 
 /**
- * A request whose last key is a text of an octet bound past what its entry leaves it beside its other keys, each an
- * image's width at most, which it reads in its order or matches a prefix of under `use`.
+ * A request whose last key is a text of an octet bound past what its entry leaves it beside its other keys, which it
+ * reads in its order or matches a prefix of under `use`.
  */
 const pastGen =
 	(use: Use): Gen<LookupSketch> =>
@@ -110,8 +107,8 @@ const pastGen =
 	}
 
 /**
- * A request over numerics, of the widest precision a field takes, whose entry outgrows BTMaxItemSize with no text in
- * it to hold by an image or to name.
+ * A range over numerics, of the widest precision a field takes, whose entry outgrows BTMaxItemSize where the equalities
+ * it may leave out are too few to bring it under: refused for its bytes, its ordered numeric named.
  */
 const numericsGen: Gen<LookupSketch> = (source) => {
 	const count = source.draw(int(6, 8))
@@ -122,15 +119,14 @@ const numericsGen: Gen<LookupSketch> = (source) => {
 	}))
 	const widest: KeyFieldSketch = { kind: "numeric", precision: 1000, scale: 0 }
 	const all = Arr.append(fields, widest)
-	const use = source.draw(element(uses))
-	return { fields: all, use, fixed: source.draw(fixedGen(use, all.length)), keyed: false }
+	return { fields: all, use: "page seek", fixed: 0, keyed: false }
 }
 
 export const lookupGen: Aimed<LookupSketch, LookupFeature> = aimed(drawnGen, [
 	["refused naming an ordered text", pastGen("page seek")],
 	["refused naming a prefixed text", pastGen("prefix search")],
-	["refused for its bytes", numericsGen],
-	["a seek's fixed text held by its image", seekGen]
+	["refused naming an ordered numeric", numericsGen],
+	["a seek's fixed text left out", seekGen]
 ])
 
 /** What each use does with a key past those it binds by equality, stated from the use alone. */
@@ -148,51 +144,68 @@ const rolesOf = (s: LookupSketch): ReadonlyArray<EntryRole> =>
 
 /**
  * The model's verdict on the request's created index, restated from PostgreSQL's B-tree item limit (BTMaxItemSize,
- * 2,704 bytes) and pg_type's sizes: where its keys, each as itself, fit an entry, every key as itself; otherwise every
- * text it binds by equality wider than an image, 32 hexadecimal digits under a varlena header, or of no byte bound, by
- * its image, and every other key as itself. An entry that still holds a text of no bound is refused as unbounded; one
- * still past the limit is refused naming the texts wider than an image it reads in their order or matches a prefix of,
- * where it holds any, and for its bytes otherwise.
+ * 2,704 bytes) and pg_type's sizes, every key as itself in any order (`btreeTupleBytes`): where its keys fit an entry,
+ * every key; otherwise each key it binds by equality left out, the widest first (a key of no byte bound widest of all),
+ * the first of two as wide, until the rest fit, each left out a filter beside the index. One it reads in its order or
+ * matches a prefix of stays: one of no byte bound is refused as unbounded, and an entry those still overfill is
+ * refused naming its varlenas among them, or for its bytes where it holds none. A request left no key is refused by
+ * the widest it binds.
  */
 type LookupVerdict =
-	| { readonly kind: "installed"; readonly imaged: ReadonlyArray<boolean> }
+	| { readonly kind: "installed"; readonly held: ReadonlyArray<number> }
 	| { readonly kind: "unbounded" }
 	| { readonly kind: "ordered"; readonly fields: ReadonlyArray<string> }
 	| { readonly kind: "entry" }
 
+/** A key's width where the index leaves keys out: its datum's bytes, a key of no byte bound the widest of all. */
+const widthOf = (d: Datum | undefined): number => d?.bytes ?? Number.POSITIVE_INFINITY
+
 export const lookupVerdict = (s: LookupSketch): LookupVerdict => {
 	const roles = rolesOf(s)
 	const own = Arr.map(s.fields, datumOf)
-	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
-	const fits = bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
-	const imaged = Arr.map(s.fields, (f, i) => {
-		const datum = own[i]
-		return (
-			!fits &&
-			roles[i] === "equality" &&
-			isTextSketch(f) &&
-			(datum === undefined || datum.bytes > textImageDatum.bytes)
-		)
-	})
-	const held = Arr.map(own, (d, i) => (imaged[i] === true ? textImageDatum : d))
-	const heldBounded = Arr.filter(held, (d): d is Datum => d !== undefined)
-	if (heldBounded.length < held.length) {
+	const fits = (held: ReadonlyArray<number>): boolean => {
+		const datums = Arr.map(held, (i) => own[i])
+		const bounded = Arr.filter(datums, (d): d is Datum => d !== undefined)
+		return bounded.length === datums.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
+	}
+	let held: ReadonlyArray<number> = Arr.map(s.fields, (_, i) => i)
+	while (!fits(held)) {
+		const equalities = Arr.filter(held, (i) => roles[i] === "equality")
+		const [first, ...rest] = equalities
+		if (first === undefined) {
+			break
+		}
+		const widest = Arr.reduce(rest, first, (w, i) => (widthOf(own[i]) > widthOf(own[w]) ? i : w))
+		held = Arr.filter(held, (i) => i !== widest)
+	}
+	if (held.length > 0 && fits(held)) {
+		return { kind: "installed", held }
+	}
+	const blame =
+		held.length > 0
+			? held
+			: [
+					Arr.reduce(
+						Arr.map(s.fields, (_, i) => i),
+						0,
+						(w, i) => (widthOf(own[i]) > widthOf(own[w]) ? i : w)
+					)
+				]
+	if (Arr.some(blame, (i) => own[i] === undefined)) {
 		return { kind: "unbounded" }
 	}
-	if (btreeTupleBytes(heldBounded) <= postgresBtreeMaxItem) {
-		return { kind: "installed", imaged }
-	}
-	const ordered = Arr.flatMap(s.fields, (f, i) =>
-		roles[i] !== "equality" && isTextSketch(f) && defined(held[i]).bytes > textImageDatum.bytes
-			? [fieldName(i)]
-			: []
+	const ordered = Arr.flatMap(blame, (i) =>
+		roles[i] !== "equality" && !defined(own[i], "a bounded key").fixed ? [fieldName(i)] : []
 	)
 	return ordered.length > 0 ? { kind: "ordered", fields: ordered } : { kind: "entry" }
 }
 
-/** Whether a candidate key over the drawn fields has a representable entry, its texts held by SHA-256 where it would outgrow one. */
-export const keyAdmitted = (s: LookupSketch): boolean =>
-	btreeTupleBytes(Arr.map(keyedDatums(s.fields), (d) => d.datum)) <= postgresBtreeMaxItem
+/** Whether a candidate key over the drawn fields fits its entry, every field as itself in any order. */
+export const keyAdmitted = (s: LookupSketch): boolean => {
+	const own = Arr.map(s.fields, datumOf)
+	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
+	return bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
+}
 
 /** The name of R's field at `i`, a key of the request. */
 export const fieldName = (i: number): string => `k${i}`
@@ -223,24 +236,27 @@ const lookupRequest = (s: LookupSketch): IndexRequest => ({
 	use: s.use
 })
 
-/** The installation of the case's schema with its request, as the workload extension contributes a program's. */
+/**
+ * The installation of the case's schema with its request, stated twice, as two programs that read alike contribute it
+ * (the workload extension): the index created for the first serves the second, by the keys that fit its entry where it
+ * leaves some out.
+ */
 export const installLookup = (s: LookupSketch) => {
 	const owned = succeeded(lookupSchema(s), "the case's schema owned")
 	return compileInstallation(owned, {
 		...installOptions(owned),
-		extensions: [requesting([lookupRequest(s)])]
+		extensions: [requesting([lookupRequest(s), lookupRequest(s)])]
 	})
 }
 
 export type LookupFeature =
-	| "every key as itself"
-	| "an equality held by its image"
-	| "a text of no bound held by its image"
-	| "an ordered text held as itself beside an image"
+	| "every key held"
+	| "an equality left out"
+	| "a text of no bound left out"
+	| "an ordered key held beside a filter"
 	| "refused naming an ordered text"
 	| "refused naming a prefixed text"
-	| "refused for its bytes"
+	| "refused naming an ordered numeric"
 	| "refused as unbounded"
-	| "a key holding a text by its digest"
 	| "served by the key's index"
-	| "a seek's fixed text held by its image"
+	| "a seek's fixed text left out"

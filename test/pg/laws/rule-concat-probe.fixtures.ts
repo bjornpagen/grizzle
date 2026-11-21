@@ -28,7 +28,8 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
 
 /**
  * edullm's test-variable resolution in small (pantry's readings.ts, the qualified name `ITEMREF.VAR`): each reference
- * of a document, keyed by its element, holds an `identifier`, a text of no byte bound; each variable a scope declares,
+ * of a document, keyed by its element, holds an `identifier`, a text bounded at 256 bytes, which a lookup's index holds
+ * as itself (one of no byte bound is a filter beside the index, README "Keys and indexes"); each variable a scope declares,
  * keyed by the scope and its name; and Resolved, the join of each variable with the references whose identifier is
  * the scope's name, a dot and the variable's, `identifier = scope || '.' || variable`, a computed text no row stores.
  * Every variable is held to a reference by a containment into that query, so the judge's probe of a written variable
@@ -36,13 +37,13 @@ import { pgErrorFields } from "#test/support/substrate/errors.ts"
  * every reference of it.
  */
 const Short = str.bytes(64, str.regex("^.*$", "su"))
-const Free = str.regex("^.*$", "su")
+const Identifier = str.bytes(256, str.regex("^.*$", "su"))
 
-const Ref = relation("Ref", { package: Short, path: Short, start: pg.integer, identifier: Free }, [
-	"package",
-	"path",
-	"start"
-])
+const Ref = relation(
+	"Ref",
+	{ package: Short, path: Short, start: pg.integer, identifier: Identifier },
+	["package", "path", "start"]
+)
 const Var = relation("Var", { package: Short, scope: Short, variable: Short }, [
 	"package",
 	"scope",
@@ -113,7 +114,7 @@ export type ConcatProbeFeature =
  * captures, `written` variables of package 1, each a reference's scope and name, whose rows the deltas hold until the judge
  * reads them. Each query the judge raises on is explained over them before the judge runs (test/support/judge.ts
  * judgedPlans), and then the judge runs (SET CONSTRAINTS ALL IMMEDIATE) and accepts the lawful state: every scan of Ref
- * reads, a loop, at most the rows of one package that share an identifier's image, one, never the package's references,
+ * reads, a loop, at most the rows of one package that share an identifier, one, never the package's references,
  * which a probe by its package alone reads, every one at each variable. A variable whose qualified name no reference
  * holds is refused by the containment (23503).
  */
@@ -146,9 +147,9 @@ export const runConcatProbe = (
 		for (const sql of [...loaded, ...written]) {
 			yield* connection.query(sql, [])
 		}
-		/** The most rows one lookup of Ref matches with those its image's hash collides with. */
+		/** The most rows one lookup of Ref matches. */
 		const [bounds] = yield* connection.queryValues(
-			`SELECT max(n)::text FROM (SELECT count(*) AS n FROM ${ref} GROUP BY ${r("package")}, pg_catalog.md5(${r("identifier")})) AS g`,
+			`SELECT max(n)::text FROM (SELECT count(*) AS n FROM ${ref} GROUP BY ${r("package")}, ${r("identifier")}) AS g`,
 			[]
 		)
 		const most = Number(bounds?.[0])
@@ -177,7 +178,7 @@ export const runConcatProbe = (
 			)
 			assert.ok(
 				Arr.every(reads, (read) => read.rows <= most),
-				`${Formatter.format(stored)}: each scan of Ref the judge's probe makes reads, a loop, at most the ${most} rows one package's identifier and its image's collisions match, beside ${stored.references} references of the package: ${Formatter.format(reads)}`
+				`${Formatter.format(stored)}: each scan of Ref the judge's probe makes reads, a loop, at most the ${most} rows one package's identifier matches, beside ${stored.references} references of the package: ${Formatter.format(reads)}`
 			)
 		}
 		yield* connection.query("SET CONSTRAINTS ALL IMMEDIATE", [])

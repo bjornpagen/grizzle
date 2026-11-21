@@ -115,7 +115,6 @@ import {
 	type TableConstraint
 } from "#compiler/sql/ast.ts"
 import type { OwnerFunction } from "#compiler/sql/constants.ts"
-import { imagedColumnOf } from "#compiler/sql/image.ts"
 import { suffixedColumnOf } from "#compiler/sql/suffix.ts"
 
 /** Entries in the code-unit order of their keys. */
@@ -631,12 +630,12 @@ interface GatheredTable {
 }
 
 /**
- * A key column of an index's statement: the column it names, whose image it holds (sql/image.ts) or whose suffix key it
- * holds (sql/suffix.ts), and its direction (IndexKeyColumn).
+ * A key column of an index's statement: the column it names, or whose suffix key it holds (sql/suffix.ts), and its
+ * direction (IndexKeyColumn).
  */
 interface KeyAt {
 	readonly column: string
-	readonly held: "column" | "image" | "suffix"
+	readonly held: "column" | "suffix"
 	readonly direction: IndexKeyColumn["direction"]
 }
 
@@ -665,8 +664,7 @@ const setAt = <K, V>(map: Map<K, Map<string, V>>, outer: K, inner: string, value
 	map.set(outer, within)
 }
 
-/** What a law column the law model planned holds (LawColumnHolds), by the field whose values it holds: an image by
- * what the column it is the image of holds, a field's as a term over every row is. */
+/** What a law column the law model planned holds (LawColumnHolds), by the field whose values it holds. */
 const holdsOf = (plan: LawColumnPlan): LawColumnHolds => {
 	switch (plan.kind) {
 		case "term":
@@ -677,15 +675,6 @@ const holdsOf = (plan: LawColumnPlan): LawColumnHolds => {
 			return { kind: "drawn", field: plan.field.name }
 		case "indexPred":
 			return { kind: "predecessor", field: plan.field.name }
-		case "image":
-			return {
-				kind: "image",
-				image: plan.image,
-				of:
-					plan.of.kind === "field"
-						? { kind: "term", field: plan.of.field.name }
-						: holdsOf(plan.of.column)
-			}
 	}
 }
 
@@ -714,8 +703,8 @@ const constraintKeys = (constraint: TableConstraint): NonEmptyReadonlyArray<KeyA
 }
 
 /**
- * The key columns of a CREATE INDEX, each a column it names, the image of one or the suffix key of one, the two
- * expressions a key holds, a B-tree's with its direction, any other's with none.
+ * The key columns of a CREATE INDEX, each a column it names or the suffix key of one, the one expression a key holds,
+ * a B-tree's with its direction, any other's with none.
  */
 const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
 	mapNonEmpty(create.keys, (k): KeyAt => {
@@ -723,16 +712,12 @@ const createdKeys = (create: CreateIndex): NonEmptyReadonlyArray<KeyAt> =>
 		if (k.key.kind === "column") {
 			return { column: k.key.column, held: "column", direction }
 		}
-		const imaged = imagedColumnOf(k.key.expr)
-		if (imaged !== undefined) {
-			return { column: imaged, held: "image", direction }
-		}
 		const suffixed = suffixedColumnOf(k.key.expr)
 		if (suffixed !== undefined) {
 			return { column: suffixed, held: "suffix", direction }
 		}
 		throw defect(
-			`the index ${create.name} over an expression no image and no suffix key is, which no installation creates`
+			`the index ${create.name} over an expression no suffix key is, which no installation creates`
 		)
 	})
 
@@ -822,7 +807,6 @@ const snapshotTablesOf = (installation: Installation): SnapshotTables => {
 		const columns = mapNonEmpty(keys, (k): IndexKeyColumn => {
 			const column = columnOf(k)
 			switch (k.held) {
-				case "image":
 				case "suffix":
 					return { kind: k.held, of: column, direction: k.direction }
 				case "column":
@@ -1360,7 +1344,7 @@ const derivedForm = (d: SnapshotDerived): SnapshotForm => ({
 								n,
 								{
 									columns: i.columns.map((c) =>
-										c.kind === "image" || c.kind === "suffix"
+										c.kind === "suffix"
 											? { kind: c.kind, of: indexedForm(c.of), direction: c.direction }
 											: { ...indexedForm(c), direction: c.direction }
 									),

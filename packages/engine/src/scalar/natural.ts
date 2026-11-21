@@ -154,7 +154,7 @@ export const guardedTerm = (term: TermDesc, type: ScalarType): GuardedTerm =>
 	term.kind === "field" ? valueTerm(term.field) : predTerm(term.field, type)
 
 /** A field's own value as a side's term, defined on every row (`GuardedTerm`). */
-export const valueTerm = (field: string): GuardedTerm => ({
+const valueTerm = (field: string): GuardedTerm => ({
 	guard: [],
 	term: { kind: "field", field }
 })

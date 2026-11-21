@@ -1,17 +1,12 @@
+import { defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
 import * as Result from "@bjornpagen/grizzle-text/base/result"
 import { nominal } from "#compiler/core/brand.ts"
 import type { KeyFault } from "#compiler/core/causes.ts"
-import {
-	type EntryImage,
-	type EntryImageOf,
-	entryImage,
-	type EntryRole,
-	type Imaged,
-	type IndexEntryKind
-} from "#compiler/core/identity.ts"
+import type { EntryRole } from "#compiler/core/identity.ts"
 import { blockSize, itemIdBytes, pageHeaderBytes } from "#compiler/core/page.ts"
 import { int2Max } from "#compiler/ir/carriers.ts"
-import type { ExprDesc, FieldDesc, HeldDesc } from "#compiler/ir/desc.ts"
+import type { ExprDesc, FieldDesc, InferredFieldDesc } from "#compiler/ir/desc.ts"
 import type { NumericBound, TextLanguage } from "#compiler/ir/scalar.ts"
 import { decDigits } from "#compiler/scalar/compute/numeric.ts"
 import { utf8EncodingMaxBytes } from "#compiler/scalar/compute/typing.ts"
@@ -615,7 +610,7 @@ const predicateByteBound = (predicate: ExprDesc): number =>
  * The most UTF-8 bytes a text-valued descriptor admits, declared or inferred: its pattern's bound, tightened by every
  * contract's predicate bound on the way down (predicateByteBound); Infinity when nothing bounds it.
  */
-export const textByteBound = (desc: HeldDesc): number => {
+export const textByteBound = (desc: InferredFieldDesc): number => {
 	if (desc.kind === "text") {
 		return languageByteBound(desc.language)
 	}
@@ -628,182 +623,8 @@ export const textByteBound = (desc: HeldDesc): number => {
 	return Number.POSITIVE_INFINITY
 }
 
-const isTextDesc = (desc: HeldDesc): boolean =>
+const isTextDesc = (desc: InferredFieldDesc): boolean =>
 	desc.kind === "text" || (desc.kind === "contract" && isTextDesc(desc.base))
-
-/**
- * A column of a B-tree entry as the choice of its image reads it (`entryImages`): its widest datum, none for a text of
- * no byte bound, what an image of it would stand for (core/identity.ts Imaged), a text or a numeric, none for every
- * other column, and whether it may hold NULL.
- */
-export interface ImageableColumn {
-	readonly datum: DatumBound | undefined
-	readonly imaged: Imaged | undefined
-	readonly nullable: boolean
-}
-
-/**
- * What an image of a column of `desc` would stand for (core/identity.ts Imaged): a text's bytes, a numeric's one text,
- * numeric(p, s), numeric of no typmod and a computed numeric alike, through their contracts; none for any other type,
- * and none for an image itself, which is never imaged again.
- */
-export const imagedOf = (desc: HeldDesc): Imaged | undefined => {
-	switch (desc.kind) {
-		case "text":
-			return "text"
-		case "numeric":
-		case "computedNumeric":
-			return "numeric"
-		case "pg":
-			return desc.type === "numeric" ? "numeric" : undefined
-		case "contract":
-			return imagedOf(desc.base)
-		case "uuid":
-		case "bytes":
-		case "pattern":
-		case "span":
-		case "closedId":
-		case "bits":
-		case "vector":
-		case "search":
-		case "digest":
-			return undefined
-	}
-}
-
-/**
- * The image an entry of kind `kind` over `columns` holds each column by (core/identity.ts EntryImage, the kind's own
- * of what the column is, entryImage), in entry order: the one rule for every B-tree entry grizzle installs, a key's, a
- * UNIQUE's, a lookup's and a page index's, each at its own columns, and a relation's widest entry's (`relationImages`).
- * Where its widest entry, every column as itself, fits a B-tree entry (btreeEntryBytes within BTMaxItemSize), none, so
- * the entry holds, compares and orders every column as it is; where it can outgrow BTMaxItemSize, or a column is a text
- * of no byte bound, every text and every numeric whose widest value is wider than its image by that image (imageDatum),
- * a numeric of no typmod among them, and every other column as itself; a lookup holds no numeric by an image, so one a
- * numeric overfills is refused where its index is built. A lookup holds so only the texts it binds by equality, and a text it reads in its order or matches a prefix
- * of as itself, since no image keeps a text's order: an entry those still overfill is refused where its index is built
- * (`lookupEntry`). PostgreSQL's own bound decides, so an entry that fits never moves, and one that cannot holds the
- * texts that outgrow it by the narrowest column that compares them alike: text equality under pg_c_utf8 compares a
- * text's bytes, of which each image is a function.
- */
-export const entryImages = <K extends IndexEntryKind>(
-	kind: K,
-	columns: ReadonlyArray<ImageableColumn>
-): ReadonlyArray<EntryImageOf<K> | undefined> => {
-	const entry: Array<EntryColumn> = []
-	for (const [i, c] of columns.entries()) {
-		if (c.datum === undefined) {
-			break
-		}
-		entry.push({ name: String(i), datum: c.datum, nullable: c.nullable })
-	}
-	const fits = entry.length === columns.length && btreeEntryBytes(entry) <= btreeMaxItemSize
-	return columns.map((c) => (fits ? undefined : imageIn(kind, c)))
-}
-
-/**
- * The image an entry of kind `kind` may hold a column by: the kind's image of what the column is (entryImage), where
- * the column is wider than that image or of no byte bound; none for a column no image of the kind stands for.
- */
-const imageIn = <K extends IndexEntryKind>(
-	kind: K,
-	c: ImageableColumn
-): EntryImageOf<K> | undefined => {
-	if (c.imaged === undefined) {
-		return undefined
-	}
-	const image = imagesOf[kind](c.imaged)
-	return image !== undefined && (c.datum === undefined || c.datum.bytes > imageDatum[image].bytes)
-		? image
-		: undefined
-}
-
-/** Each kind of entry's image of what a column is (core/identity.ts entryImage), none where it holds none. */
-const imagesOf: {
-	readonly [K in IndexEntryKind]: (imaged: Imaged) => EntryImageOf<K> | undefined
-} = {
-	key: (imaged) => entryImage.key[imaged],
-	lookup: (imaged) => entryImage.lookup[imaged]
-}
-
-/**
- * Whether a text of at most `bytes` UTF-8 bytes, none for a text of no byte bound, is one a lookup's entry may hold by
- * its image (`entryImages`): wider than the image, its datum counted as a text's (`datumBound`).
- */
-export const lookupImageable = (bytes: number | undefined): boolean =>
-	imageIn("lookup", {
-		datum: bytes === undefined ? undefined : fixed(varlenaHeaderBytes + bytes, 4, "text"),
-		imaged: "text",
-		nullable: false
-	}) !== undefined
-
-/** A field as the choice of its image reads it (`entryImages`): its descriptor's datum, NOT NULL. */
-export const keyedField = (desc: HeldDesc): ImageableColumn => ({
-	datum: desc.kind === "bytes" ? undefined : datumBound(desc),
-	imaged: imagedOf(desc),
-	nullable: false
-})
-
-/**
- * Which of a relation's columns, its fields and the columns its laws add to it, some lookup's entry over it may hold by
- * its image, in their order: those `entryImages` holds by it in the widest entry over all of them. An entry over some of
- * the columns is no wider, its every datum and padding counted in it, so wherever an index of the relation holds a text
- * by its image, this one does too, whichever requests the index answers. It is the one set every statement grizzle
- * writes over the relation states the image's equality of (physical/ddl/names.ts InstallNames `imaged`, sql/image.ts
- * statingImages) and a request binds as `bound` (physical/indexes/engine.ts requestKeys), decided from declared widths
- * before any index is built: a relation's statements are compiled apart from the requests its indexes answer, a served
- * program before the installation plans its laws' probes and a layer over a slice of them. A column no B-tree entry
- * holds, a bytes field, is in none.
- */
-export const relationImages = (columns: ReadonlyArray<ImageableColumn>): ReadonlyArray<boolean> => {
-	const held = columns.flatMap((column, at) =>
-		column.datum === undefined && column.imaged === undefined ? [] : [{ at, column }]
-	)
-	const images = entryImages(
-		"lookup",
-		held.map((h) => h.column)
-	)
-	const imaged = new Set(held.flatMap((h, i) => (images[i] === undefined ? [] : [h.at])))
-	return columns.map((_, at) => imaged.has(at))
-}
-
-/**
- * The bytes of a SHA-256 digest, the bytea sha256(bytea) returns.
- *
- * @limitKind published
- * @owner FIPS 180-4
- * @unit bytes
- * @scope a SHA-256 message digest, sha256(bytea)'s result
- * @constraint compile-time constant
- * @source https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf
- * @quote SHA-256 ... 256-bit message digest
- * @verified 2026-11-20
- */
-const sha256Bytes = 32
-
-/**
- * The digits of an MD5 digest in hexadecimal, md5(text)'s length.
- *
- * @limitKind published
- * @owner PostgreSQL 19.0
- * @unit characters
- * @scope the text md5(text) returns
- * @constraint compile-time constant
- * @source https://www.postgresql.org/docs/19/functions-string.html
- * @quote Computes the MD5 hash of the argument, with the result written in hexadecimal.
- * @verified 2026-11-20
- */
-const md5Digits = 32
-
-/**
- * The datum of each image in an index entry (core/identity.ts EntryImage): a key's digest of a text or of a numeric's
- * one text, its 32 bytes, a bytea varlena of at most its four-byte header and 32 bytes, compared byte for byte under no
- * collation; a lookup's md5, its 32 hexadecimal digits, a text varlena of at most its four-byte header and 32 bytes.
- */
-export const imageDatum: { readonly [I in EntryImage]: DatumBound } = Object.freeze({
-	textDigest: fixed(varlenaHeaderBytes + sha256Bytes, 4, "bytea"),
-	numericDigest: fixed(varlenaHeaderBytes + sha256Bytes, 4, "bytea"),
-	md5: fixed(varlenaHeaderBytes + md5Digits, 4, "text")
-})
 
 /** Whether a span's endpoint is a date, date itself or a contract over it: a daterange's, of 4-byte bounds. */
 const isDateEndpoint = (desc: FieldDesc): boolean =>
@@ -865,8 +686,8 @@ const numericMaximumSize = (precision: number): number =>
 
 /**
  * The largest datum of numeric of no typmod within `bound` (ir/scalar.ts NumericBound): a computed numeric's, and
- * pg.numeric's at numeric's own limits, whose widest value no B-tree entry holds, so a key holds one by its image
- * (entryImages) and a lookup over one is refused where its index is built.
+ * pg.numeric's at numeric's own limits, whose widest value no B-tree entry holds, so a key over one is refused and a
+ * lookup leaves it out as a filter (`lookupEntry`).
  */
 const numericDatum = (bound: NumericBound): DatumBound =>
 	fixed(numericMaximumSize(bound.digits + bound.scale), 4, "numeric")
@@ -882,7 +703,7 @@ const rangeBytes = (endpoint: number): number =>
  * The largest index datum of a field, declared or inferred; undefined for bytes and for text whose pattern proves no
  * byte bound.
  */
-export const datumBound = (desc: HeldDesc): DatumBound | undefined => {
+export const datumBound = (desc: InferredFieldDesc): DatumBound | undefined => {
 	switch (desc.kind) {
 		case "contract":
 			if (isTextDesc(desc)) {
@@ -901,8 +722,6 @@ export const datumBound = (desc: HeldDesc): DatumBound | undefined => {
 			return fixed(numericMaximumSize(desc.precision), 4, "numeric")
 		case "computedNumeric":
 			return numericDatum(desc.bound)
-		case "digest":
-			return imageDatum[desc.image]
 		case "span":
 			return isDateEndpoint(desc.endpoint)
 				? fixed(rangeBytes(typlens.date), 4, "range")
@@ -933,27 +752,24 @@ export interface EntryColumn {
 }
 
 /**
- * The most bytes a B-tree tuple over these columns, in the index's column order, can reach, as index_form_tuple lays it
- * out (src/backend/access/common/indextuple.c, and heaptuple.c fill_val for each datum):
- * - its datums start at IndexInfoFindDataOffset (indexDataOffset), past its header and, where any column may be NULL,
- *   its null bitmap;
- * - a fixed-width datum sits at its type's alignment, so through a prefix of fixed-width columns that are never NULL
- *   every offset is exact;
- * - a varlena's length, and its one-byte or four-byte header, vary with its value, and a NULL takes no space, so from the
- *   first varlena or NULL-able column on, every later offset depends on the values: each datum from there is counted
- *   with its worst alignment padding, align - 1, which bounds the padding at any offset, and a varlena at its longest,
- *   its four-byte header aligned, since a one-byte header is never aligned and never longer;
- * - the whole is MAXALIGNed.
+ * The most bytes a B-tree tuple over these columns reaches in any order of them, as index_form_tuple lays one out
+ * (src/backend/access/common/indextuple.c, and heaptuple.c fill_val for each datum): its datums start at
+ * IndexInfoFindDataOffset (indexDataOffset), past its header and, where any column may be NULL, its null bitmap; each
+ * datum is counted after its worst alignment padding, align - 1, which bounds the padding at any offset, and a varlena
+ * at its longest, its four-byte header aligned, since a one-byte header is never aligned and never longer; the whole is
+ * MAXALIGNed. No order's layout exceeds it, so it is a function of the column set: a key, the UNIQUE a reference lands
+ * on and the reference list one set in their own orders, and PostgreSQL matches a foreign key to a unique index over
+ * its columns in any order (tablecmds.c transformFkeyCheckAttrs), so whether an index of a set fits never depends on
+ * which order one lists it in. It is the bound keyTextBytes sizes a text by (`textBytesBeside`).
  */
-export const btreeEntryBytes = (columns: ReadonlyArray<EntryColumn>): number => {
-	let offset = indexDataOffset(columns.some((c) => c.nullable))
-	let exact = true
-	for (const { datum, nullable } of columns) {
-		offset = exact ? alignUp(offset, datum.align) + datum.bytes : afterAtWorst(offset, datum)
-		exact = exact && isFixedWidth(datum) && !nullable
-	}
-	return alignUp(offset, maxAlign)
-}
+export const btreeEntryBytes = (columns: ReadonlyArray<EntryColumn>): number =>
+	alignUp(
+		columns.reduce(
+			(offset, c) => afterAtWorst(offset, c.datum),
+			indexDataOffset(columns.some((c) => c.nullable))
+		),
+		maxAlign
+	)
 
 /** The offset past `datum` laid out at `offset` or after, at its worst alignment padding and its longest. */
 const afterAtWorst = (offset: number, datum: DatumBound): number =>
@@ -1075,7 +891,7 @@ export interface KeyLayout {
 	readonly gist: { readonly span: string; readonly bytes: GistEntryBytes } | undefined
 }
 
-const isSpanDesc = (desc: HeldDesc): boolean =>
+const isSpanDesc = (desc: InferredFieldDesc): boolean =>
 	desc.kind === "span" || (desc.kind === "contract" && isSpanDesc(desc.base))
 
 /**
@@ -1084,7 +900,7 @@ const isSpanDesc = (desc: HeldDesc): boolean =>
  */
 export type KeyFields = ReadonlyArray<{
 	readonly field: string
-	readonly desc: HeldDesc
+	readonly desc: InferredFieldDesc
 }>
 
 /**
@@ -1098,14 +914,14 @@ export const keyDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault>
 /** A key's fields with their descriptors and the datum its index entry holds for each, in key order. */
 type KeyDatums = ReadonlyArray<{
 	readonly field: string
-	readonly desc: HeldDesc
+	readonly desc: InferredFieldDesc
 	readonly datum: DatumBound
 }>
 
 /** Each field's datum as `datumOf` reads its descriptor, or the key's fault (`keyDatums`). */
 const datumsBy = (
 	fields: KeyFields,
-	datumOf: (desc: HeldDesc, at: number) => DatumBound | undefined
+	datumOf: (desc: InferredFieldDesc, at: number) => DatumBound | undefined
 ): Result.Result<KeyDatums, KeyFault> => {
 	if (fields.length > indexMaxKeys) {
 		return Result.err({ kind: "columns", limit: indexMaxKeys })
@@ -1122,22 +938,6 @@ const datumsBy = (
 		out.push({ field, desc, datum: bound })
 	}
 	return Result.ok(out)
-}
-
-/**
- * The datums a declared key's index entry holds, each field's own (`keyDatums`) but a field the key installs over its
- * image (`entryImages`), whose image's datum the entry holds in the field's place, so a key that would outgrow a B-tree
- * entry, a text of no byte bound among its fields, keys.
- */
-const keyedDatums = (fields: KeyFields): Result.Result<KeyDatums, KeyFault> => {
-	const images = entryImages(
-		"key",
-		fields.map((f) => keyedField(f.desc))
-	)
-	return datumsBy(fields, (desc, at) => {
-		const image = images[at]
-		return image === undefined ? datumBound(desc) : imageDatum[image]
-	})
 }
 
 /** A key's bounded datums as its index's columns, in key order: a key's fields are NOT NULL. */
@@ -1167,40 +967,80 @@ export const btreeEntry = (
 }
 
 /**
- * A column of a lookup's entry as its index holds it, with what the entry does with it and what an image of it would
- * stand for (ImageableColumn).
+ * A column a lookup's B-tree may hold: its name, its widest datum (none for a text of no byte bound or a bytes field,
+ * which no entry holds), whether it may hold NULL, and what the lookup does with it (core/identity.ts EntryRole).
  */
-export interface LookupColumn extends EntryColumn {
+export interface LookupColumn {
+	readonly name: string
+	readonly datum: DatumBound | undefined
+	readonly nullable: boolean
 	readonly role: EntryRole
-	readonly imaged: Imaged | undefined
 }
 
+/** The bytes a lookup's column is counted at where it is left out, a column of no bound the widest of all. */
+const widthOf = (c: LookupColumn): number => c.datum?.bytes ?? Number.POSITIVE_INFINITY
+
 /**
- * A lookup's B-tree entry over `columns`, as its index holds them (`entryImages`), its bytes proved within BTMaxItemSize
- * (`btreeEntry`), or its fault: where it can exceed the limit and holds as themselves texts wider than its image that it
- * reads in their order or matches a prefix of, which no image keeps the order of, those texts (`orderedText`), the law a
- * paged or ranged read's text keeps a byte bound by; otherwise the entry's own (`btreeEntry`).
+ * The columns of `columns` a lookup's B-tree entry holds, by their places in order, and its bytes, proved within
+ * BTMaxItemSize in any order of them (`btreeEntry`), or the lookup's fault. Every column, where they fit; otherwise each
+ * column the lookup binds by equality is left out, the widest first (`widthOf`), the first of two as wide, until the
+ * rest fit: a column left out is a filter the lookup's reads apply beside the index, never a column of it, since no
+ * index holds a column by an image of it. A column it reads in its order or matches a prefix of stays, which only an
+ * index holding it serves: one of no byte bound is refused as unbounded, and an entry those still overfill names those
+ * of them a byte bound or a precision would shrink, its varlenas (`orderedColumns`), or is refused for its bytes where
+ * it holds none. A
+ * lookup left no column is refused by the widest it binds, as unbounded or for its bytes.
  */
 export const lookupEntry = (
-	columns: ReadonlyArray<LookupColumn>
-): Result.Result<BtreeEntryBytes, KeyFault> => {
-	const entry = btreeEntry(columns)
-	if (entry.ok) {
-		return entry
+	columns: NonEmptyReadonlyArray<LookupColumn>
+): Result.Result<
+	{ readonly held: NonEmptyReadonlyArray<number>; readonly bytes: BtreeEntryBytes },
+	KeyFault
+> => {
+	const at = (i: number): LookupColumn => defined(columns[i], "a lookup column at its place")
+	const entryOf = (held: ReadonlyArray<number>): ReadonlyArray<EntryColumn> =>
+		held.flatMap((i) => {
+			const c = at(i)
+			return c.datum === undefined ? [] : [{ name: c.name, datum: c.datum, nullable: c.nullable }]
+		})
+	const fits = (held: ReadonlyArray<number>): boolean =>
+		held.every((i) => at(i).datum !== undefined) &&
+		btreeEntryBytes(entryOf(held)) <= btreeMaxItemSize
+	let held: ReadonlyArray<number> = columns.map((_, i) => i)
+	while (!fits(held)) {
+		const [first, ...rest] = held.filter((i) => at(i).role === "equality")
+		if (first === undefined) {
+			break
+		}
+		const widest = rest.reduce((w, i) => (widthOf(at(i)) > widthOf(at(w)) ? i : w), first)
+		held = held.filter((i) => i !== widest)
 	}
-	const ordered = columns.flatMap((c) =>
-		c.role !== "equality" && imageIn("lookup", c) !== undefined
-			? [{ field: c.name, role: c.role, bytes: c.datum.bytes }]
-			: []
-	)
+	if (fits(held) && isNonEmpty(held)) {
+		return Result.ok({ held, bytes: provedEntry(btreeEntryBytes(entryOf(held))) })
+	}
+	const blame = isNonEmpty(held)
+		? held
+		: [columns.reduce((w, c, i) => (widthOf(c) > widthOf(at(w)) ? i : w), 0)]
+	const unbounded = blame.find((i) => at(i).datum === undefined)
+	if (unbounded !== undefined) {
+		return Result.err({ kind: "unboundedText", field: at(unbounded).name })
+	}
+	const entry = entryOf(blame)
+	const bytes = btreeEntryBytes(entry)
+	const ordered = blame.flatMap((i) => {
+		const c = at(i)
+		return c.role === "equality" || c.datum === undefined || isFixedWidth(c.datum)
+			? []
+			: [{ field: c.name, role: c.role, bytes: c.datum.bytes }]
+	})
 	return ordered.length === 0
-		? entry
-		: Result.err({
-				kind: "orderedText",
-				bytes: btreeEntryBytes(columns),
+		? Result.err({
+				kind: "btreeEntry",
+				bytes,
 				limit: btreeMaxItemSize,
-				columns: ordered
+				datums: entry.map((c) => ({ field: c.name, bytes: c.datum.bytes }))
 			})
+		: Result.err({ kind: "orderedColumns", bytes, limit: btreeMaxItemSize, columns: ordered })
 }
 
 /**
@@ -1245,17 +1085,17 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  *
  * - A B-tree entry is the IndexTupleData header (indexTupleHeader) plus each key datum, each aligned to its type's
  *   alignment, the whole MAXALIGNed (maxAlign); PostgreSQL refuses one above BTMaxItemSize (btreeMaxItemSize), and
- *   btreeEntryBytes lays it out as index_form_tuple does. Fixed-width types have exact sizes, their typlens (typlens).
+ *   btreeEntryBytes bounds it in any order of its columns, so whether a key fits is a function of its column set.
+ *   Fixed-width types have exact sizes, their typlens (typlens).
  *   A varlena datum is counted with its longest header (varlenaHeaderBytes), uncompressed: index_form_tuple may
  *   compress a large value, but no compression ratio is guaranteed. numeric(p, s) is at most numeric_maximum_size
  *   (numericMaximumSize), and a computed numeric, a derived relation's inferred field, and numeric of no typmod, at
- *   numeric's own limits, the same over its integer and fraction digits; a numeric wider than its image, in a key that
- *   could outgrow the limit, is counted as its image, the 32 bytes of its one text's SHA-256 digest (entryImages,
- *   imageDatum `numericDigest`), as a text is. Text is bounded by its pattern's language (the text analysis's bound), by a contract's
- *   charLength predicate, utf8EncodingMaxBytes per code point, and by a contract's octetLength predicate, exactly; the
- *   wildcard pattern has none: a text of no byte bound is counted as its image, its SHA-256 digest's 32 bytes
- *   (entryImages, imageDatum), which the key holds in its place, as it holds every text wider than its image in a
- *   key that could outgrow the limit. A vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
+ *   numeric's own limits, the same over its integer and fraction digits. Text is bounded by its pattern's language (the
+ *   text analysis's bound), by a contract's charLength predicate, utf8EncodingMaxBytes per code point, and by a
+ *   contract's octetLength predicate, exactly; the wildcard pattern has none, and a key over a text of no byte bound is
+ *   refused (`unboundedText`). grizzle holds no key column by a digest of its own: a key that can outgrow its entry is
+ *   refused, and its author bounds the field or keys by a digest the schema declares (README "Keys and indexes"). A
+ *   vector(n) is its header and n reals (vectorHeaderBytes, pgvector's Vector struct), a
  *   key field like any other: every vector has one form, its components finite (pgvector refuses NaN and infinity)
  *   and its zero 0, so pgvector's equality is identity. A range is its header, its two bounds and its flags byte
  *   (rangeBytes).
@@ -1271,16 +1111,16 @@ export const textBytesBeside = (others: KeyFields): Result.Result<number, KeyFau
  *   UNIQUE index, and a span key's GiST constraint, has one column per key field, so a key of more fields has no
  *   index, whatever its entry size.
  *
- * Offsets are exact through the key's prefix of fixed-width fields; from its first varlena on, the worst-case alignment
- * padding before each datum is counted, so the bound holds whatever the preceding values' actual sizes. A key that
- * fails is UnrepresentableKey, naming the key and the bound that failed.
+ * Each datum is counted after its worst-case alignment padding, so the bound holds whatever the preceding values' sizes
+ * and whatever order a key, a UNIQUE or a reference lists the columns in. A key that fails is UnrepresentableKey,
+ * naming the key and the bound that failed, and the fix (core/causes.ts keyFaultText).
  *
  * The representability of one declared key, or its fault: its datums bounded, at most one span field, a span key's
  * scalar fields each of a family btree_gist indexes (no vector) and its GiST entry within a GiST page, and its B-tree
  * entry within PostgreSQL's limit.
  */
 export const keyLayout = (fields: KeyFields): Result.Result<KeyLayout, KeyFault> => {
-	const bounded = keyedDatums(fields)
+	const bounded = keyDatums(fields)
 	if (!bounded.ok) {
 		return bounded
 	}

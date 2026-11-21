@@ -219,7 +219,6 @@ import {
 	metRowsOf,
 	arbiterColumns,
 	type HeldKey,
-	imagesAt,
 	keyedAmong,
 	probeGroup,
 	probeKey,
@@ -2663,7 +2662,7 @@ const metRefusal = (
 			from: proposedColumn(f),
 			schema: operatorSchemaOf(w.names, rowType(f))
 		})),
-		filter: imagesAt(w, name, pk, (f) => col(met.alias, proposedColumn(f))),
+		filter: () => [],
 		placed: mapNonEmpty(pk, (f) => w.names.column(name, f.name))
 	}
 	const repeatEqual = stated

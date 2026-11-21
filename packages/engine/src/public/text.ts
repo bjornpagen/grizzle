@@ -92,9 +92,10 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
 
 /**
  * keyTextBytes(fields): the most UTF-8 bytes a text can hold as itself beside `fields` in every index grizzle plans over
- * them and the text, whatever their order and whichever of them is a hidden column that may hold NULL (a key holds a
- * longer one by its image, schema/representability.ts keyImages; an index that orders by the text refuses it): PostgreSQL's limit on one
- * B-tree entry (BTMaxItemSize) less its header, its null bitmap and what the fields take at their longest, each at its
+ * them and the text, whatever their order and whichever of them is a hidden column that may hold NULL (a key over a longer
+ * one is refused, UnrepresentableKey; grizzle holds no key column by a digest of its own, README "Keys and indexes"):
+ * PostgreSQL's limit on one B-tree entry (BTMaxItemSize) less its header, its null bitmap and what the fields take at
+ * their longest, each at its
  * worst alignment padding. `fields` are every other column of the index: a key's other fields, declared or over a
  * selection; for a family axis that carries the text, its group fields, its natural index, the other values it carries
  * and a tree's `end`. A text field whose contract bounds it there,
@@ -104,9 +105,8 @@ export const lexical = (type: Field<unknown, ParseSql, unknown>): RegexText<stri
  * unbounded text, for more fields than an index holds beside a text, and for fields that leave a text no byte.
  */
 /**
- * keyFits(fields): whether a key over `fields`, in that order, holds every value they admit, each field as itself or by
- * its image (a text or a numeric wider than its image, in a key that could outgrow a B-tree entry,
- * schema/representability.ts entryImages): its B-tree entry within PostgreSQL's limit (BTMaxItemSize), at most
+ * keyFits(fields): whether a key over `fields`, in any order, holds every value they admit, each field as itself: its
+ * B-tree entry within PostgreSQL's limit (BTMaxItemSize, schema/representability.ts btreeEntryBytes), at most
  * INDEX_MAX_KEYS columns, no bytes field and at most one span, a span key's GiST entry within a GiST page. It is the
  * verdict a relation keyed by them meets (UnrepresentableKey where it is false), as a value, never thrown, so a caller
  * weighs a key's fields before it declares one. A field of a relation is read as its declared type

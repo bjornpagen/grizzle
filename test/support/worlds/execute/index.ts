@@ -1006,8 +1006,7 @@ const worldOver = (
 								succeeded(namedRole(ownedRole, v.installation.names.levels), `role ${role} named`),
 								v.installation.names
 							),
-							ownedRole,
-							[]
+							ownedRole
 						)
 						const view = read.relation(relation)
 						const fields = Option.getOrElse(entryFields(v.spec.base, spec, relation), () => [])

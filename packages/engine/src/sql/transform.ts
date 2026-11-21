@@ -1548,8 +1548,8 @@ export const transformExpr = (e: Expr, hooks: AstHooks): Expr => new Transform(h
 
 /**
  * `query` with each core's conditions, its WHERE and every on or left join's ON, rewritten by `rewrite`, which reads a
- * condition beside its core's whole FROM: the one walk of a query's conditions, which sql/image.ts (statingImages) and
- * sql/suffix.ts (seekingSuffixes) rewrite through. A core whose conditions `rewrite` keeps is the core itself.
+ * condition beside its core's whole FROM: the one walk of a query's conditions, which sql/suffix.ts (seekingSuffixes)
+ * rewrites through, at any depth of each condition. A core whose conditions `rewrite` keeps is the core itself.
  */
 export const conditionsRewritten = (
 	query: Select,

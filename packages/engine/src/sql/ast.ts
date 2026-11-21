@@ -272,7 +272,7 @@ export type BinaryOperator = (typeof binaryOperators)[number]
  * functions of the compile-target catalog, a float's identity image (float8send, ops.ts floatBitsForm), the exact value of a double's bits (float8send and
  * get_byte, build.ts exactNumericOfDouble), the span functions, the attachment transport, a bytes value's chunks
  * (lower/delivery.ts), the runtime probes, the rule judge's reads of its session tables in the catalog
- * (physical/ddl/rules.ts judged), a text's image an index holds (sql/image.ts), the database default's
+ * (physical/ddl/rules.ts judged), the database default's
  * statement and the binary comparison of two rows, the function of PostgreSQL's `*<>` (record_image_ne), by which a
  * migration's backfill writes only the rows whose drawn values change (deploy/diff/backfill.ts staged), and full text
  * search's parse, weighting, query parse and ranks (lower/conservative/search); a relation input's arrays are a FROM
@@ -366,7 +366,6 @@ export const builtinFunctions = {
 	generate_series: { reach: "row" },
 	num_nonnulls: { reach: "row" },
 	sha256: { reach: "row" },
-	md5: { reach: "row" },
 	to_regclass: { reach: "row" },
 	to_regprocedure: { reach: "row" },
 	pg_get_userbyid: { reach: "row" },
@@ -1366,7 +1365,7 @@ export interface CreateTable {
 	readonly table: ObjectName
 	readonly columns: NonEmptyReadonlyArray<ColumnDef>
 	/** Its primary key, where the table declares it: none where its own ALTER TABLE ... ADD CONSTRAINT adds it after a
-	 * column the table's CREATE TABLE does not hold, a field's image. */
+	 * column the table's CREATE TABLE does not hold, one a law adds. */
 	readonly primaryKey: PrimaryKey | undefined
 	readonly secondary: ReadonlyArray<InlineConstraint>
 }

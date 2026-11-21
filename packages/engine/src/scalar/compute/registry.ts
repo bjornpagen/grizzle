@@ -1129,8 +1129,8 @@ const floatBitsOf = (carrier: "float4" | "float8"): FixedOverload =>
  * A text's SHA-256 digest as 64 lowercase hex digits, the digest of its UTF-8 bytes, as Crypto.sha256 reads a bytes
  * value's: `encode(<schema>.<textDigest>(x), 'hex')`, the installation's library function (physical/ddl/library.ts
  * textDigest, `sha256(convert_to(x, 'UTF8'))`), IMMUTABLE, STRICT and defined on every text, so it stands in a query,
- * a CHECK and a generated field alike, and the same digest a text's image is (a key over a text of no byte bound). Its
- * text is digestText's language (typing.ts sha256).
+ * a CHECK and a generated field alike, so a generated field of it is a digest a key may be declared over (README
+ * "Keys and indexes"). Its text is digestText's language (typing.ts sha256).
  */
 const textSha256: FixedOverload = frozen({
 	fn: "sha256",

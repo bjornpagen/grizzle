@@ -59,7 +59,6 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import type { ColumnMap, Env } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr, lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
-import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	Cte,
 	Expr,
@@ -660,8 +659,6 @@ const columnOf = (
 			return built(col(at, layout.slot))
 		case "copy":
 			return built(col(at, layout.count))
-		case "image":
-			return built(keyImageForm(lowering.names.library, rule.image, value(columnKey(rule.of))))
 		case "ownerCopy":
 			return built(
 				ownValue(
@@ -791,8 +788,6 @@ const chainsOf = (spec: ScanSpec): ReadonlyArray<Chain> => {
 			case "last":
 			case "generated":
 				return []
-			case "image":
-				return drawnReads(columnKey(rule.of)).map((to) => ({ to, across: false }))
 		}
 	}
 	const reads = new Map(spec.drawn.map((c) => [columnKey(c.column), readsOfColumn(c)] as const))
@@ -1019,7 +1014,6 @@ const chainLayer = (
 					case "ownerCopy":
 					case "last":
 					case "generated":
-					case "image":
 						throw defect(`a ${rule.kind} rule among the columns a chain of a scan draws`)
 				}
 			})()

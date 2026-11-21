@@ -313,8 +313,6 @@ const ruleData = (rule: FillRule): FillRuleData => {
 			return { kind: rule.kind, to: columnKey(rule.to) }
 		case "self":
 			return { kind: "self", to: columnKey(rule.to) }
-		case "image":
-			return { kind: "image", image: rule.image, of: columnKey(rule.of) }
 		case "base":
 			return { kind: "base", base: rule.base }
 		case "count":

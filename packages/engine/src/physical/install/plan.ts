@@ -83,7 +83,6 @@ import {
 	type InstallNames,
 	installNames,
 	namedRole,
-	lawColumnsHeld,
 	selectionKeysOf,
 	uninstalled
 } from "#compiler/physical/ddl/names.ts"
@@ -683,7 +682,6 @@ export const planInstallation = (
 			closedRelations: new Map(closedRelationsOf(model).map((r) => [r.name, r] as const)),
 			closedTable: closedTableOf(checked),
 			selectionKeys: selectionKeysOf(model.natives),
-			lawColumns: lawColumnsHeld(model.natives),
 			library
 		})
 		unwrap(paramContractsDefined(names, owned, outside.context, planned.contracts))

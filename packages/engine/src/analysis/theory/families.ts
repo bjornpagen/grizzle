@@ -32,7 +32,6 @@ import {
 	type Family,
 	type FamilyFold,
 	type FoldPlane,
-	type GroupImage,
 	type MemberShape,
 	orderOf,
 	type TreeMembers
@@ -40,7 +39,6 @@ import {
 import {
 	columnKey,
 	type FamilyId,
-	type FieldWriting,
 	type LawField,
 	type NativeColumn,
 	type RelationInfo,
@@ -49,7 +47,6 @@ import {
 import { monoidSpecs } from "#compiler/ir/monoid.ts"
 import { compatible } from "#compiler/scalar/compute/types.ts"
 import { isNaturalDesc } from "#compiler/scalar/natural.ts"
-import { entryImages, keyedField } from "#compiler/schema/representability.ts"
 
 /**
  * Families and their axes, as the theory resolves them.
@@ -72,10 +69,7 @@ import { entryImages, keyedField } from "#compiler/schema/representability.ts"
  * A family as its statement resolves it, before the containments it carries and the folds over it (ir/family.ts), its
  * owner and member the ordinary relations the checked schema typed.
  */
-export interface FamilyShape extends Omit<
-	Family,
-	"axes" | "folds" | "images" | "owner" | "member"
-> {
+export interface FamilyShape extends Omit<Family, "axes" | "folds" | "owner" | "member"> {
 	readonly owner: RelationInfo
 	readonly member: RelationInfo
 }
@@ -374,90 +368,6 @@ export const treeShape = (
 		}),
 		copy: drawnColumn("copy", id, law)
 	})
-}
-
-/** Whether a field's value is fixed once its row is inserted: its caller's, or generated from them, a place or an
- * instant; never one grizzle draws or accumulates again, or a retirement. */
-const fixedAtInsert = (writing: FieldWriting): boolean => {
-	switch (writing.kind) {
-		case "caller":
-		case "generated":
-		case "place":
-		case "instant":
-			return true
-		case "drawn":
-		case "accumulated":
-		case "retirement":
-			return false
-	}
-}
-
-/**
- * The images a family's owner axis carries in the place of the member's fields it rewrites ON UPDATE CASCADE (Family
- * `images`), its column named at the naming door: the axis's UNIQUE, over the owner's key, its count and each owner
- * field a pair carries, decides which of them it holds by its image (schema/representability.ts entryImages, as
- * laws/model/plan.ts installs that UNIQUE), and each member field paired with one so imaged carries a copy of the image:
- * each group field, whose owner field is a key's text no write rewrites, then each field a pair carries from an immutable
- * owner's field fixed at its insert, which no write rewrites either, so the cascade rewrites each copy with the image it
- * holds; in that order, each field once. A copy of any other owner field the cascade would rewrite with another image
- * and leave the text, so it carries none (laws/model/plan.ts refuses the axis). A tree's owner axis takes no action, so
- * it carries none.
- */
-export const familyImages = (
-	shape: FamilyShape,
-	owner: ReadonlyArray<AxisPair>
-): ReadonlyArray<GroupImage> => {
-	if (shape.shape.kind === "tree") {
-		return []
-	}
-	const { id, law } = shape
-	const carried = owner.flatMap(
-		(p): ReadonlyArray<{ readonly member: LawField; readonly owner: LawField }> =>
-			p.from.kind === "field" && p.to.kind === "field"
-				? [{ member: p.from.field, owner: p.to.field }]
-				: []
-	)
-	const targets = [
-		...new Map(
-			[...shape.group.map((g) => g.owner), shape.count, ...carried.map((c) => c.owner)].map(
-				(f) => [f.name, f] as const
-			)
-		).values()
-	]
-	const imaged = new Map(
-		entryImages(
-			"key",
-			targets.map((f) => keyedField(f.desc))
-		).flatMap((image, i) => {
-			const target = targets[i]
-			return image === undefined || target === undefined ? [] : [[target.name, image] as const]
-		})
-	)
-	const copied = [
-		...shape.group,
-		...carried.filter((c) => !shape.owner.mutable && fixedAtInsert(c.owner.writing))
-	]
-	const images = new Map<string, GroupImage>()
-	for (const { member, owner: target } of copied) {
-		const image = imaged.get(target.name)
-		if (image !== undefined && !images.has(member.name)) {
-			images.set(member.name, {
-				member,
-				image,
-				column: identifierOf(
-					identity.lawColumn({
-						kind: "imageCopy",
-						owner: id.owner,
-						count: id.count,
-						family: law,
-						field: member.name,
-						image
-					})
-				)
-			})
-		}
-	}
-	return Object.freeze([...images.values()])
 }
 
 /** Whether a family's shape is a tree's. */

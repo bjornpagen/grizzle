@@ -15,8 +15,8 @@ import type { CompileError } from "#compiler/core/errors.ts"
 import type { Isolation } from "#compiler/core/isolation.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { prepared } from "#compiler/core/prepared.ts"
-import type { LawField, NativeColumn, NativeObject } from "#compiler/ir/law.ts"
-import { fieldImages, triggerLawsOver } from "#compiler/laws/model/model.ts"
+import type { NativeColumn, NativeObject } from "#compiler/ir/law.ts"
+import { triggerLawsOver } from "#compiler/laws/model/model.ts"
 import type { WriteParamSlot } from "#compiler/lower/conservative/types.ts"
 import { checkedRole, grantedPrivileges, readableRelations } from "#compiler/physical/ddl/roles.ts"
 import type { ParamSource } from "#compiler/physical/install/plan.ts"
@@ -162,9 +162,8 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 		}
 	}
 	const arbiters = new Map<string, Array<ReadonlyArray<string>>>()
-	const compared = fieldImages(artifacts.laws.natives).compared
 	for (const { object } of artifacts.laws.natives) {
-		const arbiter = arbiterOf(object, compared)
+		const arbiter = arbiterOf(object)
 		if (arbiter === undefined) {
 			continue
 		}
@@ -183,19 +182,14 @@ const extractNames = (role: RoleChanges): ExtractNames => {
 
 /**
  * The relation and fields of a native an ON CONFLICT with no target arbitrates by (sql/ast.ts OnConflict `every`): a
- * primary key, a UNIQUE or a span key, each column read as the field it compares (`compared`); none for any other
- * native.
+ * primary key, a UNIQUE or a span key, its law columns left out; none for any other native.
  */
 const arbiterOf = (
-	object: NativeObject,
-	compared: (relation: string, column: NativeColumn) => LawField | undefined
+	object: NativeObject
 ): { readonly relation: string; readonly fields: ReadonlyArray<string> } | undefined => {
 	const arbiter = (relation: string, columns: ReadonlyArray<NativeColumn>) => ({
 		relation,
-		fields: columns.flatMap((c) => {
-			const field = compared(relation, c)
-			return field === undefined ? [] : [field.name]
-		})
+		fields: columns.flatMap((c) => (c.kind === "field" ? [c.field.name] : []))
 	})
 	switch (object.kind) {
 		case "PrimaryKey":

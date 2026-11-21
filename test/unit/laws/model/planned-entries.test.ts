@@ -2,24 +2,21 @@
  * Every B-tree index the law model plans fits its entry for every value its columns admit, or the schema is refused
  * with UnrepresentableKey naming that index's columns, where PostgreSQL would refuse the first write that outgrew it
  * (54000): the UNIQUE a containment references where its target's columns are a superkey of a declared key, as well as
- * the declared keys ownership checks first. The containment's reverse index never refuses here: it is a B-tree over the
- * longest leading run of its referencing columns that fits, else a hash index on one of them, and every type drawn here
- * is one a hash index takes (README, "A containment's reverse index never refuses free text";
- * reverse-index.test.ts plans it), so a containment whose whole referencing run outgrows an entry is admitted.
+ * the declared keys ownership checks first. The containment's reverse index never refuses here: its referencing columns
+ * are of the target's types, whose UNIQUE an admitted schema fits in any order of them, so no admitted containment's
+ * referencing run outgrows an entry (reverse-index.test.ts plans the run where one does).
  *
  * Each case draws a target relation B, its declared key, and a containment from a source relation A into a side of B
  * that is B's key or a superkey of it, in a drawn order, every pair of one type: a fixed-width type, a text bounded by
  * an octet_length contract (sometimes sized to bring the target's entry to the item limit plus a drawn delta), ASCII
- * text of a bounded pattern, or the wildcard, which bounds nothing and which every index holds by its image, SHA-256's
- * 32 bytes (schema/representability.ts keyImageOf). The oracle restates PostgreSQL: index_form_tuple's
- * layout of each index's columns in their order (heaptuple.c fill_val), exact through a prefix of fixed-width columns
- * and at the worst padding from the first varlena on, against nbtree.h's BTMaxItemSize, the indexes checked in the
- * order compilation meets them: A's and B's primary keys, then the target's UNIQUE where one is planned. The first that
- * fails is the refusal, by its columns and its fault.
+ * text of a bounded pattern, or the wildcard, which bounds nothing, so no index holds it. The oracle restates PostgreSQL:
+ * index_form_tuple's layout of each index's columns in any order of them (heaptuple.c fill_val), each datum at its worst
+ * padding, against nbtree.h's BTMaxItemSize, the indexes checked in the order compilation meets them: A's and B's
+ * primary keys, then the target's UNIQUE where one is planned. The first that fails is the refusal, by its columns and
+ * its fault: a text of no byte bound, unbounded, or an entry past the limit.
  *
  * Features: the target the declared key or a superkey; admitted; the declared key refused; the target's UNIQUE refused
- * over the limit, or admitted at the limit; a text no pattern bounds, keyed by its digest; a referencing run no B-tree
- * entry holds, admitted.
+ * over the limit, or admitted at the limit; a text no pattern bounds, refused.
  */
 
 import { indices } from "@bjornpagen/grizzle-text/base/array"
@@ -44,9 +41,6 @@ import { ownedInput } from "#test/support/policy.ts"
 import {
 	descriptorOf,
 	faultOf,
-	imagedIndex,
-	imagedOn,
-	overflowsAsItself,
 	type IndexColumns,
 	type PairType,
 	type PlannedFeature,
@@ -54,8 +48,8 @@ import {
 	typesOf
 } from "#test/unit/laws/model/planned-entries.fixtures.ts"
 
-/** The law model's planned B-tree indexes fit their entries, a text no pattern bounds held by its digest, or the first that outgrows its entry is UnrepresentableKey. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
-export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsHeldByItsDigestOrTheFirstThatOutgrowsItsEntryIsUnrepresentableKey =
+/** The law model's planned B-tree indexes fit their entries in any order of their columns, or the first that outgrows its entry, a text no pattern bounds among them, is UnrepresentableKey. Its budget is its suite's before it was a property (test/unit/laws/model/planned-entries.test.ts at 4ca3036a): 300 runs and 300 steered cases. */
+export const theLawModelsPlannedBTreeIndexesFitTheirEntriesOrTheFirstThatOutgrowsItsEntryATextNoPatternBoundsAmongThemIsUnrepresentableKey =
 	property.explore(sketchGen, {
 		needs: {},
 		budget: { runs: 300, steered: 300 },
@@ -63,11 +57,9 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 			"target is the declared key",
 			"target is a superkey",
 			"admitted",
-			"a text no pattern bounds, keyed by its digest",
-			"declared key over the limit, its texts by their digests",
-			"target UNIQUE over the limit, its texts by their digests",
-			"target UNIQUE at the limit, admitted",
-			"a referencing run no B-tree entry holds, admitted"
+			"a text no pattern bounds, refused",
+			"target UNIQUE refused, over the limit",
+			"target UNIQUE at the limit, admitted"
 		] satisfies ReadonlyArray<Reached<PlannedFeature>>,
 		check: (_, c: Case<PlannedFeature>) => (s) =>
 			Effect.sync(() => {
@@ -142,36 +134,10 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 				]
 				const first = Arr.findFirst(checked, (index) => faultOf(index.columns) !== undefined)
 				if (Option.isNone(first)) {
-					const model = succeeded(compiled, "every planned index fits").laws
+					succeeded(compiled, "every planned index fits")
 					c.note("admitted")
-					if (Arr.some(types, (t) => t.kind === "wildcard")) {
-						c.note("a text no pattern bounds, keyed by its digest")
-					}
-					const declared = columns(s.keyOrder, nameAt)
-					assert.equal(
-						imagedOn(model, "B", "PrimaryKey"),
-						imagedIndex(declared),
-						"the primary key holds its texts by their digests exactly where it would outgrow its entry"
-					)
-					if (imagedIndex(declared) && Arr.some(types, (t) => t.kind !== "wildcard")) {
-						c.note("declared key over the limit, its texts by their digests")
-					}
-					if (s.target.superkey) {
-						const target = columns(s.target.order, nameAt)
-						assert.equal(
-							imagedOn(model, "B", "Unique"),
-							imagedIndex(target),
-							"the target UNIQUE holds its texts by their digests exactly where it would outgrow its entry"
-						)
-						if (imagedIndex(target) && s.boundary.kind === "at") {
-							c.note("target UNIQUE over the limit, its texts by their digests")
-						}
-						if (!imagedIndex(target) && s.boundary.kind === "at") {
-							c.note("target UNIQUE at the limit, admitted")
-						}
-					}
-					if (overflowsAsItself(columns(s.target.order, (p) => `s${p}`))) {
-						c.note("a referencing run no B-tree entry holds, admitted")
+					if (s.target.superkey && s.boundary.kind === "at") {
+						c.note("target UNIQUE at the limit, admitted")
 					}
 					return
 				}
@@ -186,7 +152,11 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 					"the refusal names the first index that does not fit"
 				)
 				assert.deepEqual(reason.fault, fault)
-				c.note(first.value.feature(fault))
+				c.note(
+					fault.kind === "unboundedText"
+						? "a text no pattern bounds, refused"
+						: first.value.feature(fault)
+				)
 			}),
 		oracle: {
 			kind: "specification",
@@ -201,10 +171,10 @@ export const theLawModelsPlannedBTreeIndexesFitTheirEntriesATextNoPatternBoundsH
 				why: "An entry of exactly BTMaxItemSize is refused (schema/representability.ts btreeEntry)."
 			},
 			{
-				file: "packages/engine/src/laws/model/plan.ts",
-				original: "\t\t\tnullable: mayBeNull(c)\n\t\t}))\n\t)",
-				replacement: "\t\t\tnullable: mayBeNull(c)\n\t\t}))\n\t).map(() => undefined)",
-				why: "The law model plans every key as itself, so a key that outgrows its entry is refused where its texts' digests would hold it."
+				file: "packages/engine/src/schema/representability.ts",
+				original: "\t\t\t(offset, c) => afterAtWorst(offset, c.datum),",
+				replacement: "\t\t\t(offset, c) => alignUp(offset, c.datum.align) + c.datum.bytes,",
+				why: "A planned UNIQUE measured in the order it lists its columns, every offset as if exact: a target UNIQUE past the any-order bound is admitted, which a reference listing its columns in another order would refuse."
 			}
 		]
 	})

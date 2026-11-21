@@ -44,8 +44,7 @@ import {
 	type TreeFamilyShape,
 	type TreeStatement,
 	familySides,
-	treeShape,
-	familyImages
+	treeShape
 } from "#compiler/analysis/theory/families.ts"
 import {
 	derivedSideArms,
@@ -219,13 +218,13 @@ interface WrittenRule extends StatedRule {
 /**
  * A law's detail as normalization states it, before its violation query is written: a row check's predicate not yet
  * lowered, a rule's violation query not yet checked, and a family's or a tree's shape before the containments it
- * carries, the images its owner axis carries in its members' place and the folds over it. Every written detail is one of these too, so a law's identity reads either.
+ * carries and the folds over it. Every written detail is one of these too, so a law's identity reads either.
  */
 export type StatedDetail =
 	| Exclude<LawDetail, { readonly kind: "family" | "tree" | "rule" }>
 	| StatedRule
-	| { readonly kind: "family"; readonly family: Omit<Family, "axes" | "folds" | "images"> }
-	| { readonly kind: "tree"; readonly family: Omit<TreeFamily, "axes" | "folds" | "images"> }
+	| { readonly kind: "family"; readonly family: Omit<Family, "axes" | "folds"> }
+	| { readonly kind: "tree"; readonly family: Omit<TreeFamily, "axes" | "folds"> }
 
 /**
  * Where a containment lowers: to its own native, or onto the axis of a family it rides (families.ts ridesOf), its pairs beyond the
@@ -1986,7 +1985,6 @@ export class Normalizer {
 			const axes = entry.axes()
 			return Object.freeze({
 				...shape,
-				images: familyImages(shape, axes.owner),
 				axes,
 				folds: Object.freeze(folds)
 			})

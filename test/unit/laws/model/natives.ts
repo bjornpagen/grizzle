@@ -57,7 +57,7 @@ export const lawColumnsOf = (
 	new Map(Arr.map(onRelation(model, "LawColumn", relation), (c) => [c.column, c] as const))
 
 /** The field a generated law column holds the values of, as the law model planned it: a term's own field, a
- * constant's target field, a counted predecessor's count, or an image's kind and the field it is the image of. */
+ * constant's target field, or a counted predecessor's count. */
 const generatedText = (model: LawModel, relation: string, column: ColumnIdent): string => {
 	const planned = Arr.findFirst(model.natives, (n) =>
 		n.namespace === "column" && n.object.relation.name === relation && n.object.column === column
@@ -67,19 +67,15 @@ const generatedText = (model: LawModel, relation: string, column: ColumnIdent): 
 	if (Option.isNone(planned)) {
 		throw new Error(`the law column ${column} of ${relation}, which the law model planned`)
 	}
-	const held = (plan: typeof planned.value): string => {
-		switch (plan.kind) {
-			case "term":
-				return plan.term.column.name
-			case "constant":
-			case "drawn":
-			case "indexPred":
-				return plan.field.name
-			case "image":
-				return `${plan.image} ${plan.of.kind === "field" ? plan.of.field.name : held(plan.of.column)}`
-		}
+	const plan = planned.value
+	switch (plan.kind) {
+		case "term":
+			return plan.term.column.name
+		case "constant":
+		case "drawn":
+		case "indexPred":
+			return plan.field.name
 	}
-	return held(planned.value)
 }
 
 /** What a drawn column draws, as text: its kind, and a fold's position and plane. */

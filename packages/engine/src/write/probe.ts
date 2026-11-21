@@ -18,15 +18,9 @@ import { factFieldEq, operatorSchemaOf, typedEq } from "#compiler/ir/compare.ts"
 import { columnReads } from "#compiler/ir/expr.ts"
 import type { LawField, NativeColumn, RelationInfo } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import type {
-	HeldColumn,
-	HeldForm,
-	PrimaryKeyObject,
-	UniqueObject
-} from "#compiler/laws/model/uniques.ts"
+import type { HeldColumn, PrimaryKeyObject, UniqueObject } from "#compiler/laws/model/uniques.ts"
 import type { ColumnMap, Env, LowerContext } from "#compiler/lower/conservative/context.ts"
 import { lowerExpr } from "#compiler/lower/conservative/expr/index.ts"
-import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import type {
 	DrivenColumn,
 	Expr,
@@ -41,7 +35,6 @@ import {
 	conjunction,
 	cteRefAs,
 	distinctCore,
-	eq,
 	exists,
 	lit,
 	select,
@@ -123,95 +116,38 @@ const delivered = (
 	}
 }
 
-/** A key's column as a probe binds it: its installed name, the field it holds and the form it holds it in. */
+/** A key's column as a probe binds it: its installed name, and the field whose value it holds. */
 interface HeldAt {
 	readonly field: LawField
 	readonly column: string
-	readonly form: HeldForm
-}
-
-/** The value a column holding a field in `form` is compared with, of the field's value `value`: the value itself, or
- * its image, the digest the column holds (lower/conservative/expr/ops.ts keyImageForm). */
-const heldValue = (w: WriteContext, form: HeldForm, value: Expr): Expr => {
-	switch (form.kind) {
-		case "value":
-			return value
-		case "image":
-			return keyImageForm(w.names.library, form.image, value)
-	}
 }
 
 /**
  * The one binding of a key's column to the value `value` of the field it holds (`HeldAt`), every probe's at every kind
- * of key: a column holding the field's value bound to it, compared at the field's type, through the extension's
- * operator over a vector; a column holding its image bound to the value's image (`heldValue`), and the field's own
- * equality beside it, which decides where two values share an image: the key's index holds the image in the field's
- * place, so PostgreSQL reaches the row by it.
+ * of key: compared at the field's type, through the extension's operator over a vector.
  */
 const boundHeld = (
 	w: WriteContext,
-	relation: string,
 	held: HeldAt,
 	value: Expr
-): NonEmptyReadonlyArray<ProbeColumn> => {
-	const own: ProbeColumn = {
-		column: w.names.column(relation, held.field.name),
-		value,
-		schema: operatorSchemaOf(w.names, rowType(held.field))
-	}
-	switch (held.form.kind) {
-		case "value":
-			return [{ ...own, column: held.column }]
-		case "image":
-			return [
-				{ column: held.column, value: heldValue(w, held.form, value), schema: undefined },
-				own
-			]
-	}
-}
-
-/** The column a key installs the field `f` of `relation` over: its image in its place where a key installs it so
- * (WriteContext image, laws/model/plan.ts keyedAs), else the field itself. */
-const fieldHeld = (w: WriteContext, relation: string, f: LawField): HeldAt => {
-	const image = w.image(relation, f.name)
-	return image === undefined
-		? { field: f, column: w.names.column(relation, f.name), form: { kind: "value" } }
-		: { field: f, column: image.column, form: { kind: "image", image: image.image } }
-}
+): NonEmptyReadonlyArray<ProbeColumn> => [
+	{ column: held.column, value, schema: operatorSchemaOf(w.names, rowType(held.field)) }
+]
 
 /** A guarded object's UNIQUE column `c` as a probe binds it (`HeldAt`). */
 const uniqueHeld = (w: WriteContext, relation: string, c: HeldColumn): HeldAt => ({
 	field: c.field,
-	column: nativeName(w, relation, c.column),
-	form: c.form
+	column: nativeName(w, relation, c.column)
 })
 
-/** A field of `relation` bound to `value` at the column a key installs it over (`fieldHeld`, `boundHeld`). */
+/** A field of `relation` bound to `value` at its own column (`boundHeld`). */
 export const bound = (
 	w: WriteContext,
 	relation: string,
 	f: LawField,
 	value: Expr
-): NonEmptyReadonlyArray<ProbeColumn> => boundHeld(w, relation, fieldHeld(w, relation, f), value)
-
-/**
- * The equality of the image of each of `fields` of `relation` a key installs it over (`bound`), read over the stored
- * row under `inner`, to the image of its value: what reaches the row by the key's index where the field's own equality
- * is a bound column of its own (a met row's key).
- */
-export const imagesAt = (
-	w: WriteContext,
-	relation: string,
-	fields: ReadonlyArray<LawField>,
-	value: (f: LawField) => Expr
-): ((inner: string) => ReadonlyArray<Expr>) => {
-	const images = fields.flatMap((f) => {
-		const held = fieldHeld(w, relation, f)
-		return held.form.kind === "image" ? [held] : []
-	})
-	return (inner) =>
-		images.map((held) => eq(col(inner, held.column), heldValue(w, held.form, value(held.field))))
-}
+): NonEmptyReadonlyArray<ProbeColumn> =>
+	boundHeld(w, { field: f, column: w.names.column(relation, f.name) }, value)
 
 /** `fields` of `relation` bound to their values (`bound`), with no further condition. */
 export const atFields = (
@@ -230,8 +166,8 @@ const nativeName = (w: WriteContext, relation: string, column: NativeColumn): st
 	column.kind === "field" ? w.names.column(relation, column.field.name) : column.column
 
 /**
- * The columns an ON CONFLICT names a declared key of `relation` by: its constraint's, each a field's or the image's
- * that stands in a field's place (laws/model/uniques.ts PrimaryKeyObject `installed`), PostgreSQL inferring its arbiter
+ * The columns an ON CONFLICT names a declared key of `relation` by: its constraint's (laws/model/uniques.ts
+ * PrimaryKeyObject `installed`), PostgreSQL inferring its arbiter
  * from exactly the columns of its unique index (42P10 for any other list).
  */
 export const arbiterColumns = (
@@ -255,7 +191,7 @@ export const atObject = (
 	u.kind === "guarded" && u.reach.kind === "index"
 		? {
 				key: flatMapNonEmpty(u.reach.columns, (c) =>
-					boundHeld(w, relation, uniqueHeld(w, relation, c), value(c.field))
+					boundHeld(w, uniqueHeld(w, relation, c), value(c.field))
 				),
 				filter: () => [],
 				placed: placedBy(w, relation, u)
@@ -428,7 +364,6 @@ export const metAtObject = (
 	u.kind === "guarded" && u.reach.kind === "index"
 		? metAtHeld(
 				w,
-				relation,
 				placedBy(w, relation, u),
 				u.reach.columns.map((c) => uniqueHeld(w, relation, c)),
 				rows,
@@ -438,12 +373,10 @@ export const metAtObject = (
 
 /**
  * A met row's access through the key columns `held`, each bound to the met row's column of the field it holds, as
- * `boundHeld` binds a probe's: a column holding the field's value at that column; a column holding its image by the
- * field's own column there, the column itself to the met value's image over the stored row (`heldValue`).
+ * `boundHeld` binds a probe's.
  */
 const metAtHeld = (
 	w: WriteContext,
-	relation: string,
 	placed: NonEmptyReadonlyArray<string>,
 	held: ReadonlyArray<HeldAt>,
 	rows: string,
@@ -452,16 +385,11 @@ const metAtHeld = (
 	rows,
 	placed,
 	key: held.map((h) => ({
-		column: h.form.kind === "value" ? h.column : w.names.column(relation, h.field.name),
+		column: h.column,
 		from: column(h.field),
 		schema: operatorSchemaOf(w.names, rowType(h.field))
 	})),
-	filter: (inner) =>
-		held.flatMap((h) =>
-			h.form.kind === "image"
-				? [eq(col(inner, h.column), heldValue(w, h.form, col(rows, column(h.field))))]
-				: []
-		)
+	filter: () => []
 })
 
 /** A met row's access at the unique object `u` through its compared fields, its guards and its span over the stored
@@ -483,10 +411,9 @@ const metAtFields = (
 	filter: (inner) => {
 		const stored = (f: LawField): Expr => col(inner, w.names.column(relation, f.name))
 		const guards = withinRow(w.cx, u, stored)
-		const images = imagesAt(w, relation, u.equal, (f) => col(rows, column(f)))(inner)
 		return u.kind === "span"
-			? [...images, ...guards, binary("&&", stored(u.span), col(rows, column(u.span)))]
-			: [...images, ...guards]
+			? [...guards, binary("&&", stored(u.span), col(rows, column(u.span)))]
+			: guards
 	}
 })
 
@@ -665,21 +592,12 @@ export const keyedAmong = (
 	held: string,
 	keys: NonEmptyReadonlyArray<HeldKey>
 ): NonEmptyReadonlyArray<Expr> =>
-	mapNonEmpty(keys, (k) => {
-		const image = w.image(relation, k.field.name)
-		return image === undefined
-			? amongHeld(
-					supply,
-					col(alias, w.names.column(relation, k.field.name)),
-					held,
-					(h) => col(h, k.column),
-					operatorSchemaOf(w.names, rowType(k.field))
-				)
-			: amongHeld(
-					supply,
-					col(alias, image.column),
-					held,
-					(h) => keyImageForm(w.names.library, image.image, col(h, k.column)),
-					undefined
-				)
-	})
+	mapNonEmpty(keys, (k) =>
+		amongHeld(
+			supply,
+			col(alias, w.names.column(relation, k.field.name)),
+			held,
+			(h) => col(h, k.column),
+			operatorSchemaOf(w.names, rowType(k.field))
+		)
+	)

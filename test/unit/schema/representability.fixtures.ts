@@ -16,7 +16,6 @@ import {
 import { Array as Arr, Option, Order, pipe, Record as Rec, String as Str } from "effect"
 import { vectorMaxDimensions } from "#compiler/ir/carriers.ts"
 import { type ExprDesc, type FieldDesc, fieldTypes } from "#compiler/ir/desc.ts"
-import type { LawModel } from "#compiler/laws/model/model.ts"
 import { compileInstallation, installOptions } from "#compiler/physical/install/compile.ts"
 import { parseSchemaInput } from "#compiler/program/schema.ts"
 import { natural } from "#compiler/public/fields.ts"
@@ -727,7 +726,7 @@ const bareNumericDigits = 131072 + 16383
  * The widest datum a key's index entry holds for a field: numeric(p, s) is at most numeric_maximum_size, NUMERIC_HDRSZ
  * (8) plus a NumericDigit (2 bytes) for each of (p + 2 * (DEC_DIGITS - 1)) / DEC_DIGITS base-10000 digits (numeric.c),
  * numeric of no typmod the same over every digit numeric holds; text is its bytes, four per code point unless pinned to
- * ASCII; a text nothing bounds is held by its image, the SHA-256 of its UTF-8, a bytea of 32 bytes.
+ * ASCII; none for a text nothing bounds, which no entry holds.
  */
 export const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 	switch (f.kind) {
@@ -749,64 +748,21 @@ export const datumOf = (f: KeyFieldSketch): Datum | undefined => {
 	}
 }
 
-/** Whether a key field is a text, which a lookup holds by its image where it is wider. */
-export const isTextSketch = (f: KeyFieldSketch): boolean =>
-	f.kind !== "fixed" && f.kind !== "numeric" && f.kind !== "bare numeric"
+/**
+ * The most bytes a B-tree tuple over the datums reaches in any order of them, before MAXALIGN, from its data's offset
+ * `start`: each datum after its worst alignment padding, align - 1, and a varlena at its longest under its aligned
+ * 4-byte header, since every offset past the first datum's depends on the order and the values before it.
+ */
+const anyOrderEnd = (start: number, datums: ReadonlyArray<Datum>): number =>
+	Arr.reduce(datums, start, (end, d) => end + d.align - 1 + d.bytes)
 
 /**
- * Whether a key field is one a key that would outgrow its entry holds by its image where it is wider: a text, by its
- * bytes' digest, or a numeric, by its one text's.
+ * The most bytes a B-tree tuple over the datums reaches in any order of them (`anyOrderEnd`), past its header, the
+ * whole MAXALIGNed: whether a key fits is a function of its column set, the order a key, a UNIQUE or a reference lists
+ * it in deciding nothing.
  */
-const imageableSketch = (f: KeyFieldSketch): boolean => f.kind !== "fixed"
-
-/** A text's image in an index entry: SHA-256's 32 bytes, a varlena, as md5's 32 hexadecimal digits are. */
-export const textImageDatum = varlena(32)
-
-/**
- * The datums a key's index entry holds for its fields, in key order, each with whether it is an image: every field as
- * itself (`datumOf`) where every one is bounded and their entry fits BTMaxItemSize, otherwise each text and each
- * numeric wider than its image (the wildcard and numeric of no typmod among them) by its image, a digest's 32 bytes,
- * and every other field as itself.
- */
-export const keyedDatums = (
-	fields: ReadonlyArray<KeyFieldSketch>
-): ReadonlyArray<{ readonly datum: Datum; readonly imaged: boolean }> => {
-	const own = Arr.map(fields, datumOf)
-	const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
-	const fits = bounded.length === own.length && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
-	return Arr.map(fields, (f, i) => {
-		const datum = own[i]
-		return !fits &&
-			imageableSketch(f) &&
-			(datum === undefined || datum.bytes > textImageDatum.bytes)
-			? { datum: textImageDatum, imaged: true }
-			: { datum: defined(datum, "a bounded field"), imaged: false }
-	})
-}
-
-/** Where the datums laid out so far end, and whether every offset so far is exact. */
-interface Laid {
-	readonly end: number
-	readonly exact: boolean
-}
-
-/**
- * Where a B-tree tuple's datums end, before MAXALIGN, as index_form_tuple lays them out (heaptuple.c fill_val): after
- * the header, each fixed-width datum at its alignment while every datum before it is fixed-width, every offset then
- * known; from the first varlena on, whose header and length vary with its value, each datum after its worst alignment
- * padding, align - 1, and a varlena at its longest under its aligned 4-byte header.
- */
-const datumsEnd = (datums: ReadonlyArray<Datum>): Laid => {
-	const start: Laid = { end: indexTupleHeader, exact: true }
-	return Arr.reduce(datums, start, ({ end, exact }, d): Laid => ({
-		end: exact ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes,
-		exact: exact && d.fixed
-	}))
-}
-
-/** The most bytes a B-tree tuple over the datums reaches (datumsEnd), the whole MAXALIGNed. */
 export const btreeTupleBytes = (datums: ReadonlyArray<Datum>): number =>
-	maxalign(datumsEnd(datums).end)
+	maxalign(anyOrderEnd(indexTupleHeader, datums))
 
 export const Kind = closed("Kind", ["A", "B"], "ordered", [])
 
@@ -927,8 +883,7 @@ export const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => 
 	if (bounded.length < own.length) {
 		return s.fields
 	}
-	const { end, exact } = datumsEnd(bounded)
-	const start = (exact ? Math.ceil(end / 4) * 4 : end + 3) + 4
+	const start = anyOrderEnd(indexTupleHeader, bounded) + 3 + 4
 	const room = postgresBtreeMaxItem + s.boundary.delta - start
 	if (room < 0) {
 		return s.fields
@@ -943,11 +898,27 @@ export const sizedFields = (s: KeySizeSketch): ReadonlyArray<KeyFieldSketch> => 
 
 export type KeySizeFeature =
 	| "admitted"
-	| "imaged"
+	| "refused"
 	| "at the limit, admitted"
-	| "past the limit, imaged"
+	| "past the limit, refused"
+	| "fitting in its own order, refused"
 	| "primary"
 	| "candidate"
+
+/**
+ * The most bytes a B-tree tuple over the datums reaches laid out in their own order, as index_form_tuple lays one out
+ * (heaptuple.c fill_val): each fixed-width datum at its alignment while every datum before it is fixed-width, every
+ * offset then known; from the first varlena on, each after its worst padding. One order's bound, never the rule's: a
+ * key that fits so and not in some other order is refused, since a reference listing its columns in that other order
+ * must hold them alike (`btreeTupleBytes`).
+ */
+export const inOrderTupleBytes = (datums: ReadonlyArray<Datum>): number => {
+	const laid = Arr.reduce(datums, { end: indexTupleHeader, exact: true }, ({ end, exact }, d) => ({
+		end: exact ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes,
+		exact: exact && d.fixed
+	}))
+	return maxalign(laid.end)
+}
 
 /**
  * The GiST key representation of a scalar datum (contrib/btree_gist): a fixed type stores its lower and upper bound
@@ -1105,18 +1076,9 @@ export const budgetOf = (companions: ReadonlyArray<Companion>): number =>
 	3 -
 	4
 
-/**
- * The most bytes a B-tree tuple over `datums` reaches when its `nullable`-th column (from 0) is a law column that may
- * hold NULL: its data after the header and the null bitmap, MAXALIGNed to 16, each datum up to and including the
- * NULL-able one at its alignment and, the NULL-able column ending the exact offsets, every later one after its worst
- * padding, align - 1; the whole MAXALIGNed.
- */
-const nullableTupleBytes = (datums: ReadonlyArray<Datum>, nullable: number): number =>
-	maxalign(
-		Arr.reduce(datums, 16, (end, d, i) =>
-			i <= nullable ? Math.ceil(end / d.align) * d.align + d.bytes : end + d.align - 1 + d.bytes
-		)
-	)
+/** The data offset of a tuple: past the header, and past the null bitmap, MAXALIGNed to 16, where a column may be
+ * NULL. */
+const dataOffset = (nullable: boolean): number => (nullable ? 16 : indexTupleHeader)
 
 /**
  * The index a text of keyTextBytes(fields) bytes sits in beside those fields: a key declared over them; a key over a
@@ -1268,7 +1230,7 @@ const naturalCompanion: Companion = { kind: "fixed", type: "bigint" }
 /**
  * What an arm reads of a case: the fields keyTextBytes is given, as descriptors and as the companions they lay out as;
  * the arm's schema with its text bounded at so many bytes; and the most bytes its index's entry reaches with a text of
- * so many bytes, restated.
+ * so many bytes in any order of its columns, restated (`anyOrderEnd`), which decides whether the schema compiles.
  */
 interface Arm {
 	readonly fields: ReadonlyArray<FieldBase>
@@ -1308,12 +1270,13 @@ const keyArm = (s: Extract<BudgetCase, { readonly arm: KeyArm }>): Arm => {
 			]
 			return schema("Budget", [Kind, R], statements, [])
 		},
-		entryAt: (bytes) => {
-			const before = Arr.map(Arr.take(s.companions, s.position), companionDatum)
-			const after = Arr.map(Arr.drop(s.companions, s.position), companionDatum)
-			const datums = [...before, varlena(bytes), ...after]
-			return selected ? nullableTupleBytes(datums, 0) : btreeTupleBytes(datums)
-		}
+		entryAt: (bytes) =>
+			maxalign(
+				anyOrderEnd(dataOffset(selected), [
+					...Arr.map(s.companions, companionDatum),
+					varlena(bytes)
+				])
+			)
 	}
 }
 
@@ -1328,11 +1291,13 @@ export const armOf = (s: BudgetCase): Arm => {
 				companions: [uuidCompanion, naturalCompanion],
 				schemaAt: (bytes) => orderedAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
-					btreeTupleBytes([
-						companionDatum(uuidCompanion),
-						companionDatum(naturalCompanion),
-						varlena(bytes)
-					])
+					maxalign(
+						anyOrderEnd(dataOffset(false), [
+							companionDatum(uuidCompanion),
+							companionDatum(naturalCompanion),
+							varlena(bytes)
+						])
+					)
 			}
 		case "tree axis":
 			return {
@@ -1340,15 +1305,14 @@ export const armOf = (s: BudgetCase): Arm => {
 				companions: [uuidCompanion, naturalCompanion, naturalCompanion, naturalCompanion],
 				schemaAt: (bytes) => treeAxis(bytes, s.spelling),
 				entryAt: (bytes) =>
-					nullableTupleBytes(
-						[
+					maxalign(
+						anyOrderEnd(dataOffset(true), [
 							companionDatum(uuidCompanion),
 							companionDatum(naturalCompanion),
 							companionDatum(naturalCompanion),
 							companionDatum(naturalCompanion),
 							varlena(bytes)
-						],
-						1
+						])
 					)
 			}
 	}
@@ -1480,42 +1444,6 @@ export const boundOf = (descriptor: FieldBase): DatumBound => {
 	return bound
 }
 
-/** The fields R's key, its primary key or its declared UNIQUE, holds by their images, by name, sorted. */
-export const keyImagedFields = (
-	model: LawModel,
-	kind: "PrimaryKey" | "Unique"
-): ReadonlyArray<string> => {
-	const images = new Map(
-		Arr.flatMap(model.natives, (n) =>
-			n.namespace === "column" &&
-			n.object.relation.name === "R" &&
-			n.plan.kind === "image" &&
-			n.plan.of.kind === "field"
-				? [[n.object.column, n.plan.of.field.name] as const]
-				: []
-		)
-	)
-	return Arr.sort(
-		Arr.flatMap(model.natives, ({ object }) =>
-			object.kind === kind && object.relation.name === "R"
-				? Arr.flatMap(object.columns, (c) => {
-						const field = c.kind === "law" ? images.get(c.column) : undefined
-						return field === undefined ? [] : [field]
-					})
-				: []
-		),
-		Order.String
-	)
-}
-
-/** Whether an installation holds a text by its image anywhere, a key, a UNIQUE or an axis over one: a law column planned
- * as an image and lowered as one, the digest of its value, never the value itself. */
-export const holdsImage = (installation: { readonly laws: LawModel }): boolean =>
-	Arr.some(
-		installation.laws.natives,
-		(n) => n.namespace === "column" && n.plan.kind === "image" && n.object.value.kind === "image"
-	)
-
 /**
  * A case of a selected key over a text of no byte bound: the text first among the key's terms, so it is the side's
  * guarded term (laws/model/plan.ts sideColumns), beside `companions` of the budget box's kinds, over the selection of
@@ -1555,13 +1483,3 @@ export const guardedTextSchemaOf = (c: GuardedTextCase) => {
 		[]
 	)
 }
-
-/** The images an installation's law model plans over law columns, each as what it images and what its value is. */
-export const lawColumnImages = (installation: {
-	readonly laws: LawModel
-}): ReadonlyArray<{ readonly of: string; readonly value: string }> =>
-	Arr.flatMap(installation.laws.natives, (n) =>
-		n.namespace === "column" && n.plan.kind === "image" && n.plan.of.kind === "law"
-			? [{ of: n.plan.of.column.kind, value: n.object.value.kind }]
-			: []
-	)

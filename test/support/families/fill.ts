@@ -969,9 +969,12 @@ export const rootTextPattern: { readonly source: "^.*$"; readonly flags: "su" } 
 	flags: "su"
 }
 
-/** A tree root's and a group's text field, as pantry's package and path are: any text, which every key, reference and
- * family axis over it holds by its image (schema/representability.ts keyImageOf). */
-export const rootText = str.regex(rootTextPattern.source, rootTextPattern.flags)
+/**
+ * A tree root's and a group's text field, as pantry's package and path are: any text of at most 16 UTF-8 bytes, which
+ * every root value the fill writes is (`rootValuesOf`, `p` or `q` and a row's id), its byte bound what admits every
+ * key, reference and family axis over it (schema/representability.ts keyDatums).
+ */
+export const rootText = str.bytes(16, str.regex(rootTextPattern.source, rootTextPattern.flags))
 
 /** The fields of relation `r` of a specification, in declared order. */
 const fieldsOf = (spec: FillSpec, r: number): Record<string, FieldBase> => {

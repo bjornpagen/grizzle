@@ -85,7 +85,7 @@ import { everySlice } from "#compiler/schema/reach.ts"
 import { statementDescOf } from "#compiler/schema/statements.ts"
 import { roleDescOf } from "#compiler/schema/world.ts"
 import { type SqlStatement, tableConstraints } from "#compiler/sql/ast.ts"
-import { storedColumns } from "#compiler/sql/image.ts"
+import { storedColumns } from "#compiler/sql/stored.ts"
 import type { IdentifiedLaw, Law } from "#compiler/types/changeset/changeset.ts"
 import type { AnyDerived } from "#compiler/types/derived/derived.ts"
 import type { RelationFieldsOf } from "#compiler/types/schema/relation.ts"
@@ -209,7 +209,6 @@ export const productionNames = (
 			name: identifierOf(paramDomainIdentity(place, regex))
 		}),
 		selectionKeys: () => [],
-		imaged: storedColumns([]),
 		suffixed: storedColumns([]),
 		declaredFunction: (name) => ({
 			ref: {
@@ -1209,7 +1208,7 @@ export const roleNamesOf = (installed: Installed, role: AnyRole): RoleNames => {
 		throw refused(named.error)
 	}
 	const world = worldNames(named.value, installed.installation.names)
-	const read = roleReadNames(installed.installation.names, world, owned, [])
+	const read = roleReadNames(installed.installation.names, world, owned)
 	return {
 		view: (relation) => qualified(read.relation(relation)),
 		column: (relation, field) => quoteIdent(read.column(relation, field)),

@@ -1,8 +1,8 @@
 /**
  * A query's conditions are rewritten by the one walk of them (sql/transform.ts conditionsRewritten): each core's WHERE
  * and each on or left join's ON, at every depth a derived table reaches, exactly once, each beside its own core's whole
- * FROM, and nothing else; and a rewrite that keeps every condition keeps the query itself. statingImages (sql/image.ts)
- * and seekingSuffixes (sql/suffix.ts) rewrite through it.
+ * FROM, and nothing else; and a rewrite that keeps every condition keeps the query itself. seekingSuffixes
+ * (sql/suffix.ts) rewrites through it.
  *
  * Each case draws a core of one to three FROM items, each a table, a derived table over a core of its own (two levels
  * down at most) or a join chain of one to three on, left and cross steps, with or without a WHERE. Its conditions are
@@ -62,7 +62,7 @@ export const everyConditionOfAQueryIsRewrittenOnceBesideItsCoresFrom = property.
 			file: "packages/engine/src/sql/transform.ts",
 			original: "\t\t\t\t\t\t\tconst on = rewrite(s.on, core.from)\n",
 			replacement: "\t\t\t\t\t\t\tconst on = s.on\n",
-			why: "A join's ON left as it was: image.ts's walk and suffix.ts's each rewrote the ONs, so a lookup or a seek joined on a condition would lose its rewrite."
+			why: "A join's ON left as it was: suffix.ts's walk rewrote the ONs, so a seek joined on a suffix test would lose its range."
 		},
 		{
 			file: "packages/engine/src/sql/transform.ts",

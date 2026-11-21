@@ -17,7 +17,7 @@ import { xmlSchemaBlocks } from "@bjornpagen/grizzle-text/regex/xml"
 import { xsdCategoryNames } from "@bjornpagen/grizzle-text/regex/xsd"
 import { everyProperty } from "#compiler/core/canonical.ts"
 import { constantDigest } from "#compiler/core/fingerprint.ts"
-import { type Identity, identity, type KeyImage } from "#compiler/core/identity.ts"
+import { type Identity, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
 import { exprClosure, type ScalarExpr } from "#compiler/ir/expr.ts"
 import type { LibraryFn } from "#compiler/ir/physical.ts"
@@ -1141,10 +1141,10 @@ const xsdPatternDefinition = (): LibraryBody => {
 }
 
 /**
- * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes: the image a
- * text of no byte bound is keyed by (Crypto.sha256 over text writes it as lowercase hex). An installation's database is
- * UTF8 (grizzle refuses another at its first migration), so convert_to converts nothing and copies the text's bytes
- * as they are stored; convert_to is STABLE in pg_proc only because a conversion's result can depend on the database's
+ * textDigest(text): the SHA-256 digest of a text's UTF-8 bytes, `sha256(convert_to($1, 'UTF8'))`, 32 bytes, which
+ * Crypto.sha256 over a text writes as lowercase hex, a digest field a key may be declared over. An installation's
+ * database is UTF8 (grizzle refuses another at its first migration), so convert_to converts nothing and copies the
+ * text's bytes as they are stored; convert_to is STABLE in pg_proc only because a conversion's result can depend on the database's
  * encoding, which a database never changes, and sha256 is IMMUTABLE, so the digest is one value of a text wherever it
  * stands, a generated column among them, and the function is declared IMMUTABLE as PostgreSQL's own digests are.
  */
@@ -1202,9 +1202,9 @@ export const calledLibrary = (e: ScalarExpr): LibraryFn | undefined => {
 export const libraryIdentity = (fn: LibraryFn): Identity<"libraryFunction"> => identities[fn]
 
 /**
- * The library functions the persistent expressions of `model` call (constants.ts persistentExprs), and each key image's
- * (laws/model/plan.ts keyedAs), in name order: what the installation's one collector of its artifacts' objects reads
- * for them beside its checked DAGs' calls (physical/install/plan.ts artifactObjects).
+ * The library functions the persistent expressions of `model` call (constants.ts persistentExprs), in name order: what
+ * the installation's one collector of its artifacts' objects reads for them beside its checked DAGs' calls
+ * (physical/install/plan.ts artifactObjects).
  */
 export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 	const called = new Set<LibraryFn>()
@@ -1214,22 +1214,8 @@ export const libraryCalls = (model: LawModel): ReadonlyArray<LibraryFn> => {
 			called.add(fn)
 		}
 	}
-	for (const { object: o } of model.natives) {
-		if (o.kind === "LawColumn" && o.value.kind === "image") {
-			called.add(imageFunctions[o.value.image])
-		}
-	}
 	return [...called].toSorted(compareStrings)
 }
-
-/**
- * The library function each key image is computed by: a text's digest and a numeric's, the digest of its one text, by
- * textDigest (lower/conservative/expr/ops.ts keyImageForm).
- */
-const imageFunctions: { readonly [I in KeyImage]: LibraryFn } = Object.freeze({
-	textDigest: "textDigest",
-	numericDigest: "textDigest"
-})
 
 /** A library function's CREATE in the schema `schema`: an installation's, or a session's pg_temp. */
 export const libraryCreate = (schema: string, fn: LibraryFn): LibraryConstant => ({

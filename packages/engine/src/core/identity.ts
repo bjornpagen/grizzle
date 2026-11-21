@@ -980,89 +980,13 @@ export interface KeySide {
 export type IndexMethod = "btree" | "gist" | "hnsw" | "hash" | "gin"
 
 /**
- * The kinds of B-tree entry, by what decides a row's place among its entries: a `key`'s, a primary key's or a UNIQUE's,
- * which decides two rows' equality by its entry alone; a `lookup`'s, an index a read binds, ranges, matches a prefix of
- * or pages by, which finds rows its read then checks against the read's every condition.
- */
-const entryKindRoster = ["key", "lookup"] as const
-export type IndexEntryKind = (typeof entryKindRoster)[number]
-
-/**
  * What a B-tree entry does with a column: binds it by `equality`, reads its entries in its `order` (a seek, a page, a
  * range's last column), or matches a `prefix` of it (a prefix search's last column). A key's every column is an
- * equality. Only an equality's column is held by its image, which keeps equality and no order.
+ * equality. Only an equality's column may be left out of a lookup's entry, as a filter beside it, which keeps the
+ * index's order (schema/representability.ts lookupEntry).
  */
 const entryRoleRoster = ["equality", "order", "prefix"] as const
 export type EntryRole = (typeof entryRoleRoster)[number]
-
-/**
- * What an image stands for in a B-tree entry, where the entry cannot hold a column's own values
- * (schema/representability.ts entryImages): a `text`, by its bytes, which texteq under pg_c_utf8 compares; or a
- * `numeric`, by its one text, numeric_out of trim_scale(x), "NaN", "Infinity" or "-Infinity", which equal numerics
- * share (1.5 and 1.50 alike) and no two unequal ones do, NaN equal to NaN as numeric's B-tree orders it.
- */
-const imagedRoster = ["text", "numeric"] as const
-export type Imaged = (typeof imagedRoster)[number]
-
-/**
- * The images a B-tree entry holds a column by in its place, each the one PostgreSQL leaves it:
- * - `textDigest`, a key's of a text: the SHA-256 digest of the text's UTF-8, its 32 bytes (physical/ddl/library.ts
- *   textDigest), in a bytea column STORED from the row. A key decides two rows' equality by its image alone, so its
- *   image must resist collisions: two texts of one MD5 digest are constructible, and under md5 they would be one key,
- *   the second text's write refused as a duplicate. SHA-256 has no known collision, the premise every fingerprint
- *   grizzle keys by rests on.
- * - `numericDigest`, a key's of a numeric: the textDigest of its one text, `textDigest(trim_scale(x)::text)`
- *   (lower/conservative/expr/ops.ts keyImageForm), IMMUTABLE as trim_scale and numeric_out are, so a STORED column holds
- *   it, and a digest of the one text of its value, so two rows agree there exactly where their numerics are equal.
- * - `md5`, a lookup's of a text: `pg_catalog.md5(text)`, its 32 hexadecimal digits, in the index's expression
- *   (sql/image.ts imageOf). A lookup rechecks the text's own equality on every row its image finds, so a collision reads
- *   a row more and decides nothing; and its condition, the image of a probe's or a joined table's column, must pass into
- *   a role's query entry, a security-barrier view, which PostgreSQL admits only for a condition no function that is not
- *   leakproof reads a column under (REL_19_0 src/backend/optimizer/util/clauses.c contain_leaked_vars_walker: "If node
- *   contains a leaky function call, and there's any Var or Var-representative node underneath it, reject"). md5 is
- *   the one function of a text that is leakproof and IMMUTABLE (src/include/catalog/pg_proc.dat: md5(text) `proleakproof
- *   => 't'`); sha256 is leakproof but reads bytea, and every function that takes a text to its bytes is not (convert_to
- *   and textsend, both STABLE; encode and decode). Nor can grizzle declare its textDigest LEAKPROOF: "only superuser can
- *   define a leakproof function" (src/backend/commands/functioncmds.c, CREATE and ALTER FUNCTION), and an installation's
- *   owner on Amazon RDS is rds_superuser, never a superuser. No lookup holds a numeric by an image: a numeric's one text
- *   is numeric_out's, which is not leakproof (pg_proc.dat numeric_out, trim_scale), so no image of one passes into a
- *   role's query entry; a lookup's entry a numeric overfills is refused where its index is built.
- */
-const entryImageRoster = ["textDigest", "numericDigest", "md5"] as const satisfies ReadonlyArray<
-	EntryImages[IndexEntryKind]
->
-export type EntryImage = (typeof entryImageRoster)[number]
-
-/** The images each kind of entry holds a column by: a key's digests, a lookup's md5. */
-interface EntryImages {
-	readonly key: "textDigest" | "numericDigest"
-	readonly lookup: "md5"
-}
-
-/** The image an entry of kind K holds an imaged column by, where it holds one. */
-export type EntryImageOf<K extends IndexEntryKind> = EntryImages[K]
-
-/**
- * The image each kind of entry holds each imaged column by (EntryImage): a key's digest of a text's bytes or of a
- * numeric's one text; a lookup's md5 of a text, and none of a numeric.
- */
-export const entryImage = Object.freeze({
-	key: Object.freeze({ text: "textDigest", numeric: "numericDigest" } as const),
-	lookup: Object.freeze({ text: "md5", numeric: undefined } as const)
-} as const satisfies {
-	readonly [K in IndexEntryKind]: { readonly [I in Imaged]: EntryImageOf<K> | undefined }
-})
-
-/**
- * The images a key installs a column over in its place: `textDigest` of a text, `numericDigest` of a numeric, in the
- * column a law adds (ir/law.ts).
- */
-export type KeyImage = EntryImageOf<"key">
-
-/** What a key's image is the image of: a field of the relation, by its name, or a law column, by its identity. */
-export type ImageOf =
-	| { readonly kind: "field"; readonly field: string }
-	| { readonly kind: "law"; readonly column: Identity<"lawColumn"> }
 
 /** One key of an access index: its field, direction and operator class. */
 interface IndexKey {
@@ -1136,17 +1060,6 @@ export type LawColumnStatement =
 			/** The fold's own law, whose identity is no position among its family's folds. */
 			readonly fold: Identifier<"law">
 			readonly plane: 0 | 1
-	  }
-	| { readonly kind: "image"; readonly image: KeyImage; readonly of: ImageOf }
-	| {
-			/** The image of a member's group field its family's owner axis carries, which its cascade writes. */
-			readonly kind: "imageCopy"
-			readonly owner: string
-			readonly count: string
-			/** The family's own law. */
-			readonly family: Identifier<"law">
-			readonly field: string
-			readonly image: KeyImage
 	  }
 
 /** What each drawn law column of a family is, in its display. */
@@ -1329,24 +1242,6 @@ export const identity = Object.freeze({
 					`the accumulator ${column.kind} plane ${column.plane} of the fold ${column.fold} over the family ${column.owner}.${column.count}`,
 					hashed
 				)
-			case "imageCopy":
-				return mint(
-					"lawColumn",
-					[column.kind, column.family, column.field, column.image],
-					["imagecopy", ...nameSegments(column.field)],
-					`the ${column.image} image of ${column.field} the family ${column.owner}.${column.count} carries onto its members`,
-					hashed
-				)
-			case "image": {
-				const { of } = column
-				return mint(
-					"lawColumn",
-					[column.kind, column.image, of.kind === "field" ? of.field : of.column],
-					["image", ...(of.kind === "field" ? nameSegments(of.field) : of.column.segments)],
-					`the ${column.image} image of ${of.kind === "field" ? of.field : of.column.display}`,
-					hashed
-				)
-			}
 		}
 	},
 	/**
@@ -1508,19 +1403,21 @@ export const identity = Object.freeze({
 			hashed
 		),
 	/**
-	 * An access index over every row of its relation, by its method and keys. Its parts close with an empty list, which
-	 * every installed access index's name digests.
+	 * An index the engine creates: its relation, method and keys, and the columns its requests bind that its entry leaves
+	 * out as filters beside it (schema/representability.ts lookupEntry), which its display states, so the draft's comment
+	 * on the index says which lookups read past it.
 	 */
 	accessIndex: (
 		relation: string,
 		method: IndexMethod,
-		keys: ReadonlyArray<IndexKey>
+		keys: ReadonlyArray<IndexKey>,
+		filtered: ReadonlyArray<string>
 	): Identity<"accessIndex"> =>
 		mint(
 			"accessIndex",
-			[relation, method, keys.map((k) => [k.field, k.dir, k.opclass]), []],
+			[relation, method, keys.map((k) => [k.field, k.dir, k.opclass]), filtered],
 			[...nameSegments(relation), "ix", ...keys.flatMap((k) => nameSegments(k.field))],
-			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})`,
+			`${method} index ${relation}(${keys.map((k) => `${k.field}${k.dir === "desc" ? " desc" : ""}${k.opclass === "default" ? "" : ` ${k.opclass}`}`).join(", ")})${filtered.length === 0 ? "" : `, ${filtered.join(", ")} filtered beside it, not indexed: no byte bound fits the entry`}`,
 			hashed
 		),
 	statistics: (relation: string, fields: ReadonlyArray<string>): Identity<"statistics"> =>

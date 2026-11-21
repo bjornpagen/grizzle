@@ -37,7 +37,7 @@ import {
 import type { ReadBack } from "#compiler/ir/write.ts"
 import { type CatalogSchema, evidenceCatalog } from "#compiler/laws/model/catalog.ts"
 import { generations } from "#compiler/laws/model/generation.ts"
-import { fieldImages, type LawModel } from "#compiler/laws/model/model.ts"
+import type { LawModel } from "#compiler/laws/model/model.ts"
 import type { UniqueObject } from "#compiler/laws/model/uniques.ts"
 import {
 	evaluationQuery,
@@ -1902,8 +1902,7 @@ const compileAt = (
 			dispatch: sharing.dispatch,
 			share,
 			level: options.level,
-			generation: generations(options.laws, options.world),
-			image: fieldImages(options.laws.natives).columnOf
+			generation: generations(options.laws, options.world)
 		})
 	}
 	const plan = planWrite(

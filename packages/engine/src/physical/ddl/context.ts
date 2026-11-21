@@ -17,17 +17,12 @@ import {
 } from "#compiler/core/identity.ts"
 import type { ColumnIdent, ConstraintName, Identifier, IdentityKind } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
-import type { HeldDesc } from "#compiler/ir/desc.ts"
+import type { InferredFieldDesc } from "#compiler/ir/desc.ts"
 import { type LibraryFn, missing } from "#compiler/ir/physical.ts"
 import type { DeployPhase, PhysicalReason } from "#compiler/ir/products.ts"
 import type { KeySet } from "#compiler/ir/rel.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import {
-	type FieldImages,
-	fieldImages,
-	type LawModel,
-	type NamedNative
-} from "#compiler/laws/model/model.ts"
+import type { LawModel, NamedNative } from "#compiler/laws/model/model.ts"
 import { addIsolation } from "#compiler/physical/ddl/isolation.ts"
 import { snapshotGuardDdl } from "#compiler/physical/ddl/ledger.ts"
 import type { InstallNames } from "#compiler/physical/ddl/names.ts"
@@ -49,7 +44,6 @@ import {
 import { vectorExtension } from "#compiler/physical/vector/storage.ts"
 import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import type { Owned, OwnedLogin } from "#compiler/schema/own.ts"
-import { keyedField, relationImages } from "#compiler/schema/representability.ts"
 import {
 	type AlterTableAction,
 	type ColumnDef,
@@ -109,7 +103,7 @@ interface IndexedView {
  * derived relation's inferred one, and its type. A stored relation's law column is named too (`lawColumnFields`).
  */
 export interface TargetField {
-	readonly desc: HeldDesc
+	readonly desc: InferredFieldDesc
 	readonly type: ScalarType
 	/** Whether the column may hold NULL: a law column that may (ir/law.ts LawColumnValues), never a field. */
 	readonly nullable: boolean
@@ -135,19 +129,6 @@ export interface BuiltTarget {
 	readonly kind: "built"
 	readonly field: (column: IndexColumn) => TargetField | undefined
 	readonly column: (column: IndexColumn) => string
-	/**
-	 * Whether a lookup over the relation may hold the column by its image where it binds it by equality: a stored
-	 * relation's columns its statements state the image's equality of (physical/ddl/names.ts InstallNames `imaged`), a
-	 * view's by the same rule over its fields (schema/representability.ts relationImages).
-	 */
-	readonly imaged: (column: IndexColumn) => boolean
-	/**
-	 * The law column a key holds a numeric field of the relation by, its image `numericDigest` (laws/model/model.ts
-	 * fieldImages), whose equality a write's probe of the key states beside the field's own (write/probe.ts bound): what a
-	 * write target binds the field by, since no lookup holds a numeric by an image of its own; none for any other column
-	 * and for a view's.
-	 */
-	readonly keyImage: (column: IndexColumn) => IndexColumn | undefined
 	readonly object: Node<"structure">
 }
 
@@ -317,7 +298,6 @@ export class InstallBuilder {
 	readonly #views = new Map<string, IndexedView>()
 	/** The law columns of each stored relation an index may name (`lawColumnFields`). */
 	readonly #lawColumns: ReadonlyMap<string, ReadonlyMap<string, TargetField>>
-	readonly #fieldImages: FieldImages
 	/** Each pattern language the installation spells, by the ARE of its spelling (ir/pattern.ts InstalledSpellings): what
 	 * a row function's identity reads a pattern it matches as (physical/ddl/row-functions.ts). */
 	readonly #languages: ReadonlyMap<string, string>
@@ -347,7 +327,6 @@ export class InstallBuilder {
 		this.settings = input.settings
 		this.natives = input.model.natives
 		this.#lawColumns = lawColumnFields(input.model.natives)
-		this.#fieldImages = fieldImages(input.model.natives)
 		this.#languages = new Map(
 			[...input.names.spellings.table].map(([language, spelling]) => [matchAre(spelling), language])
 		)
@@ -782,17 +761,10 @@ export class InstallBuilder {
 	target(relation: string): RelationTarget {
 		const view = this.#views.get(relation)
 		if (view !== undefined) {
-			const fields = [...view.fields]
-			const images = relationImages(
-				fields.map(([, f]) => ({ ...keyedField(f.desc), nullable: f.nullable }))
-			)
-			const imaged = new Set(fields.flatMap(([name], at) => (images[at] === true ? [name] : [])))
 			return {
 				kind: "built",
 				field: (c) => (c.kind === "field" ? view.fields.get(c.field) : undefined),
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
-				imaged: (c) => c.kind === "field" && imaged.has(c.field),
-				keyImage: () => undefined,
 				object: view.object
 			}
 		}
@@ -812,16 +784,6 @@ export class InstallBuilder {
 						: { desc: field.desc, type: field.type, nullable: false }
 				},
 				column: (c) => (c.kind === "field" ? this.names.column(relation, c.field) : c.column),
-				imaged: (c) =>
-					this.names.imaged.has({
-						table: this.names.relation(relation),
-						column: c.kind === "field" ? this.names.column(relation, c.field) : c.column
-					}),
-				keyImage: (c) => {
-					const held =
-						c.kind === "field" ? this.#fieldImages.columnOf(relation, c.field) : undefined
-					return held?.image === "numericDigest" ? { kind: "law", column: held.column } : undefined
-				},
 				object: this.table(relation)
 			}
 		}

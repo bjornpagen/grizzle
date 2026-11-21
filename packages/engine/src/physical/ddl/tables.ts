@@ -30,7 +30,6 @@ import {
 import { fieldColumnType, lawColumnType } from "#compiler/ir/physical.ts"
 import { baseOf, spanOf } from "#compiler/ir/scalar.ts"
 import type { NamedPrimaryKey } from "#compiler/laws/model/model.ts"
-import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
 import { addColumnChecks, columnChecks } from "#compiler/physical/ddl/column-checks.ts"
 import { closedMembership, planSides } from "#compiler/physical/ddl/constants.ts"
 import type { InstallBuilder, TargetField } from "#compiler/physical/ddl/context.ts"
@@ -73,8 +72,8 @@ interface PlannedTable {
 	readonly relation: string
 	readonly named: Identity<"table" | "rosterDomain" | "view">
 	readonly columns: NonEmptyReadonlyArray<ColumnDef>
-	/** Its primary key, where its CREATE TABLE declares it: none where the key reads a column a law adds, a field's
-	 * image, which the key's own ALTER TABLE ... ADD CONSTRAINT names after it (`planNatives`). */
+	/** Its primary key, where its CREATE TABLE declares it: none where the key reads a column a law adds, which the
+	 * key's own ALTER TABLE ... ADD CONSTRAINT names after it (`planNatives`). */
 	readonly primaryKey: PrimaryKey | undefined
 	readonly after: ReadonlyArray<Node<"setup">>
 }
@@ -85,8 +84,8 @@ const primaryColumns = (pk: NamedPrimaryKey): ReadonlyArray<NativeColumn> => {
 	return o.kind === "PrimaryKey" ? o.columns : [...o.key.scalars, o.span]
 }
 
-/** A relation's primary key as its constraint states it: PRIMARY KEY over its columns, each a field's or a field's image
- * in its place, or over its scalar columns and its span WITHOUT OVERLAPS, under the name ownership minted. */
+/** A relation's primary key as its constraint states it: PRIMARY KEY over its columns, or over its scalar columns and
+ * its span WITHOUT OVERLAPS, under the name ownership minted. */
 const primaryKeyOf = (b: InstallBuilder, pk: NamedPrimaryKey): PrimaryKey => {
 	const o = pk.object
 	const relation = o.relation.name
@@ -325,7 +324,7 @@ type NativePlan =
 			readonly relation: string
 			readonly named: Identity<IdentityKind>
 			/** A UNIQUE, a span key's with its span last WITHOUT OVERLAPS, a span-only key's exclusion constraint, or a
-			 * primary key over a field's image. */
+			 * primary key over a column a law adds. */
 			readonly constraint: Extract<
 				TableConstraint,
 				{ readonly kind: "primaryKey" | "unique" | "exclude" }
@@ -630,9 +629,9 @@ const planNatives = (b: InstallBuilder, inline: Inline): ReadonlyArray<NativePla
 				/** A span key's scalar columns and its span. */
 				const span = o.span
 				const scalars = o.key.scalars
-				/** A span key over a projected side, or over a field's image, reads law columns its table adds after its
-				 * CREATE TABLE, so its constraint is its own ALTER TABLE ... ADD CONSTRAINT after them, as an inline one could
-				 * not name them: a primary key's PRIMARY KEY, any other's UNIQUE. */
+				/** A span key over a projected side reads law columns its table adds after its CREATE TABLE, so its
+				 * constraint is its own ALTER TABLE ... ADD CONSTRAINT after them, as an inline one could not name them: a
+				 * primary key's PRIMARY KEY, any other's UNIQUE. */
 				const lawColumns = lawColumnsAmong([...scalars, span])
 				if (isNonEmpty(lawColumns)) {
 					plans.push({
@@ -807,8 +806,7 @@ const lawColumnGeneration = (
 	value: Exclude<NativeOf<"LawColumn">["value"], { readonly kind: "drawn" }>,
 	label: string
 ): ColumnGeneration => {
-	const term = lowerWrittenRow(b, o.relation, value.term, label)
-	const expr = value.kind === "image" ? keyImageForm(b.names.library, value.image, term) : term
+	const expr = lowerWrittenRow(b, o.relation, value.term, label)
 	const guard = value.guard.map((g) => lowerWrittenRow(b, o.relation, g, label))
 	return isNonEmpty(guard)
 		? { kind: "partial", when: guard.length === 1 ? guard[0] : and(guard), expr }

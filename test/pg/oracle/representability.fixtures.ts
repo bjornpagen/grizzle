@@ -11,32 +11,14 @@ import {
 	weighted
 } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, String as Str } from "effect"
-import { identifierOf, type KeyImage } from "#compiler/core/identity.ts"
 import type { FieldDesc } from "#compiler/ir/desc.ts"
-import type { LibraryFn } from "#compiler/ir/physical.ts"
 import { wildcardPattern } from "#compiler/ir/scalar.ts"
-import { keyImageForm } from "#compiler/lower/conservative/expr/ops.ts"
-import { libraryCreate, libraryIdentity } from "#compiler/physical/ddl/library.ts"
-import {
-	btreeMaxItemSize,
-	entryImages,
-	keyedField,
-	keyLayout
-} from "#compiler/schema/representability.ts"
-import type { QualifiedFunctionRef } from "#compiler/sql/ast.ts"
-import { tableCol } from "#compiler/sql/build.ts"
-import { printExpr, printStatement } from "#compiler/sql/print.ts"
+import { btreeMaxItemSize, keyLayout } from "#compiler/schema/representability.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { wideOctets, wideText } from "#test/support/wide-text.ts"
 
-/**
- * What a case of the population reached: a key the compiler accepts, one sized within a word of the item limit, and one
- * that holds a field by its image.
- */
-export type ReprFeature =
-	| "accepted key"
-	| "key at the computed maximum"
-	| "a field held by its image"
+/** What a case of the population reached: a key the compiler accepts, and one sized within a word of the item limit. */
+export type ReprFeature = "accepted key" | "key at the computed maximum"
 
 /** How a text field's length is bounded: by its pattern, or by a contract's charLength or octetLength predicate. */
 type TextBound = "pattern" | "charLength" | "octetLength"
@@ -137,27 +119,15 @@ const descOf = (f: FieldSketch): FieldDesc => {
 	}
 }
 
-const names = (fields: ReadonlyArray<FieldSketch>): ReadonlyArray<string> =>
+export const names = (fields: ReadonlyArray<FieldSketch>): ReadonlyArray<string> =>
 	Arr.map(indices(fields.length), (i) => `f${i}`)
 
 export const layoutOf = (fields: ReadonlyArray<FieldSketch>) =>
 	keyLayout(Arr.map(fields, (f, i) => ({ field: `f${i}`, desc: descOf(f) })))
 
 /**
- * The image the compiler's key holds each field by, in key order, none for a field it holds as itself: its one rule for
- * a key's entry (schema/representability.ts entryImages over keyedField), which keyLayout counts and the installation
- * installs, each image a law column STORED from the row in its field's place.
- */
-export const imagesOf = (fields: ReadonlyArray<FieldSketch>): ReadonlyArray<KeyImage | undefined> =>
-	entryImages(
-		"key",
-		Arr.map(fields, (f) => keyedField(descOf(f)))
-	)
-
-/**
- * The key with its first text field at the largest length its key holds it as itself, when it has one and the rest
- * fits: a pattern's length within PostgreSQL's repetition limit, which its pattern `^.{0,n}$` states, a contract's
- * within an index entry. Past that length the key holds the text by its image, whose entry no length moves.
+ * The key with its first text field at the largest accepted length, when it has one and the rest fits: a pattern's
+ * length within PostgreSQL's repetition limit, which its pattern `^.{0,n}$` states, a contract's within an index entry.
  */
 export const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 	const firstText = Arr.findFirstIndex(s.fields, (f) => f.kind === "text")
@@ -167,9 +137,7 @@ export const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 	const first = firstText.value
 	const at = (length: number) =>
 		Arr.map(s.fields, (f, i) => (i === first && f.kind === "text" ? { ...f, length } : f))
-	const asItself = (length: number): boolean =>
-		layoutOf(at(length)).ok && imagesOf(at(length))[first] === undefined
-	if (!asItself(0)) {
+	if (!layoutOf(at(0)).ok) {
 		return s.fields
 	}
 	const firstField = s.fields[first]
@@ -180,7 +148,7 @@ export const filled = (s: KeySketch): ReadonlyArray<FieldSketch> => {
 			: btreeMaxItemSize
 	while (lo < hi) {
 		const mid = Math.ceil((lo + hi) / 2)
-		if (asItself(mid)) {
+		if (layoutOf(at(mid)).ok) {
 			lo = mid
 		} else {
 			hi = mid - 1
@@ -234,57 +202,5 @@ export const widestValue = (f: FieldSketch, salt: number): string => {
 			return "32767"
 		case "bool":
 			return "true"
-	}
-}
-
-/**
- * The statements that install the key over `fields` in `schema` as the compiler holds it (`imagesOf`): its table, each
- * field a column and each image a bytea column STORED from its field by the image's one SQL form
- * (lower/conservative/expr/ops.ts keyImageForm), the primary key over each field or its image in key order, after the
- * library functions those forms call (physical/ddl/library.ts libraryCreate); and the insert of a fact into its fields.
- */
-export const keyTable = (
-	schema: string,
-	fields: ReadonlyArray<FieldSketch>
-): { readonly ddl: ReadonlyArray<string>; readonly insert: string } => {
-	const columns = names(fields)
-	const keyed = Arr.zip(columns, imagesOf(fields))
-	const called = new Set<LibraryFn>()
-	const library = (fn: LibraryFn): QualifiedFunctionRef => {
-		called.add(fn)
-		return { kind: "qualified", schema, name: identifierOf(libraryIdentity(fn)) }
-	}
-	const quoted = (c: string) => `"${c}"`
-	const imageColumn = (c: string) => `${c}_image`
-	const imageColumns = Arr.flatMap(keyed, ([c, image]) =>
-		image === undefined
-			? []
-			: [
-					`${quoted(imageColumn(c))} bytea GENERATED ALWAYS AS (${printExpr(
-						keyImageForm(library, image, tableCol(c))
-					)}) STORED`
-				]
-	)
-	const table = `"${schema}"."t"`
-	const create = `CREATE TABLE ${table} (${Arr.join(
-		[
-			...Arr.map(Arr.zip(columns, fields), ([c, f]) => `${quoted(c)} ${columnSql(f)} NOT NULL`),
-			...imageColumns
-		],
-		", "
-	)}, PRIMARY KEY (${Arr.join(
-		Arr.map(keyed, ([c, image]) => quoted(image === undefined ? c : imageColumn(c))),
-		", "
-	)}))`
-	return {
-		ddl: [
-			`CREATE SCHEMA "${schema}"`,
-			...Arr.map([...called], (fn) => printStatement(libraryCreate(schema, fn))),
-			create
-		],
-		insert: `INSERT INTO ${table} (${Arr.join(Arr.map(columns, quoted), ", ")}) VALUES (${Arr.join(
-			Arr.map(indices(fields.length), (i) => `$${i + 1}`),
-			", "
-		)})`
 	}
 }

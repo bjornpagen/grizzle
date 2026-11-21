@@ -15,7 +15,6 @@
  */
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { isNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { KeyImage } from "#compiler/core/identity.ts"
 import type { LawId } from "#compiler/core/ids.ts"
 import type { ScalarExpr, TypedLiteral } from "#compiler/ir/expr.ts"
 import { type Family, type FamilyFold, isSequence } from "#compiler/ir/family.ts"
@@ -71,9 +70,7 @@ export const layoutKey = (relation: string, position: FillAt): string =>
  *   scan's recursion (write/family/scan.ts);
  * - after: a fold plane's after, `combine(befores, x)` where the step side's selection holds and its before elsewhere,
  *   the fold stated by `law`;
- * - generated: a generated field, PostgreSQL's, evaluated where another column reads it and never written;
- * - image: a group field's image its family's owner axis carries (ir/family.ts GroupImage), the digest of the row's
- *   column `of`, which its family's CHECK holds it to.
+ * - generated: a generated field, PostgreSQL's, evaluated where another column reads it and never written.
  */
 export type FillRule =
 	| { readonly kind: "given" }
@@ -115,12 +112,6 @@ export type FillRule =
 			readonly law: LawId
 	  }
 	| { readonly kind: "generated"; readonly expr: ScalarExpr }
-	| {
-			readonly kind: "image"
-			readonly family: Family
-			readonly image: KeyImage
-			readonly of: NativeColumn
-	  }
 
 /**
  * What a fold's after steps by at a member (ir/family.ts FamilyFold `step`): one, a count's, or the value of the member's
@@ -203,10 +194,7 @@ export const familyDrawn = (
 				c.writer.kind === "walk" &&
 				(rule.kind === "index" ||
 					rule.kind === "copy" ||
-					((rule.kind === "ownerCopy" ||
-						rule.kind === "predecessor" ||
-						rule.kind === "after" ||
-						rule.kind === "image") &&
+					((rule.kind === "ownerCopy" || rule.kind === "predecessor" || rule.kind === "after") &&
 						familyKey(rule.family.id) === familyKey(family.id)))
 			)
 		}
@@ -240,7 +228,6 @@ const ruleFamily = (rule: FillRule): Family | undefined => {
 		case "predecessor":
 		case "last":
 		case "after":
-		case "image":
 			return rule.family
 		case "given":
 		case "owner":

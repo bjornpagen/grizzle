@@ -1152,8 +1152,7 @@ export interface TextApi {
 	 * string. Admitted in contract predicates, row checks, generated fields and folds; in a query only as a side of
 	 * Logic.eq or Logic.ne, which is decided as t's equality with the concatenation built only where its bytes are
 	 * within the most one varlena holds, since it allocates its result, which PostgreSQL refuses past 1 GB, and a read
-	 * never fails on a value; past them the lengths decide it false. So a probe reads t by its key or its image's
-	 * index. Concatenations nested in that side are its parts, read in order: `Logic.eq(t, Text.concat(Text.concat(a,
+	 * never fails on a value; past them the lengths decide it false. So a probe reads t by its key. Concatenations nested in that side are its parts, read in order: `Logic.eq(t, Text.concat(Text.concat(a,
 	 * b), c))` is t against a, b and c built in order, in a query as in a check.
 	 */
 	concat<A extends TermBase | FirstValue, X, PA, OA, const B>(

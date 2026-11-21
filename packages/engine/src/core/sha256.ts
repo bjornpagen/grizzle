@@ -69,13 +69,6 @@ export const sha256Hex = (input: Uint8Array | WellFormedText): string =>
 		.update(typeof input === "string" ? utf8(input) : input)
 		.digest("hex")
 
-/**
- * The SHA-256 digest of a well-formed text's UTF-8, its 32 bytes: the image a key holds a text of no byte bound by
- * (physical/ddl/library.ts textDigest, `sha256(convert_to(t, 'UTF8'))`), as the host computes it for a column it writes.
- */
-export const textDigest = (text: WellFormedText): Uint8Array<ArrayBuffer> =>
-	new Uint8Array(createHash("sha256").update(utf8(text)).digest())
-
 /** RFC 4648's base32 alphabet, lowercase. */
 const base32 = "abcdefghijklmnopqrstuvwxyz234567"
 

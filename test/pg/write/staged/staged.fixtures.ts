@@ -23,7 +23,7 @@ import {
 	relation,
 	schema
 } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { type ParamMap } from "#compiler/types/core/phantom.ts"
 import { fixtureTemplate, openedIn } from "#test/pg/reads/support.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
@@ -36,8 +36,8 @@ import { textBound } from "#test/support/staged.ts"
 import { installationGroup, replaceRows } from "#test/support/substrate/replace.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
 import { uuidOf } from "#test/unit/write/changeset/fixtures.ts"
-/** An entry's path: any text, as pantry's EntryPath is, which a key over it holds by its digest. */
-const EntryPath = str.regex("^.*$", "su")
+/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
+const EntryPath = str.bytes(keyTextBytes([Id]), str.regex("^.*$", "su"))
 
 /** An entry's share of the most bytes an entry within the bound holds, in thousandths, of `whole` at most. */
 const whole = 1_000

@@ -85,7 +85,7 @@ export interface Seat {
 	readonly lawsOf: (kind: string) => ReadonlyArray<LawId>
 }
 
-/** The field a law column's values are of, or the one it is the image of, as the law model planned it. */
+/** The field a law column's values are of, as the law model planned it. */
 const heldName = (
 	plan: Extract<LawModel["natives"][number], { readonly namespace: "column" }>["plan"]
 ): string => {
@@ -96,8 +96,6 @@ const heldName = (
 		case "drawn":
 		case "indexPred":
 			return plan.field.name
-		case "image":
-			return `${plan.image} ${plan.of.kind === "field" ? plan.of.field.name : heldName(plan.of.column)}`
 	}
 }
 
@@ -118,8 +116,6 @@ const lawColumnRole = (
 		case "before":
 		case "after":
 			return `‹${d.kind} ${d.fold}.${d.plane}›`
-		case "imageCopy":
-			return `‹image ${d.field}›`
 	}
 }
 

@@ -47,32 +47,26 @@ import type {
 } from "#compiler/physical/ddl/context.ts"
 import type { KeyIndex } from "#compiler/physical/ddl/tables.ts"
 import type { Node } from "#compiler/physical/obligations/graph.ts"
-import { gistMaxItemSize, indexMaxKeys } from "#compiler/schema/representability.ts"
 import {
-	datumBound,
-	entryImages,
-	gistEntryBytes,
 	type DatumBound,
-	imageDatum,
-	imagedOf,
+	datumBound,
+	gistEntryBytes,
+	gistMaxItemSize,
+	indexMaxKeys,
 	keyDatums,
 	lookupEntry
 } from "#compiler/schema/representability.ts"
 import type { CreateIndex } from "#compiler/sql/ast.ts"
 import { columnKey, exprKey, tableCol } from "#compiler/sql/build.ts"
-import { imageOf } from "#compiler/sql/image.ts"
 import { suffixKeyOf } from "#compiler/sql/suffix.ts"
 
 /**
- * What an index key holds: a column by its arm, a field or a law column; a column's image, the md5 digest a lookup
- * index holds in place of a text its entry cannot hold as itself (core/identity.ts TextImage `md5`, sql/image.ts), which
- * a lookup that binds the column binds too, since every statement grizzle writes states its image's equality beside the
- * column's; a text field's suffix key, `chr(1) || reverse(column)` (sql/suffix.ts suffixKeyOf), which a law's probe
- * seeks a suffix it holds fixed through as a range of the key (physical/access/extract.ts SuffixSeek), every judged
- * read of the field stating the range in place of its suffix test (seekingSuffixes), a key past its request's
- * equalities that only an index holding the same field's suffix key serves; or, in a request's keys alone, a column it
- * binds by equality that its relation's statements state the image of (`bound`, `requestKeys`), which an index holding
- * the column or its image serves alike and a created index holds as its own entry decides (`createIndex`).
+ * What an index key holds: a column by its arm, a field or a law column; or a text field's suffix key,
+ * `chr(1) || reverse(column)` (sql/suffix.ts suffixKeyOf), which a law's probe seeks a suffix it holds fixed through as a
+ * range of the key (physical/access/extract.ts SuffixSeek), every judged read of the field stating the range in place
+ * of its suffix test (seekingSuffixes), a key past its request's equalities that only an index holding the same field's
+ * suffix key serves. No key holds a column by an image: an index holds a column as itself or not at all (README "Keys
+ * and indexes").
  *
  * The suffix key's coordinates are code points: its range is code point order, which comparing two texts collated
  * pg_catalog.pg_c_utf8 is, the one collation grizzle stores a text in (sql/ast.ts Collation), which PostgreSQL defines
@@ -82,11 +76,7 @@ import { suffixKeyOf } from "#compiler/sql/suffix.ts"
  * surrogates, which no text holds. The engine drafts a B-tree on a suffix key only where a law's probe requests one,
  * through the law requests' own path (`planIndexes`), never a workload's, whose statements state no suffix range.
  */
-export type KeyTerm =
-	| IndexColumn
-	| { readonly kind: "image"; readonly of: IndexColumn }
-	| { readonly kind: "suffix"; readonly of: IndexColumn }
-	| { readonly kind: "bound"; readonly of: IndexColumn }
+export type KeyTerm = IndexColumn | { readonly kind: "suffix"; readonly of: IndexColumn }
 
 /** A key of an index, or one a request asks an index for. */
 export interface IndexKey {
@@ -100,9 +90,9 @@ const indexColumnOf = (c: NativeColumn): IndexColumn =>
 	c.kind === "field" ? { kind: "field", field: c.field.name } : c
 
 /**
- * A key's text as the plan orders, labels and names its indexes by: a field's name, a law column's identifier, or an
- * image's `image(<column>)`; a request's bound column is its column's. A law column's identifier starts with `__`, and
- * no declared name holds a parenthesis, so the texts of a relation's keys are distinct.
+ * A key's text as the plan orders, labels and names its indexes by: a field's name, a law column's identifier, or a
+ * suffix key's `suffix(<column>)`. A law column's identifier starts with `__`, and no declared name holds a parenthesis,
+ * so the texts of a relation's keys are distinct.
  */
 export const keyTermText = (c: KeyTerm): string => {
 	switch (c.kind) {
@@ -110,55 +100,22 @@ export const keyTermText = (c: KeyTerm): string => {
 			return c.field
 		case "law":
 			return c.column
-		case "image":
-			return `image(${keyTermText(c.of)})`
 		case "suffix":
 			return `suffix(${keyTermText(c.of)})`
-		case "bound":
-			return keyTermText(c.of)
 	}
 }
 
-/**
- * Whether two keys hold one thing: one field, one law column, the image of one column, or the suffix key of one; a
- * request's bound column is the column and its image alike, either of which an index serving its equality may hold,
- * and never a suffix key, which no equality reads.
- */
+/** Whether two keys hold one thing: one field, one law column, or the suffix key of one, which no equality reads. */
 const sameColumn = (a: KeyTerm, b: KeyTerm): boolean => {
 	if (a.kind === "suffix" || b.kind === "suffix") {
 		return a.kind === "suffix" && b.kind === "suffix" && sameColumn(a.of, b.of)
-	}
-	if (a.kind === "bound" || b.kind === "bound") {
-		return sameColumn(readColumn(a), readColumn(b))
 	}
 	switch (a.kind) {
 		case "field":
 			return b.kind === "field" && a.field === b.field
 		case "law":
 			return b.kind === "law" && a.column === b.column
-		case "image":
-			return b.kind === "image" && sameColumn(a.of, b.of)
 	}
-}
-
-/**
- * Each key's datum, in key order: an image's md5's digits (schema/representability.ts imageDatum `md5`), a suffix key's
- * its column's with the sentinel's one byte more (`suffixDatum`), every other key's its column's, `columns` in their
- * order.
- */
-const imagedDatums = (
-	keys: ReadonlyArray<IndexKey>,
-	columns: ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }>
-): ReadonlyArray<{ readonly field: string; readonly datum: DatumBound }> => {
-	const imagesBefore = (at: number): number =>
-		keys.slice(0, at).filter((k) => k.column.kind === "image").length
-	return keys.map((k, at) => {
-		if (k.column.kind === "image") {
-			return { field: keyTermText(k.column), datum: imageDatum.md5 }
-		}
-		const column = defined(columns[at - imagesBefore(at)], "a datum per column key")
-		return k.column.kind === "suffix" ? { ...column, datum: suffixDatum(column.datum) } : column
-	})
 }
 
 /**
@@ -167,12 +124,36 @@ const imagedDatums = (
  */
 const suffixDatum = (text: DatumBound): DatumBound => ({ ...text, bytes: text.bytes + 1 })
 
+/** The column a key reads: its own, or the column it is the suffix key of. */
+const readColumn = (c: KeyTerm): IndexColumn => (c.kind === "suffix" ? c.of : c)
+
+/** A key's widest datum on `target`: its column's (datumBound), a suffix key's with the sentinel's byte (`suffixDatum`);
+ * none for a text of no byte bound or a bytes field, which no entry holds. */
+const keyDatum = (target: BuiltTarget, k: IndexKey): DatumBound | undefined => {
+	const desc = target.field(readColumn(k.column))?.desc
+	const datum = desc === undefined || desc.kind === "bytes" ? undefined : datumBound(desc)
+	return k.column.kind === "suffix" && datum !== undefined ? suffixDatum(datum) : datum
+}
+
 /**
- * The column a key reads: its own, the column it is the image or the suffix key of, or the column a request binds. A
- * lookup that binds a column binds its image.
+ * The B-tree entry over `keys` on `target`, each key in its role (`roleOf`), as lookupEntry holds it
+ * (schema/representability.ts): the places of the keys that fit it, each equality left out a filter beside it, or its
+ * fault. A law column, which a guard or a predecessor's first slot leaves NULL, gives the entry its null bitmap; a field
+ * is NOT NULL.
  */
-const readColumn = (c: KeyTerm): IndexColumn =>
-	c.kind === "image" || c.kind === "suffix" || c.kind === "bound" ? c.of : c
+const fittingKeys = (
+	target: BuiltTarget,
+	keys: NonEmptyReadonlyArray<IndexKey>,
+	roleOf: (k: IndexKey, at: number) => EntryRole
+): ReturnType<typeof lookupEntry> =>
+	lookupEntry(
+		mapNonEmpty(keys, (k, at) => ({
+			name: keyTermText(k.column),
+			datum: keyDatum(target, k),
+			nullable: readColumn(k.column).kind === "law",
+			role: roleOf(k, at)
+		}))
+	)
 
 /**
  * What each of a request's keys, in their order, is to its entry (core/identity.ts EntryRole): a law's probe's every
@@ -189,70 +170,6 @@ const keyRoles = (
 	}
 	const past: EntryRole = request.use === "prefix search" ? "prefix" : "order"
 	return keys.map((_, at) => (at < request.fixed ? "equality" : past))
-}
-
-/**
- * Each of a request's keys as the engine plans it, in their order (`statedKeys`): a B-tree's key it binds by equality
- * (`keyRoles`) whose column every statement over its relation states the image's equality of (BuiltTarget `imaged`,
- * schema/representability.ts relationImages), `bound`, which an index holding the column or its md5 serves alike, every
- * other key as it is, a key it orders or matches a prefix of among them, whose order no image keeps; and a GiST, hash or
- * HNSW request's every key as it is: a hash index's entry is a hash code already, and neither other method's request
- * binds a text an image would hold. Which of its bound columns a created index holds by their images its own entry
- * decides (`createIndex`, schema/representability.ts entryImages), so requests that share columns share an index and a
- * key's index, holding them as themselves where its entry fits, serves its lookups as before. A write target binds a
- * numeric its relation's key holds by its image by that image's column (BuiltTarget `keyImage`), whose equality the
- * write's probe states, so the key's own index serves it: no lookup holds a numeric by an image of its own.
- */
-const requestKeys = (
-	request: IndexRequest,
-	keys: ReadonlyArray<IndexKey>,
-	target: BuiltTarget
-): ReadonlyArray<IndexKey> => {
-	if (request.method !== "btree") {
-		return keys
-	}
-	const roles = keyRoles(request, keys)
-	return keys.map((k, at) => {
-		if (roles[at] !== "equality" || (k.column.kind !== "field" && k.column.kind !== "law")) {
-			return k
-		}
-		const keyImage = request.use === "write target" ? target.keyImage(k.column) : undefined
-		return keyImage !== undefined
-			? { ...k, column: keyImage }
-			: target.imaged(k.column)
-				? { ...k, column: { kind: "bound", of: k.column } }
-				: k
-	})
-}
-
-/**
- * The columns a B-tree request binds whose images its relation's statements state (`requestKeys`), each the column a
- * created index serving it may hold by its image: what a statement that reads through it states the images' equality
- * of (physical/ddl/rules.ts).
- */
-export const requestImaged = (
-	request: IndexRequest,
-	target: BuiltTarget
-): ReadonlyArray<IndexColumn> =>
-	requestKeys(request, statedKeys(request), target).flatMap((k) =>
-		k.column.kind === "bound" ? [k.column.of] : []
-	)
-
-/** A key of a request's block with its place among all the request's keys, in their order. */
-interface PlacedKey {
-	readonly key: IndexKey
-	readonly at: number
-}
-
-/** A block of a request's keys, each at its place (PlacedKey). */
-type PlacedBlock = NonEmptyReadonlyArray<PlacedKey>
-
-/** Each key of `blocks` with its place among all their keys, in order. */
-const placedKeys = (blocks: NonEmptyReadonlyArray<Block>): NonEmptyReadonlyArray<PlacedBlock> => {
-	const starts = blocks.map((_, i) => blocks.slice(0, i).reduce((n, b) => n + b.length, 0))
-	return mapNonEmpty(blocks, (block, i) =>
-		mapNonEmpty(block, (key, j) => ({ key, at: defined(starts[i], "a start per block") + j }))
-	)
 }
 
 /**
@@ -349,7 +266,7 @@ export const reverseRequests = (b: InstallBuilder): ReadonlyArray<IndexRequest> 
 
 type Keys = NonEmptyReadonlyArray<IndexKey>
 
-/** What each key of a request's relation holds (Holds), by field: an image holds many values. */
+/** What each key of a request's relation holds (Holds), by field. */
 interface Columns {
 	readonly holds: (column: KeyTerm) => Holds
 }
@@ -748,10 +665,15 @@ const placed = (index: KeyedIndex, placement: Placement, columns: Columns): bool
 interface Planned {
 	readonly request: IndexRequest
 	readonly placements: Placements
-	/** Its keys as it states them, each as the engine plans it (`requestKeys`). */
+	/** Its keys as it states them (`statedKeys`). */
 	readonly keys: Keys
 	/** What each of its keys, in their order, is to its entry (`keyRoles`). */
 	readonly roles: ReadonlyArray<EntryRole>
+	/**
+	 * The keys a B-tree of its own leaves out of its entry, each an equality its reads apply as a filter beside the index
+	 * (`fittingKeys`), none where every key fits or its index is no B-tree: an index holding the rest serves it too.
+	 */
+	readonly filtered: ReadonlyArray<IndexKey>
 	/** Its keys' blocks (`blocksOf`), each key as a created index holds it. */
 	readonly blocks: NonEmptyReadonlyArray<Block>
 	readonly columns: Columns
@@ -763,12 +685,49 @@ interface Planned {
 const ownMethod = (planned: Planned): IndexMethod => methodOf(planned.placements.own)
 
 /** Whether an index's relation, access method and keys serve a planned request (see `planIndexes`): it holds one of the
- * request's placements, as an index of that placement's method. */
+ * request's placements, as an index of that placement's method, or one of them without the keys the request's entry
+ * leaves out as filters (`leavingOut`). */
 const serves = (index: KeyedIndex, planned: Planned): boolean =>
 	index.relation === planned.request.relation &&
-	[planned.placements.own, ...planned.placements.others].some(
-		(p) => methodOf(p) === index.method && placed(index, p, planned.columns)
-	)
+	[planned.placements.own, ...planned.placements.others].some((p) => {
+		const holds = (at: Placement): boolean =>
+			methodOf(at) === index.method && placed(index, at, planned.columns)
+		const fitting = isNonEmpty(planned.filtered) ? leavingOut(p, planned.filtered) : undefined
+		return holds(p) || (fitting !== undefined && holds(fitting))
+	})
+
+/** `keys` but each of `left`. */
+const without = (
+	keys: ReadonlyArray<IndexKey>,
+	left: ReadonlyArray<IndexKey>
+): ReadonlyArray<IndexKey> => keys.filter((k) => !left.some((l) => sameKey(k, l)))
+
+/**
+ * A placement without the keys `left`, the equalities a request's entry leaves out as filters (Planned `filtered`): an
+ * index that holds the rest serves the request, its reads applying the filters beside it; none where no key would place
+ * it. A GiST and a unique index's placements leave nothing out, since only a B-tree's entry leaves an equality out.
+ */
+const leavingOut = (p: Placement, left: ReadonlyArray<IndexKey>): Placement | undefined => {
+	switch (p.kind) {
+		case "blocks": {
+			const blocks = p.blocks.flatMap((block): ReadonlyArray<Block> => {
+				const kept = without(block, left)
+				return isNonEmpty(kept) ? [kept] : []
+			})
+			const directed = p.directed === undefined ? [] : without(p.directed, left)
+			return isNonEmpty(blocks)
+				? { ...p, blocks, directed: isNonEmpty(directed) ? directed : undefined }
+				: undefined
+		}
+		case "led": {
+			const lead = without(p.lead, left)
+			return isNonEmpty(lead) ? { ...p, lead, held: without(p.held, left) } : undefined
+		}
+		case "placed":
+		case "keyed":
+			return p
+	}
+}
 
 /** An index under construction (see `planIndexes`): its access method, its own request's, blocks covering its columns,
  * the columns of its first block one of which leads it, and the order whose directions it takes, when an ordered request
@@ -1155,12 +1114,12 @@ const justificationOrder: Comparator<IndexRequest> = (a, b) => {
  * the name marks a method other than the B-tree, the descending keys and the classes beyond the default, each part of
  * its identity at the naming door (identity.accessIndex). Uniqueness is
  * never traded: a request never turns into or replaces a unique constraint, and enforcement objects (keys) stay
- * separate from access-path indexes. The index's key entry must fit its access method, like a key's: a B-tree request's
- * entry holds each text its requests bind by equality by that text's image, its md5 digest, wherever the entry, every
- * key as itself, could outgrow BTMaxItemSize (`requestKeys`, schema/representability.ts entryImages), which every
- * statement grizzle writes binds beside the text's equality, so the lookup reads the rows its every equality matches; a
- * text it orders or matches a prefix of is held as itself, and an entry those still overfill is refused naming them
- * (schema/representability.ts lookupEntry, KeyFault `orderedText`).
+ * separate from access-path indexes. The index's key entry must fit its access method, like a key's, in any order of its
+ * columns (schema/representability.ts btreeEntryBytes): a B-tree holds a column as itself or not at all, never by an
+ * image. Where its keys could outgrow BTMaxItemSize, it leaves out the columns its requests bind by equality, the
+ * widest first and a column of no byte bound widest of all, until the rest fits, each left out a filter its reads
+ * apply beside the index; a column it orders by or matches a prefix of stays, and an entry those still overfill is
+ * refused naming them (schema/representability.ts lookupEntry, KeyFault `orderedColumns`).
  *
  * A derived relation's materialized view takes indexes like a table: the derived relation
  * extension registers the view's fields and inherited key indexes with the builder (`addIndexedView`),
@@ -1238,12 +1197,7 @@ export const planIndexes = (
 						)
 					}
 				}
-				const planned = requestKeys(r, stated, o)
-				/** A key of the request at its place among its keys, as the engine plans it (`requestKeys`). */
-				const held = ({ at }: PlacedKey): IndexKey => defined(planned[at], "a planned key per key")
-				/** A block of the request's keys, each as a created index holds it. */
-				const heldBlock = (block: PlacedBlock): Block => mapNonEmpty(block, held)
-				const blocks = mapNonEmpty(placedKeys(blocksOf(r, stated)), heldBlock)
+				const blocks = blocksOf(r, stated)
 				const keys = extendNonEmpty(blocks[0], blocks.slice(1).flat())
 				const typeOf = (column: IndexColumn): ScalarType => {
 					const f = o.field(column)
@@ -1253,16 +1207,27 @@ export const planIndexes = (
 				}
 				const columns: Columns = {
 					holds: (column) =>
-						column.kind === "image" || column.kind === "suffix"
-							? "many"
-							: holdsOf(typeOf(readColumn(column)))
+						column.kind === "suffix" ? "many" : holdsOf(typeOf(readColumn(column)))
 				}
+				const placements = placementsOf(r, keys, blocks, columns, label)
+				const roles = keyRoles(r, keys)
+				/** The keys a B-tree of its own leaves out, each a filter beside it: none for another method, or where its
+				 * entry is refused, which creating its index refuses (`createIndex`). */
+				const entry =
+					methodOf(placements.own) === "btree"
+						? fittingKeys(o, keys, (_, at) => defined(roles[at], "a role per key"))
+						: undefined
+				const filtered =
+					entry === undefined || !entry.ok
+						? []
+						: keys.filter((_, at) => !entry.value.held.includes(at))
 				return [
 					{
 						request: r,
-						placements: placementsOf(r, keys, blocks, columns, label),
+						placements,
 						keys,
-						roles: keyRoles(r, keys),
+						roles,
+						filtered,
 						blocks,
 						columns,
 						label,
@@ -1308,7 +1273,8 @@ export const planIndexes = (
 					b,
 					entry,
 					draftFor(entry, ahead(entry, relationPlan, own)),
-					unitReads(relationPlan)
+					unitReads(relationPlan),
+					relationPlan
 				)
 				const created = { index, requests: [entry.request] }
 				candidates.push(created)
@@ -1427,53 +1393,6 @@ const confined = (keys: Keys, reads: ReadonlyArray<UnitRead>): Keys =>
 			: held
 	}, keys)
 
-/** A key as a created index holds it: a column, or a column's image, never a request's bound column. */
-interface HeldKey extends IndexKey {
-	readonly column: Exclude<KeyTerm, { readonly kind: "bound" }>
-}
-
-/**
- * A created index's keys as it holds them, in their order: each column its requests bind by equality whose image their
- * statements state (`requestKeys`, `bound`) by its image, md5, wherever the entry, every key as itself, could outgrow
- * BTMaxItemSize, the one rule of every B-tree entry at the index's own entry (schema/representability.ts entryImages),
- * and as itself otherwise, so an index that fits never moves; every other key as it is.
- */
-const heldKeys = (
-	keys: NonEmptyReadonlyArray<IndexKey>,
-	field: (column: IndexColumn) => TargetField
-): NonEmptyReadonlyArray<HeldKey> => {
-	const images = entryImages(
-		"lookup",
-		keys.map((k) => {
-			if (k.column.kind === "image") {
-				return { datum: imageDatum.md5, imaged: undefined, nullable: false }
-			}
-			const f = field(readColumn(k.column))
-			const datum = f.desc.kind === "bytes" ? undefined : datumBound(f.desc)
-			return {
-				datum: k.column.kind === "suffix" && datum !== undefined ? suffixDatum(datum) : datum,
-				imaged: k.column.kind === "bound" ? imagedOf(f.desc) : undefined,
-				nullable: f.nullable
-			}
-		})
-	)
-	return mapNonEmpty(keys, (k, at): HeldKey => {
-		const column = k.column
-		switch (column.kind) {
-			case "bound":
-				return {
-					...k,
-					column: images[at] === undefined ? column.of : { kind: "image", of: column.of }
-				}
-			case "field":
-			case "law":
-			case "image":
-			case "suffix":
-				return { ...k, column }
-		}
-	})
-}
-
 /** A new index for an unserved request, as drafted for it (draftFor): the draft's method, and its keys in the order
  * the draft fixes, a B-tree's confined to the units of the whole rules that read its relation (`confined`), its entry
  * checked against the access method's limit. */
@@ -1481,7 +1400,8 @@ const createIndex = (
 	b: InstallBuilder,
 	planned: Planned,
 	drafted: Drafted,
-	reads: ReadonlyArray<UnitRead>
+	reads: ReadonlyArray<UnitRead>,
+	relationPlan: ReadonlyArray<Planned>
 ): PlannedIndex => {
 	const { request, label, target: o } = planned
 	const { draft, answers } = drafted
@@ -1490,9 +1410,9 @@ const createIndex = (
 		o.field(column) ??
 		fail("MalformedDescription", label, `a field ${keyTermText(column)} of ${request.relation}`)
 	const drafts = keysOf(draft, rankIn(planned.keys), planned.columns)
-	const keys = heldKeys(method === "btree" ? confined(drafts, reads) : drafts, targetField)
-	const fields = keys.map((k) => keyTermText(k.column))
-	const unrepresentable = (fault: KeyFault): never => {
+	const proposed = method === "btree" ? confined(drafts, reads) : drafts
+	const unrepresentable = (keys: ReadonlyArray<IndexKey>, fault: KeyFault): never => {
+		const fields = keys.map((k) => keyTermText(k.column))
 		throw new Refusal(
 			CompileError.make({
 				_tag: "UnrepresentableKey",
@@ -1503,31 +1423,16 @@ const createIndex = (
 			})
 		)
 	}
-	switch (method) {
-		case "btree":
-		case "gist": {
-			if (keys.length > indexMaxKeys) {
-				return unrepresentable({ kind: "columns", limit: indexMaxKeys })
-			}
-			const columns = keyDatums(
-				keys.flatMap((k) =>
-					k.column.kind === "image"
-						? []
-						: [{ field: keyTermText(k.column), desc: targetField(readColumn(k.column)).desc }]
-				)
-			)
-			if (!columns.ok) {
-				return unrepresentable(columns.error)
-			}
-			/**
-			 * A B-tree or GiST entry is bounded, so every key datum is: a column's by its field (`keyDatums`), an image's
-			 * md5's digits (schema/representability.ts imageDatum `md5`).
-			 */
-			const datums = imagedDatums(keys, columns.value)
-			if (method === "btree") {
+	if (proposed.length > indexMaxKeys) {
+		return unrepresentable(proposed, { kind: "columns", limit: indexMaxKeys })
+	}
+	/** The index's keys: a B-tree's that fit its entry, every other method's as proposed. */
+	const heldKeys = (): NonEmptyReadonlyArray<IndexKey> => {
+		switch (method) {
+			case "btree": {
 				/**
-				 * What each key is to the entry: its role in the request it holds (`keyRoles`), and a unit's field a unit read
-				 * appended (`confined`) read in its order.
+				 * What each key is to the entry: its role in the request it holds (`keyRoles`), and a unit's field a unit
+				 * read appended (`confined`) read in its order.
 				 */
 				const roleOf = (k: IndexKey): EntryRole => {
 					const at = planned.keys.findIndex((p) =>
@@ -1535,47 +1440,55 @@ const createIndex = (
 					)
 					return at < 0 ? "order" : defined(planned.roles[at], "a role per key")
 				}
-				/** A law column that may hold NULL gives the entry its null bitmap (TargetField `nullable`); a field is NOT
-				 * NULL. */
-				const entry = lookupEntry(
-					datums.map((d, i) => {
-						const k = defined(keys[i], "a datum per key")
-						const field = targetField(readColumn(k.column))
-						return {
-							name: d.field,
-							datum: d.datum,
-							nullable: field.nullable,
-							role: roleOf(k),
-							imaged: k.column.kind === "image" ? undefined : imagedOf(field.desc)
-						}
-					})
+				const entry = fittingKeys(o, proposed, roleOf)
+				return entry.ok
+					? mapNonEmpty(entry.value.held, (at) => defined(proposed[at], "a held key"))
+					: unrepresentable(proposed, entry.error)
+			}
+			case "gist": {
+				const columns = keyDatums(
+					proposed.map((k) => ({
+						field: keyTermText(k.column),
+						desc: targetField(readColumn(k.column)).desc
+					}))
 				)
-				if (!entry.ok) {
-					unrepresentable(entry.error)
+				if (!columns.ok) {
+					return unrepresentable(proposed, columns.error)
 				}
-				break
+				const bytes = gistEntryBytes(columns.value)
+				return !bytes.ok
+					? unrepresentable(proposed, { kind: "gistOperatorClass", field: bytes.error })
+					: bytes.value > gistMaxItemSize
+						? unrepresentable(proposed, {
+								kind: "gistEntry",
+								bytes: bytes.value,
+								limit: gistMaxItemSize
+							})
+						: proposed
 			}
-			const bytes = gistEntryBytes(datums)
-			if (!bytes.ok) {
-				unrepresentable({ kind: "gistOperatorClass", field: bytes.error })
-			} else if (bytes.value > gistMaxItemSize) {
-				unrepresentable({ kind: "gistEntry", bytes: bytes.value, limit: gistMaxItemSize })
-			}
-			break
+			case "hnsw":
+			case "gin":
+			case "hash":
+				return proposed
 		}
-		case "hnsw":
-		case "gin":
-			if (keys.length > indexMaxKeys) {
-				unrepresentable({ kind: "columns", limit: indexMaxKeys })
-			}
-			break
-		case "hash":
-			break
 	}
+	const keys = heldKeys()
+	/** Every key a request this index serves binds and it leaves out, a filter its reads apply beside it: its own
+	 * proposed keys' and each of its relation's requests' it serves by their fitting columns (`serves`), in text order. */
+	const index: KeyedIndex = { relation: request.relation, method, keys, unique: false }
+	const filtered = [
+		...new Set(
+			[
+				...without(proposed, keys),
+				...relationPlan.flatMap((q) => (serves(index, q) ? without(q.filtered, keys) : []))
+			].map((k) => keyTermText(k.column))
+		)
+	].toSorted(compareStrings)
 	const named = identity.accessIndex(
 		request.relation,
 		method,
-		keys.map((k) => ({ field: keyTermText(k.column), dir: k.dir, opclass: k.opclass.kind }))
+		keys.map((k) => ({ field: keyTermText(k.column), dir: k.dir, opclass: k.opclass.kind })),
+		filtered
 	)
 	const name = b.name(named)
 	const ddl: CreateIndex = {
@@ -1584,11 +1497,9 @@ const createIndex = (
 		table: b.names.relation(request.relation),
 		method,
 		keys: mapNonEmpty(keys, (k) => ({
-			...(k.column.kind === "image"
-				? exprKey(imageOf(tableCol(o.column(k.column.of))))
-				: k.column.kind === "suffix"
-					? exprKey(suffixKeyOf(tableCol(o.column(k.column.of))))
-					: columnKey(o.column(k.column))),
+			...(k.column.kind === "suffix"
+				? exprKey(suffixKeyOf(tableCol(o.column(k.column.of))))
+				: columnKey(o.column(k.column))),
 			opclass:
 				k.opclass.kind === "default"
 					? undefined

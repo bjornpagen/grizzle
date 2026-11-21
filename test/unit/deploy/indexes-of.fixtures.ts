@@ -258,7 +258,6 @@ export const lawColumnLaws = (
 export type Projected =
 	| { readonly kind: "field"; readonly field: string; readonly direction: string }
 	| { readonly kind: "law"; readonly laws: ReadonlyArray<string>; readonly direction: string }
-	| { readonly kind: "image"; readonly direction: string }
 	| { readonly kind: "suffix"; readonly direction: string }
 
 /** One index as the comparison reads it: its relation, its name, its projected columns and its reasons. */

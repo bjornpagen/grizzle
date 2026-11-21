@@ -125,16 +125,21 @@ export type RecursionRefusal =
  *
  * - `columns`: more fields than PostgreSQL admits in one index, `limit` (INDEX_MAX_KEYS).
  * - `unboundedText`: a text field whose pattern proves no byte bound, the one datum with no bound.
- * - `btreeEntry`: an entry that can reach `bytes`, above the B-tree limit `limit` (BTMaxItemSize), and the bytes each of
- *   its columns' datums is counted at, in index order: a text's is the byte bound its pattern and contract prove.
- * - `orderedText`: an index's entry that can reach `bytes`, above the B-tree limit `limit`, past every equality it holds
- *   by its image, for the texts it reads in their order or matches a prefix of, which it holds as themselves since no
- *   image keeps a text's order: each with its role and the bytes its datum is counted at.
+ * - `btreeEntry`: an entry that can reach `bytes` in some order of its columns, above the B-tree limit `limit`
+ *   (BTMaxItemSize, schema/representability.ts btreeEntryBytes), and the bytes each of its columns' datums is counted at,
+ *   in index order: a text's is the byte bound its pattern and contract prove.
+ * - `orderedColumns`: a lookup's entry that can reach `bytes`, above the B-tree limit `limit`, past every equality it
+ *   leaves out as a filter, for the varlenas it reads in their order or matches a prefix of, which only an index holding
+ *   them serves and a byte bound or a precision shrinks: each with its role and the bytes its datum is counted at.
  * - `spans`: more than one span field, which no native lowering serves.
  * - `gistEntry`: a span key's GiST entry that can reach `bytes`, above the limit `limit` of a GiST page.
  * - `gistOperatorClass`: a span key's scalar field with no btree_gist operator class.
  * - `spanAlone`: a primary key that is the span `field` alone: a primary key WITHOUT OVERLAPS needs a scalar field
  *   beside its span, so only a candidate key can be that span alone.
+ * - `foldAccumulator`: a fold whose running value, its `accumulator`, rides its family's axes as itself, where its
+ *   widest value, a numeric of no precision or a text of no byte bound that fits, could carry the entry past the
+ *   B-tree limit `limit` (`bytes`, none for a text of no bound): the fold is the author's declaration, so its fix is the
+ *   `bound` the folded fields declare, a numeric's precision or a text's byte bound.
  */
 export type KeyFault =
 	| { readonly kind: "columns"; readonly limit: number }
@@ -147,7 +152,7 @@ export type KeyFault =
 			readonly datums: ReadonlyArray<{ readonly field: string; readonly bytes: number }>
 	  }
 	| {
-			readonly kind: "orderedText"
+			readonly kind: "orderedColumns"
 			readonly bytes: number
 			readonly limit: number
 			readonly columns: ReadonlyArray<{
@@ -160,6 +165,13 @@ export type KeyFault =
 	| { readonly kind: "gistEntry"; readonly bytes: number; readonly limit: number }
 	| { readonly kind: "gistOperatorClass"; readonly field: string }
 	| { readonly kind: "spanAlone"; readonly field: string }
+	| {
+			readonly kind: "foldAccumulator"
+			readonly accumulator: string
+			readonly bytes: number | undefined
+			readonly limit: number
+			readonly bound: "precision" | "byteBound"
+	  }
 
 /**
  * Why derived analysis refused a derived relation (analysis/derived), the cause of a DerivedRefused CompileError
@@ -354,20 +366,28 @@ export const recursionRefusalText = (cause: RecursionRefusal): string => {
 }
 
 /**
- * A key fault's text after the key's name: the one text of each fault, a declared key's and an inherited one's alike.
+ * The fix a key past its index entry takes (README "Keys and indexes"): grizzle never holds a key's column by a digest of
+ * its own, so the author bounds the field or keys by a digest the schema declares.
+ */
+const keyFix =
+	"declare a byte bound (str.bytes(n)) or a precision, or key by an explicit digest field you declare (e.g. a generated Crypto.sha256(x))"
+
+/**
+ * A key fault's text after the key's name: the one text of each fault, a declared key's and an inherited one's alike,
+ * an entry past its bound naming the fix (`keyFix`).
  */
 export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: KeyFault): string => {
 	switch (fault.kind) {
 		case "columns":
 			return `${name}: it has ${key.length} fields, above PostgreSQL's limit of ${fault.limit} columns in one index (INDEX_MAX_KEYS)`
 		case "unboundedText":
-			return `${name}: field ${fault.field} is text whose pattern proves no byte bound; a bounded anchored pattern, or a contract bounding its charLength or octetLength, does`
+			return `${name}: field ${fault.field} is text whose pattern proves no byte bound, which no B-tree entry holds; ${keyFix}`
 		case "storageOnly":
 			return `${name}: field ${fault.field} is bytes, which is stored only, with no equality, so no key or index holds it`
 		case "btreeEntry":
-			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit (${fault.datums.map((d) => `${d.field} ${d.bytes} bytes`).join(", ")})`
-		case "orderedText":
-			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit, past every equality it holds by its image, for the texts it holds as themselves since no image keeps a text's order (${fault.columns.map((c) => `${c.field} ${c.bytes} bytes, ${c.role === "order" ? "read in its order" : "a prefix matched"}`).join("; ")}); a byte bound on them that fits the entry admits it`
+			return `${name}: its B-tree entry can reach ${fault.bytes} bytes in some order of its columns, above PostgreSQL's ${fault.limit}-byte limit (${fault.datums.map((d) => `${d.field} ${d.bytes} bytes`).join(", ")}); ${keyFix}`
+		case "orderedColumns":
+			return `${name}: its B-tree entry can reach ${fault.bytes} bytes, above PostgreSQL's ${fault.limit}-byte limit, past every equality it leaves out as a filter, for the columns it reads in their order or matches a prefix of (${fault.columns.map((c) => `${c.field} ${c.bytes} bytes, ${c.role === "order" ? "read in its order" : "a prefix matched"}`).join("; ")}); a byte bound (str.bytes(n)) or a precision on them that fits the entry admits it`
 		case "spans":
 			return `${name}: a key with more than one span field (${fault.fields.join(", ")}) has no native lowering`
 		case "gistEntry":
@@ -376,6 +396,8 @@ export const keyFaultText = (name: string, key: ReadonlyArray<string>, fault: Ke
 			return `${name}: field ${fault.field} has no btree_gist operator class`
 		case "spanAlone":
 			return `${name}: it is the span ${fault.field} alone, which a primary key WITHOUT OVERLAPS never is; only a candidate key can be`
+		case "foldAccumulator":
+			return `${name}: its running value ${fault.accumulator} rides the family's axes as itself, and ${fault.bytes === undefined ? "a text of no byte bound" : `its widest value, ${fault.bytes} bytes with the axes' other columns,`} could pass PostgreSQL's ${fault.limit}-byte B-tree limit there; ${fault.bound === "precision" ? "declare its precision, pg.numeric(p, s)," : "declare a byte bound, str.bytes(n),"} on the fields the fold steps and ends in`
 	}
 }
 

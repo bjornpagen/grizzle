@@ -9,7 +9,7 @@ import { type CallError } from "#compiler/live/index.ts"
 import { ChangeSet } from "#compiler/public/changeset.ts"
 import { bytes, drawn, natural, pg } from "#compiler/public/fields.ts"
 import { fin, key, login, on, ordered, relation, role, schema } from "#compiler/public/schema.ts"
-import { str } from "#compiler/public/text.ts"
+import { keyTextBytes, str } from "#compiler/public/text.ts"
 import { workload } from "#compiler/public/workload.ts"
 import { answered, writeOnce } from "#test/support/calls.ts"
 import { Id, type IdValue } from "#test/support/ids.ts"
@@ -32,8 +32,8 @@ import { rigIn, rigTemplate } from "#test/support/schedules/rig.ts"
 import { beginSerializableAction } from "#test/support/schedules/types.ts"
 import { textBound } from "#test/support/staged.ts"
 import { Substrate, type SubstrateCase } from "#test/support/substrate/substrate.ts"
-/** An entry's path: any text, as pantry's EntryPath is, which a key over it holds by its digest. */
-const EntryPath = str.regex("^.*$", "su")
+/** An entry's path: any text its key beside the package's uuid holds, as pantry's EntryPath is bounded. */
+const EntryPath = str.bytes(keyTextBytes([Id]), str.regex("^.*$", "su"))
 const Package = relation("Package", { id: Id, entries: drawn(natural), name: pg.integer }, ["id"])
 const Entry = relation(
 	"Entry",

@@ -86,7 +86,6 @@ import {
 	fieldColumn
 } from "#compiler/ir/law.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
-import { bytesType } from "#compiler/scalar/compute/types.ts"
 
 /**
  * `fields` of `relation`, then every field a generated one among them reads, transitively, each once: every field the
@@ -212,8 +211,6 @@ const readsOfRule = (relation: LawRelation, rule: FillRule): ReadonlyArray<Nativ
 	switch (rule.kind) {
 		case "self":
 			return [rule.to]
-		case "image":
-			return [rule.of]
 		case "after":
 			return [
 				...rule.befores,
@@ -308,14 +305,6 @@ const entriesAt = (
 		writer
 	)
 	set({ kind: "law", column: f.copy }, f.count.type, { kind: "copy" }, writer)
-	for (const image of root ? [] : f.images) {
-		set(
-			{ kind: "law", column: image.column },
-			bytesType,
-			{ kind: "image", family: f, image: image.image, of: fieldColumn(image.member) },
-			writer
-		)
-	}
 	if (f.shape.kind === "tree") {
 		const t = f.shape
 		set(fieldColumn(t.start), t.start.type, { kind: "start" }, walk)
@@ -482,7 +471,6 @@ const lawAndFamily = (rule: FillRule): { readonly law: LawId; readonly family: F
 		case "count":
 		case "start":
 		case "end":
-		case "image":
 			throw defect(`a column filled ${rule.kind}, which reads nothing a write fills after it`)
 		case "generated":
 			throw defect(

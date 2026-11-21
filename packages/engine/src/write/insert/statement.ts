@@ -9,7 +9,6 @@ import type { PhysicalNames } from "#compiler/ir/physical.ts"
 import type { ParamDecl, StatementRole } from "#compiler/ir/products.ts"
 import type { Heading, KeySet, ValidDag } from "#compiler/ir/rel.ts"
 import { baseOf, regexOf, type ScalarType } from "#compiler/ir/scalar.ts"
-import type { ImageColumn } from "#compiler/laws/model/model.ts"
 import {
 	type ColumnMap,
 	type Env,
@@ -243,9 +242,6 @@ export interface WriteContext {
 	/** What an UPDATE of a relation's table meets of its stored generated columns, as the compilation's updater runs it
 	 * (laws/model/generation.ts generations), which every UPDATE's SET list is built against (sql/generation.ts). */
 	readonly generation: (relation: string) => TableGeneration
-	/** The image column a key installs a field of a relation over (laws/model/model.ts fieldImages), which a statement
-	 * reaching the relation's rows by the field's equality reaches them by (write/probe.ts reachedBy). */
-	readonly image: (relation: string, field: string) => ImageColumn | undefined
 }
 
 /** A statement of its own numbers its relations from r0 and its columns from c1. */
@@ -264,7 +260,6 @@ interface WriteContextOptions {
 	readonly share: StatementShare
 	readonly level: Isolation
 	readonly generation: (relation: string) => TableGeneration
-	readonly image: (relation: string, field: string) => ImageColumn | undefined
 }
 
 export const writeContext = (dag: ValidDag, options: WriteContextOptions): WriteContext => {
@@ -283,8 +278,7 @@ export const writeContext = (dag: ValidDag, options: WriteContextOptions): Write
 		level: options.level,
 		start: ownStatement,
 		share: options.share,
-		generation: options.generation,
-		image: options.image
+		generation: options.generation
 	}
 }
 

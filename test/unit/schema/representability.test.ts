@@ -53,6 +53,9 @@ import {
 	boundsAbove,
 	btreeTupleBytes,
 	budgetCaseGen,
+	type Datum,
+	datumOf,
+	inOrderTupleBytes,
 	type BudgetFeature,
 	budgetOf,
 	conjunctExpr,
@@ -60,7 +63,6 @@ import {
 	fixedTyplens,
 	gistDatumGen,
 	type GistFeature,
-	keyedDatums,
 	gistKeyBytes,
 	gistTupleBytes,
 	greedyAlternatives,
@@ -71,12 +73,9 @@ import {
 	keyedFieldGen,
 	type KeySizeFeature,
 	type KeySizeSketch,
-	holdsImage,
 	guardedTextCaseGen,
 	guardedTextSchemaOf,
-	lawColumnImages,
 	Kind,
-	keyImagedFields,
 	lengthConjunctGen,
 	type LengthFeature,
 	type LengthSketch,
@@ -287,8 +286,8 @@ export const lengthBoundsReadsACharLengthBoundFourBytesACodePointAndAnOctetLengt
 		}
 	)
 
-/** KeyTextBytes is the most bytes a text holds as itself beside its fields in every index grizzle plans over them, and one byte more is held by its digest where an index's layout meets the bound. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
-export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryIndexGrizzlePlansOverThemAndOneByteMoreIsHeldByItsDigestWhereAnIndexsLayoutMeetsTheBound =
+/** KeyTextBytes is the most bytes a text holds as itself beside its fields in every index grizzle plans over them, and one byte more is refused where an index's layout, in any order of its columns, meets the bound. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 200 runs and 200 steered cases. */
+export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryIndexGrizzlePlansOverThemAndOneByteMoreIsRefusedWhereAnIndexsLayoutMeetsTheBound =
 	property.explore(budgetCaseGen, {
 		needs: {},
 		budget: { runs: 200, steered: 200 },
@@ -311,22 +310,18 @@ export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryI
 				const arm = armOf(s)
 				const budget = keyTextBytes(arm.fields)
 				assert.equal(budget, budgetOf(arm.companions), "the budget")
-				const within = succeeded(
-					installed(arm.schemaAt(budget)),
-					`the ${s.arm} with a text of ${budget} bytes`
-				)
-				assert.ok(!holdsImage(within), "a text within the budget held as itself")
+				succeeded(installed(arm.schemaAt(budget)), `the ${s.arm} with a text of ${budget} bytes`)
 				const past = arm.entryAt(budget + 1) > postgresBtreeMaxItem
 				c.noteAll([s.arm, s.spelling, past ? "tight" : "slack", ...keyFeatures(s)])
-				const beyond = succeeded(
-					installed(arm.schemaAt(budget + 1)),
-					`the ${s.arm} with a text one byte past the budget`
-				)
-				assert.equal(
-					holdsImage(beyond),
-					past,
-					"one byte more held by its digest exactly where the index's layout meets the bound"
-				)
+				const beyond = installed(arm.schemaAt(budget + 1))
+				if (past) {
+					refused(beyond, "UnrepresentableKey", `the ${s.arm} with a text one byte past the budget`)
+				} else {
+					succeeded(
+						beyond,
+						`the ${s.arm} with a text one byte past the budget, its layout within the bound`
+					)
+				}
 			}),
 		oracle: {
 			kind: "second-implementation",
@@ -343,10 +338,9 @@ export const keyTextBytesIsTheMostBytesATextHoldsAsItselfBesideItsFieldsInEveryI
 		]
 	})
 
-/** A selected key's guarded text of no byte bound is held by the image of its law column, an image and never the text. */
-export const aSelectedKeysGuardedTextOfNoByteBoundIsHeldByTheImageOfItsLawColumn = property.explore(
-	guardedTextCaseGen,
-	{
+/** A selected key over a text of no byte bound is refused, UnrepresentableKey naming the text: no key holds a column by a digest of its own. */
+export const aSelectedKeyOverATextOfNoByteBoundIsRefusedAsUnrepresentableKeyNamingTheText =
+	property.explore(guardedTextCaseGen, {
 		needs: {},
 		budget: { runs: 12, steered: 12 },
 		situations: ["the text alone", "the text beside companions"] satisfies ReadonlyArray<
@@ -355,36 +349,30 @@ export const aSelectedKeysGuardedTextOfNoByteBoundIsHeldByTheImageOfItsLawColumn
 		check: (_, c: Case<"the text alone" | "the text beside companions">) => (g) =>
 			Effect.sync(() => {
 				c.note(g.companions.length === 0 ? "the text alone" : "the text beside companions")
-				const done = succeeded(
-					installed(guardedTextSchemaOf(g)),
-					"the selected key over a text compiles"
-				)
-				assert.deepEqual(
-					lawColumnImages(done),
-					[{ of: "term", value: "image" }],
-					"the key holds its guarded text by the image of the text's law column"
+				const reason = refused(installed(guardedTextSchemaOf(g)), "UnrepresentableKey").reason
+				assert.ok(
+					reason._tag === "UnrepresentableKey" && reason.fault.kind === "unboundedText",
+					"the selected key is refused for its text of no byte bound"
 				)
 			}),
 		oracle: {
 			kind: "specification",
-			name: "README's digest key: a text of no byte bound held by its image, the side's guarded column's (laws/model/plan.ts sideColumns, keyedAs)"
+			name: "README's key rule: a key over a text of no byte bound is refused at compile, never held by a digest"
 		},
 		kept: [],
 		kills: [
 			{
-				file: "packages/engine/src/laws/model/model.ts",
+				file: "packages/engine/src/laws/model/plan.ts",
 				original:
-					'\t\t\t\tcase "constant": {\n\t\t\t\t\tconst { guard, term } = this.#lower(row, column, loc)\n\t\t\t\t\treturn { guard, term }\n\t\t\t\t}',
-				replacement:
-					'\t\t\t\tcase "constant": {\n\t\t\t\t\treturn this.#lower(row, column, loc)\n\t\t\t\t}',
-				why: "A selected side's image lowered as its text, the image's kind overwritten by the term's: a selected key's guarded text of no byte bound is stored as itself in its bytea image column."
+					'\t\t\treturn unrepresentable(loc, subject, key, { kind: "unboundedText", field: plannedText(c) })',
+				replacement: "\t\t\tcontinue",
+				why: "A planned UNIQUE skips a column of no byte bound where it should refuse it, so a selected key over a free text compiles and PostgreSQL refuses its first long value (54000)."
 			}
 		]
-	}
-)
+	})
 
-/** B-tree entries (nbtree.h BTMaxItemSize) hold a text no pattern bounds by its digest and refuse a key whose worst-case entry is above the item limit, and admit every other. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
-export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigestAndRefuseAKeyWhoseWorstCaseEntryIsAboveTheItemLimitAndAdmitEveryOther =
+/** B-tree entries (nbtree.h BTMaxItemSize) refuse a key whose entry, in any order of its columns, can pass the item limit or holds a text of no byte bound, and admit every other in every order. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 150 runs and 150 steered cases. */
+export const bTreeEntriesNbtreeHBTMaxItemSizeRefuseAKeyWhoseEntryInAnyOrderCanPassTheItemLimitOrHoldsATextOfNoByteBoundAndAdmitEveryOtherInEveryOrder =
 	property.explore(
 		(source) => ({
 			fields: source.draw(nonEmptyOf(keyedFieldGen, 4)),
@@ -411,9 +399,10 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 			budget: { runs: 150, steered: 150 },
 			situations: [
 				"admitted",
-				"imaged",
+				"refused",
 				"at the limit, admitted",
-				"past the limit, imaged",
+				"past the limit, refused",
+				"fitting in its own order, refused",
 				"primary",
 				"candidate"
 			] satisfies ReadonlyArray<Reached<KeySizeFeature>>,
@@ -422,42 +411,47 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 					const fields = sizedFields(s)
 					const planted = fields.length > s.fields.length
 					c.note(s.primary ? "primary" : "candidate")
-					const keyFields = Rec.fromEntries(
-						Arr.map(fields, (f, i) => [`k${i}`, keyFieldDescriptor(f, i)])
-					)
-					const names = Rec.keys(keyFields)
-					const R = s.primary
-						? relation("R", keyFields, names, [])
-						: relation("R", { id: Id, ...keyFields }, ["id"], [])
-					const owned = ownValue(
-						schema("Keys", [Kind, R], s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
-					)
-					const keyed = keyedDatums(fields)
-					const imaged = Arr.some(keyed, (d) => d.imaged)
-					const admitted = btreeTupleBytes(Arr.map(keyed, (d) => d.datum)) <= postgresBtreeMaxItem
-					if (imaged) {
-						c.note("imaged")
+					const own = Arr.map(fields, datumOf)
+					const bounded = Arr.filter(own, (d): d is Datum => d !== undefined)
+					const whole = bounded.length === own.length
+					const admitted = whole && btreeTupleBytes(bounded) <= postgresBtreeMaxItem
+					if (!admitted && whole && inOrderTupleBytes(bounded) <= postgresBtreeMaxItem) {
+						c.note("fitting in its own order, refused")
 					}
 					if (planted) {
-						c.note(imaged ? "past the limit, imaged" : "at the limit, admitted")
+						c.note(admitted ? "at the limit, admitted" : "past the limit, refused")
 					}
-					if (!admitted) {
-						refused(owned, "UnrepresentableKey")
-						return
+					/** The key over the fields in `order`, owned: every order of one set is decided alike. */
+					const keyedIn = (order: ReadonlyArray<number>) => {
+						const keyFields = Rec.fromEntries(
+							Arr.map(order, (i) => [`k${i}`, keyFieldDescriptor(defined(fields[i], "a field"), i)])
+						)
+						const names = Rec.keys(keyFields)
+						const R = s.primary
+							? relation("R", keyFields, names, [])
+							: relation("R", { id: Id, ...keyFields }, ["id"], [])
+						return ownValue(
+							schema("Keys", [Kind, R], s.primary ? [] : [keyBuilder(onBuilder(R, names))], [])
+						)
 					}
-					c.note("admitted")
-					const model = succeeded(
-						Result.flatMap(owned, (o) => compileLaws(o, everySlice(o), { kind: "planned" }))
-					)
-					assert.deepEqual(
-						keyImagedFields(model, s.primary ? "PrimaryKey" : "Unique"),
-						Arr.flatMap(keyed, (d, i) => (d.imaged ? [`k${i}`] : [])),
-						"the key holds exactly its texts wider than their digests by them, where it would outgrow its entry"
-					)
+					const declared = Arr.map(fields, (_, i) => i)
+					for (const order of [declared, Arr.reverse(declared)]) {
+						if (admitted) {
+							succeeded(
+								Result.flatMap(keyedIn(order), (o) =>
+									compileLaws(o, everySlice(o), { kind: "planned" })
+								),
+								"a key that fits in every order compiles in each"
+							)
+						} else {
+							refused(keyedIn(order), "UnrepresentableKey")
+						}
+					}
+					c.note(admitted ? "admitted" : "refused")
 				}),
 			oracle: {
 				kind: "second-implementation",
-				name: "BTMaxItemSize and pg_type's sizes and alignments, restated, a text no pattern bounds held as SHA-256's 32 bytes"
+				name: "BTMaxItemSize and pg_type's sizes and alignments, restated, each datum after its worst padding so the bound holds in any order"
 			},
 			kept: [],
 			kills: [
@@ -469,15 +463,9 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeHoldATextNoPatternBoundsByItsDigest
 				},
 				{
 					file: "packages/engine/src/schema/representability.ts",
-					original: "(fits ? undefined : imageIn(kind, c))",
-					replacement: "(fits ? imageIn(kind, c) : undefined)",
-					why: "A key that fits holds its texts by their digests and one that would outgrow its entry holds them as themselves: a key past the limit refused, one within it imaged."
-				},
-				{
-					file: "packages/engine/src/schema/representability.ts",
-					original: 'textDigest: fixed(varlenaHeaderBytes + sha256Bytes, 4, "bytea")',
-					replacement: 'textDigest: fixed(varlenaHeaderBytes, 4, "bytea")',
-					why: "The digest counted at no byte, so a key the image overfills is admitted."
+					original: "\t\t\t(offset, c) => afterAtWorst(offset, c.datum),",
+					replacement: "\t\t\t(offset, c) => alignUp(offset, c.datum.align) + c.datum.bytes,",
+					why: "An entry measured in the order it lists its columns, every offset as if exact: a key that fits so and not in some other order is admitted, and a reference listing its columns in that other order would decide otherwise."
 				}
 			]
 		}

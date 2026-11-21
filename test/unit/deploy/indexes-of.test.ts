@@ -124,7 +124,6 @@ export const indexesOfNamesEachIndexsReasonsAndKeyColumnsInOrderAndMappedThrough
 										return { kind: "field", field: column.field, direction: column.direction }
 									case "law":
 										return { kind: "law", laws: column.laws, direction: column.direction }
-									case "image":
 									case "suffix":
 										return { kind: column.kind, direction: column.direction }
 								}
