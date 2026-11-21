@@ -28,7 +28,7 @@ import { type Case, property, ReplayToken } from "@bjornpagen/testing/property"
 import { Array as Arr, Effect, Formatter } from "effect"
 import { Db } from "#adapter/public/db.ts"
 import {
-	EDITED,
+	Edited,
 	type EditFeature,
 	m,
 	sketchGen,
@@ -37,9 +37,9 @@ import {
 	SpanMember,
 	SpanOwner,
 	spanSketchGen,
-	SPECS,
-	editedInstalls,
-	editedTemplates,
+	SPEC,
+	editedInstall,
+	editedTemplate,
 	spannedInstall,
 	spannedTemplate
 } from "#test/pg/fin/edits.fixtures.ts"
@@ -66,42 +66,30 @@ import { withLayer } from "#test/support/with-layer.ts"
  */
 export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTheStateTheFamiliesModelAndTheReferenceFoldStateAfterEachMembersPutOfANewStepValueAndEachMembersDelete =
 	property.exhaust(finite(sketchGen), {
-		needs: {
-			mutable: Substrate.seat(editedTemplates.mutable),
-			immutable: Substrate.seat(editedTemplates.immutable)
-		},
+		needs: { fixture: Substrate.seat(editedTemplate) },
 		situations: [
-			"mutable delete of the last slot applied as the model states",
-			"mutable delete of a slot before the last applied as the model states",
-			"mutable put of the last slot applied as the model states",
-			"mutable put of a slot before the last applied as the model states",
-			"immutable delete of the last slot applied as the model states",
-			"immutable delete of a slot before the last applied as the model states",
-			"immutable put of the last slot applied as the model states",
-			"immutable put of a slot before the last applied as the model states",
+			"delete of the last slot applied as the model states",
+			"delete of a slot before the last applied as the model states",
+			"put of the last slot applied as the model states",
+			"put of a slot before the last applied as the model states",
 			"a put of the first slot refilled every slot"
 		] satisfies ReadonlyArray<Reached<EditFeature>>,
 		check:
-			({ mutable, immutable }, c: Case<EditFeature>) =>
+			({ fixture }, c: Case<EditFeature>) =>
 			(sketch) =>
 				Effect.scoped(
-					Effect.flatMap(sketch.standing === "mutable" ? mutable : immutable, (taken) =>
+					Effect.flatMap(fixture, (taken) =>
 						Effect.provideService(
 							Effect.gen(function* () {
-								const o = yield* openedIn(
-									EDITED[sketch.standing],
-									{},
-									editedInstalls[sketch.standing],
-									taken
-								)
+								const o = yield* openedIn(Edited, {}, editedInstall, taken)
 								const seat = yield* seatOfInstalled(o.installed, ["Owner", "Member"], "edits")
-								const f = foldSeatOf(SPECS[sketch.standing], seat)
+								const f = foldSeatOf(SPEC, seat)
 								return yield* Effect.gen(function* () {
 									const db = yield* Db.open(o.served.login.roles.app, {})
 
 									const members = Arr.map(sketch.values, (i, member) => ({
 										member,
-										x: Arr.getUnsafe(SPECS[sketch.standing].domain, i),
+										x: Arr.getUnsafe(SPEC.domain, i),
 										selected: true
 									}))
 									const before = foldStoredOf(m, [{ owner: 0, members }])
@@ -125,10 +113,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTh
 											})
 										)
 									} else {
-										const put = {
-											...fact,
-											x: Number(Arr.getUnsafe(SPECS[sketch.standing].domain, sketch.edit.to))
-										}
+										const put = { ...fact, x: Number(Arr.getUnsafe(SPEC.domain, sketch.edit.to)) }
 										yield* answered(
 											db.workload.putMember.once({
 												params: {},
@@ -144,7 +129,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTh
 													before,
 													0,
 													target.member,
-													Arr.getUnsafe(SPECS[sketch.standing].domain, sketch.edit.to)
+													Arr.getUnsafe(SPEC.domain, sketch.edit.to)
 												)
 									const expected = foldStoredOf(m, after)
 									if (!deepEquals(read, byMember(expected))) {
@@ -156,9 +141,7 @@ export const countedPutAndDeleteThroughGrizzlesApplyOnPostgreSQL19LeaveExactlyTh
 										sketch.edit.at === sketch.values.length - 1
 											? "the last slot"
 											: "a slot before the last"
-									c.note(
-										`${sketch.standing} ${sketch.edit.kind} of ${position} applied as the model states`
-									)
+									c.note(`${sketch.edit.kind} of ${position} applied as the model states`)
 									if (
 										sketch.edit.kind === "put" &&
 										sketch.edit.at === 0 &&
