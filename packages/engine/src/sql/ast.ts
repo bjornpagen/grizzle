@@ -2103,6 +2103,16 @@ export interface RaiseOption {
 	readonly value: Expr
 }
 
+/**
+ * How a session table stores its values (PlStatement createSessionTable): `inline`, every value in its row, each column
+ * STORAGE PLAIN, for which PostgreSQL makes no TOAST table (REL_19_0 src/backend/access/heap/heapam_handler.c 2002-2039
+ * heapam_relation_needs_toast_table: none where no column's storage is other than PLAIN), so a table whose widest row
+ * its columns' bounds prove fits one heap tuple is one relation, where with its TOAST table and that table's index it
+ * was three, each a file its emptying's TRUNCATE gives a new one and each a relation its session's exit drops; or
+ * `toasted`, PostgreSQL's default, a value too long for its row moved out of line into the table's TOAST table.
+ */
+export type SessionTableStorage = "inline" | "toasted"
+
 /** A PERFORM's query: the SELECT whose leading keyword PERFORM replaces, so it has no WITH and its body is one core. */
 export interface PerformQuery {
 	readonly body: SelectCore
@@ -2201,6 +2211,8 @@ export type PlStatement =
 			readonly notNull: boolean
 			/** The table's key, in key order, or none: a carrier's (CreateCarrier primaryKey). */
 			readonly primaryKey: NonEmptyReadonlyArray<string> | undefined
+			/** How it stores its values (SessionTableStorage). */
+			readonly storage: SessionTableStorage
 	  }
 	| {
 			/**

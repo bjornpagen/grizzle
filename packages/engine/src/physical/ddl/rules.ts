@@ -35,6 +35,7 @@ import { noClock } from "#compiler/ir/clock.ts"
 import type { InferredQuery } from "#compiler/ir/desc.ts"
 import {
 	defaultOpclass,
+	type LawField,
 	type LawIndexKey,
 	type LawIndexRequest,
 	type LawLookup,
@@ -45,7 +46,8 @@ import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { IndexRequest, PhysicalReason } from "#compiler/ir/products.ts"
 import type { DeltaSide, RelNode } from "#compiler/ir/rel.ts"
 import { evidenceCatalog } from "#compiler/laws/model/catalog.ts"
-import type { RuleTable, RuleTrigger } from "#compiler/laws/model/model.ts"
+import { heapTupleMaxBytes, type RuleTable, type RuleTrigger } from "#compiler/laws/model/model.ts"
+import { inlineColumn, type RowColumn, rowBytes } from "#compiler/laws/model/rows.ts"
 import { queryEvidence } from "#compiler/logical/annotate.ts"
 import { withLeading } from "#compiler/lower/conservative/context.ts"
 import type { DeltaRelation } from "#compiler/lower/conservative/types.ts"
@@ -55,6 +57,7 @@ import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
 import { unaliased } from "#compiler/physical/derived/definition.ts"
 import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
+import { typlens } from "#compiler/schema/representability.ts"
 import type {
 	ColumnDefinition,
 	CreateTransitionTrigger,
@@ -68,6 +71,7 @@ import type {
 	PlFunction,
 	PlStatement,
 	Revoke,
+	SessionTableStorage,
 	TransitionEvent,
 	TransitionTable,
 	TypeRef
@@ -591,8 +595,37 @@ interface SessionDelta {
 	readonly name: string
 	readonly columns: NonEmptyReadonlyArray<ColumnDefinition>
 	readonly table: NonEmptyReadonlyArray<ColumnDefinition>
+	/** How its table stores its values (`deltaStorage`). */
+	readonly storage: SessionTableStorage
 	/** The CTE a judged statement that reads the delta reads it through, over its reader (`deltaHead`). */
 	readonly head: Cte
+}
+
+/**
+ * How a delta of a relation of `heading` stores its values (sql/ast.ts SessionTableStorage): inline where every field's
+ * datum has a bound (laws/model/rows.ts inlineColumn) and its widest row, each column NULL-able as a delta's are, with
+ * the side of news's count (`counted`), fits one heap tuple, MaxHeapTupleSize (laws/model/model.ts heapTupleMaxBytes),
+ * its header, null bitmap and alignment included (rowBytes); toasted otherwise, a field of no bound, a learner's
+ * response among them, or a row of bounded fields wider than a tuple, which only out-of-line values let PostgreSQL
+ * store. A delta's row is its relation's heading, each value the stored column's, within the bound its field's
+ * descriptor states, so an inline delta takes every row a capture writes.
+ */
+const deltaStorage = (
+	heading: NonEmptyReadonlyArray<LawField>,
+	counted: boolean
+): SessionTableStorage => {
+	const columns: Array<RowColumn> = []
+	for (const f of heading) {
+		const column = inlineColumn(f.desc, true)
+		if (column === undefined) {
+			return "toasted"
+		}
+		columns.push(column)
+	}
+	const count: ReadonlyArray<RowColumn> = counted
+		? [{ bytes: typlens.int2, align: typlens.int2, nullable: true }]
+		: []
+	return rowBytes([...columns, ...count]) <= heapTupleMaxBytes ? "inline" : "toasted"
 }
 
 /**
@@ -695,7 +728,8 @@ const ensured = (delta: SessionDelta): PlStatement => ({
 					name: delta.name,
 					columns: delta.table,
 					notNull: false,
-					primaryKey: undefined
+					primaryKey: undefined,
+					storage: delta.storage
 				}
 			]
 		},
@@ -720,7 +754,8 @@ const armedSentinel = (sentinel: string, judge: ObjectName): PlStatement => ({
 					name: sentinel,
 					columns: sentinelTable,
 					notNull: false,
-					primaryKey: undefined
+					primaryKey: undefined,
+					storage: "toasted"
 				},
 				{ kind: "createSessionTrigger", name: sentinel, table: sentinel, function: judge }
 			]
@@ -1059,11 +1094,12 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 							collation: undefined
 						})
 					: columns
+			const storage = deltaStorage(relation.heading, side === "added")
 			const ident = identity.ruleDelta(
 				headNonEmpty(b.names.levels),
 				relation.name,
 				deltaStem[side],
-				canonicalTextOf(table)
+				canonicalTextOf({ table, storage })
 			)
 			const reader = identity.ruleDeltaReader(relation.name, deltaStem[side], ident)
 			const row = identity.ruleDeltaRow(relation.name, deltaStem[side], ident)
@@ -1080,6 +1116,7 @@ const judgedTables = (b: InstallBuilder): ReadonlyArray<JudgedTable> => {
 								name,
 								columns,
 								table,
+								storage,
 								head: deltaHead(name, columns, objectName(b.schema, b.name(reader)))
 							},
 							read: [...new Set(columnsOf(relation, read.flat()))]

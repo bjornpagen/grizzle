@@ -68,6 +68,7 @@ import {
 	type PlBlock,
 	type PlDeclaration,
 	type PlStatement,
+	type SessionTableStorage,
 	type PublishedTable,
 	type DrivenColumn,
 	type MetKey,
@@ -1444,13 +1445,34 @@ const definitionText = (column: ColumnDefinition): string =>
 		...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
 	].join(" ")
 
+/**
+ * A session table's column as its storage declares it (SessionTableStorage): an inline table's STORAGE PLAIN, which
+ * PostgreSQL's grammar takes after the type and before COLLATE (REL_19_0 src/backend/parser/gram.y 3894 columnDef), a
+ * toasted one's as the type's default storage declares it.
+ */
+const sessionColumnText = (column: ColumnDefinition, storage: SessionTableStorage): string => {
+	switch (storage) {
+		case "inline":
+			return [
+				quoteIdent(column.name),
+				printType(column.type),
+				"STORAGE PLAIN",
+				...(column.collation === undefined ? [] : [`COLLATE ${printObjectName(column.collation)}`])
+			].join(" ")
+		case "toasted":
+			return definitionText(column)
+	}
+}
+
 /** A session table's CREATE (PlStatement createSessionTable): the statement that stands up a judge's delta or sentinel,
  * as a test that stands one up before the judge runs spells it too, or a write program's carrier. */
 export const sessionTableCreate = (
 	table: Extract<PlStatement, { readonly kind: "createSessionTable" }>
 ): string => {
 	const columns = table.columns.map((c) =>
-		table.notNull ? `${definitionText(c)} NOT NULL` : definitionText(c)
+		table.notNull
+			? `${sessionColumnText(c, table.storage)} NOT NULL`
+			: sessionColumnText(c, table.storage)
 	)
 	const key =
 		table.primaryKey === undefined
@@ -1625,7 +1647,8 @@ const carrierStandUp = (carrier: CreateCarrier): PlBlock => ({
 								collation: c.collation
 							})),
 							notNull: true,
-							primaryKey: carrier.primaryKey
+							primaryKey: carrier.primaryKey,
+							storage: "toasted"
 						}
 					]
 				},

@@ -49,6 +49,16 @@ export const rowColumn = (desc: FieldDesc, nullable: boolean): RowColumn => {
 }
 
 /**
+ * A column of the descriptor `desc` as a row stores it with every value held in the row (STORAGE PLAIN), at its longest
+ * datum, its header included, and its type's alignment; none where its datum has no bound (datumBound), whose value may
+ * outgrow any row.
+ */
+export const inlineColumn = (desc: FieldDesc, nullable: boolean): RowColumn | undefined => {
+	const bound = datumBound(desc)
+	return bound === undefined ? undefined : { bytes: bound.bytes, align: bound.align, nullable }
+}
+
+/**
  * The most bytes a row of these columns takes once every variable-length value that can be is moved out of line: its
  * header, SizeofHeapTupleHeader and a null bitmap of one bit per column when any column may be NULL, rounded up to the
  * greatest alignment (t_hoff); then each column at its alignment, widest alignment first, as the installation orders a

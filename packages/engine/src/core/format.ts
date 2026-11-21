@@ -22,7 +22,10 @@
  * shared CTEs (lower/shapes/index.ts filteredRegion), an import a nested rule reads at a re-exposed value is bound at
  * its outermost re-exposure (check/checker.ts #outermost), a whole rule's unit channel keeps its name at every depth
  * (analysis/theory/navigate.ts received) and a filter passes a term its rule fixes as that term (pinnedBy), where format
- * 6 spelled such a definition again at each read inside the negation of the met side. Format 6's snapshot.json records each schema level's fingerprint over its
+ * 6 spelled such a definition again at each read inside the negation of the met side. A judge's delta whose relation's
+ * every field has a bound and whose widest row fits one heap tuple holds every value in its row, each column STORAGE
+ * PLAIN, with no TOAST table (physical/ddl/rules.ts deltaStorage, sql/ast.ts SessionTableStorage), and a delta's name
+ * digests its storage beside its columns, so every delta's name moves. Format 6's snapshot.json records each schema level's fingerprint over its
  * identity text, every part the level holds written once as its identity digest's token (core/fingerprint.ts
  * schemaFingerprint), and each level's statements in their identity digests' order; its index keys hold every column as
  * itself, never an image of it, a lookup's index naming the columns it leaves out as filters in its identity; its row
