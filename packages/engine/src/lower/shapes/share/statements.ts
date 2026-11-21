@@ -1,5 +1,5 @@
-import { appendAll } from "@bjornpagen/grizzle-text/base/array"
 import { defect, defined } from "@bjornpagen/grizzle-text/base/invariant"
+import { isNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
 import type * as Result from "@bjornpagen/grizzle-text/base/result"
 import { analyzeDemand, type DemandAnalysis, noPins } from "#compiler/analysis/demand/demand.ts"
 import { catchRefusal, maxStringLength, unwrap } from "#compiler/core/canonical.ts"
@@ -245,24 +245,10 @@ export const planStatementShares = (
 					}
 				}
 			}
-			const classes = sharedClasses(index, [...seen.keys()])
-			/** The highest class enough statements read this round, the least key among equals, each tie digested. */
-			let best: { readonly nodes: ReadonlyArray<RelNode>; readonly height: number } | undefined
-			let tied: Array<ReadonlyArray<RelNode>> = []
-			for (const nodes of classes) {
-				const statements = new Set(nodes.flatMap((n) => [...(readers.get(n) ?? [])]))
-				if (statements.size < 2) {
-					continue
-				}
-				const height = index.height(defined(nodes[0], "a class's first node"))
-				if (best === undefined || height > best.height) {
-					best = { nodes, height }
-					tied = [nodes]
-				} else if (height === best.height) {
-					tied.push(nodes)
-				}
-			}
-			if (best === undefined) {
+			/** The highest classes enough statements read this round (decidingClasses), the least key among them chosen,
+			 * each digested. */
+			const tied = decidingClasses(index, [...seen.keys()], readers)
+			if (!isNonEmpty(tied)) {
 				break
 			}
 			const keyed = tied.map((nodes) => ({
@@ -296,15 +282,28 @@ export const planStatementShares = (
 	})
 
 /**
- * The nodes `nodes`, each one that may be shared, in the order the statements first read them, as classes of one share
- * key, each class in that order, its first node the one the statements read first: a node of a shape no other of them
- * has is a class alone, its key no other node's, and undigested; the nodes of a shape several have are classed by their
- * keys, digested.
+ * The classes of one share key among `nodes`, each a node that may be shared, in the order the statements first read
+ * them, that a round's choice reads: every class two statements read at least (`readers`), at the highest height such
+ * a class stands at, each class in that order, its first node the one the statements read first; none where no class
+ * is read twice.
+ *
+ * Two nodes of one key are of one shape (ShareIndex.shape), and so of one height, since a shape folds its inputs'
+ * shapes in order. So the nodes go in buckets of one shape, the buckets in levels of one height, and the levels are
+ * classed from the highest down until one holds a class two statements read: no level below it is classed. A bucket of
+ * one node is a class by itself, its key no other node's, undigested. A bucket of several is classed by its nodes' keys,
+ * digested, unless fewer than two statements read any of its nodes, when no class of it is read twice and none is
+ * digested. Before, every bucket of several nodes was digested, so the share planning digested every node of a
+ * colliding shape the statements read, at every height, where each round's choice reads only the highest classes read
+ * twice.
  */
-const sharedClasses = (
+const decidingClasses = (
 	index: ShareIndex,
-	nodes: ReadonlyArray<RelNode>
+	nodes: ReadonlyArray<RelNode>,
+	readers: ReadonlyMap<RelNode, ReadonlySet<number>>
 ): ReadonlyArray<ReadonlyArray<RelNode>> => {
+	/** How many statements read some node of `group`. */
+	const statementsOf = (group: ReadonlyArray<RelNode>): number =>
+		new Set(group.flatMap((n) => [...(readers.get(n) ?? [])])).size
 	const byShape = new Map<string, Array<RelNode>>()
 	for (const node of nodes) {
 		const shape = index.shape(node)
@@ -315,25 +314,47 @@ const sharedClasses = (
 			same.push(node)
 		}
 	}
-	const classes: Array<ReadonlyArray<RelNode>> = []
+	/** The buckets two statements read, by their height, each level's in the order the statements first read them. */
+	const levels = new Map<number, Array<ReadonlyArray<RelNode>>>()
 	for (const same of byShape.values()) {
-		if (same.length === 1) {
-			classes.push(same)
+		if (statementsOf(same) < 2) {
 			continue
 		}
-		const byKey = new Map<string, Array<RelNode>>()
-		for (const node of same) {
-			const key = defined(index.key(node), "an eligible key")
-			const nodesOf = byKey.get(key)
-			if (nodesOf === undefined) {
-				byKey.set(key, [node])
-			} else {
-				nodesOf.push(node)
-			}
+		const height = index.height(defined(same[0], "a bucket's first node"))
+		const level = levels.get(height)
+		if (level === undefined) {
+			levels.set(height, [same])
+		} else {
+			level.push(same)
 		}
-		appendAll(classes, [...byKey.values()])
 	}
-	return classes
+	for (const height of [...levels.keys()].toSorted((a, b) => b - a)) {
+		const classes = defined(levels.get(height), "a level of buckets")
+			.flatMap((same) => (same.length === 1 ? [same] : keyClasses(index, same)))
+			.filter((group) => statementsOf(group) >= 2)
+		if (classes.length > 0) {
+			return classes
+		}
+	}
+	return []
+}
+
+/** The nodes `same`, all of one shape, as classes of one share key, each in their order: every node digested. */
+const keyClasses = (
+	index: ShareIndex,
+	same: ReadonlyArray<RelNode>
+): ReadonlyArray<ReadonlyArray<RelNode>> => {
+	const byKey = new Map<string, Array<RelNode>>()
+	for (const node of same) {
+		const key = defined(index.key(node), "an eligible key")
+		const nodesOf = byKey.get(key)
+		if (nodesOf === undefined) {
+			byKey.set(key, [node])
+		} else {
+			nodesOf.push(node)
+		}
+	}
+	return [...byKey.values()]
 }
 
 /**

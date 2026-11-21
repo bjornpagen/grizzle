@@ -11,10 +11,14 @@
  * own, so equal sub-queries are shared nodes and unshared copies alike, each statement bounding its reads under a name
  * of its own; and two to six statements all reading the one shared pick.
  *
+ * The classes are keyed from the highest height down (statements.ts decidingClasses): two nodes of one key are of one
+ * height, so a round keys only the level its choice is made at, and never a bucket fewer than two statements read.
+ *
  * Properties: the carried shares, each its key, its node and its copies, are the reference's, and every two nodes the
- * statements read of one key are of one shape; and over statements that all read one shared pick, the digests the
- * planning takes do not grow with the statements, where the reference digests every node they read. Kills: a shape
- * that reads a node's label, which no key encodes, so equal copies are classed apart; and every node digested.
+ * statements read of one key are of one shape; over statements that all read one shared pick, the digests the
+ * planning takes do not grow with the statements, where the reference digests every node they read; and they are one,
+ * the shared pick's, where every colliding shape below it was digested too. Kills: a shape that reads a node's label,
+ * which no key encodes, so equal copies are classed apart; every node digested; and every level classed.
  *
  * Features: shares carried and none; a copy among the statements and none.
  */
@@ -123,9 +127,42 @@ export const overStatementsThatAllReadOneSharedSubQueryTheSharePlanningsDigestsD
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
-				original: "\t\tif (same.length === 1) {\n",
-				replacement: "\t\tif (same.length === 0) {\n",
+				original: "\t\tif (statementsOf(same) < 2) {\n",
+				replacement: "\t\tif (keyClasses(index, same).length < 0) {\n",
 				why: "Every node the statements read is digested, its shape shared or not, so each statement's own bound sub-query is digested and the digests grow with the statements: the search fails."
+			}
+		]
+	})
+
+/**
+ * Over statements that all read one shared sub-query, the share planning digests one key, the shared sub-query's: its
+ * choice is made at the shared sub-query's height, the highest any class two statements read stands at, so no class
+ * below it is keyed, the copies of a bound sub-query inside it among them, and the fill that reads them once is one
+ * statement, which reads no class twice.
+ */
+export const overStatementsThatAllReadOneSharedSubQueryTheSharePlanningDigestsTheSharedKeyAlone =
+	property.explore(sharedCountGen, {
+		needs: {},
+		situations: [],
+		check: () => (statements) =>
+			Effect.sync(() => {
+				const p = programOf({ shared: Array.from({ length: statements }, () => true) })
+				const index = new ShareIndex(p.dag)
+				const shares = succeeded(planStatementShares(index, p.roots))
+				assert.equal(shares.length, 1, "the shared pick is carried")
+				assert.equal(index.digested, 1, `the digests over ${statements} statements`)
+			}),
+		oracle: {
+			kind: "specification",
+			name: "the digests a decision reads: the classes at the height it decides at"
+		},
+		kept: [],
+		kills: [
+			{
+				file: "packages/engine/src/lower/shapes/share/statements.ts",
+				original: "\t\tif (classes.length > 0) {\n",
+				replacement: "\t\tif (classes.length < 0) {\n",
+				why: "Every level of buckets two statements read is classed, below the height a choice is made at too, so the copies of the bound sub-query inside the shared pick are digested: the digests are more than one, and the search fails."
 			}
 		]
 	})

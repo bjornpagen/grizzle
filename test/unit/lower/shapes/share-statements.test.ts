@@ -70,8 +70,8 @@ export const subQueriesCarriedAcrossAStratumsStatementsCarryPickOnceEveryCopyThr
 		kills: [
 			{
 				file: "packages/engine/src/lower/shapes/share/statements.ts",
-				original: "\t\t\t\tif (statements.size < 2) {",
-				replacement: "\t\t\t\tif (statements.size < 4) {",
+				original: "\t\t\t.filter((group) => statementsOf(group) >= 2)\n",
+				replacement: "\t\t\t.filter((group) => statementsOf(group) >= 4)\n",
 				why: "A sub-query is carried only when more than three statements read it; the carried search fails."
 			}
 		]
