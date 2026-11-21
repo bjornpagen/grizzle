@@ -158,9 +158,21 @@ const reportOperation: Reader<ReportOperation> = (value) =>
 		)
 	)
 
-/** The reads of a report entry's members, a notice's among them. */
-const entryReads = (object: Members) => ({
-	document: member(object, "document", refine(string, isDocumentUri, "an absolute URI")),
+/**
+ * A document the report names: the label it prints (model/uri.ts documentLabel, design C8), the document's path
+ * relative to the entry's directory or its origin and path, read back as the URI it labels, resolved against the
+ * entry's.
+ */
+const documentAt =
+	(entry: DocumentUri): Reader<DocumentUri> =>
+	(value) =>
+		Result.flatMap(string(value), (label) =>
+			refine(string, isDocumentUri, "a document label")(URL.parse(label, entry)?.href ?? label)
+		)
+
+/** The reads of a report entry's members, a notice's among them, its document by its label against `entry`. */
+const entryReads = (object: Members, entry: DocumentUri) => ({
+	document: member(object, "document", documentAt(entry)),
 	operation: optionalMember(object, "operation", reportOperation),
 	pointer: member(object, "pointer", refine(string, isJsonPointer, "a JSON Pointer")),
 	related: Result.map(
@@ -170,26 +182,37 @@ const entryReads = (object: Members) => ({
 	scope: member(object, "scope", union(Arr.map(diagnosticScopes, literal)))
 })
 
-const reportEntry: Reader<ReportEntry> = (value) =>
-	Result.flatMap(members(value), (object) => struct(object, entryReads(object), anything))
+const reportEntry =
+	(entry: DocumentUri): Reader<ReportEntry> =>
+	(value) =>
+		Result.flatMap(members(value), (object) => struct(object, entryReads(object, entry), anything))
 
-const reportNotice: Reader<ReportNotice> = (value) =>
-	Result.flatMap(members(value), (object) =>
-		struct(object, { ...entryReads(object), code: member(object, "code", string) }, anything)
-	)
-
-const reportOf: Reader<Report> = (value) =>
-	Result.flatMap(members(value), (object) =>
-		struct(
-			object,
-			{
-				notices: member(object, "notices", array(reportNotice)),
-				refusals: member(object, "refusals", array(reportEntry)),
-				skipped: member(object, "skipped", array(reportSite))
-			},
-			anything
+const reportNotice =
+	(entry: DocumentUri): Reader<ReportNotice> =>
+	(value) =>
+		Result.flatMap(members(value), (object) =>
+			struct(
+				object,
+				{ ...entryReads(object, entry), code: member(object, "code", string) },
+				anything
+			)
 		)
-	)
+
+/** The report as the join reads it, each document it names by its label against the entry `entry`. */
+const reportOf =
+	(entry: DocumentUri): Reader<Report> =>
+	(value) =>
+		Result.flatMap(members(value), (object) =>
+			struct(
+				object,
+				{
+					notices: member(object, "notices", array(reportNotice(entry))),
+					refusals: member(object, "refusals", array(reportEntry(entry))),
+					skipped: member(object, "skipped", array(reportSite))
+				},
+				anything
+			)
+		)
 
 /**
  * `--describe` names a document by its label, the path relative to the entry's directory when it
@@ -480,9 +503,9 @@ export const coverageOf = (
 		const description = yield* Effect.fromResult(readDescription(input.describe)).pipe(
 			Effect.mapError(() => new CoverageInputUnreadable({ input: "describe" }))
 		)
-		const report = yield* Effect.fromResult(Result.flatMap(parseJson(input.report), reportOf)).pipe(
-			Effect.mapError(() => new CoverageInputUnreadable({ input: "report" }))
-		)
+		const report = yield* Effect.fromResult(
+			Result.flatMap(parseJson(input.report), reportOf(entry))
+		).pipe(Effect.mapError(() => new CoverageInputUnreadable({ input: "report" })))
 
 		const labelled = <R extends { readonly document: string }>(records: readonly R[]) =>
 			Arr.map(records, (record) => ({ ...record, document: label(record.document) }))
