@@ -33,6 +33,7 @@ import { type IdentityDigest, IdentityDigests, identityDigest } from "#compiler/
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
+	type FunctionNullInput,
 	type FunctionVolatility,
 	functionVolatilities
 } from "#compiler/core/function.ts"
@@ -1769,11 +1770,11 @@ export interface FunctionBodyDesc {
 }
 
 /**
- * A function the application declares in a level (schema/function.ts fn): its name, the declared functions its body
- * calls, its arguments in code point order of their names, its parameters' order, what it returns, its volatility, and its body in its language, the
- * application's own text, which PostgreSQL stores byte for byte.
+ * What every declared function's Description states (FunctionDesc): its name, the declared functions its body calls,
+ * its arguments in code point order of their names, its parameters' order, what it returns, its volatility, and its
+ * body in its language, the application's own text, which PostgreSQL stores byte for byte.
  */
-export type FunctionDesc<L = Located> = L & {
+interface DeclaredFunctionDesc {
 	readonly name: string
 	/**
 	 * The declared functions its body calls, by name, each once, in code point order: its call graph, which the
@@ -1787,6 +1788,26 @@ export type FunctionDesc<L = Located> = L & {
 	readonly language: DeclaredLanguage
 	readonly body: FunctionBodyDesc
 }
+
+/**
+ * The null inputs a function's Description states: a strict function's, whose body runs only where every argument is
+ * a value. A function called on NULL input states none, as PostgreSQL's CREATE FUNCTION states none for it, so its
+ * canonical form, and every fingerprint over it, is what it was before a function could be strict. The Description's
+ * type and its decoder (functionDescShape) both read this one list.
+ */
+const statedNullInputs = ["strict"] as const satisfies ReadonlyArray<FunctionNullInput>
+type StatedNullInput = (typeof statedNullInputs)[number]
+
+/**
+ * A function the application declares in a level (schema/function.ts fn): what every one states
+ * (DeclaredFunctionDesc), and its null input where it is strict (nullInputOf).
+ */
+export type FunctionDesc<L = Located> = L &
+	(DeclaredFunctionDesc | (DeclaredFunctionDesc & { readonly nullInput: StatedNullInput }))
+
+/** What a declared function does with a NULL argument: a strict one's Description states it, and every other is called. */
+export const nullInputOf = (desc: FunctionDesc): FunctionNullInput =>
+	"nullInput" in desc ? desc.nullInput : "called"
 
 export type SchemaDesc<L = Located> = L & {
 	readonly name: string
@@ -3610,7 +3631,7 @@ const functionDescShape: S.Shape<FunctionDesc> = S.located(
 			language: S.literalsShape(declaredLanguages),
 			body: functionBodyShape
 		},
-		loc
+		{ ...loc, nullInput: S.literalsShape(statedNullInputs) }
 	)
 )
 

@@ -2054,7 +2054,7 @@ const createDeclaredFunction = (out: Lines, fn: CreateDeclaredFunction): void =>
 		`CREATE OR REPLACE FUNCTION ${printObjectName(fn.name)}(${fn.params.map((p) => `${quoteIdent(p.name)} ${printType(p.type)}`).join(", ")}) RETURNS ${"setOf" in fn.returns ? `SETOF ${printType(fn.returns.setOf)}` : printType(fn.returns)}`
 	)
 	out.line(
-		`LANGUAGE ${fn.language} ${fn.volatility} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn.name.schema)}`
+		`LANGUAGE ${fn.language} ${fn.volatility}${fn.nullInput === undefined ? "" : ` ${fn.nullInput}`} SECURITY DEFINER SET search_path = ${declaredSearchPath(fn.name.schema)}`
 	)
 	const tag = declaredBodyTag(fn.body)
 	out.line(`AS ${tag}${fn.body}${tag}`)

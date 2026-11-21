@@ -17,6 +17,7 @@ export const f = fn("f", {
 	args: { a: K, x: pg.bigint },
 	returns: K,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT * FROM unnest(a)`
 })
@@ -25,6 +26,7 @@ export const g = fn("g", {
 	args: { a: K, x: pg.bigint },
 	returns: row(Out),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT ROW(a)::${Out}`
 })

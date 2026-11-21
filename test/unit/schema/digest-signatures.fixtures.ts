@@ -39,6 +39,7 @@ const seedOf = fn("seedOf", {
 	args: { seed: sha256 },
 	returns: pg.integer,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT pg_catalog.get_byte($1, 0)`
 })
@@ -49,6 +50,7 @@ const keyedDigest = fn("keyedDigest", {
 	args: { text: Text },
 	returns: sha256,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT pg_catalog.sha256(pg_catalog.convert_to($1, 'UTF8'))`
 })
@@ -59,6 +61,7 @@ const singles = fn("singles", {
 	args: { text: Text },
 	returns: Digested,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT pg_catalog.sha256(pg_catalog.convert_to($1, 'UTF8')), $1`
 })
@@ -69,6 +72,7 @@ const single = fn("single", {
 	args: { one: row(Digested) },
 	returns: row(Digested),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT $1`
 })

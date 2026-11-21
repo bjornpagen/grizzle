@@ -20,9 +20,13 @@ import type {
 export type InstalledFunction =
 	| { readonly kind: "world" }
 	| {
-			/** A declared function (physical/ddl/functions.ts), of its declared volatility, as pg_proc spells it. */
+			/**
+			 * A declared function (physical/ddl/functions.ts), of its declared volatility, as pg_proc spells it, and its
+			 * declared null input, strict (pg_proc.proisstrict) or called on NULL input.
+			 */
 			readonly kind: "declared"
 			readonly volatility: "i" | "s" | "v"
+			readonly strict: boolean
 	  }
 	| { readonly kind: "refusal" }
 	| { readonly kind: "snapshotGuard" }
@@ -222,6 +226,11 @@ export type ErasureProblem =
 			readonly kind: "volatility"
 			readonly function: string
 			readonly required: "IMMUTABLE" | "STABLE" | "VOLATILE"
+	  }
+	| {
+			readonly kind: "nullInput"
+			readonly function: string
+			readonly required: "STRICT" | "CALLED ON NULL INPUT"
 	  }
 	| {
 			readonly kind: "worldFunctionExecutors"
@@ -750,6 +759,11 @@ const functionProblems = (j: Judging, f: Fn): ReadonlyArray<ErasureProblem> => {
 					kind: "volatility",
 					function: f.name,
 					required: volatilityNames[expected.volatility]
+				}),
+				...unless(f.strict === expected.strict, {
+					kind: "nullInput",
+					function: f.name,
+					required: expected.strict ? "STRICT" : "CALLED ON NULL INPUT"
 				}),
 				...grantProblems(j, held, allowed.function, allowed.none)
 			]

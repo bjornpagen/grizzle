@@ -14,7 +14,7 @@ import type { DecimalParts } from "#compiler/core/decimal.ts"
 import { isSha256Text } from "#compiler/core/digest.ts"
 import type { CompileError } from "#compiler/core/errors.ts"
 import type { FunctionDigest } from "#compiler/core/fingerprint.ts"
-import type { FunctionVolatility } from "#compiler/core/function.ts"
+import type { FunctionNullInput, FunctionVolatility } from "#compiler/core/function.ts"
 import type { IdentityValue } from "#compiler/core/identity.ts"
 import { ExprId, type NodeId, type ParamId } from "#compiler/core/ids.ts"
 import { type Comparator, compareStrings, mapInput, thenBy } from "#compiler/core/order.ts"
@@ -383,6 +383,20 @@ export interface CalledFunction {
 	readonly definition: FunctionDigest
 }
 
+/**
+ * A declared function's call's non-null proof, by its function's null input (core/function.ts FunctionNullInput):
+ * `returned`, a function called on NULL input, whose NULL value is refused where it is returned, so the call is never
+ * NULL; `strict`, a strict function, NULL exactly where an argument is NULL, as every strict operation is.
+ */
+export const callNonNulls = ["returned", "strict"] as const
+export type CallNonNull = (typeof callNonNulls)[number]
+
+/** A call's non-null proof by its function's null input (CallNonNull). */
+export const callNonNull: { readonly [N in FunctionNullInput]: CallNonNull } = {
+	called: "returned",
+	strict: "strict"
+}
+
 /** The free parameters and source nodes an expression reads, transitively ("dependencies"). */
 export interface ExprDeps {
 	readonly params: ReadonlyArray<ParamId>
@@ -551,16 +565,19 @@ export type ExprSpecOver<R extends ArgKinds> = { readonly type: ScalarType } & (
 			/**
 			 * Fn.call(f, args) of a declared function `function` that returns a value: its value at its arguments, one
 			 * per declared argument in declared order, each passed at its declared type's base (`params`), and its value
-			 * of its declared type, which the lowering casts it to. A NULL value is refused where it is returned, so the
-			 * value is never NULL (nonNull "returned"); PostgreSQL alone evaluates it, so no host evaluator reads one. Its
-			 * volatility is its function's, an immutable or a stable one: a term is a function of its operands, so a
-			 * volatile function is called as a source alone.
+			 * of its declared type, which the lowering casts it to. Its non-null proof is its function's null input
+			 * (CallNonNull): a function called on NULL input runs its body at every argument and a NULL value is refused
+			 * where it is returned, so the value is never NULL ("returned"); a strict one's value is NULL exactly where
+			 * an argument is, its body never run there, and a NULL it returns at values is refused ("strict"). PostgreSQL
+			 * alone runs a body, so a host evaluator reads a strict call's value at a NULL argument alone. Its volatility
+			 * is its function's, an immutable or a stable one: a term is a function of its operands, so a volatile
+			 * function is called as a source alone.
 			 */
 			readonly kind: "call"
 			readonly function: CalledFunction
 			readonly params: ReadonlyArray<ScalarType>
 			readonly args: ReadonlyArray<R["expr"]>
-			readonly nonNull: "returned"
+			readonly nonNull: CallNonNull
 			readonly volatility: Volatility
 	  }
 )

@@ -1125,6 +1125,31 @@ const closedExpr = (
 }
 
 /**
+ * A strict declared function's call (nonNull "strict") at its operands' values, each evaluated left to right, the first
+ * stop ending it: NULL where one is NULL, as PostgreSQL answers a STRICT function's call without running its body;
+ * unsupported where every one is a value, since PostgreSQL alone runs a body.
+ */
+const strictCallExpr = (
+	call: TableExprOf<"call">,
+	args: ReadonlyArray<CompiledExpr>
+): CompiledExpr => {
+	const stop = unsupported(
+		`a call of the declared function ${call.function.name} at values, which PostgreSQL alone evaluates`
+	)
+	return (leaves, patterns) => {
+		let absent = false
+		for (const arg of args) {
+			const v = arg(leaves, patterns)
+			if (!v.ok) {
+				return v
+			}
+			absent ||= v.value === sqlNull
+		}
+		return absent ? nullValue : stop
+	}
+}
+
+/**
  * The operands before a dangling one, each evaluated left to right, the first stop ending it, and then the dangling
  * operand's own stop: what an operation over an operand its table does not hold evaluates to.
  */
@@ -1235,9 +1260,14 @@ const compiledTable = (exprs: Readonly<Record<ExprId, TableExpr>>, root: ExprId)
 			case "closedHas":
 				return closedExpr(expr, expr.args.map(node))
 			case "call":
-				return refusedExpr(
-					`a call of the declared function ${expr.function.name}, which PostgreSQL alone evaluates`
-				)
+				switch (expr.nonNull) {
+					case "returned":
+						return refusedExpr(
+							`a call of the declared function ${expr.function.name}, which PostgreSQL alone evaluates`
+						)
+					case "strict":
+						return strictCallExpr(expr, expr.args.map(node))
+				}
 		}
 	}
 	/** A cast of the operand `operand` into `to`, its value NULL where the operand's is (caster). */

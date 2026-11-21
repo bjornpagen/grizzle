@@ -8,13 +8,17 @@ import { batchOwned, caseOwned, type Entry, type Program } from "#test/types/bat
  * value argument of Kind's ids and a rows argument whose heading holds one, each argument form once, and the functions
  * a query calls none of, one that returns one row, one whose rows hold rows and one that takes one row, and the fields
  * of a function's one row a query reads, of rows of values alone and of an immutable or stable function, each typed by
- * its heading, exhausted and printed as one program the type batch checks.
+ * its heading; and a function's declaration by its null input, strict, called, unstated or of another spelling, read
+ * back as the null input its type carries, and a strict function's value as a term; exhausted and printed as one
+ * program the type batch checks.
  *
  * The oracle is the rule every term meets by: a closed id stands only where a value of its own roster does, as a term
  * of its roster's ids or as a name a handle of the roster has, so an argument of Kind's ids takes Kind's and no other
  * roster's, and a rows argument takes a query whose facts hold Kind's ids at the field; and the rule of what a query
  * calls: a function of values and rows of values alone, since a query's sources and terms hold fields and no field
- * holds a composite or an array of them.
+ * holds a composite or an array of them; and the rule of a declaration: it states its null input, `called` or
+ * `strict`, neither a default (schema/function.ts fn), which its type carries as it states it, and a strict function's
+ * value is a term of its result's type as a called one's is.
  */
 
 /** What an argument of Kind's ids is passed: a term, a handle, a name, a code, or rows of a query. */
@@ -37,7 +41,12 @@ const forms = [
 	"a field of one row of one row",
 	"a field of one row of rows that hold rows",
 	"the fields of a volatile function's one row",
-	"the fields of a function of rows"
+	"the fields of a function of rows",
+	"a strict function's value, a term of its result",
+	"a declaration stating it strict",
+	"a declaration stating it called",
+	"a declaration stating no null input",
+	"a declaration stating another null input"
 ] as const
 
 type Form = (typeof forms)[number]
@@ -62,7 +71,12 @@ const admitted: { readonly [F in Form]: boolean } = {
 	"a field of one row of one row": false,
 	"a field of one row of rows that hold rows": false,
 	"the fields of a volatile function's one row": false,
-	"the fields of a function of rows": false
+	"the fields of a function of rows": false,
+	"a strict function's value, a term of its result": true,
+	"a declaration stating it strict": true,
+	"a declaration stating it called": true,
+	"a declaration stating no null input": false,
+	"a declaration stating another null input": false
 }
 
 /** The cells of callsBox, minted as a dictionary in its door (test/types/compute/calls.dictionary.ts). */
@@ -81,6 +95,13 @@ const valueCell = (argument: string, index: number): string =>
  */
 const fieldCell = (call: "kindOf" | "otherOf", index: number): string =>
 	`export const c${index} = query(Root).rule((r) => { const read = Fn.row(kindRow, {}).ks; const { k } = v(read, "read"); return r.match(read, { k }).find({ called: Fn.call(${call}, { ${call === "kindOf" ? "k" : "o"}: k }) }) })`
+
+/**
+ * A declaration's cell: a function of a Kind declared with the null input `stated`, none where it is undefined, read
+ * back as the null input its type carries, which the cell holds to `expected`, the literal it states.
+ */
+const declarationCell = (stated: string | undefined, expected: string, index: number): string =>
+	`export const c${index}: ${expected} = fn("declared${index}", { calls: [], args: { k: closedId(Kind) }, returns: closedId(Kind), volatility: "immutable", ${stated === undefined ? "" : `nullInput: ${stated}, `}language: "sql", body: fn.body\`SELECT k\` }).nullInput`
 
 /** A rows argument's cell: the rows of `kindsOf` at a query of Thing's `field`. */
 const rowsCell = (field: "kind" | "other", index: number): string =>
@@ -126,6 +147,16 @@ const statementOf = (form: Form, index: number): string => {
 			return `export const c${index} = Fn.row(kindRowVolatile, {})`
 		case "the fields of a function of rows":
 			return `export const c${index} = Fn.row(kindsOf, { ks: kinds })`
+		case "a strict function's value, a term of its result":
+			return `export const c${index} = query(Root).rule((r) => r.match(Thing, { kind, other }).find({ called: Fn.call(strictKindOf, { k: kind }) }))`
+		case "a declaration stating it strict":
+			return declarationCell('"strict"', '"strict"', index)
+		case "a declaration stating it called":
+			return declarationCell('"called"', '"called"', index)
+		case "a declaration stating no null input":
+			return declarationCell(undefined, '"called"', index)
+		case "a declaration stating another null input":
+			return declarationCell('"returnsNull"', '"called"', index)
 	}
 }
 
@@ -147,6 +178,13 @@ const refusedBecause = (form: Form): string => {
 			return "a query reads the fields of an immutable or stable function's one row alone"
 		case "a field of one row's read where another roster's id is taken":
 			return "a field's rows are of their heading's types, Kind's ids no other roster's"
+		case "a declaration stating no null input":
+		case "a declaration stating another null input":
+			return "a declaration states its null input, called or strict, neither a default"
+		case "a strict function's value, a term of its result":
+		case "a declaration stating it strict":
+		case "a declaration stating it called":
+			return "a declaration states its null input, and its type carries it"
 		case "a variable of its roster":
 		case "a variable of another roster":
 		case "a handle of its roster":
@@ -178,18 +216,19 @@ const prelude = await Effect.runPromise(preludeAt("test/support/programs/calls.t
 const callsHeader = `export const Kind = closed.ordered("Kind", ["a", "b"])
 export const Other = closed.ordered("Other", ["x", "y"])
 export const Thing = relation("Thing", { id: Id, kind: closedId(Kind), other: closedId(Other) }, ["id"])
-export const kindOf = fn("kindOf", { calls: [], args: { k: closedId(Kind) }, returns: closedId(Kind), volatility: "immutable", language: "sql", body: fn.body\`SELECT k\` })
+export const kindOf = fn("kindOf", { calls: [], args: { k: closedId(Kind) }, returns: closedId(Kind), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT k\` })
 const Kinds = rows({ k: closedId(Kind) })
-export const kindsOf = fn("kindsOf", { calls: [], args: { ks: Kinds }, returns: Kinds, volatility: "immutable", language: "sql", body: fn.body\`SELECT * FROM unnest(ks)\` })
-export const oneKind = fn("oneKind", { calls: [], args: {}, returns: row(Kinds), volatility: "immutable", language: "sql", body: fn.body\`SELECT ROW(1)::\${Kinds}\` })
+export const kindsOf = fn("kindsOf", { calls: [], args: { ks: Kinds }, returns: Kinds, volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT * FROM unnest(ks)\` })
+export const oneKind = fn("oneKind", { calls: [], args: {}, returns: row(Kinds), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT ROW(1)::\${Kinds}\` })
 const KindLists = rows({ ks: Kinds })
-export const kindLists = fn("kindLists", { calls: [], args: {}, returns: KindLists, volatility: "immutable", language: "sql", body: fn.body\`SELECT ARRAY[ROW(1)::\${Kinds}]\` })
-export const kindIn = fn("kindIn", { calls: [], args: { s: row(Kinds) }, returns: closedId(Kind), volatility: "immutable", language: "sql", body: fn.body\`SELECT (s).k\` })
-export const otherOf = fn("otherOf", { calls: [], args: { o: closedId(Other) }, returns: closedId(Other), volatility: "immutable", language: "sql", body: fn.body\`SELECT o\` })
+export const kindLists = fn("kindLists", { calls: [], args: {}, returns: KindLists, volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT ARRAY[ROW(1)::\${Kinds}]\` })
+export const kindIn = fn("kindIn", { calls: [], args: { s: row(Kinds) }, returns: closedId(Kind), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT (s).k\` })
+export const strictKindOf = fn("strictKindOf", { calls: [], args: { k: closedId(Kind) }, returns: closedId(Kind), volatility: "immutable", nullInput: "strict", language: "sql", body: fn.body\`SELECT k\` })
+export const otherOf = fn("otherOf", { calls: [], args: { o: closedId(Other) }, returns: closedId(Other), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT o\` })
 const KindOut = rows({ ks: Kinds, k: closedId(Kind), one: row(Kinds), lists: KindLists })
-export const kindRow = fn("kindRow", { calls: [], args: {}, returns: row(KindOut), volatility: "immutable", language: "sql", body: fn.body\`SELECT NULL::\${KindOut}\` })
-export const kindRowVolatile = fn("kindRowVolatile", { calls: [], args: {}, returns: row(KindOut), volatility: "volatile", language: "sql", body: fn.body\`SELECT NULL::\${KindOut}\` })
-export const Root = schema("Root", [Kind, Other, Thing, kindOf, kindsOf, oneKind, kindLists, kindIn, otherOf, kindRow, kindRowVolatile], [])
+export const kindRow = fn("kindRow", { calls: [], args: {}, returns: row(KindOut), volatility: "immutable", nullInput: "called", language: "sql", body: fn.body\`SELECT NULL::\${KindOut}\` })
+export const kindRowVolatile = fn("kindRowVolatile", { calls: [], args: {}, returns: row(KindOut), volatility: "volatile", nullInput: "called", language: "sql", body: fn.body\`SELECT NULL::\${KindOut}\` })
+export const Root = schema("Root", [Kind, Other, Thing, kindOf, strictKindOf, kindsOf, oneKind, kindLists, kindIn, otherOf, kindRow, kindRowVolatile], [])
 const { kind, other } = v(Thing, "thing")
 export const kinds = query(Root).rule((r) => r.match(Thing, { kind }).find({ k: kind }))
 export const others = query(Root).rule((r) => r.match(Thing, { other }).find({ k: other }))

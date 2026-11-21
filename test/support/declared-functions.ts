@@ -13,7 +13,12 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
 import { defined, nonEmpty } from "@bjornpagen/testing/assert"
 import { array, element, type Gen, int, oneOf, subset } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, Record as Rec } from "effect"
-import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
+import {
+	type DeclaredLanguage,
+	type FunctionNullInput,
+	type FunctionVolatility,
+	functionNullInputs
+} from "#compiler/core/function.ts"
 import { conversionOf } from "#compiler/core/identity.ts"
 import { quoteIdent } from "#compiler/core/text.ts"
 import { date, natural, pg, uuid } from "#compiler/public/fields.ts"
@@ -99,7 +104,7 @@ export const spellings = ["plain", "tabbed", "dollar quotes", "trailing dollar"]
 export type Spelling = (typeof spellings)[number]
 
 /**
- * A function of a case: its name, arguments, result, volatility, language and its body's spelling; whether its body
+ * A function of a case: its name, arguments, result, volatility, null input, language and its body's spelling; whether its body
  * calls the helper, a declared function of no argument, by its unqualified name; the drawn functions declared before
  * it that its body calls, each with a composite of NULLs for every argument of rows, built of its row type's name; and
  * the headings its body names beside those, each of its own signature or a callee's, or for a sketch the ownership
@@ -110,6 +115,7 @@ export interface FunctionSketch {
 	readonly args: ReadonlyArray<{ readonly name: string; readonly type: TypeSketch }>
 	readonly returns: TypeSketch
 	readonly volatility: FunctionVolatility
+	readonly nullInput: FunctionNullInput
 	readonly language: DeclaredLanguage
 	readonly spelling: Spelling
 	readonly callsHelper: boolean
@@ -285,6 +291,7 @@ const functionGen =
 			args,
 			returns,
 			volatility: source.draw(element(["immutable", "stable", "volatile"] as const)),
+			nullInput: source.draw(element(functionNullInputs)),
 			language: sqlAdmitted ? source.draw(element(["plpgsql", "sql"] as const)) : "plpgsql",
 			spelling: source.draw(element(spellings)),
 			callsHelper: source.draw(int(0, 1)) === 1,
@@ -522,6 +529,7 @@ export const helperOf = (): AnyFunction =>
 		args: {},
 		returns: pg.integer,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "plpgsql",
 		body: templateOf([helperBody], [])
 	})
@@ -551,6 +559,7 @@ export const drawnFunctions = (
 				args: Rec.fromEntries(Arr.map(f.args, (a) => [a.name, typeOf(a.type, headings)] as const)),
 				returns: typeOf(f.returns, headings),
 				volatility: f.volatility,
+				nullInput: f.nullInput,
 				language: f.language,
 				body: templateOf(bodyParts(v, f), headings)
 			})

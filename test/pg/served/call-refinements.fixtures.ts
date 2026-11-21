@@ -63,6 +63,7 @@ const functionsOf = (body: Body) => ({
 		args: { item: pg.integer },
 		returns: Judged,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: rowsBodies[body]
 	}),
@@ -71,6 +72,7 @@ const functionsOf = (body: Body) => ({
 		args: { item: pg.integer },
 		returns: row(rows({ pairs: Judged })),
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: rowBodies[body]
 	}),
@@ -79,6 +81,7 @@ const functionsOf = (body: Body) => ({
 		args: { item: pg.integer },
 		returns: Code,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: valueBodies[body]
 	})

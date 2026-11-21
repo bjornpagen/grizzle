@@ -24,6 +24,7 @@ import type { GenParam } from "#test/support/oracle/gen/query.ts"
 import { noBindings, Reference, unobserved } from "#test/support/oracle/reference/evaluate.ts"
 import {
 	CallRefused,
+	declaredModel,
 	type ModelArg,
 	type ModelResult,
 	type ModelRow
@@ -66,6 +67,7 @@ const machine = fn("machine", {
 	args: { items: Input, seed: pg.bigint },
 	returns: row(Out),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.mark = 4) THEN NULL ELSE ROW(
 CASE WHEN EXISTS (SELECT FROM unnest(items) AS i WHERE i.slot = 0 AND i.mark = 3) THEN NULL ELSE ARRAY(SELECT CASE WHEN i.mark = 1 THEN NULL ELSE ROW(i.k, CASE WHEN i.mark = 2 THEN NULL ELSE i.v END)::${A} END FROM unnest(items) AS i, generate_series(1, CASE WHEN i.mark = 5 THEN 2 ELSE 1 END) AS n WHERE i.slot = 0) END,
@@ -503,7 +505,7 @@ export const referenceOf = (
 					)
 				),
 				params,
-				functions: new Map([["machine", machineModel]]),
+				functions: new Map([["machine", declaredModel(machine, machineModel)]]),
 				observer: unobserved
 			}).eval(root, noBindings),
 		catch: (thrown) => thrown

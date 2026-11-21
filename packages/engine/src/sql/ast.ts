@@ -2397,6 +2397,13 @@ export type ConstantLanguage = "sql" | "plpgsql"
 export type DeclaredVolatility = "IMMUTABLE" | "STABLE" | "VOLATILE"
 
 /**
+ * A declared function's null input as CREATE FUNCTION spells it: STRICT, whose call at any NULL argument is NULL
+ * without running its body; none for CALLED ON NULL INPUT, PostgreSQL's default, which the statement leaves unspelled,
+ * so a function called on NULL input states what it stated before a function could be strict.
+ */
+export type DeclaredNullInput = "STRICT" | undefined
+
+/**
  * A declared function's body: the application's own PL/pgSQL or SQL text, carried byte for byte, which the statement
  * dollar-quotes under a tag the text does not hold, so PostgreSQL stores exactly it as the function's pg_proc.prosrc.
  * Minted only by `declaredBody`, at the one place a body leaves its declaration (physical/ddl/functions.ts).
@@ -2409,7 +2416,7 @@ export const declaredBody = nominal<string, DeclaredBody>()
 
 /**
  * CREATE OR REPLACE FUNCTION <schema>.<name>(<params>) RETURNS <type> | SETOF <row type> LANGUAGE <language>
- * <volatility> SECURITY DEFINER SET search_path = pg_catalog, <path>, pg_temp AS <tag><body><tag>: a function the
+ * <volatility> [STRICT] SECURITY DEFINER SET search_path = pg_catalog, <path>, pg_temp AS <tag><body><tag>: a function the
  * application declares (physical/ddl/functions.ts). Its owner is the installation's function owner, a role of no
  * privilege on any table, so a body that reads a table fails as it runs; its path names pg_catalog first, so no name
  * of the level's shadows a builtin, then its own schema, the one its name names, so the body names the declared
@@ -2423,6 +2430,7 @@ export interface CreateDeclaredFunction {
 	readonly returns: TypeRef | SetOf
 	readonly language: DeclaredLanguage
 	readonly volatility: DeclaredVolatility
+	readonly nullInput: DeclaredNullInput
 	readonly body: DeclaredBody
 }
 

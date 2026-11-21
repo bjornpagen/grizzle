@@ -3,7 +3,9 @@ import { compareCodePoints } from "@bjornpagen/grizzle-text/text"
 import {
 	type DeclaredLanguage,
 	declaredLanguages,
+	type FunctionNullInput,
 	type FunctionVolatility,
+	functionNullInputs,
 	functionVolatilities
 } from "#compiler/core/function.ts"
 import { compareStrings } from "#compiler/core/order.ts"
@@ -44,8 +46,9 @@ import type {
  * row of a heading (row).
  *
  * A declared function is the application's own PostgreSQL function, a schema object its level lists beside its
- * relations: its name, its typed arguments, its result, its volatility, and its body, PL/pgSQL or SQL text the
- * application owns, carried byte for byte. Its argument and result types, and a heading's fields, are each a value of a
+ * relations: its name, its typed arguments, its result, its volatility, what it does with a NULL argument (its null
+ * input, `called` or `strict`, which every declaration states, since neither is a default), and its body, PL/pgSQL or
+ * SQL text the application owns, carried byte for byte. Its argument and result types, and a heading's fields, are each a value of a
  * field descriptor, rows of a heading, or one row of a heading. The builders read them once, into the function's
  * Description (ir/desc.ts FunctionDesc), and ownership judges which types a signature admits (schema/own.ts).
  *
@@ -203,7 +206,15 @@ export const functionDescOf = (value: unknown): FunctionDesc | undefined =>
 	ownedDesc(value, "function")
 
 /** The members a declared function's definition states, and no other. */
-const definitionKeys = ["calls", "args", "returns", "volatility", "language", "body"] as const
+const definitionKeys = [
+	"calls",
+	"args",
+	"returns",
+	"volatility",
+	"nullInput",
+	"language",
+	"body"
+] as const
 
 /** The names of the declared functions a body calls, each once, in code point order: a list of functions fn built. */
 const callsOf = (calls: unknown, label: string): ReadonlyArray<string> => {
@@ -226,6 +237,9 @@ const isVolatility = (value: unknown): value is FunctionVolatility =>
 const isLanguage = (value: unknown): value is DeclaredLanguage =>
 	declaredLanguages.some((l) => l === value)
 
+const isNullInput = (value: unknown): value is FunctionNullInput =>
+	functionNullInputs.some((n) => n === value)
+
 /** The admission core of fn(name, definition): a JavaScript caller's arguments checked and described. */
 const admitFunction = (
 	name: unknown,
@@ -243,12 +257,15 @@ const admitFunction = (
 	) {
 		throw malformed(label, `a definition of ${definitionKeys.join(", ")}`)
 	}
-	const { calls, args, returns, volatility, language, body } = definition
+	const { calls, args, returns, volatility, nullInput, language, body } = definition
 	if (!isPlainRecord(args)) {
 		throw malformed(label, "args: a record of argument types")
 	}
 	if (!isVolatility(volatility)) {
 		throw malformed(label, `volatility: one of ${functionVolatilities.join(", ")}`)
+	}
+	if (!isNullInput(nullInput)) {
+		throw malformed(label, `nullInput: one of ${functionNullInputs.join(", ")}`)
 	}
 	if (!isLanguage(language)) {
 		throw malformed(label, `language: one of ${declaredLanguages.join(", ")}`)
@@ -257,7 +274,7 @@ const admitFunction = (
 	if (bodyDesc === undefined) {
 		throw malformed(label, "body: the function's text, fn.body`...`")
 	}
-	return builtNode({
+	const declared = {
 		name: functionName,
 		calls: callsOf(calls, label),
 		args: Object.freeze(
@@ -271,20 +288,22 @@ const admitFunction = (
 		language,
 		body: bodyDesc,
 		loc: builderLoc(label, [functionName])
-	})
+	}
+	return builtNode(nullInput === "strict" ? { ...declared, nullInput } : declared)
 }
 
 /**
  * fn(name, definition): a declared function, which a level lists among its relations, `schema("App", [...relations,
- * f], statements)`. Its value holds its name, its argument types by name, its result type and its volatility; its
- * Description holds its arguments in code point order of their names (byName), its parameters' order, the functions
- * its body calls and its body too.
+ * f], statements)`. Its value holds its name, its argument types by name, its result type, its volatility and its null
+ * input; its Description holds its arguments in code point order of their names (byName), its parameters' order, the
+ * functions its body calls and its body too.
  */
 export const fnBuilder = <
 	const Name extends string,
 	const Args extends Readonly<Record<string, FunctionType>>,
 	const Returns extends FunctionType,
-	const V extends FunctionVolatility
+	const V extends FunctionVolatility,
+	const N extends FunctionNullInput
 >(
 	name: Name,
 	definition: {
@@ -292,11 +311,12 @@ export const fnBuilder = <
 		readonly args: Args
 		readonly returns: Returns
 		readonly volatility: V
+		readonly nullInput: N
 		readonly language: DeclaredLanguage
 		readonly body: FunctionBody
 	},
 	extra: ReadonlyArray<unknown>
-): DeclaredFunction<Name, Args, Returns, V> => {
+): DeclaredFunction<Name, Args, Returns, V, N> => {
 	const desc = admitFunction(name, definition, extra)
 	return ownValue({
 		kind: "function",
@@ -307,6 +327,7 @@ export const fnBuilder = <
 			args: frozenCopy(definition.args),
 			returns: definition.returns,
 			volatility: definition.volatility,
+			nullInput: definition.nullInput,
 			language: definition.language
 		},
 		desc,

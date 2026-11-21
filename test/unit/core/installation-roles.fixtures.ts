@@ -59,6 +59,7 @@ const doubled = fn("doubled", {
 	args: { x: pg.integer },
 	returns: pg.integer,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT $1 * 2`
 })

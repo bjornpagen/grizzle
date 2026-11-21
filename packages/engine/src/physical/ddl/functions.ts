@@ -1,9 +1,14 @@
 import { defined } from "@bjornpagen/grizzle-text/base/invariant"
 import { mapNonEmpty } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { FunctionVolatility } from "#compiler/core/function.ts"
+import type { FunctionNullInput, FunctionVolatility } from "#compiler/core/function.ts"
 import { type Identity, identifierOf, identity } from "#compiler/core/identity.ts"
 import { compareStrings } from "#compiler/core/order.ts"
-import type { FieldDesc, FunctionTypeDesc, HeadingDesc } from "#compiler/ir/desc.ts"
+import {
+	type FieldDesc,
+	type FunctionTypeDesc,
+	type HeadingDesc,
+	nullInputOf
+} from "#compiler/ir/desc.ts"
 import { baseTypeRef, type RowAttribute, type RowType, rowTypeOf } from "#compiler/ir/physical.ts"
 import type { InstallBuilder } from "#compiler/physical/ddl/context.ts"
 import { installationTypes } from "#compiler/physical/ddl/type-schemas.ts"
@@ -11,6 +16,7 @@ import { enforcement, type Node } from "#compiler/physical/obligations/graph.ts"
 import type { OwnedFunction } from "#compiler/schema/function-own.ts"
 import {
 	type CreateDeclaredFunction,
+	type DeclaredNullInput,
 	type DeclaredVolatility,
 	declaredBody,
 	type FunctionName,
@@ -38,7 +44,7 @@ import { typeOnSearchPath } from "#compiler/sql/print.ts"
  *   rows is an array of it, its result of rows a set of it, and an argument or a result of one row the row type itself.
  * - Each function: CREATE OR REPLACE FUNCTION <level>.<name>(<arguments>), its parameters in code point order of the
  *   arguments' names (schema/function.ts byName), RETURNS <type> | SETOF <row type> LANGUAGE <language> <volatility>
- *   SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for byte but for each
+ *   [STRICT, a strict function's] SECURITY DEFINER SET search_path = pg_catalog, <level>, pg_temp AS <body>, the body byte for byte but for each
  *   heading it names, which is its row type's name alone, the one the pinned search_path resolves
  *   (sql/print.ts typeOnSearchPath), and which the function's object depends on (sql/ast.ts CreateDeclaredFunction);
  *   EXECUTE revoked from PUBLIC; then handed over to the owner (sql/ast.ts HandOverFunction). A value's type is its field's base type: PostgreSQL holds a function's arguments and result to
@@ -61,6 +67,12 @@ const volatilityClause: { readonly [V in FunctionVolatility]: DeclaredVolatility
 	immutable: "IMMUTABLE",
 	stable: "STABLE",
 	volatile: "VOLATILE"
+}
+
+/** A null input's clause: STRICT for a strict function, and none for one called on NULL input, PostgreSQL's default. */
+const nullInputClause: { readonly [N in FunctionNullInput]: DeclaredNullInput } = {
+	called: undefined,
+	strict: "STRICT"
 }
 
 /** A row type of one level, its object and the row type, once per definition. */
@@ -240,6 +252,7 @@ export const addFunctions = (b: InstallBuilder): ReadonlyMap<string, InstalledFu
 						returns,
 						language: fn.desc.language,
 						volatility: volatilityClause[fn.desc.volatility],
+						nullInput: nullInputClause[nullInputOf(fn.desc)],
 						body: declaredBody(body)
 					},
 					{

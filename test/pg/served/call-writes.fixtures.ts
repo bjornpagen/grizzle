@@ -56,6 +56,7 @@ const grade = fn("grade", {
 	args: { program: Lines, shift: pg.integer },
 	returns: Graded,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "plpgsql",
 	body: fn.body`\nBEGIN\n  RETURN QUERY SELECT upper(p.txt), p.pos + shift FROM unnest(program) AS p;\nEND\n`
 })

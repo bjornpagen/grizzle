@@ -114,6 +114,7 @@ const declaredIn = (o: KeyOrders) => {
 		),
 		returns: pg["double precision"],
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT $2 + $3 * $1`
 	})
@@ -122,6 +123,7 @@ const declaredIn = (o: KeyOrders) => {
 		args: inOrder(singleFields, o.pickArgs),
 		returns: Single,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT b, base, f, field, m, n, t, u, w`
 	})
@@ -130,6 +132,7 @@ const declaredIn = (o: KeyOrders) => {
 		args: inOrder({ flow: Text, singles: Single }, o.wrapArgs),
 		returns: row(Out),
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT ROW(flow, ARRAY[]::${Glyphs}[], singles[1], singles)::${Out}`
 	})

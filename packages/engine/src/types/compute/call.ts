@@ -1,3 +1,4 @@
+import type { FunctionNullInput } from "#compiler/core/function.ts"
 import type { Built, phantom } from "#compiler/core/phantom.ts"
 import type { SqlTag } from "#compiler/scalar/registry.ts"
 import type {
@@ -94,7 +95,8 @@ export type ValueFunction<Args, H, S extends SqlTag, D, F extends Facts> = Decla
 	string,
 	Args & Readonly<Record<string, FunctionType>>,
 	Field<H, S, D, F>,
-	"immutable" | "stable"
+	"immutable" | "stable",
+	FunctionNullInput
 >
 
 /** A function a rule matches the rows of: one that returns rows of a heading. */
@@ -105,7 +107,8 @@ export type RowsFunction<
 	string,
 	Args & Readonly<Record<string, FunctionType>>,
 	Rows<Fields>,
-	"immutable" | "stable" | "volatile"
+	"immutable" | "stable" | "volatile",
+	FunctionNullInput
 >
 
 /**
@@ -119,7 +122,8 @@ export type RowFunction<
 	string,
 	Args & Readonly<Record<string, FunctionType>>,
 	Row<Rows<Fields>>,
-	"immutable" | "stable"
+	"immutable" | "stable",
+	FunctionNullInput
 >
 
 /** The fields of a row a query reads (CallFields): each that holds rows of a heading of values alone. */

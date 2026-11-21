@@ -48,6 +48,7 @@ import {
 	type DeclaredModels,
 	isNullResult,
 	type ModelArg,
+	modelledCall,
 	type ModelResult,
 	type ModelRow
 } from "#test/support/oracle/reference/functions.ts"
@@ -1167,7 +1168,7 @@ export class Reference {
 				})
 			}
 		}
-		return model(args)
+		return modelledCall(model, node.function.kind === "declared" ? "rows" : "row", args)
 	}
 
 	/**

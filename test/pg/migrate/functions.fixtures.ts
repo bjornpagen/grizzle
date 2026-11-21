@@ -4,7 +4,11 @@ import { mapNonEmpty, type NonEmptyReadonlyArray } from "@bjornpagen/grizzle-tex
 import { type Aimed, aimed, element, type Gen, int } from "@bjornpagen/testing/gen"
 import { Array as Arr, Option, Order, String as Str } from "effect"
 import type { FolderTexts } from "#adapter/migrate/input.ts"
-import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
+import type {
+	DeclaredLanguage,
+	FunctionNullInput,
+	FunctionVolatility
+} from "#compiler/core/function.ts"
 import { sha256Hex } from "#compiler/core/sha256.ts"
 import { quoteIdent, wellFormed } from "#compiler/core/text.ts"
 import { pg } from "#compiler/public/fields.ts"
@@ -59,6 +63,7 @@ const changes = [
 	"none",
 	"a body",
 	"a volatility",
+	"a null input",
 	"a signature",
 	"a heading",
 	"a function removed",
@@ -71,6 +76,7 @@ export type Change = (typeof changes)[number]
 const functionPlants = [
 	"nothing",
 	"a body edited",
+	"a null input altered",
 	"a table privilege",
 	"a row type altered"
 ] as const
@@ -94,6 +100,7 @@ export type FunctionFeature =
 	| `a body ${Spelling}`
 	| `a ${DeclaredLanguage} body`
 	| `a ${FunctionVolatility} function`
+	| `a ${FunctionNullInput} function`
 	| `a ${DeclaredLanguage} body naming a row type`
 	| `a function ${Fate} by the second version`
 	| "an argument of rows"
@@ -142,6 +149,7 @@ const calleeHeadingGen: Gen<FunctionCase> = (source) => {
 		args: [{ name: "program", type: { kind: "rows", heading: 0 } }],
 		returns: { kind: "value", type: "integer" },
 		volatility: "immutable",
+		nullInput: "called",
 		language: source.draw(element(["plpgsql", "sql"] as const)),
 		spelling: source.draw(element(spellings)),
 		callsHelper: false,
@@ -153,6 +161,7 @@ const calleeHeadingGen: Gen<FunctionCase> = (source) => {
 		args: [{ name: "seed", type: { kind: "value", type: "integer" } }],
 		returns: { kind: "value", type: "integer" },
 		volatility: "stable",
+		nullInput: "called",
 		language: source.draw(element(["plpgsql", "sql"] as const)),
 		spelling: source.draw(element(spellings)),
 		callsHelper: false,
@@ -182,6 +191,7 @@ const added: FunctionSketch = {
 	args: [{ name: "seed", type: { kind: "value", type: "integer" } }],
 	returns: { kind: "value", type: "integer" },
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	spelling: "plain",
 	callsHelper: true,
@@ -210,6 +220,10 @@ export const secondOf = (c: FunctionCase): VersionSketch => {
 			return first === undefined
 				? c.first
 				: at({ ...first, volatility: first.volatility === "volatile" ? "stable" : "volatile" })
+		case "a null input":
+			return first === undefined
+				? c.first
+				: at({ ...first, nullInput: first.nullInput === "strict" ? "called" : "strict" })
 		case "a signature":
 			return first === undefined
 				? c.first
@@ -272,6 +286,7 @@ const functionsOf = (v: VersionSketch): ReadonlyArray<AnyFunction> => {
 		args: {},
 		returns: pg.integer,
 		volatility: "stable",
+		nullInput: "called",
 		language: "plpgsql",
 		body: templateOf([peekBody], [])
 	})
@@ -306,7 +321,7 @@ const typeKey = (v: Declarations, t: TypeSketch): string =>
 
 /**
  * What PostgreSQL holds of a declared function of a version, as keys: its signature, the argument types and the
- * result it is identified and dropped by; and its definition, its volatility, language and body, each heading the body
+ * result it is identified and dropped by; and its definition, its volatility, null input, language and body, each heading the body
  * names by its content. A version's function is the same object in another exactly where its keys are the same.
  */
 interface Held {
@@ -330,7 +345,7 @@ const heldOf = (v: VersionSketch): ReadonlyMap<string, Held> => {
 			const body = bodyText(bodyParts(v, f), (h) => contentKey(v, h))
 			return [
 				installedName(f.name),
-				{ signature, definition: `${f.volatility} ${f.language} ${body}` }
+				{ signature, definition: `${f.volatility} ${f.nullInput} ${f.language} ${body}` }
 			] as const
 		}),
 		[installedName(helperName), constant(helperSource)] as const,
@@ -455,6 +470,7 @@ export const reached = (c: FunctionCase): ReadonlyArray<FunctionFeature> => {
 		...Arr.map(all, (f): FunctionFeature => `a body ${f.spelling}`),
 		...Arr.map(all, (f): FunctionFeature => `a ${f.language} body`),
 		...Arr.map(all, (f): FunctionFeature => `a ${f.volatility} function`),
+		...Arr.map(all, (f): FunctionFeature => `a ${f.nullInput} function`),
 		...Arr.map(fates, (fate): FunctionFeature => `a function ${fate} by the second version`),
 		...Arr.flatMap(c.first.functions, (f): ReadonlyArray<FunctionFeature> =>
 			naming(c.first, f) ? [`a ${f.language} body naming a row type`] : []
@@ -533,6 +549,8 @@ export const features: NonEmptyReadonlyArray<FunctionFeature> = [
 	"a immutable function",
 	"a stable function",
 	"a volatile function",
+	"a called function",
+	"a strict function",
 	"an argument of rows",
 	"a result of rows",
 	"a result of a value",
@@ -733,8 +751,8 @@ export const callsOf = (
 /** The table reader's call. */
 export const peekCall = (schemaName: string): string => callOf(schemaName, peekName, [], false)
 
-/** The plant's statement, as the migration identity: a body created again under its header, SELECT on N granted to the
- * function owner, or an attribute added to a row type. */
+/** The plant's statement, as the migration identity: a body created again under its header, the helper made STRICT,
+ * SELECT on N granted to the function owner, or an attribute added to a row type. */
 export const plantOf = (
 	plant: Exclude<FunctionPlant, "nothing">,
 	schemaName: string,
@@ -747,6 +765,8 @@ export const plantOf = (
 			return Option.some(
 				`CREATE OR REPLACE FUNCTION ${s}."helper"() RETURNS integer LANGUAGE plpgsql IMMUTABLE SECURITY DEFINER SET search_path = pg_catalog, ${s}, pg_temp AS $$BEGIN RETURN 2; END$$`
 			)
+		case "a null input altered":
+			return Option.some(`ALTER FUNCTION ${s}."helper"() STRICT`)
 		case "a table privilege":
 			return Option.some(`GRANT SELECT ON ${s}."n" TO ${quoteIdent(owner)}`)
 		case "a row type altered":

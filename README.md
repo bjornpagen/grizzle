@@ -4017,7 +4017,7 @@ suffix.
 
 ## Declared functions
 
-`fn(name, { calls, args, returns, volatility, language, body })` declares a PostgreSQL function the application writes,
+`fn(name, { calls, args, returns, volatility, nullInput, language, body })` declares a PostgreSQL function the application writes,
 a schema object a level lists beside its relations. Its body is PL/pgSQL or SQL text you own, written
 `` fn.body`...` ``, installed byte for byte but for the headings it names; grizzle prints its head and never reads its
 body.
@@ -4032,6 +4032,7 @@ export const folded = fn("folded", {
 	args: { word: Word },
 	returns: Word,
 	volatility: "immutable",
+	nullInput: "strict",
 	language: "sql",
 	body: fn.body`SELECT lower(word)`
 })
@@ -4042,6 +4043,7 @@ export const doubled = fn("doubled", {
 	args: { words: Weighted },
 	returns: Weighted,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "plpgsql",
 	body: fn.body`
 DECLARE
@@ -4066,6 +4068,7 @@ export const summary = fn("summary", {
 	args: { doc: row(Titled) },
 	returns: row(Summary),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT ROW(cardinality((doc).words), (doc).title)::${Summary}`
 })
@@ -4113,7 +4116,14 @@ export const Lexicon = schema("Lexicon", [folded, doubled, summary], [])
   callees first, so PostgreSQL, which reads an SQL body's names as it creates the function, finds each; a call of a
   function of another level, of one the schema does not declare, or a cycle, is `MalformedDescription` when the schema
   is owned. A PL/pgSQL body reads its names where it first runs, so `calls` orders its creation alone.
-- **Migrations.** A changed body or volatility is `CREATE OR REPLACE FUNCTION`, which keeps the function's owner and
+- **NULL input.** `nullInput` is what the function does with a NULL argument, and every declaration states it, since
+  neither is a default: `"called"`, PostgreSQL's `CALLED ON NULL INPUT`, runs the body at every argument, NULL ones
+  among them; `"strict"`, PostgreSQL's `STRICT`, answers a call with any NULL argument without running the body, NULL
+  for a value or a row and no rows for a function of rows, so inside a strict body every parameter is a value. Declare
+  a function strict wherever a NULL argument means nothing to it, as a text or a number's own function: its body need
+  never test for NULL, and a body that would loop, raise or answer a value at NULL never runs there. A function that
+  must refuse a NULL argument itself, as a constructor that raises on one, stays `"called"`.
+- **Migrations.** A changed body, volatility or null input is `CREATE OR REPLACE FUNCTION`, which keeps the function's owner and
   grants; a changed signature or result drops the function and creates it again. The snapshot records each function by
   its head and the SHA-256 of its body, and the drift check holds the installed source, `pg_proc.prosrc`, to that
   digest, so a body edited by hand is drift, reported with both digests and the committed statement that last defines
@@ -4146,6 +4156,7 @@ export const shifted = fn("shifted", {
 	args: { program: Numbered, shift: natural },
 	returns: Numbered,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p`
 })
@@ -4182,6 +4193,7 @@ export const parted = fn("parted", {
 	args: { program: Numbered },
 	returns: row(Parted),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT ROW(
   ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5),
@@ -4226,7 +4238,10 @@ export const file = ChangeSet.empty(Words)
 - **What it returns.** The rows of a call are a set: a row the function returns twice is one row. Each value is cast to
   its field's declared type, so a contract or a pattern refuses a value of the function's that breaks it, where the
   query reads it. grizzle holds no NULL: a function that returns NULL, as a value or in a field of a row, fails the
-  query with SQLSTATE `22004`.
+  query with SQLSTATE `22004`. A strict function's `Fn.call` at a NULL argument, which a closed read at a key no row
+  holds gives, is NULL, as a strict operation's is, never that refusal, and its body never runs there: a filter over it
+  is unknown, so it keeps no row there. Every other argument a query passes, a variable, a parameter or a constant, is
+  a value.
 - **The fields of one row.** `Fn.row(f, args)` holds a source for each field of `f`'s row that holds rows of
   a heading of values, by the field's name, its facts the heading's, a set, typed by the heading as a call's rows are; a
   field of a value, of one row, or of rows whose heading holds rows or a row is none of them, and from a description

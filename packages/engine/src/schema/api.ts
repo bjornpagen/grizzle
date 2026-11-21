@@ -1,5 +1,9 @@
 import type { NonEmptyReadonlyArray } from "@bjornpagen/grizzle-text/base/nonempty"
-import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
+import type {
+	DeclaredLanguage,
+	FunctionNullInput,
+	FunctionVolatility
+} from "#compiler/core/function.ts"
 import { bodyBuilder, fnBuilder, rowBuilder, rowsBuilder } from "#compiler/schema/function.ts"
 import {
 	closedBuilder,
@@ -455,12 +459,14 @@ export const row = <const Heading extends AnyRows>(
 ): RowOf<Heading> => rowBuilder<Heading>(heading, extra)
 
 /**
- * fn(name, { calls, args, returns, volatility, language, body }): a declared function, the application's own PostgreSQL
- * function, which a level lists among its relations. `calls` lists the declared functions of its level its body calls,
+ * fn(name, { calls, args, returns, volatility, nullInput, language, body }): a declared function, the application's own
+ * PostgreSQL function, which a level lists among its relations. `calls` lists the declared functions of its level its body calls,
  * which the installation creates first; each argument and its result are a value of a field's type or rows(heading);
  * its arguments are its parameters in code point order of their names, whatever order `args` writes them in, so a
  * body calls it positionally in that order, `$1` the first of them, or by name, `f(x => ..., y => ...)`;
- * its volatility is immutable, stable or volatile; its body is PL/pgSQL or SQL text the application owns, written
+ * its volatility is immutable, stable or volatile; its null input is `called`, CALLED ON NULL INPUT, whose body runs at
+ * every argument, or `strict`, STRICT, whose call at any NULL argument is NULL, or no rows, without running its body,
+ * stated by every declaration, neither being a default; its body is PL/pgSQL or SQL text the application owns, written
  * fn.body`...`, installed byte for byte but for each heading it names, which installs as its row type's name. It
  * installs in its level's schema as SECURITY DEFINER under the installation's function owner, a role of no privilege on
  * any table, with its search_path pinned, so its body reads no table.
@@ -469,7 +475,8 @@ const declaredFunction = <
 	const Name extends string,
 	const Args extends Readonly<Record<string, FunctionType>>,
 	const Returns extends FunctionType,
-	const V extends FunctionVolatility
+	const V extends FunctionVolatility,
+	const N extends FunctionNullInput
 >(
 	name: Name & DeclaredName<Name>,
 	definition: {
@@ -477,12 +484,13 @@ const declaredFunction = <
 		readonly args: Args & ArgsCheck<Args> & MembersTyped<Args>
 		readonly returns: Returns & SignatureCheck<Returns>
 		readonly volatility: V
+		readonly nullInput: N
 		readonly language: DeclaredLanguage
 		readonly body: FunctionBody
 	},
 	...extra: ReadonlyArray<never>
-): DeclaredFunction<Name, Args, Returns, V> =>
-	fnBuilder<Name, Args, Returns, V>(name, definition, extra)
+): DeclaredFunction<Name, Args, Returns, V, N> =>
+	fnBuilder<Name, Args, Returns, V, N>(name, definition, extra)
 
 /**
  * fn.body`...`: a declared function's body, its PL/pgSQL or SQL text, each placeholder a heading rows() built, which

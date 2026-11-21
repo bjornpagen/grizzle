@@ -113,6 +113,7 @@ export const admission = fn("admission", {
 	)}, validate: pg.boolean },
 	returns: row(rows({ reasons: rows({ code: Word, variable: Word }), hidden: rows({ response: Word }) })),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body\`SELECT NULL\`
 })

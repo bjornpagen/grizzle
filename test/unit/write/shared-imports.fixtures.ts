@@ -16,6 +16,7 @@ const machine = fn("machine", {
 	args: { in0: A, in1: A, in2: A, in3: A, in4: A, in5: A, in6: A, in7: A },
 	returns: row(rows({ a0: A, a1: A, a2: A, a3: A, a4: A, a5: A, a6: A, a7: A })),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT NULL`
 })

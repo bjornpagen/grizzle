@@ -20,6 +20,7 @@ import { type CalendarDate, toCalendarDate } from "#compiler/ir/date.ts"
 import { DecimalText, type DecimalValue, decimalTag } from "#compiler/ir/decimal.ts"
 import {
 	type CalledFunction,
+	callNonNulls,
 	type ColumnRef,
 	definedOp,
 	type ExprDeps,
@@ -815,7 +816,7 @@ export const tableExprShape: S.Shape<TableExpr> = S.tagged("kind", {
 		relation: S.nonEmptyString
 	}),
 	call: S.struct({
-		...common(S.array(exprIdShape), S.literalsShape(["returned"])),
+		...common(S.array(exprIdShape), S.literalsShape(callNonNulls)),
 		function: calledFunctionShape,
 		params: S.array(scalarTypeShape)
 	})

@@ -69,6 +69,7 @@ const declaredIn = (o: KeyOrders) => (name: string) => {
 		args: inOrder(singleFields, o.packArgs),
 		returns: row(Single),
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT ROW(b, base, f, field, m, n, t, u, w)::${Single}`
 	})
@@ -77,6 +78,7 @@ const declaredIn = (o: KeyOrders) => (name: string) => {
 		args: inOrder(singleFields, o.spreadArgs),
 		returns: Single,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT (pack(b, base, f, field, m, n, t, u, w)).*`
 	})
@@ -85,6 +87,7 @@ const declaredIn = (o: KeyOrders) => (name: string) => {
 		args: inOrder({ iy: pg.integer, x: pg.integer, y: pg.integer }, o.mixArgs),
 		returns: pg.integer,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "plpgsql",
 		body: fn.body`\nBEGIN\n  RETURN $2 * 100 + $3 * 10 + $1;\nEND\n`
 	})

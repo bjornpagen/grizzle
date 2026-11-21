@@ -44,6 +44,7 @@ const mergedOf = (n: number) =>
 		args: lineArgs(n),
 		returns: Line,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT p.pos FROM unnest(a0) AS p`
 	})
@@ -54,6 +55,7 @@ const splitOf = (n: number) =>
 		args: lineArgs(n),
 		returns: row(Split),
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT ROW(a0)::${Split}`
 	})

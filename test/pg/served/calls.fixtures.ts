@@ -61,6 +61,7 @@ const explodeOf = (language: Language) =>
 		args: { program: Line, shift: pg.integer },
 		returns: Exploded,
 		volatility: "immutable",
+		nullInput: "called",
 		language,
 		body: explodeBodies[language]
 	})
@@ -71,6 +72,7 @@ const moodOf = fn("moodOf", {
 	args: { m: closedId(Mood) },
 	returns: closedId(Mood),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT m`
 })
@@ -80,6 +82,7 @@ const scale = fn("scale", {
 	args: { k: pg.integer, x: pg.integer },
 	returns: pg.integer,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT x * k`
 })

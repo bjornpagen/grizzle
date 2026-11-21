@@ -12,22 +12,25 @@
  *   naming besides the row types of their own signature's or a callee's headings, a PL/pgSQL body in a variable it
  *   declares, an SQL one in a cast; beside the helper, declared before or after its callers, and `peek`, a PL/pgSQL
  *   function that counts N's rows; declared at the root or at an extension over it. Its second version changes a body,
- *   a volatility, a signature or a heading, removes or adds a function, or removes every one. Both migrate through the
+ *   a volatility, a null input (called on NULL input or strict), a signature or a heading, removes or adds a function,
+ *   or removes every one. Both migrate through the
  *   real runner, whose drift check admits each. Then: every declared function's source as PostgreSQL stores it digests
  *   to its declared body's SHA-256, each heading it names the name of the row type PostgreSQL holds of the heading's
  *   attributes; the second version's migration drops and creates again exactly the functions whose signature it
  *   changes, replaces in place exactly the ones whose definition alone it changes (a body naming a changed heading
  *   among them), creates the added and drops the removed, and touches no other; every one is owned by the
  *   installation's function owner, and PUBLIC executes none; the function owner holds no privilege on any relation of
- *   the installation; each function and the helper, called with NULLs, runs, and with it every call its body makes;
+ *   the installation; each function and the helper, called with NULLs, answers, a strict one without running its body,
+ *   a called one running it and every call it makes;
  *   `peek` is refused, 42501, since its owner reads no table; and the migrated catalog is a fresh installation's of the
- *   second version. A case then plants by hand a body created again under its header, SELECT on N granted to the
- *   function owner, or an attribute added to a row type, and the drift check refuses the database naming it.
+ *   second version. A case then plants by hand a body created again under its header, the helper made STRICT, SELECT
+ *   on N granted to the function owner, or an attribute added to a row type, and the drift check refuses the database
+ *   naming it.
  * - **Oracle:** PostgreSQL: its acceptance of each folder, its SHA-256 of each source, its row types' attributes, its
  *   privileges, the calls it runs and refuses, its catalog against a fresh installation's, and the drift check's
  *   reading of each plant; and the model of what each function is to PostgreSQL, its signature and its definition, each
  *   heading by its content, whose change between the versions is each function's fate, against the reviewed DDL.
- * - **Features:** each change, plant and fate, each body spelling and language, each volatility, a body of each
+ * - **Features:** each change, plant and fate, each body spelling and language, each volatility and null input, a body of each
  *   language naming a row type, one naming a callee's alone and one naming a changed heading it takes no rows of,
  *   arguments and results of rows and of one row, a heading's field of rows and of one row, a helper call, a call of a
  *   drawn function with a composite and one passing a nested composite, an SQL caller declared before its callee,
@@ -75,10 +78,11 @@ import { noDeclarations } from "#test/support/migrate/kit.ts"
 import { attempt } from "#test/support/substrate.ts"
 import { Substrate } from "#test/support/substrate/substrate.ts"
 
-/** What a drift check's mismatch names of each plant: the source of the function created again, the privilege granted,
- * the attribute added. */
+/** What a drift check's mismatch names of each plant: the source of the function created again, the function made
+ * STRICT, the privilege granted, the attribute added. */
 const plantNamed = {
 	"a body edited": "source of function",
+	"a null input altered": "helper",
 	"a table privilege": "SELECT",
 	"a row type altered": "planted"
 } as const

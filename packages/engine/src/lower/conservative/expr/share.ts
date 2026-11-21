@@ -465,7 +465,8 @@ class Sharing {
 	 * Whether `e` is never NULL wherever `facts` hold: a closed payload read only at a key a fact holds the relation
 	 * at, a conjunction's later operand where its earlier ones hold, a conditional's THEN arm where its condition holds
 	 * (a NULL condition takes the ELSE arm), and every other expression where its arguments are never NULL, a
-	 * declared function's call always (its NULL is refused).
+	 * declared function's call called on NULL input always (its NULL is refused), a strict one's as every strict
+	 * operation's.
 	 */
 	#nonNullAt(e: ScalarExpr, facts: Facts): boolean {
 		const memo = this.#nonNull.getOrInsertComputed(facts, () => new Map())
@@ -479,8 +480,9 @@ class Sharing {
 				case "value":
 				case "param":
 				case "literal":
-				case "call":
 					return true
+				case "call":
+					return e.nonNull === "returned" || e.args.every((a) => this.#nonNullAt(a, facts))
 				case "closedAt":
 					return (
 						e.args.every((a) => this.#nonNullAt(a, facts)) &&

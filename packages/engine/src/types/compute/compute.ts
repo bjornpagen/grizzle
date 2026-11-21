@@ -1576,7 +1576,9 @@ export interface FnApi {
 	 * immutable or stable, each argument by its declared name, every one and none other, a term meeting its declared
 	 * domain or a JavaScript value of its language. The value is a term of the result field, which PostgreSQL alone
 	 * computes: of an origin no host evaluates (UnhostedOrigin), so a contract predicate, a row check and a generated
-	 * field refuse it (Hosted), and a NULL result raises where the query reads it (SQLSTATE 22004).
+	 * field refuse it (Hosted), and a NULL result raises where the query reads it (SQLSTATE 22004). A strict
+	 * function's value at a NULL argument (a closed read at an absent key) is NULL, its body never run there, as a
+	 * strict operation's is, never that refusal.
 	 */
 	call<
 		const Args extends Readonly<Record<string, FunctionType>>,

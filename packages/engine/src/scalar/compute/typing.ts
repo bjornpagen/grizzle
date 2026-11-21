@@ -28,6 +28,7 @@ import {
 	type FieldDesc,
 	type FunctionDesc,
 	functionTypeLabel,
+	nullInputOf,
 	type GuardDesc,
 	type LiteralDesc,
 	type Located,
@@ -36,6 +37,7 @@ import {
 	type Spelled
 } from "#compiler/ir/desc.ts"
 import {
+	callNonNull,
 	type ExprSpec,
 	type ExprSpecOver,
 	type ExprTable,
@@ -3420,7 +3422,7 @@ class Typing<R extends Refs> {
 			params: args.map((a) => a.type),
 			args: args.map((a) => a.node),
 			type,
-			nonNull: "returned",
+			nonNull: callNonNull[nullInputOf(fn.desc)],
 			volatility: fn.desc.volatility === "stable" ? "stable" : "immutable"
 		})
 	}

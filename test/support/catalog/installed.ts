@@ -471,7 +471,11 @@ export const installedScope = (
 									? [
 											[
 												s.header.name.name,
-												{ kind: "declared", volatility: provolatile[s.header.volatility] }
+												{
+													kind: "declared",
+													volatility: provolatile[s.header.volatility],
+													strict: s.header.nullInput === "STRICT"
+												}
 											]
 										]
 									: []

@@ -59,7 +59,8 @@ export const declaredHeader = (fn: CreateDeclaredFunction): DeclaredHeader => ({
 	params: fn.params,
 	returns: fn.returns,
 	language: fn.language,
-	volatility: fn.volatility
+	volatility: fn.volatility,
+	nullInput: fn.nullInput
 })
 
 /**

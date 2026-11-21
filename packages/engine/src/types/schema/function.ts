@@ -1,4 +1,8 @@
-import type { DeclaredLanguage, FunctionVolatility } from "#compiler/core/function.ts"
+import type {
+	DeclaredLanguage,
+	FunctionNullInput,
+	FunctionVolatility
+} from "#compiler/core/function.ts"
 import type { Built } from "#compiler/core/phantom.ts"
 import type { Refusal } from "#compiler/types/core/phantom.ts"
 import type { FieldBase, StoredOnlySql, WritingTag } from "#compiler/types/fields/field.ts"
@@ -45,19 +49,21 @@ export interface FunctionBody extends Built {
 
 /**
  * A declared function (schema/function.ts fn): its name, its argument types by name in declared order, its result
- * type and its volatility, and the language of its body, which its Description holds.
+ * type, its volatility, its null input, and the language of its body, which its Description holds.
  */
 export interface DeclaredFunction<
 	out Name extends string,
 	out Args extends Readonly<Record<string, FunctionType>>,
 	out Returns extends FunctionType,
-	out V extends FunctionVolatility
+	out V extends FunctionVolatility,
+	out N extends FunctionNullInput
 > extends Built {
 	readonly kind: "function"
 	readonly name: Name
 	readonly args: Args
 	readonly returns: Returns
 	readonly volatility: V
+	readonly nullInput: N
 	readonly language: DeclaredLanguage
 }
 
@@ -66,7 +72,8 @@ export type AnyFunction = DeclaredFunction<
 	string,
 	Readonly<Record<string, FunctionType>>,
 	FunctionType,
-	FunctionVolatility
+	FunctionVolatility,
+	FunctionNullInput
 >
 
 /**

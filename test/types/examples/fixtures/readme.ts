@@ -1393,6 +1393,7 @@ export const folded = fn("folded", {
 	args: { word: Word },
 	returns: Word,
 	volatility: "immutable",
+	nullInput: "strict",
 	language: "sql",
 	body: fn.body`SELECT lower(word)`
 })
@@ -1403,6 +1404,7 @@ export const doubled = fn("doubled", {
 	args: { words: Weighted },
 	returns: Weighted,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "plpgsql",
 	body: fn.body`
 DECLARE
@@ -1427,6 +1429,7 @@ export const summary = fn("summary", {
 	args: { doc: row(Titled) },
 	returns: row(Summary),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT ROW(cardinality((doc).words), (doc).title)::${Summary}`
 })
@@ -1446,6 +1449,7 @@ export const shifted = fn("shifted", {
 	args: { program: Numbered, shift: natural },
 	returns: Numbered,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT p.pos + shift, folded(p.txt) FROM unnest(program) AS p`
 })
@@ -1477,6 +1481,7 @@ export const parted = fn("parted", {
 	args: { program: Numbered },
 	returns: row(Parted),
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT ROW(
   ARRAY(SELECT p FROM unnest(program) AS p WHERE length(p.txt) >= 5),

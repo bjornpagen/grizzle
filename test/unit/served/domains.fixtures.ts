@@ -117,6 +117,7 @@ const loginOf = (c: TextDomainCase) => {
 		args: { item: pg.integer },
 		returns: Judged,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: words
 			? fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END, item::numeric`
@@ -127,6 +128,7 @@ const loginOf = (c: TextDomainCase) => {
 		args: { item: pg.integer },
 		returns: row(rows({ codes: Judged })),
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: words
 			? fn.body`SELECT ARRAY[ROW(CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END, item::numeric)::${Judged}]`
@@ -137,6 +139,7 @@ const loginOf = (c: TextDomainCase) => {
 		args: { item: pg.integer },
 		returns: R,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: words
 			? fn.body`SELECT CASE WHEN item % 2 = 0 THEN 'alpha' ELSE 'beta' END`
@@ -147,6 +150,7 @@ const loginOf = (c: TextDomainCase) => {
 		args: { item: pg.integer },
 		returns: Count,
 		volatility: "immutable",
+		nullInput: "called",
 		language: "sql",
 		body: fn.body`SELECT item::numeric`
 	})

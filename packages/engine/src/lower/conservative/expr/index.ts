@@ -38,6 +38,7 @@ import { matchAre } from "#compiler/scalar/regex/admit.ts"
 import { moneyFractionDigits } from "#compiler/scalar/values/decimal.ts"
 import type { Expr, TypeRef } from "#compiler/sql/ast.ts"
 import {
+	binary,
 	call,
 	cast,
 	eq,
@@ -451,6 +452,11 @@ const patternAre = (pattern: ScalarExpr, lowering: PatternLowering): Expr => {
  *
  * COALESCE reads its second argument only where its first is NULL, and the refusal raises there, so the function is
  * called once and the CASE's branches, which state the value's type, are never read.
+ *
+ * A strict function's call (nonNull "strict") is NULL where an argument is NULL, its body never run there, so its
+ * refusal stands only where every argument is a value: a first WHEN, `pg_catalog.num_nonnulls(<a>::<base>, ...) < n
+ * THEN <the call>`, which CASE reads before the refusal and whose call, at a NULL argument, PostgreSQL answers NULL
+ * without running the body. A function of no argument has no NULL argument, so its call has no such WHEN.
  */
 const declaredCall = (
 	site: ScalarSite,
@@ -474,13 +480,25 @@ const declaredCall = (
 		lit.text(expr.function.name, types.text),
 		lit.text(`function ${expr.function.name} returned NULL`, types.text)
 	])
+	const refusal = { when: refused, result: value }
+	const whens =
+		expr.nonNull === "strict" && value.args.length > 0
+			? ([
+					{
+						when: binary(
+							"<",
+							call("num_nonnulls", value.args),
+							lit.int(value.args.length, types.integer)
+						),
+						result: value
+					},
+					refusal
+				] as const)
+			: ([refusal] as const)
 	return cast(
 		{
 			kind: "coalesce",
-			args: [
-				value,
-				{ kind: "case", operand: undefined, whens: [{ when: refused, result: value }], else: value }
-			]
+			args: [value, { kind: "case", operand: undefined, whens, else: value }]
 		},
 		fieldColumnType(site.names, expr.type).type
 	)

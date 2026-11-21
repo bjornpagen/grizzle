@@ -1,4 +1,6 @@
-import { Data } from "effect"
+import { Array as Arr, Data } from "effect"
+import type { FunctionNullInput } from "#compiler/core/function.ts"
+import type { AnyFunction } from "#compiler/public/schema.ts"
 import type { Value } from "#test/support/oracle/reference/values.ts"
 
 /**
@@ -32,18 +34,57 @@ export const isNullResult = (result: ModelResult): boolean => {
 }
 
 /**
- * An argument a call passes its function's model: a value, or rows, each a record of its heading's values by column
- * name, in no order, a set.
+ * An argument a call passes its function's model: a value, NULL among them, or rows, each a record of its heading's
+ * values by column name, in no order, a set. A rows argument is an array a query builds, never NULL.
  */
 export type ModelArg =
-	| { readonly kind: "value"; readonly value: Value }
+	| { readonly kind: "value"; readonly value: Value | null }
 	| { readonly kind: "rows"; readonly rows: ReadonlyArray<ReadonlyMap<string, Value>> }
 
-/** A declared function's model: its result at its arguments, each by its declared name. */
-export type DeclaredModel = (args: ReadonlyMap<string, ModelArg>) => ModelResult
+/** What a declared function's body computes, as its test reads it: its result at its arguments, each by its name. */
+export type BodyModel = (args: ReadonlyMap<string, ModelArg>) => ModelResult
+
+/**
+ * A declared function's model: its null input, its declaration's own (DeclaredFunction `nullInput`), and its body's
+ * model, which PostgreSQL runs only where the null input lets it (modelledCall).
+ */
+export interface DeclaredModel {
+	readonly nullInput: FunctionNullInput
+	readonly body: BodyModel
+}
+
+/** A declared function's model: its declaration's null input beside `body`, its body's. */
+export const declaredModel = (f: AnyFunction, body: BodyModel): DeclaredModel => ({
+	nullInput: f.nullInput,
+	body
+})
 
 /** The models of the declared functions a reference may call, by the function's declared name. */
 export type DeclaredModels = ReadonlyMap<string, DeclaredModel>
+
+/**
+ * A call of a declared function at its arguments by its model, as PostgreSQL calls it: a strict function at a NULL
+ * value argument answers without running its body, NULL for a value, no row for rows, and NULL for one row, `returns`
+ * the kind of its result; every other call is its body's result there.
+ */
+export const modelledCall = (
+	model: DeclaredModel,
+	returns: ModelResult["kind"],
+	args: ReadonlyMap<string, ModelArg>
+): ModelResult => {
+	const nullArgument = Arr.some([...args.values()], (a) => a.kind === "value" && a.value === null)
+	if (model.nullInput === "called" || !nullArgument) {
+		return model.body(args)
+	}
+	switch (returns) {
+		case "value":
+			return { kind: "value", value: null }
+		case "rows":
+			return { kind: "rows", rows: [] }
+		case "row":
+			return { kind: "row", row: null }
+	}
+}
 
 /** The models of a reference that calls no declared function. */
 export const noFunctions: DeclaredModels = new Map()

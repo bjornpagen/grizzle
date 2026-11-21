@@ -42,6 +42,7 @@ const decimalOf = fn("decimalOf", {
 	args: { t: Text },
 	returns: pg.numeric,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "sql",
 	body: fn.body`SELECT t::numeric`
 })
@@ -52,6 +53,7 @@ const negated = fn("negated", {
 	args: { x: pg.numeric },
 	returns: pg.numeric,
 	volatility: "immutable",
+	nullInput: "called",
 	language: "plpgsql",
 	body: fn.body`\nBEGIN\n  RETURN -x;\nEND\n`
 })
