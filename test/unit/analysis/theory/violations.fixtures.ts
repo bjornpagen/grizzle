@@ -8,7 +8,7 @@ import {
 	drawnNatural,
 	type HostFacts,
 	lawOfShape,
-	natural,
+	naturalDesc,
 	schemaOf,
 	theoryOf,
 	uuidOf
@@ -140,8 +140,8 @@ export const t = theoryOf(
 					fid: f.uuid,
 					o: f.uuid,
 					at: drawnNatural,
-					state: natural,
-					was: accumulatedOf(natural, 0n)
+					state: naturalDesc,
+					was: accumulatedOf(naturalDesc, 0n)
 				},
 				["fid"]
 			)

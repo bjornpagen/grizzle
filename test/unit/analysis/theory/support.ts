@@ -35,10 +35,10 @@ import { noFunctions } from "#test/support/oracle/reference/functions.ts"
  */
 
 /** natural, the type every drawn field and every count is. */
-export const natural: FieldDesc = naturalDescriptor.desc
+export const naturalDesc: FieldDesc = naturalDescriptor.desc
 
 /** A natural grizzle draws: a family's index or count, a tree's start or end. */
-export const drawnNatural: FieldDecl<object> = { type: natural, writing: { kind: "drawn" } }
+export const drawnNatural: FieldDecl<object> = { type: naturalDesc, writing: { kind: "drawn" } }
 
 /** A field of `type` grizzle fills on the host, `start` at its axis's base. */
 export const accumulatedOf = (type: FieldDesc, start: LiteralDesc): FieldDecl<object> => ({

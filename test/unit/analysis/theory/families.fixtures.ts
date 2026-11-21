@@ -35,7 +35,7 @@ import {
 	decodedStatements,
 	drawnNatural,
 	lawOfShape,
-	natural,
+	naturalDesc,
 	relationsOf,
 	schemaOf,
 	theoryOf
@@ -103,15 +103,15 @@ type Rel = "O" | "F"
 export const ridingSchema = (was: boolean, statements: SchemaDesc["statements"]): SchemaDesc =>
 	schemaOf(
 		[
-			relation("O", { id: f.uuid, n: drawnNatural, k: natural }, ["id"]),
+			relation("O", { id: f.uuid, n: drawnNatural, k: naturalDesc }, ["id"]),
 			relation(
 				"F",
 				{
 					fid: f.uuid,
 					o: f.uuid,
 					at: drawnNatural,
-					w: natural,
-					...(was ? { was: accumulatedOf(natural, 0n) } : {})
+					w: naturalDesc,
+					...(was ? { was: accumulatedOf(naturalDesc, 0n) } : {})
 				},
 				["fid"]
 			)
@@ -430,7 +430,7 @@ export const treeDesc = schemaOf(
 			{
 				doc: f.uuid,
 				parent: drawnNatural,
-				kind: natural,
+				kind: naturalDesc,
 				at: drawnNatural,
 				children: drawnNatural,
 				start: drawnNatural,
@@ -799,7 +799,10 @@ export const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused,
 		"a tree with no drawn start",
 		(c) =>
 			c.kind === "tree"
-				? { relations: [treeRelation({ start: natural }, treeKey)], statements: [treeStatement] }
+				? {
+						relations: [treeRelation({ start: naturalDesc }, treeKey)],
+						statements: [treeStatement]
+					}
 				: undefined,
 		atStatement
 	),
@@ -833,7 +836,7 @@ export const refusals: Arr.NonEmptyReadonlyArray<Corruption<FamilyCase, Refused,
 			if (c.kind === "tree") {
 				return plus(
 					partsOf(c),
-					[relation("G", { gid: f.uuid, d: f.uuid, s: natural }, ["gid"])],
+					[relation("G", { gid: f.uuid, d: f.uuid, s: naturalDesc }, ["gid"])],
 					[
 						{
 							kind: "family",

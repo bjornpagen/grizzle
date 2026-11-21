@@ -11,7 +11,7 @@ import { f, on, relation, type SchemaDesc } from "#test/support/fixtures/ir/desc
 import {
 	accumulatedOf,
 	drawnNatural,
-	natural,
+	naturalDesc,
 	schemaOf,
 	type TestTheory,
 	theoryOf
@@ -48,7 +48,7 @@ export const groupsOf = (s: Shape): readonly [string, string] =>
 export const schemaFor = (s: Shape): SchemaDesc => {
 	const [a, b] = ownersOf(s)
 	const [g1, g2] = groupsOf(s)
-	const total = accumulatedOf(natural, 0n)
+	const total = accumulatedOf(naturalDesc, 0n)
 	const owners =
 		a === b
 			? [
@@ -76,7 +76,7 @@ export const schemaFor = (s: Shape): SchemaDesc => {
 						relation("L", { id: f.uuid, s: f.uuid, at: drawnNatural }, ["id"])
 					]
 				: []),
-			relation("G", { gid: f.uuid, o1: f.uuid, o2: f.uuid, x: natural }, ["gid"])
+			relation("G", { gid: f.uuid, o1: f.uuid, o2: f.uuid, x: naturalDesc }, ["gid"])
 		],
 		[
 			{ kind: "family", order: "counted", member: on("G", [g1]), slots: { owner: a, count: "n" } },

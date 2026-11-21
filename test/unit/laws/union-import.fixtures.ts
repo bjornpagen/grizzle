@@ -99,7 +99,7 @@ const late = (r: Rule<typeof Base>) => {
 }
 
 /** Every nonempty union of the three rules, in their order. */
-export const unions = [
+const unions = [
 	"open",
 	"suspended",
 	"late",
@@ -136,7 +136,7 @@ const rulesOf = (union: Union) => {
 const widthOf = (union: Union): number => Str.split(", ")(union).length
 
 /** Where the containment is compiled: its own level, or a level that extends it. */
-export const levels = ["own", "above"] as const
+const levels = ["own", "above"] as const
 
 export interface Shape {
 	readonly union: Union

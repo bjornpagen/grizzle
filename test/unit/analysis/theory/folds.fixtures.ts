@@ -7,7 +7,7 @@ import { f, on, onWhere, relation, type SchemaDesc } from "#test/support/fixture
 import {
 	accumulatedOf,
 	drawnNatural,
-	natural,
+	naturalDesc,
 	schemaOf,
 	type TestTheory,
 	theoryOf
@@ -71,17 +71,17 @@ export const visibleFault = (s: VisibleFoldState): FoldFault => {
 
 const visibleFoldSchema: SchemaDesc = schemaOf(
 	[
-		relation("O", { id: f.uuid, n: drawnNatural, total: accumulatedOf(natural, 0n) }, ["id"]),
+		relation("O", { id: f.uuid, n: drawnNatural, total: accumulatedOf(naturalDesc, 0n) }, ["id"]),
 		relation(
 			"F",
 			{
 				fid: f.uuid,
 				o: f.uuid,
 				at: drawnNatural,
-				x: natural,
-				skip: natural,
-				before: accumulatedOf(natural, 0n),
-				after: accumulatedOf(natural, 0n)
+				x: naturalDesc,
+				skip: naturalDesc,
+				before: accumulatedOf(naturalDesc, 0n),
+				after: accumulatedOf(naturalDesc, 0n)
 			},
 			["fid"]
 		)
@@ -143,10 +143,12 @@ export const hiddenLawful = (s: HiddenFoldState): boolean => {
 const hiddenSchema = (monoid: Counting): SchemaDesc =>
 	schemaOf(
 		[
-			relation("O", { id: f.uuid, n: drawnNatural, end: accumulatedOf(natural, 0n) }, ["id"]),
+			relation("O", { id: f.uuid, n: drawnNatural, end: accumulatedOf(naturalDesc, 0n) }, ["id"]),
 			relation(
 				"F",
-				monoid === "count" ? { fid: f.uuid, o: f.uuid } : { fid: f.uuid, o: f.uuid, x: natural },
+				monoid === "count"
+					? { fid: f.uuid, o: f.uuid }
+					: { fid: f.uuid, o: f.uuid, x: naturalDesc },
 				["fid"]
 			)
 		],
