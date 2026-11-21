@@ -1367,6 +1367,7 @@ export const spanScalarGen: Gen<SpanScalar> = weighted([
 
 export type SpanKeyFeature =
 	| "two spans"
+	| "the span alone, refused as a primary key"
 	| "span first"
 	| "span inside"
 	| "span last"

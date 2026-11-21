@@ -43,7 +43,7 @@ import { schemaBuilder as schema } from "#compiler/schema/schema.ts"
 import { keyBuilder, onBuilder } from "#compiler/schema/statements.ts"
 import { textLookup } from "#compiler/text/refinement.ts"
 import type { FieldBase } from "#compiler/types/fields/field.ts"
-import { refused, refusedKeys, succeeded } from "#test/support/assert.ts"
+import { refused, refusedKey, refusedKeys, succeeded } from "#test/support/assert.ts"
 import { textDesc } from "#test/support/fixtures/ir/desc.ts"
 import { Id } from "#test/support/ids.ts"
 import { pickGen, pickIndex } from "#test/support/pick.ts"
@@ -525,7 +525,7 @@ export const bTreeEntriesNbtreeHBTMaxItemSizeRefusesAKeyOfMoreThan32FieldsPostgr
 		}
 	)
 
-/** GiST entries for span keys (gist.c gistSplit) lays a span key out over btree_gist's scalar keys and the span, and refuses a key with two span fields. Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
+/** GiST entries for span keys (gist.c gistSplit) lays a span key out over btree_gist's scalar keys and the span, and refuses a key with two span fields and a primary key that is its span alone, which PostgreSQL's PRIMARY KEY never holds WITHOUT OVERLAPS (42601). Its budget is its suite's before it was a property (test/unit/schema/representability.test.ts at 4ca3036a): 120 runs and 120 steered cases. */
 export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsScalarKeysAndTheSpanAndRefusesAKeyWithTwoSpanFields =
 	property.explore(
 		(source) => ({
@@ -539,6 +539,7 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 			budget: { runs: 120, steered: 120 },
 			situations: [
 				"two spans",
+				"the span alone, refused as a primary key",
 				"span first",
 				"span inside",
 				"span last",
@@ -572,6 +573,14 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 						if (s.second) {
 							c.note("two spans")
 							refused(owned, "UnrepresentableKey")
+							return
+						}
+						if (!Arr.isReadonlyArrayNonEmpty(scalarFields)) {
+							c.note("the span alone, refused as a primary key")
+							assert.deepEqual(refusedKey(refused(owned, "UnrepresentableKey")).fault, {
+								kind: "spanAlone",
+								field: "during"
+							})
 							return
 						}
 						c.note(
@@ -626,6 +635,12 @@ export const giSTEntriesForSpanKeysGistCGistSplitLaysASpanKeyOutOverBtreeGistsSc
 					original: "\t\tif (i === frame.value.length) {",
 					replacement: "\t\tif (i !== frame.value.length) {",
 					why: "Operator mutant 86f785722d at packages/engine/src/core/canonical.ts:763 in <module>: `===` becomes `!==`; the property fails (the census, lane TESTPOLICY2)."
+				},
+				{
+					file: "packages/engine/src/schema/own.ts",
+					original: "\tlayout.gist !== undefined && layout.fields.length === 1",
+					replacement: "\tfalse",
+					why: "A primary key of its span alone owned unrefused, where PostgreSQL's PRIMARY KEY needs a column before WITHOUT OVERLAPS (42601); the span-alone arm fails."
 				}
 			]
 		}
