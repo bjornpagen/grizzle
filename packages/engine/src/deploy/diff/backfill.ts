@@ -80,13 +80,16 @@ import {
 	mapNonEmpty,
 	type NonEmptyReadonlyArray
 } from "@bjornpagen/grizzle-text/base/nonempty"
+import { nominal } from "#compiler/core/brand.ts"
 import { Refusal } from "#compiler/core/canonical.ts"
 import { unsupported } from "#compiler/core/errors.ts"
 import type { Identifier } from "#compiler/core/ids.ts"
 import { SourceLoc } from "#compiler/core/loc.ts"
+import { installed } from "#compiler/deploy/snapshot/objects.ts"
+import type { RecordedObject } from "#compiler/deploy/snapshot/recorded.ts"
 import type { SnapshotTheory } from "#compiler/deploy/snapshot/types.ts"
 import { type OperatorNames, typedEq } from "#compiler/ir/compare.ts"
-import { fieldReads, type TypedLiteral } from "#compiler/ir/expr.ts"
+import { closedRelationsRead, fieldReads, type TypedLiteral } from "#compiler/ir/expr.ts"
 import type { AxisKind, Family, FamilyFold, FoldPlane, TreeShape } from "#compiler/ir/family.ts"
 import {
 	type FillAt,
@@ -102,6 +105,7 @@ import { baseTypeRef } from "#compiler/ir/physical.ts"
 import type { ScalarType } from "#compiler/ir/scalar.ts"
 import { migrationGenerations } from "#compiler/laws/model/generation.ts"
 import { lowerLiteral } from "#compiler/lower/conservative/expr/index.ts"
+import type { ClosedNames } from "#compiler/physical/ddl/constants.ts"
 import { lowerPersistent } from "#compiler/physical/ddl/expr.ts"
 import type { Installation } from "#compiler/physical/install/compile.ts"
 import {
@@ -359,14 +363,31 @@ export const drawnColumns = (installation: Installation): DrawnColumns => {
 	return out
 }
 
+declare const closedNodeBrand: unique symbol
+
+/** A closed relation as a node of the fill read graph (FillReads): its declared name, past a U+0001 no column key starts
+ * with. */
+export type ClosedNode = string & { readonly [closedNodeBrand]: true }
+
+const mintClosedNode = nominal<string, ClosedNode>()
+
+/** The fill read graph's node of the closed relation `relation`. */
+const closedNode = (relation: string): ClosedNode => mintClosedNode(`\u0001${relation}`)
+
+/** A node of the fill read graph: a stored column, by its key (sql/ast.ts storedColumnKey), or a closed relation, whose
+ * rows reach the database only as its constants (physical/ddl/constants.ts NamedClosed). */
+export type FillNode = StoredColumnKey | ClosedNode
+
 /**
  * The target's fill read graph (ir/fill.ts FillOrder): each column a write fills on a row a family reaches, by its key
- * (sql/ast.ts storedColumnKey), with every node it reads: the columns of its own row its rule reads (FillColumn reads), and the column its
- * rule takes off another row, a copy's target along its axis and a member's group field's owner column. A column the
- * fill draws holds its rule's value over what it reads, so a migration that changes the values of a column it reads
+ * (sql/ast.ts storedColumnKey), with every node it reads: the columns of its own row its rule reads (FillColumn reads),
+ * the column its rule takes off another row, a copy's target along its axis and a member's group field's owner column,
+ * and each closed relation its rule's expressions read, a fold's selection or a generated value's expression
+ * (closedRelationsRead). A column the fill draws holds its rule's value over what it reads, so a migration that
+ * changes the values of a column it reads, or replaces the constants of a closed relation it reads (replacedClosed),
  * draws it again (`changedOver`).
  */
-export type FillReads = ReadonlyMap<StoredColumnKey, ReadonlyArray<StoredColumnKey>>
+export type FillReads = ReadonlyMap<StoredColumnKey, ReadonlyArray<FillNode>>
 
 export const fillReadsOf = (installation: Installation): FillReads => {
 	const schema = installation.names.schema
@@ -396,7 +417,12 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 				return []
 		}
 	}
-	const out = new Map<StoredColumnKey, Array<StoredColumnKey>>()
+	/** The closed relations a rule's expressions read: a fold's selection's, a generated value's expression's. */
+	const closedOf = (rule: FillRule): ReadonlyArray<ClosedNode> =>
+		closedRelationsRead(
+			rule.kind === "after" ? rule.fold.where : rule.kind === "generated" ? [rule.expr] : []
+		).map(closedNode)
+	const out = new Map<StoredColumnKey, Array<FillNode>>()
 	for (const layout of installation.laws.theory.fill.layouts.values()) {
 		for (const c of layout.columns) {
 			const node = at(layout.relation, c.column)
@@ -407,6 +433,9 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 			for (const r of across(layout, c.rule)) {
 				reads.push(r)
 			}
+			for (const r of closedOf(c.rule)) {
+				reads.push(r)
+			}
 			out.set(node, reads)
 		}
 	}
@@ -414,14 +443,31 @@ export const fillReadsOf = (installation: Installation): FillReads => {
 }
 
 /**
+ * The node of each closed relation of the target whose constants the previous manifest does not hold, each of them
+ * named by its content (physical/ddl/constants.ts NamedClosed functions): its rows changed, so every fill that reads it
+ * draws again (changedOver), as one that reads a column whose values change does.
+ */
+export const replacedClosed = (
+	previous: ReadonlyArray<RecordedObject>,
+	closed: ClosedNames
+): ReadonlyArray<ClosedNode> => {
+	const held = new Set(
+		previous.flatMap((o) => {
+			const v = installed(o)
+			return v.kind === "constant" ? [v.create.name.name] : []
+		})
+	)
+	return [...closed].flatMap(([relation, c]) =>
+		c.functions.every((f) => held.has(f)) ? [] : [closedNode(relation)]
+	)
+}
+
+/**
  * Every node whose values change with `seeds`' (FillReads): each seed, and each column that reads a changed one,
  * transitively, each reached once along its readers.
  */
-export const changedOver = (
-	reads: FillReads,
-	seeds: Iterable<StoredColumnKey>
-): ReadonlySet<StoredColumnKey> => {
-	const readers = new Map<StoredColumnKey, Array<StoredColumnKey>>()
+export const changedOver = (reads: FillReads, seeds: Iterable<FillNode>): ReadonlySet<FillNode> => {
+	const readers = new Map<FillNode, Array<StoredColumnKey>>()
 	for (const [node, of] of reads) {
 		for (const read of of) {
 			const by = readers.get(read) ?? []
@@ -429,8 +475,8 @@ export const changedOver = (
 			readers.set(read, by)
 		}
 	}
-	const changed = new Set<StoredColumnKey>()
-	const pending = [...seeds]
+	const changed = new Set<FillNode>()
+	const pending: Array<FillNode> = [...seeds]
 	for (let node = pending.pop(); node !== undefined; node = pending.pop()) {
 		if (!changed.has(node)) {
 			changed.add(node)

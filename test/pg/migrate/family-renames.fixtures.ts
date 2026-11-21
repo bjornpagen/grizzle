@@ -143,14 +143,16 @@ const asFirst: Naming = {
 }
 
 /** What a version's family reads: the field its fold steps over (a member's x or y, a tree node's two tags, or the
- * family's copy, ownerTag or parentTag), the owner field its copy reads, and its group. A tree's group is its parent. */
+ * family's copy, ownerTag or parentTag), the owner field its copy reads, its group, and the weights a selection by
+ * weight reads, each kind's its handle's code or that code reversed. A tree's group is its parent. */
 interface Reading {
 	readonly step: "first" | "second" | "copy"
 	readonly copied: "tag" | "tag2"
 	readonly group: "g" | "h"
+	readonly weighed: "by code" | "reversed"
 }
 
-const firstReading: Reading = { step: "first", copied: "tag", group: "g" }
+const firstReading: Reading = { step: "first", copied: "tag", group: "g", weighed: "by code" }
 
 /** The member field a counted or ordered family's fold steps over, by its reading. */
 const steps = { first: "x", second: "y" } as const
@@ -158,7 +160,7 @@ const steps = { first: "x", second: "y" } as const
 /** The handle a selection names: the kind it selects, or the kind whose weight it compares with. */
 const selectedHandle: Handle = "b"
 
-/** The closed relation of each kind's weight, its handle's code. */
+/** The closed relation of each kind's weight: its handle's code, or that code reversed (Reading `weighed`). */
 const weight = "Weight"
 
 /** The members a selected fold steps over: those of kind b, or those whose kind weighs at least kind b's. */
@@ -352,13 +354,17 @@ const versionOf = (
 		| { readonly kind: "family"; readonly naming: Naming; readonly reading: Reading }
 ): SchemaDesc => {
 	const naming = at.kind === "plain" ? asFirst : at.naming
+	const weighed = at.kind === "plain" ? firstReading.weighed : at.reading.weighed
 	const spare = relation(naming.relation("Spare"), { id: integer }, ["id"])
 	const kinds = closed.ordered(naming.roster, Arr.map(handles, naming.handle))
 	const weights = closedRelation(
 		weight,
 		{ kind: { kind: "closedId", roster: naming.roster, only: undefined }, w: integer },
 		["kind"],
-		Arr.map(handles, (h, code) => ({ kind: naming.handle(h), w: code }))
+		Arr.map(handles, (h, code) => ({
+			kind: naming.handle(h),
+			w: weighed === "by code" ? code : handles.length - 1 - code
+		}))
 	)
 	if (at.kind === "plain") {
 		const plain = plainSchema(shape)
@@ -969,8 +975,8 @@ export type ChangeFeature =
 	| "group redrawn as declared on an ordered family"
 
 /** What a reshaping history changes at its third version: the field its fold steps over, the field its copy reads,
- * its group, or a fold it adds. */
-type Change = "fold step" | "copy target" | "group" | "fold added"
+ * its group, a fold it adds, or the weights its fold's selection by weight reads, a closed relation's rows. */
+type Change = "fold step" | "copy target" | "group" | "fold added" | "weights"
 
 /**
  * How a history whose ordered family's group changes from g to h moves its members, by the data step before the third
@@ -1092,11 +1098,13 @@ const changeCaseOf =
 		const drawnChange = source.draw(change)
 		const base = source.draw(shapeGen(among(drawnChange)))
 		const shape: Shape =
-			(drawnChange === "fold step" || drawnChange === "fold added") && base.fold === "none"
-				? { ...base, fold: "hidden" }
-				: drawnChange === "copy target"
-					? { ...base, copy: true }
-					: base
+			drawnChange === "weights"
+				? { ...base, fold: base.fold === "none" ? "hidden" : base.fold, selection: "weight" }
+				: (drawnChange === "fold step" || drawnChange === "fold added") && base.fold === "none"
+					? { ...base, fold: "hidden" }
+					: drawnChange === "copy target"
+						? { ...base, copy: true }
+						: base
 		const stored = source.draw(rows(shape.kind))
 		const swarmed = source.draw(swarm(regroups))
 		return {
@@ -1164,6 +1172,8 @@ const changedReading = (change: Change, before: Reading): Reading => {
 			return { ...before, group: "h" }
 		case "fold added":
 			return before
+		case "weights":
+			return { ...before, weighed: "reversed" }
 	}
 }
 
@@ -1413,13 +1423,13 @@ const alikeRows = (
 		})
 	}))
 
-/** A changed filler on a counted, ordered or tree family, a group change on a counted one alone, whose stored rows are
- * alike as drawn: no data step runs between its versions, so every row the third version's migration writes is one its
- * backfill writes. */
+/** A changed filler on a counted, ordered or tree family, a group change on a counted one alone, or the weights a fold's
+ * selection by weight reads, whose stored rows are alike as drawn: no data step runs between its versions, so every row
+ * the third version's migration writes is one its backfill writes. */
 export const redrawCaseGen: Gen<RedrawCase> = (source) => {
 	const change = source.draw(
 		changeCaseOf(
-			element<Change>(["fold step", "copy target", "group", "fold added"]),
+			element<Change>(["fold step", "copy target", "group", "fold added", "weights"]),
 			(drawn) => (drawn === "group" ? ["counted"] : kinds),
 			rowsOf,
 			swarmedRegroup
@@ -1614,11 +1624,14 @@ export const redrawCase = (r: RedrawCase, k: Case<RedrawFeature>) =>
 		const c = r.change
 		const first: Reading = r.foldsCopy ? { ...firstReading, step: "copy" } : firstReading
 		const member: RelationName = c.shape.kind === "tree" ? "Node" : "Member"
+		/** Whether a row's second fields alike its first draw it as the change's old filler did: not for a fold added,
+		 * which no filler drew before, nor for weights changed, whose selection reads no second field. */
+		const alikeMatters = c.change !== "fold added" && c.change !== "weights"
 		k.noteAll([
 			c.shape.kind,
 			c.change,
-			...(r.alike === "every" && c.change !== "fold added" ? (["every row alike"] as const) : []),
-			...(r.alike === "some" && c.change !== "fold added" ? (["some rows alike"] as const) : []),
+			...(r.alike === "every" && alikeMatters ? (["every row alike"] as const) : []),
+			...(r.alike === "some" && alikeMatters ? (["some rows alike"] as const) : []),
 			...(emptiesAFamily(c) ? (["a family emptied by its regroup"] as const) : []),
 			...(r.foldsCopy ? (["a fold over the copy"] as const) : [])
 		])

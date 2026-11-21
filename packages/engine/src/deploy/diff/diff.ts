@@ -43,7 +43,8 @@ import {
 	changedOver,
 	type DrawnColumns,
 	drawnColumns,
-	fillReadsOf
+	fillReadsOf,
+	replacedClosed
 } from "#compiler/deploy/diff/backfill.ts"
 import {
 	type AbandonedSchema,
@@ -1112,8 +1113,10 @@ class Differ {
 	 * field change's (fieldChangesOf), converted, redefined where it is rewritten, kept otherwise, dropped where the
 	 * target holds it no longer; of each law column, kept, redefined where its value changes, or dropped. A column a
 	 * family draws whose fill reads a column whose values the migration changes, through any chain of the target's fill
-	 * reads (backfill.ts fillReadsOf, changedOver), is drawn again too: a copy of a column drawn again, a fold over one,
-	 * over every table, so no drawn value is left stale by what it was drawn from. */
+	 * reads (backfill.ts fillReadsOf, changedOver), or whose fill reads a closed relation whose constants the target
+	 * replaces (replacedClosed), is drawn again too: a copy of a column drawn again, a fold over one, a fold whose
+	 * selection reads a closed relation whose rows changed, over every table, so no drawn value is left stale by what it
+	 * was drawn from. */
 	keptTablesOf(): ReadonlyMap<string, KeptTable> {
 		const previousObjects = this.input.previous.manifest.objects
 		const previousTables = new Map(
@@ -1184,9 +1187,8 @@ class Differ {
 			})
 			return [{ o, at, create, key, shared, own, lawColumns }]
 		})
-		const changed = changedOver(
-			fillReadsOf(this.input.installation),
-			tables.flatMap(({ key, own, lawColumns }) => [
+		const changed = changedOver(fillReadsOf(this.input.installation), [
+			...tables.flatMap(({ key, own, lawColumns }) => [
 				...[...own].flatMap(([column, change]) =>
 					change.kind === "rewritten" || change.kind === "reexpressed" || change.kind === "redrawn"
 						? [storedColumnKey(key, column)]
@@ -1197,8 +1199,9 @@ class Differ {
 						? [storedColumnKey(key, c.column)]
 						: []
 				)
-			])
-		)
+			]),
+			...replacedClosed(previousObjects, this.input.installation.closed)
+		])
 		/** Whether the migration draws a column of the table `key` again: one the target's families draw whose values
 		 * change. */
 		const drawnAgain = (key: NameKey, column: string): boolean =>

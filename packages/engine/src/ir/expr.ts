@@ -1105,6 +1105,16 @@ export const fieldReads = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<stri
 	...new Set(columnReads(roots).map((c) => c.name))
 ]
 
+/** The closed relations the expression trees `roots` read, by C.at, C.row or C.has, each once, in exprClosure's
+ * order. */
+export const closedRelationsRead = (roots: ReadonlyArray<ScalarExpr>): ReadonlyArray<string> => [
+	...new Set(
+		exprClosure(roots).flatMap((e) =>
+			e.kind === "closedAt" || e.kind === "closedRow" || e.kind === "closedHas" ? [e.relation] : []
+		)
+	)
+]
+
 const predicateKinds: ReadonlyArray<ExprKind> = ["value", "literal", "op", "cast", "cond"]
 
 const tableAt = (exprs: Readonly<Record<ExprId, TableExpr>>, id: ExprId): TableExpr | undefined =>
