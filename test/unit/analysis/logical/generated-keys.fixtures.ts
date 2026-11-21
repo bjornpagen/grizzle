@@ -31,7 +31,7 @@ const written = ["id", ...texts, "n", ...floats] as const
 /**
  * A generated field's generation, by what it reads:
  * - `digest`: the SHA-256 of its texts concatenated in order, the 32-byte SHA-256 carrier, the digest a QTI schema keys by;
- * - `float`: the negation of one float, or the sum of two;
+ * - `float`: the negation of one float, or of the greater of two (a CHECK holds no float arithmetic but a negation);
  * - `mixed`: a digest of its texts or of their reverse, by the sign of a float, which it reads too;
  * - `money`: the integer converted to money, a stable conversion (lc_monetary), which PostgreSQL never generates a
  *   column by, so the schema is refused.
@@ -124,21 +124,33 @@ export const generatedCaseGen: Gen<GeneratedCase> = (source) => {
 			array(
 				(s) => {
 					const generated = generatedName(s.draw(int(0, generations.length - 1)))
+					const others = Arr.filter(keyable, (k) => k !== generated)
 					return nonEmpty([
 						generated,
-						...s.draw(
-							subset(
-								Arr.filter(keyable, (k) => k !== generated),
-								{ min: 0, max: 2 }
-							)
-						)
+						...s.draw(subset(others, { min: 0, max: Math.min(2, others.length) }))
 					])
 				},
 				{ min: 1, max: 2 }
 			)
 		)
 	)
-	return { generations, keys }
+	return { generations, keys: leastKeys(keys) }
+}
+
+/**
+ * The keys of `drawn` no other one holds the fields of, each set once, the first of two alike: a schema states each key
+ * once and no key over a superset of another's fields, which holds apart the same rows.
+ */
+const leastKeys = (
+	drawn: Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>>
+): Arr.NonEmptyReadonlyArray<Arr.NonEmptyReadonlyArray<string>> => {
+	const within = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+		Arr.every(a, (f) => b.includes(f))
+	return nonEmpty(
+		Arr.filter(drawn, (k, i) =>
+			Arr.every(drawn, (other, j) => j === i || !within(other, k) || (within(k, other) && j > i))
+		)
+	)
 }
 
 /** Each generated field of a case: its generation, its name and its place. */
@@ -178,10 +190,7 @@ export const featuresOf = (c: GeneratedCase): ReadonlyArray<GeneratedFeature> =>
 const digest: FieldDesc = { kind: "sha256" }
 const doublePrecision: FieldDesc = f.pg("double precision")
 
-const compute = (
-	fn: "sha256" | "concat" | "neg" | "add",
-	args: ReadonlyArray<ExprDesc>
-): ExprDesc => ({
+const compute = (fn: "sha256" | "concat" | "neg", args: ReadonlyArray<ExprDesc>): ExprDesc => ({
 	kind: "compute",
 	fn,
 	args
@@ -204,7 +213,14 @@ const generatedDecl = (g: Generation) => {
 			const [x, y] = g.floats
 			return f.generated(
 				doublePrecision,
-				y === undefined ? compute("neg", [field(x)]) : compute("add", [field(x), field(y)])
+				y === undefined
+					? compute("neg", [field(x)])
+					: {
+							kind: "cond",
+							pred: { kind: "compare", op: "gt", left: field(x), right: field(y) },
+							onTrue: compute("neg", [field(x)]),
+							onFalse: compute("neg", [field(y)])
+						}
 			)
 		}
 		case "mixed":

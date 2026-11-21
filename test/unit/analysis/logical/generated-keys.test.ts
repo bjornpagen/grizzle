@@ -4,7 +4,7 @@
  * the texts they are generated from a key alternative, every reading of the relation keyed by them, as a key over the
  * texts themselves would, which no index holds.
  *
- * A query reading a drawn relation of generated fields (digests of one to three texts, float arithmetic, a digest chosen
+ * A query reading a drawn relation of generated fields (digests of one to three texts, a float's negation, a digest chosen
  * by a float's sign, an integer converted to money) and candidate keys over them is keyed by exactly the relation's
  * minimal keys under its declared keys and the dependency of each generation reading no float on what it reads; every
  * proof is one the key kernel accepts, and the kernel refuses a generated step the Base does not stamp. A relation with a
